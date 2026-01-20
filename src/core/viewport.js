@@ -60,9 +60,13 @@ export class Viewport {
         this.needsRender = true;
         
         // Overscan buffer for smooth panning
-        this.overscan = 200;
+        this.overscan = 400;
         this.canvasWidth = 0;
         this.canvasHeight = 0;
+        
+        // Grid pattern cache
+        this._gridPattern = null;
+        this._gridPatternKey = null;
         
         // Callbacks
         this.onViewChanged = null;
@@ -91,7 +95,7 @@ export class Viewport {
         const rect = container.getBoundingClientRect();
         
         // Overscan: render extra content beyond visible edges
-        this.overscan = 200; // pixels of extra content on each side
+        this.overscan = 400; // pixels of extra content on each side
         
         // Visible size
         this.width = rect.width;
@@ -117,6 +121,10 @@ export class Viewport {
         // Full canvas dimensions (including overscan)
         this.canvasWidth = canvasWidth;
         this.canvasHeight = canvasHeight;
+        
+        // Clear grid pattern cache (DPR might have changed)
+        this._gridPattern = null;
+        this._gridPatternKey = null;
         
         // Scale context to match
         this.ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
@@ -451,6 +459,8 @@ export class Viewport {
 
     setGridSize(size) {
         this.gridSize = Math.max(0.01, size);
+        this._gridPattern = null;
+        this._gridPatternKey = null;
         this.requestRender();
     }
 
@@ -514,7 +524,6 @@ export class Viewport {
 
     _renderGrid() {
         const ctx = this.ctx;
-        const bounds = this.getVisibleBounds();
         const gridSize = this.gridSize;
         
         // Determine if grid should be visible at current zoom
@@ -525,67 +534,72 @@ export class Viewport {
         
         // Determine major grid interval
         let majorInterval = this.gridStyle.majorInterval;
-        
-        // Adjust major interval based on zoom to avoid too many major lines
         while (gridPixelSize * majorInterval < 40) {
             majorInterval *= 2;
         }
         
-        // Calculate grid line range (with some padding)
-        const startX = Math.floor(bounds.minX / gridSize) * gridSize;
-        const endX = Math.ceil(bounds.maxX / gridSize) * gridSize;
-        const startY = Math.floor(bounds.minY / gridSize) * gridSize;
-        const endY = Math.ceil(bounds.maxY / gridSize) * gridSize;
-        
-        // Helper to check if a value is on a major grid line
-        const isMajor = (value) => {
-            const gridIndex = Math.round(value / gridSize);
-            return gridIndex % majorInterval === 0;
-        };
-        
-        // Draw minor grid lines first
-        ctx.strokeStyle = this.gridStyle.minor.color;
-        ctx.lineWidth = this.gridStyle.minor.width;
-        ctx.beginPath();
-        
-        // Vertical lines
-        for (let x = startX; x <= endX; x += gridSize) {
-            if (isMajor(x)) continue;  // Skip major lines for now
-            const screenX = this.worldToCanvas({ x, y: 0 }).x;
-            ctx.moveTo(Math.round(screenX) + 0.5, 0);
-            ctx.lineTo(Math.round(screenX) + 0.5, this.canvasHeight);
+        // Create or update cached grid pattern
+        const patternKey = `${gridPixelSize.toFixed(2)}_${majorInterval}`;
+        if (this._gridPatternKey !== patternKey) {
+            this._gridPattern = this._createGridPattern(gridPixelSize, majorInterval);
+            this._gridPatternKey = patternKey;
         }
         
-        // Horizontal lines
-        for (let y = startY; y <= endY; y += gridSize) {
-            if (isMajor(y)) continue;
-            const screenY = this.worldToCanvas({ x: 0, y }).y;
-            ctx.moveTo(0, Math.round(screenY) + 0.5);
-            ctx.lineTo(this.canvasWidth, Math.round(screenY) + 0.5);
+        if (!this._gridPattern) return;
+        
+        // Calculate pattern offset to align with world coordinates
+        const originCanvas = this.worldToCanvas({ x: 0, y: 0 });
+        const tileSize = gridPixelSize * majorInterval;
+        const offsetX = originCanvas.x % tileSize;
+        const offsetY = originCanvas.y % tileSize;
+        
+        // Draw pattern
+        ctx.save();
+        ctx.translate(offsetX, offsetY);
+        ctx.fillStyle = this._gridPattern;
+        ctx.fillRect(-tileSize, -tileSize, this.canvasWidth + tileSize * 2, this.canvasHeight + tileSize * 2);
+        ctx.restore();
+    }
+    
+    _createGridPattern(gridPixelSize, majorInterval) {
+        const tileSize = gridPixelSize * majorInterval;
+        
+        // Create offscreen canvas for the pattern tile
+        const tile = document.createElement('canvas');
+        tile.width = tileSize * this.dpr;
+        tile.height = tileSize * this.dpr;
+        const tileCtx = tile.getContext('2d');
+        tileCtx.scale(this.dpr, this.dpr);
+        
+        // Draw minor grid lines
+        tileCtx.strokeStyle = this.gridStyle.minor.color;
+        tileCtx.lineWidth = this.gridStyle.minor.width;
+        tileCtx.beginPath();
+        
+        for (let i = 1; i < majorInterval; i++) {
+            const pos = i * gridPixelSize;
+            // Vertical line
+            tileCtx.moveTo(pos + 0.5, 0);
+            tileCtx.lineTo(pos + 0.5, tileSize);
+            // Horizontal line
+            tileCtx.moveTo(0, pos + 0.5);
+            tileCtx.lineTo(tileSize, pos + 0.5);
         }
+        tileCtx.stroke();
         
-        ctx.stroke();
+        // Draw major grid lines (at edges of tile)
+        tileCtx.strokeStyle = this.gridStyle.major.color;
+        tileCtx.lineWidth = this.gridStyle.major.width;
+        tileCtx.beginPath();
+        // Left and top edges
+        tileCtx.moveTo(0.5, 0);
+        tileCtx.lineTo(0.5, tileSize);
+        tileCtx.moveTo(0, 0.5);
+        tileCtx.lineTo(tileSize, 0.5);
+        tileCtx.stroke();
         
-        // Draw major grid lines
-        ctx.strokeStyle = this.gridStyle.major.color;
-        ctx.lineWidth = this.gridStyle.major.width;
-        ctx.beginPath();
-        
-        for (let x = startX; x <= endX; x += gridSize) {
-            if (!isMajor(x)) continue;
-            const screenX = this.worldToCanvas({ x, y: 0 }).x;
-            ctx.moveTo(Math.round(screenX) + 0.5, 0);
-            ctx.lineTo(Math.round(screenX) + 0.5, this.canvasHeight);
-        }
-        
-        for (let y = startY; y <= endY; y += gridSize) {
-            if (!isMajor(y)) continue;
-            const screenY = this.worldToCanvas({ x: 0, y }).y;
-            ctx.moveTo(0, Math.round(screenY) + 0.5);
-            ctx.lineTo(this.canvasWidth, Math.round(screenY) + 0.5);
-        }
-        
-        ctx.stroke();
+        // Create pattern
+        return this.ctx.createPattern(tile, 'repeat');
     }
 
     _renderOrigin() {
