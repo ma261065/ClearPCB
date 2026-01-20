@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ClearPCB</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #1a1a2e;
+            color: #eee;
+            overflow: hidden;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .toolbar {
+            background: #16213e;
+            padding: 8px 16px;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            border-bottom: 1px solid #0f3460;
+        }
+
+        .toolbar h1 {
+            font-size: 16px;
+            font-weight: 500;
+            color: #e94560;
+        }
+
+        .toolbar-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding-left: 16px;
+            border-left: 1px solid #0f3460;
+        }
+
+        .toolbar label {
+            font-size: 12px;
+            color: #888;
+        }
+
+        .toolbar select, .toolbar input {
+            background: #1a1a2e;
+            border: 1px solid #0f3460;
+            color: #eee;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+        }
+
+        .toolbar button {
+            background: #0f3460;
+            border: none;
+            color: #eee;
+            padding: 6px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            transition: background 0.2s;
+        }
+
+        .toolbar button:hover {
+            background: #e94560;
+        }
+
+        .main-container {
+            flex: 1;
+            display: flex;
+            overflow: hidden;
+        }
+
+        .canvas-container {
+            flex: 1;
+            position: relative;
+            overflow: hidden;
+        }
+
+        #editorCanvas {
+            display: block;
+            cursor: crosshair;
+        }
+
+        .status-bar {
+            background: #16213e;
+            padding: 4px 16px;
+            font-size: 11px;
+            color: #888;
+            display: flex;
+            gap: 24px;
+            border-top: 1px solid #0f3460;
+        }
+
+        .status-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .status-item .label {
+            color: #666;
+        }
+
+        .status-item .value {
+            color: #e94560;
+            font-family: 'Monaco', 'Consolas', monospace;
+        }
+
+        .help-panel {
+            position: absolute;
+            bottom: 40px;
+            right: 16px;
+            background: rgba(22, 33, 62, 0.95);
+            border: 1px solid #0f3460;
+            border-radius: 8px;
+            padding: 12px 16px;
+            font-size: 11px;
+            line-height: 1.8;
+        }
+
+        .help-panel h3 {
+            color: #e94560;
+            margin-bottom: 8px;
+            font-size: 12px;
+        }
+
+        .help-panel kbd {
+            background: #1a1a2e;
+            padding: 2px 6px;
+            border-radius: 3px;
+            border: 1px solid #0f3460;
+            font-family: inherit;
+        }
+    </style>
+</head>
+<body>
+    <div class="toolbar">
+        <h1>ClearPCB</h1>
+        
+        <div class="toolbar-group">
+            <label>Grid:</label>
+            <select id="gridSize">
+                <option value="0.1">0.1mm</option>
+                <option value="0.25">0.25mm</option>
+                <option value="0.5">0.5mm</option>
+                <option value="1" selected>1mm</option>
+                <option value="2.54">2.54mm (0.1")</option>
+                <option value="1.27">1.27mm (50mil)</option>
+            </select>
+        </div>
+
+        <div class="toolbar-group">
+            <label>Units:</label>
+            <select id="units">
+                <option value="mm" selected>mm</option>
+                <option value="mil">mil</option>
+                <option value="inch">inch</option>
+            </select>
+        </div>
+
+        <div class="toolbar-group">
+            <button id="zoomFit">Fit View</button>
+            <button id="zoomIn">Zoom In</button>
+            <button id="zoomOut">Zoom Out</button>
+            <button id="resetView">Reset</button>
+        </div>
+
+        <div class="toolbar-group">
+            <label>
+                <input type="checkbox" id="showOrigin" checked> Origin
+            </label>
+            <label>
+                <input type="checkbox" id="showGrid" checked> Grid
+            </label>
+            <label>
+                <input type="checkbox" id="snapToGrid" checked> Snap
+            </label>
+        </div>
+    </div>
+
+    <div class="main-container">
+        <div class="canvas-container">
+            <canvas id="editorCanvas"></canvas>
+            
+            <div class="help-panel">
+                <h3>Navigation</h3>
+                <div><kbd>Scroll</kbd> Zoom in/out</div>
+                <div><kbd>Middle drag</kbd> or <kbd>Space + drag</kbd> Pan</div>
+                <div><kbd>Home</kbd> Reset view</div>
+                <div><kbd>F</kbd> Fit to content</div>
+                <div><kbd>G</kbd> Toggle grid</div>
+                <div><kbd>+</kbd> / <kbd>-</kbd> Zoom</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="status-bar">
+        <div class="status-item">
+            <span class="label">Cursor:</span>
+            <span class="value" id="cursorPos">0.00, 0.00</span>
+        </div>
+        <div class="status-item">
+            <span class="label">Grid:</span>
+            <span class="value" id="gridSnap">1.00, 1.00</span>
+        </div>
+        <div class="status-item">
+            <span class="label">Zoom:</span>
+            <span class="value" id="zoomLevel">100%</span>
+        </div>
+        <div class="status-item">
+            <span class="label">Viewport:</span>
+            <span class="value" id="viewportInfo">-</span>
+        </div>
+    </div>
+
+    <script type="module" src="src/ui/App.js"></script>
+</body>
+</html>
