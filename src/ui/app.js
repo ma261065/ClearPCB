@@ -11,6 +11,10 @@ import { CommandHistory } from '../core/CommandHistory.js';
 class EditorApp {
     constructor() {
         this.canvas = document.getElementById('editorCanvas');
+        this.overlayCanvas = document.getElementById('overlayCanvas');
+        this.overlayCtx = this.overlayCanvas.getContext('2d');
+        this.snapCursor = document.getElementById('snapCursor');
+        
         this.viewport = new Viewport(this.canvas);
         this.eventBus = globalEventBus;
         this.history = new CommandHistory({
@@ -36,10 +40,16 @@ class EditorApp {
         this._setupCallbacks();
         this._bindUIControls();
         this._bindKeyboardShortcuts();
-        this._startRenderLoop();
         
-        // Demo: Draw some sample content to show the viewport working
+        // Setup demo content BEFORE starting render loop
         this._setupDemoContent();
+        
+        // Handle re-render when pan buffer exceeded
+        this.viewport.onRender = () => {
+            this._renderDemoContent();
+        };
+        
+        this._startRenderLoop();
         
         // Initial view
         this.viewport.resetView();
@@ -48,11 +58,32 @@ class EditorApp {
     }
 
     _setupCallbacks() {
-        // Update status bar when mouse moves
+        // Throttle status bar updates (DOM updates are expensive)
+        let lastStatusUpdate = 0;
+        const STATUS_THROTTLE = 50; // ms
+        
+        // Update cursor and status bar when mouse moves
         this.viewport.onMouseMove = (world, snapped) => {
-            const v = this.viewport;
-            this.ui.cursorPos.textContent = `${v.formatValue(world.x)}, ${v.formatValue(world.y)} ${v.units}`;
-            this.ui.gridSnap.textContent = `${v.formatValue(snapped.x)}, ${v.formatValue(snapped.y)} ${v.units}`;
+            // Hide snap cursor during pan (user isn't placing things)
+            if (this.viewport.isPanning) {
+                this.snapCursor.style.display = 'none';
+            } else if (this.viewport.snapToGrid) {
+                // Position CSS cursor (GPU accelerated - fast)
+                const screenPos = this.viewport.worldToScreen(snapped);
+                this.snapCursor.style.transform = `translate(${screenPos.x - 10}px, ${screenPos.y - 10}px)`;
+                this.snapCursor.style.display = 'block';
+            } else {
+                this.snapCursor.style.display = 'none';
+            }
+            
+            // Throttle DOM updates for status bar
+            const now = performance.now();
+            if (now - lastStatusUpdate > STATUS_THROTTLE) {
+                lastStatusUpdate = now;
+                const v = this.viewport;
+                this.ui.cursorPos.textContent = `${v.formatValue(world.x)}, ${v.formatValue(world.y)} ${v.units}`;
+                this.ui.gridSnap.textContent = `${v.formatValue(snapped.x)}, ${v.formatValue(snapped.y)} ${v.units}`;
+            }
         };
 
         // Update status bar when view changes
@@ -140,15 +171,19 @@ class EditorApp {
 
     _startRenderLoop() {
         const loop = () => {
-            // Render viewport base (grid, origin)
-            this.viewport.render();
-            
-            // Render demo content on top
-            this._renderDemoContent();
+            // Main canvas only redraws when view changes (pan/zoom/etc)
+            if (this.viewport.render()) {
+                this._renderDemoContent();
+            }
             
             requestAnimationFrame(loop);
         };
         loop();
+    }
+
+    // Overlay canvas reserved for future tool overlays (selection boxes, etc)
+    _renderOverlay() {
+        // Currently unused - cursor is CSS-based for performance
     }
 
     /**
@@ -234,7 +269,7 @@ class EditorApp {
             
             switch (shape.type) {
                 case 'rect': {
-                    const tl = v.worldToScreen({ x: shape.x, y: shape.y });
+                    const tl = v.worldToCanvas({ x: shape.x, y: shape.y });
                     const w = shape.w * v.zoom;
                     const h = shape.h * v.zoom;
                     if (shape.fill !== false) {
@@ -246,7 +281,7 @@ class EditorApp {
                 }
                 
                 case 'circle': {
-                    const c = v.worldToScreen({ x: shape.x, y: shape.y });
+                    const c = v.worldToCanvas({ x: shape.x, y: shape.y });
                     const r = shape.r * v.zoom;
                     ctx.beginPath();
                     ctx.arc(c.x, c.y, r, 0, Math.PI * 2);
@@ -255,8 +290,8 @@ class EditorApp {
                 }
                 
                 case 'line': {
-                    const p1 = v.worldToScreen({ x: shape.x1, y: shape.y1 });
-                    const p2 = v.worldToScreen({ x: shape.x2, y: shape.y2 });
+                    const p1 = v.worldToCanvas({ x: shape.x1, y: shape.y1 });
+                    const p2 = v.worldToCanvas({ x: shape.x2, y: shape.y2 });
                     ctx.beginPath();
                     ctx.moveTo(p1.x, p1.y);
                     ctx.lineTo(p2.x, p2.y);
@@ -267,10 +302,10 @@ class EditorApp {
                 case 'polyline': {
                     if (shape.points.length < 2) break;
                     ctx.beginPath();
-                    const first = v.worldToScreen(shape.points[0]);
+                    const first = v.worldToCanvas(shape.points[0]);
                     ctx.moveTo(first.x, first.y);
                     for (let i = 1; i < shape.points.length; i++) {
-                        const p = v.worldToScreen(shape.points[i]);
+                        const p = v.worldToCanvas(shape.points[i]);
                         ctx.lineTo(p.x, p.y);
                     }
                     ctx.stroke();
@@ -278,7 +313,7 @@ class EditorApp {
                 }
                 
                 case 'arc': {
-                    const c = v.worldToScreen({ x: shape.x, y: shape.y });
+                    const c = v.worldToCanvas({ x: shape.x, y: shape.y });
                     const r = shape.r * v.zoom;
                     ctx.beginPath();
                     ctx.arc(c.x, c.y, r, shape.start, shape.end);
@@ -287,23 +322,6 @@ class EditorApp {
                 }
             }
         });
-        
-        // Draw snap cursor indicator
-        if (this.viewport.snapToGrid) {
-            const snapped = v.getSnappedPosition(v.currentMouseWorld);
-            const screenPos = v.worldToScreen(snapped);
-            
-            ctx.strokeStyle = '#e94560';
-            ctx.lineWidth = 1;
-            ctx.setLineDash([3, 3]);
-            ctx.beginPath();
-            ctx.moveTo(screenPos.x - 8, screenPos.y);
-            ctx.lineTo(screenPos.x + 8, screenPos.y);
-            ctx.moveTo(screenPos.x, screenPos.y - 8);
-            ctx.lineTo(screenPos.x, screenPos.y + 8);
-            ctx.stroke();
-            ctx.setLineDash([]);
-        }
     }
 }
 
