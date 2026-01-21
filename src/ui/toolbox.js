@@ -30,6 +30,7 @@ export class Toolbox {
         toolbox.className = 'toolbox';
         toolbox.innerHTML = `
             <div class="toolbox-header">
+                <span class="grip">⋮⋮</span>
                 <span>Tools</span>
             </div>
             <div class="toolbox-tools">
@@ -64,6 +65,49 @@ export class Toolbox {
             const tool = this.tools.find(t => t.shortcut === key);
             if (tool) {
                 this.selectTool(tool.id);
+            }
+        });
+        
+        // Make draggable by header
+        this._makeDraggable();
+    }
+    
+    _makeDraggable() {
+        const header = this.element.querySelector('.toolbox-header');
+        let isDragging = false;
+        let offsetX = 0;
+        let offsetY = 0;
+        
+        header.style.cursor = 'grab';
+        
+        header.addEventListener('mousedown', (e) => {
+            isDragging = true;
+            const rect = this.element.getBoundingClientRect();
+            offsetX = e.clientX - rect.left;
+            offsetY = e.clientY - rect.top;
+            header.style.cursor = 'grabbing';
+            e.preventDefault();
+        });
+        
+        window.addEventListener('mousemove', (e) => {
+            if (!isDragging) return;
+            
+            const x = e.clientX - offsetX;
+            const y = e.clientY - offsetY;
+            
+            // Keep within viewport bounds
+            const maxX = window.innerWidth - this.element.offsetWidth;
+            const maxY = window.innerHeight - this.element.offsetHeight;
+            
+            this.element.style.left = Math.max(0, Math.min(x, maxX)) + 'px';
+            this.element.style.top = Math.max(0, Math.min(y, maxY)) + 'px';
+            this.element.style.right = 'auto';
+        });
+        
+        window.addEventListener('mouseup', () => {
+            if (isDragging) {
+                isDragging = false;
+                header.style.cursor = 'grab';
             }
         });
     }

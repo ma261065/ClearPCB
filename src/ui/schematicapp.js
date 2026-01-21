@@ -12,10 +12,16 @@ import { Line, Circle, Rect, Arc, Polygon } from '../shapes/index.js';
 class SchematicApp {
     constructor() {
         this.container = document.getElementById('canvasContainer');
-        this.snapCursor = document.getElementById('snapCursor');
         this.viewport = new Viewport(this.container);
         this.eventBus = globalEventBus;
         this.history = new CommandHistory();
+        
+        // Drawing crosshair elements
+        this.crosshair = {
+            container: document.getElementById('drawingCrosshair'),
+            lineX: document.getElementById('crosshairX'),
+            lineY: document.getElementById('crosshairY')
+        };
         
         // Shape management
         this.shapes = [];
@@ -128,6 +134,9 @@ class SchematicApp {
         }
         
         this._createPreview();
+        this._showCrosshair();
+        this._updateCrosshair(worldPos);
+        this.viewport.svg.style.cursor = 'none';
     }
     
     _updateDrawing(worldPos) {
@@ -184,6 +193,9 @@ class SchematicApp {
             this.previewElement.remove();
             this.previewElement = null;
         }
+        
+        this._hideCrosshair();
+        this.viewport.svg.style.cursor = 'default';
     }
     
     _createPreview() {
@@ -337,23 +349,13 @@ class SchematicApp {
         const STATUS_THROTTLE = 50;
         
         this.viewport.onMouseMove = (world, snapped) => {
-            // Update drawing preview
+            // Update drawing preview and crosshair
             if (this.isDrawing) {
                 this._updateDrawing(snapped);
+                this._updateCrosshair(snapped);
             }
             
-            // Hide snap cursor during pan
-            if (this.viewport.isPanning) {
-                this.snapCursor.style.display = 'none';
-            } else if (this.viewport.snapToGrid) {
-                const screenPos = this.viewport.worldToScreen(snapped);
-                this.snapCursor.style.transform = `translate(${screenPos.x - 10}px, ${screenPos.y - 10}px)`;
-                this.snapCursor.style.display = 'block';
-            } else {
-                this.snapCursor.style.display = 'none';
-            }
-            
-            // Update hover state (only in select mode)
+            // Update hover state (only in select mode when not panning)
             if (!this.viewport.isPanning && this.currentTool === 'select') {
                 const hit = this.selection.hitTest(world);
                 this.selection.setHovered(hit);
@@ -371,6 +373,7 @@ class SchematicApp {
         };
 
         this.viewport.onViewChanged = (view) => {
+            // Display zoom as percentage (500mm = 100%)
             const zoomPercent = Math.round(this.viewport.zoom * 100);
             this.ui.zoomLevel.textContent = `${zoomPercent}%`;
             
@@ -379,6 +382,32 @@ class SchematicApp {
             this.ui.viewportInfo.textContent = 
                 `${v.formatValue(bounds.maxX - bounds.minX)} × ${v.formatValue(bounds.maxY - bounds.minY)} ${v.units}`;
         };
+    }
+    
+    _updateCrosshair(snapped) {
+        const screenPos = this.viewport.worldToScreen(snapped);
+        const w = this.container.clientWidth;
+        const h = this.container.clientHeight;
+        
+        // Horizontal line (full width at snapped Y)
+        this.crosshair.lineX.setAttribute('x1', 0);
+        this.crosshair.lineX.setAttribute('y1', screenPos.y);
+        this.crosshair.lineX.setAttribute('x2', w);
+        this.crosshair.lineX.setAttribute('y2', screenPos.y);
+        
+        // Vertical line (full height at snapped X)
+        this.crosshair.lineY.setAttribute('x1', screenPos.x);
+        this.crosshair.lineY.setAttribute('y1', 0);
+        this.crosshair.lineY.setAttribute('x2', screenPos.x);
+        this.crosshair.lineY.setAttribute('y2', h);
+    }
+    
+    _showCrosshair() {
+        this.crosshair.container.classList.add('active');
+    }
+    
+    _hideCrosshair() {
+        this.crosshair.container.classList.remove('active');
     }
     
     _onSelectionChanged(shapes) {
@@ -488,13 +517,11 @@ class SchematicApp {
         });
 
         document.getElementById('zoomIn').addEventListener('click', () => {
-            const center = this.viewport.offset;
-            this.viewport.zoomAt(center, 1.5);
+            this.viewport.zoomIn();
         });
 
         document.getElementById('zoomOut').addEventListener('click', () => {
-            const center = this.viewport.offset;
-            this.viewport.zoomAt(center, 0.67);
+            this.viewport.zoomOut();
         });
 
         document.getElementById('resetView').addEventListener('click', () => {

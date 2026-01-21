@@ -14,7 +14,7 @@ export class Viewport {
         this.svg.style.height = '100%';
         this.svg.style.display = 'block';
         this.svg.style.backgroundColor = '#000000';
-        this.svg.style.cursor = 'crosshair';
+        this.svg.style.cursor = 'default';
         container.appendChild(this.svg);
         
         // Create layer groups
@@ -29,12 +29,22 @@ export class Viewport {
         container.appendChild(this.rulerContainer);
         
         // View state - viewBox defines visible world area
-        this.baseWidth = 500; // mm visible at 100% zoom
+        this.baseWidth = 500; // mm visible at 100% zoom (for display purposes)
+        
+        // 25 discrete zoom levels - view width in mm (from zoomed out to zoomed in)
+        // Range: 10,000mm (10m) to 2mm
+        this.zoomLevels = [
+            10000, 7500, 5000, 3000, 2000, 1500, 1000, 750, 500, 400,
+            300, 200, 150, 100, 75, 50, 40, 30, 20, 15,
+            10, 7.5, 5, 3, 2
+        ];
+        this.zoomIndex = 8; // Start at 500mm (index 8)
+        
         this.viewBox = { x: -250, y: -150, width: 500, height: 300 };
         
-        // Constraints
-        this.minZoom = 0.05;
-        this.maxZoom = 50;
+        // Constraints (index bounds)
+        this.minZoomIndex = 0;
+        this.maxZoomIndex = this.zoomLevels.length - 1;
         
         // Grid
         this.gridSize = 1;
@@ -103,6 +113,11 @@ export class Viewport {
         return this.baseWidth / this.viewBox.width;
     }
     
+    get viewWidth() {
+        // Current view width in mm
+        return this.viewBox.width;
+    }
+    
     get offset() {
         // Center of viewBox in world coords
         return {
@@ -142,11 +157,25 @@ export class Viewport {
         return { x, y };
     }
     
+    getEffectiveGridSize() {
+        // Calculate the same adaptive grid spacing used for display
+        const minPixelSpacing = 8;
+        const minWorldSpacing = minPixelSpacing / this.scale;
+        
+        let gridSpacing = this.gridSize;
+        while (gridSpacing < minWorldSpacing) {
+            gridSpacing *= 10;
+        }
+        return gridSpacing;
+    }
+    
     getSnappedPosition(worldPos) {
         if (!this.snapToGrid) return worldPos;
+        // Use the effective (displayed) grid size for snapping
+        const effectiveGrid = this.getEffectiveGridSize();
         return {
-            x: Math.round(worldPos.x / this.gridSize) * this.gridSize,
-            y: Math.round(worldPos.y / this.gridSize) * this.gridSize
+            x: Math.round(worldPos.x / effectiveGrid) * effectiveGrid,
+            y: Math.round(worldPos.y / effectiveGrid) * effectiveGrid
         };
     }
     
@@ -158,33 +187,55 @@ export class Viewport {
     }
     
     zoomAt(worldPoint, factor) {
-        const currentZoom = this.zoom;
-        const newZoom = Math.max(this.minZoom, Math.min(this.maxZoom, currentZoom * factor));
+        // Determine zoom direction and step
+        // factor > 1 means zoom in (higher index = smaller view width)
+        const step = factor > 1 ? 1 : -1;
+        this.zoomToLevel(this.zoomIndex + step, worldPoint);
+    }
+    
+    zoomToLevel(index, worldPoint = null) {
+        const newIndex = Math.max(this.minZoomIndex, Math.min(this.maxZoomIndex, index));
         
-        if (newZoom !== currentZoom) {
-            const newWidth = this.baseWidth / newZoom;
-            const newHeight = newWidth * (this.height / this.width);
-            
-            // Zoom toward the point
-            const wx = (worldPoint.x - this.viewBox.x) / this.viewBox.width;
-            const wy = (worldPoint.y - this.viewBox.y) / this.viewBox.height;
-            
-            this.viewBox.width = newWidth;
-            this.viewBox.height = newHeight;
-            this.viewBox.x = worldPoint.x - wx * newWidth;
-            this.viewBox.y = worldPoint.y - wy * newHeight;
-            
-            this._updateViewBox();
-            this._createGrid();
-            this._createRulers();
-            this._notifyViewChanged();
+        if (newIndex === this.zoomIndex) return;
+        
+        const newWidth = this.zoomLevels[newIndex];
+        const newHeight = newWidth * (this.height / this.width);
+        
+        // Default to center if no point specified
+        if (!worldPoint) {
+            worldPoint = this.offset;
         }
+        
+        // Zoom toward the point
+        const wx = (worldPoint.x - this.viewBox.x) / this.viewBox.width;
+        const wy = (worldPoint.y - this.viewBox.y) / this.viewBox.height;
+        
+        this.zoomIndex = newIndex;
+        this.viewBox.width = newWidth;
+        this.viewBox.height = newHeight;
+        this.viewBox.x = worldPoint.x - wx * newWidth;
+        this.viewBox.y = worldPoint.y - wy * newHeight;
+        
+        this._updateViewBox();
+        this._createGrid();
+        this._createRulers();
+        this._notifyViewChanged();
+    }
+    
+    zoomIn(worldPoint = null) {
+        this.zoomToLevel(this.zoomIndex + 1, worldPoint);
+    }
+    
+    zoomOut(worldPoint = null) {
+        this.zoomToLevel(this.zoomIndex - 1, worldPoint);
     }
     
     resetView() {
+        // Reset to 100% (500mm view width, index 8)
+        this.zoomIndex = 8;
         const aspect = this.height / this.width;
-        this.viewBox.width = this.baseWidth;
-        this.viewBox.height = this.baseWidth * aspect;
+        this.viewBox.width = this.zoomLevels[this.zoomIndex];
+        this.viewBox.height = this.viewBox.width * aspect;
         this.viewBox.x = -this.viewBox.width / 2;
         this.viewBox.y = -this.viewBox.height / 2;
         this._updateViewBox();
@@ -205,22 +256,27 @@ export class Viewport {
         const aspect = this.height / this.width;
         const paddingWorld = padding / this.scale;
         
-        // Fit content with padding
-        let viewWidth = contentWidth + paddingWorld * 2;
-        let viewHeight = contentHeight + paddingWorld * 2;
+        // Calculate required view width to fit content
+        let requiredWidth = contentWidth + paddingWorld * 2;
+        let requiredHeight = contentHeight + paddingWorld * 2;
         
         // Adjust to maintain aspect ratio
-        if (viewHeight / viewWidth > aspect) {
-            viewWidth = viewHeight / aspect;
-        } else {
-            viewHeight = viewWidth * aspect;
+        if (requiredHeight / requiredWidth > aspect) {
+            requiredWidth = requiredHeight / aspect;
         }
         
-        // Clamp to zoom limits
-        const zoom = this.baseWidth / viewWidth;
-        const clampedZoom = Math.max(this.minZoom, Math.min(this.maxZoom, zoom));
-        viewWidth = this.baseWidth / clampedZoom;
-        viewHeight = viewWidth * aspect;
+        // Find the smallest zoom level that fits the content (largest viewWidth that fits)
+        let bestIndex = 0;
+        for (let i = 0; i < this.zoomLevels.length; i++) {
+            if (this.zoomLevels[i] >= requiredWidth) {
+                bestIndex = i;
+                break;
+            }
+        }
+        
+        this.zoomIndex = bestIndex;
+        const viewWidth = this.zoomLevels[bestIndex];
+        const viewHeight = viewWidth * aspect;
         
         // Center on content
         const cx = (minX + maxX) / 2;
@@ -394,12 +450,19 @@ export class Viewport {
         const startX = Math.floor(bounds.minX / tickSpacing) * tickSpacing;
         const endX = Math.ceil(bounds.maxX / tickSpacing) * tickSpacing;
         
+        // Determine decimal places based on tick spacing
+        const decimals = tickSpacing < 1 ? Math.ceil(-Math.log10(tickSpacing)) : 0;
+        const formatLabel = (val) => {
+            const rounded = Math.round(val / tickSpacing) * tickSpacing;
+            return decimals > 0 ? rounded.toFixed(decimals) : Math.round(rounded).toString();
+        };
+        
         for (let worldX = startX; worldX <= endX; worldX += tickSpacing) {
             const screenX = this.worldToScreen({ x: worldX, y: 0 }).x;
             if (screenX < rs || screenX > w) continue;
             
             svg += `<line x1="${screenX}" y1="${rs}" x2="${screenX}" y2="${rs - 8}" stroke="#666"/>`;
-            svg += `<text x="${screenX + 2}" y="12" fill="#888" font-size="10" font-family="monospace">${worldX}</text>`;
+            svg += `<text x="${screenX + 2}" y="12" fill="#888" font-size="10" font-family="monospace">${formatLabel(worldX)}</text>`;
             
             // Minor ticks
             for (let i = 1; i < 5; i++) {
@@ -420,7 +483,7 @@ export class Viewport {
             if (screenY < rs || screenY > h) continue;
             
             svg += `<line x1="${rs}" y1="${screenY}" x2="${rs - 8}" y2="${screenY}" stroke="#666"/>`;
-            svg += `<text x="3" y="${screenY + 3}" fill="#888" font-size="10" font-family="monospace">${worldY}</text>`;
+            svg += `<text x="3" y="${screenY + 3}" fill="#888" font-size="10" font-family="monospace">${formatLabel(worldY)}</text>`;
             
             // Minor ticks
             for (let i = 1; i < 5; i++) {
@@ -465,8 +528,11 @@ export class Viewport {
                 y: e.clientY - rect.top
             };
             const mouseWorld = this.screenToWorld(mouseScreen);
-            const factor = e.deltaY > 0 ? 0.9 : 1.1;
-            this.zoomAt(mouseWorld, factor);
+            if (e.deltaY > 0) {
+                this.zoomOut(mouseWorld);
+            } else {
+                this.zoomIn(mouseWorld);
+            }
         }, { passive: false });
         
         // Pan start
