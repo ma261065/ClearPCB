@@ -17,6 +17,22 @@ clearpcb/
 │   │   ├── Units.js            # Unit conversion (mm, mil, inch)
 │   │   └── Colors.js           # Color palette and layer colors
 │   │
+│   ├── shapes/                 # Shape primitives
+│   │   ├── index.js            # Exports + factory function
+│   │   ├── Shape.js            # Base class (bounds, render, hit test)
+│   │   ├── Line.js             # Line segment
+│   │   ├── Circle.js           # Circle/disc
+│   │   ├── Rect.js             # Rectangle
+│   │   ├── Arc.js              # Circular arc
+│   │   ├── Pad.js              # PCB solder pad
+│   │   ├── Via.js              # PCB via
+│   │   └── Polygon.js          # Closed polygon
+│   │
+│   └── ui/
+│       └── App.js              # Main app (now uses shapes + selection)
+│
+└── docs/
+    └── PROJECT_STRUCTURE.md
 │   ├── schematic/              # Schematic capture module
 │   │   ├── SchematicEditor.js  # Main schematic editor class
 │   │   ├── SchematicSheet.js   # Single schematic sheet data model

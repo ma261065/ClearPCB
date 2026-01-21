@@ -2,8 +2,8 @@
  * Core module exports
  */
 
-export { Viewport } from './Viewport.js';
-export { EventBus, Events, globalEventBus } from './EventBus.js';
+export { Viewport } from './viewport.js';
+export { EventBus, Events, globalEventBus } from './eventbus.js';
 export { 
     Command, 
     CompoundCommand, 
@@ -12,5 +12,5 @@ export {
     RemoveItemCommand,
     MoveCommand,
     SetPropertyCommand
-} from './CommandHistory.js';
-export * as Geometry from './Geometry.js';
+} from './commandhistory.js';
+export * as Geometry from './geometry.js';

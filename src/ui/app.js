@@ -7,6 +7,8 @@
 import { Viewport } from '../core/Viewport.js';
 import { EventBus, Events, globalEventBus } from '../core/EventBus.js';
 import { CommandHistory } from '../core/CommandHistory.js';
+import { SelectionManager } from '../core/SelectionManager.js';
+import { Line, Circle, Rect, Arc, Pad, Via, Polygon } from '../shapes/index.js';
 
 class EditorApp {
     constructor() {
@@ -18,8 +20,15 @@ class EditorApp {
             onChange: (state) => this._onHistoryChange(state)
         });
         
+        // Shape management
+        this.shapes = [];
+        this.selection = new SelectionManager({
+            onSelectionChanged: (shapes) => this._onSelectionChanged(shapes)
+        });
+        this.selection.setShapes(this.shapes);
+        
         // Active editor mode
-        this.mode = 'schematic';
+        this.mode = 'select';
         
         // UI elements
         this.ui = {
@@ -28,8 +37,8 @@ class EditorApp {
             zoomLevel: document.getElementById('zoomLevel'),
             viewportInfo: document.getElementById('viewportInfo'),
             gridSize: document.getElementById('gridSize'),
+            gridStyle: document.getElementById('gridStyle'),
             units: document.getElementById('units'),
-            showOrigin: document.getElementById('showOrigin'),
             showGrid: document.getElementById('showGrid'),
             snapToGrid: document.getElementById('snapToGrid')
         };
@@ -37,6 +46,7 @@ class EditorApp {
         this._setupCallbacks();
         this._bindUIControls();
         this._bindKeyboardShortcuts();
+        this._bindMouseEvents();
         this._setupDemoContent();
         
         // Initial view
@@ -44,6 +54,35 @@ class EditorApp {
         
         console.log('ClearPCB initialized (PixiJS WebGL)');
     }
+
+    // ==================== Shape Management ====================
+    
+    addShape(shape) {
+        this.shapes.push(shape);
+        shape.render(this.viewport.scale);
+        this.viewport.addContent(shape.graphics);
+        return shape;
+    }
+    
+    removeShape(shape) {
+        const idx = this.shapes.indexOf(shape);
+        if (idx !== -1) {
+            this.shapes.splice(idx, 1);
+            this.viewport.removeContent(shape.graphics);
+            this.selection.deselect(shape);
+            shape.destroy();
+        }
+    }
+    
+    renderShapes() {
+        for (const shape of this.shapes) {
+            if (shape._dirty || shape.selected || shape.hovered) {
+                shape.render(this.viewport.scale);
+            }
+        }
+    }
+
+    // ==================== Callbacks ====================
 
     _setupCallbacks() {
         let lastStatusUpdate = 0;
@@ -61,6 +100,13 @@ class EditorApp {
                 this.snapCursor.style.display = 'none';
             }
             
+            // Update hover state
+            if (!this.viewport.isPanning) {
+                const hit = this.selection.hitTest(world);
+                this.selection.setHovered(hit);
+                this.renderShapes();
+            }
+            
             // Throttle status bar updates
             const now = performance.now();
             if (now - lastStatusUpdate > STATUS_THROTTLE) {
@@ -72,7 +118,8 @@ class EditorApp {
         };
 
         this.viewport.onViewChanged = (view) => {
-            const zoomPercent = Math.round(this.viewport.zoom / 50 * 100);
+            // zoom is a multiplier (1.0 = 100%)
+            const zoomPercent = Math.round(this.viewport.zoom * 100);
             this.ui.zoomLevel.textContent = `${zoomPercent}%`;
             
             const bounds = view.bounds;
@@ -83,18 +130,48 @@ class EditorApp {
             this.eventBus.emit(Events.VIEW_CHANGED, view);
         };
     }
+    
+    _onSelectionChanged(shapes) {
+        console.log(`Selection: ${shapes.length} shape(s)`);
+        this.renderShapes();
+    }
+
+    // ==================== Mouse Events ====================
+    
+    _bindMouseEvents() {
+        const view = this.viewport.app.view;
+        
+        view.addEventListener('click', (e) => {
+            // Ignore if we were panning
+            if (this.viewport.isPanning) return;
+            
+            // Get world position
+            const rect = view.getBoundingClientRect();
+            const screenPos = {
+                x: e.clientX - rect.left,
+                y: e.clientY - rect.top
+            };
+            const worldPos = this.viewport.screenToWorld(screenPos);
+            
+            // Handle selection
+            this.selection.handleClick(worldPos, e.shiftKey);
+            this.renderShapes();
+        });
+    }
+
+    // ==================== UI Controls ====================
 
     _bindUIControls() {
         this.ui.gridSize.addEventListener('change', (e) => {
             this.viewport.setGridSize(parseFloat(e.target.value));
         });
 
-        this.ui.units.addEventListener('change', (e) => {
-            this.viewport.setUnits(e.target.value);
+        this.ui.gridStyle.addEventListener('change', (e) => {
+            this.viewport.setGridStyle(e.target.value);
         });
 
-        this.ui.showOrigin.addEventListener('change', (e) => {
-            this.viewport.setOriginVisible(e.target.checked);
+        this.ui.units.addEventListener('change', (e) => {
+            this.viewport.setUnits(e.target.value);
         });
 
         this.ui.showGrid.addEventListener('change', (e) => {
@@ -133,105 +210,197 @@ class EditorApp {
                 } else if ((e.key === 'z' && e.shiftKey) || e.key === 'y') {
                     e.preventDefault();
                     this.history.redo();
+                } else if (e.key === 'a') {
+                    e.preventDefault();
+                    this.selection.selectAll();
+                    this.renderShapes();
+                }
+            } else {
+                switch (e.key) {
+                    case 'Escape':
+                        this.selection.clearSelection();
+                        this.renderShapes();
+                        break;
+                    case 'Delete':
+                    case 'Backspace':
+                        this._deleteSelected();
+                        break;
                 }
             }
         });
+    }
+    
+    _deleteSelected() {
+        const toDelete = this.selection.getSelection();
+        if (toDelete.length === 0) return;
+        
+        this.selection.clearSelection();
+        for (const shape of toDelete) {
+            this.removeShape(shape);
+        }
     }
 
     _onHistoryChange(state) {
         this.eventBus.emit(Events.HISTORY_CHANGED, state);
     }
 
+    // ==================== Demo Content ====================
+
     _setupDemoContent() {
-        const g = this.viewport.createGraphics();
-        
-        // PCB board outline (100mm x 80mm) - background
-        g.beginFill(0x2d3436);
-        g.drawRect(-50, -40, 100, 80);
-        g.endFill();
-        
-        // Board outline stroke
-        g.lineStyle(0.5, 0x636e72);
-        g.drawRect(-50, -40, 100, 80);
+        // Board outline
+        this.addShape(new Rect({
+            x: -50, y: -40, width: 100, height: 80,
+            color: 0x636e72,
+            fill: true,
+            fillColor: 0x2d3436,
+            fillAlpha: 1,
+            lineWidth: 0.5,
+            layer: 'board'
+        }));
         
         // Mounting holes
-        g.beginFill(0xdfe6e9);
-        g.drawCircle(-45, -35, 1.6);
-        g.drawCircle(45, -35, 1.6);
-        g.drawCircle(-45, 35, 1.6);
-        g.drawCircle(45, 35, 1.6);
-        g.endFill();
-        
-        // IC outline (DIP package)
-        g.lineStyle(0.3, 0x95afc0);
-        g.drawRect(-15, -8, 10, 16);
-        // IC notch
-        g.arc(-10, -8, 1.5, 0, Math.PI);
-        
-        // IC pins
-        g.beginFill(0xff6b6b);
-        g.lineStyle(0);
-        [-6, -2, 2, 6].forEach(y => {
-            g.drawCircle(-17, y, 0.6);
-            g.drawCircle(-3, y, 0.6);
+        [[-45, -35], [45, -35], [-45, 35], [45, 35]].forEach(([x, y]) => {
+            this.addShape(new Circle({
+                x, y, radius: 1.6,
+                color: 0xdfe6e9,
+                fill: true,
+                fillAlpha: 1,
+                lineWidth: 0,
+                layer: 'holes'
+            }));
         });
-        g.endFill();
         
-        // Resistor
-        g.beginFill(0x4ecdc4);
-        g.drawRect(-3, -1, 6, 2);
-        g.endFill();
+        // IC package outline
+        this.addShape(new Rect({
+            x: -15, y: -8, width: 10, height: 16,
+            color: 0x95afc0,
+            lineWidth: 0.3,
+            layer: 'silkscreen'
+        }));
+        
+        // IC pads
+        [-6, -2, 2, 6].forEach(y => {
+            this.addShape(new Pad({
+                x: -17, y, width: 1.2, height: 1.2,
+                shape: 'circle',
+                color: 0xff6b6b,
+                layer: 'top'
+            }));
+            this.addShape(new Pad({
+                x: -3, y, width: 1.2, height: 1.2,
+                shape: 'circle',
+                color: 0xff6b6b,
+                layer: 'top'
+            }));
+        });
+        
+        // Resistor body
+        this.addShape(new Rect({
+            x: -3, y: -1, width: 6, height: 2,
+            color: 0x4ecdc4,
+            fill: true,
+            fillAlpha: 1,
+            lineWidth: 0,
+            layer: 'top'
+        }));
         
         // Resistor pads
-        g.beginFill(0xff6b6b);
-        g.drawCircle(-5, 0, 0.8);
-        g.drawCircle(5, 0, 0.8);
-        g.endFill();
-        
-        // Resistor wires
-        g.lineStyle(0.3, 0xffe66d);
-        g.moveTo(-5, 0);
-        g.lineTo(-3, 0);
-        g.moveTo(3, 0);
-        g.lineTo(5, 0);
+        this.addShape(new Pad({
+            x: -5, y: 0, width: 1.6, height: 1.6,
+            shape: 'circle',
+            color: 0xff6b6b,
+            layer: 'top'
+        }));
+        this.addShape(new Pad({
+            x: 5, y: 0, width: 1.6, height: 1.6,
+            shape: 'circle',
+            color: 0xff6b6b,
+            layer: 'top'
+        }));
         
         // Capacitor
-        g.lineStyle(0.4, 0x4ecdc4);
-        g.moveTo(15, -3);
-        g.lineTo(15, 3);
-        g.moveTo(17, -3);
-        g.lineTo(17, 3);
+        this.addShape(new Line({
+            x1: 15, y1: -3, x2: 15, y2: 3,
+            color: 0x4ecdc4,
+            lineWidth: 0.4,
+            layer: 'top'
+        }));
+        this.addShape(new Line({
+            x1: 17, y1: -3, x2: 17, y2: 3,
+            color: 0x4ecdc4,
+            lineWidth: 0.4,
+            layer: 'top'
+        }));
         
         // Capacitor pads
-        g.beginFill(0xff6b6b);
-        g.lineStyle(0);
-        g.drawCircle(12, 0, 0.8);
-        g.drawCircle(20, 0, 0.8);
-        g.endFill();
-        
-        // Capacitor wires
-        g.lineStyle(0.3, 0xffe66d);
-        g.moveTo(12, 0);
-        g.lineTo(15, 0);
-        g.moveTo(17, 0);
-        g.lineTo(20, 0);
+        this.addShape(new Pad({
+            x: 12, y: 0, width: 1.6, height: 1.6,
+            shape: 'circle',
+            color: 0xff6b6b,
+            layer: 'top'
+        }));
+        this.addShape(new Pad({
+            x: 20, y: 0, width: 1.6, height: 1.6,
+            shape: 'circle',
+            color: 0xff6b6b,
+            layer: 'top'
+        }));
         
         // Traces
-        g.lineStyle(0.5, 0x00b894);
-        g.moveTo(-17, -6);
-        g.lineTo(-25, -6);
-        g.lineTo(-25, -20);
-        g.lineTo(0, -20);
-        g.lineTo(0, 0);
-        g.lineTo(-5, 0);
+        this.addShape(new Polygon({
+            points: [
+                { x: -17, y: -6 },
+                { x: -25, y: -6 },
+                { x: -25, y: -20 },
+                { x: 0, y: -20 },
+                { x: 0, y: 0 },
+                { x: -5, y: 0 }
+            ],
+            color: 0x00b894,
+            lineWidth: 0.5,
+            fill: false,
+            layer: 'top'
+        }));
         
-        g.moveTo(5, 0);
-        g.lineTo(10, 0);
-        g.lineTo(10, 15);
-        g.lineTo(-3, 15);
-        g.lineTo(-3, 6);
+        this.addShape(new Polygon({
+            points: [
+                { x: 5, y: 0 },
+                { x: 10, y: 0 },
+                { x: 10, y: 15 },
+                { x: -3, y: 15 },
+                { x: -3, y: 6 }
+            ],
+            color: 0x00b894,
+            lineWidth: 0.5,
+            fill: false,
+            layer: 'top'
+        }));
         
-        this.viewport.addContent(g);
+        // Vias
+        this.addShape(new Via({
+            x: 0, y: -20,
+            diameter: 1.0,
+            hole: 0.5,
+            layer: 'top'
+        }));
+        
+        this.addShape(new Via({
+            x: 10, y: 15,
+            diameter: 1.0,
+            hole: 0.5,
+            layer: 'top'
+        }));
+        
+        // Arc example
+        this.addShape(new Arc({
+            x: 30, y: 0,
+            radius: 8,
+            startAngle: -Math.PI / 2,
+            endAngle: Math.PI / 2,
+            color: 0x9b59b6,
+            lineWidth: 0.4,
+            layer: 'top'
+        }));
         
         // Override fitToContent
         this.viewport.fitToContent = () => {

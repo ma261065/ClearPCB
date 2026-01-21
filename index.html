@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ClearPCB</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/pixi.js/7.3.2/pixi.min.js"></script>
+    <script src="lib/pixi.min.js"></script>
     <style>
         * {
             margin: 0;
@@ -190,6 +190,10 @@
                 <option value="2.54">2.54mm (0.1")</option>
                 <option value="1.27">1.27mm (50mil)</option>
             </select>
+            <select id="gridStyle">
+                <option value="lines" selected>Lines</option>
+                <option value="dots">Dots</option>
+            </select>
         </div>
 
         <div class="toolbar-group">
@@ -209,9 +213,6 @@
         </div>
 
         <div class="toolbar-group">
-            <label>
-                <input type="checkbox" id="showOrigin" checked> Origin
-            </label>
             <label>
                 <input type="checkbox" id="showGrid" checked> Grid
             </label>
