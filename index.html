@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ClearPCB</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pixi.js/7.3.2/pixi.min.js"></script>
     <style>
         * {
             margin: 0;
@@ -83,23 +84,11 @@
             flex: 1;
             position: relative;
             overflow: hidden;
-            clip-path: inset(0);
         }
 
-        #editorCanvas, #overlayCanvas {
+        .canvas-container canvas {
             display: block;
-            position: absolute;
-            top: 0;
-            left: 0;
-        }
-
-        #editorCanvas {
             cursor: crosshair;
-            will-change: transform;
-        }
-
-        #overlayCanvas {
-            pointer-events: none;
         }
 
         .snap-cursor {
@@ -233,9 +222,7 @@
     </div>
 
     <div class="main-container">
-        <div class="canvas-container">
-            <canvas id="editorCanvas"></canvas>
-            <canvas id="overlayCanvas"></canvas>
+        <div class="canvas-container" id="canvasContainer">
             <div class="snap-cursor" id="snapCursor"></div>
             
             <div class="help-panel">
