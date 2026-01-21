@@ -1,5 +1,5 @@
 /**
- * Via - A PCB via (connection between layers)
+ * Via - SVG PCB via
  */
 
 import { Shape } from './Shape.js';
@@ -9,28 +9,18 @@ export class Via extends Shape {
         super(options);
         this.type = 'via';
         
-        // Position (center)
         this.x = options.x || 0;
         this.y = options.y || 0;
-        
-        // Dimensions
-        this.diameter = options.diameter || 0.8;  // Outer diameter (annular ring)
-        this.hole = options.hole || 0.4;          // Drill hole diameter
-        
-        // Net name
+        this.diameter = options.diameter || 0.8;
+        this.hole = options.hole || 0.4;
         this.net = options.net || '';
-        
-        // Via type: 'through', 'blind', 'buried'
         this.viaType = options.viaType || 'through';
-        
-        // Layer span (for blind/buried vias)
         this.startLayer = options.startLayer || 'top';
         this.endLayer = options.endLayer || 'bottom';
         
-        // Vias are always filled
         this.fill = true;
         this.fillAlpha = 1;
-        this.color = options.color || 0x95afc0; // Bluish-gray
+        this.color = options.color || '#95afc0';
     }
     
     _calculateBounds() {
@@ -52,28 +42,18 @@ export class Via extends Shape {
         return Math.max(0, Math.hypot(point.x - this.x, point.y - this.y) - this.diameter / 2);
     }
     
-    _draw(g, scale) {
-        const r = this.diameter / 2;
-        
-        // Draw outer circle
-        g.drawCircle(this.x, this.y, r);
-        
-        // Draw hole
-        g.beginHole();
-        g.drawCircle(this.x, this.y, this.hole / 2);
-        g.endHole();
+    _createElement() {
+        return document.createElementNS('http://www.w3.org/2000/svg', 'g');
     }
     
-    _drawHandles(g, scale) {
-        const handleSize = 3 / scale;
+    _updateElement(el, strokeColor, fillColor, scale) {
+        const r = this.diameter / 2;
+        const hr = this.hole / 2;
         
-        g.lineStyle(1 / scale, 0xe94560, 1);
-        g.beginFill(0xffffff, 1);
-        
-        // Just center handle for vias
-        g.drawRect(this.x - handleSize/2, this.y - handleSize/2, handleSize, handleSize);
-        
-        g.endFill();
+        el.innerHTML = `
+            <circle cx="${this.x}" cy="${this.y}" r="${r}" fill="${fillColor}"/>
+            <circle cx="${this.x}" cy="${this.y}" r="${hr}" fill="#000"/>
+        `;
     }
     
     move(dx, dy) {
@@ -83,30 +63,14 @@ export class Via extends Shape {
     }
     
     clone() {
-        return new Via({
-            ...this.toJSON(),
-            x: this.x,
-            y: this.y,
-            diameter: this.diameter,
-            hole: this.hole,
-            net: this.net,
-            viaType: this.viaType,
-            startLayer: this.startLayer,
-            endLayer: this.endLayer
-        });
+        return new Via({ ...this.toJSON() });
     }
     
     toJSON() {
         return {
             ...super.toJSON(),
-            x: this.x,
-            y: this.y,
-            diameter: this.diameter,
-            hole: this.hole,
-            net: this.net,
-            viaType: this.viaType,
-            startLayer: this.startLayer,
-            endLayer: this.endLayer
+            x: this.x, y: this.y, diameter: this.diameter, hole: this.hole,
+            net: this.net, viaType: this.viaType, startLayer: this.startLayer, endLayer: this.endLayer
         };
     }
 }

@@ -1,5 +1,5 @@
 /**
- * Polygon - A closed polygon defined by an array of points
+ * Polygon - SVG polygon/polyline
  */
 
 import { Shape } from './Shape.js';
@@ -9,12 +9,10 @@ export class Polygon extends Shape {
         super(options);
         this.type = 'polygon';
         
-        // Array of {x, y} points
         this.points = options.points || [];
-        
-        // Polygons are typically filled
         this.fill = options.fill !== undefined ? options.fill : true;
         this.fillAlpha = options.fillAlpha || 0.5;
+        this.closed = options.closed !== undefined ? options.closed : true;
     }
     
     _calculateBounds() {
@@ -45,13 +43,10 @@ export class Polygon extends Shape {
         if (this.fill && this._pointInPolygon(point)) {
             return true;
         }
-        
-        // Check distance to edges
         return this.distanceTo(point) <= tolerance + this.lineWidth / 2;
     }
     
     _pointInPolygon(point) {
-        // Ray casting algorithm
         const pts = this.points;
         const n = pts.length;
         let inside = false;
@@ -76,7 +71,6 @@ export class Polygon extends Shape {
         const pts = this.points;
         const n = pts.length;
         
-        // Check distance to each edge
         for (let i = 0; i < n; i++) {
             const j = (i + 1) % n;
             const dist = this._distanceToSegment(point, pts[i], pts[j]);
@@ -104,31 +98,24 @@ export class Polygon extends Shape {
         return Math.hypot(point.x - projX, point.y - projY);
     }
     
-    _draw(g, scale) {
-        if (this.points.length < 2) return;
-        
-        g.moveTo(this.points[0].x, this.points[0].y);
-        
-        for (let i = 1; i < this.points.length; i++) {
-            g.lineTo(this.points[i].x, this.points[i].y);
-        }
-        
-        // Close the polygon
-        g.closePath();
+    _createElement() {
+        return document.createElementNS('http://www.w3.org/2000/svg', this.fill && this.closed ? 'polygon' : 'polyline');
     }
     
-    _drawHandles(g, scale) {
-        const handleSize = 3 / scale;
+    _updateElement(el, strokeColor, fillColor, scale) {
+        const pointsStr = this.points.map(p => `${p.x},${p.y}`).join(' ');
+        el.setAttribute('points', pointsStr);
+        el.setAttribute('stroke', strokeColor);
+        el.setAttribute('stroke-width', this.lineWidth);
+        el.setAttribute('stroke-linecap', 'round');
+        el.setAttribute('stroke-linejoin', 'round');
         
-        g.lineStyle(1 / scale, 0xe94560, 1);
-        g.beginFill(0xffffff, 1);
-        
-        // Handle at each vertex
-        for (const p of this.points) {
-            g.drawRect(p.x - handleSize/2, p.y - handleSize/2, handleSize, handleSize);
+        if (this.fill && this.closed) {
+            el.setAttribute('fill', fillColor);
+            el.setAttribute('fill-opacity', this.fillAlpha);
+        } else {
+            el.setAttribute('fill', 'none');
         }
-        
-        g.endFill();
     }
     
     move(dx, dy) {
@@ -137,32 +124,6 @@ export class Polygon extends Shape {
             p.y += dy;
         }
         this.invalidate();
-    }
-    
-    addPoint(x, y) {
-        this.points.push({ x, y });
-        this.invalidate();
-    }
-    
-    removePoint(index) {
-        if (index >= 0 && index < this.points.length) {
-            this.points.splice(index, 1);
-            this.invalidate();
-        }
-    }
-    
-    get area() {
-        // Shoelace formula
-        let area = 0;
-        const n = this.points.length;
-        
-        for (let i = 0; i < n; i++) {
-            const j = (i + 1) % n;
-            area += this.points[i].x * this.points[j].y;
-            area -= this.points[j].x * this.points[i].y;
-        }
-        
-        return Math.abs(area) / 2;
     }
     
     clone() {
@@ -175,7 +136,8 @@ export class Polygon extends Shape {
     toJSON() {
         return {
             ...super.toJSON(),
-            points: this.points.map(p => ({ x: p.x, y: p.y }))
+            points: this.points.map(p => ({ x: p.x, y: p.y })),
+            closed: this.closed
         };
     }
 }

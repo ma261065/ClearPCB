@@ -1,5 +1,5 @@
 /**
- * Line - A line segment between two points
+ * Line - SVG line segment
  */
 
 import { Shape } from './Shape.js';
@@ -9,7 +9,6 @@ export class Line extends Shape {
         super(options);
         this.type = 'line';
         
-        // Endpoints
         this.x1 = options.x1 || 0;
         this.y1 = options.y1 || 0;
         this.x2 = options.x2 || 0;
@@ -31,17 +30,14 @@ export class Line extends Shape {
     }
     
     distanceTo(point) {
-        // Distance from point to line segment
         const dx = this.x2 - this.x1;
         const dy = this.y2 - this.y1;
         const lengthSq = dx * dx + dy * dy;
         
         if (lengthSq === 0) {
-            // Line is a point
             return Math.hypot(point.x - this.x1, point.y - this.y1);
         }
         
-        // Project point onto line, clamped to segment
         let t = ((point.x - this.x1) * dx + (point.y - this.y1) * dy) / lengthSq;
         t = Math.max(0, Math.min(1, t));
         
@@ -51,22 +47,18 @@ export class Line extends Shape {
         return Math.hypot(point.x - projX, point.y - projY);
     }
     
-    _draw(g, scale) {
-        g.moveTo(this.x1, this.y1);
-        g.lineTo(this.x2, this.y2);
+    _createElement() {
+        return document.createElementNS('http://www.w3.org/2000/svg', 'line');
     }
     
-    _drawHandles(g, scale) {
-        const handleSize = 3 / scale;
-        
-        g.lineStyle(1 / scale, 0xe94560, 1);
-        g.beginFill(0xffffff, 1);
-        
-        // Endpoint handles
-        g.drawRect(this.x1 - handleSize/2, this.y1 - handleSize/2, handleSize, handleSize);
-        g.drawRect(this.x2 - handleSize/2, this.y2 - handleSize/2, handleSize, handleSize);
-        
-        g.endFill();
+    _updateElement(el, strokeColor, fillColor, scale) {
+        el.setAttribute('x1', this.x1);
+        el.setAttribute('y1', this.y1);
+        el.setAttribute('x2', this.x2);
+        el.setAttribute('y2', this.y2);
+        el.setAttribute('stroke', strokeColor);
+        el.setAttribute('stroke-width', this.lineWidth);
+        el.setAttribute('stroke-linecap', 'round');
     }
     
     move(dx, dy) {
@@ -77,27 +69,11 @@ export class Line extends Shape {
         this.invalidate();
     }
     
-    get length() {
-        return Math.hypot(this.x2 - this.x1, this.y2 - this.y1);
-    }
-    
     clone() {
-        return new Line({
-            ...this.toJSON(),
-            x1: this.x1,
-            y1: this.y1,
-            x2: this.x2,
-            y2: this.y2
-        });
+        return new Line({ ...this.toJSON(), x1: this.x1, y1: this.y1, x2: this.x2, y2: this.y2 });
     }
     
     toJSON() {
-        return {
-            ...super.toJSON(),
-            x1: this.x1,
-            y1: this.y1,
-            x2: this.x2,
-            y2: this.y2
-        };
+        return { ...super.toJSON(), x1: this.x1, y1: this.y1, x2: this.x2, y2: this.y2 };
     }
 }

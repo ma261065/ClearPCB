@@ -1,5 +1,5 @@
 /**
- * Arc - A circular arc defined by center, radius, and angles
+ * Arc - SVG arc using path
  */
 
 import { Shape } from './Shape.js';
@@ -9,19 +9,14 @@ export class Arc extends Shape {
         super(options);
         this.type = 'arc';
         
-        // Center and radius
         this.x = options.x || 0;
         this.y = options.y || 0;
         this.radius = options.radius || 5;
-        
-        // Start and end angles in radians (0 = right, PI/2 = down)
         this.startAngle = options.startAngle || 0;
         this.endAngle = options.endAngle || Math.PI;
     }
     
     _calculateBounds() {
-        // Conservative bounds - full circle extent
-        // Could be optimized to use actual arc extent
         const r = this.radius + this.lineWidth / 2;
         return {
             minX: this.x - r,
@@ -34,18 +29,15 @@ export class Arc extends Shape {
     hitTest(point, tolerance = 0.5) {
         const dist = Math.hypot(point.x - this.x, point.y - this.y);
         
-        // Check if at correct distance
         if (Math.abs(dist - this.radius) > tolerance + this.lineWidth / 2) {
             return false;
         }
         
-        // Check if within angle range
         let angle = Math.atan2(point.y - this.y, point.x - this.x);
         return this._isAngleInRange(angle);
     }
     
     _isAngleInRange(angle) {
-        // Normalize angles to [0, 2*PI)
         const normalize = (a) => {
             while (a < 0) a += Math.PI * 2;
             while (a >= Math.PI * 2) a -= Math.PI * 2;
@@ -59,7 +51,6 @@ export class Arc extends Shape {
         if (start <= end) {
             return angle >= start && angle <= end;
         } else {
-            // Arc crosses 0
             return angle >= start || angle <= end;
         }
     }
@@ -70,15 +61,14 @@ export class Arc extends Shape {
         
         if (this._isAngleInRange(angle)) {
             return Math.abs(dist - this.radius);
-        } else {
-            // Distance to nearest endpoint
-            const start = this.getStartPoint();
-            const end = this.getEndPoint();
-            return Math.min(
-                Math.hypot(point.x - start.x, point.y - start.y),
-                Math.hypot(point.x - end.x, point.y - end.y)
-            );
         }
+        
+        const start = this.getStartPoint();
+        const end = this.getEndPoint();
+        return Math.min(
+            Math.hypot(point.x - start.x, point.y - start.y),
+            Math.hypot(point.x - end.x, point.y - end.y)
+        );
     }
     
     getStartPoint() {
@@ -95,27 +85,26 @@ export class Arc extends Shape {
         };
     }
     
-    _draw(g, scale) {
-        g.arc(this.x, this.y, this.radius, this.startAngle, this.endAngle);
+    _createElement() {
+        return document.createElementNS('http://www.w3.org/2000/svg', 'path');
     }
     
-    _drawHandles(g, scale) {
-        const handleSize = 3 / scale;
-        
-        g.lineStyle(1 / scale, 0xe94560, 1);
-        g.beginFill(0xffffff, 1);
-        
-        // Center handle
-        g.drawRect(this.x - handleSize/2, this.y - handleSize/2, handleSize, handleSize);
-        
-        // Endpoint handles
+    _updateElement(el, strokeColor, fillColor, scale) {
         const start = this.getStartPoint();
         const end = this.getEndPoint();
         
-        g.drawRect(start.x - handleSize/2, start.y - handleSize/2, handleSize, handleSize);
-        g.drawRect(end.x - handleSize/2, end.y - handleSize/2, handleSize, handleSize);
+        // Calculate arc sweep
+        let sweep = this.endAngle - this.startAngle;
+        while (sweep < 0) sweep += Math.PI * 2;
+        const largeArc = sweep > Math.PI ? 1 : 0;
         
-        g.endFill();
+        const d = `M ${start.x} ${start.y} A ${this.radius} ${this.radius} 0 ${largeArc} 1 ${end.x} ${end.y}`;
+        
+        el.setAttribute('d', d);
+        el.setAttribute('stroke', strokeColor);
+        el.setAttribute('stroke-width', this.lineWidth);
+        el.setAttribute('fill', 'none');
+        el.setAttribute('stroke-linecap', 'round');
     }
     
     move(dx, dy) {
@@ -124,31 +113,11 @@ export class Arc extends Shape {
         this.invalidate();
     }
     
-    get arcLength() {
-        let sweep = this.endAngle - this.startAngle;
-        if (sweep < 0) sweep += Math.PI * 2;
-        return this.radius * sweep;
-    }
-    
     clone() {
-        return new Arc({
-            ...this.toJSON(),
-            x: this.x,
-            y: this.y,
-            radius: this.radius,
-            startAngle: this.startAngle,
-            endAngle: this.endAngle
-        });
+        return new Arc({ ...this.toJSON(), x: this.x, y: this.y, radius: this.radius, startAngle: this.startAngle, endAngle: this.endAngle });
     }
     
     toJSON() {
-        return {
-            ...super.toJSON(),
-            x: this.x,
-            y: this.y,
-            radius: this.radius,
-            startAngle: this.startAngle,
-            endAngle: this.endAngle
-        };
+        return { ...super.toJSON(), x: this.x, y: this.y, radius: this.radius, startAngle: this.startAngle, endAngle: this.endAngle };
     }
 }

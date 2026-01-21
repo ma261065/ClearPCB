@@ -1,62 +1,49 @@
 /**
- * Viewport - WebGL-accelerated viewport using PixiJS
+ * ViewportSVG - SVG-based viewport with pan/zoom
  * 
- * Pan and zoom are instant because they just change the world container's transform.
- * No re-rendering of geometry needed.
+ * Uses SVG viewBox for pan/zoom - mathematically perfect scaling.
  */
 
 export class Viewport {
     constructor(container) {
         this.container = container;
         
-        // Create PixiJS application with optimized settings
-        this.app = new PIXI.Application({
-            resizeTo: container,
-            backgroundColor: 0x000000,  // Black like EasyEDA
-            antialias: false,
-            resolution: window.devicePixelRatio || 1,
-            autoDensity: true,
-            powerPreference: 'high-performance',
-        });
-        container.appendChild(this.app.view);
+        // Create SVG element
+        this.svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        this.svg.style.width = '100%';
+        this.svg.style.height = '100%';
+        this.svg.style.display = 'block';
+        this.svg.style.backgroundColor = '#000000';
+        this.svg.style.cursor = 'crosshair';
+        container.appendChild(this.svg);
         
-        // Log renderer type
-        console.log('PixiJS Renderer:', this.app.renderer.constructor.name);
+        // Create layer groups
+        this.gridLayer = this._createGroup('gridLayer');
+        this.contentLayer = this._createGroup('contentLayer');
+        this.axesLayer = this._createGroup('axesLayer');
+        this.rulerLayer = null; // Rulers are in screen space, handled separately
         
-        // World container - all content goes here
-        // Pan/zoom transforms this container, not individual objects
-        this.world = new PIXI.Container();
-        this.app.stage.addChild(this.world);
+        // Create ruler container (HTML overlay)
+        this.rulerContainer = document.createElement('div');
+        this.rulerContainer.style.cssText = 'position:absolute;top:0;left:0;pointer-events:none;';
+        container.appendChild(this.rulerContainer);
         
-        // Layers within world (for content that transforms with pan/zoom)
-        this.gridLayer = new PIXI.Container();
-        this.contentLayer = new PIXI.Container();
-        this.originLayer = new PIXI.Container();
-        this.world.addChild(this.gridLayer);
-        this.world.addChild(this.contentLayer);
-        this.world.addChild(this.originLayer);
-        
-        // Ruler layer (screen space, on top of everything)
-        this.rulerLayer = new PIXI.Container();
-        this.app.stage.addChild(this.rulerLayer);
-        this.rulerSize = 25; // pixels
-        this.showRulers = true;
-        
-        // View state
-        // At 100% zoom, viewport shows 500mm width
+        // View state - viewBox defines visible world area
         this.baseWidth = 500; // mm visible at 100% zoom
-        this.scale = 1; // Will be set properly in resetView
-        this.offset = { x: 0, y: 0 };  // World coords at center
+        this.viewBox = { x: -250, y: -150, width: 500, height: 300 };
         
-        // Constraints (zoom range: 5% to 5000%)
+        // Constraints
         this.minZoom = 0.05;
         this.maxZoom = 50;
         
         // Grid
         this.gridSize = 1;
         this.gridVisible = true;
-        this.gridStyle = 'lines'; // 'lines' or 'dots'
-        this.showOrigin = true;
+        this.gridStyle = 'lines';
+        
+        // Rulers
+        this.rulerSize = 25;
+        this.showRulers = true;
         
         // Snapping
         this.snapToGrid = true;
@@ -64,15 +51,15 @@ export class Viewport {
         // Units
         this.units = 'mm';
         this.unitConversions = {
-            mm: 1,
-            mil: 1 / 0.0254,
-            inch: 1 / 25.4
+            'mm': 1,
+            'mil': 39.3701,
+            'inch': 0.0393701
         };
         
-        // Interaction state
+        // Pan state
         this.isPanning = false;
         this.panStart = { x: 0, y: 0 };
-        this.panStartOffset = { x: 0, y: 0 };
+        this.panStartViewBox = null;
         this.currentMouseWorld = { x: 0, y: 0 };
         
         // Callbacks
@@ -80,108 +67,133 @@ export class Viewport {
         this.onMouseMove = null;
         
         // Setup
-        this._updateTransform();
+        this._updateViewBox();
         this._createGrid();
-        this._createOrigin();
         this._createRulers();
         this._bindEvents();
         
         // Handle resize
         window.addEventListener('resize', () => {
-            this._updateTransform();
-            this._createGrid();
-            this._createRulers();
+            this._onResize();
         });
     }
     
+    _createGroup(id) {
+        const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        g.setAttribute('id', id);
+        this.svg.appendChild(g);
+        return g;
+    }
+    
     get width() {
-        return this.app.screen.width;
+        return this.svg.clientWidth || this.container.clientWidth;
     }
     
     get height() {
-        return this.app.screen.height;
+        return this.svg.clientHeight || this.container.clientHeight;
+    }
+    
+    get scale() {
+        // Pixels per world unit
+        return this.width / this.viewBox.width;
     }
     
     get zoom() {
-        // Returns zoom as a multiplier (1.0 = 100%)
-        const baseScale = this.width / this.baseWidth;
-        return this.scale / baseScale;
+        // Zoom multiplier (1.0 = 100% = baseWidth visible)
+        return this.baseWidth / this.viewBox.width;
     }
     
-    set zoom(value) {
-        const baseScale = this.width / this.baseWidth;
-        this.scale = value * baseScale;
+    get offset() {
+        // Center of viewBox in world coords
+        return {
+            x: this.viewBox.x + this.viewBox.width / 2,
+            y: this.viewBox.y + this.viewBox.height / 2
+        };
     }
-
-    // ==================== Transform Management ====================
     
-    _updateTransform() {
-        // Position world container so that this.offset is at screen center
-        this.world.x = this.width / 2 - this.offset.x * this.scale;
-        this.world.y = this.height / 2 - this.offset.y * this.scale;
-        this.world.scale.set(this.scale);
+    // ==================== View Management ====================
+    
+    _updateViewBox() {
+        const vb = this.viewBox;
+        this.svg.setAttribute('viewBox', `${vb.x} ${vb.y} ${vb.width} ${vb.height}`);
     }
-
-    // ==================== Coordinate Transforms ====================
-
-    worldToScreen(world) {
-        return {
-            x: (world.x - this.offset.x) * this.scale + this.width / 2,
-            y: (world.y - this.offset.y) * this.scale + this.height / 2
-        };
-    }
-
-    screenToWorld(screen) {
-        return {
-            x: (screen.x - this.width / 2) / this.scale + this.offset.x,
-            y: (screen.y - this.height / 2) / this.scale + this.offset.y
-        };
-    }
-
-    getSnappedPosition(world) {
-        if (!this.snapToGrid || this.gridSize <= 0) return { ...world };
-        return {
-            x: Math.round(world.x / this.gridSize) * this.gridSize,
-            y: Math.round(world.y / this.gridSize) * this.gridSize
-        };
-    }
-
-    // ==================== View Control ====================
-
-    pan(dx, dy) {
-        this.offset.x += dx;
-        this.offset.y += dy;
-        this._updateTransform();
+    
+    _onResize() {
+        // Maintain aspect ratio - adjust height to match new container
+        const aspect = this.height / this.width;
+        this.viewBox.height = this.viewBox.width * aspect;
+        this._updateViewBox();
+        this._createGrid();
+        this._createRulers();
         this._notifyViewChanged();
     }
-
+    
+    screenToWorld(screenPos) {
+        const rect = this.svg.getBoundingClientRect();
+        const x = this.viewBox.x + (screenPos.x / rect.width) * this.viewBox.width;
+        const y = this.viewBox.y + (screenPos.y / rect.height) * this.viewBox.height;
+        return { x, y };
+    }
+    
+    worldToScreen(worldPos) {
+        const rect = this.svg.getBoundingClientRect();
+        const x = ((worldPos.x - this.viewBox.x) / this.viewBox.width) * rect.width;
+        const y = ((worldPos.y - this.viewBox.y) / this.viewBox.height) * rect.height;
+        return { x, y };
+    }
+    
+    getSnappedPosition(worldPos) {
+        if (!this.snapToGrid) return worldPos;
+        return {
+            x: Math.round(worldPos.x / this.gridSize) * this.gridSize,
+            y: Math.round(worldPos.y / this.gridSize) * this.gridSize
+        };
+    }
+    
+    pan(dx, dy) {
+        this.viewBox.x += dx;
+        this.viewBox.y += dy;
+        this._updateViewBox();
+        this._notifyViewChanged();
+    }
+    
     zoomAt(worldPoint, factor) {
-        const baseScale = this.width / this.baseWidth;
-        const minScale = baseScale * this.minZoom;
-        const maxScale = baseScale * this.maxZoom;
-        const newScale = Math.max(minScale, Math.min(maxScale, this.scale * factor));
+        const currentZoom = this.zoom;
+        const newZoom = Math.max(this.minZoom, Math.min(this.maxZoom, currentZoom * factor));
         
-        if (newScale !== this.scale) {
-            const actualFactor = newScale / this.scale;
-            this.offset.x = worldPoint.x - (worldPoint.x - this.offset.x) / actualFactor;
-            this.offset.y = worldPoint.y - (worldPoint.y - this.offset.y) / actualFactor;
-            this.scale = newScale;
-            this._updateTransform();
+        if (newZoom !== currentZoom) {
+            const newWidth = this.baseWidth / newZoom;
+            const newHeight = newWidth * (this.height / this.width);
+            
+            // Zoom toward the point
+            const wx = (worldPoint.x - this.viewBox.x) / this.viewBox.width;
+            const wy = (worldPoint.y - this.viewBox.y) / this.viewBox.height;
+            
+            this.viewBox.width = newWidth;
+            this.viewBox.height = newHeight;
+            this.viewBox.x = worldPoint.x - wx * newWidth;
+            this.viewBox.y = worldPoint.y - wy * newHeight;
+            
+            this._updateViewBox();
             this._createGrid();
+            this._createRulers();
             this._notifyViewChanged();
         }
     }
-
+    
     resetView() {
-        this.offset = { x: 0, y: 0 };
-        // At 100% zoom, show baseWidth (500mm) across viewport
-        this.scale = this.width / this.baseWidth;
-        this._updateTransform();
+        const aspect = this.height / this.width;
+        this.viewBox.width = this.baseWidth;
+        this.viewBox.height = this.baseWidth * aspect;
+        this.viewBox.x = -this.viewBox.width / 2;
+        this.viewBox.y = -this.viewBox.height / 2;
+        this._updateViewBox();
         this._createGrid();
+        this._createRulers();
         this._notifyViewChanged();
     }
-
-    fitToBounds(minX, minY, maxX, maxY, padding = 50) {
+    
+    fitToBounds(minX, minY, maxX, maxY, padding = 20) {
         const contentWidth = maxX - minX;
         const contentHeight = maxY - minY;
         
@@ -190,156 +202,69 @@ export class Viewport {
             return;
         }
         
-        const availableWidth = this.width - padding * 2;
-        const availableHeight = this.height - padding * 2;
+        const aspect = this.height / this.width;
+        const paddingWorld = padding / this.scale;
         
-        const scaleX = availableWidth / contentWidth;
-        const scaleY = availableHeight / contentHeight;
+        // Fit content with padding
+        let viewWidth = contentWidth + paddingWorld * 2;
+        let viewHeight = contentHeight + paddingWorld * 2;
         
-        const baseScale = this.width / this.baseWidth;
-        const minScale = baseScale * this.minZoom;
-        const maxScale = baseScale * this.maxZoom;
+        // Adjust to maintain aspect ratio
+        if (viewHeight / viewWidth > aspect) {
+            viewWidth = viewHeight / aspect;
+        } else {
+            viewHeight = viewWidth * aspect;
+        }
         
-        this.scale = Math.min(scaleX, scaleY);
-        this.scale = Math.max(minScale, Math.min(maxScale, this.scale));
+        // Clamp to zoom limits
+        const zoom = this.baseWidth / viewWidth;
+        const clampedZoom = Math.max(this.minZoom, Math.min(this.maxZoom, zoom));
+        viewWidth = this.baseWidth / clampedZoom;
+        viewHeight = viewWidth * aspect;
         
-        this.offset.x = (minX + maxX) / 2;
-        this.offset.y = (minY + maxY) / 2;
+        // Center on content
+        const cx = (minX + maxX) / 2;
+        const cy = (minY + maxY) / 2;
         
-        this._updateTransform();
+        this.viewBox.width = viewWidth;
+        this.viewBox.height = viewHeight;
+        this.viewBox.x = cx - viewWidth / 2;
+        this.viewBox.y = cy - viewHeight / 2;
+        
+        this._updateViewBox();
         this._createGrid();
+        this._createRulers();
         this._notifyViewChanged();
     }
-
+    
     fitToContent() {
         this.fitToBounds(-50, -50, 50, 50);
     }
-
+    
     getVisibleBounds() {
-        const topLeft = this.screenToWorld({ x: 0, y: 0 });
-        const bottomRight = this.screenToWorld({ x: this.width, y: this.height });
         return {
-            minX: topLeft.x,
-            minY: topLeft.y,
-            maxX: bottomRight.x,
-            maxY: bottomRight.y
+            minX: this.viewBox.x,
+            minY: this.viewBox.y,
+            maxX: this.viewBox.x + this.viewBox.width,
+            maxY: this.viewBox.y + this.viewBox.height
         };
     }
-
+    
     _notifyViewChanged() {
-        this._createRulers();
         if (this.onViewChanged) {
             this.onViewChanged({
-                offset: { ...this.offset },
-                zoom: this.scale,
+                offset: this.offset,
+                zoom: this.zoom,
                 bounds: this.getVisibleBounds()
             });
         }
     }
-
+    
     // ==================== Grid ====================
-
+    
     setGridSize(size) {
         this.gridSize = Math.max(0.01, size);
         this._createGrid();
-    }
-
-    _createGrid() {
-        // Remove old grid
-        this.gridLayer.removeChildren();
-        
-        if (!this.gridVisible) return;
-        
-        // Get visible bounds with margin for panning
-        const bounds = this.getVisibleBounds();
-        const viewWidth = bounds.maxX - bounds.minX;
-        const viewHeight = bounds.maxY - bounds.minY;
-        const margin = Math.max(viewWidth, viewHeight);
-        
-        // Minimum screen pixels between grid lines for visibility
-        const minPixelSpacing = 8;
-        const minWorldSpacing = minPixelSpacing / this.scale;
-        
-        // Find display spacing - smallest multiple of gridSize that's visible
-        let gridSpacing = this.gridSize;
-        while (gridSpacing < minWorldSpacing) {
-            gridSpacing *= 10; // Jump by factors of 10
-        }
-        
-        // Calculate index range
-        const startXi = Math.floor((bounds.minX - margin) / gridSpacing);
-        const endXi = Math.ceil((bounds.maxX + margin) / gridSpacing);
-        const startYi = Math.floor((bounds.minY - margin) / gridSpacing);
-        const endYi = Math.ceil((bounds.maxY + margin) / gridSpacing);
-        
-        // World extent
-        const minY = startYi * gridSpacing;
-        const maxY = endYi * gridSpacing;
-        const minX = startXi * gridSpacing;
-        const maxX = endXi * gridSpacing;
-        
-        const pxInWorld = 1 / this.scale;
-        
-        if (this.gridStyle === 'dots') {
-            // Dot grid
-            const dots = new PIXI.Graphics();
-            dots.beginFill(0x262626);
-            
-            const dotSize = pxInWorld * 1.5;
-            for (let xi = startXi; xi <= endXi; xi++) {
-                for (let yi = startYi; yi <= endYi; yi++) {
-                    const x = xi * gridSpacing;
-                    const y = yi * gridSpacing;
-                    dots.drawRect(x - dotSize/2, y - dotSize/2, dotSize, dotSize);
-                }
-            }
-            dots.endFill();
-            this.gridLayer.addChild(dots);
-        } else {
-            // Line grid
-            const grid = new PIXI.Graphics();
-            grid.lineStyle({
-                width: pxInWorld,
-                color: 0x262626,
-                alignment: 0.5,
-                native: true
-            });
-            
-            // Vertical lines (skip x=0)
-            for (let i = startXi; i <= endXi; i++) {
-                if (i === 0) continue;
-                const x = i * gridSpacing;
-                grid.moveTo(x, minY);
-                grid.lineTo(x, maxY);
-            }
-            // Horizontal lines (skip y=0)
-            for (let i = startYi; i <= endYi; i++) {
-                if (i === 0) continue;
-                const y = i * gridSpacing;
-                grid.moveTo(minX, y);
-                grid.lineTo(maxX, y);
-            }
-            
-            this.gridLayer.addChild(grid);
-        }
-        
-        // Axis lines (highlighted: #828282)
-        const axes = new PIXI.Graphics();
-        axes.lineStyle({
-            width: pxInWorld,
-            color: 0x828282,
-            alignment: 0.5,
-            native: true
-        });
-        
-        // X axis (y=0)
-        axes.moveTo(minX, 0);
-        axes.lineTo(maxX, 0);
-        // Y axis (x=0)
-        axes.moveTo(0, minY);
-        axes.lineTo(0, maxY);
-        
-        this.gridLayer.addChild(axes);
     }
     
     setGridStyle(style) {
@@ -349,40 +274,101 @@ export class Viewport {
         }
     }
     
-    _updateGridOffset() {
-        // Not needed
-    }
-
-    _createOrigin() {
-        this.originLayer.removeChildren();
-        // Origin is now shown via highlighted axes in grid
+    setGridVisible(visible) {
+        this.gridVisible = visible;
+        this._createGrid();
     }
     
-    _createRulers() {
-        this.rulerLayer.removeChildren();
+    _createGrid() {
+        // Clear existing grid
+        this.gridLayer.innerHTML = '';
+        this.axesLayer.innerHTML = '';
         
-        if (!this.showRulers) return;
+        if (!this.gridVisible) return;
+        
+        const bounds = this.getVisibleBounds();
+        const margin = Math.max(bounds.maxX - bounds.minX, bounds.maxY - bounds.minY);
+        
+        // Adaptive grid spacing
+        const minPixelSpacing = 8;
+        const minWorldSpacing = minPixelSpacing / this.scale;
+        
+        let gridSpacing = this.gridSize;
+        while (gridSpacing < minWorldSpacing) {
+            gridSpacing *= 10;
+        }
+        
+        // Calculate range for lines/axes
+        const startX = Math.floor((bounds.minX - margin) / gridSpacing) * gridSpacing;
+        const endX = Math.ceil((bounds.maxX + margin) / gridSpacing) * gridSpacing;
+        const startY = Math.floor((bounds.minY - margin) / gridSpacing) * gridSpacing;
+        const endY = Math.ceil((bounds.maxY + margin) / gridSpacing) * gridSpacing;
+        
+        // Line width in world units (1 screen pixel)
+        const strokeWidth = 1 / this.scale;
+        
+        if (this.gridStyle === 'dots') {
+            // Use SVG pattern for efficient dot grid
+            const dotSize = strokeWidth * 2.5;
+            const patternId = 'dotPattern';
+            
+            // Pattern origin aligns with world grid
+            const patternX = Math.floor(startX / gridSpacing) * gridSpacing;
+            const patternY = Math.floor(startY / gridSpacing) * gridSpacing;
+            
+            const svg = `
+                <defs>
+                    <pattern id="${patternId}" x="${patternX}" y="${patternY}" width="${gridSpacing}" height="${gridSpacing}" patternUnits="userSpaceOnUse">
+                        <circle cx="0" cy="0" r="${dotSize}" fill="#404040"/>
+                    </pattern>
+                </defs>
+                <rect x="${startX}" y="${startY}" width="${endX - startX}" height="${endY - startY}" fill="url(#${patternId})"/>
+            `;
+            this.gridLayer.innerHTML = svg;
+        } else {
+            // Line grid
+            let lines = `<g stroke="#262626" stroke-width="${strokeWidth}">`;
+            
+            for (let x = startX; x <= endX; x += gridSpacing) {
+                if (Math.abs(x) < gridSpacing / 2) continue;
+                lines += `<line x1="${x}" y1="${startY}" x2="${x}" y2="${endY}"/>`;
+            }
+            
+            for (let y = startY; y <= endY; y += gridSpacing) {
+                if (Math.abs(y) < gridSpacing / 2) continue;
+                lines += `<line x1="${startX}" y1="${y}" x2="${endX}" y2="${y}"/>`;
+            }
+            
+            lines += '</g>';
+            this.gridLayer.innerHTML = lines;
+        }
+        
+        // Axes
+        const axes = `
+            <g stroke="#828282" stroke-width="${strokeWidth}">
+                <line x1="${startX}" y1="0" x2="${endX}" y2="0"/>
+                <line x1="0" y1="${startY}" x2="0" y2="${endY}"/>
+            </g>
+        `;
+        this.axesLayer.innerHTML = axes;
+    }
+    
+    // ==================== Rulers ====================
+    
+    _createRulers() {
+        if (!this.showRulers) {
+            this.rulerContainer.innerHTML = '';
+            return;
+        }
         
         const rs = this.rulerSize;
         const w = this.width;
         const h = this.height;
+        const bounds = this.getVisibleBounds();
         
-        // Ruler backgrounds
-        const bg = new PIXI.Graphics();
-        bg.beginFill(0x1a1a1a);
-        bg.drawRect(0, 0, w, rs);       // Top ruler
-        bg.drawRect(0, rs, rs, h - rs); // Left ruler
-        bg.drawRect(0, 0, rs, rs);      // Corner
-        bg.endFill();
-        this.rulerLayer.addChild(bg);
-        
-        // Calculate tick spacing based on zoom
-        // We want roughly 50-100 pixels between major ticks
-        const pixelsPerMm = this.scale;
+        // Calculate tick spacing
         const targetPixels = 80;
-        const targetMm = targetPixels / pixelsPerMm;
-        
-        // Find nice round number for tick spacing
+        const targetMm = targetPixels / this.scale;
         const niceNumbers = [0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50, 100, 200, 500, 1000];
         let tickSpacing = 1;
         for (const n of niceNumbers) {
@@ -392,25 +378,19 @@ export class Viewport {
             }
         }
         
-        // Debug: Show grid info in corner
-        const bounds = this.getVisibleBounds();
+        // Build ruler SVG
+        let svg = `<svg width="${w}" height="${h}" style="position:absolute;top:0;left:0;">`;
+        
+        // Backgrounds
+        svg += `<rect x="0" y="0" width="${w}" height="${rs}" fill="#1a1a1a"/>`;
+        svg += `<rect x="0" y="${rs}" width="${rs}" height="${h - rs}" fill="#1a1a1a"/>`;
+        svg += `<rect x="0" y="0" width="${rs}" height="${rs}" fill="#1a1a1a"/>`;
+        
+        // Debug info
         const viewWidth = Math.round(bounds.maxX - bounds.minX);
-        const debugText = new PIXI.Text(`${viewWidth}mm`, {
-            fontSize: 9,
-            fill: 0x888888,
-            fontFamily: 'monospace'
-        });
-        debugText.x = 2;
-        debugText.y = 8;
-        this.rulerLayer.addChild(debugText);
+        svg += `<text x="3" y="15" fill="#888" font-size="9" font-family="monospace">${viewWidth}mm</text>`;
         
-        // Get visible world bounds
-        
-        // Draw ticks and labels
-        const ticks = new PIXI.Graphics();
-        ticks.lineStyle(1, 0x666666);
-        
-        // Top ruler (X axis)
+        // Top ruler ticks and labels
         const startX = Math.floor(bounds.minX / tickSpacing) * tickSpacing;
         const endX = Math.ceil(bounds.maxX / tickSpacing) * tickSpacing;
         
@@ -418,32 +398,20 @@ export class Viewport {
             const screenX = this.worldToScreen({ x: worldX, y: 0 }).x;
             if (screenX < rs || screenX > w) continue;
             
-            // Major tick
-            ticks.moveTo(screenX, rs);
-            ticks.lineTo(screenX, rs - 8);
+            svg += `<line x1="${screenX}" y1="${rs}" x2="${screenX}" y2="${rs - 8}" stroke="#666"/>`;
+            svg += `<text x="${screenX + 2}" y="12" fill="#888" font-size="10" font-family="monospace">${worldX}</text>`;
             
-            // Label
-            const label = new PIXI.Text(worldX.toString(), {
-                fontSize: 10,
-                fill: 0x888888,
-                fontFamily: 'monospace'
-            });
-            label.x = screenX + 2;
-            label.y = 2;
-            this.rulerLayer.addChild(label);
-            
-            // Minor ticks (5 divisions)
+            // Minor ticks
             for (let i = 1; i < 5; i++) {
                 const minorX = worldX + (tickSpacing / 5) * i;
                 const minorScreenX = this.worldToScreen({ x: minorX, y: 0 }).x;
                 if (minorScreenX > rs && minorScreenX < w) {
-                    ticks.moveTo(minorScreenX, rs);
-                    ticks.lineTo(minorScreenX, rs - 4);
+                    svg += `<line x1="${minorScreenX}" y1="${rs}" x2="${minorScreenX}" y2="${rs - 4}" stroke="#666"/>`;
                 }
             }
         }
         
-        // Left ruler (Y axis)
+        // Left ruler ticks and labels
         const startY = Math.floor(bounds.minY / tickSpacing) * tickSpacing;
         const endY = Math.ceil(bounds.maxY / tickSpacing) * tickSpacing;
         
@@ -451,73 +419,47 @@ export class Viewport {
             const screenY = this.worldToScreen({ x: 0, y: worldY }).y;
             if (screenY < rs || screenY > h) continue;
             
-            // Major tick
-            ticks.moveTo(rs, screenY);
-            ticks.lineTo(rs - 8, screenY);
-            
-            // Label (rotated)
-            const label = new PIXI.Text(worldY.toString(), {
-                fontSize: 10,
-                fill: 0x888888,
-                fontFamily: 'monospace'
-            });
-            label.x = 2;
-            label.y = screenY + 2;
-            this.rulerLayer.addChild(label);
+            svg += `<line x1="${rs}" y1="${screenY}" x2="${rs - 8}" y2="${screenY}" stroke="#666"/>`;
+            svg += `<text x="3" y="${screenY + 3}" fill="#888" font-size="10" font-family="monospace">${worldY}</text>`;
             
             // Minor ticks
             for (let i = 1; i < 5; i++) {
                 const minorY = worldY + (tickSpacing / 5) * i;
                 const minorScreenY = this.worldToScreen({ x: 0, y: minorY }).y;
                 if (minorScreenY > rs && minorScreenY < h) {
-                    ticks.moveTo(rs, minorScreenY);
-                    ticks.lineTo(rs - 4, minorScreenY);
+                    svg += `<line x1="${rs}" y1="${minorScreenY}" x2="${rs - 4}" y2="${minorScreenY}" stroke="#666"/>`;
                 }
             }
         }
         
-        // Border lines
-        ticks.lineStyle(1, 0x444444);
-        ticks.moveTo(rs, 0);
-        ticks.lineTo(rs, h);
-        ticks.moveTo(0, rs);
-        ticks.lineTo(w, rs);
+        // Borders
+        svg += `<line x1="${rs}" y1="0" x2="${rs}" y2="${h}" stroke="#444"/>`;
+        svg += `<line x1="0" y1="${rs}" x2="${w}" y2="${rs}" stroke="#444"/>`;
         
-        this.rulerLayer.addChild(ticks);
+        svg += '</svg>';
+        this.rulerContainer.innerHTML = svg;
     }
-
-    setGridVisible(visible) {
-        this.gridVisible = visible;
-        this._createGrid();
-    }
-
-    setOriginVisible(visible) {
-        this.showOrigin = visible;
-        this._createOrigin();
-    }
-
+    
     // ==================== Units ====================
-
+    
     setUnits(units) {
         if (this.unitConversions[units]) {
             this.units = units;
         }
     }
-
+    
     formatValue(worldValue, precision = 2) {
         const converted = worldValue * this.unitConversions[this.units];
         return converted.toFixed(precision);
     }
-
+    
     // ==================== Events ====================
-
+    
     _bindEvents() {
-        const view = this.app.view;
-        
         // Wheel zoom
-        view.addEventListener('wheel', (e) => {
+        this.svg.addEventListener('wheel', (e) => {
             e.preventDefault();
-            const rect = view.getBoundingClientRect();
+            const rect = this.svg.getBoundingClientRect();
             const mouseScreen = {
                 x: e.clientX - rect.left,
                 y: e.clientY - rect.top
@@ -526,32 +468,32 @@ export class Viewport {
             const factor = e.deltaY > 0 ? 0.9 : 1.1;
             this.zoomAt(mouseWorld, factor);
         }, { passive: false });
-
+        
         // Pan start
-        view.addEventListener('mousedown', (e) => {
+        this.svg.addEventListener('mousedown', (e) => {
             if (e.button === 2 || (e.button === 0 && e.shiftKey)) {
                 this.isPanning = true;
                 this.panStart = { x: e.clientX, y: e.clientY };
-                this.panStartOffset = { ...this.offset };
-                view.style.cursor = 'grabbing';
+                this.panStartViewBox = { ...this.viewBox };
+                this.svg.style.cursor = 'grabbing';
                 e.preventDefault();
             }
         });
-
+        
         // Pan move
-        view.addEventListener('mousemove', (e) => {
-            const rect = view.getBoundingClientRect();
+        this.svg.addEventListener('mousemove', (e) => {
+            const rect = this.svg.getBoundingClientRect();
             const mouseScreen = {
                 x: e.clientX - rect.left,
                 y: e.clientY - rect.top
             };
             
             if (this.isPanning) {
-                const dx = e.clientX - this.panStart.x;
-                const dy = e.clientY - this.panStart.y;
-                this.offset.x = this.panStartOffset.x - dx / this.scale;
-                this.offset.y = this.panStartOffset.y - dy / this.scale;
-                this._updateTransform();
+                const dx = (e.clientX - this.panStart.x) / this.scale;
+                const dy = (e.clientY - this.panStart.y) / this.scale;
+                this.viewBox.x = this.panStartViewBox.x - dx;
+                this.viewBox.y = this.panStartViewBox.y - dy;
+                this._updateViewBox();
                 this._createRulers();
             }
             
@@ -561,17 +503,22 @@ export class Viewport {
                 this.onMouseMove(this.currentMouseWorld, this.getSnappedPosition(this.currentMouseWorld));
             }
         });
-
+        
         // Pan end
         window.addEventListener('mouseup', (e) => {
             if (this.isPanning) {
                 this.isPanning = false;
-                view.style.cursor = 'crosshair';
+                this.svg.style.cursor = 'crosshair';
                 this._createGrid();
                 this._notifyViewChanged();
             }
         });
-
+        
+        // Prevent context menu
+        this.svg.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+        });
+        
         // Keyboard
         window.addEventListener('keydown', (e) => {
             if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
@@ -584,52 +531,28 @@ export class Viewport {
                 case 'F':
                     this.fitToContent();
                     break;
-                case 'g':
-                case 'G':
-                    this.gridVisible = !this.gridVisible;
-                    this._createGrid();
-                    break;
-                case '+':
-                case '=':
-                    this.zoomAt(this.offset, 1.2);
-                    break;
-                case '-':
-                    this.zoomAt(this.offset, 0.8);
-                    break;
             }
         });
-
-        // Prevent context menu
-        view.addEventListener('contextmenu', (e) => e.preventDefault());
     }
-
-    // ==================== Drawing API ====================
-
-    /**
-     * Create a graphics object for drawing
-     */
-    createGraphics() {
-        return new PIXI.Graphics();
+    
+    // ==================== Content Management ====================
+    
+    addContent(svgElement) {
+        this.contentLayer.appendChild(svgElement);
     }
-
-    /**
-     * Add a graphics object to the content layer
-     */
-    addContent(graphics) {
-        this.contentLayer.addChild(graphics);
+    
+    removeContent(svgElement) {
+        if (svgElement.parentNode === this.contentLayer) {
+            this.contentLayer.removeChild(svgElement);
+        }
     }
-
-    /**
-     * Remove a graphics object from the content layer
-     */
-    removeContent(graphics) {
-        this.contentLayer.removeChild(graphics);
+    
+    createGroup() {
+        return document.createElementNS('http://www.w3.org/2000/svg', 'g');
     }
-
-    /**
-     * Clear all content
-     */
-    clearContent() {
-        this.contentLayer.removeChildren();
+    
+    // For compatibility with shape system
+    get app() {
+        return { view: this.svg };
     }
 }

@@ -1,10 +1,8 @@
 /**
- * App.js - Main application entry point
- * 
- * Initializes ClearPCB with PixiJS-accelerated viewport.
+ * App.js - Main application entry point (SVG version)
  */
 
-import { Viewport } from '../core/Viewport.js';
+import { Viewport } from '../core/viewport.js';
 import { EventBus, Events, globalEventBus } from '../core/EventBus.js';
 import { CommandHistory } from '../core/CommandHistory.js';
 import { SelectionManager } from '../core/SelectionManager.js';
@@ -52,7 +50,7 @@ class EditorApp {
         // Initial view
         this.viewport.resetView();
         
-        console.log('ClearPCB initialized (PixiJS WebGL)');
+        console.log('ClearPCB initialized (SVG)');
     }
 
     // ==================== Shape Management ====================
@@ -60,7 +58,7 @@ class EditorApp {
     addShape(shape) {
         this.shapes.push(shape);
         shape.render(this.viewport.scale);
-        this.viewport.addContent(shape.graphics);
+        this.viewport.addContent(shape.element);
         return shape;
     }
     
@@ -68,7 +66,7 @@ class EditorApp {
         const idx = this.shapes.indexOf(shape);
         if (idx !== -1) {
             this.shapes.splice(idx, 1);
-            this.viewport.removeContent(shape.graphics);
+            this.viewport.removeContent(shape.element);
             this.selection.deselect(shape);
             shape.destroy();
         }
@@ -118,7 +116,6 @@ class EditorApp {
         };
 
         this.viewport.onViewChanged = (view) => {
-            // zoom is a multiplier (1.0 = 100%)
             const zoomPercent = Math.round(this.viewport.zoom * 100);
             this.ui.zoomLevel.textContent = `${zoomPercent}%`;
             
@@ -139,21 +136,18 @@ class EditorApp {
     // ==================== Mouse Events ====================
     
     _bindMouseEvents() {
-        const view = this.viewport.app.view;
+        const svg = this.viewport.svg;
         
-        view.addEventListener('click', (e) => {
-            // Ignore if we were panning
+        svg.addEventListener('click', (e) => {
             if (this.viewport.isPanning) return;
             
-            // Get world position
-            const rect = view.getBoundingClientRect();
+            const rect = svg.getBoundingClientRect();
             const screenPos = {
                 x: e.clientX - rect.left,
                 y: e.clientY - rect.top
             };
             const worldPos = this.viewport.screenToWorld(screenPos);
             
-            // Handle selection
             this.selection.handleClick(worldPos, e.shiftKey);
             this.renderShapes();
         });
@@ -187,11 +181,13 @@ class EditorApp {
         });
 
         document.getElementById('zoomIn').addEventListener('click', () => {
-            this.viewport.zoomAt(this.viewport.offset, 1.5);
+            const center = this.viewport.offset;
+            this.viewport.zoomAt(center, 1.5);
         });
 
         document.getElementById('zoomOut').addEventListener('click', () => {
-            this.viewport.zoomAt(this.viewport.offset, 0.67);
+            const center = this.viewport.offset;
+            this.viewport.zoomAt(center, 0.67);
         });
 
         document.getElementById('resetView').addEventListener('click', () => {
@@ -250,9 +246,9 @@ class EditorApp {
         // Board outline
         this.addShape(new Rect({
             x: -50, y: -40, width: 100, height: 80,
-            color: 0x636e72,
+            color: '#636e72',
             fill: true,
-            fillColor: 0x2d3436,
+            fillColor: '#2d3436',
             fillAlpha: 1,
             lineWidth: 0.5,
             layer: 'board'
@@ -262,7 +258,7 @@ class EditorApp {
         [[-45, -35], [45, -35], [-45, 35], [45, 35]].forEach(([x, y]) => {
             this.addShape(new Circle({
                 x, y, radius: 1.6,
-                color: 0xdfe6e9,
+                color: '#dfe6e9',
                 fill: true,
                 fillAlpha: 1,
                 lineWidth: 0,
@@ -273,7 +269,7 @@ class EditorApp {
         // IC package outline
         this.addShape(new Rect({
             x: -15, y: -8, width: 10, height: 16,
-            color: 0x95afc0,
+            color: '#95afc0',
             lineWidth: 0.3,
             layer: 'silkscreen'
         }));
@@ -283,13 +279,13 @@ class EditorApp {
             this.addShape(new Pad({
                 x: -17, y, width: 1.2, height: 1.2,
                 shape: 'circle',
-                color: 0xff6b6b,
+                color: '#ff6b6b',
                 layer: 'top'
             }));
             this.addShape(new Pad({
                 x: -3, y, width: 1.2, height: 1.2,
                 shape: 'circle',
-                color: 0xff6b6b,
+                color: '#ff6b6b',
                 layer: 'top'
             }));
         });
@@ -297,7 +293,7 @@ class EditorApp {
         // Resistor body
         this.addShape(new Rect({
             x: -3, y: -1, width: 6, height: 2,
-            color: 0x4ecdc4,
+            color: '#4ecdc4',
             fill: true,
             fillAlpha: 1,
             lineWidth: 0,
@@ -308,26 +304,26 @@ class EditorApp {
         this.addShape(new Pad({
             x: -5, y: 0, width: 1.6, height: 1.6,
             shape: 'circle',
-            color: 0xff6b6b,
+            color: '#ff6b6b',
             layer: 'top'
         }));
         this.addShape(new Pad({
             x: 5, y: 0, width: 1.6, height: 1.6,
             shape: 'circle',
-            color: 0xff6b6b,
+            color: '#ff6b6b',
             layer: 'top'
         }));
         
         // Capacitor
         this.addShape(new Line({
             x1: 15, y1: -3, x2: 15, y2: 3,
-            color: 0x4ecdc4,
+            color: '#4ecdc4',
             lineWidth: 0.4,
             layer: 'top'
         }));
         this.addShape(new Line({
             x1: 17, y1: -3, x2: 17, y2: 3,
-            color: 0x4ecdc4,
+            color: '#4ecdc4',
             lineWidth: 0.4,
             layer: 'top'
         }));
@@ -336,13 +332,13 @@ class EditorApp {
         this.addShape(new Pad({
             x: 12, y: 0, width: 1.6, height: 1.6,
             shape: 'circle',
-            color: 0xff6b6b,
+            color: '#ff6b6b',
             layer: 'top'
         }));
         this.addShape(new Pad({
             x: 20, y: 0, width: 1.6, height: 1.6,
             shape: 'circle',
-            color: 0xff6b6b,
+            color: '#ff6b6b',
             layer: 'top'
         }));
         
@@ -356,9 +352,10 @@ class EditorApp {
                 { x: 0, y: 0 },
                 { x: -5, y: 0 }
             ],
-            color: 0x00b894,
+            color: '#00b894',
             lineWidth: 0.5,
             fill: false,
+            closed: false,
             layer: 'top'
         }));
         
@@ -370,9 +367,10 @@ class EditorApp {
                 { x: -3, y: 15 },
                 { x: -3, y: 6 }
             ],
-            color: 0x00b894,
+            color: '#00b894',
             lineWidth: 0.5,
             fill: false,
+            closed: false,
             layer: 'top'
         }));
         
@@ -397,7 +395,7 @@ class EditorApp {
             radius: 8,
             startAngle: -Math.PI / 2,
             endAngle: Math.PI / 2,
-            color: 0x9b59b6,
+            color: '#9b59b6',
             lineWidth: 0.4,
             layer: 'top'
         }));

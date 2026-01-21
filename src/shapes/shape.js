@@ -1,8 +1,8 @@
 /**
- * Shape - Base class for all PCB shapes
+ * Shape - Base class for all PCB shapes (SVG version)
  * 
  * All coordinates are in world units (mm).
- * Each shape manages its own PIXI.Graphics object.
+ * Each shape manages its own SVG element.
  */
 
 let shapeIdCounter = 0;
@@ -16,7 +16,7 @@ export class Shape {
         this.layer = options.layer || 'top';
         
         // Visual properties
-        this.color = options.color || 0x00b894;
+        this.color = options.color || '#00b894';
         this.lineWidth = options.lineWidth || 0.2; // mm
         this.fill = options.fill !== undefined ? options.fill : false;
         this.fillColor = options.fillColor || this.color;
@@ -28,18 +28,21 @@ export class Shape {
         this.visible = true;
         this.locked = false;
         
-        // PIXI graphics object (created on first render)
-        this.graphics = null;
+        // SVG element (created on first render)
+        this.element = null;
         
-        // Cached bounds (invalidated on change)
+        // Cached bounds
         this._bounds = null;
         this._dirty = true;
     }
     
-    /**
-     * Get axis-aligned bounding box in world coordinates
-     * @returns {{minX: number, minY: number, maxX: number, maxY: number}}
-     */
+    // Convert color to CSS format
+    _colorToCSS(color) {
+        if (typeof color === 'string') return color;
+        // Convert hex number to CSS hex string
+        return '#' + color.toString(16).padStart(6, '0');
+    }
+    
     getBounds() {
         if (!this._bounds || this._dirty) {
             this._bounds = this._calculateBounds();
@@ -47,136 +50,71 @@ export class Shape {
         return this._bounds;
     }
     
-    /**
-     * Override in subclass to calculate bounds
-     */
     _calculateBounds() {
         return { minX: 0, minY: 0, maxX: 0, maxY: 0 };
     }
     
-    /**
-     * Hit test - check if point is on/in this shape
-     * @param {object} point - {x, y} in world coordinates
-     * @param {number} tolerance - hit tolerance in world units
-     * @returns {boolean}
-     */
     hitTest(point, tolerance = 0.5) {
-        return false; // Override in subclass
+        return false;
     }
     
-    /**
-     * Get distance from point to shape (for selection priority)
-     * @param {object} point - {x, y} in world coordinates
-     * @returns {number} distance in world units
-     */
     distanceTo(point) {
-        return Infinity; // Override in subclass
+        return Infinity;
     }
     
-    /**
-     * Mark shape as needing redraw
-     */
     invalidate() {
         this._dirty = true;
         this._bounds = null;
     }
     
-    /**
-     * Create or update PIXI graphics
-     * @param {number} scale - current viewport scale (pixels per mm)
-     */
     render(scale) {
-        if (!this.graphics) {
-            this.graphics = new PIXI.Graphics();
+        if (!this.element) {
+            this.element = this._createElement();
         }
         
         if (!this.visible) {
-            this.graphics.visible = false;
-            return this.graphics;
+            this.element.style.display = 'none';
+            return this.element;
         }
         
-        this.graphics.visible = true;
-        this.graphics.clear();
+        this.element.style.display = '';
         
         // Determine colors based on state
-        let strokeColor = this.color;
-        let fillColor = this.fillColor;
+        let strokeColor = this._colorToCSS(this.color);
+        let fillColor = this._colorToCSS(this.fillColor);
         
         if (this.selected) {
-            strokeColor = 0xe94560; // Selection color
-            fillColor = 0xe94560;
+            strokeColor = '#e94560';
+            fillColor = '#e94560';
         } else if (this.hovered) {
-            strokeColor = 0xffeaa7; // Hover color
-            fillColor = 0xffeaa7;
+            strokeColor = '#ffeaa7';
+            fillColor = '#ffeaa7';
         }
         
-        // Line width in world units (will be scaled by container)
-        const lineWidth = this.lineWidth;
-        
-        // Setup styles
-        if (this.fill) {
-            this.graphics.beginFill(fillColor, this.fillAlpha);
-        }
-        this.graphics.lineStyle(lineWidth, strokeColor, 1);
-        
-        // Draw the shape (implemented by subclass)
-        this._draw(this.graphics, scale);
-        
-        if (this.fill) {
-            this.graphics.endFill();
-        }
-        
-        // Draw selection handles if selected
-        if (this.selected) {
-            this._drawHandles(this.graphics, scale);
-        }
+        // Update element
+        this._updateElement(this.element, strokeColor, fillColor, scale);
         
         this._dirty = false;
-        return this.graphics;
+        return this.element;
     }
     
-    /**
-     * Override in subclass to draw the shape
-     */
-    _draw(g, scale) {
-        // Subclass implements
+    _createElement() {
+        // Override in subclass
+        return document.createElementNS('http://www.w3.org/2000/svg', 'g');
     }
     
-    /**
-     * Draw selection handles
-     */
-    _drawHandles(g, scale) {
-        const handleSize = 3 / scale; // Constant screen size
-        const bounds = this.getBounds();
-        
-        g.lineStyle(1 / scale, 0xe94560, 1);
-        g.beginFill(0xffffff, 1);
-        
-        // Corner handles
-        const corners = [
-            { x: bounds.minX, y: bounds.minY },
-            { x: bounds.maxX, y: bounds.minY },
-            { x: bounds.maxX, y: bounds.maxY },
-            { x: bounds.minX, y: bounds.maxY }
-        ];
-        
-        corners.forEach(c => {
-            g.drawRect(c.x - handleSize/2, c.y - handleSize/2, handleSize, handleSize);
-        });
-        
-        g.endFill();
+    _updateElement(el, strokeColor, fillColor, scale) {
+        // Override in subclass
     }
     
-    /**
-     * Clone this shape
-     */
+    move(dx, dy) {
+        this.invalidate();
+    }
+    
     clone() {
         throw new Error('clone() must be implemented by subclass');
     }
     
-    /**
-     * Serialize to plain object
-     */
     toJSON() {
         return {
             id: this.id,
@@ -192,21 +130,10 @@ export class Shape {
         };
     }
     
-    /**
-     * Move shape by delta
-     */
-    move(dx, dy) {
-        // Override in subclass
-        this.invalidate();
-    }
-    
-    /**
-     * Cleanup PIXI resources
-     */
     destroy() {
-        if (this.graphics) {
-            this.graphics.destroy();
-            this.graphics = null;
+        if (this.element && this.element.parentNode) {
+            this.element.parentNode.removeChild(this.element);
         }
+        this.element = null;
     }
 }

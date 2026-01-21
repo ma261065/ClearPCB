@@ -1,5 +1,5 @@
 /**
- * Rect - A rectangle defined by corner and dimensions
+ * Rect - SVG rectangle
  */
 
 import { Shape } from './Shape.js';
@@ -9,13 +9,10 @@ export class Rect extends Shape {
         super(options);
         this.type = 'rect';
         
-        // Position (top-left corner) and dimensions
         this.x = options.x || 0;
         this.y = options.y || 0;
         this.width = options.width || 10;
         this.height = options.height || 10;
-        
-        // Corner radius (0 for sharp corners)
         this.cornerRadius = options.cornerRadius || 0;
     }
     
@@ -38,17 +35,12 @@ export class Rect extends Shape {
             maxY: bounds.maxY + tolerance
         };
         
-        // Check if point is inside expanded bounds
         const insideOuter = point.x >= expanded.minX && point.x <= expanded.maxX &&
                            point.y >= expanded.minY && point.y <= expanded.maxY;
         
         if (!insideOuter) return false;
+        if (this.fill) return true;
         
-        if (this.fill) {
-            return true;
-        }
-        
-        // Stroke only - check if near edge
         const inner = {
             minX: this.x + this.lineWidth / 2 + tolerance,
             minY: this.y + this.lineWidth / 2 + tolerance,
@@ -63,38 +55,37 @@ export class Rect extends Shape {
     }
     
     distanceTo(point) {
-        // Distance to nearest edge of rectangle
         const cx = this.x + this.width / 2;
         const cy = this.y + this.height / 2;
         
         const dx = Math.max(Math.abs(point.x - cx) - this.width / 2, 0);
         const dy = Math.max(Math.abs(point.y - cy) - this.height / 2, 0);
         
-        if (this.fill) {
-            return Math.hypot(dx, dy);
-        } else {
-            // For stroke, return distance to edge
-            const insideX = point.x >= this.x && point.x <= this.x + this.width;
-            const insideY = point.y >= this.y && point.y <= this.y + this.height;
-            
-            if (insideX && insideY) {
-                // Inside - distance to nearest edge
-                return Math.min(
-                    point.x - this.x,
-                    this.x + this.width - point.x,
-                    point.y - this.y,
-                    this.y + this.height - point.y
-                );
-            }
-            return Math.hypot(dx, dy);
-        }
+        return Math.hypot(dx, dy);
     }
     
-    _draw(g, scale) {
+    _createElement() {
+        return document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    }
+    
+    _updateElement(el, strokeColor, fillColor, scale) {
+        el.setAttribute('x', this.x);
+        el.setAttribute('y', this.y);
+        el.setAttribute('width', this.width);
+        el.setAttribute('height', this.height);
+        el.setAttribute('stroke', strokeColor);
+        el.setAttribute('stroke-width', this.lineWidth);
+        
         if (this.cornerRadius > 0) {
-            g.drawRoundedRect(this.x, this.y, this.width, this.height, this.cornerRadius);
+            el.setAttribute('rx', this.cornerRadius);
+            el.setAttribute('ry', this.cornerRadius);
+        }
+        
+        if (this.fill) {
+            el.setAttribute('fill', fillColor);
+            el.setAttribute('fill-opacity', this.fillAlpha);
         } else {
-            g.drawRect(this.x, this.y, this.width, this.height);
+            el.setAttribute('fill', 'none');
         }
     }
     
@@ -104,36 +95,11 @@ export class Rect extends Shape {
         this.invalidate();
     }
     
-    get center() {
-        return {
-            x: this.x + this.width / 2,
-            y: this.y + this.height / 2
-        };
-    }
-    
-    get area() {
-        return this.width * this.height;
-    }
-    
     clone() {
-        return new Rect({
-            ...this.toJSON(),
-            x: this.x,
-            y: this.y,
-            width: this.width,
-            height: this.height,
-            cornerRadius: this.cornerRadius
-        });
+        return new Rect({ ...this.toJSON(), x: this.x, y: this.y, width: this.width, height: this.height, cornerRadius: this.cornerRadius });
     }
     
     toJSON() {
-        return {
-            ...super.toJSON(),
-            x: this.x,
-            y: this.y,
-            width: this.width,
-            height: this.height,
-            cornerRadius: this.cornerRadius
-        };
+        return { ...super.toJSON(), x: this.x, y: this.y, width: this.width, height: this.height, cornerRadius: this.cornerRadius };
     }
 }

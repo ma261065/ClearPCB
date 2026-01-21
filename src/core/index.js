@@ -1,16 +1,12 @@
 /**
- * Core module exports
+ * SVG Shape classes index
  */
 
-export { Viewport } from './viewport.js';
-export { EventBus, Events, globalEventBus } from './eventbus.js';
-export { 
-    Command, 
-    CompoundCommand, 
-    CommandHistory,
-    AddItemCommand,
-    RemoveItemCommand,
-    MoveCommand,
-    SetPropertyCommand
-} from './commandhistory.js';
-export * as Geometry from './geometry.js';
+export { Shape } from './Shape.js';
+export { Line } from './Line.js';
+export { Circle } from './Circle.js';
+export { Rect } from './Rect.js';
+export { Arc } from './Arc.js';
+export { Pad } from './Pad.js';
+export { Via } from './Via.js';
+export { Polygon } from './Polygon.js';

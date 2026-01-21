@@ -1,7 +1,5 @@
 /**
- * Pad - A PCB solder pad
- * 
- * Pads can be various shapes: circle, rect, rounded rect, oval
+ * Pad - SVG PCB pad
  */
 
 import { Shape } from './Shape.js';
@@ -11,41 +9,26 @@ export class Pad extends Shape {
         super(options);
         this.type = 'pad';
         
-        // Position (center)
         this.x = options.x || 0;
         this.y = options.y || 0;
-        
-        // Pad shape: 'circle', 'rect', 'roundrect', 'oval'
         this.shape = options.shape || 'circle';
-        
-        // Dimensions
-        this.width = options.width || 1.5;   // mm
-        this.height = options.height || 1.5; // mm
-        this.cornerRadius = options.cornerRadius || 0.3; // for roundrect
-        
-        // Hole (for through-hole pads)
-        this.hole = options.hole || 0; // 0 = SMD (no hole)
-        this.holeShape = options.holeShape || 'circle'; // 'circle' or 'oval'
+        this.width = options.width || 1.5;
+        this.height = options.height || 1.5;
+        this.cornerRadius = options.cornerRadius || 0.3;
+        this.hole = options.hole || 0;
+        this.holeShape = options.holeShape || 'circle';
         this.holeWidth = options.holeWidth || 0.8;
         this.holeHeight = options.holeHeight || 0.8;
-        
-        // Net name
         this.net = options.net || '';
-        
-        // Pad number/name (e.g., "1", "A1", "GND")
         this.name = options.name || '';
-        
-        // Rotation in radians
         this.rotation = options.rotation || 0;
         
-        // Pads are always filled
         this.fill = true;
         this.fillAlpha = 1;
-        this.color = options.color || 0xff6b6b; // Reddish for copper
+        this.color = options.color || '#ff6b6b';
     }
     
     _calculateBounds() {
-        // TODO: account for rotation
         const hw = this.width / 2;
         const hh = this.height / 2;
         return {
@@ -57,8 +40,6 @@ export class Pad extends Shape {
     }
     
     hitTest(point, tolerance = 0.5) {
-        // Simple bounding box test for now
-        // TODO: account for actual shape and rotation
         const bounds = this.getBounds();
         return point.x >= bounds.minX - tolerance &&
                point.x <= bounds.maxX + tolerance &&
@@ -67,54 +48,46 @@ export class Pad extends Shape {
     }
     
     distanceTo(point) {
-        // Distance to center for now
         return Math.hypot(point.x - this.x, point.y - this.y);
     }
     
-    _draw(g, scale) {
+    _createElement() {
+        return document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    }
+    
+    _updateElement(el, strokeColor, fillColor, scale) {
         const hw = this.width / 2;
         const hh = this.height / 2;
         
-        // Draw pad shape
+        let svg = '';
+        
+        // Pad shape
         switch (this.shape) {
             case 'circle':
-                g.drawCircle(this.x, this.y, Math.max(hw, hh));
+                svg += `<circle cx="${this.x}" cy="${this.y}" r="${Math.max(hw, hh)}" fill="${fillColor}"/>`;
                 break;
             case 'oval':
-                g.drawEllipse(this.x, this.y, hw, hh);
+                svg += `<ellipse cx="${this.x}" cy="${this.y}" rx="${hw}" ry="${hh}" fill="${fillColor}"/>`;
                 break;
             case 'roundrect':
-                g.drawRoundedRect(this.x - hw, this.y - hh, this.width, this.height, this.cornerRadius);
+                svg += `<rect x="${this.x - hw}" y="${this.y - hh}" width="${this.width}" height="${this.height}" rx="${this.cornerRadius}" fill="${fillColor}"/>`;
                 break;
             case 'rect':
             default:
-                g.drawRect(this.x - hw, this.y - hh, this.width, this.height);
+                svg += `<rect x="${this.x - hw}" y="${this.y - hh}" width="${this.width}" height="${this.height}" fill="${fillColor}"/>`;
                 break;
         }
         
-        // Draw hole if present
+        // Hole (black)
         if (this.hole > 0) {
-            // Cut out hole
-            g.beginHole();
             if (this.holeShape === 'oval') {
-                g.drawEllipse(this.x, this.y, this.holeWidth / 2, this.holeHeight / 2);
+                svg += `<ellipse cx="${this.x}" cy="${this.y}" rx="${this.holeWidth/2}" ry="${this.holeHeight/2}" fill="#000"/>`;
             } else {
-                g.drawCircle(this.x, this.y, this.hole / 2);
+                svg += `<circle cx="${this.x}" cy="${this.y}" r="${this.hole/2}" fill="#000"/>`;
             }
-            g.endHole();
         }
-    }
-    
-    _drawHandles(g, scale) {
-        const handleSize = 3 / scale;
         
-        g.lineStyle(1 / scale, 0xe94560, 1);
-        g.beginFill(0xffffff, 1);
-        
-        // Center handle only for pads
-        g.drawRect(this.x - handleSize/2, this.y - handleSize/2, handleSize, handleSize);
-        
-        g.endFill();
+        el.innerHTML = svg;
     }
     
     move(dx, dy) {
@@ -124,40 +97,16 @@ export class Pad extends Shape {
     }
     
     clone() {
-        return new Pad({
-            ...this.toJSON(),
-            x: this.x,
-            y: this.y,
-            shape: this.shape,
-            width: this.width,
-            height: this.height,
-            cornerRadius: this.cornerRadius,
-            hole: this.hole,
-            holeShape: this.holeShape,
-            holeWidth: this.holeWidth,
-            holeHeight: this.holeHeight,
-            net: this.net,
-            name: this.name,
-            rotation: this.rotation
-        });
+        return new Pad({ ...this.toJSON() });
     }
     
     toJSON() {
         return {
             ...super.toJSON(),
-            x: this.x,
-            y: this.y,
-            shape: this.shape,
-            width: this.width,
-            height: this.height,
-            cornerRadius: this.cornerRadius,
-            hole: this.hole,
-            holeShape: this.holeShape,
-            holeWidth: this.holeWidth,
-            holeHeight: this.holeHeight,
-            net: this.net,
-            name: this.name,
-            rotation: this.rotation
+            x: this.x, y: this.y, shape: this.shape,
+            width: this.width, height: this.height, cornerRadius: this.cornerRadius,
+            hole: this.hole, holeShape: this.holeShape, holeWidth: this.holeWidth, holeHeight: this.holeHeight,
+            net: this.net, name: this.name, rotation: this.rotation
         };
     }
 }
