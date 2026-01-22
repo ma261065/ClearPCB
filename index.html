@@ -3,8 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ClearPCB</title>
-    <!-- Pure SVG - no external libraries -->
+    <title>ClearPCB - Schematic Editor</title>
     <style>
         * {
             margin: 0;
@@ -86,41 +85,20 @@
             overflow: hidden;
         }
 
-        .canvas-container canvas {
-            display: block;
-            cursor: crosshair;
-        }
-
-        .snap-cursor {
+        /* Drawing crosshair - shown only while drawing */
+        .drawing-crosshair {
             position: absolute;
-            width: 21px;
-            height: 21px;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
             pointer-events: none;
             z-index: 5;
-            will-change: transform;
+            display: none;
         }
-
-        .snap-cursor::before,
-        .snap-cursor::after {
-            content: '';
-            position: absolute;
-            background: #e94560;
-        }
-
-        .snap-cursor::before {
-            width: 21px;
-            height: 2px;
-            top: 50%;
-            left: 0;
-            transform: translateY(-50%);
-        }
-
-        .snap-cursor::after {
-            width: 2px;
-            height: 21px;
-            left: 50%;
-            top: 0;
-            transform: translateX(-50%);
+        
+        .drawing-crosshair.active {
+            display: block;
         }
 
         .status-bar {
@@ -146,6 +124,116 @@
         .status-item .value {
             color: #e94560;
             font-family: 'Monaco', 'Consolas', monospace;
+        }
+
+        /* Floating Toolbox */
+        .toolbox {
+            position: absolute;
+            left: 10px;
+            top: 60px;
+            width: 46px;
+            background: #1a1a1a;
+            border: 1px solid #333;
+            border-radius: 6px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+            z-index: 1000;
+            user-select: none;
+        }
+        
+        .toolbox-header {
+            padding: 6px 8px;
+            font-size: 10px;
+            color: #888;
+            text-align: center;
+            border-bottom: 1px solid #333;
+            cursor: grab;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            justify-content: center;
+        }
+        
+        .toolbox-header:active {
+            cursor: grabbing;
+        }
+        
+        .toolbox-header .grip {
+            color: #555;
+            font-size: 12px;
+            letter-spacing: -2px;
+        }
+        
+        .toolbox-tools {
+            display: flex;
+            flex-direction: column;
+            padding: 4px;
+            gap: 2px;
+        }
+        
+        .tool-btn {
+            width: 36px;
+            height: 36px;
+            border: none;
+            background: transparent;
+            color: #aaa;
+            font-size: 18px;
+            cursor: pointer;
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.15s;
+        }
+        
+        .tool-btn:hover {
+            background: #333;
+            color: #fff;
+        }
+        
+        .tool-btn.active {
+            background: #0066cc;
+            color: #fff;
+        }
+        
+        .tool-icon {
+            line-height: 1;
+        }
+        
+        .toolbox-divider {
+            height: 1px;
+            background: #333;
+            margin: 4px 8px;
+        }
+        
+        .toolbox-options {
+            padding: 4px 8px 8px;
+            font-size: 11px;
+            color: #888;
+        }
+        
+        .toolbox-options:empty {
+            display: none;
+        }
+        
+        .toolbox-options label {
+            display: block;
+            margin-bottom: 4px;
+        }
+        
+        .toolbox-options input[type="number"],
+        .toolbox-options input[type="color"],
+        .toolbox-options select {
+            width: 100%;
+            background: #2a2a2a;
+            border: 1px solid #444;
+            color: #ddd;
+            padding: 2px 4px;
+            border-radius: 3px;
+            font-size: 10px;
+        }
+        
+        .toolbox-options input[type="checkbox"] {
+            margin-right: 4px;
         }
 
         .help-panel {
@@ -180,6 +268,16 @@
     <div class="toolbar">
         <h1>ClearPCB</h1>
         
+        <div class="toolbar-group" style="border-left: none;">
+            <button id="newFile" title="New (Ctrl+N)">📄 New</button>
+            <button id="openFile" title="Open (Ctrl+O)">📂 Open</button>
+            <button id="saveFile" title="Save (Ctrl+S)">💾 Save</button>
+        </div>
+        
+        <div class="toolbar-group">
+            <span id="docTitle" style="color: #e94560; font-size: 13px;">untitled.json</span>
+        </div>
+        
         <div class="toolbar-group">
             <label>Grid:</label>
             <select id="gridSize">
@@ -206,13 +304,6 @@
         </div>
 
         <div class="toolbar-group">
-            <button id="zoomFit">Fit View</button>
-            <button id="zoomIn">Zoom In</button>
-            <button id="zoomOut">Zoom Out</button>
-            <button id="resetView">Reset</button>
-        </div>
-
-        <div class="toolbar-group">
             <label>
                 <input type="checkbox" id="showGrid" checked> Grid
             </label>
@@ -220,43 +311,64 @@
                 <input type="checkbox" id="snapToGrid" checked> Snap
             </label>
         </div>
+
+        <div class="toolbar-group">
+            <button id="zoomIn" title="Zoom In">+</button>
+            <span id="zoomLevel" style="min-width: 50px; text-align: center;">100%</span>
+            <button id="zoomOut" title="Zoom Out">−</button>
+            <button id="zoomFit" title="Fit to Content">Fit</button>
+            <button id="resetView" title="Reset View">Reset</button>
+        </div>
     </div>
 
     <div class="main-container">
         <div class="canvas-container" id="canvasContainer">
-            <div class="snap-cursor" id="snapCursor"></div>
-            
-            <div class="help-panel">
-                <h3>Navigation</h3>
-                <div><kbd>Scroll</kbd> Zoom in/out</div>
-                <div><kbd>Right drag</kbd> or <kbd>Shift + drag</kbd> Pan</div>
-                <div><kbd>Home</kbd> Reset view</div>
-                <div><kbd>F</kbd> Fit to content</div>
-                <div><kbd>G</kbd> Toggle grid</div>
-                <div><kbd>+</kbd> / <kbd>-</kbd> Zoom</div>
-            </div>
+            <svg class="drawing-crosshair" id="drawingCrosshair">
+                <line id="crosshairX" stroke="#e94560" stroke-width="1" stroke-dasharray="4,4"/>
+                <line id="crosshairY" stroke="#e94560" stroke-width="1" stroke-dasharray="4,4"/>
+            </svg>
         </div>
     </div>
 
     <div class="status-bar">
         <div class="status-item">
             <span class="label">Cursor:</span>
-            <span class="value" id="cursorPos">0.00, 0.00</span>
+            <span class="value" id="cursorPos">0.00, 0.00 mm</span>
         </div>
         <div class="status-item">
-            <span class="label">Grid:</span>
-            <span class="value" id="gridSnap">1.00, 1.00</span>
+            <span class="label">Snap:</span>
+            <span class="value" id="gridSnap">0.00, 0.00 mm</span>
         </div>
         <div class="status-item">
-            <span class="label">Zoom:</span>
-            <span class="value" id="zoomLevel">100%</span>
-        </div>
-        <div class="status-item">
-            <span class="label">Viewport:</span>
-            <span class="value" id="viewportInfo">-</span>
+            <span class="label">View:</span>
+            <span class="value" id="viewportInfo">500 × 300 mm</span>
         </div>
     </div>
 
-    <script type="module" src="src/ui/app.js"></script>
+    <div class="help-panel">
+        <h3>Keyboard Shortcuts</h3>
+        <div><kbd>Ctrl+N</kbd> New file</div>
+        <div><kbd>Ctrl+O</kbd> Open file</div>
+        <div><kbd>Ctrl+S</kbd> Save</div>
+        <div><kbd>Ctrl+Shift+S</kbd> Save As</div>
+        <hr style="border-color: #333; margin: 8px 0;">
+        <div><kbd>V</kbd> Select</div>
+        <div><kbd>L</kbd> Line</div>
+        <div><kbd>W</kbd> Wire</div>
+        <div><kbd>R</kbd> Rectangle</div>
+        <div><kbd>C</kbd> Circle</div>
+        <div><kbd>A</kbd> Arc</div>
+        <div><kbd>P</kbd> Polygon</div>
+        <div><kbd>Esc</kbd> Cancel / Deselect</div>
+        <div><kbd>Del</kbd> Delete selected</div>
+        <div><kbd>Ctrl+A</kbd> Select all</div>
+        <hr style="border-color: #333; margin: 8px 0;">
+        <div><kbd>Drag shape</kbd> Move</div>
+        <div><kbd>Drag anchor</kbd> Resize/Edit</div>
+        <div><kbd>Right-drag</kbd> Pan</div>
+        <div><kbd>Scroll</kbd> Zoom</div>
+    </div>
+
+    <script type="module" src="src/ui/SchematicApp.js"></script>
 </body>
 </html>

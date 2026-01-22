@@ -47,6 +47,24 @@ export class Line extends Shape {
         return Math.hypot(point.x - projX, point.y - projY);
     }
     
+    getAnchors() {
+        return [
+            { id: 'p1', x: this.x1, y: this.y1, cursor: 'move' },
+            { id: 'p2', x: this.x2, y: this.y2, cursor: 'move' }
+        ];
+    }
+    
+    moveAnchor(anchorId, x, y) {
+        if (anchorId === 'p1') {
+            this.x1 = x;
+            this.y1 = y;
+        } else if (anchorId === 'p2') {
+            this.x2 = x;
+            this.y2 = y;
+        }
+        this.invalidate();
+    }
+    
     _createElement() {
         return document.createElementNS('http://www.w3.org/2000/svg', 'line');
     }

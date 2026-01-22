@@ -10,6 +10,9 @@ let shapeIdCounter = 0;
 // Minimum stroke width in screen pixels
 const MIN_STROKE_PIXELS = 1;
 
+// Anchor handle size in screen pixels
+const ANCHOR_SIZE_PIXELS = 8;
+
 export class Shape {
     constructor(options = {}) {
         this.id = options.id || `shape_${++shapeIdCounter}`;
@@ -31,8 +34,9 @@ export class Shape {
         this.visible = true;
         this.locked = false;
         
-        // SVG element (created on first render)
+        // SVG elements
         this.element = null;
+        this.anchorsGroup = null;
         
         // Cached bounds
         this._bounds = null;
@@ -71,6 +75,38 @@ export class Shape {
         return Infinity;
     }
     
+    /**
+     * Get anchor points for this shape
+     * Returns array of { id, x, y, cursor } objects
+     */
+    getAnchors() {
+        return [];
+    }
+    
+    /**
+     * Test if point hits an anchor, returns anchor id or null
+     */
+    hitTestAnchor(point, scale) {
+        const anchors = this.getAnchors();
+        const tolerance = ANCHOR_SIZE_PIXELS / scale;
+        
+        for (const anchor of anchors) {
+            const dist = Math.hypot(point.x - anchor.x, point.y - anchor.y);
+            if (dist <= tolerance) {
+                return anchor.id;
+            }
+        }
+        return null;
+    }
+    
+    /**
+     * Move an anchor point to a new position
+     */
+    moveAnchor(anchorId, x, y) {
+        // Override in subclass
+        this.invalidate();
+    }
+    
     invalidate() {
         this._dirty = true;
         this._bounds = null;
@@ -103,6 +139,9 @@ export class Shape {
         // Update element
         this._updateElement(this.element, strokeColor, fillColor, scale);
         
+        // Update anchor handles
+        this._updateAnchors(scale);
+        
         this._dirty = false;
         return this.element;
     }
@@ -114,6 +153,44 @@ export class Shape {
     
     _updateElement(el, strokeColor, fillColor, scale) {
         // Override in subclass
+    }
+    
+    _updateAnchors(scale) {
+        // Remove existing anchors
+        if (this.anchorsGroup) {
+            this.anchorsGroup.remove();
+            this.anchorsGroup = null;
+        }
+        
+        // Only show anchors when selected
+        if (!this.selected) return;
+        
+        const anchors = this.getAnchors();
+        if (anchors.length === 0) return;
+        
+        // Create anchors group
+        this.anchorsGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        this.anchorsGroup.setAttribute('class', 'shape-anchors');
+        
+        const size = ANCHOR_SIZE_PIXELS / scale;
+        
+        for (const anchor of anchors) {
+            const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+            rect.setAttribute('x', anchor.x - size / 2);
+            rect.setAttribute('y', anchor.y - size / 2);
+            rect.setAttribute('width', size);
+            rect.setAttribute('height', size);
+            rect.setAttribute('fill', '#fff');
+            rect.setAttribute('stroke', '#e94560');
+            rect.setAttribute('stroke-width', 1 / scale);
+            rect.setAttribute('data-anchor-id', anchor.id);
+            this.anchorsGroup.appendChild(rect);
+        }
+        
+        // Add anchors group to same parent as element
+        if (this.element.parentNode) {
+            this.element.parentNode.appendChild(this.anchorsGroup);
+        }
     }
     
     move(dx, dy) {
@@ -143,6 +220,10 @@ export class Shape {
         if (this.element && this.element.parentNode) {
             this.element.parentNode.removeChild(this.element);
         }
+        if (this.anchorsGroup && this.anchorsGroup.parentNode) {
+            this.anchorsGroup.parentNode.removeChild(this.anchorsGroup);
+        }
         this.element = null;
+        this.anchorsGroup = null;
     }
 }

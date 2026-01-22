@@ -6,8 +6,12 @@ import { Viewport } from '../core/Viewport.js';
 import { EventBus, Events, globalEventBus } from '../core/EventBus.js';
 import { CommandHistory } from '../core/CommandHistory.js';
 import { SelectionManager } from '../core/SelectionManager.js';
+import { FileManager } from '../core/FileManager.js';
 import { Toolbox } from './Toolbox.js';
 import { Line, Circle, Rect, Arc, Polygon } from '../shapes/index.js';
+
+// Shape class registry for deserialization
+const ShapeClasses = { Line, Circle, Rect, Arc, Polygon };
 
 class SchematicApp {
     constructor() {
@@ -15,6 +19,11 @@ class SchematicApp {
         this.viewport = new Viewport(this.container);
         this.eventBus = globalEventBus;
         this.history = new CommandHistory();
+        
+        // File management
+        this.fileManager = new FileManager();
+        this.fileManager.onDirtyChanged = (dirty) => this._updateTitle();
+        this.fileManager.onFileNameChanged = (name) => this._updateTitle();
         
         // Drawing crosshair elements
         this.crosshair = {
@@ -38,6 +47,14 @@ class SchematicApp {
         this.polygonPoints = [];
         this.previewElement = null;
         
+        // Drag state
+        this.isDragging = false;
+        this.didDrag = false;  // Track if actual drag occurred
+        this.dragMode = null;  // 'move' or 'anchor'
+        this.dragStart = null;
+        this.dragAnchorId = null;
+        this.dragShape = null;
+        
         // Tool options
         this.toolOptions = {
             lineWidth: 0.2,
@@ -55,7 +72,8 @@ class SchematicApp {
             gridStyle: document.getElementById('gridStyle'),
             units: document.getElementById('units'),
             showGrid: document.getElementById('showGrid'),
-            snapToGrid: document.getElementById('snapToGrid')
+            snapToGrid: document.getElementById('snapToGrid'),
+            docTitle: document.getElementById('docTitle')
         };
         
         // Create toolbox
@@ -72,6 +90,21 @@ class SchematicApp {
         
         // Initial view
         this.viewport.resetView();
+        this._updateTitle();
+        
+        // Check for auto-saved content
+        this._checkAutoSave();
+        
+        // Start auto-save
+        this.fileManager.startAutoSave(() => this._serializeDocument());
+        
+        // Warn about unsaved changes
+        window.addEventListener('beforeunload', (e) => {
+            if (this.fileManager.isDirty) {
+                e.preventDefault();
+                e.returnValue = '';
+            }
+        });
         
         console.log('Schematic Editor initialized');
     }
@@ -99,6 +132,7 @@ class SchematicApp {
         this.shapes.push(shape);
         shape.render(this.viewport.scale);
         this.viewport.addContent(shape.element);
+        this.fileManager.setDirty(true);
         return shape;
     }
     
@@ -109,6 +143,7 @@ class SchematicApp {
             this.viewport.removeContent(shape.element);
             this.selection.deselect(shape);
             shape.destroy();
+            this.fileManager.setDirty(true);
         }
     }
     
@@ -363,10 +398,33 @@ class SchematicApp {
                 this._updateCrosshair(snapped);
             }
             
-            // Update hover state (only in select mode when not panning)
-            if (!this.viewport.isPanning && this.currentTool === 'select') {
+            // Update hover state and cursor (only in select mode when not panning/dragging)
+            if (!this.viewport.isPanning && !this.isDragging && this.currentTool === 'select') {
                 const hit = this.selection.hitTest(world);
                 this.selection.setHovered(hit);
+                
+                // Check for anchor hover on selected shapes
+                let cursor = 'default';
+                const selectedShapes = this.selection.getSelection();
+                for (const shape of selectedShapes) {
+                    const anchorId = shape.hitTestAnchor(world, this.viewport.scale);
+                    if (anchorId) {
+                        // Find anchor cursor
+                        const anchors = shape.getAnchors();
+                        const anchor = anchors.find(a => a.id === anchorId);
+                        cursor = anchor?.cursor || 'crosshair';
+                        break;
+                    }
+                }
+                
+                // If not on anchor, check if on selected shape for move cursor
+                if (cursor === 'default' && hit && hit.selected) {
+                    cursor = 'move';
+                } else if (cursor === 'default' && hit) {
+                    cursor = 'pointer';
+                }
+                
+                this.viewport.svg.style.cursor = cursor;
                 this.renderShapes();
             }
             
@@ -436,6 +494,8 @@ class SchematicApp {
             if (e.button !== 0) return;
             if (this.viewport.isPanning) return;
             
+            this.didDrag = false;
+            
             const rect = svg.getBoundingClientRect();
             const screenPos = {
                 x: e.clientX - rect.left,
@@ -445,7 +505,34 @@ class SchematicApp {
             const snapped = this.viewport.getSnappedPosition(worldPos);
             
             if (this.currentTool === 'select') {
-                // Selection mode - handled by click
+                // Check if clicking on an anchor of a selected shape
+                const selectedShapes = this.selection.getSelection();
+                for (const shape of selectedShapes) {
+                    const anchorId = shape.hitTestAnchor(worldPos, this.viewport.scale);
+                    if (anchorId) {
+                        // Start anchor drag
+                        this.isDragging = true;
+                        this.dragMode = 'anchor';
+                        this.dragStart = { ...snapped };
+                        this.dragAnchorId = anchorId;
+                        this.dragShape = shape;
+                        e.preventDefault();
+                        return;
+                    }
+                }
+                
+                // Check if clicking on a selected shape (for move)
+                const hitShape = this.selection.hitTest(worldPos);
+                if (hitShape && hitShape.selected) {
+                    // Start move drag
+                    this.isDragging = true;
+                    this.dragMode = 'move';
+                    this.dragStart = { ...snapped };
+                    e.preventDefault();
+                    return;
+                }
+                
+                // Otherwise, handle as selection click (done in click event)
             } else if (this.currentTool === 'polygon') {
                 if (!this.isDrawing) {
                     this._startDrawing(snapped);
@@ -458,8 +545,54 @@ class SchematicApp {
             }
         });
         
+        svg.addEventListener('mousemove', (e) => {
+            if (!this.isDragging) return;
+            if (this.viewport.isPanning) return;
+            
+            const rect = svg.getBoundingClientRect();
+            const screenPos = {
+                x: e.clientX - rect.left,
+                y: e.clientY - rect.top
+            };
+            const worldPos = this.viewport.screenToWorld(screenPos);
+            const snapped = this.viewport.getSnappedPosition(worldPos);
+            
+            if (this.dragMode === 'move') {
+                // Move all selected shapes
+                const dx = snapped.x - this.dragStart.x;
+                const dy = snapped.y - this.dragStart.y;
+                
+                if (dx !== 0 || dy !== 0) {
+                    this.didDrag = true;
+                    for (const shape of this.selection.getSelection()) {
+                        shape.move(dx, dy);
+                    }
+                    this.dragStart = { ...snapped };
+                    this.renderShapes(true);
+                    this.fileManager.setDirty(true);
+                }
+            } else if (this.dragMode === 'anchor' && this.dragShape) {
+                // Move the anchor
+                this.didDrag = true;
+                this.dragShape.moveAnchor(this.dragAnchorId, snapped.x, snapped.y);
+                this.renderShapes(true);
+                this.fileManager.setDirty(true);
+            }
+        });
+        
         svg.addEventListener('mouseup', (e) => {
             if (e.button !== 0) return;
+            
+            // End dragging
+            if (this.isDragging) {
+                this.isDragging = false;
+                this.dragMode = null;
+                this.dragStart = null;
+                this.dragAnchorId = null;
+                this.dragShape = null;
+                // Don't return - let click handle selection if needed
+            }
+            
             if (this.viewport.isPanning) return;
             
             const rect = svg.getBoundingClientRect();
@@ -479,6 +612,12 @@ class SchematicApp {
         
         svg.addEventListener('click', (e) => {
             if (this.viewport.isPanning) return;
+            
+            // Don't handle click if we actually dragged
+            if (this.didDrag) {
+                this.didDrag = false;
+                return;
+            }
             
             const rect = svg.getBoundingClientRect();
             const screenPos = {
@@ -538,6 +677,19 @@ class SchematicApp {
         document.getElementById('resetView').addEventListener('click', () => {
             this.viewport.resetView();
         });
+        
+        // File buttons
+        document.getElementById('newFile').addEventListener('click', () => {
+            this.newFile();
+        });
+        
+        document.getElementById('openFile').addEventListener('click', () => {
+            this.openFile();
+        });
+        
+        document.getElementById('saveFile').addEventListener('click', () => {
+            this.saveFile();
+        });
     }
 
     _bindKeyboardShortcuts() {
@@ -545,16 +697,40 @@ class SchematicApp {
             if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA') return;
             
             if (e.ctrlKey || e.metaKey) {
-                if (e.key === 'z' && !e.shiftKey) {
-                    e.preventDefault();
-                    this.history.undo();
-                } else if ((e.key === 'z' && e.shiftKey) || e.key === 'y') {
-                    e.preventDefault();
-                    this.history.redo();
-                } else if (e.key === 'a') {
-                    e.preventDefault();
-                    this.selection.selectAll();
-                    this.renderShapes();
+                switch (e.key.toLowerCase()) {
+                    case 's':
+                        e.preventDefault();
+                        if (e.shiftKey) {
+                            this.saveFileAs();
+                        } else {
+                            this.saveFile();
+                        }
+                        break;
+                    case 'o':
+                        e.preventDefault();
+                        this.openFile();
+                        break;
+                    case 'n':
+                        e.preventDefault();
+                        this.newFile();
+                        break;
+                    case 'z':
+                        e.preventDefault();
+                        if (e.shiftKey) {
+                            this.history.redo();
+                        } else {
+                            this.history.undo();
+                        }
+                        break;
+                    case 'y':
+                        e.preventDefault();
+                        this.history.redo();
+                        break;
+                    case 'a':
+                        e.preventDefault();
+                        this.selection.selectAll();
+                        this.renderShapes();
+                        break;
                 }
             } else {
                 switch (e.key) {
@@ -603,6 +779,186 @@ class SchematicApp {
         }
         
         this.viewport.fitToBounds(minX, minY, maxX, maxY, 30);
+    }
+    
+    // ==================== File Operations ====================
+    
+    /**
+     * Serialize document to JSON-compatible object
+     */
+    _serializeDocument() {
+        return {
+            version: '1.0',
+            type: 'clearpcb-schematic',
+            created: new Date().toISOString(),
+            settings: {
+                gridSize: this.viewport.gridSize,
+                units: this.viewport.units
+            },
+            shapes: this.shapes.map(s => s.toJSON())
+        };
+    }
+    
+    /**
+     * Load shapes from document data
+     */
+    _loadDocument(data) {
+        // Clear existing shapes
+        this._clearAllShapes();
+        
+        // Load shapes
+        if (data.shapes && Array.isArray(data.shapes)) {
+            for (const shapeData of data.shapes) {
+                const shape = this._createShapeFromData(shapeData);
+                if (shape) {
+                    this.shapes.push(shape);
+                    shape.render(this.viewport.scale);
+                    this.viewport.addContent(shape.element);
+                }
+            }
+        }
+        
+        // Apply settings
+        if (data.settings) {
+            if (data.settings.gridSize) {
+                this.viewport.setGridSize(data.settings.gridSize);
+                if (this.ui.gridSize) {
+                    this.ui.gridSize.value = data.settings.gridSize;
+                }
+            }
+        }
+        
+        this.selection.setShapes(this.shapes);
+        this.renderShapes(true);
+    }
+    
+    /**
+     * Create shape instance from serialized data
+     */
+    _createShapeFromData(data) {
+        const ShapeClass = ShapeClasses[data.type.charAt(0).toUpperCase() + data.type.slice(1)];
+        if (!ShapeClass) {
+            console.warn('Unknown shape type:', data.type);
+            return null;
+        }
+        return new ShapeClass(data);
+    }
+    
+    /**
+     * Clear all shapes from canvas
+     */
+    _clearAllShapes() {
+        for (const shape of this.shapes) {
+            this.viewport.removeContent(shape.element);
+            shape.destroy();
+        }
+        this.shapes = [];
+        this.selection.setShapes(this.shapes);
+    }
+    
+    /**
+     * Update window/document title
+     */
+    _updateTitle() {
+        const dirty = this.fileManager.isDirty ? '• ' : '';
+        const title = `${dirty}${this.fileManager.fileName} - ClearPCB`;
+        document.title = title;
+        
+        if (this.ui.docTitle) {
+            this.ui.docTitle.textContent = `${dirty}${this.fileManager.fileName}`;
+        }
+    }
+    
+    /**
+     * Check for auto-saved content on startup
+     */
+    _checkAutoSave() {
+        if (this.fileManager.hasAutoSave()) {
+            const saved = this.fileManager.loadAutoSave();
+            if (saved && saved.data && saved.data.shapes && saved.data.shapes.length > 0) {
+                const time = new Date(saved.timestamp).toLocaleString();
+                if (confirm(`Found auto-saved content from ${time}.\n\nRecover it?`)) {
+                    this._loadDocument(saved.data);
+                    this.fileManager.setDirty(true);
+                    console.log('Recovered auto-saved content');
+                } else {
+                    this.fileManager.clearAutoSave();
+                }
+            }
+        }
+    }
+    
+    /**
+     * Create new document
+     */
+    async newFile() {
+        if (this.fileManager.isDirty) {
+            if (!confirm('You have unsaved changes. Create new document anyway?')) {
+                return;
+            }
+        }
+        
+        this._clearAllShapes();
+        this.fileManager.newDocument();
+        this.viewport.resetView();
+        this._updateTitle();
+        console.log('New document created');
+    }
+    
+    /**
+     * Save current document
+     */
+    async saveFile() {
+        const data = this._serializeDocument();
+        const result = await this.fileManager.save(data);
+        
+        if (result.success) {
+            this._updateTitle();
+            console.log('Saved:', result.fileName);
+        } else if (!result.cancelled) {
+            alert('Failed to save: ' + (result.error || 'Unknown error'));
+        }
+    }
+    
+    /**
+     * Save As - always prompt for location
+     */
+    async saveFileAs() {
+        const data = this._serializeDocument();
+        const result = await this.fileManager.saveAs(data);
+        
+        if (result.success) {
+            this._updateTitle();
+            console.log('Saved as:', result.fileName);
+        } else if (!result.cancelled) {
+            alert('Failed to save: ' + (result.error || 'Unknown error'));
+        }
+    }
+    
+    /**
+     * Open file
+     */
+    async openFile() {
+        if (this.fileManager.isDirty) {
+            if (!confirm('You have unsaved changes. Open another file anyway?')) {
+                return;
+            }
+        }
+        
+        try {
+            const result = await this.fileManager.open();
+            
+            if (result.success) {
+                this._loadDocument(result.data);
+                this._updateTitle();
+                this.fileManager.clearAutoSave();
+                console.log('Opened:', result.fileName);
+            } else if (result.error) {
+                alert('Failed to open: ' + result.error);
+            }
+        } catch (err) {
+            alert('Failed to open file: ' + err.message);
+        }
     }
 }
 

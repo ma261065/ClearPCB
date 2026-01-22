@@ -42,6 +42,23 @@ export class Circle extends Shape {
         return Math.abs(dist - this.radius);
     }
     
+    getAnchors() {
+        return [
+            { id: 'center', x: this.x, y: this.y, cursor: 'move' },
+            { id: 'radius', x: this.x + this.radius, y: this.y, cursor: 'ew-resize' }
+        ];
+    }
+    
+    moveAnchor(anchorId, x, y) {
+        if (anchorId === 'center') {
+            this.x = x;
+            this.y = y;
+        } else if (anchorId === 'radius') {
+            this.radius = Math.max(0.1, Math.hypot(x - this.x, y - this.y));
+        }
+        this.invalidate();
+    }
+    
     _createElement() {
         return document.createElementNS('http://www.w3.org/2000/svg', 'circle');
     }

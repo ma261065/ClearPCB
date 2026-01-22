@@ -85,6 +85,30 @@ export class Arc extends Shape {
         };
     }
     
+    getAnchors() {
+        const start = this.getStartPoint();
+        const end = this.getEndPoint();
+        return [
+            { id: 'center', x: this.x, y: this.y, cursor: 'move' },
+            { id: 'start', x: start.x, y: start.y, cursor: 'crosshair' },
+            { id: 'end', x: end.x, y: end.y, cursor: 'crosshair' }
+        ];
+    }
+    
+    moveAnchor(anchorId, x, y) {
+        if (anchorId === 'center') {
+            this.x = x;
+            this.y = y;
+        } else if (anchorId === 'start') {
+            this.startAngle = Math.atan2(y - this.y, x - this.x);
+            this.radius = Math.max(0.1, Math.hypot(x - this.x, y - this.y));
+        } else if (anchorId === 'end') {
+            this.endAngle = Math.atan2(y - this.y, x - this.x);
+            this.radius = Math.max(0.1, Math.hypot(x - this.x, y - this.y));
+        }
+        this.invalidate();
+    }
+    
     _createElement() {
         return document.createElementNS('http://www.w3.org/2000/svg', 'path');
     }

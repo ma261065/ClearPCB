@@ -98,6 +98,24 @@ export class Polygon extends Shape {
         return Math.hypot(point.x - projX, point.y - projY);
     }
     
+    getAnchors() {
+        return this.points.map((p, i) => ({
+            id: `p${i}`,
+            x: p.x,
+            y: p.y,
+            cursor: 'move'
+        }));
+    }
+    
+    moveAnchor(anchorId, x, y) {
+        const index = parseInt(anchorId.substring(1));
+        if (index >= 0 && index < this.points.length) {
+            this.points[index].x = x;
+            this.points[index].y = y;
+        }
+        this.invalidate();
+    }
+    
     _createElement() {
         return document.createElementNS('http://www.w3.org/2000/svg', this.fill && this.closed ? 'polygon' : 'polyline');
     }

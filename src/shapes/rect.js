@@ -64,6 +64,50 @@ export class Rect extends Shape {
         return Math.hypot(dx, dy);
     }
     
+    getAnchors() {
+        return [
+            { id: 'tl', x: this.x, y: this.y, cursor: 'nwse-resize' },
+            { id: 'tr', x: this.x + this.width, y: this.y, cursor: 'nesw-resize' },
+            { id: 'bl', x: this.x, y: this.y + this.height, cursor: 'nesw-resize' },
+            { id: 'br', x: this.x + this.width, y: this.y + this.height, cursor: 'nwse-resize' }
+        ];
+    }
+    
+    moveAnchor(anchorId, x, y) {
+        switch (anchorId) {
+            case 'tl':
+                this.width += this.x - x;
+                this.height += this.y - y;
+                this.x = x;
+                this.y = y;
+                break;
+            case 'tr':
+                this.width = x - this.x;
+                this.height += this.y - y;
+                this.y = y;
+                break;
+            case 'bl':
+                this.width += this.x - x;
+                this.x = x;
+                this.height = y - this.y;
+                break;
+            case 'br':
+                this.width = x - this.x;
+                this.height = y - this.y;
+                break;
+        }
+        // Normalize negative dimensions
+        if (this.width < 0) {
+            this.x += this.width;
+            this.width = -this.width;
+        }
+        if (this.height < 0) {
+            this.y += this.height;
+            this.height = -this.height;
+        }
+        this.invalidate();
+    }
+    
     _createElement() {
         return document.createElementNS('http://www.w3.org/2000/svg', 'rect');
     }
