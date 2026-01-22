@@ -92,6 +92,7 @@ export class Viewport {
         this._createGrid();
         this._createRulers();
         this._bindEvents();
+        this._disableBrowserZoom();
         
         // Handle resize
         window.addEventListener('resize', () => {
@@ -253,13 +254,18 @@ export class Viewport {
     }
     
     resetView() {
-        // Reset to 100% (200mm view width, index 6)
+        // Reset to 100% zoom (200mm view width, index 6)
+        // Position origin 10mm in from left edge and 10mm up from bottom edge
         this.zoomIndex = 6;
         const aspect = this.height / this.width;
         this.viewBox.width = this.zoomLevels[this.zoomIndex];
         this.viewBox.height = this.viewBox.width * aspect;
-        this.viewBox.x = -this.viewBox.width / 2;
-        this.viewBox.y = -this.viewBox.height / 2;
+        
+        // Position so origin (0,0) is 10mm from right and 10mm from bottom
+        const margin = 10; // mm from edges
+        this.viewBox.x = -margin;   // Right edge at x=10, so origin at 10 from right
+        this.viewBox.y = margin - this.viewBox.height;  // Bottom edge at y=10, so origin at 10 from bottom
+        
         this._updateViewBox();
         this._createGrid();
         this._createRulers();
@@ -532,22 +538,58 @@ export class Viewport {
         return converted.toFixed(precision);
     }
     
+    // ==================== Browser Zoom Prevention ====================
+    
+    _disableBrowserZoom() {
+        // Prevent Ctrl+wheel browser zoom
+        // (handled in wheel event below)
+        
+        // Prevent Ctrl+Plus/Minus/0 browser zoom
+        window.addEventListener('keydown', (e) => {
+            if ((e.ctrlKey || e.metaKey) && (e.key === '+' || e.key === '-' || e.key === '=' || e.key === '0')) {
+                e.preventDefault();
+            }
+        });
+    }
+    
     // ==================== Events ====================
     
     _bindEvents() {
-        // Wheel zoom
+        // Wheel: zoom, or pan with modifiers
         this.svg.addEventListener('wheel', (e) => {
-            e.preventDefault();
+            e.preventDefault(); // Always prevent default to block browser zoom
+            
             const rect = this.svg.getBoundingClientRect();
             const mouseScreen = {
                 x: e.clientX - rect.left,
                 y: e.clientY - rect.top
             };
             const mouseWorld = this.screenToWorld(mouseScreen);
-            if (e.deltaY > 0) {
-                this.zoomOut(mouseWorld);
+            
+            // Pan amount in world units (scale by view size for consistent feel)
+            const panAmount = (this.viewBox.width / 10) * Math.sign(e.deltaY);
+            
+            if (e.ctrlKey || e.metaKey) {
+                // Ctrl+wheel: pan vertically
+                this.viewBox.y += panAmount;
+                this._updateViewBox();
+                this._createGrid();
+                this._createRulers();
+                this._notifyViewChanged();
+            } else if (e.shiftKey) {
+                // Shift+wheel: pan horizontally
+                this.viewBox.x += panAmount;
+                this._updateViewBox();
+                this._createGrid();
+                this._createRulers();
+                this._notifyViewChanged();
             } else {
-                this.zoomIn(mouseWorld);
+                // Regular wheel: zoom
+                if (e.deltaY > 0) {
+                    this.zoomOut(mouseWorld);
+                } else {
+                    this.zoomIn(mouseWorld);
+                }
             }
         }, { passive: false });
         
@@ -590,7 +632,7 @@ export class Viewport {
         window.addEventListener('mouseup', (e) => {
             if (this.isPanning) {
                 this.isPanning = false;
-                this.svg.style.cursor = 'crosshair';
+                this.svg.style.cursor = 'default';
                 this._createGrid();
                 this._notifyViewChanged();
             }
@@ -611,7 +653,9 @@ export class Viewport {
                     break;
                 case 'f':
                 case 'F':
-                    this.fitToContent();
+                    if (!e.ctrlKey && !e.metaKey) {
+                        this.fitToContent();
+                    }
                     break;
             }
         });
