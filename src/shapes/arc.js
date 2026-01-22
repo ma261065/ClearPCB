@@ -2,7 +2,7 @@
  * Arc - SVG arc using path
  */
 
-import { Shape } from './Shape.js';
+import { Shape } from './shape.js';
 
 export class Arc extends Shape {
     constructor(options = {}) {

@@ -2,7 +2,7 @@
  * Polygon - SVG polygon/polyline
  */
 
-import { Shape } from './Shape.js';
+import { Shape } from './shape.js';
 
 export class Polygon extends Shape {
     constructor(options = {}) {

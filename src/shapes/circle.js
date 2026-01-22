@@ -2,7 +2,7 @@
  * Circle - SVG circle
  */
 
-import { Shape } from './Shape.js';
+import { Shape } from './shape.js';
 
 export class Circle extends Shape {
     constructor(options = {}) {

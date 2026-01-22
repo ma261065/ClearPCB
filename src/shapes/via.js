@@ -2,7 +2,7 @@
  * Via - SVG PCB via
  */
 
-import { Shape } from './Shape.js';
+import { Shape } from './shape.js';
 
 export class Via extends Shape {
     constructor(options = {}) {

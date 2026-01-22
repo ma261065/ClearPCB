@@ -2,7 +2,7 @@
  * Pad - SVG PCB pad
  */
 
-import { Shape } from './Shape.js';
+import { Shape } from './shape.js';
 
 export class Pad extends Shape {
     constructor(options = {}) {

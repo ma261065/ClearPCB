@@ -2,7 +2,7 @@
  * Rect - SVG rectangle
  */
 
-import { Shape } from './Shape.js';
+import { Shape } from './shape.js';
 
 export class Rect extends Shape {
     constructor(options = {}) {

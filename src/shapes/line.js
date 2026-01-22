@@ -2,7 +2,7 @@
  * Line - SVG line segment
  */
 
-import { Shape } from './Shape.js';
+import { Shape } from './shape.js';
 
 export class Line extends Shape {
     constructor(options = {}) {
