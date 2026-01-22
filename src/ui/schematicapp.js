@@ -119,7 +119,7 @@ class SchematicApp {
         
         // Update cursor
         const svg = this.viewport.svg;
-        svg.style.cursor = tool === 'select' ? 'crosshair' : 'crosshair';
+        svg.style.cursor = tool === 'select' ? 'default' : 'crosshair';
     }
     
     _onOptionsChanged(options) {
@@ -230,7 +230,7 @@ class SchematicApp {
         }
         
         this._hideCrosshair();
-        this.viewport.svg.style.cursor = 'default';
+        this.viewport.svg.style.cursor = this.currentTool === 'select' ? 'default' : 'crosshair';
     }
     
     _createPreview() {
@@ -481,7 +481,7 @@ class SchematicApp {
     
     _onSelectionChanged(shapes) {
         console.log(`Selection: ${shapes.length} shape(s)`);
-        this.renderShapes();
+        this.renderShapes(true);
     }
 
     // ==================== Mouse Events ====================
@@ -628,7 +628,8 @@ class SchematicApp {
             
             if (this.currentTool === 'select') {
                 this.selection.handleClick(worldPos, e.shiftKey);
-                this.renderShapes();
+                // Force re-render all shapes to update anchor visibility on deselected shapes
+                this.renderShapes(true);
             }
         });
         
@@ -700,7 +701,8 @@ class SchematicApp {
                 switch (e.key.toLowerCase()) {
                     case 's':
                         e.preventDefault();
-                        if (e.shiftKey) {
+                        if (e.altKey) {
+                            // Ctrl+Alt+S for Save As (changed from Ctrl+Shift+S)
                             this.saveFileAs();
                         } else {
                             this.saveFile();
@@ -729,7 +731,7 @@ class SchematicApp {
                     case 'a':
                         e.preventDefault();
                         this.selection.selectAll();
-                        this.renderShapes();
+                        this.renderShapes(true);
                         break;
                 }
             } else {
@@ -737,9 +739,14 @@ class SchematicApp {
                     case 'Escape':
                         if (this.isDrawing) {
                             this._cancelDrawing();
+                        }
+                        // Always return to select mode on Escape
+                        if (this.currentTool !== 'select') {
+                            this.toolbox.selectTool('select');
                         } else {
+                            // Only clear selection if already in select mode and not drawing
                             this.selection.clearSelection();
-                            this.renderShapes();
+                            this.renderShapes(true);
                         }
                         break;
                     case 'Delete':
