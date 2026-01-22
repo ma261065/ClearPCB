@@ -2,12 +2,12 @@
  * SchematicApp.js - Schematic Editor Application
  */
 
-import { Viewport } from '../core/Viewport.js';
-import { EventBus, Events, globalEventBus } from '../core/EventBus.js';
-import { CommandHistory } from '../core/CommandHistory.js';
-import { SelectionManager } from '../core/SelectionManager.js';
-import { FileManager } from '../core/FileManager.js';
-import { Toolbox } from './Toolbox.js';
+import { Viewport } from '../core/viewport.js';
+import { EventBus, Events, globalEventBus } from '../core/eventbus.js';
+import { CommandHistory } from '../core/commandhistory.js';
+import { SelectionManager } from '../core/selectionmanager.js';
+import { FileManager } from '../core/filemanager.js';
+import { Toolbox } from './toolbox.js';
 import { Line, Circle, Rect, Arc, Polygon } from '../shapes/index.js';
 
 // Shape class registry for deserialization
