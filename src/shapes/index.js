@@ -2,33 +2,33 @@
  * Shape classes index
  */
 
-export { Shape } from './Shape.js';
-export { Line } from './Line.js';
-export { Circle } from './Circle.js';
-export { Rect } from './Rect.js';
-export { Arc } from './Arc.js';
-export { Pad } from './Pad.js';
-export { Via } from './Via.js';
-export { Polygon } from './Polygon.js';
+export { Shape } from './shape.js';
+export { Line } from './line.js';
+export { Circle } from './circle.js';
+export { Rect } from './rect.js';
+export { Arc } from './arc.js';
+export { Pad } from './pad.js';
+export { Via } from './via.js';
+export { Polygon } from './polygon.js';
 
 // Shape factory for deserializing
 const shapeClasses = {
-    line: () => import('./Line.js').then(m => m.Line),
-    circle: () => import('./Circle.js').then(m => m.Circle),
-    rect: () => import('./Rect.js').then(m => m.Rect),
-    arc: () => import('./Arc.js').then(m => m.Arc),
-    pad: () => import('./Pad.js').then(m => m.Pad),
-    via: () => import('./Via.js').then(m => m.Via),
-    polygon: () => import('./Polygon.js').then(m => m.Polygon)
+    line: () => import('./line.js').then(m => m.Line),
+    circle: () => import('./circle.js').then(m => m.Circle),
+    rect: () => import('./rect.js').then(m => m.Rect),
+    arc: () => import('./arc.js').then(m => m.Arc),
+    pad: () => import('./pad.js').then(m => m.Pad),
+    via: () => import('./via.js').then(m => m.Via),
+    polygon: () => import('./polygon.js').then(m => m.Polygon)
 };
 
-import { Line } from './Line.js';
-import { Circle } from './Circle.js';
-import { Rect } from './Rect.js';
-import { Arc } from './Arc.js';
-import { Pad } from './Pad.js';
-import { Via } from './Via.js';
-import { Polygon } from './Polygon.js';
+import { Line } from './line.js';
+import { Circle } from './circle.js';
+import { Rect } from './rect.js';
+import { Arc } from './arc.js';
+import { Pad } from './pad.js';
+import { Via } from './via.js';
+import { Polygon } from './polygon.js';
 
 const shapeRegistry = {
     line: Line,
