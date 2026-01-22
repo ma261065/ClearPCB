@@ -8,7 +8,7 @@
  * - Selection change events
  */
 
-import { Events, globalEventBus } from '../core/eventbus.js';
+import { Events, globalEventBus } from './EventBus.js';
 
 export class SelectionManager {
     constructor(options = {}) {
@@ -303,9 +303,10 @@ export class SelectionManager {
      * Handle box selection
      * @param {object} bounds - {minX, minY, maxX, maxY}
      * @param {boolean} additive - Shift key held?
+     * @param {string} mode - 'contain' (fully inside) or 'intersect' (any overlap)
      */
-    handleBoxSelect(bounds, additive = false) {
-        const hits = this.hitTestRect(bounds, 'intersect');
+    handleBoxSelect(bounds, additive = false, mode = 'intersect') {
+        const hits = this.hitTestRect(bounds, mode);
         
         if (hits.length > 0) {
             this.selectMultiple(hits, additive);

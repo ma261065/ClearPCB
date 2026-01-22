@@ -50,10 +50,14 @@ class SchematicApp {
         // Drag state
         this.isDragging = false;
         this.didDrag = false;  // Track if actual drag occurred
-        this.dragMode = null;  // 'move' or 'anchor'
+        this.dragMode = null;  // 'move', 'anchor', or 'box'
         this.dragStart = null;
         this.dragAnchorId = null;
         this.dragShape = null;
+        
+        // Box selection
+        this.boxSelectElement = null;
+        this.boxSelectStart = null;
         
         // Tool options
         this.toolOptions = {
@@ -535,7 +539,19 @@ class SchematicApp {
                     return;
                 }
                 
-                // Otherwise, handle as selection click (done in click event)
+                // Check if clicking on an unselected shape
+                if (hitShape && !hitShape.selected) {
+                    // Will be handled by click event for selection
+                    return;
+                }
+                
+                // Clicking on empty space - start box selection
+                this.isDragging = true;
+                this.dragMode = 'box';
+                this.boxSelectStart = { ...worldPos };
+                this._createBoxSelectElement();
+                e.preventDefault();
+                return;
             } else if (this.currentTool === 'polygon') {
                 if (!this.isDrawing) {
                     this._startDrawing(snapped);
@@ -584,13 +600,44 @@ class SchematicApp {
                 }
                 this.renderShapes(true);
                 this.fileManager.setDirty(true);
+            } else if (this.dragMode === 'box' && this.boxSelectStart) {
+                // Update box selection rectangle
+                this.didDrag = true;
+                this._updateBoxSelectElement(worldPos);
             }
         });
         
         svg.addEventListener('mouseup', (e) => {
             if (e.button !== 0) return;
             
-            // End dragging
+            const rect = svg.getBoundingClientRect();
+            const screenPos = {
+                x: e.clientX - rect.left,
+                y: e.clientY - rect.top
+            };
+            const worldPos = this.viewport.screenToWorld(screenPos);
+            const snapped = this.viewport.getSnappedPosition(worldPos);
+            
+            // Handle box selection completion
+            if (this.isDragging && this.dragMode === 'box' && this.boxSelectStart) {
+                const bounds = this._getBoxSelectBounds(worldPos);
+                this._removeBoxSelectElement();
+                
+                // Only select if we actually dragged (not just clicked)
+                if (this.didDrag) {
+                    this.selection.handleBoxSelect(bounds, e.shiftKey, 'contain');
+                    this.renderShapes(true);
+                    // Keep didDrag true so click event doesn't clear selection
+                }
+                
+                this.isDragging = false;
+                this.dragMode = null;
+                this.boxSelectStart = null;
+                // Note: didDrag stays true if we dragged, so click event will ignore it
+                return;
+            }
+            
+            // End other dragging modes
             if (this.isDragging) {
                 this.isDragging = false;
                 this.dragMode = null;
@@ -601,14 +648,6 @@ class SchematicApp {
             }
             
             if (this.viewport.isPanning) return;
-            
-            const rect = svg.getBoundingClientRect();
-            const screenPos = {
-                x: e.clientX - rect.left,
-                y: e.clientY - rect.top
-            };
-            const worldPos = this.viewport.screenToWorld(screenPos);
-            const snapped = this.viewport.getSnappedPosition(worldPos);
             
             if (this.currentTool === 'polygon') {
                 // Polygon continues until double-click or Escape
@@ -785,6 +824,13 @@ class SchematicApp {
                         if (this.isDrawing) {
                             this._cancelDrawing();
                         }
+                        // Cancel box selection if in progress
+                        if (this.dragMode === 'box') {
+                            this._removeBoxSelectElement();
+                            this.isDragging = false;
+                            this.dragMode = null;
+                            this.boxSelectStart = null;
+                        }
                         // Always return to select mode on Escape
                         if (this.currentTool !== 'select') {
                             this.toolbox.selectTool('select');
@@ -811,6 +857,48 @@ class SchematicApp {
         for (const shape of toDelete) {
             this.removeShape(shape);
         }
+    }
+    
+    // ==================== Box Selection ====================
+    
+    _createBoxSelectElement() {
+        this.boxSelectElement = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+        this.boxSelectElement.setAttribute('fill', 'rgba(0, 102, 204, 0.15)');
+        this.boxSelectElement.setAttribute('stroke', '#0066cc');
+        this.boxSelectElement.setAttribute('stroke-width', 1 / this.viewport.scale);
+        this.boxSelectElement.setAttribute('stroke-dasharray', `${4 / this.viewport.scale} ${4 / this.viewport.scale}`);
+        this.boxSelectElement.style.pointerEvents = 'none';
+        this.viewport.contentLayer.appendChild(this.boxSelectElement);
+    }
+    
+    _updateBoxSelectElement(currentPos) {
+        if (!this.boxSelectElement || !this.boxSelectStart) return;
+        
+        const x = Math.min(this.boxSelectStart.x, currentPos.x);
+        const y = Math.min(this.boxSelectStart.y, currentPos.y);
+        const width = Math.abs(currentPos.x - this.boxSelectStart.x);
+        const height = Math.abs(currentPos.y - this.boxSelectStart.y);
+        
+        this.boxSelectElement.setAttribute('x', x);
+        this.boxSelectElement.setAttribute('y', y);
+        this.boxSelectElement.setAttribute('width', width);
+        this.boxSelectElement.setAttribute('height', height);
+    }
+    
+    _removeBoxSelectElement() {
+        if (this.boxSelectElement) {
+            this.boxSelectElement.remove();
+            this.boxSelectElement = null;
+        }
+    }
+    
+    _getBoxSelectBounds(currentPos) {
+        return {
+            minX: Math.min(this.boxSelectStart.x, currentPos.x),
+            minY: Math.min(this.boxSelectStart.y, currentPos.y),
+            maxX: Math.max(this.boxSelectStart.x, currentPos.x),
+            maxY: Math.max(this.boxSelectStart.y, currentPos.y)
+        };
     }
     
     _fitToContent() {
