@@ -96,16 +96,40 @@ export class Rect extends Shape {
                 this.height = y - this.y;
                 break;
         }
+        
+        // Track if we flip
+        let flippedX = false;
+        let flippedY = false;
+        
         // Normalize negative dimensions
         if (this.width < 0) {
             this.x += this.width;
             this.width = -this.width;
+            flippedX = true;
         }
         if (this.height < 0) {
             this.y += this.height;
             this.height = -this.height;
+            flippedY = true;
         }
+        
+        // Calculate new anchor ID after flipping
+        let newAnchorId = anchorId;
+        if (flippedX || flippedY) {
+            const isLeft = anchorId === 'tl' || anchorId === 'bl';
+            const isTop = anchorId === 'tl' || anchorId === 'tr';
+            
+            const newIsLeft = flippedX ? !isLeft : isLeft;
+            const newIsTop = flippedY ? !isTop : isTop;
+            
+            if (newIsTop && newIsLeft) newAnchorId = 'tl';
+            else if (newIsTop && !newIsLeft) newAnchorId = 'tr';
+            else if (!newIsTop && newIsLeft) newAnchorId = 'bl';
+            else newAnchorId = 'br';
+        }
+        
         this.invalidate();
+        return newAnchorId;
     }
     
     _createElement() {

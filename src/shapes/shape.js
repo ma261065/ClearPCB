@@ -13,6 +13,30 @@ const MIN_STROKE_PIXELS = 1;
 // Anchor handle size in screen pixels
 const ANCHOR_SIZE_PIXELS = 8;
 
+/**
+ * Update the ID counter to avoid collisions with loaded shapes
+ * Call this after loading shapes from a file
+ * @param {string} id - An existing shape ID to check against
+ */
+export function updateIdCounter(id) {
+    if (typeof id === 'string') {
+        const match = id.match(/^shape_(\d+)$/);
+        if (match) {
+            const num = parseInt(match[1], 10);
+            if (num >= shapeIdCounter) {
+                shapeIdCounter = num + 1;
+            }
+        }
+    }
+}
+
+/**
+ * Reset the ID counter (useful for testing)
+ */
+export function resetIdCounter() {
+    shapeIdCounter = 0;
+}
+
 export class Shape {
     constructor(options = {}) {
         this.id = options.id || `shape_${++shapeIdCounter}`;
@@ -101,6 +125,10 @@ export class Shape {
     
     /**
      * Move an anchor point to a new position
+     * @param {string} anchorId - ID of the anchor to move
+     * @param {number} x - New x position
+     * @param {number} y - New y position
+     * @returns {string|undefined} New anchor ID if the shape flipped, otherwise undefined
      */
     moveAnchor(anchorId, x, y) {
         // Override in subclass

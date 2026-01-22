@@ -2,13 +2,13 @@
  * SchematicApp.js - Schematic Editor Application
  */
 
-import { Viewport } from '../core/viewport.js';
-import { EventBus, Events, globalEventBus } from '../core/eventbus.js';
-import { CommandHistory } from '../core/commandhistory.js';
-import { SelectionManager } from '../core/selectionmanager.js';
-import { FileManager } from '../core/filemanager.js';
-import { Toolbox } from './toolbox.js';
-import { Line, Circle, Rect, Arc, Polygon } from '../shapes/index.js';
+import { Viewport } from '../core/Viewport.js';
+import { EventBus, Events, globalEventBus } from '../core/EventBus.js';
+import { CommandHistory } from '../core/CommandHistory.js';
+import { SelectionManager } from '../core/SelectionManager.js';
+import { FileManager } from '../core/FileManager.js';
+import { Toolbox } from './Toolbox.js';
+import { Line, Circle, Rect, Arc, Polygon, updateIdCounter } from '../shapes/index.js';
 
 // Shape class registry for deserialization
 const ShapeClasses = { Line, Circle, Rect, Arc, Polygon };
@@ -574,7 +574,11 @@ class SchematicApp {
             } else if (this.dragMode === 'anchor' && this.dragShape) {
                 // Move the anchor
                 this.didDrag = true;
-                this.dragShape.moveAnchor(this.dragAnchorId, snapped.x, snapped.y);
+                const newAnchorId = this.dragShape.moveAnchor(this.dragAnchorId, snapped.x, snapped.y);
+                // Update anchor ID if shape flipped (e.g., rectangle dragged past opposite edge)
+                if (newAnchorId && newAnchorId !== this.dragAnchorId) {
+                    this.dragAnchorId = newAnchorId;
+                }
                 this.renderShapes(true);
                 this.fileManager.setDirty(true);
             }
@@ -816,6 +820,11 @@ class SchematicApp {
         // Load shapes
         if (data.shapes && Array.isArray(data.shapes)) {
             for (const shapeData of data.shapes) {
+                // Update ID counter to avoid collisions with future shapes
+                if (shapeData.id) {
+                    updateIdCounter(shapeData.id);
+                }
+                
                 const shape = this._createShapeFromData(shapeData);
                 if (shape) {
                     this.shapes.push(shape);
