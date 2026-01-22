@@ -261,7 +261,7 @@ export class Viewport {
         this.viewBox.width = this.zoomLevels[this.zoomIndex];
         this.viewBox.height = this.viewBox.width * aspect;
         
-        // Position so origin (0,0) is 10mm from left and 10mm from bottom
+        // Position so origin (0,0) is 10mm from right and 10mm from bottom
         const margin = 10; // mm from edges
         this.viewBox.x = -margin;   // Right edge at x=10, so origin at 10 from right
         this.viewBox.y = margin - this.viewBox.height;  // Bottom edge at y=10, so origin at 10 from bottom
@@ -444,17 +444,44 @@ export class Viewport {
         const h = this.height;
         const bounds = this.getVisibleBounds();
         
-        // Calculate tick spacing
+        // Calculate tick spacing in mm, then convert for display
         const targetPixels = 80;
         const targetMm = targetPixels / this.scale;
-        const niceNumbers = [0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50, 100, 200, 500, 1000];
-        let tickSpacing = 1;
-        for (const n of niceNumbers) {
+        
+        // Nice numbers in mm - we'll pick one and display in current units
+        const niceNumbersMm = [0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50, 100, 200, 500, 1000];
+        let tickSpacingMm = 1;
+        for (const n of niceNumbersMm) {
             if (n >= targetMm) {
-                tickSpacing = n;
+                tickSpacingMm = n;
                 break;
             }
         }
+        
+        // Unit-specific formatting
+        const unitConversion = this.unitConversions[this.units];
+        const unitSuffix = this.units === 'inch' ? '"' : (this.units === 'mil' ? '' : '');
+        
+        // Determine decimal places based on tick spacing in display units
+        const tickSpacingDisplay = tickSpacingMm * unitConversion;
+        let decimals = 0;
+        if (tickSpacingDisplay < 0.01) decimals = 4;
+        else if (tickSpacingDisplay < 0.1) decimals = 3;
+        else if (tickSpacingDisplay < 1) decimals = 2;
+        else if (tickSpacingDisplay < 10) decimals = 1;
+        else decimals = 0;
+        
+        const formatLabel = (mmVal) => {
+            const displayVal = mmVal * unitConversion;
+            // Clean up floating point artifacts
+            const rounded = Math.round(displayVal / (tickSpacingDisplay / 10)) * (tickSpacingDisplay / 10);
+            let str = rounded.toFixed(decimals);
+            // Remove trailing zeros after decimal point
+            if (decimals > 0) {
+                str = str.replace(/\.?0+$/, '');
+            }
+            return str + unitSuffix;
+        };
         
         // Build ruler SVG
         let svg = `<svg width="${w}" height="${h}" style="position:absolute;top:0;left:0;">`;
@@ -464,22 +491,16 @@ export class Viewport {
         svg += `<rect x="0" y="${rs}" width="${rs}" height="${h - rs}" fill="#1a1a1a"/>`;
         svg += `<rect x="0" y="0" width="${rs}" height="${rs}" fill="#1a1a1a"/>`;
         
-        // Debug info
-        const viewWidth = Math.round(bounds.maxX - bounds.minX);
-        svg += `<text x="3" y="15" fill="#888" font-size="9" font-family="monospace">${viewWidth}mm</text>`;
+        // Debug info - show view width in current units
+        const viewWidthDisplay = Math.round((bounds.maxX - bounds.minX) * unitConversion * 10) / 10;
+        const unitLabel = this.units === 'inch' ? '"' : this.units;
+        svg += `<text x="3" y="15" fill="#888" font-size="9" font-family="monospace">${viewWidthDisplay}${unitLabel}</text>`;
         
         // Top ruler ticks and labels
-        const startX = Math.floor(bounds.minX / tickSpacing) * tickSpacing;
-        const endX = Math.ceil(bounds.maxX / tickSpacing) * tickSpacing;
+        const startX = Math.floor(bounds.minX / tickSpacingMm) * tickSpacingMm;
+        const endX = Math.ceil(bounds.maxX / tickSpacingMm) * tickSpacingMm;
         
-        // Determine decimal places based on tick spacing
-        const decimals = tickSpacing < 1 ? Math.ceil(-Math.log10(tickSpacing)) : 0;
-        const formatLabel = (val) => {
-            const rounded = Math.round(val / tickSpacing) * tickSpacing;
-            return decimals > 0 ? rounded.toFixed(decimals) : Math.round(rounded).toString();
-        };
-        
-        for (let worldX = startX; worldX <= endX; worldX += tickSpacing) {
+        for (let worldX = startX; worldX <= endX; worldX += tickSpacingMm) {
             const screenX = this.worldToScreen({ x: worldX, y: 0 }).x;
             if (screenX < rs || screenX > w) continue;
             
@@ -488,7 +509,7 @@ export class Viewport {
             
             // Minor ticks
             for (let i = 1; i < 5; i++) {
-                const minorX = worldX + (tickSpacing / 5) * i;
+                const minorX = worldX + (tickSpacingMm / 5) * i;
                 const minorScreenX = this.worldToScreen({ x: minorX, y: 0 }).x;
                 if (minorScreenX > rs && minorScreenX < w) {
                     svg += `<line x1="${minorScreenX}" y1="${rs}" x2="${minorScreenX}" y2="${rs - 4}" stroke="#666"/>`;
@@ -497,10 +518,10 @@ export class Viewport {
         }
         
         // Left ruler ticks and labels
-        const startY = Math.floor(bounds.minY / tickSpacing) * tickSpacing;
-        const endY = Math.ceil(bounds.maxY / tickSpacing) * tickSpacing;
+        const startY = Math.floor(bounds.minY / tickSpacingMm) * tickSpacingMm;
+        const endY = Math.ceil(bounds.maxY / tickSpacingMm) * tickSpacingMm;
         
-        for (let worldY = startY; worldY <= endY; worldY += tickSpacing) {
+        for (let worldY = startY; worldY <= endY; worldY += tickSpacingMm) {
             const screenY = this.worldToScreen({ x: 0, y: worldY }).y;
             if (screenY < rs || screenY > h) continue;
             
@@ -509,7 +530,7 @@ export class Viewport {
             
             // Minor ticks
             for (let i = 1; i < 5; i++) {
-                const minorY = worldY + (tickSpacing / 5) * i;
+                const minorY = worldY + (tickSpacingMm / 5) * i;
                 const minorScreenY = this.worldToScreen({ x: 0, y: minorY }).y;
                 if (minorScreenY > rs && minorScreenY < h) {
                     svg += `<line x1="${rs}" y1="${minorScreenY}" x2="${rs - 4}" y2="${minorScreenY}" stroke="#666"/>`;
@@ -528,14 +549,70 @@ export class Viewport {
     // ==================== Units ====================
     
     setUnits(units) {
-        if (this.unitConversions[units]) {
+        if (this.unitConversions[units] && units !== this.units) {
             this.units = units;
+            this._createRulers();
+            this._notifyViewChanged();
         }
     }
     
+    /**
+     * Convert mm to current display units
+     */
+    toDisplayUnits(mmValue) {
+        return mmValue * this.unitConversions[this.units];
+    }
+    
+    /**
+     * Convert current display units to mm
+     */
+    fromDisplayUnits(displayValue) {
+        return displayValue / this.unitConversions[this.units];
+    }
+    
+    /**
+     * Format a world value (mm) for display in current units
+     */
     formatValue(worldValue, precision = 2) {
         const converted = worldValue * this.unitConversions[this.units];
         return converted.toFixed(precision);
+    }
+    
+    /**
+     * Get sensible grid size options for current units
+     * Returns array of { value: mm, label: string }
+     */
+    getGridOptions() {
+        switch (this.units) {
+            case 'mil':
+                return [
+                    { value: 0.0254, label: '1 mil' },
+                    { value: 0.127, label: '5 mil' },
+                    { value: 0.254, label: '10 mil' },
+                    { value: 0.635, label: '25 mil' },
+                    { value: 1.27, label: '50 mil' },
+                    { value: 2.54, label: '100 mil' }
+                ];
+            case 'inch':
+                return [
+                    { value: 0.0254, label: '0.001"' },
+                    { value: 0.127, label: '0.005"' },
+                    { value: 0.254, label: '0.01"' },
+                    { value: 0.635, label: '0.025"' },
+                    { value: 1.27, label: '0.05"' },
+                    { value: 2.54, label: '0.1"' }
+                ];
+            case 'mm':
+            default:
+                return [
+                    { value: 0.1, label: '0.1 mm' },
+                    { value: 0.25, label: '0.25 mm' },
+                    { value: 0.5, label: '0.5 mm' },
+                    { value: 1, label: '1 mm' },
+                    { value: 1.27, label: '1.27 mm (50 mil)' },
+                    { value: 2.54, label: '2.54 mm (100 mil)' }
+                ];
+        }
     }
     
     // ==================== Browser Zoom Prevention ====================

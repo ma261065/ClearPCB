@@ -433,20 +433,23 @@ class SchematicApp {
             if (now - lastStatusUpdate > STATUS_THROTTLE) {
                 lastStatusUpdate = now;
                 const v = this.viewport;
-                this.ui.cursorPos.textContent = `${v.formatValue(world.x)}, ${v.formatValue(world.y)} ${v.units}`;
-                this.ui.gridSnap.textContent = `${v.formatValue(snapped.x)}, ${v.formatValue(snapped.y)} ${v.units}`;
+                const unitLabel = v.units === 'inch' ? '"' : ` ${v.units}`;
+                this.ui.cursorPos.textContent = `${v.formatValue(world.x)}, ${v.formatValue(world.y)}${unitLabel}`;
+                this.ui.gridSnap.textContent = `${v.formatValue(snapped.x)}, ${v.formatValue(snapped.y)}${unitLabel}`;
             }
         };
 
         this.viewport.onViewChanged = (view) => {
-            // Display zoom as percentage (500mm = 100%)
+            // Display zoom as percentage
             const zoomPercent = Math.round(this.viewport.zoom * 100);
             this.ui.zoomLevel.textContent = `${zoomPercent}%`;
             
             const bounds = view.bounds;
             const v = this.viewport;
-            this.ui.viewportInfo.textContent = 
-                `${v.formatValue(bounds.maxX - bounds.minX)} × ${v.formatValue(bounds.maxY - bounds.minY)} ${v.units}`;
+            const widthDisplay = v.formatValue(bounds.maxX - bounds.minX, 1);
+            const heightDisplay = v.formatValue(bounds.maxY - bounds.minY, 1);
+            const unitLabel = v.units === 'inch' ? '"' : ` ${v.units}`;
+            this.ui.viewportInfo.textContent = `${widthDisplay} × ${heightDisplay}${unitLabel}`;
             
             // Re-render all shapes to update stroke widths based on zoom
             this.renderShapes(true);
@@ -657,6 +660,7 @@ class SchematicApp {
 
         this.ui.units.addEventListener('change', (e) => {
             this.viewport.setUnits(e.target.value);
+            this._updateGridDropdown();
         });
 
         this.ui.showGrid.addEventListener('change', (e) => {
@@ -695,6 +699,43 @@ class SchematicApp {
         document.getElementById('saveFile').addEventListener('click', () => {
             this.saveFile();
         });
+        
+        // Initialize grid dropdown with current units
+        this._updateGridDropdown();
+    }
+    
+    /**
+     * Update grid dropdown options based on current units
+     */
+    _updateGridDropdown() {
+        const options = this.viewport.getGridOptions();
+        const currentValue = this.viewport.gridSize;
+        
+        // Clear existing options
+        this.ui.gridSize.innerHTML = '';
+        
+        // Add new options
+        for (const opt of options) {
+            const option = document.createElement('option');
+            option.value = opt.value;
+            option.textContent = opt.label;
+            this.ui.gridSize.appendChild(option);
+        }
+        
+        // Try to select closest matching value
+        let closestIdx = 0;
+        let closestDiff = Infinity;
+        for (let i = 0; i < options.length; i++) {
+            const diff = Math.abs(options[i].value - currentValue);
+            if (diff < closestDiff) {
+                closestDiff = diff;
+                closestIdx = i;
+            }
+        }
+        this.ui.gridSize.selectedIndex = closestIdx;
+        
+        // Update viewport grid size to match selected option
+        this.viewport.setGridSize(options[closestIdx].value);
     }
 
     _bindKeyboardShortcuts() {
