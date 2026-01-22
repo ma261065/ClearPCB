@@ -7,6 +7,9 @@
 
 let shapeIdCounter = 0;
 
+// Minimum stroke width in screen pixels
+const MIN_STROKE_PIXELS = 1;
+
 export class Shape {
     constructor(options = {}) {
         this.id = options.id || `shape_${++shapeIdCounter}`;
@@ -41,6 +44,12 @@ export class Shape {
         if (typeof color === 'string') return color;
         // Convert hex number to CSS hex string
         return '#' + color.toString(16).padStart(6, '0');
+    }
+    
+    // Calculate effective stroke width with minimum screen pixel size
+    _getEffectiveStrokeWidth(scale) {
+        const minWorldWidth = MIN_STROKE_PIXELS / scale;
+        return Math.max(this.lineWidth, minWorldWidth);
     }
     
     getBounds() {

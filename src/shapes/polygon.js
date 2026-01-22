@@ -106,7 +106,7 @@ export class Polygon extends Shape {
         const pointsStr = this.points.map(p => `${p.x},${p.y}`).join(' ');
         el.setAttribute('points', pointsStr);
         el.setAttribute('stroke', strokeColor);
-        el.setAttribute('stroke-width', this.lineWidth);
+        el.setAttribute('stroke-width', this._getEffectiveStrokeWidth(scale));
         el.setAttribute('stroke-linecap', 'round');
         el.setAttribute('stroke-linejoin', 'round');
         

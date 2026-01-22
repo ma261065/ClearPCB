@@ -57,7 +57,7 @@ export class Line extends Shape {
         el.setAttribute('x2', this.x2);
         el.setAttribute('y2', this.y2);
         el.setAttribute('stroke', strokeColor);
-        el.setAttribute('stroke-width', this.lineWidth);
+        el.setAttribute('stroke-width', this._getEffectiveStrokeWidth(scale));
         el.setAttribute('stroke-linecap', 'round');
     }
     

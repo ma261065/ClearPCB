@@ -102,7 +102,7 @@ export class Arc extends Shape {
         
         el.setAttribute('d', d);
         el.setAttribute('stroke', strokeColor);
-        el.setAttribute('stroke-width', this.lineWidth);
+        el.setAttribute('stroke-width', this._getEffectiveStrokeWidth(scale));
         el.setAttribute('fill', 'none');
         el.setAttribute('stroke-linecap', 'round');
     }

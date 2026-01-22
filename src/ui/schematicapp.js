@@ -112,9 +112,9 @@ class SchematicApp {
         }
     }
     
-    renderShapes() {
+    renderShapes(force = false) {
         for (const shape of this.shapes) {
-            if (shape._dirty || shape.selected || shape.hovered) {
+            if (force || shape._dirty || shape.selected || shape.hovered) {
                 shape.render(this.viewport.scale);
             }
         }
@@ -207,12 +207,20 @@ class SchematicApp {
         this.viewport.contentLayer.appendChild(this.previewElement);
     }
     
+    
+    // Calculate effective stroke width with minimum screen pixel size
+    _getEffectiveStrokeWidth(lineWidth) {
+        const minWorldWidth = 1 / this.viewport.scale; // 1 screen pixel minimum
+        return Math.max(lineWidth, minWorldWidth);
+    }
+    
     _updatePreview() {
         if (!this.previewElement || !this.drawStart || !this.drawCurrent) return;
         
         const start = this.drawStart;
         const end = this.drawCurrent;
         const opts = this.toolOptions;
+        const strokeWidth = this._getEffectiveStrokeWidth(opts.lineWidth);
         
         let svg = '';
         
@@ -220,7 +228,7 @@ class SchematicApp {
             case 'line':
             case 'wire':
                 svg = `<line x1="${start.x}" y1="${start.y}" x2="${end.x}" y2="${end.y}" 
-                        stroke="${opts.color}" stroke-width="${opts.lineWidth}" stroke-linecap="round"/>`;
+                        stroke="${opts.color}" stroke-width="${strokeWidth}" stroke-linecap="round"/>`;
                 break;
                 
             case 'rect':
@@ -229,14 +237,14 @@ class SchematicApp {
                 const w = Math.abs(end.x - start.x);
                 const h = Math.abs(end.y - start.y);
                 svg = `<rect x="${x}" y="${y}" width="${w}" height="${h}" 
-                        stroke="${opts.color}" stroke-width="${opts.lineWidth}" 
+                        stroke="${opts.color}" stroke-width="${strokeWidth}" 
                         fill="${opts.fill ? opts.color : 'none'}" fill-opacity="0.3"/>`;
                 break;
                 
             case 'circle':
                 const radius = Math.hypot(end.x - start.x, end.y - start.y);
                 svg = `<circle cx="${start.x}" cy="${start.y}" r="${radius}" 
-                        stroke="${opts.color}" stroke-width="${opts.lineWidth}" 
+                        stroke="${opts.color}" stroke-width="${strokeWidth}" 
                         fill="${opts.fill ? opts.color : 'none'}" fill-opacity="0.3"/>`;
                 break;
                 
@@ -247,7 +255,7 @@ class SchematicApp {
                 const arcEndY = start.y + arcRadius * Math.sin(endAngle);
                 const largeArc = endAngle > Math.PI ? 1 : 0;
                 svg = `<path d="M ${start.x + arcRadius} ${start.y} A ${arcRadius} ${arcRadius} 0 ${largeArc} 1 ${arcEndX} ${arcEndY}" 
-                        stroke="${opts.color}" stroke-width="${opts.lineWidth}" fill="none" stroke-linecap="round"/>`;
+                        stroke="${opts.color}" stroke-width="${strokeWidth}" fill="none" stroke-linecap="round"/>`;
                 break;
                 
             case 'polygon':
@@ -255,7 +263,7 @@ class SchematicApp {
                     const points = [...this.polygonPoints, end];
                     const pointsStr = points.map(p => `${p.x},${p.y}`).join(' ');
                     svg = `<polyline points="${pointsStr}" 
-                            stroke="${opts.color}" stroke-width="${opts.lineWidth}" 
+                            stroke="${opts.color}" stroke-width="${strokeWidth}" 
                             fill="${opts.fill ? opts.color : 'none'}" fill-opacity="0.3"
                             stroke-linecap="round" stroke-linejoin="round"/>`;
                     // Draw vertex indicators
@@ -381,6 +389,9 @@ class SchematicApp {
             const v = this.viewport;
             this.ui.viewportInfo.textContent = 
                 `${v.formatValue(bounds.maxX - bounds.minX)} × ${v.formatValue(bounds.maxY - bounds.minY)} ${v.units}`;
+            
+            // Re-render all shapes to update stroke widths based on zoom
+            this.renderShapes(true);
         };
     }
     

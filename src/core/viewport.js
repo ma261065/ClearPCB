@@ -29,18 +29,29 @@ export class Viewport {
         container.appendChild(this.rulerContainer);
         
         // View state - viewBox defines visible world area
-        this.baseWidth = 500; // mm visible at 100% zoom (for display purposes)
+        this.baseWidth = 200; // mm visible at 100% zoom (for display purposes)
         
-        // 25 discrete zoom levels - view width in mm (from zoomed out to zoomed in)
-        // Range: 10,000mm (10m) to 2mm
+        // Zoom levels with clean 1-2-5 percentage progression
+        // View width = baseWidth / (zoomPercent / 100) = 20000 / zoomPercent
+        // Zoom percentages: 1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000
         this.zoomLevels = [
-            10000, 7500, 5000, 3000, 2000, 1500, 1000, 750, 500, 400,
-            300, 200, 150, 100, 75, 50, 40, 30, 20, 15,
-            10, 7.5, 5, 3, 2
+            20000,  // 1%
+            10000,  // 2%
+            4000,   // 5%
+            2000,   // 10%
+            1000,   // 20%
+            400,    // 50%
+            200,    // 100%
+            100,    // 200%
+            40,     // 500%
+            20,     // 1000%
+            10,     // 2000%
+            4,      // 5000%
+            2       // 10000%
         ];
-        this.zoomIndex = 8; // Start at 500mm (index 8)
+        this.zoomIndex = 6; // Start at 200mm (index 6) = 100% zoom
         
-        this.viewBox = { x: -250, y: -150, width: 500, height: 300 };
+        this.viewBox = { x: -100, y: -60, width: 200, height: 120 };
         
         // Constraints (index bounds)
         this.minZoomIndex = 0;
@@ -158,24 +169,35 @@ export class Viewport {
     }
     
     getEffectiveGridSize() {
-        // Calculate the same adaptive grid spacing used for display
-        const minPixelSpacing = 8;
+        // Calculate adaptive grid spacing for display using 1-2-5 sequence
+        // This gives smoother transitions than 10x jumps
+        const minPixelSpacing = 4; // Allow denser grid (was 8)
         const minWorldSpacing = minPixelSpacing / this.scale;
+        
+        // 1-2-5 sequence multipliers
+        const sequence = [1, 2, 5];
+        let multiplier = 1;
+        let seqIndex = 0;
         
         let gridSpacing = this.gridSize;
         while (gridSpacing < minWorldSpacing) {
-            gridSpacing *= 10;
+            // Move to next in 1-2-5 sequence
+            seqIndex++;
+            if (seqIndex >= sequence.length) {
+                seqIndex = 0;
+                multiplier *= 10;
+            }
+            gridSpacing = this.gridSize * sequence[seqIndex] * multiplier;
         }
         return gridSpacing;
     }
     
     getSnappedPosition(worldPos) {
         if (!this.snapToGrid) return worldPos;
-        // Use the effective (displayed) grid size for snapping
-        const effectiveGrid = this.getEffectiveGridSize();
+        // Always snap to base grid size for precision
         return {
-            x: Math.round(worldPos.x / effectiveGrid) * effectiveGrid,
-            y: Math.round(worldPos.y / effectiveGrid) * effectiveGrid
+            x: Math.round(worldPos.x / this.gridSize) * this.gridSize,
+            y: Math.round(worldPos.y / this.gridSize) * this.gridSize
         };
     }
     
@@ -231,8 +253,8 @@ export class Viewport {
     }
     
     resetView() {
-        // Reset to 100% (500mm view width, index 8)
-        this.zoomIndex = 8;
+        // Reset to 100% (200mm view width, index 6)
+        this.zoomIndex = 6;
         const aspect = this.height / this.width;
         this.viewBox.width = this.zoomLevels[this.zoomIndex];
         this.viewBox.height = this.viewBox.width * aspect;
@@ -345,14 +367,8 @@ export class Viewport {
         const bounds = this.getVisibleBounds();
         const margin = Math.max(bounds.maxX - bounds.minX, bounds.maxY - bounds.minY);
         
-        // Adaptive grid spacing
-        const minPixelSpacing = 8;
-        const minWorldSpacing = minPixelSpacing / this.scale;
-        
-        let gridSpacing = this.gridSize;
-        while (gridSpacing < minWorldSpacing) {
-            gridSpacing *= 10;
-        }
+        // Use the shared adaptive grid spacing calculation
+        const gridSpacing = this.getEffectiveGridSize();
         
         // Calculate range for lines/axes
         const startX = Math.floor((bounds.minX - margin) / gridSpacing) * gridSpacing;

@@ -74,7 +74,7 @@ export class Rect extends Shape {
         el.setAttribute('width', this.width);
         el.setAttribute('height', this.height);
         el.setAttribute('stroke', strokeColor);
-        el.setAttribute('stroke-width', this.lineWidth);
+        el.setAttribute('stroke-width', this._getEffectiveStrokeWidth(scale));
         
         if (this.cornerRadius > 0) {
             el.setAttribute('rx', this.cornerRadius);

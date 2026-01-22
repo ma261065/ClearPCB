@@ -51,7 +51,7 @@ export class Circle extends Shape {
         el.setAttribute('cy', this.y);
         el.setAttribute('r', this.radius);
         el.setAttribute('stroke', strokeColor);
-        el.setAttribute('stroke-width', this.lineWidth);
+        el.setAttribute('stroke-width', this._getEffectiveStrokeWidth(scale));
         
         if (this.fill) {
             el.setAttribute('fill', fillColor);
