@@ -261,7 +261,7 @@ export class Viewport {
         this.viewBox.width = this.zoomLevels[this.zoomIndex];
         this.viewBox.height = this.viewBox.width * aspect;
         
-        // Position so origin (0,0) is 10mm from right and 10mm from bottom
+        // Position so origin (0,0) is 10mm from left and 10mm from bottom
         const margin = 10; // mm from edges
         this.viewBox.x = -margin;   // Right edge at x=10, so origin at 10 from right
         this.viewBox.y = margin - this.viewBox.height;  // Bottom edge at y=10, so origin at 10 from bottom
