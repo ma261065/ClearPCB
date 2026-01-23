@@ -2,12 +2,12 @@
  * SchematicApp.js - Schematic Editor Application
  */
 
-import { Viewport } from '../core/viewport.js';
-import { EventBus, Events, globalEventBus } from '../core/eventbus.js';
-import { CommandHistory } from '../core/commandhistory.js';
-import { SelectionManager } from '../core/selectionmanager.js';
-import { FileManager } from '../core/filemanager.js';
-import { Toolbox } from './toolbox.js';
+import { Viewport } from '../core/Viewport.js';
+import { EventBus, Events, globalEventBus } from '../core/EventBus.js';
+import { CommandHistory } from '../core/CommandHistory.js';
+import { SelectionManager } from '../core/SelectionManager.js';
+import { FileManager } from '../core/FileManager.js';
+import { Toolbox } from './Toolbox.js';
 import { Line, Circle, Rect, Arc, Polygon, updateIdCounter } from '../shapes/index.js';
 
 // Shape class registry for deserialization
@@ -918,7 +918,7 @@ class SchematicApp {
             maxY = Math.max(maxY, b.maxY);
         }
         
-        this.viewport.fitToBounds(minX, minY, maxX, maxY, 30);
+        this.viewport.fitToBounds(minX, minY, maxX, maxY, 10);
     }
     
     // ==================== File Operations ====================

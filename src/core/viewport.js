@@ -255,7 +255,7 @@ export class Viewport {
     
     resetView() {
         // Reset to 100% zoom (200mm view width, index 6)
-        // Position origin 10mm in from left edge and 10mm up from bottom edge
+        // Position origin 10mm in from right edge and 10mm up from bottom edge
         this.zoomIndex = 6;
         const aspect = this.height / this.width;
         this.viewBox.width = this.zoomLevels[this.zoomIndex];
@@ -263,7 +263,7 @@ export class Viewport {
         
         // Position so origin (0,0) is 10mm from right and 10mm from bottom
         const margin = 10; // mm from edges
-        this.viewBox.x = -margin;   // Right edge at x=10, so origin at 10 from right
+        this.viewBox.x = margin - this.viewBox.width;   // Right edge at x=10, so origin at 10 from right
         this.viewBox.y = margin - this.viewBox.height;  // Bottom edge at y=10, so origin at 10 from bottom
         
         this._updateViewBox();
@@ -272,7 +272,7 @@ export class Viewport {
         this._notifyViewChanged();
     }
     
-    fitToBounds(minX, minY, maxX, maxY, padding = 20) {
+    fitToBounds(minX, minY, maxX, maxY, paddingPercent = 10) {
         const contentWidth = maxX - minX;
         const contentHeight = maxY - minY;
         
@@ -282,20 +282,25 @@ export class Viewport {
         }
         
         const aspect = this.height / this.width;
-        const paddingWorld = padding / this.scale;
         
-        // Calculate required view width to fit content
-        let requiredWidth = contentWidth + paddingWorld * 2;
-        let requiredHeight = contentHeight + paddingWorld * 2;
+        // Add padding as a percentage of content size
+        const paddingX = contentWidth * (paddingPercent / 100);
+        const paddingY = contentHeight * (paddingPercent / 100);
+        
+        // Calculate required view size to fit content with padding
+        let requiredWidth = contentWidth + paddingX * 2;
+        let requiredHeight = contentHeight + paddingY * 2;
         
         // Adjust to maintain aspect ratio
         if (requiredHeight / requiredWidth > aspect) {
             requiredWidth = requiredHeight / aspect;
         }
         
-        // Find the smallest zoom level that fits the content (largest viewWidth that fits)
-        let bestIndex = 0;
-        for (let i = 0; i < this.zoomLevels.length; i++) {
+        // Find the most zoomed-in level that still fits the content
+        // zoomLevels goes from largest (index 0) to smallest (index n-1)
+        // We want the smallest viewWidth that is >= requiredWidth
+        let bestIndex = 0;  // Default to most zoomed out
+        for (let i = this.zoomLevels.length - 1; i >= 0; i--) {
             if (this.zoomLevels[i] >= requiredWidth) {
                 bestIndex = i;
                 break;
