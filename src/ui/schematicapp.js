@@ -4,7 +4,7 @@
 
 import { Viewport } from '../core/viewport.js';
 import { EventBus, Events, globalEventBus } from '../core/eventbus.js';
-import { CommandHistory } from '../core/commandhistory.js';
+import { CommandHistory, AddShapeCommand, DeleteShapesCommand, MoveShapesCommand, ModifyShapeCommand } from '../core/commandhistory.js';
 import { SelectionManager } from '../core/selectionmanager.js';
 import { FileManager } from '../core/filemanager.js';
 import { Toolbox } from './toolbox.js';
@@ -18,7 +18,12 @@ class SchematicApp {
         this.container = document.getElementById('canvasContainer');
         this.viewport = new Viewport(this.container);
         this.eventBus = globalEventBus;
-        this.history = new CommandHistory();
+        this.history = new CommandHistory({
+            onChanged: () => {
+                this._updateTitle();
+                this._updateUndoRedoButtons();
+            }
+        });
         
         // File management
         this.fileManager = new FileManager();
@@ -59,6 +64,11 @@ class SchematicApp {
         this.boxSelectElement = null;
         this.boxSelectStart = null;
         
+        // Drag tracking for undo/redo
+        this.dragTotalDx = 0;
+        this.dragTotalDy = 0;
+        this.dragShapesBefore = null;  // State before drag for anchor modifications
+        
         // Tool options
         this.toolOptions = {
             lineWidth: 0.2,
@@ -77,7 +87,9 @@ class SchematicApp {
             units: document.getElementById('units'),
             showGrid: document.getElementById('showGrid'),
             snapToGrid: document.getElementById('snapToGrid'),
-            docTitle: document.getElementById('docTitle')
+            docTitle: document.getElementById('docTitle'),
+            undoBtn: document.getElementById('undoBtn'),
+            redoBtn: document.getElementById('redoBtn')
         };
         
         // Create toolbox
@@ -132,7 +144,19 @@ class SchematicApp {
 
     // ==================== Shape Management ====================
     
+    /**
+     * Add a shape (creates an undoable command)
+     */
     addShape(shape) {
+        const command = new AddShapeCommand(this, shape);
+        this.history.execute(command);
+        return shape;
+    }
+    
+    /**
+     * Internal add - used by commands, no history entry
+     */
+    _addShapeInternal(shape) {
         this.shapes.push(shape);
         shape.render(this.viewport.scale);
         this.viewport.addContent(shape.element);
@@ -140,13 +164,38 @@ class SchematicApp {
         return shape;
     }
     
-    removeShape(shape) {
+    /**
+     * Internal add at specific index - used by undo
+     */
+    _addShapeInternalAt(shape, index) {
+        // Re-render if element was removed
+        shape.render(this.viewport.scale);
+        
+        if (index >= 0 && index < this.shapes.length) {
+            this.shapes.splice(index, 0, shape);
+        } else {
+            this.shapes.push(shape);
+        }
+        this.viewport.addContent(shape.element);
+        this.fileManager.setDirty(true);
+        return shape;
+    }
+    
+    /**
+     * Internal remove - used by commands, no history entry
+     * Does NOT destroy the shape so it can be re-added on undo
+     */
+    _removeShapeInternal(shape) {
         const idx = this.shapes.indexOf(shape);
         if (idx !== -1) {
             this.shapes.splice(idx, 1);
-            this.viewport.removeContent(shape.element);
+            if (shape.element && shape.element.parentNode) {
+                shape.element.parentNode.removeChild(shape.element);
+            }
+            if (shape.anchorsGroup && shape.anchorsGroup.parentNode) {
+                shape.anchorsGroup.parentNode.removeChild(shape.anchorsGroup);
+            }
             this.selection.deselect(shape);
-            shape.destroy();
             this.fileManager.setDirty(true);
         }
     }
@@ -517,12 +566,14 @@ class SchematicApp {
                 for (const shape of selectedShapes) {
                     const anchorId = shape.hitTestAnchor(worldPos, this.viewport.scale);
                     if (anchorId) {
-                        // Start anchor drag
+                        // Start anchor drag - capture state for undo
                         this.isDragging = true;
                         this.dragMode = 'anchor';
                         this.dragStart = { ...snapped };
                         this.dragAnchorId = anchorId;
                         this.dragShape = shape;
+                        // Capture shape state before modification
+                        this.dragShapesBefore = this._captureShapeState(shape);
                         e.preventDefault();
                         return;
                     }
@@ -531,10 +582,12 @@ class SchematicApp {
                 // Check if clicking on a selected shape (for move)
                 const hitShape = this.selection.hitTest(worldPos);
                 if (hitShape && hitShape.selected) {
-                    // Start move drag
+                    // Start move drag - reset total movement
                     this.isDragging = true;
                     this.dragMode = 'move';
                     this.dragStart = { ...snapped };
+                    this.dragTotalDx = 0;
+                    this.dragTotalDy = 0;
                     e.preventDefault();
                     return;
                 }
@@ -583,6 +636,10 @@ class SchematicApp {
                 
                 if (dx !== 0 || dy !== 0) {
                     this.didDrag = true;
+                    // Track total movement for undo command
+                    this.dragTotalDx += dx;
+                    this.dragTotalDy += dy;
+                    
                     for (const shape of this.selection.getSelection()) {
                         shape.move(dx, dy);
                     }
@@ -639,11 +696,33 @@ class SchematicApp {
             
             // End other dragging modes
             if (this.isDragging) {
+                // Create undo command if we actually moved something
+                if (this.didDrag && this.dragMode === 'move') {
+                    // Create move command (shapes already moved, so use negative values to undo)
+                    const selectedShapes = this.selection.getSelection();
+                    if (selectedShapes.length > 0 && (this.dragTotalDx !== 0 || this.dragTotalDy !== 0)) {
+                        // First undo the move, then let the command redo it
+                        for (const shape of selectedShapes) {
+                            shape.move(-this.dragTotalDx, -this.dragTotalDy);
+                        }
+                        const command = new MoveShapesCommand(this, selectedShapes, this.dragTotalDx, this.dragTotalDy);
+                        this.history.execute(command);
+                    }
+                } else if (this.didDrag && this.dragMode === 'anchor' && this.dragShape && this.dragShapesBefore) {
+                    // Create modify command for anchor drag
+                    const afterState = this._captureShapeState(this.dragShape);
+                    // Restore before state, then let command apply after state
+                    this._applyShapeState(this.dragShape, this.dragShapesBefore);
+                    const command = new ModifyShapeCommand(this, this.dragShape, this.dragShapesBefore, afterState);
+                    this.history.execute(command);
+                }
+                
                 this.isDragging = false;
                 this.dragMode = null;
                 this.dragStart = null;
                 this.dragAnchorId = null;
                 this.dragShape = null;
+                this.dragShapesBefore = null;
                 // Don't return - let click handle selection if needed
             }
             
@@ -739,6 +818,22 @@ class SchematicApp {
             this.saveFile();
         });
         
+        // Undo/Redo buttons
+        this.ui.undoBtn.addEventListener('click', () => {
+            if (this.history.undo()) {
+                this.renderShapes(true);
+            }
+        });
+        
+        this.ui.redoBtn.addEventListener('click', () => {
+            if (this.history.redo()) {
+                this.renderShapes(true);
+            }
+        });
+        
+        // Initialize button states
+        this._updateUndoRedoButtons();
+        
         // Initialize grid dropdown with current units
         this._updateGridDropdown();
     }
@@ -803,14 +898,20 @@ class SchematicApp {
                     case 'z':
                         e.preventDefault();
                         if (e.shiftKey) {
-                            this.history.redo();
+                            if (this.history.redo()) {
+                                this.renderShapes(true);
+                            }
                         } else {
-                            this.history.undo();
+                            if (this.history.undo()) {
+                                this.renderShapes(true);
+                            }
                         }
                         break;
                     case 'y':
                         e.preventDefault();
-                        this.history.redo();
+                        if (this.history.redo()) {
+                            this.renderShapes(true);
+                        }
                         break;
                     case 'a':
                         e.preventDefault();
@@ -854,9 +955,12 @@ class SchematicApp {
         if (toDelete.length === 0) return;
         
         this.selection.clearSelection();
-        for (const shape of toDelete) {
-            this.removeShape(shape);
-        }
+        
+        // Create and execute delete command
+        const command = new DeleteShapesCommand(this, toDelete);
+        this.history.execute(command);
+        
+        this.renderShapes(true);
     }
     
     // ==================== Box Selection ====================
@@ -899,6 +1003,44 @@ class SchematicApp {
             maxX: Math.max(this.boxSelectStart.x, currentPos.x),
             maxY: Math.max(this.boxSelectStart.y, currentPos.y)
         };
+    }
+    
+    // ==================== Shape State Helpers (for undo/redo) ====================
+    
+    /**
+     * Capture the geometric state of a shape for undo/redo
+     */
+    _captureShapeState(shape) {
+        switch (shape.type) {
+            case 'rect':
+                return { x: shape.x, y: shape.y, width: shape.width, height: shape.height };
+            case 'circle':
+                return { x: shape.x, y: shape.y, radius: shape.radius };
+            case 'line':
+                return { x1: shape.x1, y1: shape.y1, x2: shape.x2, y2: shape.y2 };
+            case 'arc':
+                return { x: shape.x, y: shape.y, radius: shape.radius, startAngle: shape.startAngle, endAngle: shape.endAngle };
+            case 'polygon':
+                return { points: shape.points.map(p => ({ x: p.x, y: p.y })) };
+            default:
+                console.warn('Unknown shape type for state capture:', shape.type);
+                return {};
+        }
+    }
+    
+    /**
+     * Apply a captured state to a shape
+     */
+    _applyShapeState(shape, state) {
+        for (const [key, value] of Object.entries(state)) {
+            if (key === 'points' && Array.isArray(value)) {
+                shape.points = value.map(p => ({ x: p.x, y: p.y }));
+            } else {
+                shape[key] = value;
+            }
+        }
+        shape.invalidate();
+        this.renderShapes(true);
     }
     
     _fitToContent() {
@@ -999,6 +1141,8 @@ class SchematicApp {
         }
         this.shapes = [];
         this.selection.setShapes(this.shapes);
+        this.history.clear();
+        this._updateUndoRedoButtons();
     }
     
     /**
@@ -1011,6 +1155,20 @@ class SchematicApp {
         
         if (this.ui.docTitle) {
             this.ui.docTitle.textContent = `${dirty}${this.fileManager.fileName}`;
+        }
+    }
+    
+    /**
+     * Update undo/redo button enabled states
+     */
+    _updateUndoRedoButtons() {
+        if (this.ui.undoBtn) {
+            this.ui.undoBtn.disabled = !this.history.canUndo();
+            this.ui.undoBtn.style.opacity = this.history.canUndo() ? '1' : '0.4';
+        }
+        if (this.ui.redoBtn) {
+            this.ui.redoBtn.disabled = !this.history.canRedo();
+            this.ui.redoBtn.style.opacity = this.history.canRedo() ? '1' : '0.4';
         }
     }
     

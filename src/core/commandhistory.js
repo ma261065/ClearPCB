@@ -1,218 +1,110 @@
 /**
- * CommandHistory - Undo/Redo system using the Command pattern
+ * CommandHistory - Manages undo/redo stack
  * 
- * All document modifications should go through commands to enable undo/redo.
- * 
- * Usage:
- *   const cmd = new MoveCommand(component, oldPos, newPos);
- *   history.execute(cmd);
- *   history.undo();
- *   history.redo();
+ * Uses the Command pattern to track reversible operations.
  */
 
-/**
- * Base class for all commands
- * @abstract
- */
-export class Command {
-    constructor(description = 'Unknown action') {
-        this.description = description;
-        this.timestamp = Date.now();
-    }
-
-    /**
-     * Execute the command
-     * @abstract
-     */
-    execute() {
-        throw new Error('Command.execute() must be implemented');
-    }
-
-    /**
-     * Undo the command
-     * @abstract
-     */
-    undo() {
-        throw new Error('Command.undo() must be implemented');
-    }
-
-    /**
-     * Optional: Can this command be merged with another?
-     * Useful for continuous actions like dragging
-     * @param {Command} other 
-     * @returns {boolean}
-     */
-    canMergeWith(other) {
-        return false;
-    }
-
-    /**
-     * Optional: Merge another command into this one
-     * @param {Command} other 
-     */
-    mergeWith(other) {
-        // Override in subclasses that support merging
-    }
-}
-
-/**
- * Group multiple commands into a single undoable action
- */
-export class CompoundCommand extends Command {
-    constructor(commands = [], description = 'Multiple actions') {
-        super(description);
-        this.commands = commands;
-    }
-
-    add(command) {
-        this.commands.push(command);
-    }
-
-    execute() {
-        this.commands.forEach(cmd => cmd.execute());
-    }
-
-    undo() {
-        // Undo in reverse order
-        for (let i = this.commands.length - 1; i >= 0; i--) {
-            this.commands[i].undo();
-        }
-    }
-}
-
-/**
- * Command history manager
- */
 export class CommandHistory {
     constructor(options = {}) {
         this.undoStack = [];
         this.redoStack = [];
         this.maxSize = options.maxSize || 100;
-        this.onChange = options.onChange || null;
         
-        // For merging continuous actions
-        this.lastCommandTime = 0;
-        this.mergeWindow = options.mergeWindow || 500; // ms
+        // Callbacks
+        this.onChanged = options.onChanged || null;
     }
-
+    
     /**
-     * Execute a command and add it to history
-     * @param {Command} command 
+     * Execute a command and add it to the undo stack
+     * @param {Command} command - Command to execute
      */
     execute(command) {
         command.execute();
+        this.undoStack.push(command);
         
-        // Check if we can merge with the last command
-        const lastCommand = this.undoStack[this.undoStack.length - 1];
-        const timeSinceLastCommand = Date.now() - this.lastCommandTime;
-        
-        if (lastCommand && 
-            timeSinceLastCommand < this.mergeWindow && 
-            lastCommand.canMergeWith(command)) {
-            lastCommand.mergeWith(command);
-        } else {
-            this.undoStack.push(command);
-            
-            // Trim history if too large
-            while (this.undoStack.length > this.maxSize) {
-                this.undoStack.shift();
-            }
-        }
-        
-        // Clear redo stack on new action
+        // Clear redo stack when new command is executed
         this.redoStack = [];
         
-        this.lastCommandTime = Date.now();
-        this._notifyChange();
+        // Limit stack size
+        if (this.undoStack.length > this.maxSize) {
+            this.undoStack.shift();
+        }
+        
+        this._notifyChanged();
     }
-
+    
     /**
      * Undo the last command
-     * @returns {boolean} Whether undo was successful
+     * @returns {boolean} True if undo was performed
      */
     undo() {
-        if (!this.canUndo()) return false;
+        if (this.undoStack.length === 0) return false;
         
         const command = this.undoStack.pop();
         command.undo();
         this.redoStack.push(command);
         
-        this._notifyChange();
+        this._notifyChanged();
         return true;
     }
-
+    
     /**
      * Redo the last undone command
-     * @returns {boolean} Whether redo was successful
+     * @returns {boolean} True if redo was performed
      */
     redo() {
-        if (!this.canRedo()) return false;
+        if (this.redoStack.length === 0) return false;
         
         const command = this.redoStack.pop();
         command.execute();
         this.undoStack.push(command);
         
-        this._notifyChange();
+        this._notifyChanged();
         return true;
     }
-
+    
     /**
-     * Check if undo is possible
-     * @returns {boolean}
+     * Check if undo is available
      */
     canUndo() {
         return this.undoStack.length > 0;
     }
-
+    
     /**
-     * Check if redo is possible
-     * @returns {boolean}
+     * Check if redo is available
      */
     canRedo() {
         return this.redoStack.length > 0;
     }
-
-    /**
-     * Get description of the next undo action
-     * @returns {string|null}
-     */
-    getUndoDescription() {
-        if (!this.canUndo()) return null;
-        return this.undoStack[this.undoStack.length - 1].description;
-    }
-
-    /**
-     * Get description of the next redo action
-     * @returns {string|null}
-     */
-    getRedoDescription() {
-        if (!this.canRedo()) return null;
-        return this.redoStack[this.redoStack.length - 1].description;
-    }
-
+    
     /**
      * Clear all history
      */
     clear() {
         this.undoStack = [];
         this.redoStack = [];
-        this._notifyChange();
+        this._notifyChanged();
     }
-
+    
     /**
-     * Get history statistics
+     * Get description of next undo action
      */
-    getStats() {
-        return {
-            undoCount: this.undoStack.length,
-            redoCount: this.redoStack.length,
-            maxSize: this.maxSize
-        };
+    getUndoDescription() {
+        if (this.undoStack.length === 0) return null;
+        return this.undoStack[this.undoStack.length - 1].description;
     }
-
-    _notifyChange() {
-        if (this.onChange) {
-            this.onChange({
+    
+    /**
+     * Get description of next redo action
+     */
+    getRedoDescription() {
+        if (this.redoStack.length === 0) return null;
+        return this.redoStack[this.redoStack.length - 1].description;
+    }
+    
+    _notifyChanged() {
+        if (this.onChanged) {
+            this.onChanged({
                 canUndo: this.canUndo(),
                 canRedo: this.canRedo(),
                 undoDescription: this.getUndoDescription(),
@@ -222,112 +114,140 @@ export class CommandHistory {
     }
 }
 
-// ==================== Common Command Implementations ====================
+/**
+ * Base Command class
+ */
+export class Command {
+    constructor(description = 'Unknown action') {
+        this.description = description;
+    }
+    
+    execute() {
+        throw new Error('execute() must be implemented');
+    }
+    
+    undo() {
+        throw new Error('undo() must be implemented');
+    }
+}
 
 /**
- * Command for adding an item to a collection
+ * Command to add a shape
  */
-export class AddItemCommand extends Command {
-    constructor(collection, item, description = 'Add item') {
-        super(description);
-        this.collection = collection;
-        this.item = item;
+export class AddShapeCommand extends Command {
+    constructor(app, shape) {
+        super(`Add ${shape.type}`);
+        this.app = app;
+        this.shape = shape;
     }
-
+    
     execute() {
-        this.collection.push(this.item);
+        this.app._addShapeInternal(this.shape);
     }
-
+    
     undo() {
-        const index = this.collection.indexOf(this.item);
-        if (index !== -1) {
-            this.collection.splice(index, 1);
+        this.app._removeShapeInternal(this.shape);
+    }
+}
+
+/**
+ * Command to delete shapes
+ */
+export class DeleteShapesCommand extends Command {
+    constructor(app, shapes) {
+        super(shapes.length === 1 ? `Delete ${shapes[0].type}` : `Delete ${shapes.length} shapes`);
+        this.app = app;
+        // Store shape data for restoration
+        this.shapesData = shapes.map(s => ({
+            shape: s,
+            index: app.shapes.indexOf(s)
+        }));
+    }
+    
+    execute() {
+        // Remove in reverse order to maintain indices
+        for (let i = this.shapesData.length - 1; i >= 0; i--) {
+            this.app._removeShapeInternal(this.shapesData[i].shape);
+        }
+    }
+    
+    undo() {
+        // Re-add in original order at original positions
+        for (const data of this.shapesData) {
+            this.app._addShapeInternalAt(data.shape, data.index);
         }
     }
 }
 
 /**
- * Command for removing an item from a collection
+ * Command to move shapes
  */
-export class RemoveItemCommand extends Command {
-    constructor(collection, item, description = 'Remove item') {
-        super(description);
-        this.collection = collection;
-        this.item = item;
-        this.index = -1;
+export class MoveShapesCommand extends Command {
+    constructor(app, shapes, dx, dy) {
+        super(shapes.length === 1 ? `Move ${shapes[0].type}` : `Move ${shapes.length} shapes`);
+        this.app = app;
+        this.shapeIds = shapes.map(s => s.id);
+        this.dx = dx;
+        this.dy = dy;
     }
-
+    
     execute() {
-        this.index = this.collection.indexOf(this.item);
-        if (this.index !== -1) {
-            this.collection.splice(this.index, 1);
+        for (const id of this.shapeIds) {
+            const shape = this.app.shapes.find(s => s.id === id);
+            if (shape) {
+                shape.move(this.dx, this.dy);
+            }
         }
+        this.app.renderShapes(true);
     }
-
+    
     undo() {
-        if (this.index !== -1) {
-            this.collection.splice(this.index, 0, this.item);
+        for (const id of this.shapeIds) {
+            const shape = this.app.shapes.find(s => s.id === id);
+            if (shape) {
+                shape.move(-this.dx, -this.dy);
+            }
         }
+        this.app.renderShapes(true);
     }
 }
 
 /**
- * Command for moving an item
+ * Command to modify a shape (e.g., resize via anchor drag)
  */
-export class MoveCommand extends Command {
-    constructor(item, oldPosition, newPosition, description = 'Move') {
-        super(description);
-        this.item = item;
-        this.oldPosition = { ...oldPosition };
-        this.newPosition = { ...newPosition };
+export class ModifyShapeCommand extends Command {
+    constructor(app, shape, beforeState, afterState) {
+        super(`Modify ${shape.type}`);
+        this.app = app;
+        this.shapeId = shape.id;
+        this.beforeState = beforeState;
+        this.afterState = afterState;
     }
-
+    
     execute() {
-        this.item.x = this.newPosition.x;
-        this.item.y = this.newPosition.y;
+        const shape = this.app.shapes.find(s => s.id === this.shapeId);
+        if (shape) {
+            this._applyState(shape, this.afterState);
+        }
     }
-
+    
     undo() {
-        this.item.x = this.oldPosition.x;
-        this.item.y = this.oldPosition.y;
+        const shape = this.app.shapes.find(s => s.id === this.shapeId);
+        if (shape) {
+            this._applyState(shape, this.beforeState);
+        }
     }
-
-    canMergeWith(other) {
-        return other instanceof MoveCommand && other.item === this.item;
-    }
-
-    mergeWith(other) {
-        this.newPosition = { ...other.newPosition };
-    }
-}
-
-/**
- * Command for changing a property value
- */
-export class SetPropertyCommand extends Command {
-    constructor(object, property, newValue, description = 'Change property') {
-        super(description);
-        this.object = object;
-        this.property = property;
-        this.oldValue = object[property];
-        this.newValue = newValue;
-    }
-
-    execute() {
-        this.object[this.property] = this.newValue;
-    }
-
-    undo() {
-        this.object[this.property] = this.oldValue;
-    }
-
-    canMergeWith(other) {
-        return other instanceof SetPropertyCommand && 
-               other.object === this.object && 
-               other.property === this.property;
-    }
-
-    mergeWith(other) {
-        this.newValue = other.newValue;
+    
+    _applyState(shape, state) {
+        for (const [key, value] of Object.entries(state)) {
+            if (key === 'points' && Array.isArray(value)) {
+                // Deep copy for points array
+                shape.points = value.map(p => ({ ...p }));
+            } else {
+                shape[key] = value;
+            }
+        }
+        shape.invalidate();
+        this.app.renderShapes(true);
     }
 }

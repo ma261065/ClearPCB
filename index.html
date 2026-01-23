@@ -66,11 +66,20 @@
             border-radius: 4px;
             cursor: pointer;
             font-size: 12px;
-            transition: background 0.2s;
+            transition: background 0.2s, opacity 0.2s;
         }
 
-        .toolbar button:hover {
+        .toolbar button:hover:not(:disabled) {
             background: #e94560;
+        }
+        
+        .toolbar button:disabled {
+            cursor: default;
+        }
+        
+        #undoBtn, #redoBtn {
+            font-size: 16px;
+            padding: 4px 10px;
         }
 
         .main-container {
@@ -275,6 +284,11 @@
         </div>
         
         <div class="toolbar-group">
+            <button id="undoBtn" title="Undo (Ctrl+Z)">↶</button>
+            <button id="redoBtn" title="Redo (Ctrl+Y)">↷</button>
+        </div>
+        
+        <div class="toolbar-group">
             <span id="docTitle" style="color: #e94560; font-size: 13px;">untitled.json</span>
         </div>
         
@@ -347,6 +361,8 @@
         <div><kbd>Ctrl+O</kbd> Open file</div>
         <div><kbd>Ctrl+S</kbd> Save</div>
         <div><kbd>Ctrl+Alt+S</kbd> Save As</div>
+        <div><kbd>Ctrl+Z</kbd> Undo</div>
+        <div><kbd>Ctrl+Y</kbd> Redo</div>
         <hr style="border-color: #333; margin: 8px 0;">
         <div><kbd>V</kbd> Select</div>
         <div><kbd>L</kbd> Line</div>
