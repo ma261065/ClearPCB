@@ -2,13 +2,15 @@
  * SchematicApp.js - Schematic Editor Application
  */
 
-import { Viewport } from '../core/viewport.js';
-import { EventBus, Events, globalEventBus } from '../core/eventbus.js';
-import { CommandHistory, AddShapeCommand, DeleteShapesCommand, MoveShapesCommand, ModifyShapeCommand } from '../core/commandhistory.js';
-import { SelectionManager } from '../core/selectionmanager.js';
-import { FileManager } from '../core/filemanager.js';
-import { Toolbox } from './toolbox.js';
+import { Viewport } from '../core/Viewport.js';
+import { EventBus, Events, globalEventBus } from '../core/EventBus.js';
+import { CommandHistory, AddShapeCommand, DeleteShapesCommand, MoveShapesCommand, ModifyShapeCommand } from '../core/CommandHistory.js';
+import { SelectionManager } from '../core/SelectionManager.js';
+import { FileManager } from '../core/FileManager.js';
+import { Toolbox } from './Toolbox.js';
+import { ComponentPicker } from '../components/ComponentPicker.js';
 import { Line, Circle, Rect, Arc, Polygon, updateIdCounter } from '../shapes/index.js';
+import { Component, getComponentLibrary } from '../components/index.js';
 
 // Shape class registry for deserialization
 const ShapeClasses = { Line, Circle, Rect, Arc, Polygon };
@@ -99,6 +101,20 @@ class SchematicApp {
         });
         this.toolbox.appendTo(this.container);
         
+        // Component library and picker
+        this.componentLibrary = getComponentLibrary();
+        this.components = [];  // Placed component instances
+        this.componentPicker = new ComponentPicker({
+            onComponentSelected: (def) => this._onComponentDefinitionSelected(def)
+        });
+        this.componentPicker.appendTo(this.container);
+        
+        // Component placement state
+        this.placingComponent = null;  // Definition being placed
+        this.componentPreview = null;  // Preview SVG element
+        this.componentRotation = 0;    // Current rotation for placement
+        this.componentMirror = false;  // Current mirror state
+        
         this._setupCallbacks();
         this._bindUIControls();
         this._bindMouseEvents();
@@ -131,7 +147,25 @@ class SchematicApp {
         // Cancel any in-progress drawing
         this._cancelDrawing();
         
+        // Cancel component placement if switching away from component tool
+        if (tool !== 'component' && this.placingComponent) {
+            this._cancelComponentPlacement();
+        }
+        
         this.currentTool = tool;
+        
+        // Handle component tool - open picker panel
+        if (tool === 'component') {
+            // Open component picker if collapsed
+            if (!this.componentPicker.isOpen) {
+                this.componentPicker.toggle();
+            }
+            // Focus search input
+            const searchInput = this.componentPicker.element.querySelector('.cp-search-input');
+            if (searchInput) {
+                searchInput.focus();
+            }
+        }
         
         // Update cursor
         const svg = this.viewport.svg;
@@ -438,6 +472,212 @@ class SchematicApp {
         }
     }
 
+    // ==================== Component Handling ====================
+    
+    /**
+     * Called when a component definition is selected in the picker
+     */
+    _onComponentDefinitionSelected(definition) {
+        // Cancel any current drawing
+        this._cancelDrawing();
+        
+        // Start component placement mode
+        this.placingComponent = definition;
+        this.currentTool = 'component';
+        
+        // Update toolbox to show component tool as active (without triggering callback)
+        this.toolbox.currentTool = 'component';
+        this.toolbox._updateSelection();
+        
+        // Create preview element
+        this._createComponentPreview(definition);
+        
+        // Change cursor
+        this.viewport.svg.style.cursor = 'crosshair';
+        
+        console.log('Placing component:', definition.name);
+    }
+    
+    /**
+     * Create component preview that follows cursor
+     */
+    _createComponentPreview(definition) {
+        if (this.componentPreview) {
+            this.componentPreview.remove();
+        }
+        
+        // Create a temporary component for preview
+        const tempComponent = new Component(definition, {
+            x: 0,
+            y: 0,
+            rotation: this.componentRotation,
+            mirror: this.componentMirror,
+            reference: definition.defaultReference || 'U?'
+        });
+        
+        this.componentPreview = tempComponent.createSymbolElement();
+        this.componentPreview.style.opacity = '0.6';
+        this.componentPreview.style.pointerEvents = 'none';
+        this.componentPreview.classList.add('component-preview');
+        
+        this.viewport.contentLayer.appendChild(this.componentPreview);
+    }
+    
+    /**
+     * Update component preview position
+     */
+    _updateComponentPreview(worldPos) {
+        if (!this.componentPreview || !this.placingComponent) return;
+        
+        // Build transform
+        const parts = [`translate(${worldPos.x}, ${worldPos.y})`];
+        if (this.componentRotation !== 0) {
+            parts.push(`rotate(${this.componentRotation})`);
+        }
+        if (this.componentMirror) {
+            parts.push('scale(-1, 1)');
+        }
+        
+        this.componentPreview.setAttribute('transform', parts.join(' '));
+    }
+    
+    /**
+     * Place the current component at the given position
+     */
+    _placeComponent(worldPos) {
+        if (!this.placingComponent) return;
+        
+        // Generate reference designator
+        const ref = this._generateReference(this.placingComponent);
+        
+        // Create the component instance
+        const component = new Component(this.placingComponent, {
+            x: worldPos.x,
+            y: worldPos.y,
+            rotation: this.componentRotation,
+            mirror: this.componentMirror,
+            reference: ref
+        });
+        
+        // Add to components list
+        this.components.push(component);
+        
+        // Create SVG element and add to canvas
+        const element = component.createSymbolElement();
+        this.viewport.addContent(element);
+        
+        // Mark document as dirty
+        this.fileManager.setDirty(true);
+        
+        // TODO: Add undo command for component placement
+        
+        console.log('Placed component:', component.reference, 'at', worldPos.x, worldPos.y);
+        
+        // Continue placement mode (for placing multiple components)
+        // Reset rotation/mirror for next placement? Or keep them? Let's keep them.
+    }
+    
+    /**
+     * Generate a reference designator for a component
+     */
+    _generateReference(definition) {
+        // Get prefix from default reference (e.g., "R?" -> "R", "U?" -> "U")
+        let prefix = definition.defaultReference || 'U?';
+        prefix = prefix.replace(/[0-9?]+$/, '');
+        
+        // Find highest number used for this prefix
+        let maxNum = 0;
+        for (const comp of this.components) {
+            if (comp.reference.startsWith(prefix)) {
+                const num = parseInt(comp.reference.slice(prefix.length)) || 0;
+                maxNum = Math.max(maxNum, num);
+            }
+        }
+        
+        return `${prefix}${maxNum + 1}`;
+    }
+    
+    /**
+     * Rotate component during placement (or selected components)
+     */
+    _rotateComponent() {
+        if (this.placingComponent) {
+            this.componentRotation = (this.componentRotation + 90) % 360;
+            this._createComponentPreview(this.placingComponent);
+        } else {
+            // Rotate selected components
+            const selected = this._getSelectedComponents();
+            for (const comp of selected) {
+                comp.rotate(90);
+            }
+            if (selected.length > 0) {
+                this.fileManager.setDirty(true);
+            }
+        }
+    }
+    
+    /**
+     * Mirror component during placement (or selected components)
+     */
+    _mirrorComponent() {
+        if (this.placingComponent) {
+            this.componentMirror = !this.componentMirror;
+            this._createComponentPreview(this.placingComponent);
+        } else {
+            // Mirror selected components
+            const selected = this._getSelectedComponents();
+            for (const comp of selected) {
+                comp.toggleMirror();
+            }
+            if (selected.length > 0) {
+                this.fileManager.setDirty(true);
+            }
+        }
+    }
+    
+    /**
+     * Cancel component placement mode
+     */
+    _cancelComponentPlacement() {
+        if (this.componentPreview) {
+            this.componentPreview.remove();
+            this.componentPreview = null;
+        }
+        this.placingComponent = null;
+        this.componentRotation = 0;
+        this.componentMirror = false;
+        
+        if (this.currentTool === 'component') {
+            this.currentTool = 'select';
+            this.viewport.svg.style.cursor = 'default';
+        }
+    }
+    
+    /**
+     * Get selected components (for future selection integration)
+     */
+    _getSelectedComponents() {
+        // TODO: Integrate components with SelectionManager
+        return [];
+    }
+    
+    /**
+     * Render all components
+     */
+    renderComponents() {
+        // Components render themselves via their SVG elements
+        // This is called if we need to re-render (e.g., after loading)
+        for (const comp of this.components) {
+            if (comp.element) {
+                // Update transform in case position changed
+                const transform = comp._buildTransform();
+                if (transform) {
+                    comp.element.setAttribute('transform', transform);
+                }
+            }
+        }
+    }
+
     // ==================== Callbacks ====================
 
     _setupCallbacks() {
@@ -449,6 +689,11 @@ class SchematicApp {
             if (this.isDrawing) {
                 this._updateDrawing(snapped);
                 this._updateCrosshair(snapped);
+            }
+            
+            // Update component preview position during placement
+            if (this.placingComponent && this.componentPreview) {
+                this._updateComponentPreview(snapped);
             }
             
             // Update hover state and cursor (only in select mode when not panning/dragging)
@@ -559,6 +804,13 @@ class SchematicApp {
             };
             const worldPos = this.viewport.screenToWorld(screenPos);
             const snapped = this.viewport.getSnappedPosition(worldPos);
+            
+            // Handle component placement
+            if (this.placingComponent) {
+                this._placeComponent(snapped);
+                e.preventDefault();
+                return;
+            }
             
             if (this.currentTool === 'select') {
                 // Check if clicking on an anchor of a selected shape
@@ -873,6 +1125,8 @@ class SchematicApp {
     }
 
     _bindKeyboardShortcuts() {
+        // Use capture phase so this runs BEFORE Toolbox's listener
+        // This allows us to intercept R/M during component placement
         window.addEventListener('keydown', (e) => {
             if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA') return;
             
@@ -925,6 +1179,10 @@ class SchematicApp {
                         if (this.isDrawing) {
                             this._cancelDrawing();
                         }
+                        // Cancel component placement
+                        if (this.placingComponent) {
+                            this._cancelComponentPlacement();
+                        }
                         // Cancel box selection if in progress
                         if (this.dragMode === 'box') {
                             this._removeBoxSelectElement();
@@ -945,9 +1203,28 @@ class SchematicApp {
                     case 'Backspace':
                         this._deleteSelected();
                         break;
+                    case 'r':
+                    case 'R':
+                        // Rotate component during placement only
+                        if (this.placingComponent) {
+                            this._rotateComponent();
+                            e.preventDefault();
+                            e.stopImmediatePropagation();  // Prevent Toolbox from switching to Rectangle
+                        }
+                        // Otherwise let R pass through for Rectangle tool
+                        break;
+                    case 'm':
+                    case 'M':
+                        // Mirror component during placement only  
+                        if (this.placingComponent) {
+                            this._mirrorComponent();
+                            e.preventDefault();
+                            e.stopImmediatePropagation();
+                        }
+                        break;
                 }
             }
-        });
+        }, { capture: true });  // Capture phase to run before Toolbox
     }
     
     _deleteSelected() {
@@ -1070,14 +1347,15 @@ class SchematicApp {
      */
     _serializeDocument() {
         return {
-            version: '1.0',
+            version: '1.1',
             type: 'clearpcb-schematic',
             created: new Date().toISOString(),
             settings: {
                 gridSize: this.viewport.gridSize,
                 units: this.viewport.units
             },
-            shapes: this.shapes.map(s => s.toJSON())
+            shapes: this.shapes.map(s => s.toJSON()),
+            components: this.components.map(c => c.toJSON())
         };
     }
     
@@ -1085,8 +1363,9 @@ class SchematicApp {
      * Load shapes from document data
      */
     _loadDocument(data) {
-        // Clear existing shapes
+        // Clear existing shapes and components
         this._clearAllShapes();
+        this._clearAllComponents();
         
         // Load shapes
         if (data.shapes && Array.isArray(data.shapes)) {
@@ -1105,6 +1384,18 @@ class SchematicApp {
             }
         }
         
+        // Load components
+        if (data.components && Array.isArray(data.components)) {
+            for (const compData of data.components) {
+                const component = this._createComponentFromData(compData);
+                if (component) {
+                    this.components.push(component);
+                    const element = component.createSymbolElement();
+                    this.viewport.addContent(element);
+                }
+            }
+        }
+        
         // Apply settings
         if (data.settings) {
             if (data.settings.gridSize) {
@@ -1117,6 +1408,29 @@ class SchematicApp {
         
         this.selection.setShapes(this.shapes);
         this.renderShapes(true);
+    }
+    
+    /**
+     * Create component instance from serialized data
+     */
+    _createComponentFromData(data) {
+        // Get definition from library
+        const def = this.componentLibrary.getDefinition(data.definitionName);
+        if (!def) {
+            console.warn('Component definition not found:', data.definitionName);
+            return null;
+        }
+        
+        return new Component(def, {
+            id: data.id,
+            x: data.x,
+            y: data.y,
+            rotation: data.rotation || 0,
+            mirror: data.mirror || false,
+            reference: data.reference,
+            value: data.value,
+            properties: data.properties
+        });
     }
     
     /**
@@ -1143,6 +1457,19 @@ class SchematicApp {
         this.selection.setShapes(this.shapes);
         this.history.clear();
         this._updateUndoRedoButtons();
+    }
+    
+    /**
+     * Clear all components from canvas
+     */
+    _clearAllComponents() {
+        for (const comp of this.components) {
+            if (comp.element) {
+                this.viewport.removeContent(comp.element);
+            }
+            comp.destroy();
+        }
+        this.components = [];
     }
     
     /**
@@ -1202,6 +1529,7 @@ class SchematicApp {
         }
         
         this._clearAllShapes();
+        this._clearAllComponents();
         this.fileManager.newDocument();
         this.viewport.resetView();
         this._updateTitle();

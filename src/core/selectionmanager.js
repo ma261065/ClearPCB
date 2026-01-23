@@ -8,7 +8,7 @@
  * - Selection change events
  */
 
-import { Events, globalEventBus } from './eventbus.js';
+import { Events, globalEventBus } from './EventBus.js';
 
 export class SelectionManager {
     constructor(options = {}) {

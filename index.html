@@ -271,6 +271,250 @@
             border: 1px solid #0f3460;
             font-family: inherit;
         }
+        
+        /* Component Picker Panel */
+        .component-picker {
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            width: 260px;
+            max-height: calc(100% - 56px);
+            background: rgba(26, 26, 46, 0.98);
+            border: 1px solid #0f3460;
+            border-radius: 8px;
+            display: flex;
+            flex-direction: column;
+            z-index: 100;
+            transition: width 0.2s, opacity 0.2s;
+            overflow: hidden;
+        }
+        
+        .component-picker.collapsed {
+            width: 40px;
+        }
+        
+        .component-picker.collapsed .cp-body {
+            display: none;
+        }
+        
+        .cp-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 8px 12px;
+            background: #16213e;
+            border-bottom: 1px solid #0f3460;
+        }
+        
+        .cp-title {
+            font-size: 13px;
+            font-weight: 500;
+            color: #e94560;
+        }
+        
+        .component-picker.collapsed .cp-title {
+            display: none;
+        }
+        
+        .cp-toggle {
+            background: none;
+            border: none;
+            color: #888;
+            cursor: pointer;
+            font-size: 12px;
+            padding: 2px 6px;
+        }
+        
+        .cp-toggle:hover {
+            color: #fff;
+        }
+        
+        .cp-body {
+            display: flex;
+            flex-direction: column;
+            flex: 1;
+            overflow: hidden;
+        }
+        
+        .cp-search {
+            padding: 8px;
+        }
+        
+        .cp-search-input {
+            width: 100%;
+            padding: 6px 10px;
+            background: #16213e;
+            border: 1px solid #0f3460;
+            border-radius: 4px;
+            color: #eee;
+            font-size: 12px;
+        }
+        
+        .cp-search-input:focus {
+            outline: none;
+            border-color: #e94560;
+        }
+        
+        .cp-categories {
+            padding: 0 8px 8px;
+        }
+        
+        .cp-category-select {
+            width: 100%;
+            padding: 4px 8px;
+            background: #16213e;
+            border: 1px solid #0f3460;
+            border-radius: 4px;
+            color: #eee;
+            font-size: 11px;
+        }
+        
+        .cp-list {
+            flex: 1;
+            overflow-y: auto;
+            min-height: 100px;
+            max-height: 200px;
+            border-top: 1px solid #0f3460;
+            border-bottom: 1px solid #0f3460;
+        }
+        
+        .cp-item {
+            display: flex;
+            align-items: center;
+            padding: 6px 8px;
+            cursor: pointer;
+            border-bottom: 1px solid #0f346033;
+        }
+        
+        .cp-item:hover {
+            background: #16213e;
+        }
+        
+        .cp-item.selected {
+            background: #0f3460;
+        }
+        
+        .cp-item-icon {
+            width: 36px;
+            height: 36px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-right: 8px;
+            background: #16213e;
+            border-radius: 4px;
+        }
+        
+        .cp-item-icon svg {
+            fill: none;
+            stroke: #888;
+        }
+        
+        .cp-item.selected .cp-item-icon svg {
+            stroke: #e94560;
+        }
+        
+        .cp-item-info {
+            flex: 1;
+            min-width: 0;
+        }
+        
+        .cp-item-name {
+            font-size: 12px;
+            color: #eee;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        
+        .cp-item-desc {
+            font-size: 10px;
+            color: #666;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        
+        .cp-preview {
+            padding: 8px;
+        }
+        
+        .cp-preview-title {
+            font-size: 10px;
+            color: #666;
+            margin-bottom: 4px;
+            text-transform: uppercase;
+        }
+        
+        .cp-preview-svg {
+            background: #16213e;
+            border-radius: 4px;
+            height: 100px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 8px;
+        }
+        
+        .cp-preview-svg svg {
+            max-width: 100%;
+            max-height: 100%;
+        }
+        
+        .cp-preview-info {
+            font-size: 11px;
+            color: #aaa;
+            line-height: 1.4;
+        }
+        
+        .cp-actions {
+            padding: 8px;
+            border-top: 1px solid #0f3460;
+        }
+        
+        .cp-place-btn {
+            width: 100%;
+            padding: 8px;
+            background: #e94560;
+            border: none;
+            border-radius: 4px;
+            color: white;
+            font-size: 12px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        
+        .cp-place-btn:hover:not(:disabled) {
+            background: #ff6b6b;
+        }
+        
+        .cp-place-btn:disabled {
+            background: #333;
+            color: #666;
+            cursor: not-allowed;
+        }
+        
+        .cp-hint {
+            padding: 6px 8px;
+            font-size: 10px;
+            color: #666;
+            text-align: center;
+            border-top: 1px solid #0f346033;
+        }
+        
+        .cp-hint kbd {
+            background: #16213e;
+            padding: 1px 4px;
+            border-radius: 2px;
+            border: 1px solid #0f3460;
+            font-family: inherit;
+            font-size: 9px;
+        }
+        
+        /* Component preview on canvas */
+        .component-preview {
+            pointer-events: none;
+        }
     </style>
 </head>
 <body>
@@ -382,6 +626,6 @@
         <div><kbd>Scroll</kbd> Zoom</div>
     </div>
 
-    <script type="module" src="src/ui/schematicapp.js"></script>
+    <script type="module" src="src/ui/SchematicApp.js"></script>
 </body>
 </html>

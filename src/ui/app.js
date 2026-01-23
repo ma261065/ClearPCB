@@ -2,10 +2,10 @@
  * App.js - Main application entry point (SVG version)
  */
 
-import { Viewport } from '../core/viewport.js';
-import { EventBus, Events, globalEventBus } from '../core/eventbus.js';
-import { CommandHistory } from '../core/commandhistory.js';
-import { SelectionManager } from '../core/selectionmanager.js';
+import { Viewport } from '../core/Viewport.js';
+import { EventBus, Events, globalEventBus } from '../core/EventBus.js';
+import { CommandHistory } from '../core/CommandHistory.js';
+import { SelectionManager } from '../core/SelectionManager.js';
 import { Line, Circle, Rect, Arc, Pad, Via, Polygon } from '../shapes/index.js';
 
 class EditorApp {
