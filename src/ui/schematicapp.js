@@ -1083,11 +1083,87 @@ class SchematicApp {
             }
         });
         
+        // Theme toggle
+        const themeToggle = document.getElementById('themeToggle');
+        if (themeToggle) {
+            themeToggle.addEventListener('click', () => {
+                this._toggleTheme();
+            });
+            // Load saved theme preference
+            this._loadTheme();
+        }
+        
         // Initialize button states
         this._updateUndoRedoButtons();
         
         // Initialize grid dropdown with current units
         this._updateGridDropdown();
+    }
+    
+    /**
+     * Toggle between dark and light theme
+     */
+    _toggleTheme() {
+        const html = document.documentElement;
+        const currentTheme = html.getAttribute('data-theme');
+        const newTheme = currentTheme === 'light' ? 'dark' : 'light';
+        
+        html.setAttribute('data-theme', newTheme);
+        localStorage.setItem('clearpcb-theme', newTheme);
+        
+        // Update toggle button icon
+        const themeToggle = document.getElementById('themeToggle');
+        if (themeToggle) {
+            themeToggle.textContent = newTheme === 'light' ? '☀️' : '🌙';
+        }
+        
+        // Update viewport colors
+        this.viewport.updateTheme();
+        
+        // Re-render components with new colors
+        this._updateComponentColors();
+    }
+    
+    /**
+     * Load saved theme preference
+     */
+    _loadTheme() {
+        const savedTheme = localStorage.getItem('clearpcb-theme') || 'dark';
+        const html = document.documentElement;
+        
+        if (savedTheme === 'light') {
+            html.setAttribute('data-theme', 'light');
+        }
+        
+        // Update toggle button icon
+        const themeToggle = document.getElementById('themeToggle');
+        if (themeToggle) {
+            themeToggle.textContent = savedTheme === 'light' ? '☀️' : '🌙';
+        }
+        
+        // Update viewport colors
+        if (this.viewport) {
+            this.viewport.updateTheme();
+        }
+    }
+    
+    /**
+     * Update component colors for current theme
+     */
+    _updateComponentColors() {
+        // Re-render all placed components
+        for (const comp of this.components) {
+            if (comp.element) {
+                comp.element.remove();
+            }
+            const element = comp.createSymbolElement();
+            this.viewport.addContent(element);
+        }
+        
+        // Update preview if placing
+        if (this.placingComponent && this.componentPreview) {
+            this._createComponentPreview(this.placingComponent);
+        }
     }
     
     /**

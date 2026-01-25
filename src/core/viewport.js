@@ -13,9 +13,12 @@ export class Viewport {
         this.svg.style.width = '100%';
         this.svg.style.height = '100%';
         this.svg.style.display = 'block';
-        this.svg.style.backgroundColor = '#000000';
+        this.svg.style.backgroundColor = 'var(--bg-canvas, #000000)';
         this.svg.style.cursor = 'default';
         container.appendChild(this.svg);
+        
+        // Theme colors (will be read from CSS variables)
+        this.themeColors = this._getThemeColors();
         
         // Create layer groups
         this.gridLayer = this._createGroup('gridLayer');
@@ -138,6 +141,34 @@ export class Viewport {
         };
     }
     
+    // ==================== Theme Support ====================
+    
+    /**
+     * Read theme colors from CSS variables
+     */
+    _getThemeColors() {
+        const style = getComputedStyle(document.documentElement);
+        return {
+            canvasBg: style.getPropertyValue('--bg-canvas').trim() || '#1a1a2e',
+            gridMinor: style.getPropertyValue('--grid-color').trim() || 'rgba(255, 255, 255, 0.08)',
+            gridMajor: style.getPropertyValue('--grid-color-major').trim() || 'rgba(255, 255, 255, 0.15)',
+            rulerBg: style.getPropertyValue('--bg-primary').trim() || '#1a1a1a',
+            rulerText: style.getPropertyValue('--text-secondary').trim() || '#888',
+            rulerLine: style.getPropertyValue('--text-muted').trim() || '#666',
+            rulerBorder: style.getPropertyValue('--border-color').trim() || '#444'
+        };
+    }
+    
+    /**
+     * Update theme colors and re-render
+     */
+    updateTheme() {
+        this.themeColors = this._getThemeColors();
+        this.svg.style.backgroundColor = this.themeColors.canvasBg;
+        this._createGrid();
+        this._createRulers();
+    }
+
     // ==================== View Management ====================
     
     _updateViewBox() {
@@ -390,6 +421,9 @@ export class Viewport {
         // Line width in world units (1 screen pixel)
         const strokeWidth = 1 / this.scale;
         
+        // Get theme colors
+        const colors = this.themeColors || this._getThemeColors();
+        
         if (this.gridStyle === 'dots') {
             // Use SVG pattern for efficient dot grid
             const dotSize = strokeWidth * 2.5;
@@ -402,7 +436,7 @@ export class Viewport {
             const svg = `
                 <defs>
                     <pattern id="${patternId}" x="${patternX}" y="${patternY}" width="${gridSpacing}" height="${gridSpacing}" patternUnits="userSpaceOnUse">
-                        <circle cx="0" cy="0" r="${dotSize}" fill="#404040"/>
+                        <circle cx="0" cy="0" r="${dotSize}" fill="${colors.gridMajor}"/>
                     </pattern>
                 </defs>
                 <rect x="${startX}" y="${startY}" width="${endX - startX}" height="${endY - startY}" fill="url(#${patternId})"/>
@@ -410,7 +444,7 @@ export class Viewport {
             this.gridLayer.innerHTML = svg;
         } else {
             // Line grid
-            let lines = `<g stroke="#262626" stroke-width="${strokeWidth}">`;
+            let lines = `<g stroke="${colors.gridMinor}" stroke-width="${strokeWidth}">`;
             
             for (let x = startX; x <= endX; x += gridSpacing) {
                 if (Math.abs(x) < gridSpacing / 2) continue;
@@ -428,7 +462,7 @@ export class Viewport {
         
         // Axes
         const axes = `
-            <g stroke="#828282" stroke-width="${strokeWidth}">
+            <g stroke="${colors.gridMajor}" stroke-width="${strokeWidth}">
                 <line x1="${startX}" y1="0" x2="${endX}" y2="0"/>
                 <line x1="0" y1="${startY}" x2="0" y2="${endY}"/>
             </g>
@@ -488,18 +522,21 @@ export class Viewport {
             return str + unitSuffix;
         };
         
+        // Get theme colors
+        const colors = this.themeColors || this._getThemeColors();
+        
         // Build ruler SVG
         let svg = `<svg width="${w}" height="${h}" style="position:absolute;top:0;left:0;">`;
         
         // Backgrounds
-        svg += `<rect x="0" y="0" width="${w}" height="${rs}" fill="#1a1a1a"/>`;
-        svg += `<rect x="0" y="${rs}" width="${rs}" height="${h - rs}" fill="#1a1a1a"/>`;
-        svg += `<rect x="0" y="0" width="${rs}" height="${rs}" fill="#1a1a1a"/>`;
+        svg += `<rect x="0" y="0" width="${w}" height="${rs}" fill="${colors.rulerBg}"/>`;
+        svg += `<rect x="0" y="${rs}" width="${rs}" height="${h - rs}" fill="${colors.rulerBg}"/>`;
+        svg += `<rect x="0" y="0" width="${rs}" height="${rs}" fill="${colors.rulerBg}"/>`;
         
         // Debug info - show view width in current units
         const viewWidthDisplay = Math.round((bounds.maxX - bounds.minX) * unitConversion * 10) / 10;
         const unitLabel = this.units === 'inch' ? '"' : this.units;
-        svg += `<text x="3" y="15" fill="#888" font-size="9" font-family="monospace">${viewWidthDisplay}${unitLabel}</text>`;
+        svg += `<text x="3" y="15" fill="${colors.rulerText}" font-size="9" font-family="monospace">${viewWidthDisplay}${unitLabel}</text>`;
         
         // Top ruler ticks and labels
         const startX = Math.floor(bounds.minX / tickSpacingMm) * tickSpacingMm;
@@ -509,15 +546,15 @@ export class Viewport {
             const screenX = this.worldToScreen({ x: worldX, y: 0 }).x;
             if (screenX < rs || screenX > w) continue;
             
-            svg += `<line x1="${screenX}" y1="${rs}" x2="${screenX}" y2="${rs - 8}" stroke="#666"/>`;
-            svg += `<text x="${screenX + 2}" y="12" fill="#888" font-size="10" font-family="monospace">${formatLabel(worldX)}</text>`;
+            svg += `<line x1="${screenX}" y1="${rs}" x2="${screenX}" y2="${rs - 8}" stroke="${colors.rulerLine}"/>`;
+            svg += `<text x="${screenX + 2}" y="12" fill="${colors.rulerText}" font-size="10" font-family="monospace">${formatLabel(worldX)}</text>`;
             
             // Minor ticks
             for (let i = 1; i < 5; i++) {
                 const minorX = worldX + (tickSpacingMm / 5) * i;
                 const minorScreenX = this.worldToScreen({ x: minorX, y: 0 }).x;
                 if (minorScreenX > rs && minorScreenX < w) {
-                    svg += `<line x1="${minorScreenX}" y1="${rs}" x2="${minorScreenX}" y2="${rs - 4}" stroke="#666"/>`;
+                    svg += `<line x1="${minorScreenX}" y1="${rs}" x2="${minorScreenX}" y2="${rs - 4}" stroke="${colors.rulerLine}"/>`;
                 }
             }
         }
@@ -530,22 +567,22 @@ export class Viewport {
             const screenY = this.worldToScreen({ x: 0, y: worldY }).y;
             if (screenY < rs || screenY > h) continue;
             
-            svg += `<line x1="${rs}" y1="${screenY}" x2="${rs - 8}" y2="${screenY}" stroke="#666"/>`;
-            svg += `<text x="3" y="${screenY + 3}" fill="#888" font-size="10" font-family="monospace">${formatLabel(worldY)}</text>`;
+            svg += `<line x1="${rs}" y1="${screenY}" x2="${rs - 8}" y2="${screenY}" stroke="${colors.rulerLine}"/>`;
+            svg += `<text x="3" y="${screenY + 3}" fill="${colors.rulerText}" font-size="10" font-family="monospace">${formatLabel(worldY)}</text>`;
             
             // Minor ticks
             for (let i = 1; i < 5; i++) {
                 const minorY = worldY + (tickSpacingMm / 5) * i;
                 const minorScreenY = this.worldToScreen({ x: 0, y: minorY }).y;
                 if (minorScreenY > rs && minorScreenY < h) {
-                    svg += `<line x1="${rs}" y1="${minorScreenY}" x2="${rs - 4}" y2="${minorScreenY}" stroke="#666"/>`;
+                    svg += `<line x1="${rs}" y1="${minorScreenY}" x2="${rs - 4}" y2="${minorScreenY}" stroke="${colors.rulerLine}"/>`;
                 }
             }
         }
         
         // Borders
-        svg += `<line x1="${rs}" y1="0" x2="${rs}" y2="${h}" stroke="#444"/>`;
-        svg += `<line x1="0" y1="${rs}" x2="${w}" y2="${rs}" stroke="#444"/>`;
+        svg += `<line x1="${rs}" y1="0" x2="${rs}" y2="${h}" stroke="${colors.rulerBorder}"/>`;
+        svg += `<line x1="0" y1="${rs}" x2="${w}" y2="${rs}" stroke="${colors.rulerBorder}"/>`;
         
         svg += '</svg>';
         this.rulerContainer.innerHTML = svg;

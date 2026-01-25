@@ -5,6 +5,62 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ClearPCB - Schematic Editor</title>
     <style>
+        /* Theme CSS Variables */
+        :root {
+            /* Dark theme (default) */
+            --bg-primary: #1a1a2e;
+            --bg-secondary: #16213e;
+            --bg-tertiary: #0f3460;
+            --bg-canvas: #1a1a2e;
+            --text-primary: #eeeeee;
+            --text-secondary: #888888;
+            --text-muted: #666666;
+            --border-color: #0f3460;
+            --accent-color: #e94560;
+            --accent-hover: #ff6b6b;
+            --selection-color: #0066cc;
+            
+            /* Schematic colors */
+            --schematic-stroke: #00ff88;
+            --schematic-fill: #00ff8833;
+            --schematic-component: #00cc66;
+            --schematic-pin: #e94560;
+            --schematic-text: #cccccc;
+            --schematic-reference: #ffcc00;
+            --schematic-value: #88ccff;
+            
+            /* Grid */
+            --grid-color: rgba(255, 255, 255, 0.08);
+            --grid-color-major: rgba(255, 255, 255, 0.15);
+        }
+        
+        [data-theme="light"] {
+            --bg-primary: #f5f5f5;
+            --bg-secondary: #e8e8e8;
+            --bg-tertiary: #d0d0d0;
+            --bg-canvas: #ffffff;
+            --text-primary: #222222;
+            --text-secondary: #555555;
+            --text-muted: #888888;
+            --border-color: #cccccc;
+            --accent-color: #d63050;
+            --accent-hover: #e94560;
+            --selection-color: #0066cc;
+            
+            /* Schematic colors - darker for light background */
+            --schematic-stroke: #008844;
+            --schematic-fill: #00884433;
+            --schematic-component: #006633;
+            --schematic-pin: #cc3355;
+            --schematic-text: #333333;
+            --schematic-reference: #996600;
+            --schematic-value: #336699;
+            
+            /* Grid */
+            --grid-color: rgba(0, 0, 0, 0.08);
+            --grid-color-major: rgba(0, 0, 0, 0.15);
+        }
+
         * {
             margin: 0;
             padding: 0;
@@ -13,8 +69,8 @@
 
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: #1a1a2e;
-            color: #eee;
+            background: var(--bg-primary);
+            color: var(--text-primary);
             overflow: hidden;
             height: 100vh;
             display: flex;
@@ -22,18 +78,18 @@
         }
 
         .toolbar {
-            background: #16213e;
+            background: var(--bg-secondary);
             padding: 8px 16px;
             display: flex;
             align-items: center;
             gap: 16px;
-            border-bottom: 1px solid #0f3460;
+            border-bottom: 1px solid var(--border-color);
         }
 
         .toolbar h1 {
             font-size: 16px;
             font-weight: 500;
-            color: #e94560;
+            color: var(--accent-color);
         }
 
         .toolbar-group {
@@ -41,27 +97,27 @@
             align-items: center;
             gap: 8px;
             padding-left: 16px;
-            border-left: 1px solid #0f3460;
+            border-left: 1px solid var(--border-color);
         }
 
         .toolbar label {
             font-size: 12px;
-            color: #888;
+            color: var(--text-secondary);
         }
 
         .toolbar select, .toolbar input {
-            background: #1a1a2e;
-            border: 1px solid #0f3460;
-            color: #eee;
+            background: var(--bg-primary);
+            border: 1px solid var(--border-color);
+            color: var(--text-primary);
             padding: 4px 8px;
             border-radius: 4px;
             font-size: 12px;
         }
 
         .toolbar button {
-            background: #0f3460;
+            background: var(--bg-tertiary);
             border: none;
-            color: #eee;
+            color: var(--text-primary);
             padding: 6px 12px;
             border-radius: 4px;
             cursor: pointer;
@@ -70,11 +126,16 @@
         }
 
         .toolbar button:hover:not(:disabled) {
-            background: #e94560;
+            background: var(--accent-color);
         }
         
         .toolbar button:disabled {
             cursor: default;
+        }
+        
+        .toolbar button.theme-toggle {
+            font-size: 14px;
+            padding: 4px 8px;
         }
         
         #undoBtn, #redoBtn {
@@ -111,13 +172,13 @@
         }
 
         .status-bar {
-            background: #16213e;
+            background: var(--bg-secondary);
             padding: 4px 16px;
             font-size: 11px;
-            color: #888;
+            color: var(--text-secondary);
             display: flex;
             gap: 24px;
-            border-top: 1px solid #0f3460;
+            border-top: 1px solid var(--border-color);
         }
 
         .status-item {
@@ -127,11 +188,11 @@
         }
 
         .status-item .label {
-            color: #666;
+            color: var(--text-muted);
         }
 
         .status-item .value {
-            color: #e94560;
+            color: var(--accent-color);
             font-family: 'Monaco', 'Consolas', monospace;
         }
 
@@ -141,8 +202,8 @@
             left: 10px;
             top: 60px;
             width: 46px;
-            background: #1a1a1a;
-            border: 1px solid #333;
+            background: var(--bg-primary);
+            border: 1px solid var(--border-color);
             border-radius: 6px;
             box-shadow: 0 4px 12px rgba(0,0,0,0.4);
             z-index: 1000;
@@ -152,9 +213,9 @@
         .toolbox-header {
             padding: 6px 8px;
             font-size: 10px;
-            color: #888;
+            color: var(--text-secondary);
             text-align: center;
-            border-bottom: 1px solid #333;
+            border-bottom: 1px solid var(--border-color);
             cursor: grab;
             display: flex;
             align-items: center;
@@ -167,7 +228,7 @@
         }
         
         .toolbox-header .grip {
-            color: #555;
+            color: var(--text-muted);
             font-size: 12px;
             letter-spacing: -2px;
         }
@@ -184,7 +245,7 @@
             height: 36px;
             border: none;
             background: transparent;
-            color: #aaa;
+            color: var(--text-secondary);
             font-size: 18px;
             cursor: pointer;
             border-radius: 4px;
@@ -195,12 +256,12 @@
         }
         
         .tool-btn:hover {
-            background: #333;
-            color: #fff;
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
         }
         
         .tool-btn.active {
-            background: #0066cc;
+            background: var(--selection-color);
             color: #fff;
         }
         
@@ -210,14 +271,14 @@
         
         .toolbox-divider {
             height: 1px;
-            background: #333;
+            background: var(--border-color);
             margin: 4px 8px;
         }
         
         .toolbox-options {
             padding: 4px 8px 8px;
             font-size: 11px;
-            color: #888;
+            color: var(--text-secondary);
         }
         
         .toolbox-options:empty {
@@ -233,9 +294,9 @@
         .toolbox-options input[type="color"],
         .toolbox-options select {
             width: 100%;
-            background: #2a2a2a;
-            border: 1px solid #444;
-            color: #ddd;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            color: var(--text-primary);
             padding: 2px 4px;
             border-radius: 3px;
             font-size: 10px;
@@ -249,8 +310,8 @@
             position: absolute;
             bottom: 40px;
             right: 16px;
-            background: rgba(22, 33, 62, 0.95);
-            border: 1px solid #0f3460;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
             border-radius: 8px;
             padding: 12px 16px;
             font-size: 11px;
@@ -259,16 +320,16 @@
         }
 
         .help-panel h3 {
-            color: #e94560;
+            color: var(--accent-color);
             margin-bottom: 8px;
             font-size: 12px;
         }
 
         .help-panel kbd {
-            background: #1a1a2e;
+            background: var(--bg-primary);
             padding: 2px 6px;
             border-radius: 3px;
-            border: 1px solid #0f3460;
+            border: 1px solid var(--border-color);
             font-family: inherit;
         }
         
@@ -279,8 +340,8 @@
             right: 8px;
             width: 260px;
             max-height: calc(100% - 56px);
-            background: rgba(26, 26, 46, 0.98);
-            border: 1px solid #0f3460;
+            background: var(--bg-primary);
+            border: 1px solid var(--border-color);
             border-radius: 8px;
             display: flex;
             flex-direction: column;
@@ -302,14 +363,14 @@
             align-items: center;
             justify-content: space-between;
             padding: 8px 12px;
-            background: #16213e;
-            border-bottom: 1px solid #0f3460;
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border-color);
         }
         
         .cp-title {
             font-size: 13px;
             font-weight: 500;
-            color: #e94560;
+            color: var(--accent-color);
         }
         
         .component-picker.collapsed .cp-title {
@@ -319,14 +380,14 @@
         .cp-toggle {
             background: none;
             border: none;
-            color: #888;
+            color: var(--text-secondary);
             cursor: pointer;
             font-size: 12px;
             padding: 2px 6px;
         }
         
         .cp-toggle:hover {
-            color: #fff;
+            color: var(--text-primary);
         }
         
         .cp-body {
@@ -336,6 +397,115 @@
             overflow: hidden;
         }
         
+        .cp-mode-toggle {
+            display: flex;
+            padding: 8px;
+            gap: 4px;
+        }
+        
+        .cp-mode-btn {
+            flex: 1;
+            padding: 6px 8px;
+            border: 1px solid var(--border-color);
+            background: var(--bg-secondary);
+            color: var(--text-secondary);
+            border-radius: 4px;
+            font-size: 11px;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+        
+        .cp-mode-btn:hover {
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+        }
+        
+        .cp-mode-btn.active {
+            background: var(--accent-color);
+            border-color: var(--accent-color);
+            color: white;
+        }
+        
+        .cp-lcsc-prompt,
+        .cp-loading,
+        .cp-error,
+        .cp-empty,
+        .cp-lcsc-message {
+            padding: 16px 12px;
+            font-size: 11px;
+            color: var(--text-muted);
+            text-align: center;
+            line-height: 1.6;
+        }
+        
+        .cp-lcsc-prompt a {
+            color: var(--accent-color);
+            text-decoration: none;
+        }
+        
+        .cp-lcsc-prompt a:hover {
+            text-decoration: underline;
+        }
+        
+        .cp-lcsc-message {
+            text-align: left;
+        }
+        
+        .cp-error {
+            color: var(--accent-color);
+        }
+        
+        .cp-kicad-notice {
+            padding: 8px 12px;
+            font-size: 11px;
+            color: var(--text-secondary);
+            background: var(--bg-tertiary);
+            border-bottom: 1px solid var(--border-color);
+            text-align: center;
+        }
+        
+        .cp-kicad-item {
+            border-left: 3px solid var(--schematic-component);
+        }
+        
+        .cp-spinner {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid var(--border-color);
+            border-top-color: var(--accent-color);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin-right: 8px;
+            vertical-align: middle;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        
+        .cp-lcsc-item .cp-item-icon {
+            background: var(--bg-tertiary);
+        }
+        
+        .cp-lcsc-icon img {
+            max-width: 28px;
+            max-height: 28px;
+            object-fit: contain;
+        }
+        
+        .cp-lcsc-icon span {
+            font-size: 20px;
+        }
+        
+        .cp-lcsc-preview-placeholder {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            padding: 10px;
+        }
+        
         .cp-search {
             padding: 8px;
         }
@@ -343,16 +513,16 @@
         .cp-search-input {
             width: 100%;
             padding: 6px 10px;
-            background: #16213e;
-            border: 1px solid #0f3460;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
             border-radius: 4px;
-            color: #eee;
+            color: var(--text-primary);
             font-size: 12px;
         }
         
         .cp-search-input:focus {
             outline: none;
-            border-color: #e94560;
+            border-color: var(--accent-color);
         }
         
         .cp-categories {
@@ -362,10 +532,10 @@
         .cp-category-select {
             width: 100%;
             padding: 4px 8px;
-            background: #16213e;
-            border: 1px solid #0f3460;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
             border-radius: 4px;
-            color: #eee;
+            color: var(--text-primary);
             font-size: 11px;
         }
         
@@ -374,8 +544,8 @@
             overflow-y: auto;
             min-height: 100px;
             max-height: 200px;
-            border-top: 1px solid #0f3460;
-            border-bottom: 1px solid #0f3460;
+            border-top: 1px solid var(--border-color);
+            border-bottom: 1px solid var(--border-color);
         }
         
         .cp-item {
@@ -383,15 +553,15 @@
             align-items: center;
             padding: 6px 8px;
             cursor: pointer;
-            border-bottom: 1px solid #0f346033;
+            border-bottom: 1px solid var(--border-color);
         }
         
         .cp-item:hover {
-            background: #16213e;
+            background: var(--bg-secondary);
         }
         
         .cp-item.selected {
-            background: #0f3460;
+            background: var(--bg-tertiary);
         }
         
         .cp-item-icon {
@@ -401,17 +571,17 @@
             align-items: center;
             justify-content: center;
             margin-right: 8px;
-            background: #16213e;
+            background: var(--bg-secondary);
             border-radius: 4px;
         }
         
         .cp-item-icon svg {
             fill: none;
-            stroke: #888;
+            stroke: var(--schematic-component);
         }
         
         .cp-item.selected .cp-item-icon svg {
-            stroke: #e94560;
+            stroke: var(--accent-color);
         }
         
         .cp-item-info {
@@ -421,7 +591,7 @@
         
         .cp-item-name {
             font-size: 12px;
-            color: #eee;
+            color: var(--text-primary);
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
@@ -429,10 +599,35 @@
         
         .cp-item-desc {
             font-size: 10px;
-            color: #666;
+            color: var(--text-muted);
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
+        }
+        
+        .cp-item-meta {
+            font-size: 9px;
+            color: var(--text-muted);
+            margin-top: 2px;
+        }
+        
+        .cp-badge {
+            display: inline-block;
+            font-size: 8px;
+            padding: 1px 4px;
+            border-radius: 3px;
+            margin-left: 4px;
+            vertical-align: middle;
+        }
+        
+        .cp-badge-basic {
+            background: var(--schematic-component);
+            color: var(--bg-primary);
+        }
+        
+        .cp-badge-preferred {
+            background: gold;
+            color: #000;
         }
         
         .cp-preview {
@@ -441,13 +636,13 @@
         
         .cp-preview-title {
             font-size: 10px;
-            color: #666;
+            color: var(--text-muted);
             margin-bottom: 4px;
             text-transform: uppercase;
         }
         
         .cp-preview-svg {
-            background: #16213e;
+            background: var(--bg-canvas);
             border-radius: 4px;
             height: 100px;
             display: flex;
@@ -463,19 +658,19 @@
         
         .cp-preview-info {
             font-size: 11px;
-            color: #aaa;
+            color: var(--text-secondary);
             line-height: 1.4;
         }
         
         .cp-actions {
             padding: 8px;
-            border-top: 1px solid #0f3460;
+            border-top: 1px solid var(--border-color);
         }
         
         .cp-place-btn {
             width: 100%;
             padding: 8px;
-            background: #e94560;
+            background: var(--accent-color);
             border: none;
             border-radius: 4px;
             color: white;
@@ -485,28 +680,28 @@
         }
         
         .cp-place-btn:hover:not(:disabled) {
-            background: #ff6b6b;
+            background: var(--accent-hover);
         }
         
         .cp-place-btn:disabled {
-            background: #333;
-            color: #666;
+            background: var(--bg-tertiary);
+            color: var(--text-muted);
             cursor: not-allowed;
         }
         
         .cp-hint {
             padding: 6px 8px;
             font-size: 10px;
-            color: #666;
+            color: var(--text-muted);
             text-align: center;
-            border-top: 1px solid #0f346033;
+            border-top: 1px solid var(--border-color);
         }
         
         .cp-hint kbd {
-            background: #16213e;
+            background: var(--bg-secondary);
             padding: 1px 4px;
             border-radius: 2px;
-            border: 1px solid #0f3460;
+            border: 1px solid var(--border-color);
             font-family: inherit;
             font-size: 9px;
         }
@@ -514,6 +709,11 @@
         /* Component preview on canvas */
         .component-preview {
             pointer-events: none;
+        }
+        
+        /* Schematic elements use CSS variables for theming */
+        .schematic-component {
+            stroke: var(--schematic-component);
         }
     </style>
 </head>
@@ -528,12 +728,16 @@
         </div>
         
         <div class="toolbar-group">
+            <button id="themeToggle" class="theme-toggle" title="Toggle Dark/Light Mode">🌙</button>
+        </div>
+        
+        <div class="toolbar-group">
             <button id="undoBtn" title="Undo (Ctrl+Z)">↶</button>
             <button id="redoBtn" title="Redo (Ctrl+Y)">↷</button>
         </div>
         
         <div class="toolbar-group">
-            <span id="docTitle" style="color: #e94560; font-size: 13px;">untitled.json</span>
+            <span id="docTitle" style="color: var(--accent-color); font-size: 13px;">untitled.json</span>
         </div>
         
         <div class="toolbar-group">
@@ -578,8 +782,8 @@
     <div class="main-container">
         <div class="canvas-container" id="canvasContainer">
             <svg class="drawing-crosshair" id="drawingCrosshair">
-                <line id="crosshairX" stroke="#e94560" stroke-width="1" stroke-dasharray="4,4"/>
-                <line id="crosshairY" stroke="#e94560" stroke-width="1" stroke-dasharray="4,4"/>
+                <line id="crosshairX" stroke="var(--accent-color)" stroke-width="1" stroke-dasharray="4,4"/>
+                <line id="crosshairY" stroke="var(--accent-color)" stroke-width="1" stroke-dasharray="4,4"/>
             </svg>
         </div>
     </div>

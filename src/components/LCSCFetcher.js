@@ -1,681 +1,317 @@
 /**
- * LCSCFetcher - Fetches component data from LCSC/EasyEDA
+ * LCSCFetcher - Fetches component metadata from LCSC API
  * 
- * Uses the EasyEDA API to retrieve schematic symbols and PCB footprints
- * for components available on LCSC.
+ * This module handles:
+ * - Component search
+ * - Pricing information
+ * - Stock levels
+ * - Basic/Extended part status
+ * - Manufacturer part numbers (MPN)
+ * - Datasheet links
  * 
- * Note: This uses reverse-engineered API endpoints. The API may change.
+ * Note: LCSC may block CORS proxy requests. If so, use KiCad library search instead.
+ * Symbol and footprint data comes from KiCadFetcher.
  */
 
 export class LCSCFetcher {
     constructor() {
-        // EasyEDA API endpoints
-        this.apiBase = 'https://easyeda.com/api/components';
-        this.searchApi = 'https://easyeda.com/api/components/search';
+        // CORS proxy - codetabs seems to work better than others
+        this.corsProxy = 'https://api.codetabs.com/v1/proxy?quest=';
         
-        // CORS proxy for browser usage (you may need to set up your own)
-        this.corsProxy = '';  // e.g., 'https://cors-anywhere.herokuapp.com/'
+        // API endpoint
+        this.searchUrl = 'https://wwwapi.lcsc.com/v1/search/global-search';
         
-        // Cache fetched components
-        this.cache = new Map();
+        // Cache for component metadata
+        this.metadataCache = new Map();
+        
+        // Track CORS status
+        this.corsBlocked = false;
     }
-    
+
     /**
-     * Fetch component by LCSC part number
-     * @param {string} lcscId - LCSC part number (e.g., "C46749")
-     * @returns {Promise<object>} ClearPCB component definition
+     * Search for components on LCSC
+     * @param {string} query - Search query
+     * @returns {Promise<Array>} Search results
      */
-    async fetchComponent(lcscId) {
-        // Check cache
-        if (this.cache.has(lcscId)) {
-            return this.cache.get(lcscId);
+    async search(query) {
+        console.log('LCSC search for:', query);
+        
+        // If CORS is known to be blocked, return message immediately
+        if (this.corsBlocked) {
+            return [{
+                error: true,
+                message: 'LCSC search unavailable due to CORS restrictions. Use local library or KiCad symbols.'
+            }];
         }
         
-        // Normalize ID
-        const id = lcscId.toUpperCase().replace(/^C/, 'C');
+        const targetUrl = `${this.searchUrl}?keyword=${encodeURIComponent(query)}`;
+        const url = this.corsProxy + targetUrl;
+        
+        console.log('Search URL:', url);
         
         try {
-            // Fetch from EasyEDA API
-            const rawData = await this._fetchFromEasyEDA(id);
+            const response = await fetch(url);
+            console.log('Response status:', response.status);
             
-            // Convert to ClearPCB format
-            const definition = this._convertToClearPCB(rawData, id);
+            if (!response.ok) {
+                this.corsBlocked = true;
+                return [{
+                    error: true,
+                    message: `LCSC search failed (${response.status}). CORS proxy may be blocked.`
+                }];
+            }
             
-            // Cache it
-            this.cache.set(lcscId, definition);
+            const data = await response.json();
+            console.log('LCSC response:', data);
             
-            return definition;
+            // The global search API returns productSearchResultVO.productList
+            if (data.productSearchResultVO && data.productSearchResultVO.productList) {
+                const results = this._formatSearchResults(data.productSearchResultVO.productList);
+                console.log('Formatted results:', results.length);
+                return results;
+            }
+            
+            return [];
+            
         } catch (error) {
-            console.error(`Failed to fetch component ${lcscId}:`, error);
-            throw new Error(`Failed to fetch component ${lcscId}: ${error.message}`);
+            console.error('LCSC search error:', error);
+            this.corsBlocked = true;
+            return [{
+                error: true,
+                message: 'LCSC search unavailable. Network error or CORS blocked.'
+            }];
         }
     }
     
     /**
-     * Fetch raw data from EasyEDA API
+     * Fetch detailed metadata for a specific component
+     * @param {string} lcscPartNumber - LCSC part number (e.g., "C46749")
+     * @returns {Promise<object>} Component metadata
      */
-    async _fetchFromEasyEDA(lcscId) {
-        // Try the component UUID lookup first
-        const searchUrl = `${this.corsProxy}https://easyeda.com/api/products/${lcscId}/components`;
-        
-        const response = await fetch(searchUrl, {
-            method: 'GET',
-            headers: {
-                'Accept': 'application/json',
-            }
-        });
-        
-        if (!response.ok) {
-            throw new Error(`API returned ${response.status}`);
+    async fetchComponentMetadata(lcscPartNumber) {
+        // Check cache first
+        if (this.metadataCache.has(lcscPartNumber)) {
+            return this.metadataCache.get(lcscPartNumber);
         }
         
-        const data = await response.json();
-        
-        if (!data.success && !data.result) {
-            throw new Error('Component not found');
+        if (this.corsBlocked) {
+            return null;
         }
         
-        return data.result || data;
-    }
-    
-    /**
-     * Convert EasyEDA format to ClearPCB format
-     */
-    _convertToClearPCB(rawData, lcscId) {
-        const definition = {
-            name: rawData.title || lcscId,
-            description: rawData.description || '',
-            category: this._mapCategory(rawData.category),
-            datasheet: rawData.datasheet || '',
-            supplier_part_numbers: {
-                lcsc: lcscId
-            },
-            manufacturer: rawData.manufacturer || '',
-            mpn: rawData.mpn || '',  // Manufacturer part number
-            symbol: null,
-            footprint: null,
-            keywords: []
-        };
+        const targetUrl = `${this.searchUrl}?keyword=${encodeURIComponent(lcscPartNumber)}`;
+        const url = this.corsProxy + targetUrl;
         
-        // Parse symbol if present
-        if (rawData.symbol || rawData.schematic) {
-            definition.symbol = this._parseSymbol(rawData.symbol || rawData.schematic);
-        }
-        
-        // Parse footprint if present
-        if (rawData.footprint || rawData.package) {
-            definition.footprint = this._parseFootprint(rawData.footprint || rawData.package);
-        }
-        
-        return definition;
-    }
-    
-    /**
-     * Parse EasyEDA symbol format to ClearPCB symbol format
-     * EasyEDA uses a tilde-delimited format for shapes
-     */
-    _parseSymbol(symbolData) {
-        if (!symbolData) return null;
-        
-        // If it's a string, it's in EasyEDA's compressed format
-        if (typeof symbolData === 'string') {
-            return this._parseCompressedSymbol(symbolData);
-        }
-        
-        // If it's already an object
-        const symbol = {
-            width: 10,
-            height: 10,
-            origin: { x: 5, y: 5 },
-            graphics: [],
-            pins: []
-        };
-        
-        // Parse shapes array
-        if (symbolData.shape) {
-            for (const shapeStr of symbolData.shape) {
-                const parsed = this._parseShapeString(shapeStr);
-                if (parsed) {
-                    if (parsed.type === 'pin') {
-                        symbol.pins.push(parsed);
-                    } else {
-                        symbol.graphics.push(parsed);
-                    }
-                }
-            }
-        }
-        
-        // Calculate bounds
-        this._calculateSymbolBounds(symbol);
-        
-        return symbol;
-    }
-    
-    /**
-     * Parse compressed symbol string
-     * Format: shapes are separated by #@$, attributes by ~
-     */
-    _parseCompressedSymbol(str) {
-        const symbol = {
-            width: 10,
-            height: 10,
-            origin: { x: 5, y: 5 },
-            graphics: [],
-            pins: []
-        };
-        
-        // Split by shape delimiter
-        const shapes = str.split('#@$');
-        
-        for (const shapeStr of shapes) {
-            if (!shapeStr.trim()) continue;
-            
-            const parsed = this._parseShapeString(shapeStr);
-            if (parsed) {
-                if (parsed.type === 'pin') {
-                    symbol.pins.push(parsed);
-                } else {
-                    symbol.graphics.push(parsed);
-                }
-            }
-        }
-        
-        this._calculateSymbolBounds(symbol);
-        
-        return symbol;
-    }
-    
-    /**
-     * Parse a single shape string from EasyEDA format
-     * Format varies by shape type, separated by ~
-     */
-    _parseShapeString(str) {
-        const parts = str.split('~');
-        const type = parts[0];
+        console.log('Fetching metadata from:', url);
         
         try {
-            switch (type) {
-                case 'P':  // Pin
-                case 'PIN':
-                    return this._parsePin(parts);
-                    
-                case 'R':  // Rectangle
-                case 'RECT':
-                    return this._parseRect(parts);
-                    
-                case 'E':  // Ellipse/Circle
-                case 'ELLIPSE':
-                    return this._parseEllipse(parts);
-                    
-                case 'PL':  // Polyline
-                case 'POLYLINE':
-                    return this._parsePolyline(parts);
-                    
-                case 'PG':  // Polygon
-                case 'POLYGON':
-                    return this._parsePolygon(parts);
-                    
-                case 'L':  // Line
-                case 'LINE':
-                    return this._parseLine(parts);
-                    
-                case 'A':  // Arc
-                case 'ARC':
-                    return this._parseArc(parts);
-                    
-                case 'PT':  // Path
-                case 'PATH':
-                    return this._parsePath(parts);
-                    
-                case 'T':  // Text
-                case 'TEXT':
-                    return this._parseText(parts);
-                    
-                default:
-                    // console.log('Unknown shape type:', type, parts);
-                    return null;
+            const response = await fetch(url);
+            console.log('Metadata response status:', response.status);
+            
+            if (!response.ok) {
+                this.corsBlocked = true;
+                return null;
             }
-        } catch (e) {
-            console.warn('Failed to parse shape:', str, e);
+            
+            const data = await response.json();
+            console.log('Metadata response:', data);
+            
+            // Find the exact part in results
+            if (data.productSearchResultVO && data.productSearchResultVO.productList) {
+                const product = data.productSearchResultVO.productList.find(
+                    p => p.productCode === lcscPartNumber
+                );
+                
+                if (product) {
+                    const metadata = this._extractMetadataFromProduct(product);
+                    this.metadataCache.set(lcscPartNumber, metadata);
+                    return metadata;
+                }
+            }
+            
+            return null;
+            
+        } catch (error) {
+            console.error(`Failed to fetch LCSC component ${lcscPartNumber}:`, error);
+            this.corsBlocked = true;
             return null;
         }
     }
     
     /**
-     * Parse pin: P~show~x~y~rotation~id~number~name~length~...
+     * Format search results from LCSC API
      */
-    _parsePin(parts) {
-        // EasyEDA pin format (varies by version)
-        // Try to extract key info
-        const pin = {
-            type: 'pin',
-            number: '',
-            name: '',
-            x: 0,
-            y: 0,
-            orientation: 'right',
-            length: 2.54,
-            pinType: 'passive',
-            shape: 'line'
-        };
-        
-        // Parse based on number of parts
-        if (parts.length >= 8) {
-            pin.x = this._toMM(parseFloat(parts[2]) || 0);
-            pin.y = this._toMM(parseFloat(parts[3]) || 0);
-            const rotation = parseFloat(parts[4]) || 0;
-            pin.number = parts[6] || '';
-            pin.name = parts[7] || '';
-            pin.length = this._toMM(parseFloat(parts[8]) || 5);
-            
-            // Convert rotation to orientation
-            pin.orientation = this._rotationToOrientation(rotation);
-        }
-        
-        return pin;
+    _formatSearchResults(products) {
+        return products.map(product => ({
+            lcscPartNumber: product.productCode || '',
+            mpn: product.productModel || '',
+            manufacturer: product.brandNameEn || '',
+            description: product.productIntroEn || product.productDescEn || '',
+            category: product.parentCatalogName || product.catalogName || '',
+            package: product.encapStandard || '',
+            stock: product.stockNumber || 0,
+            price: this._extractPriceFromProduct(product),
+            isBasic: product.isEnvironment === true,
+            isPreferred: product.isHot === true,
+            imageUrl: product.productImageUrl || product.productImageUrlBig || '',
+            datasheet: product.pdfUrl || '',
+            productUrl: `https://www.lcsc.com/product-detail/${product.productCode}.html`
+        }));
     }
     
     /**
-     * Parse rectangle: R~x~y~width~height~stroke~strokeWidth~fill~...
+     * Extract metadata from a single product
      */
-    _parseRect(parts) {
+    _extractMetadataFromProduct(product) {
         return {
-            type: 'rect',
-            x: this._toMM(parseFloat(parts[1]) || 0),
-            y: this._toMM(parseFloat(parts[2]) || 0),
-            width: this._toMM(parseFloat(parts[3]) || 0),
-            height: this._toMM(parseFloat(parts[4]) || 0),
-            stroke: parts[5] || '#000000',
-            strokeWidth: this._toMM(parseFloat(parts[6]) || 1),
-            fill: parts[7] || 'none'
+            lcscPartNumber: product.productCode || '',
+            mpn: product.productModel || '',
+            manufacturer: product.brandNameEn || '',
+            description: product.productIntroEn || product.productDescEn || '',
+            category: product.parentCatalogName || product.catalogName || '',
+            package: product.encapStandard || '',
+            stock: product.stockNumber || 0,
+            price: this._extractPriceFromProduct(product),
+            priceBreaks: this._extractPriceBreaksFromProduct(product),
+            isBasic: product.isEnvironment === true,
+            isPreferred: product.isHot === true,
+            imageUrl: product.productImageUrl || product.productImageUrlBig || '',
+            datasheet: product.pdfUrl || '',
+            productUrl: `https://www.lcsc.com/product-detail/${product.productCode}.html`,
+            minOrderQty: product.minBuyNumber || 1,
+            stockStatus: product.stockNumber > 0 ? 'In Stock' : 'Out of Stock'
         };
     }
     
     /**
-     * Parse ellipse: E~cx~cy~rx~ry~stroke~strokeWidth~fill~...
+     * Extract best price from product
      */
-    _parseEllipse(parts) {
-        const rx = this._toMM(parseFloat(parts[3]) || 0);
-        const ry = this._toMM(parseFloat(parts[4]) || rx);
-        
-        if (Math.abs(rx - ry) < 0.01) {
-            return {
-                type: 'circle',
-                cx: this._toMM(parseFloat(parts[1]) || 0),
-                cy: this._toMM(parseFloat(parts[2]) || 0),
-                r: rx,
-                stroke: parts[5] || '#000000',
-                strokeWidth: this._toMM(parseFloat(parts[6]) || 1),
-                fill: parts[7] || 'none'
-            };
-        }
-        
-        return {
-            type: 'ellipse',
-            cx: this._toMM(parseFloat(parts[1]) || 0),
-            cy: this._toMM(parseFloat(parts[2]) || 0),
-            rx: rx,
-            ry: ry,
-            stroke: parts[5] || '#000000',
-            strokeWidth: this._toMM(parseFloat(parts[6]) || 1),
-            fill: parts[7] || 'none'
-        };
-    }
-    
-    /**
-     * Parse polyline: PL~points~stroke~strokeWidth~fill~...
-     */
-    _parsePolyline(parts) {
-        const pointsStr = parts[1] || '';
-        const points = this._parsePoints(pointsStr);
-        
-        return {
-            type: 'polyline',
-            points: points,
-            stroke: parts[2] || '#000000',
-            strokeWidth: this._toMM(parseFloat(parts[3]) || 1),
-            fill: parts[4] || 'none'
-        };
-    }
-    
-    /**
-     * Parse polygon: PG~points~stroke~strokeWidth~fill~...
-     */
-    _parsePolygon(parts) {
-        const pointsStr = parts[1] || '';
-        const points = this._parsePoints(pointsStr);
-        
-        return {
-            type: 'polygon',
-            points: points,
-            stroke: parts[2] || '#000000',
-            strokeWidth: this._toMM(parseFloat(parts[3]) || 1),
-            fill: parts[4] || '#000000'
-        };
-    }
-    
-    /**
-     * Parse line: L~x1~y1~x2~y2~stroke~strokeWidth~...
-     */
-    _parseLine(parts) {
-        return {
-            type: 'line',
-            x1: this._toMM(parseFloat(parts[1]) || 0),
-            y1: this._toMM(parseFloat(parts[2]) || 0),
-            x2: this._toMM(parseFloat(parts[3]) || 0),
-            y2: this._toMM(parseFloat(parts[4]) || 0),
-            stroke: parts[5] || '#000000',
-            strokeWidth: this._toMM(parseFloat(parts[6]) || 1)
-        };
-    }
-    
-    /**
-     * Parse arc: A~pathData~stroke~strokeWidth~fill~...
-     */
-    _parseArc(parts) {
-        return {
-            type: 'path',
-            d: parts[1] || '',
-            stroke: parts[2] || '#000000',
-            strokeWidth: this._toMM(parseFloat(parts[3]) || 1),
-            fill: parts[4] || 'none'
-        };
-    }
-    
-    /**
-     * Parse path: PT~pathData~stroke~strokeWidth~fill~...
-     */
-    _parsePath(parts) {
-        return {
-            type: 'path',
-            d: parts[1] || '',
-            stroke: parts[2] || '#000000',
-            strokeWidth: this._toMM(parseFloat(parts[3]) || 1),
-            fill: parts[4] || 'none'
-        };
-    }
-    
-    /**
-     * Parse text: T~text~x~y~rotation~fontSize~...
-     */
-    _parseText(parts) {
-        return {
-            type: 'text',
-            text: parts[1] || '',
-            x: this._toMM(parseFloat(parts[2]) || 0),
-            y: this._toMM(parseFloat(parts[3]) || 0),
-            rotation: parseFloat(parts[4]) || 0,
-            fontSize: this._toMM(parseFloat(parts[5]) || 10),
-            anchor: 'start',
-            color: parts[8] || '#000000'
-        };
-    }
-    
-    /**
-     * Parse points string "x1,y1 x2,y2 ..." to array
-     */
-    _parsePoints(str) {
-        const points = [];
-        const pairs = str.split(' ');
-        
-        for (const pair of pairs) {
-            const [x, y] = pair.split(',').map(v => this._toMM(parseFloat(v) || 0));
-            if (!isNaN(x) && !isNaN(y)) {
-                points.push([x, y]);
-            }
-        }
-        
-        return points;
-    }
-    
-    /**
-     * Convert EasyEDA units (10x mils) to mm
-     */
-    _toMM(value) {
-        // EasyEDA uses 10x mils internally
-        // 1 mil = 0.0254 mm
-        // 10x mil = 0.254 mm per unit
-        return value * 0.254;
-    }
-    
-    /**
-     * Convert rotation angle to orientation string
-     */
-    _rotationToOrientation(rotation) {
-        const normalized = ((rotation % 360) + 360) % 360;
-        if (normalized >= 315 || normalized < 45) return 'right';
-        if (normalized >= 45 && normalized < 135) return 'down';
-        if (normalized >= 135 && normalized < 225) return 'left';
-        return 'up';
-    }
-    
-    /**
-     * Calculate symbol bounds and set origin
-     */
-    _calculateSymbolBounds(symbol) {
-        let minX = Infinity, minY = Infinity;
-        let maxX = -Infinity, maxY = -Infinity;
-        
-        const updateBounds = (x, y) => {
-            minX = Math.min(minX, x);
-            minY = Math.min(minY, y);
-            maxX = Math.max(maxX, x);
-            maxY = Math.max(maxY, y);
-        };
-        
-        for (const g of symbol.graphics) {
-            switch (g.type) {
-                case 'rect':
-                    updateBounds(g.x, g.y);
-                    updateBounds(g.x + g.width, g.y + g.height);
-                    break;
-                case 'circle':
-                    updateBounds(g.cx - g.r, g.cy - g.r);
-                    updateBounds(g.cx + g.r, g.cy + g.r);
-                    break;
-                case 'ellipse':
-                    updateBounds(g.cx - g.rx, g.cy - g.ry);
-                    updateBounds(g.cx + g.rx, g.cy + g.ry);
-                    break;
-                case 'line':
-                    updateBounds(g.x1, g.y1);
-                    updateBounds(g.x2, g.y2);
-                    break;
-                case 'polyline':
-                case 'polygon':
-                    for (const [x, y] of g.points) {
-                        updateBounds(x, y);
-                    }
-                    break;
-            }
-        }
-        
-        for (const p of symbol.pins) {
-            updateBounds(p.x, p.y);
-        }
-        
-        if (minX !== Infinity) {
-            symbol.width = maxX - minX;
-            symbol.height = maxY - minY;
-            symbol.origin = {
-                x: (maxX + minX) / 2,
-                y: (maxY + minY) / 2
-            };
-        }
-    }
-    
-    /**
-     * Parse EasyEDA footprint to ClearPCB format
-     */
-    _parseFootprint(footprintData) {
-        if (!footprintData) return null;
-        
-        const footprint = {
-            width: 10,
-            height: 10,
-            origin: { x: 5, y: 5 },
-            pads: [],
-            graphics: []
-        };
-        
-        // Similar parsing logic for footprint shapes
-        if (typeof footprintData === 'string') {
-            const shapes = footprintData.split('#@$');
-            for (const shapeStr of shapes) {
-                const parsed = this._parseFootprintShape(shapeStr);
-                if (parsed) {
-                    if (parsed.type === 'pad') {
-                        footprint.pads.push(parsed);
-                    } else {
-                        footprint.graphics.push(parsed);
-                    }
-                }
-            }
-        }
-        
-        return footprint;
-    }
-    
-    /**
-     * Parse footprint shape string
-     */
-    _parseFootprintShape(str) {
-        const parts = str.split('~');
-        const type = parts[0];
-        
-        try {
-            switch (type) {
-                case 'PAD':
-                    return this._parsePad(parts);
-                case 'TRACK':
-                    return this._parseTrack(parts);
-                case 'CIRCLE':
-                    return this._parseFootprintCircle(parts);
-                case 'ARC':
-                    return this._parseFootprintArc(parts);
-                case 'RECT':
-                    return this._parseFootprintRect(parts);
-                case 'TEXT':
-                    return this._parseFootprintText(parts);
-                default:
-                    return null;
-            }
-        } catch (e) {
-            return null;
-        }
-    }
-    
-    /**
-     * Parse pad: PAD~shape~x~y~width~height~drill~number~...
-     */
-    _parsePad(parts) {
-        return {
-            type: 'pad',
-            number: parts[7] || '',
-            shape: (parts[1] || 'rect').toLowerCase(),
-            x: this._toMM(parseFloat(parts[2]) || 0),
-            y: this._toMM(parseFloat(parts[3]) || 0),
-            width: this._toMM(parseFloat(parts[4]) || 0),
-            height: this._toMM(parseFloat(parts[5]) || 0),
-            drill: parts[6] ? this._toMM(parseFloat(parts[6])) : null,
-            layers: ['F.Cu', 'F.Paste', 'F.Mask'],
-            padType: parts[6] ? 'th' : 'smd'
-        };
-    }
-    
-    /**
-     * Parse track (silkscreen line)
-     */
-    _parseTrack(parts) {
-        const pointsStr = parts[4] || '';
-        const coords = pointsStr.split(' ').map(v => this._toMM(parseFloat(v) || 0));
-        
-        if (coords.length >= 4) {
-            return {
-                type: 'line',
-                x1: coords[0],
-                y1: coords[1],
-                x2: coords[2],
-                y2: coords[3],
-                layer: parts[2] || 'F.SilkS',
-                stroke: this._toMM(parseFloat(parts[1]) || 1)
-            };
+    _extractPriceFromProduct(product) {
+        if (product.productPriceList && product.productPriceList.length > 0) {
+            return product.productPriceList[0].usdPrice || product.productPriceList[0].currencyPrice;
         }
         return null;
     }
     
-    _parseFootprintCircle(parts) {
-        return {
-            type: 'circle',
-            cx: this._toMM(parseFloat(parts[1]) || 0),
-            cy: this._toMM(parseFloat(parts[2]) || 0),
-            r: this._toMM(parseFloat(parts[3]) || 0),
-            layer: parts[5] || 'F.SilkS',
-            stroke: this._toMM(parseFloat(parts[4]) || 0.15)
-        };
-    }
-    
-    _parseFootprintArc(parts) {
-        return {
-            type: 'arc',
-            d: parts[1] || '',
-            layer: parts[3] || 'F.SilkS',
-            stroke: this._toMM(parseFloat(parts[2]) || 0.15)
-        };
-    }
-    
-    _parseFootprintRect(parts) {
-        return {
-            type: 'rect',
-            x: this._toMM(parseFloat(parts[1]) || 0),
-            y: this._toMM(parseFloat(parts[2]) || 0),
-            width: this._toMM(parseFloat(parts[3]) || 0),
-            height: this._toMM(parseFloat(parts[4]) || 0),
-            layer: parts[6] || 'F.SilkS',
-            stroke: this._toMM(parseFloat(parts[5]) || 0.15)
-        };
-    }
-    
-    _parseFootprintText(parts) {
-        return {
-            type: 'text',
-            text: parts[1] || '',
-            x: this._toMM(parseFloat(parts[2]) || 0),
-            y: this._toMM(parseFloat(parts[3]) || 0),
-            layer: parts[7] || 'F.SilkS',
-            fontSize: this._toMM(parseFloat(parts[5]) || 10)
-        };
-    }
-    
     /**
-     * Map EasyEDA category to ClearPCB category
+     * Extract price breaks from product
      */
-    _mapCategory(category) {
-        const mapping = {
-            'Resistors': 'Passive Components',
-            'Capacitors': 'Passive Components',
-            'Inductors': 'Passive Components',
-            'Diodes': 'Discrete Semiconductors',
-            'Transistors': 'Discrete Semiconductors',
-            'LEDs': 'Optoelectronics',
-            'ICs': 'Integrated Circuits',
-            'Connectors': 'Connectors',
-            'Crystals': 'Frequency Control',
-            'Switches': 'Electromechanical',
-            'Relays': 'Electromechanical'
-        };
+    _extractPriceBreaksFromProduct(product) {
+        if (!product.productPriceList || product.productPriceList.length === 0) {
+            return [];
+        }
         
-        return mapping[category] || category || 'Uncategorized';
+        return product.productPriceList.map(tier => ({
+            quantity: tier.ladder,
+            price: tier.usdPrice || tier.currencyPrice
+        }));
     }
     
     /**
-     * Search LCSC for components
+     * Get suggested KiCad library and symbol name for an MPN
+     * @param {string} mpn - Manufacturer part number
+     * @param {string} category - LCSC category
+     * @returns {object} Suggested library and symbol
      */
-    async search(query) {
-        // This would require the LCSC search API
-        // For now, return empty - real implementation would query LCSC
-        console.log('LCSC search not implemented - query:', query);
-        return [];
+    suggestKiCadMapping(mpn, category) {
+        const mpnUpper = mpn.toUpperCase();
+        const catLower = (category || '').toLowerCase();
+        
+        // Timer ICs
+        if (mpnUpper.includes('555') || mpnUpper.includes('556')) {
+            return { library: 'Timer', symbol: mpnUpper.includes('NE') ? 'NE555' : 'LM555' };
+        }
+        
+        // Voltage regulators
+        if (mpnUpper.match(/^(LM|L)?78\d{2}/)) {
+            const voltage = mpnUpper.match(/78(\d{2})/)?.[1];
+            return { library: 'Regulator_Linear', symbol: `LM78${voltage || '05'}` };
+        }
+        if (mpnUpper.match(/^(LM|L)?79\d{2}/)) {
+            const voltage = mpnUpper.match(/79(\d{2})/)?.[1];
+            return { library: 'Regulator_Linear', symbol: `LM79${voltage || '05'}` };
+        }
+        if (mpnUpper.includes('LM317') || mpnUpper.includes('LM1117') || mpnUpper.includes('AMS1117')) {
+            if (mpnUpper.includes('1117')) {
+                return { library: 'Regulator_Linear', symbol: 'LM1117' };
+            }
+            return { library: 'Regulator_Linear', symbol: 'LM317' };
+        }
+        
+        // Op-amps
+        if (mpnUpper.match(/^LM3(24|58)/)) {
+            return { library: 'Amplifier_Operational', symbol: mpnUpper.includes('324') ? 'LM324' : 'LM358' };
+        }
+        if (mpnUpper.match(/^TL07[24]/)) {
+            return { library: 'Amplifier_Operational', symbol: mpnUpper.includes('074') ? 'TL074' : 'TL072' };
+        }
+        
+        // Microcontrollers
+        if (mpnUpper.includes('ATMEGA328')) {
+            return { library: 'MCU_Microchip_ATmega', symbol: 'ATmega328P' };
+        }
+        if (mpnUpper.includes('ATTINY85')) {
+            return { library: 'MCU_Microchip_ATtiny', symbol: 'ATtiny85' };
+        }
+        if (mpnUpper.includes('STM32F103')) {
+            return { library: 'MCU_ST_STM32F1', symbol: 'STM32F103C8' };
+        }
+        if (mpnUpper.includes('ESP32')) {
+            return { library: 'MCU_Espressif_ESP32', symbol: 'ESP32-WROOM-32' };
+        }
+        if (mpnUpper.includes('ESP8266') || mpnUpper.includes('ESP-12')) {
+            return { library: 'MCU_Espressif_ESP8266', symbol: 'ESP-12E' };
+        }
+        
+        // Transistors
+        if (mpnUpper.match(/^2N222[12]/)) {
+            return { library: 'Transistor_BJT', symbol: '2N2222' };
+        }
+        if (mpnUpper.includes('2N3904')) {
+            return { library: 'Transistor_BJT', symbol: '2N3904' };
+        }
+        if (mpnUpper.includes('2N3906')) {
+            return { library: 'Transistor_BJT', symbol: '2N3906' };
+        }
+        if (mpnUpper.includes('BC547')) {
+            return { library: 'Transistor_BJT', symbol: 'BC547' };
+        }
+        if (mpnUpper.includes('2N7000')) {
+            return { library: 'Transistor_FET', symbol: '2N7000' };
+        }
+        if (mpnUpper.includes('IRLZ44')) {
+            return { library: 'Transistor_FET', symbol: 'IRLZ44N' };
+        }
+        
+        // Diodes
+        if (mpnUpper.includes('1N4148')) {
+            return { library: 'Diode', symbol: '1N4148' };
+        }
+        if (mpnUpper.includes('1N4007') || mpnUpper.includes('1N400')) {
+            return { library: 'Diode', symbol: '1N4007' };
+        }
+        if (mpnUpper.includes('1N5819')) {
+            return { library: 'Diode', symbol: '1N5819' };
+        }
+        
+        // Category-based fallbacks
+        if (catLower.includes('resistor')) {
+            return { library: 'Device', symbol: 'R' };
+        }
+        if (catLower.includes('capacitor')) {
+            return { library: 'Device', symbol: 'C' };
+        }
+        if (catLower.includes('inductor')) {
+            return { library: 'Device', symbol: 'L' };
+        }
+        if (catLower.includes('led')) {
+            return { library: 'LED', symbol: 'LED' };
+        }
+        if (catLower.includes('crystal')) {
+            return { library: 'Device', symbol: 'Crystal' };
+        }
+        
+        // No mapping found
+        return null;
     }
 }
 
