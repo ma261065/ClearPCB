@@ -8,7 +8,7 @@ import { CommandHistory, AddShapeCommand, DeleteShapesCommand, MoveShapesCommand
 import { SelectionManager } from '../core/SelectionManager.js';
 import { FileManager } from '../core/FileManager.js';
 import { Toolbox } from './Toolbox.js';
-import { ComponentPicker } from '../components/ComponentPicker.js';
+import { ComponentPicker } from './ComponentPicker.js';
 import { Line, Circle, Rect, Arc, Polygon, updateIdCounter } from '../shapes/index.js';
 import { Component, getComponentLibrary } from '../components/index.js';
 
@@ -75,7 +75,7 @@ class SchematicApp {
         this.toolOptions = {
             lineWidth: 0.2,
             fill: false,
-            color: '#00b894'
+            color: '#00cc66'  // Default wire color - matches --sch-wire
         };
         
         // UI elements
@@ -415,7 +415,7 @@ class SchematicApp {
                 return new Line({
                     x1: start.x, y1: start.y,
                     x2: end.x, y2: end.y,
-                    color: this.currentTool === 'wire' ? '#00b894' : opts.color,
+                    color: this.currentTool === 'wire' ? '#00cc66' : opts.color,
                     lineWidth: opts.lineWidth
                 });
             }
@@ -1320,8 +1320,8 @@ class SchematicApp {
     
     _createBoxSelectElement() {
         this.boxSelectElement = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-        this.boxSelectElement.setAttribute('fill', 'rgba(0, 102, 204, 0.15)');
-        this.boxSelectElement.setAttribute('stroke', '#0066cc');
+        this.boxSelectElement.setAttribute('fill', 'rgba(51, 153, 255, 0.15)');  // --sch-selection-fill
+        this.boxSelectElement.setAttribute('stroke', '#3399ff');  // --sch-selection
         this.boxSelectElement.setAttribute('stroke-width', 1 / this.viewport.scale);
         this.boxSelectElement.setAttribute('stroke-dasharray', `${4 / this.viewport.scale} ${4 / this.viewport.scale}`);
         this.boxSelectElement.style.pointerEvents = 'none';

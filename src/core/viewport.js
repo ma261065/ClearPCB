@@ -149,9 +149,9 @@ export class Viewport {
     _getThemeColors() {
         const style = getComputedStyle(document.documentElement);
         return {
-            canvasBg: style.getPropertyValue('--bg-canvas').trim() || '#1a1a2e',
-            gridMinor: style.getPropertyValue('--grid-color').trim() || 'rgba(255, 255, 255, 0.08)',
-            gridMajor: style.getPropertyValue('--grid-color-major').trim() || 'rgba(255, 255, 255, 0.15)',
+            canvasBg: style.getPropertyValue('--sch-background').trim() || '#1a1a2e',
+            gridMinor: style.getPropertyValue('--sch-grid').trim() || 'rgba(255, 255, 255, 0.08)',
+            gridMajor: style.getPropertyValue('--sch-grid-major').trim() || 'rgba(255, 255, 255, 0.15)',
             rulerBg: style.getPropertyValue('--bg-primary').trim() || '#1a1a1a',
             rulerText: style.getPropertyValue('--text-secondary').trim() || '#888',
             rulerLine: style.getPropertyValue('--text-muted').trim() || '#666',

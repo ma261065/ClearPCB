@@ -107,14 +107,14 @@ export class Component {
         const line = document.createElementNS(ns, 'line');
         line.setAttribute('x1', x1); line.setAttribute('y1', y1);
         line.setAttribute('x2', lineX2); line.setAttribute('y2', lineY2);
-        line.setAttribute('stroke', 'var(--schematic-pin, #800000)');
+        line.setAttribute('stroke', 'var(--sch-pin, #aa0000)');
         line.setAttribute('stroke-width', 0.254);
         group.appendChild(line);
 
         const dot = document.createElementNS(ns, 'circle');
-        dot.setAttribute('cx', x1); dot.setAttribute('cy', y1);
+        dot.setAttribute('cx', x2); dot.setAttribute('cy', y2);
         dot.setAttribute('r', dotRadius);
-        dot.setAttribute('fill', 'var(--schematic-pin, #800000)'); 
+        dot.setAttribute('fill', 'var(--sch-pin, #aa0000)'); 
         dot.setAttribute('stroke', 'none'); 
         group.appendChild(dot);
 
@@ -127,8 +127,8 @@ export class Component {
             else if (pin.orientation === 'down') by -= bubbleRadius;
             bubble.setAttribute('cx', bx); bubble.setAttribute('cy', by);
             bubble.setAttribute('r', bubbleRadius);
-            bubble.setAttribute('fill', 'var(--schematic-body-bg, #ffffc0)');
-            bubble.setAttribute('stroke', 'var(--schematic-pin, #800000)');
+            bubble.setAttribute('fill', 'var(--sch-symbol-fill, #ffffc0)');
+            bubble.setAttribute('stroke', 'var(--sch-pin, #aa0000)');
             bubble.setAttribute('stroke-width', 0.254);
             group.appendChild(bubble);
         }
@@ -140,7 +140,7 @@ export class Component {
             const nameTxt = document.createElementNS(ns, 'text');
             const cleanName = pin.name.replace(/[{}]/g, '').replace(/[~/]/g, '');
             nameTxt.setAttribute('font-size', 1.3);
-            nameTxt.setAttribute('fill', '#0000FF'); 
+            nameTxt.setAttribute('fill', 'var(--sch-pin-name, #00cccc)'); 
             nameTxt.setAttribute('text-anchor', nameAnchor);
             nameTxt.setAttribute('dominant-baseline', 'middle');
             nameTxt.textContent = cleanName;
@@ -166,7 +166,7 @@ export class Component {
                 }
                 overbar.setAttribute('x1', ox1); overbar.setAttribute('y1', oy);
                 overbar.setAttribute('x2', ox2); overbar.setAttribute('y2', oy);
-                overbar.setAttribute('stroke', '#0000FF'); overbar.setAttribute('stroke-width', 0.15);
+                overbar.setAttribute('stroke', 'var(--sch-pin-name, #00cccc)'); overbar.setAttribute('stroke-width', 0.15);
                 labelGroup.appendChild(overbar);
             }
             group.appendChild(labelGroup);
@@ -176,7 +176,7 @@ export class Component {
             const numTxt = document.createElementNS(ns, 'text');
             numTxt.setAttribute('x', numX); numTxt.setAttribute('y', numY);
             numTxt.setAttribute('font-size', 1.1);
-            numTxt.setAttribute('fill', '#0000FF');
+            numTxt.setAttribute('fill', 'var(--sch-pin-number, #aa0000)');
             numTxt.setAttribute('text-anchor', numAnchor);
             numTxt.setAttribute('dominant-baseline', 'middle');
             numTxt.textContent = pin.number;
@@ -187,8 +187,10 @@ export class Component {
 
     _createGraphicElement(g, ns) {
         let el;
-        const stroke = (g.stroke === 'black' || g.stroke === '#000') ? 'var(--schematic-body, #800000)' : g.stroke;
-        const fill = g.fill === 'none' ? 'none' : 'var(--schematic-body-bg, #ffffc0)';
+        // Convert black colors to themed color
+        const isBlack = g.stroke === 'black' || g.stroke === '#000' || g.stroke === '#000000';
+        const stroke = isBlack ? 'var(--sch-symbol-outline, #aa0000)' : g.stroke;
+        const fill = g.fill === 'none' ? 'none' : 'var(--sch-symbol-fill, #ffffcc)';
         switch (g.type) {
             case 'rect':
                 el = document.createElementNS(ns, 'rect');
@@ -204,11 +206,16 @@ export class Component {
                 el.setAttribute('x1', g.x1); el.setAttribute('y1', g.y1);
                 el.setAttribute('x2', g.x2); el.setAttribute('y2', g.y2);
                 break;
+            case 'polyline':
+                el = document.createElementNS(ns, 'polyline');
+                const pts = g.points.map(p => `${p[0]},${p[1]}`).join(' ');
+                el.setAttribute('points', pts);
+                break;
             case 'text':
                 el = document.createElementNS(ns, 'text');
                 el.setAttribute('x', g.x); el.setAttribute('y', g.y);
                 el.setAttribute('font-size', g.fontSize || 1.5);
-                el.setAttribute('fill', '#800000');
+                el.setAttribute('fill', 'var(--sch-text, #cccccc)');
                 if (g.anchor) el.setAttribute('text-anchor', g.anchor);
                 el.textContent = (g.text || '').replace('${REF}', this.reference).replace('${VALUE}', this.value);
                 return el;
