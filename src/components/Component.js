@@ -256,5 +256,55 @@ export class Component {
             if (transform) this.element.setAttribute('transform', transform);
         }
     }
+
+    /**
+     * Remove component from DOM
+     */
+    destroy() {
+        if (this.element && this.element.parentNode) {
+            this.element.parentNode.removeChild(this.element);
+        }
+        this.element = null;
+        this.pinElements.clear();
+    }
+
+    /**
+     * Serialize component to JSON
+     */
+    toJSON() {
+        return {
+            type: 'component',
+            id: this.id,
+            definitionName: this.definition.name,
+            x: this.x,
+            y: this.y,
+            rotation: this.rotation,
+            mirror: this.mirror,
+            reference: this.reference,
+            value: this.value,
+            properties: this.properties
+        };
+    }
+
+    /**
+     * Create component from JSON data
+     */
+    static fromJSON(json, library) {
+        const definition = library.getComponent(json.definitionName);
+        if (!definition) {
+            console.warn(`Component definition not found: ${json.definitionName}`);
+            return null;
+        }
+        return new Component(definition, {
+            id: json.id,
+            x: json.x,
+            y: json.y,
+            rotation: json.rotation,
+            mirror: json.mirror,
+            reference: json.reference,
+            value: json.value,
+            properties: json.properties
+        });
+    }
 }
 export default Component;
