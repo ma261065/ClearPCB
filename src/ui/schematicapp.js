@@ -7,8 +7,8 @@ import { EventBus, Events, globalEventBus } from '../core/EventBus.js';
 import { CommandHistory, AddShapeCommand, DeleteShapesCommand, MoveShapesCommand, ModifyShapeCommand } from '../core/CommandHistory.js';
 import { SelectionManager } from '../core/SelectionManager.js';
 import { FileManager } from '../core/FileManager.js';
-import { Toolbox } from './Toolbox.js';
-import { ComponentPicker } from './ComponentPicker.js';
+import { Toolbox } from '../ui/Toolbox.js';
+import { ComponentPicker } from '../components/ComponentPicker.js';
 import { Line, Circle, Rect, Arc, Polygon, updateIdCounter } from '../shapes/index.js';
 import { Component, getComponentLibrary } from '../components/index.js';
 

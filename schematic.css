@@ -33,7 +33,7 @@
     --sch-text: #cccccc;
     
     /* === Symbols === */
-    --sch-symbol-outline: #aa0000;
+    --sch-symbol-outline: #ffffff;
     --sch-symbol-fill: #ffffcc;
     --sch-symbol-name: #00cccc;
     --sch-symbol-value: #00cccc;
@@ -85,7 +85,7 @@
     --sch-text: #000000;
     
     /* === Symbols === */
-    --sch-symbol-outline: #aa0000;
+    --sch-symbol-outline: rgb(0, 0, 0);
     --sch-symbol-fill: #ffffcc;
     --sch-symbol-name: #008080;
     --sch-symbol-value: #008080;
