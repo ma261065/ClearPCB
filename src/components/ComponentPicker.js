@@ -38,7 +38,7 @@ export class ComponentPicker {
             <div class="cp-body">
                 <div class="cp-mode-toggle">
                     <button class="cp-mode-btn active" data-mode="local">Local</button>
-                    <button class="cp-mode-btn" data-mode="lcsc">LCSC</button>
+                    <button class="cp-mode-btn" data-mode="lcsc">Online</button>
                 </div>
                 <div class="cp-search">
                     <input type="text" class="cp-search-input" placeholder="Search components...">
@@ -121,7 +121,7 @@ export class ComponentPicker {
         
         // Update placeholder
         this.searchInput.placeholder = mode === 'lcsc' 
-            ? 'Search LCSC (e.g., NE555, C46749)...'
+            ? 'Search online (e.g., NE555, C46749)...'
             : 'Search components...';
         
         // Clear selection and refresh list
@@ -145,14 +145,14 @@ export class ComponentPicker {
     _showLCSCPrompt() {
         this.listEl.innerHTML = `
             <div class="cp-lcsc-prompt">
-                Search LCSC's component catalog.
+                Search online component catalogs.
                 <br><br>
                 Examples:
                 <br>• C46749 (LCSC part number)
                 <br>• NE555 (part name)
                 <br>• STM32F103
                 <br><br>
-                <small style="color:var(--text-muted)">⚠️ LCSC search may be unavailable due to CORS restrictions. Use Local library for reliable access.</small>
+                <small style="color:var(--text-muted)">⚠️ Online search may be unavailable due to CORS restrictions. Use Local library for reliable access.</small>
             </div>
         `;
     }
@@ -161,7 +161,7 @@ export class ComponentPicker {
         this.listEl.innerHTML = `
             <div class="cp-loading">
                 <span class="cp-spinner"></span>
-                Searching LCSC...
+                Searching online...
             </div>
         `;
     }
