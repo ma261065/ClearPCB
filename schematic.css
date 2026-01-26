@@ -33,7 +33,7 @@
     --sch-text: #cccccc;
     
     /* === Symbols === */
-    --sch-symbol-outline: #ffffff;
+    --sch-symbol-outline: #aa0000;
     --sch-symbol-fill: #ffffcc;
     --sch-symbol-name: #00cccc;
     --sch-symbol-value: #00cccc;
@@ -85,7 +85,7 @@
     --sch-text: #000000;
     
     /* === Symbols === */
-    --sch-symbol-outline: rgb(0, 0, 0);
+    --sch-symbol-outline: #aa0000;
     --sch-symbol-fill: #ffffcc;
     --sch-symbol-name: #008080;
     --sch-symbol-value: #008080;
@@ -758,4 +758,27 @@ body {
 /* Schematic elements use CSS variables for theming */
 .schematic-component {
     stroke: var(--schematic-component);
+}
+
+/* Component highlight for hover and selection */
+.component-highlight {
+    pointer-events: none;
+}
+
+/* Component styling - match shape behavior */
+.component {
+    cursor: default;
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+.component text {
+    pointer-events: none;
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+.component * {
+    user-select: none;
+    -webkit-user-select: none;
 }

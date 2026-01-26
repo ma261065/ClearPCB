@@ -14,9 +14,192 @@ export class Component {
         this.properties = { ...definition.defaultProperties, ...options.properties };
         this.element = null;
         this.pinElements = new Map();
+        
+        // Selection-related properties
+        this.visible = true;
+        this.locked = false;
+        this.selected = false;
+        this.hovered = false;
     }
 
     get symbol() { return this.definition.symbol; }
+
+    /**
+     * Hit test - check if point is within component bounds
+     */
+    hitTest(point, tolerance = 1) {
+        const bounds = this.getBounds();
+        if (!bounds) return false;
+        
+        return point.x >= bounds.minX - tolerance &&
+               point.x <= bounds.maxX + tolerance &&
+               point.y >= bounds.minY - tolerance &&
+               point.y <= bounds.maxY + tolerance;
+    }
+
+    /**
+     * Hit test for anchors - components don't have resize anchors
+     */
+    hitTestAnchor(point, scale) {
+        return null;  // Components don't have anchors
+    }
+
+    /**
+     * Get anchors - components don't have resize anchors
+     */
+    getAnchors() {
+        return [];  // Components don't have anchors
+    }
+
+    /**
+     * Get bounding box in world coordinates
+     */
+    getBounds() {
+        const symbol = this.symbol;
+        if (!symbol) return null;
+        
+        // Get symbol dimensions
+        const width = symbol.width || 10;
+        const height = symbol.height || 10;
+        const origin = symbol.origin || { x: width / 2, y: height / 2 };
+        
+        // Local bounds (relative to component origin)
+        let minX = -origin.x;
+        let minY = -origin.y;
+        let maxX = width - origin.x;
+        let maxY = height - origin.y;
+        
+        // Include pins in bounds
+        if (symbol.pins) {
+            for (const pin of symbol.pins) {
+                const length = pin.length ?? 2.54;
+                let px = pin.x, py = pin.y;
+                
+                // Extend to pin tip based on orientation
+                switch (pin.orientation) {
+                    case 'right': px += length; break;
+                    case 'left': px -= length; break;
+                    case 'up': py -= length; break;
+                    case 'down': py += length; break;
+                }
+                
+                minX = Math.min(minX, pin.x, px);
+                maxX = Math.max(maxX, pin.x, px);
+                minY = Math.min(minY, pin.y, py);
+                maxY = Math.max(maxY, pin.y, py);
+            }
+        }
+        
+        // Apply rotation
+        const rad = this.rotation * Math.PI / 180;
+        const cos = Math.cos(rad);
+        const sin = Math.sin(rad);
+        
+        // Get all four corners and rotate them
+        const corners = [
+            { x: minX, y: minY },
+            { x: maxX, y: minY },
+            { x: maxX, y: maxY },
+            { x: minX, y: maxY }
+        ];
+        
+        let worldMinX = Infinity, worldMinY = Infinity;
+        let worldMaxX = -Infinity, worldMaxY = -Infinity;
+        
+        for (const c of corners) {
+            let x = c.x, y = c.y;
+            if (this.mirror) x = -x;
+            
+            const rx = x * cos - y * sin;
+            const ry = x * sin + y * cos;
+            
+            const wx = rx + this.x;
+            const wy = ry + this.y;
+            
+            worldMinX = Math.min(worldMinX, wx);
+            worldMaxX = Math.max(worldMaxX, wx);
+            worldMinY = Math.min(worldMinY, wy);
+            worldMaxY = Math.max(worldMaxY, wy);
+        }
+        
+        return { minX: worldMinX, minY: worldMinY, maxX: worldMaxX, maxY: worldMaxY };
+    }
+
+    /**
+     * Set selection state and update visual
+     */
+    setSelected(selected) {
+        this.selected = selected;
+        this._updateHighlight();
+    }
+
+    /**
+     * Called by SelectionManager to update visual state
+     */
+    invalidate() {
+        this._updateHighlight();
+    }
+
+    /**
+     * Update visual highlight for hover and selection states
+     */
+    _updateHighlight() {
+        if (!this.element) return;
+        
+        // Remove existing highlight
+        const existing = this.element.querySelector('.component-highlight');
+        if (existing) existing.remove();
+        
+        // Show highlight if hovered or selected
+        if (!this.hovered && !this.selected) return;
+        
+        const bounds = this.getBounds();
+        if (!bounds) return;
+        
+        const ns = 'http://www.w3.org/2000/svg';
+        const highlight = document.createElementNS(ns, 'rect');
+        
+        // Calculate local bounds (before component transform)
+        const symbol = this.symbol;
+        const width = symbol?.width || 10;
+        const height = symbol?.height || 10;
+        const origin = symbol?.origin || { x: width / 2, y: height / 2 };
+        
+        // Include pins
+        let minX = -origin.x, minY = -origin.y;
+        let maxX = width - origin.x, maxY = height - origin.y;
+        
+        if (symbol?.pins) {
+            for (const pin of symbol.pins) {
+                const length = pin.length ?? 2.54;
+                let px = pin.x, py = pin.y;
+                switch (pin.orientation) {
+                    case 'right': px += length; break;
+                    case 'left': px -= length; break;
+                    case 'up': py -= length; break;
+                    case 'down': py += length; break;
+                }
+                minX = Math.min(minX, pin.x, px);
+                maxX = Math.max(maxX, pin.x, px);
+                minY = Math.min(minY, pin.y, py);
+                maxY = Math.max(maxY, pin.y, py);
+            }
+        }
+        
+        highlight.setAttribute('class', 'component-highlight');
+        highlight.setAttribute('x', minX - 0.5);
+        highlight.setAttribute('y', minY - 0.5);
+        highlight.setAttribute('width', maxX - minX + 1);
+        highlight.setAttribute('height', maxY - minY + 1);
+        highlight.setAttribute('fill', this.selected ? 'var(--sch-selection-fill, rgba(51,153,255,0.2))' : 'rgba(255,255,255,0.1)');
+        highlight.setAttribute('stroke', this.selected ? 'var(--sch-selection, #3399ff)' : 'var(--sch-selection, #3399ff)');
+        highlight.setAttribute('stroke-width', 0.2);
+        highlight.setAttribute('stroke-dasharray', this.selected ? 'none' : '0.5 0.5');
+        highlight.setAttribute('pointer-events', 'none');
+        
+        // Insert at beginning so it's behind component graphics
+        this.element.insertBefore(highlight, this.element.firstChild);
+    }
 
     createSymbolElement(ns = 'http://www.w3.org/2000/svg') {
         const group = document.createElementNS(ns, 'g');
@@ -248,6 +431,13 @@ export class Component {
     }
 
     getPin(num) { return this.symbol?.pins?.find(p => p.number === String(num)); }
+
+    /**
+     * Move component by delta
+     */
+    move(dx, dy) {
+        this.setPosition(this.x + dx, this.y + dy);
+    }
 
     setPosition(x, y) {
         this.x = x; this.y = y;

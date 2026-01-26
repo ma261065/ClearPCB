@@ -183,29 +183,41 @@ export class DeleteShapesCommand extends Command {
  * Command to move shapes
  */
 export class MoveShapesCommand extends Command {
-    constructor(app, shapes, dx, dy) {
-        super(shapes.length === 1 ? `Move ${shapes[0].type}` : `Move ${shapes.length} shapes`);
+    constructor(app, items, dx, dy) {
+        const label = items.length === 1 
+            ? `Move ${items[0].type || items[0].reference || 'item'}` 
+            : `Move ${items.length} items`;
+        super(label);
         this.app = app;
-        this.shapeIds = shapes.map(s => s.id);
+        this.itemIds = items.map(s => s.id);
         this.dx = dx;
         this.dy = dy;
     }
     
+    _findItem(id) {
+        // Search in both shapes and components
+        let item = this.app.shapes.find(s => s.id === id);
+        if (!item) {
+            item = this.app.components.find(c => c.id === id);
+        }
+        return item;
+    }
+    
     execute() {
-        for (const id of this.shapeIds) {
-            const shape = this.app.shapes.find(s => s.id === id);
-            if (shape) {
-                shape.move(this.dx, this.dy);
+        for (const id of this.itemIds) {
+            const item = this._findItem(id);
+            if (item) {
+                item.move(this.dx, this.dy);
             }
         }
         this.app.renderShapes(true);
     }
     
     undo() {
-        for (const id of this.shapeIds) {
-            const shape = this.app.shapes.find(s => s.id === id);
-            if (shape) {
-                shape.move(-this.dx, -this.dy);
+        for (const id of this.itemIds) {
+            const item = this._findItem(id);
+            if (item) {
+                item.move(-this.dx, -this.dy);
             }
         }
         this.app.renderShapes(true);

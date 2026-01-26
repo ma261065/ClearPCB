@@ -1,5 +1,5 @@
 /**
- * SchematicApp.js - Schematic Editor Application.
+ * SchematicApp.js - Schematic Editor Application
  */
 
 import { Viewport } from '../core/Viewport.js';
@@ -7,7 +7,7 @@ import { EventBus, Events, globalEventBus } from '../core/EventBus.js';
 import { CommandHistory, AddShapeCommand, DeleteShapesCommand, MoveShapesCommand, ModifyShapeCommand } from '../core/CommandHistory.js';
 import { SelectionManager } from '../core/SelectionManager.js';
 import { FileManager } from '../core/FileManager.js';
-import { Toolbox } from '../ui/Toolbox.js';
+import { Toolbox } from './Toolbox.js';
 import { ComponentPicker } from '../components/ComponentPicker.js';
 import { Line, Circle, Rect, Arc, Polygon, updateIdCounter } from '../shapes/index.js';
 import { Component, getComponentLibrary } from '../components/index.js';
@@ -41,10 +41,11 @@ class SchematicApp {
         
         // Shape management
         this.shapes = [];
+        this.components = [];  // Placed component instances
         this.selection = new SelectionManager({
-            onSelectionChanged: (shapes) => this._onSelectionChanged(shapes)
+            onSelectionChanged: (items) => this._onSelectionChanged(items)
         });
-        this.selection.setShapes(this.shapes);
+        this._updateSelectableItems();
         
         // Drawing state
         this.currentTool = 'select';
@@ -103,7 +104,6 @@ class SchematicApp {
         
         // Component library and picker
         this.componentLibrary = getComponentLibrary();
-        this.components = [];  // Placed component instances
         this.componentPicker = new ComponentPicker({
             onComponentSelected: (def) => this._onComponentDefinitionSelected(def)
         });
@@ -194,6 +194,7 @@ class SchematicApp {
         this.shapes.push(shape);
         shape.render(this.viewport.scale);
         this.viewport.addContent(shape.element);
+        this._updateSelectableItems();
         this.fileManager.setDirty(true);
         return shape;
     }
@@ -211,6 +212,7 @@ class SchematicApp {
             this.shapes.push(shape);
         }
         this.viewport.addContent(shape.element);
+        this._updateSelectableItems();
         this.fileManager.setDirty(true);
         return shape;
     }
@@ -230,6 +232,7 @@ class SchematicApp {
                 shape.anchorsGroup.parentNode.removeChild(shape.anchorsGroup);
             }
             this.selection.deselect(shape);
+            this._updateSelectableItems();
             this.fileManager.setDirty(true);
         }
     }
@@ -569,12 +572,23 @@ class SchematicApp {
         // Mark document as dirty
         this.fileManager.setDirty(true);
         
+        // Update selection manager to include the new component
+        this._updateSelectableItems();
+        
         // TODO: Add undo command for component placement
         
         console.log('Placed component:', component.reference, 'at', worldPos.x, worldPos.y);
         
         // Continue placement mode (for placing multiple components)
         // Reset rotation/mirror for next placement? Or keep them? Let's keep them.
+    }
+    
+    /**
+     * Update SelectionManager with all selectable items (shapes + components)
+     */
+    _updateSelectableItems() {
+        const items = [...this.shapes, ...this.components];
+        this.selection.setShapes(items);
     }
     
     /**
@@ -831,22 +845,28 @@ class SchematicApp {
                     }
                 }
                 
-                // Check if clicking on a selected shape (for move)
+                // Check if clicking on any shape/component
                 const hitShape = this.selection.hitTest(worldPos);
-                if (hitShape && hitShape.selected) {
-                    // Start move drag - reset total movement
+                
+                if (hitShape) {
+                    // If clicking on unselected item, select it first
+                    if (!hitShape.selected) {
+                        if (e.shiftKey) {
+                            this.selection.select(hitShape, true);  // Add to selection
+                        } else {
+                            this.selection.select(hitShape, false); // Replace selection
+                        }
+                        this.renderShapes(true);
+                    }
+                    
+                    // Now start move drag immediately
                     this.isDragging = true;
                     this.dragMode = 'move';
                     this.dragStart = { ...snapped };
                     this.dragTotalDx = 0;
                     this.dragTotalDy = 0;
+                    this.viewport.svg.style.cursor = 'move';
                     e.preventDefault();
-                    return;
-                }
-                
-                // Check if clicking on an unselected shape
-                if (hitShape && !hitShape.selected) {
-                    // Will be handled by click event for selection
                     return;
                 }
                 
@@ -1309,9 +1329,40 @@ class SchematicApp {
         
         this.selection.clearSelection();
         
-        // Create and execute delete command
-        const command = new DeleteShapesCommand(this, toDelete);
-        this.history.execute(command);
+        // Separate shapes and components
+        const shapesToDelete = [];
+        const componentsToDelete = [];
+        
+        for (const item of toDelete) {
+            if (this.shapes.includes(item)) {
+                shapesToDelete.push(item);
+            } else if (this.components.includes(item)) {
+                componentsToDelete.push(item);
+            }
+        }
+        
+        // Delete shapes via command (supports undo)
+        if (shapesToDelete.length > 0) {
+            const command = new DeleteShapesCommand(this, shapesToDelete);
+            this.history.execute(command);
+        }
+        
+        // Delete components (TODO: add undo support)
+        for (const comp of componentsToDelete) {
+            const idx = this.components.indexOf(comp);
+            if (idx !== -1) {
+                this.components.splice(idx, 1);
+                if (comp.element) {
+                    this.viewport.removeContent(comp.element);
+                }
+                comp.destroy();
+            }
+        }
+        
+        if (componentsToDelete.length > 0) {
+            this._updateSelectableItems();
+            this.fileManager.setDirty(true);
+        }
         
         this.renderShapes(true);
     }
@@ -1482,7 +1533,7 @@ class SchematicApp {
             }
         }
         
-        this.selection.setShapes(this.shapes);
+        this._updateSelectableItems();
         this.renderShapes(true);
     }
     
@@ -1530,7 +1581,7 @@ class SchematicApp {
             shape.destroy();
         }
         this.shapes = [];
-        this.selection.setShapes(this.shapes);
+        this._updateSelectableItems();
         this.history.clear();
         this._updateUndoRedoButtons();
     }
@@ -1546,6 +1597,7 @@ class SchematicApp {
             comp.destroy();
         }
         this.components = [];
+        this._updateSelectableItems();
     }
     
     /**
