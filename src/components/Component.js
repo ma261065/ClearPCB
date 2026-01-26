@@ -295,7 +295,7 @@ export class Component {
         group.appendChild(line);
 
         const dot = document.createElementNS(ns, 'circle');
-        dot.setAttribute('cx', x2); dot.setAttribute('cy', y2);
+        dot.setAttribute('cx', x1); dot.setAttribute('cy', y1);
         dot.setAttribute('r', dotRadius);
         dot.setAttribute('fill', 'var(--sch-pin, #aa0000)'); 
         dot.setAttribute('stroke', 'none'); 
