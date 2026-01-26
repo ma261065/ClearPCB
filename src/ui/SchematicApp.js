@@ -1,5 +1,5 @@
 /**
- * SchematicApp.js - Schematic Editor Application
+ * SchematicApp.js - Schematic Editor Application.
  */
 
 import { Viewport } from '../core/Viewport.js';
