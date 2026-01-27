@@ -10,7 +10,7 @@
     --text-secondary: #888888;
     --text-muted: #666666;
     --border-color: #0f3460;
-    --accent-color: #e94560;
+    --accent-color: #ac5a95;
     --accent-hover: #ff6b6b;
     
     /* === Schematic Canvas === */
@@ -305,8 +305,9 @@ body {
 }
 
 .tool-btn.active {
-    background: var(--selection-color);
+    background: var(--accent-color);
     color: #fff;
+    box-shadow: 0 0 0 2px var(--accent-color), inset 0 1px 0 rgba(255,255,255,0.2);
 }
 
 .tool-icon {
