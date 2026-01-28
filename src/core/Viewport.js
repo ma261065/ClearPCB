@@ -90,6 +90,17 @@ export class Viewport {
         this.onViewChanged = null;
         this.onMouseMove = null;
         
+        // Event handlers (stored for cleanup)
+        this.boundHandlers = {
+            wheel: null,
+            mousedown: null,
+            mousemove: null,
+            mouseup: null,
+            contextmenu: null,
+            resize: null,
+            keydown: null
+        };
+        
         // Setup
         this._updateViewBox();
         this._createGrid();
@@ -674,8 +685,8 @@ export class Viewport {
     // ==================== Events ====================
     
     _bindEvents() {
-        // Wheel: zoom, or pan with modifiers
-        this.svg.addEventListener('wheel', (e) => {
+        // Store handlers for cleanup
+        this.boundHandlers.wheel = (e) => {
             e.preventDefault(); // Always prevent default to block browser zoom
             
             const rect = this.svg.getBoundingClientRect();
@@ -692,15 +703,13 @@ export class Viewport {
                 // Ctrl+wheel: pan vertically
                 this.viewBox.y += panAmount;
                 this._updateViewBox();
-                this._createGrid();
-                this._createRulers();
+                this._createRulers();  // Only update rulers, not grid (expensive)
                 this._notifyViewChanged();
             } else if (e.shiftKey) {
                 // Shift+wheel: pan horizontally
                 this.viewBox.x += panAmount;
                 this._updateViewBox();
-                this._createGrid();
-                this._createRulers();
+                this._createRulers();  // Only update rulers, not grid (expensive)
                 this._notifyViewChanged();
             } else {
                 // Regular wheel: zoom
@@ -710,10 +719,10 @@ export class Viewport {
                     this.zoomIn(mouseWorld);
                 }
             }
-        }, { passive: false });
+        };
         
         // Pan start
-        this.svg.addEventListener('mousedown', (e) => {
+        this.boundHandlers.mousedown = (e) => {
             if (e.button === 2 || (e.button === 0 && e.shiftKey)) {
                 this.isPanning = true;
                 this.panStart = { x: e.clientX, y: e.clientY };
@@ -721,10 +730,10 @@ export class Viewport {
                 this.svg.style.cursor = 'grabbing';
                 e.preventDefault();
             }
-        });
+        };
         
         // Pan move
-        this.svg.addEventListener('mousemove', (e) => {
+        this.boundHandlers.mousemove = (e) => {
             const rect = this.svg.getBoundingClientRect();
             const mouseScreen = {
                 x: e.clientX - rect.left,
@@ -745,25 +754,38 @@ export class Viewport {
             if (this.onMouseMove) {
                 this.onMouseMove(this.currentMouseWorld, this.getSnappedPosition(this.currentMouseWorld));
             }
-        });
+        };
         
         // Pan end
-        window.addEventListener('mouseup', (e) => {
+        this.boundHandlers.mouseup = (e) => {
             if (this.isPanning) {
                 this.isPanning = false;
                 this.svg.style.cursor = 'default';
                 this._createGrid();
                 this._notifyViewChanged();
             }
-        });
+        };
         
         // Prevent context menu
-        this.svg.addEventListener('contextmenu', (e) => {
+        this.boundHandlers.contextmenu = (e) => {
             e.preventDefault();
-        });
+        };
+        
+        // Handle resize
+        this.boundHandlers.resize = () => {
+            this._onResize();
+        };
+        
+        // Attach all handlers
+        this.svg.addEventListener('wheel', this.boundHandlers.wheel, { passive: false });
+        this.svg.addEventListener('mousedown', this.boundHandlers.mousedown);
+        this.svg.addEventListener('mousemove', this.boundHandlers.mousemove);
+        window.addEventListener('mouseup', this.boundHandlers.mouseup);
+        this.svg.addEventListener('contextmenu', this.boundHandlers.contextmenu);
+        window.addEventListener('resize', this.boundHandlers.resize);
         
         // Keyboard
-        window.addEventListener('keydown', (e) => {
+        this.boundHandlers.keydown = (e) => {
             if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
             
             switch (e.key) {
@@ -777,7 +799,31 @@ export class Viewport {
                     }
                     break;
             }
-        });
+        };
+        window.addEventListener('keydown', this.boundHandlers.keydown);
+    }
+    
+    /**
+     * Cleanup event listeners to prevent memory leaks
+     */
+    destroy() {
+        if (this.boundHandlers.wheel) this.svg.removeEventListener('wheel', this.boundHandlers.wheel);
+        if (this.boundHandlers.mousedown) this.svg.removeEventListener('mousedown', this.boundHandlers.mousedown);
+        if (this.boundHandlers.mousemove) this.svg.removeEventListener('mousemove', this.boundHandlers.mousemove);
+        if (this.boundHandlers.mouseup) window.removeEventListener('mouseup', this.boundHandlers.mouseup);
+        if (this.boundHandlers.contextmenu) this.svg.removeEventListener('contextmenu', this.boundHandlers.contextmenu);
+        if (this.boundHandlers.resize) window.removeEventListener('resize', this.boundHandlers.resize);
+        if (this.boundHandlers.keydown) window.removeEventListener('keydown', this.boundHandlers.keydown);
+        
+        // Remove SVG element
+        if (this.svg.parentNode) {
+            this.svg.parentNode.removeChild(this.svg);
+        }
+        
+        // Clear ruler container
+        if (this.rulerContainer && this.rulerContainer.parentNode) {
+            this.rulerContainer.parentNode.removeChild(this.rulerContainer);
+        }
     }
     
     // ==================== Content Management ====================

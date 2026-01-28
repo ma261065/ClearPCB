@@ -11,6 +11,14 @@ export class Toolbox {
         this.eventBus = options.eventBus || globalEventBus;
         this.currentTool = 'select';
         
+        // Event handlers for cleanup
+        this.boundHandlers = {
+            keydown: null,
+            mousedown: null,
+            mousemove: null,
+            mouseup: null
+        };
+        
         this.tools = [
             { id: 'select', icon: '⊹', name: 'Select', shortcut: 'V' },
             { id: 'line', icon: '╱', name: 'Line', shortcut: 'L' },
@@ -60,7 +68,7 @@ export class Toolbox {
         });
         
         // Keyboard shortcuts
-        window.addEventListener('keydown', (e) => {
+        this.boundHandlers.keydown = (e) => {
             if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
             if (e.ctrlKey || e.metaKey || e.altKey) return;
             
@@ -69,7 +77,8 @@ export class Toolbox {
             if (tool) {
                 this.selectTool(tool.id);
             }
-        });
+        };
+        window.addEventListener('keydown', this.boundHandlers.keydown);
         
         // Make draggable by header
         this._makeDraggable();
@@ -83,16 +92,17 @@ export class Toolbox {
         
         header.style.cursor = 'grab';
         
-        header.addEventListener('mousedown', (e) => {
+        this.boundHandlers.mousedown = (e) => {
+            if (e.target !== header && !header.contains(e.target)) return;
             isDragging = true;
             const rect = this.element.getBoundingClientRect();
             offsetX = e.clientX - rect.left;
             offsetY = e.clientY - rect.top;
             header.style.cursor = 'grabbing';
             e.preventDefault();
-        });
+        };
         
-        window.addEventListener('mousemove', (e) => {
+        this.boundHandlers.mousemove = (e) => {
             if (!isDragging) return;
             
             const x = e.clientX - offsetX;
@@ -105,14 +115,18 @@ export class Toolbox {
             this.element.style.left = Math.max(0, Math.min(x, maxX)) + 'px';
             this.element.style.top = Math.max(0, Math.min(y, maxY)) + 'px';
             this.element.style.right = 'auto';
-        });
+        };
         
-        window.addEventListener('mouseup', () => {
+        this.boundHandlers.mouseup = () => {
             if (isDragging) {
                 isDragging = false;
                 header.style.cursor = 'grab';
             }
-        });
+        };
+        
+        this.element.addEventListener('mousedown', this.boundHandlers.mousedown);
+        window.addEventListener('mousemove', this.boundHandlers.mousemove);
+        window.addEventListener('mouseup', this.boundHandlers.mouseup);
     }
     
     /**
@@ -209,5 +223,28 @@ export class Toolbox {
     
     appendTo(parent) {
         parent.appendChild(this.element);
+    }
+    
+    /**
+     * Cleanup event listeners to prevent memory leaks
+     */
+    destroy() {
+        if (this.boundHandlers.keydown) {
+            window.removeEventListener('keydown', this.boundHandlers.keydown);
+        }
+        if (this.boundHandlers.mousedown) {
+            this.element.removeEventListener('mousedown', this.boundHandlers.mousedown);
+        }
+        if (this.boundHandlers.mousemove) {
+            window.removeEventListener('mousemove', this.boundHandlers.mousemove);
+        }
+        if (this.boundHandlers.mouseup) {
+            window.removeEventListener('mouseup', this.boundHandlers.mouseup);
+        }
+        
+        // Remove element from DOM
+        if (this.element.parentNode) {
+            this.element.parentNode.removeChild(this.element);
+        }
     }
 }

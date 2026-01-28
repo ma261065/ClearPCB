@@ -761,48 +761,56 @@ class SchematicApp {
 
     _setupCallbacks() {
         let lastStatusUpdate = 0;
+        let lastHoverUpdate = 0;
         const STATUS_THROTTLE = 50;
+        const HOVER_THROTTLE = 30; // Throttle hover/cursor updates to reduce render calls
         
         this.viewport.onMouseMove = (world, snapped) => {
-            // Update drawing preview and crosshair
+            // Update drawing preview and crosshair (not throttled - needs real-time feedback)
             if (this.isDrawing) {
                 this._updateDrawing(snapped);
                 this._updateCrosshair(snapped);
             }
             
-            // Update component preview position during placement
+            // Update component preview position during placement (not throttled - needs real-time feedback)
             if (this.placingComponent && this.componentPreview) {
                 this._updateComponentPreview(snapped);
             }
             
-            // Update hover state and cursor (only in select mode when not panning/dragging)
-            if (!this.viewport.isPanning && !this.isDragging && this.currentTool === 'select') {
-                const hit = this.selection.hitTest(world);
-                this.selection.setHovered(hit);
+            // Throttle hover state and cursor updates to reduce expensive calculations
+            const now = performance.now();
+            if (now - lastHoverUpdate > HOVER_THROTTLE) {
+                lastHoverUpdate = now;
                 
-                // Check for anchor hover on selected shapes
-                let cursor = 'default';
-                const selectedShapes = this.selection.getSelection();
-                for (const shape of selectedShapes) {
-                    const anchorId = shape.hitTestAnchor(world, this.viewport.scale);
-                    if (anchorId) {
-                        // Find anchor cursor
-                        const anchors = shape.getAnchors();
-                        const anchor = anchors.find(a => a.id === anchorId);
-                        cursor = anchor?.cursor || 'crosshair';
-                        break;
+                // Update hover state and cursor (only in select mode when not panning/dragging)
+                if (!this.viewport.isPanning && !this.isDragging && this.currentTool === 'select') {
+                    const hit = this.selection.hitTest(world);
+                    this.selection.setHovered(hit);
+                    
+                    // Check for anchor hover on selected shapes
+                    let cursor = 'default';
+                    const selectedShapes = this.selection.getSelection();
+                    for (const shape of selectedShapes) {
+                        const anchorId = shape.hitTestAnchor(world, this.viewport.scale);
+                        if (anchorId) {
+                            // Find anchor cursor
+                            const anchors = shape.getAnchors();
+                            const anchor = anchors.find(a => a.id === anchorId);
+                            cursor = anchor?.cursor || 'crosshair';
+                            break;
+                        }
                     }
+                    
+                    // If not on anchor, check if on selected shape for move cursor
+                    if (cursor === 'default' && hit && hit.selected) {
+                        cursor = 'move';
+                    } else if (cursor === 'default' && hit) {
+                        cursor = 'pointer';
+                    }
+                    
+                    this.viewport.svg.style.cursor = cursor;
+                    this.renderShapes();
                 }
-                
-                // If not on anchor, check if on selected shape for move cursor
-                if (cursor === 'default' && hit && hit.selected) {
-                    cursor = 'move';
-                } else if (cursor === 'default' && hit) {
-                    cursor = 'pointer';
-                }
-                
-                this.viewport.svg.style.cursor = cursor;
-                this.renderShapes();
             }
             
             // Throttle status bar updates
