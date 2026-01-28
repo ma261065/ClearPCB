@@ -414,16 +414,16 @@ export const BuiltInComponents = [
                 { type: 'text', x: 0, y: 0, text: '${REF}', fontSize: 1.27, anchor: 'middle', baseline: 'middle' }
             ],
             pins: [
-                // Left side (top to bottom: 1-4)
-                { number: '1', name: '1', x: -5.08, y: -3.81, orientation: 'left', length: 2.54, type: 'passive', shape: 'line' },
-                { number: '2', name: '2', x: -5.08, y: -1.27, orientation: 'left', length: 2.54, type: 'passive', shape: 'line' },
-                { number: '3', name: '3', x: -5.08, y: 1.27, orientation: 'left', length: 2.54, type: 'passive', shape: 'line' },
-                { number: '4', name: '4', x: -5.08, y: 3.81, orientation: 'left', length: 2.54, type: 'passive', shape: 'line' },
-                // Right side (bottom to top: 5-8)
-                { number: '5', name: '5', x: 5.08, y: 3.81, orientation: 'right', length: 2.54, type: 'passive', shape: 'line' },
-                { number: '6', name: '6', x: 5.08, y: 1.27, orientation: 'right', length: 2.54, type: 'passive', shape: 'line' },
-                { number: '7', name: '7', x: 5.08, y: -1.27, orientation: 'right', length: 2.54, type: 'passive', shape: 'line' },
-                { number: '8', name: '8', x: 5.08, y: -3.81, orientation: 'right', length: 2.54, type: 'passive', shape: 'line' }
+                // Left side (top to bottom: 1-4) - orientation 'right' to draw toward body
+                { number: '1', name: '1', x: -5.08, y: -3.81, orientation: 'right', length: 2.54, type: 'passive', shape: 'line' },
+                { number: '2', name: '2', x: -5.08, y: -1.27, orientation: 'right', length: 2.54, type: 'passive', shape: 'line' },
+                { number: '3', name: '3', x: -5.08, y: 1.27, orientation: 'right', length: 2.54, type: 'passive', shape: 'line' },
+                { number: '4', name: '4', x: -5.08, y: 3.81, orientation: 'right', length: 2.54, type: 'passive', shape: 'line' },
+                // Right side (bottom to top: 5-8) - orientation 'left' to draw toward body
+                { number: '5', name: '5', x: 5.08, y: 3.81, orientation: 'left', length: 2.54, type: 'passive', shape: 'line' },
+                { number: '6', name: '6', x: 5.08, y: 1.27, orientation: 'left', length: 2.54, type: 'passive', shape: 'line' },
+                { number: '7', name: '7', x: 5.08, y: -1.27, orientation: 'left', length: 2.54, type: 'passive', shape: 'line' },
+                { number: '8', name: '8', x: 5.08, y: -3.81, orientation: 'left', length: 2.54, type: 'passive', shape: 'line' }
             ]
         },
         footprint: null
@@ -452,8 +452,8 @@ export const BuiltInComponents = [
                 { type: 'text', x: 0, y: -4, text: '${REF}', fontSize: 1.27, anchor: 'middle', baseline: 'middle' }
             ],
             pins: [
-                { number: '1', name: '1', x: -3.81, y: -1.524, orientation: 'left', length: 2.54, type: 'passive', shape: 'line' },
-                { number: '2', name: '2', x: -3.81, y: 1.524, orientation: 'left', length: 2.54, type: 'passive', shape: 'line' }
+                { number: '1', name: '1', x: -3.81, y: -1.524, orientation: 'right', length: 2.54, type: 'passive', shape: 'line' },
+                { number: '2', name: '2', x: -3.81, y: 1.524, orientation: 'right', length: 2.54, type: 'passive', shape: 'line' }
             ]
         },
         footprint: null
