@@ -135,6 +135,9 @@ class SchematicApp {
         // Start auto-save
         this.fileManager.startAutoSave(() => this._serializeDocument());
         
+        // Load and display version
+        this._loadVersion();
+        
         // Warn about unsaved changes
         window.addEventListener('beforeunload', (e) => {
             if (this.fileManager.isDirty) {
@@ -1730,6 +1733,30 @@ class SchematicApp {
                     }
                 }
             }
+        }
+    }
+    
+    /**
+     * Load and display version number and last commit date
+     */
+    async _loadVersion() {
+        try {
+            const response = await fetch('../../version.json');
+            if (response.ok) {
+                const data = await response.json();
+                const versionDisplay = document.getElementById('version-display');
+                if (versionDisplay) {
+                    let displayText = `v${data.version}`;
+                    if (data.lastUpdated) {
+                        const date = new Date(data.lastUpdated);
+                        const formatted = date.toLocaleDateString('en-US', { year: '2-digit', month: '2-digit', day: '2-digit' });
+                        displayText += ` • ${formatted}`;
+                    }
+                    versionDisplay.textContent = displayText;
+                }
+            }
+        } catch (err) {
+            console.error('Failed to load version:', err);
         }
     }
     

@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ClearPCB - Schematic Editor</title>
+    <link rel="icon" href="favicon.ico">
+    <link rel="stylesheet" href="schematic.css">
+</head>
+<body>
+    <div class="toolbar">
+        <h1>ClearPCB</h1>
+        
+        <div class="toolbar-group" style="border-left: none;">
+            <button id="newFile" title="New (Ctrl+N)">📄 New</button>
+            <button id="openFile" title="Open (Ctrl+O)">📂 Open</button>
+            <button id="saveFile" title="Save (Ctrl+S)">💾 Save</button>
+        </div>
+        
+        <div class="toolbar-group">
+            <button id="themeToggle" class="theme-toggle" title="Toggle Dark/Light Mode">🌙</button>
+        </div>
+        
+        <div class="toolbar-group">
+            <button id="undoBtn" title="Undo (Ctrl+Z)">↶</button>
+            <button id="redoBtn" title="Redo (Ctrl+Y)">↷</button>
+        </div>
+        
+        <div class="toolbar-group">
+            <span id="docTitle" style="color: var(--accent-color); font-size: 13px;">untitled.json</span>
+        </div>
+        
+        <div class="toolbar-group">
+            <label>Grid:</label>
+            <select id="gridSize">
+                <!-- Options populated by JavaScript based on units -->
+                <option value="1">1 mm</option>
+            </select>
+            <select id="gridStyle">
+                <option value="lines" selected>Lines</option>
+                <option value="dots">Dots</option>
+            </select>
+        </div>
+
+        <div class="toolbar-group">
+            <label>Units:</label>
+            <select id="units">
+                <option value="mm" selected>mm</option>
+                <option value="mil">mil</option>
+                <option value="inch">inch</option>
+            </select>
+        </div>
+
+        <div class="toolbar-group">
+            <label>
+                <input type="checkbox" id="showGrid" checked> Grid
+            </label>
+            <label>
+                <input type="checkbox" id="snapToGrid" checked> Snap
+            </label>
+        </div>
+
+        <div class="toolbar-group">
+            <button id="zoomIn" title="Zoom In">+</button>
+            <span id="zoomLevel" style="min-width: 50px; text-align: center;">100%</span>
+            <button id="zoomOut" title="Zoom Out">−</button>
+            <button id="zoomFit" title="Fit to Content">Fit</button>
+            <button id="resetView" title="Reset View">Reset</button>
+        </div>
+    </div>
+
+    <div class="main-container">
+        <div class="canvas-container" id="canvasContainer">
+            <svg class="drawing-crosshair" id="drawingCrosshair">
+                <line id="crosshairX" stroke="var(--accent-color)" stroke-width="1" stroke-dasharray="4,4"/>
+                <line id="crosshairY" stroke="var(--accent-color)" stroke-width="1" stroke-dasharray="4,4"/>
+            </svg>
+        </div>
+    </div>
+
+    <div class="status-bar">
+        <div class="status-item">
+            <span class="label">Cursor:</span>
+            <span class="value" id="cursorPos">0.00, 0.00 mm</span>
+        </div>
+        <div class="status-item">
+            <span class="label">Snap:</span>
+            <span class="value" id="gridSnap">0.00, 0.00 mm</span>
+        </div>
+        <div class="status-item">
+            <span class="label">View:</span>
+            <span class="value" id="viewportInfo">500 × 300 mm</span>
+        </div>
+    </div>
+
+    <div class="help-panel">
+        <h3>Keyboard Shortcuts</h3>
+        <div><kbd>Ctrl+N</kbd> New file</div>
+        <div><kbd>Ctrl+O</kbd> Open file</div>
+        <div><kbd>Ctrl+S</kbd> Save</div>
+        <div><kbd>Ctrl+Alt+S</kbd> Save As</div>
+        <div><kbd>Ctrl+Z</kbd> Undo</div>
+        <div><kbd>Ctrl+Y</kbd> Redo</div>
+        <hr style="border-color: #333; margin: 8px 0;">
+        <div><kbd>V</kbd> Select</div>
+        <div><kbd>L</kbd> Line</div>
+        <div><kbd>W</kbd> Wire</div>
+        <div><kbd>R</kbd> Rectangle</div>
+        <div><kbd>C</kbd> Circle</div>
+        <div><kbd>A</kbd> Arc</div>
+        <div><kbd>P</kbd> Polygon</div>
+        <div><kbd>Esc</kbd> Cancel / Select mode</div>
+        <div><kbd>Del</kbd> Delete selected</div>
+        <div><kbd>Ctrl+A</kbd> Select all</div>
+        <hr style="border-color: #333; margin: 8px 0;">
+        <div><kbd>Drag shape</kbd> Move</div>
+        <div><kbd>Drag anchor</kbd> Resize/Edit</div>
+        <div><kbd>Drag empty</kbd> Box select</div>
+        <div><kbd>Right-drag</kbd> Pan</div>
+        <div><kbd>Scroll</kbd> Zoom</div>
+        <hr style="border-color: #333; margin: 8px 0;">
+        <div id="version-display" style="font-size: 0.7em; color: #999; text-align: right; padding-top: 4px;"></div>
+    </div>
+
+    <script type="module" src="./SchematicApp.js"></script>
+</body>
+</html>
