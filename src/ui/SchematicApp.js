@@ -1737,7 +1737,7 @@ class SchematicApp {
     }
     
     /**
-     * Load and display version number and last commit date
+     * Load and display version number
      */
     async _loadVersion() {
         try {
@@ -1746,13 +1746,7 @@ class SchematicApp {
                 const data = await response.json();
                 const versionDisplay = document.getElementById('version-display');
                 if (versionDisplay) {
-                    let displayText = `v${data.version}`;
-                    if (data.lastUpdated) {
-                        const date = new Date(data.lastUpdated);
-                        const formatted = date.toLocaleDateString('en-US', { year: '2-digit', month: '2-digit', day: '2-digit' });
-                        displayText += ` • ${formatted}`;
-                    }
-                    versionDisplay.textContent = displayText;
+                    versionDisplay.textContent = `v${data.version}`;
                 }
             }
         } catch (err) {
