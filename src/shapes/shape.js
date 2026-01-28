@@ -5,6 +5,8 @@
  * Each shape manages its own SVG element.
  */
 
+import { ShapeValidator } from '../core/ShapeValidator.js';
+
 let shapeIdCounter = 0;
 
 // Minimum stroke width in screen pixels
@@ -42,15 +44,20 @@ export class Shape {
         this.id = options.id || `shape_${++shapeIdCounter}`;
         this.type = 'shape';
         
-        // Layer (for PCB: top, bottom, silkscreen, etc.)
-        this.layer = options.layer || 'top';
+        // Validate and apply common properties
+        this.layer = ShapeValidator.validateLayer(options.layer || 'top');
+        this.color = ShapeValidator.validateColor(options.color || '#00b894');
+        this.lineWidth = ShapeValidator.validateLineWidth(options.lineWidth || 0.2);
         
-        // Visual properties
-        this.color = options.color || '#00b894';
-        this.lineWidth = options.lineWidth || 0.2; // mm
+        // Fill properties
         this.fill = options.fill !== undefined ? options.fill : false;
-        this.fillColor = options.fillColor || this.color;
-        this.fillAlpha = options.fillAlpha || 0.3;
+        this.fillColor = ShapeValidator.validateColor(options.fillColor || this.color);
+        this.fillAlpha = ShapeValidator.validateNumber(options.fillAlpha || 0.3, {
+            min: 0,
+            max: 1,
+            default: 0.3,
+            name: 'fillAlpha'
+        });
         
         // State
         this.selected = false;

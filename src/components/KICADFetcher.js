@@ -44,6 +44,14 @@ export class KiCadFetcher {
      * @returns {Promise<Array>} Matching symbols
      */
     async searchSymbols(query) {
+        // Check search result cache first
+        const cacheKey = `kicad_search_${query.toLowerCase()}`;
+        const cachedResults = storageManager.get(cacheKey);
+        if (cachedResults && Array.isArray(cachedResults)) {
+            console.log(`Using cached KiCad search results for: ${query}`);
+            return cachedResults;
+        }
+        
         // Load library index if not cached
         if (!this.libraryIndex) {
             await this._loadLibraryIndex();
@@ -64,7 +72,12 @@ export class KiCadFetcher {
             }
         }
         
-        return results.slice(0, 50); // Limit results
+        const limitedResults = results.slice(0, 50); // Limit results
+        
+        // Cache the search results (with TTL of 24 hours)
+        storageManager.set(cacheKey, limitedResults, 24 * 60 * 60);
+        
+        return limitedResults;
     }
     
     /**
@@ -116,10 +129,10 @@ export class KiCadFetcher {
      * Fetch a library file from GitLab (with caching)
      */
     async _fetchLibraryFile(library) {
-        // Check storage cache first
+        // Check storage cache first (with 7-day TTL)
         const cacheKey = `kicad_lib_${library}`;
         const cached = storageManager.get(cacheKey);
-        if (cached) {
+        if (cached && typeof cached === 'string') {
             console.log(`Using cached KiCad library: ${library}`);
             return cached;
         }
@@ -152,6 +165,12 @@ export class KiCadFetcher {
                 const content = await response.text();
                 console.log(`KiCad library ${library} fetched, size: ${content.length} bytes`);
                 
+                // Validate content is a string
+                if (typeof content !== 'string') {
+                    console.warn('KiCad content is not a string, skipping cache');
+                    return null;
+                }
+                
                 // Verify it looks like a KiCad file
                 if (!content.includes('kicad_symbol_lib')) {
                     console.warn('Response does not look like a KiCad library file:', content.substring(0, 200));
@@ -159,8 +178,8 @@ export class KiCadFetcher {
                     continue;
                 }
                 
-                // Cache the result
-                storageManager.set(cacheKey, content);
+                // Cache the result with 7-day TTL
+                storageManager.set(cacheKey, content, 7 * 24 * 60 * 60);
                 console.log(`Cached KiCad library: ${library}`);
                 
                 return content;

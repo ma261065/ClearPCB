@@ -5,6 +5,8 @@
 import { getComponentLibrary } from '../components/index.js';
 import { ModalManager } from '../core/ModalManager.js';
 import { globalEventBus } from '../core/EventBus.js';
+import { getSearchManager, initSearchManager } from '../core/SearchManager.js';
+import { LazyLoader } from '../core/LazyLoader.js';
 
 export class ComponentPicker {
     constructor(options = {}) {
@@ -12,6 +14,12 @@ export class ComponentPicker {
         this.onComponentSelected = options.onComponentSelected || (() => {});
         this.onClose = options.onClose || (() => {});
         this.eventBus = options.eventBus || globalEventBus;
+        
+        // Initialize SearchManager if needed
+        if (!getSearchManager()) {
+            initSearchManager(this.library);
+        }
+        this.searchManager = getSearchManager();
         
         this.element = null;
         this.selectedComponent = null;
@@ -24,6 +32,10 @@ export class ComponentPicker {
         this.lcscResults = [];
         this.isSearching = false;
         this.searchDebounceTimer = null;
+        
+        // Lazy loading
+        this.lazyLoader = null;
+        this.componentItems = new Map();
         
         this._createDOM();
         this._populateCategories();
@@ -44,6 +56,7 @@ export class ComponentPicker {
                 </div>
                 <div class="cp-search">
                     <input type="text" class="cp-search-input" placeholder="Search components...">
+                    <button class="cp-search-clear" title="Clear search" style="display:none;">✕</button>
                 </div>
                 <div class="cp-categories">
                     <select class="cp-category-select">
@@ -67,6 +80,7 @@ export class ComponentPicker {
         
         // Get references
         this.searchInput = this.element.querySelector('.cp-search-input');
+        this.searchClearBtn = this.element.querySelector('.cp-search-clear');
         this.categorySelect = this.element.querySelector('.cp-category-select');
         this.listEl = this.element.querySelector('.cp-list');
         this.previewSvg = this.element.querySelector('.cp-preview-svg');
@@ -83,8 +97,22 @@ export class ComponentPicker {
         // Bind events
         this.searchInput.addEventListener('input', () => {
             this.searchQuery = this.searchInput.value;
+            // Show/hide clear button
+            this.searchClearBtn.style.display = this.searchQuery ? 'block' : 'none';
             if (this.searchMode === 'lcsc') {
                 this._debouncedLCSCSearch();
+            } else {
+                this._populateComponents();
+            }
+        });
+        
+        // Clear button handler
+        this.searchClearBtn.addEventListener('click', () => {
+            this.searchInput.value = '';
+            this.searchQuery = '';
+            this.searchClearBtn.style.display = 'none';
+            if (this.searchMode === 'lcsc') {
+                this._showLCSCPrompt();
             } else {
                 this._populateComponents();
             }
@@ -221,7 +249,8 @@ export class ComponentPicker {
         this._showLoading();
         
         try {
-            this.lcscResults = await this.library.searchLCSC(query);
+            // Use SearchManager for LCSC search
+            this.lcscResults = await this.searchManager.searchLCSC(query);
             
             // Check if LCSC returned an error - if so, try KiCad fallback
             if (this.lcscResults.length === 1 && this.lcscResults[0].error) {
@@ -249,13 +278,14 @@ export class ComponentPicker {
     
     async _searchKiCadFallback(query) {
         try {
-            const kicadResults = await this.library.searchKiCad(query);
+            // Use SearchManager for KiCad search
+            const kicadResults = await this.searchManager.searchKiCad(query);
             
             if (kicadResults && kicadResults.length > 0) {
                 this._populateKiCadResults(kicadResults);
             } else {
-                // Also search local library
-                const localResults = this.library.searchLocal(query);
+                // Also search local library via SearchManager
+                const localResults = this.searchManager.searchLocal(query);
                 if (localResults.length > 0) {
                     this._populateLocalFallbackResults(localResults, query);
                 } else {
@@ -369,7 +399,8 @@ export class ComponentPicker {
         this.placeBtn.textContent = 'Fetching...';
         
         try {
-            const kicadData = await this.library.kicadFetcher.fetchSymbol(result.library, result.name);
+            // Use SearchManager to fetch from KiCad
+            const kicadData = await this.searchManager.fetchFromKiCad(result.library, result.name);
             
             if (kicadData) {
                 // Create a component definition from KiCad data
@@ -514,7 +545,8 @@ export class ComponentPicker {
         this.placeBtn.textContent = 'Fetching...';
         
         try {
-            const definition = await this.library.fetchFromLCSC(result.lcscPartNumber);
+            // Use SearchManager to fetch from LCSC
+            const definition = await this.searchManager.fetchFromLCSC(result.lcscPartNumber);
             
             if (definition) {
                 this.selectedComponent = definition;
@@ -547,10 +579,17 @@ export class ComponentPicker {
     
     _populateComponents() {
         this.listEl.innerHTML = '';
+        this.componentItems.clear();
+        
+        // Cleanup previous lazy loader
+        if (this.lazyLoader) {
+            this.lazyLoader.destroy();
+        }
         
         let components;
         if (this.searchQuery) {
-            components = this.library.searchLocal(this.searchQuery);
+            // Use SearchManager for local search
+            components = this.searchManager.searchLocal(this.searchQuery);
         } else if (this.selectedCategory === 'All') {
             components = this.library.getAllDefinitions();
         } else {
@@ -565,16 +604,15 @@ export class ComponentPicker {
         // Sort alphabetically
         components.sort((a, b) => a.name.localeCompare(b.name));
         
+        // Create item elements with placeholder (no SVG yet)
         for (const comp of components) {
             const item = document.createElement('div');
             item.className = 'cp-item';
             item.setAttribute('data-name', comp.name);
             
-            // Create mini preview
-            const miniSvg = this._createMiniPreview(comp);
-            
+            // Placeholder content (light weight)
             item.innerHTML = `
-                <div class="cp-item-icon">${miniSvg}</div>
+                <div class="cp-item-icon" style="background:#333;min-width:40px;min-height:40px"></div>
                 <div class="cp-item-info">
                     <div class="cp-item-name">${comp.name}</div>
                     <div class="cp-item-desc">${comp.description || ''}</div>
@@ -590,6 +628,46 @@ export class ComponentPicker {
             });
             
             this.listEl.appendChild(item);
+            this.componentItems.set(item, comp);
+        }
+        
+        // Set up lazy loading for component previews
+        this._setupLazyLoading();
+    }
+    
+    _setupLazyLoading() {
+        // Create lazy loader for rendering component previews
+        this.lazyLoader = new LazyLoader({
+            container: this.listEl,
+            threshold: 0.1,
+            rootMargin: '50px',
+            batchSize: 5,
+            renderCallback: (element, item) => {
+                const comp = item.data;
+                if (!comp) return;
+                
+                try {
+                    const miniSvg = this._createMiniPreview(comp);
+                    const iconEl = element.querySelector('.cp-item-icon');
+                    if (iconEl) {
+                        iconEl.innerHTML = miniSvg;
+                    }
+                } catch (error) {
+                    console.warn('LazyLoader: Error rendering preview:', error);
+                }
+            },
+            unrenderCallback: (element, item) => {
+                // Optionally unrender to save memory
+                const iconEl = element.querySelector('.cp-item-icon');
+                if (iconEl) {
+                    iconEl.innerHTML = '<div style="background:#333;width:100%;height:100%"></div>';
+                }
+            }
+        });
+        
+        // Register all items for lazy loading
+        for (const [element, comp] of this.componentItems) {
+            this.lazyLoader.register(element, comp);
         }
     }
     
@@ -644,162 +722,202 @@ export class ComponentPicker {
     }
     
     _updatePreview(comp) {
-        if (!comp.symbol) {
-            this.previewSvg.innerHTML = '<div style="color:var(--text-muted);text-align:center;padding:20px">No symbol</div>';
-            this.previewInfo.innerHTML = '';
-            return;
-        }
-        
-        const symbol = comp.symbol;
-        const padding = 5;
-        const width = (symbol.width || 10) + padding * 2;
-        const height = (symbol.height || 10) + padding * 2;
-        const originX = symbol.origin?.x || width / 2;
-        const originY = symbol.origin?.y || height / 2;
-        
-        // Create preview SVG
-        let svg = `<svg viewBox="${-originX - padding} ${-originY - padding} ${width} ${height}" 
-                       style="width:100%;height:100%;max-height:150px">`;
-        
-        // Render graphics
-        svg += this._renderGraphicsToSVG(symbol.graphics, 0.25);
-        
-        // Render pins
-        if (symbol.pins) {
-            for (const pin of symbol.pins) {
-                svg += this._renderPinToSVG(pin);
+        try {
+            if (!comp || !comp.symbol) {
+                this.previewSvg.innerHTML = '<div style="color:var(--text-muted);text-align:center;padding:20px">No symbol</div>';
+                this.previewInfo.innerHTML = '';
+                return;
             }
+            
+            const symbol = comp.symbol;
+            const padding = 5;
+            const width = (symbol.width || 10) + padding * 2;
+            const height = (symbol.height || 10) + padding * 2;
+            const originX = symbol.origin?.x || width / 2;
+            const originY = symbol.origin?.y || height / 2;
+            
+            // Validate numeric values
+            if (!Number.isFinite(originX) || !Number.isFinite(originY) || 
+                !Number.isFinite(width) || !Number.isFinite(height)) {
+                throw new Error('Invalid symbol dimensions');
+            }
+            
+            // Create preview SVG
+            let svg = `<svg viewBox="${-originX - padding} ${-originY - padding} ${width} ${height}" 
+                           style="width:100%;height:100%;max-height:150px">`;
+            
+            // Render graphics
+            svg += this._renderGraphicsToSVG(symbol.graphics, 0.25);
+            
+            // Render pins
+            if (symbol.pins && Array.isArray(symbol.pins)) {
+                for (const pin of symbol.pins) {
+                    svg += this._renderPinToSVG(pin);
+                }
+            }
+            
+            svg += '</svg>';
+            this.previewSvg.innerHTML = svg;
+            
+            // Update info
+            let info = `<strong>${comp.name || 'Component'}</strong>`;
+            if (comp.description) {
+                info += `<br><span style="color:var(--text-secondary)">${comp.description}</span>`;
+            }
+            if (symbol.pins) {
+                info += `<br><span style="color:var(--text-muted)">${symbol.pins.length} pins</span>`;
+            }
+            if (comp.category) {
+                info += `<br><span style="color:var(--text-muted)">${comp.category}</span>`;
+            }
+            this.previewInfo.innerHTML = info;
+        } catch (error) {
+            console.error('Error updating preview:', error);
+            this.previewSvg.innerHTML = '<div style="color:var(--accent-color);text-align:center;padding:20px">Preview error</div>';
+            this.previewInfo.innerHTML = `<span style="color:var(--accent-color);font-size:12px">${error.message}</span>`;
         }
-        
-        svg += '</svg>';
-        this.previewSvg.innerHTML = svg;
-        
-        // Update info
-        let info = `<strong>${comp.name}</strong>`;
-        if (comp.description) {
-            info += `<br><span style="color:var(--text-secondary)">${comp.description}</span>`;
-        }
-        if (symbol.pins) {
-            info += `<br><span style="color:var(--text-muted)">${symbol.pins.length} pins</span>`;
-        }
-        if (comp.category) {
-            info += `<br><span style="color:var(--text-muted)">${comp.category}</span>`;
-        }
-        this.previewInfo.innerHTML = info;
     }
     
     _renderGraphicsToSVG(graphics, defaultStrokeWidth = 0.254) {
-        if (!graphics) return '';
-        
-        let svg = '';
-        for (const g of graphics) {
-            // Use theme colors - replace black with CSS variable
-            let stroke = g.stroke || '#000000';
-            if (stroke === '#000000' || stroke === '#000' || stroke === 'black') {
-                stroke = 'var(--schematic-component, #00cc66)';
-            }
-            const strokeWidth = g.strokeWidth || defaultStrokeWidth;
-            let fill = g.fill || 'none';
-            if (fill === '#000000' || fill === '#000' || fill === 'black') {
-                fill = 'var(--schematic-component, #00cc66)';
-            }
+        try {
+            if (!graphics || !Array.isArray(graphics)) return '';
             
-            switch (g.type) {
-                case 'line':
-                    svg += `<line x1="${g.x1}" y1="${g.y1}" x2="${g.x2}" y2="${g.y2}" 
-                                  stroke="${stroke}" stroke-width="${strokeWidth}"/>`;
-                    break;
-                    
-                case 'rect':
-                    svg += `<rect x="${g.x}" y="${g.y}" width="${g.width}" height="${g.height}"
-                                  stroke="${stroke}" stroke-width="${strokeWidth}" fill="${fill}"
-                                  ${g.rx ? `rx="${g.rx}"` : ''}/>`;
-                    break;
-                    
-                case 'circle':
-                    svg += `<circle cx="${g.cx}" cy="${g.cy}" r="${g.r}"
-                                    stroke="${stroke}" stroke-width="${strokeWidth}" fill="${fill}"/>`;
-                    break;
-                    
-                case 'ellipse':
-                    svg += `<ellipse cx="${g.cx}" cy="${g.cy}" rx="${g.rx}" ry="${g.ry}"
-                                     stroke="${stroke}" stroke-width="${strokeWidth}" fill="${fill}"/>`;
-                    break;
-                    
-                case 'polyline':
-                    const polylinePoints = g.points.map(p => `${p[0]},${p[1]}`).join(' ');
-                    svg += `<polyline points="${polylinePoints}"
-                                      stroke="${stroke}" stroke-width="${strokeWidth}" fill="${fill}"/>`;
-                    break;
-                    
-                case 'polygon':
-                    const polygonPoints = g.points.map(p => `${p[0]},${p[1]}`).join(' ');
-                    svg += `<polygon points="${polygonPoints}"
-                                     stroke="${stroke}" stroke-width="${strokeWidth}" fill="${fill}"/>`;
-                    break;
-                    
-                case 'path':
-                    svg += `<path d="${g.d}" stroke="${stroke}" stroke-width="${strokeWidth}" fill="${fill}"/>`;
-                    break;
-                    
-                case 'text':
-                    // Skip text in mini previews, show in full preview
-                    if (defaultStrokeWidth > 0.2) {
-                        const anchor = g.anchor || 'start';
-                        const baseline = g.baseline || 'middle';
-                        let text = g.text || '';
-                        text = text.replace('${REF}', 'U1').replace('${VALUE}', '').replace('${NAME}', '');
-                        let textColor = g.color || '#000';
-                        if (textColor === '#000000' || textColor === '#000' || textColor === 'black') {
-                            textColor = 'var(--schematic-text, #cccccc)';
-                        }
-                        if (text) {
-                            svg += `<text x="${g.x}" y="${g.y}" font-size="${g.fontSize || 1.27}" 
-                                          font-family="sans-serif" fill="${textColor}"
-                                          text-anchor="${anchor}" dominant-baseline="${baseline}">${text}</text>`;
-                        }
+            let svg = '';
+            for (const g of graphics) {
+                try {
+                    // Use theme colors - replace black with CSS variable
+                    let stroke = g.stroke || '#000000';
+                    if (stroke === '#000000' || stroke === '#000' || stroke === 'black') {
+                        stroke = 'var(--schematic-component, #00cc66)';
                     }
-                    break;
+                    const strokeWidth = g.strokeWidth || defaultStrokeWidth;
+                    let fill = g.fill || 'none';
+                    if (fill === '#000000' || fill === '#000' || fill === 'black') {
+                        fill = 'var(--schematic-component, #00cc66)';
+                    }
+                    
+                    switch (g.type) {
+                        case 'line':
+                            svg += `<line x1="${g.x1}" y1="${g.y1}" x2="${g.x2}" y2="${g.y2}" 
+                                          stroke="${stroke}" stroke-width="${strokeWidth}"/>`;
+                            break;
+                            
+                        case 'rect':
+                            svg += `<rect x="${g.x}" y="${g.y}" width="${g.width}" height="${g.height}"
+                                          stroke="${stroke}" stroke-width="${strokeWidth}" fill="${fill}"
+                                          ${g.rx ? `rx="${g.rx}"` : ''}/>`;
+                            break;
+                            
+                        case 'circle':
+                            svg += `<circle cx="${g.cx}" cy="${g.cy}" r="${g.r}"
+                                            stroke="${stroke}" stroke-width="${strokeWidth}" fill="${fill}"/>`;
+                            break;
+                            
+                        case 'ellipse':
+                            svg += `<ellipse cx="${g.cx}" cy="${g.cy}" rx="${g.rx}" ry="${g.ry}"
+                                             stroke="${stroke}" stroke-width="${strokeWidth}" fill="${fill}"/>`;
+                            break;
+                            
+                        case 'polyline':
+                            if (g.points && Array.isArray(g.points)) {
+                                const polylinePoints = g.points.map(p => `${p[0]},${p[1]}`).join(' ');
+                                svg += `<polyline points="${polylinePoints}"
+                                                  stroke="${stroke}" stroke-width="${strokeWidth}" fill="${fill}"/>`;
+                            }
+                            break;
+                            
+                        case 'polygon':
+                            if (g.points && Array.isArray(g.points)) {
+                                const polygonPoints = g.points.map(p => `${p[0]},${p[1]}`).join(' ');
+                                svg += `<polygon points="${polygonPoints}"
+                                                 stroke="${stroke}" stroke-width="${strokeWidth}" fill="${fill}"/>`;
+                            }
+                            break;
+                            
+                        case 'path':
+                            if (g.d) {
+                                svg += `<path d="${g.d}" stroke="${stroke}" stroke-width="${strokeWidth}" fill="${fill}"/>`;
+                            }
+                            break;
+                            
+                        case 'text':
+                            // Skip text in mini previews, show in full preview
+                            if (defaultStrokeWidth > 0.2 && g.text) {
+                                const anchor = g.anchor || 'start';
+                                const baseline = g.baseline || 'middle';
+                                let text = g.text.replace('${REF}', 'U1').replace('${VALUE}', '').replace('${NAME}', '');
+                                let textColor = g.color || '#000';
+                                if (textColor === '#000000' || textColor === '#000' || textColor === 'black') {
+                                    textColor = 'var(--schematic-text, #cccccc)';
+                                }
+                                svg += `<text x="${g.x}" y="${g.y}" font-size="${g.fontSize || 1.27}" 
+                                              font-family="sans-serif" fill="${textColor}"
+                                              text-anchor="${anchor}" dominant-baseline="${baseline}">${text}</text>`;
+                            }
+                            break;
+                    }
+                } catch (itemError) {
+                    console.warn('Error rendering graphic item:', itemError, g);
+                    // Skip this item and continue with others
+                }
             }
+            return svg;
+        } catch (error) {
+            console.error('Error rendering graphics:', error);
+            return '';
         }
-        return svg;
     }
     
     _renderPinToSVG(pin) {
-        const length = pin.length || 2.54;
-        const strokeWidth = 0.2;
-        let svg = '';
-        
-        // Calculate pin line endpoints
-        let x1 = pin.x, y1 = pin.y, x2, y2;
-        
-        switch (pin.orientation) {
-            case 'right':
-                x2 = pin.x + length; y2 = pin.y;
-                break;
-            case 'left':
-                x2 = pin.x - length; y2 = pin.y;
-                break;
-            case 'up':
-                x2 = pin.x; y2 = pin.y - length;
-                break;
-            case 'down':
-                x2 = pin.x; y2 = pin.y + length;
-                break;
-            default:
-                x2 = pin.x + length; y2 = pin.y;
+        try {
+            if (!pin || typeof pin.x !== 'number' || typeof pin.y !== 'number') {
+                return '';
+            }
+            
+            const length = pin.length || 2.54;
+            const strokeWidth = 0.2;
+            let svg = '';
+            
+            // Calculate pin line endpoints
+            let x1 = pin.x, y1 = pin.y, x2, y2;
+            
+            switch (pin.orientation) {
+                case 'right':
+                    x2 = pin.x + length; y2 = pin.y;
+                    break;
+                case 'left':
+                    x2 = pin.x - length; y2 = pin.y;
+                    break;
+                case 'up':
+                    x2 = pin.x; y2 = pin.y - length;
+                    break;
+                case 'down':
+                    x2 = pin.x; y2 = pin.y + length;
+                    break;
+                default:
+                    x2 = pin.x + length; y2 = pin.y;
+            }
+            
+            // Validate coordinates
+            if (!Number.isFinite(x1) || !Number.isFinite(y1) || 
+                !Number.isFinite(x2) || !Number.isFinite(y2)) {
+                return '';
+            }
+            
+            // Pin line
+            if (length > 0) {
+                svg += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" 
+                              stroke="var(--schematic-component, #00cc66)" stroke-width="${strokeWidth}"/>`;
+            }
+            
+            // Pin endpoint
+            svg += `<circle cx="${x2}" cy="${y2}" r="0.4" fill="var(--schematic-pin, #e94560)" stroke="none"/>`;
+            
+            return svg;
+        } catch (error) {
+            console.warn('Error rendering pin:', error, pin);
+            return '';
         }
-        
-        // Pin line
-        if (length > 0) {
-            svg += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" 
-                          stroke="var(--schematic-component, #00cc66)" stroke-width="${strokeWidth}"/>`;
-        }
-        
-        // Pin endpoint
-        svg += `<circle cx="${x2}" cy="${y2}" r="0.4" fill="var(--schematic-pin, #e94560)" stroke="none"/>`;
-        
-        return svg;
     }
     
     toggle() {
@@ -821,6 +939,11 @@ export class ComponentPicker {
     close() {
         if (this.isOpen) {
             this.toggle();
+        }
+        // Cleanup lazy loader to save memory
+        if (this.lazyLoader) {
+            this.lazyLoader.destroy();
+            this.lazyLoader = null;
         }
     }
     
@@ -846,6 +969,21 @@ export class ComponentPicker {
         });
         this.previewSvg.innerHTML = '';
         this.previewInfo.innerHTML = '';
+    }
+    
+    /**
+     * Cleanup and destroy the component picker
+     */
+    destroy() {
+        this.close();
+        if (this.lazyLoader) {
+            this.lazyLoader.destroy();
+            this.lazyLoader = null;
+        }
+        this.componentItems.clear();
+        if (this.element && this.element.parentElement) {
+            this.element.parentElement.removeChild(this.element);
+        }
     }
 }
 

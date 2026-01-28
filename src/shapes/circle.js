@@ -3,15 +3,17 @@
  */
 
 import { Shape } from './shape.js';
+import { ShapeValidator } from '../core/ShapeValidator.js';
 
 export class Circle extends Shape {
     constructor(options = {}) {
         super(options);
         this.type = 'circle';
         
-        this.x = options.x || 0;
-        this.y = options.y || 0;
-        this.radius = options.radius || 5;
+        // Validate coordinates and radius
+        this.x = ShapeValidator.validateCoordinate(options.x || 0, { name: 'x' });
+        this.y = ShapeValidator.validateCoordinate(options.y || 0, { name: 'y' });
+        this.radius = ShapeValidator.validateRadius(options.radius || 5);
     }
     
     _calculateBounds() {

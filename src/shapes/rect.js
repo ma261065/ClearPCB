@@ -3,17 +3,19 @@
  */
 
 import { Shape } from './shape.js';
+import { ShapeValidator } from '../core/ShapeValidator.js';
 
 export class Rect extends Shape {
     constructor(options = {}) {
         super(options);
         this.type = 'rect';
         
-        this.x = options.x || 0;
-        this.y = options.y || 0;
-        this.width = options.width || 10;
-        this.height = options.height || 10;
-        this.cornerRadius = options.cornerRadius || 0;
+        // Validate coordinates and dimensions
+        this.x = ShapeValidator.validateCoordinate(options.x || 0, { name: 'x' });
+        this.y = ShapeValidator.validateCoordinate(options.y || 0, { name: 'y' });
+        this.width = ShapeValidator.validateNumber(options.width || 10, { min: 0, name: 'width' });
+        this.height = ShapeValidator.validateNumber(options.height || 10, { min: 0, name: 'height' });
+        this.cornerRadius = ShapeValidator.validateNumber(options.cornerRadius || 0, { min: 0, name: 'cornerRadius' });
     }
     
     _calculateBounds() {

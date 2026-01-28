@@ -3,16 +3,18 @@
  */
 
 import { Shape } from './shape.js';
+import { ShapeValidator } from '../core/ShapeValidator.js';
 
 export class Line extends Shape {
     constructor(options = {}) {
         super(options);
         this.type = 'line';
         
-        this.x1 = options.x1 || 0;
-        this.y1 = options.y1 || 0;
-        this.x2 = options.x2 || 0;
-        this.y2 = options.y2 || 0;
+        // Validate coordinates
+        this.x1 = ShapeValidator.validateCoordinate(options.x1 || 0, { name: 'x1' });
+        this.y1 = ShapeValidator.validateCoordinate(options.y1 || 0, { name: 'y1' });
+        this.x2 = ShapeValidator.validateCoordinate(options.x2 || 0, { name: 'x2' });
+        this.y2 = ShapeValidator.validateCoordinate(options.y2 || 0, { name: 'y2' });
     }
     
     _calculateBounds() {

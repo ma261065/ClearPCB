@@ -310,9 +310,9 @@ body {
 }
 
 .tool-btn.active {
-    background: var(--accent-color);
+    background: #4a7ba7;
     color: #fff;
-    box-shadow: 0 0 0 2px var(--accent-color), inset 0 1px 0 rgba(255,255,255,0.2);
+    box-shadow: 0 0 0 2px #4a7ba7, inset 0 1px 0 rgba(255,255,255,0.2);
 }
 
 .tool-icon {
@@ -401,7 +401,14 @@ body {
 }
 
 .component-picker.collapsed {
-    width: 40px;
+    width: 0;
+    border: none;
+    padding: 0;
+    min-width: 0;
+}
+
+.component-picker.collapsed .cp-header {
+    display: none;
 }
 
 .component-picker.collapsed .cp-body {
@@ -558,11 +565,15 @@ body {
 
 .cp-search {
     padding: 8px;
+    position: relative;
+    display: flex;
+    align-items: center;
 }
 
 .cp-search-input {
-    width: 100%;
-    padding: 6px 10px;
+    flex: 1;
+    padding: 6px 10px 6px 10px;
+    padding-right: 28px;
     background: var(--bg-secondary);
     border: 1px solid var(--border-color);
     border-radius: 4px;
@@ -573,6 +584,23 @@ body {
 .cp-search-input:focus {
     outline: none;
     border-color: var(--accent-color);
+}
+
+.cp-search-clear {
+    position: absolute;
+    right: 12px;
+    padding: 2px 6px;
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: bold;
+    transition: all 0.15s;
+}
+
+.cp-search-clear:hover {
+    color: var(--text-primary);
 }
 
 .cp-categories {
