@@ -13,7 +13,7 @@ export class FileManager {
         
         // Auto-save key for localStorage
         this.autoSaveKey = 'clearpcb_autosave';
-        this.autoSaveInterval = 30000; // 30 seconds
+        this.autoSaveInterval = 10000; // 10 seconds
         this.autoSaveTimer = null;
         
         // Callbacks

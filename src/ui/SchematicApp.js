@@ -1716,14 +1716,18 @@ class SchematicApp {
     _checkAutoSave() {
         if (this.fileManager.hasAutoSave()) {
             const saved = this.fileManager.loadAutoSave();
-            if (saved && saved.data && saved.data.shapes && saved.data.shapes.length > 0) {
-                const time = new Date(saved.timestamp).toLocaleString();
-                if (confirm(`Found auto-saved content from ${time}.\n\nRecover it?`)) {
-                    this._loadDocument(saved.data);
-                    this.fileManager.setDirty(true);
-                    console.log('Recovered auto-saved content');
-                } else {
-                    this.fileManager.clearAutoSave();
+            if (saved && saved.data) {
+                const hasContent = (saved.data.shapes && saved.data.shapes.length > 0) ||
+                                   (saved.data.components && saved.data.components.length > 0);
+                if (hasContent) {
+                    const time = new Date(saved.timestamp).toLocaleString();
+                    if (confirm(`Found auto-saved content from ${time}.\n\nRecover it?`)) {
+                        this._loadDocument(saved.data);
+                        this.fileManager.setDirty(true);
+                        console.log('Recovered auto-saved content');
+                    } else {
+                        this.fileManager.clearAutoSave();
+                    }
                 }
             }
         }
