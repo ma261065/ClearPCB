@@ -19,6 +19,13 @@ export class SelectionManager {
         // Hit test tolerance in world units
         this.tolerance = options.tolerance || 0.5;
         
+        // Cache for hitTest results (point-based)
+        this.hitTestCache = {
+            lastPoint: null,
+            lastResult: null,
+            lastAllResults: null
+        };
+        
         // Callbacks
         this.onSelectionChanged = options.onSelectionChanged || null;
         
@@ -26,10 +33,20 @@ export class SelectionManager {
     }
     
     /**
+     * Invalidate hitTest cache when shapes change
+     */
+    _invalidateHitTestCache() {
+        this.hitTestCache.lastPoint = null;
+        this.hitTestCache.lastResult = null;
+        this.hitTestCache.lastAllResults = null;
+    }
+    
+    /**
      * Set the shapes array to select from
      */
     setShapes(shapes) {
         this.shapes = shapes;
+        this._invalidateHitTestCache();
     }
     
     /**
@@ -39,6 +56,12 @@ export class SelectionManager {
      * @returns {Shape|Shape[]|null}
      */
     hitTest(point, all = false) {
+        // Check cache - if same point was tested recently, return cached result
+        const cacheKey = `${point.x},${point.y}`;
+        if (this.hitTestCache.lastPoint === cacheKey) {
+            return all ? this.hitTestCache.lastAllResults : this.hitTestCache.lastResult;
+        }
+        
         const hits = [];
         
         // Test in reverse order (topmost first)
@@ -49,11 +72,19 @@ export class SelectionManager {
             
             if (shape.hitTest(point, this.tolerance)) {
                 if (!all) {
+                    // Cache single result
+                    this.hitTestCache.lastPoint = cacheKey;
+                    this.hitTestCache.lastResult = shape;
                     return shape;
                 }
                 hits.push(shape);
             }
         }
+        
+        // Cache all results
+        this.hitTestCache.lastPoint = cacheKey;
+        this.hitTestCache.lastAllResults = hits;
+        this.hitTestCache.lastResult = null;
         
         return all ? hits : null;
     }

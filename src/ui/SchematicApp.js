@@ -257,6 +257,7 @@ class SchematicApp {
         shape.render(this.viewport.scale);
         this.viewport.addContent(shape.element);
         this._updateSelectableItems();
+        this.selection._invalidateHitTestCache();  // Invalidate cache when shapes change
         this.fileManager.setDirty(true);
         return shape;
     }
@@ -294,6 +295,7 @@ class SchematicApp {
                 shape.anchorsGroup.parentNode.removeChild(shape.anchorsGroup);
             }
             this.selection.deselect(shape);
+            this.selection._invalidateHitTestCache();  // Invalidate cache when shapes change
             this._updateSelectableItems();
             this.fileManager.setDirty(true);
         }
