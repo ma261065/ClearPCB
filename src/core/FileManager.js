@@ -108,11 +108,18 @@ export class FileManager {
      * Save to an existing file handle
      */
     async saveToHandle(data, handle) {
-        const writable = await handle.createWritable();
-        const json = JSON.stringify(data, null, 2);
-        await writable.write(json);
-        await writable.close();
-        this.setDirty(false);
+        try {
+            const writable = await handle.createWritable();
+            const json = JSON.stringify(data, null, 2);
+            await writable.write(json);
+            await writable.close();
+            this.setDirty(false);
+            return { success: true, fileName: handle.name };
+        } catch (err) {
+            console.error('Save failed:', err);
+            return { success: false, error: err.message };
+        }
+    }
     }
     
     /**
