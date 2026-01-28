@@ -778,14 +778,14 @@ class SchematicApp {
             }
             
             // Throttle hover state and cursor updates to reduce expensive calculations
-            const now = performance.now();
+            let now = performance.now();
             if (now - lastHoverUpdate > HOVER_THROTTLE) {
                 lastHoverUpdate = now;
                 
                 // Update hover state and cursor (only in select mode when not panning/dragging)
                 if (!this.viewport.isPanning && !this.isDragging && this.currentTool === 'select') {
                     const hit = this.selection.hitTest(world);
-                    this.selection.setHovered(hit);
+                    const hoveredChanged = this.selection.setHovered(hit);  // Only returns true if changed
                     
                     // Check for anchor hover on selected shapes
                     let cursor = 'default';
@@ -809,12 +809,16 @@ class SchematicApp {
                     }
                     
                     this.viewport.svg.style.cursor = cursor;
-                    this.renderShapes();
+                    
+                    // Only re-render if hover state actually changed (avoids redundant renders)
+                    if (hoveredChanged) {
+                        this.renderShapes();
+                    }
                 }
             }
             
             // Throttle status bar updates
-            const now = performance.now();
+            now = performance.now();
             if (now - lastStatusUpdate > STATUS_THROTTLE) {
                 lastStatusUpdate = now;
                 const v = this.viewport;

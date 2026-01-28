@@ -239,7 +239,7 @@ export class SelectionManager {
     setHovered(shape) {
         const newId = shape ? shape.id : null;
         
-        if (this.hovered === newId) return;
+        if (this.hovered === newId) return false;  // No change
         
         // Clear old hover
         if (this.hovered) {
@@ -256,6 +256,8 @@ export class SelectionManager {
             shape.hovered = true;
             shape.invalidate();
         }
+        
+        return true;  // Changed
     }
     
     /**
