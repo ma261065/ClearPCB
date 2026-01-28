@@ -120,7 +120,6 @@ export class FileManager {
             return { success: false, error: err.message };
         }
     }
-    }
     
     /**
      * Save using download (fallback for all browsers)
