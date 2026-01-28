@@ -7,6 +7,8 @@
  * 3D Models: https://gitlab.com/kicad/libraries/kicad-packages3D
  */
 
+import { storageManager } from '../core/StorageManager.js';
+
 export class KiCadFetcher {
     constructor() {
         // GitLab raw file base URLs
@@ -114,16 +116,12 @@ export class KiCadFetcher {
      * Fetch a library file from GitLab (with caching)
      */
     async _fetchLibraryFile(library) {
-        // Check localStorage cache first
+        // Check storage cache first
         const cacheKey = `kicad_lib_${library}`;
-        const cached = localStorage.getItem(cacheKey);
+        const cached = storageManager.get(cacheKey);
         if (cached) {
-            const parsed = JSON.parse(cached);
-            // Cache for 24 hours
-            if (Date.now() - parsed.timestamp < 24 * 60 * 60 * 1000) {
-                console.log(`Using cached KiCad library: ${library}`);
-                return parsed.content;
-            }
+            console.log(`Using cached KiCad library: ${library}`);
+            return cached;
         }
         
         const targetUrl = `${this.symbolsBase}/${library}.kicad_sym`;
@@ -162,16 +160,8 @@ export class KiCadFetcher {
                 }
                 
                 // Cache the result
-                try {
-                    localStorage.setItem(cacheKey, JSON.stringify({
-                        content: content,
-                        timestamp: Date.now()
-                    }));
-                    console.log(`Cached KiCad library: ${library}`);
-                } catch (e) {
-                    // localStorage might be full, ignore
-                    console.warn('Could not cache library:', e.message);
-                }
+                storageManager.set(cacheKey, content);
+                console.log(`Cached KiCad library: ${library}`);
                 
                 return content;
                 

@@ -4,12 +4,14 @@
 
 import { getComponentLibrary } from '../components/index.js';
 import { ModalManager } from '../core/ModalManager.js';
+import { globalEventBus } from '../core/EventBus.js';
 
 export class ComponentPicker {
     constructor(options = {}) {
         this.library = getComponentLibrary();
         this.onComponentSelected = options.onComponentSelected || (() => {});
         this.onClose = options.onClose || (() => {});
+        this.eventBus = options.eventBus || globalEventBus;
         
         this.element = null;
         this.selectedComponent = null;
@@ -97,7 +99,7 @@ export class ComponentPicker {
         
         this.placeBtn.addEventListener('click', () => {
             if (this.selectedComponent) {
-                this.onComponentSelected(this.selectedComponent);
+                this._selectComponent(this.selectedComponent);
             }
         });
         
@@ -109,6 +111,35 @@ export class ComponentPicker {
                 this._setSearchMode(btn.dataset.mode);
             });
         });
+    }
+    
+    /**
+     * Internal method to handle component selection.
+     * Emits EventBus event and calls callback.
+     * Wraps in try-catch for error resilience.
+     */
+    _selectComponent(component) {
+        try {
+            if (!component) {
+                throw new Error('Component is null or undefined');
+            }
+            
+            // Validate component has required fields
+            if (typeof component !== 'object') {
+                throw new Error(`Invalid component type: ${typeof component}`);
+            }
+            
+            // Emit EventBus event (preferred)
+            this.eventBus.emit('component:selected', component);
+            
+            // Also call callback if present (for backward compatibility)
+            if (this.onComponentSelected) {
+                this.onComponentSelected(component);
+            }
+        } catch (error) {
+            console.error('Error selecting component:', error);
+            this.previewInfo.innerHTML = `<div style="color:var(--accent-color)">Error: ${error.message}</div>`;
+        }
     }
     
     _setSearchMode(mode) {
@@ -301,8 +332,7 @@ export class ComponentPicker {
             
             item.addEventListener('click', () => this._selectComponent(comp, item));
             item.addEventListener('dblclick', () => {
-                this._selectComponent(comp, item);
-                this.onComponentSelected(comp);
+                this._selectComponent(comp);
             });
             
             this.listEl.appendChild(item);
@@ -353,7 +383,7 @@ export class ComponentPicker {
                 
                 this.library.addDefinition(definition, 'KiCad');
                 this.selectedComponent = definition;
-                this.onComponentSelected(definition);
+                this._selectComponent(definition);
                 
                 if (definition.symbol) {
                     this._updatePreview(definition);
@@ -488,7 +518,7 @@ export class ComponentPicker {
             
             if (definition) {
                 this.selectedComponent = definition;
-                this.onComponentSelected(definition);
+                this._selectComponent(definition);
                 
                 if (definition.symbol) {
                     this._updatePreview(definition);
@@ -556,8 +586,7 @@ export class ComponentPicker {
             });
             
             item.addEventListener('dblclick', () => {
-                this._selectComponent(comp, item);
-                this.onComponentSelected(comp);
+                this._selectComponent(comp);
             });
             
             this.listEl.appendChild(item);
@@ -566,10 +595,12 @@ export class ComponentPicker {
     
     _selectComponent(comp, itemEl) {
         // Update selection state
-        this.listEl.querySelectorAll('.cp-item').forEach(el => {
-            el.classList.remove('selected');
-        });
-        itemEl.classList.add('selected');
+        if (itemEl) {
+            this.listEl.querySelectorAll('.cp-item').forEach(el => {
+                el.classList.remove('selected');
+            });
+            itemEl.classList.add('selected');
+        }
         
         this.selectedComponent = comp;
         this.selectedLCSCResult = null;  // Clear any LCSC selection
@@ -579,7 +610,11 @@ export class ComponentPicker {
         // Reset button handler for local components
         this.placeBtn.onclick = () => {
             if (this.selectedComponent) {
-                this.onComponentSelected(this.selectedComponent);
+                // Emit event to place the selected component
+                this.eventBus.emit('component:selected', this.selectedComponent);
+                if (this.onComponentSelected) {
+                    this.onComponentSelected(this.selectedComponent);
+                }
             }
         };
         

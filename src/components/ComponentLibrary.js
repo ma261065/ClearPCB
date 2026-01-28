@@ -17,6 +17,7 @@ import { Component } from './Component.js';
 import { BuiltInComponents } from './BuiltInComponents.js';
 import { LCSCFetcher } from './LCSCFetcher.js';
 import { KiCadFetcher } from './KICADFetcher.js';
+import { storageManager } from '../core/StorageManager.js';
 
 export class ComponentLibrary {
     constructor() {
@@ -53,9 +54,8 @@ export class ComponentLibrary {
      */
     _loadUserComponents() {
         try {
-            const stored = localStorage.getItem('clearpcb_user_components');
-            if (stored) {
-                const components = JSON.parse(stored);
+            const components = storageManager.get('clearpcb_user_components');
+            if (components && Array.isArray(components)) {
                 for (const def of components) {
                     this.addDefinition(def, 'User');
                 }
@@ -76,7 +76,7 @@ export class ComponentLibrary {
                     userComponents.push(def);
                 }
             }
-            localStorage.setItem('clearpcb_user_components', JSON.stringify(userComponents));
+            storageManager.set('clearpcb_user_components', userComponents);
         } catch (e) {
             console.warn('Failed to save user components:', e);
         }

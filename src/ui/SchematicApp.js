@@ -7,6 +7,7 @@ import { EventBus, Events, globalEventBus } from '../core/EventBus.js';
 import { CommandHistory, AddShapeCommand, DeleteShapesCommand, MoveShapesCommand, ModifyShapeCommand } from '../core/CommandHistory.js';
 import { SelectionManager } from '../core/SelectionManager.js';
 import { FileManager } from '../core/FileManager.js';
+import { storageManager } from '../core/StorageManager.js';
 import { Toolbox } from './Toolbox.js';
 import { ComponentPicker } from '../components/ComponentPicker.js';
 import { Line, Circle, Rect, Arc, Polygon, updateIdCounter } from '../shapes/index.js';
@@ -98,7 +99,8 @@ class SchematicApp {
         // Create toolbox
         this.toolbox = new Toolbox({
             onToolSelected: (tool) => this._onToolSelected(tool),
-            onOptionsChanged: (opts) => this._onOptionsChanged(opts)
+            onOptionsChanged: (opts) => this._onOptionsChanged(opts),
+            eventBus: this.eventBus
         });
         this.toolbox.appendTo(this.container);
         
@@ -106,7 +108,8 @@ class SchematicApp {
         this.componentLibrary = getComponentLibrary();
         this.componentPicker = new ComponentPicker({
             onComponentSelected: (def) => this._onComponentDefinitionSelected(def),
-            onClose: () => this._onComponentPickerClosed()
+            onClose: () => this._onComponentPickerClosed(),
+            eventBus: this.eventBus
         });
         this.componentPicker.appendTo(this.container);
         
@@ -117,6 +120,7 @@ class SchematicApp {
         this.componentMirror = false;  // Current mirror state
         
         this._setupCallbacks();
+        this._setupEventBusListeners();
         this._bindUIControls();
         this._bindMouseEvents();
         this._bindKeyboardShortcuts();
@@ -169,6 +173,21 @@ class SchematicApp {
             this.selection.clearSelection();
             this.renderShapes(true);
         }
+    }
+
+    /**
+     * Setup EventBus listeners for cross-module communication
+     */
+    _setupEventBusListeners() {
+        // Listen for tool selection events
+        this.eventBus.on('tool:selected', (toolId) => {
+            this._onToolSelected(toolId);
+        });
+        
+        // Listen for component selection events
+        this.eventBus.on('component:selected', (def) => {
+            this._onComponentDefinitionSelected(def);
+        });
     }
 
     // ==================== Tool Handling ====================
@@ -1175,7 +1194,7 @@ class SchematicApp {
         const newTheme = currentTheme === 'light' ? 'dark' : 'light';
         
         html.setAttribute('data-theme', newTheme);
-        localStorage.setItem('clearpcb-theme', newTheme);
+        storageManager.set('clearpcb-theme', newTheme);
         
         // Update toggle button icon
         const themeToggle = document.getElementById('themeToggle');
@@ -1194,7 +1213,7 @@ class SchematicApp {
      * Load saved theme preference
      */
     _loadTheme() {
-        const savedTheme = localStorage.getItem('clearpcb-theme') || 'dark';
+        const savedTheme = storageManager.get('clearpcb-theme') || 'dark';
         const html = document.documentElement;
         
         if (savedTheme === 'light') {

@@ -2,10 +2,13 @@
  * Toolbox - Floating tool palette for schematic editor
  */
 
+import { globalEventBus } from '../core/EventBus.js';
+
 export class Toolbox {
     constructor(options = {}) {
         this.onToolSelected = options.onToolSelected || null;
         this.onOptionsChanged = options.onOptionsChanged || null;
+        this.eventBus = options.eventBus || globalEventBus;
         this.currentTool = 'select';
         
         this.tools = [
@@ -115,7 +118,7 @@ export class Toolbox {
     /**
      * Select a tool and update UI.
      * options: { silent: boolean, force: boolean }
-     * - silent: do not call onToolSelected callback
+     * - silent: do not call onToolSelected callback or emit event
      * - force: update UI even if toolId equals currentTool
      */
     selectTool(toolId, options = {}) {
@@ -126,8 +129,14 @@ export class Toolbox {
         this._updateSelection();
         this._updateOptions();
 
-        if (!silent && this.onToolSelected) {
-            this.onToolSelected(toolId);
+        if (!silent) {
+            // Emit EventBus event (preferred)
+            this.eventBus.emit('tool:selected', toolId);
+            
+            // Also call callback if present (for backward compatibility)
+            if (this.onToolSelected) {
+                this.onToolSelected(toolId);
+            }
         }
     }
     
