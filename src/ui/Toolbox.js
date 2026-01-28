@@ -126,7 +126,12 @@ export class Toolbox {
     
     _updateSelection() {
         this.element.querySelectorAll('.tool-btn').forEach(btn => {
-            btn.classList.toggle('active', btn.dataset.tool === this.currentTool);
+            const shouldBeActive = btn.dataset.tool === this.currentTool;
+            btn.classList.toggle('active', shouldBeActive);
+            // Blur the button if it's being deactivated to clear any focus styling
+            if (!shouldBeActive && document.activeElement === btn) {
+                btn.blur();
+            }
         });
     }
     

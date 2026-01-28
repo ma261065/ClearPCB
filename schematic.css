@@ -33,15 +33,15 @@
     --sch-text: #cccccc;
     
     /* === Symbols === */
-    --sch-symbol-outline: #aa0000;
+    --sch-symbol-outline: #ffffff;
     --sch-symbol-fill: #ffffcc;
     --sch-symbol-name: #00cccc;
     --sch-symbol-value: #00cccc;
     
     /* === Pins === */
-    --sch-pin: #aa0000;
+    --sch-pin: #ffffff;
     --sch-pin-name: #00cccc;
-    --sch-pin-number: #aa0000;
+    --sch-pin-number: #ffffff;
     
     /* === Drawing === */
     --sch-draw: #aa0000;
@@ -85,15 +85,15 @@
     --sch-text: #000000;
     
     /* === Symbols === */
-    --sch-symbol-outline: #aa0000;
+    --sch-symbol-outline: #000000;
     --sch-symbol-fill: #ffffcc;
     --sch-symbol-name: #008080;
     --sch-symbol-value: #008080;
     
     /* === Pins === */
-    --sch-pin: #aa0000;
+    --sch-pin: #000000;
     --sch-pin-name: #008080;
-    --sch-pin-number: #aa0000;
+    --sch-pin-number: #000000;
     
     /* === Drawing === */
     --sch-draw: #aa0000;
@@ -297,11 +297,16 @@ body {
     align-items: center;
     justify-content: center;
     transition: all 0.15s;
+    outline: none;
 }
 
 .tool-btn:hover {
     background: var(--bg-tertiary);
     color: var(--text-primary);
+}
+
+.tool-btn:focus {
+    outline: none;
 }
 
 .tool-btn.active {

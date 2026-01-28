@@ -201,8 +201,7 @@ export class KiCadFetcher {
                 'MCU_Microchip_ATtiny': ['ATtiny85', 'ATtiny45', 'ATtiny13', 'ATtiny84'],
                 'MCU_ST_STM32F1': ['STM32F103C8', 'STM32F103CB', 'STM32F103RB'],
                 'MCU_ST_STM32F4': ['STM32F401CC', 'STM32F411CE', 'STM32F407VG'],
-                'MCU_Espressif_ESP32': ['ESP32-WROOM-32', 'ESP32-WROVER'],
-                'MCU_Espressif_ESP8266': ['ESP-12E', 'ESP-12F', 'ESP-01'],
+                'MCU_Espressif': ['ESP32-C3', 'ESP32-PICO-D4', 'ESP32-PICO-V3', 'ESP32-PICO-V3-02', 'ESP32-S2', 'ESP32-S3', 'ESP8266EX'],
                 'Transistor_BJT': ['BC547', 'BC557', '2N2222', '2N3904', '2N3906', 'TIP120', 'TIP125'],
                 'Transistor_FET': ['2N7000', 'BS170', 'IRF520', 'IRF540', 'IRLZ44N', 'AO3400'],
                 'Diode': ['1N4148', '1N4007', '1N5819', '1N5822', 'BAT54', 'SS14', 'SS34'],
@@ -688,7 +687,7 @@ export class KiCadFetcher {
      */
     _parseKiCadRectangle(rectSexp) {
         let x1 = 0, y1 = 0, x2 = 0, y2 = 0;
-        let stroke = '#880000';
+        let stroke = 'var(--sch-symbol-outline)';
         let strokeWidth = 0.254;
         let fill = 'none';
         
@@ -733,7 +732,7 @@ export class KiCadFetcher {
      */
     _parseKiCadPolyline(polySexp) {
         const points = [];
-        let stroke = '#880000';
+        let stroke = 'var(--sch-symbol-outline)';
         let strokeWidth = 0.254;
         let fill = 'none';
         
@@ -777,7 +776,7 @@ export class KiCadFetcher {
      */
     _parseKiCadCircle(circleSexp) {
         let cx = 0, cy = 0, r = 1;
-        let stroke = '#880000';
+        let stroke = 'var(--sch-symbol-outline)';
         let strokeWidth = 0.254;
         let fill = 'none';
         
@@ -822,7 +821,7 @@ export class KiCadFetcher {
         let startX = 0, startY = 0;
         let midX = 0, midY = 0;
         let endX = 0, endY = 0;
-        let stroke = '#880000';
+        let stroke = 'var(--sch-symbol-outline)';
         let strokeWidth = 0.254;
         let fill = 'none';
         
@@ -902,7 +901,8 @@ export class KiCadFetcher {
      * Parse stroke properties
      */
     _parseStroke(strokeSexp) {
-        let color = '#880000';
+        // Use CSS variable for theme-aware colors
+        let color = 'var(--sch-symbol-outline)';
         let width = 0.254;
         
         for (const item of strokeSexp) {

@@ -85,6 +85,19 @@ export class ComponentPicker {
             }
         });
         
+        // Handle ESC key - close picker and notify parent
+        this.element.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                e.stopPropagation();
+                this.close();
+                // Call onClose callback
+                if (this.onClose) {
+                    this.onClose();
+                }
+            }
+        }, true); // Use capture phase to intercept before other handlers
+        
         this.categorySelect.addEventListener('change', () => {
             this.selectedCategory = this.categorySelect.value;
             this._populateComponents();
@@ -772,6 +785,18 @@ export class ComponentPicker {
         } else {
             this.element.classList.add('collapsed');
             this.toggleBtn.textContent = '▶';
+        }
+    }
+    
+    close() {
+        if (this.isOpen) {
+            this.toggle();
+        }
+    }
+    
+    open() {
+        if (!this.isOpen) {
+            this.toggle();
         }
     }
     

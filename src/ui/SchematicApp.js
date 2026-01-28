@@ -105,7 +105,8 @@ class SchematicApp {
         // Component library and picker
         this.componentLibrary = getComponentLibrary();
         this.componentPicker = new ComponentPicker({
-            onComponentSelected: (def) => this._onComponentDefinitionSelected(def)
+            onComponentSelected: (def) => this._onComponentDefinitionSelected(def),
+            onClose: () => this._onComponentPickerClosed()
         });
         this.componentPicker.appendTo(this.container);
         
@@ -152,13 +153,18 @@ class SchematicApp {
             this._cancelComponentPlacement();
         }
         
+        // Close component picker when switching away from component tool
+        if (tool !== 'component' && this.componentPicker.isOpen) {
+            this.componentPicker.close();
+        }
+        
         this.currentTool = tool;
         
         // Handle component tool - open picker panel
         if (tool === 'component') {
             // Open component picker if collapsed
             if (!this.componentPicker.isOpen) {
-                this.componentPicker.toggle();
+                this.componentPicker.open();
             }
             // Focus search input
             const searchInput = this.componentPicker.element.querySelector('.cp-search-input');
@@ -170,6 +176,14 @@ class SchematicApp {
         // Update cursor
         const svg = this.viewport.svg;
         svg.style.cursor = tool === 'select' ? 'default' : 'crosshair';
+    }
+    
+    _onComponentPickerClosed() {
+        // Return to select mode when component picker is closed
+        if (this.currentTool === 'component') {
+            this.currentTool = 'select';
+            this.toolbox.selectTool('select');
+        }
     }
     
     _onOptionsChanged(options) {
@@ -664,6 +678,12 @@ class SchematicApp {
         if (this.currentTool === 'component') {
             this.currentTool = 'select';
             this.viewport.svg.style.cursor = 'default';
+            // Ensure the Toolbox UI reflects the change (update without triggering callback)
+            if (this.toolbox) {
+                this.toolbox.currentTool = 'select';
+                this.toolbox._updateSelection();
+                this.toolbox._updateOptions();
+            }
         }
     }
     
@@ -1279,6 +1299,10 @@ class SchematicApp {
                         if (this.placingComponent) {
                             this._cancelComponentPlacement();
                         }
+                        // Close component picker if open
+                        if (this.componentPicker.isOpen) {
+                            this.componentPicker.close();
+                        }
                         // Cancel box selection if in progress
                         if (this.dragMode === 'box') {
                             this._removeBoxSelectElement();
@@ -1288,6 +1312,7 @@ class SchematicApp {
                         }
                         // Always return to select mode on Escape
                         if (this.currentTool !== 'select') {
+                            this.currentTool = 'select';
                             this.toolbox.selectTool('select');
                         } else {
                             // Only clear selection if already in select mode and not drawing
