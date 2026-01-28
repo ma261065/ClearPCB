@@ -394,6 +394,15 @@ export class Component {
                 const pts = g.points.map(p => `${p[0]},${p[1]}`).join(' ');
                 el.setAttribute('points', pts);
                 break;
+            case 'polygon':
+                el = document.createElementNS(ns, 'polygon');
+                const polPts = g.points.map(p => `${p[0]},${p[1]}`).join(' ');
+                el.setAttribute('points', polPts);
+                break;
+            case 'path':
+                el = document.createElementNS(ns, 'path');
+                el.setAttribute('d', g.d);
+                break;
             case 'text':
                 el = document.createElementNS(ns, 'text');
                 el.setAttribute('x', g.x); el.setAttribute('y', g.y);
