@@ -86,6 +86,11 @@ export class Viewport {
         this.panStartViewBox = null;
         this.currentMouseWorld = { x: 0, y: 0 };
         
+        // Cache for getBoundingClientRect (expensive operation)
+        this.cachedRect = null;
+        this.cachedRectTime = 0;
+        const RECT_CACHE_TTL = 10;  // Cache for 10ms (covers most of a frame)
+        
         // Callbacks
         this.onViewChanged = null;
         this.onMouseMove = null;
@@ -188,6 +193,9 @@ export class Viewport {
     }
     
     _onResize() {
+        // Invalidate rect cache since viewport dimensions changed
+        this.cachedRect = null;
+        
         // Maintain aspect ratio - adjust height to match new container
         const aspect = this.height / this.width;
         this.viewBox.height = this.viewBox.width * aspect;
@@ -197,15 +205,27 @@ export class Viewport {
         this._notifyViewChanged();
     }
     
+    /**
+     * Get cached SVG bounding rect (avoids expensive repeated calls)
+     */
+    _getCachedRect() {
+        const now = performance.now();
+        if (!this.cachedRect || (now - this.cachedRectTime) > 10) {
+            this.cachedRect = this.svg.getBoundingClientRect();
+            this.cachedRectTime = now;
+        }
+        return this.cachedRect;
+    }
+    
     screenToWorld(screenPos) {
-        const rect = this.svg.getBoundingClientRect();
+        const rect = this._getCachedRect();
         const x = this.viewBox.x + (screenPos.x / rect.width) * this.viewBox.width;
         const y = this.viewBox.y + (screenPos.y / rect.height) * this.viewBox.height;
         return { x, y };
     }
     
     worldToScreen(worldPos) {
-        const rect = this.svg.getBoundingClientRect();
+        const rect = this._getCachedRect();
         const x = ((worldPos.x - this.viewBox.x) / this.viewBox.width) * rect.width;
         const y = ((worldPos.y - this.viewBox.y) / this.viewBox.height) * rect.height;
         return { x, y };
