@@ -4,6 +4,7 @@
 
 export { Shape, updateIdCounter, resetIdCounter } from './shape.js';
 export { Line } from './line.js';
+export { Wire } from './wire.js';
 export { Circle } from './circle.js';
 export { Rect } from './rect.js';
 export { Arc } from './arc.js';
@@ -12,6 +13,7 @@ export { Via } from './via.js';
 export { Polygon } from './polygon.js';
 
 import { Line } from './line.js';
+import { Wire } from './wire.js';
 import { Circle } from './circle.js';
 import { Rect } from './rect.js';
 import { Arc } from './arc.js';
@@ -21,6 +23,7 @@ import { Polygon } from './polygon.js';
 
 const shapeRegistry = {
     line: Line,
+    wire: Wire,
     circle: Circle,
     rect: Rect,
     arc: Arc,
