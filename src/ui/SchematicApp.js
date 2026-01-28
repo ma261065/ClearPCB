@@ -10,11 +10,11 @@ import { FileManager } from '../core/FileManager.js';
 import { storageManager } from '../core/StorageManager.js';
 import { Toolbox } from './Toolbox.js';
 import { ComponentPicker } from '../components/ComponentPicker.js';
-import { Line, Circle, Rect, Arc, Polygon, updateIdCounter } from '../shapes/index.js';
+import { Line, Wire, Circle, Rect, Arc, Polygon, updateIdCounter } from '../shapes/index.js';
 import { Component, getComponentLibrary } from '../components/index.js';
 
 // Shape class registry for deserialization
-const ShapeClasses = { Line, Circle, Rect, Arc, Polygon };
+const ShapeClasses = { Line, Wire, Circle, Rect, Arc, Polygon };
 
 class SchematicApp {
     constructor() {
@@ -55,6 +55,11 @@ class SchematicApp {
         this.drawCurrent = null;
         this.polygonPoints = [];
         this.previewElement = null;
+        
+        // Wire-specific drawing state
+        this.wirePoints = [];  // Waypoints for the current wire being drawn
+        this.wireSnapPin = null;  // Pin currently being snapped to (if any)
+        this.wireSnapTolerance = 0.5;  // How close to snap to a pin
         
         // Drag state
         this.isDragging = false;
@@ -151,7 +156,12 @@ class SchematicApp {
 
     _handleEscape() {
         if (this.isDrawing) {
-            this._cancelDrawing();
+            if (this.currentTool === 'wire') {
+                // Cancel wire drawing
+                this._cancelWireDrawing();
+            } else {
+                this._cancelDrawing();
+            }
         }
         // Cancel component placement
         if (this.placingComponent) {
@@ -540,6 +550,214 @@ class SchematicApp {
             default:
                 return null;
         }
+    }
+
+    // ==================== Wire Drawing ====================
+    
+    /**
+     * Find the nearest pin within snap tolerance from a position
+     * Returns {component, pin, distance} or null if no pin nearby
+     */
+    _findNearbyPin(worldPos) {
+        let nearest = null;
+        let minDist = this.wireSnapTolerance;
+        
+        for (const component of this.components) {
+            if (!component.symbol || !component.symbol.pins) continue;
+            
+            for (const pin of component.symbol.pins) {
+                // Transform pin from component local coords to world coords
+                const pinWorldX = component.x + pin.x;
+                const pinWorldY = component.y + pin.y;
+                
+                const dist = Math.hypot(worldPos.x - pinWorldX, worldPos.y - pinWorldY);
+                if (dist < minDist) {
+                    minDist = dist;
+                    nearest = {
+                        component,
+                        pin,
+                        distance: dist,
+                        worldPos: { x: pinWorldX, y: pinWorldY }
+                    };
+                }
+            }
+        }
+        
+        return nearest;
+    }
+    
+    /**
+     * Start drawing a wire - click to place first point or snap to pin
+     */
+    _startWireDrawing(worldPos) {
+        // Check if starting at a pin
+        const snapPin = this._findNearbyPin(worldPos);
+        
+        if (snapPin) {
+            // Snap to pin connection point
+            this.wirePoints = [{ ...snapPin.worldPos, pin: snapPin }];
+            this.wireSnapPin = snapPin;
+        } else {
+            // Start at cursor position
+            this.wirePoints = [{ ...worldPos }];
+            this.wireSnapPin = null;
+        }
+        
+        this.isDrawing = true;
+        this._createPreview();
+        this._showCrosshair();
+        this._updateCrosshair(worldPos);
+        this.viewport.svg.style.cursor = 'none';
+    }
+    
+    /**
+     * Update wire preview while drawing
+     */
+    _updateWireDrawing(worldPos) {
+        if (!this.isDrawing || this.wirePoints.length === 0) return;
+        
+        // Check for snap-to-pin
+        const snapPin = this._findNearbyPin(worldPos);
+        if (snapPin && snapPin !== this.wireSnapPin) {
+            this.wireSnapPin = snapPin;
+            this._highlightPin(snapPin);
+        } else if (!snapPin && this.wireSnapPin) {
+            this.wireSnapPin = null;
+            this._unhighlightPin();
+        }
+        
+        this.drawCurrent = snapPin ? { ...snapPin.worldPos } : { ...worldPos };
+        this._updateWirePreview();
+    }
+    
+    /**
+     * Add a waypoint to the wire
+     */
+    _addWireWaypoint(worldPos) {
+        if (this.wirePoints.length === 0) return;
+        
+        // Check if snapping to a pin
+        const snapPin = this._findNearbyPin(worldPos);
+        const point = snapPin ? { ...snapPin.worldPos, pin: snapPin } : { ...worldPos };
+        
+        this.wirePoints.push(point);
+        this.drawCurrent = { ...point };
+        this._updateWirePreview();
+    }
+    
+    /**
+     * Finish drawing the wire
+     */
+    _finishWireDrawing(worldPos) {
+        if (this.wirePoints.length < 2) {
+            this._cancelWireDrawing();
+            return;
+        }
+        
+        // Check if ending at a pin
+        const snapPin = this._findNearbyPin(worldPos);
+        if (snapPin && (this.wirePoints.length === 1 || 
+                        (this.wirePoints[this.wirePoints.length - 1].x !== snapPin.worldPos.x ||
+                         this.wirePoints[this.wirePoints.length - 1].y !== snapPin.worldPos.y))) {
+            this.wirePoints.push({ ...snapPin.worldPos, pin: snapPin });
+        }
+        
+        // Create wire shape
+        const wire = new Wire({
+            points: this.wirePoints.map(p => ({ x: p.x, y: p.y })),
+            color: '#00cc66',
+            lineWidth: 0.2,
+            connections: {
+                start: this.wirePoints[0].pin ? { 
+                    componentId: this.wirePoints[0].pin.component.id,
+                    pinNumber: this.wirePoints[0].pin.pin.number
+                } : null,
+                end: this.wirePoints[this.wirePoints.length - 1].pin ? {
+                    componentId: this.wirePoints[this.wirePoints.length - 1].pin.component.id,
+                    pinNumber: this.wirePoints[this.wirePoints.length - 1].pin.pin.number
+                } : null
+            }
+        });
+        
+        this.addShape(wire);
+        this._cancelWireDrawing();
+    }
+    
+    /**
+     * Cancel wire drawing
+     */
+    _cancelWireDrawing() {
+        this.wirePoints = [];
+        this.wireSnapPin = null;
+        this._unhighlightPin();
+        
+        this.isDrawing = false;
+        if (this.previewElement) {
+            this.previewElement.remove();
+            this.previewElement = null;
+        }
+        
+        this._hideCrosshair();
+        this.viewport.svg.style.cursor = this.currentTool === 'select' ? 'default' : 'crosshair';
+    }
+    
+    /**
+     * Update wire preview visualization
+     */
+    _updateWirePreview() {
+        if (!this.previewElement) return;
+        
+        const strokeWidth = this._getEffectiveStrokeWidth(0.2);
+        let svg = '';
+        
+        if (this.wirePoints.length > 0) {
+            // Draw all segments
+            for (let i = 0; i < this.wirePoints.length - 1; i++) {
+                const p1 = this.wirePoints[i];
+                const p2 = this.wirePoints[i + 1];
+                svg += `<line x1="${p1.x}" y1="${p1.y}" x2="${p2.x}" y2="${p2.y}" 
+                        stroke="#00cc66" stroke-width="${strokeWidth}" stroke-linecap="round"/>`;
+            }
+            
+            // Draw waypoint dots
+            for (const p of this.wirePoints) {
+                svg += `<circle cx="${p.x}" cy="${p.y}" r="${2 / this.viewport.scale}" fill="#00cc66"/>`;
+            }
+            
+            // Draw preview line from last point to cursor
+            if (this.drawCurrent && this.wirePoints.length > 0) {
+                const last = this.wirePoints[this.wirePoints.length - 1];
+                svg += `<line x1="${last.x}" y1="${last.y}" x2="${this.drawCurrent.x}" y2="${this.drawCurrent.y}" 
+                        stroke="#00cc66" stroke-width="${strokeWidth}" stroke-dasharray="2,2" stroke-linecap="round"/>`;
+            }
+        }
+        
+        this.previewElement.innerHTML = svg;
+    }
+    
+    /**
+     * Highlight a pin during snapping
+     */
+    _highlightPin(snapPin) {
+        if (!snapPin || !snapPin.pin) return;
+        
+        const pinElement = snapPin.component.pinElements?.get(snapPin.pin.number);
+        if (pinElement) {
+            pinElement.style.filter = 'drop-shadow(0 0 3px #ffff00)';
+        }
+    }
+    
+    /**
+     * Remove pin highlight
+     */
+    _unhighlightPin() {
+        if (this.wireSnapPin && this.wireSnapPin.pin) {
+            const pinElement = this.wireSnapPin.component.pinElements?.get(this.wireSnapPin.pin.number);
+            if (pinElement) {
+                pinElement.style.filter = '';
+            }
+        }
+        this.wireSnapPin = null;
     }
 
     // ==================== Component Handling ====================
@@ -959,6 +1177,16 @@ class SchematicApp {
                 this._createBoxSelectElement();
                 e.preventDefault();
                 return;
+            } else if (this.currentTool === 'wire') {
+                // Wire drawing: click to add waypoints, ESC or right-click to finish
+                if (!this.isDrawing) {
+                    // Start a new wire
+                    this._startWireDrawing(snapped);
+                } else {
+                    // Add waypoint to existing wire
+                    this._addWireWaypoint(snapped);
+                }
+                e.preventDefault();
             } else if (this.currentTool === 'polygon') {
                 if (!this.isDrawing) {
                     this._startDrawing(snapped);
@@ -972,9 +1200,6 @@ class SchematicApp {
         });
         
         svg.addEventListener('mousemove', (e) => {
-            if (!this.isDragging) return;
-            if (this.viewport.isPanning) return;
-            
             const rect = svg.getBoundingClientRect();
             const screenPos = {
                 x: e.clientX - rect.left,
@@ -982,6 +1207,15 @@ class SchematicApp {
             };
             const worldPos = this.viewport.screenToWorld(screenPos);
             const snapped = this.viewport.getSnappedPosition(worldPos);
+            
+            // Handle wire drawing updates
+            if (this.currentTool === 'wire' && this.isDrawing) {
+                this._updateWireDrawing(snapped);
+                return;
+            }
+            
+            if (!this.isDragging) return;
+            if (this.viewport.isPanning) return;
             
             if (this.dragMode === 'move') {
                 // Move all selected shapes
@@ -1348,6 +1582,13 @@ class SchematicApp {
                 switch (e.key) {
                     case 'Escape':
                         this._handleEscape();
+                        break;
+                    case 'Enter':
+                        // Finish wire drawing
+                        if (this.currentTool === 'wire' && this.isDrawing && this.wirePoints.length >= 2) {
+                            this._finishWireDrawing(this.drawCurrent);
+                            e.preventDefault();
+                        }
                         break;
                     case 'Delete':
                     case 'Backspace':
