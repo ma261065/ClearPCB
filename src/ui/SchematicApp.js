@@ -1595,8 +1595,19 @@ class SchematicApp {
      * Create component instance from serialized data
      */
     _createComponentFromData(data) {
-        // Get definition from library
-        const def = this.componentLibrary.getDefinition(data.definitionName);
+        // First try to get definition from library
+        let def = this.componentLibrary.getDefinition(data.definitionName);
+        
+        // If not found and we have an embedded definition, add it to the library and use it
+        if (!def && data.definition) {
+            try {
+                this.componentLibrary.addDefinition(data.definition, 'User');
+                def = this.componentLibrary.getDefinition(data.definitionName);
+            } catch (e) {
+                console.warn('Failed to add embedded definition:', e);
+            }
+        }
+        
         if (!def) {
             console.warn('Component definition not found:', data.definitionName);
             return null;

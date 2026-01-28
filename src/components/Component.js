@@ -462,7 +462,7 @@ export class Component {
      * Serialize component to JSON
      */
     toJSON() {
-        return {
+        const json = {
             type: 'component',
             id: this.id,
             definitionName: this.definition.name,
@@ -474,6 +474,14 @@ export class Component {
             value: this.value,
             properties: this.properties
         };
+        
+        // Include full definition for online components (KiCad, LCSC, etc.)
+        // This ensures the component can be loaded even if the library hasn't cached it
+        if (this.definition._source && this.definition._source !== 'Built-in') {
+            json.definition = this.definition;
+        }
+        
+        return json;
     }
 
     /**
