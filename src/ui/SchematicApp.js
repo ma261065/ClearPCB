@@ -1743,9 +1743,9 @@ class SchematicApp {
         try {
             // Try multiple possible paths for version.json
             const paths = [
-                '../../version.json',
-                '/version.json',
-                '../../../version.json'
+                './assets/version.json',
+                '/assets/version.json',
+                '../assets/version.json'
             ];
             
             let data = null;
