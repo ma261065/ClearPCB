@@ -135,9 +135,6 @@ class SchematicApp {
         // Start auto-save
         this.fileManager.startAutoSave(() => this._serializeDocument());
         
-        // Load and display version
-        this._loadVersion();
-        
         // Warn about unsaved changes
         window.addEventListener('beforeunload', (e) => {
             if (this.fileManager.isDirty) {
@@ -145,6 +142,9 @@ class SchematicApp {
                 e.returnValue = '';
             }
         });
+        
+        // Load version after a brief delay to ensure DOM is ready
+        setTimeout(() => this._loadVersion(), 100);
         
         console.log('Schematic Editor initialized');
     }
@@ -1741,9 +1741,27 @@ class SchematicApp {
      */
     async _loadVersion() {
         try {
-            const response = await fetch('../../version.json');
-            if (response.ok) {
-                const data = await response.json();
+            // Try multiple possible paths for version.json
+            const paths = [
+                '../../version.json',
+                '/version.json',
+                '../../../version.json'
+            ];
+            
+            let data = null;
+            for (const path of paths) {
+                try {
+                    const response = await fetch(path);
+                    if (response.ok) {
+                        data = await response.json();
+                        break;
+                    }
+                } catch (e) {
+                    // Continue to next path
+                }
+            }
+            
+            if (data) {
                 const versionDisplay = document.getElementById('version-display');
                 if (versionDisplay) {
                     versionDisplay.textContent = `v${data.version}`;
