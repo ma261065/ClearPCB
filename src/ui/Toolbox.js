@@ -22,7 +22,7 @@ export class Toolbox {
         this.tools = [
             { id: 'select', icon: '⊹', name: 'Select', shortcut: 'V' },
             { id: 'line', icon: '╱', name: 'Line', shortcut: 'L' },
-            { id: 'wire', icon: '⏤', name: 'Wire', shortcut: 'W' },
+            { id: 'wire', icon: '●⏤●', name: 'Wire', shortcut: 'W' },
             { id: 'rect', icon: '▢', name: 'Rectangle', shortcut: 'R' },
             { id: 'circle', icon: '○', name: 'Circle', shortcut: 'C' },
             { id: 'arc', icon: '◠', name: 'Arc', shortcut: 'A' },

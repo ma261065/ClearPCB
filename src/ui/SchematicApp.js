@@ -60,6 +60,9 @@ class SchematicApp {
         this.wirePoints = [];  // Waypoints for the current wire being drawn
         this.wireSnapPin = null;  // Pin currently being snapped to (if any)
         this.wireSnapTolerance = 0.5;  // How close to snap to a pin
+        this.wireStartPin = null;  // The pin we started from (if any)
+        this.wireDirection = null;  // 'horizontal' | 'vertical' | null - direction of current segment
+        this.wireLastMousePos = null;  // Last recorded mouse position for turn detection
         
         // Drag state
         this.isDragging = false;
@@ -555,15 +558,186 @@ class SchematicApp {
     // ==================== Wire Drawing ====================
     
     /**
-     * Find the nearest pin within snap tolerance from a position
-     * Returns {component, pin, distance} or null if no pin nearby
+     * Get snapped position for wire drawing with directional routing
+     * First segment from pin: lock Y (horizontal) or X (vertical)
+     * Later segments: grid snap, but override with target pin Y/X when approaching
      */
-    _findNearbyPin(worldPos) {
+    _getWireSnappedPosition(worldPos) {
+        const gridSnapped = this.viewport.getSnappedPosition(worldPos);
+        
+        // Check if we're approaching a target pin
+        const targetPin = this._findNearbyPin(worldPos, 1.0);  // Increased from 0.5 to 1.0mm for easier detection
+        
+        // If this is the first segment (no waypoints yet)
+        if (this.wirePoints.length === 0) {
+            // Should not be called without a starting point
+            return { ...gridSnapped, snapPin: null, targetPin: null };
+        }
+        
+        const lastPoint = this.wirePoints[this.wirePoints.length - 1];
+        
+        // Tier 1: If hovering directly over a target pin, snap to it
+        // Don't snap to the start pin or the current waypoint
+        if (targetPin && targetPin !== this.wireStartPin) {
+            // Also check we're not trying to snap to the last waypoint's pin
+            if (lastPoint.pin && lastPoint.pin === targetPin) {
+                // Same pin as current waypoint, don't snap
+            } else {
+                return { ...targetPin.worldPos, snapPin: targetPin, targetPin: targetPin };
+            }
+        }
+        
+        // Tier 2: Determine current segment direction
+        if (this.wirePoints.length === 1) {
+            // First segment - we have a start point, determine direction
+            const dx = Math.abs(worldPos.x - lastPoint.x);
+            const dy = Math.abs(worldPos.y - lastPoint.y);
+            
+            console.log(`[Wire Debug] First segment: dx=${dx.toFixed(3)}, dy=${dy.toFixed(3)}, lastPoint=(${lastPoint.x.toFixed(2)}, ${lastPoint.y.toFixed(2)})`);
+            
+            // If we've already detected a direction, stick with it
+            if (this.wireDirection) {
+                if (this.wireDirection === 'horizontal') {
+                    return { 
+                        x: gridSnapped.x, 
+                        y: lastPoint.y, 
+                        snapPin: null 
+                    };
+                } else if (this.wireDirection === 'vertical') {
+                    return { 
+                        x: lastPoint.x, 
+                        y: gridSnapped.y, 
+                        snapPin: null 
+                    };
+                }
+            }
+            
+            // Lock to whichever direction has more movement
+            const minMovement = 0.05;  // Very small threshold to detect direction
+            if (dx > dy && dx > minMovement) {
+                // Moving more horizontally - snap X to grid, lock Y to last waypoint
+                console.log(`[Wire Debug] HORIZONTAL: returning x=${gridSnapped.x}, y=${lastPoint.y}`);
+                this.wireDirection = 'horizontal';
+                return { 
+                    x: gridSnapped.x, 
+                    y: lastPoint.y, 
+                    snapPin: null 
+                };
+            } else if (dy > dx && dy > minMovement) {
+                // Moving more vertically - lock X to last waypoint, snap Y to grid
+                console.log(`[Wire Debug] VERTICAL: returning x=${lastPoint.x}, y=${gridSnapped.y}`);
+                this.wireDirection = 'vertical';
+                return { 
+                    x: lastPoint.x, 
+                    y: gridSnapped.y, 
+                    snapPin: null 
+                };
+            } else {
+                // Still ambiguous - lock to the pin's coordinate until clear direction
+                return { 
+                    x: lastPoint.x, 
+                    y: lastPoint.y, 
+                    snapPin: null 
+                };
+            }
+        } else {
+            // Later segments - apply directional snapping to subsequent waypoints
+            const lastPoint = this.wirePoints[this.wirePoints.length - 1];
+            const dx = Math.abs(worldPos.x - lastPoint.x);
+            const dy = Math.abs(worldPos.y - lastPoint.y);
+            const minMovement = 0.05;
+            
+            // Detect current direction to pick the best approach
+            let segmentDirection = null;
+            if (dx > dy && dx > minMovement) {
+                segmentDirection = 'horizontal';
+            } else if (dy > dx && dy > minMovement) {
+                segmentDirection = 'vertical';
+            }
+            
+            // Check for target pin
+            if (targetPin && targetPin !== this.wireStartPin) {
+                const targetX = targetPin.worldPos.x;
+                const targetY = targetPin.worldPos.y;
+                
+                // If we have a clear direction, snap the endpoint toward the pin
+                if (segmentDirection === 'horizontal') {
+                    // Moving horizontally - snap X to pin, keep Y at waypoint
+                    return { 
+                        x: targetX,
+                        y: lastPoint.y, 
+                        snapPin: null,
+                        targetPin: targetPin  // Pass the pin for preview rendering
+                    };
+                }
+                if (segmentDirection === 'vertical') {
+                    // Moving vertically - snap Y to pin, keep X at waypoint
+                    return { 
+                        x: lastPoint.x,
+                        y: targetY, 
+                        snapPin: null,
+                        targetPin: targetPin  // Pass the pin for preview rendering
+                    };
+                }
+                
+                // No clear direction yet - offer both approaches and pick closest
+                const hApproach = { x: gridSnapped.x, y: targetY, distance: Math.abs(worldPos.y - targetY) };
+                const vApproach = { x: targetX, y: gridSnapped.y, distance: Math.abs(worldPos.x - targetX) };
+                
+                if (hApproach.distance < vApproach.distance) {
+                    return { x: hApproach.x, y: hApproach.y, snapPin: null, targetPin: targetPin };
+                } else {
+                    return { x: vApproach.x, y: vApproach.y, snapPin: null, targetPin: targetPin };
+                }
+            }
+            
+            // No target pin - apply directional snap based on current movement
+            if (dx > dy && dx > minMovement) {
+                return { 
+                    x: gridSnapped.x, 
+                    y: lastPoint.y, 
+                    snapPin: null,
+                    targetPin: null
+                };
+            } else if (dy > dx && dy > minMovement) {
+                return { 
+                    x: lastPoint.x, 
+                    y: gridSnapped.y, 
+                    snapPin: null,
+                    targetPin: null
+                };
+            } else {
+                // No clear direction yet - stay at last point
+                return { 
+                    x: lastPoint.x, 
+                    y: lastPoint.y, 
+                    snapPin: null,
+                    targetPin: null
+                };
+            }
+        }
+    }
+    
+    /**
+     * Find the nearest pin within snap tolerance from a position
+     * Returns {component, pin, distance, worldPos} or null if no pin nearby
+     * @param {Object} worldPos - The position to check
+     * @param {number} tolerance - Snap tolerance in mm (defaults to 0.5mm)
+     */
+    _findNearbyPin(worldPos, tolerance = 0.5) {
         let nearest = null;
-        let minDist = this.wireSnapTolerance;
+        let minDist = tolerance;
+        
+        console.log(`[Wire Debug] Looking for pins near (${worldPos.x.toFixed(2)}, ${worldPos.y.toFixed(2)}), tolerance: ${minDist}`);
+        console.log(`[Wire Debug] Components available: ${this.components.length}`);
         
         for (const component of this.components) {
-            if (!component.symbol || !component.symbol.pins) continue;
+            if (!component.symbol || !component.symbol.pins) {
+                console.log(`[Wire Debug] Skipped component - no symbol/pins`);
+                continue;
+            }
+            
+            console.log(`[Wire Debug] Checking component at (${component.x}, ${component.y}) with ${component.symbol.pins.length} pins`);
             
             for (const pin of component.symbol.pins) {
                 // Transform pin from component local coords to world coords
@@ -571,6 +745,8 @@ class SchematicApp {
                 const pinWorldY = component.y + pin.y;
                 
                 const dist = Math.hypot(worldPos.x - pinWorldX, worldPos.y - pinWorldY);
+                console.log(`[Wire Debug]   Pin at (${pinWorldX}, ${pinWorldY}), distance: ${dist.toFixed(3)}`);
+                
                 if (dist < minDist) {
                     minDist = dist;
                     nearest = {
@@ -579,34 +755,38 @@ class SchematicApp {
                         distance: dist,
                         worldPos: { x: pinWorldX, y: pinWorldY }
                     };
+                    console.log(`[Wire Debug]   -> SNAP! New nearest`);
                 }
             }
         }
         
+        console.log(`[Wire Debug] Final result: ${nearest ? 'FOUND PIN' : 'NO PIN'}`);
         return nearest;
     }
     
     /**
      * Start drawing a wire - click to place first point or snap to pin
      */
-    _startWireDrawing(worldPos) {
-        // Check if starting at a pin
-        const snapPin = this._findNearbyPin(worldPos);
+    _startWireDrawing(snappedData) {
+        const snapPin = snappedData.snapPin;
         
         if (snapPin) {
             // Snap to pin connection point
-            this.wirePoints = [{ ...snapPin.worldPos, pin: snapPin }];
+            this.wirePoints = [{ x: snappedData.x, y: snappedData.y, pin: snapPin }];
             this.wireSnapPin = snapPin;
+            this.wireStartPin = snapPin;  // Remember start pin
         } else {
-            // Start at cursor position
-            this.wirePoints = [{ ...worldPos }];
+            // Start at snapped position
+            this.wirePoints = [{ x: snappedData.x, y: snappedData.y }];
             this.wireSnapPin = null;
+            this.wireStartPin = null;
         }
         
+        this.wireDirection = null;  // Reset direction - will be detected on first move
         this.isDrawing = true;
         this._createPreview();
         this._showCrosshair();
-        this._updateCrosshair(worldPos);
+        this._updateCrosshair(snappedData);
         this.viewport.svg.style.cursor = 'none';
     }
     
@@ -616,8 +796,10 @@ class SchematicApp {
     _updateWireDrawing(worldPos) {
         if (!this.isDrawing || this.wirePoints.length === 0) return;
         
-        // Check for snap-to-pin
-        const snapPin = this._findNearbyPin(worldPos);
+        // Get position with pin priority over grid
+        const snappedData = this._getWireSnappedPosition(worldPos);
+        const snapPin = snappedData.snapPin;
+        
         if (snapPin && snapPin !== this.wireSnapPin) {
             this.wireSnapPin = snapPin;
             this._highlightPin(snapPin);
@@ -626,22 +808,45 @@ class SchematicApp {
             this._unhighlightPin();
         }
         
-        this.drawCurrent = snapPin ? { ...snapPin.worldPos } : { ...worldPos };
+        // Set drawCurrent to what we're actually displaying
+        let displayPos = { x: snappedData.x, y: snappedData.y };
+        
+        // If we have a target pin, adjust the display position like the preview does
+        if (snappedData.targetPin) {
+            const pin = snappedData.targetPin;
+            const lastPoint = this.wirePoints[this.wirePoints.length - 1];
+            const dx = Math.abs(snappedData.x - lastPoint.x);
+            const dy = Math.abs(snappedData.y - lastPoint.y);
+            
+            if (dx > dy) {
+                // Moving horizontally - snap to pin's Y
+                displayPos = { x: snappedData.x, y: pin.worldPos.y };
+            } else if (dy > dx) {
+                // Moving vertically - snap to pin's X
+                displayPos = { x: pin.worldPos.x, y: snappedData.y };
+            }
+        }
+        
+        this.drawCurrent = displayPos;
+        this.lastSnappedData = snappedData;  // Store for preview rendering
         this._updateWirePreview();
     }
     
     /**
      * Add a waypoint to the wire
      */
-    _addWireWaypoint(worldPos) {
+    _addWireWaypoint(waypointData) {
         if (this.wirePoints.length === 0) return;
         
-        // Check if snapping to a pin
-        const snapPin = this._findNearbyPin(worldPos);
-        const point = snapPin ? { ...snapPin.worldPos, pin: snapPin } : { ...worldPos };
+        // Just store the coordinate that was being previewed
+        const point = waypointData.snapPin ? 
+            { x: this.drawCurrent.x, y: this.drawCurrent.y, pin: waypointData.snapPin } : 
+            { x: this.drawCurrent.x, y: this.drawCurrent.y };
+        
+        console.log(`[Wire] Adding waypoint: (${point.x.toFixed(2)}, ${point.y.toFixed(2)}), drawCurrent was: (${this.drawCurrent.x.toFixed(2)}, ${this.drawCurrent.y.toFixed(2)}), targetPin: ${this.lastSnappedData?.targetPin ? 'yes' : 'no'}`);
         
         this.wirePoints.push(point);
-        this.drawCurrent = { ...point };
+        this.wireDirection = null;  // Reset direction for next segment
         this._updateWirePreview();
     }
     
@@ -653,14 +858,41 @@ class SchematicApp {
             this._cancelWireDrawing();
             return;
         }
+
+        // Ensure any pin highlight is cleared when finalizing a wire
+        this._unhighlightPin();
         
-        // Check if ending at a pin
-        const snapPin = this._findNearbyPin(worldPos);
-        if (snapPin && (this.wirePoints.length === 1 || 
-                        (this.wirePoints[this.wirePoints.length - 1].x !== snapPin.worldPos.x ||
-                         this.wirePoints[this.wirePoints.length - 1].y !== snapPin.worldPos.y))) {
-            this.wirePoints.push({ ...snapPin.worldPos, pin: snapPin });
+        console.log(`[Wire] Finishing with ${this.wirePoints.length} waypoints:`);
+        for (let i = 0; i < this.wirePoints.length; i++) {
+            console.log(`  [${i}]: (${this.wirePoints[i].x.toFixed(2)}, ${this.wirePoints[i].y.toFixed(2)})`);
         }
+        
+        // Adjust the previous waypoint to align with the target pin (matches preview behavior)
+        if (this.lastSnappedData && this.lastSnappedData.targetPin && this.wirePoints.length >= 2) {
+            const pin = this.lastSnappedData.targetPin;
+            const lastWaypoint = this.wirePoints[this.wirePoints.length - 1];
+            const prevWaypoint = this.wirePoints[this.wirePoints.length - 2];
+            const dx = Math.abs(pin.worldPos.x - prevWaypoint.x);
+            const dy = Math.abs(pin.worldPos.y - prevWaypoint.y);
+            
+            console.log(`[Wire] Adjusting previous waypoint for target pin. dx=${dx.toFixed(3)}, dy=${dy.toFixed(3)}`);
+            
+            if (dx > dy) {
+                // Horizontal approach: move previous waypoint to pin's Y
+                console.log(`[Wire] Horizontal approach: adjusting previous Y from ${prevWaypoint.y.toFixed(2)} to ${pin.worldPos.y.toFixed(2)}`);
+                prevWaypoint.y = pin.worldPos.y;
+            } else if (dy > dx) {
+                // Vertical approach: move previous waypoint to pin's X
+                console.log(`[Wire] Vertical approach: adjusting previous X from ${prevWaypoint.x.toFixed(2)} to ${pin.worldPos.x.toFixed(2)}`);
+                prevWaypoint.x = pin.worldPos.x;
+            }
+            // Ensure the final point is exactly on the pin
+            lastWaypoint.x = pin.worldPos.x;
+            lastWaypoint.y = pin.worldPos.y;
+        }
+        
+        // Create wire shape with the waypoints we already have
+        // (they were set correctly during drawing with pin snapping)
         
         // Create wire shape
         const wire = new Wire({
@@ -689,6 +921,8 @@ class SchematicApp {
     _cancelWireDrawing() {
         this.wirePoints = [];
         this.wireSnapPin = null;
+        this.wireStartPin = null;
+        this.wireDirection = null;
         this._unhighlightPin();
         
         this.isDrawing = false;
@@ -711,11 +945,41 @@ class SchematicApp {
         let svg = '';
         
         if (this.wirePoints.length > 0) {
+            // Determine if last waypoint should be adjusted for display
+            let lastWaypointAdjusted = null;
+            if (this.lastSnappedData && this.lastSnappedData.targetPin && this.wirePoints.length > 0) {
+                const pin = this.lastSnappedData.targetPin;
+                const last = this.wirePoints[this.wirePoints.length - 1];
+                const dx = Math.abs(this.drawCurrent.x - last.x);
+                const dy = Math.abs(this.drawCurrent.y - last.y);
+                
+                if (dx > dy) {
+                    // Moving horizontally - adjust Y
+                    lastWaypointAdjusted = { x: last.x, y: pin.worldPos.y };
+                } else if (dy > dx) {
+                    // Moving vertically - adjust X
+                    lastWaypointAdjusted = { x: pin.worldPos.x, y: last.y };
+                }
+            }
+            
             // Draw all segments
             for (let i = 0; i < this.wirePoints.length - 1; i++) {
                 const p1 = this.wirePoints[i];
                 const p2 = this.wirePoints[i + 1];
+                
+                // Skip the last segment if it will be redrawn adjusted
+                if (i === this.wirePoints.length - 2 && lastWaypointAdjusted) {
+                    continue;
+                }
+                
                 svg += `<line x1="${p1.x}" y1="${p1.y}" x2="${p2.x}" y2="${p2.y}" 
+                        stroke="#00cc66" stroke-width="${strokeWidth}" stroke-linecap="round"/>`;
+            }
+            
+            // Draw the adjusted last segment if needed
+            if (lastWaypointAdjusted && this.wirePoints.length > 1) {
+                const prevPoint = this.wirePoints[this.wirePoints.length - 2];
+                svg += `<line x1="${prevPoint.x}" y1="${prevPoint.y}" x2="${lastWaypointAdjusted.x}" y2="${lastWaypointAdjusted.y}" 
                         stroke="#00cc66" stroke-width="${strokeWidth}" stroke-linecap="round"/>`;
             }
             
@@ -724,11 +988,31 @@ class SchematicApp {
                 svg += `<circle cx="${p.x}" cy="${p.y}" r="${2 / this.viewport.scale}" fill="#00cc66"/>`;
             }
             
-            // Draw preview line from last point to cursor
+            // Draw preview line from last point to cursor (solid, not dashed)
             if (this.drawCurrent && this.wirePoints.length > 0) {
-                const last = this.wirePoints[this.wirePoints.length - 1];
-                svg += `<line x1="${last.x}" y1="${last.y}" x2="${this.drawCurrent.x}" y2="${this.drawCurrent.y}" 
-                        stroke="#00cc66" stroke-width="${strokeWidth}" stroke-dasharray="2,2" stroke-linecap="round"/>`;
+                let last = this.wirePoints[this.wirePoints.length - 1];
+                let drawTo = this.drawCurrent;
+                
+                // If we have a target pin, adjust the line to snap to the pin's coordinate
+                if (this.lastSnappedData && this.lastSnappedData.targetPin) {
+                    const pin = this.lastSnappedData.targetPin;
+                    const dx = Math.abs(this.drawCurrent.x - last.x);
+                    const dy = Math.abs(this.drawCurrent.y - last.y);
+                    
+                    // Moving horizontally
+                    if (dx > dy) {
+                        last = { x: last.x, y: pin.worldPos.y };  // Move last waypoint to pin's Y
+                        drawTo = { x: this.drawCurrent.x, y: pin.worldPos.y };  // Draw to pin's Y
+                    }
+                    // Moving vertically
+                    else if (dy > dx) {
+                        last = { x: pin.worldPos.x, y: last.y };  // Move last waypoint to pin's X
+                        drawTo = { x: pin.worldPos.x, y: this.drawCurrent.y };  // Draw to pin's X
+                    }
+                }
+                
+                svg += `<line x1="${last.x}" y1="${last.y}" x2="${drawTo.x}" y2="${drawTo.y}" 
+                        stroke="#00cc66" stroke-width="${strokeWidth}" stroke-linecap="round"/>`;
             }
         }
         
@@ -741,9 +1025,18 @@ class SchematicApp {
     _highlightPin(snapPin) {
         if (!snapPin || !snapPin.pin) return;
         
-        const pinElement = snapPin.component.pinElements?.get(snapPin.pin.number);
-        if (pinElement) {
-            pinElement.style.filter = 'drop-shadow(0 0 3px #ffff00)';
+        const pinGroup = snapPin.component.pinElements?.get(snapPin.pin.number);
+        if (pinGroup) {
+            // Find the circle (dot) element in the pin group
+            const dot = pinGroup.querySelector('circle');
+            if (dot) {
+                // Save original fill color if not already saved
+                if (!dot.dataset.originalFill) {
+                    dot.dataset.originalFill = dot.getAttribute('fill');
+                }
+                dot.setAttribute('fill', '#ffff00');  // Change to yellow
+                dot.setAttribute('r', 0.7);  // Enlarge it slightly
+            }
         }
     }
     
@@ -752,9 +1045,15 @@ class SchematicApp {
      */
     _unhighlightPin() {
         if (this.wireSnapPin && this.wireSnapPin.pin) {
-            const pinElement = this.wireSnapPin.component.pinElements?.get(this.wireSnapPin.pin.number);
-            if (pinElement) {
-                pinElement.style.filter = '';
+            const pinGroup = this.wireSnapPin.component.pinElements?.get(this.wireSnapPin.pin.number);
+            if (pinGroup) {
+                const dot = pinGroup.querySelector('circle');
+                if (dot) {
+                    // Restore original fill color
+                    const originalFill = dot.dataset.originalFill || 'var(--sch-pin, #aa0000)';
+                    dot.setAttribute('fill', originalFill);
+                    dot.setAttribute('r', 0.45);  // Reset to original size
+                }
             }
         }
         this.wireSnapPin = null;
@@ -991,8 +1290,15 @@ class SchematicApp {
         this.viewport.onMouseMove = (world, snapped) => {
             // Update drawing preview and crosshair (not throttled - needs real-time feedback)
             if (this.isDrawing) {
-                this._updateDrawing(snapped);
-                this._updateCrosshair(snapped);
+                if (this.currentTool === 'wire') {
+                    // For wire, get the directionally-snapped position for crosshair
+                    const wireSnapped = this._getWireSnappedPosition(world);
+                    this._updateDrawing(wireSnapped);
+                    this._updateCrosshair(wireSnapped);
+                } else {
+                    this._updateDrawing(snapped);
+                    this._updateCrosshair(snapped);
+                }
             }
             
             // Update component preview position during placement (not throttled - needs real-time feedback)
@@ -1180,11 +1486,39 @@ class SchematicApp {
             } else if (this.currentTool === 'wire') {
                 // Wire drawing: click to add waypoints, ESC or right-click to finish
                 if (!this.isDrawing) {
-                    // Start a new wire
-                    this._startWireDrawing(snapped);
+                    // Start a new wire - check for pin snap first
+                    const snapPin = this._findNearbyPin(worldPos);
+                    const startData = snapPin ? 
+                        { x: snapPin.worldPos.x, y: snapPin.worldPos.y, snapPin: snapPin } :
+                        { ...this.viewport.getSnappedPosition(worldPos), snapPin: null };
+                    this._startWireDrawing(startData);
                 } else {
-                    // Add waypoint to existing wire
-                    this._addWireWaypoint(snapped);
+                    // Add waypoint to existing wire - use the raw worldPos plus the snapped pin data
+                    // This avoids storing grid-snapped coordinates in waypoints
+                    const rect = this.viewport.svg.getBoundingClientRect();
+                    const screenPos = {
+                        x: e.clientX - rect.left,
+                        y: e.clientY - rect.top
+                    };
+                    const worldPos = this.viewport.screenToWorld(screenPos);
+                    
+                    if (this.lastSnappedData) {
+                        // Create a waypoint data combining raw world position with snap info
+                        const waypointData = {
+                            x: worldPos.x,
+                            y: worldPos.y,
+                            snapPin: this.lastSnappedData.snapPin,
+                            targetPin: this.lastSnappedData.targetPin,
+                            gridSnappedX: this.lastSnappedData.x,
+                            gridSnappedY: this.lastSnappedData.y
+                        };
+                        this._addWireWaypoint(waypointData);
+                        
+                        // If we just snapped to a pin, finish the wire
+                        if (this.lastSnappedData.snapPin && this.wirePoints.length >= 2) {
+                            this._finishWireDrawing(this.lastSnappedData);
+                        }
+                    }
                 }
                 e.preventDefault();
             } else if (this.currentTool === 'polygon') {
@@ -1199,6 +1533,22 @@ class SchematicApp {
             }
         });
         
+        // Right-click handler: finish wire drawing
+        svg.addEventListener('mousedown', (e) => {
+            if (e.button !== 2) return;  // Right-click
+            if (this.currentTool === 'wire' && this.isDrawing && this.wirePoints.length >= 2) {
+                // Finish the wire on right-click
+                const rect = svg.getBoundingClientRect();
+                const screenPos = {
+                    x: e.clientX - rect.left,
+                    y: e.clientY - rect.top
+                };
+                const worldPos = this.viewport.screenToWorld(screenPos);
+                this._finishWireDrawing(worldPos);
+                e.preventDefault();
+            }
+        });
+        
         svg.addEventListener('mousemove', (e) => {
             const rect = svg.getBoundingClientRect();
             const screenPos = {
@@ -1208,9 +1558,23 @@ class SchematicApp {
             const worldPos = this.viewport.screenToWorld(screenPos);
             const snapped = this.viewport.getSnappedPosition(worldPos);
             
-            // Handle wire drawing updates
-            if (this.currentTool === 'wire' && this.isDrawing) {
-                this._updateWireDrawing(snapped);
+            // Handle wire mode - highlight pins on hover even when not drawing
+            if (this.currentTool === 'wire') {
+                const snapPin = this._findNearbyPin(worldPos);
+                if (snapPin && snapPin !== this.wireSnapPin) {
+                    if (this.wireSnapPin) {
+                        this._unhighlightPin();  // Unhighlight old pin first
+                    }
+                    this.wireSnapPin = snapPin;
+                    this._highlightPin(snapPin);
+                } else if (!snapPin && this.wireSnapPin) {
+                    this._unhighlightPin();  // This sets wireSnapPin to null
+                }
+                
+                // Update drawing if already started
+                if (this.isDrawing) {
+                    this._updateWireDrawing(worldPos);
+                }
                 return;
             }
             
@@ -1318,6 +1682,8 @@ class SchematicApp {
             
             if (this.currentTool === 'polygon') {
                 // Polygon continues until double-click or Escape
+            } else if (this.currentTool === 'wire') {
+                // Wire continues until Enter is pressed
             } else if (this.isDrawing) {
                 this._finishDrawing(snapped);
             }
