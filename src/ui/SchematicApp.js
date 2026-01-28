@@ -142,6 +142,35 @@ class SchematicApp {
         console.log('Schematic Editor initialized');
     }
 
+    _handleEscape() {
+        if (this.isDrawing) {
+            this._cancelDrawing();
+        }
+        // Cancel component placement
+        if (this.placingComponent) {
+            this._cancelComponentPlacement();
+        }
+        // Close component picker if open
+        if (this.componentPicker.isOpen) {
+            this.componentPicker.close();
+        }
+        // Cancel box selection if in progress
+        if (this.dragMode === 'box') {
+            this._removeBoxSelectElement();
+            this.isDragging = false;
+            this.dragMode = null;
+            this.boxSelectStart = null;
+        }
+        // Always return to select mode on Escape
+        if (this.currentTool !== 'select') {
+            this.toolbox.selectTool('select');
+        } else {
+            // Only clear selection if already in select mode and not drawing
+            this.selection.clearSelection();
+            this.renderShapes(true);
+        }
+    }
+
     // ==================== Tool Handling ====================
     
     _onToolSelected(tool) {
@@ -503,8 +532,7 @@ class SchematicApp {
         this.currentTool = 'component';
         
         // Update toolbox to show component tool as active (without triggering callback)
-        this.toolbox.currentTool = 'component';
-        this.toolbox._updateSelection();
+        this.toolbox.selectTool('component', { silent: true, force: true });
         
         // Create preview element
         this._createComponentPreview(definition);
@@ -680,9 +708,7 @@ class SchematicApp {
             this.viewport.svg.style.cursor = 'default';
             // Ensure the Toolbox UI reflects the change (update without triggering callback)
             if (this.toolbox) {
-                this.toolbox.currentTool = 'select';
-                this.toolbox._updateSelection();
-                this.toolbox._updateOptions();
+                this.toolbox.selectTool('select', { silent: true, force: true });
             }
         }
     }
@@ -1244,14 +1270,13 @@ class SchematicApp {
         // Use capture phase so this runs BEFORE Toolbox's listener
         // This allows us to intercept R/M during component placement
         window.addEventListener('keydown', (e) => {
-            if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA') return;
-            
+            if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA')) return;
+
             if (e.ctrlKey || e.metaKey) {
                 switch (e.key.toLowerCase()) {
                     case 's':
                         e.preventDefault();
                         if (e.altKey) {
-                            // Ctrl+Alt+S for Save As (changed from Ctrl+Shift+S)
                             this.saveFileAs();
                         } else {
                             this.saveFile();
@@ -1268,20 +1293,14 @@ class SchematicApp {
                     case 'z':
                         e.preventDefault();
                         if (e.shiftKey) {
-                            if (this.history.redo()) {
-                                this.renderShapes(true);
-                            }
+                            if (this.history.redo()) this.renderShapes(true);
                         } else {
-                            if (this.history.undo()) {
-                                this.renderShapes(true);
-                            }
+                            if (this.history.undo()) this.renderShapes(true);
                         }
                         break;
                     case 'y':
                         e.preventDefault();
-                        if (this.history.redo()) {
-                            this.renderShapes(true);
-                        }
+                        if (this.history.redo()) this.renderShapes(true);
                         break;
                     case 'a':
                         e.preventDefault();
@@ -1292,33 +1311,7 @@ class SchematicApp {
             } else {
                 switch (e.key) {
                     case 'Escape':
-                        if (this.isDrawing) {
-                            this._cancelDrawing();
-                        }
-                        // Cancel component placement
-                        if (this.placingComponent) {
-                            this._cancelComponentPlacement();
-                        }
-                        // Close component picker if open
-                        if (this.componentPicker.isOpen) {
-                            this.componentPicker.close();
-                        }
-                        // Cancel box selection if in progress
-                        if (this.dragMode === 'box') {
-                            this._removeBoxSelectElement();
-                            this.isDragging = false;
-                            this.dragMode = null;
-                            this.boxSelectStart = null;
-                        }
-                        // Always return to select mode on Escape
-                        if (this.currentTool !== 'select') {
-                            this.currentTool = 'select';
-                            this.toolbox.selectTool('select');
-                        } else {
-                            // Only clear selection if already in select mode and not drawing
-                            this.selection.clearSelection();
-                            this.renderShapes(true);
-                        }
+                        this._handleEscape();
                         break;
                     case 'Delete':
                     case 'Backspace':
@@ -1336,7 +1329,7 @@ class SchematicApp {
                         break;
                     case 'm':
                     case 'M':
-                        // Mirror component during placement only  
+                        // Mirror component during placement only
                         if (this.placingComponent) {
                             this._mirrorComponent();
                             e.preventDefault();
@@ -1346,6 +1339,9 @@ class SchematicApp {
                 }
             }
         }, { capture: true });  // Capture phase to run before Toolbox
+
+        // Also listen for ModalManager fallback event
+        window.addEventListener('global-escape', () => this._handleEscape());
     }
     
     _deleteSelected() {

@@ -112,14 +112,21 @@ export class Toolbox {
         });
     }
     
-    selectTool(toolId) {
-        if (this.currentTool === toolId) return;
-        
+    /**
+     * Select a tool and update UI.
+     * options: { silent: boolean, force: boolean }
+     * - silent: do not call onToolSelected callback
+     * - force: update UI even if toolId equals currentTool
+     */
+    selectTool(toolId, options = {}) {
+        const { silent = false, force = false } = options;
+        if (!force && this.currentTool === toolId) return;
+
         this.currentTool = toolId;
         this._updateSelection();
         this._updateOptions();
-        
-        if (this.onToolSelected) {
+
+        if (!silent && this.onToolSelected) {
             this.onToolSelected(toolId);
         }
     }

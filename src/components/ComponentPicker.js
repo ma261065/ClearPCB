@@ -3,6 +3,7 @@
  */
 
 import { getComponentLibrary } from '../components/index.js';
+import { ModalManager } from '../core/ModalManager.js';
 
 export class ComponentPicker {
     constructor(options = {}) {
@@ -16,7 +17,7 @@ export class ComponentPicker {
         this.selectedKiCadResult = null;
         this.selectedCategory = 'All';
         this.searchQuery = '';
-        this.isOpen = true;
+        this.isOpen = false;
         this.searchMode = 'local';  // 'local' or 'lcsc'
         this.lcscResults = [];
         this.isSearching = false;
@@ -33,7 +34,6 @@ export class ComponentPicker {
         this.element.innerHTML = `
             <div class="cp-header">
                 <span class="cp-title">Components</span>
-                <button class="cp-toggle" title="Toggle Panel">◀</button>
             </div>
             <div class="cp-body">
                 <div class="cp-mode-toggle">
@@ -70,10 +70,13 @@ export class ComponentPicker {
         this.previewSvg = this.element.querySelector('.cp-preview-svg');
         this.previewInfo = this.element.querySelector('.cp-preview-info');
         this.placeBtn = this.element.querySelector('.cp-place-btn');
-        this.toggleBtn = this.element.querySelector('.cp-toggle');
         this.bodyEl = this.element.querySelector('.cp-body');
         this.modeButtons = this.element.querySelectorAll('.cp-mode-btn');
         this.categoriesEl = this.element.querySelector('.cp-categories');
+        // Start collapsed if configured
+        if (!this.isOpen) {
+            this.element.classList.add('collapsed');
+        }
         
         // Bind events
         this.searchInput.addEventListener('input', () => {
@@ -85,18 +88,7 @@ export class ComponentPicker {
             }
         });
         
-        // Handle ESC key - close picker and notify parent
-        this.element.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape') {
-                e.preventDefault();
-                e.stopPropagation();
-                this.close();
-                // Call onClose callback
-                if (this.onClose) {
-                    this.onClose();
-                }
-            }
-        }, true); // Use capture phase to intercept before other handlers
+        // Note: ESC handling is performed via ModalManager when picker is open
         
         this.categorySelect.addEventListener('change', () => {
             this.selectedCategory = this.categorySelect.value;
@@ -109,9 +101,7 @@ export class ComponentPicker {
             }
         });
         
-        this.toggleBtn.addEventListener('click', () => {
-            this.toggle();
-        });
+        // Toggle control removed - panel is managed by toolbox and ESC
         
         // Mode toggle buttons
         this.modeButtons.forEach(btn => {
@@ -781,10 +771,15 @@ export class ComponentPicker {
         this.isOpen = !this.isOpen;
         if (this.isOpen) {
             this.element.classList.remove('collapsed');
-            this.toggleBtn.textContent = '◀';
+            // Register with ModalManager so ESC will close the picker
+            ModalManager.push('componentPicker', () => {
+                this.close();
+                if (this.onClose) this.onClose();
+            });
         } else {
             this.element.classList.add('collapsed');
-            this.toggleBtn.textContent = '▶';
+            // Unregister from ModalManager
+            ModalManager.pop('componentPicker');
         }
     }
     
