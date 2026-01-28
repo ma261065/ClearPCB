@@ -1602,6 +1602,20 @@ class SchematicApp {
         if (!def && data.definition) {
             try {
                 console.log('Adding embedded definition from saved file:', data.definitionName);
+                
+                // Ensure the definition has a symbol object
+                // (Handle old saved files that had graphics/pins but no symbol wrapper)
+                if (!data.definition.symbol && (data.definition.graphics || data.definition.pins)) {
+                    console.log('Reconstructing symbol object for:', data.definitionName);
+                    data.definition.symbol = {
+                        width: data.definition.width || 10,
+                        height: data.definition.height || 10,
+                        origin: data.definition.origin || { x: 5, y: 5 },
+                        graphics: data.definition.graphics || [],
+                        pins: data.definition.pins || []
+                    };
+                }
+                
                 this.componentLibrary.addDefinition(data.definition, data.definition._source || 'User');
                 def = this.componentLibrary.getDefinition(data.definitionName);
                 if (def) {
