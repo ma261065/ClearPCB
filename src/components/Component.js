@@ -478,7 +478,18 @@ export class Component {
         // Include full definition for online components (KiCad, LCSC, etc.)
         // This ensures the component can be loaded even if the library hasn't cached it
         if (this.definition._source && this.definition._source !== 'Built-in') {
-            json.definition = this.definition;
+            // Save a safe copy of the definition (avoid circular refs)
+            json.definition = {
+                name: this.definition.name,
+                category: this.definition.category,
+                description: this.definition.description,
+                pins: this.definition.pins,
+                graphics: this.definition.graphics,
+                defaultReference: this.definition.defaultReference,
+                defaultValue: this.definition.defaultValue,
+                defaultProperties: this.definition.defaultProperties,
+                _source: this.definition._source
+            };
         }
         
         return json;

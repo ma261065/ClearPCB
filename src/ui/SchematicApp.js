@@ -1601,10 +1601,14 @@ class SchematicApp {
         // If not found and we have an embedded definition, add it to the library and use it
         if (!def && data.definition) {
             try {
-                this.componentLibrary.addDefinition(data.definition, 'User');
+                console.log('Adding embedded definition from saved file:', data.definitionName);
+                this.componentLibrary.addDefinition(data.definition, data.definition._source || 'User');
                 def = this.componentLibrary.getDefinition(data.definitionName);
+                if (def) {
+                    console.log('Successfully loaded embedded definition:', data.definitionName);
+                }
             } catch (e) {
-                console.warn('Failed to add embedded definition:', e);
+                console.warn('Failed to add embedded definition:', data.definitionName, e);
             }
         }
         
