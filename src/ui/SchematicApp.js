@@ -71,6 +71,7 @@ class SchematicApp {
         this.dragStart = null;
         this.dragAnchorId = null;
         this.dragShape = null;
+        this.dragWireAnchorOriginal = null;
         
         // Box selection
         this.boxSelectElement = null;
@@ -787,7 +788,7 @@ class SchematicApp {
         this._createPreview();
         this._showCrosshair();
         this._updateCrosshair(snappedData);
-        this.viewport.svg.style.cursor = 'none';
+        this.viewport.svg.style.cursor = 'crosshair';
     }
     
     /**
@@ -830,6 +831,34 @@ class SchematicApp {
         this.drawCurrent = displayPos;
         this.lastSnappedData = snappedData;  // Store for preview rendering
         this._updateWirePreview();
+    }
+
+    /**
+     * Get snapped position for wire anchor editing, allowing snap to non-grid segment alignment
+     */
+    _getWireAnchorSnappedPosition(wireShape, anchorId, worldPos) {
+        const snapped = this.viewport.getSnappedPosition(worldPos);
+        const match = anchorId?.match(/point(\d+)/);
+        if (!match || !wireShape?.points || wireShape.points.length === 0) return snapped;
+
+        const idx = parseInt(match[1]);
+        if (Number.isNaN(idx) || idx < 0 || idx >= wireShape.points.length) return snapped;
+
+        const current = wireShape.points[idx];
+        const original = (anchorId === this.dragAnchorId && this.dragWireAnchorOriginal)
+            ? this.dragWireAnchorOriginal
+            : null;
+
+        if (!original) return snapped;
+
+        const snapX = Math.abs(worldPos.x - original.x) <= Math.abs(worldPos.x - snapped.x)
+            ? original.x
+            : snapped.x;
+        const snapY = Math.abs(worldPos.y - original.y) <= Math.abs(worldPos.y - snapped.y)
+            ? original.y
+            : snapped.y;
+
+        return { x: snapX, y: snapY };
     }
     
     /**
@@ -1444,6 +1473,15 @@ class SchematicApp {
                         this.dragStart = { ...snapped };
                         this.dragAnchorId = anchorId;
                         this.dragShape = shape;
+                        this.dragWireAnchorOriginal = null;
+                        if (shape.type === 'wire') {
+                            const match = anchorId.match(/point(\d+)/);
+                            const idx = match ? parseInt(match[1]) : null;
+                            if (idx !== null && idx >= 0 && idx < shape.points.length) {
+                                const current = shape.points[idx];
+                                this.dragWireAnchorOriginal = { x: current.x, y: current.y };
+                            }
+                        }
                         // Capture shape state before modification
                         this.dragShapesBefore = this._captureShapeState(shape);
                         e.preventDefault();
@@ -1574,6 +1612,7 @@ class SchematicApp {
                 // Update drawing if already started
                 if (this.isDrawing) {
                     this._updateWireDrawing(worldPos);
+                    this._updateCrosshair(snapped); // Keep crosshair grid-snapped while cursor stays free
                 }
                 return;
             }
@@ -1602,7 +1641,10 @@ class SchematicApp {
             } else if (this.dragMode === 'anchor' && this.dragShape) {
                 // Move the anchor
                 this.didDrag = true;
-                const newAnchorId = this.dragShape.moveAnchor(this.dragAnchorId, snapped.x, snapped.y);
+                const anchorPos = this.dragShape.type === 'wire'
+                    ? this._getWireAnchorSnappedPosition(this.dragShape, this.dragAnchorId, worldPos)
+                    : snapped;
+                const newAnchorId = this.dragShape.moveAnchor(this.dragAnchorId, anchorPos.x, anchorPos.y);
                 // Update anchor ID if shape flipped (e.g., rectangle dragged past opposite edge)
                 if (newAnchorId && newAnchorId !== this.dragAnchorId) {
                     this.dragAnchorId = newAnchorId;
@@ -1675,6 +1717,7 @@ class SchematicApp {
                 this.dragAnchorId = null;
                 this.dragShape = null;
                 this.dragShapesBefore = null;
+                this.dragWireAnchorOriginal = null;
                 // Don't return - let click handle selection if needed
             }
             
@@ -2090,6 +2133,12 @@ class SchematicApp {
                 return { x: shape.x, y: shape.y, radius: shape.radius, startAngle: shape.startAngle, endAngle: shape.endAngle };
             case 'polygon':
                 return { points: shape.points.map(p => ({ x: p.x, y: p.y })) };
+            case 'wire':
+                return {
+                    points: shape.points.map(p => ({ x: p.x, y: p.y })),
+                    connections: shape.connections ? { ...shape.connections } : null,
+                    net: shape.net || ''
+                };
             default:
                 console.warn('Unknown shape type for state capture:', shape.type);
                 return {};
