@@ -65,6 +65,9 @@ class SchematicApp {
         this.wireLastMousePos = null;  // Last recorded mouse position for turn detection
         this.wirePrimaryDirection = null;  // Primary direction for current segment
         this.wireAutoCorner = null;  // Auto-generated corner for preview
+        this.wireLastGridSnap = null;  // Last grid-snapped position (for grid-line crossing)
+        this.wireLastWorldPos = null;  // Last raw world position (for grid-line crossing)
+        this.wireTurned = false;  // Whether a turn has been triggered for current segment
         
         // Drag state
         this.isDragging = false;
@@ -788,6 +791,9 @@ class SchematicApp {
         this.wireDirection = null;  // Reset direction - will be detected on first move
         this.wirePrimaryDirection = null;
         this.wireAutoCorner = null;
+        this.wireLastGridSnap = null;
+        this.wireLastWorldPos = null;
+        this.wireTurned = false;
         this.isDrawing = true;
         this._createPreview();
         this._showCrosshair();
@@ -814,6 +820,12 @@ class SchematicApp {
             }
         }
         const gridSnapped = this.viewport.getSnappedPosition(worldPos);
+        if (!this.wireLastGridSnap) {
+            this.wireLastGridSnap = { ...gridSnapped };
+        }
+        if (!this.wireLastWorldPos) {
+            this.wireLastWorldPos = { ...worldPos };
+        }
         const snappedData = nearPin ?
             { x: nearPin.worldPos.x, y: nearPin.worldPos.y, snapPin: nearPin, targetPin: nearPin } :
             { x: gridSnapped.x, y: gridSnapped.y, snapPin: null, targetPin: null };
@@ -859,18 +871,32 @@ class SchematicApp {
         }
 
         if (this.wirePrimaryDirection && !snappedData.snapPin) {
-            const turningHorizontal = this.wirePrimaryDirection === 'horizontal' && rawDy > autoCornerDeadband;
-            const turningVertical = this.wirePrimaryDirection === 'vertical' && rawDx > autoCornerDeadband;
+            const gridSize = this.viewport.gridSize;
+            const prevCellX = Math.floor(this.wireLastWorldPos.x / gridSize);
+            const prevCellY = Math.floor(this.wireLastWorldPos.y / gridSize);
+            const currCellX = Math.floor(worldPos.x / gridSize);
+            const currCellY = Math.floor(worldPos.y / gridSize);
+            const crossedGridLineX = currCellX !== prevCellX;
+            const crossedGridLineY = currCellY !== prevCellY;
+            const turningHorizontalTrigger = this.wirePrimaryDirection === 'horizontal' && (rawDy > autoCornerDeadband || crossedGridLineY);
+            const turningVerticalTrigger = this.wirePrimaryDirection === 'vertical' && (rawDx > autoCornerDeadband || crossedGridLineX);
+            const turningHorizontalActive = this.wirePrimaryDirection === 'horizontal' && rawDy > minMovement;
+            const turningVerticalActive = this.wirePrimaryDirection === 'vertical' && rawDx > minMovement;
 
-            if (turningHorizontal) {
+            if (turningHorizontalTrigger || turningVerticalTrigger) {
+                this.wireTurned = true;
+            }
+
+            if (this.wireTurned && turningHorizontalActive) {
                 // Fake snap line at lastPoint.y
                 this.wireAutoCorner = { x: gridSnapped.x, y: lastPoint.y };
                 this.drawCurrent = { x: gridSnapped.x, y: gridSnapped.y };
-            } else if (turningVertical) {
+            } else if (this.wireTurned && turningVerticalActive) {
                 // Fake snap line at lastPoint.x
                 this.wireAutoCorner = { x: lastPoint.x, y: gridSnapped.y };
                 this.drawCurrent = { x: gridSnapped.x, y: gridSnapped.y };
             } else {
+                this.wireTurned = false;
                 this.wireAutoCorner = null;
                 // For straight segments, lock to the starting axis until turning threshold is reached
                 if (this.wirePrimaryDirection === 'horizontal') {
@@ -885,6 +911,8 @@ class SchematicApp {
         }
 
         this.lastSnappedData = snappedData;  // Store for preview rendering
+        this.wireLastGridSnap = { ...gridSnapped };
+        this.wireLastWorldPos = { ...worldPos };
         this._updateWirePreview();
     }
 
@@ -933,6 +961,9 @@ class SchematicApp {
         this.wireDirection = null;  // Reset direction for next segment
         this.wirePrimaryDirection = null;
         this.wireAutoCorner = null;
+        this.wireLastGridSnap = null;
+        this.wireLastWorldPos = null;
+        this.wireTurned = false;
         this._updateWirePreview();
     }
     
@@ -1028,6 +1059,9 @@ class SchematicApp {
         this.wireDirection = null;
         this.wirePrimaryDirection = null;
         this.wireAutoCorner = null;
+        this.wireLastGridSnap = null;
+        this.wireLastWorldPos = null;
+        this.wireTurned = false;
         this._unhighlightPin();
         
         this.isDrawing = false;
