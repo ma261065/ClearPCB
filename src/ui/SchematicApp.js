@@ -65,7 +65,6 @@ class SchematicApp {
         this.wireLastMousePos = null;  // Last recorded mouse position for turn detection
         this.wirePrimaryDirection = null;  // Primary direction for current segment
         this.wireAutoCorner = null;  // Auto-generated corner for preview
-        this.wireLastGridSnap = null;  // Last grid-snapped position (for grid-line crossing)
         this.wireLastWorldPos = null;  // Last raw world position (for grid-line crossing)
         this.wireTurned = false;  // Whether a turn has been triggered for current segment
         
@@ -791,7 +790,6 @@ class SchematicApp {
         this.wireDirection = null;  // Reset direction - will be detected on first move
         this.wirePrimaryDirection = null;
         this.wireAutoCorner = null;
-        this.wireLastGridSnap = null;
         this.wireLastWorldPos = null;
         this.wireTurned = false;
         this.isDrawing = true;
@@ -820,9 +818,6 @@ class SchematicApp {
             }
         }
         const gridSnapped = this.viewport.getSnappedPosition(worldPos);
-        if (!this.wireLastGridSnap) {
-            this.wireLastGridSnap = { ...gridSnapped };
-        }
         if (!this.wireLastWorldPos) {
             this.wireLastWorldPos = { ...worldPos };
         }
@@ -861,10 +856,8 @@ class SchematicApp {
         const lastPoint = this.wirePoints[this.wirePoints.length - 1];
         const rawDx = Math.abs(worldPos.x - lastPoint.x);
         const rawDy = Math.abs(worldPos.y - lastPoint.y);
-        const dx = Math.abs(displayPos.x - lastPoint.x);
-        const dy = Math.abs(displayPos.y - lastPoint.y);
         const minMovement = 0.05;
-        const autoCornerDeadband = Math.max(this.viewport.gridSize * 0.35, 0.15);
+        const autoCornerDeadband = this.viewport.gridSize * 0.5;
 
         if (!this.wirePrimaryDirection && (rawDx > minMovement || rawDy > minMovement)) {
             this.wirePrimaryDirection = rawDx >= rawDy ? 'horizontal' : 'vertical';
@@ -911,7 +904,6 @@ class SchematicApp {
         }
 
         this.lastSnappedData = snappedData;  // Store for preview rendering
-        this.wireLastGridSnap = { ...gridSnapped };
         this.wireLastWorldPos = { ...worldPos };
         this._updateWirePreview();
     }
@@ -961,7 +953,6 @@ class SchematicApp {
         this.wireDirection = null;  // Reset direction for next segment
         this.wirePrimaryDirection = null;
         this.wireAutoCorner = null;
-        this.wireLastGridSnap = null;
         this.wireLastWorldPos = null;
         this.wireTurned = false;
         this._updateWirePreview();
@@ -1059,7 +1050,6 @@ class SchematicApp {
         this.wireDirection = null;
         this.wirePrimaryDirection = null;
         this.wireAutoCorner = null;
-        this.wireLastGridSnap = null;
         this.wireLastWorldPos = null;
         this.wireTurned = false;
         this._unhighlightPin();
@@ -1084,19 +1074,6 @@ class SchematicApp {
         let svg = '';
         
         if (this.wirePoints.length > 0) {
-            // Debug: draw fake snap line for current segment axis
-            if (this.wirePrimaryDirection && this.wirePoints.length > 0) {
-                const last = this.wirePoints[this.wirePoints.length - 1];
-                const vb = this.viewport.viewBox;
-                if (this.wirePrimaryDirection === 'horizontal') {
-                    svg += `<line x1="${vb.x}" y1="${last.y}" x2="${vb.x + vb.width}" y2="${last.y}" 
-                            stroke="#2f8cff" stroke-width="${strokeWidth}" stroke-linecap="round" stroke-dasharray="${4 / this.viewport.scale},${4 / this.viewport.scale}"/>`;
-                } else if (this.wirePrimaryDirection === 'vertical') {
-                    svg += `<line x1="${last.x}" y1="${vb.y}" x2="${last.x}" y2="${vb.y + vb.height}" 
-                            stroke="#2f8cff" stroke-width="${strokeWidth}" stroke-linecap="round" stroke-dasharray="${4 / this.viewport.scale},${4 / this.viewport.scale}"/>`;
-                }
-            }
-
             // Determine if last waypoint should be adjusted for display
             let lastWaypointAdjusted = null;
             if (this.lastSnappedData && this.lastSnappedData.targetPin && this.wirePoints.length > 0) {
