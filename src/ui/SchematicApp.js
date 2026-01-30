@@ -61,12 +61,9 @@ class SchematicApp {
         this.wireSnapPin = null;  // Pin currently being snapped to (if any)
         this.wireSnapTolerance = 0.5;  // How close to snap to a pin
         this.wireStartPin = null;  // The pin we started from (if any)
-        this.wireDirection = null;  // 'horizontal' | 'vertical' | null - direction of current segment
-        this.wireLastMousePos = null;  // Last recorded mouse position for turn detection
-        this.wireSegmentDirection = null;  // Direction locked for current segment once L-shape forms
+        this.wireActiveAxis = null; // 'horizontal' | 'vertical' | null - sticky direction for current segment
         this.wireAutoCorner = null;  // Auto-generated corner for preview
-        this.wireLastWorldPos = null;  // Last raw world position (for grid-line crossing)
-        this.wireTurned = false;  // Whether a turn has been triggered for current segment
+        this.wireLastAdjustedPoint = null; // Last waypoint modified for axis-snap
         
         // Drag state
         this.isDragging = false;
@@ -779,7 +776,6 @@ class SchematicApp {
     _getDisplayPosition(targetPin, drawPos, lastPoint, gridSize) {
         if (!targetPin) return { position: drawPos, adjusted: false, axis: null };
         
-        const halfGrid = (gridSize || 1.0) * 0.5;
         const pinX = targetPin.worldPos.x;
         const pinY = targetPin.worldPos.y;
         
@@ -787,27 +783,16 @@ class SchematicApp {
         const distToFakeX = Math.abs(drawPos.x - pinX);  // How far from vertical line
         const distToFakeY = Math.abs(drawPos.y - pinY);  // How far from horizontal line
         
-        // Check if we should snap to target pin's fake grid
-        const snapToFakeX = distToFakeX <= halfGrid;
-        const snapToFakeY = distToFakeY <= halfGrid;
-        
+        // Since we already detected the pin at 1.0mm tolerance, snap fully to its axes
         let position = drawPos;
         
-        if (snapToFakeY && !snapToFakeX) {
-            // Snap to pin's Y (horizontal approach)
+        if (distToFakeY < distToFakeX) {
+            // Closer to horizontal line - snap Y to pin
             position = { x: drawPos.x, y: pinY };
-        } else if (snapToFakeX && !snapToFakeY) {
-            // Snap to pin's X (vertical approach)
+        } else {
+            // Closer to vertical line (or equal) - snap X to pin
             position = { x: pinX, y: drawPos.y };
-        } else if (snapToFakeX && snapToFakeY) {
-            // Within half-grid of both - snap to whichever is closer
-            if (distToFakeX <= distToFakeY) {
-                position = { x: pinX, y: drawPos.y };
-            } else {
-                position = { x: drawPos.x, y: pinY };
-            }
         }
-        // Otherwise, don't snap - we're too far from the pin's fake grid
         
         return { position, adjusted: position !== drawPos };
     }
@@ -851,11 +836,9 @@ class SchematicApp {
             this.wireStartPin = null;
         }
         
-        this.wireDirection = null;  // Reset direction - will be detected on first move
-        this.wireSegmentDirection = null;  // Reset locked segment direction
         this.wireAutoCorner = null;
-        this.wireLastWorldPos = null;
-        this.wireTurned = false;
+        this.wireActiveAxis = null;
+        this.wireLastAdjustedPoint = null;
         this.isDrawing = true;
         this._createPreview();
         this._showCrosshair();
@@ -869,118 +852,124 @@ class SchematicApp {
     _updateWireDrawing(worldPos) {
         if (!this.isDrawing || this.wirePoints.length === 0) return;
         
-        // Get position with pin priority over grid
-        let nearPin = this._findNearbyPin(worldPos, 1.0);
-        // Don't keep snapping to the start pin once drawing has begun
+        let lastPoint = { ...this.wirePoints[this.wirePoints.length - 1] };
+        const gridSize = this.viewport.gridSize || 1.0;
+        
+        // 1. Find nearby pin (Detection radius 2.0mm)
+        let nearPin = this._findNearbyPin(worldPos, 2.0);
+        
+        // Avoid snapping back to the starting pin immediately
         if (nearPin && this.wireStartPin && this.wirePoints.length === 1) {
             if (this._isSamePin({ component: nearPin.component, pin: nearPin.pin }, this.wireStartPin)) {
                 nearPin = null;
-                this._unhighlightPin();
             }
         }
-        const gridSnapped = this.viewport.getSnappedPosition(worldPos);
-        if (!this.wireLastWorldPos) {
-            this.wireLastWorldPos = { ...worldPos };
-        }
-        const snappedData = nearPin ?
-            { x: nearPin.worldPos.x, y: nearPin.worldPos.y, snapPin: nearPin, targetPin: nearPin } :
-            { x: gridSnapped.x, y: gridSnapped.y, snapPin: null, targetPin: null };
-        const snapPin = snappedData.snapPin;
         
-        if (snapPin && snapPin !== this.wireSnapPin) {
-            this.wireSnapPin = snapPin;
-            this._highlightPin(snapPin);
-        } else if (!snapPin && this.wireSnapPin) {
-            this.wireSnapPin = null;
+        // Handle visual highlighting
+        if (nearPin && nearPin !== this.wireSnapPin) {
+            if (this.wireSnapPin) this._unhighlightPin();
+            this.wireSnapPin = nearPin;
+            this._highlightPin(nearPin);
+        } else if (!nearPin && this.wireSnapPin) {
             this._unhighlightPin();
         }
-        
-        const lastPoint = this.wirePoints[this.wirePoints.length - 1];
-        const gridSize = this.viewport.gridSize || 1.0;
-        const halfGrid = gridSize * 0.5;
-        
-        // Calculate raw movement from last anchor point
+
+        // 2. Determine raw movement for direction locking
         const rawDx = Math.abs(worldPos.x - lastPoint.x);
         const rawDy = Math.abs(worldPos.y - lastPoint.y);
+        const dist = Math.hypot(worldPos.x - lastPoint.x, worldPos.y - lastPoint.y);
 
-        // Determine which grid line we're closest to (real or fake)
-        let displayPos = { x: gridSnapped.x, y: gridSnapped.y };
+        // Reset/Update Direction Lock based on the dominant axis of movement
+        if (dist < gridSize * 0.15) {
+            this.wireActiveAxis = null;
+        } else if (!this.wireActiveAxis) {
+            this.wireActiveAxis = rawDx >= rawDy ? 'horizontal' : 'vertical';
+        }
 
-        // If starting from a pin, use fake grid lines instead of real grid
-        if (this.wireStartPin && this.wirePoints.length === 1) {
-            const fakeX = lastPoint.x;  // Vertical fake grid line at start pin X
-            const fakeY = lastPoint.y;  // Horizontal fake grid line at start pin Y
-            
-            // Distance to fake grid lines
-            const distToFakeX = Math.abs(worldPos.x - fakeX);  // How far from vertical line
-            const distToFakeY = Math.abs(worldPos.y - fakeY);  // How far from horizontal line
-            
-            // Check if we should snap to fake X (vertical line)
-            const snapToFakeX = distToFakeX <= halfGrid;
-            // Check if we should snap to fake Y (horizontal line)
-            const snapToFakeY = distToFakeY <= halfGrid;
-            
-            if (snapToFakeX && !snapToFakeY) {
-                // Closer to vertical fake line - snap X to fake, Y to grid
-                displayPos = { x: fakeX, y: gridSnapped.y };
-            } else if (snapToFakeY && !snapToFakeX) {
-                // Closer to horizontal fake line - snap Y to fake, X to grid
-                displayPos = { x: gridSnapped.x, y: fakeY };
-            } else if (snapToFakeX && snapToFakeY) {
-                // Within half-grid of both - snap to whichever is closer
-                if (distToFakeX <= distToFakeY) {
-                    displayPos = { x: fakeX, y: gridSnapped.y };
-                } else {
-                    displayPos = { x: gridSnapped.x, y: fakeY };
+        // 3. Calculate target coordinate
+        const gridSnapped = this.viewport.getSnappedPosition(worldPos);
+        let target = { ...gridSnapped };
+        let isAdjusted = false;
+
+        // Apply Fake Grid Snapping (Pin Alignment)
+        if (nearPin) {
+            const pinPos = nearPin.worldPos;
+            const dxPin = Math.abs(worldPos.x - pinPos.x);
+            const dyPin = Math.abs(worldPos.y - pinPos.y);
+            const snapThreshold = 0.75; // Snapping sensitivity to pin axis
+
+            // If we are approaching horizontally, snap vertical position to pin center
+            if (this.wireActiveAxis === 'horizontal') {
+                if (dyPin < snapThreshold) target.y = pinPos.y;
+                // Reach-in snap: snap the X as well if we are very close to the center
+                if (dxPin < snapThreshold) target.x = pinPos.x;
+            } 
+            // If we are approaching vertically, snap horizontal position to pin center
+            else if (this.wireActiveAxis === 'vertical') {
+                if (dxPin < snapThreshold) target.x = pinPos.x;
+                // Reach-in snap: snap the Y as well if we are very close
+                if (dyPin < snapThreshold) target.y = pinPos.y;
+            }
+            // If no lock yet, just snap to center if extremely close
+            else if (dxPin < snapThreshold && dyPin < snapThreshold) {
+                target = { ...pinPos };
+            }
+
+            // Waypoint Adjustment: Slide the previous waypoint to align with the pin
+            // We only do this for SMALL adjustments (stubs). If the user has made 
+            // a significant move, we respect their manual corner and don't collapse it.
+            if (this.wirePoints.length >= 2) {
+                const lastWaypoint = this.wirePoints[this.wirePoints.length - 1];
+                const prevWay = this.wirePoints[this.wirePoints.length - 2];
+                if (!lastWaypoint.pin) {
+                    const isVerticalPrev = Math.abs(lastWaypoint.x - prevWay.x) < 0.05;
+                    const isHorizontalPrev = Math.abs(lastWaypoint.y - prevWay.y) < 0.05;
+                    const shiftThreshold = gridSize * 0.8; // Only fix small offsets (< 1 grid)
+
+                    if (this.wireActiveAxis === 'horizontal') {
+                        const dy = Math.abs(target.y - lastWaypoint.y);
+                        if (isVerticalPrev && dy > 0.05 && dy < shiftThreshold) {
+                            lastPoint.y = target.y; 
+                            isAdjusted = true;
+                        }
+                    } else if (this.wireActiveAxis === 'vertical') {
+                        const dx = Math.abs(target.x - lastPoint.x);
+                        if (isHorizontalPrev && dx > 0.05 && dx < shiftThreshold) {
+                            lastPoint.x = target.x; 
+                            isAdjusted = true;
+                        }
+                    }
                 }
-            } else {
-                // More than half-grid away from both fake lines - snap to real grid
-                displayPos = { x: gridSnapped.x, y: gridSnapped.y };
             }
         }
 
-        if (snappedData.targetPin) {
-            const display = this._getDisplayPosition(snappedData.targetPin, displayPos, lastPoint, gridSize);
-            displayPos = display.position;
+        // 4. Enforce Orthogonality for free-drawing
+        const orthogonalSnapLimit = gridSize * 0.45;
+        if (!nearPin) {
+             if (this.wireActiveAxis === 'vertical' && rawDx <= orthogonalSnapLimit) {
+                target.x = lastPoint.x;
+            } else if (this.wireActiveAxis === 'horizontal' && rawDy <= orthogonalSnapLimit) {
+                target.y = lastPoint.y;
+            }
         }
 
-        const minMovement = 0.05;
-        const finalDx = Math.abs(displayPos.x - lastPoint.x);
-        const finalDy = Math.abs(displayPos.y - lastPoint.y);
-        
-        // Only use locked direction if we're currently in an L-shape
-        // If we're back to single-axis movement, allow direction to recalculate
-        const isInLShape = finalDx > minMovement && finalDy > minMovement;
-        let primaryDirection = (isInLShape && this.wireSegmentDirection) ? this.wireSegmentDirection : (finalDx >= finalDy ? 'horizontal' : 'vertical');
-
-        if (finalDx > minMovement && finalDy > minMovement) {
-            // L-shape detected: lock in the direction for this segment
-            if (!this.wireSegmentDirection) {
-                this.wireSegmentDirection = primaryDirection;
+        // 5. Calculate Corner Strategy
+        // 'vertical'   => Start with vertical segment -> Corner is (last.x, target.y)
+        // 'horizontal' => Start with horizontal segment -> Corner is (target.x, last.y)
+        this.wireAutoCorner = null;
+        if (this.wireActiveAxis === 'vertical') {
+            if (Math.abs(target.x - lastPoint.x) > 0.05 && Math.abs(target.y - lastPoint.y) > 0.05) {
+                this.wireAutoCorner = { x: lastPoint.x, y: target.y };
             }
-            if (primaryDirection === 'horizontal') {
-                this.wireAutoCorner = { x: displayPos.x, y: lastPoint.y };
-            } else {
-                this.wireAutoCorner = { x: lastPoint.x, y: displayPos.y };
+        } else if (this.wireActiveAxis === 'horizontal') {
+            if (Math.abs(target.x - lastPoint.x) > 0.05 && Math.abs(target.y - lastPoint.y) > 0.05) {
+                this.wireAutoCorner = { x: target.x, y: lastPoint.y };
             }
-            this.drawCurrent = { x: displayPos.x, y: displayPos.y };
-        } else if (finalDx > minMovement || finalDy > minMovement) {
-            // Back to straight segment: clear the lock so direction can change
-            this.wireSegmentDirection = null;
-            this.wireAutoCorner = null;
-            if (primaryDirection === 'horizontal') {
-                this.drawCurrent = { x: displayPos.x, y: lastPoint.y };
-            } else {
-                this.drawCurrent = { x: lastPoint.x, y: displayPos.y };
-            }
-        } else {
-            this.wireSegmentDirection = null;
-            this.wireAutoCorner = null;
-            this.drawCurrent = { x: lastPoint.x, y: lastPoint.y };
         }
 
-        this.lastSnappedData = snappedData;  // Store for preview rendering
-        this.wireLastWorldPos = { ...worldPos };
+        this.drawCurrent = target;
+        this.wireLastAdjustedPoint = isAdjusted ? lastPoint : null;
+        this.lastSnappedData = { x: target.x, y: target.y, snapPin: nearPin, targetPin: nearPin };
         this._updateWirePreview();
     }
 
@@ -1017,6 +1006,12 @@ class SchematicApp {
     _addWireWaypoint(waypointData) {
         if (this.wirePoints.length === 0) return;
         
+        // Apply any live adjustments (e.g. pin snapping) to the previous waypoint
+        if (this.wireLastAdjustedPoint && this.wirePoints.length > 0) {
+            this.wirePoints[this.wirePoints.length - 1] = { ...this.wireLastAdjustedPoint };
+            this.wireLastAdjustedPoint = null;
+        }
+
         const sourcePoint = waypointData?.point || this.drawCurrent;
         // Just store the coordinate that was being previewed
         const point = waypointData.snapPin ? 
@@ -1024,11 +1019,8 @@ class SchematicApp {
             { x: sourcePoint.x, y: sourcePoint.y };
 
         this.wirePoints.push(point);
-        this.wireDirection = null;  // Reset direction for next segment
-        this.wireSegmentDirection = null;  // Reset locked segment direction for next segment
         this.wireAutoCorner = null;
-        this.wireLastWorldPos = null;
-        this.wireTurned = false;
+        this.wireActiveAxis = null;
         this._updateWirePreview();
     }
     
@@ -1057,26 +1049,6 @@ class SchematicApp {
 
         // Ensure any pin highlight is cleared when finalizing a wire
         this._unhighlightPin();
-        
-        // Adjust the previous waypoint to align with the target pin (matches preview behavior)
-        if (this.lastSnappedData && this.lastSnappedData.targetPin && this.wirePoints.length >= 2) {
-            const pin = this.lastSnappedData.targetPin;
-            const lastWaypoint = this.wirePoints[this.wirePoints.length - 1];
-            const prevWaypoint = this.wirePoints[this.wirePoints.length - 2];
-            const dx = Math.abs(pin.worldPos.x - prevWaypoint.x);
-            const dy = Math.abs(pin.worldPos.y - prevWaypoint.y);
-
-            if (dx > dy) {
-                // Horizontal approach: move previous waypoint to pin's Y
-                prevWaypoint.y = pin.worldPos.y;
-            } else if (dy > dx) {
-                // Vertical approach: move previous waypoint to pin's X
-                prevWaypoint.x = pin.worldPos.x;
-            }
-            // Ensure the final point is exactly on the pin
-            lastWaypoint.x = pin.worldPos.x;
-            lastWaypoint.y = pin.worldPos.y;
-        }
         
         // Create wire shape with the waypoints we already have
         // (they were set correctly during drawing with pin snapping)
@@ -1109,9 +1081,9 @@ class SchematicApp {
         this.wirePoints = [];
         this.wireSnapPin = null;
         this.wireStartPin = null;
-        this.wireDirection = null;
-        this.wireSegmentDirection = null;
         this.wireAutoCorner = null;
+        this.wireActiveAxis = null;
+        this.wireLastAdjustedPoint = null;
         this.wireLastWorldPos = null;
         this.wireTurned = false;
         this._unhighlightPin();
@@ -1135,55 +1107,43 @@ class SchematicApp {
         const strokeWidth = this._getEffectiveStrokeWidth(0.2);
         let svg = '';
 
-        // Debug: draw fake grid lines for start/target pins
-        const vb = this.viewport.viewBox;
-        const drawFakeGridLines = (pinWorldPos, color) => {
-            if (!pinWorldPos) return;
-            svg += `<line x1="${pinWorldPos.x}" y1="${vb.y}" x2="${pinWorldPos.x}" y2="${vb.y + vb.height}" ` +
-                   `stroke="${color}" stroke-width="${strokeWidth}" stroke-dasharray="2,2" opacity="0.7"/>`;
-            svg += `<line x1="${vb.x}" y1="${pinWorldPos.y}" x2="${vb.x + vb.width}" y2="${pinWorldPos.y}" ` +
-                   `stroke="${color}" stroke-width="${strokeWidth}" stroke-dasharray="2,2" opacity="0.7"/>`;
-        };
-
-        if (this.wireStartPin) {
-            const startPos = this.wireStartPin.worldPos || {
-                x: this.wireStartPin.component.x + this.wireStartPin.pin.x,
-                y: this.wireStartPin.component.y + this.wireStartPin.pin.y
-            };
-            drawFakeGridLines(startPos, '#44ccff');
-        }
-
-        if (this.lastSnappedData?.targetPin?.worldPos) {
-            drawFakeGridLines(this.lastSnappedData.targetPin.worldPos, '#ffcc44');
+        // Use original waypoints, but the last one might be adjusted by _updateWireDrawing
+        const wirePoints = this.wirePoints;
+        
+        // Draw all established segments
+        for (let i = 0; i < wirePoints.length - 1; i++) {
+            const p1 = wirePoints[i];
+            let p2 = wirePoints[i + 1];
+            
+            // If this is the last established segment and we have an adjusted point (for snapping), use it
+            if (i === wirePoints.length - 2 && this.wireLastAdjustedPoint) {
+                p2 = this.wireLastAdjustedPoint;
+            }
+            
+            svg += `<line x1="${p1.x}" y1="${p1.y}" x2="${p2.x}" y2="${p2.y}" 
+                    stroke="#00cc66" stroke-width="${strokeWidth}" stroke-linecap="round"/>`;
         }
         
-        if (this.wirePoints.length > 0) {
-            // Draw all segments
-            for (let i = 0; i < this.wirePoints.length - 1; i++) {
-                const p1 = this.wirePoints[i];
-                const p2 = this.wirePoints[i + 1];
-                
-                svg += `<line x1="${p1.x}" y1="${p1.y}" x2="${p2.x}" y2="${p2.y}" 
+        // Draw waypoint dots
+        for (let i = 0; i < wirePoints.length; i++) {
+            let p = wirePoints[i];
+            // Adjust the last dot if it's currently being shifted for a pin snap
+            if (i === wirePoints.length - 1 && this.wireLastAdjustedPoint) {
+                p = this.wireLastAdjustedPoint;
+            }
+            svg += `<circle cx="${p.x}" cy="${p.y}" r="${2 / this.viewport.scale}" fill="#00cc66"/>`;
+        }
+        
+        // Draw preview line to cursor
+        if (this.drawCurrent && wirePoints.length > 0) {
+            const last = this.wireLastAdjustedPoint || wirePoints[wirePoints.length - 1];
+            if (this.wireAutoCorner) {
+                svg += `<line x1="${last.x}" y1="${last.y}" x2="${this.wireAutoCorner.x}" y2="${this.wireAutoCorner.y}" 
                         stroke="#00cc66" stroke-width="${strokeWidth}" stroke-linecap="round"/>`;
-            }
-            
-            // Draw waypoint dots
-            for (const p of this.wirePoints) {
-                svg += `<circle cx="${p.x}" cy="${p.y}" r="${2 / this.viewport.scale}" fill="#00cc66"/>`;
-            }
-            
-            // Draw preview line from last point to cursor (solid, not dashed)
-            if (this.drawCurrent && this.wirePoints.length > 0) {
-                let last = this.wirePoints[this.wirePoints.length - 1];
-                let drawTo = this.drawCurrent;
-
-                if (this.wireAutoCorner) {
-                    svg += `<line x1="${last.x}" y1="${last.y}" x2="${this.wireAutoCorner.x}" y2="${this.wireAutoCorner.y}" 
-                            stroke="#00cc66" stroke-width="${strokeWidth}" stroke-linecap="round"/>`;
-                    last = this.wireAutoCorner;
-                }
-                
-                svg += `<line x1="${last.x}" y1="${last.y}" x2="${drawTo.x}" y2="${drawTo.y}" 
+                svg += `<line x1="${this.wireAutoCorner.x}" y1="${this.wireAutoCorner.y}" x2="${this.drawCurrent.x}" y2="${this.drawCurrent.y}" 
+                        stroke="#00cc66" stroke-width="${strokeWidth}" stroke-linecap="round"/>`;
+            } else {
+                svg += `<line x1="${last.x}" y1="${last.y}" x2="${this.drawCurrent.x}" y2="${this.drawCurrent.y}" 
                         stroke="#00cc66" stroke-width="${strokeWidth}" stroke-linecap="round"/>`;
             }
         }
@@ -1692,20 +1652,6 @@ class SchematicApp {
 
                         if (this.wireAutoCorner && !this._pointsMatch(lastPoint, this.wireAutoCorner)) {
                             this._addWireWaypoint({ point: this.wireAutoCorner, snapPin: null });
-                        }
-
-                        if (
-                            this.wirePrimaryDirection &&
-                            rawDx > minMovement &&
-                            rawDy > minMovement &&
-                            !this.lastSnappedData.snapPin
-                        ) {
-                            const manualCorner = this.wirePrimaryDirection === 'horizontal'
-                                ? { x: gridSnapped.x, y: lastPoint.y }
-                                : { x: lastPoint.x, y: gridSnapped.y };
-                            if (!this._pointsMatch(lastPoint, manualCorner)) {
-                                this._addWireWaypoint({ point: manualCorner, snapPin: null });
-                            }
                         }
 
                         this._addWireWaypoint({
