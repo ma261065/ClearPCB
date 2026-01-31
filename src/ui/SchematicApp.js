@@ -4,7 +4,7 @@
 
 import { Viewport } from '../core/Viewport.js';
 import { EventBus, Events, globalEventBus } from '../core/EventBus.js';
-import { CommandHistory, AddShapeCommand } from '../core/CommandHistory.js';
+import { CommandHistory } from '../core/CommandHistory.js';
 import { SelectionManager } from '../core/SelectionManager.js';
 import { FileManager } from '../core/FileManager.js';
 import { ComponentPicker } from '../components/ComponentPicker.js';
@@ -83,6 +83,13 @@ import { onToolSelected, onComponentPickerClosed, onOptionsChanged } from './mod
 import { updateSelectableItems, generateReference, getSelectedComponents, renderComponents } from './modules/components-utils.js';
 import { setupCallbacks } from './modules/callbacks.js';
 import { updateUndoRedoButtons, makeHelpPanelDraggable } from './modules/ui-utils.js';
+import {
+    addShape,
+    addShapeInternal,
+    addShapeInternalAt,
+    removeShapeInternal,
+    renderShapes
+} from './modules/shape-management.js';
 
 // Shape class registry for deserialization
 const ShapeClasses = { Line, Wire, Circle, Rect, Arc, Polygon, Text };
@@ -260,40 +267,21 @@ class SchematicApp {
      * Add a shape (creates an undoable command)
      */
     addShape(shape) {
-        const command = new AddShapeCommand(this, shape);
-        this.history.execute(command);
-        return shape;
+        return addShape(this, shape);
     }
     
     /**
      * Internal add - used by commands, no history entry
      */
     _addShapeInternal(shape) {
-        this.shapes.push(shape);
-        shape.render(this.viewport.scale);
-        this.viewport.addContent(shape.element);
-        this._updateSelectableItems();
-        this.selection._invalidateHitTestCache();  // Invalidate cache when shapes change
-        this.fileManager.setDirty(true);
-        return shape;
+        return addShapeInternal(this, shape);
     }
     
     /**
      * Internal add at specific index - used by undo
      */
     _addShapeInternalAt(shape, index) {
-        // Re-render if element was removed
-        shape.render(this.viewport.scale);
-        
-        if (index >= 0 && index < this.shapes.length) {
-            this.shapes.splice(index, 0, shape);
-        } else {
-            this.shapes.push(shape);
-        }
-        this.viewport.addContent(shape.element);
-        this._updateSelectableItems();
-        this.fileManager.setDirty(true);
-        return shape;
+        return addShapeInternalAt(this, shape, index);
     }
     
     /**
@@ -301,28 +289,11 @@ class SchematicApp {
      * Does NOT destroy the shape so it can be re-added on undo
      */
     _removeShapeInternal(shape) {
-        const idx = this.shapes.indexOf(shape);
-        if (idx !== -1) {
-            this.shapes.splice(idx, 1);
-            if (shape.element && shape.element.parentNode) {
-                shape.element.parentNode.removeChild(shape.element);
-            }
-            if (shape.anchorsGroup && shape.anchorsGroup.parentNode) {
-                shape.anchorsGroup.parentNode.removeChild(shape.anchorsGroup);
-            }
-            this.selection.deselect(shape);
-            this.selection._invalidateHitTestCache();  // Invalidate cache when shapes change
-            this._updateSelectableItems();
-            this.fileManager.setDirty(true);
-        }
+        removeShapeInternal(this, shape);
     }
     
     renderShapes(force = false) {
-        for (const shape of this.shapes) {
-            if (force || shape._dirty || shape.selected || shape.hovered) {
-                shape.render(this.viewport.scale);
-            }
-        }
+        renderShapes(this, force);
     }
 
     // ==================== Drawing ====================
