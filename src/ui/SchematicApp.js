@@ -10,12 +10,34 @@ import { FileManager } from '../core/FileManager.js';
 import { storageManager } from '../core/StorageManager.js';
 import { ComponentPicker } from '../components/ComponentPicker.js';
 import { Line, Wire, Circle, Rect, Arc, Polygon, Text } from '../shapes/index.js';
-import { Component, getComponentLibrary } from '../components/index.js';
+import { getComponentLibrary } from '../components/index.js';
 import { bindMouseEvents } from './modules/mouse.js';
 import { bindKeyboardShortcuts } from './modules/keyboard.js';
 import { bindPropertiesPanel, updatePropertiesPanel, applyCommonProperty } from './modules/properties.js';
 import { bindRibbon, updateRibbonState, updateShapePanelOptions } from './modules/ribbon.js';
 import { updateCrosshair, getToolIconPath, setToolCursor, showCrosshair, hideCrosshair } from './modules/cursor.js';
+import { bindViewportControls, updateGridDropdown, fitToContent } from './modules/viewport.js';
+import {
+    startDrawing,
+    updateDrawing,
+    finishDrawing,
+    addPolygonPoint,
+    finishPolygon,
+    cancelDrawing,
+    createPreview,
+    getEffectiveStrokeWidth,
+    updatePreview,
+    createShapeFromDrawing
+} from './modules/drawing.js';
+import {
+    onComponentDefinitionSelected,
+    createComponentPreview,
+    updateComponentPreview,
+    placeComponent,
+    rotateComponent,
+    mirrorComponent,
+    cancelComponentPlacement
+} from './modules/components.js';
 import {
     serializeDocument,
     loadDocument,
@@ -351,245 +373,45 @@ class SchematicApp {
     // ==================== Drawing ====================
     
     _startDrawing(worldPos) {
-        if (this.currentTool === 'select') return;
-        
-        this.isDrawing = true;
-        this.drawStart = { ...worldPos };
-        this.drawCurrent = { ...worldPos };
-        
-        if (this.currentTool === 'polygon') {
-            this.polygonPoints = [{ ...worldPos }];
-        }
-        
-        this._createPreview();
-        this._showCrosshair();
-        this._updateCrosshair(worldPos);
-        this._setToolCursor(this.currentTool, this.viewport.svg);
+        startDrawing(this, worldPos);
     }
     
     _updateDrawing(worldPos) {
-        if (!this.isDrawing) return;
-        
-        this.drawCurrent = { ...worldPos };
-        this._updatePreview();
+        updateDrawing(this, worldPos);
     }
     
     _finishDrawing(worldPos) {
-        if (!this.isDrawing) return;
-        
-        this.drawCurrent = { ...worldPos };
-        
-        // Create the actual shape
-        const shape = this._createShapeFromDrawing();
-        if (shape) {
-            this.addShape(shape);
-        }
-        
-        this._cancelDrawing();
+        finishDrawing(this, worldPos);
     }
     
     _addPolygonPoint(worldPos) {
-        if (this.currentTool === 'polygon' && this.isDrawing) {
-            this.polygonPoints.push({ ...worldPos });
-            this._updatePreview();
-        }
+        addPolygonPoint(this, worldPos);
     }
     
     _finishPolygon() {
-        if (this.currentTool === 'polygon' && this.isDrawing && this.polygonPoints.length >= 3) {
-            const shape = new Polygon({
-                points: this.polygonPoints.map(p => ({ ...p })),
-                color: this.toolOptions.color,
-                lineWidth: this.toolOptions.lineWidth,
-                fill: this.toolOptions.fill,
-                fillColor: this.toolOptions.color,
-                fillAlpha: 0.3,
-                closed: true
-            });
-            this.addShape(shape);
-        }
-        this._cancelDrawing();
+        finishPolygon(this);
     }
     
     _cancelDrawing() {
-        this.isDrawing = false;
-        this.drawStart = null;
-        this.drawCurrent = null;
-        this.polygonPoints = [];
-        
-        if (this.previewElement) {
-            this.previewElement.remove();
-            this.previewElement = null;
-        }
-        
-        this._hideCrosshair();
-        this._setToolCursor(this.currentTool, this.viewport.svg);
+        cancelDrawing(this);
     }
     
     _createPreview() {
-        // Create SVG element for preview
-        this.previewElement = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-        this.previewElement.setAttribute('class', 'preview');
-        this.previewElement.style.opacity = '0.6';
-        this.previewElement.style.pointerEvents = 'none';
-        this.viewport.contentLayer.appendChild(this.previewElement);
+        createPreview(this);
     }
     
     
     // Calculate effective stroke width with minimum screen pixel size
     _getEffectiveStrokeWidth(lineWidth) {
-        const minWorldWidth = 1 / this.viewport.scale; // 1 screen pixel minimum
-        return Math.max(lineWidth, minWorldWidth);
+        return getEffectiveStrokeWidth(this, lineWidth);
     }
     
     _updatePreview() {
-        if (!this.previewElement || !this.drawStart || !this.drawCurrent) return;
-        
-        const start = this.drawStart;
-        const end = this.drawCurrent;
-        const opts = this.toolOptions;
-        const strokeWidth = this._getEffectiveStrokeWidth(opts.lineWidth);
-        
-        let svg = '';
-        
-        switch (this.currentTool) {
-            case 'line':
-            case 'wire':
-                svg = `<line x1="${start.x}" y1="${start.y}" x2="${end.x}" y2="${end.y}" 
-                        stroke="${opts.color}" stroke-width="${strokeWidth}" stroke-linecap="round"/>`;
-                break;
-                
-            case 'rect':
-                const x = Math.min(start.x, end.x);
-                const y = Math.min(start.y, end.y);
-                const w = Math.abs(end.x - start.x);
-                const h = Math.abs(end.y - start.y);
-                svg = `<rect x="${x}" y="${y}" width="${w}" height="${h}" 
-                        stroke="${opts.color}" stroke-width="${strokeWidth}" 
-                        fill="${opts.fill ? opts.color : 'none'}" fill-opacity="0.3"/>`;
-                break;
-                
-            case 'circle':
-                const radius = Math.hypot(end.x - start.x, end.y - start.y);
-                svg = `<circle cx="${start.x}" cy="${start.y}" r="${radius}" 
-                        stroke="${opts.color}" stroke-width="${strokeWidth}" 
-                        fill="${opts.fill ? opts.color : 'none'}" fill-opacity="0.3"/>`;
-                break;
-                
-            case 'arc':
-                const arcRadius = Math.hypot(end.x - start.x, end.y - start.y);
-                const endAngle = Math.atan2(end.y - start.y, end.x - start.x);
-                const arcEndX = start.x + arcRadius * Math.cos(endAngle);
-                const arcEndY = start.y + arcRadius * Math.sin(endAngle);
-                const largeArc = endAngle > Math.PI ? 1 : 0;
-                svg = `<path d="M ${start.x + arcRadius} ${start.y} A ${arcRadius} ${arcRadius} 0 ${largeArc} 1 ${arcEndX} ${arcEndY}" 
-                        stroke="${opts.color}" stroke-width="${strokeWidth}" fill="none" stroke-linecap="round"/>`;
-                break;
-                
-            case 'polygon':
-                if (this.polygonPoints.length > 0) {
-                    const points = [...this.polygonPoints, end];
-                    const pointsStr = points.map(p => `${p.x},${p.y}`).join(' ');
-                    svg = `<polyline points="${pointsStr}" 
-                            stroke="${opts.color}" stroke-width="${strokeWidth}" 
-                            fill="${opts.fill ? opts.color : 'none'}" fill-opacity="0.3"
-                            stroke-linecap="round" stroke-linejoin="round"/>`;
-                    // Draw vertex indicators
-                    for (const p of this.polygonPoints) {
-                        svg += `<circle cx="${p.x}" cy="${p.y}" r="${2 / this.viewport.scale}" fill="${opts.color}"/>`;
-                    }
-                }
-                break;
-            case 'text':
-                svg = `<text x="${start.x}" y="${start.y}" fill="${opts.color}" font-size="2.5" font-family="Arial" dominant-baseline="hanging">Text</text>`;
-                break;
-        }
-        
-        this.previewElement.innerHTML = svg;
+        updatePreview(this);
     }
     
     _createShapeFromDrawing() {
-        const start = this.drawStart;
-        const end = this.drawCurrent;
-        const opts = this.toolOptions;
-        
-        // Minimum size check
-        const minSize = 0.5;
-        
-        switch (this.currentTool) {
-            case 'line':
-            case 'wire': {
-                const length = Math.hypot(end.x - start.x, end.y - start.y);
-                if (length < minSize) return null;
-                return new Line({
-                    x1: start.x, y1: start.y,
-                    x2: end.x, y2: end.y,
-                    color: this.currentTool === 'wire' ? '#00cc66' : opts.color,
-                    lineWidth: opts.lineWidth
-                });
-            }
-                
-            case 'rect': {
-                const w = Math.abs(end.x - start.x);
-                const h = Math.abs(end.y - start.y);
-                if (w < minSize || h < minSize) return null;
-                return new Rect({
-                    x: Math.min(start.x, end.x),
-                    y: Math.min(start.y, end.y),
-                    width: w,
-                    height: h,
-                    color: opts.color,
-                    lineWidth: opts.lineWidth,
-                    fill: opts.fill,
-                    fillColor: opts.color,
-                    fillAlpha: 0.3
-                });
-            }
-                
-            case 'circle': {
-                const radius = Math.hypot(end.x - start.x, end.y - start.y);
-                if (radius < minSize) return null;
-                return new Circle({
-                    x: start.x,
-                    y: start.y,
-                    radius,
-                    color: opts.color,
-                    lineWidth: opts.lineWidth,
-                    fill: opts.fill,
-                    fillColor: opts.color,
-                    fillAlpha: 0.3
-                });
-            }
-                
-            case 'arc': {
-                const arcRadius = Math.hypot(end.x - start.x, end.y - start.y);
-                if (arcRadius < minSize) return null;
-                const endAngle = Math.atan2(end.y - start.y, end.x - start.x);
-                return new Arc({
-                    x: start.x,
-                    y: start.y,
-                    radius: arcRadius,
-                    startAngle: 0,
-                    endAngle: endAngle,
-                    color: opts.color,
-                    lineWidth: opts.lineWidth
-                });
-            }
-            case 'text': {
-                const label = window.prompt('Text', 'Text');
-                if (label === null) return null;
-                return new Text({
-                    x: start.x,
-                    y: start.y,
-                    text: label,
-                    color: opts.color,
-                    fillColor: opts.color
-                });
-            }
-                
-            default:
-                return null;
-        }
+        return createShapeFromDrawing(this);
     }
 
     // ==================== Wire Drawing ====================
@@ -1258,105 +1080,28 @@ class SchematicApp {
      * Called when a component definition is selected in the picker
      */
     _onComponentDefinitionSelected(definition) {
-        // Cancel any current drawing
-        this._cancelDrawing();
-        
-        // Start component placement mode
-        this.placingComponent = definition;
-        this.currentTool = 'component';
-
-        this._setActiveToolButton?.('component');
-        this._updateShapePanelOptions(this.selection.getSelection(), 'component');
-        
-        // Create preview element
-        this._createComponentPreview(definition);
-        
-        // Change cursor
-        this.viewport.svg.style.cursor = 'crosshair';
-        
-        console.log('Placing component:', definition.name);
+        onComponentDefinitionSelected(this, definition);
     }
     
     /**
      * Create component preview that follows cursor
      */
     _createComponentPreview(definition) {
-        if (this.componentPreview) {
-            this.componentPreview.remove();
-        }
-        
-        // Create a temporary component for preview
-        const tempComponent = new Component(definition, {
-            x: 0,
-            y: 0,
-            rotation: this.componentRotation,
-            mirror: this.componentMirror,
-            reference: definition.defaultReference || 'U?'
-        });
-        
-        this.componentPreview = tempComponent.createSymbolElement();
-        this.componentPreview.style.opacity = '0.6';
-        this.componentPreview.style.pointerEvents = 'none';
-        this.componentPreview.classList.add('component-preview');
-        
-        this.viewport.contentLayer.appendChild(this.componentPreview);
+        createComponentPreview(this, definition);
     }
     
     /**
      * Update component preview position
      */
     _updateComponentPreview(worldPos) {
-        if (!this.componentPreview || !this.placingComponent) return;
-        
-        // Build transform
-        const parts = [`translate(${worldPos.x}, ${worldPos.y})`];
-        if (this.componentRotation !== 0) {
-            parts.push(`rotate(${this.componentRotation})`);
-        }
-        if (this.componentMirror) {
-            parts.push('scale(-1, 1)');
-        }
-        
-        this.componentPreview.setAttribute('transform', parts.join(' '));
+        updateComponentPreview(this, worldPos);
     }
     
     /**
      * Place the current component at the given position
      */
     _placeComponent(worldPos) {
-        if (!this.placingComponent) return;
-        
-        // Generate reference designator
-        const ref = this._generateReference(this.placingComponent);
-        
-        // Create the component instance
-        const component = new Component(this.placingComponent, {
-            x: worldPos.x,
-            y: worldPos.y,
-            rotation: this.componentRotation,
-            mirror: this.componentMirror,
-            reference: ref
-        });
-        
-        // Add to components list
-        this.components.push(component);
-        
-        // Create SVG element and add to canvas
-        const element = component.createSymbolElement();
-        this.viewport.addContent(element);
-        
-        // Mark document as dirty
-        this.fileManager.setDirty(true);
-        
-        // Update selection manager to include the new component
-        this._updateSelectableItems();
-        
-        // TODO: Add undo command for component placement
-        
-        console.log('Placed component:', component.reference, 'at', worldPos.x, worldPos.y);
-        
-        // Continue placement mode (for placing multiple components)
-        // Reset rotation/mirror for next placement? Or keep them? Let's keep them.
+        placeComponent(this, worldPos);
     }
     
     /**
@@ -1391,58 +1136,21 @@ class SchematicApp {
      * Rotate component during placement (or selected components)
      */
     _rotateComponent() {
-        if (this.placingComponent) {
-            this.componentRotation = (this.componentRotation + 90) % 360;
-            this._createComponentPreview(this.placingComponent);
-        } else {
-            // Rotate selected components
-            const selected = this._getSelectedComponents();
-            for (const comp of selected) {
-                comp.rotate(90);
-            }
-            if (selected.length > 0) {
-                this.fileManager.setDirty(true);
-            }
-        }
+        rotateComponent(this);
     }
     
     /**
      * Mirror component during placement (or selected components)
      */
     _mirrorComponent() {
-        if (this.placingComponent) {
-            this.componentMirror = !this.componentMirror;
-            this._createComponentPreview(this.placingComponent);
-        } else {
-            // Mirror selected components
-            const selected = this._getSelectedComponents();
-            for (const comp of selected) {
-                comp.toggleMirror();
-            }
-            if (selected.length > 0) {
-                this.fileManager.setDirty(true);
-            }
-        }
+        mirrorComponent(this);
     }
     
     /**
      * Cancel component placement mode
      */
     _cancelComponentPlacement() {
-        if (this.componentPreview) {
-            this.componentPreview.remove();
-            this.componentPreview = null;
-        }
-        this.placingComponent = null;
-        this.componentRotation = 0;
-        this.componentMirror = false;
-        
-        if (this.currentTool === 'component') {
-            this.currentTool = 'select';
-            this.viewport.svg.style.cursor = 'default';
-            this._setActiveToolButton?.('select');
-            this._updateShapePanelOptions(this.selection.getSelection(), 'select');
-        }
+        cancelComponentPlacement(this);
     }
     
     /**
@@ -1688,42 +1396,7 @@ class SchematicApp {
     // ==================== UI Controls ====================
 
     _bindUIControls() {
-        this.ui.gridSize.addEventListener('change', (e) => {
-            this.viewport.setGridSize(parseFloat(e.target.value));
-        });
-
-        this.ui.gridStyle.addEventListener('change', (e) => {
-            this.viewport.setGridStyle(e.target.value);
-        });
-
-        this.ui.units.addEventListener('change', (e) => {
-            this.viewport.setUnits(e.target.value);
-            this._updateGridDropdown();
-        });
-
-        this.ui.showGrid.addEventListener('change', (e) => {
-            this.viewport.setGridVisible(e.target.checked);
-        });
-
-        this.ui.snapToGrid.addEventListener('change', (e) => {
-            this.viewport.snapToGrid = e.target.checked;
-        });
-
-        document.getElementById('zoomFit').addEventListener('click', () => {
-            this._fitToContent();
-        });
-
-        document.getElementById('zoomIn').addEventListener('click', () => {
-            this.viewport.zoomIn();
-        });
-
-        document.getElementById('zoomOut').addEventListener('click', () => {
-            this.viewport.zoomOut();
-        });
-
-        document.getElementById('resetView').addEventListener('click', () => {
-            this.viewport.resetView();
-        });
+        bindViewportControls(this);
         
         // Ribbon handles file/export actions
         
@@ -1833,34 +1506,7 @@ class SchematicApp {
      * Update grid dropdown options based on current units
      */
     _updateGridDropdown() {
-        const options = this.viewport.getGridOptions();
-        const currentValue = this.viewport.gridSize;
-        
-        // Clear existing options
-        this.ui.gridSize.innerHTML = '';
-        
-        // Add new options
-        for (const opt of options) {
-            const option = document.createElement('option');
-            option.value = opt.value;
-            option.textContent = opt.label;
-            this.ui.gridSize.appendChild(option);
-        }
-        
-        // Try to select closest matching value
-        let closestIdx = 0;
-        let closestDiff = Infinity;
-        for (let i = 0; i < options.length; i++) {
-            const diff = Math.abs(options[i].value - currentValue);
-            if (diff < closestDiff) {
-                closestDiff = diff;
-                closestIdx = i;
-            }
-        }
-        this.ui.gridSize.selectedIndex = closestIdx;
-        
-        // Update viewport grid size to match selected option
-        this.viewport.setGridSize(options[closestIdx].value);
+        updateGridDropdown(this);
     }
 
     _bindKeyboardShortcuts() {
@@ -1998,23 +1644,7 @@ class SchematicApp {
     }
     
     _fitToContent() {
-        if (this.shapes.length === 0) {
-            this.viewport.resetView();
-            return;
-        }
-        
-        let minX = Infinity, minY = Infinity;
-        let maxX = -Infinity, maxY = -Infinity;
-        
-        for (const shape of this.shapes) {
-            const b = shape.getBounds();
-            minX = Math.min(minX, b.minX);
-            minY = Math.min(minY, b.minY);
-            maxX = Math.max(maxX, b.maxX);
-            maxY = Math.max(maxY, b.maxY);
-        }
-        
-        this.viewport.fitToBounds(minX, minY, maxX, maxY, 10);
+        fitToContent(this);
     }
     
     // ==================== File Operations ====================
