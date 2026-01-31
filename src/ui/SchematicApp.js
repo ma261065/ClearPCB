@@ -7,7 +7,6 @@ import { EventBus, Events, globalEventBus } from '../core/EventBus.js';
 import { CommandHistory, AddShapeCommand, DeleteShapesCommand } from '../core/CommandHistory.js';
 import { SelectionManager } from '../core/SelectionManager.js';
 import { FileManager } from '../core/FileManager.js';
-import { storageManager } from '../core/StorageManager.js';
 import { ComponentPicker } from '../components/ComponentPicker.js';
 import { Line, Wire, Circle, Rect, Arc, Polygon, Text } from '../shapes/index.js';
 import { getComponentLibrary } from '../components/index.js';
@@ -17,6 +16,7 @@ import { bindPropertiesPanel, updatePropertiesPanel, applyCommonProperty } from 
 import { bindRibbon, updateRibbonState, updateShapePanelOptions } from './modules/ribbon.js';
 import { updateCrosshair, getToolIconPath, setToolCursor, showCrosshair, hideCrosshair } from './modules/cursor.js';
 import { bindViewportControls, updateGridDropdown, fitToContent } from './modules/viewport.js';
+import { bindThemeToggle, toggleTheme, loadTheme, updateComponentColors } from './modules/theme.js';
 import {
     startDrawing,
     updateDrawing,
@@ -1414,14 +1414,7 @@ class SchematicApp {
         });
         
         // Theme toggle
-        const themeToggle = document.getElementById('themeToggle');
-        if (themeToggle) {
-            themeToggle.addEventListener('click', () => {
-                this._toggleTheme();
-            });
-            // Load saved theme preference
-            this._loadTheme();
-        }
+        bindThemeToggle(this);
         
         // Initialize button states
         this._updateUndoRedoButtons();
@@ -1440,66 +1433,21 @@ class SchematicApp {
      * Toggle between dark and light theme
      */
     _toggleTheme() {
-        const html = document.documentElement;
-        const currentTheme = html.getAttribute('data-theme');
-        const newTheme = currentTheme === 'light' ? 'dark' : 'light';
-        
-        html.setAttribute('data-theme', newTheme);
-        storageManager.set('clearpcb-theme', newTheme);
-        
-        // Update toggle button icon
-        const themeToggle = document.getElementById('themeToggle');
-        if (themeToggle) {
-            themeToggle.textContent = newTheme === 'light' ? '☀️' : '🌙';
-        }
-        
-        // Update viewport colors
-        this.viewport.updateTheme();
-        
-        // Re-render components with new colors
-        this._updateComponentColors();
+        toggleTheme(this);
     }
     
     /**
      * Load saved theme preference
      */
     _loadTheme() {
-        const savedTheme = storageManager.get('clearpcb-theme') || 'dark';
-        const html = document.documentElement;
-        
-        if (savedTheme === 'light') {
-            html.setAttribute('data-theme', 'light');
-        }
-        
-        // Update toggle button icon
-        const themeToggle = document.getElementById('themeToggle');
-        if (themeToggle) {
-            themeToggle.textContent = savedTheme === 'light' ? '☀️' : '🌙';
-        }
-        
-        // Update viewport colors
-        if (this.viewport) {
-            this.viewport.updateTheme();
-        }
+        loadTheme(this);
     }
     
     /**
      * Update component colors for current theme
      */
     _updateComponentColors() {
-        // Re-render all placed components
-        for (const comp of this.components) {
-            if (comp.element) {
-                comp.element.remove();
-            }
-            const element = comp.createSymbolElement();
-            this.viewport.addContent(element);
-        }
-        
-        // Update preview if placing
-        if (this.placingComponent && this.componentPreview) {
-            this._createComponentPreview(this.placingComponent);
-        }
+        updateComponentColors(this);
     }
     
     /**
