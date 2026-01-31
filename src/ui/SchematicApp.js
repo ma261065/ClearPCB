@@ -77,6 +77,12 @@ import {
     saveBlobAsFile,
     renderViewportToCanvas
 } from './modules/export.js';
+import { handleEscape } from './modules/input.js';
+import { setupEventBusListeners } from './modules/event-bus.js';
+import { onToolSelected, onComponentPickerClosed, onOptionsChanged } from './modules/tool.js';
+import { updateSelectableItems, generateReference, getSelectedComponents, renderComponents } from './modules/components-utils.js';
+import { setupCallbacks } from './modules/callbacks.js';
+import { updateUndoRedoButtons, makeHelpPanelDraggable } from './modules/ui-utils.js';
 
 // Shape class registry for deserialization
 const ShapeClasses = { Line, Wire, Circle, Rect, Arc, Polygon, Text };
@@ -224,97 +230,28 @@ class SchematicApp {
     }
 
     _handleEscape() {
-        if (this.isDrawing) {
-            if (this.currentTool === 'wire') {
-                // Cancel wire drawing
-                this._cancelWireDrawing();
-            } else {
-                this._cancelDrawing();
-            }
-        }
-        // Cancel component placement
-        if (this.placingComponent) {
-            this._cancelComponentPlacement();
-        }
-        // Close component picker if open
-        if (this.componentPicker.isOpen) {
-            this.componentPicker.close();
-        }
-        // Cancel box selection if in progress
-        if (this.dragMode === 'box') {
-            this._removeBoxSelectElement();
-            this.isDragging = false;
-            this.dragMode = null;
-            this.boxSelectStart = null;
-        }
-        // Always return to select mode on Escape
-        if (this.currentTool !== 'select') {
-            this._onToolSelected('select');
-        } else {
-            // Only clear selection if already in select mode and not drawing
-            this.selection.clearSelection();
-            this.renderShapes(true);
-        }
+        handleEscape(this);
     }
 
     /**
      * Setup EventBus listeners for cross-module communication
      */
     _setupEventBusListeners() {
-        // Listen for component selection events
-        this.eventBus.on('component:selected', (def) => {
-            this._onComponentDefinitionSelected(def);
-        });
+        setupEventBusListeners(this);
     }
 
     // ==================== Tool Handling ====================
     
     _onToolSelected(tool) {
-        // Cancel any in-progress drawing
-        this._cancelDrawing();
-        
-        // Cancel component placement if switching away from component tool
-        if (tool !== 'component' && this.placingComponent) {
-            this._cancelComponentPlacement();
-        }
-        
-        // Close component picker when switching away from component tool
-        if (tool !== 'component' && this.componentPicker.isOpen) {
-            this.componentPicker.close();
-        }
-        
-        this.currentTool = tool;
-        
-        // Handle component tool - open picker panel
-        if (tool === 'component') {
-            // Open component picker if collapsed
-            if (!this.componentPicker.isOpen) {
-                this.componentPicker.open();
-            }
-            // Focus search input
-            const searchInput = this.componentPicker.element.querySelector('.cp-search-input');
-            if (searchInput) {
-                searchInput.focus();
-            }
-        }
-        
-        // Update cursor
-        const svg = this.viewport.svg;
-        this._setToolCursor(tool, svg);
-
-        this._setActiveToolButton?.(tool);
-        this._updateShapePanelOptions(this.selection.getSelection(), tool);
+        onToolSelected(this, tool);
     }
     
     _onComponentPickerClosed() {
-        // Return to select mode when component picker is closed
-        if (this.currentTool === 'component') {
-            this._onToolSelected('select');
-        }
+        onComponentPickerClosed(this);
     }
     
     _onOptionsChanged(options) {
-        this.toolOptions = { ...this.toolOptions, ...options };
+        onOptionsChanged(this, options);
     }
 
     // ==================== Shape Management ====================
@@ -598,28 +535,14 @@ class SchematicApp {
      * Update SelectionManager with all selectable items (shapes + components)
      */
     _updateSelectableItems() {
-        const items = [...this.shapes, ...this.components];
-        this.selection.setShapes(items);
+        updateSelectableItems(this);
     }
     
     /**
      * Generate a reference designator for a component
      */
     _generateReference(definition) {
-        // Get prefix from default reference (e.g., "R?" -> "R", "U?" -> "U")
-        let prefix = definition.defaultReference || 'U?';
-        prefix = prefix.replace(/[0-9?]+$/, '');
-        
-        // Find highest number used for this prefix
-        let maxNum = 0;
-        for (const comp of this.components) {
-            if (comp.reference.startsWith(prefix)) {
-                const num = parseInt(comp.reference.slice(prefix.length)) || 0;
-                maxNum = Math.max(maxNum, num);
-            }
-        }
-        
-        return `${prefix}${maxNum + 1}`;
+        return generateReference(this, definition);
     }
     
     /**
@@ -647,124 +570,20 @@ class SchematicApp {
      * Get selected components (for future selection integration)
      */
     _getSelectedComponents() {
-        // TODO: Integrate components with SelectionManager
-        return [];
+        return getSelectedComponents(this);
     }
     
     /**
      * Render all components
      */
     renderComponents() {
-        // Components render themselves via their SVG elements
-        // This is called if we need to re-render (e.g., after loading)
-        for (const comp of this.components) {
-            if (comp.element) {
-                // Update transform in case position changed
-                const transform = comp._buildTransform();
-                if (transform) {
-                    comp.element.setAttribute('transform', transform);
-                }
-            }
-        }
+        renderComponents(this);
     }
 
     // ==================== Callbacks ====================
 
     _setupCallbacks() {
-        let lastStatusUpdate = 0;
-        let lastHoverUpdate = 0;
-        const STATUS_THROTTLE = 50;
-        const HOVER_THROTTLE = 30; // Throttle hover/cursor updates to reduce render calls
-        
-        this.viewport.onMouseMove = (world, snapped) => {
-            // Update drawing preview and crosshair (not throttled - needs real-time feedback)
-            if (this.isDrawing) {
-                if (this.currentTool === 'wire') {
-                    // For wire, get the directionally-snapped position for crosshair
-                    const wireSnapped = this._getWireSnappedPosition(world);
-                    this._updateDrawing(wireSnapped);
-                    this._updateCrosshair(wireSnapped);
-                } else {
-                    this._updateDrawing(snapped);
-                    this._updateCrosshair(snapped);
-                }
-            }
-            
-            // Update component preview position during placement (not throttled - needs real-time feedback)
-            if (this.placingComponent && this.componentPreview) {
-                this._updateComponentPreview(snapped);
-            }
-            
-            // Throttle hover state and cursor updates to reduce expensive calculations
-            let now = performance.now();
-            if (now - lastHoverUpdate > HOVER_THROTTLE) {
-                lastHoverUpdate = now;
-                
-                // Update hover state and cursor (only in select mode when not panning/dragging)
-                if (!this.viewport.isPanning && !this.isDragging && this.currentTool === 'select') {
-                    const hit = this.selection.hitTest(world);
-                    const hoveredChanged = this.selection.setHovered(hit);  // Only returns true if changed
-                    
-                    // Check for anchor hover on selected shapes
-                    let cursor = 'default';
-                    const selectedShapes = this.selection.getSelection();
-                    for (const shape of selectedShapes) {
-                        const anchorId = shape.hitTestAnchor(world, this.viewport.scale);
-                        if (anchorId) {
-                            // Find anchor cursor
-                            const anchors = shape.getAnchors();
-                            const anchor = anchors.find(a => a.id === anchorId);
-                            cursor = anchor?.cursor || 'crosshair';
-                            break;
-                        }
-                    }
-                    
-                    // If not on anchor, check if on selected shape for move cursor
-                    if (cursor === 'default' && hit && hit.selected) {
-                        cursor = 'move';
-                    } else if (cursor === 'default' && hit) {
-                        cursor = 'pointer';
-                    }
-                    
-                    this.viewport.svg.style.cursor = cursor;
-                    
-                    // Only re-render if hover state actually changed (avoids redundant renders)
-                    if (hoveredChanged) {
-                        this.renderShapes();
-                    }
-                }
-            }
-            
-            // Throttle status bar updates
-            now = performance.now();
-            if (now - lastStatusUpdate > STATUS_THROTTLE) {
-                lastStatusUpdate = now;
-                const v = this.viewport;
-                const unitLabel = v.units === 'inch' ? '"' : ` ${v.units}`;
-                this.ui.cursorPos.textContent = `${v.formatValue(world.x)}, ${v.formatValue(world.y)}${unitLabel}`;
-                this.ui.gridSnap.textContent = `${v.formatValue(snapped.x)}, ${v.formatValue(snapped.y)}${unitLabel}`;
-            }
-        };
-
-        this.viewport.onViewChanged = (view) => {
-            // Display zoom as percentage
-            const zoomPercent = Math.round(this.viewport.zoom * 100);
-            if (this.ui.zoomLevel) {
-                this.ui.zoomLevel.textContent = `${zoomPercent}%`;
-            }
-            
-            const bounds = view.bounds;
-            const v = this.viewport;
-            const widthDisplay = v.formatValue(bounds.maxX - bounds.minX, 1);
-            const heightDisplay = v.formatValue(bounds.maxY - bounds.minY, 1);
-            const unitLabel = v.units === 'inch' ? '"' : ` ${v.units}`;
-            if (this.ui.viewportInfo) {
-                this.ui.viewportInfo.textContent = `${widthDisplay} × ${heightDisplay}${unitLabel}`;
-            }
-            
-            // Re-render all shapes to update stroke widths based on zoom
-            this.renderShapes(true);
-        };
+        setupCallbacks(this);
     }
     
     _updateCrosshair(snapped, screenPosOverride = null) {
@@ -780,43 +599,7 @@ class SchematicApp {
     }
 
     _makeHelpPanelDraggable() {
-        const panel = document.querySelector('.help-panel');
-        if (!panel) return;
-        const header = panel.querySelector('h3') || panel;
-
-        let isDragging = false;
-        let offsetX = 0;
-        let offsetY = 0;
-
-        header.addEventListener('mousedown', (e) => {
-            isDragging = true;
-            const rect = panel.getBoundingClientRect();
-            offsetX = e.clientX - rect.left;
-            offsetY = e.clientY - rect.top;
-            header.style.cursor = 'grabbing';
-            e.preventDefault();
-        });
-
-        window.addEventListener('mousemove', (e) => {
-            if (!isDragging) return;
-            const x = e.clientX - offsetX;
-            const y = e.clientY - offsetY;
-
-            const maxX = window.innerWidth - panel.offsetWidth;
-            const maxY = window.innerHeight - panel.offsetHeight;
-
-            panel.style.left = Math.max(0, Math.min(x, maxX)) + 'px';
-            panel.style.top = Math.max(0, Math.min(y, maxY)) + 'px';
-            panel.style.right = 'auto';
-            panel.style.bottom = 'auto';
-        });
-
-        window.addEventListener('mouseup', () => {
-            if (isDragging) {
-                isDragging = false;
-                header.style.cursor = 'grab';
-            }
-        });
+        makeHelpPanelDraggable();
     }
     
     _showCrosshair() {
@@ -1058,14 +841,7 @@ class SchematicApp {
      * Update undo/redo button enabled states
      */
     _updateUndoRedoButtons() {
-        if (this.ui.undoBtn) {
-            this.ui.undoBtn.disabled = !this.history.canUndo();
-            this.ui.undoBtn.style.opacity = this.history.canUndo() ? '1' : '0.4';
-        }
-        if (this.ui.redoBtn) {
-            this.ui.redoBtn.disabled = !this.history.canRedo();
-            this.ui.redoBtn.style.opacity = this.history.canRedo() ? '1' : '0.4';
-        }
+        updateUndoRedoButtons(this);
     }
     
     /**
