@@ -9,13 +9,34 @@ import { SelectionManager } from '../core/SelectionManager.js';
 import { FileManager } from '../core/FileManager.js';
 import { storageManager } from '../core/StorageManager.js';
 import { ComponentPicker } from '../components/ComponentPicker.js';
-import { Line, Wire, Circle, Rect, Arc, Polygon, Text, updateIdCounter } from '../shapes/index.js';
+import { Line, Wire, Circle, Rect, Arc, Polygon, Text } from '../shapes/index.js';
 import { Component, getComponentLibrary } from '../components/index.js';
 import { bindMouseEvents } from './modules/mouse.js';
 import { bindKeyboardShortcuts } from './modules/keyboard.js';
 import { bindPropertiesPanel, updatePropertiesPanel, applyCommonProperty } from './modules/properties.js';
 import { bindRibbon, updateRibbonState, updateShapePanelOptions } from './modules/ribbon.js';
 import { updateCrosshair, getToolIconPath, setToolCursor, showCrosshair, hideCrosshair } from './modules/cursor.js';
+import {
+    serializeDocument,
+    loadDocument,
+    createComponentFromData,
+    updateTitle,
+    checkAutoSave,
+    loadVersion,
+    newFile,
+    saveFile,
+    saveFileAs,
+    openFile
+} from './modules/files.js';
+import {
+    savePdf,
+    loadVectorPdfLibs,
+    cloneViewportSvgForExport,
+    forceMonochromeSvg,
+    inlineSvgComputedStyles,
+    saveBlobAsFile,
+    renderViewportToCanvas
+} from './modules/export.js';
 
 // Shape class registry for deserialization
 const ShapeClasses = { Line, Wire, Circle, Rect, Arc, Polygon, Text };
@@ -2002,120 +2023,21 @@ class SchematicApp {
      * Serialize document to JSON-compatible object
      */
     _serializeDocument() {
-        return {
-            version: '1.1',
-            type: 'clearpcb-schematic',
-            created: new Date().toISOString(),
-            settings: {
-                gridSize: this.viewport.gridSize,
-                units: this.viewport.units
-            },
-            shapes: this.shapes.map(s => s.toJSON()),
-            components: this.components.map(c => c.toJSON())
-        };
+        return serializeDocument(this);
     }
     
     /**
      * Load shapes from document data
      */
     _loadDocument(data) {
-        // Clear existing shapes and components
-        this._clearAllShapes();
-        this._clearAllComponents();
-        
-        // Load shapes
-        if (data.shapes && Array.isArray(data.shapes)) {
-            for (const shapeData of data.shapes) {
-                // Update ID counter to avoid collisions with future shapes
-                if (shapeData.id) {
-                    updateIdCounter(shapeData.id);
-                }
-                
-                const shape = this._createShapeFromData(shapeData);
-                if (shape) {
-                    this.shapes.push(shape);
-                    shape.render(this.viewport.scale);
-                    this.viewport.addContent(shape.element);
-                }
-            }
-        }
-        
-        // Load components
-        if (data.components && Array.isArray(data.components)) {
-            for (const compData of data.components) {
-                const component = this._createComponentFromData(compData);
-                if (component) {
-                    this.components.push(component);
-                    const element = component.createSymbolElement();
-                    this.viewport.addContent(element);
-                }
-            }
-        }
-        
-        // Apply settings
-        if (data.settings) {
-            if (data.settings.gridSize) {
-                this.viewport.setGridSize(data.settings.gridSize);
-                if (this.ui.gridSize) {
-                    this.ui.gridSize.value = data.settings.gridSize;
-                }
-            }
-        }
-        
-        this._updateSelectableItems();
-        this.renderShapes(true);
+        loadDocument(this, data);
     }
     
     /**
      * Create component instance from serialized data
      */
     _createComponentFromData(data) {
-        // First try to get definition from library
-        let def = this.componentLibrary.getDefinition(data.definitionName);
-        
-        // If not found and we have an embedded definition, add it to the library and use it
-        if (!def && data.definition) {
-            try {
-                console.log('Adding embedded definition from saved file:', data.definitionName);
-                
-                // Ensure the definition has a symbol object
-                // (Handle old saved files that had graphics/pins but no symbol wrapper)
-                if (!data.definition.symbol && (data.definition.graphics || data.definition.pins)) {
-                    console.log('Reconstructing symbol object for:', data.definitionName);
-                    data.definition.symbol = {
-                        width: data.definition.width || 10,
-                        height: data.definition.height || 10,
-                        origin: data.definition.origin || { x: 5, y: 5 },
-                        graphics: data.definition.graphics || [],
-                        pins: data.definition.pins || []
-                    };
-                }
-                
-                this.componentLibrary.addDefinition(data.definition, data.definition._source || 'User');
-                def = this.componentLibrary.getDefinition(data.definitionName);
-                if (def) {
-                    console.log('Successfully loaded embedded definition:', data.definitionName);
-                }
-            } catch (e) {
-                console.warn('Failed to add embedded definition:', data.definitionName, e);
-            }
-        }
-        
-        if (!def) {
-            console.warn('Component definition not found:', data.definitionName);
-            return null;
-        }
-        
-        return new Component(def, {
-            id: data.id,
-            x: data.x,
-            y: data.y,
-            rotation: data.rotation || 0,
-            mirror: data.mirror || false,
-            reference: data.reference,
-            value: data.value,
-            properties: data.properties
-        });
+        return createComponentFromData(this, data);
     }
     
     /**
@@ -2162,13 +2084,7 @@ class SchematicApp {
      * Update window/document title
      */
     _updateTitle() {
-        const dirty = this.fileManager.isDirty ? '• ' : '';
-        const title = `${dirty}${this.fileManager.fileName} - ClearPCB`;
-        document.title = title;
-        
-        if (this.ui.docTitle) {
-            this.ui.docTitle.textContent = `${dirty}${this.fileManager.fileName}`;
-        }
+        updateTitle(this);
     }
     
     /**
@@ -2189,406 +2105,76 @@ class SchematicApp {
      * Check for auto-saved content on startup
      */
     _checkAutoSave() {
-        if (this.fileManager.hasAutoSave()) {
-            const saved = this.fileManager.loadAutoSave();
-            if (saved && saved.data) {
-                const hasContent = (saved.data.shapes && saved.data.shapes.length > 0) ||
-                                   (saved.data.components && saved.data.components.length > 0);
-                if (hasContent) {
-                    const time = new Date(saved.timestamp).toLocaleString();
-                    if (confirm(`Found auto-saved content from ${time}.\n\nRecover it?`)) {
-                        this._loadDocument(saved.data);
-                        this.fileManager.setDirty(true);
-                        console.log('Recovered auto-saved content');
-                    } else {
-                        this.fileManager.clearAutoSave();
-                    }
-                }
-            }
-        }
+        checkAutoSave(this);
     }
     
     /**
      * Load and display version number
      */
     async _loadVersion() {
-        try {
-            // Try multiple possible paths for version.json
-            const paths = [
-                './assets/version.json',
-                '/assets/version.json',
-                '../assets/version.json'
-            ];
-            
-            let data = null;
-            for (const path of paths) {
-                try {
-                    const response = await fetch(path);
-                    if (response.ok) {
-                        data = await response.json();
-                        break;
-                    }
-                } catch (e) {
-                    // Continue to next path
-                }
-            }
-            
-            if (data) {
-                const versionDisplay = document.getElementById('version-display');
-                if (versionDisplay) {
-                    versionDisplay.textContent = `v${data.version}`;
-                }
-            }
-        } catch (err) {
-            console.error('Failed to load version:', err);
-        }
+        await loadVersion(this);
     }
     
     /**
      * Create new document
      */
     async newFile() {
-        if (this.fileManager.isDirty) {
-            if (!confirm('You have unsaved changes. Create new document anyway?')) {
-                return;
-            }
-        }
-        
-        this._clearAllShapes();
-        this._clearAllComponents();
-        this.fileManager.newDocument();
-        this.viewport.resetView();
-        this._updateTitle();
-        console.log('New document created');
+        await newFile(this);
     }
     
     /**
      * Save current document
      */
     async saveFile() {
-        const data = this._serializeDocument();
-        const result = await this.fileManager.save(data);
-        
-        if (result.success) {
-            this._updateTitle();
-            console.log('Saved:', result.fileName);
-        } else if (!result.cancelled) {
-            alert('Failed to save: ' + (result.error || 'Unknown error'));
-        }
+        await saveFile(this);
     }
     
     /**
      * Save As - always prompt for location
      */
     async saveFileAs() {
-        const data = this._serializeDocument();
-        const result = await this.fileManager.saveAs(data);
-        
-        if (result.success) {
-            this._updateTitle();
-            console.log('Saved as:', result.fileName);
-        } else if (!result.cancelled) {
-            alert('Failed to save: ' + (result.error || 'Unknown error'));
-        }
+        await saveFileAs(this);
     }
 
     /**
      * Save current view to PDF
      */
     async savePdf() {
-        try {
-            const pdfFileName = (this.fileManager?.fileName || 'schematic')
-                .replace(/\.[^/.]+$/, '') + '.pdf';
-
-            const jsPDF = await this._loadVectorPdfLibs();
-            const svgNode = this._cloneViewportSvgForExport();
-            const width = Number(svgNode.getAttribute('width'));
-            const height = Number(svgNode.getAttribute('height'));
-
-            const pdf = new jsPDF({
-                orientation: width >= height ? 'landscape' : 'portrait',
-                unit: 'px',
-                format: [width, height]
-            });
-
-            const svg2pdf = window.svg2pdf?.svg2pdf || window.svg2pdf?.default || window.svg2pdf;
-            if (typeof svg2pdf !== 'function') {
-                throw new Error('svg2pdf is not available');
-            }
-
-            const result = svg2pdf(svgNode, pdf, {
-                x: 0,
-                y: 0,
-                width,
-                height
-            });
-            if (result?.then) {
-                await result;
-            }
-
-            const pdfBlob = pdf.output('blob');
-            await this._saveBlobAsFile(pdfBlob, pdfFileName, 'application/pdf', ['.pdf']);
-        } catch (err) {
-            alert('Failed to save PDF: ' + (err?.message || 'Unknown error'));
-        }
+        await savePdf(this);
     }
 
     _loadVectorPdfLibs() {
-        if (this._pdfVectorLoader) return this._pdfVectorLoader;
-
-        const loadScript = (src) => new Promise((resolve, reject) => {
-            const existing = Array.from(document.scripts).find(s => s.src === src);
-            if (existing) {
-                existing.addEventListener('load', () => resolve());
-                existing.addEventListener('error', () => reject(new Error(`Failed to load ${src}`)));
-                return;
-            }
-            const script = document.createElement('script');
-            script.src = src;
-            script.async = true;
-            script.onload = () => resolve();
-            script.onerror = () => reject(new Error(`Failed to load ${src}`));
-            document.head.appendChild(script);
-        });
-
-        this._pdfVectorLoader = (async () => {
-            await loadScript('./assets/vendor/jspdf.umd.min.js');
-            await loadScript('./assets/vendor/svg2pdf.umd.min.js');
-
-            const svg2pdfFn = window.svg2pdf?.svg2pdf || window.svg2pdf?.default || window.svg2pdf;
-            if (!window.jspdf?.jsPDF || typeof svg2pdfFn !== 'function') {
-                throw new Error('Vector PDF libraries failed to load');
-            }
-            return window.jspdf.jsPDF;
-        })();
-
-        return this._pdfVectorLoader;
+        return loadVectorPdfLibs(this);
     }
 
     _cloneViewportSvgForExport() {
-        const originalSvg = this.viewport.svg;
-        const svgNode = originalSvg.cloneNode(true);
-        const vb = this.viewport.viewBox;
-        const width = Math.max(1, Math.round(this.viewport.width));
-        const height = Math.max(1, Math.round(this.viewport.height));
-
-        svgNode.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
-        svgNode.setAttribute('width', String(width));
-        svgNode.setAttribute('height', String(height));
-        svgNode.setAttribute('viewBox', `${vb.x} ${vb.y} ${vb.width} ${vb.height}`);
-        svgNode.setAttribute('style', 'background:#ffffff');
-
-        this._inlineSvgComputedStyles(originalSvg, svgNode);
-
-        // Force monochrome output for export
-        this._forceMonochromeSvg(svgNode);
-
-        // Remove grid/axes layers after inlining to keep node order aligned
-        const gridLayer = svgNode.querySelector('#gridLayer');
-        if (gridLayer) {
-            gridLayer.remove();
-        }
-
-        const axesLayer = svgNode.querySelector('#axesLayer');
-        if (axesLayer) {
-            axesLayer.remove();
-        }
-
-        // Insert white background AFTER inlining to avoid iterator mismatch
-        const bgRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-        bgRect.setAttribute('x', String(vb.x));
-        bgRect.setAttribute('y', String(vb.y));
-        bgRect.setAttribute('width', String(vb.width));
-        bgRect.setAttribute('height', String(vb.height));
-        bgRect.setAttribute('fill', '#ffffff');
-        bgRect.setAttribute('stroke', 'none');
-        svgNode.insertBefore(bgRect, svgNode.firstChild);
-
-        return svgNode;
+        return cloneViewportSvgForExport(this);
     }
 
     _forceMonochromeSvg(svgRoot) {
-        const nodes = svgRoot.querySelectorAll('*');
-        nodes.forEach((el) => {
-            const tag = el.tagName?.toLowerCase();
-            if (!tag) return;
-
-            // Normalize visibility
-            if (el.getAttribute('opacity')) {
-                el.setAttribute('opacity', '1');
-            }
-
-            // Text: fill only
-            if (tag === 'text') {
-                el.setAttribute('fill', '#000000');
-                el.setAttribute('stroke', 'none');
-                return;
-            }
-
-            // Shapes: preserve 'none', otherwise force black
-            const fill = el.getAttribute('fill');
-            const stroke = el.getAttribute('stroke');
-
-            if (fill && fill !== 'none') {
-                el.setAttribute('fill', '#000000');
-            }
-
-            if (stroke && stroke !== 'none') {
-                el.setAttribute('stroke', '#000000');
-            }
-
-            // If both are missing or none, enforce stroke for basic shapes
-            if ((fill === null || fill === 'none') && (stroke === null || stroke === 'none')) {
-                if (['line', 'path', 'polyline', 'polygon', 'rect', 'circle', 'ellipse'].includes(tag)) {
-                    el.setAttribute('stroke', '#000000');
-                }
-            }
-        });
+        forceMonochromeSvg(svgRoot);
     }
 
     _inlineSvgComputedStyles(originalSvg, clonedSvg) {
-        const props = [
-            'fill',
-            'stroke',
-            'strokeWidth',
-            'fontSize',
-            'fontFamily',
-            'fontWeight',
-            'fontStyle',
-            'textAnchor',
-            'dominantBaseline',
-            'opacity'
-        ];
-
-        const origIter = document.createNodeIterator(originalSvg, NodeFilter.SHOW_ELEMENT);
-        const cloneIter = document.createNodeIterator(clonedSvg, NodeFilter.SHOW_ELEMENT);
-
-        let origNode = origIter.nextNode();
-        let cloneNode = cloneIter.nextNode();
-
-        while (origNode && cloneNode) {
-            const style = window.getComputedStyle(origNode);
-
-            for (const prop of props) {
-                const cssValue = style[prop];
-                if (cssValue && cssValue !== 'initial' && cssValue !== 'inherit') {
-                    const attr = prop.replace(/[A-Z]/g, (m) => `-${m.toLowerCase()}`);
-                    cloneNode.setAttribute(attr, cssValue);
-                }
-            }
-
-            // Preserve text content explicitly
-            if (origNode.nodeName.toLowerCase() === 'text') {
-                cloneNode.textContent = origNode.textContent;
-            }
-
-            origNode = origIter.nextNode();
-            cloneNode = cloneIter.nextNode();
-        }
+        inlineSvgComputedStyles(originalSvg, clonedSvg);
     }
 
     async _saveBlobAsFile(blob, suggestedName, mimeType, extensions) {
-        if ('showSaveFilePicker' in window) {
-            try {
-                const handle = await window.showSaveFilePicker({
-                    suggestedName,
-                    types: [{ description: 'PDF', accept: { [mimeType]: extensions } }]
-                });
-                const writable = await handle.createWritable();
-                await writable.write(blob);
-                await writable.close();
-                return;
-            } catch (err) {
-                if (err?.name === 'AbortError') return;
-                throw err;
-            }
-        }
-
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = suggestedName;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
+        await saveBlobAsFile(blob, suggestedName, mimeType, extensions);
     }
 
     /**
      * Render the current viewport SVG to a canvas
      */
     _renderViewportToCanvas(scale = 2) {
-        return new Promise((resolve, reject) => {
-            try {
-                const svgNode = this.viewport.svg.cloneNode(true);
-                const vb = this.viewport.viewBox;
-
-                const width = Math.max(1, Math.round(this.viewport.width * scale));
-                const height = Math.max(1, Math.round(this.viewport.height * scale));
-
-                svgNode.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
-                svgNode.setAttribute('width', String(width));
-                svgNode.setAttribute('height', String(height));
-                svgNode.setAttribute('viewBox', `${vb.x} ${vb.y} ${vb.width} ${vb.height}`);
-
-                // Ensure a white background for PDF output
-                const bgRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-                bgRect.setAttribute('x', String(vb.x));
-                bgRect.setAttribute('y', String(vb.y));
-                bgRect.setAttribute('width', String(vb.width));
-                bgRect.setAttribute('height', String(vb.height));
-                bgRect.setAttribute('fill', '#ffffff');
-                svgNode.insertBefore(bgRect, svgNode.firstChild);
-
-                const svgData = new XMLSerializer().serializeToString(svgNode);
-                const svgBlob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
-                const url = URL.createObjectURL(svgBlob);
-
-                const img = new Image();
-                img.onload = () => {
-                    const canvas = document.createElement('canvas');
-                    canvas.width = width;
-                    canvas.height = height;
-                    const ctx = canvas.getContext('2d');
-                    ctx.drawImage(img, 0, 0, width, height);
-                    URL.revokeObjectURL(url);
-                    resolve(canvas);
-                };
-                img.onerror = () => {
-                    URL.revokeObjectURL(url);
-                    reject(new Error('Failed to render SVG'));
-                };
-                img.src = url;
-            } catch (err) {
-                reject(err);
-            }
-        });
+        return renderViewportToCanvas(this, scale);
     }
     
     /**
      * Open file
      */
     async openFile() {
-        if (this.fileManager.isDirty) {
-            if (!confirm('You have unsaved changes. Open another file anyway?')) {
-                return;
-            }
-        }
-        
-        try {
-            const result = await this.fileManager.open();
-            
-            if (result.success) {
-                this._loadDocument(result.data);
-                this._updateTitle();
-                this.fileManager.clearAutoSave();
-                console.log('Opened:', result.fileName);
-            } else if (result.error) {
-                alert('Failed to open: ' + result.error);
-            }
-        } catch (err) {
-            alert('Failed to open file: ' + err.message);
-        }
+        await openFile(this);
     }
 }
 
