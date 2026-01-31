@@ -15,6 +15,13 @@
             <button id="newFile" title="New (Ctrl+N)">📄 New</button>
             <button id="openFile" title="Open (Ctrl+O)">📂 Open</button>
             <button id="saveFile" title="Save (Ctrl+S)">💾 Save</button>
+            <button id="saveAsFile" title="Save As (Ctrl+Alt+S)">💾 Save As</button>
+            <div class="dropdown">
+                <button id="exportMenuButton" class="dropdown-toggle" title="Export">📤 Export…</button>
+                <div id="exportMenu" class="dropdown-menu" aria-hidden="true">
+                    <button id="exportPdf" class="dropdown-item">🧾 Export PDF</button>
+                </div>
+            </div>
         </div>
         
         <div class="toolbar-group">
@@ -99,6 +106,7 @@
         <div><kbd>Ctrl+O</kbd> Open file</div>
         <div><kbd>Ctrl+S</kbd> Save</div>
         <div><kbd>Ctrl+Alt+S</kbd> Save As</div>
+        <div><kbd>Ctrl+Shift+P</kbd> Save PDF</div>
         <div><kbd>Ctrl+Z</kbd> Undo</div>
         <div><kbd>Ctrl+Y</kbd> Redo</div>
         <hr style="border-color: #333; margin: 8px 0;">
