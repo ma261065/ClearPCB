@@ -18,6 +18,7 @@ import { updateCrosshair, getToolIconPath, setToolCursor, showCrosshair, hideCro
 import { bindViewportControls, updateGridDropdown, fitToContent } from './modules/viewport.js';
 import { bindThemeToggle, toggleTheme, loadTheme, updateComponentColors } from './modules/theme.js';
 import { toggleSelectionLock, deleteSelected, captureShapeState, applyShapeState } from './modules/selection.js';
+import { createBoxSelectElement, updateBoxSelectElement, removeBoxSelectElement, getBoxSelectBounds } from './modules/box-selection.js';
 import {
     startDrawing,
     updateDrawing,
@@ -1456,43 +1457,19 @@ class SchematicApp {
     // ==================== Box Selection ====================
     
     _createBoxSelectElement() {
-        this.boxSelectElement = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-        this.boxSelectElement.setAttribute('fill', 'rgba(51, 153, 255, 0.15)');  // --sch-selection-fill
-        this.boxSelectElement.setAttribute('stroke', '#3399ff');  // --sch-selection
-        this.boxSelectElement.setAttribute('stroke-width', 1 / this.viewport.scale);
-        this.boxSelectElement.setAttribute('stroke-dasharray', `${4 / this.viewport.scale} ${4 / this.viewport.scale}`);
-        this.boxSelectElement.style.pointerEvents = 'none';
-        this.viewport.contentLayer.appendChild(this.boxSelectElement);
+        createBoxSelectElement(this);
     }
     
     _updateBoxSelectElement(currentPos) {
-        if (!this.boxSelectElement || !this.boxSelectStart) return;
-        
-        const x = Math.min(this.boxSelectStart.x, currentPos.x);
-        const y = Math.min(this.boxSelectStart.y, currentPos.y);
-        const width = Math.abs(currentPos.x - this.boxSelectStart.x);
-        const height = Math.abs(currentPos.y - this.boxSelectStart.y);
-        
-        this.boxSelectElement.setAttribute('x', x);
-        this.boxSelectElement.setAttribute('y', y);
-        this.boxSelectElement.setAttribute('width', width);
-        this.boxSelectElement.setAttribute('height', height);
+        updateBoxSelectElement(this, currentPos);
     }
     
     _removeBoxSelectElement() {
-        if (this.boxSelectElement) {
-            this.boxSelectElement.remove();
-            this.boxSelectElement = null;
-        }
+        removeBoxSelectElement(this);
     }
     
     _getBoxSelectBounds(currentPos) {
-        return {
-            minX: Math.min(this.boxSelectStart.x, currentPos.x),
-            minY: Math.min(this.boxSelectStart.y, currentPos.y),
-            maxX: Math.max(this.boxSelectStart.x, currentPos.x),
-            maxY: Math.max(this.boxSelectStart.y, currentPos.y)
-        };
+        return getBoxSelectBounds(this, currentPos);
     }
     
     // ==================== Shape State Helpers (for undo/redo) ====================
