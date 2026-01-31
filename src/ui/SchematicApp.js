@@ -990,14 +990,40 @@ class SchematicApp {
 
         if (!original) return snapped;
 
-        const snapX = Math.abs(worldPos.x - original.x) <= Math.abs(worldPos.x - snapped.x)
-            ? original.x
-            : snapped.x;
-        const snapY = Math.abs(worldPos.y - original.y) <= Math.abs(worldPos.y - snapped.y)
-            ? original.y
-            : snapped.y;
+        const gridSize = this.viewport.gridSize || 1.0;
+        const halfGrid = gridSize * 0.5;
+        const prev = wireShape.points[idx - 1] || null;
+        const next = wireShape.points[idx + 1] || null;
 
-        return { x: snapX, y: snapY };
+        let snapX = snapped.x;
+        let snapY = snapped.y;
+
+        // Add fake snap lines from the other end of the segment
+        if (prev) {
+            if (Math.abs(worldPos.x - prev.x) <= halfGrid) {
+                snapX = prev.x;
+            }
+            if (Math.abs(worldPos.y - prev.y) <= halfGrid) {
+                snapY = prev.y;
+            }
+        }
+        if (next) {
+            if (Math.abs(worldPos.x - next.x) <= halfGrid) {
+                snapX = next.x;
+            }
+            if (Math.abs(worldPos.y - next.y) <= halfGrid) {
+                snapY = next.y;
+            }
+        }
+
+        const useX = Math.abs(worldPos.x - original.x) <= Math.abs(worldPos.x - snapX)
+            ? original.x
+            : snapX;
+        const useY = Math.abs(worldPos.y - original.y) <= Math.abs(worldPos.y - snapY)
+            ? original.y
+            : snapY;
+
+        return { x: useX, y: useY };
     }
     
     /**
