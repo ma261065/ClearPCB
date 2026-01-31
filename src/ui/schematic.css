@@ -12,6 +12,7 @@
     --border-color: #0f3460;
     --accent-color: #ac5a95;
     --accent-hover: #ff6b6b;
+    --lock-icon: #666666;
     
     /* === Schematic Canvas === */
     --sch-background: #1a1a2e;
@@ -64,6 +65,7 @@
     --border-color: #cccccc;
     --accent-color: #d63050;
     --accent-hover: #e94560;
+    --lock-icon: #444444;
     
     /* === Schematic Canvas === */
     --sch-background: #ffffff;
@@ -239,6 +241,76 @@ body {
     overflow: hidden;
 }
 
+.properties-panel {
+    width: 260px;
+    background: var(--bg-secondary);
+    border-left: 1px solid var(--border-color);
+    display: flex;
+    flex-direction: column;
+    transition: width 0.2s ease;
+}
+
+.properties-panel.collapsed {
+    width: 36px;
+}
+
+.properties-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border-color);
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+.properties-header button {
+    background: var(--bg-tertiary);
+    border: none;
+    color: var(--text-primary);
+    padding: 4px 6px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+}
+
+.properties-panel.collapsed .properties-header span {
+    display: none;
+}
+
+.properties-content {
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.properties-panel.collapsed .properties-content {
+    display: none;
+}
+
+.prop-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    font-size: 12px;
+}
+
+.prop-row label {
+    color: var(--text-secondary);
+}
+
+.prop-row input[type="number"] {
+    width: 90px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+    padding: 4px 6px;
+    border-radius: 4px;
+    font-size: 12px;
+}
+
 /* Drawing crosshair - shown only while drawing */
 .drawing-crosshair {
     position: absolute;
@@ -283,8 +355,9 @@ body {
 /* Floating Toolbox */
 .toolbox {
     position: absolute;
-    left: 10px;
+    right: 280px;
     top: 60px;
+    left: auto;
     width: 46px;
     background: var(--bg-primary);
     border: 1px solid var(--border-color);
@@ -407,12 +480,14 @@ body {
     font-size: 11px;
     line-height: 1.8;
     z-index: 10;
+    user-select: none;
 }
 
 .help-panel h3 {
     color: var(--accent-color);
     margin-bottom: 8px;
     font-size: 12px;
+    cursor: grab;
 }
 
 .help-panel kbd {

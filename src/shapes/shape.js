@@ -221,6 +221,46 @@ export class Shape {
             rect.setAttribute('data-anchor-id', anchor.id);
             this.anchorsGroup.appendChild(rect);
         }
+
+        // Draw lock icon near primary anchor when locked
+        if (this.locked && anchors.length > 0) {
+            const primary = anchors[0];
+            const lockGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+            const lockSize = 0.8; // world units so it scales with zoom
+            const offset = 0.6;
+            const strokeW = 0.15;
+            const lockX = primary.x + offset;
+            const lockY = primary.y - offset - lockSize * 0.2;
+
+            const bodyW = lockSize;
+            const bodyH = lockSize * 0.7;
+            const bodyY = lockY + bodyH * 0.25;
+
+            const body = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+            body.setAttribute('x', lockX);
+            body.setAttribute('y', bodyY);
+            body.setAttribute('width', bodyW);
+            body.setAttribute('height', bodyH);
+            body.setAttribute('rx', lockSize * 0.12);
+            body.setAttribute('fill', 'var(--lock-icon, #666666)');
+            body.setAttribute('stroke', 'var(--lock-icon, #666666)');
+            body.setAttribute('stroke-width', strokeW);
+            lockGroup.appendChild(body);
+
+            const shackleR = bodyW * 0.35;
+            const shackleY = lockY + bodyH * 0.25;
+            const shacklePath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+            const shackleCx = lockX + bodyW / 2;
+            const shackleD = `M ${shackleCx - shackleR} ${shackleY} ` +
+                `A ${shackleR} ${shackleR} 0 0 1 ${shackleCx + shackleR} ${shackleY}`;
+            shacklePath.setAttribute('d', shackleD);
+            shacklePath.setAttribute('fill', 'none');
+            shacklePath.setAttribute('stroke', 'var(--lock-icon, #666666)');
+            shacklePath.setAttribute('stroke-width', strokeW);
+            lockGroup.appendChild(shacklePath);
+
+            this.anchorsGroup.appendChild(lockGroup);
+        }
         
         // Add anchors group to same parent as element
         if (this.element.parentNode) {

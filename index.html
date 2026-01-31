@@ -83,6 +83,32 @@
                 <line id="crosshairY" stroke="var(--accent-color)" stroke-width="1" stroke-dasharray="4,4"/>
             </svg>
         </div>
+        <aside class="properties-panel" id="propertiesPanel">
+            <div class="properties-header">
+                <span>Properties</span>
+                <button id="propertiesToggle" title="Collapse">⟨</button>
+            </div>
+            <div class="properties-content" id="propertiesContent">
+                <div class="prop-row">
+                    <span class="prop-label">Selection</span>
+                    <span class="prop-value" id="propSelectionCount">0</span>
+                </div>
+                <div class="prop-row">
+                    <label>
+                        <input type="checkbox" id="propLocked"> Locked
+                    </label>
+                </div>
+                <div class="prop-row">
+                    <label for="propLineWidth">Line width</label>
+                    <input type="number" id="propLineWidth" step="0.05" min="0" placeholder="—">
+                </div>
+                <div class="prop-row">
+                    <label>
+                        <input type="checkbox" id="propFill"> Fill
+                    </label>
+                </div>
+            </div>
+        </aside>
     </div>
 
     <div class="status-bar">
@@ -124,6 +150,7 @@
         <div><kbd>Drag shape</kbd> Move</div>
         <div><kbd>Drag anchor</kbd> Resize/Edit</div>
         <div><kbd>Drag empty</kbd> Box select</div>
+        <div><kbd>Ctrl+Click</kbd> Multi-select</div>
         <div><kbd>Right-drag</kbd> Pan</div>
         <div><kbd>Scroll</kbd> Zoom</div>
         <hr style="border-color: #333; margin: 8px 0;">

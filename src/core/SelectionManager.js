@@ -68,7 +68,7 @@ export class SelectionManager {
         for (let i = this.shapes.length - 1; i >= 0; i--) {
             const shape = this.shapes[i];
             
-            if (!shape.visible || shape.locked) continue;
+            if (!shape.visible) continue;
             
             if (shape.hitTest(point, this.tolerance)) {
                 if (!all) {
@@ -99,7 +99,7 @@ export class SelectionManager {
         const hits = [];
         
         for (const shape of this.shapes) {
-            if (!shape.visible || shape.locked) continue;
+            if (!shape.visible) continue;
             
             const shapeBounds = shape.getBounds();
             
@@ -134,7 +134,7 @@ export class SelectionManager {
         const id = typeof shape === 'string' ? shape : shape.id;
         const shapeObj = this._getShape(id);
         
-        if (!shapeObj || shapeObj.locked) return;
+        if (!shapeObj) return;
         
         if (!additive) {
             this._clearSelection();
@@ -195,7 +195,7 @@ export class SelectionManager {
             const id = typeof shape === 'string' ? shape : shape.id;
             const shapeObj = this._getShape(id);
             
-            if (shapeObj && !shapeObj.locked && !this.selected.has(id)) {
+            if (shapeObj && !this.selected.has(id)) {
                 this.selected.add(id);
                 shapeObj.selected = true;
                 shapeObj.invalidate();

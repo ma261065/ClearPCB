@@ -103,7 +103,13 @@ class SchematicApp {
             snapToGrid: document.getElementById('snapToGrid'),
             docTitle: document.getElementById('docTitle'),
             undoBtn: document.getElementById('undoBtn'),
-            redoBtn: document.getElementById('redoBtn')
+            redoBtn: document.getElementById('redoBtn'),
+            propertiesPanel: document.getElementById('propertiesPanel'),
+            propertiesToggle: document.getElementById('propertiesToggle'),
+            propSelectionCount: document.getElementById('propSelectionCount'),
+            propLocked: document.getElementById('propLocked'),
+            propLineWidth: document.getElementById('propLineWidth'),
+            propFill: document.getElementById('propFill')
         };
         
         // Create toolbox
@@ -113,6 +119,9 @@ class SchematicApp {
             eventBus: this.eventBus
         });
         this.toolbox.appendTo(this.container);
+
+        // Make help panel draggable
+        this._makeHelpPanelDraggable();
         
         // Component library and picker
         this.componentLibrary = getComponentLibrary();
@@ -1549,6 +1558,46 @@ class SchematicApp {
         this.crosshair.lineY.setAttribute('x2', screenPos.x);
         this.crosshair.lineY.setAttribute('y2', h);
     }
+
+    _makeHelpPanelDraggable() {
+        const panel = document.querySelector('.help-panel');
+        if (!panel) return;
+        const header = panel.querySelector('h3') || panel;
+
+        let isDragging = false;
+        let offsetX = 0;
+        let offsetY = 0;
+
+        header.addEventListener('mousedown', (e) => {
+            isDragging = true;
+            const rect = panel.getBoundingClientRect();
+            offsetX = e.clientX - rect.left;
+            offsetY = e.clientY - rect.top;
+            header.style.cursor = 'grabbing';
+            e.preventDefault();
+        });
+
+        window.addEventListener('mousemove', (e) => {
+            if (!isDragging) return;
+            const x = e.clientX - offsetX;
+            const y = e.clientY - offsetY;
+
+            const maxX = window.innerWidth - panel.offsetWidth;
+            const maxY = window.innerHeight - panel.offsetHeight;
+
+            panel.style.left = Math.max(0, Math.min(x, maxX)) + 'px';
+            panel.style.top = Math.max(0, Math.min(y, maxY)) + 'px';
+            panel.style.right = 'auto';
+            panel.style.bottom = 'auto';
+        });
+
+        window.addEventListener('mouseup', () => {
+            if (isDragging) {
+                isDragging = false;
+                header.style.cursor = 'grab';
+            }
+        });
+    }
     
     _showCrosshair() {
         this.crosshair.container.classList.add('active');
@@ -1561,6 +1610,112 @@ class SchematicApp {
     _onSelectionChanged(shapes) {
         console.log(`Selection: ${shapes.length} shape(s)`);
         this.renderShapes(true);
+        this._updatePropertiesPanel(shapes);
+    }
+
+    _bindPropertiesPanel() {
+        if (!this.ui.propertiesPanel) return;
+
+        this.ui.propertiesToggle.addEventListener('click', () => {
+            this.ui.propertiesPanel.classList.toggle('collapsed');
+            const isCollapsed = this.ui.propertiesPanel.classList.contains('collapsed');
+            this.ui.propertiesToggle.textContent = isCollapsed ? '⟩' : '⟨';
+        });
+
+        this.ui.propLocked.addEventListener('change', (e) => {
+            this._applyCommonProperty('locked', e.target.checked);
+        });
+
+        this.ui.propLineWidth.addEventListener('change', (e) => {
+            const value = parseFloat(e.target.value);
+            if (Number.isNaN(value)) return;
+            this._applyCommonProperty('lineWidth', value);
+        });
+
+        this.ui.propFill.addEventListener('change', (e) => {
+            this._applyCommonProperty('fill', e.target.checked);
+        });
+
+        this._updatePropertiesPanel([]);
+    }
+
+    _updatePropertiesPanel(selection) {
+        if (!this.ui.propertiesPanel) return;
+
+        const count = selection.length;
+        this.ui.propSelectionCount.textContent = String(count);
+
+        const setCheckboxState = (el, values) => {
+            el.indeterminate = false;
+            if (values.length === 0) {
+                el.checked = false;
+                el.disabled = true;
+                return;
+            }
+            const allTrue = values.every(v => v === true);
+            const allFalse = values.every(v => v === false);
+            el.disabled = false;
+            if (allTrue) {
+                el.checked = true;
+            } else if (allFalse) {
+                el.checked = false;
+            } else {
+                el.checked = false;
+                el.indeterminate = true;
+            }
+        };
+
+        const lockedValues = selection
+            .filter(item => typeof item.locked === 'boolean')
+            .map(item => item.locked);
+        setCheckboxState(this.ui.propLocked, lockedValues);
+
+        const lineWidthValues = selection
+            .filter(item => typeof item.lineWidth === 'number')
+            .map(item => item.lineWidth);
+
+        if (lineWidthValues.length === 0) {
+            this.ui.propLineWidth.value = '';
+            this.ui.propLineWidth.placeholder = '—';
+            this.ui.propLineWidth.disabled = true;
+        } else {
+            this.ui.propLineWidth.disabled = false;
+            const first = lineWidthValues[0];
+            const allSame = lineWidthValues.every(v => Math.abs(v - first) < 1e-6);
+            if (allSame) {
+                this.ui.propLineWidth.value = first;
+            } else {
+                this.ui.propLineWidth.value = '';
+                this.ui.propLineWidth.placeholder = '—';
+            }
+        }
+
+        const fillValues = selection
+            .filter(item => typeof item.fill === 'boolean')
+            .map(item => item.fill);
+        setCheckboxState(this.ui.propFill, fillValues);
+    }
+
+    _applyCommonProperty(prop, value) {
+        const selection = this.selection.getSelection();
+        if (selection.length === 0) return;
+
+        let changed = false;
+        for (const item of selection) {
+            if (prop in item) {
+                item[prop] = value;
+                if (typeof item.invalidate === 'function') {
+                    item.invalidate();
+                }
+                changed = true;
+            }
+        }
+
+        if (changed) {
+            this.fileManager.setDirty(true);
+            this.renderShapes(true);
+            this._updatePropertiesPanel(selection);
+        }
     }
 
     // ==================== Mouse Events ====================
@@ -1594,6 +1749,7 @@ class SchematicApp {
                 // Check if clicking on an anchor of a selected shape
                 const selectedShapes = this.selection.getSelection();
                 for (const shape of selectedShapes) {
+                    if (shape.locked) continue;
                     const anchorId = shape.hitTestAnchor(worldPos, this.viewport.scale);
                     if (anchorId) {
                         // Start anchor drag - capture state for undo
@@ -1622,14 +1778,23 @@ class SchematicApp {
                 const hitShape = this.selection.hitTest(worldPos);
                 
                 if (hitShape) {
+                    const additive = e.shiftKey || e.ctrlKey || e.metaKey;
+                    if (additive) {
+                        this.selection.toggle(hitShape);
+                        this.renderShapes(true);
+                        this.skipClickSelection = true;
+                        e.preventDefault();
+                        return;
+                    }
                     // If clicking on unselected item, select it first
                     if (!hitShape.selected) {
-                        if (e.shiftKey) {
-                            this.selection.select(hitShape, true);  // Add to selection
-                        } else {
-                            this.selection.select(hitShape, false); // Replace selection
-                        }
+                        this.selection.select(hitShape, false); // Replace selection
                         this.renderShapes(true);
+                    }
+
+                    if (hitShape.locked) {
+                        e.preventDefault();
+                        return;
                     }
                     
                     // Now start move drag immediately
@@ -1765,7 +1930,9 @@ class SchematicApp {
                     this.dragTotalDy += dy;
                     
                     for (const shape of this.selection.getSelection()) {
-                        shape.move(dx, dy);
+                        if (!shape.locked) {
+                            shape.move(dx, dy);
+                        }
                     }
                     this.dragStart = { ...snapped };
                     this.renderShapes(true);
@@ -1867,6 +2034,11 @@ class SchematicApp {
         
         svg.addEventListener('click', (e) => {
             if (this.viewport.isPanning) return;
+
+            if (this.skipClickSelection) {
+                this.skipClickSelection = false;
+                return;
+            }
             
             // Don't handle click if we actually dragged
             if (this.didDrag) {
@@ -1882,7 +2054,7 @@ class SchematicApp {
             const worldPos = this.viewport.screenToWorld(screenPos);
             
             if (this.currentTool === 'select') {
-                this.selection.handleClick(worldPos, e.shiftKey);
+                this.selection.handleClick(worldPos, e.shiftKey || e.ctrlKey || e.metaKey);
                 // Force re-render all shapes to update anchor visibility on deselected shapes
                 this.renderShapes(true);
             }
@@ -2004,6 +2176,9 @@ class SchematicApp {
         
         // Initialize grid dropdown with current units
         this._updateGridDropdown();
+
+        // Properties panel
+        this._bindPropertiesPanel();
     }
     
     /**
