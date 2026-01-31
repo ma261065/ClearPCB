@@ -339,8 +339,9 @@ class SchematicApp {
         }
         
         this._createPreview();
-        this._hideCrosshair();
-        this.viewport.svg.style.cursor = 'none';
+        this._showCrosshair();
+        this._updateCrosshair(worldPos);
+        this._setToolCursor(this.currentTool, this.viewport.svg);
     }
     
     _updateDrawing(worldPos) {
@@ -854,7 +855,7 @@ class SchematicApp {
         this._createPreview();
         this._showCrosshair();
         this._updateCrosshair(snappedData);
-        this.viewport.svg.style.cursor = 'none';
+        this._setToolCursor(this.currentTool, this.viewport.svg);
     }
     
     /**
@@ -2197,6 +2198,7 @@ class SchematicApp {
                 };
                 const worldPos = this.viewport.screenToWorld(screenPos);
                 this._finishWireDrawing(worldPos);
+                this._setToolCursor(this.currentTool, this.viewport.svg);
                 e.preventDefault();
             } else if (this.currentTool === 'polygon' && this.isDrawing) {
                 const rect = svg.getBoundingClientRect();
@@ -2208,8 +2210,17 @@ class SchematicApp {
                 const snapped = this.viewport.getSnappedPosition(worldPos);
                 this._addPolygonPoint(snapped);
                 this._finishPolygon();
+                this._setToolCursor(this.currentTool, this.viewport.svg);
                 e.preventDefault();
             }
+        });
+
+        // Prevent context menu so custom cursor remains after right-click
+        svg.addEventListener('contextmenu', (e) => {
+            if (this.currentTool !== 'select') {
+                this._setToolCursor(this.currentTool, this.viewport.svg);
+            }
+            e.preventDefault();
         });
         
         svg.addEventListener('mousemove', (e) => {
@@ -2237,7 +2248,8 @@ class SchematicApp {
                 // Update drawing if already started
                 if (this.isDrawing) {
                     this._updateWireDrawing(worldPos);
-                    this._hideCrosshair();
+                    this._showCrosshair();
+                    this._updateCrosshair(snapped, screenPos);
                 } else {
                     this._showCrosshair();
                     this._updateCrosshair(snapped, screenPos);
@@ -2245,11 +2257,9 @@ class SchematicApp {
                 return;
             }
 
-            if (this.currentTool !== 'select' && !this.isDrawing) {
+            if (this.currentTool !== 'select') {
                 this._showCrosshair();
                 this._updateCrosshair(snapped, screenPos);
-            } else if (this.isDrawing) {
-                this._hideCrosshair();
             }
             
             if (!this.isDragging) return;
