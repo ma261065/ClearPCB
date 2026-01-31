@@ -11,6 +11,7 @@ export { Arc } from './arc.js';
 export { Pad } from './pad.js';
 export { Via } from './via.js';
 export { Polygon } from './polygon.js';
+export { Text } from './text.js';
 
 import { Line } from './line.js';
 import { Wire } from './wire.js';
@@ -20,6 +21,7 @@ import { Arc } from './arc.js';
 import { Pad } from './pad.js';
 import { Via } from './via.js';
 import { Polygon } from './polygon.js';
+import { Text } from './text.js';
 
 const shapeRegistry = {
     line: Line,
@@ -29,7 +31,8 @@ const shapeRegistry = {
     arc: Arc,
     pad: Pad,
     via: Via,
-    polygon: Polygon
+    polygon: Polygon,
+    text: Text
 };
 
 /**

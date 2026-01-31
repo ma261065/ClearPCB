@@ -359,6 +359,14 @@ body {
     flex: 1;
     position: relative;
     overflow: hidden;
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+.canvas-container svg,
+.canvas-container text {
+    user-select: none;
+    -webkit-user-select: none;
 }
 
 .ribbon-properties .ribbon-group-items {
@@ -478,6 +486,17 @@ body {
 
 .drawing-crosshair.active {
     display: block;
+}
+
+#crosshairToolIcon {
+    fill: none;
+    stroke: var(--accent-color);
+    stroke-width: 1.4;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    user-select: none;
+    -webkit-user-select: none;
+    display: none;
 }
 
 .status-bar {

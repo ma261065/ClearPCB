@@ -9,11 +9,11 @@ import { SelectionManager } from '../core/SelectionManager.js';
 import { FileManager } from '../core/FileManager.js';
 import { storageManager } from '../core/StorageManager.js';
 import { ComponentPicker } from '../components/ComponentPicker.js';
-import { Line, Wire, Circle, Rect, Arc, Polygon, updateIdCounter } from '../shapes/index.js';
+import { Line, Wire, Circle, Rect, Arc, Polygon, Text, updateIdCounter } from '../shapes/index.js';
 import { Component, getComponentLibrary } from '../components/index.js';
 
 // Shape class registry for deserialization
-const ShapeClasses = { Line, Wire, Circle, Rect, Arc, Polygon };
+const ShapeClasses = { Line, Wire, Circle, Rect, Arc, Polygon, Text };
 
 class SchematicApp {
     constructor() {
@@ -108,7 +108,9 @@ class SchematicApp {
             propSelectionCount: document.getElementById('propSelectionCount'),
             propLocked: document.getElementById('propLocked'),
             propLineWidth: document.getElementById('propLineWidth'),
-            propFill: document.getElementById('propFill')
+            propFill: document.getElementById('propFill'),
+            propText: document.getElementById('propText'),
+            propTextSize: document.getElementById('propTextSize')
         };
         
         // Help panel now lives in ribbon
@@ -235,7 +237,7 @@ class SchematicApp {
         
         // Update cursor
         const svg = this.viewport.svg;
-        svg.style.cursor = tool === 'select' ? 'default' : 'crosshair';
+        this._setToolCursor(tool, svg);
 
         this._setActiveToolButton?.(tool);
         this._updateShapePanelOptions(this.selection.getSelection(), tool);
@@ -337,8 +339,7 @@ class SchematicApp {
         }
         
         this._createPreview();
-        this._showCrosshair();
-        this._updateCrosshair(worldPos);
+        this._hideCrosshair();
         this.viewport.svg.style.cursor = 'none';
     }
     
@@ -398,7 +399,7 @@ class SchematicApp {
         }
         
         this._hideCrosshair();
-        this.viewport.svg.style.cursor = this.currentTool === 'select' ? 'default' : 'crosshair';
+        this._setToolCursor(this.currentTool, this.viewport.svg);
     }
     
     _createPreview() {
@@ -475,6 +476,9 @@ class SchematicApp {
                     }
                 }
                 break;
+            case 'text':
+                svg = `<text x="${start.x}" y="${start.y}" fill="${opts.color}" font-size="2.5" font-family="Arial" dominant-baseline="hanging">Text</text>`;
+                break;
         }
         
         this.previewElement.innerHTML = svg;
@@ -545,6 +549,17 @@ class SchematicApp {
                     endAngle: endAngle,
                     color: opts.color,
                     lineWidth: opts.lineWidth
+                });
+            }
+            case 'text': {
+                const label = window.prompt('Text', 'Text');
+                if (label === null) return null;
+                return new Text({
+                    x: start.x,
+                    y: start.y,
+                    text: label,
+                    color: opts.color,
+                    fillColor: opts.color
                 });
             }
                 
@@ -839,7 +854,7 @@ class SchematicApp {
         this._createPreview();
         this._showCrosshair();
         this._updateCrosshair(snappedData);
-        this.viewport.svg.style.cursor = 'crosshair';
+        this.viewport.svg.style.cursor = 'none';
     }
     
     /**
@@ -1117,7 +1132,7 @@ class SchematicApp {
         }
         
         this._hideCrosshair();
-        this.viewport.svg.style.cursor = this.currentTool === 'select' ? 'default' : 'crosshair';
+        this._setToolCursor(this.currentTool, this.viewport.svg);
     }
     
     /**
@@ -1526,7 +1541,7 @@ class SchematicApp {
         };
     }
     
-    _updateCrosshair(snapped) {
+    _updateCrosshair(snapped, screenPosOverride = null) {
         const screenPos = this.viewport.worldToScreen(snapped);
         const w = this.container.clientWidth;
         const h = this.container.clientHeight;
@@ -1542,6 +1557,56 @@ class SchematicApp {
         this.crosshair.lineY.setAttribute('y1', 0);
         this.crosshair.lineY.setAttribute('x2', screenPos.x);
         this.crosshair.lineY.setAttribute('y2', h);
+    }
+
+    _getToolIconPath(tool) {
+        switch (tool) {
+            case 'line':
+                return 'M 0 8 L 8 0';
+            case 'wire':
+                return 'M 0 4 L 8 4';
+            case 'rect':
+                return 'M 1 1 H 7 V 7 H 1 Z';
+            case 'circle':
+                return 'M 4 1 A 3 3 0 1 1 3.999 1';
+            case 'arc':
+                return 'M 1 7 A 6 6 0 0 1 7 1';
+            case 'polygon':
+                return 'M 4 0 L 8 3 L 6 8 L 2 8 L 0 3 Z';
+            case 'text':
+                return 'M 1 1 H 7 M 4 1 V 7';
+            case 'component':
+                return 'M 1 1 H 7 V 7 H 1 Z M 4 2 V 6 M 2 4 H 6';
+            default:
+                return '';
+        }
+    }
+
+    _setToolCursor(tool, svg) {
+        if (!svg) return;
+        if (tool === 'select') {
+            svg.style.cursor = 'default';
+            return;
+        }
+
+        const path = this._getToolIconPath(tool);
+        if (!path) {
+            svg.style.cursor = 'crosshair';
+            return;
+        }
+
+        const stroke = '#ffffff';
+        const svgMarkup = `<?xml version="1.0" encoding="UTF-8"?>
+            <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="-4 -6 26 26">
+                <path d="M 0 8 H 16 M 8 0 V 16" fill="none" stroke="${stroke}" stroke-width="1" stroke-linecap="round" />
+                <g transform="translate(10 -2)">
+                    <path d="${path}" fill="none" stroke="${stroke}" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
+                </g>
+            </svg>`;
+        const encoded = encodeURIComponent(svgMarkup)
+            .replace(/'/g, '%27')
+            .replace(/"/g, '%22');
+        svg.style.cursor = `url("data:image/svg+xml,${encoded}") 16 18, crosshair`;
     }
 
     _makeHelpPanelDraggable() {
@@ -1621,6 +1686,20 @@ class SchematicApp {
         this.ui.propFill.addEventListener('change', (e) => {
             this._applyCommonProperty('fill', e.target.checked);
         });
+
+        if (this.ui.propText) {
+            this.ui.propText.addEventListener('change', (e) => {
+                this._applyCommonProperty('text', e.target.value);
+            });
+        }
+
+        if (this.ui.propTextSize) {
+            this.ui.propTextSize.addEventListener('change', (e) => {
+                const value = parseFloat(e.target.value);
+                if (Number.isNaN(value)) return;
+                this._applyCommonProperty('fontSize', value);
+            });
+        }
 
         this._updatePropertiesPanel([]);
     }
@@ -1873,6 +1952,64 @@ class SchematicApp {
             .filter(item => typeof item.fill === 'boolean')
             .map(item => item.fill);
         setCheckboxState(this.ui.propFill, fillValues);
+
+        const hasText = selection.some(item => item?.type === 'text');
+        if (hasText) {
+            this.ui.propFill.checked = false;
+            this.ui.propFill.indeterminate = false;
+            this.ui.propFill.disabled = true;
+        }
+
+        if (this.ui.propText) {
+            const textValues = selection
+                .filter(item => typeof item.text === 'string')
+                .map(item => item.text);
+
+            if (textValues.length === 0) {
+                this.ui.propText.value = '';
+                this.ui.propText.placeholder = '—';
+                this.ui.propText.disabled = true;
+            } else {
+                this.ui.propText.disabled = false;
+                const first = textValues[0];
+                const allSame = textValues.every(v => v === first);
+                if (allSame) {
+                    this.ui.propText.value = first;
+                } else {
+                    this.ui.propText.value = '';
+                    this.ui.propText.placeholder = '—';
+                }
+            }
+        }
+
+        if (this.ui.propText && selection.length === 1 && selection[0]?.type === 'text') {
+            setTimeout(() => {
+                this.ui.propText?.focus();
+                this.ui.propText?.select();
+            }, 0);
+        }
+
+        if (this.ui.propTextSize) {
+            const sizeValues = selection
+                .filter(item => typeof item.fontSize === 'number')
+                .map(item => item.fontSize);
+
+            if (sizeValues.length === 0) {
+                this.ui.propTextSize.value = '';
+                this.ui.propTextSize.placeholder = '—';
+                this.ui.propTextSize.disabled = true;
+            } else {
+                this.ui.propTextSize.disabled = false;
+                const first = sizeValues[0];
+                const allSame = sizeValues.every(v => Math.abs(v - first) < 1e-6);
+                if (allSame) {
+                    this.ui.propTextSize.value = first;
+                } else {
+                    this.ui.propTextSize.value = '';
+                    this.ui.propTextSize.placeholder = '—';
+                }
+            }
+        }
     }
 
     _applyCommonProperty(prop, value) {
@@ -2061,6 +2198,17 @@ class SchematicApp {
                 const worldPos = this.viewport.screenToWorld(screenPos);
                 this._finishWireDrawing(worldPos);
                 e.preventDefault();
+            } else if (this.currentTool === 'polygon' && this.isDrawing) {
+                const rect = svg.getBoundingClientRect();
+                const screenPos = {
+                    x: e.clientX - rect.left,
+                    y: e.clientY - rect.top
+                };
+                const worldPos = this.viewport.screenToWorld(screenPos);
+                const snapped = this.viewport.getSnappedPosition(worldPos);
+                this._addPolygonPoint(snapped);
+                this._finishPolygon();
+                e.preventDefault();
             }
         });
         
@@ -2089,9 +2237,19 @@ class SchematicApp {
                 // Update drawing if already started
                 if (this.isDrawing) {
                     this._updateWireDrawing(worldPos);
-                    this._updateCrosshair(snapped); // Keep crosshair grid-snapped while cursor stays free
+                    this._hideCrosshair();
+                } else {
+                    this._showCrosshair();
+                    this._updateCrosshair(snapped, screenPos);
                 }
                 return;
+            }
+
+            if (this.currentTool !== 'select' && !this.isDrawing) {
+                this._showCrosshair();
+                this._updateCrosshair(snapped, screenPos);
+            } else if (this.isDrawing) {
+                this._hideCrosshair();
             }
             
             if (!this.isDragging) return;
