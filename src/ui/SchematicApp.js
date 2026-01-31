@@ -4,13 +4,18 @@
 
 import { Viewport } from '../core/Viewport.js';
 import { EventBus, Events, globalEventBus } from '../core/EventBus.js';
-import { CommandHistory, AddShapeCommand, DeleteShapesCommand, MoveShapesCommand, ModifyShapeCommand } from '../core/CommandHistory.js';
+import { CommandHistory, AddShapeCommand, DeleteShapesCommand } from '../core/CommandHistory.js';
 import { SelectionManager } from '../core/SelectionManager.js';
 import { FileManager } from '../core/FileManager.js';
 import { storageManager } from '../core/StorageManager.js';
 import { ComponentPicker } from '../components/ComponentPicker.js';
 import { Line, Wire, Circle, Rect, Arc, Polygon, Text, updateIdCounter } from '../shapes/index.js';
 import { Component, getComponentLibrary } from '../components/index.js';
+import { bindMouseEvents } from './modules/mouse.js';
+import { bindKeyboardShortcuts } from './modules/keyboard.js';
+import { bindPropertiesPanel, updatePropertiesPanel, applyCommonProperty } from './modules/properties.js';
+import { bindRibbon, updateRibbonState, updateShapePanelOptions } from './modules/ribbon.js';
+import { updateCrosshair, getToolIconPath, setToolCursor, showCrosshair, hideCrosshair } from './modules/cursor.js';
 
 // Shape class registry for deserialization
 const ShapeClasses = { Line, Wire, Circle, Rect, Arc, Polygon, Text };
@@ -22,48 +27,44 @@ class SchematicApp {
         this.eventBus = globalEventBus;
         this.history = new CommandHistory({
             onChanged: () => {
-                this._updateTitle();
                 this._updateUndoRedoButtons();
             }
         });
-        
-        // File management
         this.fileManager = new FileManager();
-        this.fileManager.onDirtyChanged = (dirty) => this._updateTitle();
-        this.fileManager.onFileNameChanged = (name) => this._updateTitle();
-        
-        // Drawing crosshair elements
-        this.crosshair = {
-            container: document.getElementById('drawingCrosshair'),
-            lineX: document.getElementById('crosshairX'),
-            lineY: document.getElementById('crosshairY')
-        };
-        
-        // Shape management
+        this.fileManager.onDirtyChanged = () => this._updateTitle();
+        this.fileManager.onFileNameChanged = () => this._updateTitle();
+
+        // Shape/selection state
         this.shapes = [];
-        this.components = [];  // Placed component instances
+        this.components = [];
         this.selection = new SelectionManager({
-            onSelectionChanged: (items) => this._onSelectionChanged(items)
+            onSelectionChanged: (shapes) => this._onSelectionChanged(shapes)
         });
         this._updateSelectableItems();
-        
-        // Drawing state
+
+        // Tool/drawing state
         this.currentTool = 'select';
         this.isDrawing = false;
         this.drawStart = null;
         this.drawCurrent = null;
         this.polygonPoints = [];
         this.previewElement = null;
-        
-        // Wire-specific drawing state
-        this.wirePoints = [];  // Waypoints for the current wire being drawn
-        this.wireSnapPin = null;  // Pin currently being snapped to (if any)
-        this.wireSnapTolerance = 0.5;  // How close to snap to a pin
-        this.wireStartPin = null;  // The pin we started from (if any)
-        this.wireActiveAxis = null; // 'horizontal' | 'vertical' | null - sticky direction for current segment
-        this.wireAutoCorner = null;  // Auto-generated corner for preview
-        this.wireLastAdjustedPoint = null; // Last waypoint modified for axis-snap
-        
+        this.wirePoints = [];
+        this.wireSnapPin = null;
+        this.wireStartPin = null;
+        this.wireAutoCorner = null;
+        this.wireActiveAxis = null;
+        this.wireLastAdjustedPoint = null;
+        this.lastSnappedData = null;
+
+        // Crosshair
+        this.crosshair = {
+            container: document.getElementById('drawingCrosshair'),
+            lineX: document.getElementById('crosshairX'),
+            lineY: document.getElementById('crosshairY'),
+            toolIcon: document.getElementById('crosshairToolIcon')
+        };
+
         // Drag state
         this.isDragging = false;
         this.didDrag = false;  // Track if actual drag occurred
@@ -72,23 +73,24 @@ class SchematicApp {
         this.dragAnchorId = null;
         this.dragShape = null;
         this.dragWireAnchorOriginal = null;
-        
+        this.skipClickSelection = false;
+
         // Box selection
         this.boxSelectElement = null;
         this.boxSelectStart = null;
-        
+
         // Drag tracking for undo/redo
         this.dragTotalDx = 0;
         this.dragTotalDy = 0;
         this.dragShapesBefore = null;  // State before drag for anchor modifications
-        
+
         // Tool options
         this.toolOptions = {
             lineWidth: 0.2,
             fill: false,
             color: '#00cc66'  // Default wire color - matches --sch-wire
         };
-        
+
         // UI elements
         this.ui = {
             cursorPos: document.getElementById('cursorPos'),
@@ -112,9 +114,9 @@ class SchematicApp {
             propText: document.getElementById('propText'),
             propTextSize: document.getElementById('propTextSize')
         };
-        
+
         // Help panel now lives in ribbon
-        
+
         // Component library and picker
         this.componentLibrary = getComponentLibrary();
         this.componentPicker = new ComponentPicker({
@@ -123,29 +125,29 @@ class SchematicApp {
             eventBus: this.eventBus
         });
         this.componentPicker.appendTo(this.container);
-        
+
         // Component placement state
         this.placingComponent = null;  // Definition being placed
         this.componentPreview = null;  // Preview SVG element
         this.componentRotation = 0;    // Current rotation for placement
         this.componentMirror = false;  // Current mirror state
-        
+
         this._setupCallbacks();
         this._setupEventBusListeners();
         this._bindUIControls();
         this._bindMouseEvents();
         this._bindKeyboardShortcuts();
-        
+
         // Initial view
         this.viewport.resetView();
         this._updateTitle();
-        
+
         // Check for auto-saved content
         this._checkAutoSave();
-        
+
         // Start auto-save
         this.fileManager.startAutoSave(() => this._serializeDocument());
-        
+
         // Warn about unsaved changes
         window.addEventListener('beforeunload', (e) => {
             if (this.fileManager.isDirty) {
@@ -153,10 +155,10 @@ class SchematicApp {
                 e.returnValue = '';
             }
         });
-        
+
         // Load version after a brief delay to ensure DOM is ready
         setTimeout(() => this._loadVersion(), 100);
-        
+
         console.log('Schematic Editor initialized');
     }
 
@@ -1543,71 +1545,15 @@ class SchematicApp {
     }
     
     _updateCrosshair(snapped, screenPosOverride = null) {
-        const screenPos = this.viewport.worldToScreen(snapped);
-        const w = this.container.clientWidth;
-        const h = this.container.clientHeight;
-        
-        // Horizontal line (full width at snapped Y)
-        this.crosshair.lineX.setAttribute('x1', 0);
-        this.crosshair.lineX.setAttribute('y1', screenPos.y);
-        this.crosshair.lineX.setAttribute('x2', w);
-        this.crosshair.lineX.setAttribute('y2', screenPos.y);
-        
-        // Vertical line (full height at snapped X)
-        this.crosshair.lineY.setAttribute('x1', screenPos.x);
-        this.crosshair.lineY.setAttribute('y1', 0);
-        this.crosshair.lineY.setAttribute('x2', screenPos.x);
-        this.crosshair.lineY.setAttribute('y2', h);
+        updateCrosshair(this, snapped, screenPosOverride);
     }
 
     _getToolIconPath(tool) {
-        switch (tool) {
-            case 'line':
-                return 'M 0 8 L 8 0';
-            case 'wire':
-                return 'M 0 4 L 8 4';
-            case 'rect':
-                return 'M 1 1 H 7 V 7 H 1 Z';
-            case 'circle':
-                return 'M 4 1 A 3 3 0 1 1 3.999 1';
-            case 'arc':
-                return 'M 1 7 A 6 6 0 0 1 7 1';
-            case 'polygon':
-                return 'M 4 0 L 8 3 L 6 8 L 2 8 L 0 3 Z';
-            case 'text':
-                return 'M 1 1 H 7 M 4 1 V 7';
-            case 'component':
-                return 'M 1 1 H 7 V 7 H 1 Z M 4 2 V 6 M 2 4 H 6';
-            default:
-                return '';
-        }
+        return getToolIconPath(tool);
     }
 
     _setToolCursor(tool, svg) {
-        if (!svg) return;
-        if (tool === 'select') {
-            svg.style.cursor = 'default';
-            return;
-        }
-
-        const path = this._getToolIconPath(tool);
-        if (!path) {
-            svg.style.cursor = 'crosshair';
-            return;
-        }
-
-        const stroke = '#ffffff';
-        const svgMarkup = `<?xml version="1.0" encoding="UTF-8"?>
-            <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="-4 -6 26 26">
-                <path d="M 0 8 H 16 M 8 0 V 16" fill="none" stroke="${stroke}" stroke-width="1" stroke-linecap="round" />
-                <g transform="translate(10 -2)">
-                    <path d="${path}" fill="none" stroke="${stroke}" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
-                </g>
-            </svg>`;
-        const encoded = encodeURIComponent(svgMarkup)
-            .replace(/'/g, '%27')
-            .replace(/"/g, '%22');
-        svg.style.cursor = `url("data:image/svg+xml,${encoded}") 16 18, crosshair`;
+        setToolCursor(this, tool, svg);
     }
 
     _makeHelpPanelDraggable() {
@@ -1651,11 +1597,11 @@ class SchematicApp {
     }
     
     _showCrosshair() {
-        this.crosshair.container.classList.add('active');
+        showCrosshair(this);
     }
     
     _hideCrosshair() {
-        this.crosshair.container.classList.remove('active');
+        hideCrosshair(this);
     }
     
     _onSelectionChanged(shapes) {
@@ -1672,201 +1618,19 @@ class SchematicApp {
     }
 
     _bindPropertiesPanel() {
-        if (!this.ui.propertiesPanel) return;
-
-        this.ui.propLocked.addEventListener('change', (e) => {
-            this._applyCommonProperty('locked', e.target.checked);
-        });
-
-        this.ui.propLineWidth.addEventListener('change', (e) => {
-            const value = parseFloat(e.target.value);
-            if (Number.isNaN(value)) return;
-            this._applyCommonProperty('lineWidth', value);
-        });
-
-        this.ui.propFill.addEventListener('change', (e) => {
-            this._applyCommonProperty('fill', e.target.checked);
-        });
-
-        if (this.ui.propText) {
-            this.ui.propText.addEventListener('change', (e) => {
-                this._applyCommonProperty('text', e.target.value);
-            });
-        }
-
-        if (this.ui.propTextSize) {
-            this.ui.propTextSize.addEventListener('change', (e) => {
-                const value = parseFloat(e.target.value);
-                if (Number.isNaN(value)) return;
-                this._applyCommonProperty('fontSize', value);
-            });
-        }
-
-        this._updatePropertiesPanel([]);
+        bindPropertiesPanel(this);
     }
 
     _bindRibbon() {
-        const tabs = document.querySelectorAll('.ribbon-tab');
-        const panels = document.querySelectorAll('.ribbon-panel');
-        if (tabs.length === 0 || panels.length === 0) return;
-
-        this._setActiveRibbonTab = (tabId) => {
-            tabs.forEach(tab => tab.classList.toggle('active', tab.dataset.tab === tabId));
-            panels.forEach(panel => panel.classList.toggle('active', panel.dataset.panel === tabId));
-        };
-
-        tabs.forEach(tab => {
-            tab.addEventListener('click', () => this._setActiveRibbonTab(tab.dataset.tab));
-        });
-        this._setActiveRibbonTab('home');
-
-        const get = (id) => document.getElementById(id);
-
-        get('ribbonNew')?.addEventListener('click', () => this.newFile());
-        get('ribbonOpen')?.addEventListener('click', () => this.openFile());
-        get('ribbonSave')?.addEventListener('click', () => this.saveFile());
-        get('ribbonSaveAs')?.addEventListener('click', () => this.saveFileAs());
-        get('ribbonExportPdf')?.addEventListener('click', () => this.savePdf());
-
-        get('ribbonDelete')?.addEventListener('click', () => this._deleteSelected());
-        get('ribbonToggleLock')?.addEventListener('click', () => this._toggleSelectionLock());
-        get('ribbonRotate')?.addEventListener('click', () => this._rotateComponent());
-
-        const ribbonToolButtons = Array.from(document.querySelectorAll('.ribbon-tool-btn'));
-        const setActiveToolButton = (toolId) => {
-            ribbonToolButtons.forEach(btn => btn.classList.toggle('active', btn.dataset.tool === toolId));
-        };
-        this._setActiveToolButton = setActiveToolButton;
-        ribbonToolButtons.forEach(btn => {
-            btn.addEventListener('click', () => {
-                const toolId = btn.dataset.tool;
-                this._onToolSelected(toolId);
-            });
-        });
-        setActiveToolButton(this.currentTool);
-
-        this._updateRibbonState(this.selection.getSelection());
-        this._updateShapePanelOptions(this.selection.getSelection(), this.currentTool);
-    }
-
-    _updateShapePanelOptions(selection, toolId = this.currentTool) {
-        const container = document.getElementById('ribbonShapeOptions');
-        if (!container) return;
-
-        const items = selection || [];
-        const hasSelection = items.length > 0;
-        const toolSupportsLineWidth = toolId === 'line' || toolId === 'wire';
-        const toolSupportsFill = toolId === 'rect' || toolId === 'circle' || toolId === 'polygon';
-        const supportsLineWidth = hasSelection
-            ? items.some(item => typeof item?.lineWidth === 'number')
-            : toolSupportsLineWidth;
-        const supportsFill = hasSelection
-            ? items.some(item => typeof item?.fill === 'boolean')
-            : toolSupportsFill;
-
-        container.innerHTML = `
-            <label>
-                Line width
-                <input type="number" id="ribbonShapeLineWidth" step="0.05" min="0" placeholder="—">
-            </label>
-            <label>
-                <input type="checkbox" id="ribbonShapeFill"> Fill
-            </label>
-        `;
-
-        const setCheckboxState = (el, values) => {
-            el.indeterminate = false;
-            if (values.length === 0) {
-                el.checked = false;
-                el.disabled = true;
-                return;
-            }
-            const allTrue = values.every(v => v === true);
-            const allFalse = values.every(v => v === false);
-            el.disabled = false;
-            if (allTrue) {
-                el.checked = true;
-            } else if (allFalse) {
-                el.checked = false;
-            } else {
-                el.checked = false;
-                el.indeterminate = true;
-            }
-        };
-
-        const lineWidthInput = container.querySelector('#ribbonShapeLineWidth');
-        if (lineWidthInput) {
-            if (hasSelection) {
-                const lineWidthValues = items
-                    .filter(item => typeof item?.lineWidth === 'number')
-                    .map(item => item.lineWidth);
-
-                if (lineWidthValues.length === 0) {
-                    lineWidthInput.value = '';
-                    lineWidthInput.placeholder = '—';
-                    lineWidthInput.disabled = true;
-                } else {
-                    lineWidthInput.disabled = false;
-                    const first = lineWidthValues[0];
-                    const allSame = lineWidthValues.every(v => Math.abs(v - first) < 1e-6);
-                    if (allSame) {
-                        lineWidthInput.value = first;
-                    } else {
-                        lineWidthInput.value = '';
-                        lineWidthInput.placeholder = '—';
-                    }
-                }
-            } else {
-                lineWidthInput.disabled = !supportsLineWidth;
-                lineWidthInput.value = this.toolOptions?.lineWidth ?? 0.2;
-            }
-
-            lineWidthInput.addEventListener('change', (e) => {
-                const value = parseFloat(e.target.value);
-                if (Number.isNaN(value)) return;
-                if (hasSelection) {
-                    this._applyCommonProperty('lineWidth', value);
-                } else {
-                    this.toolOptions.lineWidth = value;
-                }
-            });
-        }
-
-        const fillInput = container.querySelector('#ribbonShapeFill');
-        if (fillInput) {
-            if (hasSelection) {
-                const fillValues = items
-                    .filter(item => typeof item?.fill === 'boolean')
-                    .map(item => item.fill);
-                setCheckboxState(fillInput, fillValues);
-            } else {
-                fillInput.disabled = !supportsFill;
-                fillInput.checked = !!this.toolOptions?.fill;
-                fillInput.indeterminate = false;
-            }
-            fillInput.addEventListener('change', (e) => {
-                if (hasSelection) {
-                    this._applyCommonProperty('fill', e.target.checked);
-                } else {
-                    this.toolOptions.fill = e.target.checked;
-                }
-            });
-        }
+        bindRibbon(this);
     }
 
     _updateRibbonState(selection) {
-        const count = selection.length;
-        const lockBtn = document.getElementById('ribbonToggleLock');
-        const deleteBtn = document.getElementById('ribbonDelete');
-        const rotateBtn = document.getElementById('ribbonRotate');
+        updateRibbonState(this, selection);
+    }
 
-        if (deleteBtn) deleteBtn.disabled = count === 0;
-        if (lockBtn) lockBtn.disabled = count === 0;
-
-        if (rotateBtn) {
-            const hasComponent = selection.some(item => item?.definition);
-            rotateBtn.disabled = !hasComponent;
-        }
+    _updateShapePanelOptions(selection, toolId = this.currentTool) {
+        updateShapePanelOptions(this, selection, toolId);
     }
 
     _toggleSelectionLock() {
@@ -1887,531 +1651,17 @@ class SchematicApp {
     }
 
     _updatePropertiesPanel(selection) {
-        if (!this.ui.propertiesPanel) return;
-
-        const count = selection.length;
-        this.ui.propSelectionCount.textContent = String(count);
-
-        if (this.ui.propertiesHeaderLabel) {
-            if (count === 0) {
-                this.ui.propertiesHeaderLabel.textContent = 'Properties';
-            } else {
-                const types = selection.map(item => item?.definition ? 'component' : (item?.type || 'object'));
-                const first = types[0];
-                const allSame = types.every(t => t === first);
-                const labelType = allSame ? first : 'Multiple';
-                this.ui.propertiesHeaderLabel.textContent = `${labelType.charAt(0).toUpperCase()}${labelType.slice(1)}`;
-            }
-        }
-
-        const setCheckboxState = (el, values) => {
-            el.indeterminate = false;
-            if (values.length === 0) {
-                el.checked = false;
-                el.disabled = true;
-                return;
-            }
-            const allTrue = values.every(v => v === true);
-            const allFalse = values.every(v => v === false);
-            el.disabled = false;
-            if (allTrue) {
-                el.checked = true;
-            } else if (allFalse) {
-                el.checked = false;
-            } else {
-                el.checked = false;
-                el.indeterminate = true;
-            }
-        };
-
-        const lockedValues = selection
-            .filter(item => typeof item.locked === 'boolean')
-            .map(item => item.locked);
-        setCheckboxState(this.ui.propLocked, lockedValues);
-
-        const lineWidthValues = selection
-            .filter(item => typeof item.lineWidth === 'number')
-            .map(item => item.lineWidth);
-
-        if (lineWidthValues.length === 0) {
-            this.ui.propLineWidth.value = '';
-            this.ui.propLineWidth.placeholder = '—';
-            this.ui.propLineWidth.disabled = true;
-        } else {
-            this.ui.propLineWidth.disabled = false;
-            const first = lineWidthValues[0];
-            const allSame = lineWidthValues.every(v => Math.abs(v - first) < 1e-6);
-            if (allSame) {
-                this.ui.propLineWidth.value = first;
-            } else {
-                this.ui.propLineWidth.value = '';
-                this.ui.propLineWidth.placeholder = '—';
-            }
-        }
-
-        const fillValues = selection
-            .filter(item => typeof item.fill === 'boolean')
-            .map(item => item.fill);
-        setCheckboxState(this.ui.propFill, fillValues);
-
-        const hasText = selection.some(item => item?.type === 'text');
-        if (hasText) {
-            this.ui.propFill.checked = false;
-            this.ui.propFill.indeterminate = false;
-            this.ui.propFill.disabled = true;
-        }
-
-        if (this.ui.propText) {
-            const textValues = selection
-                .filter(item => typeof item.text === 'string')
-                .map(item => item.text);
-
-            if (textValues.length === 0) {
-                this.ui.propText.value = '';
-                this.ui.propText.placeholder = '—';
-                this.ui.propText.disabled = true;
-            } else {
-                this.ui.propText.disabled = false;
-                const first = textValues[0];
-                const allSame = textValues.every(v => v === first);
-                if (allSame) {
-                    this.ui.propText.value = first;
-                } else {
-                    this.ui.propText.value = '';
-                    this.ui.propText.placeholder = '—';
-                }
-            }
-        }
-
-        if (this.ui.propText && selection.length === 1 && selection[0]?.type === 'text') {
-            setTimeout(() => {
-                this.ui.propText?.focus();
-                this.ui.propText?.select();
-            }, 0);
-        }
-
-        if (this.ui.propTextSize) {
-            const sizeValues = selection
-                .filter(item => typeof item.fontSize === 'number')
-                .map(item => item.fontSize);
-
-            if (sizeValues.length === 0) {
-                this.ui.propTextSize.value = '';
-                this.ui.propTextSize.placeholder = '—';
-                this.ui.propTextSize.disabled = true;
-            } else {
-                this.ui.propTextSize.disabled = false;
-                const first = sizeValues[0];
-                const allSame = sizeValues.every(v => Math.abs(v - first) < 1e-6);
-                if (allSame) {
-                    this.ui.propTextSize.value = first;
-                } else {
-                    this.ui.propTextSize.value = '';
-                    this.ui.propTextSize.placeholder = '—';
-                }
-            }
-        }
+        updatePropertiesPanel(this, selection);
     }
 
     _applyCommonProperty(prop, value) {
-        const selection = this.selection.getSelection();
-        if (selection.length === 0) return;
-
-        let changed = false;
-        for (const item of selection) {
-            if (prop in item) {
-                item[prop] = value;
-                if (typeof item.invalidate === 'function') {
-                    item.invalidate();
-                }
-                changed = true;
-            }
-        }
-
-        if (changed) {
-            this.fileManager.setDirty(true);
-            this.renderShapes(true);
-            this._updatePropertiesPanel(selection);
-        }
+        applyCommonProperty(this, prop, value);
     }
 
     // ==================== Mouse Events ====================
     
     _bindMouseEvents() {
-        const svg = this.viewport.svg;
-        
-        svg.addEventListener('mousedown', (e) => {
-            // Ignore right-click (used for pan)
-            if (e.button !== 0) return;
-            if (this.viewport.isPanning) return;
-            
-            this.didDrag = false;
-            
-            const rect = svg.getBoundingClientRect();
-            const screenPos = {
-                x: e.clientX - rect.left,
-                y: e.clientY - rect.top
-            };
-            const worldPos = this.viewport.screenToWorld(screenPos);
-            const snapped = this.viewport.getSnappedPosition(worldPos);
-            
-            // Handle component placement
-            if (this.placingComponent) {
-                this._placeComponent(snapped);
-                e.preventDefault();
-                return;
-            }
-            
-            if (this.currentTool === 'select') {
-                // Check if clicking on an anchor of a selected shape
-                const selectedShapes = this.selection.getSelection();
-                for (const shape of selectedShapes) {
-                    if (shape.locked) continue;
-                    const anchorId = shape.hitTestAnchor(worldPos, this.viewport.scale);
-                    if (anchorId) {
-                        // Start anchor drag - capture state for undo
-                        this.isDragging = true;
-                        this.dragMode = 'anchor';
-                        this.dragStart = { ...snapped };
-                        this.dragAnchorId = anchorId;
-                        this.dragShape = shape;
-                        this.dragWireAnchorOriginal = null;
-                        if (shape.type === 'wire') {
-                            const match = anchorId.match(/point(\d+)/);
-                            const idx = match ? parseInt(match[1]) : null;
-                            if (idx !== null && idx >= 0 && idx < shape.points.length) {
-                                const current = shape.points[idx];
-                                this.dragWireAnchorOriginal = { x: current.x, y: current.y };
-                            }
-                        }
-                        // Capture shape state before modification
-                        this.dragShapesBefore = this._captureShapeState(shape);
-                        e.preventDefault();
-                        return;
-                    }
-                }
-                
-                // Check if clicking on any shape/component
-                const hitShape = this.selection.hitTest(worldPos);
-                
-                if (hitShape) {
-                    const additive = e.shiftKey || e.ctrlKey || e.metaKey;
-                    if (additive) {
-                        this.selection.toggle(hitShape);
-                        this.renderShapes(true);
-                        this.skipClickSelection = true;
-                        e.preventDefault();
-                        return;
-                    }
-                    // If clicking on unselected item, select it first
-                    if (!hitShape.selected) {
-                        this.selection.select(hitShape, false); // Replace selection
-                        this.renderShapes(true);
-                    }
-
-                    if (hitShape.locked) {
-                        e.preventDefault();
-                        return;
-                    }
-                    
-                    // Now start move drag immediately
-                    this.isDragging = true;
-                    this.dragMode = 'move';
-                    this.dragStart = { ...snapped };
-                    this.dragTotalDx = 0;
-                    this.dragTotalDy = 0;
-                    this.viewport.svg.style.cursor = 'move';
-                    e.preventDefault();
-                    return;
-                }
-                
-                // Clicking on empty space - start box selection
-                this.isDragging = true;
-                this.dragMode = 'box';
-                this.boxSelectStart = { ...worldPos };
-                this._createBoxSelectElement();
-                e.preventDefault();
-                return;
-            } else if (this.currentTool === 'wire') {
-                // Wire drawing: click to add waypoints, ESC or right-click to finish
-                if (!this.isDrawing) {
-                    // Start a new wire - check for pin snap first
-                    const snapPin = this._findNearbyPin(worldPos);
-                    const startData = snapPin ? 
-                        { x: snapPin.worldPos.x, y: snapPin.worldPos.y, snapPin: snapPin } :
-                        { ...this.viewport.getSnappedPosition(worldPos), snapPin: null };
-                    this._startWireDrawing(startData);
-                } else {
-                    // Add waypoint to existing wire - use the raw worldPos plus the snapped pin data
-                    // This avoids storing grid-snapped coordinates in waypoints
-                    const rect = this.viewport.svg.getBoundingClientRect();
-                    const screenPos = {
-                        x: e.clientX - rect.left,
-                        y: e.clientY - rect.top
-                    };
-                    const worldPos = this.viewport.screenToWorld(screenPos);
-                    const gridSnapped = this.viewport.getSnappedPosition(worldPos);
-
-                    if (this.lastSnappedData) {
-                        const lastPoint = this.wirePoints[this.wirePoints.length - 1];
-                        const rawDx = Math.abs(worldPos.x - lastPoint.x);
-                        const rawDy = Math.abs(worldPos.y - lastPoint.y);
-                        const minMovement = 0.05;
-
-                        if (this.wireAutoCorner && !this._pointsMatch(lastPoint, this.wireAutoCorner)) {
-                            this._addWireWaypoint({ point: this.wireAutoCorner, snapPin: null });
-                        }
-
-                        this._addWireWaypoint({
-                            point: this.drawCurrent,
-                            snapPin: this.lastSnappedData.snapPin || null
-                        });
-                        
-                        // If we just snapped to a pin, finish the wire
-                        if (this.lastSnappedData.snapPin && this.wirePoints.length >= 2) {
-                            this._finishWireDrawing(this.lastSnappedData);
-                        }
-                    }
-                }
-                e.preventDefault();
-            } else if (this.currentTool === 'polygon') {
-                if (!this.isDrawing) {
-                    this._startDrawing(snapped);
-                } else {
-                    this._addPolygonPoint(snapped);
-                }
-            } else {
-                // Start drawing shape
-                this._startDrawing(snapped);
-            }
-        });
-        
-        // Right-click handler: finish wire drawing
-        svg.addEventListener('mousedown', (e) => {
-            if (e.button !== 2) return;  // Right-click
-            if (this.currentTool === 'wire' && this.isDrawing && this.wirePoints.length >= 2) {
-                // Finish the wire on right-click
-                const rect = svg.getBoundingClientRect();
-                const screenPos = {
-                    x: e.clientX - rect.left,
-                    y: e.clientY - rect.top
-                };
-                const worldPos = this.viewport.screenToWorld(screenPos);
-                this._finishWireDrawing(worldPos);
-                this._setToolCursor(this.currentTool, this.viewport.svg);
-                e.preventDefault();
-            } else if (this.currentTool === 'polygon' && this.isDrawing) {
-                const rect = svg.getBoundingClientRect();
-                const screenPos = {
-                    x: e.clientX - rect.left,
-                    y: e.clientY - rect.top
-                };
-                const worldPos = this.viewport.screenToWorld(screenPos);
-                const snapped = this.viewport.getSnappedPosition(worldPos);
-                this._addPolygonPoint(snapped);
-                this._finishPolygon();
-                this._setToolCursor(this.currentTool, this.viewport.svg);
-                e.preventDefault();
-            }
-        });
-
-        // Prevent context menu so custom cursor remains after right-click
-        svg.addEventListener('contextmenu', (e) => {
-            if (this.currentTool !== 'select') {
-                this._setToolCursor(this.currentTool, this.viewport.svg);
-            }
-            e.preventDefault();
-        });
-        
-        svg.addEventListener('mousemove', (e) => {
-            const rect = svg.getBoundingClientRect();
-            const screenPos = {
-                x: e.clientX - rect.left,
-                y: e.clientY - rect.top
-            };
-            const worldPos = this.viewport.screenToWorld(screenPos);
-            const snapped = this.viewport.getSnappedPosition(worldPos);
-            
-            // Handle wire mode - highlight pins on hover even when not drawing
-            if (this.currentTool === 'wire') {
-                const snapPin = this._findNearbyPin(worldPos);
-                if (snapPin && snapPin !== this.wireSnapPin) {
-                    if (this.wireSnapPin) {
-                        this._unhighlightPin();  // Unhighlight old pin first
-                    }
-                    this.wireSnapPin = snapPin;
-                    this._highlightPin(snapPin);
-                } else if (!snapPin && this.wireSnapPin) {
-                    this._unhighlightPin();  // This sets wireSnapPin to null
-                }
-                
-                // Update drawing if already started
-                if (this.isDrawing) {
-                    this._updateWireDrawing(worldPos);
-                    this._showCrosshair();
-                    this._updateCrosshair(snapped, screenPos);
-                } else {
-                    this._showCrosshair();
-                    this._updateCrosshair(snapped, screenPos);
-                }
-                return;
-            }
-
-            if (this.currentTool !== 'select') {
-                this._showCrosshair();
-                this._updateCrosshair(snapped, screenPos);
-            }
-            
-            if (!this.isDragging) return;
-            if (this.viewport.isPanning) return;
-            
-            if (this.dragMode === 'move') {
-                // Move all selected shapes
-                const dx = snapped.x - this.dragStart.x;
-                const dy = snapped.y - this.dragStart.y;
-                
-                if (dx !== 0 || dy !== 0) {
-                    this.didDrag = true;
-                    // Track total movement for undo command
-                    this.dragTotalDx += dx;
-                    this.dragTotalDy += dy;
-                    
-                    for (const shape of this.selection.getSelection()) {
-                        if (!shape.locked) {
-                            shape.move(dx, dy);
-                        }
-                    }
-                    this.dragStart = { ...snapped };
-                    this.renderShapes(true);
-                    this.fileManager.setDirty(true);
-                }
-            } else if (this.dragMode === 'anchor' && this.dragShape) {
-                // Move the anchor
-                this.didDrag = true;
-                const anchorPos = this.dragShape.type === 'wire'
-                    ? this._getWireAnchorSnappedPosition(this.dragShape, this.dragAnchorId, worldPos)
-                    : snapped;
-                const newAnchorId = this.dragShape.moveAnchor(this.dragAnchorId, anchorPos.x, anchorPos.y);
-                // Update anchor ID if shape flipped (e.g., rectangle dragged past opposite edge)
-                if (newAnchorId && newAnchorId !== this.dragAnchorId) {
-                    this.dragAnchorId = newAnchorId;
-                }
-                this.renderShapes(true);
-                this.fileManager.setDirty(true);
-            } else if (this.dragMode === 'box' && this.boxSelectStart) {
-                // Update box selection rectangle
-                this.didDrag = true;
-                this._updateBoxSelectElement(worldPos);
-            }
-        });
-        
-        svg.addEventListener('mouseup', (e) => {
-            if (e.button !== 0) return;
-            
-            const rect = svg.getBoundingClientRect();
-            const screenPos = {
-                x: e.clientX - rect.left,
-                y: e.clientY - rect.top
-            };
-            const worldPos = this.viewport.screenToWorld(screenPos);
-            const snapped = this.viewport.getSnappedPosition(worldPos);
-            
-            // Handle box selection completion
-            if (this.isDragging && this.dragMode === 'box' && this.boxSelectStart) {
-                const bounds = this._getBoxSelectBounds(worldPos);
-                this._removeBoxSelectElement();
-                
-                // Only select if we actually dragged (not just clicked)
-                if (this.didDrag) {
-                    this.selection.handleBoxSelect(bounds, e.shiftKey, 'contain');
-                    this.renderShapes(true);
-                    // Keep didDrag true so click event doesn't clear selection
-                }
-                
-                this.isDragging = false;
-                this.dragMode = null;
-                this.boxSelectStart = null;
-                // Note: didDrag stays true if we dragged, so click event will ignore it
-                return;
-            }
-            
-            // End other dragging modes
-            if (this.isDragging) {
-                // Create undo command if we actually moved something
-                if (this.didDrag && this.dragMode === 'move') {
-                    // Create move command (shapes already moved, so use negative values to undo)
-                    const selectedShapes = this.selection.getSelection();
-                    if (selectedShapes.length > 0 && (this.dragTotalDx !== 0 || this.dragTotalDy !== 0)) {
-                        // First undo the move, then let the command redo it
-                        for (const shape of selectedShapes) {
-                            shape.move(-this.dragTotalDx, -this.dragTotalDy);
-                        }
-                        const command = new MoveShapesCommand(this, selectedShapes, this.dragTotalDx, this.dragTotalDy);
-                        this.history.execute(command);
-                    }
-                } else if (this.didDrag && this.dragMode === 'anchor' && this.dragShape && this.dragShapesBefore) {
-                    // Create modify command for anchor drag
-                    const afterState = this._captureShapeState(this.dragShape);
-                    // Restore before state, then let command apply after state
-                    this._applyShapeState(this.dragShape, this.dragShapesBefore);
-                    const command = new ModifyShapeCommand(this, this.dragShape, this.dragShapesBefore, afterState);
-                    this.history.execute(command);
-                }
-                
-                this.isDragging = false;
-                this.dragMode = null;
-                this.dragStart = null;
-                this.dragAnchorId = null;
-                this.dragShape = null;
-                this.dragShapesBefore = null;
-                this.dragWireAnchorOriginal = null;
-                // Don't return - let click handle selection if needed
-            }
-            
-            if (this.viewport.isPanning) return;
-            
-            if (this.currentTool === 'polygon') {
-                // Polygon continues until double-click or Escape
-            } else if (this.currentTool === 'wire') {
-                // Wire continues until Enter is pressed
-            } else if (this.isDrawing) {
-                this._finishDrawing(snapped);
-            }
-        });
-        
-        svg.addEventListener('click', (e) => {
-            if (this.viewport.isPanning) return;
-
-            if (this.skipClickSelection) {
-                this.skipClickSelection = false;
-                return;
-            }
-            
-            // Don't handle click if we actually dragged
-            if (this.didDrag) {
-                this.didDrag = false;
-                return;
-            }
-            
-            const rect = svg.getBoundingClientRect();
-            const screenPos = {
-                x: e.clientX - rect.left,
-                y: e.clientY - rect.top
-            };
-            const worldPos = this.viewport.screenToWorld(screenPos);
-            
-            if (this.currentTool === 'select') {
-                this.selection.handleClick(worldPos, e.shiftKey || e.ctrlKey || e.metaKey);
-                // Force re-render all shapes to update anchor visibility on deselected shapes
-                this.renderShapes(true);
-            }
-        });
-        
-        svg.addEventListener('dblclick', (e) => {
-            if (this.currentTool === 'polygon' && this.isDrawing) {
-                this._finishPolygon();
-            }
-        });
+        bindMouseEvents(this);
     }
 
     // ==================== UI Controls ====================
@@ -2593,125 +1843,7 @@ class SchematicApp {
     }
 
     _bindKeyboardShortcuts() {
-        // Use capture phase so this runs before other listeners
-        window.addEventListener('keydown', (e) => {
-            if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA')) return;
-
-            if (e.ctrlKey || e.metaKey) {
-                switch (e.key.toLowerCase()) {
-                    case 's':
-                        e.preventDefault();
-                        if (e.altKey) {
-                            this.saveFileAs();
-                        } else {
-                            this.saveFile();
-                        }
-                        break;
-                    case 'p':
-                        if (e.shiftKey) {
-                            e.preventDefault();
-                            this.savePdf();
-                        }
-                        break;
-                    case 'o':
-                        e.preventDefault();
-                        this.openFile();
-                        break;
-                    case 'n':
-                        e.preventDefault();
-                        this.newFile();
-                        break;
-                    case 'z':
-                        e.preventDefault();
-                        if (e.shiftKey) {
-                            if (this.history.redo()) this.renderShapes(true);
-                        } else {
-                            if (this.history.undo()) this.renderShapes(true);
-                        }
-                        break;
-                    case 'y':
-                        e.preventDefault();
-                        if (this.history.redo()) this.renderShapes(true);
-                        break;
-                    case 'a':
-                        e.preventDefault();
-                        this.selection.selectAll();
-                        this.renderShapes(true);
-                        break;
-                }
-            } else {
-                switch (e.key) {
-                    case 'Escape':
-                        this._handleEscape();
-                        break;
-                    case 'Enter':
-                        // Finish wire drawing
-                        if (this.currentTool === 'wire' && this.isDrawing && this.wirePoints.length >= 2) {
-                            this._finishWireDrawing(this.drawCurrent);
-                            e.preventDefault();
-                        }
-                        break;
-                    case 'Delete':
-                    case 'Backspace':
-                        this._deleteSelected();
-                        break;
-                    case 'v':
-                    case 'V':
-                        this._onToolSelected('select');
-                        break;
-                    case 'l':
-                    case 'L':
-                        this._onToolSelected('line');
-                        break;
-                    case 'w':
-                    case 'W':
-                        this._onToolSelected('wire');
-                        break;
-                    case 'c':
-                    case 'C':
-                        this._onToolSelected('circle');
-                        break;
-                    case 'a':
-                    case 'A':
-                        this._onToolSelected('arc');
-                        break;
-                    case 'p':
-                    case 'P':
-                        this._onToolSelected('polygon');
-                        break;
-                    case 't':
-                    case 'T':
-                        this._onToolSelected('text');
-                        break;
-                    case 'i':
-                    case 'I':
-                        this._onToolSelected('component');
-                        break;
-                    case 'r':
-                    case 'R':
-                        // Rotate component during placement only
-                        if (this.placingComponent) {
-                            this._rotateComponent();
-                            e.preventDefault();
-                        } else {
-                            this._onToolSelected('rect');
-                        }
-                        // Otherwise let R pass through for Rectangle tool
-                        break;
-                    case 'm':
-                    case 'M':
-                        // Mirror component during placement only
-                        if (this.placingComponent) {
-                            this._mirrorComponent();
-                            e.preventDefault();
-                        }
-                        break;
-                }
-            }
-        }, { capture: true });
-
-        // Also listen for ModalManager fallback event
-        window.addEventListener('global-escape', () => this._handleEscape());
+        bindKeyboardShortcuts(this);
     }
     
     _deleteSelected() {
