@@ -4,7 +4,7 @@
 
 import { Viewport } from '../core/Viewport.js';
 import { EventBus, Events, globalEventBus } from '../core/EventBus.js';
-import { CommandHistory, AddShapeCommand, DeleteShapesCommand } from '../core/CommandHistory.js';
+import { CommandHistory, AddShapeCommand } from '../core/CommandHistory.js';
 import { SelectionManager } from '../core/SelectionManager.js';
 import { FileManager } from '../core/FileManager.js';
 import { ComponentPicker } from '../components/ComponentPicker.js';
@@ -17,6 +17,7 @@ import { bindRibbon, updateRibbonState, updateShapePanelOptions } from './module
 import { updateCrosshair, getToolIconPath, setToolCursor, showCrosshair, hideCrosshair } from './modules/cursor.js';
 import { bindViewportControls, updateGridDropdown, fitToContent } from './modules/viewport.js';
 import { bindThemeToggle, toggleTheme, loadTheme, updateComponentColors } from './modules/theme.js';
+import { toggleSelectionLock, deleteSelected, captureShapeState, applyShapeState } from './modules/selection.js';
 import {
     startDrawing,
     updateDrawing,
@@ -1363,20 +1364,7 @@ class SchematicApp {
     }
 
     _toggleSelectionLock() {
-        const selection = this.selection.getSelection();
-        if (selection.length === 0) return;
-        const allLocked = selection.every(item => item.locked === true);
-        const nextValue = !allLocked;
-        for (const item of selection) {
-            if (typeof item.locked === 'boolean') {
-                item.locked = nextValue;
-                if (typeof item.invalidate === 'function') item.invalidate();
-            }
-        }
-        this.fileManager.setDirty(true);
-        this.renderShapes(true);
-        this._updatePropertiesPanel(selection);
-        this._updateRibbonState(selection);
+        toggleSelectionLock(this);
     }
 
     _updatePropertiesPanel(selection) {
@@ -1462,47 +1450,7 @@ class SchematicApp {
     }
     
     _deleteSelected() {
-        const toDelete = this.selection.getSelection();
-        if (toDelete.length === 0) return;
-        
-        this.selection.clearSelection();
-        
-        // Separate shapes and components
-        const shapesToDelete = [];
-        const componentsToDelete = [];
-        
-        for (const item of toDelete) {
-            if (this.shapes.includes(item)) {
-                shapesToDelete.push(item);
-            } else if (this.components.includes(item)) {
-                componentsToDelete.push(item);
-            }
-        }
-        
-        // Delete shapes via command (supports undo)
-        if (shapesToDelete.length > 0) {
-            const command = new DeleteShapesCommand(this, shapesToDelete);
-            this.history.execute(command);
-        }
-        
-        // Delete components (TODO: add undo support)
-        for (const comp of componentsToDelete) {
-            const idx = this.components.indexOf(comp);
-            if (idx !== -1) {
-                this.components.splice(idx, 1);
-                if (comp.element) {
-                    this.viewport.removeContent(comp.element);
-                }
-                comp.destroy();
-            }
-        }
-        
-        if (componentsToDelete.length > 0) {
-            this._updateSelectableItems();
-            this.fileManager.setDirty(true);
-        }
-        
-        this.renderShapes(true);
+        deleteSelected(this);
     }
     
     // ==================== Box Selection ====================
@@ -1553,42 +1501,14 @@ class SchematicApp {
      * Capture the geometric state of a shape for undo/redo
      */
     _captureShapeState(shape) {
-        switch (shape.type) {
-            case 'rect':
-                return { x: shape.x, y: shape.y, width: shape.width, height: shape.height };
-            case 'circle':
-                return { x: shape.x, y: shape.y, radius: shape.radius };
-            case 'line':
-                return { x1: shape.x1, y1: shape.y1, x2: shape.x2, y2: shape.y2 };
-            case 'arc':
-                return { x: shape.x, y: shape.y, radius: shape.radius, startAngle: shape.startAngle, endAngle: shape.endAngle };
-            case 'polygon':
-                return { points: shape.points.map(p => ({ x: p.x, y: p.y })) };
-            case 'wire':
-                return {
-                    points: shape.points.map(p => ({ x: p.x, y: p.y })),
-                    connections: shape.connections ? { ...shape.connections } : null,
-                    net: shape.net || ''
-                };
-            default:
-                console.warn('Unknown shape type for state capture:', shape.type);
-                return {};
-        }
+        return captureShapeState(this, shape);
     }
     
     /**
      * Apply a captured state to a shape
      */
     _applyShapeState(shape, state) {
-        for (const [key, value] of Object.entries(state)) {
-            if (key === 'points' && Array.isArray(value)) {
-                shape.points = value.map(p => ({ x: p.x, y: p.y }));
-            } else {
-                shape[key] = value;
-            }
-        }
-        shape.invalidate();
-        this.renderShapes(true);
+        applyShapeState(this, shape, state);
     }
     
     _fitToContent() {
