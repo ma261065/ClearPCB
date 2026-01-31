@@ -1,6 +1,4 @@
-/**
- * SchematicApp.js - Schematic Editor Application
- */
+// SchematicApp.js - Schematic Editor Application
 
 import { Viewport } from '../core/Viewport.js';
 import { EventBus, Events, globalEventBus } from '../core/EventBus.js';
@@ -240,9 +238,7 @@ class SchematicApp {
         handleEscape(this);
     }
 
-    /**
-     * Setup EventBus listeners for cross-module communication
-     */
+    // Setup EventBus listeners for cross-module communication
     _setupEventBusListeners() {
         setupEventBusListeners(this);
     }
@@ -263,23 +259,17 @@ class SchematicApp {
 
     // ==================== Shape Management ====================
     
-    /**
-     * Add a shape (creates an undoable command)
-     */
+    // Add a shape (creates an undoable command)
     addShape(shape) {
         return addShape(this, shape);
     }
     
-    /**
-     * Internal add - used by commands, no history entry
-     */
+    // Internal add - used by commands, no history entry
     _addShapeInternal(shape) {
         return addShapeInternal(this, shape);
     }
     
-    /**
-     * Internal add at specific index - used by undo
-     */
+    // Internal add at specific index - used by undo
     _addShapeInternalAt(shape, index) {
         return addShapeInternalAt(this, shape, index);
     }
@@ -361,23 +351,17 @@ class SchematicApp {
         return findNearbyPin(this, worldPos, tolerance);
     }
 
-    /**
-     * Check if two pins are the same (by component and pin number)
-     */
+    // Check if two pins are the same (by component and pin number)
     _isSamePin(pin1, pin2) {
         return isSamePin(pin1, pin2);
     }
 
-    /**
-     * Check if two points are essentially the same (within epsilon)
-     */
+    // Check if two points are essentially the same (within epsilon)
     _pointsMatch(a, b, epsilon = 1e-6) {
         return pointsMatch(a, b, epsilon);
     }
 
-    /**
-     * Get display position adjusted for target pin snapping (with fake grid consideration)
-     */
+    // Get display position adjusted for target pin snapping (with fake grid consideration)
     _getDisplayPosition(targetPin, drawPos, lastPoint, gridSize) {
         if (!targetPin) return { position: drawPos, adjusted: false, axis: null };
         
@@ -402,151 +386,109 @@ class SchematicApp {
         return { position, adjusted: position !== drawPos };
     }
 
-    /**
-     * Check auto-corner triggers (deadband and grid-line crossing)
-     */
+    // Check auto-corner triggers (deadband and grid-line crossing)
     _checkAutoCornerTriggers(rawDx, rawDy, primaryDir, gridSize, lastWorldPos, worldPos) {
         return checkAutoCornerTriggers(this, rawDx, rawDy, primaryDir, gridSize, lastWorldPos, worldPos);
     }
     
-    /**
-     * Start drawing a wire - click to place first point or snap to pin
-     */
+    // Start drawing a wire - click to place first point or snap to pin
     _startWireDrawing(snappedData) {
         startWireDrawing(this, snappedData);
     }
     
-    /**
-     * Update wire preview while drawing
-     */
+    // Update wire preview while drawing
     _updateWireDrawing(worldPos) {
         updateWireDrawing(this, worldPos);
     }
 
-    /**
-     * Get snapped position for wire anchor editing, allowing snap to original position
-     */
+    // Get snapped position for wire anchor editing, allowing snap to original position
     _getWireAnchorSnappedPosition(wireShape, anchorId, worldPos) {
         return getWireAnchorSnappedPosition(this, wireShape, anchorId, worldPos);
     }
     
-    /**
-     * Add a waypoint to the wire
-     */
+    // Add a waypoint to the wire
     _addWireWaypoint(waypointData) {
         addWireWaypoint(this, waypointData);
     }
     
-    /**
-     * Finish drawing the wire
-     */
+    // Finish drawing the wire
     _finishWireDrawing(worldPos) {
         finishWireDrawing(this, worldPos);
     }
     
-    /**
-     * Cancel wire drawing
-     */
+    // Cancel wire drawing
     _cancelWireDrawing() {
         cancelWireDrawing(this);
     }
     
-    /**
-     * Update wire preview visualization
-     */
+    // Update wire preview visualization
     _updateWirePreview() {
         updateWirePreview(this);
     }
     
-    /**
-     * Highlight a pin during snapping
-     */
+    // Highlight a pin during snapping
     _highlightPin(snapPin) {
         highlightPin(this, snapPin);
     }
     
-    /**
-     * Remove pin highlight
-     */
+    // Remove pin highlight
     _unhighlightPin() {
         unhighlightPin(this);
     }
 
     // ==================== Component Handling ====================
     
-    /**
-     * Called when a component definition is selected in the picker
-     */
+    // Called when a component definition is selected in the picker
     _onComponentDefinitionSelected(definition) {
         onComponentDefinitionSelected(this, definition);
     }
     
-    /**
-     * Create component preview that follows cursor
-     */
+    // Create component preview that follows cursor
     _createComponentPreview(definition) {
         createComponentPreview(this, definition);
     }
     
-    /**
-     * Update component preview position
-     */
+    // Update component preview position
     _updateComponentPreview(worldPos) {
         updateComponentPreview(this, worldPos);
     }
     
-    /**
-     * Place the current component at the given position
-     */
+    // Place the current component at the given position
     _placeComponent(worldPos) {
         placeComponent(this, worldPos);
     }
     
-    /**
-     * Update SelectionManager with all selectable items (shapes + components)
-     */
+    // Update SelectionManager with all selectable items (shapes + components)
     _updateSelectableItems() {
         updateSelectableItems(this);
     }
     
-    /**
-     * Generate a reference designator for a component
-     */
+    // Generate a reference designator for a component
     _generateReference(definition) {
         return generateReference(this, definition);
     }
     
-    /**
-     * Rotate component during placement (or selected components)
-     */
+    // Rotate component during placement (or selected components)
     _rotateComponent() {
         rotateComponent(this);
     }
     
-    /**
-     * Mirror component during placement (or selected components)
-     */
+    // Mirror component during placement (or selected components)
     _mirrorComponent() {
         mirrorComponent(this);
     }
     
-    /**
-     * Cancel component placement mode
-     */
+    // Cancel component placement mode
     _cancelComponentPlacement() {
         cancelComponentPlacement(this);
     }
     
-    /**
-     * Get selected components (for future selection integration)
-     */
+    // Get selected components (for future selection integration)
     _getSelectedComponents() {
         return getSelectedComponents(this);
     }
     
-    /**
-     * Render all components
-     */
+    // Render all components
     renderComponents() {
         renderComponents(this);
     }
@@ -664,30 +606,22 @@ class SchematicApp {
         this._bindRibbon();
     }
     
-    /**
-     * Toggle between dark and light theme
-     */
+    // Toggle between dark and light theme
     _toggleTheme() {
         toggleTheme(this);
     }
     
-    /**
-     * Load saved theme preference
-     */
+    // Load saved theme preference
     _loadTheme() {
         loadTheme(this);
     }
     
-    /**
-     * Update component colors for current theme
-     */
+    // Update component colors for current theme
     _updateComponentColors() {
         updateComponentColors(this);
     }
     
-    /**
-     * Update grid dropdown options based on current units
-     */
+    // Update grid dropdown options based on current units
     _updateGridDropdown() {
         updateGridDropdown(this);
     }
@@ -720,16 +654,12 @@ class SchematicApp {
     
     // ==================== Shape State Helpers (for undo/redo) ====================
     
-    /**
-     * Capture the geometric state of a shape for undo/redo
-     */
+    // Capture the geometric state of a shape for undo/redo
     _captureShapeState(shape) {
         return captureShapeState(this, shape);
     }
     
-    /**
-     * Apply a captured state to a shape
-     */
+    // Apply a captured state to a shape
     _applyShapeState(shape, state) {
         applyShapeState(this, shape, state);
     }
@@ -740,30 +670,22 @@ class SchematicApp {
     
     // ==================== File Operations ====================
     
-    /**
-     * Serialize document to JSON-compatible object
-     */
+    // Serialize document to JSON-compatible object
     _serializeDocument() {
         return serializeDocument(this);
     }
     
-    /**
-     * Load shapes from document data
-     */
+    // Load shapes from document data
     _loadDocument(data) {
         loadDocument(this, data);
     }
     
-    /**
-     * Create component instance from serialized data
-     */
+    // Create component instance from serialized data
     _createComponentFromData(data) {
         return createComponentFromData(this, data);
     }
     
-    /**
-     * Create shape instance from serialized data
-     */
+    // Create shape instance from serialized data
     _createShapeFromData(data) {
         const ShapeClass = ShapeClasses[data.type.charAt(0).toUpperCase() + data.type.slice(1)];
         if (!ShapeClass) {
@@ -773,9 +695,7 @@ class SchematicApp {
         return new ShapeClass(data);
     }
     
-    /**
-     * Clear all shapes from canvas
-     */
+    // Clear all shapes from canvas
     _clearAllShapes() {
         for (const shape of this.shapes) {
             this.viewport.removeContent(shape.element);
@@ -787,9 +707,7 @@ class SchematicApp {
         this._updateUndoRedoButtons();
     }
     
-    /**
-     * Clear all components from canvas
-     */
+    // Clear all components from canvas
     _clearAllComponents() {
         for (const comp of this.components) {
             if (comp.element) {
@@ -801,58 +719,42 @@ class SchematicApp {
         this._updateSelectableItems();
     }
     
-    /**
-     * Update window/document title
-     */
+    // Update window/document title
     _updateTitle() {
         updateTitle(this);
     }
     
-    /**
-     * Update undo/redo button enabled states
-     */
+    // Update undo/redo button enabled states
     _updateUndoRedoButtons() {
         updateUndoRedoButtons(this);
     }
     
-    /**
-     * Check for auto-saved content on startup
-     */
+    // Check for auto-saved content on startup
     _checkAutoSave() {
         checkAutoSave(this);
     }
     
-    /**
-     * Load and display version number
-     */
+    // Load and display version number
     async _loadVersion() {
         await loadVersion(this);
     }
     
-    /**
-     * Create new document
-     */
+    // Create new document
     async newFile() {
         await newFile(this);
     }
     
-    /**
-     * Save current document
-     */
+    // Save current document
     async saveFile() {
         await saveFile(this);
     }
     
-    /**
-     * Save As - always prompt for location
-     */
+    // Save As - always prompt for location
     async saveFileAs() {
         await saveFileAs(this);
     }
 
-    /**
-     * Save current view to PDF
-     */
+    // Save current view to PDF
     async savePdf() {
         await savePdf(this);
     }
@@ -877,16 +779,12 @@ class SchematicApp {
         await saveBlobAsFile(blob, suggestedName, mimeType, extensions);
     }
 
-    /**
-     * Render the current viewport SVG to a canvas
-     */
+    // Render the current viewport SVG to a canvas
     _renderViewportToCanvas(scale = 2) {
         return renderViewportToCanvas(this, scale);
     }
     
-    /**
-     * Open file
-     */
+    // Open file
     async openFile() {
         await openFile(this);
     }
