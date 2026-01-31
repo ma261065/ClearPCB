@@ -230,7 +230,7 @@ export class Shape {
             const offset = 0.6;
             const strokeW = 0.15;
             const lockX = primary.x + offset;
-            const lockY = primary.y - offset - lockSize * 0.2;
+            const lockY = primary.y - offset - lockSize * 0.6;
 
             const bodyW = lockSize;
             const bodyH = lockSize * 0.7;

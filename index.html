@@ -8,71 +8,151 @@
     <link rel="stylesheet" href="src/ui/schematic.css">
 </head>
 <body>
-    <div class="toolbar">
-        <h1>ClearPCB</h1>
-        
-        <div class="toolbar-group" style="border-left: none;">
-            <button id="newFile" title="New (Ctrl+N)">📄 New</button>
-            <button id="openFile" title="Open (Ctrl+O)">📂 Open</button>
-            <button id="saveFile" title="Save (Ctrl+S)">💾 Save</button>
-            <button id="saveAsFile" title="Save As (Ctrl+Alt+S)">💾 Save As</button>
-            <div class="dropdown">
-                <button id="exportMenuButton" class="dropdown-toggle" title="Export">📤 Export…</button>
-                <div id="exportMenu" class="dropdown-menu" aria-hidden="true">
-                    <button id="exportPdf" class="dropdown-item">🧾 Export PDF</button>
+    <div class="ribbon">
+        <div class="ribbon-tabs">
+            <div class="ribbon-tab active" data-tab="file">File</div>
+            <div class="ribbon-tab" data-tab="home">Home</div>
+            <div class="ribbon-tab" data-tab="properties">Properties</div>
+            <div class="ribbon-tab" data-tab="help">Help</div>
+            <div class="ribbon-spacer"></div>
+            <span id="docTitle" class="ribbon-title">untitled.json</span>
+        </div>
+        <div class="ribbon-panels">
+            <div class="ribbon-panel active" data-panel="file">
+                <div class="ribbon-group">
+                    <div class="ribbon-group-title">File</div>
+                    <div class="ribbon-group-items">
+                        <button id="ribbonNew" title="New (Ctrl+N)">📄 New</button>
+                        <button id="ribbonOpen" title="Open (Ctrl+O)">📂 Open</button>
+                        <button id="ribbonSave" title="Save (Ctrl+S)">💾 Save</button>
+                        <button id="ribbonSaveAs" title="Save As (Ctrl+Alt+S)">💾 Save As</button>
+                        <button id="ribbonExportPdf" title="Export PDF (Ctrl+Shift+P)">🧾 Export PDF</button>
+                    </div>
                 </div>
             </div>
-        </div>
-        
-        <div class="toolbar-group">
-            <button id="themeToggle" class="theme-toggle" title="Toggle Dark/Light Mode">🌙</button>
-        </div>
-        
-        <div class="toolbar-group">
-            <button id="undoBtn" title="Undo (Ctrl+Z)">↶</button>
-            <button id="redoBtn" title="Redo (Ctrl+Y)">↷</button>
-        </div>
-        
-        <div class="toolbar-group">
-            <span id="docTitle" style="color: var(--accent-color); font-size: 13px;">untitled.json</span>
-        </div>
-        
-        <div class="toolbar-group">
-            <label>Grid:</label>
-            <select id="gridSize">
-                <!-- Options populated by JavaScript based on units -->
-                <option value="1">1 mm</option>
-            </select>
-            <select id="gridStyle">
-                <option value="lines" selected>Lines</option>
-                <option value="dots">Dots</option>
-            </select>
-        </div>
-
-        <div class="toolbar-group">
-            <label>Units:</label>
-            <select id="units">
-                <option value="mm" selected>mm</option>
-                <option value="mil">mil</option>
-                <option value="inch">inch</option>
-            </select>
-        </div>
-
-        <div class="toolbar-group">
-            <label>
-                <input type="checkbox" id="showGrid" checked> Grid
-            </label>
-            <label>
-                <input type="checkbox" id="snapToGrid" checked> Snap
-            </label>
-        </div>
-
-        <div class="toolbar-group">
-            <button id="zoomIn" title="Zoom In">+</button>
-            <span id="zoomLevel" style="min-width: 50px; text-align: center;">100%</span>
-            <button id="zoomOut" title="Zoom Out">−</button>
-            <button id="zoomFit" title="Fit to Content">Fit</button>
-            <button id="resetView" title="Reset View">Reset</button>
+            <div class="ribbon-panel" data-panel="home">
+                <div class="ribbon-group">
+                    <div class="ribbon-group-title">Shape</div>
+                    <div class="ribbon-shape-body">
+                        <div class="ribbon-group-items ribbon-shape-tools">
+                            <button class="ribbon-tool-btn" data-tool="select" title="Select (V)">⊹ Select</button>
+                            <button class="ribbon-tool-btn" data-tool="line" title="Line (L)">╱ Line</button>
+                            <button class="ribbon-tool-btn" data-tool="wire" title="Wire (W)">●⏤● Wire</button>
+                            <button class="ribbon-tool-btn" data-tool="rect" title="Rectangle (R)">▢ Rect</button>
+                            <button class="ribbon-tool-btn" data-tool="circle" title="Circle (C)">○ Circle</button>
+                            <button class="ribbon-tool-btn" data-tool="arc" title="Arc (A)">◠ Arc</button>
+                            <button class="ribbon-tool-btn" data-tool="polygon" title="Polygon (P)">⬠ Polygon</button>
+                            <button class="ribbon-tool-btn" data-tool="text" title="Text (T)">T Text</button>
+                            <button class="ribbon-tool-btn" data-tool="component" title="Component (I)">⊞ Component</button>
+                        </div>
+                        <div class="ribbon-shape-options" id="ribbonShapeOptions"></div>
+                    </div>
+                </div>
+                <div class="ribbon-group">
+                    <div class="ribbon-group-title">Transform</div>
+                    <div class="ribbon-group-items">
+                        <button id="ribbonRotate" title="Rotate Components">⟳ Rotate</button>
+                    </div>
+                </div>
+                <div class="ribbon-group">
+                    <div class="ribbon-group-title">History</div>
+                    <div class="ribbon-group-items">
+                        <button id="undoBtn" title="Undo (Ctrl+Z)">↶</button>
+                        <button id="redoBtn" title="Redo (Ctrl+Y)">↷</button>
+                    </div>
+                </div>
+                <div class="ribbon-group">
+                    <div class="ribbon-group-title">Grid</div>
+                    <div class="ribbon-group-items">
+                        <label class="ribbon-checkbox"><input type="checkbox" id="showGrid" checked> Grid</label>
+                        <label class="ribbon-checkbox"><input type="checkbox" id="snapToGrid" checked> Snap</label>
+                        <select id="gridSize">
+                            <!-- Options populated by JavaScript based on units -->
+                            <option value="1">1 mm</option>
+                        </select>
+                        <select id="gridStyle">
+                            <option value="lines" selected>Lines</option>
+                            <option value="dots">Dots</option>
+                        </select>
+                        <select id="units">
+                            <option value="mm" selected>mm</option>
+                            <option value="mil">mil</option>
+                            <option value="inch">inch</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="ribbon-group">
+                    <div class="ribbon-group-title">View</div>
+                    <div class="ribbon-group-items">
+                        <button id="zoomIn" title="Zoom In">+</button>
+                        <button id="zoomOut" title="Zoom Out">−</button>
+                        <button id="zoomFit" title="Fit to Content">Fit</button>
+                        <button id="resetView" title="Reset View">Reset</button>
+                        <button id="themeToggle" class="theme-toggle" title="Toggle Dark/Light Mode">🌙</button>
+                    </div>
+                </div>
+            </div>
+            <div class="ribbon-panel" data-panel="properties">
+                <div class="ribbon-group ribbon-properties">
+                    <div class="ribbon-group-title" id="propertiesHeaderLabel">Properties</div>
+                    <div class="ribbon-group-items ribbon-properties-content" id="propertiesPanel">
+                        <div class="prop-row">
+                            <span class="prop-label">Selection</span>
+                            <span class="prop-value" id="propSelectionCount">0</span>
+                        </div>
+                        <div class="prop-row">
+                            <label>
+                                <input type="checkbox" id="propLocked"> Locked
+                            </label>
+                        </div>
+                        <div class="prop-row">
+                            <label for="propLineWidth">Line width</label>
+                            <input type="number" id="propLineWidth" step="0.05" min="0" placeholder="—">
+                        </div>
+                        <div class="prop-row">
+                            <label>
+                                <input type="checkbox" id="propFill"> Fill
+                            </label>
+                        </div>
+                        <div class="prop-row">
+                            <div class="ribbon-group-items">
+                                <button id="ribbonDelete" class="ribbon-danger" title="Delete (Del)">🗑️ Delete</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="ribbon-panel" data-panel="help">
+                <div class="ribbon-group ribbon-help">
+                    <div class="ribbon-group-title">Keyboard Shortcuts</div>
+                    <div class="ribbon-group-items ribbon-help-items">
+                        <div class="help-row"><span><kbd>Ctrl+N</kbd> New file</span></div>
+                        <div class="help-row"><span><kbd>Ctrl+O</kbd> Open file</span></div>
+                        <div class="help-row"><span><kbd>Ctrl+S</kbd> Save</span></div>
+                        <div class="help-row"><span><kbd>Ctrl+Alt+S</kbd> Save As</span></div>
+                        <div class="help-row"><span><kbd>Ctrl+Shift+P</kbd> Save PDF</span></div>
+                        <div class="help-row"><span><kbd>Ctrl+Z</kbd> Undo</span></div>
+                        <div class="help-row"><span><kbd>Ctrl+Y</kbd> Redo</span></div>
+                        <div class="help-row"><span><kbd>V</kbd> Select</span></div>
+                        <div class="help-row"><span><kbd>L</kbd> Line</span></div>
+                        <div class="help-row"><span><kbd>W</kbd> Wire</span></div>
+                        <div class="help-row"><span><kbd>R</kbd> Rectangle</span></div>
+                        <div class="help-row"><span><kbd>C</kbd> Circle</span></div>
+                        <div class="help-row"><span><kbd>A</kbd> Arc</span></div>
+                        <div class="help-row"><span><kbd>P</kbd> Polygon</span></div>
+                        <div class="help-row"><span><kbd>Esc</kbd> Cancel / Select mode</span></div>
+                        <div class="help-row"><span><kbd>Del</kbd> Delete selected</span></div>
+                        <div class="help-row"><span><kbd>Ctrl+A</kbd> Select all</span></div>
+                        <div class="help-row"><span><kbd>Drag shape</kbd> Move</span></div>
+                        <div class="help-row"><span><kbd>Drag anchor</kbd> Resize/Edit</span></div>
+                        <div class="help-row"><span><kbd>Drag empty</kbd> Box select</span></div>
+                        <div class="help-row"><span><kbd>Ctrl+Click</kbd> Multi-select</span></div>
+                        <div class="help-row"><span><kbd>Right-drag</kbd> Pan</span></div>
+                        <div class="help-row"><span><kbd>Scroll</kbd> Zoom</span></div>
+                        <div class="help-row"><span id="version-display" class="help-version"></span></div>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -83,32 +163,6 @@
                 <line id="crosshairY" stroke="var(--accent-color)" stroke-width="1" stroke-dasharray="4,4"/>
             </svg>
         </div>
-        <aside class="properties-panel" id="propertiesPanel">
-            <div class="properties-header">
-                <span>Properties</span>
-                <button id="propertiesToggle" title="Collapse">⟨</button>
-            </div>
-            <div class="properties-content" id="propertiesContent">
-                <div class="prop-row">
-                    <span class="prop-label">Selection</span>
-                    <span class="prop-value" id="propSelectionCount">0</span>
-                </div>
-                <div class="prop-row">
-                    <label>
-                        <input type="checkbox" id="propLocked"> Locked
-                    </label>
-                </div>
-                <div class="prop-row">
-                    <label for="propLineWidth">Line width</label>
-                    <input type="number" id="propLineWidth" step="0.05" min="0" placeholder="—">
-                </div>
-                <div class="prop-row">
-                    <label>
-                        <input type="checkbox" id="propFill"> Fill
-                    </label>
-                </div>
-            </div>
-        </aside>
     </div>
 
     <div class="status-bar">
@@ -124,37 +178,6 @@
             <span class="label">View:</span>
             <span class="value" id="viewportInfo">500 × 300 mm</span>
         </div>
-    </div>
-
-    <div class="help-panel">
-        <h3>Keyboard Shortcuts</h3>
-        <div><kbd>Ctrl+N</kbd> New file</div>
-        <div><kbd>Ctrl+O</kbd> Open file</div>
-        <div><kbd>Ctrl+S</kbd> Save</div>
-        <div><kbd>Ctrl+Alt+S</kbd> Save As</div>
-        <div><kbd>Ctrl+Shift+P</kbd> Save PDF</div>
-        <div><kbd>Ctrl+Z</kbd> Undo</div>
-        <div><kbd>Ctrl+Y</kbd> Redo</div>
-        <hr style="border-color: #333; margin: 8px 0;">
-        <div><kbd>V</kbd> Select</div>
-        <div><kbd>L</kbd> Line</div>
-        <div><kbd>W</kbd> Wire</div>
-        <div><kbd>R</kbd> Rectangle</div>
-        <div><kbd>C</kbd> Circle</div>
-        <div><kbd>A</kbd> Arc</div>
-        <div><kbd>P</kbd> Polygon</div>
-        <div><kbd>Esc</kbd> Cancel / Select mode</div>
-        <div><kbd>Del</kbd> Delete selected</div>
-        <div><kbd>Ctrl+A</kbd> Select all</div>
-        <hr style="border-color: #333; margin: 8px 0;">
-        <div><kbd>Drag shape</kbd> Move</div>
-        <div><kbd>Drag anchor</kbd> Resize/Edit</div>
-        <div><kbd>Drag empty</kbd> Box select</div>
-        <div><kbd>Ctrl+Click</kbd> Multi-select</div>
-        <div><kbd>Right-drag</kbd> Pan</div>
-        <div><kbd>Scroll</kbd> Zoom</div>
-        <hr style="border-color: #333; margin: 8px 0;">
-        <div id="version-display" style="font-size: 0.7em; color: #999; text-align: right; padding-top: 4px;"></div>
     </div>
 
     <script type="module" src="./src/ui/SchematicApp.js"></script>

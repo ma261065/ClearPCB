@@ -12,7 +12,7 @@
     --border-color: #0f3460;
     --accent-color: #ac5a95;
     --accent-hover: #ff6b6b;
-    --lock-icon: #666666;
+    --lock-icon: #4aa3ff;
     
     /* === Schematic Canvas === */
     --sch-background: #1a1a2e;
@@ -65,7 +65,7 @@
     --border-color: #cccccc;
     --accent-color: #d63050;
     --accent-hover: #e94560;
-    --lock-icon: #444444;
+    --lock-icon: #2f80ff;
     
     /* === Schematic Canvas === */
     --sch-background: #ffffff;
@@ -121,6 +121,126 @@ body {
     height: 100vh;
     display: flex;
     flex-direction: column;
+}
+
+.ribbon {
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border-color);
+}
+
+.ribbon-tabs {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 6px 16px 4px;
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+.ribbon-tab {
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: 4px;
+}
+
+.ribbon-tab.active {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+}
+
+.ribbon-spacer {
+    flex: 1;
+}
+
+.ribbon-title {
+    color: var(--accent-color);
+    font-size: 12px;
+}
+
+.ribbon-panels {
+    background: var(--bg-primary);
+    padding: 10px 12px 12px;
+    border-top: 1px solid var(--border-color);
+    height: 110px;
+    overflow-x: visible;
+    overflow-y: hidden;
+}
+
+.ribbon-panel {
+    display: none;
+    gap: 12px;
+    align-items: stretch;
+    height: 88px;
+    overflow: visible;
+}
+
+.ribbon-panel.active {
+    display: flex;
+}
+
+.ribbon-group {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    padding: 8px;
+    min-width: 140px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    height: 100%;
+}
+
+.ribbon-group-title {
+    font-size: 10px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+}
+
+.ribbon-group-items {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.ribbon-group-items button {
+    background: var(--bg-tertiary);
+    border: none;
+    color: var(--text-primary);
+    padding: 6px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 11px;
+}
+
+.ribbon-group-items button:hover:not(:disabled) {
+    background: var(--accent-color);
+}
+
+.ribbon-tool-btn.active {
+    background: var(--accent-color);
+    color: #ffffff;
+}
+
+.ribbon-group-items button:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
+.ribbon-group-items .ribbon-danger {
+    background: #b00020;
+    color: #ffffff;
+}
+
+.ribbon-group-items .ribbon-danger:hover:not(:disabled) {
+    background: #d32f2f;
+}
+
+.ribbon-checkbox {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    color: var(--text-secondary);
 }
 
 .toolbar {
@@ -241,52 +361,85 @@ body {
     overflow: hidden;
 }
 
-.properties-panel {
-    width: 260px;
-    background: var(--bg-secondary);
-    border-left: 1px solid var(--border-color);
-    display: flex;
-    flex-direction: column;
-    transition: width 0.2s ease;
-}
-
-.properties-panel.collapsed {
-    width: 36px;
-}
-
-.properties-header {
-    display: flex;
+.ribbon-properties .ribbon-group-items {
+    flex-direction: row;
     align-items: center;
-    justify-content: space-between;
-    padding: 10px 12px;
-    border-bottom: 1px solid var(--border-color);
-    font-size: 12px;
+    flex-wrap: wrap;
+    gap: 10px;
+    overflow: visible;
+}
+
+.ribbon-group.ribbon-properties {
+    flex: 0 0 auto;
+    width: max-content;
+    min-width: max-content;
+}
+
+.ribbon-help .ribbon-group-items {
+    flex-direction: row;
+    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: 8px 14px;
+}
+
+.ribbon-help .help-row {
+    white-space: nowrap;
+    font-size: 11px;
     color: var(--text-secondary);
 }
 
-.properties-header button {
+.ribbon-help kbd {
     background: var(--bg-tertiary);
-    border: none;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    padding: 2px 6px;
+    font-size: 10px;
+    color: var(--text-primary);
+    margin-right: 6px;
+}
+
+.ribbon-help .help-version {
+    font-size: 10px;
+    color: var(--text-muted);
+}
+
+.ribbon-shape-body {
+    display: flex;
+    gap: 10px;
+    align-items: stretch;
+}
+
+.ribbon-shape-tools {
+    flex: 1 1 auto;
+    align-content: flex-start;
+}
+
+.ribbon-shape-options {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 140px;
+    padding-left: 8px;
+    border-left: 1px solid var(--border-color);
+}
+
+.ribbon-shape-options:empty {
+    display: none;
+}
+
+.ribbon-shape-options label {
+    font-size: 11px;
+    color: var(--text-secondary);
+}
+
+.ribbon-shape-options input[type="number"] {
+    width: 80px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
     color: var(--text-primary);
     padding: 4px 6px;
     border-radius: 4px;
-    cursor: pointer;
-    font-size: 12px;
-}
-
-.properties-panel.collapsed .properties-header span {
-    display: none;
-}
-
-.properties-content {
-    padding: 12px;
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-}
-
-.properties-panel.collapsed .properties-content {
-    display: none;
+    font-size: 11px;
 }
 
 .prop-row {
@@ -355,16 +508,17 @@ body {
 /* Floating Toolbox */
 .toolbox {
     position: absolute;
-    right: 280px;
-    top: 60px;
+    right: 268px;
+    top: auto;
     left: auto;
-    width: 46px;
+    width: 58px;
     background: var(--bg-primary);
     border: 1px solid var(--border-color);
     border-radius: 6px;
     box-shadow: 0 4px 12px rgba(0,0,0,0.4);
     z-index: 1000;
     user-select: none;
+    display: none;
 }
 
 .toolbox-header {
@@ -398,7 +552,7 @@ body {
 }
 
 .tool-btn {
-    width: 36px;
+    width: 46px;
     height: 36px;
     border: none;
     background: transparent;

@@ -222,7 +222,24 @@ export class Toolbox {
     }
     
     appendTo(parent) {
-        parent.appendChild(this.element);
+        const host = parent?.parentNode || parent;
+        host.appendChild(this.element);
+        // Default position: align with ribbon panels and sit near right side
+        this.element.style.right = '268px';
+        this.element.style.left = 'auto';
+
+        const alignToRibbonPanels = () => {
+            const ribbonPanels = document.querySelector('.ribbon-panels');
+            const mainContainer = document.querySelector('.main-container');
+            if (!ribbonPanels || !mainContainer) return;
+            const ribbonRect = ribbonPanels.getBoundingClientRect();
+            const mainRect = mainContainer.getBoundingClientRect();
+            const topOffset = Math.max(0, ribbonRect.bottom - mainRect.top + 8);
+            this.element.style.top = `${topOffset}px`;
+        };
+
+        alignToRibbonPanels();
+        window.addEventListener('resize', alignToRibbonPanels);
     }
     
     /**

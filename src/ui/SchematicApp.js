@@ -8,7 +8,6 @@ import { CommandHistory, AddShapeCommand, DeleteShapesCommand, MoveShapesCommand
 import { SelectionManager } from '../core/SelectionManager.js';
 import { FileManager } from '../core/FileManager.js';
 import { storageManager } from '../core/StorageManager.js';
-import { Toolbox } from './Toolbox.js';
 import { ComponentPicker } from '../components/ComponentPicker.js';
 import { Line, Wire, Circle, Rect, Arc, Polygon, updateIdCounter } from '../shapes/index.js';
 import { Component, getComponentLibrary } from '../components/index.js';
@@ -105,23 +104,14 @@ class SchematicApp {
             undoBtn: document.getElementById('undoBtn'),
             redoBtn: document.getElementById('redoBtn'),
             propertiesPanel: document.getElementById('propertiesPanel'),
-            propertiesToggle: document.getElementById('propertiesToggle'),
+            propertiesHeaderLabel: document.getElementById('propertiesHeaderLabel'),
             propSelectionCount: document.getElementById('propSelectionCount'),
             propLocked: document.getElementById('propLocked'),
             propLineWidth: document.getElementById('propLineWidth'),
             propFill: document.getElementById('propFill')
         };
         
-        // Create toolbox
-        this.toolbox = new Toolbox({
-            onToolSelected: (tool) => this._onToolSelected(tool),
-            onOptionsChanged: (opts) => this._onOptionsChanged(opts),
-            eventBus: this.eventBus
-        });
-        this.toolbox.appendTo(this.container);
-
-        // Make help panel draggable
-        this._makeHelpPanelDraggable();
+        // Help panel now lives in ribbon
         
         // Component library and picker
         this.componentLibrary = getComponentLibrary();
@@ -194,7 +184,7 @@ class SchematicApp {
         }
         // Always return to select mode on Escape
         if (this.currentTool !== 'select') {
-            this.toolbox.selectTool('select');
+            this._onToolSelected('select');
         } else {
             // Only clear selection if already in select mode and not drawing
             this.selection.clearSelection();
@@ -206,11 +196,6 @@ class SchematicApp {
      * Setup EventBus listeners for cross-module communication
      */
     _setupEventBusListeners() {
-        // Listen for tool selection events
-        this.eventBus.on('tool:selected', (toolId) => {
-            this._onToolSelected(toolId);
-        });
-        
         // Listen for component selection events
         this.eventBus.on('component:selected', (def) => {
             this._onComponentDefinitionSelected(def);
@@ -251,13 +236,15 @@ class SchematicApp {
         // Update cursor
         const svg = this.viewport.svg;
         svg.style.cursor = tool === 'select' ? 'default' : 'crosshair';
+
+        this._setActiveToolButton?.(tool);
+        this._updateShapePanelOptions(this.selection.getSelection(), tool);
     }
     
     _onComponentPickerClosed() {
         // Return to select mode when component picker is closed
         if (this.currentTool === 'component') {
-            this.currentTool = 'select';
-            this.toolbox.selectTool('select');
+            this._onToolSelected('select');
         }
     }
     
@@ -1238,9 +1225,9 @@ class SchematicApp {
         // Start component placement mode
         this.placingComponent = definition;
         this.currentTool = 'component';
-        
-        // Update toolbox to show component tool as active (without triggering callback)
-        this.toolbox.selectTool('component', { silent: true, force: true });
+
+        this._setActiveToolButton?.('component');
+        this._updateShapePanelOptions(this.selection.getSelection(), 'component');
         
         // Create preview element
         this._createComponentPreview(definition);
@@ -1414,10 +1401,8 @@ class SchematicApp {
         if (this.currentTool === 'component') {
             this.currentTool = 'select';
             this.viewport.svg.style.cursor = 'default';
-            // Ensure the Toolbox UI reflects the change (update without triggering callback)
-            if (this.toolbox) {
-                this.toolbox.selectTool('select', { silent: true, force: true });
-            }
+            this._setActiveToolButton?.('select');
+            this._updateShapePanelOptions(this.selection.getSelection(), 'select');
         }
     }
     
@@ -1611,16 +1596,17 @@ class SchematicApp {
         console.log(`Selection: ${shapes.length} shape(s)`);
         this.renderShapes(true);
         this._updatePropertiesPanel(shapes);
+        this._updateRibbonState(shapes);
+        this._updateShapePanelOptions(shapes);
+        if (shapes.length > 0) {
+            this._setActiveRibbonTab?.('properties');
+        } else {
+            this._setActiveRibbonTab?.('home');
+        }
     }
 
     _bindPropertiesPanel() {
         if (!this.ui.propertiesPanel) return;
-
-        this.ui.propertiesToggle.addEventListener('click', () => {
-            this.ui.propertiesPanel.classList.toggle('collapsed');
-            const isCollapsed = this.ui.propertiesPanel.classList.contains('collapsed');
-            this.ui.propertiesToggle.textContent = isCollapsed ? '⟩' : '⟨';
-        });
 
         this.ui.propLocked.addEventListener('change', (e) => {
             this._applyCommonProperty('locked', e.target.checked);
@@ -1639,11 +1625,204 @@ class SchematicApp {
         this._updatePropertiesPanel([]);
     }
 
+    _bindRibbon() {
+        const tabs = document.querySelectorAll('.ribbon-tab');
+        const panels = document.querySelectorAll('.ribbon-panel');
+        if (tabs.length === 0 || panels.length === 0) return;
+
+        this._setActiveRibbonTab = (tabId) => {
+            tabs.forEach(tab => tab.classList.toggle('active', tab.dataset.tab === tabId));
+            panels.forEach(panel => panel.classList.toggle('active', panel.dataset.panel === tabId));
+        };
+
+        tabs.forEach(tab => {
+            tab.addEventListener('click', () => this._setActiveRibbonTab(tab.dataset.tab));
+        });
+        this._setActiveRibbonTab('home');
+
+        const get = (id) => document.getElementById(id);
+
+        get('ribbonNew')?.addEventListener('click', () => this.newFile());
+        get('ribbonOpen')?.addEventListener('click', () => this.openFile());
+        get('ribbonSave')?.addEventListener('click', () => this.saveFile());
+        get('ribbonSaveAs')?.addEventListener('click', () => this.saveFileAs());
+        get('ribbonExportPdf')?.addEventListener('click', () => this.savePdf());
+
+        get('ribbonDelete')?.addEventListener('click', () => this._deleteSelected());
+        get('ribbonToggleLock')?.addEventListener('click', () => this._toggleSelectionLock());
+        get('ribbonRotate')?.addEventListener('click', () => this._rotateComponent());
+
+        const ribbonToolButtons = Array.from(document.querySelectorAll('.ribbon-tool-btn'));
+        const setActiveToolButton = (toolId) => {
+            ribbonToolButtons.forEach(btn => btn.classList.toggle('active', btn.dataset.tool === toolId));
+        };
+        this._setActiveToolButton = setActiveToolButton;
+        ribbonToolButtons.forEach(btn => {
+            btn.addEventListener('click', () => {
+                const toolId = btn.dataset.tool;
+                this._onToolSelected(toolId);
+            });
+        });
+        setActiveToolButton(this.currentTool);
+
+        this._updateRibbonState(this.selection.getSelection());
+        this._updateShapePanelOptions(this.selection.getSelection(), this.currentTool);
+    }
+
+    _updateShapePanelOptions(selection, toolId = this.currentTool) {
+        const container = document.getElementById('ribbonShapeOptions');
+        if (!container) return;
+
+        const items = selection || [];
+        const hasSelection = items.length > 0;
+        const toolSupportsLineWidth = toolId === 'line' || toolId === 'wire';
+        const toolSupportsFill = toolId === 'rect' || toolId === 'circle' || toolId === 'polygon';
+        const supportsLineWidth = hasSelection
+            ? items.some(item => typeof item?.lineWidth === 'number')
+            : toolSupportsLineWidth;
+        const supportsFill = hasSelection
+            ? items.some(item => typeof item?.fill === 'boolean')
+            : toolSupportsFill;
+
+        container.innerHTML = `
+            <label>
+                Line width
+                <input type="number" id="ribbonShapeLineWidth" step="0.05" min="0" placeholder="—">
+            </label>
+            <label>
+                <input type="checkbox" id="ribbonShapeFill"> Fill
+            </label>
+        `;
+
+        const setCheckboxState = (el, values) => {
+            el.indeterminate = false;
+            if (values.length === 0) {
+                el.checked = false;
+                el.disabled = true;
+                return;
+            }
+            const allTrue = values.every(v => v === true);
+            const allFalse = values.every(v => v === false);
+            el.disabled = false;
+            if (allTrue) {
+                el.checked = true;
+            } else if (allFalse) {
+                el.checked = false;
+            } else {
+                el.checked = false;
+                el.indeterminate = true;
+            }
+        };
+
+        const lineWidthInput = container.querySelector('#ribbonShapeLineWidth');
+        if (lineWidthInput) {
+            if (hasSelection) {
+                const lineWidthValues = items
+                    .filter(item => typeof item?.lineWidth === 'number')
+                    .map(item => item.lineWidth);
+
+                if (lineWidthValues.length === 0) {
+                    lineWidthInput.value = '';
+                    lineWidthInput.placeholder = '—';
+                    lineWidthInput.disabled = true;
+                } else {
+                    lineWidthInput.disabled = false;
+                    const first = lineWidthValues[0];
+                    const allSame = lineWidthValues.every(v => Math.abs(v - first) < 1e-6);
+                    if (allSame) {
+                        lineWidthInput.value = first;
+                    } else {
+                        lineWidthInput.value = '';
+                        lineWidthInput.placeholder = '—';
+                    }
+                }
+            } else {
+                lineWidthInput.disabled = !supportsLineWidth;
+                lineWidthInput.value = this.toolOptions?.lineWidth ?? 0.2;
+            }
+
+            lineWidthInput.addEventListener('change', (e) => {
+                const value = parseFloat(e.target.value);
+                if (Number.isNaN(value)) return;
+                if (hasSelection) {
+                    this._applyCommonProperty('lineWidth', value);
+                } else {
+                    this.toolOptions.lineWidth = value;
+                }
+            });
+        }
+
+        const fillInput = container.querySelector('#ribbonShapeFill');
+        if (fillInput) {
+            if (hasSelection) {
+                const fillValues = items
+                    .filter(item => typeof item?.fill === 'boolean')
+                    .map(item => item.fill);
+                setCheckboxState(fillInput, fillValues);
+            } else {
+                fillInput.disabled = !supportsFill;
+                fillInput.checked = !!this.toolOptions?.fill;
+                fillInput.indeterminate = false;
+            }
+            fillInput.addEventListener('change', (e) => {
+                if (hasSelection) {
+                    this._applyCommonProperty('fill', e.target.checked);
+                } else {
+                    this.toolOptions.fill = e.target.checked;
+                }
+            });
+        }
+    }
+
+    _updateRibbonState(selection) {
+        const count = selection.length;
+        const lockBtn = document.getElementById('ribbonToggleLock');
+        const deleteBtn = document.getElementById('ribbonDelete');
+        const rotateBtn = document.getElementById('ribbonRotate');
+
+        if (deleteBtn) deleteBtn.disabled = count === 0;
+        if (lockBtn) lockBtn.disabled = count === 0;
+
+        if (rotateBtn) {
+            const hasComponent = selection.some(item => item?.definition);
+            rotateBtn.disabled = !hasComponent;
+        }
+    }
+
+    _toggleSelectionLock() {
+        const selection = this.selection.getSelection();
+        if (selection.length === 0) return;
+        const allLocked = selection.every(item => item.locked === true);
+        const nextValue = !allLocked;
+        for (const item of selection) {
+            if (typeof item.locked === 'boolean') {
+                item.locked = nextValue;
+                if (typeof item.invalidate === 'function') item.invalidate();
+            }
+        }
+        this.fileManager.setDirty(true);
+        this.renderShapes(true);
+        this._updatePropertiesPanel(selection);
+        this._updateRibbonState(selection);
+    }
+
     _updatePropertiesPanel(selection) {
         if (!this.ui.propertiesPanel) return;
 
         const count = selection.length;
         this.ui.propSelectionCount.textContent = String(count);
+
+        if (this.ui.propertiesHeaderLabel) {
+            if (count === 0) {
+                this.ui.propertiesHeaderLabel.textContent = 'Properties';
+            } else {
+                const types = selection.map(item => item?.definition ? 'component' : (item?.type || 'object'));
+                const first = types[0];
+                const allSame = types.every(t => t === first);
+                const labelType = allSame ? first : 'Multiple';
+                this.ui.propertiesHeaderLabel.textContent = `${labelType.charAt(0).toUpperCase()}${labelType.slice(1)}`;
+            }
+        }
 
         const setCheckboxState = (el, values) => {
             el.indeterminate = false;
@@ -2107,46 +2286,7 @@ class SchematicApp {
             this.viewport.resetView();
         });
         
-        // File buttons
-        document.getElementById('newFile').addEventListener('click', () => {
-            this.newFile();
-        });
-        
-        document.getElementById('openFile').addEventListener('click', () => {
-            this.openFile();
-        });
-        
-        document.getElementById('saveFile').addEventListener('click', () => {
-            this.saveFile();
-        });
-
-        document.getElementById('saveAsFile').addEventListener('click', () => {
-            this.saveFileAs();
-        });
-
-        // Export menu
-        const exportMenuButton = document.getElementById('exportMenuButton');
-        const exportMenu = document.getElementById('exportMenu');
-        const exportPdf = document.getElementById('exportPdf');
-
-        exportMenuButton.addEventListener('click', (e) => {
-            e.stopPropagation();
-            exportMenu.classList.toggle('open');
-            exportMenu.setAttribute('aria-hidden', exportMenu.classList.contains('open') ? 'false' : 'true');
-        });
-
-        exportPdf.addEventListener('click', () => {
-            exportMenu.classList.remove('open');
-            exportMenu.setAttribute('aria-hidden', 'true');
-            this.savePdf();
-        });
-
-        document.addEventListener('click', () => {
-            if (exportMenu.classList.contains('open')) {
-                exportMenu.classList.remove('open');
-                exportMenu.setAttribute('aria-hidden', 'true');
-            }
-        });
+        // Ribbon handles file/export actions
         
         // Undo/Redo buttons
         this.ui.undoBtn.addEventListener('click', () => {
@@ -2179,6 +2319,9 @@ class SchematicApp {
 
         // Properties panel
         this._bindPropertiesPanel();
+
+        // Ribbon
+        this._bindRibbon();
     }
     
     /**
@@ -2282,8 +2425,7 @@ class SchematicApp {
     }
 
     _bindKeyboardShortcuts() {
-        // Use capture phase so this runs BEFORE Toolbox's listener
-        // This allows us to intercept R/M during component placement
+        // Use capture phase so this runs before other listeners
         window.addEventListener('keydown', (e) => {
             if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA')) return;
 
@@ -2345,13 +2487,46 @@ class SchematicApp {
                     case 'Backspace':
                         this._deleteSelected();
                         break;
+                    case 'v':
+                    case 'V':
+                        this._onToolSelected('select');
+                        break;
+                    case 'l':
+                    case 'L':
+                        this._onToolSelected('line');
+                        break;
+                    case 'w':
+                    case 'W':
+                        this._onToolSelected('wire');
+                        break;
+                    case 'c':
+                    case 'C':
+                        this._onToolSelected('circle');
+                        break;
+                    case 'a':
+                    case 'A':
+                        this._onToolSelected('arc');
+                        break;
+                    case 'p':
+                    case 'P':
+                        this._onToolSelected('polygon');
+                        break;
+                    case 't':
+                    case 'T':
+                        this._onToolSelected('text');
+                        break;
+                    case 'i':
+                    case 'I':
+                        this._onToolSelected('component');
+                        break;
                     case 'r':
                     case 'R':
                         // Rotate component during placement only
                         if (this.placingComponent) {
                             this._rotateComponent();
                             e.preventDefault();
-                            e.stopImmediatePropagation();  // Prevent Toolbox from switching to Rectangle
+                        } else {
+                            this._onToolSelected('rect');
                         }
                         // Otherwise let R pass through for Rectangle tool
                         break;
@@ -2361,12 +2536,11 @@ class SchematicApp {
                         if (this.placingComponent) {
                             this._mirrorComponent();
                             e.preventDefault();
-                            e.stopImmediatePropagation();
                         }
                         break;
                 }
             }
-        }, { capture: true });  // Capture phase to run before Toolbox
+        }, { capture: true });
 
         // Also listen for ModalManager fallback event
         window.addEventListener('global-escape', () => this._handleEscape());
