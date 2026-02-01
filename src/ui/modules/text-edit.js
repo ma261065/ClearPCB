@@ -1,17 +1,11 @@
-const MEASURE_CANVAS = document.createElement('canvas');
-const MEASURE_CTX = MEASURE_CANVAS.getContext('2d');
+const SVG_NS = 'http://www.w3.org/2000/svg';
 
-export function startTextEdit(app, shape, options = {}) {
+export function startTextEdit(app, shape) {
     if (!shape || shape.type !== 'text') return;
     if (shape.locked) return;
 
-    cleanupLegacyOverlays(app);
-
     if (app.textEdit && app.textEdit.shape === shape) {
         updateTextEditOverlay(app);
-        if (options.focus !== false) {
-            focusEditor(app.textEdit);
-        }
         return;
     }
 
@@ -22,15 +16,17 @@ export function startTextEdit(app, shape, options = {}) {
     app.textEdit = {
         shape,
         originalText: typeof shape.text === 'string' ? shape.text : '',
-        editor: null,
-        caretIndex: null
+        caretIndex: typeof shape.text === 'string' ? shape.text.length : 0,
+        overlayGroup: null,
+        overlayBox: null,
+        overlayCaret: null,
+        overlayBlink: null,
+        blinkTimeoutId: null,
+        overlayOffset: null
     };
 
-    ensureEditor(app, app.textEdit);
+    ensureOverlay(app);
     updateTextEditOverlay(app);
-    if (options.focus !== false) {
-        focusEditor(app.textEdit);
-    }
 }
 
 export function endTextEdit(app, commit = true) {
@@ -45,18 +41,28 @@ export function endTextEdit(app, commit = true) {
         app.renderShapes(true);
     }
 
-    if (state.editor && state.editor.parentNode) {
-        state.editor.parentNode.removeChild(state.editor);
+    if (state.overlayGroup && state.overlayGroup.parentNode) {
+        state.overlayGroup.parentNode.removeChild(state.overlayGroup);
     }
-
-    cleanupLegacyOverlays(app);
+    state.overlayGroup = null;
+    state.overlayBox = null;
+    state.overlayCaret = null;
+    state.overlayBlink = null;
+    if (state.blinkTimeoutId) {
+        clearTimeout(state.blinkTimeoutId);
+        state.blinkTimeoutId = null;
+    }
 
     app.textEdit = null;
 }
 
 export function handleTextEditKey(app, e) {
     const state = app.textEdit;
-    if (!state || !state.editor) return false;
+    if (!state) return false;
+
+    const shape = state.shape;
+    const text = typeof shape.text === 'string' ? shape.text : '';
+    const caret = state.caretIndex ?? text.length;
 
     if (e.key === 'Escape') {
         endTextEdit(app, false);
@@ -72,583 +78,189 @@ export function handleTextEditKey(app, e) {
         return true;
     }
 
-    return false;
+    if (e.key === 'ArrowLeft') {
+        state.caretIndex = Math.max(0, caret - 1);
+        updateTextEditOverlay(app);
+        resetCaretBlink(state);
+        e.preventDefault();
+        e.stopPropagation();
+        return true;
+    }
+
+    if (e.key === 'ArrowRight') {
+        state.caretIndex = Math.min(text.length, caret + 1);
+        updateTextEditOverlay(app);
+        resetCaretBlink(state);
+        e.preventDefault();
+        e.stopPropagation();
+        return true;
+    }
+
+    if (e.key === 'Home') {
+        state.caretIndex = 0;
+        updateTextEditOverlay(app);
+        resetCaretBlink(state);
+        e.preventDefault();
+        e.stopPropagation();
+        return true;
+    }
+
+    if (e.key === 'End') {
+        state.caretIndex = text.length;
+        updateTextEditOverlay(app);
+        resetCaretBlink(state);
+        e.preventDefault();
+        e.stopPropagation();
+        return true;
+    }
+
+    if (e.key === 'Backspace') {
+        if (caret > 0) {
+            const nextText = text.slice(0, caret - 1) + text.slice(caret);
+            updateText(app, nextText, caret - 1);
+        }
+        resetCaretBlink(state);
+        e.preventDefault();
+        e.stopPropagation();
+        return true;
+    }
+
+    if (e.key === 'Delete') {
+        if (caret < text.length) {
+            const nextText = text.slice(0, caret) + text.slice(caret + 1);
+            updateText(app, nextText, caret);
+        }
+        resetCaretBlink(state);
+        e.preventDefault();
+        e.stopPropagation();
+        return true;
+    }
+
+    if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        const nextText = text.slice(0, caret) + e.key + text.slice(caret);
+        updateText(app, nextText, caret + 1);
+        resetCaretBlink(state);
+        e.preventDefault();
+        e.stopPropagation();
+        return true;
+    }
+
+    return true;
 }
 
 export function updateTextEditOverlay(app) {
     const state = app.textEdit;
-    if (!state || !state.shape || !state.editor) return;
+    if (!state || !state.shape || !state.overlayGroup) return;
     if (state.shape.locked) {
         endTextEdit(app, true);
         return;
     }
 
     const shape = state.shape;
-    const editor = state.editor;
-    const scale = app.viewport?.scale || 1;
-    const fontSizePx = Math.max((shape.fontSize || 2.5) * scale, 6);
-
-    const containerRect = app.container.getBoundingClientRect();
-    const elementRect = shape.element?.getBoundingClientRect?.();
-    const pos = app.viewport.worldToScreen({ x: shape.x, y: shape.y });
-    const textValue = typeof shape.text === 'string' ? shape.text : '';
-    const fontFamily = shape.fontFamily || 'Arial';
-
-    if (editor.value !== textValue) {
-        editor.value = textValue;
-    }
-    editor.style.fontSize = `${fontSizePx}px`;
-    editor.style.fontFamily = fontFamily;
-    editor.style.color = shape.fill ? (shape.fillColor || shape.color) : (shape.color || '#cccccc');
-
-    const approxWidth = Math.max(measureTextWidth(textValue || 'M', fontSizePx, fontFamily), fontSizePx * 0.6);
-    const widthPx = Math.max(approxWidth + 4, 12);
-    const heightPx = Math.max(fontSizePx * 1.2, 10);
-
-    const hasElementRect = elementRect
-        && Number.isFinite(elementRect.left)
-        && Number.isFinite(elementRect.top)
-        && Number.isFinite(elementRect.width)
-        && Number.isFinite(elementRect.height);
-
-    if (hasElementRect) {
-        const rectWidth = Number.isFinite(elementRect.width) && elementRect.width > 0 ? elementRect.width : widthPx;
-        const rectHeight = Number.isFinite(elementRect.height) && elementRect.height > 0 ? elementRect.height : heightPx;
-        editor.style.left = `${elementRect.left - containerRect.left}px`;
-        editor.style.top = `${elementRect.top - containerRect.top}px`;
-        editor.style.width = `${rectWidth}px`;
-        editor.style.height = `${rectHeight}px`;
-        editor.style.transform = 'translate(0, 0)';
-        editor.style.textAlign = 'left';
-    } else {
-        editor.style.left = `${pos.x}px`;
-        editor.style.top = `${pos.y}px`;
-        editor.style.width = `${widthPx}px`;
-        editor.style.height = `${heightPx}px`;
-        const anchor = shape.textAnchor || 'start';
-        if (anchor === 'middle') {
-            editor.style.transform = 'translate(-50%, 0)';
-            editor.style.textAlign = 'center';
-        } else if (anchor === 'end') {
-            editor.style.transform = 'translate(-100%, 0)';
-            editor.style.textAlign = 'right';
-        } else {
-            editor.style.transform = 'translate(0, 0)';
-            editor.style.textAlign = 'left';
-        }
-    }
-}
-
-export function nudgeTextEditOverlay(app, dx, dy) {
-    const state = app.textEdit;
-    if (!state || !state.editor) return;
-    const editor = state.editor;
-    const left = parseFloat(editor.style.left || '0');
-    const top = parseFloat(editor.style.top || '0');
-    editor.style.left = `${left + dx}px`;
-    editor.style.top = `${top + dy}px`;
-}
-
-export function setTextCaretFromScreen(app, screenPos) {
-    const state = app.textEdit;
-    if (!state || !state.editor || !state.shape) return;
-
-    const rect = app.viewport.svg.getBoundingClientRect();
-    const clientX = screenPos.x + rect.left;
-    const clientY = screenPos.y + rect.top;
-
-    const editorRect = state.editor.getBoundingClientRect();
-    const localX = clientX - editorRect.left;
-    const text = state.editor.value || '';
-
-    const fontSizePx = parseFloat(state.editor.style.fontSize || '12');
-    const fontFamily = state.editor.style.fontFamily || 'Arial';
-
-    const caretIndex = getCaretIndexFromX(text, localX, fontSizePx, fontFamily);
-    state.editor.focus();
-    state.editor.setSelectionRange(caretIndex, caretIndex);
-    state.caretIndex = caretIndex;
-}
-
-function ensureEditor(app, state) {
-    if (!state || state.editor) return;
-
-    const input = document.createElement('input');
-    input.type = 'text';
-    input.className = 'text-edit-input';
-    input.spellcheck = false;
-    input.autocomplete = 'off';
-    input.autocapitalize = 'off';
-    input.value = state.originalText || '';
-
-    input.addEventListener('input', () => {
-        updateText(app, input.value);
-        updateTextEditOverlay(app);
-    });
-
-    input.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape') {
-            endTextEdit(app, false);
-            e.preventDefault();
-            e.stopPropagation();
-        } else if (e.key === 'Enter') {
-            endTextEdit(app, true);
-            e.preventDefault();
-            e.stopPropagation();
-        }
-    });
-
-    input.addEventListener('blur', () => {
-        if (app.textEdit && app.textEdit.editor === input) {
-            endTextEdit(app, true);
-        }
-    });
-
-    app.container.appendChild(input);
-    state.editor = input;
-}
-
-function focusEditor(state) {
-    if (!state?.editor) return;
-    const editor = state.editor;
-    editor.focus();
-    const len = editor.value.length;
-    editor.setSelectionRange(len, len);
-}
-
-function updateText(app, nextText) {
-    const state = app.textEdit;
-    if (!state) return;
-    state.shape.text = nextText;
-    if (typeof state.shape.invalidate === 'function') {
-        state.shape.invalidate();
-    }
-    app.fileManager.setDirty(true);
-    app.renderShapes(true);
-}
-
-function measureTextWidth(text, fontSizePx, fontFamily) {
-    if (!MEASURE_CTX) return text.length * fontSizePx * 0.6;
-    MEASURE_CTX.font = `${fontSizePx}px ${fontFamily}`;
-    return MEASURE_CTX.measureText(text).width;
-}
-
-function getCaretIndexFromX(text, x, fontSizePx, fontFamily) {
-    if (!text) return 0;
-    MEASURE_CTX.font = `${fontSizePx}px ${fontFamily}`;
-    let low = 0;
-    let high = text.length;
-    while (low < high) {
-        const mid = Math.floor((low + high) / 2);
-        const width = MEASURE_CTX.measureText(text.slice(0, mid)).width;
-        if (width < x) {
-            low = mid + 1;
-        } else {
-            high = mid;
-        }
-    }
-    return Math.max(0, Math.min(text.length, low));
-}
-
-function cleanupLegacyOverlays(app) {
-    const svg = app?.viewport?.svg;
-    if (!svg) return;
-    const overlays = svg.querySelectorAll('.text-edit-overlay');
-    overlays.forEach((node) => node.parentNode?.removeChild(node));
-}
-
-/*
-
-export function endTextEdit(app, commit = true) {
-    const state = app.textEdit;
-    if (!state) return;
-
-    if (!commit) {
-        state.shape.text = state.originalText;
-        if (typeof state.shape.invalidate === 'function') {
-            state.shape.invalidate();
-        }
-        app.renderShapes(true);
-    }
-
-    if (state.editor && state.editor.parentNode) {
-        state.editor.parentNode.removeChild(state.editor);
-    }
-
-    app.textEdit = null;
-}
-
-export function handleTextEditKey(app, e) {
-    const state = app.textEdit;
-    if (!state || !state.editor) return false;
-
-    if (e.key === 'Escape') {
-        endTextEdit(app, false);
-        e.preventDefault();
-        e.stopPropagation();
-        return true;
-    }
-
-    if (e.key === 'Enter') {
-        endTextEdit(app, true);
-        e.preventDefault();
-        e.stopPropagation();
-        return true;
-    }
-
-    return false;
-}
-
-export function updateTextEditOverlay(app) {
-    const state = app.textEdit;
-    if (!state || !state.shape || !state.editor) return;
-    if (state.shape.locked) {
-        endTextEdit(app, true);
+    const el = shape.element;
+    if (!el) {
+        state.overlayGroup.style.display = 'none';
         return;
     }
 
-    const shape = state.shape;
-    const editor = state.editor;
-    const scale = app.viewport?.scale || 1;
-    const fontSizePx = Math.max((shape.fontSize || 2.5) * scale, 6);
+    const originX = Number.isFinite(shape.x) ? shape.x : 0;
+    const originY = Number.isFinite(shape.y) ? shape.y : 0;
+    state.overlayGroup.setAttribute('transform', `translate(${originX} ${originY})`);
 
-    const pos = app.viewport.worldToScreen({ x: shape.x, y: shape.y });
+    let bbox;
+    try {
+        bbox = el.getBBox();
+    } catch (e) {
+        bbox = null;
+    }
+
     const textValue = typeof shape.text === 'string' ? shape.text : '';
-    const fontFamily = shape.fontFamily || 'Arial';
-
-    if (editor.value !== textValue) {
-        editor.value = textValue;
-    }
-    editor.style.fontSize = `${fontSizePx}px`;
-    editor.style.fontFamily = fontFamily;
-    editor.style.color = shape.fill ? (shape.fillColor || shape.color) : (shape.color || '#cccccc');
-
-    const approxWidth = Math.max(measureTextWidth(textValue || 'M', fontSizePx, fontFamily), fontSizePx * 0.6);
-    const widthPx = Math.max(approxWidth + 4, 12);
-    editor.style.width = `${widthPx}px`;
-    editor.style.height = `${Math.max(fontSizePx * 1.2, 10)}px`;
-
-    editor.style.left = `${pos.x}px`;
-    editor.style.top = `${pos.y}px`;
-
-    const anchor = shape.textAnchor || 'start';
-    if (anchor === 'middle') {
-        editor.style.transform = 'translate(-50%, 0)';
-        editor.style.textAlign = 'center';
-    } else if (anchor === 'end') {
-        editor.style.transform = 'translate(-100%, 0)';
-        editor.style.textAlign = 'right';
-    } else {
-        editor.style.transform = 'translate(0, 0)';
-        editor.style.textAlign = 'left';
-    }
-}
-
-export function nudgeTextEditOverlay(app, dx, dy) {
-    const state = app.textEdit;
-    if (!state || !state.editor) return;
-    const editor = state.editor;
-    const left = parseFloat(editor.style.left || '0');
-    const top = parseFloat(editor.style.top || '0');
-    editor.style.left = `${left + dx}px`;
-    editor.style.top = `${top + dy}px`;
-}
-
-export function setTextCaretFromScreen(app, screenPos) {
-    const state = app.textEdit;
-    if (!state || !state.editor || !state.shape) return;
-
-    const rect = app.viewport.svg.getBoundingClientRect();
-    const clientX = screenPos.x + rect.left;
-    const clientY = screenPos.y + rect.top;
-
-    const editorRect = state.editor.getBoundingClientRect();
-    const localX = clientX - editorRect.left;
-    const text = state.editor.value || '';
-
-    const fontSizePx = parseFloat(state.editor.style.fontSize || '12');
-    const fontFamily = state.editor.style.fontFamily || 'Arial';
-
-    const caretIndex = getCaretIndexFromX(text, localX, fontSizePx, fontFamily);
-    state.editor.focus();
-    state.editor.setSelectionRange(caretIndex, caretIndex);
-    state.caretIndex = caretIndex;
-}
-
-function ensureEditor(app, state) {
-    if (!state || state.editor) return;
-
-    const input = document.createElement('input');
-    input.type = 'text';
-    input.className = 'text-edit-input';
-    input.spellcheck = false;
-    input.autocomplete = 'off';
-    input.autocapitalize = 'off';
-    input.value = state.originalText || '';
-
-    input.addEventListener('input', () => {
-        updateText(app, input.value);
-        updateTextEditOverlay(app);
-    });
-
-    input.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape') {
-            endTextEdit(app, false);
-            e.preventDefault();
-            e.stopPropagation();
-        } else if (e.key === 'Enter') {
-            endTextEdit(app, true);
-            e.preventDefault();
-            e.stopPropagation();
-        }
-    });
-
-    input.addEventListener('blur', () => {
-        if (app.textEdit && app.textEdit.editor === input) {
-            endTextEdit(app, true);
-        }
-    });
-
-    app.container.appendChild(input);
-    state.editor = input;
-}
-
-function focusEditor(state) {
-    if (!state?.editor) return;
-    const editor = state.editor;
-    editor.focus();
-    const len = editor.value.length;
-    editor.setSelectionRange(len, len);
-}
-
-function updateText(app, nextText) {
-    const state = app.textEdit;
-    if (!state) return;
-    state.shape.text = nextText;
-    if (typeof state.shape.invalidate === 'function') {
-        state.shape.invalidate();
-    }
-    app.fileManager.setDirty(true);
-    app.renderShapes(true);
-}
-
-function measureTextWidth(text, fontSizePx, fontFamily) {
-    if (!MEASURE_CTX) return text.length * fontSizePx * 0.6;
-    MEASURE_CTX.font = `${fontSizePx}px ${fontFamily}`;
-    return MEASURE_CTX.measureText(text).width;
-}
-
-function getCaretIndexFromX(text, x, fontSizePx, fontFamily) {
-    if (!text) return 0;
-    MEASURE_CTX.font = `${fontSizePx}px ${fontFamily}`;
-    let low = 0;
-    let high = text.length;
-    while (low < high) {
-        const mid = Math.floor((low + high) / 2);
-        const width = MEASURE_CTX.measureText(text.slice(0, mid)).width;
-        if (width < x) {
-            low = mid + 1;
-        } else {
-            high = mid;
+    if (textValue.length === 0) {
+        const measured = measurePlaceholderBBox(app, el);
+        if (measured) {
+            bbox = measured;
+        } else if (bbox) {
+            bbox = null;
         }
     }
-    return Math.max(0, Math.min(text.length, low));
-}
-
-export function endTextEdit(app, commit = true) {
-    const state = app.textEdit;
-    if (!state) return;
-
-    if (!commit) {
-        state.shape.text = state.originalText;
-        if (typeof state.shape.invalidate === 'function') {
-            state.shape.invalidate();
-        }
-        app.renderShapes(true);
+    if (bbox && bbox.width === 0 && bbox.height === 0) {
+        bbox = null;
     }
 
-    if (state.editor && state.editor.parentNode) {
-        state.editor.parentNode.removeChild(state.editor);
-    }
+    const pad = 0.4;
+    const minHeight = Math.max(shape.fontSize || 2.5, 1);
+    const minWidth = Math.max((shape.fontSize || 2.5) * 0.6, 1);
 
-    app.textEdit = null;
-}
+    const baseX = (bbox ? bbox.x : originX) - originX;
+    const baseY = (bbox ? bbox.y : originY) - originY;
+    const width = Math.max(bbox ? bbox.width : 0, minWidth);
+    const height = Math.max(bbox ? bbox.height : 0, minHeight);
 
-export function handleTextEditKey(app, e) {
-    const state = app.textEdit;
-    if (!state || !state.editor) return false;
+    const caretXAbs = getCaretX(app, shape, el, { x: baseX + originX, width }, state.caretIndex ?? 0);
+    const caretX = caretXAbs - originX;
+    const caretInset = 0.25;
+    const caretTop = baseY - pad + caretInset;
+    const caretBottom = baseY + height + pad - caretInset;
 
-    if (e.key === 'Escape') {
-        endTextEdit(app, false);
-        e.preventDefault();
-        e.stopPropagation();
-        return true;
-    }
-
-    if (e.key === 'Enter') {
-        endTextEdit(app, true);
-        e.preventDefault();
-        e.stopPropagation();
-        return true;
-    }
-
-    return false;
-}
-
-export function updateTextEditOverlay(app) {
-    const state = app.textEdit;
-    if (!state || !state.shape || !state.editor) return;
-    if (state.shape.locked) {
-        endTextEdit(app, true);
+    const numericValues = [baseX, baseY, width, height, caretX, caretTop, caretBottom];
+    if (numericValues.some((value) => !Number.isFinite(value))) {
+        state.overlayGroup.style.display = 'none';
         return;
     }
 
-    const shape = state.shape;
-    const editor = state.editor;
-    const scale = app.viewport?.scale || 1;
-    const fontSizePx = Math.max((shape.fontSize || 2.5) * scale, 6);
+    state.overlayGroup.style.display = '';
+    state.overlayBox.setAttribute('x', baseX - pad);
+    state.overlayBox.setAttribute('y', baseY - pad);
+    state.overlayBox.setAttribute('width', width + pad * 2);
+    state.overlayBox.setAttribute('height', height + pad * 2);
 
-    const pos = app.viewport.worldToScreen({ x: shape.x, y: shape.y });
-    const textValue = typeof shape.text === 'string' ? shape.text : '';
-    const fontFamily = shape.fontFamily || 'Arial';
-
-    if (editor.value !== textValue) {
-        editor.value = textValue;
-    }
-    editor.style.fontSize = `${fontSizePx}px`;
-    editor.style.fontFamily = fontFamily;
-    editor.style.color = shape.fill ? (shape.fillColor || shape.color) : (shape.color || '#cccccc');
-
-    const approxWidth = Math.max(measureTextWidth(textValue || 'M', fontSizePx, fontFamily), fontSizePx * 0.6);
-    const widthPx = Math.max(approxWidth + 4, 12);
-    editor.style.width = `${widthPx}px`;
-    editor.style.height = `${Math.max(fontSizePx * 1.2, 10)}px`;
-
-    editor.style.left = `${pos.x}px`;
-    editor.style.top = `${pos.y}px`;
-
-    const anchor = shape.textAnchor || 'start';
-    if (anchor === 'middle') {
-        editor.style.transform = 'translate(-50%, 0)';
-        editor.style.textAlign = 'center';
-    } else if (anchor === 'end') {
-        editor.style.transform = 'translate(-100%, 0)';
-        editor.style.textAlign = 'right';
-    } else {
-        editor.style.transform = 'translate(0, 0)';
-        editor.style.textAlign = 'left';
-    }
+    state.overlayCaret.setAttribute('x1', caretX);
+    state.overlayCaret.setAttribute('x2', caretX);
+    state.overlayCaret.setAttribute('y1', caretTop);
+    state.overlayCaret.setAttribute('y2', caretBottom);
 }
 
 export function nudgeTextEditOverlay(app, dx, dy) {
     const state = app.textEdit;
-    if (!state || !state.editor) return;
-    const editor = state.editor;
-    const left = parseFloat(editor.style.left || '0');
-    const top = parseFloat(editor.style.top || '0');
-    editor.style.left = `${left + dx}px`;
-    editor.style.top = `${top + dy}px`;
+    if (!state || !state.overlayGroup) return;
+
+    const nextX = (state.overlayOffset?.x || 0) + dx;
+    const nextY = (state.overlayOffset?.y || 0) + dy;
+    state.overlayOffset = { x: nextX, y: nextY };
+    state.overlayGroup.setAttribute('transform', `translate(${nextX} ${nextY})`);
 }
 
 export function setTextCaretFromScreen(app, screenPos) {
     const state = app.textEdit;
-    if (!state || !state.editor || !state.shape) return;
+    if (!state || !state.shape || !state.shape.element) return;
 
-    const rect = app.viewport.svg.getBoundingClientRect();
-    const clientX = screenPos.x + rect.left;
-    const clientY = screenPos.y + rect.top;
-
-    const editorRect = state.editor.getBoundingClientRect();
-    const localX = clientX - editorRect.left;
-    const text = state.editor.value || '';
-
-    const fontSizePx = parseFloat(state.editor.style.fontSize || '12');
-    const fontFamily = state.editor.style.fontFamily || 'Arial';
-
-    const caretIndex = getCaretIndexFromX(text, localX, fontSizePx, fontFamily);
-    state.editor.focus();
-    state.editor.setSelectionRange(caretIndex, caretIndex);
-    state.caretIndex = caretIndex;
-}
-
-function ensureEditor(app, state) {
-    if (!state || state.editor) return;
-
-    const input = document.createElement('input');
-    input.type = 'text';
-    input.className = 'text-edit-input';
-    input.spellcheck = false;
-    input.autocomplete = 'off';
-    input.autocapitalize = 'off';
-    input.value = state.originalText || '';
-
-    input.addEventListener('input', () => {
-        updateText(app, input.value);
+    const el = state.shape.element;
+    if (typeof el.getCharNumAtPosition !== 'function') {
+        state.caretIndex = (state.shape.text || '').length;
         updateTextEditOverlay(app);
-    });
-
-    input.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape') {
-            endTextEdit(app, false);
-            e.preventDefault();
-            e.stopPropagation();
-        } else if (e.key === 'Enter') {
-            endTextEdit(app, true);
-            e.preventDefault();
-            e.stopPropagation();
-        }
-    });
-
-    input.addEventListener('blur', () => {
-        if (app.textEdit && app.textEdit.editor === input) {
-            endTextEdit(app, true);
-        }
-    });
-
-    app.container.appendChild(input);
-    state.editor = input;
-}
-
-function focusEditor(state) {
-    if (!state?.editor) return;
-    const editor = state.editor;
-    editor.focus();
-    const len = editor.value.length;
-    editor.setSelectionRange(len, len);
-}
-
-function updateText(app, nextText) {
-    const state = app.textEdit;
-    if (!state) return;
-    state.shape.text = nextText;
-    if (typeof state.shape.invalidate === 'function') {
-        state.shape.invalidate();
+        return;
     }
-    app.fileManager.setDirty(true);
-    app.renderShapes(true);
-}
 
-function measureTextWidth(text, fontSizePx, fontFamily) {
-    if (!MEASURE_CTX) return text.length * fontSizePx * 0.6;
-    MEASURE_CTX.font = `${fontSizePx}px ${fontFamily}`;
-    return MEASURE_CTX.measureText(text).width;
-}
-
-function getCaretIndexFromX(text, x, fontSizePx, fontFamily) {
-    if (!text) return 0;
-    MEASURE_CTX.font = `${fontSizePx}px ${fontFamily}`;
-    let low = 0;
-    let high = text.length;
-    while (low < high) {
-        const mid = Math.floor((low + high) / 2);
-        const width = MEASURE_CTX.measureText(text.slice(0, mid)).width;
-        if (width < x) {
-            low = mid + 1;
+    try {
+        const rect = app.viewport.svg.getBoundingClientRect();
+        const pt = app.viewport.svg.createSVGPoint();
+        pt.x = screenPos.x + rect.left;
+        pt.y = screenPos.y + rect.top;
+        const ctm = el.getScreenCTM();
+        const localPt = ctm ? pt.matrixTransform(ctm.inverse()) : pt;
+        const idx = el.getCharNumAtPosition(localPt);
+        if (idx >= 0) {
+            state.caretIndex = idx;
         } else {
-            high = mid;
+            state.caretIndex = (state.shape.text || '').length;
         }
+        updateTextEditOverlay(app);
+        resetCaretBlink(state);
+    } catch (e) {
+        state.caretIndex = (state.shape.text || '').length;
+        updateTextEditOverlay(app);
+        resetCaretBlink(state);
     }
-    return Math.max(0, Math.min(text.length, low));
 }
 
 function ensureOverlay(app) {
@@ -661,12 +273,12 @@ function ensureOverlay(app) {
 
     const box = document.createElementNS(SVG_NS, 'rect');
     box.setAttribute('fill', 'none');
-    box.setAttribute('stroke', 'var(--sch-accent, #00ccff)');
+    box.setAttribute('stroke', 'var(--accent-color, #00ccff)');
     box.setAttribute('stroke-width', '0.15');
     box.setAttribute('stroke-opacity', '0.4');
 
     const caret = document.createElementNS(SVG_NS, 'line');
-    caret.setAttribute('stroke', 'var(--sch-accent, #00ccff)');
+    caret.setAttribute('stroke', 'var(--accent-color, #00ccff)');
     caret.setAttribute('stroke-width', '0.2');
 
     const blink = document.createElementNS(SVG_NS, 'animate');
@@ -799,4 +411,3 @@ function measureCaretWithClone(app, el, textValue, caretIndex) {
     }
     return null;
 }
-*/

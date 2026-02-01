@@ -2,6 +2,10 @@ export function bindKeyboardShortcuts(app) {
     window.addEventListener('keydown', (e) => {
         if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA')) return;
 
+        if (app._handleTextEditKey && app._handleTextEditKey(e)) {
+            return;
+        }
+
         if (e.ctrlKey || e.metaKey) {
             switch (e.key.toLowerCase()) {
                 case 's':

@@ -201,7 +201,8 @@ export class Shape {
         if (!this.selected) return;
         
         const anchors = this.getAnchors();
-        if (anchors.length === 0) return;
+        const visibleAnchors = anchors.filter(anchor => !anchor.hidden);
+        if (visibleAnchors.length === 0 && !this.locked) return;
         
         // Create anchors group
         this.anchorsGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
@@ -209,7 +210,7 @@ export class Shape {
         
         const size = ANCHOR_SIZE_PIXELS / scale;
         
-        for (const anchor of anchors) {
+        for (const anchor of visibleAnchors) {
             const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
             rect.setAttribute('x', anchor.x - size / 2);
             rect.setAttribute('y', anchor.y - size / 2);

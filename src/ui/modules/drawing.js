@@ -32,6 +32,9 @@ export function finishDrawing(app, worldPos) {
     const shape = createShapeFromDrawing(app);
     if (shape) {
         app.addShape(shape);
+        if (shape.type === 'text') {
+            app._startTextEdit?.(shape);
+        }
     }
 
     cancelDrawing(app);
@@ -149,7 +152,7 @@ export function updatePreview(app) {
             }
             break;
         case 'text':
-            svg = `<text x="${start.x}" y="${start.y}" fill="${opts.color}" font-size="2.5" font-family="Arial" dominant-baseline="hanging">Text</text>`;
+            svg = `<text x="${start.x}" y="${start.y}" fill="${opts.color}" font-size="2.5" font-family="Arial" dominant-baseline="hanging"></text>`;
             break;
     }
 
@@ -222,12 +225,10 @@ export function createShapeFromDrawing(app) {
             });
         }
         case 'text': {
-            const label = window.prompt('Text', 'Text');
-            if (label === null) return null;
             return new Text({
                 x: start.x,
                 y: start.y,
-                text: label,
+                text: '',
                 color: opts.color,
                 fillColor: opts.color
             });

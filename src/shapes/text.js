@@ -12,7 +12,7 @@ export class Text extends Shape {
 
         this.x = ShapeValidator.validateCoordinate(options.x || 0, { name: 'x' });
         this.y = ShapeValidator.validateCoordinate(options.y || 0, { name: 'y' });
-        this.text = typeof options.text === 'string' ? options.text : 'Text';
+        this.text = typeof options.text === 'string' ? options.text : '';
         this.fontSize = ShapeValidator.validateNumber(options.fontSize || 2.5, {
             min: 0.5,
             max: 50,
@@ -61,7 +61,7 @@ export class Text extends Shape {
 
     getAnchors() {
         return [
-            { id: 'pos', x: this.x, y: this.y, cursor: 'move' }
+            { id: 'pos', x: this.x, y: this.y, cursor: 'move', hidden: true }
         ];
     }
 
@@ -85,7 +85,9 @@ export class Text extends Shape {
         el.setAttribute('font-family', this.fontFamily);
         el.setAttribute('text-anchor', this.textAnchor);
         el.setAttribute('dominant-baseline', 'hanging');
-        el.textContent = this.text;
+        el.setAttribute('xml:space', 'preserve');
+        el.style.whiteSpace = 'pre';
+        el.textContent = typeof this.text === 'string' ? this.text : '';
         el.removeAttribute('stroke');
     }
 

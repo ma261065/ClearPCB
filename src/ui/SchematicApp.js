@@ -82,6 +82,14 @@ import { updateSelectableItems, generateReference, getSelectedComponents, render
 import { setupCallbacks } from './modules/callbacks.js';
 import { updateUndoRedoButtons, makeHelpPanelDraggable } from './modules/ui-utils.js';
 import {
+    startTextEdit,
+    endTextEdit,
+    handleTextEditKey,
+    updateTextEditOverlay,
+    setTextCaretFromScreen,
+    nudgeTextEditOverlay
+} from './modules/text-edit.js';
+import {
     addShape,
     addShapeInternal,
     addShapeInternalAt,
@@ -163,6 +171,9 @@ class SchematicApp {
             color: '#00cc66'  // Default wire color - matches --sch-wire
         };
 
+        // Text edit state
+        this.textEdit = null;
+
         // UI elements
         this.ui = {
             cursorPos: document.getElementById('cursorPos'),
@@ -183,7 +194,6 @@ class SchematicApp {
             propLocked: document.getElementById('propLocked'),
             propLineWidth: document.getElementById('propLineWidth'),
             propFill: document.getElementById('propFill'),
-            propText: document.getElementById('propText'),
             propTextSize: document.getElementById('propTextSize')
         };
 
@@ -236,6 +246,30 @@ class SchematicApp {
 
     _handleEscape() {
         handleEscape(this);
+    }
+
+    _startTextEdit(shape) {
+        startTextEdit(this, shape);
+    }
+
+    _endTextEdit(commit = true) {
+        endTextEdit(this, commit);
+    }
+
+    _handleTextEditKey(e) {
+        return handleTextEditKey(this, e);
+    }
+
+    _updateTextEditOverlay() {
+        updateTextEditOverlay(this);
+    }
+
+    _nudgeTextEditOverlay(dx, dy) {
+        nudgeTextEditOverlay(this, dx, dy);
+    }
+
+    _setTextEditCaretFromScreen(screenPos) {
+        setTextCaretFromScreen(this, screenPos);
     }
 
     // Setup EventBus listeners for cross-module communication

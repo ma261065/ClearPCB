@@ -224,6 +224,9 @@ export function bindMouseEvents(app) {
                 }
                 app.dragStart = { ...snapped };
                 app.renderShapes(true);
+                if (app.textEdit) {
+                    app._updateTextEditOverlay?.();
+                }
                 app.fileManager.setDirty(true);
             }
         } else if (app.dragMode === 'anchor' && app.dragShape) {
@@ -236,6 +239,9 @@ export function bindMouseEvents(app) {
                 app.dragAnchorId = newAnchorId;
             }
             app.renderShapes(true);
+            if (app.textEdit) {
+                app._updateTextEditOverlay?.();
+            }
             app.fileManager.setDirty(true);
         } else if (app.dragMode === 'box' && app.boxSelectStart) {
             app.didDrag = true;
@@ -293,6 +299,9 @@ export function bindMouseEvents(app) {
             app.dragShape = null;
             app.dragShapesBefore = null;
             app.dragWireAnchorOriginal = null;
+            if (app.textEdit) {
+                app._updateTextEditOverlay?.();
+            }
         }
 
         if (app.viewport.isPanning) return;
@@ -327,6 +336,27 @@ export function bindMouseEvents(app) {
         const worldPos = app.viewport.screenToWorld(screenPos);
 
         if (app.currentTool === 'select') {
+            const hit = app.selection.hitTest(worldPos);
+
+            if (app.textEdit) {
+                if (hit && hit.type === 'text') {
+                    app.selection.select(hit, false);
+                    app.renderShapes(true);
+                    app._startTextEdit(hit);
+                    app._setTextEditCaretFromScreen(screenPos);
+                    return;
+                }
+                app._endTextEdit(true);
+            }
+
+            if (hit && hit.type === 'text' && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
+                app.selection.select(hit, false);
+                app.renderShapes(true);
+                app._startTextEdit(hit);
+                app._setTextEditCaretFromScreen(screenPos);
+                return;
+            }
+
             app.selection.handleClick(worldPos, e.shiftKey || e.ctrlKey || e.metaKey);
             app.renderShapes(true);
         }

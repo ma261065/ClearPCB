@@ -1,4 +1,8 @@
 export function handleEscape(app) {
+    if (app.textEdit) {
+        app._endTextEdit(false);
+        return;
+    }
     if (app.isDrawing) {
         if (app.currentTool === 'wire') {
             app._cancelWireDrawing();

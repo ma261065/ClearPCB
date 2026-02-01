@@ -15,12 +15,6 @@ export function bindPropertiesPanel(app) {
         app._applyCommonProperty('fill', e.target.checked);
     });
 
-    if (app.ui.propText) {
-        app.ui.propText.addEventListener('change', (e) => {
-            app._applyCommonProperty('text', e.target.value);
-        });
-    }
-
     if (app.ui.propTextSize) {
         app.ui.propTextSize.addEventListener('change', (e) => {
             const value = parseFloat(e.target.value);
@@ -107,28 +101,6 @@ export function updatePropertiesPanel(app, selection) {
         app.ui.propFill.disabled = true;
     }
 
-    if (app.ui.propText) {
-        const textValues = selection
-            .filter(item => typeof item.text === 'string')
-            .map(item => item.text);
-
-        if (textValues.length === 0) {
-            app.ui.propText.value = '';
-            app.ui.propText.placeholder = '—';
-            app.ui.propText.disabled = true;
-        } else {
-            app.ui.propText.disabled = false;
-            const first = textValues[0];
-            const allSame = textValues.every(v => v === first);
-            if (allSame) {
-                app.ui.propText.value = first;
-            } else {
-                app.ui.propText.value = '';
-                app.ui.propText.placeholder = '—';
-            }
-        }
-    }
-
     if (app.ui.propTextSize) {
         const sizeValues = selection
             .filter(item => typeof item.fontSize === 'number')
@@ -151,12 +123,7 @@ export function updatePropertiesPanel(app, selection) {
         }
     }
 
-    if (app.ui.propText && selection.length === 1 && selection[0]?.type === 'text') {
-        setTimeout(() => {
-            app.ui.propText?.focus();
-            app.ui.propText?.select();
-        }, 0);
-    }
+    
 }
 
 export function applyCommonProperty(app, prop, value) {
@@ -178,5 +145,12 @@ export function applyCommonProperty(app, prop, value) {
         app.fileManager.setDirty(true);
         app.renderShapes(true);
         app._updatePropertiesPanel(selection);
+        if (prop === 'locked') {
+            if (value) {
+                app._endTextEdit?.(true);
+            } else if (selection.length === 1 && selection[0]?.type === 'text') {
+                app._startTextEdit?.(selection[0]);
+            }
+        }
     }
 }

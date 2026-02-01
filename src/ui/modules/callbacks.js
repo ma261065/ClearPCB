@@ -84,5 +84,6 @@ export function setupCallbacks(app) {
         }
 
         app.renderShapes(true);
+        app._updateTextEditOverlay?.();
     };
 }
