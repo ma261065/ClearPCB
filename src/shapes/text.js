@@ -84,7 +84,8 @@ export class Text extends Shape {
         el.setAttribute('font-size', this.fontSize);
         el.setAttribute('font-family', this.fontFamily);
         el.setAttribute('text-anchor', this.textAnchor);
-        el.setAttribute('dominant-baseline', 'hanging');
+        el.setAttribute('dominant-baseline', 'alphabetic');
+        el.setAttribute('alignment-baseline', 'alphabetic');
         el.setAttribute('xml:space', 'preserve');
         el.style.whiteSpace = 'pre';
         el.textContent = typeof this.text === 'string' ? this.text : '';

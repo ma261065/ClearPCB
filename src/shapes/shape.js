@@ -230,8 +230,14 @@ export class Shape {
             const lockSize = 0.8; // world units so it scales with zoom
             const offset = 0.6;
             const strokeW = 0.15;
-            const lockX = primary.x + offset;
-            const lockY = primary.y - offset - lockSize * 0.6;
+            let lockX = primary.x + offset;
+            let lockY = primary.y - offset - lockSize * 0.6;
+
+            if (this.type === 'text') {
+                const bounds = this.getBounds();
+                lockX = bounds.maxX + offset;
+                lockY = bounds.minY - offset - lockSize * 0.6;
+            }
 
             const bodyW = lockSize;
             const bodyH = lockSize * 0.7;

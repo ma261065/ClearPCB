@@ -152,7 +152,7 @@ export function updatePreview(app) {
             }
             break;
         case 'text':
-            svg = `<text x="${start.x}" y="${start.y}" fill="${opts.color}" font-size="2.5" font-family="Arial" dominant-baseline="hanging"></text>`;
+            svg = `<text x="${start.x}" y="${start.y}" fill="${opts.color}" font-size="2.5" font-family="Arial" dominant-baseline="alphabetic" alignment-baseline="alphabetic"></text>`;
             break;
     }
 
