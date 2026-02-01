@@ -117,7 +117,7 @@ class EditorApp {
 
         this.viewport.onViewChanged = (view) => {
             const zoomPercent = Math.round(this.viewport.zoom * 100);
-            this.ui.zoomLevel.textContent = `${zoomPercent}%`;
+            this.ui.zoomPercent.textContent = `${zoomPercent}%`;
             
             const bounds = view.bounds;
             const v = this.viewport;

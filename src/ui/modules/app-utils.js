@@ -179,8 +179,8 @@ export function setupCallbacks(app) {
 
     app.viewport.onViewChanged = (view) => {
         const zoomPercent = Math.round(app.viewport.zoom * 100);
-        if (app.ui.zoomLevel) {
-            app.ui.zoomLevel.textContent = `${zoomPercent}%`;
+        if (app.ui.zoomPercent) {
+            app.ui.zoomPercent.textContent = `${zoomPercent}%`;
         }
 
         const bounds = view.bounds;

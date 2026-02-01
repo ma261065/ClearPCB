@@ -179,7 +179,7 @@ class SchematicApp {
         this.ui = {
             cursorPos: document.getElementById('cursorPos'),
             gridSnap: document.getElementById('gridSnap'),
-            zoomLevel: document.getElementById('zoomLevel'),
+            zoomPercent: document.getElementById('zoomPercent'),
             viewportInfo: document.getElementById('viewportInfo'),
             gridSize: document.getElementById('gridSize'),
             gridStyle: document.getElementById('gridStyle'),
