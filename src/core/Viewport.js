@@ -96,6 +96,12 @@ export class Viewport {
         this.cachedRectTime = 0;
         const RECT_CACHE_TTL = 10;  // Cache for 10ms (covers most of a frame)
         
+        // Cache for viewport change optimization
+        this.cachedVisibleBounds = null;
+        this.viewChangeTimer = null;
+        this.gridDirty = true;  // Track if grid needs redraw
+        this.paperDirty = true; // Track if paper outline needs redraw
+        
         // Callbacks
         this.onViewChanged = null;
         this.onMouseMove = null;
@@ -410,34 +416,62 @@ export class Viewport {
     }
     
     _notifyViewChanged() {
-        // Redraw paper outline when view changes (zoom/pan)
-        this._drawPaperOutline();
+        // Mark as dirty for lazy redraw
+        this.gridDirty = true;
+        this.paperDirty = true;
         
-        if (this.onViewChanged) {
-            this.onViewChanged({
-                offset: this.offset,
-                zoom: this.zoom,
-                bounds: this.getVisibleBounds()
-            });
+        // Debounce the actual redraw (prevents multiple redraws during rapid pan/zoom)
+        if (this.viewChangeTimer) {
+            clearTimeout(this.viewChangeTimer);
         }
+        
+        this.viewChangeTimer = setTimeout(() => {
+            this.viewChangeTimer = null;
+            
+            // Check if visible bounds actually changed
+            const currentBounds = this.getVisibleBounds();
+            const boundsChanged = !this.cachedVisibleBounds || 
+                currentBounds.minX !== this.cachedVisibleBounds.minX ||
+                currentBounds.minY !== this.cachedVisibleBounds.minY ||
+                currentBounds.maxX !== this.cachedVisibleBounds.maxX ||
+                currentBounds.maxY !== this.cachedVisibleBounds.maxY;
+            
+            // Only redraw if bounds actually changed
+            if (boundsChanged) {
+                this.cachedVisibleBounds = currentBounds;
+                if (this.gridDirty) this._createGrid();
+                if (this.paperDirty) this._drawPaperOutline();
+            }
+            
+            if (this.onViewChanged) {
+                this.onViewChanged({
+                    offset: this.offset,
+                    zoom: this.zoom,
+                    bounds: currentBounds
+                });
+            }
+        }, 0);  // Execute on next frame
     }
     
     // ==================== Grid ====================
     
     setGridSize(size) {
         this.gridSize = Math.max(0.01, size);
+        this.gridDirty = true;
         this._createGrid();
     }
     
     setGridStyle(style) {
         if (style === 'lines' || style === 'dots') {
             this.gridStyle = style;
+            this.gridDirty = true;
             this._createGrid();
         }
     }
     
     setGridVisible(visible) {
         this.gridVisible = visible;
+        this.gridDirty = true;
         this._createGrid();
     }
     
@@ -522,6 +556,7 @@ export class Viewport {
     setPaperSize(paperSize, paperSizeKey = null) {
         this.paperSize = paperSize;
         this.paperSizeKey = paperSizeKey;
+        this.paperDirty = true;
         this._drawPaperOutline();
     }
     
