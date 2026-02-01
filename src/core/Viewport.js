@@ -22,6 +22,7 @@ export class Viewport {
         
         // Create layer groups
         this.gridLayer = this._createGroup('gridLayer');
+        this.paperOutlineLayer = this._createGroup('paperOutlineLayer');
         this.contentLayer = this._createGroup('contentLayer');
         this.axesLayer = this._createGroup('axesLayer');
         this.rulerLayer = null; // Rulers are in screen space, handled separately
@@ -71,6 +72,10 @@ export class Viewport {
         
         // Snapping
         this.snapToGrid = true;
+        
+        // Paper size
+        this.paperSize = null;  // null = no paper outline
+        this.paperSizeKey = null;  // Name of the paper size (e.g., 'A4')
         
         // Units
         this.units = 'mm';
@@ -168,6 +173,9 @@ export class Viewport {
             canvasBg: style.getPropertyValue('--sch-background').trim() || '#1a1a2e',
             gridMinor: style.getPropertyValue('--sch-grid').trim() || 'rgba(255, 255, 255, 0.08)',
             gridMajor: style.getPropertyValue('--sch-grid-major').trim() || 'rgba(255, 255, 255, 0.15)',
+            axis: style.getPropertyValue('--sch-axis').trim() || 'rgba(255, 255, 255, 0.25)',
+            paperOutline: style.getPropertyValue('--sch-paper-outline').trim() || 'rgba(255, 255, 255, 0.12)',
+            paperLabel: style.getPropertyValue('--sch-paper-label').trim() || 'rgba(255, 255, 255, 0.15)',
             rulerBg: style.getPropertyValue('--bg-primary').trim() || '#1a1a1a',
             rulerText: style.getPropertyValue('--text-secondary').trim() || '#888',
             rulerLine: style.getPropertyValue('--text-muted').trim() || '#666',
@@ -402,6 +410,9 @@ export class Viewport {
     }
     
     _notifyViewChanged() {
+        // Redraw paper outline when view changes (zoom/pan)
+        this._drawPaperOutline();
+        
         if (this.onViewChanged) {
             this.onViewChanged({
                 offset: this.offset,
@@ -493,12 +504,57 @@ export class Viewport {
         
         // Axes
         const axes = `
-            <g stroke="${colors.gridMajor}" stroke-width="${strokeWidth}">
+            <g stroke="${colors.axis}" stroke-width="${strokeWidth}">
                 <line x1="${startX}" y1="0" x2="${endX}" y2="0"/>
                 <line x1="0" y1="${startY}" x2="0" y2="${endY}"/>
             </g>
         `;
         this.axesLayer.innerHTML = axes;
+    }
+    
+    // ==================== Paper Size ====================
+    
+    /**
+     * Set the paper size and redraw outline
+     * @param {Object|null} paperSize - {width: mm, height: mm} or null to disable
+     * @param {string|null} paperSizeKey - Name of the paper size (e.g., 'A4')
+     */
+    setPaperSize(paperSize, paperSizeKey = null) {
+        this.paperSize = paperSize;
+        this.paperSizeKey = paperSizeKey;
+        this._drawPaperOutline();
+    }
+    
+    _drawPaperOutline() {
+        // If reference is lost, try to find the layer in the SVG
+        if (!this.paperOutlineLayer || !this.paperOutlineLayer.parentNode) {
+            this.paperOutlineLayer = this.svg.querySelector('#paperOutlineLayer');
+        }
+        
+        if (!this.paperOutlineLayer) return;
+        
+        // Ensure layer doesn't intercept mouse events
+        this.paperOutlineLayer.setAttribute('pointer-events', 'none');
+        
+        this.paperOutlineLayer.innerHTML = '';
+        if (!this.paperSize) return;
+        
+        const colors = this.themeColors || this._getThemeColors();
+        const strokeWidth = 1 / this.scale;  // Same as grid
+        
+        const { width, height } = this.paperSize;
+        // Position with bottom-left corner at origin
+        const x = 0;
+        const y = -height;
+        
+        // Draw paper outline with label at top right, outside the corner
+        const label = this.paperSizeKey || 'Paper';
+        const fontSize = Math.max(12 / this.scale, 2);  // Bigger font
+        const paperSvg = `
+            <rect x="${x}" y="${y}" width="${width}" height="${height}" stroke="${colors.axis}" stroke-width="${strokeWidth}" fill="none"/>
+            <text x="${x + width + 1}" y="${y - 1}" font-size="${fontSize}" fill="${colors.paperLabel}" font-family="sans-serif" text-anchor="end" font-weight="bold">${label}</text>
+        `;
+        this.paperOutlineLayer.innerHTML = paperSvg;
     }
     
     // ==================== Rulers ====================

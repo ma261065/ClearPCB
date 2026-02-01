@@ -82,6 +82,30 @@
                     </div>
                 </div>
                 <div class="ribbon-group">
+                    <div class="ribbon-group-title">Paper</div>
+                    <div class="ribbon-group-items">
+                        <select id="paperSize">
+                            <option value="">None</option>
+                            <optgroup label="Metric">
+                                <option value="A4">A4 (210 × 297 mm)</option>
+                                <option value="A3">A3 (297 × 420 mm)</option>
+                                <option value="A2">A2 (420 × 594 mm)</option>
+                                <option value="A1">A1 (594 × 841 mm)</option>
+                                <option value="A0">A0 (841 × 1189 mm)</option>
+                            </optgroup>
+                            <optgroup label="Imperial">
+                                <option value="Letter">Letter (8.5 × 11 inch)</option>
+                                <option value="Legal">Legal (8.5 × 14 inch)</option>
+                                <option value="Tabloid">Tabloid (11 × 17 inch)</option>
+                            </optgroup>
+                        </select>
+                        <select id="paperOrientation">
+                            <option value="landscape" selected>Landscape</option>
+                            <option value="portrait">Portrait</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="ribbon-group">
                     <div class="ribbon-group-title">View</div>
                     <div class="ribbon-group-items">
                         <button id="zoomIn" title="Zoom In">+</button>

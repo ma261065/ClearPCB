@@ -77,13 +77,6 @@ export function bindMouseEvents(app) {
                 app.dragTotalDx = 0;
                 app.dragTotalDy = 0;
                 app.dragStartWorldPos = { ...worldPos };
-                // Store the actual unsnapped position of the first selected shape for reference
-                const firstShape = app.selection.getSelection()[0];
-                if (firstShape) {
-                    app.dragObjectStartPos = { x: firstShape.x, y: firstShape.y };
-                } else {
-                    app.dragObjectStartPos = { ...snapped };
-                }
                 app.viewport.svg.style.cursor = 'move';
                 e.preventDefault();
                 return;
@@ -218,46 +211,9 @@ export function bindMouseEvents(app) {
         if (app.viewport.isPanning) return;
 
         if (app.dragMode === 'move') {
-            // If grid changed, snap object's actual position to new grid and move it there
-            const snappedObjectPos = app.viewport.getSnappedPosition(app.dragObjectStartPos);
-            if (snappedObjectPos.x !== app.dragObjectStartPos.x || snappedObjectPos.y !== app.dragObjectStartPos.y) {
-                // Grid changed - move objects to snapped position on new grid
-                const snapAdjustX = snappedObjectPos.x - app.dragObjectStartPos.x;
-                const snapAdjustY = snappedObjectPos.y - app.dragObjectStartPos.y;
-                
-                for (const shape of app.selection.getSelection()) {
-                    if (!shape.locked) {
-                        shape.move(snapAdjustX, snapAdjustY);
-                    }
-                }
-                
-                // Update baseline to reflect new position and grid
-                app.dragObjectStartPos = { ...snappedObjectPos };
-                app.dragLastSnapped = { ...snappedObjectPos };
-                app.renderShapes(true);
-                if (app.textEdit) {
-                    app._updateTextEditOverlay?.();
-                }
-            }
-            
-            // Calculate how far mouse has moved from where drag started (in world units)
-            const moveDistance = {
-                x: worldPos.x - app.dragStartWorldPos.x,
-                y: worldPos.y - app.dragStartWorldPos.y
-            };
-            
-            // Apply that movement to the object's actual start position, then snap to current grid
-            const targetPos = {
-                x: app.dragObjectStartPos.x + moveDistance.x,
-                y: app.dragObjectStartPos.y + moveDistance.y
-            };
-            
-            // Snap the target position to current grid
-            const snappedTarget = app.viewport.getSnappedPosition(targetPos);
-            
-            // Movement is the difference between snapped target and last known snapped position
-            const dx = snappedTarget.x - app.dragLastSnapped.x;
-            const dy = snappedTarget.y - app.dragLastSnapped.y;
+            const snapped = app.viewport.getSnappedPosition(worldPos);
+            const dx = snapped.x - app.dragLastSnapped.x;
+            const dy = snapped.y - app.dragLastSnapped.y;
 
             if (dx !== 0 || dy !== 0) {
                 app.didDrag = true;
@@ -269,7 +225,7 @@ export function bindMouseEvents(app) {
                         shape.move(dx, dy);
                     }
                 }
-                app.dragLastSnapped = { ...snappedTarget };
+                app.dragLastSnapped = { ...snapped };
                 app.renderShapes(true);
                 if (app.textEdit) {
                     app._updateTextEditOverlay?.();

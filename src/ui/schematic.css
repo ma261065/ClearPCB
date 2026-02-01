@@ -52,6 +52,15 @@
     /* === Sheets === */
     --sch-sheet: #aa00aa;
     --sch-sheet-fill: rgba(170, 0, 170, 0.1);
+    
+    /* === Axes & Paper === */
+    --sch-axis: rgba(255, 255, 255, 0.4);
+    --sch-paper-outline: rgba(255, 255, 255, 0.25);
+    --sch-paper-label: rgba(255, 255, 255, 0.3);
+    
+    /* === Sheets === */
+    --sch-sheet: #aa00aa;
+    --sch-sheet-fill: rgba(170, 0, 170, 0.1);
 }
 
 [data-theme="light"] {
@@ -105,6 +114,11 @@
     /* === Sheets === */
     --sch-sheet: #aa00aa;
     --sch-sheet-fill: rgba(170, 0, 170, 0.1);
+    
+    /* === Axes & Paper === */
+    --sch-axis: rgba(0, 0, 0, 0.3);
+    --sch-paper-outline: rgba(0, 0, 0, 0.18);
+    --sch-paper-label: rgba(0, 0, 0, 0.22);
 }
 
 * {

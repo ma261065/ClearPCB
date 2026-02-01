@@ -17,6 +17,7 @@ import { bindViewportControls, updateGridDropdown, fitToContent } from './module
 import { bindThemeToggle, toggleTheme, loadTheme, updateComponentColors } from './modules/theme.js';
 import { toggleSelectionLock, deleteSelected, captureShapeState, applyShapeState } from './modules/selection.js';
 import { createBoxSelectElement, updateBoxSelectElement, removeBoxSelectElement, getBoxSelectBounds } from './modules/box-selection.js';
+import { bindPaperEvents } from './modules/paper.js';
 import {
     getWireSnappedPosition,
     getWireAnchorSnappedPosition,
@@ -219,6 +220,7 @@ class SchematicApp {
         this._bindUIControls();
         this._bindMouseEvents();
         this._bindKeyboardShortcuts();
+        bindPaperEvents(this);
 
         // Initial view
         this.viewport.resetView();
