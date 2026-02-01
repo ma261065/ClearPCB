@@ -605,17 +605,46 @@ export class Viewport {
         const h = this.height;
         const bounds = this.getVisibleBounds();
         
-        // Calculate tick spacing in mm, then convert for display
+        // Calculate tick spacing based on display units
         const targetPixels = 80;
         const targetMm = targetPixels / this.scale;
+        const targetDisplay = targetMm * this.unitConversions[this.units];
         
-        // Nice numbers in mm - we'll pick one and display in current units
-        const niceNumbersMm = [0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50, 100, 200, 500, 1000];
-        let tickSpacingMm = 1;
-        for (const n of niceNumbersMm) {
-            if (n >= targetMm) {
-                tickSpacingMm = n;
-                break;
+        // Choose nice numbers based on current units
+        let niceNumbers;
+        let tickSpacingMm;
+        
+        if (this.units === 'inch') {
+            // Inch-based nice numbers: 0.0625" (1/16), 0.125" (1/8), 0.25" (1/4), 0.5", 1", 2", 5", 10"
+            const niceInches = [0.0625, 0.125, 0.25, 0.5, 1, 2, 5, 10];
+            let tickSpacingInch = 0.125;
+            for (const n of niceInches) {
+                if (n >= targetDisplay) {
+                    tickSpacingInch = n;
+                    break;
+                }
+            }
+            tickSpacingMm = tickSpacingInch / this.unitConversions['inch']; // Convert back to mm
+        } else if (this.units === 'mil') {
+            // Mil-based nice numbers: 10, 25, 50, 100, 250, 500, 1000, 2500, 5000
+            const niceMils = [10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000];
+            let tickSpacingMil = 100;
+            for (const n of niceMils) {
+                if (n >= targetDisplay) {
+                    tickSpacingMil = n;
+                    break;
+                }
+            }
+            tickSpacingMm = tickSpacingMil / this.unitConversions['mil']; // Convert back to mm
+        } else {
+            // mm-based nice numbers
+            const niceNumbersMm = [0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50, 100, 200, 500, 1000];
+            tickSpacingMm = 1;
+            for (const n of niceNumbersMm) {
+                if (n >= targetMm) {
+                    tickSpacingMm = n;
+                    break;
+                }
             }
         }
         
