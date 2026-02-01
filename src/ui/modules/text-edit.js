@@ -4,6 +4,11 @@ export function startTextEdit(app, shape) {
     if (!shape || shape.type !== 'text') return;
     if (shape.locked) return;
 
+    const activeEl = document.activeElement;
+    if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'SELECT' || activeEl.tagName === 'TEXTAREA')) {
+        activeEl.blur();
+    }
+
     if (app.textEdit && app.textEdit.shape === shape) {
         updateTextEditOverlay(app);
         return;
@@ -13,10 +18,16 @@ export function startTextEdit(app, shape) {
         endTextEdit(app, true);
     }
 
+    const initialText = typeof shape.text === 'string' ? shape.text : '';
+    const storedCaret = Number.isFinite(shape._lastCaretIndex) ? shape._lastCaretIndex : null;
+    const initialCaret = storedCaret === null
+        ? initialText.length
+        : Math.max(0, Math.min(initialText.length, storedCaret));
+
     app.textEdit = {
         shape,
-        originalText: typeof shape.text === 'string' ? shape.text : '',
-        caretIndex: typeof shape.text === 'string' ? shape.text.length : 0,
+        originalText: initialText,
+        caretIndex: initialCaret,
         overlayGroup: null,
         overlayBox: null,
         overlayCaret: null,
@@ -32,6 +43,12 @@ export function startTextEdit(app, shape) {
 export function endTextEdit(app, commit = true) {
     const state = app.textEdit;
     if (!state) return;
+
+    if (state.shape) {
+        const textLength = (state.shape.text || '').length;
+        const caret = state.caretIndex ?? textLength;
+        state.shape._lastCaretIndex = Math.max(0, Math.min(textLength, caret));
+    }
 
     if (!commit) {
         state.shape.text = state.originalText;
@@ -79,7 +96,11 @@ export function handleTextEditKey(app, e) {
     }
 
     if (e.key === 'ArrowLeft') {
-        state.caretIndex = Math.max(0, caret - 1);
+        if (e.ctrlKey || e.metaKey) {
+            state.caretIndex = findWordBoundaryLeft(text, caret);
+        } else {
+            state.caretIndex = Math.max(0, caret - 1);
+        }
         updateTextEditOverlay(app);
         resetCaretBlink(state);
         e.preventDefault();
@@ -88,7 +109,11 @@ export function handleTextEditKey(app, e) {
     }
 
     if (e.key === 'ArrowRight') {
-        state.caretIndex = Math.min(text.length, caret + 1);
+        if (e.ctrlKey || e.metaKey) {
+            state.caretIndex = findWordBoundaryRight(text, caret);
+        } else {
+            state.caretIndex = Math.min(text.length, caret + 1);
+        }
         updateTextEditOverlay(app);
         resetCaretBlink(state);
         e.preventDefault();
@@ -261,6 +286,37 @@ export function setTextCaretFromScreen(app, screenPos) {
         updateTextEditOverlay(app);
         resetCaretBlink(state);
     }
+}
+
+function isWordChar(ch) {
+    if (!ch) return false;
+    return /[\p{L}\p{N}_]/u.test(ch);
+}
+
+function findWordBoundaryLeft(text, index) {
+    let i = Math.max(0, Math.min(text.length, index));
+    if (i === 0) return 0;
+    while (i > 0 && !isWordChar(text[i - 1])) {
+        i -= 1;
+    }
+    while (i > 0 && isWordChar(text[i - 1])) {
+        i -= 1;
+    }
+    return i;
+}
+
+function findWordBoundaryRight(text, index) {
+    let i = Math.max(0, Math.min(text.length, index));
+    if (i >= text.length) return text.length;
+    if (isWordChar(text[i])) {
+        while (i < text.length && isWordChar(text[i])) {
+            i += 1;
+        }
+    }
+    while (i < text.length && !isWordChar(text[i])) {
+        i += 1;
+    }
+    return i;
 }
 
 function ensureOverlay(app) {

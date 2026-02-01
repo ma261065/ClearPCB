@@ -352,6 +352,10 @@ export function bindMouseEvents(app) {
             if (hit && hit.type === 'text' && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
                 app.selection.select(hit, false);
                 app.renderShapes(true);
+                const activeEl = document.activeElement;
+                if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'SELECT' || activeEl.tagName === 'TEXTAREA')) {
+                    activeEl.blur();
+                }
                 app._startTextEdit(hit);
                 app._setTextEditCaretFromScreen(screenPos);
                 return;

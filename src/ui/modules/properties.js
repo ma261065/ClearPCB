@@ -145,6 +145,9 @@ export function applyCommonProperty(app, prop, value) {
         app.fileManager.setDirty(true);
         app.renderShapes(true);
         app._updatePropertiesPanel(selection);
+        if (prop === 'fontSize' && app.textEdit?.shape && selection.includes(app.textEdit.shape)) {
+            app._updateTextEditOverlay?.();
+        }
         if (prop === 'locked') {
             if (value) {
                 app._endTextEdit?.(true);
