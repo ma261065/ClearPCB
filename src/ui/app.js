@@ -198,6 +198,7 @@ class EditorApp {
     _bindKeyboardShortcuts() {
         window.addEventListener('keydown', (e) => {
             if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
+            if (e.defaultPrevented) return;
             
             if (e.ctrlKey || e.metaKey) {
                 if (e.key === 'z' && !e.shiftKey) {
@@ -214,6 +215,7 @@ class EditorApp {
             } else {
                 switch (e.key) {
                     case 'Escape':
+                        if (this.textEdit || this._suppressNextEscape) return;
                         this.selection.clearSelection();
                         this.renderShapes();
                         break;

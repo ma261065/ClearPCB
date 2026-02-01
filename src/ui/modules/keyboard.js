@@ -1,6 +1,16 @@
 export function bindKeyboardShortcuts(app) {
     window.addEventListener('keydown', (e) => {
         if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA')) return;
+        if (e.defaultPrevented) return;
+
+        // Text edit has absolute priority for Escape and Enter
+        if (app.textEdit) {
+            if (e.key === 'Escape' || e.key === 'Enter') {
+                if (app._handleTextEditKey && app._handleTextEditKey(e)) {
+                    return;
+                }
+            }
+        }
 
         if (app._handleTextEditKey && app._handleTextEditKey(e)) {
             return;
@@ -51,6 +61,13 @@ export function bindKeyboardShortcuts(app) {
         } else {
             switch (e.key) {
                 case 'Escape':
+                    if (app._suppressNextEscape) {
+                        app._suppressNextEscape = false;
+                        e.preventDefault();
+                        e.stopPropagation();
+                        e.stopImmediatePropagation();
+                        break;
+                    }
                     app._handleEscape();
                     break;
                 case 'Enter':
@@ -115,5 +132,13 @@ export function bindKeyboardShortcuts(app) {
         }
     }, { capture: true });
 
-    window.addEventListener('global-escape', () => app._handleEscape());
+    window.addEventListener('global-escape', () => {
+        if (app._suppressNextEscape) {
+            app._suppressNextEscape = false;
+            return;
+        }
+        // Don't handle global escape if we just exited text edit or still in text edit
+        if (app.textEdit) return;
+        app._handleEscape();
+    });
 }

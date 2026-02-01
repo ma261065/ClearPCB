@@ -1,3 +1,5 @@
+import { ModalManager } from '../../core/ModalManager.js';
+
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
 export function startTextEdit(app, shape) {
@@ -38,11 +40,20 @@ export function startTextEdit(app, shape) {
 
     ensureOverlay(app);
     updateTextEditOverlay(app);
+
+    ModalManager.push('text-edit', () => {
+        app._suppressNextEscape = true;
+        endTextEdit(app, false);
+    });
 }
 
 export function endTextEdit(app, commit = true) {
     const state = app.textEdit;
     if (!state) return;
+    const shape = state.shape;
+
+    // Defer pop so ModalManager can complete its current handling
+    Promise.resolve().then(() => ModalManager.pop('text-edit'));
 
     if (state.shape) {
         const textLength = (state.shape.text || '').length;
@@ -71,6 +82,10 @@ export function endTextEdit(app, commit = true) {
     }
 
     app.textEdit = null;
+
+    if (shape && app.selection && !app.selection.isSelected(shape)) {
+        app.selection.select(shape, false);
+    }
 }
 
 export function handleTextEditKey(app, e) {
@@ -82,9 +97,11 @@ export function handleTextEditKey(app, e) {
     const caret = state.caretIndex ?? text.length;
 
     if (e.key === 'Escape') {
+        app._suppressNextEscape = true;
         endTextEdit(app, false);
         e.preventDefault();
         e.stopPropagation();
+        e.stopImmediatePropagation();
         return true;
     }
 
@@ -92,6 +109,7 @@ export function handleTextEditKey(app, e) {
         endTextEdit(app, true);
         e.preventDefault();
         e.stopPropagation();
+        e.stopImmediatePropagation();
         return true;
     }
 

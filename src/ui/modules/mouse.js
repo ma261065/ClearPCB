@@ -339,26 +339,9 @@ export function bindMouseEvents(app) {
             const hit = app.selection.hitTest(worldPos);
 
             if (app.textEdit) {
-                if (hit && hit.type === 'text') {
-                    app.selection.select(hit, false);
-                    app.renderShapes(true);
-                    app._startTextEdit(hit);
-                    app._setTextEditCaretFromScreen(screenPos);
-                    return;
+                if (!hit || hit !== app.textEdit.shape) {
+                    app._endTextEdit(true);
                 }
-                app._endTextEdit(true);
-            }
-
-            if (hit && hit.type === 'text' && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
-                app.selection.select(hit, false);
-                app.renderShapes(true);
-                const activeEl = document.activeElement;
-                if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'SELECT' || activeEl.tagName === 'TEXTAREA')) {
-                    activeEl.blur();
-                }
-                app._startTextEdit(hit);
-                app._setTextEditCaretFromScreen(screenPos);
-                return;
             }
 
             app.selection.handleClick(worldPos, e.shiftKey || e.ctrlKey || e.metaKey);
@@ -369,6 +352,24 @@ export function bindMouseEvents(app) {
     svg.addEventListener('dblclick', (e) => {
         if (app.currentTool === 'polygon' && app.isDrawing) {
             app._finishPolygon();
+            return;
+        }
+
+        if (app.currentTool !== 'select') return;
+
+        const rect = svg.getBoundingClientRect();
+        const screenPos = {
+            x: e.clientX - rect.left,
+            y: e.clientY - rect.top
+        };
+        const worldPos = app.viewport.screenToWorld(screenPos);
+        const hit = app.selection.hitTest(worldPos);
+
+        if (hit && hit.type === 'text') {
+            app.selection.select(hit, false);
+            app.renderShapes(true);
+            app._startTextEdit(hit);
+            app._setTextEditCaretFromScreen(screenPos);
         }
     });
 }
