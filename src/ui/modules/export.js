@@ -4,15 +4,24 @@ export async function savePdf(app) {
             .replace(/\.[^/.]+$/, '') + '.pdf';
 
         const jsPDF = await loadVectorPdfLibs(app);
-        const svgNode = cloneViewportSvgForExport(app);
+        const { svgNode, paperSize } = cloneViewportSvgForExport(app);
         const width = Number(svgNode.getAttribute('width'));
         const height = Number(svgNode.getAttribute('height'));
 
-        const pdf = new jsPDF({
-            orientation: width >= height ? 'landscape' : 'portrait',
-            unit: 'px',
-            format: [width, height]
-        });
+        // If paper size is set, use paper dimensions for PDF
+        const pdfConfig = paperSize 
+            ? {
+                orientation: paperSize.width >= paperSize.height ? 'landscape' : 'portrait',
+                unit: 'mm',
+                format: [paperSize.width, paperSize.height]
+              }
+            : {
+                orientation: width >= height ? 'landscape' : 'portrait',
+                unit: 'px',
+                format: [width, height]
+              };
+
+        const pdf = new jsPDF(pdfConfig);
 
         const svg2pdf = window.svg2pdf?.svg2pdf || window.svg2pdf?.default || window.svg2pdf;
         if (typeof svg2pdf !== 'function') {
@@ -74,11 +83,30 @@ export function cloneViewportSvgForExport(app) {
     const vb = app.viewport.viewBox;
     const width = Math.max(1, Math.round(app.viewport.width));
     const height = Math.max(1, Math.round(app.viewport.height));
+    
+    // If paper size is set, use paper bounds for export instead of viewport
+    const paperSize = app.viewport.paperSize;
+    let exportViewBox = vb;
+    let exportWidth = width;
+    let exportHeight = height;
+    
+    if (paperSize) {
+        // Paper is positioned at (0, -height) in world coords
+        // Set viewBox to match paper bounds
+        exportViewBox = {
+            x: 0,
+            y: -paperSize.height,
+            width: paperSize.width,
+            height: paperSize.height
+        };
+        exportWidth = paperSize.width;
+        exportHeight = paperSize.height;
+    }
 
     svgNode.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
-    svgNode.setAttribute('width', String(width));
-    svgNode.setAttribute('height', String(height));
-    svgNode.setAttribute('viewBox', `${vb.x} ${vb.y} ${vb.width} ${vb.height}`);
+    svgNode.setAttribute('width', String(exportWidth));
+    svgNode.setAttribute('height', String(exportHeight));
+    svgNode.setAttribute('viewBox', `${exportViewBox.x} ${exportViewBox.y} ${exportViewBox.width} ${exportViewBox.height}`);
     svgNode.setAttribute('style', 'background:#ffffff');
 
     inlineSvgComputedStyles(originalSvg, svgNode);
@@ -94,17 +122,24 @@ export function cloneViewportSvgForExport(app) {
     if (axesLayer) {
         axesLayer.remove();
     }
+    
+    // Keep paper outline if paper size is set
+    const paperOutlineLayer = svgNode.querySelector('#paperOutlineLayer');
+    if (paperOutlineLayer && !paperSize) {
+        // Only remove if no paper size is set
+        paperOutlineLayer.remove();
+    }
 
     const bgRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-    bgRect.setAttribute('x', String(vb.x));
-    bgRect.setAttribute('y', String(vb.y));
-    bgRect.setAttribute('width', String(vb.width));
-    bgRect.setAttribute('height', String(vb.height));
+    bgRect.setAttribute('x', String(exportViewBox.x));
+    bgRect.setAttribute('y', String(exportViewBox.y));
+    bgRect.setAttribute('width', String(exportViewBox.width));
+    bgRect.setAttribute('height', String(exportViewBox.height));
     bgRect.setAttribute('fill', '#ffffff');
     bgRect.setAttribute('stroke', 'none');
     svgNode.insertBefore(bgRect, svgNode.firstChild);
 
-    return svgNode;
+    return { svgNode, paperSize };
 }
 
 export function forceMonochromeSvg(svgRoot) {

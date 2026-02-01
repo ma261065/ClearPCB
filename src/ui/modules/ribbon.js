@@ -15,8 +15,14 @@ export function bindRibbon(app) {
 
     const get = (id) => document.getElementById(id);
 
-    get('ribbonNew')?.addEventListener('click', () => app.newFile());
-    get('ribbonOpen')?.addEventListener('click', () => app.openFile());
+    get('ribbonNew')?.addEventListener('click', () => {
+        app.newFile();
+        app._setActiveRibbonTab('home');
+    });
+    get('ribbonOpen')?.addEventListener('click', () => {
+        app.openFile();
+        app._setActiveRibbonTab('home');
+    });
     get('ribbonSave')?.addEventListener('click', () => app.saveFile());
     get('ribbonSaveAs')?.addEventListener('click', () => app.saveFileAs());
     get('ribbonExportPdf')?.addEventListener('click', () => app.savePdf());
@@ -24,6 +30,13 @@ export function bindRibbon(app) {
     get('ribbonDelete')?.addEventListener('click', () => app._deleteSelected());
     get('ribbonToggleLock')?.addEventListener('click', () => app._toggleSelectionLock());
     get('ribbonRotate')?.addEventListener('click', () => app._rotateComponent());
+    
+    // ESC key goes to home tab
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            app._setActiveRibbonTab('home');
+        }
+    });
 
     const ribbonToolButtons = Array.from(document.querySelectorAll('.ribbon-tool-btn'));
     const setActiveToolButton = (toolId) => {
