@@ -150,6 +150,8 @@ export class Shape {
     render(scale) {
         if (!this.element) {
             this.element = this._createElement();
+            // Store reference to shape on the element for easy lookup
+            this.element.__shape = this;
         }
         
         if (!this.visible) {
@@ -166,6 +168,12 @@ export class Shape {
         if (this.selected) {
             strokeColor = '#e94560';
             fillColor = '#e94560';
+            
+            // Raise element to top of its container to ensure visibility
+            // (Only if it's not already the last child)
+            if (this.element.parentNode && this.element.nextSibling) {
+                this.element.parentNode.appendChild(this.element);
+            }
         } else if (this.hovered) {
             strokeColor = '#ffeaa7';
             fillColor = '#ffeaa7';

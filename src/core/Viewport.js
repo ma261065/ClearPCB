@@ -877,7 +877,7 @@ export class Viewport {
         
         // Pan start
         this.boundHandlers.mousedown = (e) => {
-            if (e.button === 2 || (e.button === 0 && e.shiftKey)) {
+            if (e.button === 2) {
                 this.isPanning = true;
                 this.panStart = { x: e.clientX, y: e.clientY };
                 this.panStartViewBox = { ...this.viewBox };

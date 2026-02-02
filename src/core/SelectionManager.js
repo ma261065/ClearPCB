@@ -59,34 +59,63 @@ export class SelectionManager {
         // Check cache - if same point was tested recently, return cached result
         const cacheKey = `${point.x},${point.y}`;
         if (this.hitTestCache.lastPoint === cacheKey) {
-            return all ? this.hitTestCache.lastAllResults : this.hitTestCache.lastResult;
-        }
-        
-        const hits = [];
-        
-        // Test in reverse order (topmost first)
-        for (let i = this.shapes.length - 1; i >= 0; i--) {
-            const shape = this.shapes[i];
-            
-            if (!shape.visible) continue;
-            
-            if (shape.hitTest(point, this.tolerance)) {
-                if (!all) {
-                    // Cache single result
-                    this.hitTestCache.lastPoint = cacheKey;
-                    this.hitTestCache.lastResult = shape;
-                    return shape;
-                }
-                hits.push(shape);
+            if (all) {
+                if (this.hitTestCache.lastAllResults) return this.hitTestCache.lastAllResults;
+            } else {
+                if (this.hitTestCache.lastResult) return this.hitTestCache.lastResult;
+                // Note: We cannot infer single result from 'lastAllResults' anymore because 
+                // the single result logic now prioritizes selection, while 'all' is distinct z-order.
             }
         }
         
-        // Cache all results
-        this.hitTestCache.lastPoint = cacheKey;
-        this.hitTestCache.lastAllResults = hits;
-        this.hitTestCache.lastResult = null;
+        // If we want ALL hits, we scan in strict Z-order (top to bottom)
+        if (all) {
+            const hits = [];
+            for (let i = this.shapes.length - 1; i >= 0; i--) {
+                const shape = this.shapes[i];
+                if (!shape.visible) continue;
+                if (shape.hitTest(point, this.tolerance)) {
+                    hits.push(shape);
+                }
+            }
+            // Cache all results
+            this.hitTestCache.lastPoint = cacheKey;
+            this.hitTestCache.lastAllResults = hits;
+            return hits;
+        }
+
+        // If we want just the topmost hit (single selection/click), we prioritize Selected items first
+        // effectively treating them as if they are visually on top (which they are).
         
-        return all ? hits : null;
+        // Pass 1: Check selected items
+        for (let i = this.shapes.length - 1; i >= 0; i--) {
+            const shape = this.shapes[i];
+            if (!shape.visible || !shape.selected) continue;
+            
+            if (shape.hitTest(point, this.tolerance)) {
+                this.hitTestCache.lastPoint = cacheKey;
+                this.hitTestCache.lastResult = shape;
+                this.hitTestCache.lastAllResults = null; // Invalidate 'all' because we skipped unselected
+                return shape;
+            }
+        }
+
+        // Pass 2: Check unselected items
+        for (let i = this.shapes.length - 1; i >= 0; i--) {
+            const shape = this.shapes[i];
+            if (!shape.visible || shape.selected) continue;
+            
+            if (shape.hitTest(point, this.tolerance)) {
+               this.hitTestCache.lastPoint = cacheKey;
+               this.hitTestCache.lastResult = shape;
+               this.hitTestCache.lastAllResults = null;
+               return shape;
+            }
+        }
+        
+        this.hitTestCache.lastPoint = cacheKey;
+        this.hitTestCache.lastResult = null;
+        return null;
     }
     
     /**

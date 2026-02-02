@@ -169,7 +169,13 @@ export class Wire extends Shape {
      * Update SVG element
      */
     _updateElement(el, strokeColor, fillColor, scale) {
-        const points = this.points.map(p => `${p.x},${p.y}`).join(' ');
+        // Filter out invalid points to prevent crashes
+        const validPoints = this.points.filter(p => 
+            p && typeof p.x === 'number' && !isNaN(p.x) && 
+            typeof p.y === 'number' && !isNaN(p.y)
+        );
+
+        const points = validPoints.map(p => `${p.x},${p.y}`).join(' ');
         el.setAttribute('points', points);
         el.setAttribute('stroke', strokeColor);
         el.setAttribute('stroke-width', this._getEffectiveStrokeWidth(scale));
@@ -182,6 +188,7 @@ export class Wire extends Shape {
      * Move the entire wire
      */
     move(dx, dy) {
+        if (!Number.isFinite(dx) || !Number.isFinite(dy)) return;
         for (const p of this.points) {
             p.x += dx;
             p.y += dy;

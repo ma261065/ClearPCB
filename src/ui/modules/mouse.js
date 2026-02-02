@@ -49,10 +49,47 @@ export function bindMouseEvents(app) {
                 }
             }
 
-            const hitShape = app.selection.hitTest(worldPos);
+            let hitShape = app.selection.hitTest(worldPos);
+
+            // Shift+Click: Cycle through overlapping shapes
+            // Note: Ctrl is reserved for Multi-Select (Additive)
+            if (e.shiftKey && !e.ctrlKey && !e.metaKey) {
+                 // Important: Use a larger tolerance for "cycling" to make it easier to grab things
+                 // Temporarily boost tolerance
+                 const originalTolerance = app.selection.tolerance;
+                 app.selection.tolerance = 2.0; // Boost tolerance for finding overlapping stuff
+                 
+                 const hits = app.selection.hitTest(worldPos, true);
+                 
+                 // Restore tolerance
+                 app.selection.tolerance = originalTolerance;
+
+                 if (hits && hits.length > 0) {
+                     // Try to find currently selected shape in the hit list
+                     const selectedIndex = hits.findIndex(h => h.selected);
+                     
+                     // If something is selected in this stack, pick the next one
+                     // If nothing is selected (selectedIndex = -1), pick the first one (index 0)
+                     const nextIndex = (selectedIndex + 1) % hits.length;
+                     
+                     hitShape = hits[nextIndex];
+
+                     // Explicitly clear selection first to be absolutely sure
+                     app.selection.clearSelection();
+                     
+                     // Update selection immediately
+                     app.selection.select(hitShape, false);
+                     app.renderShapes(true);
+                 }
+                
+                // Stop here - Disable dragging while holding Shift
+                app.skipClickSelection = true;
+                e.preventDefault();
+                return;
+            }
 
             if (hitShape) {
-                const additive = e.shiftKey || e.ctrlKey || e.metaKey;
+                const additive = e.ctrlKey || e.metaKey;
                 if (additive) {
                     app.selection.toggle(hitShape);
                     app.renderShapes(true);
@@ -75,7 +112,16 @@ export function bindMouseEvents(app) {
                 // Store the actual unsnapped position of the first selected shape
                 const firstShape = app.selection.getSelection()[0];
                 if (firstShape) {
-                    app.dragObjectStartPos = { x: firstShape.x, y: firstShape.y };
+                    // Handle different shape types (some use x/y, some use points, some use x1/y1)
+                    if (typeof firstShape.x === 'number' && typeof firstShape.y === 'number') {
+                        app.dragObjectStartPos = { x: firstShape.x, y: firstShape.y };
+                    } else if (typeof firstShape.x1 === 'number' && typeof firstShape.y1 === 'number') {
+                        app.dragObjectStartPos = { x: firstShape.x1, y: firstShape.y1 };
+                    } else if (firstShape.points && firstShape.points.length > 0) {
+                        app.dragObjectStartPos = { x: firstShape.points[0].x, y: firstShape.points[0].y };
+                    } else {
+                        app.dragObjectStartPos = { ...snapped };
+                    }
                 } else {
                     app.dragObjectStartPos = { ...snapped };
                 }

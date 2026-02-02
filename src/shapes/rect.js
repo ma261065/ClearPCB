@@ -41,6 +41,8 @@ export class Rect extends Shape {
                            point.y >= expanded.minY && point.y <= expanded.maxY;
         
         if (!insideOuter) return false;
+        
+        // If filled, we hit anywhere inside
         if (this.fill) return true;
         
         const inner = {
@@ -50,9 +52,10 @@ export class Rect extends Shape {
             maxY: this.y + this.height - this.lineWidth / 2 - tolerance
         };
         
-        const insideInner = point.x >= inner.minX && point.x <= inner.maxX &&
-                           point.y >= inner.minY && point.y <= inner.maxY;
-        
+        const insideInner = point.x > inner.minX && point.x < inner.maxX &&
+                            point.y > inner.minY && point.y < inner.maxY;
+                            
+        // If inside outer but NOT inside inner, we are on the border
         return !insideInner;
     }
     
