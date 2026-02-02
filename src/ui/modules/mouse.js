@@ -199,8 +199,19 @@ export function bindMouseEvents(app) {
             } else {
                 app._addPolygonPoint(snapped);
             }
+        } else if (app.currentTool === 'line' || app.currentTool === 'rect' || app.currentTool === 'circle' || app.currentTool === 'arc') {
+             if (!app.isDrawing) {
+                 app._startDrawing(snapped);
+             } else {
+                 app._finishDrawing(snapped);
+             }
         } else {
-            app._startDrawing(snapped);
+            // Default fallback for any other tools in future
+             if (!app.isDrawing) {
+                app._startDrawing(snapped);
+             } else {
+                 app._finishDrawing(snapped);
+             }
         }
     });
 
@@ -400,6 +411,8 @@ export function bindMouseEvents(app) {
             // Polygon continues until double-click or Escape
         } else if (app.currentTool === 'wire') {
             // Wire continues until Enter is pressed
+        } else if (['line', 'rect', 'circle', 'arc'].includes(app.currentTool)) {
+            // These tools now use Click-Move-Click, so do NOT finish on mouseup
         } else if (app.isDrawing) {
             app._finishDrawing(snapped);
         }
