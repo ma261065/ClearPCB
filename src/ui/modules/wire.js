@@ -357,7 +357,7 @@ export function finishWireDrawing(app, worldPos) {
     const wire = new Wire({
         points: app.wirePoints.map(p => ({ x: p.x, y: p.y })),
         color: '#00cc66',
-        lineWidth: 0.2,
+        lineWidth: 0.25,
         connections: {
             start: app.wirePoints[0].pin ? {
                 componentId: app.wirePoints[0].pin.component.id,

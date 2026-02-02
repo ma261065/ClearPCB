@@ -114,6 +114,11 @@ export function updatePropertiesPanel(app, selection) {
             app.ui.propLineWidth.value = '';
             app.ui.propLineWidth.placeholder = '—';
         }
+        
+        // Disable if any selected item is a wire
+        if (selection.some(item => item.type === 'wire')) {
+            app.ui.propLineWidth.disabled = true;
+        }
     }
 
     const fillValues = selection

@@ -115,7 +115,7 @@ class SchematicApp {
         // Tool options
         const savedOptions = loadToolOptions();
         this.toolOptions = savedOptions || {
-            lineWidth: 0.2,
+            lineWidth: 0.25,
             fill: false,
             color: '#00cc66',  // Default wire color - matches --sch-wire
             fontSize: 2.0

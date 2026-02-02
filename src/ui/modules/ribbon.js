@@ -94,7 +94,7 @@ export function updateShapePanelOptions(app, selection, toolIdArg) {
     container.innerHTML = `
         <label>
             Line width
-            <input type="number" id="ribbonShapeLineWidth" step="0.05" min="0" placeholder="—">
+            <input type="number" id="ribbonShapeLineWidth" step="0.25" min="0.25" max="5" placeholder="—">
         </label>
         <label>
             <input type="checkbox" id="ribbonShapeFill"> Fill
@@ -142,11 +142,22 @@ export function updateShapePanelOptions(app, selection, toolIdArg) {
                     lineWidthInput.value = '';
                     lineWidthInput.placeholder = '—';
                 }
+                
+                // Disable if any selected item is a wire
+                if (items.some(item => item.type === 'wire')) {
+                    lineWidthInput.disabled = true;
+                }
             }
         } else {
             // When no selection (drawing mode), always enable input if tool supports it
             lineWidthInput.disabled = !toolSupportsLineWidth;
             lineWidthInput.value = app.toolOptions?.lineWidth ?? 0.2;
+            
+            // Force disable for wire tool
+            if (toolId === 'wire') {
+                lineWidthInput.value = 0.25;
+                lineWidthInput.disabled = true;
+            }
         }
 
         lineWidthInput.addEventListener('change', (e) => {
