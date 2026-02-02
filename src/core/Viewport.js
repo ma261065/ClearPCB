@@ -37,13 +37,14 @@ export class Viewport {
         
         // Zoom levels with clean 1-2-5 percentage progression
         // View width = baseWidth / (zoomPercent / 100) = 20000 / zoomPercent
-        // Zoom percentages: 1, 2, 5, 10, 20, 50, 75, 100, 150, 200, 500, 1000, 2000, 5000, 10000
+        // Zoom percentages: 1, 2, 5, 10, 20, 35, 50, 75, 100, 150, 200, 500, 1000, 2000, 5000, 10000
         this.zoomLevels = [
             20000,  // 1%
             10000,  // 2%
             4000,   // 5%
             2000,   // 10%
             1000,   // 20%
+            571,    // 35% (20000/35 ≈ 571.43)
             400,    // 50%
             266,    // 75% (20000/75 ≈ 266.67)
             200,    // 100%
@@ -55,7 +56,7 @@ export class Viewport {
             4,      // 5000%
             2       // 10000%
         ];
-        this.zoomIndex = 7; // Start at 200mm (index 7) = 100% zoom
+        this.zoomIndex = 8; // Start at 200mm (index 8) = 100% zoom
         
         this.viewBox = { x: -100, y: -60, width: 200, height: 120 };
         
@@ -332,17 +333,28 @@ export class Viewport {
     }
     
     resetView() {
-        // Reset to 100% zoom (200mm view width, index 6)
-        // Position origin 10mm in from right edge and 10mm up from bottom edge
-        this.zoomIndex = 6;
+        // Reset to 100% zoom (index 8)
+        this.zoomIndex = 8;
         const aspect = this.height / this.width;
         this.viewBox.width = this.zoomLevels[this.zoomIndex];
         this.viewBox.height = this.viewBox.width * aspect;
         
-        // Position so origin (0,0) is 10mm from left and 10mm from bottom
-        const margin = 10; // mm from edges
-        this.viewBox.x = -margin;   // Right edge at x=10, so origin at 10 from right
-        this.viewBox.y = margin - this.viewBox.height;  // Bottom edge at y=10, so origin at 10 from bottom
+        // Calculate ruler width in world units (mm)
+        // scale is pixelsPerMM = width / viewBox.width
+        const scale = this.width / this.viewBox.width;
+        const rulerOffset = this.showRulers ? (this.rulerSize / scale) : 0;
+        
+        // Position so origin (0,0) is 3mm from rule edge (visible area)
+        const margin = 3; // mm
+        
+        // Left edge of viewbox (x) needs to be shifted left by (margin + rulerOffset)
+        // so that x=0 appears at (margin + rulerOffset) from the left edge of the viewport
+        this.viewBox.x = -(margin + rulerOffset);
+        
+        // Bottom edge of viewbox needs to be shifted down by margin from the content bottom
+        // But rulers are typically top/left.
+        // If there is no bottom ruler, we just want 3mm from the bottom edge.
+        this.viewBox.y = margin - this.viewBox.height;
         
         this._updateViewBox();
         this._createGrid();

@@ -13,10 +13,10 @@ export class Text extends Shape {
         this.x = ShapeValidator.validateCoordinate(options.x || 0, { name: 'x' });
         this.y = ShapeValidator.validateCoordinate(options.y || 0, { name: 'y' });
         this.text = typeof options.text === 'string' ? options.text : '';
-        this.fontSize = ShapeValidator.validateNumber(options.fontSize || 2.5, {
-            min: 0.5,
+        this.fontSize = ShapeValidator.validateNumber(options.fontSize || 2.0, {
+            min: 1,
             max: 50,
-            default: 2.5,
+            default: 2.0,
             name: 'fontSize'
         });
         this.fontFamily = options.fontFamily || 'Arial';

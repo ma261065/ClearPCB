@@ -1,3 +1,25 @@
+const STORAGE_KEY = 'clearpcb_tool_options';
+
+export function loadToolOptions() {
+    try {
+        const stored = localStorage.getItem(STORAGE_KEY);
+        if (stored) {
+            return JSON.parse(stored);
+        }
+    } catch (e) {
+        console.warn('Failed to load tool options:', e);
+    }
+    return null;
+}
+
+export function saveToolOptions(options) {
+    try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(options));
+    } catch (e) {
+        console.warn('Failed to save tool options:', e);
+    }
+}
+
 export function onToolSelected(app, tool) {
     app._cancelDrawing();
     
@@ -34,6 +56,7 @@ export function onToolSelected(app, tool) {
 
     app._setActiveToolButton?.(tool);
     app._updateShapePanelOptions(app.selection.getSelection(), tool);
+    app._updatePropertiesPanel(app.selection.getSelection());
 }
 
 export function onComponentPickerClosed(app) {
@@ -44,4 +67,5 @@ export function onComponentPickerClosed(app) {
 
 export function onOptionsChanged(app, options) {
     app.toolOptions = { ...app.toolOptions, ...options };
+    saveToolOptions(app.toolOptions);
 }

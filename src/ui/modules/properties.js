@@ -17,9 +17,26 @@ export function bindPropertiesPanel(app) {
 
     if (app.ui.propTextSize) {
         app.ui.propTextSize.addEventListener('change', (e) => {
-            const value = parseFloat(e.target.value);
+            let value = parseFloat(e.target.value);
             if (Number.isNaN(value)) return;
-            app._applyCommonProperty('fontSize', value);
+            
+            // Limit range
+            if (value < 1) value = 1;
+            if (value > 50) value = 50;
+            
+            // Update input if clamped
+            if (parseFloat(e.target.value) !== value) {
+                e.target.value = value;
+            }
+            
+            // If we have a selection, update the shapes
+            if (app.selection.count > 0) {
+                app._applyCommonProperty('fontSize', value);
+            } 
+            // If no selection but text tool is active, update default setting
+            else if (app.currentTool === 'text') {
+                app._onOptionsChanged({ fontSize: value });
+            }
         });
     }
 
@@ -117,9 +134,16 @@ export function updatePropertiesPanel(app, selection) {
             .map(item => item.fontSize);
 
         if (sizeValues.length === 0) {
-            app.ui.propTextSize.value = '';
-            app.ui.propTextSize.placeholder = '—';
-            app.ui.propTextSize.disabled = true;
+            // If current tool is text, allow edit of default text size
+            if (app.currentTool === 'text') {
+                app.ui.propTextSize.value = app.toolOptions.fontSize || 2.0;
+                app.ui.propTextSize.placeholder = '2.0';
+                app.ui.propTextSize.disabled = false;
+            } else {
+                app.ui.propTextSize.value = '';
+                app.ui.propTextSize.placeholder = '—';
+                app.ui.propTextSize.disabled = true;
+            }
         } else {
             app.ui.propTextSize.disabled = false;
             const first = sizeValues[0];

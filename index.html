@@ -50,12 +50,6 @@
                     </div>
                 </div>
                 <div class="ribbon-group">
-                    <div class="ribbon-group-title">Transform</div>
-                    <div class="ribbon-group-items">
-                        <button id="ribbonRotate" title="Rotate Components">⟳ Rotate</button>
-                    </div>
-                </div>
-                <div class="ribbon-group">
                     <div class="ribbon-group-title">History</div>
                     <div class="ribbon-group-items">
                         <button id="undoBtn" title="Undo (Ctrl+Z)">↶</button>
@@ -140,10 +134,11 @@
                         </div>
                         <div class="prop-row">
                             <label for="propTextSize">Text size</label>
-                            <input type="number" id="propTextSize" step="0.1" min="0.5" placeholder="—">
+                            <input type="number" id="propTextSize" step="1" min="1" max="50" placeholder="—">
                         </div>
                         <div class="prop-row">
                             <div class="ribbon-group-items">
+                                <button id="ribbonRotate" title="Rotate Components">⟳ Rotate</button>
                                 <button id="ribbonDelete" class="ribbon-danger" title="Delete (Del)">🗑️ Delete</button>
                             </div>
                         </div>

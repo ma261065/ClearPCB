@@ -230,7 +230,8 @@ export function createShapeFromDrawing(app) {
                 y: start.y,
                 text: '',
                 color: opts.color,
-                fillColor: opts.color
+                fillColor: opts.color,
+                fontSize: app.toolOptions.fontSize || 2.0
             });
         }
 

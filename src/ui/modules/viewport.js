@@ -65,6 +65,18 @@ export function updateGridDropdown(app) {
 }
 
 export function fitToContent(app) {
+    // If we have a defined paper size, fit to the paper
+    const paperSize = app.viewport.paperSize;
+    if (paperSize) {
+        // Fit to paper bounds: (0, -height) to (width, 0)
+        // Paper is drawn with bottom-left at (0,0), so it extends "up" (negative Y) in SVG space if Y-down is standard,
+        // Actually _drawPaperOutline uses y = -height, so top of paper is at -height, bottom at 0.
+        // Add a small 2% padding so the paper border is visible
+        app.viewport.fitToBounds(0, -paperSize.height, paperSize.width, 0, 2);
+        return;
+    }
+
+    // Fallback: If no paper size (None), fit to shapes content
     if (app.shapes.length === 0) {
         app.viewport.resetView();
         return;

@@ -10,7 +10,7 @@ import { Line, Wire, Circle, Rect, Arc, Polygon, Text } from '../shapes/index.js
 import { getComponentLibrary } from '../components/index.js';
 import { bindMouseEvents } from './modules/mouse.js';
 import { bindKeyboardShortcuts } from './modules/keyboard.js';
-import { bindPropertiesPanel, applyCommonProperty } from './modules/properties.js';
+import { bindPropertiesPanel, applyCommonProperty, updatePropertiesPanel } from './modules/properties.js';
 import { bindRibbon, updateShapePanelOptions } from './modules/ribbon.js';
 import { updateCrosshair, getToolIconPath, setToolCursor, showCrosshair, hideCrosshair } from './modules/cursor.js';
 import { bindViewportControls, updateGridDropdown, fitToContent } from './modules/viewport.js';
@@ -25,7 +25,7 @@ import * as FileTools from './modules/files.js';
 import * as ExportTools from './modules/export.js';
 import { handleEscape } from './modules/input.js';
 import { setupEventBusListeners } from './modules/event-bus.js';
-import { onToolSelected, onComponentPickerClosed, onOptionsChanged } from './modules/tool.js';
+import { onToolSelected, onComponentPickerClosed, onOptionsChanged, loadToolOptions } from './modules/tool.js';
 import { updateSelectableItems, generateReference, getSelectedComponents, renderComponents } from './modules/components-utils.js';
 import { setupCallbacks } from './modules/callbacks.js';
 import { updateUndoRedoButtons, makeHelpPanelDraggable } from './modules/ui-utils.js';
@@ -113,10 +113,12 @@ class SchematicApp {
         this.dragShapesBefore = null;  // State before drag for anchor modifications
 
         // Tool options
-        this.toolOptions = {
+        const savedOptions = loadToolOptions();
+        this.toolOptions = savedOptions || {
             lineWidth: 0.2,
             fill: false,
-            color: '#00cc66'  // Default wire color - matches --sch-wire
+            color: '#00cc66',  // Default wire color - matches --sch-wire
+            fontSize: 2.0
         };
 
         // Text edit state
@@ -531,6 +533,10 @@ class SchematicApp {
 
     _applyCommonProperty(prop, value) {
         applyCommonProperty(this, prop, value);
+    }
+    
+    _updatePropertiesPanel(selection) {
+        updatePropertiesPanel(this, selection);
     }
 
     // ==================== Mouse Events ====================
