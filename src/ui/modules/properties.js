@@ -30,7 +30,13 @@ export function updatePropertiesPanel(app, selection) {
     if (!app.ui.propertiesPanel) return;
 
     const count = selection.length;
-    app.ui.propSelectionCount.textContent = String(count);
+    if (count === 0) {
+        app.ui.propSelectionCount.textContent = 'None selected';
+    } else if (count === 1) {
+        app.ui.propSelectionCount.textContent = '1 selected';
+    } else {
+        app.ui.propSelectionCount.textContent = `${count} selected`;
+    }
 
     if (app.ui.propertiesHeaderLabel) {
         if (count === 0) {

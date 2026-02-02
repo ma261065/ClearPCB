@@ -69,6 +69,7 @@ import {
 } from './modules/files.js';
 import {
     savePdf,
+    printSchematic,
     loadVectorPdfLibs,
     cloneViewportSvgForExport,
     forceMonochromeSvg,
@@ -793,6 +794,11 @@ class SchematicApp {
     // Save current view to PDF
     async savePdf() {
         await savePdf(this);
+    }
+
+    // Print current view with preview
+    async print() {
+        await printSchematic(this);
     }
 
     _loadVectorPdfLibs() {

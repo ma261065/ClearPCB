@@ -526,16 +526,19 @@ body {
 .status-item {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 3px;
+    min-width: 180px;
 }
 
 .status-item .label {
     color: var(--text-muted);
+    flex-shrink: 0;
 }
 
 .status-item .value {
     color: var(--accent-color);
     font-family: 'Monaco', 'Consolas', monospace;
+    min-width: 120px;
 }
 
 /* Floating Toolbox */

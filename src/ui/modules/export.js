@@ -3,6 +3,11 @@ export async function savePdf(app) {
         const pdfFileName = (app.fileManager?.fileName || 'schematic')
             .replace(/\.[^/.]+$/, '') + '.pdf';
 
+        // Save current selection and clear it before export to avoid selection handles
+        const previousSelection = app.selection.getSelection();
+        app.selection.clearSelection();
+        app.renderShapes(true);
+
         const jsPDF = await loadVectorPdfLibs(app);
         const { svgNode, paperSize } = cloneViewportSvgForExport(app);
         const width = Number(svgNode.getAttribute('width'));
@@ -40,8 +45,129 @@ export async function savePdf(app) {
 
         const pdfBlob = pdf.output('blob');
         await saveBlobAsFile(pdfBlob, pdfFileName, 'application/pdf', ['.pdf']);
+
+        // Restore previous selection
+        app.selection.clearSelection();
+        for (const shape of previousSelection) {
+            app.selection.select(shape, true);
+        }
+        app.renderShapes(true);
     } catch (err) {
         alert('Failed to save PDF: ' + (err?.message || 'Unknown error'));
+        // Restore selection in case of error
+        app.selection.clearSelection();
+        for (const shape of previousSelection) {
+            app.selection.select(shape, true);
+        }
+        app.renderShapes(true);
+    }
+}
+
+export async function printSchematic(app) {
+    try {
+        // Save current selection and clear it before print
+        const previousSelection = app.selection.getSelection();
+        app.selection.clearSelection();
+        app.renderShapes(true);
+
+        // Create a temporary print window with the SVG
+        const { svgNode, paperSize } = cloneViewportSvgForExport(app);
+        
+        // Get paper dimensions (in mm) - A4 is 210×297mm by default
+        let paperWidth = 210;   // mm
+        let paperHeight = 297;  // mm
+        if (paperSize) {
+            paperWidth = paperSize.width;
+            paperHeight = paperSize.height;
+        }
+        
+        // Keep SVG dimensions in mm for proper print scaling
+        svgNode.setAttribute('width', paperWidth + 'mm');
+        svgNode.setAttribute('height', paperHeight + 'mm');
+        
+        const svgString = new XMLSerializer().serializeToString(svgNode);
+        
+        // Create an invisible iframe for printing
+        const iframe = document.createElement('iframe');
+        iframe.style.display = 'none';
+        iframe.style.width = '1px';
+        iframe.style.height = '1px';
+        document.body.appendChild(iframe);
+
+        // Write HTML content to iframe with proper page sizing
+        const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+        iframeDoc.open();
+        iframeDoc.write(`
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>Print Schematic</title>
+                <style>
+                    * { margin: 0 !important; padding: 0 !important; box-sizing: border-box !important; }
+                    @page {
+                        size: ${paperWidth}mm ${paperHeight}mm;
+                        margin: 0 !important;
+                    }
+                    @media print {
+                        body { margin: 0 !important; padding: 5mm !important; }
+                        html { margin: 0 !important; padding: 0 !important; }
+                    }
+                    html { 
+                        width: 100%;
+                        height: 100%;
+                        margin: 0 !important;
+                        padding: 0 !important;
+                    }
+                    body { 
+                        width: 100%;
+                        height: 100%;
+                        margin: 0 !important;
+                        padding: 5mm !important; /* Force 5mm safe zone */
+                        background: white;
+                        overflow: hidden;
+                    }
+                    svg { 
+                        width: 100%;
+                        height: 100%;
+                        display: block;
+                        margin: 0 !important;
+                        padding: 0 !important;
+                    }
+                </style>
+            </head>
+            <body>
+                ${svgString}
+            </body>
+            </html>
+        `);
+        iframeDoc.close();
+
+        // Wait for iframe to load, then print
+        setTimeout(() => {
+            iframe.contentWindow.focus();
+            iframe.contentWindow.print();
+            
+            // Remove iframe after print completes
+            setTimeout(() => {
+                document.body.removeChild(iframe);
+                
+                // Restore selection
+                app.selection.clearSelection();
+                for (const shape of previousSelection) {
+                    app.selection.select(shape, true);
+                }
+                app.renderShapes(true);
+            }, 500);
+        }, 250);
+    } catch (err) {
+        alert('Failed to print: ' + (err?.message || 'Unknown error'));
+        // Restore selection in case of error
+        app.selection.clearSelection();
+        const previousSelection = app.selection.getSelection();
+        for (const shape of previousSelection) {
+            app.selection.select(shape, true);
+        }
+        app.renderShapes(true);
     }
 }
 

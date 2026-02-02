@@ -37,7 +37,7 @@ export class Viewport {
         
         // Zoom levels with clean 1-2-5 percentage progression
         // View width = baseWidth / (zoomPercent / 100) = 20000 / zoomPercent
-        // Zoom percentages: 1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000
+        // Zoom percentages: 1, 2, 5, 10, 20, 50, 75, 100, 150, 200, 500, 1000, 2000, 5000, 10000
         this.zoomLevels = [
             20000,  // 1%
             10000,  // 2%
@@ -45,7 +45,9 @@ export class Viewport {
             2000,   // 10%
             1000,   // 20%
             400,    // 50%
+            266,    // 75% (20000/75 ≈ 266.67)
             200,    // 100%
+            133,    // 150% (20000/150 ≈ 133.33)
             100,    // 200%
             40,     // 500%
             20,     // 1000%
@@ -53,7 +55,7 @@ export class Viewport {
             4,      // 5000%
             2       // 10000%
         ];
-        this.zoomIndex = 6; // Start at 200mm (index 6) = 100% zoom
+        this.zoomIndex = 7; // Start at 200mm (index 7) = 100% zoom
         
         this.viewBox = { x: -100, y: -60, width: 200, height: 120 };
         

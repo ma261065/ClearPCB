@@ -26,6 +26,7 @@ export function bindRibbon(app) {
     get('ribbonSave')?.addEventListener('click', () => app.saveFile());
     get('ribbonSaveAs')?.addEventListener('click', () => app.saveFileAs());
     get('ribbonExportPdf')?.addEventListener('click', () => app.savePdf());
+    get('ribbonPrint')?.addEventListener('click', () => app.print());
 
     get('ribbonDelete')?.addEventListener('click', () => app._deleteSelected());
     get('ribbonToggleLock')?.addEventListener('click', () => app._toggleSelectionLock());

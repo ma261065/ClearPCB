@@ -30,6 +30,9 @@ export function bindKeyboardShortcuts(app) {
                     if (e.shiftKey) {
                         e.preventDefault();
                         app.savePdf();
+                    } else if (e.ctrlKey) {
+                        e.preventDefault();
+                        app.print();
                     }
                     break;
                 case 'o':
