@@ -201,6 +201,12 @@ export function bindMouseEvents(app) {
         const worldPos = app.viewport.screenToWorld(screenPos);
         const snapped = app.viewport.getSnappedPosition(worldPos);
 
+        // Always update component preview if we are placing one.
+        // This must happen before any tool-specific logic or returns.
+        if (app.placingComponent) {
+            app._updateComponentPreview(snapped);
+        }
+
         if (app.currentTool === 'wire') {
             const snapPin = app._findNearbyPin(worldPos);
             if (snapPin && snapPin !== app.wireSnapPin) {

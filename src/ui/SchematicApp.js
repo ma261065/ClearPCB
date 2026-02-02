@@ -10,73 +10,19 @@ import { Line, Wire, Circle, Rect, Arc, Polygon, Text } from '../shapes/index.js
 import { getComponentLibrary } from '../components/index.js';
 import { bindMouseEvents } from './modules/mouse.js';
 import { bindKeyboardShortcuts } from './modules/keyboard.js';
-import { bindPropertiesPanel, updatePropertiesPanel, applyCommonProperty } from './modules/properties.js';
-import { bindRibbon, updateRibbonState, updateShapePanelOptions } from './modules/ribbon.js';
+import { bindPropertiesPanel, applyCommonProperty } from './modules/properties.js';
+import { bindRibbon, updateShapePanelOptions } from './modules/ribbon.js';
 import { updateCrosshair, getToolIconPath, setToolCursor, showCrosshair, hideCrosshair } from './modules/cursor.js';
 import { bindViewportControls, updateGridDropdown, fitToContent } from './modules/viewport.js';
 import { bindThemeToggle, toggleTheme, loadTheme, updateComponentColors } from './modules/theme.js';
 import { toggleSelectionLock, deleteSelected, captureShapeState, applyShapeState } from './modules/selection.js';
 import { createBoxSelectElement, updateBoxSelectElement, removeBoxSelectElement, getBoxSelectBounds } from './modules/box-selection.js';
 import { bindPaperEvents } from './modules/paper.js';
-import {
-    getWireSnappedPosition,
-    getWireAnchorSnappedPosition,
-    findNearbyPin,
-    isSamePin,
-    pointsMatch,
-    checkAutoCornerTriggers,
-    startWireDrawing,
-    updateWireDrawing,
-    addWireWaypoint,
-    finishWireDrawing,
-    cancelWireDrawing,
-    updateWirePreview,
-    highlightPin,
-    unhighlightPin
-} from './modules/wire.js';
-import {
-    startDrawing,
-    updateDrawing,
-    finishDrawing,
-    addPolygonPoint,
-    finishPolygon,
-    cancelDrawing,
-    createPreview,
-    getEffectiveStrokeWidth,
-    updatePreview,
-    createShapeFromDrawing
-} from './modules/drawing.js';
-import {
-    onComponentDefinitionSelected,
-    createComponentPreview,
-    updateComponentPreview,
-    placeComponent,
-    rotateComponent,
-    mirrorComponent,
-    cancelComponentPlacement
-} from './modules/components.js';
-import {
-    serializeDocument,
-    loadDocument,
-    createComponentFromData,
-    updateTitle,
-    checkAutoSave,
-    loadVersion,
-    newFile,
-    saveFile,
-    saveFileAs,
-    openFile
-} from './modules/files.js';
-import {
-    savePdf,
-    printSchematic,
-    loadVectorPdfLibs,
-    cloneViewportSvgForExport,
-    forceMonochromeSvg,
-    inlineSvgComputedStyles,
-    saveBlobAsFile,
-    renderViewportToCanvas
-} from './modules/export.js';
+import * as WireTools from './modules/wire.js';
+import * as DrawingTools from './modules/drawing.js';
+import * as ComponentTools from './modules/components.js';
+import * as FileTools from './modules/files.js';
+import * as ExportTools from './modules/export.js';
 import { handleEscape } from './modules/input.js';
 import { setupEventBusListeners } from './modules/event-bus.js';
 import { onToolSelected, onComponentPickerClosed, onOptionsChanged } from './modules/tool.js';
@@ -284,6 +230,7 @@ class SchematicApp {
     
     _onToolSelected(tool) {
         onToolSelected(this, tool);
+        this.eventBus.emit('toolChanged', tool);
     }
     
     _onComponentPickerClosed() {
@@ -326,45 +273,45 @@ class SchematicApp {
     // ==================== Drawing ====================
     
     _startDrawing(worldPos) {
-        startDrawing(this, worldPos);
+        DrawingTools.startDrawing(this, worldPos);
     }
     
     _updateDrawing(worldPos) {
-        updateDrawing(this, worldPos);
+        DrawingTools.updateDrawing(this, worldPos);
     }
     
     _finishDrawing(worldPos) {
-        finishDrawing(this, worldPos);
+        DrawingTools.finishDrawing(this, worldPos);
     }
     
     _addPolygonPoint(worldPos) {
-        addPolygonPoint(this, worldPos);
+        DrawingTools.addPolygonPoint(this, worldPos);
     }
     
     _finishPolygon() {
-        finishPolygon(this);
+        DrawingTools.finishPolygon(this);
     }
     
     _cancelDrawing() {
-        cancelDrawing(this);
+        DrawingTools.cancelDrawing(this);
     }
     
     _createPreview() {
-        createPreview(this);
+        DrawingTools.createPreview(this);
     }
     
     
     // Calculate effective stroke width with minimum screen pixel size
     _getEffectiveStrokeWidth(lineWidth) {
-        return getEffectiveStrokeWidth(this, lineWidth);
+        return DrawingTools.getEffectiveStrokeWidth(this, lineWidth);
     }
     
     _updatePreview() {
-        updatePreview(this);
+        DrawingTools.updatePreview(this);
     }
     
     _createShapeFromDrawing() {
-        return createShapeFromDrawing(this);
+        return DrawingTools.createShapeFromDrawing(this);
     }
 
     // ==================== Wire Drawing ====================
@@ -375,7 +322,7 @@ class SchematicApp {
      * Later segments: grid snap, but override with target pin Y/X when approaching
      */
     _getWireSnappedPosition(worldPos) {
-        return getWireSnappedPosition(this, worldPos);
+        return WireTools.getWireSnappedPosition(this, worldPos);
     }
     
     /**
@@ -385,17 +332,17 @@ class SchematicApp {
      * @param {number} tolerance - Snap tolerance in mm (defaults to 0.5mm)
      */
     _findNearbyPin(worldPos, tolerance = 0.5) {
-        return findNearbyPin(this, worldPos, tolerance);
+        return WireTools.findNearbyPin(this.components, worldPos, tolerance);
     }
 
     // Check if two pins are the same (by component and pin number)
     _isSamePin(pin1, pin2) {
-        return isSamePin(pin1, pin2);
+        return WireTools.isSamePin(pin1, pin2);
     }
 
     // Check if two points are essentially the same (within epsilon)
     _pointsMatch(a, b, epsilon = 1e-6) {
-        return pointsMatch(a, b, epsilon);
+        return WireTools.pointsMatch(a, b, epsilon);
     }
 
     // Get display position adjusted for target pin snapping (with fake grid consideration)
@@ -425,74 +372,74 @@ class SchematicApp {
 
     // Check auto-corner triggers (deadband and grid-line crossing)
     _checkAutoCornerTriggers(rawDx, rawDy, primaryDir, gridSize, lastWorldPos, worldPos) {
-        return checkAutoCornerTriggers(this, rawDx, rawDy, primaryDir, gridSize, lastWorldPos, worldPos);
+        return WireTools.checkAutoCornerTriggers(this, rawDx, rawDy, primaryDir, gridSize, lastWorldPos, worldPos);
     }
     
     // Start drawing a wire - click to place first point or snap to pin
     _startWireDrawing(snappedData) {
-        startWireDrawing(this, snappedData);
+        WireTools.startWireDrawing(this, snappedData);
     }
     
     // Update wire preview while drawing
     _updateWireDrawing(worldPos) {
-        updateWireDrawing(this, worldPos);
+        WireTools.updateWireDrawing(this, worldPos);
     }
 
     // Get snapped position for wire anchor editing, allowing snap to original position
     _getWireAnchorSnappedPosition(wireShape, anchorId, worldPos) {
-        return getWireAnchorSnappedPosition(this, wireShape, anchorId, worldPos);
+        return WireTools.getWireAnchorSnappedPosition(this, wireShape, anchorId, worldPos);
     }
     
     // Add a waypoint to the wire
     _addWireWaypoint(waypointData) {
-        addWireWaypoint(this, waypointData);
+        WireTools.addWireWaypoint(this, waypointData);
     }
     
     // Finish drawing the wire
     _finishWireDrawing(worldPos) {
-        finishWireDrawing(this, worldPos);
+        WireTools.finishWireDrawing(this, worldPos);
     }
     
     // Cancel wire drawing
     _cancelWireDrawing() {
-        cancelWireDrawing(this);
+        WireTools.cancelWireDrawing(this);
     }
     
     // Update wire preview visualization
     _updateWirePreview() {
-        updateWirePreview(this);
+        WireTools.updateWirePreview(this);
     }
     
     // Highlight a pin during snapping
     _highlightPin(snapPin) {
-        highlightPin(this, snapPin);
+        WireTools.highlightPin(this, snapPin);
     }
     
     // Remove pin highlight
     _unhighlightPin() {
-        unhighlightPin(this);
+        WireTools.unhighlightPin(this);
     }
 
     // ==================== Component Handling ====================
     
     // Called when a component definition is selected in the picker
     _onComponentDefinitionSelected(definition) {
-        onComponentDefinitionSelected(this, definition);
+        ComponentTools.onComponentDefinitionSelected(this, definition);
     }
     
     // Create component preview that follows cursor
     _createComponentPreview(definition) {
-        createComponentPreview(this, definition);
+        ComponentTools.createComponentPreview(this, definition);
     }
     
     // Update component preview position
     _updateComponentPreview(worldPos) {
-        updateComponentPreview(this, worldPos);
+        ComponentTools.updateComponentPreview(this, worldPos);
     }
     
     // Place the current component at the given position
     _placeComponent(worldPos) {
-        placeComponent(this, worldPos);
+        ComponentTools.placeComponent(this, worldPos);
     }
     
     // Update SelectionManager with all selectable items (shapes + components)
@@ -507,17 +454,17 @@ class SchematicApp {
     
     // Rotate component during placement (or selected components)
     _rotateComponent() {
-        rotateComponent(this);
+        ComponentTools.rotateComponent(this);
     }
     
     // Mirror component during placement (or selected components)
     _mirrorComponent() {
-        mirrorComponent(this);
+        ComponentTools.mirrorComponent(this);
     }
     
     // Cancel component placement mode
     _cancelComponentPlacement() {
-        cancelComponentPlacement(this);
+        ComponentTools.cancelComponentPlacement(this);
     }
     
     // Get selected components (for future selection integration)
@@ -563,14 +510,7 @@ class SchematicApp {
     _onSelectionChanged(shapes) {
         console.log(`Selection: ${shapes.length} shape(s)`);
         this.renderShapes(true);
-        this._updatePropertiesPanel(shapes);
-        this._updateRibbonState(shapes);
-        this._updateShapePanelOptions(shapes);
-        if (shapes.length > 0) {
-            this._setActiveRibbonTab?.('properties');
-        } else {
-            this._setActiveRibbonTab?.('home');
-        }
+        this.eventBus.emit('selectionChanged', shapes);
     }
 
     _bindPropertiesPanel() {
@@ -581,20 +521,12 @@ class SchematicApp {
         bindRibbon(this);
     }
 
-    _updateRibbonState(selection) {
-        updateRibbonState(this, selection);
-    }
-
-    _updateShapePanelOptions(selection, toolId = this.currentTool) {
+    _updateShapePanelOptions(selection, toolId) {
         updateShapePanelOptions(this, selection, toolId);
     }
 
     _toggleSelectionLock() {
         toggleSelectionLock(this);
-    }
-
-    _updatePropertiesPanel(selection) {
-        updatePropertiesPanel(this, selection);
     }
 
     _applyCommonProperty(prop, value) {
@@ -709,17 +641,17 @@ class SchematicApp {
     
     // Serialize document to JSON-compatible object
     _serializeDocument() {
-        return serializeDocument(this);
+        return FileTools.serializeDocument(this);
     }
     
     // Load shapes from document data
     _loadDocument(data) {
-        loadDocument(this, data);
+        FileTools.loadDocument(this, data);
     }
     
     // Create component instance from serialized data
     _createComponentFromData(data) {
-        return createComponentFromData(this, data);
+        return FileTools.createComponentFromData(this, data);
     }
     
     // Create shape instance from serialized data
@@ -758,7 +690,7 @@ class SchematicApp {
     
     // Update window/document title
     _updateTitle() {
-        updateTitle(this);
+        FileTools.updateTitle(this);
     }
     
     // Update undo/redo button enabled states
@@ -768,67 +700,67 @@ class SchematicApp {
     
     // Check for auto-saved content on startup
     _checkAutoSave() {
-        checkAutoSave(this);
+        FileTools.checkAutoSave(this);
     }
     
     // Load and display version number
     async _loadVersion() {
-        await loadVersion(this);
+        await FileTools.loadVersion(this);
     }
     
     // Create new document
     async newFile() {
-        await newFile(this);
+        await FileTools.newFile(this);
     }
     
     // Save current document
     async saveFile() {
-        await saveFile(this);
+        await FileTools.saveFile(this);
     }
     
     // Save As - always prompt for location
     async saveFileAs() {
-        await saveFileAs(this);
+        await FileTools.saveFileAs(this);
     }
 
     // Save current view to PDF
     async savePdf() {
-        await savePdf(this);
+        await ExportTools.savePdf(this);
     }
 
     // Print current view with preview
     async print() {
-        await printSchematic(this);
+        await ExportTools.printSchematic(this);
     }
 
     _loadVectorPdfLibs() {
-        return loadVectorPdfLibs(this);
+        return ExportTools.loadVectorPdfLibs(this);
     }
 
     _cloneViewportSvgForExport() {
-        return cloneViewportSvgForExport(this);
+        return ExportTools.cloneViewportSvgForExport(this);
     }
 
     _forceMonochromeSvg(svgRoot) {
-        forceMonochromeSvg(svgRoot);
+        ExportTools.forceMonochromeSvg(svgRoot);
     }
 
     _inlineSvgComputedStyles(originalSvg, clonedSvg) {
-        inlineSvgComputedStyles(originalSvg, clonedSvg);
+        ExportTools.inlineSvgComputedStyles(originalSvg, clonedSvg);
     }
 
     async _saveBlobAsFile(blob, suggestedName, mimeType, extensions) {
-        await saveBlobAsFile(blob, suggestedName, mimeType, extensions);
+        await ExportTools.saveBlobAsFile(blob, suggestedName, mimeType, extensions);
     }
 
     // Render the current viewport SVG to a canvas
     _renderViewportToCanvas(scale = 2) {
-        return renderViewportToCanvas(this, scale);
+        return ExportTools.renderViewportToCanvas(this, scale);
     }
     
     // Open file
     async openFile() {
-        await openFile(this);
+        await FileTools.openFile(this);
     }
 }
 

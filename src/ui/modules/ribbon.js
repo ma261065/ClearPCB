@@ -52,18 +52,38 @@ export function bindRibbon(app) {
     });
     setActiveToolButton(app.currentTool);
 
-    app._updateRibbonState(app.selection.getSelection());
-    app._updateShapePanelOptions(app.selection.getSelection(), app.currentTool);
+    updateRibbonState(app, app.selection.getSelection());
+    updateShapePanelOptions(app, app.selection.getSelection(), app.currentTool);
+
+    // Event-driven updates
+    app.eventBus.on('selectionChanged', (shapes) => {
+        updateRibbonState(app, shapes);
+        updateShapePanelOptions(app, shapes, app.currentTool);
+        
+        if (shapes.length > 0) {
+            app._setActiveRibbonTab?.('properties');
+        } else {
+            app._setActiveRibbonTab?.('home');
+        }
+    });
+
+    // Update ribbon when tool changes (e.g. enable Fill/Line Width for shapes)
+    app.eventBus.on('toolChanged', (toolId) => {
+        updateShapePanelOptions(app, app.selection.getSelection(), toolId);
+    });
 }
 
-export function updateShapePanelOptions(app, selection, toolId = app.currentTool) {
+export function updateShapePanelOptions(app, selection, toolIdArg) {
     const container = document.getElementById('ribbonShapeOptions');
     if (!container) return;
 
+    // Ensure we have a valid tool ID
+    const toolId = toolIdArg || app.currentTool || 'select';
+
     const items = selection || [];
     const hasSelection = items.length > 0;
-    const toolSupportsLineWidth = toolId === 'line' || toolId === 'wire';
-    const toolSupportsFill = toolId === 'rect' || toolId === 'circle' || toolId === 'polygon';
+    const toolSupportsLineWidth = ['line', 'wire', 'rect', 'circle', 'arc', 'polygon'].includes(toolId);
+    const toolSupportsFill = ['rect', 'circle', 'polygon'].includes(toolId);
     const supportsLineWidth = hasSelection
         ? items.some(item => typeof item?.lineWidth === 'number')
         : toolSupportsLineWidth;
@@ -124,7 +144,8 @@ export function updateShapePanelOptions(app, selection, toolId = app.currentTool
                 }
             }
         } else {
-            lineWidthInput.disabled = !supportsLineWidth;
+            // When no selection (drawing mode), always enable input if tool supports it
+            lineWidthInput.disabled = !toolSupportsLineWidth;
             lineWidthInput.value = app.toolOptions?.lineWidth ?? 0.2;
         }
 
@@ -147,8 +168,10 @@ export function updateShapePanelOptions(app, selection, toolId = app.currentTool
                 .map(item => item.fill);
             setCheckboxState(fillInput, fillValues);
         } else {
-            fillInput.disabled = !supportsFill;
-            fillInput.checked = !!app.toolOptions?.fill;
+            // When no selection (drawing mode), always enable input if tool supports it
+            fillInput.disabled = !toolSupportsFill;
+            // Use toolOptions safe access
+            fillInput.checked = !!(app.toolOptions && app.toolOptions.fill);
             fillInput.indeterminate = false;
         }
         fillInput.addEventListener('change', (e) => {

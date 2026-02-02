@@ -1,5 +1,15 @@
 export function onToolSelected(app, tool) {
     app._cancelDrawing();
+    
+    // Update current tool first so that listeners (like ribbon) 
+    // see the new tool state when selection is cleared
+    app.currentTool = tool;
+    
+    // Clear selection when switching tools so that property panel inputs 
+    // control default tool options (new shapes) rather than editing existing selection.
+    if (tool !== 'select') {
+        app.selection.clearSelection();
+    }
 
     if (tool !== 'component' && app.placingComponent) {
         app._cancelComponentPlacement();
@@ -8,8 +18,6 @@ export function onToolSelected(app, tool) {
     if (tool !== 'component' && app.componentPicker.isOpen) {
         app.componentPicker.close();
     }
-
-    app.currentTool = tool;
 
     if (tool === 'component') {
         if (!app.componentPicker.isOpen) {

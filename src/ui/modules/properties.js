@@ -23,7 +23,11 @@ export function bindPropertiesPanel(app) {
         });
     }
 
-    app._updatePropertiesPanel([]);
+    updatePropertiesPanel(app, []);
+
+    app.eventBus.on('selectionChanged', (shapes) => {
+        updatePropertiesPanel(app, shapes);
+    });
 }
 
 export function updatePropertiesPanel(app, selection) {

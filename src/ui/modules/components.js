@@ -40,6 +40,9 @@ export function createComponentPreview(app, definition) {
 export function updateComponentPreview(app, worldPos) {
     if (!app.componentPreview || !app.placingComponent) return;
 
+    if (app.componentRotation === undefined) app.componentRotation = 0;
+    if (app.componentMirror === undefined) app.componentMirror = false;
+
     const parts = [`translate(${worldPos.x}, ${worldPos.y})`];
     if (app.componentRotation !== 0) {
         parts.push(`rotate(${app.componentRotation})`);

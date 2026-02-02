@@ -2,7 +2,7 @@ import { Wire } from '../../shapes/index.js';
 
 export function getWireSnappedPosition(app, worldPos) {
     const gridSnapped = app.viewport.getSnappedPosition(worldPos);
-    const targetPin = findNearbyPin(app, worldPos, 1.0);
+    const targetPin = findNearbyPin(app.components, worldPos, 1.0);
 
     if (app.wirePoints.length === 0) {
         return { ...gridSnapped, snapPin: null, targetPin: null };
@@ -83,11 +83,11 @@ export function getWireSnappedPosition(app, worldPos) {
     return { x: lastPoint.x, y: lastPoint.y, snapPin: null, targetPin: null };
 }
 
-export function findNearbyPin(app, worldPos, tolerance = 0.5) {
+export function findNearbyPin(components, worldPos, tolerance = 0.5) {
     let nearest = null;
     let minDist = tolerance;
 
-    for (const component of app.components) {
+    for (const component of components) {
         if (!component.symbol || !component.symbol.pins) continue;
 
         for (const pin of component.symbol.pins) {
@@ -167,7 +167,7 @@ export function updateWireDrawing(app, worldPos) {
     let lastPoint = { ...app.wirePoints[app.wirePoints.length - 1] };
     const gridSize = app.viewport.gridSize || 1.0;
 
-    let nearPin = findNearbyPin(app, worldPos, 2.0);
+    let nearPin = findNearbyPin(app.components, worldPos, 2.0);
 
     if (nearPin && app.wireStartPin && app.wirePoints.length === 1) {
         if (isSamePin({ component: nearPin.component, pin: nearPin.pin }, app.wireStartPin)) {
