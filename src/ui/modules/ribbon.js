@@ -1,4 +1,30 @@
 export function bindRibbon(app) {
+    const showSaveToast = (buttonEl, text = 'Saved') => {
+        if (!buttonEl) return;
+        const existing = document.getElementById('ribbon-save-toast');
+        if (existing) {
+            existing.remove();
+        }
+
+        const rect = buttonEl.getBoundingClientRect();
+        const toast = document.createElement('div');
+        toast.id = 'ribbon-save-toast';
+        toast.className = 'ribbon-save-toast';
+        toast.textContent = text;
+        toast.style.left = `${rect.left + rect.width / 2}px`;
+        toast.style.top = `${rect.top - 6}px`;
+        document.body.appendChild(toast);
+
+        requestAnimationFrame(() => {
+            toast.classList.add('show');
+        });
+
+        window.setTimeout(() => {
+            toast.classList.remove('show');
+            window.setTimeout(() => toast.remove(), 200);
+        }, 900);
+    };
+
     const tabs = document.querySelectorAll('.ribbon-tab');
     const panels = document.querySelectorAll('.ribbon-panel');
     if (tabs.length === 0 || panels.length === 0) return;
@@ -23,8 +49,21 @@ export function bindRibbon(app) {
         app.openFile();
         app._setActiveRibbonTab('home');
     });
-    get('ribbonSave')?.addEventListener('click', () => app.saveFile());
-    get('ribbonSaveAs')?.addEventListener('click', () => app.saveFileAs());
+    const saveButton = get('ribbonSave');
+    const saveAsButton = get('ribbonSaveAs');
+
+    saveButton?.addEventListener('click', async () => {
+        const result = await app.saveFile();
+        if (result?.success) {
+            showSaveToast(saveButton, 'Saved');
+        }
+    });
+    saveAsButton?.addEventListener('click', async () => {
+        const result = await app.saveFileAs();
+        if (result?.success) {
+            showSaveToast(saveAsButton, 'Saved');
+        }
+    });
     get('ribbonExportPdf')?.addEventListener('click', () => app.savePdf());
     get('ribbonPrint')?.addEventListener('click', () => app.print());
 

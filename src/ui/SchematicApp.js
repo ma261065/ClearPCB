@@ -721,12 +721,12 @@ class SchematicApp {
     
     // Save current document
     async saveFile() {
-        await FileTools.saveFile(this);
+        return await FileTools.saveFile(this);
     }
     
     // Save As - always prompt for location
     async saveFileAs() {
-        await FileTools.saveFileAs(this);
+        return await FileTools.saveFileAs(this);
     }
 
     // Save current view to PDF

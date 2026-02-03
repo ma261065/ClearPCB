@@ -14,28 +14,25 @@ export class KiCadFetcher {
         // GitLab raw file base URLs
         this.symbolsBase = 'https://gitlab.com/kicad/libraries/kicad-symbols/-/raw/master';
         this.footprintsBase = 'https://gitlab.com/kicad/libraries/kicad-footprints/-/raw/master';
+        this.models3dBase = 'https://gitlab.com/kicad/libraries/kicad-packages3D/-/raw/master';
         
-        // CORS proxy options - corsproxy.io works better for GitLab
+        // CORS proxy options - use Cloudflare Worker
         this.corsProxies = [
-            'https://corsproxy.io/?',
-            'https://api.allorigins.win/raw?url='
+            'https://clearpcb.mikealex.workers.dev/?url='
         ];
-        this.currentProxyIndex = 0;
         
         // Cache fetched data
         this.symbolCache = new Map();
         this.footprintCache = new Map();
+        this.footprintExistsCache = new Map();
+        this.model3dExistsCache = new Map();
+        this.footprintPreviewCache = new Map();
         this.libraryIndex = null;
         this.fetchFailed = false;
     }
     
     get corsProxy() {
-        return this.corsProxies[this.currentProxyIndex];
-    }
-    
-    _tryNextProxy() {
-        this.currentProxyIndex = (this.currentProxyIndex + 1) % this.corsProxies.length;
-        console.log('Switching to KiCad proxy:', this.corsProxy);
+        return this.corsProxies[0];
     }
     
     /**
@@ -92,8 +89,11 @@ export class KiCadFetcher {
         console.log(`KiCadFetcher: Fetching symbol ${library}:${symbolName}`);
         
         if (this.symbolCache.has(cacheKey)) {
-            console.log('KiCadFetcher: Using cached symbol');
-            return this.symbolCache.get(cacheKey);
+            const cached = this.symbolCache.get(cacheKey);
+            if (cached?.properties && Object.keys(cached.properties).length > 0) {
+                console.log('KiCadFetcher: Using cached symbol');
+                return cached;
+            }
         }
         
         try {
@@ -113,6 +113,16 @@ export class KiCadFetcher {
             
             if (symbol) {
                 console.log('KiCadFetcher: Symbol parsed successfully');
+                // Fallback: extract Footprint property from raw content if missing
+                if (!symbol.properties || Object.keys(symbol.properties).length === 0) {
+                    symbol.properties = symbol.properties || {};
+                    const lookupName = symbol.kicadName || symbolName;
+                    const footprint = this._extractFootprintFromContent(libContent, lookupName);
+                    if (footprint) {
+                        symbol.properties.Footprint = footprint;
+                    }
+                }
+
                 this.symbolCache.set(cacheKey, symbol);
             } else {
                 console.warn('KiCadFetcher: Symbol not found after parsing');
@@ -123,6 +133,64 @@ export class KiCadFetcher {
             console.error(`KiCadFetcher: Failed to fetch symbol ${library}:${symbolName}:`, error);
             return null;
         }
+    }
+
+    async checkFootprintAvailability(footprintName) {
+        if (!footprintName || typeof footprintName !== 'string') {
+            return { hasFootprint: false, has3d: false };
+        }
+
+        const [lib, name] = footprintName.split(':');
+        if (!lib || !name) {
+            return { hasFootprint: false, has3d: false };
+        }
+
+        const footprintUrl = `${this.footprintsBase}/${lib}.pretty/${name}.kicad_mod`;
+        const modelUrl = `${this.models3dBase}/${lib}.3dshapes/${name}.wrl`;
+
+        const footprintCacheKey = `fp:${footprintUrl}`;
+        const modelCacheKey = `3d:${modelUrl}`;
+
+        const hasFootprint = this.footprintExistsCache.has(footprintCacheKey)
+            ? this.footprintExistsCache.get(footprintCacheKey)
+            : await this._checkUrlExists(footprintUrl);
+
+        const has3d = this.model3dExistsCache.has(modelCacheKey)
+            ? this.model3dExistsCache.get(modelCacheKey)
+            : await this._checkUrlExists(modelUrl);
+
+        this.footprintExistsCache.set(footprintCacheKey, hasFootprint);
+        this.model3dExistsCache.set(modelCacheKey, has3d);
+
+        return { hasFootprint, has3d, footprintUrl, modelUrl };
+    }
+
+    async fetchFootprintPreview(footprintName) {
+        if (!footprintName || typeof footprintName !== 'string') {
+            return null;
+        }
+
+        const cacheKey = `fp_preview:${footprintName}`;
+        if (this.footprintPreviewCache.has(cacheKey)) {
+            return this.footprintPreviewCache.get(cacheKey);
+        }
+
+        const [lib, name] = footprintName.split(':');
+        if (!lib || !name) {
+            return null;
+        }
+
+        const content = await this._fetchFootprintFile(lib, name);
+        if (!content) {
+            return null;
+        }
+
+        const preview = this._parseFootprintPreview(content);
+        if (preview) {
+            this.footprintPreviewCache.set(cacheKey, preview);
+        }
+
+        return preview;
     }
     
     /**
@@ -157,8 +225,7 @@ export class KiCadFetcher {
                 const response = await fetch(url);
                 
                 if (!response.ok) {
-                    console.warn(`KiCad fetch failed with status ${response.status}, trying next proxy...`);
-                    this._tryNextProxy();
+                    console.warn(`KiCad fetch failed with status ${response.status}`);
                     continue;
                 }
                 
@@ -174,7 +241,6 @@ export class KiCadFetcher {
                 // Verify it looks like a KiCad file
                 if (!content.includes('kicad_symbol_lib')) {
                     console.warn('Response does not look like a KiCad library file:', content.substring(0, 200));
-                    this._tryNextProxy();
                     continue;
                 }
                 
@@ -186,12 +252,160 @@ export class KiCadFetcher {
                 
             } catch (error) {
                 console.error(`KiCad fetch error with proxy ${this.corsProxy}:`, error);
-                this._tryNextProxy();
             }
         }
         
         throw new Error(`Failed to fetch KiCad library ${library} - all proxies failed`);
     }
+
+    async _checkUrlExists(targetUrl) {
+        for (let attempt = 0; attempt < this.corsProxies.length; attempt++) {
+            try {
+                let url;
+                if (this.corsProxy.includes('allorigins')) {
+                    url = `${this.corsProxy}${encodeURIComponent(targetUrl)}`;
+                } else {
+                    url = `${this.corsProxy}${encodeURIComponent(targetUrl)}`;
+                }
+
+                const response = await fetch(url);
+                if (response.ok) {
+                    return true;
+                }
+            } catch (error) {
+                console.error(`KiCad fetch error with proxy ${this.corsProxy}:`, error);
+            }
+        }
+
+        return false;
+    }
+
+    async _fetchFootprintFile(lib, name) {
+        const cacheKey = `kicad_fp_${lib}_${name}`;
+        const cached = storageManager.get(cacheKey);
+        if (cached && typeof cached === 'string') {
+            return cached;
+        }
+
+        const targetUrl = `${this.footprintsBase}/${lib}.pretty/${name}.kicad_mod`;
+
+        for (let attempt = 0; attempt < this.corsProxies.length; attempt++) {
+            try {
+                const url = `${this.corsProxy}${encodeURIComponent(targetUrl)}`;
+                const response = await fetch(url);
+                if (!response.ok) {
+                    continue;
+                }
+
+                const content = await response.text();
+                if (typeof content !== 'string') {
+                    return null;
+                }
+
+                if (!content.includes('footprint')) {
+                    continue;
+                }
+
+                storageManager.set(cacheKey, content, 7 * 24 * 60 * 60);
+                return content;
+            } catch (error) {
+                console.error(`KiCad footprint fetch error with proxy ${this.corsProxy}:`, error);
+            }
+        }
+
+        return null;
+    }
+
+    _parseFootprintPreview(content) {
+        if (!content) return null;
+
+        const sexp = this._parseSExp(content);
+        if (!Array.isArray(sexp) || sexp[0] !== 'footprint') {
+            return null;
+        }
+
+        const shapes = [];
+        let minX = Infinity;
+        let minY = Infinity;
+        let maxX = -Infinity;
+        let maxY = -Infinity;
+
+        const includeRect = (x, y, w, h) => {
+            const rx = x - w / 2;
+            const ry = y - h / 2;
+            const x2 = rx + w;
+            const y2 = ry + h;
+            minX = Math.min(minX, rx);
+            minY = Math.min(minY, ry);
+            maxX = Math.max(maxX, x2);
+            maxY = Math.max(maxY, y2);
+        };
+
+        for (const item of sexp) {
+            if (!Array.isArray(item) || item[0] !== 'pad') continue;
+
+            const shape = typeof item[3] === 'string' ? item[3] : '';
+            let atX = 0;
+            let atY = 0;
+            let rotation = 0;
+            let sizeX = 0;
+            let sizeY = 0;
+
+            for (const padItem of item) {
+                if (!Array.isArray(padItem)) continue;
+                if (padItem[0] === 'at') {
+                    atX = parseFloat(padItem[1]) || 0;
+                    atY = -(parseFloat(padItem[2]) || 0);
+                    rotation = padItem.length > 3 ? parseFloat(padItem[3]) || 0 : 0;
+                } else if (padItem[0] === 'size') {
+                    sizeX = parseFloat(padItem[1]) || 0;
+                    sizeY = parseFloat(padItem[2]) || 0;
+                }
+            }
+
+            if (!sizeX || !sizeY) continue;
+
+            let w = sizeX;
+            let h = sizeY;
+            if (Math.abs(rotation) % 180 === 90) {
+                w = sizeY;
+                h = sizeX;
+            }
+
+            const isEllipse = shape === 'circle' || shape === 'oval';
+            const padType = isEllipse ? 'ELLIPSE' : 'RECT';
+            shapes.push(`PAD~${padType}~${atX}~${atY}~${w}~${h}`);
+            includeRect(atX, atY, w, h);
+        }
+
+        if (shapes.length === 0 || !Number.isFinite(minX)) {
+            return null;
+        }
+
+        return {
+            shapes,
+            bbox: {
+                x: minX,
+                y: minY,
+                width: maxX - minX,
+                height: maxY - minY
+            }
+        };
+    }
+
+    _extractFootprintFromContent(content, symbolName) {
+        if (!content || !symbolName) return '';
+
+        const cleanName = symbolName.replace(/^"|"$/g, '');
+        const symbolToken = `(symbol "${cleanName}"`;
+        const idx = content.indexOf(symbolToken);
+        if (idx === -1) return '';
+
+        const window = content.slice(idx, idx + 8000);
+        const match = window.match(/\(property\s+"Footprint"\s+"([^"]*)"/);
+        return match ? match[1] : '';
+    }
+
     
     /**
      * Load the library index (list of available libraries and symbols)
@@ -290,19 +504,25 @@ export class KiCadFetcher {
                 // Exact match
                 if (upperName === searchName) {
                     console.log('Found exact match:', cleanName);
-                    return this._convertKiCadSymbol(item);
+                    const symbol = this._convertKiCadSymbol(item);
+                    symbol.kicadName = cleanName;
+                    return symbol;
                 }
                 
                 // Match without library prefix (e.g., "Timer:NE555" matches "NE555")
                 if (upperName.endsWith(':' + searchName)) {
                     console.log('Found prefixed match:', cleanName);
-                    return this._convertKiCadSymbol(item);
+                    const symbol = this._convertKiCadSymbol(item);
+                    symbol.kicadName = cleanName;
+                    return symbol;
                 }
                 
                 // Partial match (e.g., "NE555" matches "NE555P")
                 if (upperName.startsWith(searchName) || upperName.includes(searchName)) {
                     console.log('Found partial match:', cleanName);
-                    return this._convertKiCadSymbol(item);
+                    const symbol = this._convertKiCadSymbol(item);
+                    symbol.kicadName = cleanName;
+                    return symbol;
                 }
             }
         }
@@ -343,6 +563,111 @@ export class KiCadFetcher {
         };
         
         return parse();
+    }
+
+    _rebuildSymbolFromUnitsIfNeeded(sexp, symbol, baseName) {
+        if ((symbol?.pins?.length || 0) > 0 || (symbol?.graphics?.length || 0) > 0) {
+            return symbol;
+        }
+
+        const rebuilt = this._buildSymbolFromUnits(sexp, baseName);
+        if (rebuilt) {
+            rebuilt.properties = symbol.properties || {};
+            rebuilt.kicadName = symbol.kicadName || baseName;
+            return rebuilt;
+        }
+
+        return symbol;
+    }
+
+    _buildSymbolFromUnits(sexp, baseName) {
+        if (!Array.isArray(sexp) || !baseName) return null;
+        const cleanBase = baseName.replace(/^"|"$/g, '');
+        const prefix = `${cleanBase}_`;
+
+        const unitSymbols = sexp.filter(item => {
+            if (!Array.isArray(item) || item[0] !== 'symbol' || typeof item[1] !== 'string') return false;
+            const name = item[1].replace(/^"|"$/g, '');
+            return name.startsWith(prefix);
+        });
+
+        if (unitSymbols.length === 0) {
+            console.log('KiCad unit symbols not found for', cleanBase);
+            const nearby = sexp
+                .filter(item => Array.isArray(item) && item[0] === 'symbol' && typeof item[1] === 'string')
+                .map(item => item[1].replace(/^"|"$/g, ''))
+                .filter(name => name.includes(cleanBase))
+                .slice(0, 20);
+            console.log('KiCad symbols containing base name:', cleanBase, nearby);
+            return null;
+        }
+
+        console.log('KiCad unit symbols found for', cleanBase, unitSymbols.map(u => (typeof u[1] === 'string' ? u[1].replace(/^"|"$/g, '') : u[1])));
+
+        const symbol = {
+            width: 20,
+            height: 20,
+            origin: { x: 10, y: 10 },
+            graphics: [],
+            pins: [],
+            properties: {}
+        };
+
+        let minX = Infinity, minY = Infinity;
+        let maxX = -Infinity, maxY = -Infinity;
+
+        for (const unit of unitSymbols) {
+            const unitResult = this._processSymbolUnit(unit);
+            symbol.graphics.push(...unitResult.graphics);
+            symbol.pins.push(...unitResult.pins);
+
+            if (unitResult.minX < minX) minX = unitResult.minX;
+            if (unitResult.minY < minY) minY = unitResult.minY;
+            if (unitResult.maxX > maxX) maxX = unitResult.maxX;
+            if (unitResult.maxY > maxY) maxY = unitResult.maxY;
+        }
+
+        if (minX !== Infinity) {
+            const offsetX = minX;
+            const offsetY = minY;
+
+            for (const g of symbol.graphics) {
+                this._offsetGraphic(g, -offsetX, -offsetY);
+            }
+
+            for (const p of symbol.pins) {
+                p.x -= offsetX;
+                p.y -= offsetY;
+            }
+
+            symbol.width = maxX - minX;
+            symbol.height = maxY - minY;
+            symbol.origin = {
+                x: symbol.width / 2,
+                y: symbol.height / 2
+            };
+
+            symbol.graphics.push({
+                type: 'text',
+                x: symbol.width + 1,
+                y: -1,
+                text: '${REF}',
+                fontSize: 1.5,
+                anchor: 'start',
+                baseline: 'middle'
+            });
+            symbol.graphics.push({
+                type: 'text',
+                x: symbol.width + 1,
+                y: 1.5,
+                text: '${VALUE}',
+                fontSize: 1.3,
+                anchor: 'start',
+                baseline: 'middle'
+            });
+        }
+
+        return symbol;
     }
     
     /**
@@ -412,7 +737,8 @@ export class KiCadFetcher {
             height: 20,
             origin: { x: 10, y: 10 },
             graphics: [],
-            pins: []
+            pins: [],
+            properties: {}
         };
         
         let minX = Infinity, minY = Infinity;
@@ -439,7 +765,18 @@ export class KiCadFetcher {
                     break;
                     
                 case 'property':
-                    // Skip properties for now (reference, value, footprint, etc.)
+                    const prop = this._parseKiCadProperty(item);
+                    if (prop && prop.name) {
+                        const existing = symbol.properties[prop.name];
+                        const next = prop.value;
+                        if (!existing && next) {
+                            symbol.properties[prop.name] = next;
+                        } else if (existing && !next) {
+                            // keep existing non-empty value
+                        } else if (!existing) {
+                            symbol.properties[prop.name] = next;
+                        }
+                    }
                     break;
                     
                 case 'pin':
@@ -506,6 +843,16 @@ export class KiCadFetcher {
             }
         }
         
+        // If no graphics/pins were found, attempt to rebuild from nested units
+        if ((symbol.pins.length === 0 && symbol.graphics.length === 0)) {
+            const nestedCount = symbolSexp.filter(item => Array.isArray(item) && item[0] === 'symbol').length;
+            console.log('KiCad nested unit count for symbol', name, nestedCount);
+            const rebuilt = this._buildSymbolFromNestedUnits(symbolSexp);
+            if (rebuilt) {
+                return rebuilt;
+            }
+        }
+
         // Calculate dimensions
         if (minX !== Infinity) {
             // Normalize coordinates
@@ -551,6 +898,88 @@ export class KiCadFetcher {
         
         return {
             name: name.split(':').pop(),
+            description: '',
+            category: 'KiCad',
+            symbol: symbol,
+            _source: 'KiCad'
+        };
+    }
+
+    _buildSymbolFromNestedUnits(symbolSexp) {
+        if (!Array.isArray(symbolSexp)) return null;
+
+        const symbol = {
+            width: 20,
+            height: 20,
+            origin: { x: 10, y: 10 },
+            graphics: [],
+            pins: [],
+            properties: {}
+        };
+
+        let minX = Infinity, minY = Infinity;
+        let maxX = -Infinity, maxY = -Infinity;
+
+        for (let i = 2; i < symbolSexp.length; i++) {
+            const item = symbolSexp[i];
+            if (!Array.isArray(item) || item[0] !== 'symbol') continue;
+
+            const unitResult = this._processSymbolUnit(item);
+            symbol.graphics.push(...unitResult.graphics);
+            symbol.pins.push(...unitResult.pins);
+
+            if (unitResult.minX < minX) minX = unitResult.minX;
+            if (unitResult.minY < minY) minY = unitResult.minY;
+            if (unitResult.maxX > maxX) maxX = unitResult.maxX;
+            if (unitResult.maxY > maxY) maxY = unitResult.maxY;
+        }
+
+        if (symbol.pins.length === 0 && symbol.graphics.length === 0) {
+            return null;
+        }
+
+        if (minX !== Infinity) {
+            const offsetX = minX;
+            const offsetY = minY;
+
+            for (const g of symbol.graphics) {
+                this._offsetGraphic(g, -offsetX, -offsetY);
+            }
+
+            for (const p of symbol.pins) {
+                p.x -= offsetX;
+                p.y -= offsetY;
+            }
+
+            symbol.width = maxX - minX;
+            symbol.height = maxY - minY;
+            symbol.origin = {
+                x: symbol.width / 2,
+                y: symbol.height / 2
+            };
+
+            symbol.graphics.push({
+                type: 'text',
+                x: symbol.width + 1,
+                y: -1,
+                text: '${REF}',
+                fontSize: 1.5,
+                anchor: 'start',
+                baseline: 'middle'
+            });
+            symbol.graphics.push({
+                type: 'text',
+                x: symbol.width + 1,
+                y: 1.5,
+                text: '${VALUE}',
+                fontSize: 1.3,
+                anchor: 'start',
+                baseline: 'middle'
+            });
+        }
+
+        return {
+            name: symbolSexp[1]?.replace(/^"|"$/g, '').split(':').pop(),
             description: '',
             category: 'KiCad',
             symbol: symbol,
@@ -688,6 +1117,22 @@ export class KiCadFetcher {
         }
         
         return pin;
+    }
+
+    _parseKiCadProperty(propSexp) {
+        if (!Array.isArray(propSexp) || propSexp.length < 3) return null;
+        const nameRaw = propSexp[1];
+        const valueRaw = propSexp[2];
+
+        const name = typeof nameRaw === 'string'
+            ? nameRaw.replace(/^"|"$/g, '')
+            : null;
+
+        const value = typeof valueRaw === 'string'
+            ? valueRaw.replace(/^"|"$/g, '')
+            : null;
+
+        return { name, value };
     }
     
     /**

@@ -30,6 +30,7 @@ export class ComponentPicker {
         this.isOpen = false;
         this.searchMode = 'local';  // 'local' or 'lcsc'
         this.lcscResults = [];
+        this.kicadResults = [];
         this.isSearching = false;
         this.searchDebounceTimer = null;
         
@@ -52,7 +53,7 @@ export class ComponentPicker {
             <div class="cp-body">
                 <div class="cp-mode-toggle">
                     <button class="cp-mode-btn active" data-mode="local">Local</button>
-                    <button class="cp-mode-btn" data-mode="lcsc">Online</button>
+                    <button class="cp-mode-btn" data-mode="lcsc">Online (EasyEDA)</button>
                 </div>
                 <div class="cp-search">
                     <input type="text" class="cp-search-input" placeholder="Search components...">
@@ -65,9 +66,16 @@ export class ComponentPicker {
                 </div>
                 <div class="cp-list"></div>
                 <div class="cp-preview">
-                    <div class="cp-preview-title">Preview</div>
+                    <div class="cp-preview-image"></div>
+                    <div class="cp-preview-title">Symbol</div>
                     <div class="cp-preview-svg"></div>
                     <div class="cp-preview-info"></div>
+                    <div class="cp-preview-title">Footprint</div>
+                    <div class="cp-preview-footprint"></div>
+                    <div class="cp-preview-footprint-info"></div>
+                    <div class="cp-preview-title">3D Model</div>
+                    <div class="cp-preview-3d"></div>
+                    <div class="cp-preview-3d-info"></div>
                 </div>
                 <div class="cp-actions">
                     <button class="cp-place-btn" disabled>Place Component</button>
@@ -85,6 +93,11 @@ export class ComponentPicker {
         this.listEl = this.element.querySelector('.cp-list');
         this.previewSvg = this.element.querySelector('.cp-preview-svg');
         this.previewInfo = this.element.querySelector('.cp-preview-info');
+        this.previewImage = this.element.querySelector('.cp-preview-image');
+        this.previewFootprint = this.element.querySelector('.cp-preview-footprint');
+        this.previewFootprintInfo = this.element.querySelector('.cp-preview-footprint-info');
+        this.preview3d = this.element.querySelector('.cp-preview-3d');
+        this.preview3dInfo = this.element.querySelector('.cp-preview-3d-info');
         this.placeBtn = this.element.querySelector('.cp-place-btn');
         this.bodyEl = this.element.querySelector('.cp-body');
         this.modeButtons = this.element.querySelectorAll('.cp-mode-btn');
@@ -207,7 +220,7 @@ export class ComponentPicker {
     _showLCSCPrompt() {
         this.listEl.innerHTML = `
             <div class="cp-lcsc-prompt">
-                Search online component catalogs.
+                Search online component catalogs (EasyEDA + KiCad).
                 <br><br>
                 Examples:
                 <br>• C46749 (LCSC part number)
@@ -249,28 +262,22 @@ export class ComponentPicker {
         this._showLoading();
         
         try {
-            // Use SearchManager for LCSC search
-            this.lcscResults = await this.searchManager.searchLCSC(query);
-            
-            // Check if LCSC returned an error - if so, try KiCad fallback
-            if (this.lcscResults.length === 1 && this.lcscResults[0].error) {
-                console.log('LCSC failed, trying KiCad fallback...');
-                await this._searchKiCadFallback(query);
-                return;
-            }
-            
-            // If no results from LCSC, also try KiCad
-            if (this.lcscResults.length === 0) {
-                console.log('No LCSC results, trying KiCad fallback...');
-                await this._searchKiCadFallback(query);
-                return;
-            }
-            
+            // Search both EasyEDA (online) and KiCad
+            const [onlineResults, kicadResults] = await Promise.all([
+                this.searchManager.searchLCSC(query),
+                this.searchManager.searchKiCad(query)
+            ]);
+
+            this.lcscResults = onlineResults || [];
+            this.kicadResults = kicadResults || [];
             this._populateLCSCResults();
         } catch (error) {
             console.error('LCSC search error:', error);
-            // Try KiCad fallback on error
-            await this._searchKiCadFallback(query);
+            this.listEl.innerHTML = `
+                <div class="cp-error">
+                    Search failed. Try the Local library instead.
+                </div>
+            `;
         } finally {
             this.isSearching = false;
         }
@@ -374,6 +381,7 @@ export class ComponentPicker {
         itemEl.classList.add('selected');
         
         this.selectedKiCadResult = result;
+        this.selectedKiCadItem = itemEl;
         this.selectedComponent = null;
         this.selectedLCSCResult = null;
         
@@ -388,10 +396,112 @@ export class ComponentPicker {
             <br><span style="color:var(--text-muted)">Library: ${result.library}</span>
             <br><span style="color:var(--schematic-component)">KiCad Symbol</span>
         `;
-        
-        this.placeBtn.disabled = false;
-        this.placeBtn.textContent = 'Fetch & Place';
-        this.placeBtn.onclick = () => this._fetchAndPlaceKiCad(result);
+
+        if (this.previewImage) {
+            this.previewImage.innerHTML = '';
+        }
+
+        this.previewSvg.innerHTML = '<div class="cp-preview-placeholder">Loading symbol...</div>';
+        this._setFootprintPreviewStatus('Checking KiCad footprint...', false);
+        this._set3dPreviewStatus('Checking 3D model...', false);
+
+        this.placeBtn.disabled = true;
+        this.placeBtn.textContent = 'Checking footprint/3D...';
+        this.placeBtn.onclick = null;
+
+        this._loadKiCadFootprintStatus(result);
+    }
+
+    async _loadKiCadFootprintStatus(result) {
+        try {
+            const kicadDefinition = await this.searchManager.fetchFromKiCad(result.library, result.name);
+            const kicadSymbol = kicadDefinition?.symbol || kicadDefinition;
+            const kicadProperties = kicadDefinition?.properties || kicadDefinition?.symbol?.properties || kicadSymbol?.properties;
+            const footprintName = this._getPropertyValue(kicadProperties, 'Footprint');
+
+            if (kicadSymbol) {
+                const previewDef = kicadDefinition?.symbol
+                    ? kicadDefinition
+                    : {
+                        name: `KiCad_${result.name}`,
+                        description: `${result.name} from KiCad ${result.library} library`,
+                        category: 'KiCad',
+                        symbol: kicadSymbol
+                    };
+
+                this._updatePreview(previewDef, { skipFootprint3d: true });
+
+                if (this.selectedKiCadItem) {
+                    const iconEl = this.selectedKiCadItem.querySelector('.cp-item-icon');
+                    if (iconEl) {
+                        iconEl.innerHTML = this._createMiniPreview(previewDef);
+                    }
+                }
+
+                const hasRenderable = (kicadSymbol?.pins?.length || 0) > 0 || (kicadSymbol?.graphics?.length || 0) > 0;
+                if (!hasRenderable) {
+                    this.previewSvg.innerHTML = '<div class="cp-preview-placeholder">No KiCad symbol graphics available</div>';
+                }
+            }
+
+            if (!footprintName) {
+                this._setFootprintPreviewStatus('Footprint not specified', false);
+                this._set3dPreviewStatus('3D model not verified', false);
+                this.placeBtn.disabled = true;
+                this.placeBtn.textContent = 'Missing footprint/3D';
+                console.log('KiCad footprint not specified for', result.library, result.name, kicadSymbol?.properties);
+                return;
+            }
+
+            const availability = await this.library.kicadFetcher.checkFootprintAvailability(footprintName);
+            if (availability.hasFootprint) {
+                const preview = await this.library.kicadFetcher.fetchFootprintPreview(footprintName);
+                if (preview?.shapes && preview.shapes.length > 0) {
+                    const svg = this._renderFootprintSVG(preview.shapes, preview.bbox);
+                    if (svg) {
+                        this.previewFootprint.innerHTML = svg;
+                        this.previewFootprintInfo.innerHTML = `<span class="cp-preview-ok">${footprintName}</span>`;
+                    } else {
+                        this.previewFootprint.innerHTML = `<div class="cp-preview-placeholder">${footprintName}</div>`;
+                        this.previewFootprintInfo.innerHTML = '<span class="cp-preview-ok">Footprint available</span>';
+                    }
+                } else {
+                    this.previewFootprint.innerHTML = `<div class="cp-preview-placeholder">${footprintName}</div>`;
+                    this.previewFootprintInfo.innerHTML = '<span class="cp-preview-ok">Footprint available</span>';
+                }
+            } else {
+                this._setFootprintPreviewStatus('Footprint not found', false);
+            }
+
+            if (availability.has3d) {
+                this.preview3d.innerHTML = '<div class="cp-preview-placeholder">3D model found</div>';
+                this.preview3dInfo.innerHTML = '<span class="cp-preview-ok">3D model available</span>';
+            } else {
+                this._set3dPreviewStatus('3D model not found', false);
+            }
+
+            const ready = availability.hasFootprint && availability.has3d;
+            const placeDefinition = kicadDefinition?.symbol
+                ? { ...kicadDefinition, _source: 'KiCad' }
+                : {
+                    name: `KiCad_${result.name}`,
+                    description: `${result.name} from KiCad ${result.library} library`,
+                    category: 'KiCad',
+                    symbol: kicadSymbol,
+                    _source: 'KiCad'
+                };
+            this.placeBtn.disabled = !ready;
+            this.placeBtn.textContent = ready ? 'Place Component' : 'Missing footprint/3D';
+            this.placeBtn.onclick = ready
+                ? () => this._beginPlacement(placeDefinition, { skipFootprint3d: true })
+                : null;
+        } catch (error) {
+            console.error('Failed to verify KiCad footprint:', error);
+            this._setFootprintPreviewStatus('Footprint check failed', false);
+            this._set3dPreviewStatus('3D check failed', false);
+            this.placeBtn.disabled = true;
+            this.placeBtn.textContent = 'Missing footprint/3D';
+        }
     }
     
     async _fetchAndPlaceKiCad(result) {
@@ -401,20 +511,35 @@ export class ComponentPicker {
         try {
             // Use SearchManager to fetch from KiCad
             const kicadData = await this.searchManager.fetchFromKiCad(result.library, result.name);
+            const kicadSymbol = kicadData?.symbol || kicadData;
+            const kicadProperties = kicadData?.properties || kicadData?.symbol?.properties || kicadSymbol?.properties;
             
             if (kicadData) {
+                const footprintName = this._getPropertyValue(kicadProperties, 'Footprint');
+                if (footprintName) {
+                    const availability = await this.library.kicadFetcher.checkFootprintAvailability(footprintName);
+                    if (!availability.hasFootprint || !availability.has3d) {
+                        this.previewInfo.innerHTML += `<br><span style="color:var(--accent-color)">Missing footprint/3D data</span>`;
+                        return;
+                    }
+                } else {
+                    this.previewInfo.innerHTML += `<br><span style="color:var(--accent-color)">Missing footprint/3D data</span>`;
+                    return;
+                }
+
                 // Create a component definition from KiCad data
-                const definition = {
-                    name: `KiCad_${result.name}`,
-                    description: `${result.name} from KiCad ${result.library} library`,
-                    category: 'KiCad',
-                    symbol: kicadData.symbol,
-                    _source: 'KiCad'
-                };
+                const definition = kicadData?.symbol
+                    ? { ...kicadData, _source: 'KiCad' }
+                    : {
+                        name: `KiCad_${result.name}`,
+                        description: `${result.name} from KiCad ${result.library} library`,
+                        category: 'KiCad',
+                        symbol: kicadSymbol,
+                        _source: 'KiCad'
+                    };
                 
                 this.library.addDefinition(definition, 'KiCad');
-                this.selectedComponent = definition;
-                this._selectComponent(definition);
+                this._beginPlacement(definition, { skipFootprint3d: true });
                 
                 if (definition.symbol) {
                     this._updatePreview(definition);
@@ -425,73 +550,132 @@ export class ComponentPicker {
             this.previewInfo.innerHTML += `<br><span style="color:var(--accent-color)">Failed: ${error.message}</span>`;
         } finally {
             this.placeBtn.disabled = false;
-            this.placeBtn.textContent = 'Fetch & Place';
+            this.placeBtn.textContent = 'Place Component';
         }
     }
     
     _populateLCSCResults() {
         this.listEl.innerHTML = '';
-        
-        if (this.lcscResults.length === 0) {
-            this.listEl.innerHTML = `
-                <div class="cp-empty">
-                    No results found.
-                </div>
-            `;
+        const hasOnlineError = this.lcscResults.length === 1 && this.lcscResults[0].error;
+        const hasOnlineResults = this.lcscResults.length > 0 && !hasOnlineError;
+        const hasKiCadResults = this.kicadResults.length > 0;
+
+        if (!hasOnlineResults && !hasKiCadResults) {
+            if (hasOnlineError) {
+                this.listEl.innerHTML = `
+                    <div class="cp-error">
+                        ${this.lcscResults[0].message}
+                    </div>
+                `;
+            } else {
+                this.listEl.innerHTML = `
+                    <div class="cp-empty">
+                        No results found.
+                    </div>
+                `;
+            }
             return;
         }
-        
-        // Check for error result
-        if (this.lcscResults.length === 1 && this.lcscResults[0].error) {
-            this.listEl.innerHTML = `
-                <div class="cp-error">
-                    ${this.lcscResults[0].message}
-                </div>
+
+        const resultsGrid = document.createElement('div');
+        resultsGrid.className = 'cp-results-grid';
+
+        if (hasOnlineResults) {
+            const onlineCol = document.createElement('div');
+            onlineCol.className = 'cp-results-col';
+
+            const header = document.createElement('div');
+            header.className = 'cp-results-header';
+            header.innerHTML = `
+                <strong>EasyEDA Results</strong>
+                <br><small>Online parts with metadata</small>
             `;
-            return;
+            onlineCol.appendChild(header);
+
+            for (const result of this.lcscResults) {
+                if (result.error) continue;
+
+                const item = document.createElement('div');
+                item.className = 'cp-item cp-lcsc-item';
+
+                // Show basic/preferred badge
+                let badges = '';
+                if (result.isBasic) {
+                    badges += '<span class="cp-badge cp-badge-basic" title="Basic Part">Basic</span>';
+                }
+                if (result.isPreferred) {
+                    badges += '<span class="cp-badge cp-badge-preferred" title="Preferred Part">★</span>';
+                }
+
+                // Format price
+                const priceStr = result.price != null ? `$${result.price.toFixed(4)}` : '';
+
+                // Format stock
+                const stockStr = result.stock > 0 
+                    ? `<span style="color:var(--schematic-component)">${result.stock.toLocaleString()} in stock</span>`
+                    : '<span style="color:var(--accent-color)">Out of stock</span>';
+
+                item.innerHTML = `
+                    <div class="cp-item-icon cp-lcsc-icon">
+                        <span>📦</span>
+                    </div>
+                    <div class="cp-item-info">
+                        <div class="cp-item-name">${result.mpn || result.lcscPartNumber}${badges}</div>
+                        <div class="cp-item-desc">${result.lcscPartNumber} ${result.package ? '• ' + result.package : ''}</div>
+                        <div class="cp-item-meta">${priceStr} ${stockStr}</div>
+                    </div>
+                `;
+
+                const iconEl = item.querySelector('.cp-item-icon');
+                if (iconEl) {
+                    this._applyLCSCThumbnail(iconEl, result);
+                }
+
+                item.addEventListener('click', () => this._selectLCSCResult(result, item));
+                item.addEventListener('dblclick', () => this._fetchAndPlace(result));
+
+                onlineCol.appendChild(item);
+            }
+
+            resultsGrid.appendChild(onlineCol);
         }
-        
-        for (const result of this.lcscResults) {
-            if (result.error) continue;
-            
-            const item = document.createElement('div');
-            item.className = 'cp-item cp-lcsc-item';
-            
-            // Show basic/preferred badge
-            let badges = '';
-            if (result.isBasic) {
-                badges += '<span class="cp-badge cp-badge-basic" title="Basic Part">Basic</span>';
-            }
-            if (result.isPreferred) {
-                badges += '<span class="cp-badge cp-badge-preferred" title="Preferred Part">★</span>';
-            }
-            
-            // Format price
-            const priceStr = result.price != null ? `$${result.price.toFixed(4)}` : '';
-            
-            // Format stock
-            const stockStr = result.stock > 0 
-                ? `<span style="color:var(--schematic-component)">${result.stock.toLocaleString()} in stock</span>`
-                : '<span style="color:var(--accent-color)">Out of stock</span>';
-            
-            item.innerHTML = `
-                <div class="cp-item-icon cp-lcsc-icon">
-                    ${result.imageUrl 
-                        ? `<img src="${result.imageUrl}" alt="" onerror="this.parentElement.innerHTML='<span>📦</span>'">` 
-                        : '<span>📦</span>'}
-                </div>
-                <div class="cp-item-info">
-                    <div class="cp-item-name">${result.mpn || result.lcscPartNumber}${badges}</div>
-                    <div class="cp-item-desc">${result.lcscPartNumber} ${result.package ? '• ' + result.package : ''}</div>
-                    <div class="cp-item-meta">${priceStr} ${stockStr}</div>
-                </div>
+
+        if (hasKiCadResults) {
+            const kicadCol = document.createElement('div');
+            kicadCol.className = 'cp-results-col';
+
+            const header = document.createElement('div');
+            header.className = 'cp-results-header';
+            header.innerHTML = `
+                <strong>KiCad Results</strong>
+                <br><small>Symbols from KiCad libraries</small>
             `;
-            
-            item.addEventListener('click', () => this._selectLCSCResult(result, item));
-            item.addEventListener('dblclick', () => this._fetchAndPlace(result));
-            
-            this.listEl.appendChild(item);
+            kicadCol.appendChild(header);
+
+            for (const result of this.kicadResults) {
+                const item = document.createElement('div');
+                item.className = 'cp-item cp-kicad-item';
+
+                item.innerHTML = `
+                    <div class="cp-item-icon">
+                        <span style="font-size:18px">📐</span>
+                    </div>
+                    <div class="cp-item-info">
+                        <div class="cp-item-name">${result.name}</div>
+                        <div class="cp-item-desc">${result.library}</div>
+                    </div>
+                `;
+
+                item.addEventListener('click', () => this._selectKiCadResult(result, item));
+                item.addEventListener('dblclick', () => this._fetchAndPlaceKiCad(result));
+
+                kicadCol.appendChild(item);
+            }
+
+            resultsGrid.appendChild(kicadCol);
         }
+
+        this.listEl.appendChild(resultsGrid);
     }
     
     _selectLCSCResult(result, itemEl) {
@@ -503,9 +687,7 @@ export class ComponentPicker {
         
         this.previewSvg.innerHTML = `
             <div class="cp-lcsc-preview-placeholder">
-                ${result.imageUrl 
-                    ? `<img src="${result.imageUrl}" alt="${result.mpn}" style="max-width:100%;max-height:80px">` 
-                    : '<span style="font-size:48px">📦</span>'}
+                <span style="font-size:48px">📦</span>
             </div>
         `;
         
@@ -534,34 +716,181 @@ export class ComponentPicker {
         }
         
         this.previewInfo.innerHTML = info;
+
+        this._updateLCSCPreviewImage(result);
         
-        this.placeBtn.disabled = false;
-        this.placeBtn.textContent = 'Fetch & Place';
-        this.placeBtn.onclick = () => this._fetchAndPlace(result);
+        this._setFootprintPreviewStatus('Loading footprint...', false);
+        this._set3dPreviewStatus('Loading 3D data...', false);
+
+        this.placeBtn.disabled = true;
+        this.placeBtn.textContent = 'Preparing...';
+        this.placeBtn.onclick = null;
+
+        this._loadEasyEDADetailForPreview(result);
+    }
+
+    async _loadEasyEDADetailForPreview(result) {
+        try {
+            if (!result || !result.lcscPartNumber) {
+                this._setFootprintPreviewStatus('No footprint data', false);
+                this._set3dPreviewStatus('No 3D model', false);
+                this.placeBtn.disabled = true;
+                this.placeBtn.textContent = 'Missing footprint/3D';
+                this.placeBtn.onclick = null;
+                return;
+            }
+
+            if (!result._detailPromise) {
+                result._detailPromise = this.library.lcscFetcher.fetchComponentMetadata(result.lcscPartNumber);
+            }
+
+            const metadata = await result._detailPromise;
+            if (!metadata) {
+                this._setFootprintPreviewStatus('No footprint data', false);
+                this._set3dPreviewStatus('No 3D model', false);
+                this.placeBtn.disabled = true;
+                this.placeBtn.textContent = 'Missing footprint/3D';
+                this.placeBtn.onclick = null;
+                return;
+            }
+
+            result._detail = metadata;
+            result._detailPromise = null;
+
+            this._updateFootprintPreview(metadata);
+            this._update3dPreview(metadata);
+
+            const ready = metadata.hasFootprint && metadata.has3d;
+            if (!ready) {
+                this.placeBtn.disabled = true;
+                this.placeBtn.textContent = 'Missing footprint/3D';
+                this.placeBtn.onclick = null;
+                return;
+            }
+
+            if (!result._definitionPromise) {
+                result._definitionPromise = this.searchManager.fetchFromLCSC(result.lcscPartNumber);
+            }
+
+            const definition = await result._definitionPromise;
+            if (definition?.symbol) {
+                this._updatePreview(definition);
+                if (this.selectedLCSCResult === result) {
+                    const selectedItem = this.listEl.querySelector('.cp-item.selected');
+                    if (selectedItem) {
+                        const iconEl = selectedItem.querySelector('.cp-item-icon');
+                        if (iconEl) {
+                            iconEl.innerHTML = this._createMiniPreview(definition);
+                        }
+                    }
+                }
+            }
+
+            this.placeBtn.disabled = false;
+            this.placeBtn.textContent = 'Place Component';
+            this.placeBtn.onclick = () => this._placePrefetchedLCSC(result);
+        } catch (error) {
+            console.error('Failed to load EasyEDA detail:', error);
+            this._setFootprintPreviewStatus('Footprint load failed', false);
+            this._set3dPreviewStatus('3D load failed', false);
+            this.placeBtn.disabled = true;
+            this.placeBtn.textContent = 'Missing footprint/3D';
+            this.placeBtn.onclick = null;
+        }
     }
     
     async _fetchAndPlace(result) {
         this.placeBtn.disabled = true;
-        this.placeBtn.textContent = 'Fetching...';
+        this.placeBtn.textContent = 'Placing...';
+
+        let fetchedDefinition = null;
         
         try {
+            if (result?._detailPromise) {
+                await result._detailPromise;
+            }
+
             // Use SearchManager to fetch from LCSC
-            const definition = await this.searchManager.fetchFromLCSC(result.lcscPartNumber);
+            const definition = result?._definitionPromise
+                ? await result._definitionPromise
+                : await this.searchManager.fetchFromLCSC(result.lcscPartNumber);
             
             if (definition) {
-                this.selectedComponent = definition;
-                this._selectComponent(definition);
-                
-                if (definition.symbol) {
-                    this._updatePreview(definition);
+                fetchedDefinition = definition;
+
+                const detail = result?._detail;
+                if (detail) {
+                    definition.footprintName = definition.footprintName || detail.footprintName || detail.package || '';
+                    definition.footprintShapes = definition.footprintShapes || detail.footprintShapes || null;
+                    definition.footprintBBox = definition.footprintBBox || detail.footprintBBox || null;
+                    definition.model3dName = definition.model3dName || detail.model3dName || '';
+                    definition.hasFootprint = definition.hasFootprint || !!detail.hasFootprint || !!(detail.footprintShapes && detail.footprintShapes.length > 0);
+                    definition.has3d = definition.has3d || !!detail.has3d || !!detail.model3dName;
                 }
+
+                if (!definition.hasFootprint || !definition.has3d) {
+                    this.previewInfo.innerHTML += `<br><span style="color:var(--accent-color)">Missing footprint/3D data</span>`;
+                    this._updatePreview(definition);
+                    this.placeBtn.disabled = true;
+                    this.placeBtn.textContent = 'Missing footprint/3D';
+                    this.placeBtn.onclick = null;
+                    return;
+                }
+
+                this._beginPlacement(definition);
             }
         } catch (error) {
             console.error('Failed to fetch component:', error);
             this.previewInfo.innerHTML += `<br><span style="color:var(--accent-color)">Failed: ${error.message}</span>`;
         } finally {
+            if (!fetchedDefinition) {
+                this.placeBtn.disabled = false;
+                this.placeBtn.textContent = 'Place Component';
+            }
+        }
+    }
+
+    async _placePrefetchedLCSC(result) {
+        this.placeBtn.disabled = true;
+        this.placeBtn.textContent = 'Placing...';
+
+        try {
+            if (result?._detailPromise) {
+                await result._detailPromise;
+            }
+
+            if (!result?._definitionPromise) {
+                result._definitionPromise = this.searchManager.fetchFromLCSC(result.lcscPartNumber);
+            }
+
+            const definition = await result._definitionPromise;
+            if (definition) {
+                const detail = result?._detail;
+                if (detail) {
+                    definition.footprintName = definition.footprintName || detail.footprintName || detail.package || '';
+                    definition.footprintShapes = definition.footprintShapes || detail.footprintShapes || null;
+                    definition.footprintBBox = definition.footprintBBox || detail.footprintBBox || null;
+                    definition.model3dName = definition.model3dName || detail.model3dName || '';
+                    definition.hasFootprint = definition.hasFootprint || !!detail.hasFootprint || !!(detail.footprintShapes && detail.footprintShapes.length > 0);
+                    definition.has3d = definition.has3d || !!detail.has3d || !!detail.model3dName;
+                }
+
+                if (!definition.hasFootprint || !definition.has3d) {
+                    this.previewInfo.innerHTML += `<br><span style="color:var(--accent-color)">Missing footprint/3D data</span>`;
+                    this._updatePreview(definition);
+                    this.placeBtn.disabled = true;
+                    this.placeBtn.textContent = 'Missing footprint/3D';
+                    this.placeBtn.onclick = null;
+                    return;
+                }
+
+                this._beginPlacement(definition);
+            }
+        } catch (error) {
+            console.error('Failed to place component:', error);
+            this.previewInfo.innerHTML += `<br><span style="color:var(--accent-color)">Failed: ${error.message}</span>`;
             this.placeBtn.disabled = false;
-            this.placeBtn.textContent = 'Fetch & Place';
+            this.placeBtn.textContent = 'Place Component';
         }
     }
     
@@ -672,6 +1001,7 @@ export class ComponentPicker {
     }
     
     _selectComponent(comp, itemEl) {
+        const normalized = this._normalizeDefinition(comp);
         // Update selection state
         if (itemEl) {
             this.listEl.querySelectorAll('.cp-item').forEach(el => {
@@ -680,7 +1010,7 @@ export class ComponentPicker {
             itemEl.classList.add('selected');
         }
         
-        this.selectedComponent = comp;
+        this.selectedComponent = normalized;
         this.selectedLCSCResult = null;  // Clear any LCSC selection
         this.placeBtn.disabled = false;
         this.placeBtn.textContent = 'Place Component';
@@ -688,62 +1018,185 @@ export class ComponentPicker {
         // Reset button handler for local components
         this.placeBtn.onclick = () => {
             if (this.selectedComponent) {
-                // Emit event to place the selected component
-                this.eventBus.emit('component:selected', this.selectedComponent);
-                if (this.onComponentSelected) {
-                    this.onComponentSelected(this.selectedComponent);
-                }
+                this._beginPlacement(this.selectedComponent);
             }
         };
+
+        if (this.previewImage) {
+            this.previewImage.innerHTML = '';
+        }
         
         // Update preview
-        this._updatePreview(comp);
+        this._updatePreview(normalized);
+    }
+
+    _beginPlacement(definition, options = {}) {
+        if (!definition) return;
+        this.selectedComponent = this._normalizeDefinition(definition);
+        this._updatePreview(this.selectedComponent, { skipFootprint3d: !!options.skipFootprint3d });
+
+        if (this.onComponentSelected) {
+            this.onComponentSelected(this.selectedComponent);
+        } else {
+            this.eventBus.emit('component:selected', this.selectedComponent);
+        }
+    }
+
+    _normalizeDefinition(definition) {
+        if (!definition || typeof definition !== 'object') return definition;
+
+        if (definition.symbol && definition.symbol.graphics) {
+            return definition;
+        }
+
+        if (definition.symbol && definition.symbol.symbol) {
+            return { ...definition, symbol: definition.symbol.symbol };
+        }
+
+        if (!definition.symbol && (definition.graphics || definition.pins)) {
+            return {
+                name: definition.name || 'Component',
+                description: definition.description || '',
+                category: definition.category || 'Uncategorized',
+                symbol: definition
+            };
+        }
+
+        return definition;
     }
     
     _createMiniPreview(comp) {
         if (!comp.symbol) return '<span style="color:var(--text-muted)">?</span>';
         
         const symbol = comp.symbol;
-        const padding = 2;
-        const width = (symbol.width || 10) + padding * 2;
-        const height = (symbol.height || 10) + padding * 2;
-        const originX = symbol.origin?.x || width / 2;
-        const originY = symbol.origin?.y || height / 2;
+        const paddingX = 2;
+        const paddingY = 2;
+        const bounds = this._computeSymbolBounds(symbol);
+        const fallbackWidth = (symbol.width || 10) + paddingX * 2;
+        const fallbackHeight = (symbol.height || 10) + paddingY * 2;
+        const fallbackOriginX = symbol.origin?.x || fallbackWidth / 2;
+        const fallbackOriginY = symbol.origin?.y || fallbackHeight / 2;
+        const viewBox = bounds
+            ? `${bounds.minX - paddingX} ${bounds.minY - paddingY} ${bounds.width + paddingX * 2} ${bounds.height + paddingY * 2}`
+            : `${-fallbackOriginX - paddingX} ${-fallbackOriginY - paddingY} ${fallbackWidth} ${fallbackHeight}`;
         
         // Create mini SVG
-        let svg = `<svg viewBox="${-originX - padding} ${-originY - padding} ${width} ${height}" 
+        let svg = `<svg viewBox="${viewBox}" 
                        width="32" height="32" style="overflow:visible">`;
         
         // Render graphics
-        svg += this._renderGraphicsToSVG(symbol.graphics, 0.15);
+        svg += this._renderGraphicsToSVG(symbol.graphics, 0.18);
+
+        // Render pins for better differentiation
+        if (symbol.pins && Array.isArray(symbol.pins)) {
+            for (const pin of symbol.pins) {
+                svg += this._renderPinToSVG(pin);
+            }
+        }
         
         svg += '</svg>';
         return svg;
     }
+
+    _isDirectImageUrl(url) {
+        if (!url || typeof url !== 'string') return false;
+        return /\.(png|jpe?g|gif|webp)(\?.*)?$/i.test(url);
+    }
+
+    async _applyLCSCThumbnail(iconEl, result) {
+        const thumbUrl = result.thumbUrl || result.imageUrl || '';
+        if (!thumbUrl) return;
+
+        if (this._isDirectImageUrl(thumbUrl)) {
+            iconEl.innerHTML = `<img src="${thumbUrl}" alt="" onerror="this.parentElement.innerHTML='<span>📦</span>'">`;
+            return;
+        }
+
+        if (!result.lcscPartNumber || !this.library?.lcscFetcher) return;
+
+        if (!result._thumbPromise) {
+            result._thumbPromise = this.library.lcscFetcher.fetchEasyedaProductImage(result.lcscPartNumber);
+        }
+
+        try {
+            const resolvedUrl = await result._thumbPromise;
+            result._thumbPromise = null;
+            if (resolvedUrl && this._isDirectImageUrl(resolvedUrl)) {
+                iconEl.innerHTML = `<img src="${resolvedUrl}" alt="" onerror="this.parentElement.innerHTML='<span>📦</span>'">`;
+            }
+        } catch (error) {
+            result._thumbPromise = null;
+        }
+    }
+
+    async _updateLCSCPreviewImage(result) {
+        if (!this.previewImage) return;
+
+        this.previewImage.innerHTML = '<div class="cp-preview-placeholder">Loading image...</div>';
+
+        const directUrl = result.imageUrl || result.thumbUrl || '';
+        if (directUrl && this._isDirectImageUrl(directUrl)) {
+            this.previewImage.innerHTML = `<img src="${directUrl}" alt="" style="max-width:100%;max-height:120px;object-fit:contain" onerror="this.parentElement.innerHTML=''">`;
+            return;
+        }
+
+        if (!result.lcscPartNumber || !this.library?.lcscFetcher) {
+            this.previewImage.innerHTML = '';
+            return;
+        }
+
+        try {
+            const resolvedUrl = await this.library.lcscFetcher.fetchEasyedaProductImage(result.lcscPartNumber);
+            if (resolvedUrl) {
+                this.previewImage.innerHTML = `<img src="${resolvedUrl}" alt="" style="max-width:100%;max-height:120px;object-fit:contain" onerror="this.parentElement.innerHTML=''">`;
+            } else {
+                this.previewImage.innerHTML = '';
+            }
+        } catch (error) {
+            this.previewImage.innerHTML = '';
+        }
+    }
     
-    _updatePreview(comp) {
+    _updatePreview(comp, options = {}) {
         try {
             if (!comp || !comp.symbol) {
                 this.previewSvg.innerHTML = '<div style="color:var(--text-muted);text-align:center;padding:20px">No symbol</div>';
                 this.previewInfo.innerHTML = '';
+                if (!options.skipFootprint3d) {
+                    this._setFootprintPreviewStatus('No footprint data', false);
+                    this._set3dPreviewStatus('No 3D model', false);
+                }
                 return;
             }
             
             const symbol = comp.symbol;
-            const padding = 5;
-            const width = (symbol.width || 10) + padding * 2;
-            const height = (symbol.height || 10) + padding * 2;
-            const originX = symbol.origin?.x || width / 2;
-            const originY = symbol.origin?.y || height / 2;
+            const paddingX = 6;
+            const paddingY = 10;
+            const bounds = this._computeSymbolBounds(symbol);
+            const fallbackWidth = (symbol.width || 10) + paddingX * 2;
+            const fallbackHeight = (symbol.height || 10) + paddingY * 2;
+            const fallbackOriginX = symbol.origin?.x || fallbackWidth / 2;
+            const fallbackOriginY = symbol.origin?.y || fallbackHeight / 2;
             
             // Validate numeric values
-            if (!Number.isFinite(originX) || !Number.isFinite(originY) || 
-                !Number.isFinite(width) || !Number.isFinite(height)) {
-                throw new Error('Invalid symbol dimensions');
+            if (bounds) {
+                if (!Number.isFinite(bounds.minX) || !Number.isFinite(bounds.minY) ||
+                    !Number.isFinite(bounds.width) || !Number.isFinite(bounds.height)) {
+                    throw new Error('Invalid symbol bounds');
+                }
+            } else {
+                if (!Number.isFinite(fallbackOriginX) || !Number.isFinite(fallbackOriginY) || 
+                    !Number.isFinite(fallbackWidth) || !Number.isFinite(fallbackHeight)) {
+                    throw new Error('Invalid symbol dimensions');
+                }
             }
             
             // Create preview SVG
-            let svg = `<svg viewBox="${-originX - padding} ${-originY - padding} ${width} ${height}" 
+            const viewBox = bounds
+                ? `${bounds.minX - paddingX} ${bounds.minY - paddingY} ${bounds.width + paddingX * 2} ${bounds.height + paddingY * 2}`
+                : `${-fallbackOriginX - paddingX} ${-fallbackOriginY - paddingY} ${fallbackWidth} ${fallbackHeight}`;
+
+            let svg = `<svg viewBox="${viewBox}" 
                            style="width:100%;height:100%;max-height:150px">`;
             
             // Render graphics
@@ -771,11 +1224,223 @@ export class ComponentPicker {
                 info += `<br><span style="color:var(--text-muted)">${comp.category}</span>`;
             }
             this.previewInfo.innerHTML = info;
+
+            if (!options.skipFootprint3d) {
+                this._updateFootprintPreview(comp);
+                this._update3dPreview(comp);
+            }
         } catch (error) {
             console.error('Error updating preview:', error);
             this.previewSvg.innerHTML = '<div style="color:var(--accent-color);text-align:center;padding:20px">Preview error</div>';
             this.previewInfo.innerHTML = `<span style="color:var(--accent-color);font-size:12px">${error.message}</span>`;
+            if (!options.skipFootprint3d) {
+                this._setFootprintPreviewStatus('Footprint preview error', false);
+                this._set3dPreviewStatus('3D preview error', false);
+            }
         }
+    }
+
+    _computeSymbolBounds(symbol) {
+        if (!symbol) return null;
+
+        let minX = Infinity;
+        let minY = Infinity;
+        let maxX = -Infinity;
+        let maxY = -Infinity;
+
+        const includePoint = (x, y) => {
+            if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+            if (x < minX) minX = x;
+            if (y < minY) minY = y;
+            if (x > maxX) maxX = x;
+            if (y > maxY) maxY = y;
+        };
+
+        if (Array.isArray(symbol.graphics)) {
+            for (const g of symbol.graphics) {
+                if (!g || typeof g !== 'object') continue;
+                switch (g.type) {
+                    case 'line':
+                        includePoint(g.x1, g.y1);
+                        includePoint(g.x2, g.y2);
+                        break;
+                    case 'rect':
+                        includePoint(g.x, g.y);
+                        includePoint(g.x + g.width, g.y + g.height);
+                        break;
+                    case 'circle':
+                        includePoint(g.cx - g.r, g.cy - g.r);
+                        includePoint(g.cx + g.r, g.cy + g.r);
+                        break;
+                    case 'arc':
+                        includePoint(g.cx - g.r, g.cy - g.r);
+                        includePoint(g.cx + g.r, g.cy + g.r);
+                        break;
+                    case 'polyline':
+                    case 'polygon':
+                        if (Array.isArray(g.points)) {
+                            for (const p of g.points) {
+                                if (Array.isArray(p) && p.length >= 2) {
+                                    includePoint(p[0], p[1]);
+                                }
+                            }
+                        }
+                        break;
+                    case 'text':
+                        includePoint(g.x, g.y);
+                        break;
+                }
+            }
+        }
+
+        if (Array.isArray(symbol.pins)) {
+            for (const pin of symbol.pins) {
+                if (!pin || !Number.isFinite(pin.x) || !Number.isFinite(pin.y)) continue;
+
+                includePoint(pin.x, pin.y);
+
+                const length = Number.isFinite(pin.length) ? pin.length : 2.54;
+                let x2 = pin.x;
+                let y2 = pin.y;
+
+                switch (pin.orientation) {
+                    case 'right':
+                        x2 = pin.x + length;
+                        break;
+                    case 'left':
+                        x2 = pin.x - length;
+                        break;
+                    case 'up':
+                        y2 = pin.y - length;
+                        break;
+                    case 'down':
+                        y2 = pin.y + length;
+                        break;
+                    default:
+                        x2 = pin.x + length;
+                }
+
+                includePoint(x2, y2);
+            }
+        }
+
+        if (!Number.isFinite(minX) || !Number.isFinite(minY) || !Number.isFinite(maxX) || !Number.isFinite(maxY)) {
+            return null;
+        }
+
+        return {
+            minX,
+            minY,
+            maxX,
+            maxY,
+            width: maxX - minX,
+            height: maxY - minY
+        };
+    }
+
+    _setFootprintPreviewStatus(message, available) {
+        if (!this.previewFootprint) return;
+        this.previewFootprint.innerHTML = `<div class="cp-preview-placeholder">${message}</div>`;
+        if (this.previewFootprintInfo) {
+            this.previewFootprintInfo.innerHTML = available
+                ? '<span class="cp-preview-ok">Footprint available</span>'
+                : '<span class="cp-preview-warn">Footprint unavailable</span>';
+        }
+    }
+
+    _set3dPreviewStatus(message, available) {
+        if (!this.preview3d) return;
+        this.preview3d.innerHTML = `<div class="cp-preview-placeholder">${message}</div>`;
+        if (this.preview3dInfo) {
+            this.preview3dInfo.innerHTML = available
+                ? '<span class="cp-preview-ok">3D model available</span>'
+                : '<span class="cp-preview-warn">3D model unavailable</span>';
+        }
+    }
+
+    _updateFootprintPreview(metadata) {
+        if (!metadata || !metadata.hasFootprint) {
+            this._setFootprintPreviewStatus('No footprint data', false);
+            return;
+        }
+
+        const name = metadata.footprintName || metadata.package || 'Footprint';
+        const svg = this._renderFootprintSVG(metadata.footprintShapes, metadata.footprintBBox);
+        if (!svg) {
+            this.previewFootprint.innerHTML = `<div class="cp-preview-placeholder">${name}</div>`;
+            if (this.previewFootprintInfo) {
+                this.previewFootprintInfo.innerHTML = '<span class="cp-preview-ok">Footprint available</span>';
+            }
+            return;
+        }
+
+        this.previewFootprint.innerHTML = svg;
+        if (this.previewFootprintInfo) {
+            this.previewFootprintInfo.innerHTML = `<span class="cp-preview-ok">${name}</span>`;
+        }
+    }
+
+    _update3dPreview(metadata) {
+        if (!metadata || !metadata.has3d) {
+            this._set3dPreviewStatus('No 3D model', false);
+            return;
+        }
+
+        const modelName = metadata.model3dName || '3D model';
+        this.preview3d.innerHTML = `<div class="cp-preview-placeholder">🧊 ${modelName}</div>`;
+        if (this.preview3dInfo) {
+            this.preview3dInfo.innerHTML = '<span class="cp-preview-ok">3D model available</span>';
+        }
+    }
+
+    _renderFootprintSVG(shapes, bbox) {
+        if (!Array.isArray(shapes) || shapes.length === 0) return '';
+
+        const padding = 2;
+        let viewBox = '-5 -5 10 10';
+        if (bbox && Number.isFinite(bbox.x) && Number.isFinite(bbox.y) && Number.isFinite(bbox.width) && Number.isFinite(bbox.height)) {
+            viewBox = `${bbox.x - padding} ${bbox.y - padding} ${bbox.width + padding * 2} ${bbox.height + padding * 2}`;
+        }
+
+        let svg = `<svg viewBox="${viewBox}" style="width:100%;height:100%;max-height:100px">`;
+        if (bbox && Number.isFinite(bbox.x) && Number.isFinite(bbox.y) && Number.isFinite(bbox.width) && Number.isFinite(bbox.height)) {
+            svg += `<rect x="${bbox.x}" y="${bbox.y}" width="${bbox.width}" height="${bbox.height}" fill="none" stroke="var(--text-muted)" stroke-width="0.3"/>`;
+        }
+
+        for (const shape of shapes) {
+            if (typeof shape !== 'string') continue;
+            if (!shape.startsWith('PAD~')) continue;
+
+            const parts = shape.split('~');
+            const padType = parts[1];
+            const x = parseFloat(parts[2]);
+            const y = parseFloat(parts[3]);
+            const w = parseFloat(parts[4]);
+            const h = parseFloat(parts[5]);
+
+            if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(w) || !Number.isFinite(h)) continue;
+
+            if (padType === 'RECT') {
+                const rx = x - w / 2;
+                const ry = y - h / 2;
+                svg += `<rect x="${rx}" y="${ry}" width="${w}" height="${h}" fill="var(--accent-color)" fill-opacity="0.2" stroke="var(--accent-color)" stroke-width="0.2"/>`;
+            } else if (padType === 'ELLIPSE') {
+                svg += `<ellipse cx="${x}" cy="${y}" rx="${w / 2}" ry="${h / 2}" fill="var(--accent-color)" fill-opacity="0.2" stroke="var(--accent-color)" stroke-width="0.2"/>`;
+            }
+        }
+
+        svg += '</svg>';
+        return svg;
+    }
+
+
+    _getPropertyValue(properties, key) {
+        if (!properties || typeof properties !== 'object') return '';
+        if (properties[key]) return properties[key];
+
+        const lowerKey = key.toLowerCase();
+        const match = Object.keys(properties).find(propKey => propKey.toLowerCase() === lowerKey);
+        return match ? properties[match] : '';
     }
     
     _renderGraphicsToSVG(graphics, defaultStrokeWidth = 0.254) {

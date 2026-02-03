@@ -29,6 +29,9 @@ export class ComponentLibrary {
         
         // LCSC fetcher (metadata, pricing, stock)
         this.lcscFetcher = new LCSCFetcher();
+
+        // EasyEDA symbol parser version (used to invalidate cached symbols)
+        this._easyedaSymbolParserVersion = '2026-02-04-2';
         
         // KiCad fetcher (symbols, footprints)
         this.kicadFetcher = new KiCadFetcher();
@@ -221,7 +224,13 @@ export class ComponentLibrary {
         // Check if already cached
         const cached = this.definitions.get(`LCSC_${lcscId}`);
         if (cached) {
-            return cached;
+            const needsEasyeda = !cached.symbol
+                || cached.symbol._source !== 'EasyEDA'
+                || cached._easyedaParserVersion !== this._easyedaSymbolParserVersion;
+            const needsFootprint = !cached.hasFootprint;
+            if (!needsEasyeda && !needsFootprint) {
+                return cached;
+            }
         }
         
         // Step 1: Get LCSC metadata
@@ -234,28 +243,19 @@ export class ComponentLibrary {
         
         console.log('LCSC metadata:', metadata);
         
-        // Step 2: Try to find matching KiCad symbol
+        // Step 2: Try to use EasyEDA symbol if available
         let symbol = null;
-        const kicadMapping = this.lcscFetcher.suggestKiCadMapping(
-            metadata.mpn, 
-            metadata.category
-        );
-        
-        if (kicadMapping) {
-            console.log(`Trying KiCad mapping: ${kicadMapping.library}:${kicadMapping.symbol}`);
-            try {
-                const kicadResult = await this.kicadFetcher.fetchSymbol(
-                    kicadMapping.library,
-                    kicadMapping.symbol
-                );
-                if (kicadResult && kicadResult.symbol) {
-                    symbol = kicadResult.symbol;
-                    console.log('KiCad symbol found:', symbol);
-                }
-            } catch (e) {
-                console.warn('KiCad fetch failed:', e);
+
+        if (metadata.easyedaSymbolData) {
+            const easyedaSymbol = this._createEasyEDASymbol(metadata.easyedaSymbolData);
+            if (easyedaSymbol) {
+                symbol = easyedaSymbol;
+                symbol._source = 'EasyEDA';
+                console.log('EasyEDA symbol found:', symbol);
             }
         }
+
+        // Step 2b: No KiCad fallback. Keep LCSC/EasyEDA symbols separate.
         
         // Step 3: Fall back to generic symbol if no KiCad match
         if (!symbol) {
@@ -277,13 +277,23 @@ export class ComponentLibrary {
             mpn: metadata.mpn,
             manufacturer: metadata.manufacturer,
             package: metadata.package,
+            footprintName: metadata.footprintName || metadata.package || '',
+            footprintShapes: metadata.footprintShapes || null,
+            footprintBBox: metadata.footprintBBox || null,
+            hasFootprint: !!metadata.hasFootprint,
+            model3dName: metadata.model3dName || '',
+            has3d: !!metadata.has3d,
             stock: metadata.stock,
             price: metadata.price,
             priceBreaks: metadata.priceBreaks,
             isBasic: metadata.isBasic,
             productUrl: metadata.productUrl,
             imageUrl: metadata.imageUrl,
-            _source: 'LCSC'
+            _source: 'LCSC',
+            _easyedaResolved: symbol?._source === 'EasyEDA',
+            _easyedaParserVersion: symbol?._source === 'EasyEDA'
+                ? this._easyedaSymbolParserVersion
+                : undefined
         };
         
         // Add to library
@@ -297,6 +307,7 @@ export class ComponentLibrary {
      */
     _createGenericSymbol(metadata) {
         const category = (metadata.category || '').toLowerCase();
+        const pinCount = this._estimatePinCount(metadata);
         
         // Use different generic symbols based on category
         if (category.includes('resistor')) {
@@ -311,10 +322,531 @@ export class ComponentLibrary {
             return this._createLEDSymbol();
         } else if (category.includes('transistor')) {
             return this._createTransistorSymbol();
+        } else if (category.includes('switch') || category.includes('button')) {
+            if (pinCount === 3) {
+                return this._createSwitch3PinSymbol();
+            }
         }
         
         // Default: generic IC/box symbol
-        return this._createGenericICSymbol(metadata);
+        if (pinCount > 0 && pinCount <= 4) {
+            return this._createGenericInlineSymbol(pinCount);
+        }
+
+        return this._createGenericICSymbol({ ...metadata, pinCount });
+    }
+
+
+    _createEasyEDASymbol(dataStr) {
+        if (!dataStr || !Array.isArray(dataStr.shape)) {
+            return null;
+        }
+
+        const scale = 0.1;
+        const bbox = dataStr.BBox || dataStr.bbox || null;
+        const hasBBox = bbox && Number.isFinite(bbox.x) && Number.isFinite(bbox.y) && Number.isFinite(bbox.width) && Number.isFinite(bbox.height);
+
+        const rawGraphics = [];
+        const rawPins = [];
+
+        let minX = Infinity;
+        let minY = Infinity;
+        let maxX = -Infinity;
+        let maxY = -Infinity;
+
+        const includePoint = (x, y) => {
+            if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+            minX = Math.min(minX, x);
+            minY = Math.min(minY, y);
+            maxX = Math.max(maxX, x);
+            maxY = Math.max(maxY, y);
+        };
+
+        const includePin = (pin) => {
+            includePoint(pin.x, pin.y);
+            const length = Number.isFinite(pin.length) ? pin.length : 0;
+            switch (pin.orientation) {
+                case 'right':
+                    includePoint(pin.x + length, pin.y);
+                    break;
+                case 'left':
+                    includePoint(pin.x - length, pin.y);
+                    break;
+                case 'up':
+                    includePoint(pin.x, pin.y - length);
+                    break;
+                case 'down':
+                    includePoint(pin.x, pin.y + length);
+                    break;
+                default:
+                    includePoint(pin.x + length, pin.y);
+            }
+        };
+
+        for (const shape of dataStr.shape) {
+            if (typeof shape !== 'string' || !shape.length) continue;
+            if (shape.startsWith('P~')) {
+                const pin = this._parseEasyEDAPin(shape);
+                if (pin) {
+                    rawPins.push(pin);
+                    includePin(pin);
+                }
+                continue;
+            }
+
+            const graphic = this._parseEasyEDAGraphic(shape);
+            if (!graphic) continue;
+
+            rawGraphics.push(graphic);
+
+            switch (graphic.type) {
+                case 'line':
+                    includePoint(graphic.x1, graphic.y1);
+                    includePoint(graphic.x2, graphic.y2);
+                    break;
+                case 'rect':
+                    includePoint(graphic.x, graphic.y);
+                    includePoint(graphic.x + graphic.width, graphic.y + graphic.height);
+                    break;
+                case 'circle':
+                    includePoint(graphic.cx - graphic.r, graphic.cy - graphic.r);
+                    includePoint(graphic.cx + graphic.r, graphic.cy + graphic.r);
+                    break;
+                case 'polyline':
+                case 'polygon':
+                    for (const p of graphic.points || []) {
+                        includePoint(p[0], p[1]);
+                    }
+                    break;
+                case 'arc':
+                    includePoint(graphic.cx - graphic.r, graphic.cy - graphic.r);
+                    includePoint(graphic.cx + graphic.r, graphic.cy + graphic.r);
+                    break;
+            }
+        }
+
+        if (hasBBox) {
+            minX = bbox.x;
+            minY = bbox.y;
+            maxX = bbox.x + bbox.width;
+            maxY = bbox.y + bbox.height;
+        }
+
+        const widthRaw = maxX - minX;
+        const heightRaw = maxY - minY;
+        const hasOutline = rawGraphics.some(graphic => graphic.type === 'rect'
+            && graphic.width >= widthRaw * 0.5
+            && graphic.height >= heightRaw * 0.5);
+
+        if (!hasOutline && Number.isFinite(widthRaw) && Number.isFinite(heightRaw)) {
+            rawGraphics.push({
+                type: 'rect',
+                x: minX,
+                y: minY,
+                width: widthRaw,
+                height: heightRaw,
+                stroke: '#880000',
+                strokeWidth: 1,
+                fill: 'none'
+            });
+        }
+
+        if (!Number.isFinite(minX) || !Number.isFinite(minY) || !Number.isFinite(maxX) || !Number.isFinite(maxY)) {
+            return null;
+        }
+
+        const offsetX = minX;
+        const offsetY = minY;
+
+        const graphics = rawGraphics.map(graphic => this._transformEasyEDAGraphic(graphic, offsetX, offsetY, scale));
+        const pins = rawPins.map(pin => this._transformEasyEDAPin(pin, offsetX, offsetY, scale));
+
+        const width = widthRaw * scale;
+        const height = heightRaw * scale;
+
+        graphics.push({
+            type: 'text',
+            x: width + 1,
+            y: -1,
+            text: '${REF}',
+            fontSize: 1.5,
+            anchor: 'start',
+            baseline: 'middle'
+        });
+        graphics.push({
+            type: 'text',
+            x: width + 1,
+            y: 1.5,
+            text: '${VALUE}',
+            fontSize: 1.3,
+            anchor: 'start',
+            baseline: 'middle'
+        });
+
+        return {
+            width,
+            height,
+            origin: { x: width / 2, y: height / 2 },
+            graphics,
+            pins
+        };
+    }
+
+    _parseEasyEDAGraphic(shape) {
+        const parts = shape.split('~');
+        const type = parts[0];
+        const colorIndex = parts.findIndex(part => typeof part === 'string' && part.startsWith('#'));
+        const strokeColor = colorIndex >= 0 ? parts[colorIndex] : '#880000';
+        const strokeWidthIndex = colorIndex >= 0 ? colorIndex + 1 : -1;
+        const parsedStrokeWidth = Number(parts[strokeWidthIndex]);
+        const strokeWidthValue = Number.isFinite(parsedStrokeWidth) ? parsedStrokeWidth : 1;
+
+        switch (type) {
+            case 'PL': {
+                const coords = (parts[1] || '').trim().split(/\s+/).map(Number);
+                if (coords.length < 4) return null;
+                const points = [];
+                for (let i = 0; i < coords.length - 1; i += 2) {
+                    points.push([coords[i], coords[i + 1]]);
+                }
+                return {
+                    type: 'polyline',
+                    points,
+                    stroke: strokeColor,
+                    strokeWidth: strokeWidthValue,
+                    fill: 'none'
+                };
+            }
+            case 'L': {
+                const x1 = Number(parts[1]);
+                const y1 = Number(parts[2]);
+                const x2 = Number(parts[3]);
+                const y2 = Number(parts[4]);
+                if (![x1, y1, x2, y2].every(Number.isFinite)) return null;
+                return {
+                    type: 'line',
+                    x1,
+                    y1,
+                    x2,
+                    y2,
+                    stroke: strokeColor,
+                    strokeWidth: strokeWidthValue
+                };
+            }
+            case 'R': {
+                const x = Number(parts[1]);
+                const y = Number(parts[2]);
+                const w1 = Number(parts[3]);
+                const h1 = Number(parts[4]);
+                const w2 = Number(parts[5]);
+                const h2 = Number(parts[6]);
+                const width = Number.isFinite(w2) ? w2 : w1;
+                const height = Number.isFinite(h2) ? h2 : h1;
+                const rx = Number.isFinite(w2) ? w1 : 0;
+                const ry = Number.isFinite(h2) ? h1 : 0;
+                if (![x, y, width, height].every(Number.isFinite)) return null;
+                return {
+                    type: 'rect',
+                    x,
+                    y,
+                    width,
+                    height,
+                    rx,
+                    ry,
+                    stroke: strokeColor,
+                    strokeWidth: strokeWidthValue,
+                    fill: 'none'
+                };
+            }
+            case 'C': {
+                const cx = Number(parts[1]);
+                const cy = Number(parts[2]);
+                const r = Number(parts[3]);
+                if (![cx, cy, r].every(Number.isFinite)) return null;
+                return {
+                    type: 'circle',
+                    cx,
+                    cy,
+                    r,
+                    stroke: strokeColor,
+                    strokeWidth: strokeWidthValue,
+                    fill: 'none'
+                };
+            }
+            case 'E': {
+                const cx = Number(parts[1]);
+                const cy = Number(parts[2]);
+                const rx = Number(parts[3]);
+                const ry = Number(parts[4]);
+                if (![cx, cy, rx, ry].every(Number.isFinite)) return null;
+                return {
+                    type: 'circle',
+                    cx,
+                    cy,
+                    r: Math.max(rx, ry),
+                    stroke: strokeColor,
+                    strokeWidth: strokeWidthValue,
+                    fill: 'none'
+                };
+            }
+            default:
+                return null;
+        }
+    }
+
+    _parseEasyEDAPin(shape) {
+        const segments = shape.split('^^');
+        const header = segments[0].split('~');
+        if (header.length < 7) return null;
+
+        const headerNumber = String(header[3] || '').trim();
+        const x = Number(header[4]);
+        const y = Number(header[5]);
+        const angle = Number(header[6]);
+
+        if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+
+        let orientation = this._easyedaAngleToOrientation(angle);
+        let length = 2.54;
+
+        const pathSegment = segments.find(seg => typeof seg === 'string' && seg.trim().startsWith('M '));
+        if (pathSegment) {
+            const path = pathSegment.split('~')[0].trim();
+            const parsed = this._parseEasyEDAPinPath(path);
+            if (parsed) {
+                orientation = parsed.orientation;
+                length = parsed.length;
+            }
+        }
+
+        let name = '';
+        let number = headerNumber;
+        for (const segment of segments.slice(1)) {
+            if (typeof segment !== 'string' || !segment.includes('~')) continue;
+            const parts = segment.split('~');
+            if (parts.length < 5) continue;
+            const text = String(parts[4] || '').trim();
+            if (!text) continue;
+            if (!name && !/^\d+$/.test(text)) {
+                name = text;
+            }
+            if (!number && /^\d+$/.test(text)) {
+                number = text;
+            }
+        }
+
+        return {
+            number: number || '',
+            name: name || number || '',
+            x,
+            y,
+            orientation,
+            length,
+            type: 'passive',
+            shape: 'line'
+        };
+    }
+
+    _parseEasyEDAPinPath(path) {
+        const hMatch = path.match(/M\s+(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)\s+h\s+(-?\d+(?:\.\d+)?)/i);
+        if (hMatch) {
+            const dx = Number(hMatch[3]);
+            return {
+                orientation: dx >= 0 ? 'right' : 'left',
+                length: Math.abs(dx)
+            };
+        }
+
+        const vMatch = path.match(/M\s+(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)\s+v\s+(-?\d+(?:\.\d+)?)/i);
+        if (vMatch) {
+            const dy = Number(vMatch[3]);
+            return {
+                orientation: dy >= 0 ? 'down' : 'up',
+                length: Math.abs(dy)
+            };
+        }
+
+        const lMatch = path.match(/M\s+(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)\s+L\s+(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)/i);
+        if (lMatch) {
+            const x1 = Number(lMatch[1]);
+            const y1 = Number(lMatch[2]);
+            const x2 = Number(lMatch[3]);
+            const y2 = Number(lMatch[4]);
+            const dx = x2 - x1;
+            const dy = y2 - y1;
+            const length = Math.hypot(dx, dy);
+            if (Math.abs(dx) >= Math.abs(dy)) {
+                return {
+                    orientation: dx >= 0 ? 'right' : 'left',
+                    length
+                };
+            }
+            return {
+                orientation: dy >= 0 ? 'down' : 'up',
+                length
+            };
+        }
+
+        return null;
+    }
+
+    _easyedaAngleToOrientation(angle) {
+        const normalized = ((Number(angle) % 360) + 360) % 360;
+        if (normalized === 0) return 'left';
+        if (normalized === 90) return 'down';
+        if (normalized === 180) return 'right';
+        if (normalized === 270) return 'up';
+        return 'right';
+    }
+
+    _transformEasyEDAGraphic(graphic, offsetX, offsetY, scale) {
+        const strokeWidth = Number.isFinite(graphic.strokeWidth) ? graphic.strokeWidth * scale : 0.254;
+
+        switch (graphic.type) {
+            case 'line':
+                return {
+                    ...graphic,
+                    x1: (graphic.x1 - offsetX) * scale,
+                    y1: (graphic.y1 - offsetY) * scale,
+                    x2: (graphic.x2 - offsetX) * scale,
+                    y2: (graphic.y2 - offsetY) * scale,
+                    strokeWidth
+                };
+            case 'rect':
+                return {
+                    ...graphic,
+                    x: (graphic.x - offsetX) * scale,
+                    y: (graphic.y - offsetY) * scale,
+                    width: graphic.width * scale,
+                    height: graphic.height * scale,
+                    rx: Number.isFinite(graphic.rx) ? graphic.rx * scale * 0.5 : undefined,
+                    ry: Number.isFinite(graphic.ry) ? graphic.ry * scale * 0.5 : undefined,
+                    strokeWidth
+                };
+            case 'circle':
+                return {
+                    ...graphic,
+                    cx: (graphic.cx - offsetX) * scale,
+                    cy: (graphic.cy - offsetY) * scale,
+                    r: graphic.r * scale,
+                    strokeWidth
+                };
+            case 'polyline':
+            case 'polygon':
+                return {
+                    ...graphic,
+                    points: (graphic.points || []).map(p => [
+                        (p[0] - offsetX) * scale,
+                        (p[1] - offsetY) * scale
+                    ]),
+                    strokeWidth
+                };
+            case 'arc':
+                return {
+                    ...graphic,
+                    cx: (graphic.cx - offsetX) * scale,
+                    cy: (graphic.cy - offsetY) * scale,
+                    r: graphic.r * scale,
+                    strokeWidth
+                };
+            default:
+                return graphic;
+        }
+    }
+
+    _transformEasyEDAPin(pin, offsetX, offsetY, scale) {
+        return {
+            ...pin,
+            x: (pin.x - offsetX) * scale,
+            y: (pin.y - offsetY) * scale,
+            length: Number.isFinite(pin.length) ? pin.length * scale : 2.54
+        };
+    }
+
+    _estimatePinCount(metadata) {
+        if (!metadata) return 0;
+
+        if (Array.isArray(metadata.footprintShapes) && metadata.footprintShapes.length > 0) {
+            const padSet = new Set();
+            for (const shape of metadata.footprintShapes) {
+                if (typeof shape !== 'string') continue;
+                if (!shape.startsWith('PAD~')) continue;
+                const parts = shape.split('~');
+                if (parts.length < 6) continue;
+                const x = Number(parts[2]);
+                const y = Number(parts[3]);
+                if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+                padSet.add(`${x.toFixed(2)},${y.toFixed(2)}`);
+            }
+            if (padSet.size > 0) {
+                return padSet.size;
+            }
+        }
+
+        const pkg = (metadata.package || '').toUpperCase();
+        const pinMatch = pkg.match(/(\d+)/);
+        if (pinMatch) {
+            return parseInt(pinMatch[1], 10);
+        }
+
+        return 0;
+    }
+
+    _createGenericInlineSymbol(pinCount) {
+        const spacing = 2.54;
+        const width = 6;
+        const height = Math.max(6, (pinCount - 1) * spacing + 2);
+
+        const symbol = {
+            width: width + 4,
+            height: height,
+            origin: { x: (width + 4) / 2, y: height / 2 },
+            graphics: [
+                {
+                    type: 'rect',
+                    x: 2,
+                    y: 0,
+                    width,
+                    height,
+                    stroke: '#880000',
+                    strokeWidth: 0.254,
+                    fill: 'none'
+                }
+            ],
+            pins: []
+        };
+
+        for (let i = 0; i < pinCount; i++) {
+            symbol.pins.push({
+                number: String(i + 1),
+                name: String(i + 1),
+                x: 0,
+                y: (height / (pinCount + 1)) * (i + 1),
+                orientation: 'right',
+                length: 2,
+                pinType: 'passive',
+                shape: 'line'
+            });
+        }
+
+        return symbol;
+    }
+
+    _createSwitch3PinSymbol() {
+        return {
+            width: 10,
+            height: 8,
+            origin: { x: 5, y: 4 },
+            graphics: [
+                { type: 'line', x1: 2, y1: 4, x2: 8, y2: 2, stroke: '#880000', strokeWidth: 0.254 },
+                { type: 'line', x1: 8, y1: 2, x2: 8, y2: 6, stroke: '#880000', strokeWidth: 0.254 }
+            ],
+            pins: [
+                { number: '1', name: '1', x: 0, y: 4, orientation: 'right', length: 2, pinType: 'passive', shape: 'line' },
+                { number: '2', name: '2', x: 10, y: 2, orientation: 'left', length: 2, pinType: 'passive', shape: 'line' },
+                { number: '3', name: '3', x: 10, y: 6, orientation: 'left', length: 2, pinType: 'passive', shape: 'line' }
+            ]
+        };
     }
     
     /**

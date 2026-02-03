@@ -242,7 +242,7 @@ export class Component {
         let numX, numY, numAnchor;
         let nameRot = 0;
         
-        const labelOffset = length + 1.0; 
+        const labelOffset = length + 0.2; 
         const isActiveLow = pin.bubble || pin.name?.includes('~') || pin.name?.includes('/');
         const bubbleRadius = 0.6;
         const dotRadius = 0.45;
@@ -250,31 +250,32 @@ export class Component {
         // BODY-ANCHOR LOGIC
         // We ensure the number stays close to the body/bubble so it doesn't drift into the connection dot.
         const bubbleClearance = isActiveLow ? (bubbleRadius * 2) + 0.2 : 0;
-        const marginFromBody = 0.6; 
-        const numPos = length - (bubbleClearance + marginFromBody);
+        const numBodyOffset = 0.5;
+        const numPos = length - (bubbleClearance + numBodyOffset);
         
-        const lineNudge = 0.5; 
+        const numOffsetLR = 0.35;
+        const numOffsetUD = 0.5;
 
         switch (pin.orientation) {
             case 'right':
                 x2 = x1 + length; 
                 nameX = x1 + labelOffset; nameY = y1; nameAnchor = 'start';
-                numX = x1 + numPos; numY = y1 - lineNudge; numAnchor = 'middle';
+                numX = x1 + numPos; numY = y1 - numOffsetLR; numAnchor = 'middle';
                 break;
             case 'left':
                 x2 = x1 - length;
                 nameX = x1 - labelOffset; nameY = y1; nameAnchor = 'end';
-                numX = x1 - numPos; numY = y1 - lineNudge; numAnchor = 'middle';
+                numX = x1 - numPos; numY = y1 - numOffsetLR; numAnchor = 'middle';
                 break;
             case 'up':
                 y2 = y1 - length;
                 nameX = x1; nameY = y1 - labelOffset; nameAnchor = 'end'; nameRot = 90;
-                numX = x1 - lineNudge; numY = y1 - numPos; numAnchor = 'middle';
+                numX = x1 - numOffsetUD; numY = y1 - numPos; numAnchor = 'middle';
                 break;
             case 'down':
                 y2 = y1 + length;
                 nameX = x1; nameY = y1 + labelOffset; nameAnchor = 'start'; nameRot = 90;
-                numX = x1 - lineNudge; numY = y1 + numPos; numAnchor = 'middle';
+                numX = x1 - numOffsetUD; numY = y1 + numPos; numAnchor = 'middle';
                 break;
         }
 
@@ -322,7 +323,7 @@ export class Component {
             const labelGroup = document.createElementNS(ns, 'g');
             const nameTxt = document.createElementNS(ns, 'text');
             const cleanName = pin.name.replace(/[{}]/g, '').replace(/[~/]/g, '');
-            nameTxt.setAttribute('font-size', 1.3);
+            nameTxt.setAttribute('font-size', 1.0);
             nameTxt.setAttribute('fill', 'var(--sch-pin-name, #00cccc)'); 
             nameTxt.setAttribute('text-anchor', nameAnchor);
             nameTxt.setAttribute('dominant-baseline', 'middle');
@@ -358,7 +359,7 @@ export class Component {
         if (pin.number) {
             const numTxt = document.createElementNS(ns, 'text');
             numTxt.setAttribute('x', numX); numTxt.setAttribute('y', numY);
-            numTxt.setAttribute('font-size', 1.1);
+            numTxt.setAttribute('font-size', 0.7);
             numTxt.setAttribute('fill', 'var(--sch-pin-number, #aa0000)');
             numTxt.setAttribute('text-anchor', numAnchor);
             numTxt.setAttribute('dominant-baseline', 'middle');
@@ -372,13 +373,16 @@ export class Component {
         let el;
         // Convert black colors to themed color
         const isBlack = g.stroke === 'black' || g.stroke === '#000' || g.stroke === '#000000';
-        const stroke = isBlack ? 'var(--sch-symbol-outline, #aa0000)' : g.stroke;
+        const isEasyedaRed = g.stroke === '#880000' || g.stroke === '#aa0000';
+        const stroke = (isBlack || isEasyedaRed) ? 'var(--sch-symbol-outline, #aa0000)' : g.stroke;
         const fill = g.fill === 'none' ? 'none' : 'var(--sch-symbol-fill, #ffffcc)';
         switch (g.type) {
             case 'rect':
                 el = document.createElementNS(ns, 'rect');
                 el.setAttribute('x', g.x); el.setAttribute('y', g.y);
                 el.setAttribute('width', g.width); el.setAttribute('height', g.height);
+                if (Number.isFinite(g.rx)) el.setAttribute('rx', g.rx);
+                if (Number.isFinite(g.ry)) el.setAttribute('ry', g.ry);
                 break;
             case 'circle':
                 el = document.createElementNS(ns, 'circle');

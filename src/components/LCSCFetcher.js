@@ -15,17 +15,197 @@
 
 export class LCSCFetcher {
     constructor() {
-        // CORS proxy - codetabs seems to work better than others
-        this.corsProxy = 'https://api.codetabs.com/v1/proxy?quest=';
+        // CORS proxy list (try multiple fallbacks)
+        // Tokens: {encodedUrl}, {url}, {urlSansScheme}
+        // Use dedicated Cloudflare Worker proxy provided by user
+        this.corsProxies = [
+            'https://clearpcb.mikealex.workers.dev/?url={encodedUrl}'
+        ];
+        this.lastWorkingProxy = null;
         
-        // API endpoint
+        // API endpoints
         this.searchUrl = 'https://wwwapi.lcsc.com/v1/search/global-search';
+        this.easyedaSearchUrl = 'https://easyeda.com/api/components/search';
+        this.easyedaUid = '0819f05c4eef4c71ace90d822a990e87';
+        this.easyedaVersion = '6.5.51';
+        this.easyedaDetailVersion = '6.4.19.5';
         
         // Cache for component metadata
         this.metadataCache = new Map();
+        this.imageCache = new Map();
         
         // Track CORS status
         this.corsBlocked = false;
+    }
+
+    _normalizeQuery(query) {
+        const trimmed = (query || '').trim();
+        if (/^c\d+$/i.test(trimmed)) {
+            return trimmed.toUpperCase();
+        }
+        return trimmed;
+    }
+
+
+    async _fetchJsonWithProxies(targetUrl, options = {}) {
+        const proxies = this.lastWorkingProxy
+            ? [this.lastWorkingProxy, ...this.corsProxies.filter(p => p !== this.lastWorkingProxy)]
+            : [...this.corsProxies];
+
+        let lastError = null;
+
+        const encodedUrl = encodeURIComponent(targetUrl);
+        const urlSansScheme = targetUrl.replace(/^https?:\/\//, '');
+
+        for (const proxy of proxies) {
+            const url = proxy
+                .replace('{encodedUrl}', encodedUrl)
+                .replace('{urlSansScheme}', urlSansScheme)
+                .replace('{url}', targetUrl);
+            try {
+                const response = await fetch(url, options);
+
+                if (!response.ok) {
+                    lastError = new Error(`HTTP ${response.status}`);
+                    continue;
+                }
+
+                const text = await response.text();
+                let data;
+                try {
+                    data = JSON.parse(text);
+                } catch (parseError) {
+                    // Some proxies prepend text before JSON; try to recover
+                    const jsonStart = text.indexOf('{');
+                    if (jsonStart !== -1) {
+                        try {
+                            data = JSON.parse(text.slice(jsonStart));
+                        } catch (retryError) {
+                            lastError = retryError;
+                            continue;
+                        }
+                    } else {
+                        lastError = parseError;
+                        continue;
+                    }
+                }
+                this.corsBlocked = false;
+                this.lastWorkingProxy = proxy;
+                return { data };
+            } catch (error) {
+                lastError = error;
+            }
+        }
+
+        this.corsBlocked = true;
+        return { error: lastError };
+    }
+
+    async _searchEasyEDA(query) {
+        const normalizedQuery = this._normalizeQuery(query);
+
+        const formBody = new URLSearchParams({
+            type: '3',
+            'doctype[]': '2',
+            uid: this.easyedaUid,
+            returnListStyle: 'classifyarr',
+            wd: normalizedQuery,
+            version: this.easyedaVersion
+        }).toString();
+
+        const options = {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+                'Accept': 'application/json'
+            },
+            body: formBody
+        };
+
+        const result = await this._fetchJsonWithProxies(this.easyedaSearchUrl, options);
+        if (result?.data) {
+            const data = result.data;
+            const list = this._extractEasyEDAList(data);
+            if (list.length > 0) {
+                return this._formatEasyEDASearchResults(list);
+            }
+        }
+
+        return [];
+    }
+
+    async _fetchEasyEDADetail(lcscPartNumber) {
+        const normalizedPart = this._normalizeQuery(lcscPartNumber);
+        const targetUrl = `https://easyeda.com/api/products/${encodeURIComponent(normalizedPart)}/components?version=${this.easyedaDetailVersion}`;
+        const result = await this._fetchJsonWithProxies(targetUrl);
+        if (result?.data?.result) {
+            return result.data.result;
+        }
+        return null;
+    }
+
+    _extractEasyEDAList(data) {
+        if (!data) return [];
+        if (Array.isArray(data)) return data;
+
+        // EasyEDA response shape: { success, result: { lists: { lcsc: [...] } } }
+        if (data.result && data.result.lists) {
+            if (Array.isArray(data.result.lists.lcsc)) return data.result.lists.lcsc;
+            if (Array.isArray(data.result.lists.szlcs)) return data.result.lists.szlcs;
+        }
+
+        const candidates = [
+            data.result,
+            data.data,
+            data.list,
+            data.items,
+            data.productList,
+            data.success && data.result ? data.result : null
+        ];
+
+        for (const candidate of candidates) {
+            if (Array.isArray(candidate)) return candidate;
+            if (candidate && Array.isArray(candidate.list)) return candidate.list;
+            if (candidate && Array.isArray(candidate.items)) return candidate.items;
+        }
+
+        return [];
+    }
+
+    _formatEasyEDASearchResults(items) {
+        return items.map(item => {
+            const lcscPartNumber = item?.lcsc?.number || item?.szlcsc?.number || item.lcscPartNumber || item.lcsc_part_number || item.lcsc || item.productCode || item.product_code || item.component_code || item.componentCode || item.lcsc_number || '';
+            const imageUrl = this._normalizeEasyedaUrl(item?.szlcsc?.image || item.imageUrl || item.image || item.productImageUrl || item.productImageUrlBig || '');
+            const thumbUrl = this._normalizeEasyedaUrl(item.thumb || item.thumbUrl || item.thumbnail || '');
+            const fallbackThumb = lcscPartNumber
+                ? `https://easyeda.com/api/eda/product/img/${encodeURIComponent(lcscPartNumber)}?version=${this.easyedaVersion}`
+                : '';
+
+            return {
+                lcscPartNumber,
+                mpn: item?.dataStr?.head?.c_para?.['Manufacturer Part'] || item.mpn || item.productModel || item.model || item.part_number || item.partNumber || item.title || '',
+                manufacturer: item?.dataStr?.head?.c_para?.Manufacturer || item.manufacturer || item.brand || item.brandName || item.brand_name || '',
+                description: item?.dataStr?.head?.c_para?.Value || item.description || item.intro || item.productIntro || item.productIntroEn || item.productDesc || item.productDescEn || item.title || '',
+                category: item.category || item.catalog || item.catalogName || item.parentCatalogName || item.class || '',
+                package: item?.dataStr?.head?.c_para?.package || item.package || item.encapStandard || item.footprint || '',
+                stock: item?.lcsc?.stock || item?.szlcsc?.stock || item.stock || item.stockNumber || item.stock_number || 0,
+                price: item?.lcsc?.price || item?.szlcsc?.price || item.price || item.unitPrice || item.usdPrice || null,
+                isBasic: item.isBasic || item.is_basic || false,
+                isPreferred: item.isPreferred || item.is_preferred || false,
+                imageUrl,
+                thumbUrl: thumbUrl || imageUrl || fallbackThumb,
+                datasheet: item.datasheet || item.pdf || item.pdfUrl || '',
+                productUrl: item?.lcsc?.url || item?.szlcsc?.url || item.productUrl || item.url || (lcscPartNumber
+                    ? `https://www.lcsc.com/product-detail/${lcscPartNumber}.html`
+                    : '')
+            };
+        });
+    }
+
+    _normalizeEasyedaUrl(url) {
+        if (!url || typeof url !== 'string') return '';
+        if (url.startsWith('//')) return `https:${url}`;
+        return url;
     }
 
     /**
@@ -34,53 +214,19 @@ export class LCSCFetcher {
      * @returns {Promise<Array>} Search results
      */
     async search(query) {
-        console.log('LCSC search for:', query);
-        
-        // If CORS is known to be blocked, return message immediately
-        if (this.corsBlocked) {
-            return [{
-                error: true,
-                message: 'LCSC search unavailable due to CORS restrictions. Use local library or KiCad symbols.'
-            }];
-        }
-        
-        const targetUrl = `${this.searchUrl}?keyword=${encodeURIComponent(query)}`;
-        const url = this.corsProxy + targetUrl;
-        
-        console.log('Search URL:', url);
-        
+        const normalizedQuery = this._normalizeQuery(query);
+        console.log('EasyEDA search for:', normalizedQuery);
+
         try {
-            const response = await fetch(url);
-            console.log('Response status:', response.status);
-            
-            if (!response.ok) {
-                this.corsBlocked = true;
-                return [{
-                    error: true,
-                    message: `LCSC search failed (${response.status}). CORS proxy may be blocked.`
-                }];
+            const easyedaResults = await this._searchEasyEDA(normalizedQuery);
+            if (easyedaResults.length > 0) {
+                return easyedaResults;
             }
-            
-            const data = await response.json();
-            console.log('LCSC response:', data);
-            
-            // The global search API returns productSearchResultVO.productList
-            if (data.productSearchResultVO && data.productSearchResultVO.productList) {
-                const results = this._formatSearchResults(data.productSearchResultVO.productList);
-                console.log('Formatted results:', results.length);
-                return results;
-            }
-            
-            return [];
-            
         } catch (error) {
-            console.error('LCSC search error:', error);
-            this.corsBlocked = true;
-            return [{
-                error: true,
-                message: 'LCSC search unavailable. Network error or CORS blocked.'
-            }];
+            console.error('EasyEDA search error:', error);
         }
+
+        return [];
     }
     
     /**
@@ -89,52 +235,72 @@ export class LCSCFetcher {
      * @returns {Promise<object>} Component metadata
      */
     async fetchComponentMetadata(lcscPartNumber) {
+        const normalizedPart = this._normalizeQuery(lcscPartNumber);
         // Check cache first
-        if (this.metadataCache.has(lcscPartNumber)) {
-            return this.metadataCache.get(lcscPartNumber);
+        if (this.metadataCache.has(normalizedPart)) {
+            const cached = this.metadataCache.get(normalizedPart);
+            if (cached?.hasEasyedaSymbol || cached?.hasFootprint || cached?.has3d) {
+                return cached;
+            }
+            this.metadataCache.delete(normalizedPart);
         }
-        
-        if (this.corsBlocked) {
-            return null;
-        }
-        
-        const targetUrl = `${this.searchUrl}?keyword=${encodeURIComponent(lcscPartNumber)}`;
-        const url = this.corsProxy + targetUrl;
-        
-        console.log('Fetching metadata from:', url);
-        
+
+        // Try EasyEDA search first
         try {
-            const response = await fetch(url);
-            console.log('Metadata response status:', response.status);
-            
-            if (!response.ok) {
-                this.corsBlocked = true;
-                return null;
-            }
-            
-            const data = await response.json();
-            console.log('Metadata response:', data);
-            
-            // Find the exact part in results
-            if (data.productSearchResultVO && data.productSearchResultVO.productList) {
-                const product = data.productSearchResultVO.productList.find(
-                    p => p.productCode === lcscPartNumber
-                );
-                
-                if (product) {
-                    const metadata = this._extractMetadataFromProduct(product);
-                    this.metadataCache.set(lcscPartNumber, metadata);
-                    return metadata;
+            const easyedaResults = await this._searchEasyEDA(normalizedPart);
+            const exact = easyedaResults.find(item =>
+                (item.lcscPartNumber || '').toUpperCase() === normalizedPart.toUpperCase()
+            );
+
+            if (exact) {
+                // Fetch detail to get footprint + 3D data
+                const detail = await this._fetchEasyEDADetail(normalizedPart);
+                if (detail?.dataStr && Array.isArray(detail.dataStr.shape)) {
+                    exact.easyedaSymbolData = detail.dataStr;
+                    exact.easyedaSymbolBBox = detail.dataStr.BBox || detail.dataStr.bbox || null;
+                    exact.hasEasyedaSymbol = true;
+                } else {
+                    exact.hasEasyedaSymbol = false;
                 }
+
+                if (detail?.packageDetail?.dataStr) {
+                    const dataStr = detail.packageDetail.dataStr;
+                    exact.footprintName = detail.packageDetail.title || dataStr?.head?.c_para?.package || '';
+                    exact.footprintShapes = Array.isArray(dataStr.shape) ? dataStr.shape : [];
+                    exact.footprintBBox = dataStr.BBox || dataStr.bbox || null;
+                    exact.model3dName = dataStr?.head?.c_para?.['3DModel'] || '';
+                    exact.hasFootprint = exact.footprintShapes.length > 0;
+                    exact.has3d = !!exact.model3dName;
+                } else {
+                    exact.hasFootprint = false;
+                    exact.has3d = false;
+                }
+
+                this.metadataCache.set(normalizedPart, exact);
+                return exact;
             }
-            
-            return null;
-            
         } catch (error) {
-            console.error(`Failed to fetch LCSC component ${lcscPartNumber}:`, error);
-            this.corsBlocked = true;
-            return null;
+            console.error('EasyEDA metadata fetch error:', error);
         }
+
+        return null;
+    }
+
+    async fetchEasyedaProductImage(lcscPartNumber) {
+        const normalizedPart = this._normalizeQuery(lcscPartNumber);
+        if (!normalizedPart) return '';
+
+        if (this.imageCache.has(normalizedPart)) {
+            return this.imageCache.get(normalizedPart);
+        }
+
+        const targetUrl = `https://easyeda.com/api/eda/product/img/${encodeURIComponent(normalizedPart)}?version=${this.easyedaVersion}`;
+        const result = await this._fetchJsonWithProxies(targetUrl);
+        const url = result?.data?.result || '';
+        if (url) {
+            this.imageCache.set(normalizedPart, url);
+        }
+        return url;
     }
     
     /**

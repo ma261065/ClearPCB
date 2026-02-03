@@ -83,6 +83,9 @@ export function rotateComponent(app) {
     if (app.placingComponent) {
         app.componentRotation = (app.componentRotation + 90) % 360;
         createComponentPreview(app, app.placingComponent);
+        if (app.lastCrosshairWorld) {
+            updateComponentPreview(app, app.lastCrosshairWorld);
+        }
     } else {
         const selected = app._getSelectedComponents();
         for (const comp of selected) {
@@ -98,6 +101,9 @@ export function mirrorComponent(app) {
     if (app.placingComponent) {
         app.componentMirror = !app.componentMirror;
         createComponentPreview(app, app.placingComponent);
+        if (app.lastCrosshairWorld) {
+            updateComponentPreview(app, app.lastCrosshairWorld);
+        }
     } else {
         const selected = app._getSelectedComponents();
         for (const comp of selected) {

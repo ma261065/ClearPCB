@@ -97,23 +97,37 @@ export class SearchManager {
             return [];
         }
 
+        const normalizedQuery = /^c\d+$/i.test(query.trim())
+            ? query.trim().toUpperCase()
+            : query.trim();
+
         // Check in-memory cache first
-        const cacheKey = `lcsc:${query.toLowerCase()}`;
+        const cacheKey = `lcsc:${normalizedQuery}`;
         if (this.searchCache.has(cacheKey)) {
-            this.stats.cacheHits++;
-            console.log('SearchManager: LCSC cache hit');
-            return this.searchCache.get(cacheKey);
+            const cached = this.searchCache.get(cacheKey);
+            const hasThumbs = Array.isArray(cached) && cached.some(item => item && item.thumbUrl);
+            if (hasThumbs) {
+                this.stats.cacheHits++;
+                console.log('SearchManager: LCSC cache hit');
+                return cached;
+            }
+            this.searchCache.delete(cacheKey);
         }
 
         this.stats.cacheMisses++;
         this.stats.searchCount++;
 
         try {
-            const results = await this.library.searchLCSC(query);
+            const results = await this.library.searchLCSC(normalizedQuery);
+
+            // Do not cache proxy/CORS error results
+            if (results && results.length === 1 && results[0]?.error) {
+                return results;
+            }
             
-            // Cache the results (12-hour TTL for online data)
+            // Cache the results (24-hour TTL for online data)
             this.searchCache.set(cacheKey, results);
-            storageManager.set(`clearpcb_search_lcsc_${query}`, results, 12 * 60 * 60);
+            storageManager.set(`clearpcb_search_lcsc_${normalizedQuery}`, results, 24 * 60 * 60);
             
             return results || [];
         } catch (error) {

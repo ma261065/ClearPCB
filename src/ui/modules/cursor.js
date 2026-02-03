@@ -3,6 +3,8 @@ export function updateCrosshair(app, snapped, screenPosOverride = null) {
     const w = app.container.clientWidth;
     const h = app.container.clientHeight;
 
+    app.lastCrosshairWorld = { x: snapped.x, y: snapped.y };
+
     app.crosshair.lineX.setAttribute('x1', 0);
     app.crosshair.lineX.setAttribute('y1', screenPos.y);
     app.crosshair.lineX.setAttribute('x2', w);

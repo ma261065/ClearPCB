@@ -190,6 +190,8 @@ export async function saveFile(app) {
     } else if (!result.cancelled) {
         alert('Failed to save: ' + (result.error || 'Unknown error'));
     }
+
+    return result;
 }
 
 export async function saveFileAs(app) {
@@ -202,6 +204,8 @@ export async function saveFileAs(app) {
     } else if (!result.cancelled) {
         alert('Failed to save: ' + (result.error || 'Unknown error'));
     }
+
+    return result;
 }
 
 export async function openFile(app) {
