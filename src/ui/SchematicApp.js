@@ -50,6 +50,33 @@ const ShapeClasses = { Line, Wire, Circle, Rect, Arc, Polygon, Text };
 
 class SchematicApp {
     constructor() {
+        // Check for auto-saved content before initializing anything else
+        // (FileManager is needed for this)
+        this.fileManager = new FileManager();
+        // If there is autosave, prompt and load it before any other state is created
+        if (this.fileManager.hasAutoSave()) {
+            const saved = this.fileManager.loadAutoSave();
+            if (saved && saved.data) {
+                const hasContent = (saved.data.shapes && saved.data.shapes.length > 0) ||
+                                   (saved.data.components && saved.data.components.length > 0);
+                if (hasContent) {
+                    const time = new Date(saved.timestamp).toLocaleString();
+                    if (confirm(`Found auto-saved content from ${time}.\n\nRecover it?`)) {
+                        // Minimal state for loadDocument
+                        this.shapes = [];
+                        this.components = [];
+                        // UI elements needed for loadDocument
+                        this.ui = {};
+                        // Load document after rest of constructor
+                        this._pendingAutoLoad = saved.data;
+                        this.fileManager.setDirty(true);
+                        console.log('Recovered auto-saved content');
+                    } else {
+                        this.fileManager.clearAutoSave();
+                    }
+                }
+            }
+        }
         this.container = document.getElementById('canvasContainer');
         this.viewport = new Viewport(this.container);
         this.eventBus = globalEventBus;
@@ -58,7 +85,7 @@ class SchematicApp {
                 this._updateUndoRedoButtons();
             }
         });
-        this.fileManager = new FileManager();
+        // fileManager already created above
         this.fileManager.onDirtyChanged = () => this._updateTitle();
         this.fileManager.onFileNameChanged = () => this._updateTitle();
 
@@ -175,8 +202,7 @@ class SchematicApp {
         this.viewport.resetView();
         this._updateTitle();
 
-        // Check for auto-saved content
-        this._checkAutoSave();
+
 
         // Start auto-save
         this.fileManager.startAutoSave(() => this._serializeDocument());
@@ -188,6 +214,16 @@ class SchematicApp {
                 e.returnValue = '';
             }
         });
+
+
+        // If we have a pending auto-load, do it now that everything is ready
+        if (this._pendingAutoLoad) {
+            // Use the same logic as loadDocument
+            import('./modules/files.js').then(FileTools => {
+                FileTools.loadDocument(this, this._pendingAutoLoad);
+                this._pendingAutoLoad = null;
+            });
+        }
 
         // Load version after a brief delay to ensure DOM is ready
         setTimeout(() => this._loadVersion(), 100);

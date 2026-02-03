@@ -104,8 +104,9 @@ export function createComponentFromData(app, data) {
 }
 
 export function updateTitle(app) {
-    const dirty = app.fileManager.isDirty ? '• ' : '';
-    const title = `${dirty}${app.fileManager.fileName} - ClearPCB`;
+    const dirty = app.fileManager.isDirty ? '•' : '';
+    // Format: ClearPCB (•mike.json) or ClearPCB (mike.json)
+    const title = `ClearPCB (${dirty}${app.fileManager.fileName})`;
     document.title = title;
 
     if (app.ui.docTitle) {
