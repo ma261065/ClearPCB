@@ -1,18 +1,18 @@
 export function bindRibbon(app) {
-    const showSaveToast = (buttonEl, text = 'Saved') => {
-        if (!buttonEl) return;
+    const showSaveToast = (anchorEl, text = 'Saved') => {
+        if (!anchorEl) return;
         const existing = document.getElementById('ribbon-save-toast');
         if (existing) {
             existing.remove();
         }
 
-        const rect = buttonEl.getBoundingClientRect();
+        const rect = anchorEl.getBoundingClientRect();
         const toast = document.createElement('div');
         toast.id = 'ribbon-save-toast';
         toast.className = 'ribbon-save-toast';
         toast.textContent = text;
         toast.style.left = `${rect.left + rect.width / 2}px`;
-        toast.style.top = `${rect.top - 6}px`;
+        toast.style.top = `${rect.bottom + 6}px`;
         document.body.appendChild(toast);
 
         requestAnimationFrame(() => {
@@ -23,6 +23,11 @@ export function bindRibbon(app) {
             toast.classList.remove('show');
             window.setTimeout(() => toast.remove(), 200);
         }, 900);
+    };
+
+    app._showSaveToast = (text = 'Saved') => {
+        const anchor = document.getElementById('docTitle');
+        showSaveToast(anchor, text);
     };
 
     const tabs = document.querySelectorAll('.ribbon-tab');
@@ -55,13 +60,13 @@ export function bindRibbon(app) {
     saveButton?.addEventListener('click', async () => {
         const result = await app.saveFile();
         if (result?.success) {
-            showSaveToast(saveButton, 'Saved');
+            app._showSaveToast?.('Saved');
         }
     });
     saveAsButton?.addEventListener('click', async () => {
         const result = await app.saveFileAs();
         if (result?.success) {
-            showSaveToast(saveAsButton, 'Saved');
+            app._showSaveToast?.('Saved');
         }
     });
     get('ribbonExportPdf')?.addEventListener('click', () => app.savePdf());

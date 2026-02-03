@@ -9,6 +9,7 @@ export class FileManager {
         // Current file handle (for "Save" without prompting)
         this.fileHandle = null;
         this.fileName = 'untitled.json';
+        this.filePath = null;
         this.isDirty = false;
         
         // Auto-save key for localStorage
@@ -47,6 +48,17 @@ export class FileManager {
         this.fileName = name;
         if (this.onFileNameChanged) {
             this.onFileNameChanged(name);
+        }
+    }
+
+    setFilePath(path) {
+        this.filePath = path;
+        if (!this.fileName && path) {
+            const parts = String(path).split(/[\\/]/);
+            const name = parts[parts.length - 1];
+            if (name) {
+                this.setFileName(name);
+            }
         }
     }
     
@@ -92,6 +104,7 @@ export class FileManager {
             
             this.fileHandle = handle;
             this.setFileName(handle.name);
+            this.setFilePath(handle.name);
             this.setDirty(false);
             
             return { success: true, fileName: handle.name };
@@ -113,6 +126,9 @@ export class FileManager {
             const json = JSON.stringify(data, null, 2);
             await writable.write(json);
             await writable.close();
+            if (handle?.name) {
+                this.setFilePath(handle.name);
+            }
             this.setDirty(false);
             return { success: true, fileName: handle.name };
         } catch (err) {
@@ -173,6 +189,7 @@ export class FileManager {
             
             this.fileHandle = handle;
             this.setFileName(handle.name);
+            this.setFilePath(handle.name);
             this.setDirty(false);
             
             return { success: true, data, fileName: handle.name };
@@ -207,6 +224,7 @@ export class FileManager {
                     
                     this.fileHandle = null; // Can't save back to same file with this method
                     this.setFileName(file.name);
+                    this.setFilePath(file.name);
                     this.setDirty(false);
                     
                     resolve({ success: true, data, fileName: file.name });
@@ -304,6 +322,7 @@ export class FileManager {
     newDocument() {
         this.fileHandle = null;
         this.setFileName('untitled.json');
+        this.setFilePath(null);
         this.setDirty(false);
         return { shapes: [], version: 1 };
     }

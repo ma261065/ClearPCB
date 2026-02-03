@@ -110,6 +110,7 @@ export function updateTitle(app) {
 
     if (app.ui.docTitle) {
         app.ui.docTitle.textContent = `${dirty}${app.fileManager.fileName}`;
+        app.ui.docTitle.title = app.fileManager.filePath || app.fileManager.fileName;
     }
 }
 
@@ -186,6 +187,7 @@ export async function saveFile(app) {
 
     if (result.success) {
         app._updateTitle();
+        app._showSaveToast?.('Saved');
         console.log('Saved:', result.fileName);
     } else if (!result.cancelled) {
         alert('Failed to save: ' + (result.error || 'Unknown error'));
@@ -200,6 +202,7 @@ export async function saveFileAs(app) {
 
     if (result.success) {
         app._updateTitle();
+        app._showSaveToast?.('Saved');
         console.log('Saved as:', result.fileName);
     } else if (!result.cancelled) {
         alert('Failed to save: ' + (result.error || 'Unknown error'));

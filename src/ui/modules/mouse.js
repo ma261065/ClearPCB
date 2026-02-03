@@ -7,6 +7,11 @@ export function bindMouseEvents(app) {
         if (e.button !== 0) return;
         if (app.viewport.isPanning) return;
 
+        const activeTab = document.querySelector('.ribbon-tab.active');
+        if (activeTab?.dataset?.tab === 'file') {
+            app._setActiveRibbonTab?.('home');
+        }
+
         app.didDrag = false;
 
         const rect = svg.getBoundingClientRect();
