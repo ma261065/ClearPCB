@@ -49,30 +49,71 @@ import {
 const ShapeClasses = { Line, Wire, Circle, Rect, Arc, Polygon, Text };
 
 class SchematicApp {
+
     constructor() {
         // Check for auto-saved content before initializing anything else
         // (FileManager is needed for this)
         this.fileManager = new FileManager();
-        // If there is autosave, prompt and load it before any other state is created
-        if (this.fileManager.hasAutoSave()) {
-            const saved = this.fileManager.loadAutoSave();
-            if (saved && saved.data) {
-                const hasContent = (saved.data.shapes && saved.data.shapes.length > 0) ||
-                                   (saved.data.components && saved.data.components.length > 0);
-                if (hasContent) {
-                    const time = new Date(saved.timestamp).toLocaleString();
-                    if (confirm(`Found auto-saved content from ${time}.\n\nRecover it?`)) {
-                        // Minimal state for loadDocument
-                        this.shapes = [];
-                        this.components = [];
-                        // UI elements needed for loadDocument
-                        this.ui = {};
-                        // Load document after rest of constructor
-                        this._pendingAutoLoad = saved.data;
-                        this.fileManager.setDirty(true);
-                        console.log('Recovered auto-saved content');
-                    } else {
-                        this.fileManager.clearAutoSave();
+        // Present a list of autosaved files for recovery (only if valid entries exist)
+        let index = [];
+        try {
+            index = JSON.parse(localStorage.getItem(this.fileManager.autoSavePrefix + 'index')) || [];
+        } catch {}
+        // Remove autosaves older than 7 days (age out old autosaves)
+        const now = Date.now();
+        const weekMs = 7 * 24 * 60 * 60 * 1000;
+        let changed = false;
+        index = index.filter(entry => {
+            // Remove if missing or too old
+            const isOrphan = !localStorage.getItem(entry.key);
+            const isOld = (now - entry.timestamp) > weekMs;
+            if (isOrphan || isOld) {
+                localStorage.removeItem(entry.key);
+                changed = true;
+                return false;
+            }
+            return true;
+        });
+        if (changed) {
+            localStorage.setItem(this.fileManager.autoSavePrefix + 'index', JSON.stringify(index));
+        }
+        if (index.length > 0) {
+            // Sort by timestamp desc
+            index.sort((a, b) => b.timestamp - a.timestamp);
+            let listMsg = 'Autosaved files found:\n';
+            index.forEach((entry, i) => {
+                const time = new Date(entry.timestamp).toLocaleString();
+                listMsg += `${i + 1}. ${entry.fileName} (saved ${time})\n`;
+            });
+            listMsg += '\nEnter the number to recover, or D<number> to delete:';
+            let choice = prompt(listMsg);
+            if (choice) {
+                choice = choice.trim();
+                if (/^d\d+$/i.test(choice)) {
+                    // Delete entry
+                    const idx = parseInt(choice.slice(1)) - 1;
+                    if (index[idx]) {
+                        this.fileManager.clearAutoSave(index[idx].fileName);
+                        alert(`Deleted autosave for ${index[idx].fileName}`);
+                        // Optionally, reload to re-prompt
+                        location.reload();
+                        return;
+                    }
+                } else {
+                    const idx = parseInt(choice) - 1;
+                    if (index[idx]) {
+                        const saved = this.fileManager.loadAutoSave(index[idx].fileName);
+                        if (saved && saved.data) {
+                            this.shapes = [];
+                            this.components = [];
+                            this.ui = {};
+                            this._pendingAutoLoad = saved.data;
+                            if (saved.fileName) {
+                                this.fileManager.setFileName(saved.fileName);
+                            }
+                            this.fileManager.setDirty(true);
+                            console.log('Recovered auto-saved content');
+                        }
                     }
                 }
             }

@@ -12,8 +12,8 @@ export class FileManager {
         this.filePath = null;
         this.isDirty = false;
         
-        // Auto-save key for localStorage
-        this.autoSaveKey = 'clearpcb_autosave';
+        // Auto-save key prefix for localStorage
+        this.autoSavePrefix = 'clearpcb_autosave_';
         this.autoSaveInterval = 10000; // 10 seconds
         this.autoSaveTimer = null;
         
@@ -68,11 +68,20 @@ export class FileManager {
      * Save to current file (or Save As if no file)
      */
     async save(data) {
+        let oldFileName = this.fileName;
+        let result;
         if (this.fileHandle) {
-            return this.saveToHandle(data, this.fileHandle);
+            // Ensure fileName is up to date
+            if (this.fileHandle.name) this.setFileName(this.fileHandle.name);
+            result = await this.saveToHandle(data, this.fileHandle);
         } else {
-            return this.saveAs(data);
+            result = await this.saveAs(data);
         }
+        // If the file name changed from untitled.json, delete the old autosave
+        if (oldFileName && oldFileName !== this.fileName && oldFileName === 'untitled.json') {
+            this.clearAutoSave('untitled.json');
+        }
+        return result;
     }
     
     /**
@@ -80,9 +89,18 @@ export class FileManager {
      */
     async saveAs(data) {
         if (this.hasFileSystemAccess()) {
-            return this.saveWithFilePicker(data);
+            const result = await this.saveWithFilePicker(data);
+            // If the file name changed from untitled.json, delete the old autosave
+            if (this.fileName !== 'untitled.json') {
+                this.clearAutoSave('untitled.json');
+            }
+            return result;
         } else {
-            return this.saveWithDownload(data);
+            const result = await this.saveWithDownload(data);
+            if (this.fileName !== 'untitled.json') {
+                this.clearAutoSave('untitled.json');
+            }
+            return result;
         }
     }
     
@@ -164,9 +182,13 @@ export class FileManager {
      */
     async open() {
         if (this.hasFileSystemAccess()) {
-            return this.openWithFilePicker();
+            const result = await this.openWithFilePicker();
+            if (result && result.fileName) this.setFileName(result.fileName);
+            return result;
         } else {
-            return this.openWithInput();
+            const result = await this.openWithInput();
+            if (result && result.fileName) this.setFileName(result.fileName);
+            return result;
         }
     }
     
@@ -245,7 +267,6 @@ export class FileManager {
      */
     startAutoSave(getDataFn) {
         this.stopAutoSave();
-        
         this.autoSaveTimer = setInterval(() => {
             if (this.isDirty) {
                 this.autoSaveToStorage(getDataFn());
@@ -268,12 +289,25 @@ export class FileManager {
      */
     autoSaveToStorage(data) {
         try {
+            const key = this.autoSavePrefix + encodeURIComponent(this.fileName || 'untitled');
             const json = JSON.stringify({
                 timestamp: Date.now(),
                 fileName: this.fileName,
                 data: data
             });
-            localStorage.setItem(this.autoSaveKey, json);
+            localStorage.setItem(key, json);
+            // Update autosave index
+            let index = [];
+            try {
+                index = JSON.parse(localStorage.getItem(this.autoSavePrefix + 'index')) || [];
+            } catch {}
+            const existing = index.find(i => i.fileName === this.fileName);
+            if (!existing) {
+                index.push({ fileName: this.fileName, key, timestamp: Date.now() });
+            } else {
+                existing.timestamp = Date.now();
+            }
+            localStorage.setItem(this.autoSavePrefix + 'index', JSON.stringify(index));
             console.log('Auto-saved to localStorage');
         } catch (err) {
             console.error('Auto-save failed:', err);
@@ -284,17 +318,36 @@ export class FileManager {
      * Check if there's an auto-saved document
      */
     hasAutoSave() {
-        return localStorage.getItem(this.autoSaveKey) !== null;
+        // Returns true if any autosave exists
+        let index = [];
+        try {
+            index = JSON.parse(localStorage.getItem(this.autoSavePrefix + 'index')) || [];
+        } catch {}
+        return index.length > 0;
     }
     
     /**
      * Load auto-saved document
      */
-    loadAutoSave() {
+    loadAutoSave(fileName) {
+        // If fileName is provided, load that autosave; else load the most recent
         try {
-            const json = localStorage.getItem(this.autoSaveKey);
+            let key;
+            if (fileName) {
+                key = this.autoSavePrefix + encodeURIComponent(fileName);
+            } else {
+                // Load most recent from index
+                let index = [];
+                try {
+                    index = JSON.parse(localStorage.getItem(this.autoSavePrefix + 'index')) || [];
+                } catch {}
+                if (index.length === 0) return null;
+                // Sort by timestamp desc
+                index.sort((a, b) => b.timestamp - a.timestamp);
+                key = index[0].key;
+            }
+            const json = localStorage.getItem(key);
             if (!json) return null;
-            
             const saved = JSON.parse(json);
             return {
                 timestamp: saved.timestamp,
@@ -310,8 +363,24 @@ export class FileManager {
     /**
      * Clear auto-saved document
      */
-    clearAutoSave() {
-        localStorage.removeItem(this.autoSaveKey);
+    clearAutoSave(fileName) {
+        // Remove autosave for a specific file, or all if no fileName
+        let index = [];
+        try {
+            index = JSON.parse(localStorage.getItem(this.autoSavePrefix + 'index')) || [];
+        } catch {}
+        if (fileName) {
+            const key = this.autoSavePrefix + encodeURIComponent(fileName);
+            localStorage.removeItem(key);
+            index = index.filter(i => i.fileName !== fileName);
+        } else {
+            // Remove all autosaves
+            for (const entry of index) {
+                localStorage.removeItem(entry.key);
+            }
+            index = [];
+        }
+        localStorage.setItem(this.autoSavePrefix + 'index', JSON.stringify(index));
     }
     
     // ==================== New Document ====================
