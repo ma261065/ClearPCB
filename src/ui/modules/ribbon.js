@@ -72,6 +72,16 @@ export function bindRibbon(app) {
     get('ribbonExportPdf')?.addEventListener('click', () => app.savePdf());
     get('ribbonPrint')?.addEventListener('click', () => app.print());
     get('ribbonClearComponentCache')?.addEventListener('click', () => app._clearComponentCaches?.());
+    const tooltipToggle = get('ribbonToggleComponentTooltip');
+    if (tooltipToggle) {
+        tooltipToggle.checked = app.showComponentDebugTooltip !== false;
+        tooltipToggle.addEventListener('change', () => {
+            app.showComponentDebugTooltip = tooltipToggle.checked;
+            if (!tooltipToggle.checked) {
+                app._updateComponentCodeTooltip?.(null, null, { forceHide: true });
+            }
+        });
+    }
 
     get('ribbonDelete')?.addEventListener('click', () => app._deleteSelected());
     get('ribbonToggleLock')?.addEventListener('click', () => app._toggleSelectionLock());

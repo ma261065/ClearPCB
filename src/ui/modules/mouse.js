@@ -254,11 +254,13 @@ export function bindMouseEvents(app) {
             y: e.clientY - rect.top
         };
         const worldPos = app.viewport.screenToWorld(screenPos);
-        const hitComponent = app._findComponentAt?.(worldPos);
-        if (hitComponent) {
-            app._pinComponentCodeTooltip?.(hitComponent, screenPos);
-        } else {
-            app._updateComponentCodeTooltip?.(null, null, { forceHide: true });
+        if (app.showComponentDebugTooltip !== false) {
+            const hitComponent = app._findComponentAt?.(worldPos);
+            if (hitComponent) {
+                app._pinComponentCodeTooltip?.(hitComponent, screenPos);
+            } else {
+                app._updateComponentCodeTooltip?.(null, null, { forceHide: true });
+            }
         }
         if (app.currentTool !== 'select') {
             app._setToolCursor(app.currentTool, app.viewport.svg);
@@ -275,7 +277,7 @@ export function bindMouseEvents(app) {
         const worldPos = app.viewport.screenToWorld(screenPos);
         const snapped = app.viewport.getSnappedPosition(worldPos);
 
-        if (!app.isDragging && !app.viewport.isPanning && !app.placingComponent && !app._componentCodeTooltipPinned) {
+        if (!app.isDragging && !app.viewport.isPanning && !app.placingComponent && !app._componentCodeTooltipPinned && app.showComponentDebugTooltip !== false) {
             const hitComponent = app._findComponentAt?.(worldPos);
             app._updateComponentCodeTooltip?.(hitComponent, screenPos);
         } else {

@@ -247,6 +247,7 @@ class SchematicApp {
         this._componentCodeTooltipActiveId = null;
         this._componentCodeTooltipPinned = false;
         this._componentCodeTooltipPosition = null;
+        this.showComponentDebugTooltip = false;
         this._componentCodeTooltip.addEventListener('click', (e) => {
             if (e.target?.classList?.contains('component-code-tooltip-close')) {
                 this._updateComponentCodeTooltip(null, null, { forceHide: true });
@@ -710,6 +711,14 @@ class SchematicApp {
     _updateComponentCodeTooltip(component, screenPos, options = {}) {
         const tooltip = this._componentCodeTooltip;
         if (!tooltip) return;
+
+        if (!this.showComponentDebugTooltip && !options.forceHide) {
+            tooltip.style.display = 'none';
+            this._componentCodeTooltipActiveId = null;
+            this._componentCodeTooltipPinned = false;
+            this._componentCodeTooltipPosition = null;
+            return;
+        }
 
         const raw = component?.definition?.symbol?._easyedaRawShapes;
         if (options.forceHide || !component || !Array.isArray(raw) || raw.length === 0) {
