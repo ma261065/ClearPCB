@@ -72,7 +72,7 @@ export class Component {
         // Include pins in bounds
         if (symbol.pins) {
             for (const pin of symbol.pins) {
-                const length = pin.length ?? 2.54;
+                    const length = Number.isFinite(pin.length) ? pin.length : 0;
                 let px = pin.x, py = pin.y;
                 
                 // Extend to pin tip based on orientation
@@ -221,7 +221,8 @@ export class Component {
                 const pinGroup = this._createPinElement(pin, ns);
                 if (pinGroup) {
                     group.appendChild(pinGroup);
-                    this.pinElements.set(pin.number, pinGroup);
+                    const pinKey = pin._key || pin._id || pin.number || `${pin.x},${pin.y}`;
+                    this.pinElements.set(pinKey, pinGroup);
                 }
             }
         }
@@ -232,7 +233,7 @@ export class Component {
 
     _createPinElement(pin, ns) {
         const group = document.createElementNS(ns, 'g');
-        const length = pin.length ?? 2.54;
+            const length = Number.isFinite(pin.length) ? pin.length : 0;
         
         const x1 = pin.x; 
         const y1 = pin.y;
@@ -241,11 +242,12 @@ export class Component {
         let nameX, nameY, nameAnchor;
         let numX, numY, numAnchor;
         let nameRot = 0;
+        let numRot = 0;
         
         const labelOffset = length + 0.2; 
         const isActiveLow = pin.bubble || pin.name?.includes('~') || pin.name?.includes('/');
         const bubbleRadius = 0.6;
-        const dotRadius = 0.45;
+        const dotRadius = 0.35;
 
         // BODY-ANCHOR LOGIC
         // We ensure the number stays close to the body/bubble so it doesn't drift into the connection dot.
@@ -259,24 +261,59 @@ export class Component {
         switch (pin.orientation) {
             case 'right':
                 x2 = x1 + length; 
-                nameX = x1 + labelOffset; nameY = y1; nameAnchor = 'start';
-                numX = x1 + numPos; numY = y1 - numOffsetLR; numAnchor = 'middle';
                 break;
             case 'left':
                 x2 = x1 - length;
-                nameX = x1 - labelOffset; nameY = y1; nameAnchor = 'end';
-                numX = x1 - numPos; numY = y1 - numOffsetLR; numAnchor = 'middle';
                 break;
             case 'up':
                 y2 = y1 - length;
-                nameX = x1; nameY = y1 - labelOffset; nameAnchor = 'end'; nameRot = 90;
-                numX = x1 - numOffsetUD; numY = y1 - numPos; numAnchor = 'middle';
                 break;
             case 'down':
                 y2 = y1 + length;
-                nameX = x1; nameY = y1 + labelOffset; nameAnchor = 'start'; nameRot = 90;
-                numX = x1 - numOffsetUD; numY = y1 + numPos; numAnchor = 'middle';
                 break;
+        }
+
+        const hasNamePos = pin.namePos && Number.isFinite(pin.namePos.x) && Number.isFinite(pin.namePos.y);
+        const hasNumberPos = pin.numberPos && Number.isFinite(pin.numberPos.x) && Number.isFinite(pin.numberPos.y);
+        const allowInfer = !(this.symbol?._source === 'EasyEDA');
+
+        if (hasNamePos) {
+            nameX = pin.namePos.x;
+            nameY = pin.namePos.y;
+            nameAnchor = pin.namePos.anchor || nameAnchor;
+            if (Number.isFinite(pin.namePos.rotation)) {
+                nameRot = pin.namePos.rotation;
+            }
+        }
+
+        if (hasNumberPos) {
+            numX = pin.numberPos.x;
+            numY = pin.numberPos.y;
+            numAnchor = pin.numberPos.anchor || numAnchor;
+            if (Number.isFinite(pin.numberPos.rotation)) {
+                numRot = pin.numberPos.rotation;
+            }
+        }
+
+        if (allowInfer && (!hasNamePos || !hasNumberPos)) {
+            switch (pin.orientation) {
+                case 'right':
+                    if (!hasNamePos) { nameX = x1 + labelOffset; nameY = y1; nameAnchor = 'start'; }
+                    if (!hasNumberPos) { numX = x1 + numPos; numY = y1 - numOffsetLR; numAnchor = 'middle'; }
+                    break;
+                case 'left':
+                    if (!hasNamePos) { nameX = x1 - labelOffset; nameY = y1; nameAnchor = 'end'; }
+                    if (!hasNumberPos) { numX = x1 - numPos; numY = y1 - numOffsetLR; numAnchor = 'middle'; }
+                    break;
+                case 'up':
+                    if (!hasNamePos) { nameX = x1; nameY = y1 - labelOffset; nameAnchor = 'end'; nameRot = 90; }
+                    if (!hasNumberPos) { numX = x1 - numOffsetUD; numY = y1 - numPos; numAnchor = 'middle'; }
+                    break;
+                case 'down':
+                    if (!hasNamePos) { nameX = x1; nameY = y1 + labelOffset; nameAnchor = 'start'; nameRot = 90; }
+                    if (!hasNumberPos) { numX = x1 - numOffsetUD; numY = y1 + numPos; numAnchor = 'middle'; }
+                    break;
+            }
         }
 
         let lineX2 = x2, lineY2 = y2;
@@ -292,7 +329,7 @@ export class Component {
         line.setAttribute('x1', x1); line.setAttribute('y1', y1);
         line.setAttribute('x2', lineX2); line.setAttribute('y2', lineY2);
         line.setAttribute('stroke', 'var(--sch-pin, #aa0000)');
-        line.setAttribute('stroke-width', 0.254);
+        line.setAttribute('stroke-width', 0.2);
         group.appendChild(line);
 
         const dot = document.createElementNS(ns, 'circle');
@@ -319,14 +356,23 @@ export class Component {
 
         const shouldShowName = pin.name && pin.showName !== false && pin.name !== pin.number;
 
-        if (shouldShowName) {
+        if (shouldShowName && (hasNamePos || allowInfer)) {
             const labelGroup = document.createElementNS(ns, 'g');
             const nameTxt = document.createElementNS(ns, 'text');
             const cleanName = pin.name.replace(/[{}]/g, '').replace(/[~/]/g, '');
-            nameTxt.setAttribute('font-size', 1.0);
+            const nameFontSize = (pin.namePos && Number.isFinite(pin.namePos.fontSize)) ? pin.namePos.fontSize : 1.0;
+            const nameFontFamily = (pin.namePos && pin.namePos.fontFamily) ? pin.namePos.fontFamily : (this.symbol?._source === 'EasyEDA' ? 'Verdana' : null);
+            nameTxt.setAttribute('font-size', nameFontSize);
+            if (nameFontFamily) {
+                nameTxt.setAttribute('font-family', nameFontFamily);
+            }
             nameTxt.setAttribute('fill', 'var(--sch-pin-name, #00cccc)'); 
-            nameTxt.setAttribute('text-anchor', nameAnchor);
-            nameTxt.setAttribute('dominant-baseline', 'middle');
+            if (nameAnchor) {
+                nameTxt.setAttribute('text-anchor', nameAnchor);
+            }
+            if (this.symbol?._source !== 'EasyEDA') {
+                nameTxt.setAttribute('dominant-baseline', 'middle');
+            }
             nameTxt.textContent = cleanName;
 
             if (nameRot !== 0) {
@@ -356,15 +402,30 @@ export class Component {
             group.appendChild(labelGroup);
         }
 
-        if (pin.number) {
+        if (pin.number && (hasNumberPos || allowInfer)) {
+            const numLabelGroup = document.createElementNS(ns, 'g');
             const numTxt = document.createElementNS(ns, 'text');
-            numTxt.setAttribute('x', numX); numTxt.setAttribute('y', numY);
-            numTxt.setAttribute('font-size', 0.7);
+            const numFontSize = (pin.numberPos && Number.isFinite(pin.numberPos.fontSize)) ? pin.numberPos.fontSize : 0.7;
+            const numFontFamily = (pin.numberPos && pin.numberPos.fontFamily) ? pin.numberPos.fontFamily : (this.symbol?._source === 'EasyEDA' ? 'Verdana' : null);
+            numTxt.setAttribute('font-size', numFontSize);
+            if (numFontFamily) {
+                numTxt.setAttribute('font-family', numFontFamily);
+            }
             numTxt.setAttribute('fill', 'var(--sch-pin-number, #aa0000)');
-            numTxt.setAttribute('text-anchor', numAnchor);
-            numTxt.setAttribute('dominant-baseline', 'middle');
+            if (numAnchor) {
+                numTxt.setAttribute('text-anchor', numAnchor);
+            }
+            if (this.symbol?._source !== 'EasyEDA') {
+                numTxt.setAttribute('dominant-baseline', 'middle');
+            }
             numTxt.textContent = pin.number;
-            group.appendChild(numTxt);
+            if (numRot !== 0) {
+                numLabelGroup.setAttribute('transform', `translate(${numX},${numY}) rotate(${numRot})`);
+            } else {
+                numTxt.setAttribute('x', numX); numTxt.setAttribute('y', numY);
+            }
+            numLabelGroup.appendChild(numTxt);
+            group.appendChild(numLabelGroup);
         }
         return group;
     }
@@ -419,6 +480,9 @@ export class Component {
         if (el) {
             el.setAttribute('stroke', stroke); el.setAttribute('fill', fill);
             el.setAttribute('stroke-width', g.strokeWidth || 0.254);
+            if (g.transform) {
+                el.setAttribute('transform', g.transform);
+            }
         }
         return el;
     }

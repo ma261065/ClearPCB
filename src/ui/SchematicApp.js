@@ -77,7 +77,27 @@ class SchematicApp {
         if (changed) {
             localStorage.setItem(this.fileManager.autoSavePrefix + 'index', JSON.stringify(index));
         }
-        if (index.length > 0) {
+        if (index.length === 1) {
+            const entry = index[0];
+            const time = new Date(entry.timestamp).toLocaleString();
+            if (confirm(`Recover autosaved file "${entry.fileName}" from ${time}?`)) {
+                const saved = this.fileManager.loadAutoSave(entry.fileName);
+                if (saved && saved.data) {
+                    this.shapes = [];
+                    this.components = [];
+                    this.ui = {};
+                    this._pendingAutoLoad = saved.data;
+                    if (saved.fileName) {
+                        this.fileManager.setFileName(saved.fileName);
+                    }
+                    this.fileManager.setDirty(true);
+                    console.log('Recovered auto-saved content');
+                }
+            } else {
+                // If declined, remove autosave
+                this.fileManager.clearAutoSave(entry.fileName);
+            }
+        } else if (index.length > 1) {
             // Sort by timestamp desc
             index.sort((a, b) => b.timestamp - a.timestamp);
             let listMsg = 'Autosaved files found:\n';
@@ -214,6 +234,24 @@ class SchematicApp {
             propFill: document.getElementById('propFill'),
             propTextSize: document.getElementById('propTextSize')
         };
+
+        // Component code tooltip (copyable)
+        this._componentCodeTooltip = document.createElement('div');
+        this._componentCodeTooltip.className = 'component-code-tooltip';
+        this._componentCodeTooltip.innerHTML = `
+            <div class="component-code-tooltip-title">Component code</div>
+            <button class="component-code-tooltip-close" title="Close">×</button>
+            <textarea class="component-code-tooltip-text" readonly></textarea>
+        `;
+        document.body.appendChild(this._componentCodeTooltip);
+        this._componentCodeTooltipActiveId = null;
+        this._componentCodeTooltipPinned = false;
+        this._componentCodeTooltipPosition = null;
+        this._componentCodeTooltip.addEventListener('click', (e) => {
+            if (e.target?.classList?.contains('component-code-tooltip-close')) {
+                this._updateComponentCodeTooltip(null, null, { forceHide: true });
+            }
+        });
 
         // Help panel now lives in ribbon
 
@@ -656,6 +694,83 @@ class SchematicApp {
 
         // Ribbon
         this._bindRibbon();
+    }
+
+    _findComponentAt(point) {
+        for (let i = this.components.length - 1; i >= 0; i--) {
+            const comp = this.components[i];
+            if (!comp?.visible) continue;
+            if (comp.hitTest(point, 0.5)) {
+                return comp;
+            }
+        }
+        return null;
+    }
+
+    _updateComponentCodeTooltip(component, screenPos, options = {}) {
+        const tooltip = this._componentCodeTooltip;
+        if (!tooltip) return;
+
+        const raw = component?.definition?.symbol?._easyedaRawShapes;
+        if (options.forceHide || !component || !Array.isArray(raw) || raw.length === 0) {
+            tooltip.style.display = 'none';
+            this._componentCodeTooltipActiveId = null;
+            this._componentCodeTooltipPinned = false;
+            this._componentCodeTooltipPosition = null;
+            return;
+        }
+
+        const textEl = tooltip.querySelector('.component-code-tooltip-text');
+        if (textEl && this._componentCodeTooltipActiveId !== component.id) {
+            textEl.value = raw.join('\n');
+            this._componentCodeTooltipActiveId = component.id;
+        }
+
+        const pad = 12;
+        const position = this._componentCodeTooltipPinned && this._componentCodeTooltipPosition
+            ? this._componentCodeTooltipPosition
+            : screenPos;
+        const maxX = window.innerWidth - tooltip.offsetWidth - pad;
+        const maxY = window.innerHeight - tooltip.offsetHeight - pad;
+        const left = Math.min(position.x + pad, Math.max(pad, maxX));
+        const top = Math.min(position.y + pad, Math.max(pad, maxY));
+
+        tooltip.style.left = `${left}px`;
+        tooltip.style.top = `${top}px`;
+        tooltip.style.display = 'block';
+    }
+
+    _pinComponentCodeTooltip(component, screenPos) {
+        if (!component || !screenPos) return;
+        this._componentCodeTooltipPinned = true;
+        this._componentCodeTooltipPosition = { ...screenPos };
+        this._updateComponentCodeTooltip(component, screenPos);
+    }
+
+    _clearComponentCaches() {
+        if (!confirm('Clear cached components and search results?')) {
+            return;
+        }
+
+        const prefixes = [
+            'clearpcb_component_',
+            'clearpcb_lcsc_component_',
+            'clearpcb_kicad_symbol_',
+            'clearpcb_search_'
+        ];
+
+        let removed = 0;
+        Object.keys(localStorage).forEach((key) => {
+            if (prefixes.some(prefix => key.startsWith(prefix))) {
+                localStorage.removeItem(key);
+                removed += 1;
+            }
+        });
+
+        this.componentPicker?.searchManager?.clearCache?.();
+
+        console.log(`Cleared component caches (${removed} entries)`);
+        this._showSaveToast?.('Cache cleared');
     }
     
     // Toggle between dark and light theme

@@ -77,6 +77,10 @@ export class FileManager {
         } else {
             result = await this.saveAs(data);
         }
+        // Persist a clean-state autosave after successful save
+        if (result && result.success) {
+            this.autoSaveToStorage(data);
+        }
         // If the file name changed from untitled.json, delete the old autosave
         if (oldFileName && oldFileName !== this.fileName && oldFileName === 'untitled.json') {
             this.clearAutoSave('untitled.json');
@@ -213,6 +217,8 @@ export class FileManager {
             this.setFileName(handle.name);
             this.setFilePath(handle.name);
             this.setDirty(false);
+            // Immediately autosave the opened document
+            this.autoSaveToStorage(data);
             
             return { success: true, data, fileName: handle.name };
         } catch (err) {
@@ -248,6 +254,8 @@ export class FileManager {
                     this.setFileName(file.name);
                     this.setFilePath(file.name);
                     this.setDirty(false);
+                    // Immediately autosave the opened document
+                    this.autoSaveToStorage(data);
                     
                     resolve({ success: true, data, fileName: file.name });
                 } catch (err) {
@@ -393,6 +401,8 @@ export class FileManager {
         this.setFileName('untitled.json');
         this.setFilePath(null);
         this.setDirty(false);
+        // Immediately autosave the new document
+        this.autoSaveToStorage({ shapes: [], version: 1 });
         return { shapes: [], version: 1 };
     }
 }

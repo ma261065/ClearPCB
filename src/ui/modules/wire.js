@@ -97,10 +97,12 @@ export function findNearbyPin(components, worldPos, tolerance = 0.5) {
             const dist = Math.hypot(worldPos.x - pinWorldX, worldPos.y - pinWorldY);
 
             if (dist < minDist) {
+                const pinKey = pin._key || pin._id || pin.number || `${pin.x},${pin.y}`;
                 minDist = dist;
                 nearest = {
                     component,
                     pin,
+                    pinKey,
                     distance: dist,
                     worldPos: { x: pinWorldX, y: pinWorldY }
                 };
@@ -112,8 +114,11 @@ export function findNearbyPin(components, worldPos, tolerance = 0.5) {
 }
 
 export function isSamePin(pin1, pin2) {
-    return pin1?.component?.id === pin2?.component?.id &&
-           pin1?.pin?.number === pin2?.pin?.number;
+    if (pin1?.component?.id !== pin2?.component?.id) return false;
+    const key1 = pin1?.pinKey || pin1?.pin?._key || pin1?.pin?._id || pin1?.pin?.number;
+    const key2 = pin2?.pinKey || pin2?.pin?._key || pin2?.pin?._id || pin2?.pin?.number;
+    if (key1 && key2) return key1 === key2;
+    return pin1?.pin?.number === pin2?.pin?.number;
 }
 
 export function pointsMatch(a, b, epsilon = 1e-6) {
@@ -376,6 +381,7 @@ export function finishWireDrawing(app, worldPos) {
 
 export function cancelWireDrawing(app) {
     app.wirePoints = [];
+    app._unhighlightPin();
     app.wireSnapPin = null;
     app.wireStartPin = null;
     app.wireAutoCorner = null;
@@ -383,7 +389,6 @@ export function cancelWireDrawing(app) {
     app.wireLastAdjustedPoint = null;
     app.wireLastWorldPos = null;
     app.wireTurned = false;
-    app._unhighlightPin();
 
     app.isDrawing = false;
     if (app.previewElement) {
@@ -442,28 +447,33 @@ export function updateWirePreview(app) {
 export function highlightPin(app, snapPin) {
     if (!snapPin || !snapPin.pin) return;
 
-    const pinGroup = snapPin.component.pinElements?.get(snapPin.pin.number);
+    const pinKey = snapPin.pinKey || snapPin.pin._key || snapPin.pin._id || snapPin.pin.number;
+    const pinGroup = snapPin.component.pinElements?.get(pinKey);
     if (pinGroup) {
         const dot = pinGroup.querySelector('circle');
         if (dot) {
             if (!dot.dataset.originalFill) {
                 dot.dataset.originalFill = dot.getAttribute('fill');
             }
+            if (!dot.dataset.originalRadius) {
+                dot.dataset.originalRadius = dot.getAttribute('r');
+            }
             dot.setAttribute('fill', '#ffff00');
-            dot.setAttribute('r', 0.7);
         }
     }
 }
 
 export function unhighlightPin(app) {
     if (app.wireSnapPin && app.wireSnapPin.pin) {
-        const pinGroup = app.wireSnapPin.component.pinElements?.get(app.wireSnapPin.pin.number);
+        const pinKey = app.wireSnapPin.pinKey || app.wireSnapPin.pin._key || app.wireSnapPin.pin._id || app.wireSnapPin.pin.number;
+        const pinGroup = app.wireSnapPin.component.pinElements?.get(pinKey);
         if (pinGroup) {
             const dot = pinGroup.querySelector('circle');
             if (dot) {
                 const originalFill = dot.dataset.originalFill || 'var(--sch-pin, #aa0000)';
                 dot.setAttribute('fill', originalFill);
-                dot.setAttribute('r', 0.45);
+                const originalRadius = dot.dataset.originalRadius || '0.35';
+                dot.setAttribute('r', originalRadius);
             }
         }
     }

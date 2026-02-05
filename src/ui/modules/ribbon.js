@@ -71,6 +71,7 @@ export function bindRibbon(app) {
     });
     get('ribbonExportPdf')?.addEventListener('click', () => app.savePdf());
     get('ribbonPrint')?.addEventListener('click', () => app.print());
+    get('ribbonClearComponentCache')?.addEventListener('click', () => app._clearComponentCaches?.());
 
     get('ribbonDelete')?.addEventListener('click', () => app._deleteSelected());
     get('ribbonToggleLock')?.addEventListener('click', () => app._toggleSelectionLock());

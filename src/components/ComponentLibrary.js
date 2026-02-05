@@ -31,7 +31,7 @@ export class ComponentLibrary {
         this.lcscFetcher = new LCSCFetcher();
 
         // EasyEDA symbol parser version (used to invalidate cached symbols)
-        this._easyedaSymbolParserVersion = '2026-02-04-2';
+        this._easyedaSymbolParserVersion = '2026-02-05-2';
         
         // KiCad fetcher (symbols, footprints)
         this.kicadFetcher = new KiCadFetcher();
@@ -342,7 +342,7 @@ export class ComponentLibrary {
             return null;
         }
 
-        const scale = 0.1;
+        const scale = 0.254;
         const bbox = dataStr.BBox || dataStr.bbox || null;
         const hasBBox = bbox && Number.isFinite(bbox.x) && Number.isFinite(bbox.y) && Number.isFinite(bbox.width) && Number.isFinite(bbox.height);
 
@@ -385,7 +385,7 @@ export class ComponentLibrary {
 
         for (const shape of dataStr.shape) {
             if (typeof shape !== 'string' || !shape.length) continue;
-            if (shape.startsWith('P~')) {
+            if (/^(P|PIN)~/i.test(shape)) {
                 const pin = this._parseEasyEDAPin(shape);
                 if (pin) {
                     rawPins.push(pin);
@@ -438,7 +438,7 @@ export class ComponentLibrary {
             && graphic.width >= widthRaw * 0.5
             && graphic.height >= heightRaw * 0.5);
 
-        if (!hasOutline && Number.isFinite(widthRaw) && Number.isFinite(heightRaw)) {
+        if (!hasOutline && rawGraphics.length === 0 && Number.isFinite(widthRaw) && Number.isFinite(heightRaw)) {
             rawGraphics.push({
                 type: 'rect',
                 x: minX,
@@ -488,7 +488,8 @@ export class ComponentLibrary {
             height,
             origin: { x: width / 2, y: height / 2 },
             graphics,
-            pins
+            pins,
+            _easyedaRawShapes: Array.isArray(dataStr.shape) ? [...dataStr.shape] : []
         };
     }
 
@@ -515,6 +516,22 @@ export class ComponentLibrary {
                     stroke: strokeColor,
                     strokeWidth: strokeWidthValue,
                     fill: 'none'
+                };
+            }
+            case 'PG': {
+                const coords = (parts[1] || '').trim().split(/\s+/).map(Number);
+                if (coords.length < 6) return null;
+                const points = [];
+                for (let i = 0; i < coords.length - 1; i += 2) {
+                    points.push([coords[i], coords[i + 1]]);
+                }
+                const fillColor = (parts[5] || '').trim();
+                return {
+                    type: 'polygon',
+                    points,
+                    stroke: strokeColor,
+                    strokeWidth: strokeWidthValue,
+                    fill: fillColor || 'none'
                 };
             }
             case 'L': {
@@ -573,6 +590,18 @@ export class ComponentLibrary {
                     fill: 'none'
                 };
             }
+            case 'PT': {
+                const d = (parts[1] || '').trim();
+                if (!d) return null;
+                const fillColor = (parts[5] || '').trim();
+                return {
+                    type: 'path',
+                    d,
+                    stroke: strokeColor,
+                    strokeWidth: strokeWidthValue,
+                    fill: fillColor || 'none'
+                };
+            }
             case 'E': {
                 const cx = Number(parts[1]);
                 const cy = Number(parts[2]);
@@ -597,19 +626,33 @@ export class ComponentLibrary {
     _parseEasyEDAPin(shape) {
         const segments = shape.split('^^');
         const header = segments[0].split('~');
-        if (header.length < 7) return null;
 
         const headerNumber = String(header[3] || '').trim();
-        const x = Number(header[4]);
-        const y = Number(header[5]);
-        const angle = Number(header[6]);
+        let x = Number(header[4]);
+        let y = Number(header[5]);
+        let angle = Number(header[6]);
+        const headerId = typeof header[7] === 'string' ? header[7].trim() : '';
+
+        // Fallback for shorter/variant headers (e.g., PIN~...)
+        if (!Number.isFinite(x) || !Number.isFinite(y)) {
+            const numeric = header.map(part => Number(part)).filter(Number.isFinite);
+            if (numeric.length >= 2) {
+                x = numeric[0];
+                y = numeric[1];
+                angle = Number.isFinite(numeric[2]) ? numeric[2] : angle;
+            }
+        }
 
         if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
 
         let orientation = this._easyedaAngleToOrientation(angle);
-        let length = 2.54;
+        let length = null;
 
-        const pathSegment = segments.find(seg => typeof seg === 'string' && seg.trim().startsWith('M '));
+        const pathSegment = segments.find(seg => {
+            if (typeof seg !== 'string') return false;
+            const trimmed = seg.trim();
+            return /^M\s*/i.test(trimmed);
+        });
         if (pathSegment) {
             const path = pathSegment.split('~')[0].trim();
             const parsed = this._parseEasyEDAPinPath(path);
@@ -621,13 +664,50 @@ export class ComponentLibrary {
 
         let name = '';
         let number = headerNumber;
+        let namePos = null;
+        let numberPos = null;
+        const labelEntries = [];
         for (const segment of segments.slice(1)) {
             if (typeof segment !== 'string' || !segment.includes('~')) continue;
             const parts = segment.split('~');
             if (parts.length < 5) continue;
+            const visibleFlag = Number(parts[0]);
+            if (Number.isFinite(visibleFlag) && visibleFlag === 0) continue;
             const text = String(parts[4] || '').trim();
             if (!text) continue;
-            if (!name && !/^\d+$/.test(text)) {
+            const labelX = Number(parts[1]);
+            const labelY = Number(parts[2]);
+            const labelRot = Number(parts[3]);
+            const labelAnchor = String(parts[5] || '').trim();
+            const labelFontFamily = String(parts[6] || '').trim() || null;
+            let labelFontSize = null;
+            const fontToken = String(parts[7] || '').trim();
+            if (fontToken) {
+                const parsed = parseFloat(fontToken.replace(/pt$/i, ''));
+                if (Number.isFinite(parsed)) {
+                    labelFontSize = parsed;
+                }
+            }
+            if (!Number.isFinite(labelFontSize)) {
+                labelFontSize = 7;
+            }
+            const pos = (Number.isFinite(labelX) && Number.isFinite(labelY))
+                ? {
+                    x: labelX,
+                    y: labelY,
+                    rotation: Number.isFinite(labelRot) ? labelRot : 0,
+                    anchor: (labelAnchor === 'start' || labelAnchor === 'end' || labelAnchor === 'middle')
+                        ? labelAnchor
+                        : undefined,
+                    fontFamily: labelFontFamily,
+                    fontSize: labelFontSize
+                }
+                : null;
+            if (pos) {
+                labelEntries.push({ text, pos });
+            }
+            // Preserve first encountered non-empty text as name, but positions are assigned by order below
+            if (!name && text) {
                 name = text;
             }
             if (!number && /^\d+$/.test(text)) {
@@ -635,7 +715,23 @@ export class ComponentLibrary {
             }
         }
 
+        if (labelEntries.length > 0) {
+            namePos = labelEntries[0].pos;
+            if (!name) {
+                name = labelEntries[0].text;
+            }
+        }
+
+        if (labelEntries.length > 1) {
+            numberPos = labelEntries[1].pos;
+            if (!number && /^\d+$/.test(labelEntries[1].text)) {
+                number = labelEntries[1].text;
+            }
+        }
+
         return {
+            _id: headerId || null,
+            _key: headerId || headerNumber || `${x},${y}`,
             number: number || '',
             name: name || number || '',
             x,
@@ -643,12 +739,14 @@ export class ComponentLibrary {
             orientation,
             length,
             type: 'passive',
-            shape: 'line'
+            shape: 'line',
+            namePos,
+            numberPos
         };
     }
 
     _parseEasyEDAPinPath(path) {
-        const hMatch = path.match(/M\s+(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)\s+h\s+(-?\d+(?:\.\d+)?)/i);
+        const hMatch = path.match(/M\s*(-?\d+(?:\.\d+)?)\s*[ ,]\s*(-?\d+(?:\.\d+)?)\s*h\s*(-?\d+(?:\.\d+)?)/i);
         if (hMatch) {
             const dx = Number(hMatch[3]);
             return {
@@ -657,7 +755,7 @@ export class ComponentLibrary {
             };
         }
 
-        const vMatch = path.match(/M\s+(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)\s+v\s+(-?\d+(?:\.\d+)?)/i);
+        const vMatch = path.match(/M\s*(-?\d+(?:\.\d+)?)\s*[ ,]\s*(-?\d+(?:\.\d+)?)\s*v\s*(-?\d+(?:\.\d+)?)/i);
         if (vMatch) {
             const dy = Number(vMatch[3]);
             return {
@@ -666,7 +764,7 @@ export class ComponentLibrary {
             };
         }
 
-        const lMatch = path.match(/M\s+(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)\s+L\s+(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)/i);
+        const lMatch = path.match(/M\s*(-?\d+(?:\.\d+)?)\s*[ ,]\s*(-?\d+(?:\.\d+)?)\s*L\s*(-?\d+(?:\.\d+)?)\s*[ ,]\s*(-?\d+(?:\.\d+)?)/i);
         if (lMatch) {
             const x1 = Number(lMatch[1]);
             const y1 = Number(lMatch[2]);
@@ -749,17 +847,39 @@ export class ComponentLibrary {
                     r: graphic.r * scale,
                     strokeWidth
                 };
+            case 'path':
+                return {
+                    ...graphic,
+                    transform: `translate(${(-offsetX) * scale},${(-offsetY) * scale}) scale(${scale})`,
+                    strokeWidth: graphic.strokeWidth
+                };
             default:
                 return graphic;
         }
     }
 
     _transformEasyEDAPin(pin, offsetX, offsetY, scale) {
+        const scaleFont = (pos) => {
+            if (!pos) return null;
+            const fontSize = Number.isFinite(pos.fontSize)
+                ? pos.fontSize * scale
+                : null;
+            return {
+                ...pos,
+                x: (pos.x - offsetX) * scale,
+                y: (pos.y - offsetY) * scale,
+                fontSize
+            };
+        };
+        const namePos = scaleFont(pin.namePos);
+        const numberPos = scaleFont(pin.numberPos);
         return {
             ...pin,
             x: (pin.x - offsetX) * scale,
             y: (pin.y - offsetY) * scale,
-            length: Number.isFinite(pin.length) ? pin.length * scale : 2.54
+            length: Number.isFinite(pin.length) ? pin.length * scale : null,
+            namePos,
+            numberPos
         };
     }
 

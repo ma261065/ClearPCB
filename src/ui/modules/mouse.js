@@ -248,6 +248,18 @@ export function bindMouseEvents(app) {
     });
 
     svg.addEventListener('contextmenu', (e) => {
+        const rect = svg.getBoundingClientRect();
+        const screenPos = {
+            x: e.clientX - rect.left,
+            y: e.clientY - rect.top
+        };
+        const worldPos = app.viewport.screenToWorld(screenPos);
+        const hitComponent = app._findComponentAt?.(worldPos);
+        if (hitComponent) {
+            app._pinComponentCodeTooltip?.(hitComponent, screenPos);
+        } else {
+            app._updateComponentCodeTooltip?.(null, null, { forceHide: true });
+        }
         if (app.currentTool !== 'select') {
             app._setToolCursor(app.currentTool, app.viewport.svg);
         }
@@ -262,6 +274,15 @@ export function bindMouseEvents(app) {
         };
         const worldPos = app.viewport.screenToWorld(screenPos);
         const snapped = app.viewport.getSnappedPosition(worldPos);
+
+        if (!app.isDragging && !app.viewport.isPanning && !app.placingComponent && !app._componentCodeTooltipPinned) {
+            const hitComponent = app._findComponentAt?.(worldPos);
+            app._updateComponentCodeTooltip?.(hitComponent, screenPos);
+        } else {
+            if (!app._componentCodeTooltipPinned) {
+                app._updateComponentCodeTooltip?.(null, screenPos);
+            }
+        }
 
         // Always update component preview if we are placing one.
         // This must happen before any tool-specific logic or returns.
