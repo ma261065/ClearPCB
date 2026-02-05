@@ -65,7 +65,7 @@ export class Viewport {
         this.maxZoomIndex = this.zoomLevels.length - 1;
         
         // Grid
-        this.gridSize = 1;
+        this.gridSize = 1.27;
         this.gridVisible = true;
         this.gridStyle = 'lines';
         

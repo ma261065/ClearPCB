@@ -58,37 +58,11 @@ export class Component {
         const symbol = this.symbol;
         if (!symbol) return null;
         
-        // Get symbol dimensions
-        const width = symbol.width || 10;
-        const height = symbol.height || 10;
-        const origin = symbol.origin || { x: width / 2, y: height / 2 };
-        
-        // Local bounds (relative to component origin)
-        let minX = -origin.x;
-        let minY = -origin.y;
-        let maxX = width - origin.x;
-        let maxY = height - origin.y;
-        
-        // Include pins in bounds
-        if (symbol.pins) {
-            for (const pin of symbol.pins) {
-                    const length = Number.isFinite(pin.length) ? pin.length : 0;
-                let px = pin.x, py = pin.y;
-                
-                // Extend to pin tip based on orientation
-                switch (pin.orientation) {
-                    case 'right': px += length; break;
-                    case 'left': px -= length; break;
-                    case 'up': py -= length; break;
-                    case 'down': py += length; break;
-                }
-                
-                minX = Math.min(minX, pin.x, px);
-                maxX = Math.max(maxX, pin.x, px);
-                minY = Math.min(minY, pin.y, py);
-                maxY = Math.max(maxY, pin.y, py);
-            }
-        }
+        const localBounds = this._getLocalBounds();
+        let minX = localBounds.minX;
+        let minY = localBounds.minY;
+        let maxX = localBounds.maxX;
+        let maxY = localBounds.maxY;
         
         // Apply rotation
         const rad = this.rotation * Math.PI / 180;
@@ -159,32 +133,11 @@ export class Component {
         const ns = 'http://www.w3.org/2000/svg';
         const highlight = document.createElementNS(ns, 'rect');
         
-        // Calculate local bounds (before component transform)
-        const symbol = this.symbol;
-        const width = symbol?.width || 10;
-        const height = symbol?.height || 10;
-        const origin = symbol?.origin || { x: width / 2, y: height / 2 };
-        
-        // Include pins
-        let minX = -origin.x, minY = -origin.y;
-        let maxX = width - origin.x, maxY = height - origin.y;
-        
-        if (symbol?.pins) {
-            for (const pin of symbol.pins) {
-                const length = pin.length ?? 2.54;
-                let px = pin.x, py = pin.y;
-                switch (pin.orientation) {
-                    case 'right': px += length; break;
-                    case 'left': px -= length; break;
-                    case 'up': py -= length; break;
-                    case 'down': py += length; break;
-                }
-                minX = Math.min(minX, pin.x, px);
-                maxX = Math.max(maxX, pin.x, px);
-                minY = Math.min(minY, pin.y, py);
-                maxY = Math.max(maxY, pin.y, py);
-            }
-        }
+        const localBounds = this._getLocalBounds();
+        const minX = localBounds.minX;
+        const minY = localBounds.minY;
+        const maxX = localBounds.maxX;
+        const maxY = localBounds.maxY;
         
         highlight.setAttribute('class', 'component-highlight');
         highlight.setAttribute('x', minX - 0.5);
@@ -199,6 +152,94 @@ export class Component {
         
         // Insert at beginning so it's behind component graphics
         this.element.insertBefore(highlight, this.element.firstChild);
+    }
+
+    _getLocalBounds() {
+        const symbol = this.symbol;
+        const width = symbol?.width || 10;
+        const height = symbol?.height || 10;
+        const origin = symbol?.origin || { x: width / 2, y: height / 2 };
+
+        let minX = -origin.x;
+        let minY = -origin.y;
+        let maxX = width - origin.x;
+        let maxY = height - origin.y;
+
+        if (symbol?.graphics) {
+            for (const g of symbol.graphics) {
+                if (!g) continue;
+                switch (g.type) {
+                    case 'rect':
+                        minX = Math.min(minX, g.x);
+                        minY = Math.min(minY, g.y);
+                        maxX = Math.max(maxX, g.x + g.width);
+                        maxY = Math.max(maxY, g.y + g.height);
+                        break;
+                    case 'circle':
+                        minX = Math.min(minX, g.cx - g.r);
+                        minY = Math.min(minY, g.cy - g.r);
+                        maxX = Math.max(maxX, g.cx + g.r);
+                        maxY = Math.max(maxY, g.cy + g.r);
+                        break;
+                    case 'line':
+                        minX = Math.min(minX, g.x1, g.x2);
+                        minY = Math.min(minY, g.y1, g.y2);
+                        maxX = Math.max(maxX, g.x1, g.x2);
+                        maxY = Math.max(maxY, g.y1, g.y2);
+                        break;
+                    case 'polyline':
+                    case 'polygon':
+                        if (Array.isArray(g.points)) {
+                            for (const p of g.points) {
+                                minX = Math.min(minX, p[0]);
+                                minY = Math.min(minY, p[1]);
+                                maxX = Math.max(maxX, p[0]);
+                                maxY = Math.max(maxY, p[1]);
+                            }
+                        }
+                        break;
+                    case 'text': {
+                        const rawText = (g.text || '')
+                            .replace('${REF}', this.reference)
+                            .replace('${VALUE}', this.value);
+                        const fontSize = Number.isFinite(g.fontSize) ? g.fontSize : 1.5;
+                        const textWidth = rawText.length * fontSize * 0.6;
+                        const textHeight = fontSize;
+                        let x1 = g.x;
+                        if (g.anchor === 'middle') {
+                            x1 = g.x - textWidth / 2;
+                        } else if (g.anchor === 'end') {
+                            x1 = g.x - textWidth;
+                        }
+                        const y1 = g.y - textHeight / 2;
+                        minX = Math.min(minX, x1);
+                        minY = Math.min(minY, y1);
+                        maxX = Math.max(maxX, x1 + textWidth);
+                        maxY = Math.max(maxY, y1 + textHeight);
+                        break;
+                    }
+                }
+            }
+        }
+
+        if (symbol?.pins && !symbol._boundsIncludePins) {
+            for (const pin of symbol.pins) {
+                const length = Number.isFinite(pin.length) ? pin.length : 0;
+                let px = pin.x, py = pin.y;
+                switch (pin.orientation) {
+                    case 'right': px += length; break;
+                    case 'left': px -= length; break;
+                    case 'up': py -= length; break;
+                    case 'down': py += length; break;
+                }
+                minX = Math.min(minX, pin.x, px);
+                maxX = Math.max(maxX, pin.x, px);
+                minY = Math.min(minY, pin.y, py);
+                maxY = Math.max(maxY, pin.y, py);
+            }
+        }
+
+        return { minX, minY, maxX, maxY };
     }
 
     createSymbolElement(ns = 'http://www.w3.org/2000/svg') {

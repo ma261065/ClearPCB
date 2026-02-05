@@ -455,40 +455,48 @@ export class ComponentLibrary {
             return null;
         }
 
-        const offsetX = minX;
-        const offsetY = minY;
+        const offsetX = (minX + maxX) / 2;
+        const offsetY = (minY + maxY) / 2;
 
         const graphics = rawGraphics.map(graphic => this._transformEasyEDAGraphic(graphic, offsetX, offsetY, scale));
         const pins = rawPins.map(pin => this._transformEasyEDAPin(pin, offsetX, offsetY, scale));
 
         const width = widthRaw * scale;
         const height = heightRaw * scale;
+        const minXLocal = (minX - offsetX) * scale;
+        const maxXLocal = (maxX - offsetX) * scale;
+        const minYLocal = (minY - offsetY) * scale;
+        const maxYLocal = (maxY - offsetY) * scale;
+        const origin = { x: -minXLocal, y: -minYLocal };
+        const centerXLocal = (minXLocal + maxXLocal) / 2;
+        const topEdge = minYLocal;
 
         graphics.push({
             type: 'text',
-            x: width + 1,
-            y: -1,
+            x: centerXLocal,
+            y: topEdge - 1.2,
             text: '${REF}',
             fontSize: 1.5,
-            anchor: 'start',
+            anchor: 'middle',
             baseline: 'middle'
         });
         graphics.push({
             type: 'text',
-            x: width + 1,
-            y: 1.5,
+            x: centerXLocal,
+            y: topEdge - 0.2,
             text: '${VALUE}',
             fontSize: 1.3,
-            anchor: 'start',
+            anchor: 'middle',
             baseline: 'middle'
         });
 
         return {
             width,
             height,
-            origin: { x: width / 2, y: height / 2 },
+            origin,
             graphics,
             pins,
+            _boundsIncludePins: true,
             _easyedaRawShapes: Array.isArray(dataStr.shape) ? [...dataStr.shape] : []
         };
     }
