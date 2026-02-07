@@ -151,9 +151,13 @@ export class LCSCFetcher {
                 const url = `https://modules.easyeda.com/3dmodel/${uuid3d}`;
                 console.log('Fetching EasyEDA 3D model from:', url);
                 
-                // Fetch as text since it's OBJ format, not JSON
-                const fetchUrl = this.corsProxy ? `${this.corsProxy}${encodeURIComponent(url)}` : url;
-                const response = await fetch(fetchUrl);
+                // Always use CORS proxy
+                const proxyUrl = this.corsProxies[0]
+                    .replace('{encodedUrl}', encodeURIComponent(url))
+                    .replace('{url}', url)
+                    .replace('{urlSansScheme}', url.replace(/^https?:\/\//, ''));
+                
+                const response = await fetch(proxyUrl);
                 
                 if (!response.ok) {
                     console.log('3D model not found (HTTP', response.status, ')');
@@ -161,7 +165,7 @@ export class LCSCFetcher {
                 }
                 
                 const objText = await response.text();
-                if (objText && objText.includes('v ')) { // OBJ files start with vertex lines
+                if (objText && objText.includes('v ')) {
                     console.log('Successfully fetched OBJ file, size:', objText.length);
                     return objText;
                 }
