@@ -160,10 +160,10 @@ export class Component {
         const height = symbol?.height || 10;
         const origin = symbol?.origin || { x: width / 2, y: height / 2 };
 
-        let minX = -origin.x;
-        let minY = -origin.y;
-        let maxX = width - origin.x;
-        let maxY = height - origin.y;
+        let minX = Infinity;
+        let minY = Infinity;
+        let maxX = -Infinity;
+        let maxY = -Infinity;
 
         if (symbol?.graphics) {
             for (const g of symbol.graphics) {
@@ -205,17 +205,27 @@ export class Component {
                         const fontSize = Number.isFinite(g.fontSize) ? g.fontSize : 1.5;
                         const textWidth = rawText.length * fontSize * 0.6;
                         const textHeight = fontSize;
+                        const ascent = textHeight * 0.7;
+                        const descent = textHeight * 0.3;
                         let x1 = g.x;
                         if (g.anchor === 'middle') {
                             x1 = g.x - textWidth / 2;
                         } else if (g.anchor === 'end') {
                             x1 = g.x - textWidth;
                         }
-                        const y1 = g.y - textHeight / 2;
+                        let y1;
+                        if (g.baseline === 'text-after-edge') {
+                            y1 = g.y - textHeight;
+                        } else if (g.baseline === 'text-before-edge') {
+                            y1 = g.y;
+                        } else {
+                            // middle/unspecified baseline
+                            y1 = g.y - ascent;
+                        }
                         minX = Math.min(minX, x1);
                         minY = Math.min(minY, y1);
                         maxX = Math.max(maxX, x1 + textWidth);
-                        maxY = Math.max(maxY, y1 + textHeight);
+                        maxY = Math.max(maxY, y1 + ascent + descent);
                         break;
                     }
                 }
@@ -239,7 +249,20 @@ export class Component {
             }
         }
 
-        return { minX, minY, maxX, maxY };
+        if (!Number.isFinite(minX)) {
+            minX = -origin.x;
+            minY = -origin.y;
+            maxX = width - origin.x;
+            maxY = height - origin.y;
+        }
+
+        const padding = 0.4;
+        return {
+            minX: minX - padding,
+            minY: minY - padding,
+            maxX: maxX + padding,
+            maxY: maxY + padding
+        };
     }
 
     createSymbolElement(ns = 'http://www.w3.org/2000/svg') {

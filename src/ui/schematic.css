@@ -1014,9 +1014,36 @@ body {
     padding: 8px;
 }
 
+.cp-results-header-row {
+    display: flex;
+    gap: 8px;
+    padding: 8px;
+    padding-bottom: 0;
+}
+
+.cp-results-header-row .cp-results-header {
+    flex: 1;
+    min-width: 0;
+    margin-bottom: 6px;
+}
+
+.cp-results-grid {
+    display: flex;
+    gap: 8px;
+    padding: 0 8px 8px 8px;
+}
+
 .cp-results-col {
     flex: 1;
     min-width: 0;
+}
+
+.cp-results-col-list {
+    position: relative;
+}
+
+.cp-results-spacer {
+    height: 0;
 }
 
 .cp-results-header {
@@ -1027,9 +1054,6 @@ body {
     border-radius: 6px;
     margin-bottom: 6px;
     background: var(--bg-secondary);
-    position: sticky;
-    top: 0;
-    z-index: 2;
 }
 
 .cp-results-grid .cp-item {

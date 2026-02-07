@@ -53,7 +53,7 @@ export class ComponentPicker {
             <div class="cp-body">
                 <div class="cp-mode-toggle">
                     <button class="cp-mode-btn active" data-mode="local">Local</button>
-                    <button class="cp-mode-btn" data-mode="lcsc">Online (EasyEDA)</button>
+                    <button class="cp-mode-btn" data-mode="lcsc">Online</button>
                 </div>
                 <div class="cp-search">
                     <input type="text" class="cp-search-input" placeholder="Search components...">
@@ -90,6 +90,7 @@ export class ComponentPicker {
         this.searchInput = this.element.querySelector('.cp-search-input');
         this.searchClearBtn = this.element.querySelector('.cp-search-clear');
         this.categorySelect = this.element.querySelector('.cp-category-select');
+        this.body = this.element.querySelector('.cp-body');
         this.listEl = this.element.querySelector('.cp-list');
         this.previewSvg = this.element.querySelector('.cp-preview-svg');
         this.previewInfo = this.element.querySelector('.cp-preview-info');
@@ -137,6 +138,7 @@ export class ComponentPicker {
             this.selectedCategory = this.categorySelect.value;
             this._populateComponents();
         });
+
         
         this.placeBtn.addEventListener('click', () => {
             if (this.selectedComponent) {
@@ -583,20 +585,30 @@ export class ComponentPicker {
             return;
         }
 
+        // Create header row (outside scrollable area)
+        const headerRow = document.createElement('div');
+        headerRow.className = 'cp-results-header-row';
+
+        // Create results grid for content (inside scrollable area)
         const resultsGrid = document.createElement('div');
         resultsGrid.className = 'cp-results-grid';
 
         if (hasOnlineResults) {
-            const onlineCol = document.createElement('div');
-            onlineCol.className = 'cp-results-col';
-
-            const header = document.createElement('div');
-            header.className = 'cp-results-header';
-            header.innerHTML = `
+            // Add header to header row
+            const onlineHeader = document.createElement('div');
+            onlineHeader.className = 'cp-results-header';
+            onlineHeader.innerHTML = `
                 <strong>EasyEDA Results</strong>
                 <br><small>Online parts with metadata</small>
             `;
-            onlineCol.appendChild(header);
+            headerRow.appendChild(onlineHeader);
+
+            // Add column to grid
+            const onlineCol = document.createElement('div');
+            onlineCol.className = 'cp-results-col';
+
+            const onlineInner = document.createElement('div');
+            onlineInner.className = 'cp-results-col-list';
 
             for (const result of this.lcscResults) {
                 if (result.error) continue;
@@ -640,23 +652,34 @@ export class ComponentPicker {
                 item.addEventListener('click', () => this._selectLCSCResult(result, item));
                 item.addEventListener('dblclick', () => this._fetchAndPlace(result));
 
-                onlineCol.appendChild(item);
+                onlineInner.appendChild(item);
             }
+
+            const onlineSpacer = document.createElement('div');
+            onlineSpacer.className = 'cp-results-spacer';
+            onlineInner.appendChild(onlineSpacer);
+
+            onlineCol.appendChild(onlineInner);
 
             resultsGrid.appendChild(onlineCol);
         }
 
         if (hasKiCadResults) {
-            const kicadCol = document.createElement('div');
-            kicadCol.className = 'cp-results-col';
-
-            const header = document.createElement('div');
-            header.className = 'cp-results-header';
-            header.innerHTML = `
+            // Add header to header row
+            const kicadHeader = document.createElement('div');
+            kicadHeader.className = 'cp-results-header';
+            kicadHeader.innerHTML = `
                 <strong>KiCad Results</strong>
                 <br><small>Symbols from KiCad libraries</small>
             `;
-            kicadCol.appendChild(header);
+            headerRow.appendChild(kicadHeader);
+
+            // Add column to grid
+            const kicadCol = document.createElement('div');
+            kicadCol.className = 'cp-results-col';
+
+            const kicadInner = document.createElement('div');
+            kicadInner.className = 'cp-results-col-list';
 
             for (const result of this.kicadResults) {
                 const item = document.createElement('div');
@@ -675,13 +698,75 @@ export class ComponentPicker {
                 item.addEventListener('click', () => this._selectKiCadResult(result, item));
                 item.addEventListener('dblclick', () => this._fetchAndPlaceKiCad(result));
 
-                kicadCol.appendChild(item);
+                kicadInner.appendChild(item);
             }
+
+            const kicadSpacer = document.createElement('div');
+            kicadSpacer.className = 'cp-results-spacer';
+            kicadInner.appendChild(kicadSpacer);
+
+            kicadCol.appendChild(kicadInner);
 
             resultsGrid.appendChild(kicadCol);
         }
 
+        this.body.insertBefore(headerRow, this.listEl);
         this.listEl.appendChild(resultsGrid);
+        this._balanceResultsColumns();
+    }
+
+    _balanceResultsColumns() {
+        requestAnimationFrame(() => {
+            const grid = this.listEl.querySelector('.cp-results-grid');
+            if (!grid) return;
+            const lists = Array.from(grid.querySelectorAll('.cp-results-col-list'));
+            if (lists.length < 2) return;
+
+            // Remove spacers - we'll use JS to control scroll
+            lists.forEach(list => {
+                const spacer = list.querySelector('.cp-results-spacer');
+                if (spacer) spacer.remove();
+            });
+
+            // Get actual content heights (without spacers)
+            const contentHeights = lists.map(list => {
+                const items = Array.from(list.querySelectorAll('.cp-item'));
+                return items.reduce((sum, item) => sum + item.offsetHeight + parseFloat(getComputedStyle(item).marginBottom || 0), 0);
+            });
+
+            const maxHeight = Math.max(...contentHeights);
+
+            // Add scroll handler to clamp shorter lists
+            const handleScroll = () => {
+                const scrollTop = this.listEl.scrollTop;
+                
+                lists.forEach((list, idx) => {
+                    const contentHeight = contentHeights[idx];
+                    const availableHeight = this.listEl.clientHeight;
+                    const maxScroll = contentHeight - availableHeight;
+                    
+                    if (maxScroll <= 0) {
+                        // Content is shorter than viewport, no scrolling needed
+                        list.style.transform = '';
+                    } else if (scrollTop > maxScroll) {
+                        // Clamp: move list down to compensate for excess scroll
+                        list.style.transform = `translateY(${scrollTop - maxScroll}px)`;
+                    } else {
+                        list.style.transform = '';
+                    }
+                });
+            };
+
+            // Remove old listener if it exists
+            if (this._scrollHandler) {
+                this.listEl.removeEventListener('scroll', this._scrollHandler);
+            }
+            this._scrollHandler = handleScroll;
+            this.listEl.addEventListener('scroll', handleScroll);
+
+            // Set grid height to tallest content
+            grid.style.minHeight = `${maxHeight}px`;
+        });
     }
     
     _selectLCSCResult(result, itemEl) {

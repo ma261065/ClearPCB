@@ -844,22 +844,24 @@ export class KiCadFetcher {
                 y: symbol.height / 2
             };
 
+            const centerX = symbol.width / 2;
+            const topEdge = 0;
             symbol.graphics.push({
                 type: 'text',
-                x: symbol.width + 1,
-                y: -1,
+                x: centerX,
+                y: topEdge - 2.1,
                 text: '${REF}',
-                fontSize: 1.5,
-                anchor: 'start',
+                fontSize: 1.2,
+                anchor: 'middle',
                 baseline: 'middle'
             });
             symbol.graphics.push({
                 type: 'text',
-                x: symbol.width + 1,
-                y: 1.5,
+                x: centerX,
+                y: topEdge - 0.7,
                 text: '${VALUE}',
-                fontSize: 1.3,
-                anchor: 'start',
+                fontSize: 1.0,
+                anchor: 'middle',
                 baseline: 'middle'
             });
         }
@@ -1086,23 +1088,25 @@ export class KiCadFetcher {
                 y: symbol.height / 2
             };
             
-            // Add reference and value text (KiCad style - top right)
+            // Add reference and value text above the symbol (centered)
+            const centerX = symbol.width / 2;
+            const topEdge = 0;
             symbol.graphics.push({
                 type: 'text',
-                x: symbol.width + 1,
-                y: -1,
+                x: centerX,
+                y: topEdge - 2.1,
                 text: '${REF}',
-                fontSize: 1.5,
-                anchor: 'start',
+                fontSize: 1.2,
+                anchor: 'middle',
                 baseline: 'middle'
             });
             symbol.graphics.push({
                 type: 'text',
-                x: symbol.width + 1,
-                y: 1.5,
+                x: centerX,
+                y: topEdge - 0.7,
                 text: '${VALUE}',
-                fontSize: 1.3,
-                anchor: 'start',
+                fontSize: 1.0,
+                anchor: 'middle',
                 baseline: 'middle'
             });
         }
@@ -1181,22 +1185,24 @@ export class KiCadFetcher {
                 y: symbol.height / 2
             };
 
+            const centerX = symbol.width / 2;
+            const topEdge = 0;
             symbol.graphics.push({
                 type: 'text',
-                x: symbol.width + 1,
-                y: -1,
+                x: centerX,
+                y: topEdge - 2.1,
                 text: '${REF}',
-                fontSize: 1.5,
-                anchor: 'start',
+                fontSize: 1.2,
+                anchor: 'middle',
                 baseline: 'middle'
             });
             symbol.graphics.push({
                 type: 'text',
-                x: symbol.width + 1,
-                y: 1.5,
+                x: centerX,
+                y: topEdge - 0.7,
                 text: '${VALUE}',
-                fontSize: 1.3,
-                anchor: 'start',
+                fontSize: 1.0,
+                anchor: 'middle',
                 baseline: 'middle'
             });
         }
