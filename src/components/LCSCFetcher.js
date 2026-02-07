@@ -144,6 +144,34 @@ export class LCSCFetcher {
         return null;
     }
 
+    async _fetchEasyEDA3DModel(uuid3d, datastrid) {
+        // EasyEDA stores 3D models in OBJ format at modules.easyeda.com
+        if (uuid3d) {
+            try {
+                const url = `https://modules.easyeda.com/3dmodel/${uuid3d}`;
+                console.log('Fetching EasyEDA 3D model from:', url);
+                
+                // Fetch as text since it's OBJ format, not JSON
+                const fetchUrl = this.corsProxy ? `${this.corsProxy}${encodeURIComponent(url)}` : url;
+                const response = await fetch(fetchUrl);
+                
+                if (!response.ok) {
+                    console.log('3D model not found (HTTP', response.status, ')');
+                    return null;
+                }
+                
+                const objText = await response.text();
+                if (objText && objText.includes('v ')) { // OBJ files start with vertex lines
+                    console.log('Successfully fetched OBJ file, size:', objText.length);
+                    return objText;
+                }
+            } catch (error) {
+                console.log('Failed to fetch EasyEDA 3D model:', error.message);
+            }
+        }
+        return null;
+    }
+
     _extractEasyEDAList(data) {
         if (!data) return [];
         if (Array.isArray(data)) return data;
@@ -255,6 +283,7 @@ export class LCSCFetcher {
             if (exact) {
                 // Fetch detail to get footprint + 3D data
                 const detail = await this._fetchEasyEDADetail(normalizedPart);
+                
                 if (detail?.dataStr && Array.isArray(detail.dataStr.shape)) {
                     exact.easyedaSymbolData = detail.dataStr;
                     exact.easyedaSymbolBBox = detail.dataStr.BBox || detail.dataStr.bbox || null;
@@ -271,6 +300,37 @@ export class LCSCFetcher {
                     exact.model3dName = dataStr?.head?.c_para?.['3DModel'] || '';
                     exact.hasFootprint = exact.footprintShapes.length > 0;
                     exact.has3d = !!exact.model3dName;
+                    
+                    // Fetch EasyEDA 3D model data (OBJ format) if available
+                    if (exact.has3d) {
+                        // Find the SVGNODE in the shape array and extract its uuid
+                        let model3dUuid = null;
+                        if (Array.isArray(dataStr.shape)) {
+                            for (const shape of dataStr.shape) {
+                                if (typeof shape === 'string' && shape.startsWith('SVGNODE~')) {
+                                    try {
+                                        const jsonStr = shape.substring(8); // Remove 'SVGNODE~' prefix
+                                        const svgData = JSON.parse(jsonStr);
+                                        model3dUuid = svgData?.attrs?.uuid;
+                                        if (model3dUuid) break;
+                                    } catch (e) {
+                                        console.warn('Failed to parse SVGNODE:', e);
+                                    }
+                                }
+                            }
+                        }
+                        
+                        if (model3dUuid) {
+                            console.log('Fetching 3D model for uuid:', model3dUuid);
+                            const model3dData = await this._fetchEasyEDA3DModel(model3dUuid);
+                            if (model3dData) {
+                                console.log('Successfully fetched 3D model data (OBJ format)');
+                                exact.model3dObj = model3dData; // Store as OBJ format
+                            }
+                        } else {
+                            console.log('No 3D model UUID found in SVGNODE');
+                        }
+                    }
                 } else {
                     exact.hasFootprint = false;
                     exact.has3d = false;

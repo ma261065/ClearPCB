@@ -346,7 +346,7 @@ export class ComponentPicker {
         }
     }
     
-    _populateLocalFallbackResults(results, query) {
+    async _populateLocalFallbackResults(results, query) {
         this.listEl.innerHTML = `
             <div class="cp-kicad-notice">
                 <strong>Local Library Results</strong>
@@ -359,7 +359,7 @@ export class ComponentPicker {
             item.className = 'cp-item';
             item.setAttribute('data-name', comp.name);
             
-            const miniSvg = this._createMiniPreview(comp);
+            const miniSvg = await this._createMiniPreview(comp);
             
             item.innerHTML = `
                 <div class="cp-item-icon">${miniSvg}</div>
@@ -439,7 +439,7 @@ export class ComponentPicker {
                 if (this.selectedKiCadItem) {
                     const iconEl = this.selectedKiCadItem.querySelector('.cp-item-icon');
                     if (iconEl) {
-                        iconEl.innerHTML = this._createMiniPreview(previewDef);
+                        iconEl.innerHTML = await this._createMiniPreview(previewDef);
                     }
                 }
 
@@ -479,8 +479,39 @@ export class ComponentPicker {
             }
 
             if (availability.has3d) {
-                this.preview3d.innerHTML = '<div class="cp-preview-placeholder">3D model found</div>';
-                this.preview3dInfo.innerHTML = '<span class="cp-preview-ok">3D model available</span>';
+                // Try to render the 3D model if we have a URL
+                if (availability.modelUrl) {
+                    this.preview3d.innerHTML = '<div class="cp-preview-placeholder">Loading 3D model...</div>';
+                    this.preview3dInfo.innerHTML = '<span style="color:var(--text-muted)">Rendering...</span>';
+
+                    try {
+                        const { VRMLPreview } = await import('./VRMLPreview.js');
+                        const svgPreview = await VRMLPreview.fetchAndRender(availability.modelUrl, {
+                            lineColor: '#444444',
+                            fillColor: '#666666',
+                            lineWidth: 0.8,
+                            strokeOpacity: 0.9,
+                            fillOpacity: 0.7,
+                            proxyUrl: this.library?.kicadFetcher?.corsProxy
+                        });
+                        
+                        // Parse and insert SVG using DOM
+                        this.preview3d.innerHTML = '';
+                        const parser = new DOMParser();
+                        const svgDoc = parser.parseFromString(svgPreview, 'image/svg+xml');
+                        const svgElement = svgDoc.documentElement;
+                        this.preview3d.appendChild(svgElement);
+                        
+                        this.preview3dInfo.innerHTML = '<span class="cp-preview-ok">3D model available</span>';
+                    } catch (error) {
+                        console.error('Error rendering 3D preview:', error);
+                        this.preview3d.innerHTML = '<div class="cp-preview-placeholder">3D model found</div>';
+                        this.preview3dInfo.innerHTML = '<span class="cp-preview-ok">3D model available</span>';
+                    }
+                } else {
+                    this.preview3d.innerHTML = '<div class="cp-preview-placeholder">3D model found</div>';
+                    this.preview3dInfo.innerHTML = '<span class="cp-preview-ok">3D model available</span>';
+                }
             } else {
                 this._set3dPreviewStatus('3D model not found', false);
             }
@@ -769,7 +800,7 @@ export class ComponentPicker {
         });
     }
     
-    _selectLCSCResult(result, itemEl) {
+    async _selectLCSCResult(result, itemEl) {
         this.listEl.querySelectorAll('.cp-item').forEach(el => el.classList.remove('selected'));
         itemEl.classList.add('selected');
         
@@ -817,7 +848,7 @@ export class ComponentPicker {
         this.placeBtn.textContent = 'Preparing...';
         this.placeBtn.onclick = null;
 
-        this._loadEasyEDADetailForPreview(result);
+        await this._loadEasyEDADetailForPreview(result);
     }
 
     async _loadEasyEDADetailForPreview(result) {
@@ -871,7 +902,11 @@ export class ComponentPicker {
                     if (selectedItem) {
                         const iconEl = selectedItem.querySelector('.cp-item-icon');
                         if (iconEl) {
-                            iconEl.innerHTML = this._createMiniPreview(definition);
+                            // Try to show photo first, fall back to rendered symbol
+                            const hasPhoto = await this._tryApplyLCSCThumbnail(iconEl, result);
+                            if (!hasPhoto) {
+                                iconEl.innerHTML = await this._createMiniPreview(definition);
+                            }
                         }
                     }
                 }
@@ -1062,12 +1097,12 @@ export class ComponentPicker {
             threshold: 0.1,
             rootMargin: '50px',
             batchSize: 5,
-            renderCallback: (element, item) => {
+            renderCallback: async (element, item) => {
                 const comp = item.data;
                 if (!comp) return;
                 
                 try {
-                    const miniSvg = this._createMiniPreview(comp);
+                    const miniSvg = await this._createMiniPreview(comp);
                     const iconEl = element.querySelector('.cp-item-icon');
                     if (iconEl) {
                         iconEl.innerHTML = miniSvg;
@@ -1156,37 +1191,57 @@ export class ComponentPicker {
         return definition;
     }
     
-    _createMiniPreview(comp) {
+    async _createMiniPreview(comp) {
         if (!comp.symbol) return '<span style="color:var(--text-muted)">?</span>';
         
-        const symbol = comp.symbol;
-        const paddingX = 2;
-        const paddingY = 2;
-        const bounds = this._computeSymbolBounds(symbol);
-        const fallbackWidth = (symbol.width || 10) + paddingX * 2;
-        const fallbackHeight = (symbol.height || 10) + paddingY * 2;
-        const fallbackOriginX = symbol.origin?.x || fallbackWidth / 2;
-        const fallbackOriginY = symbol.origin?.y || fallbackHeight / 2;
-        const viewBox = bounds
-            ? `${bounds.minX - paddingX} ${bounds.minY - paddingY} ${bounds.width + paddingX * 2} ${bounds.height + paddingY * 2}`
-            : `${-fallbackOriginX - paddingX} ${-fallbackOriginY - paddingY} ${fallbackWidth} ${fallbackHeight}`;
-        
-        // Create mini SVG
-        let svg = `<svg viewBox="${viewBox}" 
-                       width="32" height="32" style="overflow:visible">`;
-        
-        // Render graphics
-        svg += this._renderGraphicsToSVG(symbol.graphics, 0.18);
-
-        // Render pins for better differentiation
-        if (symbol.pins && Array.isArray(symbol.pins)) {
-            for (const pin of symbol.pins) {
-                svg += this._renderPinToSVG(pin);
+        try {
+            // Use the Component class to render the mini preview for consistency
+            const { Component } = await import('./Component.js');
+            const tempComponent = new Component(comp, { x: 0, y: 0 });
+            
+            const symbol = comp.symbol;
+            const paddingX = 2;
+            const paddingY = 2;
+            
+            // Get bounds from the Component class
+            const localBounds = tempComponent._getLocalBounds();
+            
+            if (!Number.isFinite(localBounds.minX) || !Number.isFinite(localBounds.minY) ||
+                !Number.isFinite(localBounds.maxX) || !Number.isFinite(localBounds.maxY)) {
+                return '<span style="color:var(--text-muted)">?</span>';
             }
+            
+            // Create mini SVG using the same rendering as the actual component
+            const viewBox = `${localBounds.minX - paddingX} ${localBounds.minY - paddingY} ${localBounds.maxX - localBounds.minX + paddingX * 2} ${localBounds.maxY - localBounds.minY + paddingY * 2}`;
+            
+            const ns = 'http://www.w3.org/2000/svg';
+            const svg = document.createElementNS(ns, 'svg');
+            svg.setAttribute('viewBox', viewBox);
+            svg.setAttribute('width', '32');
+            svg.setAttribute('height', '32');
+            svg.setAttribute('style', 'overflow:visible');
+            
+            // Render graphics
+            if (symbol.graphics && Array.isArray(symbol.graphics)) {
+                for (const graphic of symbol.graphics) {
+                    const el = tempComponent._createGraphicElement(graphic, ns);
+                    if (el) svg.appendChild(el);
+                }
+            }
+            
+            // Render pins
+            if (symbol.pins && Array.isArray(symbol.pins)) {
+                for (const pin of symbol.pins) {
+                    const pinGroup = tempComponent._createPinElement(pin, ns);
+                    if (pinGroup) svg.appendChild(pinGroup);
+                }
+            }
+            
+            return svg.outerHTML;
+        } catch (error) {
+            console.error('Error creating mini preview:', error);
+            return '<span style="color:var(--text-muted)">?</span>';
         }
-        
-        svg += '</svg>';
-        return svg;
     }
 
     _isDirectImageUrl(url) {
@@ -1220,6 +1275,39 @@ export class ComponentPicker {
         }
     }
 
+    async _tryApplyLCSCThumbnail(iconEl, result) {
+        const thumbUrl = result.thumbUrl || result.imageUrl || '';
+        if (!thumbUrl && (!result.lcscPartNumber || !this.library?.lcscFetcher)) {
+            return false;
+        }
+
+        if (thumbUrl && this._isDirectImageUrl(thumbUrl)) {
+            iconEl.innerHTML = `<img src="${thumbUrl}" alt="" onerror="this.parentElement.innerHTML='<span>📦</span>'">`;
+            return true;
+        }
+
+        if (!result.lcscPartNumber || !this.library?.lcscFetcher) {
+            return false;
+        }
+
+        if (!result._thumbPromise) {
+            result._thumbPromise = this.library.lcscFetcher.fetchEasyedaProductImage(result.lcscPartNumber);
+        }
+
+        try {
+            const resolvedUrl = await result._thumbPromise;
+            result._thumbPromise = null;
+            if (resolvedUrl && this._isDirectImageUrl(resolvedUrl)) {
+                iconEl.innerHTML = `<img src="${resolvedUrl}" alt="" onerror="this.parentElement.innerHTML='<span>📦</span>'">`;
+                return true;
+            }
+        } catch (error) {
+            result._thumbPromise = null;
+        }
+        
+        return false;
+    }
+
     async _updateLCSCPreviewImage(result) {
         if (!this.previewImage) return;
 
@@ -1248,7 +1336,7 @@ export class ComponentPicker {
         }
     }
     
-    _updatePreview(comp, options = {}) {
+    async _updatePreview(comp, options = {}) {
         try {
             if (!comp || !comp.symbol) {
                 this.previewSvg.innerHTML = '<div style="color:var(--text-muted);text-align:center;padding:20px">No symbol</div>';
@@ -1260,48 +1348,49 @@ export class ComponentPicker {
                 return;
             }
             
+            // Use the Component class to render the preview for consistency
+            const { Component } = await import('./Component.js');
+            const tempComponent = new Component(comp, { x: 0, y: 0 });
+            
             const symbol = comp.symbol;
             const paddingX = 6;
             const paddingY = 10;
-            const bounds = this._computeSymbolBounds(symbol);
-            const fallbackWidth = (symbol.width || 10) + paddingX * 2;
-            const fallbackHeight = (symbol.height || 10) + paddingY * 2;
-            const fallbackOriginX = symbol.origin?.x || fallbackWidth / 2;
-            const fallbackOriginY = symbol.origin?.y || fallbackHeight / 2;
+            
+            // Get bounds from the Component class
+            const localBounds = tempComponent._getLocalBounds();
             
             // Validate numeric values
-            if (bounds) {
-                if (!Number.isFinite(bounds.minX) || !Number.isFinite(bounds.minY) ||
-                    !Number.isFinite(bounds.width) || !Number.isFinite(bounds.height)) {
-                    throw new Error('Invalid symbol bounds');
-                }
-            } else {
-                if (!Number.isFinite(fallbackOriginX) || !Number.isFinite(fallbackOriginY) || 
-                    !Number.isFinite(fallbackWidth) || !Number.isFinite(fallbackHeight)) {
-                    throw new Error('Invalid symbol dimensions');
-                }
+            if (!Number.isFinite(localBounds.minX) || !Number.isFinite(localBounds.minY) ||
+                !Number.isFinite(localBounds.maxX) || !Number.isFinite(localBounds.maxY)) {
+                throw new Error('Invalid symbol bounds');
             }
             
-            // Create preview SVG
-            const viewBox = bounds
-                ? `${bounds.minX - paddingX} ${bounds.minY - paddingY} ${bounds.width + paddingX * 2} ${bounds.height + paddingY * 2}`
-                : `${-fallbackOriginX - paddingX} ${-fallbackOriginY - paddingY} ${fallbackWidth} ${fallbackHeight}`;
-
-            let svg = `<svg viewBox="${viewBox}" 
-                           style="width:100%;height:100%;max-height:150px">`;
+            // Create preview SVG using the same rendering as the actual component
+            const viewBox = `${localBounds.minX - paddingX} ${localBounds.minY - paddingY} ${localBounds.maxX - localBounds.minX + paddingX * 2} ${localBounds.maxY - localBounds.minY + paddingY * 2}`;
+            
+            const ns = 'http://www.w3.org/2000/svg';
+            const svg = document.createElementNS(ns, 'svg');
+            svg.setAttribute('viewBox', viewBox);
+            svg.setAttribute('style', 'width:100%;height:100%;max-height:150px');
             
             // Render graphics
-            svg += this._renderGraphicsToSVG(symbol.graphics, 0.25);
+            if (symbol.graphics && Array.isArray(symbol.graphics)) {
+                for (const graphic of symbol.graphics) {
+                    const el = tempComponent._createGraphicElement(graphic, ns);
+                    if (el) svg.appendChild(el);
+                }
+            }
             
             // Render pins
             if (symbol.pins && Array.isArray(symbol.pins)) {
                 for (const pin of symbol.pins) {
-                    svg += this._renderPinToSVG(pin);
+                    const pinGroup = tempComponent._createPinElement(pin, ns);
+                    if (pinGroup) svg.appendChild(pinGroup);
                 }
             }
             
-            svg += '</svg>';
-            this.previewSvg.innerHTML = svg;
+            this.previewSvg.innerHTML = '';
+            this.previewSvg.appendChild(svg);
             
             // Update info
             let info = `<strong>${comp.name || 'Component'}</strong>`;
@@ -1471,16 +1560,69 @@ export class ComponentPicker {
         }
     }
 
-    _update3dPreview(metadata) {
+    async _update3dPreview(metadata) {
         if (!metadata || !metadata.has3d) {
             this._set3dPreviewStatus('No 3D model', false);
             return;
         }
 
         const modelName = metadata.model3dName || '3D model';
-        this.preview3d.innerHTML = `<div class="cp-preview-placeholder">🧊 ${modelName}</div>`;
-        if (this.preview3dInfo) {
-            this.preview3dInfo.innerHTML = '<span class="cp-preview-ok">3D model available</span>';
+        
+        // Render 3D preview for both KiCad (VRML URLs) and EasyEDA (OBJ data)
+        if (metadata.model3dUrl || metadata.model3dObj) {
+            this.preview3d.innerHTML = '<div class="cp-preview-placeholder">Loading 3D model...</div>';
+            if (this.preview3dInfo) {
+                this.preview3dInfo.innerHTML = '<span style="color:var(--text-muted)">Rendering...</span>';
+            }
+
+            try {
+                const { VRMLPreview } = await import('./VRMLPreview.js');
+                let svgPreview;
+                
+                if (metadata.model3dUrl) {
+                    // KiCad VRML model - fetch and render
+                    svgPreview = await VRMLPreview.fetchAndRender(metadata.model3dUrl, {
+                        lineColor: '#444444',
+                        fillColor: '#666666',
+                        lineWidth: 0.8,
+                        strokeOpacity: 0.9,
+                        fillOpacity: 0.7,
+                        proxyUrl: this.library?.kicadFetcher?.corsProxy
+                    });
+                } else if (metadata.model3dObj) {
+                    // EasyEDA OBJ model - render directly
+                    svgPreview = VRMLPreview.renderOBJ(metadata.model3dObj, {
+                        lineColor: '#444444',
+                        fillColor: '#666666',
+                        lineWidth: 0.8,
+                        strokeOpacity: 0.9,
+                        fillOpacity: 0.7
+                    });
+                }
+                
+                // Parse and insert SVG using DOM
+                this.preview3d.innerHTML = '';
+                const parser = new DOMParser();
+                const svgDoc = parser.parseFromString(svgPreview, 'image/svg+xml');
+                const svgElement = svgDoc.documentElement;
+                this.preview3d.appendChild(svgElement);
+                
+                if (this.preview3dInfo) {
+                    this.preview3dInfo.innerHTML = `<span class="cp-preview-ok">${modelName}</span>`;
+                }
+            } catch (error) {
+                console.error('Error rendering 3D preview:', error);
+                this.preview3d.innerHTML = `<div class="cp-preview-placeholder">🧊 ${modelName}</div>`;
+                if (this.preview3dInfo) {
+                    this.preview3dInfo.innerHTML = '<span class="cp-preview-ok">3D model available</span>';
+                }
+            }
+        } else {
+            // No model data available
+            this.preview3d.innerHTML = `<div class="cp-preview-placeholder">🧊 ${modelName}</div>`;
+            if (this.preview3dInfo) {
+                this.preview3dInfo.innerHTML = '<span class="cp-preview-ok">3D model available</span>';
+            }
         }
     }
 

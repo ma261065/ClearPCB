@@ -282,6 +282,8 @@ export class ComponentLibrary {
             footprintBBox: metadata.footprintBBox || null,
             hasFootprint: !!metadata.hasFootprint,
             model3dName: metadata.model3dName || '',
+            model3dUrl: metadata.model3dUrl || null,
+            model3dObj: metadata.model3dObj || null,
             has3d: !!metadata.has3d,
             stock: metadata.stock,
             price: metadata.price,
