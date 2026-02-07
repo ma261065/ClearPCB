@@ -28,6 +28,7 @@ export class KiCadFetcher {
         this.model3dExistsCache = new Map();
         this.footprintPreviewCache = new Map();
         this.libraryIndex = null;
+        this.libraryPathIndex = null;
         this.fetchFailed = false;
     }
     
@@ -97,6 +98,18 @@ export class KiCadFetcher {
         }
         
         try {
+            const directSymDir = `${library}.kicad_symdir`;
+            const symContent = await this._fetchSymbolFile(directSymDir, symbolName);
+            if (symContent) {
+                const symbol = this._parseSymbolFromLibrary(symContent, symbolName);
+                if (symbol) {
+                    symbol._kicadRaw = symContent;
+                    symbol.kicadName = symbol.kicadName || symbolName;
+                    this.symbolCache.set(cacheKey, symbol);
+                    return symbol;
+                }
+            }
+
             // Fetch the library file
             console.log('KiCadFetcher: Fetching library file...');
             const libContent = await this._fetchLibraryFile(library);
@@ -113,6 +126,7 @@ export class KiCadFetcher {
             
             if (symbol) {
                 console.log('KiCadFetcher: Symbol parsed successfully');
+                symbol._kicadRaw = libContent;
                 // Fallback: extract Footprint property from raw content if missing
                 if (!symbol.properties || Object.keys(symbol.properties).length === 0) {
                     symbol.properties = symbol.properties || {};
@@ -204,58 +218,240 @@ export class KiCadFetcher {
             console.log(`Using cached KiCad library: ${library}`);
             return cached;
         }
+
+        const baseCandidates = [this.symbolsBase];
+        if (this.symbolsBase.includes('/-/raw/master')) {
+            baseCandidates.push(this.symbolsBase.replace('/-/raw/master', '/-/raw/main'));
+        }
+        const expandedBases = [];
+        for (const base of baseCandidates) {
+            expandedBases.push(base);
+            if (!base.endsWith('/symbols')) {
+                expandedBases.push(`${base}/symbols`);
+            }
+        }
+
+        const targetUrls = expandedBases.map(base => `${base}/${library}.kicad_sym`);
         
-        const targetUrl = `${this.symbolsBase}/${library}.kicad_sym`;
+        for (const targetUrl of targetUrls) {
+            // Try each proxy
+            for (let attempt = 0; attempt < this.corsProxies.length; attempt++) {
+                try {
+                    // Build URL based on proxy type
+                    let url;
+                    if (this.corsProxy.includes('allorigins')) {
+                        // allorigins expects encoded URL
+                        url = `${this.corsProxy}${encodeURIComponent(targetUrl)}`;
+                    } else {
+                        // corsproxy.io expects encoded URL too
+                        url = `${this.corsProxy}${encodeURIComponent(targetUrl)}`;
+                    }
+                    
+                    console.log(`Fetching KiCad library: ${library}`);
+                    
+                    const response = await this._fetchWithTimeout(url);
+                    
+                    if (!response.ok) {
+                        console.warn(`KiCad fetch failed with status ${response.status}`);
+                        continue;
+                    }
+                    
+                    const content = await response.text();
+                    console.log(`KiCad library ${library} fetched, size: ${content.length} bytes`);
+                    
+                    // Validate content is a string
+                    if (typeof content !== 'string') {
+                        console.warn('KiCad content is not a string, skipping cache');
+                        return null;
+                    }
+                    
+                    // Verify it looks like a KiCad file
+                    if (!content.includes('kicad_symbol_lib')) {
+                        console.warn('Response does not look like a KiCad library file:', content.substring(0, 200));
+                        continue;
+                    }
+                    
+                    // Cache the result with 7-day TTL
+                    storageManager.set(cacheKey, content, 7 * 24 * 60 * 60);
+                    console.log(`Cached KiCad library: ${library}`);
+                    
+                    return content;
+                    
+                } catch (error) {
+                    console.error(`KiCad fetch error with proxy ${this.corsProxy}:`, error);
+                }
+            }
+        }
         
-        // Try each proxy
+        // If initial attempts failed, refresh the index once and retry with discovered paths
+        await this._loadLibraryPathIndex(true);
+        const refreshedPath = this.libraryPathIndex?.[library];
+        if (refreshedPath && !refreshedPath.endsWith('.kicad_symdir')) {
+            const retryUrls = baseCandidates.map(base => `${base}/${refreshedPath}`);
+            for (const targetUrl of retryUrls) {
+                for (let attempt = 0; attempt < this.corsProxies.length; attempt++) {
+                    try {
+                        let url;
+                        if (this.corsProxy.includes('allorigins')) {
+                            url = `${this.corsProxy}${encodeURIComponent(targetUrl)}`;
+                        } else {
+                            url = `${this.corsProxy}${encodeURIComponent(targetUrl)}`;
+                        }
+
+                        console.log(`Fetching KiCad library (retry): ${library}`);
+
+                        const response = await this._fetchWithTimeout(url);
+                        if (!response.ok) {
+                            console.warn(`KiCad fetch failed with status ${response.status}`);
+                            continue;
+                        }
+
+                        const content = await response.text();
+                        if (typeof content !== 'string') {
+                            console.warn('KiCad content is not a string, skipping cache');
+                            return null;
+                        }
+
+                        if (!content.includes('kicad_symbol_lib')) {
+                            console.warn('Response does not look like a KiCad library file:', content.substring(0, 200));
+                            continue;
+                        }
+
+                        storageManager.set(cacheKey, content, 7 * 24 * 60 * 60);
+                        console.log(`Cached KiCad library: ${library}`);
+                        return content;
+                    } catch (error) {
+                        console.error(`KiCad fetch error with proxy ${this.corsProxy}:`, error);
+                    }
+                }
+            }
+        }
+
+        throw new Error(`Failed to fetch KiCad library ${library} - all proxies failed`);
+    }
+
+    async _fetchSymbolFile(symDirPath, symbolName) {
+        const fileName = `${symbolName}.kicad_sym`;
+        const targetUrls = [
+            `${this.symbolsBase}/${symDirPath}/${fileName}`
+        ];
+        if (this.symbolsBase.includes('/-/raw/master')) {
+            targetUrls.push(`${this.symbolsBase.replace('/-/raw/master', '/-/raw/main')}/${symDirPath}/${fileName}`);
+        }
+
+        for (const targetUrl of targetUrls) {
+            for (let attempt = 0; attempt < this.corsProxies.length; attempt++) {
+                try {
+                    const url = `${this.corsProxy}${encodeURIComponent(targetUrl)}`;
+                    console.log(`Fetching KiCad symbol file: ${symDirPath}/${fileName}`);
+                    const response = await this._fetchWithTimeout(url);
+                    if (!response.ok) {
+                        console.warn(`KiCad fetch failed with status ${response.status}`);
+                        continue;
+                    }
+                    const content = await response.text();
+                    if (typeof content !== 'string') {
+                        console.warn('KiCad content is not a string, skipping cache');
+                        return null;
+                    }
+                    if (!content.includes('kicad_symbol_lib')) {
+                        console.warn('Response does not look like a KiCad library file:', content.substring(0, 200));
+                        continue;
+                    }
+                    return content;
+                } catch (error) {
+                    console.error(`KiCad fetch error with proxy ${this.corsProxy}:`, error);
+                }
+            }
+        }
+        return null;
+    }
+
+    async _fetchJsonWithProxy(targetUrl) {
         for (let attempt = 0; attempt < this.corsProxies.length; attempt++) {
             try {
-                // Build URL based on proxy type
-                let url;
-                if (this.corsProxy.includes('allorigins')) {
-                    // allorigins expects encoded URL
-                    url = `${this.corsProxy}${encodeURIComponent(targetUrl)}`;
-                } else {
-                    // corsproxy.io expects encoded URL too
-                    url = `${this.corsProxy}${encodeURIComponent(targetUrl)}`;
-                }
-                
-                console.log(`Fetching KiCad library: ${library}`);
-                
-                const response = await fetch(url);
-                
+                const url = `${this.corsProxy}${encodeURIComponent(targetUrl)}`;
+                const response = await this._fetchWithTimeout(url);
                 if (!response.ok) {
-                    console.warn(`KiCad fetch failed with status ${response.status}`);
                     continue;
                 }
-                
-                const content = await response.text();
-                console.log(`KiCad library ${library} fetched, size: ${content.length} bytes`);
-                
-                // Validate content is a string
-                if (typeof content !== 'string') {
-                    console.warn('KiCad content is not a string, skipping cache');
-                    return null;
-                }
-                
-                // Verify it looks like a KiCad file
-                if (!content.includes('kicad_symbol_lib')) {
-                    console.warn('Response does not look like a KiCad library file:', content.substring(0, 200));
-                    continue;
-                }
-                
-                // Cache the result with 7-day TTL
-                storageManager.set(cacheKey, content, 7 * 24 * 60 * 60);
-                console.log(`Cached KiCad library: ${library}`);
-                
-                return content;
-                
+                return await response.json();
             } catch (error) {
                 console.error(`KiCad fetch error with proxy ${this.corsProxy}:`, error);
             }
         }
-        
-        throw new Error(`Failed to fetch KiCad library ${library} - all proxies failed`);
+        return null;
+    }
+
+    async _fetchWithTimeout(url, timeoutMs = 8000) {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+        try {
+            return await fetch(url, { signal: controller.signal });
+        } finally {
+            clearTimeout(timeoutId);
+        }
+    }
+
+    async _loadLibraryPathIndex(force = false) {
+        if (!force && this.libraryPathIndex) {
+            return;
+        }
+
+        const cacheKey = 'kicad_library_index';
+        if (!force) {
+            const cached = storageManager.get(cacheKey);
+            if (cached && typeof cached === 'object') {
+                this.libraryPathIndex = cached;
+                return;
+            }
+        }
+
+        const projectPath = 'kicad%2Flibraries%2Fkicad-symbols';
+        const perPage = 100;
+        const refs = ['master', 'main'];
+
+        for (const ref of refs) {
+            const index = {};
+            let page = 1;
+            let hasMore = true;
+
+            while (hasMore) {
+                const apiUrl = `https://gitlab.com/api/v4/projects/${projectPath}/repository/tree?ref=${encodeURIComponent(ref)}&per_page=${perPage}&page=${page}`;
+                const data = await this._fetchJsonWithProxy(apiUrl);
+                if (!Array.isArray(data) || data.length === 0) {
+                    hasMore = false;
+                    break;
+                }
+
+                for (const entry of data) {
+                    if (typeof entry?.path !== 'string') continue;
+                    if (entry.type === 'blob' && entry.path.endsWith('.kicad_sym')) {
+                        const name = entry.path.split('/').pop()?.replace(/\.kicad_sym$/i, '');
+                        if (!name) continue;
+                        if (!index[name]) {
+                            index[name] = entry.path;
+                        }
+                        continue;
+                    }
+                    if (entry.type === 'tree' && entry.path.endsWith('.kicad_symdir')) {
+                        const name = entry.path.split('/').pop()?.replace(/\.kicad_symdir$/i, '');
+                        if (!name) continue;
+                        if (!index[name]) {
+                            index[name] = entry.path;
+                        }
+                    }
+                }
+
+                page += 1;
+            }
+
+            if (Object.keys(index).length > 0) {
+                this.libraryPathIndex = index;
+                storageManager.set(cacheKey, index, 7 * 24 * 60 * 60);
+                return;
+            }
+        }
     }
 
     async _checkUrlExists(targetUrl) {
@@ -610,7 +806,8 @@ export class KiCadFetcher {
             origin: { x: 10, y: 10 },
             graphics: [],
             pins: [],
-            properties: {}
+            properties: {},
+            _source: 'KiCad'
         };
 
         let minX = Infinity, minY = Infinity;
@@ -738,7 +935,8 @@ export class KiCadFetcher {
             origin: { x: 10, y: 10 },
             graphics: [],
             pins: [],
-            properties: {}
+            properties: {},
+            _source: 'KiCad'
         };
         
         let minX = Infinity, minY = Infinity;
@@ -853,6 +1051,19 @@ export class KiCadFetcher {
             }
         }
 
+        // Deduplicate pins that share the same position and number
+        if (symbol.pins.length > 1) {
+            const seen = new Set();
+            symbol.pins = symbol.pins.filter(pin => {
+                const key = pin._coordKey || `${pin.x},${pin.y}`;
+                if (seen.has(key)) {
+                    return false;
+                }
+                seen.add(key);
+                return true;
+            });
+        }
+
         // Calculate dimensions
         if (minX !== Infinity) {
             // Normalize coordinates
@@ -936,6 +1147,18 @@ export class KiCadFetcher {
 
         if (symbol.pins.length === 0 && symbol.graphics.length === 0) {
             return null;
+        }
+
+        if (symbol.pins.length > 1) {
+            const seen = new Set();
+            symbol.pins = symbol.pins.filter(pin => {
+                const key = pin._coordKey || `${pin.x},${pin.y}`;
+                if (seen.has(key)) {
+                    return false;
+                }
+                seen.add(key);
+                return true;
+            });
         }
 
         if (minX !== Infinity) {
@@ -1083,7 +1306,33 @@ export class KiCadFetcher {
             orientation: 'right',
             length: 2.54,
             pinType: 'passive',
-            shape: 'line'
+            shape: 'line',
+            kicadNameFontSize: null,
+            kicadNumberFontSize: null
+        };
+
+        const extractFontSize = (node) => {
+            if (!Array.isArray(node)) return null;
+            for (const child of node) {
+                if (!Array.isArray(child)) continue;
+                if (child[0] === 'effects') {
+                    for (const eff of child) {
+                        if (!Array.isArray(eff)) continue;
+                        if (eff[0] === 'font') {
+                            for (const fontItem of eff) {
+                                if (!Array.isArray(fontItem)) continue;
+                                if (fontItem[0] === 'size') {
+                                    const sx = parseFloat(fontItem[1]);
+                                    const sy = parseFloat(fontItem[2]);
+                                    if (Number.isFinite(sy)) return sy;
+                                    if (Number.isFinite(sx)) return sx;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            return null;
         };
         
         // Get pin type and shape
@@ -1109,13 +1358,18 @@ export class KiCadFetcher {
                 case 'name':
                     // Remove quotes if present
                     pin.name = String(item[1] || '').replace(/^"|"$/g, '');
+                    pin.kicadNameFontSize = extractFontSize(item) ?? pin.kicadNameFontSize;
                     break;
                 case 'number':
                     pin.number = String(item[1] || '').replace(/^"|"$/g, '');
+                    pin.kicadNumberFontSize = extractFontSize(item) ?? pin.kicadNumberFontSize;
                     break;
             }
         }
         
+        if (Number.isFinite(pin.x) && Number.isFinite(pin.y)) {
+            pin._coordKey = `${pin.x.toFixed(3)},${pin.y.toFixed(3)}`;
+        }
         return pin;
     }
 

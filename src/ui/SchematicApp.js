@@ -7,7 +7,7 @@ import { SelectionManager } from '../core/SelectionManager.js';
 import { FileManager } from '../core/FileManager.js';
 import { ComponentPicker } from '../components/ComponentPicker.js';
 import { Line, Wire, Circle, Rect, Arc, Polygon, Text } from '../shapes/index.js';
-import { getComponentLibrary } from '../components/index.js';
+import { Component, getComponentLibrary } from '../components/index.js';
 import { bindMouseEvents } from './modules/mouse.js';
 import { bindKeyboardShortcuts } from './modules/keyboard.js';
 import { bindPropertiesPanel, applyCommonProperty, updatePropertiesPanel } from './modules/properties.js';
@@ -720,8 +720,11 @@ class SchematicApp {
             return;
         }
 
-        const raw = component?.definition?.symbol?._easyedaRawShapes;
-        if (options.forceHide || !component || !Array.isArray(raw) || raw.length === 0) {
+        const easyedaRaw = component?.definition?.symbol?._easyedaRawShapes;
+        const kicadRaw = component?.definition?._kicadRaw || component?.definition?.symbol?._kicadRaw;
+        const hasEasyeda = Array.isArray(easyedaRaw) && easyedaRaw.length > 0;
+        const hasKicad = typeof kicadRaw === 'string' && kicadRaw.trim().length > 0;
+        if (options.forceHide || !component || (!hasEasyeda && !hasKicad)) {
             tooltip.style.display = 'none';
             this._componentCodeTooltipActiveId = null;
             this._componentCodeTooltipPinned = false;
@@ -731,7 +734,7 @@ class SchematicApp {
 
         const textEl = tooltip.querySelector('.component-code-tooltip-text');
         if (textEl && this._componentCodeTooltipActiveId !== component.id) {
-            textEl.value = raw.join('\n');
+            textEl.value = hasEasyeda ? easyedaRaw.join('\n') : kicadRaw;
             this._componentCodeTooltipActiveId = component.id;
         }
 
@@ -748,6 +751,7 @@ class SchematicApp {
         tooltip.style.top = `${top}px`;
         tooltip.style.display = 'block';
     }
+
 
     _pinComponentCodeTooltip(component, screenPos) {
         if (!component || !screenPos) return;

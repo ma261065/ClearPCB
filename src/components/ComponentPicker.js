@@ -428,6 +428,9 @@ export class ComponentPicker {
                         category: 'KiCad',
                         symbol: kicadSymbol
                     };
+                if (kicadSymbol?._kicadRaw) {
+                    previewDef._kicadRaw = kicadSymbol._kicadRaw;
+                }
 
                 this._updatePreview(previewDef, { skipFootprint3d: true });
 
@@ -490,6 +493,9 @@ export class ComponentPicker {
                     symbol: kicadSymbol,
                     _source: 'KiCad'
                 };
+            if (kicadSymbol?._kicadRaw) {
+                placeDefinition._kicadRaw = kicadSymbol._kicadRaw;
+            }
             this.placeBtn.disabled = !ready;
             this.placeBtn.textContent = ready ? 'Place Component' : 'Missing footprint/3D';
             this.placeBtn.onclick = ready

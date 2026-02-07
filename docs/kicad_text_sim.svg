@@ -1,0 +1,190 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="700" viewBox="-30 -30 60 60" data-pin-length="2.54" data-pin-offset="0.508">
+  <defs>
+    <style>
+      svg {
+        /* Inputs from symbol definition */
+        --pin-length: 2.54;
+        --pin-offset: 0.508;
+        --pin-label-offset: calc(var(--pin-length) + var(--pin-offset));
+        --pin-number-offset: calc(var(--pin-length) - var(--pin-offset));
+      }
+      .outline { fill: none; stroke: #ffffff; stroke-width: 0.254; }
+      .pin { stroke: #ffffff; stroke-width: 0.254; }
+      .name { fill: #00cccc; font-family: Verdana, Arial, sans-serif; font-size: 1.7px; }
+      .number { fill: #ffffff; font-family: Verdana, Arial, sans-serif; font-size: 1.7px; }
+    </style>
+  </defs>
+
+  <!-- Placement formula (vector-based, uses pin length) -->
+  <!-- Let u = (x2-x1, y2-y1) / length (unit direction from pin origin to inner end) -->
+  <!-- Let p = (-u.y, u.x) (perpendicular) -->
+  <!-- Name pos: (x2, y2) + u * OFFSET -->
+  <!-- Number pos: (x2, y2) - u * OFFSET -->
+  <!-- Only inputs: pin length and OFFSET (defaults to 0.508 if not specified) -->
+
+  <!-- Symbol body -->
+  <rect class="outline" x="-20.32" y="-22.86" width="40.64" height="45.72" />
+
+  <!-- Right side pins (angle 180) -->
+  <g transform="translate(22.86 -20.32)">
+    <line class="pin" x1="0" y1="0" x2="-2.54" y2="0" />
+    <text class="name" x="-3.048" y="0" text-anchor="end" dominant-baseline="middle">LNA_IN</text>
+    <text class="number num-right" x="-2.032" y="-0.05" text-anchor="start" dominant-baseline="text-after-edge">1</text>
+  </g>
+  <g transform="translate(22.86 -15.24)">
+    <line class="pin" x1="0" y1="0" x2="-2.54" y2="0" />
+    <text class="name" x="-3.048" y="0" text-anchor="end" dominant-baseline="middle">CHIP_EN</text>
+    <text class="number num-right" x="-2.032" y="-0.05" text-anchor="start" dominant-baseline="text-after-edge">7</text>
+  </g>
+  <g transform="translate(22.86 -10.16)">
+    <line class="pin" x1="0" y1="0" x2="-2.54" y2="0" />
+    <text class="name" x="-3.048" y="0" text-anchor="end" dominant-baseline="middle">MTMS</text>
+    <text class="number num-right" x="-2.032" y="-0.05" text-anchor="start" dominant-baseline="text-after-edge">9</text>
+  </g>
+  <g transform="translate(22.86 -7.62)">
+    <line class="pin" x1="0" y1="0" x2="-2.54" y2="0" />
+    <text class="name" x="-3.048" y="0" text-anchor="end" dominant-baseline="middle">MTDI</text>
+    <text class="number num-right" x="-2.032" y="-0.05" text-anchor="start" dominant-baseline="text-after-edge">10</text>
+  </g>
+  <g transform="translate(22.86 -5.08)">
+    <line class="pin" x1="0" y1="0" x2="-2.54" y2="0" />
+    <text class="name" x="-3.048" y="0" text-anchor="end" dominant-baseline="middle">MTCK</text>
+    <text class="number num-right" x="-2.032" y="-0.05" text-anchor="start" dominant-baseline="text-after-edge">12</text>
+  </g>
+  <g transform="translate(22.86 -2.54)">
+    <line class="pin" x1="0" y1="0" x2="-2.54" y2="0" />
+    <text class="name" x="-3.048" y="0" text-anchor="end" dominant-baseline="middle">MTDO</text>
+    <text class="number num-right" x="-2.032" y="-0.05" text-anchor="start" dominant-baseline="text-after-edge">13</text>
+  </g>
+  <g transform="translate(22.86 2.54)">
+    <line class="pin" x1="0" y1="0" x2="-2.54" y2="0" />
+    <text class="name" x="-3.048" y="0" text-anchor="end" dominant-baseline="middle">SPIHD</text>
+    <text class="number num-right" x="-2.032" y="-0.05" text-anchor="start" dominant-baseline="text-after-edge">19</text>
+  </g>
+  <g transform="translate(22.86 5.08)">
+    <line class="pin" x1="0" y1="0" x2="-2.54" y2="0" />
+    <text class="name" x="-3.048" y="0" text-anchor="end" dominant-baseline="middle">SPIWP</text>
+    <text class="number num-right" x="-2.032" y="-0.05" text-anchor="start" dominant-baseline="text-after-edge">20</text>
+  </g>
+  <g transform="translate(22.86 7.62)">
+    <line class="pin" x1="0" y1="0" x2="-2.54" y2="0" />
+    <text class="name" x="-3.048" y="0" text-anchor="end" dominant-baseline="middle">SPICS0</text>
+    <text class="number num-right" x="-2.032" y="-0.05" text-anchor="start" dominant-baseline="text-after-edge">21</text>
+  </g>
+  <g transform="translate(22.86 10.16)">
+    <line class="pin" x1="0" y1="0" x2="-2.54" y2="0" />
+    <text class="name" x="-3.048" y="0" text-anchor="end" dominant-baseline="middle">SPICLK</text>
+    <text class="number num-right" x="-2.032" y="-0.05" text-anchor="start" dominant-baseline="text-after-edge">22</text>
+  </g>
+  <g transform="translate(22.86 12.7)">
+    <line class="pin" x1="0" y1="0" x2="-2.54" y2="0" />
+    <text class="name" x="-3.048" y="0" text-anchor="end" dominant-baseline="middle">SPID</text>
+    <text class="number num-right" x="-2.032" y="-0.05" text-anchor="start" dominant-baseline="text-after-edge">23</text>
+  </g>
+  <g transform="translate(22.86 15.24)">
+    <line class="pin" x1="0" y1="0" x2="-2.54" y2="0" />
+    <text class="name" x="-3.048" y="0" text-anchor="end" dominant-baseline="middle">SPIQ</text>
+    <text class="number num-right" x="-2.032" y="-0.05" text-anchor="start" dominant-baseline="text-after-edge">24</text>
+  </g>
+
+  <!-- Left side pins (angle 0) -->
+  <g transform="translate(-22.86 7.62)">
+    <line class="pin" x1="0" y1="0" x2="2.54" y2="0" />
+    <text class="name" x="3.048" y="0" text-anchor="start" dominant-baseline="middle">XTAL_32K_P</text>
+    <text class="number num-left" x="2.032" y="-0.05" text-anchor="end" dominant-baseline="text-after-edge">4</text>
+  </g>
+  <g transform="translate(-22.86 10.16)">
+    <line class="pin" x1="0" y1="0" x2="2.54" y2="0" />
+    <text class="name" x="3.048" y="0" text-anchor="start" dominant-baseline="middle">XTAL_32K_N</text>
+    <text class="number num-left" x="2.032" y="-0.05" text-anchor="end" dominant-baseline="text-after-edge">5</text>
+  </g>
+  <g transform="translate(-22.86 -20.32)">
+    <line class="pin" x1="0" y1="0" x2="2.54" y2="0" />
+    <text class="name" x="3.048" y="0" text-anchor="start" dominant-baseline="middle">GPIO2</text>
+    <text class="number num-left" x="2.032" y="-0.05" text-anchor="end" dominant-baseline="text-after-edge">6</text>
+  </g>
+  <g transform="translate(-22.86 -17.78)">
+    <line class="pin" x1="0" y1="0" x2="2.54" y2="0" />
+    <text class="name" x="3.048" y="0" text-anchor="start" dominant-baseline="middle">GPIO3</text>
+    <text class="number num-left" x="2.032" y="-0.05" text-anchor="end" dominant-baseline="text-after-edge">8</text>
+  </g>
+  <g transform="translate(-22.86 -15.24)">
+    <line class="pin" x1="0" y1="0" x2="2.54" y2="0" />
+    <text class="name" x="3.048" y="0" text-anchor="start" dominant-baseline="middle">GPIO8</text>
+    <text class="number num-left" x="2.032" y="-0.05" text-anchor="end" dominant-baseline="text-after-edge">14</text>
+  </g>
+  <g transform="translate(-22.86 -12.7)">
+    <line class="pin" x1="0" y1="0" x2="2.54" y2="0" />
+    <text class="name" x="3.048" y="0" text-anchor="start" dominant-baseline="middle">GPIO9</text>
+    <text class="number num-left" x="2.032" y="-0.05" text-anchor="end" dominant-baseline="text-after-edge">15</text>
+  </g>
+  <g transform="translate(-22.86 -10.16)">
+    <line class="pin" x1="0" y1="0" x2="2.54" y2="0" />
+    <text class="name" x="3.048" y="0" text-anchor="start" dominant-baseline="middle">GPIO10</text>
+    <text class="number num-left" x="2.032" y="-0.05" text-anchor="end" dominant-baseline="text-after-edge">16</text>
+  </g>
+  <g transform="translate(-22.86 -7.62)">
+    <line class="pin" x1="0" y1="0" x2="2.54" y2="0" />
+    <text class="name" x="3.048" y="0" text-anchor="start" dominant-baseline="middle">GPIO18</text>
+    <text class="number num-left" x="2.032" y="-0.05" text-anchor="end" dominant-baseline="text-after-edge">25</text>
+  </g>
+  <g transform="translate(-22.86 -5.08)">
+    <line class="pin" x1="0" y1="0" x2="2.54" y2="0" />
+    <text class="name" x="3.048" y="0" text-anchor="start" dominant-baseline="middle">GPIO19</text>
+    <text class="number num-left" x="2.032" y="-0.05" text-anchor="end" dominant-baseline="text-after-edge">26</text>
+  </g>
+  <g transform="translate(-22.86 2.54)">
+    <line class="pin" x1="0" y1="0" x2="2.54" y2="0" />
+    <text class="name" x="3.048" y="0" text-anchor="start" dominant-baseline="middle">U0RXD</text>
+    <text class="number num-left" x="2.032" y="-0.05" text-anchor="end" dominant-baseline="text-after-edge">27</text>
+  </g>
+  <g transform="translate(-22.86 0)">
+    <line class="pin" x1="0" y1="0" x2="2.54" y2="0" />
+    <text class="name" x="3.048" y="0" text-anchor="start" dominant-baseline="middle">U0TXD</text>
+    <text class="number num-left" x="2.032" y="-0.05" text-anchor="end" dominant-baseline="text-after-edge">28</text>
+  </g>
+  <g transform="translate(-22.86 12.7)">
+    <line class="pin" x1="0" y1="0" x2="2.54" y2="0" />
+    <text class="name" x="3.048" y="0" text-anchor="start" dominant-baseline="middle">XTAL_N</text>
+    <text class="number num-left" x="2.032" y="-0.05" text-anchor="end" dominant-baseline="text-after-edge">29</text>
+  </g>
+  <g transform="translate(-22.86 15.24)">
+    <line class="pin" x1="0" y1="0" x2="2.54" y2="0" />
+    <text class="name" x="3.048" y="0" text-anchor="start" dominant-baseline="middle">XTAL_P</text>
+    <text class="number num-left" x="2.032" y="-0.05" text-anchor="end" dominant-baseline="text-after-edge">30</text>
+  </g>
+
+  <!-- Top pins (angle 270) -->
+  <g transform="translate(-10.16 -25.4)">
+    <line class="pin" x1="0" y1="0" x2="0" y2="2.54" />
+    <text class="name" x="-3.048" y="0" text-anchor="end" dominant-baseline="middle" transform="rotate(-90)">VDD3P3</text>
+    <text class="number num-top" x="-2.032" y="-0.05" text-anchor="start" dominant-baseline="text-after-edge" transform="rotate(-90)">2</text>
+  </g>
+  <g transform="translate(-5.08 -25.4)">
+    <line class="pin" x1="0" y1="0" x2="0" y2="2.54" />
+    <text class="name" x="-3.048" y="0" text-anchor="end" dominant-baseline="middle" transform="rotate(-90)">VDD3P3_RTC</text>
+    <text class="number num-top" x="-2.032" y="-0.05" text-anchor="start" dominant-baseline="text-after-edge" transform="rotate(-90)">11</text>
+  </g>
+  <g transform="translate(0 -25.4)">
+    <line class="pin" x1="0" y1="0" x2="0" y2="2.54" />
+    <text class="name" x="-3.048" y="0" text-anchor="end" dominant-baseline="middle" transform="rotate(-90)">VDD3P3_CPU</text>
+    <text class="number num-top" x="-2.032" y="-0.05" text-anchor="start" dominant-baseline="text-after-edge" transform="rotate(-90)">17</text>
+  </g>
+  <g transform="translate(5.08 -25.4)">
+    <line class="pin" x1="0" y1="0" x2="0" y2="2.54" />
+    <text class="name" x="-3.048" y="0" text-anchor="end" dominant-baseline="middle" transform="rotate(-90)">VDD_SPI</text>
+    <text class="number num-top" x="-2.032" y="-0.05" text-anchor="start" dominant-baseline="text-after-edge" transform="rotate(-90)">18</text>
+  </g>
+  <g transform="translate(10.16 -25.4)">
+    <line class="pin" x1="0" y1="0" x2="0" y2="2.54" />
+    <text class="name" x="-3.048" y="0" text-anchor="end" dominant-baseline="middle" transform="rotate(-90)">VDDA</text>
+    <text class="number num-top" x="-2.032" y="-0.05" text-anchor="start" dominant-baseline="text-after-edge" transform="rotate(-90)">31</text>
+  </g>
+
+  <!-- Bottom pin (angle 90) -->
+  <g transform="translate(0 25.4)">
+    <line class="pin" x1="0" y1="0" x2="0" y2="-2.54" />
+    <text class="name" x="3.048" y="0" text-anchor="start" dominant-baseline="middle" transform="rotate(-90)">GND</text>
+    <text class="number num-bottom" x="2.032" y="-0.05" text-anchor="end" dominant-baseline="text-after-edge" transform="rotate(-90)">33</text>
+  </g>
+</svg>

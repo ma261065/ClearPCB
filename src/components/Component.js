@@ -275,6 +275,7 @@ export class Component {
     _createPinElement(pin, ns) {
         const group = document.createElementNS(ns, 'g');
             const length = Number.isFinite(pin.length) ? pin.length : 0;
+        const source = this.symbol?._source || this.definition?._source;
         
         const x1 = pin.x; 
         const y1 = pin.y;
@@ -285,19 +286,11 @@ export class Component {
         let nameRot = 0;
         let numRot = 0;
         
-        const labelOffset = length + 0.2; 
+        const isKiCad = source === 'KiCad';
         const isActiveLow = pin.bubble || pin.name?.includes('~') || pin.name?.includes('/');
         const bubbleRadius = 0.6;
         const dotRadius = 0.35;
-
-        // BODY-ANCHOR LOGIC
-        // We ensure the number stays close to the body/bubble so it doesn't drift into the connection dot.
-        const bubbleClearance = isActiveLow ? (bubbleRadius * 2) + 0.2 : 0;
-        const numBodyOffset = 0.5;
-        const numPos = length - (bubbleClearance + numBodyOffset);
-        
-        const numOffsetLR = 0.35;
-        const numOffsetUD = 0.5;
+        const kicadTextOffset = isKiCad ? (this.symbol?.kicadTextOffset ?? 0.508) : null;
 
         switch (pin.orientation) {
             case 'right':
@@ -337,23 +330,84 @@ export class Component {
         }
 
         if (allowInfer && (!hasNamePos || !hasNumberPos)) {
+            if (isKiCad) {
+                const dx = x2 - x1;
+                const dy = y2 - y1;
+                const lineLen = Math.hypot(dx, dy) || 1;
+                const ux = dx / lineLen;
+                const uy = dy / lineLen;
+                const isHorizontal = Math.abs(ux) >= Math.abs(uy);
+                const numPerpOffset = Number.isFinite(pin.kicadNumberYOffset)
+                    ? pin.kicadNumberYOffset
+                    : -0.05;
+                const perpX = -uy;
+                const perpY = ux;
+
+                if (!hasNamePos) {
+                    nameX = x2 + ux * kicadTextOffset;
+                    nameY = y2 + uy * kicadTextOffset;
+                    if (isHorizontal) {
+                        nameAnchor = ux >= 0 ? 'start' : 'end';
+                    } else {
+                        nameAnchor = uy >= 0 ? 'end' : 'start';
+                        nameRot = -90;
+                    }
+                }
+
+                if (!hasNumberPos) {
+                    numX = x2 - ux * kicadTextOffset + perpX * numPerpOffset;
+                    numY = y2 - uy * kicadTextOffset + perpY * numPerpOffset;
+                    if (isHorizontal) {
+                        numAnchor = ux >= 0 ? 'end' : 'start';
+                    } else {
+                        numAnchor = uy >= 0 ? 'start' : 'end';
+                        numRot = -90;
+                    }
+                }
+            } else {
+            const labelOffset = length + 0.2;
+            // BODY-ANCHOR LOGIC
+            // We ensure the number stays close to the body/bubble so it doesn't drift into the connection dot.
+            const bubbleClearance = isActiveLow ? (bubbleRadius * 2) + 0.2 : 0;
+            const numBodyOffset = 0.5;
+            const numPos = length - (bubbleClearance + numBodyOffset);
+            
+            const numOffsetLR = 0.35;
+            const numOffsetUD = 0.5;
             switch (pin.orientation) {
                 case 'right':
-                    if (!hasNamePos) { nameX = x1 + labelOffset; nameY = y1; nameAnchor = 'start'; }
-                    if (!hasNumberPos) { numX = x1 + numPos; numY = y1 - numOffsetLR; numAnchor = 'middle'; }
+                    if (!hasNamePos) {
+                        nameX = x1 + labelOffset; nameY = y1; nameAnchor = 'start';
+                    }
+                    if (!hasNumberPos) {
+                        numX = x1 + numPos; numY = y1 - numOffsetLR; numAnchor = 'middle';
+                    }
                     break;
                 case 'left':
-                    if (!hasNamePos) { nameX = x1 - labelOffset; nameY = y1; nameAnchor = 'end'; }
-                    if (!hasNumberPos) { numX = x1 - numPos; numY = y1 - numOffsetLR; numAnchor = 'middle'; }
+                    if (!hasNamePos) {
+                        nameX = x1 - labelOffset; nameY = y1; nameAnchor = 'end';
+                    }
+                    if (!hasNumberPos) {
+                        numX = x1 - numPos; numY = y1 - numOffsetLR; numAnchor = 'middle';
+                    }
                     break;
                 case 'up':
-                    if (!hasNamePos) { nameX = x1; nameY = y1 - labelOffset; nameAnchor = 'end'; nameRot = 90; }
-                    if (!hasNumberPos) { numX = x1 - numOffsetUD; numY = y1 - numPos; numAnchor = 'middle'; }
+                    if (!hasNamePos) {
+                        nameX = x1; nameY = y1 - labelOffset; nameAnchor = 'end'; nameRot = 90;
+                    }
+                    if (!hasNumberPos) {
+                        numX = x1 - numOffsetUD; numY = y1 - numPos; numAnchor = 'middle';
+                    }
                     break;
                 case 'down':
-                    if (!hasNamePos) { nameX = x1; nameY = y1 + labelOffset; nameAnchor = 'start'; nameRot = 90; }
-                    if (!hasNumberPos) { numX = x1 - numOffsetUD; numY = y1 + numPos; numAnchor = 'middle'; }
+                    if (!hasNamePos) {
+                        nameX = x1; nameY = y1 + labelOffset; nameAnchor = 'start'; nameRot = 90;
+                    }
+                    if (!hasNumberPos) {
+                        numX = x1 - numOffsetUD; numY = y1 + numPos; numAnchor = 'middle';
+                    }
                     break;
+            }
             }
         }
 
@@ -401,8 +455,14 @@ export class Component {
             const labelGroup = document.createElementNS(ns, 'g');
             const nameTxt = document.createElementNS(ns, 'text');
             const cleanName = pin.name.replace(/[{}]/g, '').replace(/[~/]/g, '');
-            const nameFontSize = (pin.namePos && Number.isFinite(pin.namePos.fontSize)) ? pin.namePos.fontSize : 1.0;
-            const nameFontFamily = (pin.namePos && pin.namePos.fontFamily) ? pin.namePos.fontFamily : (this.symbol?._source === 'EasyEDA' ? 'Verdana' : null);
+            const nameFontSizeBase = (pin.namePos && Number.isFinite(pin.namePos.fontSize))
+                ? pin.namePos.fontSize
+                : (source === 'KiCad' ? (pin.kicadNameFontSize || 1.27) : 1.0);
+            const nameFontScale = source === 'KiCad' ? 1.3386 : 1.0;
+            const nameFontSize = nameFontSizeBase * nameFontScale;
+            const nameFontFamily = (pin.namePos && pin.namePos.fontFamily)
+                ? pin.namePos.fontFamily
+                : (source === 'EasyEDA' || source === 'KiCad' ? 'Verdana' : null);
             nameTxt.setAttribute('font-size', nameFontSize);
             if (nameFontFamily) {
                 nameTxt.setAttribute('font-family', nameFontFamily);
@@ -446,8 +506,14 @@ export class Component {
         if (pin.number && (hasNumberPos || allowInfer)) {
             const numLabelGroup = document.createElementNS(ns, 'g');
             const numTxt = document.createElementNS(ns, 'text');
-            const numFontSize = (pin.numberPos && Number.isFinite(pin.numberPos.fontSize)) ? pin.numberPos.fontSize : 0.7;
-            const numFontFamily = (pin.numberPos && pin.numberPos.fontFamily) ? pin.numberPos.fontFamily : (this.symbol?._source === 'EasyEDA' ? 'Verdana' : null);
+            const numFontSizeBase = (pin.numberPos && Number.isFinite(pin.numberPos.fontSize))
+                ? pin.numberPos.fontSize
+                : (source === 'KiCad' ? (pin.kicadNumberFontSize || 1.27) : 0.7);
+            const numFontScale = source === 'KiCad' ? 1.3386 : 1.0;
+            const numFontSize = numFontSizeBase * numFontScale;
+            const numFontFamily = (pin.numberPos && pin.numberPos.fontFamily)
+                ? pin.numberPos.fontFamily
+                : (source === 'EasyEDA' || source === 'KiCad' ? 'Verdana' : null);
             numTxt.setAttribute('font-size', numFontSize);
             if (numFontFamily) {
                 numTxt.setAttribute('font-family', numFontFamily);
@@ -456,7 +522,9 @@ export class Component {
             if (numAnchor) {
                 numTxt.setAttribute('text-anchor', numAnchor);
             }
-            if (this.symbol?._source !== 'EasyEDA') {
+            if (this.symbol?._source === 'KiCad') {
+                numTxt.setAttribute('dominant-baseline', 'text-after-edge');
+            } else if (this.symbol?._source !== 'EasyEDA') {
                 numTxt.setAttribute('dominant-baseline', 'middle');
             }
             numTxt.textContent = pin.number;
@@ -474,10 +542,15 @@ export class Component {
     _createGraphicElement(g, ns) {
         let el;
         // Convert black colors to themed color
+        const source = this.symbol?._source || this.definition?._source;
         const isBlack = g.stroke === 'black' || g.stroke === '#000' || g.stroke === '#000000';
         const isEasyedaRed = g.stroke === '#880000' || g.stroke === '#aa0000';
         const stroke = (isBlack || isEasyedaRed) ? 'var(--sch-symbol-outline, #aa0000)' : g.stroke;
-        const fill = g.fill === 'none' ? 'none' : 'var(--sch-symbol-fill, #ffffcc)';
+        const isKiCad = source === 'KiCad';
+        const defaultFill = isKiCad
+            ? 'none'
+            : 'var(--sch-symbol-fill, #ffffcc)';
+        const fill = g.fill === 'none' ? 'none' : defaultFill;
         switch (g.type) {
             case 'rect':
                 el = document.createElementNS(ns, 'rect');
@@ -512,7 +585,12 @@ export class Component {
             case 'text':
                 el = document.createElementNS(ns, 'text');
                 el.setAttribute('x', g.x); el.setAttribute('y', g.y);
-                el.setAttribute('font-size', g.fontSize || 1.5);
+                const textSize = g.fontSize || 1.5;
+                const textScale = isKiCad ? 1.6 : 1.0;
+                el.setAttribute('font-size', textSize * textScale);
+                if (isKiCad) {
+                    el.setAttribute('font-family', 'Verdana');
+                }
                 el.setAttribute('fill', 'var(--sch-text, #cccccc)');
                 if (g.anchor) el.setAttribute('text-anchor', g.anchor);
                 el.textContent = (g.text || '').replace('${REF}', this.reference).replace('${VALUE}', this.value);
