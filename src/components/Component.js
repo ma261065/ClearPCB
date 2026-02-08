@@ -297,12 +297,84 @@ export class Component {
 
     _createPinElement(pin, ns) {
         const group = document.createElementNS(ns, 'g');
-            const length = Number.isFinite(pin.length) ? pin.length : 0;
+        const length = Number.isFinite(pin.length) ? pin.length : 0;
         const source = this.symbol?._source || this.definition?._source;
         
-        const x1 = pin.x; 
-        const y1 = pin.y;
+        // Pin connection point (always at pin.x, pin.y - from segment 2)
+        const connectionX = pin.x; 
+        const connectionY = pin.y;
+        
+        // Line endpoints
+        let x1 = pin.x; 
+        let y1 = pin.y;
         let x2 = x1, y2 = y1;
+
+        // If we have path data, parse it to get the actual line coordinates
+        if (pin._pathData) {
+            const pathMatch = pin._pathData.match(/M\s*(-?\d+(?:\.\d+)?)\s*[,\s]\s*(-?\d+(?:\.\d+)?)\s*([hvL])\s*(-?\d+(?:\.\d+)?)/i);
+            if (pathMatch) {
+                const startX = Number(pathMatch[1]);
+                const startY = Number(pathMatch[2]);
+                const cmd = pathMatch[3].toLowerCase();
+                const value = Number(pathMatch[4]);
+                
+                // Line starts at path M position
+                x1 = startX;
+                y1 = startY;
+                
+                // Line ends based on direction and length
+                if (cmd === 'h') {
+                    x2 = startX + value;
+                    y2 = startY;
+                } else if (cmd === 'v') {
+                    x2 = startX;
+                    y2 = startY + value;
+                } else if (cmd === 'l') {
+                    x2 = startX + value;
+                    y2 = startY;
+                }
+            } else {
+                // Try alternate format without spaces: M345,285h10
+                const pathMatch2 = pin._pathData.match(/M(-?\d+(?:\.\d+)?)[,\s](-?\d+(?:\.\d+)?)([hvL])(-?\d+(?:\.\d+)?)/i);
+                if (pathMatch2) {
+                    const startX = Number(pathMatch2[1]);
+                    const startY = Number(pathMatch2[2]);
+                    const cmd = pathMatch2[3].toLowerCase();
+                    const value = Number(pathMatch2[4]);
+                    
+                    x1 = startX;
+                    y1 = startY;
+                    
+                    if (cmd === 'h') {
+                        x2 = startX + value;
+                        y2 = startY;
+                    } else if (cmd === 'v') {
+                        x2 = startX;
+                        y2 = startY + value;
+                    } else if (cmd === 'l') {
+                        x2 = startX + value;
+                        y2 = startY;
+                    }
+                }
+            }
+        } else {
+            // Fallback to orientation-based calculation
+            // Connection point at x1,y1, line extends away from body
+            switch (pin.orientation) {
+                case 'right':
+                    x2 = x1 - length; 
+                    break;
+                case 'left':
+                    x2 = x1 + length;
+                    break;
+                case 'up':
+                    y2 = y1 + length;
+                    break;
+                case 'down':
+                    y2 = y1 - length;
+                    break;
+            }
+        }
 
         let nameX, nameY, nameAnchor;
         let numX, numY, numAnchor;
@@ -314,21 +386,6 @@ export class Component {
         const bubbleRadius = 0.6;
         const dotRadius = 0.35;
         const kicadTextOffset = isKiCad ? (this.symbol?.kicadTextOffset ?? 0.508) : null;
-
-        switch (pin.orientation) {
-            case 'right':
-                x2 = x1 + length; 
-                break;
-            case 'left':
-                x2 = x1 - length;
-                break;
-            case 'up':
-                y2 = y1 - length;
-                break;
-            case 'down':
-                y2 = y1 + length;
-                break;
-        }
 
         const hasNamePos = pin.namePos && Number.isFinite(pin.namePos.x) && Number.isFinite(pin.namePos.y);
         const hasNumberPos = pin.numberPos && Number.isFinite(pin.numberPos.x) && Number.isFinite(pin.numberPos.y);
@@ -451,7 +508,7 @@ export class Component {
         group.appendChild(line);
 
         const dot = document.createElementNS(ns, 'circle');
-        dot.setAttribute('cx', x1); dot.setAttribute('cy', y1);
+        dot.setAttribute('cx', connectionX); dot.setAttribute('cy', connectionY);
         dot.setAttribute('r', dotRadius);
         dot.setAttribute('fill', 'var(--sch-pin, #aa0000)'); 
         dot.setAttribute('stroke', 'none'); 
@@ -564,16 +621,9 @@ export class Component {
 
     _createGraphicElement(g, ns) {
         let el;
-        // Convert black colors to themed color
-        const source = this.symbol?._source || this.definition?._source;
-        const isBlack = g.stroke === 'black' || g.stroke === '#000' || g.stroke === '#000000';
-        const isEasyedaRed = g.stroke === '#880000' || g.stroke === '#aa0000';
-        const stroke = (isBlack || isEasyedaRed) ? 'var(--sch-symbol-outline, #aa0000)' : g.stroke;
-        const isKiCad = source === 'KiCad';
-        const defaultFill = isKiCad
-            ? 'none'
-            : 'var(--sch-symbol-fill, #ffffcc)';
-        const fill = g.fill === 'none' ? 'none' : defaultFill;
+        // Ignore colors from component data, use themed colors
+        const stroke = 'var(--sch-symbol-outline, #000000)';
+        const fill = 'none';
         switch (g.type) {
             case 'rect':
                 el = document.createElementNS(ns, 'rect');
@@ -609,9 +659,10 @@ export class Component {
                 el = document.createElementNS(ns, 'text');
                 el.setAttribute('x', g.x); el.setAttribute('y', g.y);
                 const textSize = g.fontSize || 1.5;
-                const textScale = isKiCad ? 1.6 : 1.0;
+                const source = this.symbol?._source || this.definition?._source;
+                const textScale = source === 'KiCad' ? 1.6 : 1.0;
                 el.setAttribute('font-size', textSize * textScale);
-                if (isKiCad) {
+                if (source === 'KiCad') {
                     el.setAttribute('font-family', 'Verdana');
                 }
                 el.setAttribute('fill', 'var(--sch-text, #cccccc)');

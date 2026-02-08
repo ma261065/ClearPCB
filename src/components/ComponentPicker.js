@@ -1772,44 +1772,63 @@ export class ComponentPicker {
                 return '';
             }
             
-            const length = pin.length || 2.54;
             const strokeWidth = 0.2;
             let svg = '';
             
-            // Calculate pin line endpoints
-            let x1 = pin.x, y1 = pin.y, x2, y2;
+            // Parse the actual path from pin data if available
+            let lineX1, lineY1, lineX2, lineY2;
             
-            switch (pin.orientation) {
-                case 'right':
-                    x2 = pin.x + length; y2 = pin.y;
-                    break;
-                case 'left':
-                    x2 = pin.x - length; y2 = pin.y;
-                    break;
-                case 'up':
-                    x2 = pin.x; y2 = pin.y - length;
-                    break;
-                case 'down':
-                    x2 = pin.x; y2 = pin.y + length;
-                    break;
-                default:
-                    x2 = pin.x + length; y2 = pin.y;
+            if (pin._pathData) {
+                // Parse SVG path commands (M x y h dx, M x y v dy, M x y L x2 y2)
+                const pathMatch = pin._pathData.match(/M\s*(-?\d+(?:\.\d+)?)\s*[,\s]\s*(-?\d+(?:\.\d+)?)\s*([hvL])\s*(-?\d+(?:\.\d+)?)/i);
+                if (pathMatch) {
+                    lineX1 = Number(pathMatch[1]);
+                    lineY1 = Number(pathMatch[2]);
+                    const cmd = pathMatch[3].toLowerCase();
+                    const value = Number(pathMatch[4]);
+                    
+                    if (cmd === 'h') {
+                        lineX2 = lineX1 + value;
+                        lineY2 = lineY1;
+                    } else if (cmd === 'v') {
+                        lineX2 = lineX1;
+                        lineY2 = lineY1 + value;
+                    } else if (cmd === 'l') {
+                        lineX2 = lineX1 + value;
+                        lineY2 = lineY1;
+                    }
+                } else {
+                    // Try alternate format without spaces: M345,285h10
+                    const pathMatch2 = pin._pathData.match(/M(-?\d+(?:\.\d+)?)[,\s](-?\d+(?:\.\d+)?)([hvL])(-?\d+(?:\.\d+)?)/i);
+                    if (pathMatch2) {
+                        lineX1 = Number(pathMatch2[1]);
+                        lineY1 = Number(pathMatch2[2]);
+                        const cmd = pathMatch2[3].toLowerCase();
+                        const value = Number(pathMatch2[4]);
+                        
+                        if (cmd === 'h') {
+                            lineX2 = lineX1 + value;
+                            lineY2 = lineY1;
+                        } else if (cmd === 'v') {
+                            lineX2 = lineX1;
+                            lineY2 = lineY1 + value;
+                        } else if (cmd === 'l') {
+                            lineX2 = lineX1 + value;
+                            lineY2 = lineY1;
+                        }
+                    }
+                }
             }
             
-            // Validate coordinates
-            if (!Number.isFinite(x1) || !Number.isFinite(y1) || 
-                !Number.isFinite(x2) || !Number.isFinite(y2)) {
-                return '';
-            }
-            
-            // Pin line
-            if (length > 0) {
-                svg += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" 
+            // If we successfully parsed the path, render it
+            if (Number.isFinite(lineX1) && Number.isFinite(lineY1) && 
+                Number.isFinite(lineX2) && Number.isFinite(lineY2)) {
+                svg += `<line x1="${lineX1}" y1="${lineY1}" x2="${lineX2}" y2="${lineY2}" 
                               stroke="var(--schematic-component, #00cc66)" stroke-width="${strokeWidth}"/>`;
             }
             
-            // Pin endpoint
-            svg += `<circle cx="${x2}" cy="${y2}" r="0.4" fill="var(--schematic-pin, #e94560)" stroke="none"/>`;
+            // Pin endpoint dot at connection point (pin.x, pin.y)
+            svg += `<circle cx="${pin.x}" cy="${pin.y}" r="0.4" fill="var(--schematic-pin, #e94560)" stroke="none"/>`;
             
             return svg;
         } catch (error) {

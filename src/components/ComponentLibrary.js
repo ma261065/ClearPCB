@@ -643,6 +643,19 @@ export class ComponentLibrary {
         let angle = Number(header[6]);
         const headerId = typeof header[7] === 'string' ? header[7].trim() : '';
 
+        // Check for explicit connection point in second segment (format: "420~300")
+        if (segments.length > 1 && segments[1]) {
+            const connParts = segments[1].split('~');
+            if (connParts.length >= 2) {
+                const connX = Number(connParts[0]);
+                const connY = Number(connParts[1]);
+                if (Number.isFinite(connX) && Number.isFinite(connY)) {
+                    x = connX;
+                    y = connY;
+                }
+            }
+        }
+
         // Fallback for shorter/variant headers (e.g., PIN~...)
         if (!Number.isFinite(x) || !Number.isFinite(y)) {
             const numeric = header.map(part => Number(part)).filter(Number.isFinite);
@@ -657,6 +670,7 @@ export class ComponentLibrary {
 
         let orientation = this._easyedaAngleToOrientation(angle);
         let length = null;
+        let pathData = null;
 
         const pathSegment = segments.find(seg => {
             if (typeof seg !== 'string') return false;
@@ -665,6 +679,7 @@ export class ComponentLibrary {
         });
         if (pathSegment) {
             const path = pathSegment.split('~')[0].trim();
+            pathData = path; // Store the raw path data
             const parsed = this._parseEasyEDAPinPath(path);
             if (parsed) {
                 orientation = parsed.orientation;
@@ -742,6 +757,7 @@ export class ComponentLibrary {
         return {
             _id: headerId || null,
             _key: headerId || headerNumber || `${x},${y}`,
+            _pathData: pathData, // Store raw path for accurate rendering
             number: number || '',
             name: name || number || '',
             x,
@@ -883,11 +899,44 @@ export class ComponentLibrary {
         };
         const namePos = scaleFont(pin.namePos);
         const numberPos = scaleFont(pin.numberPos);
+        
+        // Transform path data coordinates to match transformed pin position
+        let transformedPathData = pin._pathData;
+        if (transformedPathData) {
+            // Transform coordinates in path: M x y h dx, M x y v dy, M x y L x2 y2
+            transformedPathData = transformedPathData.replace(
+                /M\s*(-?\d+(?:\.\d+)?)\s*[,\s]\s*(-?\d+(?:\.\d+)?)/g,
+                (match, x, y) => {
+                    const tx = (Number(x) - offsetX) * scale;
+                    const ty = (Number(y) - offsetY) * scale;
+                    return `M ${tx} ${ty}`;
+                }
+            );
+            // Transform h/v values
+            transformedPathData = transformedPathData.replace(
+                /([hv])\s*(-?\d+(?:\.\d+)?)/gi,
+                (match, cmd, val) => {
+                    const tv = Number(val) * scale;
+                    return `${cmd} ${tv}`;
+                }
+            );
+            // Transform L coordinates
+            transformedPathData = transformedPathData.replace(
+                /L\s*(-?\d+(?:\.\d+)?)\s*[,\s]\s*(-?\d+(?:\.\d+)?)/gi,
+                (match, x, y) => {
+                    const tx = (Number(x) - offsetX) * scale;
+                    const ty = (Number(y) - offsetY) * scale;
+                    return `L ${tx} ${ty}`;
+                }
+            );
+        }
+        
         return {
             ...pin,
             x: (pin.x - offsetX) * scale,
             y: (pin.y - offsetY) * scale,
             length: Number.isFinite(pin.length) ? pin.length * scale : null,
+            _pathData: transformedPathData,
             namePos,
             numberPos
         };

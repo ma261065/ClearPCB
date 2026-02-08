@@ -259,7 +259,16 @@ export class VRMLPreview {
                 return '<div style="color:var(--text-muted);text-align:center;padding:20px">No vertices found</div>';
             }
 
-            return this.renderToSVG(geometry, options);
+            // Force white colors, ignore any colors from the file
+            const renderOptions = {
+                ...options,
+                lineColor: '#ffffff',
+                fillColor: '#ffffff',
+                strokeOpacity: 1.0,
+                fillOpacity: 1.0
+            };
+
+            return this.renderToSVG(geometry, renderOptions);
         } catch (error) {
             console.error('Error rendering OBJ model:', error);
             return `<div style="color:var(--accent-color);text-align:center;padding:20px;font-size:12px">OBJ render error: ${error.message}</div>`;
