@@ -202,11 +202,12 @@ export class Component {
                         const rawText = (g.text || '')
                             .replace('${REF}', this.reference)
                             .replace('${VALUE}', this.value);
+                        const source = symbol?._source || this.definition?._source;
                         const fontSize = Number.isFinite(g.fontSize) ? g.fontSize : 1.5;
-                        const textWidth = rawText.length * fontSize * 0.6;
-                        const textHeight = fontSize;
-                        const ascent = textHeight * 0.7;
-                        const descent = textHeight * 0.3;
+                        const textScale = source === 'KiCad' ? 1.6 : 1.0;
+                        const actualFontSize = fontSize * textScale;
+                        const textWidth = rawText.length * actualFontSize * 0.7; // More generous
+                        const textHeight = actualFontSize * 1.3; // Add extra height
                         let x1 = g.x;
                         if (g.anchor === 'middle') {
                             x1 = g.x - textWidth / 2;
@@ -220,32 +221,92 @@ export class Component {
                             y1 = g.y;
                         } else {
                             // middle/unspecified baseline
-                            y1 = g.y - ascent;
+                            y1 = g.y - textHeight / 2;
                         }
                         minX = Math.min(minX, x1);
                         minY = Math.min(minY, y1);
                         maxX = Math.max(maxX, x1 + textWidth);
-                        maxY = Math.max(maxY, y1 + ascent + descent);
+                        maxY = Math.max(maxY, y1 + textHeight);
                         break;
                     }
                 }
             }
         }
 
-        if (symbol?.pins && !symbol._boundsIncludePins) {
+        // Always include pins in bounds calculation
+        if (symbol?.pins) {
             for (const pin of symbol.pins) {
-                const length = Number.isFinite(pin.length) ? pin.length : 0;
-                let px = pin.x, py = pin.y;
-                switch (pin.orientation) {
-                    case 'right': px += length; break;
-                    case 'left': px -= length; break;
-                    case 'up': py -= length; break;
-                    case 'down': py += length; break;
+                // Include pin connection point
+                minX = Math.min(minX, pin.x);
+                maxX = Math.max(maxX, pin.x);
+                minY = Math.min(minY, pin.y);
+                maxY = Math.max(maxY, pin.y);
+                
+                // If we have path data, parse it to get line extent
+                if (pin._pathData) {
+                    const pathMatch = pin._pathData.match(/M\s*(-?\d+(?:\.\d+)?)\s*[,\s]\s*(-?\d+(?:\.\d+)?)\s*([hvL])\s*(-?\d+(?:\.\d+)?)/i);
+                    if (pathMatch) {
+                        const startX = Number(pathMatch[1]);
+                        const startY = Number(pathMatch[2]);
+                        const cmd = pathMatch[3].toLowerCase();
+                        const value = Number(pathMatch[4]);
+                        
+                        minX = Math.min(minX, startX);
+                        minY = Math.min(minY, startY);
+                        
+                        if (cmd === 'h') {
+                            const endX = startX + value;
+                            minX = Math.min(minX, endX);
+                            maxX = Math.max(maxX, endX);
+                        } else if (cmd === 'v') {
+                            const endY = startY + value;
+                            minY = Math.min(minY, endY);
+                            maxY = Math.max(maxY, endY);
+                        }
+                        
+                        maxX = Math.max(maxX, startX);
+                        maxY = Math.max(maxY, startY);
+                    } else {
+                        // Try alternate format
+                        const pathMatch2 = pin._pathData.match(/M(-?\d+(?:\.\d+)?)[,\s](-?\d+(?:\.\d+)?)([hvL])(-?\d+(?:\.\d+)?)/i);
+                        if (pathMatch2) {
+                            const startX = Number(pathMatch2[1]);
+                            const startY = Number(pathMatch2[2]);
+                            const cmd = pathMatch2[3].toLowerCase();
+                            const value = Number(pathMatch2[4]);
+                            
+                            minX = Math.min(minX, startX);
+                            minY = Math.min(minY, startY);
+                            
+                            if (cmd === 'h') {
+                                const endX = startX + value;
+                                minX = Math.min(minX, endX);
+                                maxX = Math.max(maxX, endX);
+                            } else if (cmd === 'v') {
+                                const endY = startY + value;
+                                minY = Math.min(minY, endY);
+                                maxY = Math.max(maxY, endY);
+                            }
+                            
+                            maxX = Math.max(maxX, startX);
+                            maxY = Math.max(maxY, startY);
+                        }
+                    }
+                } else if (Number.isFinite(pin.length)) {
+                    // Fallback to orientation-based length
+                    const length = pin.length;
+                    let px = pin.x, py = pin.y;
+                    switch (pin.orientation) {
+                        case 'right': px += length; break;
+                        case 'left': px -= length; break;
+                        case 'up': py -= length; break;
+                        case 'down': py += length; break;
+                    }
+                    minX = Math.min(minX, px);
+                    maxX = Math.max(maxX, px);
+                    minY = Math.min(minY, py);
+                    maxY = Math.max(maxY, py);
                 }
-                minX = Math.min(minX, pin.x, px);
-                maxX = Math.max(maxX, pin.x, px);
-                minY = Math.min(minY, pin.y, py);
-                maxY = Math.max(maxY, pin.y, py);
             }
         }
 
@@ -256,7 +317,7 @@ export class Component {
             maxY = height - origin.y;
         }
 
-        const padding = 0.4;
+        const padding = 1.0; // Increased padding to ensure everything is included
         return {
             minX: minX - padding,
             minY: minY - padding,
@@ -667,12 +728,19 @@ export class Component {
                 }
                 el.setAttribute('fill', 'var(--sch-text, #cccccc)');
                 if (g.anchor) el.setAttribute('text-anchor', g.anchor);
+                if (g.baseline) {
+                    el.setAttribute('dominant-baseline', g.baseline);
+                } else {
+                    el.setAttribute('dominant-baseline', 'middle');
+                }
                 el.textContent = (g.text || '').replace('${REF}', this.reference).replace('${VALUE}', this.value);
                 return el;
         }
         if (el) {
             el.setAttribute('stroke', stroke); el.setAttribute('fill', fill);
             el.setAttribute('stroke-width', g.strokeWidth || 0.254);
+            el.setAttribute('stroke-linecap', 'round');
+            el.setAttribute('stroke-linejoin', 'round');
             if (g.transform) {
                 el.setAttribute('transform', g.transform);
             }

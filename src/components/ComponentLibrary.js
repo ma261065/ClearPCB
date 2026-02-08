@@ -440,19 +440,6 @@ export class ComponentLibrary {
             && graphic.width >= widthRaw * 0.5
             && graphic.height >= heightRaw * 0.5);
 
-        if (!hasOutline && rawGraphics.length === 0 && Number.isFinite(widthRaw) && Number.isFinite(heightRaw)) {
-            rawGraphics.push({
-                type: 'rect',
-                x: minX,
-                y: minY,
-                width: widthRaw,
-                height: heightRaw,
-                stroke: '#880000',
-                strokeWidth: 1,
-                fill: 'none'
-            });
-        }
-
         if (!Number.isFinite(minX) || !Number.isFinite(minY) || !Number.isFinite(maxX) || !Number.isFinite(maxY)) {
             return null;
         }
@@ -476,7 +463,7 @@ export class ComponentLibrary {
         graphics.push({
             type: 'text',
             x: centerXLocal,
-            y: topEdge - 1.2,
+            y: topEdge - 2.5,
             text: '${REF}',
             fontSize: 1.5,
             anchor: 'middle',
@@ -485,7 +472,7 @@ export class ComponentLibrary {
         graphics.push({
             type: 'text',
             x: centerXLocal,
-            y: topEdge - 0.2,
+            y: topEdge - 1.2,
             text: '${VALUE}',
             fontSize: 1.3,
             anchor: 'middle',
@@ -626,6 +613,19 @@ export class ComponentLibrary {
                     stroke: strokeColor,
                     strokeWidth: strokeWidthValue,
                     fill: 'none'
+                };
+            }
+            case 'A': {
+                // Arc: A~M x y A rx ry rotation large-arc sweep x2 y2~...~strokeColor~strokeWidth~...
+                const pathString = (parts[1] || '').trim();
+                if (!pathString) return null;
+                const fillColor = parts.length > 6 ? (parts[6] || '').trim() : 'none';
+                return {
+                    type: 'path',
+                    d: pathString,
+                    stroke: strokeColor,
+                    strokeWidth: strokeWidthValue,
+                    fill: fillColor === 'none' ? 'none' : fillColor
                 };
             }
             default:

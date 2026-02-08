@@ -595,6 +595,13 @@ export class ComponentPicker {
     
     _populateLCSCResults() {
         this.listEl.innerHTML = '';
+        
+        // Remove any existing header row from previous searches
+        const existingHeader = this.body.querySelector('.cp-results-header-row');
+        if (existingHeader) {
+            existingHeader.remove();
+        }
+        
         const hasOnlineError = this.lcscResults.length === 1 && this.lcscResults[0].error;
         const hasOnlineResults = this.lcscResults.length > 0 && !hasOnlineError;
         const hasKiCadResults = this.kicadResults.length > 0;
