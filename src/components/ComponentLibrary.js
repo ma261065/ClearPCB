@@ -444,19 +444,34 @@ export class ComponentLibrary {
             return null;
         }
 
-        const offsetX = (minX + maxX) / 2;
-        const offsetY = (minY + maxY) / 2;
+        // Use first pin as origin for grid alignment
+        let offsetX, offsetY;
+        if (rawPins.length > 0) {
+            // Origin is the first pin's position
+            offsetX = rawPins[0].x;
+            offsetY = rawPins[0].y;
+        } else {
+            // Fallback to center if no pins
+            offsetX = (minX + maxX) / 2;
+            offsetY = (minY + maxY) / 2;
+        }
 
         const graphics = rawGraphics.map(graphic => this._transformEasyEDAGraphic(graphic, offsetX, offsetY, scale));
         const pins = rawPins.map(pin => this._transformEasyEDAPin(pin, offsetX, offsetY, scale));
 
-        const width = widthRaw * scale;
-        const height = heightRaw * scale;
+        // Calculate bounds in local coordinate system (relative to first pin)
         const minXLocal = (minX - offsetX) * scale;
         const maxXLocal = (maxX - offsetX) * scale;
         const minYLocal = (minY - offsetY) * scale;
         const maxYLocal = (maxY - offsetY) * scale;
-        const origin = { x: -minXLocal, y: -minYLocal };
+        
+        // Origin is at (0, 0) - the first pin position
+        const origin = { x: 0, y: 0 };
+        
+        // Width and height encompass the full bounds
+        const width = maxXLocal - minXLocal;
+        const height = maxYLocal - minYLocal;
+        
         const centerXLocal = (minXLocal + maxXLocal) / 2;
         const topEdge = minYLocal;
 
@@ -874,10 +889,13 @@ export class ComponentLibrary {
                     strokeWidth
                 };
             case 'path':
+                // SVG transform includes scale, which automatically scales stroke-width
+                // Use same calculation as other shapes, it will match after transform
+                const pathStrokeWidth = Number.isFinite(graphic.strokeWidth) ? graphic.strokeWidth * scale : 0.254;
                 return {
                     ...graphic,
                     transform: `translate(${(-offsetX) * scale},${(-offsetY) * scale}) scale(${scale})`,
-                    strokeWidth: graphic.strokeWidth
+                    strokeWidth: pathStrokeWidth / scale
                 };
             default:
                 return graphic;

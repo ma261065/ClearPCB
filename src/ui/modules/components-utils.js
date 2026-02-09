@@ -22,13 +22,4 @@ export function getSelectedComponents(app) {
     return [];
 }
 
-export function renderComponents(app) {
-    for (const comp of app.components) {
-        if (comp.element) {
-            const transform = comp._buildTransform();
-            if (transform) {
-                comp.element.setAttribute('transform', transform);
-            }
-        }
-    }
-}
+

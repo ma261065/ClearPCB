@@ -26,7 +26,7 @@ import * as ExportTools from './modules/export.js';
 import { handleEscape } from './modules/input.js';
 import { setupEventBusListeners } from './modules/event-bus.js';
 import { onToolSelected, onComponentPickerClosed, onOptionsChanged, loadToolOptions } from './modules/tool.js';
-import { updateSelectableItems, generateReference, getSelectedComponents, renderComponents } from './modules/components-utils.js';
+import { updateSelectableItems, generateReference, getSelectedComponents } from './modules/components-utils.js';
 import { setupCallbacks } from './modules/callbacks.js';
 import { updateUndoRedoButtons, makeHelpPanelDraggable } from './modules/ui-utils.js';
 import {
@@ -590,10 +590,7 @@ class SchematicApp {
         return getSelectedComponents(this);
     }
     
-    // Render all components
-    renderComponents() {
-        renderComponents(this);
-    }
+
 
     // ==================== Callbacks ====================
 

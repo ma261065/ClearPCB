@@ -375,6 +375,10 @@ export function bindMouseEvents(app) {
         } else if (app.dragMode === 'box' && app.boxSelectStart) {
             app.didDrag = true;
             app._updateBoxSelectElement(worldPos);
+            // Live selection feedback during drag
+            const bounds = app._getBoxSelectBounds(worldPos);
+            app.selection.handleBoxSelect(bounds, e.shiftKey, 'contain');
+            app.renderShapes(true);
         }
     });
 

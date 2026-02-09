@@ -53,4 +53,11 @@ export function renderShapes(app, force = false) {
             shape.render(app.viewport.scale);
         }
     }
+    
+    // Also render components when selected, hovered, or locked
+    for (const comp of app.components) {
+        if (force || comp.selected || comp.hovered || comp.locked) {
+            comp.render(app.viewport.scale);
+        }
+    }
 }

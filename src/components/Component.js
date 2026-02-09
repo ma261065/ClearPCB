@@ -154,6 +154,68 @@ export class Component {
         this.element.insertBefore(highlight, this.element.firstChild);
     }
 
+    /**
+     * Render the component with optional lock icon
+     */
+    render(scale) {
+        if (!this.element) return;
+        
+        // Update highlight for selection/hover
+        this._updateHighlight();
+        
+        // Remove existing lock icon
+        const existing = this.element.querySelector('.component-lock-icon');
+        if (existing) existing.remove();
+        
+        // Draw lock icon when locked and selected
+        if (this.locked && this.selected) {
+            const localBounds = this._getLocalBounds();
+            
+            const ns = 'http://www.w3.org/2000/svg';
+            const lockGroup = document.createElementNS(ns, 'g');
+            lockGroup.setAttribute('class', 'component-lock-icon');
+            
+            const lockSize = 0.8; // world units
+            const offset = 0.6;
+            const strokeW = 0.15;
+            
+            // Position lock icon at top-left of local component bounds
+            const lockX = localBounds.minX - offset - lockSize;
+            const lockY = localBounds.minY - offset - lockSize * 0.6;
+            
+            const bodyW = lockSize;
+            const bodyH = lockSize * 0.7;
+            const bodyY = lockY + bodyH * 0.25;
+            
+            // Lock body
+            const body = document.createElementNS(ns, 'rect');
+            body.setAttribute('x', lockX);
+            body.setAttribute('y', bodyY);
+            body.setAttribute('width', bodyW);
+            body.setAttribute('height', bodyH);
+            body.setAttribute('rx', lockSize * 0.12);
+            body.setAttribute('fill', 'var(--lock-icon, #666666)');
+            body.setAttribute('stroke', 'var(--lock-icon, #666666)');
+            body.setAttribute('stroke-width', strokeW);
+            lockGroup.appendChild(body);
+            
+            // Lock shackle
+            const shackleR = bodyW * 0.35;
+            const shackleY = lockY + bodyH * 0.25;
+            const shacklePath = document.createElementNS(ns, 'path');
+            const shackleCx = lockX + bodyW / 2;
+            const shackleD = `M ${shackleCx - shackleR} ${shackleY} ` +
+                `A ${shackleR} ${shackleR} 0 0 1 ${shackleCx + shackleR} ${shackleY}`;
+            shacklePath.setAttribute('d', shackleD);
+            shacklePath.setAttribute('fill', 'none');
+            shacklePath.setAttribute('stroke', 'var(--lock-icon, #666666)');
+            shacklePath.setAttribute('stroke-width', strokeW);
+            lockGroup.appendChild(shacklePath);
+            
+            this.element.appendChild(lockGroup);
+        }
+    }
+
     _getLocalBounds() {
         const symbol = this.symbol;
         const width = symbol?.width || 10;
@@ -372,7 +434,10 @@ export class Component {
 
         // If we have path data, parse it to get the actual line coordinates
         if (pin._pathData) {
-            const pathMatch = pin._pathData.match(/M\s*(-?\d+(?:\.\d+)?)\s*[,\s]\s*(-?\d+(?:\.\d+)?)\s*([hvL])\s*(-?\d+(?:\.\d+)?)/i);
+            // Try both space-separated and compact formats
+            const pathMatch = pin._pathData.match(/M\s*(-?\d+(?:\.\d+)?)\s*[,\s]\s*(-?\d+(?:\.\d+)?)\s*([hvL])\s*(-?\d+(?:\.\d+)?)/i) ||
+                            pin._pathData.match(/M(-?\d+(?:\.\d+)?)[,\s](-?\d+(?:\.\d+)?)([hvL])(-?\d+(?:\.\d+)?)/i);
+            
             if (pathMatch) {
                 const startX = Number(pathMatch[1]);
                 const startY = Number(pathMatch[2]);
@@ -393,29 +458,6 @@ export class Component {
                 } else if (cmd === 'l') {
                     x2 = startX + value;
                     y2 = startY;
-                }
-            } else {
-                // Try alternate format without spaces: M345,285h10
-                const pathMatch2 = pin._pathData.match(/M(-?\d+(?:\.\d+)?)[,\s](-?\d+(?:\.\d+)?)([hvL])(-?\d+(?:\.\d+)?)/i);
-                if (pathMatch2) {
-                    const startX = Number(pathMatch2[1]);
-                    const startY = Number(pathMatch2[2]);
-                    const cmd = pathMatch2[3].toLowerCase();
-                    const value = Number(pathMatch2[4]);
-                    
-                    x1 = startX;
-                    y1 = startY;
-                    
-                    if (cmd === 'h') {
-                        x2 = startX + value;
-                        y2 = startY;
-                    } else if (cmd === 'v') {
-                        x2 = startX;
-                        y2 = startY + value;
-                    } else if (cmd === 'l') {
-                        x2 = startX + value;
-                        y2 = startY;
-                    }
                 }
             }
         } else {
