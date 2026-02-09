@@ -34,26 +34,16 @@ export function bindMouseEvents(app) {
                 if (shape.locked) continue;
                 const anchorId = shape.hitTestAnchor(worldPos, app.viewport.scale);
                 if (anchorId) {
-                    app.isDragging = true;
-                    app.dragMode = 'anchor';
-                    app.dragStart = { ...snapped };
-                    app.dragAnchorId = anchorId;
-                    app.dragShape = shape;
-                    app.dragWireAnchorOriginal = null;
-                    if (shape.type === 'wire') {
-                        const match = anchorId.match(/point(\d+)/);
-                        const idx = match ? parseInt(match[1]) : null;
-                        if (idx !== null && idx >= 0 && idx < shape.points.length) {
-                            const current = shape.points[idx];
-                            app.dragWireAnchorOriginal = { x: current.x, y: current.y };
-                        }
-                    }
-                    app.dragShapesBefore = app._captureShapeState(shape);
-                    e.preventDefault();
+                    // Defer anchor drag until the mouse actually moves
+                    app.pendingAnchorDrag = {
+                        shape,
+                        anchorId,
+                        screenPos: { ...screenPos },
+                        snapped: { ...snapped }
+                    };
                     return;
                 }
             }
-
             let hitShape = app.selection.hitTest(worldPos);
 
             // Shift+Click: Cycle through overlapping shapes
@@ -204,7 +194,18 @@ export function bindMouseEvents(app) {
             } else {
                 app._addPolygonPoint(snapped);
             }
-        } else if (app.currentTool === 'line' || app.currentTool === 'rect' || app.currentTool === 'circle' || app.currentTool === 'arc') {
+        } else if (app.currentTool === 'arc') {
+            if (!app.isDrawing) {
+                // Start arc: first endpoint
+                app._startDrawing(snapped);
+            } else if (!app.arcEndpoint) {
+                // Second endpoint - show a straight line as initial preview
+                app.arcEndpoint = { x: snapped.x, y: snapped.y };
+                app.drawCurrent = { x: snapped.x, y: snapped.y };
+                app._updateDrawing(app.drawCurrent);
+            }
+            // Right-click will finish the arc with bulge
+        } else if (app.currentTool === 'line' || app.currentTool === 'rect' || app.currentTool === 'circle') {
              if (!app.isDrawing) {
                  app._startDrawing(snapped);
              } else {
@@ -230,6 +231,18 @@ export function bindMouseEvents(app) {
             };
             const worldPos = app.viewport.screenToWorld(screenPos);
             app._finishWireDrawing(worldPos);
+            app._setToolCursor(app.currentTool, app.viewport.svg);
+            e.preventDefault();
+        } else if (app.currentTool === 'arc' && app.isDrawing && app.arcEndpoint) {
+            const rect = svg.getBoundingClientRect();
+            const screenPos = {
+                x: e.clientX - rect.left,
+                y: e.clientY - rect.top
+            };
+            const worldPos = app.viewport.screenToWorld(screenPos);
+            // Use unsnapped position for arc bulge point and ensure preview state is current
+            app._updateDrawing(worldPos);
+            app._finishDrawing(worldPos);
             app._setToolCursor(app.currentTool, app.viewport.svg);
             e.preventDefault();
         } else if (app.currentTool === 'polygon' && app.isDrawing) {
@@ -314,13 +327,52 @@ export function bindMouseEvents(app) {
             }
             return;
         }
+        
+        // Update drawing preview for arc (bulge point not grid-snapped) and other tools
+        if (app.isDrawing) {
+            if (app.currentTool === 'arc') {
+                // For arc: first stage uses snapped, second stage (bulge) uses worldPos
+                app._updateDrawing(app.arcEndpoint ? worldPos : snapped);
+            } else if (['line', 'rect', 'circle', 'polygon'].includes(app.currentTool)) {
+                // For other tools, use snapped position
+                app._updateDrawing(snapped);
+            }
+        }
 
         if (app.currentTool !== 'select') {
             app._showCrosshair();
             app._updateCrosshair(snapped, screenPos);
         }
 
-        if (!app.isDragging) return;
+        if (!app.isDragging) {
+            // Start deferred anchor drag once movement exceeds threshold
+            if (app.pendingAnchorDrag) {
+                const dx = screenPos.x - app.pendingAnchorDrag.screenPos.x;
+                const dy = screenPos.y - app.pendingAnchorDrag.screenPos.y;
+                const moved = Math.hypot(dx, dy);
+                if (moved >= 3) {
+                    const { shape, anchorId, snapped: startSnapped } = app.pendingAnchorDrag;
+                    app.pendingAnchorDrag = null;
+                    app.isDragging = true;
+                    app.dragMode = 'anchor';
+                    app.dragStart = { ...startSnapped };
+                    app.dragStartScreen = { ...screenPos };
+                    app.dragAnchorId = anchorId;
+                    app.dragShape = shape;
+                    app.dragWireAnchorOriginal = null;
+                    if (shape.type === 'wire') {
+                        const match = anchorId.match(/point(\d+)/);
+                        const idx = match ? parseInt(match[1]) : null;
+                        if (idx !== null && idx >= 0 && idx < shape.points.length) {
+                            const current = shape.points[idx];
+                            app.dragWireAnchorOriginal = { x: current.x, y: current.y };
+                        }
+                    }
+                    app.dragShapesBefore = app._captureShapeState(shape);
+                }
+            }
+            if (!app.isDragging) return;
+        }
         if (app.viewport.isPanning) return;
 
         if (app.dragMode === 'move') {
@@ -360,9 +412,15 @@ export function bindMouseEvents(app) {
             }
         } else if (app.dragMode === 'anchor' && app.dragShape) {
             app.didDrag = true;
-            const anchorPos = app.dragShape.type === 'wire'
-                ? app._getWireAnchorSnappedPosition(app.dragShape, app.dragAnchorId, worldPos)
-                : snapped;
+            // For arc mid-anchor, use worldPos (not snapped). For everything else, use snapped.
+            let anchorPos;
+            if (app.dragShape.type === 'wire') {
+                anchorPos = app._getWireAnchorSnappedPosition(app.dragShape, app.dragAnchorId, worldPos);
+            } else if (app.dragShape.type === 'arc' && app.dragAnchorId === 'mid') {
+                anchorPos = worldPos; // No snapping for arc mid-anchor
+            } else {
+                anchorPos = snapped;
+            }
             const newAnchorId = app.dragShape.moveAnchor(app.dragAnchorId, anchorPos.x, anchorPos.y);
             if (newAnchorId && newAnchorId !== app.dragAnchorId) {
                 app.dragAnchorId = newAnchorId;
@@ -423,6 +481,12 @@ export function bindMouseEvents(app) {
                 app._applyShapeState(app.dragShape, app.dragShapesBefore);
                 const command = new ModifyShapeCommand(app, app.dragShape, app.dragShapesBefore, afterState);
                 app.history.execute(command);
+                
+                // Clear _dragMidPoint immediately (it's for endpoint drags)
+                if (app.dragShape._dragMidPoint) {
+                    app.dragShape._dragMidPoint = null;
+                }
+                // Note: Don't clear _draggingMidTo here - it will be cleared at the start of the next drag
             }
 
             app.isDragging = false;
@@ -432,6 +496,7 @@ export function bindMouseEvents(app) {
             app.dragShape = null;
             app.dragShapesBefore = null;
             app.dragWireAnchorOriginal = null;
+            app.pendingAnchorDrag = null;
             if (app.textEdit) {
                 app._updateTextEditOverlay?.();
             }
