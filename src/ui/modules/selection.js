@@ -67,16 +67,8 @@ export function captureShapeState(app, shape) {
         case 'line':
             return { x1: shape.x1, y1: shape.y1, x2: shape.x2, y2: shape.y2 };
         case 'arc':
+            // For arc, only capture the actual stored control points, not computed geometry
             return {
-                x: shape.x,
-                y: shape.y,
-                radius: shape.radius,
-                startAngle: shape.startAngle,
-                endAngle: shape.endAngle,
-                sweepFlag: shape.sweepFlag,
-                largeArc: shape.largeArc,
-                snapToGrid: shape.snapToGrid,
-                gridSize: shape.gridSize,
                 bulgePoint: shape.bulgePoint ? { x: shape.bulgePoint.x, y: shape.bulgePoint.y } : undefined,
                 startPoint: shape.startPoint ? { x: shape.startPoint.x, y: shape.startPoint.y } : undefined,
                 endPoint: shape.endPoint ? { x: shape.endPoint.x, y: shape.endPoint.y } : undefined

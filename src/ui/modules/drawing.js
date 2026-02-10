@@ -336,18 +336,9 @@ export function createShapeFromDrawing(app) {
             app.arcLargeArc = undefined;
             
             return new Arc({
-                x: cx,
-                y: cy,
-                radius: radius,
-                startAngle: startAngle,
-                endAngle: endAngle,
-                sweepFlag: sweepFlag,
-                largeArc: largeArc,
                 bulgePoint: { x: bulgePoint.x, y: bulgePoint.y },
                 startPoint: { x: p1.x, y: p1.y },
                 endPoint: { x: p2.x, y: p2.y },
-                snapToGrid: app.viewport.snapToGrid,
-                gridSize: app.viewport.gridSize,
                 color: opts.color,
                 lineWidth: opts.lineWidth
             });

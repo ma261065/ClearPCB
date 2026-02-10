@@ -123,7 +123,9 @@ export function bindMouseEvents(app) {
                 // Snap object's current position to current grid in case grid changed
                 const objectSnapped = app.viewport.getSnappedPosition(app.dragObjectStartPos);
                 // If object is off-grid, move it to grid before drag
-                if (objectSnapped.x !== app.dragObjectStartPos.x || objectSnapped.y !== app.dragObjectStartPos.y) {
+                // (Skip for arcs - their geometry is computed from three control points, not a single x,y position)
+                if (firstShape && firstShape.type !== 'arc' && 
+                    (objectSnapped.x !== app.dragObjectStartPos.x || objectSnapped.y !== app.dragObjectStartPos.y)) {
                     const adjX = objectSnapped.x - app.dragObjectStartPos.x;
                     const adjY = objectSnapped.y - app.dragObjectStartPos.y;
                     for (const shape of app.selection.getSelection()) {
@@ -423,6 +425,9 @@ export function bindMouseEvents(app) {
             }
         } else if (app.dragMode === 'anchor' && app.dragShape) {
             app.didDrag = true;
+            // Ensure shape stays selected and visible during anchor drag
+            app.dragShape.selected = true;
+            
             // For arc mid-anchor, use worldPos (not snapped). For everything else, use snapped.
             let anchorPos;
             if (app.dragShape.type === 'wire') {
@@ -508,6 +513,9 @@ export function bindMouseEvents(app) {
                     app.dragShape._dragMidPoint = null;
                 }
                 // Note: Don't clear _draggingMidTo here - it will be cleared at the start of the next drag
+                
+                // Keep the shape selected after anchor drag completes
+                app.dragShape.selected = true;
             }
 
             app.isDragging = false;
@@ -518,6 +526,7 @@ export function bindMouseEvents(app) {
             app.dragShapesBefore = null;
             app.dragWireAnchorOriginal = null;
             app.pendingAnchorDrag = null;
+            app.renderShapes(true);
             if (app.textEdit) {
                 app._updateTextEditOverlay?.();
             }

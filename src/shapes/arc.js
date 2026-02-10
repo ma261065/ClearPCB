@@ -1,5 +1,7 @@
 /**
  * Arc - SVG arc using path
+ * Single source of truth: three control points (startPoint, endPoint, bulgePoint)
+ * All geometry is computed on-demand from these three points
  */
 
 import { Shape } from './shape.js';
@@ -9,24 +11,114 @@ export class Arc extends Shape {
         super(options);
         this.type = 'arc';
         
-        this.x = options.x || 0;
-        this.y = options.y || 0;
-        this.radius = options.radius || 5;
-        this.startAngle = options.startAngle || 0;
-        this.endAngle = options.endAngle || Math.PI;
-        this.sweepFlag = options.sweepFlag;
-        this.largeArc = options.largeArc;
-        this.bulgePoint = options.bulgePoint;
-        this.snapToGrid = options.snapToGrid;
-        this.gridSize = options.gridSize;
-        this.startPoint = options.startPoint || {
-            x: this.x + Math.cos(this.startAngle) * this.radius,
-            y: this.y + Math.sin(this.startAngle) * this.radius
+        // The ONLY source of truth: three control points
+        this._startPoint = options.startPoint || { x: 0, y: 0 };
+        this._endPoint = options.endPoint || { x: 10, y: 0 };
+        this._bulgePoint = options.bulgePoint || { x: 5, y: 5 };
+    }
+    
+    get startPoint() {
+        return this._startPoint;
+    }
+    
+    set startPoint(val) {
+        this._startPoint = val;
+    }
+    
+    get endPoint() {
+        return this._endPoint;
+    }
+    
+    set endPoint(val) {
+        this._endPoint = val;
+    }
+    
+    get bulgePoint() {
+        return this._bulgePoint;
+    }
+    
+    set bulgePoint(val) {
+        this._bulgePoint = val;
+    }
+    
+    /**
+     * Compute geometry from the three control points on demand
+     * No caching - always fresh to ensure consistency
+     */
+    _getGeometry() {
+        const x1 = this._startPoint.x;
+        const y1 = this._startPoint.y;
+        const x2 = this._bulgePoint.x;
+        const y2 = this._bulgePoint.y;
+        const x3 = this._endPoint.x;
+        const y3 = this._endPoint.y;
+        
+        // Calculate circle center from three points
+        const d1 = x1 * x1 + y1 * y1;
+        const d2 = x2 * x2 + y2 * y2;
+        const d3 = x3 * x3 + y3 * y3;
+        
+        const det = 2 * (x1 * (y2 - y3) + x2 * (y3 - y1) + x3 * (y1 - y2));
+        
+        // If points are collinear, return a degenerate circle
+        if (Math.abs(det) < 0.0001) {
+            return {
+                cx: (x1 + x3) / 2,
+                cy: (y1 + y3) / 2,
+                radius: Math.hypot(x3 - x1, y3 - y1) / 2,
+                startAngle: Math.atan2(y1 - (y1 + y3) / 2, x1 - (x1 + x3) / 2),
+                endAngle: Math.atan2(y3 - (y1 + y3) / 2, x3 - (x1 + x3) / 2),
+                sweepFlag: 0,
+                largeArc: 0
+            };
+        }
+        
+        const cx = (d1 * (y2 - y3) + d2 * (y3 - y1) + d3 * (y1 - y2)) / det;
+        const cy = (d1 * (x3 - x2) + d2 * (x1 - x3) + d3 * (x2 - x1)) / det;
+        const radius = Math.hypot(x1 - cx, y1 - cy);
+        
+        const startAngle = Math.atan2(y1 - cy, x1 - cx);
+        const endAngle = Math.atan2(y3 - cy, x3 - cx);
+        
+        const crossProduct = (x3 - x1) * (y2 - y1) - (y3 - y1) * (x2 - x1);
+        const sweepFlag = crossProduct > 0 ? 0 : 1;
+        
+        return {
+            cx, cy, radius,
+            startAngle,
+            endAngle,
+            sweepFlag,
+            largeArc: 0
         };
-        this.endPoint = options.endPoint || {
-            x: this.x + Math.cos(this.endAngle) * this.radius,
-            y: this.y + Math.sin(this.endAngle) * this.radius
-        };
+    }
+    
+    // Geometry getters - always computed from three points
+    get x() {
+        return this._getGeometry().cx;
+    }
+    
+    get y() {
+        return this._getGeometry().cy;
+    }
+    
+    get radius() {
+        return this._getGeometry().radius;
+    }
+    
+    get startAngle() {
+        return this._getGeometry().startAngle;
+    }
+    
+    get endAngle() {
+        return this._getGeometry().endAngle;
+    }
+    
+    get sweepFlag() {
+        return this._getGeometry().sweepFlag;
+    }
+    
+    get largeArc() {
+        return this._getGeometry().largeArc;
     }
     
     _calculateBounds() {
@@ -94,94 +186,26 @@ export class Arc extends Shape {
     }
     
     getStartPoint() {
-        if (this.startPoint) {
-            const p = { x: this.startPoint.x, y: this.startPoint.y };
-            return this._snapPoint(p);
-        }
-        return {
-            x: this.x + Math.cos(this.startAngle) * this.radius,
-            y: this.y + Math.sin(this.startAngle) * this.radius
-        };
+        return { x: this._startPoint.x, y: this._startPoint.y };
     }
     
     getEndPoint() {
-        if (this.endPoint) {
-            const p = { x: this.endPoint.x, y: this.endPoint.y };
-            return this._snapPoint(p);
-        }
-        return {
-            x: this.x + Math.cos(this.endAngle) * this.radius,
-            y: this.y + Math.sin(this.endAngle) * this.radius
-        };
+        return { x: this._endPoint.x, y: this._endPoint.y };
     }
 
-    _snapPoint(p) {
-        if (!this.snapToGrid || !this.gridSize) return p;
-        return {
-            x: Math.round(p.x / this.gridSize) * this.gridSize,
-            y: Math.round(p.y / this.gridSize) * this.gridSize
-        };
-    }
-    
     getAnchors() {
         const start = this.getStartPoint();
         const end = this.getEndPoint();
-        // Use drag position if dragging mid, otherwise use bulge point if available
-        const baseMid = this._draggingMidTo || this.bulgePoint || this.getMidPoint();
-        const mid = this._dragMoveOffset
-            ? { x: baseMid.x + this._dragMoveOffset.x, y: baseMid.y + this._dragMoveOffset.y }
-            : baseMid;
+        const mid = this.getMidPoint();
         return [
-            { id: 'start', x: start.x, y: start.y, cursor: 'crosshair' },
-            { id: 'mid', x: mid.x, y: mid.y, cursor: 'move' },
-            { id: 'end', x: end.x, y: end.y, cursor: 'crosshair' }
+            { id: 'start', x: start.x, y: start.y, cursor: 'grab' },
+            { id: 'mid', x: mid.x, y: mid.y, cursor: 'grab' },
+            { id: 'end', x: end.x, y: end.y, cursor: 'grab' }
         ];
     }
     
-    setSelected(selected) {
-        super.setSelected(selected);
-        // Clear drag states when deselecting
-        if (!selected) {
-            this._dragMidPoint = null;
-            this._draggingMidTo = null;
-        }
-    }
-    
     getMidPoint() {
-        let midAngle;
-        if (this.sweepFlag !== undefined) {
-            const normalize = (a) => {
-                while (a < 0) a += Math.PI * 2;
-                while (a >= Math.PI * 2) a -= Math.PI * 2;
-                return a;
-            };
-            const start = normalize(this.startAngle);
-            const end = normalize(this.endAngle);
-            const ccwDelta = (from, to) => (to >= from ? to - from : (Math.PI * 2 - from) + to);
-
-            // sweepFlag 1 means CCW (in angle space), 0 means CW
-            let delta = this.sweepFlag === 1 ? ccwDelta(start, end) : ccwDelta(end, start);
-            // We always draw the small arc
-            if (delta > Math.PI) delta = (Math.PI * 2) - delta;
-
-            if (this.sweepFlag === 1) {
-                midAngle = start + delta / 2;
-            } else {
-                midAngle = start - delta / 2;
-            }
-        } else {
-            if (this.endAngle > this.startAngle) {
-                // Counter-clockwise arc
-                midAngle = (this.startAngle + this.endAngle) / 2;
-            } else {
-                // Clockwise arc (endAngle is negative relative to startAngle)
-                midAngle = (this.startAngle + this.endAngle) / 2;
-            }
-        }
-        return {
-            x: this.x + Math.cos(midAngle) * this.radius,
-            y: this.y + Math.sin(midAngle) * this.radius
-        };
+        return { x: this._bulgePoint.x, y: this._bulgePoint.y };
     }
     
     moveAnchor(anchorId, x, y) {
@@ -192,7 +216,7 @@ export class Arc extends Shape {
         if (anchorId === 'start' || anchorId === 'end') {
             this._draggingMidTo = null;
             if (!this._dragMidPoint) {
-                this._dragMidPoint = this.bulgePoint || this.getMidPoint();
+                this._dragMidPoint = this._bulgePoint || this.getMidPoint();
             }
         } else if (anchorId === 'mid') {
             this._dragMidPoint = null;
@@ -206,16 +230,17 @@ export class Arc extends Shape {
         if (anchorId === 'start') {
             const clampedMid = this._clampBulgePoint(x, y, end.x, end.y, this._dragMidPoint.x, this._dragMidPoint.y);
             this._dragMidPoint = clampedMid;
-            this.bulgePoint = { x: clampedMid.x, y: clampedMid.y };
-            this._recalculateFromThreePoints(x, y, clampedMid.x, clampedMid.y, end.x, end.y);
+            this.startPoint = { x, y };
+            this.bulgePoint = clampedMid;
         } else if (anchorId === 'mid') {
-            this._recalculateFromThreePoints(start.x, start.y, x, y, end.x, end.y);
+            this.bulgePoint = { x, y };
         } else if (anchorId === 'end') {
             const clampedMid = this._clampBulgePoint(start.x, start.y, x, y, this._dragMidPoint.x, this._dragMidPoint.y);
             this._dragMidPoint = clampedMid;
-            this.bulgePoint = { x: clampedMid.x, y: clampedMid.y };
-            this._recalculateFromThreePoints(start.x, start.y, clampedMid.x, clampedMid.y, x, y);
+            this.endPoint = { x, y };
+            this.bulgePoint = clampedMid;
         }
+        
         this.invalidate();
     }
 
@@ -239,56 +264,6 @@ export class Arc extends Shape {
             x: mx + dx * scale,
             y: my + dy * scale
         };
-    }
-    
-    _recalculateFromThreePoints(x1, y1, x2, y2, x3, y3) {
-        // Calculate arc from three points
-        // Using circle equation: (x-cx)^2 + (y-cy)^2 = r^2
-        const dx1 = x2 - x1;
-        const dy1 = y2 - y1;
-        const dx2 = x3 - x2;
-        const dy2 = y3 - y2;
-        
-        const d1 = x1 * x1 + y1 * y1;
-        const d2 = x2 * x2 + y2 * y2;
-        const d3 = x3 * x3 + y3 * y3;
-        
-        const det = 2 * (x1 * (y2 - y3) + x2 * (y3 - y1) + x3 * (y1 - y2));
-        
-        if (Math.abs(det) < 0.0001) return; // Points are collinear
-        
-        const cx = (d1 * (y2 - y3) + d2 * (y3 - y1) + d3 * (y1 - y2)) / det;
-        const cy = (d1 * (x3 - x2) + d2 * (x1 - x3) + d3 * (x2 - x1)) / det;
-        const r = Math.hypot(x1 - cx, y1 - cy);
-        
-        // Calculate angles
-        const angle1 = Math.atan2(y1 - cy, x1 - cx);
-        const angle2 = Math.atan2(y2 - cy, x2 - cx);
-        const angle3 = Math.atan2(y3 - cy, x3 - cx);
-        
-        // Determine direction from cross product (bulge side)
-        const crossProduct = (x3 - x1) * (y2 - y1) - (y3 - y1) * (x2 - x1);
-        const ccw = crossProduct > 0;
-        const sweepFlag = ccw ? 0 : 1;
-        const largeArc = 0;
-        
-        this.x = cx;
-        this.y = cy;
-        this.radius = r;
-        this.bulgePoint = { x: x2, y: y2 };
-        this.startPoint = { x: x1, y: y1 };
-        this.endPoint = { x: x3, y: y3 };
-        this.startAngle = angle1;
-        if (ccw) {
-            this.endAngle = angle3;
-            while (this.endAngle <= this.startAngle) this.endAngle += Math.PI * 2;
-        } else {
-            this.endAngle = angle3;
-            while (this.endAngle >= this.startAngle) this.endAngle -= Math.PI * 2;
-        }
-        
-        this.sweepFlag = sweepFlag;
-        this.largeArc = largeArc;
     }
     
     _createElement() {
@@ -315,36 +290,25 @@ export class Arc extends Shape {
     }
     
     move(dx, dy) {
-        this.x += dx;
-        this.y += dy;
-        if (this.startPoint) {
-            this.startPoint.x += dx;
-            this.startPoint.y += dy;
-        }
-        if (this.endPoint) {
-            this.endPoint.x += dx;
-            this.endPoint.y += dy;
-        }
+        this.startPoint.x += dx;
+        this.startPoint.y += dy;
+        this.endPoint.x += dx;
+        this.endPoint.y += dy;
+        this.bulgePoint.x += dx;
+        this.bulgePoint.y += dy;
         this.invalidate();
     }
     
     clone() {
-        return new Arc({ ...this.toJSON(), x: this.x, y: this.y, radius: this.radius, startAngle: this.startAngle, endAngle: this.endAngle });
+        return new Arc(this.toJSON());
     }
     
     toJSON() {
         return {
             ...super.toJSON(),
-            x: this.x,
-            y: this.y,
-            radius: this.radius,
-            startAngle: this.startAngle,
-            endAngle: this.endAngle,
-            sweepFlag: this.sweepFlag,
-            largeArc: this.largeArc,
-            bulgePoint: this.bulgePoint,
             startPoint: this.startPoint,
-            endPoint: this.endPoint
+            endPoint: this.endPoint,
+            bulgePoint: this.bulgePoint
         };
     }
 }
