@@ -203,8 +203,12 @@ export function bindMouseEvents(app) {
                 app.arcEndpoint = { x: snapped.x, y: snapped.y };
                 app.drawCurrent = { x: snapped.x, y: snapped.y };
                 app._updateDrawing(app.drawCurrent);
+            } else {
+                // Third point (bulge) - finish arc on left click (unsnapped)
+                app._updateDrawing(worldPos);
+                app._finishDrawing(worldPos);
+                app._setToolCursor(app.currentTool, app.viewport.svg);
             }
-            // Right-click will finish the arc with bulge
         } else if (app.currentTool === 'line' || app.currentTool === 'rect' || app.currentTool === 'circle') {
              if (!app.isDrawing) {
                  app._startDrawing(snapped);
@@ -400,7 +404,14 @@ export function bindMouseEvents(app) {
 
                 for (const shape of app.selection.getSelection()) {
                     if (!shape.locked) {
+                        if (shape.type === 'arc') {
+                            shape._draggingMidTo = null;
+                            shape._dragMidPoint = null;
+                        }
                         shape.move(dx, dy);
+                        if (shape.type === 'arc') {
+                            shape._dragMoveOffset = { x: app.dragTotalDx, y: app.dragTotalDy };
+                        }
                     }
                 }
                 app.dragLastSnapped = { ...snappedTarget };
@@ -473,8 +484,18 @@ export function bindMouseEvents(app) {
                     for (const shape of selectedShapes) {
                         shape.move(-app.dragTotalDx, -app.dragTotalDy);
                     }
+                    for (const shape of selectedShapes) {
+                        if (shape.type === 'arc') {
+                            shape._dragMoveOffset = null;
+                        }
+                    }
                     const command = new MoveShapesCommand(app, selectedShapes, app.dragTotalDx, app.dragTotalDy);
                     app.history.execute(command);
+                    for (const shape of selectedShapes) {
+                        if (shape.type === 'arc') {
+                            shape._dragMoveOffset = null;
+                        }
+                    }
                 }
             } else if (app.didDrag && app.dragMode === 'anchor' && app.dragShape && app.dragShapesBefore) {
                 const afterState = app._captureShapeState(app.dragShape);

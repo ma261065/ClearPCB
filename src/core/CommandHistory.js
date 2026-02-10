@@ -208,6 +208,10 @@ export class MoveShapesCommand extends Command {
             const item = this._findItem(id);
             if (item) {
                 item.move(this.dx, this.dy);
+                if (item.type === 'arc' && item.bulgePoint) {
+                    item.bulgePoint.x += this.dx;
+                    item.bulgePoint.y += this.dy;
+                }
             }
         }
         this.app.renderShapes(true);
@@ -218,6 +222,10 @@ export class MoveShapesCommand extends Command {
             const item = this._findItem(id);
             if (item) {
                 item.move(-this.dx, -this.dy);
+                if (item.type === 'arc' && item.bulgePoint) {
+                    item.bulgePoint.x -= this.dx;
+                    item.bulgePoint.y -= this.dy;
+                }
             }
         }
         this.app.renderShapes(true);

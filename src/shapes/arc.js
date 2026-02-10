@@ -127,7 +127,10 @@ export class Arc extends Shape {
         const start = this.getStartPoint();
         const end = this.getEndPoint();
         // Use drag position if dragging mid, otherwise use bulge point if available
-        const mid = this._draggingMidTo || this.bulgePoint || this.getMidPoint();
+        const baseMid = this._draggingMidTo || this.bulgePoint || this.getMidPoint();
+        const mid = this._dragMoveOffset
+            ? { x: baseMid.x + this._dragMoveOffset.x, y: baseMid.y + this._dragMoveOffset.y }
+            : baseMid;
         return [
             { id: 'start', x: start.x, y: start.y, cursor: 'crosshair' },
             { id: 'mid', x: mid.x, y: mid.y, cursor: 'move' },
