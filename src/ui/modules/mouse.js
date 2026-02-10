@@ -13,6 +13,12 @@ export function bindMouseEvents(app) {
         }
 
         app.didDrag = false;
+        
+        // Clear any pending anchor drag that might be lingering from previous interaction
+        // This ensures we don't get confused by stale pending state
+        if (app.pendingAnchorDrag && !app.isDragging) {
+            app.pendingAnchorDrag = null;
+        }
 
         const rect = svg.getBoundingClientRect();
         const screenPos = {
@@ -411,9 +417,6 @@ export function bindMouseEvents(app) {
                             shape._dragMidPoint = null;
                         }
                         shape.move(dx, dy);
-                        if (shape.type === 'arc') {
-                            shape._dragMoveOffset = { x: app.dragTotalDx, y: app.dragTotalDy };
-                        }
                     }
                 }
                 app.dragLastSnapped = { ...snappedTarget };
@@ -482,50 +485,74 @@ export function bindMouseEvents(app) {
             return;
         }
 
+        // Always ensure proper cleanup, even during mode 2 click-to-end interaction
         if (app.isDragging) {
-            if (app.didDrag && app.dragMode === 'move') {
-                const selectedShapes = app.selection.getSelection();
-                if (selectedShapes.length > 0 && (app.dragTotalDx !== 0 || app.dragTotalDy !== 0)) {
-                    for (const shape of selectedShapes) {
-                        shape.move(-app.dragTotalDx, -app.dragTotalDy);
-                    }
-                    for (const shape of selectedShapes) {
-                        if (shape.type === 'arc') {
-                            shape._dragMoveOffset = null;
+            // Only execute the drag command if this is a regular mouseup (not already handled by click-to-end mousedown)
+            // We can tell by checking if dragShape is still set
+            if (app.dragShape) {
+                if (app.didDrag && app.dragMode === 'move') {
+                    const selectedShapes = app.selection.getSelection();
+                    if (selectedShapes.length > 0 && (app.dragTotalDx !== 0 || app.dragTotalDy !== 0)) {
+                        for (const shape of selectedShapes) {
+                            shape.move(-app.dragTotalDx, -app.dragTotalDy);
                         }
+                        const command = new MoveShapesCommand(app, selectedShapes, app.dragTotalDx, app.dragTotalDy);
+                        app.history.execute(command);
                     }
-                    const command = new MoveShapesCommand(app, selectedShapes, app.dragTotalDx, app.dragTotalDy);
+                } else if (app.didDrag && app.dragMode === 'anchor' && app.dragShapesBefore) {
+                    const afterState = app._captureShapeState(app.dragShape);
+                    app._applyShapeState(app.dragShape, app.dragShapesBefore);
+                    const command = new ModifyShapeCommand(app, app.dragShape, app.dragShapesBefore, afterState);
                     app.history.execute(command);
-                    for (const shape of selectedShapes) {
-                        if (shape.type === 'arc') {
-                            shape._dragMoveOffset = null;
+                    
+                    // Clear drag-specific arc state
+                    if (app.dragShape._dragMidPoint) {
+                        app.dragShape._dragMidPoint = null;
+                    }
+                    if (app.dragShape._draggingMidTo) {
+                        app.dragShape._draggingMidTo = null;
+                    }
+                    
+                    // Keep the shape selected after anchor drag completes
+                    app.dragShape.selected = true;
+                } else if (app.dragMode === 'anchor' && !app.didDrag) {
+                    // Anchor drag was initiated but no movement occurred - still keep shape selected
+                    // But make sure to clear any drag-specific state (important for arcs with _dragMidPoint and _draggingMidTo)
+                    if (app.dragShape) {
+                        if (app.dragShape._dragMidPoint) {
+                            app.dragShape._dragMidPoint = null;
                         }
+                        if (app.dragShape._draggingMidTo) {
+                            app.dragShape._draggingMidTo = null;
+                        }
+                        app.dragShape.selected = true;
                     }
                 }
-            } else if (app.didDrag && app.dragMode === 'anchor' && app.dragShape && app.dragShapesBefore) {
-                const afterState = app._captureShapeState(app.dragShape);
-                app._applyShapeState(app.dragShape, app.dragShapesBefore);
-                const command = new ModifyShapeCommand(app, app.dragShape, app.dragShapesBefore, afterState);
-                app.history.execute(command);
-                
-                // Clear _dragMidPoint immediately (it's for endpoint drags)
-                if (app.dragShape._dragMidPoint) {
-                    app.dragShape._dragMidPoint = null;
-                }
-                // Note: Don't clear _draggingMidTo here - it will be cleared at the start of the next drag
-                
-                // Keep the shape selected after anchor drag completes
-                app.dragShape.selected = true;
             }
 
+            // Clear ALL drag state unconditionally
             app.isDragging = false;
             app.dragMode = null;
             app.dragStart = null;
             app.dragAnchorId = null;
+            
+            // Before clearing dragShape, make sure to clean up any arc-specific state
+            if (app.dragShape) {
+                if (app.dragShape._dragMidPoint) {
+                    app.dragShape._dragMidPoint = null;
+                }
+                if (app.dragShape._draggingMidTo) {
+                    app.dragShape._draggingMidTo = null;
+                }
+            }
+            
             app.dragShape = null;
             app.dragShapesBefore = null;
             app.dragWireAnchorOriginal = null;
             app.pendingAnchorDrag = null;
+            app.didDrag = false;
+            app.dragTotalDx = 0;
+            app.dragTotalDy = 0;
             app.renderShapes(true);
             if (app.textEdit) {
                 app._updateTextEditOverlay?.();
