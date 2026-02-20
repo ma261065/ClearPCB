@@ -16,6 +16,8 @@ export function serializeDocument(app) {
 }
 
 export function loadDocument(app, data) {
+    app.selection.clearSelection();
+    if (app.textEdit?.shape) app._endTextEdit(false);
     app._clearAllShapes();
     app._clearAllComponents();
 
@@ -174,6 +176,8 @@ export async function newFile(app) {
         }
     }
 
+    app.selection.clearSelection();
+    if (app.textEdit?.shape) app._endTextEdit(false);
     app._clearAllShapes();
     app._clearAllComponents();
     app.fileManager.newDocument();

@@ -100,7 +100,7 @@ export class Polygon extends Shape {
     }
     
     _createElement() {
-        return document.createElementNS('http://www.w3.org/2000/svg', this.fill && this.closed ? 'polygon' : 'polyline');
+        return document.createElementNS('http://www.w3.org/2000/svg', this.closed ? 'polygon' : 'polyline');
     }
     
     _updateElement(el, strokeColor, fillColor, scale) {

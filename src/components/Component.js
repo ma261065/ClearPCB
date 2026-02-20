@@ -826,7 +826,11 @@ export class Component {
         this.rotation = (this.rotation + degrees) % 360;
         if (this.element) {
             const transform = this._buildTransform();
-            if (transform) this.element.setAttribute('transform', transform);
+            if (transform) {
+                this.element.setAttribute('transform', transform);
+            } else {
+                this.element.removeAttribute('transform');
+            }
         }
     }
 
@@ -837,7 +841,11 @@ export class Component {
         this.mirror = !this.mirror;
         if (this.element) {
             const transform = this._buildTransform();
-            if (transform) this.element.setAttribute('transform', transform);
+            if (transform) {
+                this.element.setAttribute('transform', transform);
+            } else {
+                this.element.removeAttribute('transform');
+            }
         }
     }
 
@@ -845,7 +853,11 @@ export class Component {
         this.x = x; this.y = y;
         if (this.element) {
             const transform = this._buildTransform();
-            if (transform) this.element.setAttribute('transform', transform);
+            if (transform) {
+                this.element.setAttribute('transform', transform);
+            } else {
+                this.element.removeAttribute('transform');
+            }
         }
     }
 

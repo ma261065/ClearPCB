@@ -1,4 +1,5 @@
 import { Component } from '../../components/index.js';
+import { AddComponentCommand, TransformComponentCommand } from '../../core/CommandHistory.js';
 
 export function onComponentDefinitionSelected(app, definition) {
     app._cancelDrawing();
@@ -67,14 +68,10 @@ export function placeComponent(app, worldPos) {
         reference: ref
     });
 
-    app.components.push(component);
-
     const element = component.createSymbolElement();
-    app.viewport.addContent(element);
 
-    app.fileManager.setDirty(true);
-
-    app._updateSelectableItems();
+    const command = new AddComponentCommand(app, component);
+    app.history.execute(command);
 
     console.log('Placed component:', component.reference, 'at', worldPos.x, worldPos.y);
 }
@@ -88,11 +85,9 @@ export function rotateComponent(app) {
         }
     } else {
         const selected = app._getSelectedComponents();
-        for (const comp of selected) {
-            comp.rotate(90);
-        }
         if (selected.length > 0) {
-            app.fileManager.setDirty(true);
+            const command = new TransformComponentCommand(app, selected, 'Rotate');
+            app.history.execute(command);
         }
     }
 }
@@ -106,11 +101,9 @@ export function mirrorComponent(app) {
         }
     } else {
         const selected = app._getSelectedComponents();
-        for (const comp of selected) {
-            comp.toggleMirror();
-        }
         if (selected.length > 0) {
-            app.fileManager.setDirty(true);
+            const command = new TransformComponentCommand(app, selected, 'Mirror');
+            app.history.execute(command);
         }
     }
 }

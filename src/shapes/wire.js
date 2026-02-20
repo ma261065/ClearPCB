@@ -195,7 +195,10 @@ export class Wire extends Shape {
             ...super.toJSON(),
             type: 'wire',
             points: this.points.map(p => ({ x: p.x, y: p.y })),
-            connections: this.connections,
+            connections: {
+                start: this.connections.start ? { ...this.connections.start } : null,
+                end: this.connections.end ? { ...this.connections.end } : null
+            },
             net: this.net
         };
     }

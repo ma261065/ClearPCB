@@ -1,4 +1,4 @@
-import { DeleteShapesCommand, ModifyPropertyCommand } from '../../core/CommandHistory.js';
+import { DeleteShapesCommand, DeleteComponentsCommand, ModifyPropertyCommand } from '../../core/CommandHistory.js';
 
 export function toggleSelectionLock(app) {
     const selection = app.selection.getSelection();
@@ -38,20 +38,9 @@ export function deleteSelected(app) {
         app.history.execute(command);
     }
 
-    for (const comp of componentsToDelete) {
-        const idx = app.components.indexOf(comp);
-        if (idx !== -1) {
-            app.components.splice(idx, 1);
-            if (comp.element) {
-                app.viewport.removeContent(comp.element);
-            }
-            comp.destroy();
-        }
-    }
-
     if (componentsToDelete.length > 0) {
-        app._updateSelectableItems();
-        app.fileManager.setDirty(true);
+        const command = new DeleteComponentsCommand(app, componentsToDelete);
+        app.history.execute(command);
     }
 
     app.renderShapes(true);

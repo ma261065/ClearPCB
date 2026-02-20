@@ -114,14 +114,13 @@ export class StorageManager {
      * @returns {string[]}
      */
     keys() {
-        const keys = [];
+        // Collect all keys first, then filter — has() may remove expired
+        // entries which shifts indices during iteration
+        const allKeys = [];
         for (let i = 0; i < localStorage.length; i++) {
-            const key = localStorage.key(i);
-            if (this.has(key)) {
-                keys.push(key);
-            }
+            allKeys.push(localStorage.key(i));
         }
-        return keys;
+        return allKeys.filter(key => this.has(key));
     }
 }
 
