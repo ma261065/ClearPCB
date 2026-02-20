@@ -1,10 +1,11 @@
 export async function savePdf(app) {
+    // Save current selection before try block so it's accessible in catch
+    const previousSelection = app.selection.getSelection();
     try {
         const pdfFileName = (app.fileManager?.fileName || 'schematic')
             .replace(/\.[^/.]+$/, '') + '.pdf';
 
-        // Save current selection and clear it before export to avoid selection handles
-        const previousSelection = app.selection.getSelection();
+        // Clear selection before export to avoid selection handles
         app.selection.clearSelection();
         app.renderShapes(true);
 
@@ -64,9 +65,10 @@ export async function savePdf(app) {
 }
 
 export async function printSchematic(app) {
+    // Save current selection before try block so it's accessible in catch
+    const previousSelection = app.selection.getSelection();
     try {
-        // Save current selection and clear it before print
-        const previousSelection = app.selection.getSelection();
+        // Clear selection before print
         app.selection.clearSelection();
         app.renderShapes(true);
 
@@ -163,7 +165,6 @@ export async function printSchematic(app) {
         alert('Failed to print: ' + (err?.message || 'Unknown error'));
         // Restore selection in case of error
         app.selection.clearSelection();
-        const previousSelection = app.selection.getSelection();
         for (const shape of previousSelection) {
             app.selection.select(shape, true);
         }

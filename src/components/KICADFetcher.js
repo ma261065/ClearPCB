@@ -73,7 +73,7 @@ export class KiCadFetcher {
         const limitedResults = results.slice(0, 50); // Limit results
         
         // Cache the search results (with TTL of 24 hours)
-        storageManager.set(cacheKey, limitedResults, 24 * 60 * 60);
+        storageManager.set(cacheKey, limitedResults, 24 * 60 * 60 * 1000);
         
         return limitedResults;
     }
@@ -272,7 +272,7 @@ export class KiCadFetcher {
                     }
                     
                     // Cache the result with 7-day TTL
-                    storageManager.set(cacheKey, content, 7 * 24 * 60 * 60);
+                    storageManager.set(cacheKey, content, 7 * 24 * 60 * 60 * 1000);
                     console.log(`Cached KiCad library: ${library}`);
                     
                     return content;
@@ -317,7 +317,7 @@ export class KiCadFetcher {
                             continue;
                         }
 
-                        storageManager.set(cacheKey, content, 7 * 24 * 60 * 60);
+                        storageManager.set(cacheKey, content, 7 * 24 * 60 * 60 * 1000);
                         console.log(`Cached KiCad library: ${library}`);
                         return content;
                     } catch (error) {
@@ -448,7 +448,7 @@ export class KiCadFetcher {
 
             if (Object.keys(index).length > 0) {
                 this.libraryPathIndex = index;
-                storageManager.set(cacheKey, index, 7 * 24 * 60 * 60);
+                storageManager.set(cacheKey, index, 7 * 24 * 60 * 60 * 1000);
                 return;
             }
         }
@@ -502,7 +502,7 @@ export class KiCadFetcher {
                     continue;
                 }
 
-                storageManager.set(cacheKey, content, 7 * 24 * 60 * 60);
+                storageManager.set(cacheKey, content, 7 * 24 * 60 * 60 * 1000);
                 return content;
             } catch (error) {
                 console.error(`KiCad footprint fetch error with proxy ${this.corsProxy}:`, error);

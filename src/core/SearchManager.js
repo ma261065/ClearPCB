@@ -80,7 +80,7 @@ export class SearchManager {
             
             // Cache the results (24-hour TTL)
             this.searchCache.set(cacheKey, results);
-            storageManager.set(`clearpcb_search_kicad_${query}`, results, 24 * 60 * 60);
+            storageManager.set(`clearpcb_search_kicad_${query}`, results, 24 * 60 * 60 * 1000);
             
             return results || [];
         } catch (error) {
@@ -127,7 +127,7 @@ export class SearchManager {
             
             // Cache the results (24-hour TTL for online data)
             this.searchCache.set(cacheKey, results);
-            storageManager.set(`clearpcb_search_lcsc_${normalizedQuery}`, results, 24 * 60 * 60);
+            storageManager.set(`clearpcb_search_lcsc_${normalizedQuery}`, results, 24 * 60 * 60 * 1000);
             
             return results || [];
         } catch (error) {
@@ -183,7 +183,7 @@ export class SearchManager {
             if (definition) {
                 // Cache the component definition
                 const cacheKey = `clearpcb_lcsc_component_${lcscId}`;
-                storageManager.set(cacheKey, definition, 7 * 24 * 60 * 60);
+                storageManager.set(cacheKey, definition, 7 * 24 * 60 * 60 * 1000);
             }
             return definition;
         } catch (error) {
@@ -201,7 +201,7 @@ export class SearchManager {
             if (symbol) {
                 // Cache the symbol
                 const cacheKey = `clearpcb_kicad_symbol_${library}_${symbolName}`;
-                storageManager.set(cacheKey, symbol, 7 * 24 * 60 * 60);
+                storageManager.set(cacheKey, symbol, 7 * 24 * 60 * 60 * 1000);
             }
             return symbol;
         } catch (error) {
@@ -250,7 +250,7 @@ export class SearchManager {
     /**
      * Cache a component definition
      */
-    cacheComponent(component, ttl = 7 * 24 * 60 * 60) {
+    cacheComponent(component, ttl = 7 * 24 * 60 * 60 * 1000) {
         try {
             if (component && component.name) {
                 storageManager.set(`clearpcb_component_${component.name}`, component, ttl);
