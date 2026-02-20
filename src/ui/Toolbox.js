@@ -13,7 +13,6 @@ export class Toolbox {
         
         // Event handlers for cleanup
         this.boundHandlers = {
-            keydown: null,
             mousedown: null,
             mousemove: null,
             mouseup: null
@@ -67,18 +66,7 @@ export class Toolbox {
             });
         });
         
-        // Keyboard shortcuts
-        this.boundHandlers.keydown = (e) => {
-            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
-            if (e.ctrlKey || e.metaKey || e.altKey) return;
-            
-            const key = e.key.toUpperCase();
-            const tool = this.tools.find(t => t.shortcut === key);
-            if (tool) {
-                this.selectTool(tool.id);
-            }
-        };
-        window.addEventListener('keydown', this.boundHandlers.keydown);
+        // Keyboard shortcuts are handled by keyboard.js (bindKeyboardShortcuts)
         
         // Make draggable by header
         this._makeDraggable();
@@ -249,9 +237,6 @@ export class Toolbox {
     destroy() {
         if (this.boundHandlers.resize) {
             window.removeEventListener('resize', this.boundHandlers.resize);
-        }
-        if (this.boundHandlers.keydown) {
-            window.removeEventListener('keydown', this.boundHandlers.keydown);
         }
         if (this.boundHandlers.mousedown) {
             this.element.removeEventListener('mousedown', this.boundHandlers.mousedown);

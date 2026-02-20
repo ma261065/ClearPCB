@@ -420,7 +420,7 @@ export function bindMouseEvents(app) {
                     }
                 }
                 app.dragLastSnapped = { ...snappedTarget };
-                app.renderShapes(true);
+                app.renderShapes(false);
                 if (app.textEdit) {
                     app._updateTextEditOverlay?.();
                 }
@@ -444,7 +444,7 @@ export function bindMouseEvents(app) {
             if (newAnchorId && newAnchorId !== app.dragAnchorId) {
                 app.dragAnchorId = newAnchorId;
             }
-            app.renderShapes(true);
+            app.renderShapes(false);
             if (app.textEdit) {
                 app._updateTextEditOverlay?.();
             }
@@ -455,7 +455,7 @@ export function bindMouseEvents(app) {
             // Live selection feedback during drag
             const bounds = app._getBoxSelectBounds(worldPos);
             app.selection.handleBoxSelect(bounds, e.shiftKey, 'contain');
-            app.renderShapes(true);
+            app.renderShapes(false);
         }
     });
 
@@ -550,7 +550,9 @@ export function bindMouseEvents(app) {
             app.dragShapesBefore = null;
             app.dragWireAnchorOriginal = null;
             app.pendingAnchorDrag = null;
-            app.didDrag = false;
+            // NOTE: Do NOT clear app.didDrag here. The click event fires after mouseup,
+            // and the click handler needs didDrag to be true to skip click-selection.
+            // The click handler clears didDrag itself.
             app.dragTotalDx = 0;
             app.dragTotalDy = 0;
             app.renderShapes(true);

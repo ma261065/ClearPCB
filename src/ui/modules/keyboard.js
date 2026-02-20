@@ -30,7 +30,7 @@ export function bindKeyboardShortcuts(app) {
                     if (e.shiftKey) {
                         e.preventDefault();
                         app.savePdf();
-                    } else if (e.ctrlKey) {
+                    } else {
                         e.preventDefault();
                         app.print();
                     }

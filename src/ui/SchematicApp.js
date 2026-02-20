@@ -6,7 +6,7 @@ import { CommandHistory } from '../core/CommandHistory.js';
 import { SelectionManager } from '../core/SelectionManager.js';
 import { FileManager } from '../core/FileManager.js';
 import { ComponentPicker } from '../components/ComponentPicker.js';
-import { Line, Wire, Circle, Rect, Arc, Polygon, Text } from '../shapes/index.js';
+import { Line, Wire, Circle, Rect, Arc, Polygon, Text, Pad, Via, createShape } from '../shapes/index.js';
 import { Component, getComponentLibrary } from '../components/index.js';
 import { bindMouseEvents } from './modules/mouse.js';
 import { bindKeyboardShortcuts } from './modules/keyboard.js';
@@ -45,8 +45,8 @@ import {
     renderShapes
 } from './modules/shape-management.js';
 
-// Shape class registry for deserialization
-const ShapeClasses = { Line, Wire, Circle, Rect, Arc, Polygon, Text };
+// Shape classes are imported individually for drawing.js and other modules
+// that construct specific types. For deserialization, use createShape() from shapes/index.js.
 
 class SchematicApp {
 
@@ -885,12 +885,12 @@ class SchematicApp {
     
     // Create shape instance from serialized data
     _createShapeFromData(data) {
-        const ShapeClass = ShapeClasses[data.type.charAt(0).toUpperCase() + data.type.slice(1)];
-        if (!ShapeClass) {
+        try {
+            return createShape(data);
+        } catch (e) {
             console.warn('Unknown shape type:', data.type);
             return null;
         }
-        return new ShapeClass(data);
     }
     
     // Clear all shapes from canvas
