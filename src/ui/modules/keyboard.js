@@ -115,6 +115,10 @@ export function bindKeyboardShortcuts(app) {
                 case 'I':
                     app._onToolSelected('component');
                     break;
+                case 'f':
+                case 'F':
+                    app._fitToContent();
+                    break;
                 case 'r':
                 case 'R':
                     if (app.placingComponent) {

@@ -76,8 +76,8 @@ export function fitToContent(app) {
         return;
     }
 
-    // Fallback: If no paper size (None), fit to shapes content
-    if (app.shapes.length === 0) {
+    // Fallback: If no paper size (None), fit to all content (shapes + components)
+    if (app.shapes.length === 0 && app.components.length === 0) {
         app.viewport.resetView();
         return;
     }
@@ -87,6 +87,15 @@ export function fitToContent(app) {
 
     for (const shape of app.shapes) {
         const b = shape.getBounds();
+        minX = Math.min(minX, b.minX);
+        minY = Math.min(minY, b.minY);
+        maxX = Math.max(maxX, b.maxX);
+        maxY = Math.max(maxY, b.maxY);
+    }
+
+    for (const comp of app.components) {
+        const b = comp.getBounds();
+        if (!b) continue;
         minX = Math.min(minX, b.minX);
         minY = Math.min(minY, b.minY);
         maxX = Math.max(maxX, b.maxX);

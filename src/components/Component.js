@@ -174,6 +174,7 @@ export class Component {
             const ns = 'http://www.w3.org/2000/svg';
             const lockGroup = document.createElementNS(ns, 'g');
             lockGroup.setAttribute('class', 'component-lock-icon');
+            lockGroup.style.cursor = 'pointer';
             
             const lockSize = 0.8; // world units
             const offset = 0.6;

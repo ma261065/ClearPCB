@@ -945,12 +945,7 @@ export class Viewport {
                 case 'Home':
                     this.resetView();
                     break;
-                case 'f':
-                case 'F':
-                    if (!e.ctrlKey && !e.metaKey) {
-                        this.fitToContent();
-                    }
-                    break;
+                // 'F' for fit-to-content handled in keyboard.js (needs app context)
             }
         };
         window.addEventListener('keydown', this.boundHandlers.keydown);
