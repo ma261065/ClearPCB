@@ -386,6 +386,7 @@ export function cancelWireDrawing(app) {
     app.wireStartPin = null;
     app.wireAutoCorner = null;
     app.wireActiveAxis = null;
+    app.wireDirection = null;
     app.wireLastAdjustedPoint = null;
     app.wireLastWorldPos = null;
     app.wireTurned = false;

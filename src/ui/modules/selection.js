@@ -81,6 +81,12 @@ export function captureShapeState(app, shape) {
                 connections: shape.connections ? { ...shape.connections } : null,
                 net: shape.net || ''
             };
+        case 'text':
+            return { x: shape.x, y: shape.y, text: shape.text, fontSize: shape.fontSize, fontFamily: shape.fontFamily, textAnchor: shape.textAnchor };
+        case 'pad':
+            return { x: shape.x, y: shape.y, width: shape.width, height: shape.height, rotation: shape.rotation };
+        case 'via':
+            return { x: shape.x, y: shape.y, diameter: shape.diameter, hole: shape.hole };
         default:
             console.warn('Unknown shape type for state capture:', shape.type);
             return {};

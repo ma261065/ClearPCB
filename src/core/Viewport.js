@@ -213,7 +213,6 @@ export class Viewport {
         const aspect = this.height / this.width;
         this.viewBox.height = this.viewBox.width * aspect;
         this._updateViewBox();
-        this._createGrid();
         this._createRulers();
         this._notifyViewChanged();
     }
@@ -315,7 +314,6 @@ export class Viewport {
         this.viewBox.y = worldPoint.y - wy * newHeight;
         
         this._updateViewBox();
-        this._createGrid();
         this._createRulers();
         this._notifyViewChanged();
     }
@@ -353,7 +351,6 @@ export class Viewport {
         this.viewBox.y = margin - this.viewBox.height;
         
         this._updateViewBox();
-        this._createGrid();
         this._createRulers();
         this._notifyViewChanged();
     }
@@ -407,7 +404,6 @@ export class Viewport {
         this.viewBox.y = cy - viewHeight / 2;
         
         this._updateViewBox();
-        this._createGrid();
         this._createRulers();
         this._notifyViewChanged();
     }
@@ -828,11 +824,12 @@ export class Viewport {
         // (handled in wheel event below)
         
         // Prevent Ctrl+Plus/Minus/0 browser zoom
-        window.addEventListener('keydown', (e) => {
+        this.boundHandlers.browserZoom = (e) => {
             if ((e.ctrlKey || e.metaKey) && (e.key === '+' || e.key === '-' || e.key === '=' || e.key === '0')) {
                 e.preventDefault();
             }
-        });
+        };
+        window.addEventListener('keydown', this.boundHandlers.browserZoom);
     }
     
     // ==================== Events ====================
@@ -899,7 +896,14 @@ export class Viewport {
                 this.viewBox.x = this.panStartViewBox.x - dx;
                 this.viewBox.y = this.panStartViewBox.y - dy;
                 this._updateViewBox();
-                this._createRulers();
+                // Throttle ruler updates during pan via rAF
+                if (!this._rulerUpdatePending) {
+                    this._rulerUpdatePending = true;
+                    requestAnimationFrame(() => {
+                        this._rulerUpdatePending = false;
+                        this._createRulers();
+                    });
+                }
             }
             
             this.currentMouseWorld = this.screenToWorld(mouseScreen);
@@ -914,7 +918,6 @@ export class Viewport {
             if (this.isPanning) {
                 this.isPanning = false;
                 this.svg.style.cursor = 'default';
-                this._createGrid();
                 this._notifyViewChanged();
             }
         };
@@ -971,6 +974,7 @@ export class Viewport {
         if (this.boundHandlers.contextmenu) this.svg.removeEventListener('contextmenu', this.boundHandlers.contextmenu);
         if (this.boundHandlers.resize) window.removeEventListener('resize', this.boundHandlers.resize);
         if (this.boundHandlers.keydown) window.removeEventListener('keydown', this.boundHandlers.keydown);
+        if (this.boundHandlers.browserZoom) window.removeEventListener('keydown', this.boundHandlers.browserZoom);
         
         // Remove SVG element
         if (this.svg.parentNode) {

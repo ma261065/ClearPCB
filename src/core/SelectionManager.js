@@ -13,6 +13,7 @@ import { Events, globalEventBus } from './EventBus.js';
 export class SelectionManager {
     constructor(options = {}) {
         this.shapes = [];  // Reference to all shapes (set by Document)
+        this._shapeMap = new Map();  // ID → shape for O(1) lookups
         this.selected = new Set();  // Set of selected shape IDs
         this.hovered = null;  // Currently hovered shape ID
         
@@ -46,6 +47,7 @@ export class SelectionManager {
      */
     setShapes(shapes) {
         this.shapes = shapes;
+        this._shapeMap = new Map(shapes.map(s => [s.id, s]));
         this._invalidateHitTestCache();
     }
     
@@ -378,7 +380,7 @@ export class SelectionManager {
     }
     
     _getShape(id) {
-        return this.shapes.find(s => s.id === id) || null;
+        return this._shapeMap.get(id) || null;
     }
     
     _notifySelectionChanged() {

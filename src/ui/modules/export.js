@@ -178,15 +178,22 @@ export function loadVectorPdfLibs(app) {
     const loadScript = (src) => new Promise((resolve, reject) => {
         const existing = Array.from(document.scripts).find(s => s.src === src);
         if (existing) {
-            existing.addEventListener('load', () => resolve());
-            existing.addEventListener('error', () => reject(new Error(`Failed to load ${src}`)));
+            // Script tag already in DOM — if it has already loaded, resolve immediately
+            if (existing.dataset.loaded === 'true') {
+                resolve();
+            } else if (existing.dataset.failed === 'true') {
+                reject(new Error(`Failed to load ${src}`));
+            } else {
+                existing.addEventListener('load', () => resolve());
+                existing.addEventListener('error', () => reject(new Error(`Failed to load ${src}`)));
+            }
             return;
         }
         const script = document.createElement('script');
         script.src = src;
         script.async = true;
-        script.onload = () => resolve();
-        script.onerror = () => reject(new Error(`Failed to load ${src}`));
+        script.onload = () => { script.dataset.loaded = 'true'; resolve(); };
+        script.onerror = () => { script.dataset.failed = 'true'; reject(new Error(`Failed to load ${src}`)); };
         document.head.appendChild(script);
     });
 

@@ -47,6 +47,14 @@ export class Arc extends Shape {
     }
     
     /**
+     * Override invalidate to also clear cached geometry
+     */
+    invalidate() {
+        this._cachedGeometry = null;
+        super.invalidate();
+    }
+
+    /**
      * Compute geometry from the three control points.
      * Cached per dirty cycle — invalidated when control points change.
      */
@@ -145,29 +153,27 @@ export class Arc extends Shape {
     }
     
     _isAngleInRange(angle) {
-        const normalize = (a) => {
-            while (a < 0) a += Math.PI * 2;
-            while (a >= Math.PI * 2) a -= Math.PI * 2;
-            return a;
-        };
+        const TWO_PI = Math.PI * 2;
+        const mod = (a) => ((a % TWO_PI) + TWO_PI) % TWO_PI;
         
-        const start = normalize(this.startAngle);
-        const end = normalize(this.endAngle);
-        angle = normalize(angle);
+        const geo = this._getGeometry();
+        const start = mod(geo.startAngle);
+        const end = mod(geo.endAngle);
+        // Compute bulge angle directly from the control point for robustness
+        const bulge = mod(Math.atan2(this._bulgePoint.y - geo.cy, this._bulgePoint.x - geo.cx));
+        angle = mod(angle);
         
-        // If sweepFlag is defined, use it to determine direction of the arc
-        if (this.sweepFlag !== undefined) {
-            const isBetweenCCW = (from, to, test) => (from < to ? (test >= from && test <= to) : (test >= from || test <= to));
-            // sweepFlag 1 means increasing angle (clockwise on screen), 0 means decreasing
-            return this.sweepFlag === 1
-                ? isBetweenCCW(start, end, angle)
-                : isBetweenCCW(end, start, angle);
-        }
+        // Shift all angles so start is at 0
+        const dEnd = mod(end - start);
+        const dBulge = mod(bulge - start);
+        const dTest = mod(angle - start);
         
-        if (start <= end) {
-            return angle >= start && angle <= end;
+        if (dBulge <= dEnd) {
+            // Arc sweeps CCW from start through bulge to end
+            return dTest <= dEnd;
         } else {
-            return angle >= start || angle <= end;
+            // Arc sweeps CW from start through bulge to end
+            return dTest >= dEnd;
         }
     }
     
@@ -293,12 +299,10 @@ export class Arc extends Shape {
     
     move(dx, dy) {
         if (!Number.isFinite(dx) || !Number.isFinite(dy)) return;
-        this.startPoint.x += dx;
-        this.startPoint.y += dy;
-        this.endPoint.x += dx;
-        this.endPoint.y += dy;
-        this.bulgePoint.x += dx;
-        this.bulgePoint.y += dy;
+        // Assign new objects through setters so _cachedGeometry is cleared at each step
+        this.startPoint = { x: this._startPoint.x + dx, y: this._startPoint.y + dy };
+        this.endPoint = { x: this._endPoint.x + dx, y: this._endPoint.y + dy };
+        this.bulgePoint = { x: this._bulgePoint.x + dx, y: this._bulgePoint.y + dy };
         this.invalidate();
     }
     
@@ -309,9 +313,9 @@ export class Arc extends Shape {
     toJSON() {
         return {
             ...super.toJSON(),
-            startPoint: this.startPoint,
-            endPoint: this.endPoint,
-            bulgePoint: this.bulgePoint
+            startPoint: { x: this._startPoint.x, y: this._startPoint.y },
+            endPoint: { x: this._endPoint.x, y: this._endPoint.y },
+            bulgePoint: { x: this._bulgePoint.x, y: this._bulgePoint.y }
         };
     }
 }

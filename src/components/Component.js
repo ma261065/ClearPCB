@@ -819,6 +819,28 @@ export class Component {
         this.setPosition(this.x + dx, this.y + dy);
     }
 
+    /**
+     * Rotate component by given degrees
+     */
+    rotate(degrees) {
+        this.rotation = (this.rotation + degrees) % 360;
+        if (this.element) {
+            const transform = this._buildTransform();
+            if (transform) this.element.setAttribute('transform', transform);
+        }
+    }
+
+    /**
+     * Toggle horizontal mirror
+     */
+    toggleMirror() {
+        this.mirror = !this.mirror;
+        if (this.element) {
+            const transform = this._buildTransform();
+            if (transform) this.element.setAttribute('transform', transform);
+        }
+    }
+
     setPosition(x, y) {
         this.x = x; this.y = y;
         if (this.element) {
