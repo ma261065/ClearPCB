@@ -284,37 +284,6 @@ export function createShapeFromDrawing(app) {
             const p2 = app.arcEndpoint;
             const bulgePoint = clampBulgePoint(p1, p2, app.drawCurrent);
             
-            // Calculate arc center and radius from three points using circumcircle
-            const circ = circumcircle(p1, p2, bulgePoint);
-            
-            if (!circ) return null; // Points are collinear
-            
-            const { cx, cy, radius } = circ;
-            
-            if (radius < minSize) return null;
-            
-            // Calculate angles
-            const angle1 = Math.atan2(p1.y - cy, p1.x - cx);
-            const angle3 = Math.atan2(p2.y - cy, p2.x - cx);
-            
-            // Use the stored direction/flags from preview (or calculate if not available)
-            const ccw = app.arcDirection !== undefined ? app.arcDirection : 
-                ((p2.x - p1.x) * (bulgePoint.y - p1.y) - (p2.y - p1.y) * (bulgePoint.x - p1.x)) > 0;
-            const sweepFlag = app.arcSweepFlag !== undefined ? app.arcSweepFlag : (ccw ? 0 : 1);
-            const largeArc = 0;
-            
-            const startAngle = angle1;
-            let endAngle = angle3;
-            
-            // Adjust endAngle to be in the correct direction (arc on the bulge side)
-            if (ccw) {
-                // Counter-clockwise: endAngle should be > startAngle
-                while (endAngle <= startAngle) endAngle += Math.PI * 2;
-            } else {
-                // Clockwise: endAngle should be < startAngle
-                while (endAngle >= startAngle) endAngle -= Math.PI * 2;
-            }
-            
             // Clear stored direction/flags
             app.arcDirection = undefined;
             app.arcSweepFlag = undefined;

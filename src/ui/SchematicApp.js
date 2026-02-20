@@ -776,16 +776,26 @@ class SchematicApp {
             'clearpcb_kicad_symbol_',
             'clearpcb_search_'
         ];
+        const exactKeys = [
+            'kicad_full_symbol_index'
+        ];
 
         let removed = 0;
         Object.keys(localStorage).forEach((key) => {
-            if (prefixes.some(prefix => key.startsWith(prefix))) {
+            if (prefixes.some(prefix => key.startsWith(prefix)) || exactKeys.includes(key)) {
                 localStorage.removeItem(key);
                 removed += 1;
             }
         });
 
         this.componentPicker?.searchManager?.clearCache?.();
+
+        // Clear KICADFetcher in-memory index so it re-fetches
+        const kf = this.componentPicker?.library?.kicadFetcher;
+        if (kf) {
+            kf.libraryIndex = null;
+            kf._indexLoadPromise = null;
+        }
 
         console.log(`Cleared component caches (${removed} entries)`);
         this._showSaveToast?.('Cache cleared');

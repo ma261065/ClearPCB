@@ -214,6 +214,21 @@ export class ComponentPicker {
             </div>
         `;
     }
+
+    _showIndexingProgress(message, loaded, total) {
+        const pct = total > 0 ? Math.min(100, Math.round(loaded / total * 100)) : 0;
+        const barStyle = total > 0
+            ? `width:${pct}%; animation:none;`
+            : '';
+        this.listEl.innerHTML = `
+            <div class="cp-loading cp-indexing">
+                <span class="cp-spinner"></span>
+                <div class="cp-indexing-message">${message || 'Loading KiCad library index...'}</div>
+                <div class="cp-progress-bar"><div class="cp-progress-bar-fill" style="${barStyle}"></div></div>
+                <div class="cp-indexing-hint">First-time setup — results are cached for future searches</div>
+            </div>
+        `;
+    }
     
     _debouncedLCSCSearch() {
         if (this.searchDebounceTimer) {
@@ -237,6 +252,18 @@ export class ComponentPicker {
         
         // Track search generation to prevent stale results overwriting newer ones
         const searchId = ++this._searchGeneration;
+
+        // Ensure the KiCad index is loaded (shows progress bar on first use)
+        const fetcher = this.library.kicadFetcher;
+        if (!fetcher.libraryIndex) {
+            await fetcher.ensureIndexLoaded((progress) => {
+                if (this._searchGeneration !== searchId) return;
+                this._showIndexingProgress(progress.message, progress.loaded, progress.total);
+            });
+            if (this._searchGeneration !== searchId) return;
+        }
+        
+        this._showLoading();
         
         try {
             // Search both EasyEDA (online) and KiCad
@@ -389,7 +416,7 @@ export class ComponentPicker {
         this._set3dPreviewStatus('Checking 3D model...', false);
 
         this.placeBtn.disabled = true;
-        this.placeBtn.textContent = 'Checking footprint/3D...';
+        this.placeBtn.textContent = 'Checking footprint...';
         this.placeBtn.onclick = null;
 
         this._loadKiCadFootprintStatus(result);
@@ -433,8 +460,25 @@ export class ComponentPicker {
             if (!footprintName) {
                 this._setFootprintPreviewStatus('Footprint not specified', false);
                 this._set3dPreviewStatus('3D model not verified', false);
-                this.placeBtn.disabled = true;
-                this.placeBtn.textContent = 'Missing footprint/3D';
+                // Allow placement even without a footprint — it's a schematic symbol
+                const placeDefNoFp = kicadDefinition?.symbol
+                    ? { ...kicadDefinition, _source: 'KiCad' }
+                    : {
+                        name: `KiCad_${result.name}`,
+                        description: `${result.name} from KiCad ${result.library} library`,
+                        category: 'KiCad',
+                        symbol: kicadSymbol,
+                        _source: 'KiCad'
+                    };
+                if (kicadSymbol?._kicadRaw) {
+                    placeDefNoFp._kicadRaw = kicadSymbol._kicadRaw;
+                }
+                const hasRenderable = (kicadSymbol?.pins?.length || 0) > 0 || (kicadSymbol?.graphics?.length || 0) > 0;
+                this.placeBtn.disabled = !hasRenderable;
+                this.placeBtn.textContent = hasRenderable ? 'Place Component' : 'No symbol data';
+                if (hasRenderable) {
+                    this.placeBtn.onclick = () => this._beginPlacement(placeDefNoFp, { skipFootprint3d: true });
+                }
                 console.log('KiCad footprint not specified for', result.library, result.name, kicadSymbol?.properties);
                 return;
             }
@@ -460,44 +504,34 @@ export class ComponentPicker {
             }
 
             if (availability.has3d) {
-                // Try to render the 3D model if we have a URL
-                if (availability.modelUrl) {
-                    this.preview3d.innerHTML = '<div class="cp-preview-placeholder">Loading 3D model...</div>';
-                    this.preview3dInfo.innerHTML = '<span style="color:var(--text-muted)">Rendering...</span>';
-
-                    try {
-                        const { VRMLPreview } = await import('./VRMLPreview.js');
-                        const svgPreview = await VRMLPreview.fetchAndRender(availability.modelUrl, {
-                            lineColor: '#444444',
-                            fillColor: '#666666',
-                            lineWidth: 0.8,
-                            strokeOpacity: 0.9,
-                            fillOpacity: 0.7,
-                            proxyUrl: this.library?.kicadFetcher?.corsProxy
-                        });
-                        
-                        // Parse and insert SVG using DOM
-                        this.preview3d.innerHTML = '';
-                        const parser = new DOMParser();
-                        const svgDoc = parser.parseFromString(svgPreview, 'image/svg+xml');
-                        const svgElement = svgDoc.documentElement;
-                        this.preview3d.appendChild(svgElement);
-                        
-                        this.preview3dInfo.innerHTML = '<span class="cp-preview-ok">3D model available</span>';
-                    } catch (error) {
-                        console.error('Error rendering 3D preview:', error);
-                        this.preview3d.innerHTML = '<div class="cp-preview-placeholder">3D model found</div>';
-                        this.preview3dInfo.innerHTML = '<span class="cp-preview-ok">3D model available</span>';
-                    }
-                } else {
-                    this.preview3d.innerHTML = '<div class="cp-preview-placeholder">3D model found</div>';
+                // Render 3D STEP preview
+                this.preview3d.innerHTML = '<div class="cp-preview-placeholder">Loading 3D model...</div>';
+                this.preview3dInfo.innerHTML = '<span style="color:var(--text-muted)">Rendering...</span>';
+                try {
+                    const { STEPPreview } = await import('./STEPPreview.js');
+                    const svgPreview = await STEPPreview.fetchAndRender(availability.modelUrl, {
+                        lineColor: '#444444',
+                        fillColor: '#666666',
+                        lineWidth: 0.8,
+                        strokeOpacity: 0.9,
+                        fillOpacity: 0.7,
+                        proxyUrl: this.library?.kicadFetcher?.corsProxy
+                    });
+                    this.preview3d.innerHTML = '';
+                    const parser = new DOMParser();
+                    const svgDoc = parser.parseFromString(svgPreview, 'image/svg+xml');
+                    this.preview3d.appendChild(svgDoc.documentElement);
+                    this.preview3dInfo.innerHTML = '<span class="cp-preview-ok">3D model available</span>';
+                } catch (e) {
+                    console.error('3D STEP preview error:', e);
+                    this.preview3d.innerHTML = '<div class="cp-preview-placeholder">3D model available (STEP)</div>';
                     this.preview3dInfo.innerHTML = '<span class="cp-preview-ok">3D model available</span>';
                 }
             } else {
                 this._set3dPreviewStatus('3D model not found', false);
             }
 
-            const ready = availability.hasFootprint && availability.has3d;
+            const ready = availability.hasFootprint;
             const placeDefinition = kicadDefinition?.symbol
                 ? { ...kicadDefinition, _source: 'KiCad' }
                 : {
@@ -511,7 +545,7 @@ export class ComponentPicker {
                 placeDefinition._kicadRaw = kicadSymbol._kicadRaw;
             }
             this.placeBtn.disabled = !ready;
-            this.placeBtn.textContent = ready ? 'Place Component' : 'Missing footprint/3D';
+            this.placeBtn.textContent = ready ? 'Place Component' : 'Missing footprint';
             this.placeBtn.onclick = ready
                 ? () => this._beginPlacement(placeDefinition, { skipFootprint3d: true })
                 : null;
@@ -519,8 +553,16 @@ export class ComponentPicker {
             console.error('Failed to verify KiCad footprint:', error);
             this._setFootprintPreviewStatus('Footprint check failed', false);
             this._set3dPreviewStatus('3D check failed', false);
-            this.placeBtn.disabled = true;
-            this.placeBtn.textContent = 'Missing footprint/3D';
+            // Still allow placement if we have symbol data
+            if (this.selectedKiCadResult) {
+                this.placeBtn.disabled = false;
+                this.placeBtn.textContent = 'Place Component';
+                const fallbackResult = this.selectedKiCadResult;
+                this.placeBtn.onclick = () => this._fetchAndPlaceKiCad(fallbackResult);
+            } else {
+                this.placeBtn.disabled = true;
+                this.placeBtn.textContent = 'Check failed';
+            }
         }
     }
     
@@ -538,13 +580,9 @@ export class ComponentPicker {
                 const footprintName = this._getPropertyValue(kicadProperties, 'Footprint');
                 if (footprintName) {
                     const availability = await this.library.kicadFetcher.checkFootprintAvailability(footprintName);
-                    if (!availability.hasFootprint || !availability.has3d) {
-                        this.previewInfo.innerHTML += `<br><span style="color:var(--accent-color)">Missing footprint/3D data</span>`;
-                        return;
+                    if (!availability.hasFootprint) {
+                        this.previewInfo.innerHTML += `<br><span style="color:var(--text-muted)">Footprint not found on KiCad GitLab</span>`;
                     }
-                } else {
-                    this.previewInfo.innerHTML += `<br><span style="color:var(--accent-color)">Missing footprint/3D data</span>`;
-                    return;
                 }
 
                 // Create a component definition from KiCad data
@@ -765,10 +803,10 @@ export class ComponentPicker {
                     const maxScroll = contentHeight - availableHeight;
                     
                     if (maxScroll <= 0) {
-                        // Content is shorter than viewport, no scrolling needed
-                        list.style.transform = '';
-                    } else if (scrollTop > maxScroll) {
-                        // Clamp: move list down to compensate for excess scroll
+                        // Content fits entirely in viewport — pin it so it doesn't scroll away
+                        list.style.transform = scrollTop > 0 ? `translateY(${scrollTop}px)` : '';
+                    } else if (scrollTop >= maxScroll) {
+                        // Scrolled past this list's content — clamp it at the bottom
                         list.style.transform = `translateY(${scrollTop - maxScroll}px)`;
                     } else {
                         list.style.transform = '';

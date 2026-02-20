@@ -620,8 +620,7 @@ export class Viewport {
         const targetMm = targetPixels / this.scale;
         const targetDisplay = targetMm * this.unitConversions[this.units];
         
-        // Choose nice numbers based on current units
-        let niceNumbers;
+        // Choose nice tick spacing based on current units
         let tickSpacingMm;
         
         if (this.units === 'inch') {

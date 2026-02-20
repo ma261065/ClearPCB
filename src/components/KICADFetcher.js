@@ -27,7 +27,9 @@ export class KiCadFetcher {
         this.footprintExistsCache = new Map();
         this.model3dExistsCache = new Map();
         this.footprintPreviewCache = new Map();
+        this._symdirCache = new Map();
         this.libraryIndex = null;
+        this._indexLoadPromise = null;
         this.libraryPathIndex = null;
         this.fetchFailed = false;
     }
@@ -50,9 +52,13 @@ export class KiCadFetcher {
             return cachedResults;
         }
         
-        // Load library index if not cached
+        // Load library index if not loaded yet
         if (!this.libraryIndex) {
-            await this._loadLibraryIndex();
+            await this.ensureIndexLoaded();
+        }
+        
+        if (!this.libraryIndex) {
+            return [];
         }
         
         const queryLower = query.toLowerCase();
@@ -110,7 +116,23 @@ export class KiCadFetcher {
                 }
             }
 
-            // Fetch the library file
+            // Symdir directory listing fallback: find a matching variant
+            const matchedName = await this._findMatchingSymbolInDir(library, symbolName);
+            if (matchedName && matchedName !== symbolName) {
+                console.log(`KiCadFetcher: Resolved ${symbolName} → ${matchedName} via directory listing`);
+                const dirContent = await this._fetchSymbolFile(directSymDir, matchedName);
+                if (dirContent) {
+                    const symbol = this._parseSymbolFromLibrary(dirContent, matchedName);
+                    if (symbol) {
+                        symbol._kicadRaw = dirContent;
+                        symbol.kicadName = symbol.kicadName || matchedName;
+                        this.symbolCache.set(cacheKey, symbol);
+                        return symbol;
+                    }
+                }
+            }
+
+            // Fetch the library file (legacy monolithic format)
             console.log('KiCadFetcher: Fetching library file...');
             const libContent = await this._fetchLibraryFile(library);
             console.log(`KiCadFetcher: Library content received, length: ${libContent?.length || 0}`);
@@ -160,7 +182,7 @@ export class KiCadFetcher {
         }
 
         const footprintUrl = `${this.footprintsBase}/${lib}.pretty/${name}.kicad_mod`;
-        const modelUrl = `${this.models3dBase}/${lib}.3dshapes/${name}.wrl`;
+        const modelUrl = `${this.models3dBase}/${lib}.3dshapes/${name}.step`;
 
         const footprintCacheKey = `fp:${footprintUrl}`;
         const modelCacheKey = `3d:${modelUrl}`;
@@ -319,6 +341,60 @@ export class KiCadFetcher {
         throw new Error(`Failed to fetch KiCad library ${library} - all proxies failed`);
     }
 
+    /**
+     * List the contents of a .kicad_symdir directory via GitLab tree API.
+     * Results are cached per library name.
+     */
+    async _listSymdirContents(library) {
+        if (this._symdirCache.has(library)) {
+            return this._symdirCache.get(library);
+        }
+
+        const projectPath = 'kicad%2Flibraries%2Fkicad-symbols';
+        const symDirPath = `${library}.kicad_symdir`;
+        const refs = ['master', 'main'];
+
+        for (const ref of refs) {
+            const apiUrl = `https://gitlab.com/api/v4/projects/${projectPath}/repository/tree?path=${encodeURIComponent(symDirPath)}&ref=${ref}&per_page=100`;
+            const data = await this._fetchJsonWithProxy(apiUrl);
+            if (!Array.isArray(data) || data.length === 0) continue;
+
+            const files = data
+                .filter(f => f.type === 'blob' && f.name.endsWith('.kicad_sym'))
+                .map(f => f.name.replace(/\.kicad_sym$/, ''));
+
+            if (files.length > 0) {
+                this._symdirCache.set(library, files);
+                return files;
+            }
+        }
+
+        this._symdirCache.set(library, []);
+        return [];
+    }
+
+    /**
+     * Find a symbol file in a symdir by exact or prefix match.
+     * Returns the actual filename (without .kicad_sym) or null.
+     */
+    async _findMatchingSymbolInDir(library, symbolName) {
+        const files = await this._listSymdirContents(library);
+        if (!files.length) return null;
+
+        const searchUpper = symbolName.toUpperCase();
+
+        // Exact match first
+        const exact = files.find(f => f.toUpperCase() === searchUpper);
+        if (exact) return exact;
+
+        // Prefix match – prefer shorter (more generic) names
+        const prefixMatches = files
+            .filter(f => f.toUpperCase().startsWith(searchUpper))
+            .sort((a, b) => a.length - b.length);
+
+        return prefixMatches.length > 0 ? prefixMatches[0] : null;
+    }
+
     async _fetchSymbolFile(symDirPath, symbolName) {
         const fileName = `${symbolName}.kicad_sym`;
         const targetUrls = [
@@ -357,7 +433,7 @@ export class KiCadFetcher {
         return null;
     }
 
-    async _fetchJsonWithProxy(targetUrl) {
+    async _fetchJsonWithProxy(targetUrl, returnHeaders = false) {
         for (let attempt = 0; attempt < this.corsProxies.length; attempt++) {
             try {
                 const proxy = this.corsProxies[attempt];
@@ -366,12 +442,16 @@ export class KiCadFetcher {
                 if (!response.ok) {
                     continue;
                 }
-                return await response.json();
+                const json = await response.json();
+                if (returnHeaders) {
+                    return { json, headers: response.headers };
+                }
+                return json;
             } catch (error) {
                 console.error(`KiCad fetch error with proxy ${this.corsProxies[attempt]}:`, error);
             }
         }
-        return null;
+        return returnHeaders ? null : null;
     }
 
     async _fetchWithTimeout(url, timeoutMs = 8000) {
@@ -592,42 +672,126 @@ export class KiCadFetcher {
 
     
     /**
-     * Load the library index (list of available libraries and symbols)
-     * For now, we'll use a hardcoded list of common libraries
-     * In production, this could be fetched from a pre-built index
+     * Ensure the symbol index is loaded. Returns immediately if already cached.
+     * Otherwise fetches from GitLab (blocking). Callers can pass an onProgress
+     * callback to show progress: onProgress({ loaded, total, message }).
+     * Multiple concurrent callers share the same in-flight promise.
      */
-    async _loadLibraryIndex() {
-        // Common KiCad symbol libraries relevant for electronics
-        this.libraryIndex = {
-            symbols: {
-                'Timer': ['LM555', 'NE555', 'TLC555', 'ICM7555', 'LMC555', 'NA555', 'SA555', 'SE555'],
-                'Amplifier_Operational': ['LM358', 'LM324', 'TL072', 'TL074', 'LM741', 'NE5532', 'OPA2134'],
-                'Regulator_Linear': ['LM7805', 'LM7812', 'LM7905', 'LM317', 'LM1117', 'AMS1117'],
-                'Regulator_Switching': ['LM2596', 'MC34063', 'TPS61040', 'MT3608', 'MP1584'],
-                'MCU_Microchip_ATmega': ['ATmega328P', 'ATmega328', 'ATmega168', 'ATmega2560'],
-                'MCU_Microchip_ATtiny': ['ATtiny85', 'ATtiny45', 'ATtiny13', 'ATtiny84'],
-                'MCU_ST_STM32F1': ['STM32F103C8', 'STM32F103CB', 'STM32F103RB'],
-                'MCU_ST_STM32F4': ['STM32F401CC', 'STM32F411CE', 'STM32F407VG'],
-                'MCU_Espressif': ['ESP32-C3', 'ESP32-PICO-D4', 'ESP32-PICO-V3', 'ESP32-PICO-V3-02', 'ESP32-S2', 'ESP32-S3', 'ESP8266EX'],
-                'Transistor_BJT': ['BC547', 'BC557', '2N2222', '2N3904', '2N3906', 'TIP120', 'TIP125'],
-                'Transistor_FET': ['2N7000', 'BS170', 'IRF520', 'IRF540', 'IRLZ44N', 'AO3400'],
-                'Diode': ['1N4148', '1N4007', '1N5819', '1N5822', 'BAT54', 'SS14', 'SS34'],
-                'Diode_Bridge': ['DB107', 'KBP210', 'DF10M'],
-                'LED': ['LED', 'LED_Small', 'LED_RGB', 'LED_ARGB'],
-                'Device': ['R', 'C', 'L', 'Crystal', 'Fuse', 'Battery'],
-                'Connector_Generic': ['Conn_01x02', 'Conn_01x03', 'Conn_01x04', 'Conn_01x06', 'Conn_01x08'],
-                'Connector_USB': ['USB_A', 'USB_B', 'USB_B_Micro', 'USB_C_Receptacle'],
-                'Interface_UART': ['MAX232', 'MAX3232', 'CH340G', 'CP2102'],
-                'Interface_CAN_LIN': ['MCP2515', 'MCP2551', 'SN65HVD230'],
-                'Memory_EEPROM': ['24LC256', '24LC64', 'AT24C256'],
-                'Memory_Flash': ['W25Q32JV', 'W25Q64JV', 'W25Q128JV'],
-                'Sensor_Temperature': ['LM35', 'TMP36', 'DS18B20'],
-                'Sensor_Humidity': ['DHT11', 'DHT22', 'SHT31'],
-                'Sensor_Motion': ['MPU6050', 'MPU9250', 'ADXL345'],
-                'Display_Character': ['HD44780'],
-                'Driver_Motor': ['L293D', 'L298N', 'DRV8833', 'A4988', 'TMC2209']
+    async ensureIndexLoaded(onProgress) {
+        if (this.libraryIndex) return;
+
+        // Check localStorage cache first
+        const cacheKey = 'kicad_full_symbol_index';
+        const cached = storageManager.get(cacheKey);
+        if (cached && typeof cached === 'object' && Object.keys(cached).length > 0) {
+            this.libraryIndex = { symbols: cached };
+            for (const [lib, symbols] of Object.entries(cached)) {
+                if (!this._symdirCache.has(lib)) {
+                    this._symdirCache.set(lib, symbols);
+                }
             }
-        };
+            return;
+        }
+
+        // Deduplicate concurrent callers
+        if (!this._indexLoadPromise) {
+            this._indexLoadPromise = this._fetchFullSymbolIndex(onProgress)
+                .finally(() => { this._indexLoadPromise = null; });
+        }
+        return this._indexLoadPromise;
+    }
+
+    /**
+     * Fetch the complete symbol index from GitLab using the recursive tree API.
+     * Parses paths like "Timer.kicad_symdir/NE555D.kicad_sym" to build
+     * { Timer: ['NE555D', ...], ... }.  Caches the result for 7 days.
+     */
+    async _fetchFullSymbolIndex(onProgress) {
+        const projectPath = 'kicad%2Flibraries%2Fkicad-symbols';
+        const refs = ['master', 'main'];
+
+        for (const ref of refs) {
+            const index = {};
+            let page = 1;
+            let hasMore = true;
+            let totalEntries = 0;
+            let totalExpected = 0;
+
+            if (onProgress) {
+                onProgress({ loaded: 0, total: 0, message: 'Connecting to KiCad library...' });
+            }
+
+            while (hasMore) {
+                const apiUrl =
+                    `https://gitlab.com/api/v4/projects/${projectPath}/repository/tree` +
+                    `?recursive=true&ref=${ref}&per_page=100&page=${page}`;
+
+                // On the first page, read the x-total header for progress
+                let data;
+                if (page === 1) {
+                    const result = await this._fetchJsonWithProxy(apiUrl, true);
+                    if (!result) { hasMore = false; break; }
+                    data = result.json;
+                    const xt = result.headers?.get('x-total');
+                    if (xt) totalExpected = parseInt(xt, 10) || 0;
+                } else {
+                    data = await this._fetchJsonWithProxy(apiUrl);
+                }
+
+                if (!Array.isArray(data) || data.length === 0) {
+                    hasMore = false;
+                    break;
+                }
+
+                for (const entry of data) {
+                    if (entry.type !== 'blob') continue;
+                    const p = entry.path;
+                    if (!p || !p.endsWith('.kicad_sym')) continue;
+
+                    const parts = p.split('/');
+                    if (parts.length !== 2) continue;
+
+                    const dir = parts[0];
+                    if (!dir.endsWith('.kicad_symdir')) continue;
+
+                    const libName = dir.replace(/\.kicad_symdir$/, '');
+                    const symName = parts[1].replace(/\.kicad_sym$/, '');
+                    if (!index[libName]) index[libName] = [];
+                    index[libName].push(symName);
+                }
+
+                totalEntries += data.length;
+                if (onProgress) {
+                    const libCount = Object.keys(index).length;
+                    const symCount = Object.values(index).reduce((n, a) => n + a.length, 0);
+                    const pct = totalExpected > 0
+                        ? ` (${Math.round(totalEntries / totalExpected * 100)}%)`
+                        : '';
+                    onProgress({
+                        loaded: totalEntries,
+                        total: totalExpected,
+                        message: `Indexing KiCad library${pct}... ${libCount} libraries, ${symCount} symbols`
+                    });
+                }
+
+                hasMore = data.length >= 100;
+                page++;
+            }
+
+            if (Object.keys(index).length > 0) {
+                this.libraryIndex = { symbols: index };
+                storageManager.set('kicad_full_symbol_index', index, 7 * 24 * 60 * 60 * 1000);
+
+                // Populate the per-library symdir cache
+                for (const [lib, symbols] of Object.entries(index)) {
+                    this._symdirCache.set(lib, symbols);
+                }
+
+                console.log(`KiCadFetcher: Full index loaded — ${Object.keys(index).length} libraries, ` +
+                    `${Object.values(index).reduce((n, a) => n + a.length, 0)} symbols`);
+                return;
+            }
+        }
     }
     
     /**

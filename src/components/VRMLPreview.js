@@ -160,7 +160,8 @@ export class VRMLPreview {
     }
 
     /**
-     * Fetch and render VRML from URL
+     * Fetch and render a 3D model from URL (auto-detects VRML/STEP).
+     * STEP files are delegated to STEPPreview.
      */
     static async fetchAndRender(url, options = {}) {
         try {
@@ -172,16 +173,27 @@ export class VRMLPreview {
                 throw new Error(`HTTP ${response.status}`);
             }
             
-            const vrmlText = await response.text();
-            const geometry = this.parseVRML(vrmlText);
-            
+            const text = await response.text();
+
+            // Delegate STEP files to STEPPreview
+            const { STEPPreview } = await import('./STEPPreview.js');
+            if (STEPPreview.isSTEP(text)) {
+                const geometry = STEPPreview.parse(text);
+                if (!geometry?.vertices?.length) {
+                    return '<div style="color:var(--text-muted);text-align:center;padding:20px">No geometry found</div>';
+                }
+                return STEPPreview.renderToSVG(geometry, options);
+            }
+
+            // Otherwise treat as VRML
+            const geometry = this.parseVRML(text);
             if (!geometry || geometry.vertices.length === 0) {
                 return '<div style="color:var(--text-muted);text-align:center;padding:20px">No geometry found</div>';
             }
 
             return this.renderToSVG(geometry, options);
         } catch (error) {
-            console.error('Error fetching/rendering VRML:', error);
+            console.error('Error fetching/rendering 3D model:', error);
             return `<div style="color:var(--accent-color);text-align:center;padding:20px;font-size:12px">3D load error: ${error.message}</div>`;
         }
     }

@@ -1,4 +1,5 @@
-import { DeleteShapesCommand, DeleteComponentsCommand, ModifyPropertyCommand } from '../../core/CommandHistory.js';
+import { DeleteShapesCommand, DeleteComponentsCommand, ModifyPropertyCommand, BatchCommand } from '../../core/CommandHistory.js';
+import { updateRibbonState } from './ribbon.js';
 
 export function toggleSelectionLock(app) {
     const selection = app.selection.getSelection();
@@ -13,7 +14,7 @@ export function toggleSelectionLock(app) {
 
     app.fileManager.setDirty(true);
     app._updatePropertiesPanel(selection);
-    app._updateRibbonState(selection);
+    updateRibbonState(app, selection);
 }
 
 export function deleteSelected(app) {
@@ -33,12 +34,16 @@ export function deleteSelected(app) {
         }
     }
 
-    if (shapesToDelete.length > 0) {
+    if (shapesToDelete.length > 0 && componentsToDelete.length > 0) {
+        // Mixed selection: wrap both deletes in a single undo entry
+        const batch = new BatchCommand('Delete selection');
+        batch.add(new DeleteShapesCommand(app, shapesToDelete));
+        batch.add(new DeleteComponentsCommand(app, componentsToDelete));
+        app.history.execute(batch);
+    } else if (shapesToDelete.length > 0) {
         const command = new DeleteShapesCommand(app, shapesToDelete);
         app.history.execute(command);
-    }
-
-    if (componentsToDelete.length > 0) {
+    } else if (componentsToDelete.length > 0) {
         const command = new DeleteComponentsCommand(app, componentsToDelete);
         app.history.execute(command);
     }
@@ -72,7 +77,9 @@ export function captureShapeState(app, shape) {
         case 'text':
             return { x: shape.x, y: shape.y, text: shape.text, fontSize: shape.fontSize, fontFamily: shape.fontFamily, textAnchor: shape.textAnchor };
         case 'pad':
-            return { x: shape.x, y: shape.y, width: shape.width, height: shape.height, rotation: shape.rotation };
+            return { x: shape.x, y: shape.y, width: shape.width, height: shape.height, rotation: shape.rotation,
+                shape: shape.shape, cornerRadius: shape.cornerRadius, hole: shape.hole,
+                holeShape: shape.holeShape, holeWidth: shape.holeWidth, holeHeight: shape.holeHeight };
         case 'via':
             return { x: shape.x, y: shape.y, diameter: shape.diameter, hole: shape.hole };
         default:

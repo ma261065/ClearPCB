@@ -217,7 +217,9 @@ export function updateTextEditOverlay(app) {
 
     const originX = Number.isFinite(shape.x) ? shape.x : 0;
     const originY = Number.isFinite(shape.y) ? shape.y : 0;
-    state.overlayGroup.setAttribute('transform', `translate(${originX} ${originY})`);
+    const nudgeX = state.overlayOffset?.x || 0;
+    const nudgeY = state.overlayOffset?.y || 0;
+    state.overlayGroup.setAttribute('transform', `translate(${originX + nudgeX} ${originY + nudgeY})`);
 
     let bbox;
     try {

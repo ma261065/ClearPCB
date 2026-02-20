@@ -448,3 +448,30 @@ export class TransformComponentCommand extends Command {
     execute() { this._apply(false); }
     undo() { this._apply(true); }
 }
+
+/**
+ * Command that groups multiple sub-commands into a single undo/redo entry
+ */
+export class BatchCommand extends Command {
+    constructor(label) {
+        super(label);
+        this.commands = [];
+    }
+
+    add(command) {
+        this.commands.push(command);
+    }
+
+    execute() {
+        for (const cmd of this.commands) {
+            cmd.execute();
+        }
+    }
+
+    undo() {
+        // Undo in reverse order
+        for (let i = this.commands.length - 1; i >= 0; i--) {
+            this.commands[i].undo();
+        }
+    }
+}

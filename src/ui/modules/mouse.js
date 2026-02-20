@@ -490,11 +490,12 @@ export function bindMouseEvents(app) {
             // Handle move undo (dragShape is only set for anchor drags, not move drags)
             if (app.didDrag && app.dragMode === 'move') {
                 const selectedShapes = app.selection.getSelection();
-                if (selectedShapes.length > 0 && (app.dragTotalDx !== 0 || app.dragTotalDy !== 0)) {
-                    for (const shape of selectedShapes) {
+                const movedShapes = selectedShapes.filter(s => !s.locked);
+                if (movedShapes.length > 0 && (app.dragTotalDx !== 0 || app.dragTotalDy !== 0)) {
+                    for (const shape of movedShapes) {
                         shape.move(-app.dragTotalDx, -app.dragTotalDy);
                     }
-                    const command = new MoveShapesCommand(app, selectedShapes, app.dragTotalDx, app.dragTotalDy);
+                    const command = new MoveShapesCommand(app, movedShapes, app.dragTotalDx, app.dragTotalDy);
                     app.history.execute(command);
                 }
             } else if (app.dragShape) {

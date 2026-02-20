@@ -48,6 +48,9 @@ export function removeShapeInternal(app, shape) {
 }
 
 export function renderShapes(app, force = false) {
+    if (force && app.selection) {
+        app.selection._invalidateHitTestCache();
+    }
     for (const shape of app.shapes) {
         if (force || shape._dirty || shape.selected || shape.hovered) {
             shape.render(app.viewport.scale);

@@ -249,6 +249,14 @@ export class Component {
                         maxX = Math.max(maxX, g.x1, g.x2);
                         maxY = Math.max(maxY, g.y1, g.y2);
                         break;
+                    case 'arc':
+                        if (Number.isFinite(g.cx) && Number.isFinite(g.cy) && Number.isFinite(g.r)) {
+                            minX = Math.min(minX, g.cx - g.r);
+                            minY = Math.min(minY, g.cy - g.r);
+                            maxX = Math.max(maxX, g.cx + g.r);
+                            maxY = Math.max(maxY, g.cy + g.r);
+                        }
+                        break;
                     case 'polyline':
                     case 'polygon':
                         if (Array.isArray(g.points)) {
@@ -462,19 +470,20 @@ export class Component {
             }
         } else {
             // Fallback to orientation-based calculation
-            // Connection point at x1,y1, line extends away from body
+            // Connection point at x1,y1; pin extends toward body at x2,y2
+            // KiCad: (at x y angle) = connection end, angle = direction toward body
             switch (pin.orientation) {
                 case 'right':
-                    x2 = x1 - length; 
-                    break;
-                case 'left':
                     x2 = x1 + length;
                     break;
+                case 'left':
+                    x2 = x1 - length;
+                    break;
                 case 'up':
-                    y2 = y1 + length;
+                    y2 = y1 - length;
                     break;
                 case 'down':
-                    y2 = y1 - length;
+                    y2 = y1 + length;
                     break;
             }
         }
@@ -754,6 +763,22 @@ export class Component {
                 const polPts = g.points.map(p => `${p[0]},${p[1]}`).join(' ');
                 el.setAttribute('points', polPts);
                 break;
+            case 'arc': {
+                el = document.createElementNS(ns, 'path');
+                const r = g.r || 1;
+                const sa = (g.startAngle || 0) * Math.PI / 180;
+                const ea = (g.endAngle || 0) * Math.PI / 180;
+                const sx = g.cx + r * Math.cos(sa);
+                const sy = g.cy + r * Math.sin(sa);
+                const ex = g.cx + r * Math.cos(ea);
+                const ey = g.cy + r * Math.sin(ea);
+                // Determine sweep: use the shorter arc unless it wraps
+                let delta = ea - sa;
+                if (delta < 0) delta += 2 * Math.PI;
+                const largeArc = delta > Math.PI ? 1 : 0;
+                el.setAttribute('d', `M${sx},${sy} A${r},${r} 0 ${largeArc} 1 ${ex},${ey}`);
+                break;
+            }
             case 'path':
                 el = document.createElementNS(ns, 'path');
                 el.setAttribute('d', g.d);

@@ -300,6 +300,24 @@ export class ShapeValidator {
                 }
                 break;
 
+            case 'wire':
+                if ('points' in config && Array.isArray(config.points)) {
+                    validated.points = config.points.map((p, i) => {
+                        if (!p || typeof p !== 'object') {
+                            if (coerce) {
+                                console.warn(`ShapeValidator: Invalid wire point ${i}`);
+                                return { x: 0, y: 0 };
+                            }
+                            throw new Error(`Invalid wire point ${i}`);
+                        }
+                        return {
+                            x: this.validateCoordinate(p.x, { coerce }),
+                            y: this.validateCoordinate(p.y, { coerce })
+                        };
+                    });
+                }
+                break;
+
             case 'pad':
                 if ('x' in config) validated.x = this.validateCoordinate(config.x, { coerce });
                 if ('y' in config) validated.y = this.validateCoordinate(config.y, { coerce });

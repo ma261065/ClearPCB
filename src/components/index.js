@@ -13,8 +13,9 @@ import { ComponentLibrary, getComponentLibrary } from './ComponentLibrary.js';
 import { LCSCFetcher } from './LCSCFetcher.js';
 import { BuiltInComponents } from './BuiltInComponents.js';
 import { VRMLPreview } from './VRMLPreview.js';
+import { STEPPreview } from './STEPPreview.js';
 
-export { Component, ComponentLibrary, getComponentLibrary, LCSCFetcher, BuiltInComponents, VRMLPreview };
+export { Component, ComponentLibrary, getComponentLibrary, LCSCFetcher, BuiltInComponents, VRMLPreview, STEPPreview };
 
 export default {
     Component,
