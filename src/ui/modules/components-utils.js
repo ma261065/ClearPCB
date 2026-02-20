@@ -1,3 +1,5 @@
+import { Component } from '../../components/Component.js';
+
 export function updateSelectableItems(app) {
     const items = [...app.shapes, ...app.components];
     app.selection.setShapes(items);
@@ -19,7 +21,7 @@ export function generateReference(app, definition) {
 }
 
 export function getSelectedComponents(app) {
-    return [];
+    return app.selection.getSelection().filter(item => item instanceof Component);
 }
 
 
