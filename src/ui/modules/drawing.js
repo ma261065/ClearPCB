@@ -1,4 +1,5 @@
 import { Line, Circle, Rect, Arc, Polygon, Text } from '../../shapes/index.js';
+import { circumcircle } from '../../core/geometry.js';
 
 function clampBulgePoint(p1, p2, b) {
     const mx = (p1.x + p2.x) / 2;
@@ -166,10 +167,6 @@ export function updatePreview(app) {
                 const bulgePoint = clampBulgePoint(p1, p2, end);
                 
                 // Check if bulge point is essentially on the chord (determinant near zero)
-                const d1 = p1.x * p1.x + p1.y * p1.y;
-                const d2 = p2.x * p2.x + p2.y * p2.y;
-                const d3 = bulgePoint.x * bulgePoint.x + bulgePoint.y * bulgePoint.y;
-                
                 const det = 2 * (p1.x * (p2.y - bulgePoint.y) + p2.x * (bulgePoint.y - p1.y) + bulgePoint.x * (p1.y - p2.y));
                 
                 // If determinant is too small, points are nearly collinear - show a line
@@ -177,9 +174,8 @@ export function updatePreview(app) {
                     svg = `<line x1="${p1.x}" y1="${p1.y}" x2="${p2.x}" y2="${p2.y}" 
                             stroke="${opts.color}" stroke-width="${strokeWidth}" stroke-dasharray="0.5 0.5"/>`;
                 } else {
-                    const cx = (d1 * (p2.y - bulgePoint.y) + d2 * (bulgePoint.y - p1.y) + d3 * (p1.y - p2.y)) / det;
-                    const cy = (d1 * (bulgePoint.x - p2.x) + d2 * (p1.x - bulgePoint.x) + d3 * (p2.x - p1.x)) / det;
-                    const radius = Math.hypot(p1.x - cx, p1.y - cy);
+                    const circ = circumcircle(p1, p2, bulgePoint);
+                    const { cx, cy, radius } = circ;
                     
                     // Calculate angles
                     const angle1 = Math.atan2(p1.y - cy, p1.x - cx);
@@ -289,22 +285,11 @@ export function createShapeFromDrawing(app) {
             const bulgePoint = clampBulgePoint(p1, p2, app.drawCurrent);
             
             // Calculate arc center and radius from three points using circumcircle
-            const dx1 = p2.x - p1.x;
-            const dy1 = p2.y - p1.y;
-            const dx2 = bulgePoint.x - p2.x;
-            const dy2 = bulgePoint.y - p2.y;
+            const circ = circumcircle(p1, p2, bulgePoint);
             
-            const d1 = p1.x * p1.x + p1.y * p1.y;
-            const d2 = p2.x * p2.x + p2.y * p2.y;
-            const d3 = bulgePoint.x * bulgePoint.x + bulgePoint.y * bulgePoint.y;
+            if (!circ) return null; // Points are collinear
             
-            const det = 2 * (p1.x * (p2.y - bulgePoint.y) + p2.x * (bulgePoint.y - p1.y) + bulgePoint.x * (p1.y - p2.y));
-            
-            if (Math.abs(det) < 0.0001) return null; // Points are collinear
-            
-            const cx = (d1 * (p2.y - bulgePoint.y) + d2 * (bulgePoint.y - p1.y) + d3 * (p1.y - p2.y)) / det;
-            const cy = (d1 * (bulgePoint.x - p2.x) + d2 * (p1.x - bulgePoint.x) + d3 * (p2.x - p1.x)) / det;
-            const radius = Math.hypot(p1.x - cx, p1.y - cy);
+            const { cx, cy, radius } = circ;
             
             if (radius < minSize) return null;
             

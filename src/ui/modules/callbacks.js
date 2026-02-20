@@ -83,7 +83,11 @@ export function setupCallbacks(app) {
             app.ui.viewportInfo.textContent = `${widthDisplay} × ${heightDisplay}${unitLabel}`;
         }
 
-        app.renderShapes(true);
+        // Only force full re-render when zoom/scale changed (stroke widths, anchors depend on scale).
+        // On pan-only, shapes don't need any update since SVG viewBox handles translation.
+        if (view.scaleChanged) {
+            app.renderShapes(true);
+        }
         app._updateTextEditOverlay?.();
     };
 }

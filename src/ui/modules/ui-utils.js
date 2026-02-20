@@ -9,6 +9,29 @@ export function updateUndoRedoButtons(app) {
     }
 }
 
+/**
+ * Set a checkbox to checked, unchecked, or indeterminate based on an array of boolean values.
+ */
+export function setCheckboxState(el, values) {
+    el.indeterminate = false;
+    if (values.length === 0) {
+        el.checked = false;
+        el.disabled = true;
+        return;
+    }
+    const allTrue = values.every(v => v === true);
+    const allFalse = values.every(v => v === false);
+    el.disabled = false;
+    if (allTrue) {
+        el.checked = true;
+    } else if (allFalse) {
+        el.checked = false;
+    } else {
+        el.checked = false;
+        el.indeterminate = true;
+    }
+}
+
 export function makeHelpPanelDraggable() {
     const panel = document.querySelector('.help-panel');
     if (!panel) return;

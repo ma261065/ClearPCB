@@ -5,6 +5,7 @@
  */
 
 import { Shape } from './shape.js';
+import { circumcircle } from '../core/geometry.js';
 
 export class Arc extends Shape {
     constructor(options = {}) {
@@ -15,6 +16,7 @@ export class Arc extends Shape {
         this._startPoint = options.startPoint || { x: 0, y: 0 };
         this._endPoint = options.endPoint || { x: 10, y: 0 };
         this._bulgePoint = options.bulgePoint || { x: 5, y: 5 };
+        this._cachedGeometry = null;
     }
     
     get startPoint() {
@@ -23,6 +25,7 @@ export class Arc extends Shape {
     
     set startPoint(val) {
         this._startPoint = val;
+        this._cachedGeometry = null;
     }
     
     get endPoint() {
@@ -31,6 +34,7 @@ export class Arc extends Shape {
     
     set endPoint(val) {
         this._endPoint = val;
+        this._cachedGeometry = null;
     }
     
     get bulgePoint() {
@@ -39,48 +43,46 @@ export class Arc extends Shape {
     
     set bulgePoint(val) {
         this._bulgePoint = val;
+        this._cachedGeometry = null;
     }
     
     /**
-     * Compute geometry from the three control points on demand
-     * No caching - always fresh to ensure consistency
+     * Compute geometry from the three control points.
+     * Cached per dirty cycle — invalidated when control points change.
      */
     _getGeometry() {
-        const x1 = this._startPoint.x;
-        const y1 = this._startPoint.y;
-        const x2 = this._bulgePoint.x;
-        const y2 = this._bulgePoint.y;
-        const x3 = this._endPoint.x;
-        const y3 = this._endPoint.y;
+        if (this._cachedGeometry) return this._cachedGeometry;
+        const geo = this._computeGeometry();
+        this._cachedGeometry = geo;
+        return geo;
+    }
+
+    _computeGeometry() {
+        const p1 = this._startPoint;
+        const p2 = this._bulgePoint;
+        const p3 = this._endPoint;
         
-        // Calculate circle center from three points
-        const d1 = x1 * x1 + y1 * y1;
-        const d2 = x2 * x2 + y2 * y2;
-        const d3 = x3 * x3 + y3 * y3;
-        
-        const det = 2 * (x1 * (y2 - y3) + x2 * (y3 - y1) + x3 * (y1 - y2));
+        const circ = circumcircle(p1, p2, p3);
         
         // If points are collinear, return a degenerate circle
-        if (Math.abs(det) < 0.0001) {
+        if (!circ) {
             return {
-                cx: (x1 + x3) / 2,
-                cy: (y1 + y3) / 2,
-                radius: Math.hypot(x3 - x1, y3 - y1) / 2,
-                startAngle: Math.atan2(y1 - (y1 + y3) / 2, x1 - (x1 + x3) / 2),
-                endAngle: Math.atan2(y3 - (y1 + y3) / 2, x3 - (x1 + x3) / 2),
+                cx: (p1.x + p3.x) / 2,
+                cy: (p1.y + p3.y) / 2,
+                radius: Math.hypot(p3.x - p1.x, p3.y - p1.y) / 2,
+                startAngle: Math.atan2(p1.y - (p1.y + p3.y) / 2, p1.x - (p1.x + p3.x) / 2),
+                endAngle: Math.atan2(p3.y - (p1.y + p3.y) / 2, p3.x - (p1.x + p3.x) / 2),
                 sweepFlag: 0,
                 largeArc: 0
             };
         }
         
-        const cx = (d1 * (y2 - y3) + d2 * (y3 - y1) + d3 * (y1 - y2)) / det;
-        const cy = (d1 * (x3 - x2) + d2 * (x1 - x3) + d3 * (x2 - x1)) / det;
-        const radius = Math.hypot(x1 - cx, y1 - cy);
+        const { cx, cy, radius } = circ;
         
-        const startAngle = Math.atan2(y1 - cy, x1 - cx);
-        const endAngle = Math.atan2(y3 - cy, x3 - cx);
+        const startAngle = Math.atan2(p1.y - cy, p1.x - cx);
+        const endAngle = Math.atan2(p3.y - cy, p3.x - cx);
         
-        const crossProduct = (x3 - x1) * (y2 - y1) - (y3 - y1) * (x2 - x1);
+        const crossProduct = (p3.x - p1.x) * (p2.y - p1.y) - (p3.y - p1.y) * (p2.x - p1.x);
         const sweepFlag = crossProduct > 0 ? 0 : 1;
         
         return {

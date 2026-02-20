@@ -4,6 +4,7 @@
  */
 
 import { Shape } from './shape.js';
+import { distanceToSegment } from '../core/geometry.js';
 import { ShapeValidator } from '../core/ShapeValidator.js';
 
 export class Wire extends Shape {
@@ -82,32 +83,11 @@ export class Wire extends Shape {
         for (let i = 0; i < this.points.length - 1; i++) {
             const p1 = this.points[i];
             const p2 = this.points[i + 1];
-            const dist = this._distanceToSegment(point, p1, p2);
+            const dist = distanceToSegment(point, p1, p2);
             minDist = Math.min(minDist, dist);
         }
 
         return minDist;
-    }
-
-    /**
-     * Distance from point to a line segment
-     */
-    _distanceToSegment(point, p1, p2) {
-        const dx = p2.x - p1.x;
-        const dy = p2.y - p1.y;
-        const lengthSq = dx * dx + dy * dy;
-
-        if (lengthSq === 0) {
-            return Math.hypot(point.x - p1.x, point.y - p1.y);
-        }
-
-        let t = ((point.x - p1.x) * dx + (point.y - p1.y) * dy) / lengthSq;
-        t = Math.max(0, Math.min(1, t));
-
-        const projX = p1.x + t * dx;
-        const projY = p1.y + t * dy;
-
-        return Math.hypot(point.x - projX, point.y - projY);
     }
 
     /**

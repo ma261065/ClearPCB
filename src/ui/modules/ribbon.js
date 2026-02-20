@@ -1,3 +1,5 @@
+import { setCheckboxState } from './ui-utils.js';
+
 export function bindRibbon(app) {
     const showSaveToast = (anchorEl, text = 'Saved') => {
         if (!anchorEl) return;
@@ -155,26 +157,6 @@ export function updateShapePanelOptions(app, selection, toolIdArg) {
             <input type="checkbox" id="ribbonShapeFill"> Fill
         </label>
     `;
-
-    const setCheckboxState = (el, values) => {
-        el.indeterminate = false;
-        if (values.length === 0) {
-            el.checked = false;
-            el.disabled = true;
-            return;
-        }
-        const allTrue = values.every(v => v === true);
-        const allFalse = values.every(v => v === false);
-        el.disabled = false;
-        if (allTrue) {
-            el.checked = true;
-        } else if (allFalse) {
-            el.checked = false;
-        } else {
-            el.checked = false;
-            el.indeterminate = true;
-        }
-    };
 
     const lineWidthInput = container.querySelector('#ribbonShapeLineWidth');
     if (lineWidthInput) {

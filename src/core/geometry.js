@@ -438,6 +438,26 @@ export function pointsEqual(p1, p2, epsilon = 1e-10) {
 }
 
 /**
+ * Calculate circumcircle (center + radius) from three points.
+ * Returns { cx, cy, radius } or null if points are collinear.
+ */
+export function circumcircle(p1, p2, p3) {
+    const d1 = p1.x * p1.x + p1.y * p1.y;
+    const d2 = p2.x * p2.x + p2.y * p2.y;
+    const d3 = p3.x * p3.x + p3.y * p3.y;
+
+    const det = 2 * (p1.x * (p2.y - p3.y) + p2.x * (p3.y - p1.y) + p3.x * (p1.y - p2.y));
+
+    if (Math.abs(det) < 0.0001) return null; // Collinear
+
+    const cx = (d1 * (p2.y - p3.y) + d2 * (p3.y - p1.y) + d3 * (p1.y - p2.y)) / det;
+    const cy = (d1 * (p3.x - p2.x) + d2 * (p1.x - p3.x) + d3 * (p2.x - p1.x)) / det;
+    const radius = Math.hypot(p1.x - cx, p1.y - cy);
+
+    return { cx, cy, radius };
+}
+
+/**
  * Get orthogonal direction (for schematic wiring)
  * Returns 'horizontal' or 'vertical' based on angle between points
  */

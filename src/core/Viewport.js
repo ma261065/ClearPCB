@@ -104,6 +104,7 @@ export class Viewport {
         this.viewChangeTimer = null;
         this.gridDirty = true;  // Track if grid needs redraw
         this.paperDirty = true; // Track if paper outline needs redraw
+        this._lastNotifiedScale = null; // Track scale for change detection
         
         // Callbacks
         this.onViewChanged = null;
@@ -436,10 +437,10 @@ export class Viewport {
         
         // Debounce the actual redraw (prevents multiple redraws during rapid pan/zoom)
         if (this.viewChangeTimer) {
-            clearTimeout(this.viewChangeTimer);
+            cancelAnimationFrame(this.viewChangeTimer);
         }
         
-        this.viewChangeTimer = setTimeout(() => {
+        this.viewChangeTimer = requestAnimationFrame(() => {
             this.viewChangeTimer = null;
             
             // Check if visible bounds actually changed
@@ -458,13 +459,16 @@ export class Viewport {
             }
             
             if (this.onViewChanged) {
+                const scaleChanged = this._lastNotifiedScale !== this.scale;
+                this._lastNotifiedScale = this.scale;
                 this.onViewChanged({
                     offset: this.offset,
                     zoom: this.zoom,
-                    bounds: currentBounds
+                    bounds: currentBounds,
+                    scaleChanged
                 });
             }
-        }, 0);  // Execute on next frame
+        });  // Execute on next frame
     }
     
     // ==================== Grid ====================
@@ -961,6 +965,10 @@ export class Viewport {
      * Cleanup event listeners to prevent memory leaks
      */
     destroy() {
+        if (this.viewChangeTimer) {
+            cancelAnimationFrame(this.viewChangeTimer);
+            this.viewChangeTimer = null;
+        }
         if (this.boundHandlers.wheel) this.svg.removeEventListener('wheel', this.boundHandlers.wheel);
         if (this.boundHandlers.mousedown) this.svg.removeEventListener('mousedown', this.boundHandlers.mousedown);
         if (this.boundHandlers.mousemove) this.svg.removeEventListener('mousemove', this.boundHandlers.mousemove);

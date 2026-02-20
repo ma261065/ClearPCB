@@ -3,6 +3,7 @@
  */
 
 import { Shape } from './shape.js';
+import { distanceToSegment } from '../core/geometry.js';
 import { ShapeValidator } from '../core/ShapeValidator.js';
 
 export class Line extends Shape {
@@ -32,21 +33,7 @@ export class Line extends Shape {
     }
     
     distanceTo(point) {
-        const dx = this.x2 - this.x1;
-        const dy = this.y2 - this.y1;
-        const lengthSq = dx * dx + dy * dy;
-        
-        if (lengthSq === 0) {
-            return Math.hypot(point.x - this.x1, point.y - this.y1);
-        }
-        
-        let t = ((point.x - this.x1) * dx + (point.y - this.y1) * dy) / lengthSq;
-        t = Math.max(0, Math.min(1, t));
-        
-        const projX = this.x1 + t * dx;
-        const projY = this.y1 + t * dy;
-        
-        return Math.hypot(point.x - projX, point.y - projY);
+        return distanceToSegment(point, { x: this.x1, y: this.y1 }, { x: this.x2, y: this.y2 });
     }
     
     getAnchors() {
