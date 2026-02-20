@@ -32,6 +32,7 @@ export class ComponentPicker {
         this.lcscResults = [];
         this.kicadResults = [];
         this.isSearching = false;
+        this._searchGeneration = 0;
         this.searchDebounceTimer = null;
         
         // Lazy loading
@@ -234,6 +235,9 @@ export class ComponentPicker {
         this.isSearching = true;
         this._showLoading();
         
+        // Track search generation to prevent stale results overwriting newer ones
+        const searchId = ++this._searchGeneration;
+        
         try {
             // Search both EasyEDA (online) and KiCad
             const [onlineResults, kicadResults] = await Promise.all([
@@ -241,10 +245,14 @@ export class ComponentPicker {
                 this.searchManager.searchKiCad(query)
             ]);
 
+            // Discard results if a newer search has been initiated
+            if (this._searchGeneration !== searchId) return;
+
             this.lcscResults = onlineResults || [];
             this.kicadResults = kicadResults || [];
             this._populateLCSCResults();
         } catch (error) {
+            if (this._searchGeneration !== searchId) return;
             console.error('LCSC search error:', error);
             this.listEl.innerHTML = `
                 <div class="cp-error">
@@ -252,7 +260,9 @@ export class ComponentPicker {
                 </div>
             `;
         } finally {
-            this.isSearching = false;
+            if (this._searchGeneration === searchId) {
+                this.isSearching = false;
+            }
         }
     }
     

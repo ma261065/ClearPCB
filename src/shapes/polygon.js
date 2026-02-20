@@ -41,7 +41,7 @@ export class Polygon extends Shape {
     }
     
     hitTest(point, tolerance = 0.5) {
-        if (this.fill && this._pointInPolygon(point)) {
+        if (this.fill && this.closed && this._pointInPolygon(point)) {
             return true;
         }
         return this.distanceTo(point) <= tolerance + this.lineWidth / 2;
@@ -71,8 +71,9 @@ export class Polygon extends Shape {
         let minDist = Infinity;
         const pts = this.points;
         const n = pts.length;
+        const edgeCount = this.closed ? n : n - 1;
         
-        for (let i = 0; i < n; i++) {
+        for (let i = 0; i < edgeCount; i++) {
             const j = (i + 1) % n;
             const dist = distanceToSegment(point, pts[i], pts[j]);
             minDist = Math.min(minDist, dist);
@@ -145,7 +146,9 @@ export class Polygon extends Shape {
         return {
             ...super.toJSON(),
             points: this.points.map(p => ({ x: p.x, y: p.y })),
-            closed: this.closed
+            closed: this.closed,
+            fill: this.fill,
+            fillAlpha: this.fillAlpha
         };
     }
 }

@@ -12,9 +12,14 @@ export class VRMLPreview {
         };
 
         try {
-            // Extract coordinate points
-            const coordMatch = vrmlText.match(/point\s*\[([\s\S]*?)\]/);
-            if (coordMatch) {
+            // Extract all coordinate point blocks (multi-shape VRML files)
+            const coordMatches = [...vrmlText.matchAll(/point\s*\[([\s\S]*?)\]/g)];
+            const coordIndexMatches = [...vrmlText.matchAll(/coordIndex\s*\[([\s\S]*?)\]/g)];
+
+            for (let blockIdx = 0; blockIdx < coordMatches.length; blockIdx++) {
+                const vertexOffset = geometry.vertices.length;
+                const coordMatch = coordMatches[blockIdx];
+
                 const points = coordMatch[1].trim().split(/,|\s+/).filter(v => v);
                 for (let i = 0; i < points.length; i += 3) {
                     geometry.vertices.push({
@@ -23,26 +28,25 @@ export class VRMLPreview {
                         z: parseFloat(points[i + 2])
                     });
                 }
-            }
 
-            // Extract face indices
-            const coordIndexMatch = vrmlText.match(/coordIndex\s*\[([\s\S]*?)\]/);
-            if (coordIndexMatch) {
-                const indices = coordIndexMatch[1].trim().split(/,|\s+/).filter(v => v);
-                let face = [];
-                for (const idx of indices) {
-                    const index = parseInt(idx);
-                    if (index === -1) {
-                        if (face.length >= 3) {
-                            geometry.faces.push([...face]);
+                // Use matching coordIndex block if available
+                if (blockIdx < coordIndexMatches.length) {
+                    const indices = coordIndexMatches[blockIdx][1].trim().split(/,|\s+/).filter(v => v);
+                    let face = [];
+                    for (const idx of indices) {
+                        const index = parseInt(idx);
+                        if (index === -1) {
+                            if (face.length >= 3) {
+                                geometry.faces.push([...face]);
+                            }
+                            face = [];
+                        } else {
+                            face.push(index + vertexOffset);
                         }
-                        face = [];
-                    } else {
-                        face.push(index);
                     }
-                }
-                if (face.length >= 3) {
-                    geometry.faces.push(face);
+                    if (face.length >= 3) {
+                        geometry.faces.push(face);
+                    }
                 }
             }
 

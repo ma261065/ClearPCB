@@ -36,7 +36,7 @@ export class LazyLoader {
      */
     _initObserver() {
         const options = {
-            root: null,
+            root: this.container,
             threshold: this.threshold,
             rootMargin: this.rootMargin
         };

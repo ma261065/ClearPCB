@@ -474,8 +474,9 @@ export class KiCadFetcher {
 
         for (let attempt = 0; attempt < this.corsProxies.length; attempt++) {
             try {
-                const url = `${this.corsProxy}${encodeURIComponent(targetUrl)}`;
-                const response = await fetch(url);
+                const proxy = this.corsProxies[attempt];
+                const url = `${proxy}${encodeURIComponent(targetUrl)}`;
+                const response = await this._fetchWithTimeout(url);
                 if (!response.ok) {
                     continue;
                 }
@@ -492,7 +493,7 @@ export class KiCadFetcher {
                 storageManager.set(cacheKey, content, 7 * 24 * 60 * 60 * 1000);
                 return content;
             } catch (error) {
-                console.error(`KiCad footprint fetch error with proxy ${this.corsProxy}:`, error);
+                console.error(`KiCad footprint fetch error with proxy ${this.corsProxies[attempt]}:`, error);
             }
         }
 

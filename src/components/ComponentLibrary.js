@@ -97,15 +97,29 @@ export class ComponentLibrary {
         // Mark source
         definition._source = source;
         
+        // Remove from old category if re-adding with a different category
+        const existing = this.definitions.get(definition.name);
+        if (existing) {
+            const oldCategory = existing.category || 'Uncategorized';
+            const oldList = this.categories.get(oldCategory);
+            if (oldList) {
+                const idx = oldList.indexOf(definition.name);
+                if (idx >= 0) oldList.splice(idx, 1);
+            }
+        }
+        
         // Add to definitions
         this.definitions.set(definition.name, definition);
         
-        // Add to category
+        // Add to category (avoid duplicates)
         const category = definition.category || 'Uncategorized';
         if (!this.categories.has(category)) {
             this.categories.set(category, []);
         }
-        this.categories.get(category).push(definition.name);
+        const catList = this.categories.get(category);
+        if (!catList.includes(definition.name)) {
+            catList.push(definition.name);
+        }
         
         // Save if user component
         if (source === 'User') {
