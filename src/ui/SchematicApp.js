@@ -310,6 +310,9 @@ class SchematicApp {
             import('./modules/files.js').then(FileTools => {
                 FileTools.loadDocument(this, this._pendingAutoLoad);
                 this._pendingAutoLoad = null;
+            }).catch(err => {
+                console.error('Failed to auto-load document:', err);
+                this._pendingAutoLoad = null;
             });
         }
 

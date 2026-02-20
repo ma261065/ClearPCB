@@ -1281,7 +1281,8 @@ export class KiCadFetcher {
             origin: { x: 10, y: 10 },
             graphics: [],
             pins: [],
-            properties: {}
+            properties: {},
+            _source: 'KiCad'
         };
 
         let minX = Infinity, minY = Infinity;
@@ -1848,6 +1849,10 @@ export class KiCadFetcher {
                 g.y1 += dy;
                 g.x2 += dx;
                 g.y2 += dy;
+                break;
+            case 'text':
+                g.x += dx;
+                g.y += dy;
                 break;
         }
     }

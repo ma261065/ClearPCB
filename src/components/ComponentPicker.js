@@ -33,6 +33,7 @@ export class ComponentPicker {
         this.kicadResults = [];
         this.isSearching = false;
         this._searchGeneration = 0;
+        this._selectionGeneration = 0;
         this.searchDebounceTimer = null;
         
         // Lazy loading
@@ -423,8 +424,10 @@ export class ComponentPicker {
     }
 
     async _loadKiCadFootprintStatus(result) {
+        const selId = ++this._selectionGeneration;
         try {
             const kicadDefinition = await this.searchManager.fetchFromKiCad(result.library, result.name);
+            if (this._selectionGeneration !== selId) return;
             const kicadSymbol = kicadDefinition?.symbol || kicadDefinition;
             const kicadProperties = kicadDefinition?.properties || kicadDefinition?.symbol?.properties || kicadSymbol?.properties;
             const footprintName = this._getPropertyValue(kicadProperties, 'Footprint');
@@ -484,6 +487,7 @@ export class ComponentPicker {
             }
 
             const availability = await this.library.kicadFetcher.checkFootprintAvailability(footprintName);
+            if (this._selectionGeneration !== selId) return;
             if (availability.hasFootprint) {
                 const preview = await this.library.kicadFetcher.fetchFootprintPreview(footprintName);
                 if (preview?.shapes && preview.shapes.length > 0) {
@@ -878,6 +882,7 @@ export class ComponentPicker {
     }
 
     async _loadEasyEDADetailForPreview(result) {
+        const selId = ++this._selectionGeneration;
         try {
             if (!result || !result.lcscPartNumber) {
                 this._setFootprintPreviewStatus('No footprint data', false);
@@ -893,6 +898,7 @@ export class ComponentPicker {
             }
 
             const metadata = await result._detailPromise;
+            if (this._selectionGeneration !== selId) return;
             if (!metadata) {
                 this._setFootprintPreviewStatus('No footprint data', false);
                 this._set3dPreviewStatus('No 3D model', false);
@@ -921,6 +927,7 @@ export class ComponentPicker {
             }
 
             const definition = await result._definitionPromise;
+            if (this._selectionGeneration !== selId) return;
             if (definition?.symbol) {
                 this._updatePreview(definition);
                 if (this.selectedLCSCResult === result) {

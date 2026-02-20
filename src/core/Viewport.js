@@ -97,8 +97,6 @@ export class Viewport {
         // Cache for getBoundingClientRect (expensive operation)
         this.cachedRect = null;
         this.cachedRectTime = 0;
-        const RECT_CACHE_TTL = 10;  // Cache for 10ms (covers most of a frame)
-        
         // Cache for viewport change optimization
         this.cachedVisibleBounds = null;
         this.viewChangeTimer = null;
@@ -825,6 +823,7 @@ export class Viewport {
         
         // Prevent Ctrl+Plus/Minus/0 browser zoom
         this.boundHandlers.browserZoom = (e) => {
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA') return;
             if ((e.ctrlKey || e.metaKey) && (e.key === '+' || e.key === '-' || e.key === '=' || e.key === '0')) {
                 e.preventDefault();
             }
