@@ -41,11 +41,17 @@ export class Text extends Shape {
 
         const approxWidth = this.text.length * this.fontSize * 0.6;
         const approxHeight = this.fontSize;
+        let minX = this.x;
+        if (this.textAnchor === 'middle') {
+            minX = this.x - approxWidth / 2;
+        } else if (this.textAnchor === 'end') {
+            minX = this.x - approxWidth;
+        }
         return {
-            minX: this.x,
-            minY: this.y,
-            maxX: this.x + approxWidth,
-            maxY: this.y + approxHeight
+            minX,
+            minY: this.y - approxHeight,
+            maxX: minX + approxWidth,
+            maxY: this.y
         };
     }
 

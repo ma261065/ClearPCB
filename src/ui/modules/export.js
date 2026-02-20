@@ -382,6 +382,7 @@ export function renderViewportToCanvas(app, scale = 2) {
     return new Promise((resolve, reject) => {
         try {
             const svgNode = app.viewport.svg.cloneNode(true);
+            inlineSvgComputedStyles(app.viewport.svg, svgNode);
             const vb = app.viewport.viewBox;
 
             const width = Math.max(1, Math.round(app.viewport.width * scale));

@@ -12,7 +12,7 @@ export class Polygon extends Shape {
         
         this.points = options.points || [];
         this.fill = options.fill !== undefined ? options.fill : true;
-        this.fillAlpha = options.fillAlpha || 0.5;
+        this.fillAlpha = options.fillAlpha ?? 0.5;
         this.closed = options.closed !== undefined ? options.closed : true;
     }
     

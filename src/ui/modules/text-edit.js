@@ -281,7 +281,9 @@ export function nudgeTextEditOverlay(app, dx, dy) {
     const nextX = (state.overlayOffset?.x || 0) + dx;
     const nextY = (state.overlayOffset?.y || 0) + dy;
     state.overlayOffset = { x: nextX, y: nextY };
-    state.overlayGroup.setAttribute('transform', `translate(${nextX} ${nextY})`);
+    const originX = Number.isFinite(state.shape?.x) ? state.shape.x : 0;
+    const originY = Number.isFinite(state.shape?.y) ? state.shape.y : 0;
+    state.overlayGroup.setAttribute('transform', `translate(${originX + nextX} ${originY + nextY})`);
 }
 
 export function setTextCaretFromScreen(app, screenPos) {

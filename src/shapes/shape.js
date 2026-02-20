@@ -52,7 +52,7 @@ export class Shape {
         // Fill properties
         this.fill = options.fill !== undefined ? options.fill : false;
         this.fillColor = ShapeValidator.validateColor(options.fillColor || this.color);
-        this.fillAlpha = ShapeValidator.validateNumber(options.fillAlpha || 0.3, {
+        this.fillAlpha = ShapeValidator.validateNumber(options.fillAlpha ?? 0.3, {
             min: 0,
             max: 1,
             default: 0.3,

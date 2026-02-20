@@ -182,8 +182,7 @@ export class Wire extends Shape {
     clone() {
         return new Wire({
             ...this.toJSON(),
-            points: this.points.map(p => ({ ...p })),
-            connections: { ...this.connections }
+            points: this.points.map(p => ({ ...p }))
         });
     }
 

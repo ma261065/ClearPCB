@@ -18,7 +18,7 @@ export function toggleSelectionLock(app) {
 }
 
 export function deleteSelected(app) {
-    const toDelete = app.selection.getSelection();
+    const toDelete = app.selection.getSelection().filter(item => !item.locked);
     if (toDelete.length === 0) return;
 
     app.selection.clearSelection();
@@ -71,7 +71,10 @@ export function captureShapeState(app, shape) {
         case 'wire':
             return {
                 points: shape.points.map(p => ({ x: p.x, y: p.y })),
-                connections: shape.connections ? { ...shape.connections } : null,
+                connections: shape.connections ? {
+                    start: shape.connections.start ? { ...shape.connections.start } : null,
+                    end: shape.connections.end ? { ...shape.connections.end } : null
+                } : null,
                 net: shape.net || ''
             };
         case 'text':

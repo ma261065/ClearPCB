@@ -9,8 +9,8 @@ export class Component {
         this.y = options.y || 0;
         this.rotation = options.rotation || 0;
         this.mirror = options.mirror || false;
-        this.reference = options.reference || definition.defaultReference || 'U?';
-        this.value = options.value || definition.defaultValue || definition.name;
+        this.reference = options.reference ?? (definition.defaultReference || 'U?');
+        this.value = options.value ?? (definition.defaultValue || definition.name);
         this.properties = { ...definition.defaultProperties, ...options.properties };
         this.element = null;
         this.pinElements = new Map();
@@ -211,6 +211,20 @@ export class Component {
             shacklePath.setAttribute('stroke', 'var(--lock-icon, #666666)');
             shacklePath.setAttribute('stroke-width', strokeW);
             lockGroup.appendChild(shacklePath);
+            
+            // Click handler to unlock the component
+            const comp = this;
+            lockGroup.addEventListener('mousedown', (e) => {
+                e.stopPropagation();
+                e.preventDefault();
+            });
+            lockGroup.addEventListener('click', (e) => {
+                e.stopPropagation();
+                comp.element.dispatchEvent(new CustomEvent('unlock-shape', {
+                    bubbles: true,
+                    detail: { shape: comp }
+                }));
+            });
             
             this.element.appendChild(lockGroup);
         }
@@ -801,6 +815,9 @@ export class Component {
                     el.setAttribute('dominant-baseline', 'middle');
                 }
                 el.textContent = (g.text || '').replace('${REF}', this.reference).replace('${VALUE}', this.value);
+                if (g.transform) {
+                    el.setAttribute('transform', g.transform);
+                }
                 return el;
         }
         if (el) {
