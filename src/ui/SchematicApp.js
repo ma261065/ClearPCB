@@ -259,8 +259,6 @@ class SchematicApp {
         // Component library and picker
         this.componentLibrary = getComponentLibrary();
         this.componentPicker = new ComponentPicker({
-            onComponentSelected: (def) => this._onComponentDefinitionSelected(def),
-            onClose: () => this._onComponentPickerClosed(),
             eventBus: this.eventBus
         });
         this.componentPicker.appendTo(this.container);

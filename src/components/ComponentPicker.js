@@ -11,8 +11,6 @@ import { LazyLoader } from '../core/LazyLoader.js';
 export class ComponentPicker {
     constructor(options = {}) {
         this.library = getComponentLibrary();
-        this.onComponentSelected = options.onComponentSelected || (() => {});
-        this.onClose = options.onClose || (() => {});
         this.eventBus = options.eventBus || globalEventBus;
         
         // Initialize SearchManager if needed
@@ -1194,11 +1192,7 @@ export class ComponentPicker {
         this.selectedComponent = this._normalizeDefinition(definition);
         this._updatePreview(this.selectedComponent, { skipFootprint3d: !!options.skipFootprint3d });
 
-        if (this.onComponentSelected) {
-            this.onComponentSelected(this.selectedComponent);
-        } else {
-            this.eventBus.emit('component:selected', this.selectedComponent);
-        }
+        this.eventBus.emit('component:selected', this.selectedComponent);
     }
 
     _normalizeDefinition(definition) {
@@ -1877,7 +1871,7 @@ export class ComponentPicker {
             // Register with ModalManager so ESC will close the picker
             ModalManager.push('componentPicker', () => {
                 this.close();
-                if (this.onClose) this.onClose();
+                this.eventBus.emit('component:pickerClosed');
             });
         } else {
             this.element.classList.add('collapsed');

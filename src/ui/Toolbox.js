@@ -6,8 +6,6 @@ import { globalEventBus } from '../core/EventBus.js';
 
 export class Toolbox {
     constructor(options = {}) {
-        this.onToolSelected = options.onToolSelected || null;
-        this.onOptionsChanged = options.onOptionsChanged || null;
         this.eventBus = options.eventBus || globalEventBus;
         this.currentTool = 'select';
         
@@ -132,13 +130,7 @@ export class Toolbox {
         this._updateOptions();
 
         if (!silent) {
-            // Emit EventBus event (preferred)
-            this.eventBus.emit('tool:selected', toolId);
-            
-            // Also call callback if present (for backward compatibility)
-            if (this.onToolSelected) {
-                this.onToolSelected(toolId);
-            }
+            this.eventBus.emit('toolChanged', toolId);
         }
     }
     
@@ -182,9 +174,7 @@ export class Toolbox {
         // Bind option change events
         optionsEl.querySelectorAll('input').forEach(input => {
             input.addEventListener('change', () => {
-                if (this.onOptionsChanged) {
-                    this.onOptionsChanged(this.getOptions());
-                }
+                this.eventBus.emit('toolOptionsChanged', this.getOptions());
             });
         });
     }
