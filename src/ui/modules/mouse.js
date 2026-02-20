@@ -487,19 +487,18 @@ export function bindMouseEvents(app) {
 
         // Always ensure proper cleanup, even during mode 2 click-to-end interaction
         if (app.isDragging) {
-            // Only execute the drag command if this is a regular mouseup (not already handled by click-to-end mousedown)
-            // We can tell by checking if dragShape is still set
-            if (app.dragShape) {
-                if (app.didDrag && app.dragMode === 'move') {
-                    const selectedShapes = app.selection.getSelection();
-                    if (selectedShapes.length > 0 && (app.dragTotalDx !== 0 || app.dragTotalDy !== 0)) {
-                        for (const shape of selectedShapes) {
-                            shape.move(-app.dragTotalDx, -app.dragTotalDy);
-                        }
-                        const command = new MoveShapesCommand(app, selectedShapes, app.dragTotalDx, app.dragTotalDy);
-                        app.history.execute(command);
+            // Handle move undo (dragShape is only set for anchor drags, not move drags)
+            if (app.didDrag && app.dragMode === 'move') {
+                const selectedShapes = app.selection.getSelection();
+                if (selectedShapes.length > 0 && (app.dragTotalDx !== 0 || app.dragTotalDy !== 0)) {
+                    for (const shape of selectedShapes) {
+                        shape.move(-app.dragTotalDx, -app.dragTotalDy);
                     }
-                } else if (app.didDrag && app.dragMode === 'anchor' && app.dragShapesBefore) {
+                    const command = new MoveShapesCommand(app, selectedShapes, app.dragTotalDx, app.dragTotalDy);
+                    app.history.execute(command);
+                }
+            } else if (app.dragShape) {
+                if (app.didDrag && app.dragMode === 'anchor' && app.dragShapesBefore) {
                     const afterState = app._captureShapeState(app.dragShape);
                     app._applyShapeState(app.dragShape, app.dragShapesBefore);
                     const command = new ModifyShapeCommand(app, app.dragShape, app.dragShapesBefore, afterState);

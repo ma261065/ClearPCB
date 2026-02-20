@@ -132,12 +132,39 @@ export class Arc extends Shape {
     }
     
     _calculateBounds() {
-        const r = this.radius + this.lineWidth / 2;
+        const geo = this._getGeometry();
+        const { cx, cy, radius } = geo;
+        const half = this.lineWidth / 2;
+
+        // Start with the three control points
+        const pts = [this._startPoint, this._endPoint, this._bulgePoint];
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        for (const p of pts) {
+            if (p.x < minX) minX = p.x;
+            if (p.y < minY) minY = p.y;
+            if (p.x > maxX) maxX = p.x;
+            if (p.y > maxY) maxY = p.y;
+        }
+
+        // Check if any cardinal axis point (0°, 90°, 180°, 270°) lies on the arc.
+        // If so, expand bounds to the circle's extent in that direction.
+        const cardinals = [0, Math.PI / 2, Math.PI, 3 * Math.PI / 2];
+        for (const angle of cardinals) {
+            if (this._isAngleInRange(angle)) {
+                const px = cx + radius * Math.cos(angle);
+                const py = cy + radius * Math.sin(angle);
+                if (px < minX) minX = px;
+                if (py < minY) minY = py;
+                if (px > maxX) maxX = px;
+                if (py > maxY) maxY = py;
+            }
+        }
+
         return {
-            minX: this.x - r,
-            minY: this.y - r,
-            maxX: this.x + r,
-            maxY: this.y + r
+            minX: minX - half,
+            minY: minY - half,
+            maxX: maxX + half,
+            maxY: maxY + half
         };
     }
     

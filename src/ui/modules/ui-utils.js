@@ -41,16 +41,7 @@ export function makeHelpPanelDraggable() {
     let offsetX = 0;
     let offsetY = 0;
 
-    header.addEventListener('mousedown', (e) => {
-        isDragging = true;
-        const rect = panel.getBoundingClientRect();
-        offsetX = e.clientX - rect.left;
-        offsetY = e.clientY - rect.top;
-        header.style.cursor = 'grabbing';
-        e.preventDefault();
-    });
-
-    window.addEventListener('mousemove', (e) => {
+    const onMouseMove = (e) => {
         if (!isDragging) return;
         const x = e.clientX - offsetX;
         const y = e.clientY - offsetY;
@@ -62,12 +53,25 @@ export function makeHelpPanelDraggable() {
         panel.style.top = Math.max(0, Math.min(y, maxY)) + 'px';
         panel.style.right = 'auto';
         panel.style.bottom = 'auto';
-    });
+    };
 
-    window.addEventListener('mouseup', () => {
+    const onMouseUp = () => {
         if (isDragging) {
             isDragging = false;
             header.style.cursor = 'grab';
+            window.removeEventListener('mousemove', onMouseMove);
+            window.removeEventListener('mouseup', onMouseUp);
         }
+    };
+
+    header.addEventListener('mousedown', (e) => {
+        isDragging = true;
+        const rect = panel.getBoundingClientRect();
+        offsetX = e.clientX - rect.left;
+        offsetY = e.clientY - rect.top;
+        header.style.cursor = 'grabbing';
+        window.addEventListener('mousemove', onMouseMove);
+        window.addEventListener('mouseup', onMouseUp);
+        e.preventDefault();
     });
 }

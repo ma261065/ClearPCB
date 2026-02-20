@@ -447,6 +447,7 @@ export class Viewport {
                 this.cachedVisibleBounds = currentBounds;
                 if (this.gridDirty) this._createGrid();
                 if (this.paperDirty) this._drawPaperOutline();
+                this._createRulers();
             }
             
             if (this.onViewChanged) {
@@ -853,13 +854,11 @@ export class Viewport {
                 // Ctrl+wheel: pan vertically
                 this.viewBox.y += panAmount;
                 this._updateViewBox();
-                this._createRulers();  // Only update rulers, not grid (expensive)
                 this._notifyViewChanged();
             } else if (e.shiftKey) {
                 // Shift+wheel: pan horizontally
                 this.viewBox.x += panAmount;
                 this._updateViewBox();
-                this._createRulers();  // Only update rulers, not grid (expensive)
                 this._notifyViewChanged();
             } else {
                 // Regular wheel: zoom

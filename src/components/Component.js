@@ -896,25 +896,5 @@ export class Component {
         return json;
     }
 
-    /**
-     * Create component from JSON data
-     */
-    static fromJSON(json, library) {
-        const definition = library.getComponent(json.definitionName);
-        if (!definition) {
-            console.warn(`Component definition not found: ${json.definitionName}`);
-            return null;
-        }
-        return new Component(definition, {
-            id: json.id,
-            x: json.x,
-            y: json.y,
-            rotation: json.rotation,
-            mirror: json.mirror,
-            reference: json.reference,
-            value: json.value,
-            properties: json.properties
-        });
-    }
 }
 export default Component;

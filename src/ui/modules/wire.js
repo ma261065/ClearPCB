@@ -91,10 +91,13 @@ export function findNearbyPin(components, worldPos, tolerance = 0.5) {
         if (!component.symbol || !component.symbol.pins) continue;
 
         for (const pin of component.symbol.pins) {
-            const pinWorldX = component.x + pin.x;
-            const pinWorldY = component.y + pin.y;
+            // Use getPinPosition to account for component rotation and mirror
+            const pinWorld = component.getPinPosition
+                ? component.getPinPosition(pin.number)
+                : { x: component.x + pin.x, y: component.y + pin.y };
+            if (!pinWorld) continue;
 
-            const dist = Math.hypot(worldPos.x - pinWorldX, worldPos.y - pinWorldY);
+            const dist = Math.hypot(worldPos.x - pinWorld.x, worldPos.y - pinWorld.y);
 
             if (dist < minDist) {
                 const pinKey = pin._key || pin._id || pin.number || `${pin.x},${pin.y}`;
@@ -104,7 +107,7 @@ export function findNearbyPin(components, worldPos, tolerance = 0.5) {
                     pin,
                     pinKey,
                     distance: dist,
-                    worldPos: { x: pinWorldX, y: pinWorldY }
+                    worldPos: { x: pinWorld.x, y: pinWorld.y }
                 };
             }
         }

@@ -239,6 +239,7 @@ export class Toolbox {
         };
 
         alignToRibbonPanels();
+        this.boundHandlers.resize = alignToRibbonPanels;
         window.addEventListener('resize', alignToRibbonPanels);
     }
     
@@ -246,6 +247,9 @@ export class Toolbox {
      * Cleanup event listeners to prevent memory leaks
      */
     destroy() {
+        if (this.boundHandlers.resize) {
+            window.removeEventListener('resize', this.boundHandlers.resize);
+        }
         if (this.boundHandlers.keydown) {
             window.removeEventListener('keydown', this.boundHandlers.keydown);
         }
