@@ -680,25 +680,46 @@ export class KiCadFetcher {
     async ensureIndexLoaded(onProgress) {
         if (this.libraryIndex) return;
 
-        // Check localStorage cache first
+        // Stale-while-revalidate: serve expired cache immediately,
+        // then refresh in the background so the user can search right away.
         const cacheKey = 'kicad_full_symbol_index';
-        const cached = storageManager.get(cacheKey);
-        if (cached && typeof cached === 'object' && Object.keys(cached).length > 0) {
-            this.libraryIndex = { symbols: cached };
-            for (const [lib, symbols] of Object.entries(cached)) {
+        const cached = storageManager.getRaw(cacheKey);
+
+        if (cached && cached.data && typeof cached.data === 'object'
+            && Object.keys(cached.data).length > 0) {
+            this.libraryIndex = { symbols: cached.data };
+            for (const [lib, symbols] of Object.entries(cached.data)) {
                 if (!this._symdirCache.has(lib)) {
                     this._symdirCache.set(lib, symbols);
                 }
             }
+
+            if (cached.expired) {
+                // Serve stale data now — refresh silently in the background
+                console.log('KiCadFetcher: Serving stale index, refreshing in background...');
+                this._refreshIndexInBackground();
+            }
             return;
         }
 
-        // Deduplicate concurrent callers
+        // No cached data at all (first visit) — fetch with progress bar
         if (!this._indexLoadPromise) {
             this._indexLoadPromise = this._fetchFullSymbolIndex(onProgress)
                 .finally(() => { this._indexLoadPromise = null; });
         }
         return this._indexLoadPromise;
+    }
+
+    /**
+     * Silently refresh the symbol index in the background.
+     * Updates in-memory + localStorage caches when done.
+     */
+    _refreshIndexInBackground() {
+        this._fetchFullSymbolIndex(null).then(() => {
+            console.log('KiCadFetcher: Background index refresh complete');
+        }).catch(err => {
+            console.warn('KiCadFetcher: Background index refresh failed:', err);
+        });
     }
 
     /**

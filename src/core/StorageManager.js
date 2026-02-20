@@ -97,6 +97,41 @@ export class StorageManager {
     }
 
     /**
+     * Get a value with its expiry status, WITHOUT deleting expired entries.
+     * Useful for stale-while-revalidate patterns.
+     * @param {string} key - Storage key
+     * @returns {{ data: any, expired: boolean } | null} null if key doesn't exist
+     */
+    getRaw(key) {
+        try {
+            const item = localStorage.getItem(key);
+            if (!item) return null;
+
+            try {
+                const parsed = JSON.parse(item);
+                if (parsed && typeof parsed === 'object' && 'data' in parsed && 'expires' in parsed) {
+                    return {
+                        data: parsed.data,
+                        expired: Date.now() > parsed.expires
+                    };
+                }
+            } catch (e) {
+                // Not StorageManager format
+            }
+
+            // Legacy format — treat as not expired
+            try {
+                return { data: JSON.parse(item), expired: false };
+            } catch (e) {
+                return { data: item, expired: false };
+            }
+        } catch (error) {
+            console.warn(`StorageManager.getRaw failed for key "${key}":`, error);
+            return null;
+        }
+    }
+
+    /**
      * Clear all storage
      */
     clear() {
