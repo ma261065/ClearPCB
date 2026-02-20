@@ -1,6 +1,16 @@
 export function bindKeyboardShortcuts(app) {
     const onKeyDown = (e) => {
-        if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA')) return;
+        // Allow shortcuts through for non-text inputs (checkboxes, buttons, etc.)
+        // Only block when user is actively typing in a text field
+        if (e.target) {
+            const tag = e.target.tagName;
+            if (tag === 'TEXTAREA' || tag === 'SELECT') return;
+            if (tag === 'INPUT') {
+                const inputType = (e.target.type || 'text').toLowerCase();
+                // Block shortcuts only for text-entry inputs
+                if (inputType !== 'checkbox' && inputType !== 'radio' && inputType !== 'button') return;
+            }
+        }
         if (e.defaultPrevented) return;
 
         // Text edit has absolute priority for Escape and Enter
