@@ -54,6 +54,15 @@ export function loadDocument(app, data) {
                 app.ui.gridSize.value = data.settings.gridSize;
             }
         }
+        if (data.settings.units) {
+            app.viewport.setUnits(data.settings.units);
+            if (app.ui.units) {
+                app.ui.units.value = data.settings.units;
+            }
+            if (typeof app._updateGridDropdown === 'function') {
+                app._updateGridDropdown();
+            }
+        }
     }
 
     app._updateSelectableItems();

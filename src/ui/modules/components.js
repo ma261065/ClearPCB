@@ -68,8 +68,6 @@ export function placeComponent(app, worldPos) {
         reference: ref
     });
 
-    const element = component.createSymbolElement();
-
     const command = new AddComponentCommand(app, component);
     app.history.execute(command);
 

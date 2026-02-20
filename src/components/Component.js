@@ -16,8 +16,8 @@ export class Component {
         this.pinElements = new Map();
         
         // Selection-related properties
-        this.visible = true;
-        this.locked = false;
+        this.visible = options.visible !== undefined ? options.visible : true;
+        this.locked = options.locked !== undefined ? options.locked : false;
         this.selected = false;
         this.hovered = false;
     }
@@ -886,7 +886,9 @@ export class Component {
             mirror: this.mirror,
             reference: this.reference,
             value: this.value,
-            properties: this.properties
+            properties: this.properties,
+            visible: this.visible,
+            locked: this.locked
         };
         
         // Include full definition for online components (KiCad, LCSC, etc.)

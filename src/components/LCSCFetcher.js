@@ -147,30 +147,31 @@ export class LCSCFetcher {
     async _fetchEasyEDA3DModel(uuid3d, datastrid) {
         // EasyEDA stores 3D models in OBJ format at modules.easyeda.com
         if (uuid3d) {
-            try {
-                const url = `https://modules.easyeda.com/3dmodel/${uuid3d}`;
-                console.log('Fetching EasyEDA 3D model from:', url);
-                
-                // Always use CORS proxy
-                const proxyUrl = this.corsProxies[0]
-                    .replace('{encodedUrl}', encodeURIComponent(url))
-                    .replace('{url}', url)
-                    .replace('{urlSansScheme}', url.replace(/^https?:\/\//, ''));
-                
-                const response = await fetch(proxyUrl);
-                
-                if (!response.ok) {
-                    console.log('3D model not found (HTTP', response.status, ')');
-                    return null;
+            const targetUrl = `https://modules.easyeda.com/3dmodel/${uuid3d}`;
+            console.log('Fetching EasyEDA 3D model from:', targetUrl);
+
+            for (const proxy of this.corsProxies) {
+                try {
+                    const proxyUrl = proxy
+                        .replace('{encodedUrl}', encodeURIComponent(targetUrl))
+                        .replace('{url}', targetUrl)
+                        .replace('{urlSansScheme}', targetUrl.replace(/^https?:\/\//, ''));
+
+                    const response = await fetch(proxyUrl);
+
+                    if (!response.ok) {
+                        console.log('3D model not found (HTTP', response.status, ')');
+                        continue;
+                    }
+
+                    const objText = await response.text();
+                    if (objText && objText.includes('v ')) {
+                        console.log('Successfully fetched OBJ file, size:', objText.length);
+                        return objText;
+                    }
+                } catch (error) {
+                    console.log('Failed to fetch EasyEDA 3D model:', error.message);
                 }
-                
-                const objText = await response.text();
-                if (objText && objText.includes('v ')) {
-                    console.log('Successfully fetched OBJ file, size:', objText.length);
-                    return objText;
-                }
-            } catch (error) {
-                console.log('Failed to fetch EasyEDA 3D model:', error.message);
             }
         }
         return null;

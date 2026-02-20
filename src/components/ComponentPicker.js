@@ -156,35 +156,6 @@ export class ComponentPicker {
         });
     }
     
-    /**
-     * Internal method to handle component selection.
-     * Emits EventBus event and calls callback.
-     * Wraps in try-catch for error resilience.
-     */
-    _selectComponent(component) {
-        try {
-            if (!component) {
-                throw new Error('Component is null or undefined');
-            }
-            
-            // Validate component has required fields
-            if (typeof component !== 'object') {
-                throw new Error(`Invalid component type: ${typeof component}`);
-            }
-            
-            // Emit EventBus event (preferred)
-            this.eventBus.emit('component:selected', component);
-            
-            // Also call callback if present (for backward compatibility)
-            if (this.onComponentSelected) {
-                this.onComponentSelected(component);
-            }
-        } catch (error) {
-            console.error('Error selecting component:', error);
-            this.previewInfo.innerHTML = `<div style="color:var(--accent-color)">Error: ${error.message}</div>`;
-        }
-    }
-    
     _setSearchMode(mode) {
         this.searchMode = mode;
         
@@ -1900,6 +1871,10 @@ export class ComponentPicker {
      */
     destroy() {
         this.close();
+        if (this._scrollHandler && this.listEl) {
+            this.listEl.removeEventListener('scroll', this._scrollHandler);
+            this._scrollHandler = null;
+        }
         if (this.lazyLoader) {
             this.lazyLoader.destroy();
             this.lazyLoader = null;

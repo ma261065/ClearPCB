@@ -237,15 +237,8 @@ export class KiCadFetcher {
             // Try each proxy
             for (let attempt = 0; attempt < this.corsProxies.length; attempt++) {
                 try {
-                    // Build URL based on proxy type
-                    let url;
-                    if (this.corsProxy.includes('allorigins')) {
-                        // allorigins expects encoded URL
-                        url = `${this.corsProxy}${encodeURIComponent(targetUrl)}`;
-                    } else {
-                        // corsproxy.io expects encoded URL too
-                        url = `${this.corsProxy}${encodeURIComponent(targetUrl)}`;
-                    }
+                    const proxy = this.corsProxies[attempt];
+                    const url = `${proxy}${encodeURIComponent(targetUrl)}`;
                     
                     console.log(`Fetching KiCad library: ${library}`);
                     
@@ -278,7 +271,7 @@ export class KiCadFetcher {
                     return content;
                     
                 } catch (error) {
-                    console.error(`KiCad fetch error with proxy ${this.corsProxy}:`, error);
+                    console.error(`KiCad fetch error with proxy ${this.corsProxies[attempt]}:`, error);
                 }
             }
         }
@@ -291,12 +284,8 @@ export class KiCadFetcher {
             for (const targetUrl of retryUrls) {
                 for (let attempt = 0; attempt < this.corsProxies.length; attempt++) {
                     try {
-                        let url;
-                        if (this.corsProxy.includes('allorigins')) {
-                            url = `${this.corsProxy}${encodeURIComponent(targetUrl)}`;
-                        } else {
-                            url = `${this.corsProxy}${encodeURIComponent(targetUrl)}`;
-                        }
+                        const proxy = this.corsProxies[attempt];
+                        const url = `${proxy}${encodeURIComponent(targetUrl)}`;
 
                         console.log(`Fetching KiCad library (retry): ${library}`);
 
@@ -321,7 +310,7 @@ export class KiCadFetcher {
                         console.log(`Cached KiCad library: ${library}`);
                         return content;
                     } catch (error) {
-                        console.error(`KiCad fetch error with proxy ${this.corsProxy}:`, error);
+                        console.error(`KiCad fetch error with proxy ${this.corsProxies[attempt]}:`, error);
                     }
                 }
             }
@@ -342,7 +331,8 @@ export class KiCadFetcher {
         for (const targetUrl of targetUrls) {
             for (let attempt = 0; attempt < this.corsProxies.length; attempt++) {
                 try {
-                    const url = `${this.corsProxy}${encodeURIComponent(targetUrl)}`;
+                    const proxy = this.corsProxies[attempt];
+                    const url = `${proxy}${encodeURIComponent(targetUrl)}`;
                     console.log(`Fetching KiCad symbol file: ${symDirPath}/${fileName}`);
                     const response = await this._fetchWithTimeout(url);
                     if (!response.ok) {
@@ -360,7 +350,7 @@ export class KiCadFetcher {
                     }
                     return content;
                 } catch (error) {
-                    console.error(`KiCad fetch error with proxy ${this.corsProxy}:`, error);
+                    console.error(`KiCad fetch error with proxy ${this.corsProxies[attempt]}:`, error);
                 }
             }
         }
@@ -370,14 +360,15 @@ export class KiCadFetcher {
     async _fetchJsonWithProxy(targetUrl) {
         for (let attempt = 0; attempt < this.corsProxies.length; attempt++) {
             try {
-                const url = `${this.corsProxy}${encodeURIComponent(targetUrl)}`;
+                const proxy = this.corsProxies[attempt];
+                const url = `${proxy}${encodeURIComponent(targetUrl)}`;
                 const response = await this._fetchWithTimeout(url);
                 if (!response.ok) {
                     continue;
                 }
                 return await response.json();
             } catch (error) {
-                console.error(`KiCad fetch error with proxy ${this.corsProxy}:`, error);
+                console.error(`KiCad fetch error with proxy ${this.corsProxies[attempt]}:`, error);
             }
         }
         return null;
@@ -457,19 +448,15 @@ export class KiCadFetcher {
     async _checkUrlExists(targetUrl) {
         for (let attempt = 0; attempt < this.corsProxies.length; attempt++) {
             try {
-                let url;
-                if (this.corsProxy.includes('allorigins')) {
-                    url = `${this.corsProxy}${encodeURIComponent(targetUrl)}`;
-                } else {
-                    url = `${this.corsProxy}${encodeURIComponent(targetUrl)}`;
-                }
+                const proxy = this.corsProxies[attempt];
+                const url = `${proxy}${encodeURIComponent(targetUrl)}`;
 
-                const response = await fetch(url);
+                const response = await this._fetchWithTimeout(url);
                 if (response.ok) {
                     return true;
                 }
             } catch (error) {
-                console.error(`KiCad fetch error with proxy ${this.corsProxy}:`, error);
+                console.error(`KiCad fetch error with proxy ${this.corsProxies[attempt]}:`, error);
             }
         }
 

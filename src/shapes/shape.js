@@ -62,8 +62,8 @@ export class Shape {
         // State
         this.selected = false;
         this.hovered = false;
-        this.visible = true;
-        this.locked = false;
+        this.visible = options.visible !== undefined ? options.visible : true;
+        this.locked = options.locked !== undefined ? options.locked : false;
         
         // SVG elements
         this.element = null;

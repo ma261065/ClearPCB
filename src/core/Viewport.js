@@ -941,7 +941,7 @@ export class Viewport {
         
         // Keyboard
         this.boundHandlers.keydown = (e) => {
-            if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA') return;
             
             switch (e.key) {
                 case 'Home':
