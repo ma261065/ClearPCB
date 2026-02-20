@@ -43,20 +43,32 @@ export class Via extends Shape {
     }
     
     _createElement() {
-        return document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        const SVG_NS = 'http://www.w3.org/2000/svg';
+        this._outerCircle = document.createElementNS(SVG_NS, 'circle');
+        this._holeCircle = document.createElementNS(SVG_NS, 'circle');
+        this._holeCircle.setAttribute('fill', '#000');
+        g.appendChild(this._outerCircle);
+        g.appendChild(this._holeCircle);
+        return g;
     }
     
     _updateElement(el, strokeColor, fillColor, scale) {
         const r = this.diameter / 2;
         const hr = this.hole / 2;
         
-        el.innerHTML = `
-            <circle cx="${this.x}" cy="${this.y}" r="${r}" fill="${fillColor}"/>
-            <circle cx="${this.x}" cy="${this.y}" r="${hr}" fill="#000"/>
-        `;
+        this._outerCircle.setAttribute('cx', this.x);
+        this._outerCircle.setAttribute('cy', this.y);
+        this._outerCircle.setAttribute('r', r);
+        this._outerCircle.setAttribute('fill', fillColor);
+        
+        this._holeCircle.setAttribute('cx', this.x);
+        this._holeCircle.setAttribute('cy', this.y);
+        this._holeCircle.setAttribute('r', hr);
     }
     
     move(dx, dy) {
+        if (!Number.isFinite(dx) || !Number.isFinite(dy)) return;
         this.x += dx;
         this.y += dy;
         this.invalidate();

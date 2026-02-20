@@ -1,7 +1,7 @@
 // SchematicApp.js - Schematic Editor Application
 
 import { Viewport } from '../core/Viewport.js';
-import { EventBus, Events, globalEventBus } from '../core/EventBus.js';
+import { EventBus, globalEventBus } from '../core/EventBus.js';
 import { CommandHistory } from '../core/CommandHistory.js';
 import { SelectionManager } from '../core/SelectionManager.js';
 import { FileManager } from '../core/FileManager.js';
@@ -804,7 +804,7 @@ class SchematicApp {
     }
 
     _bindKeyboardShortcuts() {
-        bindKeyboardShortcuts(this);
+        this._destroyKeyboard = bindKeyboardShortcuts(this);
     }
     
     _deleteSelected() {

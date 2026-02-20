@@ -163,6 +163,7 @@ export class Rect extends Shape {
     }
     
     move(dx, dy) {
+        if (!Number.isFinite(dx) || !Number.isFinite(dy)) return;
         this.x += dx;
         this.y += dy;
         this.invalidate();

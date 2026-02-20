@@ -292,6 +292,7 @@ export class Arc extends Shape {
     }
     
     move(dx, dy) {
+        if (!Number.isFinite(dx) || !Number.isFinite(dy)) return;
         this.startPoint.x += dx;
         this.startPoint.y += dy;
         this.endPoint.x += dx;

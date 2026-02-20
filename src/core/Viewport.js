@@ -127,11 +127,6 @@ export class Viewport {
         this._createRulers();
         this._bindEvents();
         this._disableBrowserZoom();
-        
-        // Handle resize
-        window.addEventListener('resize', () => {
-            this._onResize();
-        });
     }
     
     _createGroup(id) {

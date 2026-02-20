@@ -69,6 +69,7 @@ export class Line extends Shape {
     }
     
     move(dx, dy) {
+        if (!Number.isFinite(dx) || !Number.isFinite(dy)) return;
         this.x1 += dx;
         this.y1 += dy;
         this.x2 += dx;

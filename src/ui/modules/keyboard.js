@@ -1,5 +1,5 @@
 export function bindKeyboardShortcuts(app) {
-    window.addEventListener('keydown', (e) => {
+    const onKeyDown = (e) => {
         if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA')) return;
         if (e.defaultPrevented) return;
 
@@ -133,9 +133,9 @@ export function bindKeyboardShortcuts(app) {
                     break;
             }
         }
-    }, { capture: true });
+    };
 
-    window.addEventListener('global-escape', () => {
+    const onGlobalEscape = () => {
         if (app._suppressNextEscape) {
             app._suppressNextEscape = false;
             return;
@@ -143,5 +143,14 @@ export function bindKeyboardShortcuts(app) {
         // Don't handle global escape if we just exited text edit or still in text edit
         if (app.textEdit) return;
         app._handleEscape();
-    });
+    };
+
+    window.addEventListener('keydown', onKeyDown, { capture: true });
+    window.addEventListener('global-escape', onGlobalEscape);
+
+    // Return cleanup function
+    return function destroyKeyboardShortcuts() {
+        window.removeEventListener('keydown', onKeyDown, { capture: true });
+        window.removeEventListener('global-escape', onGlobalEscape);
+    };
 }

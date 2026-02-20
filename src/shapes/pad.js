@@ -52,45 +52,97 @@ export class Pad extends Shape {
     }
     
     _createElement() {
-        return document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        this._padEl = null;
+        this._holeEl = null;
+        this._lastPadTag = null;
+        this._lastHoleTag = null;
+        return g;
     }
     
     _updateElement(el, strokeColor, fillColor, scale) {
         const hw = this.width / 2;
         const hh = this.height / 2;
+        const SVG_NS = 'http://www.w3.org/2000/svg';
         
-        let svg = '';
+        // Determine required SVG tag for pad shape
+        const padTag = (this.shape === 'circle') ? 'circle'
+            : (this.shape === 'oval') ? 'ellipse'
+            : 'rect';
         
-        // Pad shape
+        // Recreate pad element only if tag changed
+        if (padTag !== this._lastPadTag) {
+            if (this._padEl) this._padEl.remove();
+            this._padEl = document.createElementNS(SVG_NS, padTag);
+            // Insert before hole if it exists
+            if (this._holeEl) {
+                el.insertBefore(this._padEl, this._holeEl);
+            } else {
+                el.appendChild(this._padEl);
+            }
+            this._lastPadTag = padTag;
+        }
+        
+        // Update pad attributes
         switch (this.shape) {
             case 'circle':
-                svg += `<circle cx="${this.x}" cy="${this.y}" r="${Math.max(hw, hh)}" fill="${fillColor}"/>`;
+                this._padEl.setAttribute('cx', this.x);
+                this._padEl.setAttribute('cy', this.y);
+                this._padEl.setAttribute('r', Math.max(hw, hh));
                 break;
             case 'oval':
-                svg += `<ellipse cx="${this.x}" cy="${this.y}" rx="${hw}" ry="${hh}" fill="${fillColor}"/>`;
+                this._padEl.setAttribute('cx', this.x);
+                this._padEl.setAttribute('cy', this.y);
+                this._padEl.setAttribute('rx', hw);
+                this._padEl.setAttribute('ry', hh);
                 break;
             case 'roundrect':
-                svg += `<rect x="${this.x - hw}" y="${this.y - hh}" width="${this.width}" height="${this.height}" rx="${this.cornerRadius}" fill="${fillColor}"/>`;
+                this._padEl.setAttribute('x', this.x - hw);
+                this._padEl.setAttribute('y', this.y - hh);
+                this._padEl.setAttribute('width', this.width);
+                this._padEl.setAttribute('height', this.height);
+                this._padEl.setAttribute('rx', this.cornerRadius);
                 break;
             case 'rect':
             default:
-                svg += `<rect x="${this.x - hw}" y="${this.y - hh}" width="${this.width}" height="${this.height}" fill="${fillColor}"/>`;
+                this._padEl.setAttribute('x', this.x - hw);
+                this._padEl.setAttribute('y', this.y - hh);
+                this._padEl.setAttribute('width', this.width);
+                this._padEl.setAttribute('height', this.height);
+                this._padEl.removeAttribute('rx');
                 break;
         }
+        this._padEl.setAttribute('fill', fillColor);
         
-        // Hole (black)
+        // Handle hole element
         if (this.hole > 0) {
-            if (this.holeShape === 'oval') {
-                svg += `<ellipse cx="${this.x}" cy="${this.y}" rx="${this.holeWidth/2}" ry="${this.holeHeight/2}" fill="#000"/>`;
-            } else {
-                svg += `<circle cx="${this.x}" cy="${this.y}" r="${this.hole/2}" fill="#000"/>`;
+            const holeTag = this.holeShape === 'oval' ? 'ellipse' : 'circle';
+            if (holeTag !== this._lastHoleTag) {
+                if (this._holeEl) this._holeEl.remove();
+                this._holeEl = document.createElementNS(SVG_NS, holeTag);
+                this._holeEl.setAttribute('fill', '#000');
+                el.appendChild(this._holeEl);
+                this._lastHoleTag = holeTag;
             }
+            if (this.holeShape === 'oval') {
+                this._holeEl.setAttribute('cx', this.x);
+                this._holeEl.setAttribute('cy', this.y);
+                this._holeEl.setAttribute('rx', this.holeWidth / 2);
+                this._holeEl.setAttribute('ry', this.holeHeight / 2);
+            } else {
+                this._holeEl.setAttribute('cx', this.x);
+                this._holeEl.setAttribute('cy', this.y);
+                this._holeEl.setAttribute('r', this.hole / 2);
+            }
+        } else if (this._holeEl) {
+            this._holeEl.remove();
+            this._holeEl = null;
+            this._lastHoleTag = null;
         }
-        
-        el.innerHTML = svg;
     }
     
     move(dx, dy) {
+        if (!Number.isFinite(dx) || !Number.isFinite(dy)) return;
         this.x += dx;
         this.y += dy;
         this.invalidate();

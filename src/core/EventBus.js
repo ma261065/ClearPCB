@@ -96,53 +96,8 @@ export class EventBus {
 
 // Standard events used throughout the application
 export const Events = {
-    // Document events
-    DOCUMENT_CREATED: 'document:created',
-    DOCUMENT_OPENED: 'document:opened',
-    DOCUMENT_SAVED: 'document:saved',
-    DOCUMENT_MODIFIED: 'document:modified',
-    
     // Selection events
     SELECTION_CHANGED: 'selection:changed',
-    SELECTION_CLEARED: 'selection:cleared',
-    
-    // Component events
-    COMPONENT_ADDED: 'component:added',
-    COMPONENT_REMOVED: 'component:removed',
-    COMPONENT_MODIFIED: 'component:modified',
-    COMPONENT_MOVED: 'component:moved',
-    
-    // Wire/net events
-    WIRE_ADDED: 'wire:added',
-    WIRE_REMOVED: 'wire:removed',
-    NET_HIGHLIGHTED: 'net:highlighted',
-    NET_RENAMED: 'net:renamed',
-    
-    // Tool events
-    TOOL_CHANGED: 'tool:changed',
-    TOOL_ACTIVATED: 'tool:activated',
-    TOOL_DEACTIVATED: 'tool:deactivated',
-    
-    // View events
-    VIEW_CHANGED: 'view:changed',
-    ZOOM_CHANGED: 'zoom:changed',
-    LAYER_VISIBILITY_CHANGED: 'layer:visibility',
-    
-    // History events
-    HISTORY_CHANGED: 'history:changed',
-    UNDO: 'history:undo',
-    REDO: 'history:redo',
-    
-    // UI events
-    PANEL_OPENED: 'panel:opened',
-    PANEL_CLOSED: 'panel:closed',
-    DIALOG_OPENED: 'dialog:opened',
-    DIALOG_CLOSED: 'dialog:closed',
-    
-    // Library events
-    LIBRARY_LOADED: 'library:loaded',
-    SYMBOL_SELECTED: 'symbol:selected',
-    FOOTPRINT_SELECTED: 'footprint:selected',
 };
 
 // Global event bus instance
