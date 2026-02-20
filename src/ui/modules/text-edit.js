@@ -1,4 +1,5 @@
 import { ModalManager } from '../../core/ModalManager.js';
+import { ModifyShapeCommand } from '../../core/CommandHistory.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
@@ -67,6 +68,14 @@ export function endTextEdit(app, commit = true) {
             state.shape.invalidate();
         }
         app.renderShapes(true);
+    } else if (state.shape.text !== state.originalText) {
+        // Create undo command for the text change
+        const beforeState = { text: state.originalText };
+        const afterState = { text: state.shape.text };
+        // Temporarily revert so execute() applies the new text
+        state.shape.text = state.originalText;
+        const command = new ModifyShapeCommand(app, state.shape, beforeState, afterState);
+        app.history.execute(command);
     }
 
     if (state.overlayGroup && state.overlayGroup.parentNode) {

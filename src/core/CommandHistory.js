@@ -263,3 +263,50 @@ export class ModifyShapeCommand extends Command {
         this.app.renderShapes(true);
     }
 }
+
+/**
+ * Command to modify properties on one or more shapes/components
+ */
+export class ModifyPropertyCommand extends Command {
+    constructor(app, items, prop, newValue) {
+        const label = items.length === 1
+            ? `Change ${prop} of ${items[0].type || 'item'}`
+            : `Change ${prop} of ${items.length} items`;
+        super(label);
+        this.app = app;
+        this.entries = items.map(item => ({
+            id: item.id,
+            oldValue: item[prop],
+            newValue
+        }));
+        this.prop = prop;
+    }
+
+    _findItem(id) {
+        let item = this.app.shapes.find(s => s.id === id);
+        if (!item) item = this.app.components.find(c => c.id === id);
+        return item;
+    }
+
+    execute() {
+        for (const entry of this.entries) {
+            const item = this._findItem(entry.id);
+            if (item) {
+                item[this.prop] = entry.newValue;
+                if (typeof item.invalidate === 'function') item.invalidate();
+            }
+        }
+        this.app.renderShapes(true);
+    }
+
+    undo() {
+        for (const entry of this.entries) {
+            const item = this._findItem(entry.id);
+            if (item) {
+                item[this.prop] = entry.oldValue;
+                if (typeof item.invalidate === 'function') item.invalidate();
+            }
+        }
+        this.app.renderShapes(true);
+    }
+}

@@ -1,18 +1,17 @@
-import { DeleteShapesCommand } from '../../core/CommandHistory.js';
+import { DeleteShapesCommand, ModifyPropertyCommand } from '../../core/CommandHistory.js';
 
 export function toggleSelectionLock(app) {
     const selection = app.selection.getSelection();
     if (selection.length === 0) return;
     const allLocked = selection.every(item => item.locked === true);
     const nextValue = !allLocked;
-    for (const item of selection) {
-        if (typeof item.locked === 'boolean') {
-            item.locked = nextValue;
-            if (typeof item.invalidate === 'function') item.invalidate();
-        }
-    }
+    const affected = selection.filter(item => typeof item.locked === 'boolean' && item.locked !== nextValue);
+    if (affected.length === 0) return;
+
+    const command = new ModifyPropertyCommand(app, affected, 'locked', nextValue);
+    app.history.execute(command);
+
     app.fileManager.setDirty(true);
-    app.renderShapes(true);
     app._updatePropertiesPanel(selection);
     app._updateRibbonState(selection);
 }

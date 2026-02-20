@@ -90,11 +90,13 @@ export function bindRibbon(app) {
     get('ribbonRotate')?.addEventListener('click', () => app._rotateComponent());
     
     // ESC key goes to home tab
-    document.addEventListener('keydown', (e) => {
+    const ribbonEscHandler = (e) => {
         if (e.key === 'Escape') {
             app._setActiveRibbonTab('home');
         }
-    });
+    };
+    document.addEventListener('keydown', ribbonEscHandler);
+    app._cleanupRibbonEsc = () => document.removeEventListener('keydown', ribbonEscHandler);
 
     const ribbonToolButtons = Array.from(document.querySelectorAll('.ribbon-tool-btn'));
     const setActiveToolButton = (toolId) => {

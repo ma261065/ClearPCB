@@ -278,6 +278,14 @@ class SchematicApp {
         this._bindKeyboardShortcuts();
         bindPaperEvents(this);
 
+        // Listen for lock icon clicks (bubbles up from shape SVG elements)
+        this.viewport.svg.addEventListener('unlock-shape', (e) => {
+            const shape = e.detail?.shape;
+            if (shape && shape.locked) {
+                this._applyCommonProperty('locked', false);
+            }
+        });
+
         // Initial view
         this.viewport.resetView();
         this._updateTitle();

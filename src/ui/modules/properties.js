@@ -1,4 +1,5 @@
 import { setCheckboxState } from './ui-utils.js';
+import { ModifyPropertyCommand } from '../../core/CommandHistory.js';
 
 export function bindPropertiesPanel(app) {
     if (!app.ui.propertiesPanel) return;
@@ -151,30 +152,28 @@ export function applyCommonProperty(app, prop, value) {
     const selection = app.selection.getSelection();
     if (selection.length === 0) return;
 
-    let changed = false;
-    for (const item of selection) {
-        if (prop in item) {
-            item[prop] = value;
-            if (typeof item.invalidate === 'function') {
-                item.invalidate();
-            }
-            changed = true;
-        }
-    }
+    // Filter to items that actually have this property
+    const affected = selection.filter(item => prop in item);
+    if (affected.length === 0) return;
 
-    if (changed) {
-        app.fileManager.setDirty(true);
-        app.renderShapes(true);
-        app._updatePropertiesPanel(selection);
-        if (prop === 'fontSize' && app.textEdit?.shape && selection.includes(app.textEdit.shape)) {
-            app._updateTextEditOverlay?.();
-        }
-        if (prop === 'locked') {
-            if (value) {
-                app._endTextEdit?.(true);
-            } else if (selection.length === 1 && selection[0]?.type === 'text') {
-                app._startTextEdit?.(selection[0]);
-            }
+    // Check if any value actually changes
+    const changing = affected.filter(item => item[prop] !== value);
+    if (changing.length === 0) return;
+
+    // Create undoable command
+    const command = new ModifyPropertyCommand(app, changing, prop, value);
+    app.history.execute(command);
+
+    app.fileManager.setDirty(true);
+    app._updatePropertiesPanel(selection);
+    if (prop === 'fontSize' && app.textEdit?.shape && selection.includes(app.textEdit.shape)) {
+        app._updateTextEditOverlay?.();
+    }
+    if (prop === 'locked') {
+        if (value) {
+            app._endTextEdit?.(true);
+        } else if (selection.length === 1 && selection[0]?.type === 'text') {
+            app._startTextEdit?.(selection[0]);
         }
     }
 }

@@ -8,8 +8,6 @@
  * - Selection change events
  */
 
-import { Events, globalEventBus } from './EventBus.js';
-
 export class SelectionManager {
     constructor(options = {}) {
         this.shapes = [];  // Reference to all shapes (set by Document)
@@ -29,8 +27,6 @@ export class SelectionManager {
         
         // Callbacks
         this.onSelectionChanged = options.onSelectionChanged || null;
-        
-        this.eventBus = globalEventBus;
     }
     
     /**
@@ -389,11 +385,5 @@ export class SelectionManager {
         if (this.onSelectionChanged) {
             this.onSelectionChanged(selection);
         }
-        
-        this.eventBus.emit(Events.SELECTION_CHANGED, {
-            selection,
-            count: selection.length,
-            bounds: this.getSelectionBounds()
-        });
     }
 }
