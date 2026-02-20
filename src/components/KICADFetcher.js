@@ -37,6 +37,39 @@ export class KiCadFetcher {
     get corsProxy() {
         return this.corsProxies[0];
     }
+
+    /**
+     * Keyword aliases for common component types.
+     * Maps human-readable terms to KiCad symbol-name prefixes so that
+     * searching "resistor" finds R, R_Small, R_US, etc. in the Device library.
+     */
+    static KEYWORD_ALIASES = new Map([
+        ['resistor',    ['R']],
+        ['capacitor',   ['C']],
+        ['inductor',    ['L']],
+        ['led',         ['LED']],
+        ['potentiometer', ['R_Potentiometer']],
+        ['thermistor',  ['Thermistor']],
+        ['fuse',        ['Fuse', 'Polyfuse']],
+        ['ferrite',     ['FerriteBead', 'L_Ferrite']],
+        ['crystal',     ['Crystal']],
+        ['transformer', ['Transformer']],
+        ['relay',       ['Relay']],
+        ['switch',      ['SW']],
+        ['button',      ['SW_Push', 'SW_DPDT']],
+        ['mosfet',      ['Q_NMOS', 'Q_PMOS', 'BSS', 'IRF', 'IRLML', 'Si2', 'AO']],
+        ['transistor',  ['Q', 'BC', '2N', 'MMBT']],
+        ['opamp',       ['LM358', 'LM324', 'TL07', 'TL08', 'OPA', 'MCP60', 'NE5532', 'AD82']],
+        ['regulator',   ['LM78', 'LM317', 'AMS1117', 'MCP170', 'AP2112', 'L78']],
+        ['op-amp',      ['LM358', 'LM324', 'TL07', 'TL08', 'OPA', 'MCP60', 'NE5532', 'AD82']],
+        ['battery',     ['Battery']],
+        ['motor',       ['Motor']],
+        ['speaker',     ['Speaker']],
+        ['microphone',  ['Microphone']],
+        ['buzzer',      ['Buzzer']],
+        ['varistor',    ['Varistor']],
+        ['antenna',     ['Antenna']],
+    ]);
     
     /**
      * Search for a symbol by MPN or name
@@ -44,10 +77,10 @@ export class KiCadFetcher {
      * @returns {Promise<Array>} Matching symbols
      */
     async searchSymbols(query) {
-        // Check search result cache first
+        // Check search result cache first (skip empty arrays — may be stale)
         const cacheKey = `kicad_search_${query.toLowerCase()}`;
         const cachedResults = storageManager.get(cacheKey);
-        if (cachedResults && Array.isArray(cachedResults)) {
+        if (cachedResults && Array.isArray(cachedResults) && cachedResults.length > 0) {
             console.log(`Using cached KiCad search results for: ${query}`);
             return cachedResults;
         }
@@ -61,12 +94,42 @@ export class KiCadFetcher {
             return [];
         }
         
-        const queryLower = query.toLowerCase();
+        // Split query into individual terms so "10k resistor" matches
+        // a symbol whose library+name together contain both "10k" and "resistor".
+        const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
+
+        // Expand keyword aliases: "resistor" → look for symbol names starting
+        // with "R", "R_", etc.  Each term can optionally have aliases.
+        const termAliases = terms.map(t => {
+            const prefixes = KiCadFetcher.KEYWORD_ALIASES.get(t);
+            return prefixes
+                ? prefixes.map(p => p.toLowerCase())
+                : null;            // null means plain substring match
+        });
+
         const results = [];
         
         for (const [libName, symbols] of Object.entries(this.libraryIndex.symbols)) {
+            const libLower = libName.toLowerCase();
             for (const symbolName of symbols) {
-                if (symbolName.toLowerCase().includes(queryLower)) {
+                const symLower = symbolName.toLowerCase();
+                const combined = libLower + ' ' + symLower;
+
+                const matches = terms.every((t, i) => {
+                    const aliases = termAliases[i];
+                    if (aliases) {
+                        // Term has aliases — match if symbol name equals an
+                        // alias exactly OR starts with alias + '_'  (word
+                        // boundary).  e.g. alias 'r' matches 'R' and 'R_Small'
+                        // but NOT 'RJ45' or 'RC4558'.
+                        return aliases.some(a =>
+                            symLower === a || symLower.startsWith(a + '_'))
+                            || combined.includes(t);
+                    }
+                    return combined.includes(t);
+                });
+
+                if (matches) {
                     results.push({
                         library: libName,
                         name: symbolName,
@@ -78,8 +141,10 @@ export class KiCadFetcher {
         
         const limitedResults = results.slice(0, 50); // Limit results
         
-        // Cache the search results (with TTL of 24 hours)
-        storageManager.set(cacheKey, limitedResults, 24 * 60 * 60 * 1000);
+        // Only cache non-empty results (empty may be due to index not loaded yet)
+        if (limitedResults.length > 0) {
+            storageManager.set(cacheKey, limitedResults, 24 * 60 * 60 * 1000);
+        }
         
         return limitedResults;
     }
@@ -454,7 +519,7 @@ export class KiCadFetcher {
         return returnHeaders ? null : null;
     }
 
-    async _fetchWithTimeout(url, timeoutMs = 8000) {
+    async _fetchWithTimeout(url, timeoutMs = 15000) {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
         try {
@@ -680,6 +745,12 @@ export class KiCadFetcher {
     async ensureIndexLoaded(onProgress) {
         if (this.libraryIndex) return;
 
+        // Always keep the latest progress callback so re-triggered searches
+        // (e.g. debounced keystrokes) still show the progress bar.
+        if (onProgress) {
+            this._onProgress = onProgress;
+        }
+
         // Stale-while-revalidate: serve expired cache immediately,
         // then refresh in the background so the user can search right away.
         const cacheKey = 'kicad_full_symbol_index';
@@ -704,8 +775,11 @@ export class KiCadFetcher {
 
         // No cached data at all (first visit) — fetch with progress bar
         if (!this._indexLoadPromise) {
-            this._indexLoadPromise = this._fetchFullSymbolIndex(onProgress)
-                .finally(() => { this._indexLoadPromise = null; });
+            this._indexLoadPromise = this._fetchFullSymbolIndex()
+                .finally(() => {
+                    this._indexLoadPromise = null;
+                    this._onProgress = null;
+                });
         }
         return this._indexLoadPromise;
     }
@@ -715,7 +789,7 @@ export class KiCadFetcher {
      * Updates in-memory + localStorage caches when done.
      */
     _refreshIndexInBackground() {
-        this._fetchFullSymbolIndex(null).then(() => {
+        this._fetchFullSymbolIndex().then(() => {
             console.log('KiCadFetcher: Background index refresh complete');
         }).catch(err => {
             console.warn('KiCadFetcher: Background index refresh failed:', err);
@@ -727,7 +801,7 @@ export class KiCadFetcher {
      * Parses paths like "Timer.kicad_symdir/NE555D.kicad_sym" to build
      * { Timer: ['NE555D', ...], ... }.  Caches the result for 7 days.
      */
-    async _fetchFullSymbolIndex(onProgress) {
+    async _fetchFullSymbolIndex() {
         const projectPath = 'kicad%2Flibraries%2Fkicad-symbols';
         const refs = ['master', 'main'];
 
@@ -738,8 +812,8 @@ export class KiCadFetcher {
             let totalEntries = 0;
             let totalExpected = 0;
 
-            if (onProgress) {
-                onProgress({ loaded: 0, total: 0, message: 'Connecting to KiCad library...' });
+            if (this._onProgress) {
+                this._onProgress({ loaded: 0, total: 0, message: 'Connecting to KiCad library...' });
             }
 
             while (hasMore) {
@@ -782,13 +856,13 @@ export class KiCadFetcher {
                 }
 
                 totalEntries += data.length;
-                if (onProgress) {
+                if (this._onProgress) {
                     const libCount = Object.keys(index).length;
                     const symCount = Object.values(index).reduce((n, a) => n + a.length, 0);
                     const pct = totalExpected > 0
                         ? ` (${Math.round(totalEntries / totalExpected * 100)}%)`
                         : '';
-                    onProgress({
+                    this._onProgress({
                         loaded: totalEntries,
                         total: totalExpected,
                         message: `Indexing KiCad library${pct}... ${libCount} libraries, ${symCount} symbols`

@@ -120,18 +120,17 @@ export class Component {
     _updateHighlight() {
         if (!this.element) return;
         
-        // Remove existing highlight
-        const existing = this.element.querySelector('.component-highlight');
-        if (existing) existing.remove();
-        
-        // Show highlight if hovered or selected
-        if (!this.hovered && !this.selected) return;
+        // Remove highlight if neither hovered nor selected
+        if (!this.hovered && !this.selected) {
+            if (this._highlightEl) {
+                this._highlightEl.remove();
+                this._highlightEl = null;
+            }
+            return;
+        }
         
         const bounds = this.getBounds();
         if (!bounds) return;
-        
-        const ns = 'http://www.w3.org/2000/svg';
-        const highlight = document.createElementNS(ns, 'rect');
         
         const localBounds = this._getLocalBounds();
         const minX = localBounds.minX;
@@ -139,7 +138,16 @@ export class Component {
         const maxX = localBounds.maxX;
         const maxY = localBounds.maxY;
         
-        highlight.setAttribute('class', 'component-highlight');
+        // Reuse existing highlight element if available
+        let highlight = this._highlightEl;
+        if (!highlight) {
+            const ns = 'http://www.w3.org/2000/svg';
+            highlight = document.createElementNS(ns, 'rect');
+            highlight.setAttribute('class', 'component-highlight');
+            highlight.setAttribute('pointer-events', 'none');
+            this._highlightEl = highlight;
+        }
+        
         highlight.setAttribute('x', minX - 0.5);
         highlight.setAttribute('y', minY - 0.5);
         highlight.setAttribute('width', maxX - minX + 1);
@@ -148,10 +156,11 @@ export class Component {
         highlight.setAttribute('stroke', this.selected ? 'var(--sch-selection, #3399ff)' : 'var(--sch-selection, #3399ff)');
         highlight.setAttribute('stroke-width', 0.2);
         highlight.setAttribute('stroke-dasharray', this.selected ? 'none' : '0.5 0.5');
-        highlight.setAttribute('pointer-events', 'none');
         
         // Insert at beginning so it's behind component graphics
-        this.element.insertBefore(highlight, this.element.firstChild);
+        if (!highlight.parentNode || highlight.parentNode !== this.element) {
+            this.element.insertBefore(highlight, this.element.firstChild);
+        }
     }
 
     /**

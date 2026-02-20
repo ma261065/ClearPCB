@@ -211,7 +211,6 @@ export class Viewport {
         const aspect = this.height / this.width;
         this.viewBox.height = this.viewBox.width * aspect;
         this._updateViewBox();
-        this._createRulers();
         this._notifyViewChanged();
     }
     
@@ -312,7 +311,6 @@ export class Viewport {
         this.viewBox.y = worldPoint.y - wy * newHeight;
         
         this._updateViewBox();
-        this._createRulers();
         this._notifyViewChanged();
     }
     
@@ -349,7 +347,6 @@ export class Viewport {
         this.viewBox.y = margin - this.viewBox.height;
         
         this._updateViewBox();
-        this._createRulers();
         this._notifyViewChanged();
     }
     
@@ -402,7 +399,6 @@ export class Viewport {
         this.viewBox.y = cy - viewHeight / 2;
         
         this._updateViewBox();
-        this._createRulers();
         this._notifyViewChanged();
     }
     
@@ -838,7 +834,7 @@ export class Viewport {
         this.boundHandlers.wheel = (e) => {
             e.preventDefault(); // Always prevent default to block browser zoom
             
-            const rect = this.svg.getBoundingClientRect();
+            const rect = this._getCachedRect();
             const mouseScreen = {
                 x: e.clientX - rect.left,
                 y: e.clientY - rect.top
@@ -881,7 +877,7 @@ export class Viewport {
         
         // Pan move
         this.boundHandlers.mousemove = (e) => {
-            const rect = this.svg.getBoundingClientRect();
+            const rect = this._getCachedRect();
             const mouseScreen = {
                 x: e.clientX - rect.left,
                 y: e.clientY - rect.top

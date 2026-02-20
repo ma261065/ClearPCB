@@ -127,21 +127,55 @@ export function updatePreview(app) {
     const opts = app.toolOptions;
     const strokeWidth = getEffectiveStrokeWidth(app, opts.lineWidth);
 
-    let svg = '';
+    // Reuse existing child element when possible to avoid innerHTML churn
+    const ns = 'http://www.w3.org/2000/svg';
+    const tool = app.currentTool;
 
-    switch (app.currentTool) {
+    // Helper: ensure a single child element of the given tag exists
+    const ensureChild = (tag, index = 0) => {
+        let el = app.previewElement.children[index];
+        if (!el || el.tagName !== tag) {
+            // Fallback to innerHTML for complex changes or tag mismatch
+            return null;
+        }
+        return el;
+    };
+
+    switch (tool) {
         case 'line':
-        case 'wire':
-            svg = `<line x1="${start.x}" y1="${start.y}" x2="${end.x}" y2="${end.y}" 
+        case 'wire': {
+            let el = ensureChild('line');
+            if (el) {
+                el.setAttribute('x1', start.x);
+                el.setAttribute('y1', start.y);
+                el.setAttribute('x2', end.x);
+                el.setAttribute('y2', end.y);
+                el.setAttribute('stroke', opts.color);
+                el.setAttribute('stroke-width', strokeWidth);
+                return;
+            }
+            app.previewElement.innerHTML = `<line x1="${start.x}" y1="${start.y}" x2="${end.x}" y2="${end.y}" 
                     stroke="${opts.color}" stroke-width="${strokeWidth}" stroke-linecap="round"/>`;
             break;
+        }
 
         case 'rect': {
             const x = Math.min(start.x, end.x);
             const y = Math.min(start.y, end.y);
             const w = Math.abs(end.x - start.x);
             const h = Math.abs(end.y - start.y);
-            svg = `<rect x="${x}" y="${y}" width="${w}" height="${h}" 
+            let el = ensureChild('rect');
+            if (el) {
+                el.setAttribute('x', x);
+                el.setAttribute('y', y);
+                el.setAttribute('width', w);
+                el.setAttribute('height', h);
+                el.setAttribute('stroke', opts.color);
+                el.setAttribute('stroke-width', strokeWidth);
+                el.setAttribute('fill', opts.fill ? opts.color : 'none');
+                return;
+            }
+            app.previewElement.innerHTML = `<rect x="${x}" y="${y}" width="${w}" height="${h}" 
                     stroke="${opts.color}" stroke-width="${strokeWidth}" 
                     fill="${opts.fill ? opts.color : 'none'}" fill-opacity="0.3"/>`;
             break;
@@ -149,57 +183,53 @@ export function updatePreview(app) {
 
         case 'circle': {
             const radius = Math.hypot(end.x - start.x, end.y - start.y);
-            svg = `<circle cx="${start.x}" cy="${start.y}" r="${radius}" 
+            let el = ensureChild('circle');
+            if (el) {
+                el.setAttribute('cx', start.x);
+                el.setAttribute('cy', start.y);
+                el.setAttribute('r', radius);
+                el.setAttribute('stroke', opts.color);
+                el.setAttribute('stroke-width', strokeWidth);
+                el.setAttribute('fill', opts.fill ? opts.color : 'none');
+                return;
+            }
+            app.previewElement.innerHTML = `<circle cx="${start.x}" cy="${start.y}" r="${radius}" 
                     stroke="${opts.color}" stroke-width="${strokeWidth}" 
                     fill="${opts.fill ? opts.color : 'none'}" fill-opacity="0.3"/>`;
             break;
         }
 
         case 'arc': {
+            // Arc preview is complex (path changes structure), keep innerHTML for now
             if (!app.arcEndpoint) {
-                // Stage 1: Drawing line to second endpoint
-                svg = `<line x1="${start.x}" y1="${start.y}" x2="${end.x}" y2="${end.y}" 
+                app.previewElement.innerHTML = `<line x1="${start.x}" y1="${start.y}" x2="${end.x}" y2="${end.y}" 
                         stroke="${opts.color}" stroke-width="${strokeWidth}" stroke-dasharray="0.5 0.5"/>`;
             } else {
-                // Stage 2: Drawing arc through bulge point
                 const p1 = start;
                 const p2 = app.arcEndpoint;
                 const bulgePoint = clampBulgePoint(p1, p2, end);
                 
-                // Check if bulge point is essentially on the chord (determinant near zero)
                 const det = 2 * (p1.x * (p2.y - bulgePoint.y) + p2.x * (bulgePoint.y - p1.y) + bulgePoint.x * (p1.y - p2.y));
                 
-                // If determinant is too small, points are nearly collinear - show a line
                 if (Math.abs(det) < 0.001) {
-                    svg = `<line x1="${p1.x}" y1="${p1.y}" x2="${p2.x}" y2="${p2.y}" 
+                    app.previewElement.innerHTML = `<line x1="${p1.x}" y1="${p1.y}" x2="${p2.x}" y2="${p2.y}" 
                             stroke="${opts.color}" stroke-width="${strokeWidth}" stroke-dasharray="0.5 0.5"/>`;
                 } else {
                     const circ = circumcircle(p1, p2, bulgePoint);
                     const { cx, cy, radius } = circ;
                     
-                    // Calculate angles
-                    const angle1 = Math.atan2(p1.y - cy, p1.x - cx);
-                    const angle2 = Math.atan2(bulgePoint.y - cy, bulgePoint.x - cx);
-                    const angle3 = Math.atan2(p2.y - cy, p2.x - cx);
-                    
-                    // Determine sweep direction using cross product (same as creation logic)
                     const ccw = ((p2.x - p1.x) * (bulgePoint.y - p1.y) - (p2.y - p1.y) * (bulgePoint.x - p1.x)) > 0;
-                    
-                    // SVG sweep flag is inverted from our CCW calculation due to Y-axis direction
                     const sweepFlag = ccw ? 0 : 1;
-                    
-                    // Always use the small arc
                     const largeArc = 0;
                     
-                    // Store the direction/flags for when we create the actual arc
                     app.arcDirection = ccw;
                     app.arcSweepFlag = sweepFlag;
                     app.arcLargeArc = largeArc;
                     
-                        svg = `<path d="M ${p1.x} ${p1.y} A ${radius} ${radius} 0 ${largeArc} ${sweepFlag} ${p2.x} ${p2.y}" 
+                    let svg = `<path d="M ${p1.x} ${p1.y} A ${radius} ${radius} 0 ${largeArc} ${sweepFlag} ${p2.x} ${p2.y}" 
                             stroke="${opts.color}" stroke-width="${strokeWidth}" fill="none" stroke-linecap="round"/>`;
-                    // Show bulge point for reference
                     svg += `<circle cx="${bulgePoint.x}" cy="${bulgePoint.y}" r="${2 / app.viewport.scale}" fill="${opts.color}"/>`;
+                    app.previewElement.innerHTML = svg;
                 }
             }
             break;
@@ -209,21 +239,20 @@ export function updatePreview(app) {
             if (app.polygonPoints.length > 0) {
                 const points = [...app.polygonPoints, end];
                 const pointsStr = points.map(p => `${p.x},${p.y}`).join(' ');
-                svg = `<polyline points="${pointsStr}" 
+                let svg = `<polyline points="${pointsStr}" 
                         stroke="${opts.color}" stroke-width="${strokeWidth}" 
                         fill="${opts.fill ? opts.color : 'none'}" fill-opacity="0.3"
                         stroke-linecap="round" stroke-linejoin="round"/>`;
                 for (const p of app.polygonPoints) {
                     svg += `<circle cx="${p.x}" cy="${p.y}" r="${2 / app.viewport.scale}" fill="${opts.color}"/>`;
                 }
+                app.previewElement.innerHTML = svg;
             }
             break;
         case 'text':
-            svg = `<text x="${start.x}" y="${start.y}" fill="${opts.color}" font-size="2.5" font-family="Arial" dominant-baseline="alphabetic" alignment-baseline="alphabetic"></text>`;
+            // Text preview doesn't change during draw
             break;
     }
-
-    app.previewElement.innerHTML = svg;
 }
 
 export function createShapeFromDrawing(app) {

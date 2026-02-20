@@ -1191,6 +1191,17 @@ body {
 
 .cp-preview {
     padding: 8px;
+    overflow-y: auto;
+    flex-shrink: 1;
+    min-height: 0;
+}
+
+.cp-preview-image img {
+    max-width: 100%;
+    max-height: 80px;
+    object-fit: contain;
+    display: block;
+    margin: 0 auto 6px;
 }
 
 .cp-preview-title {
@@ -1257,6 +1268,7 @@ body {
 .cp-actions {
     padding: 8px;
     border-top: 1px solid var(--border-color);
+    flex-shrink: 0;
 }
 
 .cp-place-btn {
@@ -1287,6 +1299,7 @@ body {
     color: var(--text-muted);
     text-align: center;
     border-top: 1px solid var(--border-color);
+    flex-shrink: 0;
 }
 
 .cp-hint kbd {

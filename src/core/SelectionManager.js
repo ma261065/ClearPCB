@@ -14,6 +14,7 @@ export class SelectionManager {
         this._shapeMap = new Map();  // ID → shape for O(1) lookups
         this.selected = new Set();  // Set of selected shape IDs
         this.hovered = null;  // Currently hovered shape ID
+        this._selectionCache = null;  // Cached getSelection() result
         
         // Hit test tolerance in world units
         this.tolerance = options.tolerance || 0.5;
@@ -44,6 +45,7 @@ export class SelectionManager {
     setShapes(shapes) {
         this.shapes = shapes;
         this._shapeMap = new Map(shapes.map(s => [s.id, s]));
+        this._selectionCache = null;
         this._invalidateHitTestCache();
     }
     
@@ -169,6 +171,7 @@ export class SelectionManager {
         
         if (!this.selected.has(id)) {
             this.selected.add(id);
+            this._selectionCache = null;
             shapeObj.selected = true;
             shapeObj.invalidate();
         }
@@ -186,6 +189,7 @@ export class SelectionManager {
         
         if (this.selected.has(id)) {
             this.selected.delete(id);
+            this._selectionCache = null;
             if (shapeObj) {
                 shapeObj.selected = false;
                 shapeObj.invalidate();
@@ -224,6 +228,7 @@ export class SelectionManager {
             
             if (shapeObj && !this.selected.has(id)) {
                 this.selected.add(id);
+                this._selectionCache = null;
                 shapeObj.selected = true;
                 shapeObj.invalidate();
             }
@@ -261,6 +266,7 @@ export class SelectionManager {
             }
         }
         this.selected.clear();
+        this._selectionCache = null;
     }
     
     /**
@@ -268,9 +274,12 @@ export class SelectionManager {
      * @returns {Shape[]}
      */
     getSelection() {
-        return Array.from(this.selected)
+        if (this._selectionCache) return this._selectionCache;
+        const result = Array.from(this.selected)
             .map(id => this._getShape(id))
             .filter(s => s !== null);
+        this._selectionCache = result;
+        return result;
     }
     
     /**

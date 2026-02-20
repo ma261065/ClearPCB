@@ -64,12 +64,13 @@ export class SearchManager {
             return [];
         }
 
-        // Check in-memory cache first
+        // Check in-memory cache first (skip empty arrays — may be stale)
         const cacheKey = `kicad:${query.toLowerCase()}`;
-        if (this.searchCache.has(cacheKey)) {
+        const cached = this.searchCache.get(cacheKey);
+        if (cached && cached.length > 0) {
             this.stats.cacheHits++;
             console.log('SearchManager: KiCad cache hit');
-            return this.searchCache.get(cacheKey);
+            return cached;
         }
 
         this.stats.cacheMisses++;
@@ -78,9 +79,11 @@ export class SearchManager {
         try {
             const results = await this.library.searchKiCad(query);
             
-            // Cache the results (24-hour TTL)
-            this.searchCache.set(cacheKey, results);
-            storageManager.set(`clearpcb_search_kicad_${query}`, results, 24 * 60 * 60 * 1000);
+            // Only cache non-empty results
+            if (results && results.length > 0) {
+                this.searchCache.set(cacheKey, results);
+                storageManager.set(`clearpcb_search_kicad_${query}`, results, 24 * 60 * 60 * 1000);
+            }
             
             return results || [];
         } catch (error) {

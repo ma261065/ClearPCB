@@ -256,7 +256,6 @@ export class ComponentPicker {
         const fetcher = this.library.kicadFetcher;
         if (!fetcher.libraryIndex) {
             await fetcher.ensureIndexLoaded((progress) => {
-                if (this._searchGeneration !== searchId) return;
                 this._showIndexingProgress(progress.message, progress.loaded, progress.total);
             });
             if (this._searchGeneration !== searchId) return;
@@ -1342,7 +1341,7 @@ export class ComponentPicker {
 
         const directUrl = result.imageUrl || result.thumbUrl || '';
         if (directUrl && this._isDirectImageUrl(directUrl)) {
-            this.previewImage.innerHTML = `<img src="${directUrl}" alt="" style="max-width:100%;max-height:120px;object-fit:contain" onerror="this.parentElement.innerHTML=''">`;
+            this.previewImage.innerHTML = `<img src="${directUrl}" alt="" onerror="this.parentElement.innerHTML=''">`;
             return;
         }
 
@@ -1354,7 +1353,7 @@ export class ComponentPicker {
         try {
             const resolvedUrl = await this.library.lcscFetcher.fetchEasyedaProductImage(result.lcscPartNumber);
             if (resolvedUrl) {
-                this.previewImage.innerHTML = `<img src="${resolvedUrl}" alt="" style="max-width:100%;max-height:120px;object-fit:contain" onerror="this.parentElement.innerHTML=''">`;
+                this.previewImage.innerHTML = `<img src="${resolvedUrl}" alt="" onerror="this.parentElement.innerHTML=''">`;
             } else {
                 this.previewImage.innerHTML = '';
             }

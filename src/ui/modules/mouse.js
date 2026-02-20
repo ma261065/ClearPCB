@@ -1,5 +1,9 @@
 import { MoveShapesCommand, ModifyShapeCommand } from '../../core/CommandHistory.js';
 
+// Pre-allocated tool sets to avoid array creation in hot paths
+const DRAWING_TOOLS = new Set(['line', 'rect', 'circle', 'polygon']);
+const CLICK_TO_END_TOOLS = new Set(['line', 'rect', 'circle', 'arc']);
+
 export function bindMouseEvents(app) {
     const svg = app.viewport.svg;
 
@@ -20,7 +24,7 @@ export function bindMouseEvents(app) {
             app.pendingAnchorDrag = null;
         }
 
-        const rect = svg.getBoundingClientRect();
+        const rect = app.viewport._getCachedRect();
         const screenPos = {
             x: e.clientX - rect.left,
             y: e.clientY - rect.top
@@ -167,7 +171,7 @@ export function bindMouseEvents(app) {
                     { ...app.viewport.getSnappedPosition(worldPos), snapPin: null };
                 app._startWireDrawing(startData);
             } else {
-                const rect = app.viewport.svg.getBoundingClientRect();
+                const rect = app.viewport._getCachedRect();
                 const screenPos = {
                     x: e.clientX - rect.left,
                     y: e.clientY - rect.top
@@ -236,7 +240,7 @@ export function bindMouseEvents(app) {
     svg.addEventListener('mousedown', (e) => {
         if (e.button !== 2) return;
         if (app.currentTool === 'wire' && app.isDrawing && app.wirePoints.length >= 2) {
-            const rect = svg.getBoundingClientRect();
+            const rect = app.viewport._getCachedRect();
             const screenPos = {
                 x: e.clientX - rect.left,
                 y: e.clientY - rect.top
@@ -246,7 +250,7 @@ export function bindMouseEvents(app) {
             app._setToolCursor(app.currentTool, app.viewport.svg);
             e.preventDefault();
         } else if (app.currentTool === 'arc' && app.isDrawing && app.arcEndpoint) {
-            const rect = svg.getBoundingClientRect();
+            const rect = app.viewport._getCachedRect();
             const screenPos = {
                 x: e.clientX - rect.left,
                 y: e.clientY - rect.top
@@ -258,7 +262,7 @@ export function bindMouseEvents(app) {
             app._setToolCursor(app.currentTool, app.viewport.svg);
             e.preventDefault();
         } else if (app.currentTool === 'polygon' && app.isDrawing) {
-            const rect = svg.getBoundingClientRect();
+            const rect = app.viewport._getCachedRect();
             const screenPos = {
                 x: e.clientX - rect.left,
                 y: e.clientY - rect.top
@@ -273,7 +277,7 @@ export function bindMouseEvents(app) {
     });
 
     svg.addEventListener('contextmenu', (e) => {
-        const rect = svg.getBoundingClientRect();
+        const rect = app.viewport._getCachedRect();
         const screenPos = {
             x: e.clientX - rect.left,
             y: e.clientY - rect.top
@@ -294,7 +298,7 @@ export function bindMouseEvents(app) {
     });
 
     svg.addEventListener('mousemove', (e) => {
-        const rect = svg.getBoundingClientRect();
+        const rect = app.viewport._getCachedRect();
         const screenPos = {
             x: e.clientX - rect.left,
             y: e.clientY - rect.top
@@ -302,7 +306,7 @@ export function bindMouseEvents(app) {
         const worldPos = app.viewport.screenToWorld(screenPos);
         const snapped = app.viewport.getSnappedPosition(worldPos);
 
-        if (!app.isDragging && !app.viewport.isPanning && !app.placingComponent && !app._componentCodeTooltipPinned && app.showComponentDebugTooltip !== false) {
+        if (app.showComponentDebugTooltip !== false && !app.isDragging && !app.viewport.isPanning && !app.placingComponent && !app._componentCodeTooltipPinned) {
             const hitComponent = app._findComponentAt?.(worldPos);
             app._updateComponentCodeTooltip?.(hitComponent, screenPos);
         } else {
@@ -345,7 +349,7 @@ export function bindMouseEvents(app) {
             if (app.currentTool === 'arc') {
                 // For arc: first stage uses snapped, second stage (bulge) uses worldPos
                 app._updateDrawing(app.arcEndpoint ? worldPos : snapped);
-            } else if (['line', 'rect', 'circle', 'polygon'].includes(app.currentTool)) {
+            } else if (DRAWING_TOOLS.has(app.currentTool)) {
                 // For other tools, use snapped position
                 app._updateDrawing(snapped);
             }
@@ -462,7 +466,7 @@ export function bindMouseEvents(app) {
     svg.addEventListener('mouseup', (e) => {
         if (e.button !== 0) return;
 
-        const rect = svg.getBoundingClientRect();
+        const rect = app.viewport._getCachedRect();
         const screenPos = {
             x: e.clientX - rect.left,
             y: e.clientY - rect.top
@@ -567,7 +571,7 @@ export function bindMouseEvents(app) {
             // Polygon continues until double-click or Escape
         } else if (app.currentTool === 'wire') {
             // Wire continues until Enter is pressed
-        } else if (['line', 'rect', 'circle', 'arc'].includes(app.currentTool)) {
+        } else if (CLICK_TO_END_TOOLS.has(app.currentTool)) {
             // These tools now use Click-Move-Click, so do NOT finish on mouseup
         } else if (app.isDrawing) {
             app._finishDrawing(snapped);
@@ -587,7 +591,7 @@ export function bindMouseEvents(app) {
             return;
         }
 
-        const rect = svg.getBoundingClientRect();
+        const rect = app.viewport._getCachedRect();
         const screenPos = {
             x: e.clientX - rect.left,
             y: e.clientY - rect.top
@@ -616,7 +620,7 @@ export function bindMouseEvents(app) {
 
         if (app.currentTool !== 'select') return;
 
-        const rect = svg.getBoundingClientRect();
+        const rect = app.viewport._getCachedRect();
         const screenPos = {
             x: e.clientX - rect.left,
             y: e.clientY - rect.top

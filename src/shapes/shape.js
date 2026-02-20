@@ -199,24 +199,60 @@ export class Shape {
     }
     
     _updateAnchors(scale) {
-        // Remove existing anchors
-        if (this.anchorsGroup) {
-            this.anchorsGroup.remove();
-            this.anchorsGroup = null;
-        }
-        
         // Only show anchors when selected
-        if (!this.selected) return;
+        if (!this.selected) {
+            if (this.anchorsGroup) {
+                this.anchorsGroup.remove();
+                this.anchorsGroup = null;
+                this._anchorRects = null;
+            }
+            return;
+        }
         
         const anchors = this.getAnchors();
         const visibleAnchors = anchors.filter(anchor => !anchor.hidden);
-        if (visibleAnchors.length === 0 && !this.locked) return;
+        if (visibleAnchors.length === 0 && !this.locked) {
+            if (this.anchorsGroup) {
+                this.anchorsGroup.remove();
+                this.anchorsGroup = null;
+                this._anchorRects = null;
+            }
+            return;
+        }
+        
+        const size = ANCHOR_SIZE_PIXELS / scale;
+        const strokeW = 1 / scale;
+        
+        // Reuse existing anchor rects if count matches (fast path for drag)
+        // Skip fast path if lock icon was previously rendered (stale after unlock)
+        if (this.anchorsGroup && this._anchorRects && this._anchorRects.length === visibleAnchors.length
+            && !this.locked && !this._anchorsHaveLock) {
+            for (let i = 0; i < visibleAnchors.length; i++) {
+                const anchor = visibleAnchors[i];
+                const rect = this._anchorRects[i];
+                rect.setAttribute('x', anchor.x - size / 2);
+                rect.setAttribute('y', anchor.y - size / 2);
+                rect.setAttribute('width', size);
+                rect.setAttribute('height', size);
+                rect.setAttribute('stroke-width', strokeW);
+            }
+            // Re-position anchors group right after element so it renders on top
+            if (this.element.parentNode && this.anchorsGroup.previousSibling !== this.element) {
+                this.element.parentNode.insertBefore(this.anchorsGroup, this.element.nextSibling);
+            }
+            return;
+        }
+        
+        // Full rebuild needed
+        if (this.anchorsGroup) {
+            this.anchorsGroup.remove();
+        }
         
         // Create anchors group
         this.anchorsGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
         this.anchorsGroup.setAttribute('class', 'shape-anchors');
-        
-        const size = ANCHOR_SIZE_PIXELS / scale;
+        this._anchorRects = [];
+        this._anchorsHaveLock = false;
         
         for (const anchor of visibleAnchors) {
             const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
@@ -229,6 +265,7 @@ export class Shape {
             rect.setAttribute('stroke-width', 1 / scale);
             rect.setAttribute('data-anchor-id', anchor.id);
             this.anchorsGroup.appendChild(rect);
+            this._anchorRects.push(rect);
         }
 
         // Draw lock icon near primary anchor when locked
@@ -303,11 +340,15 @@ export class Shape {
             });
 
             this.anchorsGroup.appendChild(lockGroup);
+            this._anchorsHaveLock = true;
         }
         
-        // Add anchors group to same parent as element
+        // Add anchors group to same parent as element, always after it
+        // so anchors render on top of the shape (important for thick lines)
         if (this.element.parentNode) {
-            this.element.parentNode.appendChild(this.anchorsGroup);
+            // insertBefore(node, ref) with ref=nextSibling places it right after element;
+            // if nextSibling is null, it appends at the end — both correct.
+            this.element.parentNode.insertBefore(this.anchorsGroup, this.element.nextSibling);
         }
     }
     

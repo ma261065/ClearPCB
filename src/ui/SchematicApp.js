@@ -293,6 +293,12 @@ class SchematicApp {
         // Start auto-save
         this.fileManager.startAutoSave(() => this._serializeDocument());
 
+        // Eagerly warm the KiCad index cache in the background.
+        // If the cache is fresh this is a no-op; if expired it silently
+        // refreshes so the index is ready when the user opens the picker.
+        this.componentLibrary.kicadFetcher?.ensureIndexLoaded()
+            ?.catch(err => console.warn('KiCad background index warm-up failed:', err));
+
         // Warn about unsaved changes
         window.addEventListener('beforeunload', (e) => {
             if (this.fileManager.isDirty) {
