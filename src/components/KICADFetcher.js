@@ -174,6 +174,9 @@ export class KiCadFetcher {
             if (symContent) {
                 const symbol = this._parseSymbolFromLibrary(symContent, symbolName);
                 if (symbol) {
+                    if (symbol.symbol?._extends) {
+                        await this._resolveExtends(symbol, library);
+                    }
                     symbol._kicadRaw = symContent;
                     symbol.kicadName = symbol.kicadName || symbolName;
                     this.symbolCache.set(cacheKey, symbol);
@@ -189,6 +192,9 @@ export class KiCadFetcher {
                 if (dirContent) {
                     const symbol = this._parseSymbolFromLibrary(dirContent, matchedName);
                     if (symbol) {
+                        if (symbol.symbol?._extends) {
+                            await this._resolveExtends(symbol, library);
+                        }
                         symbol._kicadRaw = dirContent;
                         symbol.kicadName = symbol.kicadName || matchedName;
                         this.symbolCache.set(cacheKey, symbol);
@@ -213,6 +219,9 @@ export class KiCadFetcher {
             
             if (symbol) {
                 console.log('KiCadFetcher: Symbol parsed successfully');
+                if (symbol.symbol?._extends) {
+                    await this._resolveExtends(symbol, library);
+                }
                 symbol._kicadRaw = libContent;
                 // Fallback: extract Footprint property from raw content if missing
                 if (!symbol.properties || Object.keys(symbol.properties).length === 0) {
@@ -1287,11 +1296,18 @@ export class KiCadFetcher {
                 case 'text':
                     // Skip text for now
                     break;
+                    
+                case 'extends':
+                    // Symbol inherits graphics/pins from a base symbol
+                    // (e.g., NE555P extends NE555)
+                    symbol._extends = (item[1] || '').replace(/^"|"$/g, '');
+                    break;
             }
         }
         
-        // If no graphics/pins were found, attempt to rebuild from nested units
-        if ((symbol.pins.length === 0 && symbol.graphics.length === 0)) {
+        // If no graphics/pins were found (and not an extends symbol),
+        // attempt to rebuild from nested units
+        if (symbol.pins.length === 0 && symbol.graphics.length === 0 && !symbol._extends) {
             const nestedCount = symbolSexp.filter(item => Array.isArray(item) && item[0] === 'symbol').length;
             console.log('KiCad nested unit count for symbol', name, nestedCount);
             const rebuilt = this._buildSymbolFromNestedUnits(symbolSexp);
@@ -1467,6 +1483,46 @@ export class KiCadFetcher {
     /**
      * Process a symbol unit (nested symbol element)
      */
+    /**
+     * Resolve an `extends` reference by fetching the base symbol and
+     * copying its graphics/pins into the extending symbol.
+     * @param {object} result - Parsed symbol result from _convertKiCadSymbol
+     * @param {string} library - Library name (e.g., "Timer")
+     * @param {number} depth - Recursion depth guard
+     * @returns {Promise<object>} result with graphics/pins populated from base
+     */
+    async _resolveExtends(result, library, depth = 0) {
+        const extendsName = result?.symbol?._extends;
+        if (!extendsName || depth > 3) return result;
+
+        // Strip library prefix if present (e.g., "Timer:NE555" → "NE555")
+        const baseName = extendsName.includes(':') ? extendsName.split(':').pop() : extendsName;
+        console.log(`KiCadFetcher: Resolving extends ${result.name} → ${baseName}`);
+
+        // Try to fetch the base symbol from the same library's symdir
+        const directSymDir = `${library}.kicad_symdir`;
+        const baseContent = await this._fetchSymbolFile(directSymDir, baseName);
+        if (!baseContent) return result;
+
+        const baseResult = this._parseSymbolFromLibrary(baseContent, baseName);
+        if (!baseResult?.symbol) return result;
+
+        // Recursively resolve if the base also extends another symbol
+        if (baseResult.symbol._extends) {
+            await this._resolveExtends(baseResult, library, depth + 1);
+        }
+
+        // Copy visual data from base, keep extending symbol's own properties
+        result.symbol.graphics = baseResult.symbol.graphics;
+        result.symbol.pins = baseResult.symbol.pins;
+        result.symbol.width = baseResult.symbol.width;
+        result.symbol.height = baseResult.symbol.height;
+        result.symbol.origin = baseResult.symbol.origin;
+        delete result.symbol._extends;
+
+        return result;
+    }
+
     _processSymbolUnit(unitSexp) {
         const result = {
             graphics: [],
