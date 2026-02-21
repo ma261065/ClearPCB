@@ -1,5 +1,3 @@
-import { setCheckboxState } from './ui-utils.js';
-
 export function bindRibbon(app) {
     const showSaveToast = (anchorEl, text = 'Saved') => {
         if (!anchorEl) return;
@@ -136,101 +134,56 @@ export function updateShapePanelOptions(app, selection, toolIdArg) {
     const container = document.getElementById('ribbonShapeOptions');
     if (!container) return;
 
-    // Ensure we have a valid tool ID
     const toolId = toolIdArg || app.currentTool || 'select';
+    const hasSelection = selection && selection.length > 0;
 
-    const items = selection || [];
-    const hasSelection = items.length > 0;
-    const toolSupportsLineWidth = ['line', 'wire', 'rect', 'circle', 'arc', 'polygon'].includes(toolId);
-    const toolSupportsFill = ['rect', 'circle', 'polygon'].includes(toolId);
-    const supportsLineWidth = hasSelection
-        ? items.some(item => typeof item?.lineWidth === 'number')
-        : toolSupportsLineWidth;
-    const supportsFill = hasSelection
-        ? items.some(item => typeof item?.fill === 'boolean')
-        : toolSupportsFill;
-
-    container.innerHTML = `
-        <label>
-            Line width
-            <input type="number" id="ribbonShapeLineWidth" step="0.25" min="0.25" max="5" placeholder="—">
-        </label>
-        <label>
-            <input type="checkbox" id="ribbonShapeFill"> Fill
-        </label>
-    `;
-
-    const lineWidthInput = container.querySelector('#ribbonShapeLineWidth');
-    if (lineWidthInput) {
-        if (hasSelection) {
-            const lineWidthValues = items
-                .filter(item => typeof item?.lineWidth === 'number')
-                .map(item => item.lineWidth);
-
-            if (lineWidthValues.length === 0) {
-                lineWidthInput.value = '';
-                lineWidthInput.placeholder = '—';
-                lineWidthInput.disabled = true;
-            } else {
-                lineWidthInput.disabled = false;
-                const first = lineWidthValues[0];
-                const allSame = lineWidthValues.every(v => Math.abs(v - first) < 1e-6);
-                if (allSame) {
-                    lineWidthInput.value = first;
-                } else {
-                    lineWidthInput.value = '';
-                    lineWidthInput.placeholder = '—';
-                }
-                
-                // Disable if any selected item doesn't support lineWidth editing
-                if (items.some(item => item.isPropertyEditable && !item.isPropertyEditable('lineWidth'))) {
-                    lineWidthInput.disabled = true;
-                }
-            }
-        } else {
-            // When no selection (drawing mode), always enable input if tool supports it
-            lineWidthInput.disabled = !toolSupportsLineWidth;
-            lineWidthInput.value = app.toolOptions?.lineWidth ?? 0.2;
-            
-            // Force disable for wire tool
-            if (toolId === 'wire') {
-                lineWidthInput.value = 0.25;
-                lineWidthInput.disabled = true;
-            }
-        }
-
-        lineWidthInput.addEventListener('change', (e) => {
-            const value = parseFloat(e.target.value);
-            if (Number.isNaN(value)) return;
-            if (hasSelection) {
-                app._applyCommonProperty('lineWidth', value);
-            } else {
-                app.toolOptions.lineWidth = value;
-            }
-        });
+    // When items are selected, the Properties tab handles editing.
+    // This panel shows tool-default options only when drawing (no selection).
+    if (hasSelection) {
+        container.innerHTML = '';
+        return;
     }
 
-    const fillInput = container.querySelector('#ribbonShapeFill');
-    if (fillInput) {
-        if (hasSelection) {
-            const fillValues = items
-                .filter(item => typeof item?.fill === 'boolean')
-                .map(item => item.fill);
-            setCheckboxState(fillInput, fillValues);
-        } else {
-            // When no selection (drawing mode), always enable input if tool supports it
-            fillInput.disabled = !toolSupportsFill;
-            // Use toolOptions safe access
-            fillInput.checked = !!(app.toolOptions && app.toolOptions.fill);
-            fillInput.indeterminate = false;
-        }
-        fillInput.addEventListener('change', (e) => {
-            if (hasSelection) {
-                app._applyCommonProperty('fill', e.target.checked);
-            } else {
-                app.toolOptions.fill = e.target.checked;
-            }
+    const toolSupportsLineWidth = ['line', 'rect', 'circle', 'arc', 'polygon'].includes(toolId);
+    const toolSupportsFill = ['rect', 'circle', 'polygon'].includes(toolId);
+
+    if (!toolSupportsLineWidth && !toolSupportsFill) {
+        container.innerHTML = '';
+        return;
+    }
+
+    container.innerHTML = '';
+
+    if (toolSupportsLineWidth) {
+        const label = document.createElement('label');
+        label.textContent = 'Line width ';
+        const input = document.createElement('input');
+        input.type = 'number';
+        input.id = 'ribbonShapeLineWidth';
+        input.step = '0.05';
+        input.min = '0.05';
+        input.max = '5';
+        input.value = app.toolOptions?.lineWidth ?? 0.2;
+        input.addEventListener('change', () => {
+            const v = parseFloat(input.value);
+            if (!Number.isNaN(v)) app.toolOptions.lineWidth = v;
         });
+        label.appendChild(input);
+        container.appendChild(label);
+    }
+
+    if (toolSupportsFill) {
+        const label = document.createElement('label');
+        const input = document.createElement('input');
+        input.type = 'checkbox';
+        input.id = 'ribbonShapeFill';
+        input.checked = !!(app.toolOptions && app.toolOptions.fill);
+        input.addEventListener('change', () => {
+            app.toolOptions.fill = input.checked;
+        });
+        label.appendChild(input);
+        label.append(' Fill');
+        container.appendChild(label);
     }
 }
 

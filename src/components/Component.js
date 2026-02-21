@@ -1,4 +1,5 @@
 import { createLockIcon, LOCK_SIZE } from '../core/ui-helpers.js';
+import { Text } from '../shapes/text.js';
 
 /**
  * Component class - represents an electronic component instance on the schematic
@@ -12,10 +13,16 @@ export class Component {
         this.rotation = options.rotation || 0;
         this.mirror = options.mirror || false;
         this.reference = options.reference ?? (definition.defaultReference || 'U?');
-        this.value = options.value ?? (definition.defaultValue || definition.name);
+        this.value = options.value ?? (definition.defaultValue ?? '');
         this.properties = { ...definition.defaultProperties, ...options.properties };
         this.element = null;
         this.pinElements = new Map();
+        
+        // Field text shapes (set by createFieldTexts)
+        this.refText = null;
+        this.valueText = null;
+        this.showReference = options.showReference !== undefined ? options.showReference : true;
+        this.showValue = options.showValue !== undefined ? options.showValue : true;
         
         // Selection-related properties
         this.visible = options.visible !== undefined ? options.visible : true;
@@ -25,6 +32,110 @@ export class Component {
     }
 
     get symbol() { return this.definition.symbol; }
+    get name() { return this.definition.name; }
+
+    // ── Coordinate transforms ─────────────────────────────────────
+
+    /** Transform a point from component-local coords to world coords. */
+    localToWorld(lx, ly) {
+        let sx = this.mirror ? -lx : lx;
+        let sy = ly;
+        const rad = this.rotation * Math.PI / 180;
+        return {
+            x: this.x + sx * Math.cos(rad) - sy * Math.sin(rad),
+            y: this.y + sx * Math.sin(rad) + sy * Math.cos(rad)
+        };
+    }
+
+    /** Transform a point from world coords to component-local coords. */
+    worldToLocal(wx, wy) {
+        const dx = wx - this.x;
+        const dy = wy - this.y;
+        const rad = -this.rotation * Math.PI / 180;
+        let lx = dx * Math.cos(rad) - dy * Math.sin(rad);
+        let ly = dx * Math.sin(rad) + dy * Math.cos(rad);
+        if (this.mirror) lx = -lx;
+        return { x: lx, y: ly };
+    }
+
+    // ── Field text management ─────────────────────────────────────
+
+    /**
+     * Create the Reference and Value Text shapes as independent shapes.
+     * Call once after the component is placed. Adds them to app.shapes
+     * and the viewport.
+     */
+    createFieldTexts(app) {
+        const symbol = this.symbol;
+        if (!symbol?.graphics) return;
+
+        for (const g of symbol.graphics) {
+            if (g.type !== 'text') continue;
+            const tmpl = g.text || '';
+            const isRef = tmpl.includes('${REF}');
+            const isVal = tmpl.includes('${VALUE}');
+            if (!isRef && !isVal) continue;
+
+            // Get world position from local symbol coords
+            const world = this.localToWorld(g.x, g.y);
+
+            const source = symbol._source || this.definition?._source;
+            const textScale = source === 'KiCad' ? 1.6 : 1.0;
+
+            const text = new Text({
+                x: world.x,
+                y: world.y,
+                text: isRef ? this.reference : this.value,
+                fontSize: (g.fontSize || 1.5) * textScale,
+                fontFamily: source === 'KiCad' ? 'Verdana' : 'Arial',
+                textAnchor: g.anchor || 'start',
+                color: '#cccccc'
+            });
+            text.parentComponent = this;
+            text.fieldKey = isRef ? 'reference' : 'value';
+
+            if (isRef) {
+                this.refText = text;
+                text.visible = this.showReference;
+            } else {
+                this.valueText = text;
+                text.visible = this.showValue;
+            }
+
+            // Add to app
+            app.shapes.push(text);
+            text.render(app.viewport.scale);
+            app.viewport.addContent(text.element);
+        }
+    }
+
+    /**
+     * Re-link field Text shapes after deserialization.
+     * Called from loadDocument after both shapes and components are loaded.
+     */
+    linkFieldTexts(shapes) {
+        for (const s of shapes) {
+            if (s.type === 'text' && s._pendingComponentId === this.id) {
+                s.parentComponent = this;
+                if (s.fieldKey === 'reference') {
+                    this.refText = s;
+                    s.visible = this.showReference;
+                } else if (s.fieldKey === 'value') {
+                    this.valueText = s;
+                    s.visible = this.showValue;
+                }
+                delete s._pendingComponentId;
+            }
+        }
+    }
+
+    /** Return array of linked field texts (non-null only). */
+    getFieldTexts() {
+        const fields = [];
+        if (this.refText) fields.push(this.refText);
+        if (this.valueText) fields.push(this.valueText);
+        return fields;
+    }
 
     /**
      * Hit test - check if point is within component bounds
@@ -61,7 +172,8 @@ export class Component {
 
     captureState() {
         return { x: this.x, y: this.y, rotation: this.rotation, mirror: this.mirror,
-                 reference: this.reference, value: this.value };
+                 reference: this.reference, value: this.value,
+                 showReference: this.showReference, showValue: this.showValue };
     }
 
     applyState(state) {
@@ -75,7 +187,16 @@ export class Component {
 
     getAnchorSnapMode() { return 'grid'; }
     resetDragState() {}
-    isPropertyEditable() { return true; }
+    getPropertyDescriptors() {
+        return [
+            { key: 'locked',        label: 'Locked',          type: 'checkbox' },
+            { key: 'name',          label: 'Name',            type: 'text', readonly: true },
+            { key: 'reference',     label: 'Reference',       type: 'text' },
+            { key: 'showReference', label: 'Show Reference',  type: 'checkbox' },
+            { key: 'value',         label: 'Value',           type: 'text' },
+            { key: 'showValue',     label: 'Show Value',      type: 'checkbox' },
+        ];
+    }
     get supportsInlineEdit() { return false; }
 
     /**
@@ -108,8 +229,7 @@ export class Component {
         let worldMaxX = -Infinity, worldMaxY = -Infinity;
         
         for (const c of corners) {
-            let x = c.x, y = c.y;
-            if (this.mirror) x = -x;
+            const x = c.x, y = c.y;
             
             const rx = x * cos - y * sin;
             const ry = x * sin + y * cos;
@@ -132,6 +252,10 @@ export class Component {
     setSelected(selected) {
         this.selected = selected;
         this._updateHighlight();
+        // Invalidate field texts so they update their color to reflect parent selection
+        for (const ft of this.getFieldTexts()) {
+            ft.invalidate();
+        }
     }
 
     /**
@@ -266,9 +390,10 @@ export class Component {
                         }
                         break;
                     case 'text': {
-                        const rawText = (g.text || '')
-                            .replace('${REF}', this.reference)
-                            .replace('${VALUE}', this.value);
+                        const tmpl = g.text || '';
+                        // Skip template text — field texts are independent shapes
+                        if (tmpl.includes('${REF}') || tmpl.includes('${VALUE}')) break;
+                        const rawText = tmpl;
                         const source = symbol?._source || this.definition?._source;
                         const fontSize = Number.isFinite(g.fontSize) ? g.fontSize : 1.5;
                         const textScale = source === 'KiCad' ? 1.6 : 1.0;
@@ -385,6 +510,14 @@ export class Component {
         }
 
         const padding = 1.0; // Increased padding to ensure everything is included
+        
+        // Mirror reflects x coordinates
+        if (this.mirror) {
+            const tmp = minX;
+            minX = -maxX;
+            maxX = -tmp;
+        }
+        
         return {
             minX: minX - padding,
             minY: minY - padding,
@@ -423,17 +556,34 @@ export class Component {
         return group;
     }
 
+    /**
+     * Rebuild the component SVG element in-place.
+     * Used after mirror changes since mirror is baked into element creation.
+     */
+    _recreateElement() {
+        const parent = this.element?.parentNode;
+        if (this.element) this.element.remove();
+        this.pinElements.clear();
+        this.createSymbolElement();
+        if (parent) parent.appendChild(this.element);
+    }
+
     _createPinElement(pin, ns) {
         const group = document.createElementNS(ns, 'g');
         const length = Number.isFinite(pin.length) ? pin.length : 0;
         const source = this.symbol?._source || this.definition?._source;
+        const m = this.mirror;
+        const mx = x => m ? -x : x;
+        const flipAnchor = a => a === 'start' ? 'end' : a === 'end' ? 'start' : a;
+        const flipOrient = o => o === 'left' ? 'right' : o === 'right' ? 'left' : o;
+        const orient = m ? flipOrient(pin.orientation) : pin.orientation;
         
-        // Pin connection point (always at pin.x, pin.y - from segment 2)
-        const connectionX = pin.x; 
+        // Pin connection point
+        const connectionX = mx(pin.x); 
         const connectionY = pin.y;
         
         // Line endpoints
-        let x1 = pin.x; 
+        let x1 = mx(pin.x); 
         let y1 = pin.y;
         let x2 = x1, y2 = y1;
 
@@ -449,27 +599,23 @@ export class Component {
                 const cmd = pathMatch[3].toLowerCase();
                 const value = Number(pathMatch[4]);
                 
-                // Line starts at path M position
-                x1 = startX;
+                x1 = mx(startX);
                 y1 = startY;
                 
-                // Line ends based on direction and length
                 if (cmd === 'h') {
-                    x2 = startX + value;
+                    x2 = mx(startX + value);
                     y2 = startY;
                 } else if (cmd === 'v') {
-                    x2 = startX;
+                    x2 = mx(startX);
                     y2 = startY + value;
                 } else if (cmd === 'l') {
-                    x2 = startX + value;
+                    x2 = mx(startX + value);
                     y2 = startY;
                 }
             }
         } else {
             // Fallback to orientation-based calculation
-            // Connection point at x1,y1; pin extends toward body at x2,y2
-            // KiCad: (at x y angle) = connection end, angle = direction toward body
-            switch (pin.orientation) {
+            switch (orient) {
                 case 'right':
                     x2 = x1 + length;
                     break;
@@ -501,18 +647,18 @@ export class Component {
         const allowInfer = !(this.symbol?._source === 'EasyEDA');
 
         if (hasNamePos) {
-            nameX = pin.namePos.x;
+            nameX = mx(pin.namePos.x);
             nameY = pin.namePos.y;
-            nameAnchor = pin.namePos.anchor || nameAnchor;
+            nameAnchor = m ? flipAnchor(pin.namePos.anchor || nameAnchor) : (pin.namePos.anchor || nameAnchor);
             if (Number.isFinite(pin.namePos.rotation)) {
                 nameRot = pin.namePos.rotation;
             }
         }
 
         if (hasNumberPos) {
-            numX = pin.numberPos.x;
+            numX = mx(pin.numberPos.x);
             numY = pin.numberPos.y;
-            numAnchor = pin.numberPos.anchor || numAnchor;
+            numAnchor = m ? flipAnchor(pin.numberPos.anchor || numAnchor) : (pin.numberPos.anchor || numAnchor);
             if (Number.isFinite(pin.numberPos.rotation)) {
                 numRot = pin.numberPos.rotation;
             }
@@ -563,7 +709,7 @@ export class Component {
             
             const numOffsetLR = 0.35;
             const numOffsetUD = 0.5;
-            switch (pin.orientation) {
+            switch (orient) {
                 case 'right':
                     if (!hasNamePos) {
                         nameX = x1 + labelOffset; nameY = y1; nameAnchor = 'start';
@@ -603,10 +749,10 @@ export class Component {
         let lineX2 = x2, lineY2 = y2;
         if (isActiveLow) {
             const bOffset = bubbleRadius * 2;
-            if (pin.orientation === 'right') lineX2 -= bOffset;
-            else if (pin.orientation === 'left') lineX2 += bOffset;
-            else if (pin.orientation === 'up') lineY2 += bOffset;
-            else if (pin.orientation === 'down') lineY2 -= bOffset;
+            if (orient === 'right') lineX2 -= bOffset;
+            else if (orient === 'left') lineX2 += bOffset;
+            else if (orient === 'up') lineY2 += bOffset;
+            else if (orient === 'down') lineY2 -= bOffset;
         }
 
         const line = document.createElementNS(ns, 'line');
@@ -626,10 +772,10 @@ export class Component {
         if (isActiveLow) {
             const bubble = document.createElementNS(ns, 'circle');
             let bx = x2, by = y2;
-            if (pin.orientation === 'right') bx -= bubbleRadius;
-            else if (pin.orientation === 'left') bx += bubbleRadius;
-            else if (pin.orientation === 'up') by += bubbleRadius;
-            else if (pin.orientation === 'down') by -= bubbleRadius;
+            if (orient === 'right') bx -= bubbleRadius;
+            else if (orient === 'left') bx += bubbleRadius;
+            else if (orient === 'up') by += bubbleRadius;
+            else if (orient === 'down') by -= bubbleRadius;
             bubble.setAttribute('cx', bx); bubble.setAttribute('cy', by);
             bubble.setAttribute('r', bubbleRadius);
             bubble.setAttribute('fill', 'var(--sch-symbol-fill, #ffffc0)');
@@ -733,31 +879,33 @@ export class Component {
         // Ignore colors from component data, use themed colors
         const stroke = 'var(--sch-symbol-outline, #000000)';
         const fill = 'none';
+        const m = this.mirror;
+        const mx = x => m ? -x : x;
         switch (g.type) {
             case 'rect':
                 el = document.createElementNS(ns, 'rect');
-                el.setAttribute('x', g.x); el.setAttribute('y', g.y);
+                el.setAttribute('x', m ? -(g.x + g.width) : g.x); el.setAttribute('y', g.y);
                 el.setAttribute('width', g.width); el.setAttribute('height', g.height);
                 if (Number.isFinite(g.rx)) el.setAttribute('rx', g.rx);
                 if (Number.isFinite(g.ry)) el.setAttribute('ry', g.ry);
                 break;
             case 'circle':
                 el = document.createElementNS(ns, 'circle');
-                el.setAttribute('cx', g.cx); el.setAttribute('cy', g.cy); el.setAttribute('r', g.r);
+                el.setAttribute('cx', mx(g.cx)); el.setAttribute('cy', g.cy); el.setAttribute('r', g.r);
                 break;
             case 'line':
                 el = document.createElementNS(ns, 'line');
-                el.setAttribute('x1', g.x1); el.setAttribute('y1', g.y1);
-                el.setAttribute('x2', g.x2); el.setAttribute('y2', g.y2);
+                el.setAttribute('x1', mx(g.x1)); el.setAttribute('y1', g.y1);
+                el.setAttribute('x2', mx(g.x2)); el.setAttribute('y2', g.y2);
                 break;
             case 'polyline':
                 el = document.createElementNS(ns, 'polyline');
-                const pts = g.points.map(p => `${p[0]},${p[1]}`).join(' ');
+                const pts = g.points.map(p => `${mx(p[0])},${p[1]}`).join(' ');
                 el.setAttribute('points', pts);
                 break;
             case 'polygon':
                 el = document.createElementNS(ns, 'polygon');
-                const polPts = g.points.map(p => `${p[0]},${p[1]}`).join(' ');
+                const polPts = g.points.map(p => `${mx(p[0])},${p[1]}`).join(' ');
                 el.setAttribute('points', polPts);
                 break;
             case 'arc': {
@@ -765,24 +913,55 @@ export class Component {
                 const r = g.r || 1;
                 const sa = (g.startAngle || 0) * Math.PI / 180;
                 const ea = (g.endAngle || 0) * Math.PI / 180;
-                const sx = g.cx + r * Math.cos(sa);
-                const sy = g.cy + r * Math.sin(sa);
-                const ex = g.cx + r * Math.cos(ea);
-                const ey = g.cy + r * Math.sin(ea);
-                // Determine sweep: use the shorter arc unless it wraps
-                let delta = ea - sa;
-                if (delta < 0) delta += 2 * Math.PI;
-                const largeArc = delta > Math.PI ? 1 : 0;
-                el.setAttribute('d', `M${sx},${sy} A${r},${r} 0 ${largeArc} 1 ${ex},${ey}`);
+                const cx = mx(g.cx);
+                if (m) {
+                    // Mirror reflects angles: angle -> PI - angle, and swap start/end
+                    const msa = Math.PI - ea;
+                    const mea = Math.PI - sa;
+                    const sx = cx + r * Math.cos(msa);
+                    const sy = g.cy + r * Math.sin(msa);
+                    const ex = cx + r * Math.cos(mea);
+                    const ey = g.cy + r * Math.sin(mea);
+                    let delta = mea - msa;
+                    if (delta < 0) delta += 2 * Math.PI;
+                    const largeArc = delta > Math.PI ? 1 : 0;
+                    el.setAttribute('d', `M${sx},${sy} A${r},${r} 0 ${largeArc} 1 ${ex},${ey}`);
+                } else {
+                    const sx = g.cx + r * Math.cos(sa);
+                    const sy = g.cy + r * Math.sin(sa);
+                    const ex = g.cx + r * Math.cos(ea);
+                    const ey = g.cy + r * Math.sin(ea);
+                    let delta = ea - sa;
+                    if (delta < 0) delta += 2 * Math.PI;
+                    const largeArc = delta > Math.PI ? 1 : 0;
+                    el.setAttribute('d', `M${sx},${sy} A${r},${r} 0 ${largeArc} 1 ${ex},${ey}`);
+                }
                 break;
             }
             case 'path':
                 el = document.createElementNS(ns, 'path');
+                if (m) {
+                    // Wrap path in a group with scale(-1,1) to mirror it
+                    // (parsing SVG path data to negate x is fragile)
+                    const wrapper = document.createElementNS(ns, 'g');
+                    wrapper.setAttribute('transform', 'scale(-1,1)');
+                    el.setAttribute('d', g.d);
+                    el.setAttribute('stroke', stroke); el.setAttribute('fill', fill);
+                    el.setAttribute('stroke-width', g.strokeWidth || 0.254);
+                    el.setAttribute('stroke-linecap', 'round');
+                    el.setAttribute('stroke-linejoin', 'round');
+                    if (g.transform) el.setAttribute('transform', g.transform);
+                    wrapper.appendChild(el);
+                    return wrapper;
+                }
                 el.setAttribute('d', g.d);
                 break;
-            case 'text':
+            case 'text': {
+                const tmpl = g.text || '';
+                // Skip template text — these are rendered as independent field Text shapes
+                if (tmpl.includes('${REF}') || tmpl.includes('${VALUE}')) return null;
                 el = document.createElementNS(ns, 'text');
-                el.setAttribute('x', g.x); el.setAttribute('y', g.y);
+                el.setAttribute('x', mx(g.x)); el.setAttribute('y', g.y);
                 const textSize = g.fontSize || 1.5;
                 const source = this.symbol?._source || this.definition?._source;
                 const textScale = source === 'KiCad' ? 1.6 : 1.0;
@@ -791,17 +970,19 @@ export class Component {
                     el.setAttribute('font-family', 'Verdana');
                 }
                 el.setAttribute('fill', 'var(--sch-text, #cccccc)');
-                if (g.anchor) el.setAttribute('text-anchor', g.anchor);
+                const anchor = g.anchor || 'start';
+                el.setAttribute('text-anchor', m ? (anchor === 'start' ? 'end' : anchor === 'end' ? 'start' : anchor) : anchor);
                 if (g.baseline) {
                     el.setAttribute('dominant-baseline', g.baseline);
                 } else {
                     el.setAttribute('dominant-baseline', 'middle');
                 }
-                el.textContent = (g.text || '').replace('${REF}', this.reference).replace('${VALUE}', this.value);
+                el.textContent = tmpl;
                 if (g.transform) {
                     el.setAttribute('transform', g.transform);
                 }
                 return el;
+            }
         }
         if (el) {
             el.setAttribute('stroke', stroke); el.setAttribute('fill', fill);
@@ -819,7 +1000,6 @@ export class Component {
         const parts = [];
         if (this.x || this.y) parts.push(`translate(${this.x},${this.y})`);
         if (this.rotation) parts.push(`rotate(${this.rotation})`);
-        if (this.mirror) parts.push('scale(-1, 1)');
         return parts.length ? parts.join(' ') : null;
     }
 
@@ -842,12 +1022,19 @@ export class Component {
      */
     move(dx, dy) {
         this.setPosition(this.x + dx, this.y + dy);
+        // Move linked field texts by the same delta
+        for (const ft of this.getFieldTexts()) {
+            ft.x += dx;
+            ft.y += dy;
+            ft.invalidate();
+        }
     }
 
     /**
      * Rotate component by given degrees
      */
     rotate(degrees) {
+        const oldRotation = this.rotation;
         this.rotation = (this.rotation + degrees) % 360;
         if (this.element) {
             const transform = this._buildTransform();
@@ -857,6 +1044,16 @@ export class Component {
                 this.element.removeAttribute('transform');
             }
         }
+        // Rotate field text positions around component origin
+        const delta = degrees * Math.PI / 180;
+        const cos = Math.cos(delta), sin = Math.sin(delta);
+        for (const ft of this.getFieldTexts()) {
+            const dx = ft.x - this.x;
+            const dy = ft.y - this.y;
+            ft.x = this.x + dx * cos - dy * sin;
+            ft.y = this.y + dx * sin + dy * cos;
+            ft.invalidate();
+        }
     }
 
     /**
@@ -864,13 +1061,16 @@ export class Component {
      */
     toggleMirror() {
         this.mirror = !this.mirror;
-        if (this.element) {
-            const transform = this._buildTransform();
-            if (transform) {
-                this.element.setAttribute('transform', transform);
-            } else {
-                this.element.removeAttribute('transform');
-            }
+        // Recreate SVG since mirror is baked into element creation
+        this._recreateElement();
+        // Mirror field text positions across the component's Y axis (world-space)
+        for (const ft of this.getFieldTexts()) {
+            const local = this.worldToLocal(ft.x, ft.y);
+            local.x = -local.x;  // flip across component Y axis
+            const world = this.localToWorld(local.x, local.y);
+            ft.x = world.x;
+            ft.y = world.y;
+            ft.invalidate();
         }
     }
 
@@ -911,6 +1111,8 @@ export class Component {
             mirror: this.mirror,
             reference: this.reference,
             value: this.value,
+            showReference: this.showReference,
+            showValue: this.showValue,
             properties: this.properties,
             visible: this.visible,
             locked: this.locked

@@ -14,6 +14,13 @@ export class Circle extends Shape {
         this.x = ShapeValidator.validateCoordinate(options.x || 0, { name: 'x' });
         this.y = ShapeValidator.validateCoordinate(options.y || 0, { name: 'y' });
         this.radius = ShapeValidator.validateRadius(options.radius || 5);
+        
+        // Fill properties
+        this.fill = options.fill !== undefined ? options.fill : false;
+        this.fillColor = ShapeValidator.validateColor(options.fillColor || this.color);
+        this.fillAlpha = ShapeValidator.validateNumber(options.fillAlpha ?? 0.3, {
+            min: 0, max: 1, default: 0.3, name: 'fillAlpha'
+        });
     }
     
     _calculateBounds() {
@@ -95,7 +102,15 @@ export class Circle extends Shape {
         return { x: this.x, y: this.y, radius: this.radius };
     }
     
+    getPropertyDescriptors() {
+        return [
+            { key: 'locked',    label: 'Locked',     type: 'checkbox' },
+            { key: 'lineWidth', label: 'Line width',  type: 'number', min: 0.05, max: 5, step: 0.05 },
+            { key: 'fill',      label: 'Fill',        type: 'checkbox' },
+        ];
+    }
+
     toJSON() {
-        return { ...super.toJSON(), x: this.x, y: this.y, radius: this.radius };
+        return { ...super.toJSON(), x: this.x, y: this.y, radius: this.radius, fill: this.fill, fillColor: this.fillColor, fillAlpha: this.fillAlpha };
     }
 }

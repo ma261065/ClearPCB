@@ -24,6 +24,10 @@ export class Viewport {
         this.gridLayer = this._createGroup('gridLayer');
         this.paperOutlineLayer = this._createGroup('paperOutlineLayer');
         this.contentLayer = this._createGroup('contentLayer');
+        // Sub-layer for components (always below shapes)
+        this.componentLayer = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        this.componentLayer.setAttribute('id', 'componentLayer');
+        this.contentLayer.appendChild(this.componentLayer);
         this.axesLayer = this._createGroup('axesLayer');
         this.rulerLayer = null; // Rulers are in screen space, handled separately
         
@@ -984,9 +988,13 @@ export class Viewport {
     }
     
     removeContent(svgElement) {
-        if (svgElement.parentNode === this.contentLayer) {
-            this.contentLayer.removeChild(svgElement);
+        if (svgElement.parentNode === this.contentLayer || svgElement.parentNode === this.componentLayer) {
+            svgElement.parentNode.removeChild(svgElement);
         }
+    }
+
+    addComponentContent(svgElement) {
+        this.componentLayer.appendChild(svgElement);
     }
     
     createGroup() {

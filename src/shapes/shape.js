@@ -50,16 +50,6 @@ export class Shape {
         this.color = ShapeValidator.validateColor(options.color || '#00b894');
         this.lineWidth = ShapeValidator.validateLineWidth(options.lineWidth || 0.2);
         
-        // Fill properties
-        this.fill = options.fill !== undefined ? options.fill : false;
-        this.fillColor = ShapeValidator.validateColor(options.fillColor || this.color);
-        this.fillAlpha = ShapeValidator.validateNumber(options.fillAlpha ?? 0.3, {
-            min: 0,
-            max: 1,
-            default: 0.3,
-            name: 'fillAlpha'
-        });
-        
         // State
         this.selected = false;
         this.hovered = false;
@@ -164,7 +154,7 @@ export class Shape {
         
         // Determine colors based on state
         let strokeColor = this._colorToCSS(this.color);
-        let fillColor = this._colorToCSS(this.fillColor);
+        let fillColor = this._colorToCSS(this.fillColor ?? this.color);
         
         if (this.selected) {
             strokeColor = '#e94560';
@@ -345,12 +335,16 @@ export class Shape {
     }
     
     /**
-     * Whether a given property can be edited in the properties panel.
+     * Property descriptors for the properties panel.
+     * Override in subclasses to customise which properties are shown.
      */
-    isPropertyEditable(prop) {
-        return true;
+    getPropertyDescriptors() {
+        return [
+            { key: 'locked',    label: 'Locked',     type: 'checkbox' },
+            { key: 'lineWidth', label: 'Line width',  type: 'number', min: 0.05, max: 5, step: 0.05 },
+        ];
     }
-    
+
     /**
      * Whether this shape supports inline (double-click) text editing.
      */
@@ -369,9 +363,6 @@ export class Shape {
             layer: this.layer,
             color: this.color,
             lineWidth: this.lineWidth,
-            fill: this.fill,
-            fillColor: this.fillColor,
-            fillAlpha: this.fillAlpha,
             visible: this.visible,
             locked: this.locked
         };

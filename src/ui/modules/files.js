@@ -29,6 +29,11 @@ export function loadDocument(app, data) {
 
             const shape = app._createShapeFromData(shapeData);
             if (shape) {
+                // Preserve component field linkage for re-linking after components load
+                if (shapeData.componentId && shapeData.fieldKey) {
+                    shape._pendingComponentId = shapeData.componentId;
+                    shape.fieldKey = shapeData.fieldKey;
+                }
                 app.shapes.push(shape);
                 shape.render(app.viewport.scale);
                 app.viewport.addContent(shape.element);
@@ -42,7 +47,10 @@ export function loadDocument(app, data) {
             if (component) {
                 app.components.push(component);
                 const element = component.createSymbolElement();
-                app.viewport.addContent(element);
+                app.viewport.addComponentContent(element);
+                
+                // Re-link field texts from loaded shapes
+                component.linkFieldTexts(app.shapes);
             }
         }
     }
@@ -110,6 +118,8 @@ export function createComponentFromData(app, data) {
         mirror: data.mirror || false,
         reference: data.reference,
         value: data.value,
+        showReference: data.showReference,
+        showValue: data.showValue,
         properties: data.properties
     });
 }

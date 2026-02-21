@@ -2,7 +2,10 @@ import { Component } from '../../components/index.js';
 import { AddComponentCommand, TransformComponentCommand } from '../../core/CommandHistory.js';
 
 export function updateSelectableItems(app) {
-    const items = [...app.shapes, ...app.components];
+    // Components first (lower z-order), then shapes (higher z-order)
+    // hitTest iterates in reverse, so shapes at the end get priority — 
+    // matching the visual layering (contentLayer above componentLayer)
+    const items = [...app.components, ...app.shapes];
     app.selection.setShapes(items);
 }
 
@@ -59,7 +62,7 @@ export function createComponentPreview(app, definition) {
     app.componentPreview.style.pointerEvents = 'none';
     app.componentPreview.classList.add('component-preview');
 
-    app.viewport.contentLayer.appendChild(app.componentPreview);
+    app.viewport.componentLayer.appendChild(app.componentPreview);
 }
 
 export function updateComponentPreview(app, worldPos) {
@@ -71,9 +74,6 @@ export function updateComponentPreview(app, worldPos) {
     const parts = [`translate(${worldPos.x}, ${worldPos.y})`];
     if (app.componentRotation !== 0) {
         parts.push(`rotate(${app.componentRotation})`);
-    }
-    if (app.componentMirror) {
-        parts.push('scale(-1, 1)');
     }
 
     app.componentPreview.setAttribute('transform', parts.join(' '));

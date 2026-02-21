@@ -3,6 +3,7 @@
  */
 
 import { Shape } from './shape.js';
+import { ShapeValidator } from '../core/ShapeValidator.js';
 import { distanceToSegment, pointInPolygon } from '../core/geometry.js';
 
 export class Polygon extends Shape {
@@ -12,6 +13,7 @@ export class Polygon extends Shape {
         
         this.points = options.points || [];
         this.fill = options.fill !== undefined ? options.fill : true;
+        this.fillColor = ShapeValidator.validateColor(options.fillColor || this.color);
         this.fillAlpha = options.fillAlpha ?? 0.5;
         this.closed = options.closed !== undefined ? options.closed : true;
     }
@@ -135,6 +137,14 @@ export class Polygon extends Shape {
         this.invalidate();
     }
     
+    getPropertyDescriptors() {
+        return [
+            { key: 'locked',    label: 'Locked',     type: 'checkbox' },
+            { key: 'lineWidth', label: 'Line width',  type: 'number', min: 0.05, max: 5, step: 0.05 },
+            { key: 'fill',      label: 'Fill',        type: 'checkbox' },
+        ];
+    }
+
     getPosition() {
         return this.points.length > 0 ? { x: this.points[0].x, y: this.points[0].y } : { x: 0, y: 0 };
     }
@@ -145,6 +155,7 @@ export class Polygon extends Shape {
             points: this.points.map(p => ({ x: p.x, y: p.y })),
             closed: this.closed,
             fill: this.fill,
+            fillColor: this.fillColor,
             fillAlpha: this.fillAlpha
         };
     }

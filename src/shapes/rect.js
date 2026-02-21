@@ -16,6 +16,13 @@ export class Rect extends Shape {
         this.width = ShapeValidator.validateNumber(options.width || 10, { min: 0, name: 'width' });
         this.height = ShapeValidator.validateNumber(options.height || 10, { min: 0, name: 'height' });
         this.cornerRadius = ShapeValidator.validateNumber(options.cornerRadius || 0, { min: 0, name: 'cornerRadius' });
+        
+        // Fill properties
+        this.fill = options.fill !== undefined ? options.fill : false;
+        this.fillColor = ShapeValidator.validateColor(options.fillColor || this.color);
+        this.fillAlpha = ShapeValidator.validateNumber(options.fillAlpha ?? 0.3, {
+            min: 0, max: 1, default: 0.3, name: 'fillAlpha'
+        });
     }
     
     _calculateBounds() {
@@ -175,7 +182,16 @@ export class Rect extends Shape {
         captureState() {
         return { x: this.x, y: this.y, width: this.width, height: this.height };
     }
-        toJSON() {
-        return { ...super.toJSON(), x: this.x, y: this.y, width: this.width, height: this.height, cornerRadius: this.cornerRadius };
+    
+    getPropertyDescriptors() {
+        return [
+            { key: 'locked',    label: 'Locked',     type: 'checkbox' },
+            { key: 'lineWidth', label: 'Line width',  type: 'number', min: 0.05, max: 5, step: 0.05 },
+            { key: 'fill',      label: 'Fill',        type: 'checkbox' },
+        ];
+    }
+
+    toJSON() {
+        return { ...super.toJSON(), x: this.x, y: this.y, width: this.width, height: this.height, cornerRadius: this.cornerRadius, fill: this.fill, fillColor: this.fillColor, fillAlpha: this.fillAlpha };
     }
 }

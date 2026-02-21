@@ -53,7 +53,7 @@ export function updateComponentColors(app) {
             comp.element.remove();
         }
         const element = comp.createSymbolElement();
-        app.viewport.addContent(element);
+        app.viewport.addComponentContent(element);
     }
 
     if (app.placingComponent && app.componentPreview) {

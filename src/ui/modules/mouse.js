@@ -404,10 +404,19 @@ export function bindMouseEvents(app) {
                 app.dragTotalDx += dx;
                 app.dragTotalDy += dy;
 
-                for (const shape of app.selection.getSelection()) {
-                    if (!shape.locked) {
-                        shape.move(dx, dy);
-                    }
+                const sel = app.selection.getSelection();
+                // Build set of component IDs being moved, so we can skip
+                // their field texts (component.move already handles them)
+                const movingCompIds = new Set();
+                for (const s of sel) {
+                    if (s.definition) movingCompIds.add(s.id);  // is a Component
+                }
+
+                for (const shape of sel) {
+                    if (shape.locked) continue;
+                    // Skip field text if its parent component is also being moved
+                    if (shape.parentComponent && movingCompIds.has(shape.parentComponent.id)) continue;
+                    shape.move(dx, dy);
                 }
                 app.dragLastSnapped = { ...snappedTarget };
                 app.renderShapes(false);
@@ -483,10 +492,17 @@ export function bindMouseEvents(app) {
                 const selectedShapes = app.selection.getSelection();
                 const movedShapes = selectedShapes.filter(s => !s.locked);
                 if (movedShapes.length > 0 && (app.dragTotalDx !== 0 || app.dragTotalDy !== 0)) {
-                    for (const shape of movedShapes) {
+                    // Build set of moving component IDs to avoid double-reverting field texts
+                    const movingCompIds = new Set();
+                    for (const s of movedShapes) {
+                        if (s.definition) movingCompIds.add(s.id);
+                    }
+                    const itemsForCommand = movedShapes.filter(s =>
+                        !(s.parentComponent && movingCompIds.has(s.parentComponent.id)));
+                    for (const shape of itemsForCommand) {
                         shape.move(-app.dragTotalDx, -app.dragTotalDy);
                     }
-                    const command = new MoveShapesCommand(app, movedShapes, app.dragTotalDx, app.dragTotalDy);
+                    const command = new MoveShapesCommand(app, itemsForCommand, app.dragTotalDx, app.dragTotalDy);
                     app.history.execute(command);
                 }
             } else if (app.dragShape) {

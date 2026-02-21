@@ -553,7 +553,8 @@ body {
     color: var(--text-secondary);
 }
 
-.prop-row input[type="number"] {
+.prop-row input[type="number"],
+.prop-row input[type="text"] {
     width: 90px;
     background: var(--bg-primary);
     border: 1px solid var(--border-color);

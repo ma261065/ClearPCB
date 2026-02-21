@@ -28,6 +28,16 @@ export function deleteSelected(app) {
 
     for (const item of toDelete) {
         if (app.shapes.includes(item)) {
+            // Field texts: toggle visibility instead of deleting
+            if (item.parentComponent && item.fieldKey) {
+                const showKey = item.fieldKey === 'reference' ? 'showReference' : 'showValue';
+                if (item.parentComponent[showKey]) {
+                    const command = new ModifyPropertyCommand(
+                        app, [item.parentComponent], showKey, false);
+                    app.history.execute(command);
+                }
+                continue;
+            }
             shapesToDelete.push(item);
         } else if (app.components.includes(item)) {
             componentsToDelete.push(item);

@@ -84,7 +84,14 @@ export class Line extends Shape {
     captureState() {
         return { x1: this.x1, y1: this.y1, x2: this.x2, y2: this.y2 };
     }
-    
+
+    getPropertyDescriptors() {
+        return [
+            { key: 'locked',    label: 'Locked',    type: 'checkbox' },
+            { key: 'lineWidth', label: 'Line width', type: 'number', min: 0.05, max: 5, step: 0.05 },
+        ];
+    }
+
     getPosition() {
         return { x: this.x1, y: this.y1 };
     }

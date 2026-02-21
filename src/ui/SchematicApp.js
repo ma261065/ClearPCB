@@ -140,11 +140,6 @@ class SchematicApp {
             redoBtn: document.getElementById('redoBtn'),
             propertiesPanel: document.getElementById('propertiesPanel'),
             propertiesHeaderLabel: document.getElementById('propertiesHeaderLabel'),
-            propSelectionCount: document.getElementById('propSelectionCount'),
-            propLocked: document.getElementById('propLocked'),
-            propLineWidth: document.getElementById('propLineWidth'),
-            propFill: document.getElementById('propFill'),
-            propTextSize: document.getElementById('propTextSize')
         };
 
         // Component code tooltip (copyable)
@@ -870,6 +865,13 @@ class SchematicApp {
     // Clear all components from canvas
     _clearAllComponents() {
         for (const comp of this.components) {
+            // Remove field texts from shapes array and DOM
+            for (const ft of comp.getFieldTexts()) {
+                const idx = this.shapes.indexOf(ft);
+                if (idx !== -1) this.shapes.splice(idx, 1);
+                if (ft.element) this.viewport.removeContent(ft.element);
+                ft.destroy();
+            }
             if (comp.element) {
                 this.viewport.removeContent(comp.element);
             }

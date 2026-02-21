@@ -214,9 +214,10 @@ export class Wire extends Shape {
         return 'axis';
     }
     
-    isPropertyEditable(prop) {
-        if (prop === 'lineWidth') return false;
-        return true;
+    getPropertyDescriptors() {
+        return [
+            { key: 'locked', label: 'Locked', type: 'checkbox' },
+        ];
     }
 
     /**

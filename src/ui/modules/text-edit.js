@@ -69,6 +69,22 @@ export function endTextEdit(app, commit = true) {
         }
         app.renderShapes(true);
     } else if (state.shape.text !== state.originalText) {
+        // Enforce unique references for component field texts
+        if (state.shape.parentComponent && state.shape.fieldKey === 'reference' && state.shape.text) {
+            const dup = app.components.find(c =>
+                c.reference.toUpperCase() === state.shape.text.toUpperCase() &&
+                c !== state.shape.parentComponent);
+            if (dup) {
+                alert(`Reference "${state.shape.text}" is already used by another component.`);
+                state.shape.text = state.originalText;
+                if (typeof state.shape.invalidate === 'function') state.shape.invalidate();
+                app.renderShapes(true);
+                // Skip command creation — fall through to cleanup
+                _cleanupTextEditState(state, app, shape);
+                return;
+            }
+        }
+
         // Create undo command for the text change
         const beforeState = { text: state.originalText };
         const afterState = { text: state.shape.text };
@@ -76,7 +92,14 @@ export function endTextEdit(app, commit = true) {
         state.shape.text = state.originalText;
         const command = new ModifyShapeCommand(app, state.shape, beforeState, afterState);
         app.history.execute(command);
+
+        // Sync field text back to component
+        _syncFieldToComponent(state.shape);
     }
+
+    // Refresh properties panel so it reflects the updated text
+    const sel = app.selection.getSelection();
+    if (sel.length > 0) app._updatePropertiesPanel(sel);
 
     if (state.overlayGroup && state.overlayGroup.parentNode) {
         state.overlayGroup.parentNode.removeChild(state.overlayGroup);
@@ -497,4 +520,31 @@ function measureCaretWithClone(app, el, textValue, caretIndex) {
         return null;
     }
     return null;
+}
+
+// ── field text helpers ───────────────────────────────────────────
+
+/** Sync a field Text shape's content back to its parent component. */
+function _syncFieldToComponent(textShape) {
+    if (!textShape.parentComponent || !textShape.fieldKey) return;
+    textShape.parentComponent[textShape.fieldKey] = textShape.text;
+}
+
+/** Clean up text-edit overlay state (used for early abort). */
+function _cleanupTextEditState(state, app, shape) {
+    if (state.overlayGroup && state.overlayGroup.parentNode) {
+        state.overlayGroup.parentNode.removeChild(state.overlayGroup);
+    }
+    state.overlayGroup = null;
+    state.overlayBox = null;
+    state.overlayCaret = null;
+    state.overlayBlink = null;
+    if (state.blinkTimeoutId) {
+        clearTimeout(state.blinkTimeoutId);
+        state.blinkTimeoutId = null;
+    }
+    app.textEdit = null;
+    if (shape && app.selection && !app.selection.isSelected(shape)) {
+        app.selection.select(shape, false);
+    }
 }

@@ -258,6 +258,10 @@ export class ModifyShapeCommand extends Command {
 
     _applyState(shape, state) {
         shape.applyState(state);
+        // Sync field text changes back to parent component
+        if ('text' in state && shape.parentComponent && shape.fieldKey) {
+            shape.parentComponent[shape.fieldKey] = shape.text;
+        }
         this.app.renderShapes(true);
     }
 }
@@ -286,27 +290,41 @@ export class ModifyPropertyCommand extends Command {
         return item;
     }
 
-    execute() {
+    _applyValues(useNew) {
         for (const entry of this.entries) {
             const item = this._findItem(entry.id);
-            if (item) {
-                item[this.prop] = entry.newValue;
-                if (typeof item.invalidate === 'function') item.invalidate();
+            if (!item) continue;
+            const val = useNew ? entry.newValue : entry.oldValue;
+            item[this.prop] = val;
+            if (typeof item.invalidate === 'function') item.invalidate();
+            // Sync field text changes back to parent component
+            if (this.prop === 'text' && item.parentComponent && item.fieldKey) {
+                item.parentComponent[item.fieldKey] = val;
+            }
+            // Sync component reference/value to field text content
+            if (this.prop === 'reference' && item.refText) {
+                item.refText.text = val;
+                item.refText.invalidate();
+            }
+            if (this.prop === 'value' && item.valueText) {
+                item.valueText.text = val;
+                item.valueText.invalidate();
+            }
+            // Sync show flags to field text visibility
+            if (this.prop === 'showReference' && item.refText) {
+                item.refText.visible = val;
+                item.refText.invalidate();
+            }
+            if (this.prop === 'showValue' && item.valueText) {
+                item.valueText.visible = val;
+                item.valueText.invalidate();
             }
         }
         this.app.renderShapes(true);
     }
 
-    undo() {
-        for (const entry of this.entries) {
-            const item = this._findItem(entry.id);
-            if (item) {
-                item[this.prop] = entry.oldValue;
-                if (typeof item.invalidate === 'function') item.invalidate();
-            }
-        }
-        this.app.renderShapes(true);
-    }
+    execute() { this._applyValues(true); }
+    undo() { this._applyValues(false); }
 }
 
 /**
@@ -334,6 +352,12 @@ export class DeleteComponentsCommand extends Command {
             if (comp.element && comp.element.parentNode) {
                 comp.element.parentNode.removeChild(comp.element);
             }
+            // Remove field texts
+            for (const ft of comp.getFieldTexts()) {
+                const si = this.app.shapes.indexOf(ft);
+                if (si !== -1) this.app.shapes.splice(si, 1);
+                if (ft.element && ft.element.parentNode) ft.element.parentNode.removeChild(ft.element);
+            }
         }
         this.app._updateSelectableItems();
         this.app.fileManager.setDirty(true);
@@ -351,7 +375,15 @@ export class DeleteComponentsCommand extends Command {
             } else {
                 this.app.components.push(comp);
             }
-            this.app.viewport.addContent(comp.element);
+            this.app.viewport.addComponentContent(comp.element);
+            // Re-add field texts
+            for (const ft of comp.getFieldTexts()) {
+                if (!this.app.shapes.includes(ft)) {
+                    this.app.shapes.push(ft);
+                    ft.render(this.app.viewport.scale);
+                    this.app.viewport.addContent(ft.element);
+                }
+            }
         }
         this.app._updateSelectableItems();
         this.app.fileManager.setDirty(true);
@@ -373,7 +405,20 @@ export class AddComponentCommand extends Command {
         if (!this.component.element) {
             this.component.createSymbolElement();
         }
-        this.app.viewport.addContent(this.component.element);
+        this.app.viewport.addComponentContent(this.component.element);
+        // Create field texts if they don't exist yet
+        if (!this.component.refText && !this.component.valueText) {
+            this.component.createFieldTexts(this.app);
+        } else {
+            // Re-add existing field texts
+            for (const ft of this.component.getFieldTexts()) {
+                if (!this.app.shapes.includes(ft)) {
+                    this.app.shapes.push(ft);
+                    ft.render(this.app.viewport.scale);
+                    this.app.viewport.addContent(ft.element);
+                }
+            }
+        }
         this.app._updateSelectableItems();
         this.app.fileManager.setDirty(true);
     }
@@ -385,6 +430,12 @@ export class AddComponentCommand extends Command {
         }
         if (this.component.element && this.component.element.parentNode) {
             this.component.element.parentNode.removeChild(this.component.element);
+        }
+        // Remove field texts
+        for (const ft of this.component.getFieldTexts()) {
+            const si = this.app.shapes.indexOf(ft);
+            if (si !== -1) this.app.shapes.splice(si, 1);
+            if (ft.element && ft.element.parentNode) ft.element.parentNode.removeChild(ft.element);
         }
         this.app._updateSelectableItems();
         this.app.fileManager.setDirty(true);
@@ -405,7 +456,9 @@ export class TransformComponentCommand extends Command {
         this.entries = components.map(c => ({
             id: c.id,
             oldRotation: c.rotation,
-            oldMirror: c.mirror
+            oldMirror: c.mirror,
+            // Capture field text positions for undo
+            fieldPositions: c.getFieldTexts().map(ft => ({ id: ft.id, x: ft.x, y: ft.y }))
         }));
     }
 
@@ -414,13 +467,23 @@ export class TransformComponentCommand extends Command {
             const comp = this.app.components.find(c => c.id === entry.id);
             if (!comp) continue;
             if (useOld) {
+                // Restore old rotation/mirror and field text positions
+                const mirrorChanged = comp.mirror !== entry.oldMirror;
                 comp.rotation = entry.oldRotation;
                 comp.mirror = entry.oldMirror;
+                for (const fp of entry.fieldPositions) {
+                    const ft = comp.getFieldTexts().find(f => f.id === fp.id);
+                    if (ft) { ft.x = fp.x; ft.y = fp.y; ft.invalidate(); }
+                }
+                // Mirror is baked into element creation — recreate SVG if mirror changed
+                if (mirrorChanged) {
+                    comp._recreateElement();
+                }
             } else {
                 if (this.type === 'Rotate') {
-                    comp.rotation = (entry.oldRotation + 90) % 360;
+                    comp.rotate(90);  // Uses component method which syncs field texts
                 } else {
-                    comp.mirror = !entry.oldMirror;
+                    comp.toggleMirror();  // toggleMirror recreates the SVG element
                 }
             }
             if (comp.element) {

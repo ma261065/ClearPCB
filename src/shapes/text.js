@@ -21,7 +21,10 @@ export class Text extends Shape {
         });
         this.fontFamily = options.fontFamily || 'Arial';
         this.textAnchor = options.textAnchor || 'start';
-        this.fill = options.fill !== undefined ? options.fill : true;
+        
+        // Component field linkage (set externally, not via constructor)
+        this.parentComponent = null;
+        this.fieldKey = null;  // 'reference' or 'value'
     }
 
     _calculateBounds() {
@@ -86,7 +89,12 @@ export class Text extends Shape {
     _updateElement(el, strokeColor, fillColor, scale) {
         el.setAttribute('x', this.x);
         el.setAttribute('y', this.y);
-        el.setAttribute('fill', this.fill ? fillColor : 'none');
+        // When parent component is selected but this field text isn't,
+        // tint blue to show ownership
+        if (this.parentComponent?.selected && !this.selected && !this.hovered) {
+            fillColor = 'var(--sch-selection, #3399ff)';
+        }
+        el.setAttribute('fill', fillColor);
         el.setAttribute('font-size', this.fontSize);
         el.setAttribute('font-family', this.fontFamily);
         el.setAttribute('text-anchor', this.textAnchor);
@@ -121,9 +129,20 @@ export class Text extends Shape {
         return { x: this.x, y: this.y, text: this.text, fontSize: this.fontSize, fontFamily: this.fontFamily, textAnchor: this.textAnchor };
     }
     
-    isPropertyEditable(prop) {
-        if (prop === 'fill' || prop === 'lineWidth') return false;
-        return true;
+    getPropertyDescriptors() {
+        if (this.fieldKey) {
+            // Component field text — show text content as editable, plus size
+            return [
+                { key: 'locked',   label: 'Locked',    type: 'checkbox' },
+                { key: 'text',     label: this.fieldKey === 'reference' ? 'Reference' : 'Value', type: 'text' },
+                { key: 'fontSize', label: 'Text size',  type: 'number', min: 0.5, max: 50, step: 0.5 },
+            ];
+        }
+        return [
+            { key: 'locked',   label: 'Locked',    type: 'checkbox' },
+            { key: 'text',     label: 'Text',       type: 'text' },
+            { key: 'fontSize', label: 'Text size',  type: 'number', min: 0.5, max: 50, step: 0.5 },
+        ];
     }
     
     get supportsInlineEdit() {
@@ -131,7 +150,7 @@ export class Text extends Shape {
     }
 
     toJSON() {
-        return {
+        const json = {
             ...super.toJSON(),
             x: this.x,
             y: this.y,
@@ -140,5 +159,10 @@ export class Text extends Shape {
             fontFamily: this.fontFamily,
             textAnchor: this.textAnchor
         };
+        if (this.parentComponent) {
+            json.componentId = this.parentComponent.id;
+            json.fieldKey = this.fieldKey;
+        }
+        return json;
     }
 }

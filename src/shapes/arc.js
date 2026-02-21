@@ -308,6 +308,13 @@ export class Arc extends Shape {
             bulgePoint: { x: this._bulgePoint.x, y: this._bulgePoint.y }
         };
     }
+
+    getPropertyDescriptors() {
+        return [
+            { key: 'locked',    label: 'Locked',    type: 'checkbox' },
+            { key: 'lineWidth', label: 'Line width', type: 'number', min: 0.05, max: 5, step: 0.05 },
+        ];
+    }
     
     applyState(state) {
         if (state.startPoint) this.startPoint = { x: state.startPoint.x, y: state.startPoint.y };
