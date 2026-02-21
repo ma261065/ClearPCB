@@ -48,93 +48,9 @@ import {
 class SchematicApp {
 
     constructor() {
-        // Check for auto-saved content before initializing anything else
-        // (FileManager is needed for this)
         this.fileManager = new FileManager();
-        // Present a list of autosaved files for recovery (only if valid entries exist)
-        let index = [];
-        try {
-            index = JSON.parse(localStorage.getItem(this.fileManager.autoSavePrefix + 'index')) || [];
-        } catch {}
-        // Remove autosaves older than 7 days (age out old autosaves)
-        const now = Date.now();
-        const weekMs = 7 * 24 * 60 * 60 * 1000;
-        let changed = false;
-        index = index.filter(entry => {
-            // Remove if missing or too old
-            const isOrphan = !localStorage.getItem(entry.key);
-            const isOld = (now - entry.timestamp) > weekMs;
-            if (isOrphan || isOld) {
-                localStorage.removeItem(entry.key);
-                changed = true;
-                return false;
-            }
-            return true;
-        });
-        if (changed) {
-            localStorage.setItem(this.fileManager.autoSavePrefix + 'index', JSON.stringify(index));
-        }
-        if (index.length === 1) {
-            const entry = index[0];
-            const time = new Date(entry.timestamp).toLocaleString();
-            if (confirm(`Recover autosaved file "${entry.fileName}" from ${time}?`)) {
-                const saved = this.fileManager.loadAutoSave(entry.fileName);
-                if (saved && saved.data) {
-                    this.shapes = [];
-                    this.components = [];
-                    this.ui = {};
-                    this._pendingAutoLoad = saved.data;
-                    if (saved.fileName) {
-                        this.fileManager.setFileName(saved.fileName);
-                    }
-                    this.fileManager.setDirty(true);
-                    console.log('Recovered auto-saved content');
-                }
-            } else {
-                // If declined, remove autosave
-                this.fileManager.clearAutoSave(entry.fileName);
-            }
-        } else if (index.length > 1) {
-            // Sort by timestamp desc
-            index.sort((a, b) => b.timestamp - a.timestamp);
-            let listMsg = 'Autosaved files found:\n';
-            index.forEach((entry, i) => {
-                const time = new Date(entry.timestamp).toLocaleString();
-                listMsg += `${i + 1}. ${entry.fileName} (saved ${time})\n`;
-            });
-            listMsg += '\nEnter the number to recover, or D<number> to delete:';
-            let choice = prompt(listMsg);
-            if (choice) {
-                choice = choice.trim();
-                if (/^d\d+$/i.test(choice)) {
-                    // Delete entry
-                    const idx = parseInt(choice.slice(1)) - 1;
-                    if (index[idx]) {
-                        this.fileManager.clearAutoSave(index[idx].fileName);
-                        alert(`Deleted autosave for ${index[idx].fileName}`);
-                        // Optionally, reload to re-prompt
-                        location.reload();
-                        return;
-                    }
-                } else {
-                    const idx = parseInt(choice) - 1;
-                    if (index[idx]) {
-                        const saved = this.fileManager.loadAutoSave(index[idx].fileName);
-                        if (saved && saved.data) {
-                            this.shapes = [];
-                            this.components = [];
-                            this.ui = {};
-                            this._pendingAutoLoad = saved.data;
-                            if (saved.fileName) {
-                                this.fileManager.setFileName(saved.fileName);
-                            }
-                            this.fileManager.setDirty(true);
-                            console.log('Recovered auto-saved content');
-                        }
-                    }
-                }
-            }
-        }
+        if (!this._recoverAutoSave()) return; // reload triggered
+
         this.container = document.getElementById('canvasContainer');
         this.viewport = new Viewport(this.container);
         this.eventBus = globalEventBus;
@@ -322,6 +238,83 @@ class SchematicApp {
         console.log('Schematic Editor initialized');
     }
 
+    /**
+     * Check for auto-saved content and offer recovery.
+     * Returns true to continue initialization, false if a reload was triggered.
+     */
+    _recoverAutoSave() {
+        let index = [];
+        try {
+            index = JSON.parse(localStorage.getItem(this.fileManager.autoSavePrefix + 'index')) || [];
+        } catch {}
+
+        // Remove autosaves older than 7 days
+        const now = Date.now();
+        const weekMs = 7 * 24 * 60 * 60 * 1000;
+        let changed = false;
+        index = index.filter(entry => {
+            const isOrphan = !localStorage.getItem(entry.key);
+            const isOld = (now - entry.timestamp) > weekMs;
+            if (isOrphan || isOld) {
+                localStorage.removeItem(entry.key);
+                changed = true;
+                return false;
+            }
+            return true;
+        });
+        if (changed) {
+            localStorage.setItem(this.fileManager.autoSavePrefix + 'index', JSON.stringify(index));
+        }
+
+        if (index.length === 1) {
+            const entry = index[0];
+            const time = new Date(entry.timestamp).toLocaleString();
+            if (confirm(`Recover autosaved file "${entry.fileName}" from ${time}?`)) {
+                this._applyAutoSave(entry);
+            } else {
+                this.fileManager.clearAutoSave(entry.fileName);
+            }
+        } else if (index.length > 1) {
+            index.sort((a, b) => b.timestamp - a.timestamp);
+            let listMsg = 'Autosaved files found:\n';
+            index.forEach((entry, i) => {
+                const time = new Date(entry.timestamp).toLocaleString();
+                listMsg += `${i + 1}. ${entry.fileName} (saved ${time})\n`;
+            });
+            listMsg += '\nEnter the number to recover, or D<number> to delete:';
+            let choice = prompt(listMsg);
+            if (choice) {
+                choice = choice.trim();
+                if (/^d\d+$/i.test(choice)) {
+                    const idx = parseInt(choice.slice(1)) - 1;
+                    if (index[idx]) {
+                        this.fileManager.clearAutoSave(index[idx].fileName);
+                        alert(`Deleted autosave for ${index[idx].fileName}`);
+                        location.reload();
+                        return false;
+                    }
+                } else {
+                    const idx = parseInt(choice) - 1;
+                    if (index[idx]) this._applyAutoSave(index[idx]);
+                }
+            }
+        }
+        return true;
+    }
+
+    _applyAutoSave(entry) {
+        const saved = this.fileManager.loadAutoSave(entry.fileName);
+        if (saved && saved.data) {
+            this.shapes = [];
+            this.components = [];
+            this.ui = {};
+            this._pendingAutoLoad = saved.data;
+            if (saved.fileName) this.fileManager.setFileName(saved.fileName);
+            this.fileManager.setDirty(true);
+            console.log('Recovered auto-saved content');
+        }
+    }
+
     _handleEscape() {
         handleEscape(this);
     }
@@ -467,31 +460,6 @@ class SchematicApp {
     // Check if two points are essentially the same (within epsilon)
     _pointsMatch(a, b, epsilon = 1e-6) {
         return WireTools.pointsMatch(a, b, epsilon);
-    }
-
-    // Get display position adjusted for target pin snapping (with fake grid consideration)
-    _getDisplayPosition(targetPin, drawPos, lastPoint, gridSize) {
-        if (!targetPin) return { position: drawPos, adjusted: false, axis: null };
-        
-        const pinX = targetPin.worldPos.x;
-        const pinY = targetPin.worldPos.y;
-        
-        // Distance to target pin's fake grid lines
-        const distToFakeX = Math.abs(drawPos.x - pinX);  // How far from vertical line
-        const distToFakeY = Math.abs(drawPos.y - pinY);  // How far from horizontal line
-        
-        // Since we already detected the pin at 1.0mm tolerance, snap fully to its axes
-        let position = drawPos;
-        
-        if (distToFakeY < distToFakeX) {
-            // Closer to horizontal line - snap Y to pin
-            position = { x: drawPos.x, y: pinY };
-        } else {
-            // Closer to vertical line (or equal) - snap X to pin
-            position = { x: pinX, y: drawPos.y };
-        }
-        
-        return { position, adjusted: position !== drawPos };
     }
 
     // Check auto-corner triggers (deadband and grid-line crossing)
@@ -788,7 +756,7 @@ class SchematicApp {
 
         this.componentPicker?.searchManager?.clearCache?.();
 
-        // Clear KICADFetcher in-memory index so it re-fetches
+        // Clear KiCadFetcher in-memory index so it re-fetches
         const kf = this.componentPicker?.library?.kicadFetcher;
         if (kf) {
             kf.libraryIndex = null;

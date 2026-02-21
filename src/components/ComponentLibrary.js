@@ -16,7 +16,7 @@
 import { Component } from './Component.js';
 import { BuiltInComponents } from './BuiltInComponents.js';
 import { LCSCFetcher } from './LCSCFetcher.js';
-import { KiCadFetcher } from './KICADFetcher.js';
+import { KiCadFetcher } from './KiCadFetcher.js';
 import { storageManager } from '../core/StorageManager.js';
 
 export class ComponentLibrary {

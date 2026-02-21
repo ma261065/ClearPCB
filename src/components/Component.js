@@ -51,6 +51,31 @@ export class Component {
         return [];  // Components don't have anchors
     }
 
+    // ── Shape-compatible API ──────────────────────────────────────
+
+    getPosition() {
+        return { x: this.x, y: this.y };
+    }
+
+    captureState() {
+        return { x: this.x, y: this.y, rotation: this.rotation, mirror: this.mirror,
+                 reference: this.reference, value: this.value };
+    }
+
+    applyState(state) {
+        Object.assign(this, state);
+        if (this.element) {
+            const transform = this._buildTransform();
+            if (transform) this.element.setAttribute('transform', transform);
+            else this.element.removeAttribute('transform');
+        }
+    }
+
+    getAnchorSnapMode() { return 'grid'; }
+    resetDragState() {}
+    isPropertyEditable() { return true; }
+    get supportsInlineEdit() { return false; }
+
     /**
      * Get bounding box in world coordinates
      */
