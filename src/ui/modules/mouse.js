@@ -595,7 +595,7 @@ export function bindMouseEvents(app) {
         const worldPos = app.viewport.screenToWorld(screenPos);
         const hit = app.selection.hitTest(worldPos);
 
-        if (hit && hit.type === 'text') {
+        if (hit && hit.supportsInlineEdit) {
             app.selection.select(hit, false);
             app.renderShapes(true);
             app._startTextEdit(hit);

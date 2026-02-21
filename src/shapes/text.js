@@ -125,6 +125,10 @@ export class Text extends Shape {
         if (prop === 'fill' || prop === 'lineWidth') return false;
         return true;
     }
+    
+    get supportsInlineEdit() {
+        return true;
+    }
 
     toJSON() {
         return {

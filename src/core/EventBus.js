@@ -94,11 +94,5 @@ export class EventBus {
     }
 }
 
-// Standard events used throughout the application
-export const Events = {
-    // Selection events
-    SELECTION_CHANGED: 'selection:changed',
-};
-
 // Global event bus instance
 export const globalEventBus = new EventBus();

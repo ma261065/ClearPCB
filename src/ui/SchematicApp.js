@@ -1,15 +1,15 @@
 // SchematicApp.js - Schematic Editor Application
 
 import { Viewport } from '../core/Viewport.js';
-import { EventBus, globalEventBus } from '../core/EventBus.js';
+import { globalEventBus } from '../core/EventBus.js';
 import { CommandHistory } from '../core/CommandHistory.js';
 import { SelectionManager } from '../core/SelectionManager.js';
 import { FileManager } from '../core/FileManager.js';
 import { ComponentPicker } from '../components/ComponentPicker.js';
-import { Line, Wire, Circle, Rect, Arc, Polygon, Text, Pad, Via, createShape } from '../shapes/index.js';
+import { Line, Wire, Circle, Rect, Arc, Polygon, Text, createShape } from '../shapes/index.js';
 import { Component, getComponentLibrary } from '../components/index.js';
 import { bindMouseEvents } from './modules/mouse.js';
-import { bindKeyboardShortcuts } from './modules/keyboard.js';
+import { handleEscape, bindKeyboardShortcuts } from './modules/keyboard.js';
 import { bindPropertiesPanel, applyCommonProperty, updatePropertiesPanel } from './modules/properties.js';
 import { bindRibbon, updateShapePanelOptions } from './modules/ribbon.js';
 import { updateCrosshair, getToolIconPath, setToolCursor, showCrosshair, hideCrosshair } from './modules/cursor.js';
@@ -23,10 +23,7 @@ import * as DrawingTools from './modules/drawing.js';
 import * as ComponentTools from './modules/components.js';
 import * as FileTools from './modules/files.js';
 import * as ExportTools from './modules/export.js';
-import { handleEscape } from './modules/input.js';
-import { setupEventBusListeners } from './modules/event-bus.js';
 import { onToolSelected, onComponentPickerClosed, onOptionsChanged, loadToolOptions } from './modules/tool.js';
-import { updateSelectableItems, generateReference, getSelectedComponents } from './modules/components-utils.js';
 import { setupCallbacks } from './modules/callbacks.js';
 import { updateUndoRedoButtons, makeHelpPanelDraggable } from './modules/ui-utils.js';
 import {
@@ -270,7 +267,6 @@ class SchematicApp {
         this.componentMirror = false;  // Current mirror state
 
         this._setupCallbacks();
-        this._setupEventBusListeners();
         this._bindUIControls();
         this._bindMouseEvents();
         this._bindKeyboardShortcuts();
@@ -352,11 +348,6 @@ class SchematicApp {
 
     _setTextEditCaretFromScreen(screenPos) {
         setTextCaretFromScreen(this, screenPos);
-    }
-
-    // Setup EventBus listeners for cross-module communication
-    _setupEventBusListeners() {
-        setupEventBusListeners(this);
     }
 
     // ==================== Tool Handling ====================
@@ -602,7 +593,7 @@ class SchematicApp {
     
     // Get selected components (for future selection integration)
     _getSelectedComponents() {
-        return getSelectedComponents(this);
+        return ComponentTools.getSelectedComponents(this);
     }
     
 

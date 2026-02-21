@@ -172,7 +172,7 @@ export function applyCommonProperty(app, prop, value) {
     if (prop === 'locked') {
         if (value) {
             app._endTextEdit?.(true);
-        } else if (selection.length === 1 && selection[0]?.type === 'text') {
+        } else if (selection.length === 1 && selection[0]?.supportsInlineEdit) {
             app._startTextEdit?.(selection[0]);
         }
     }

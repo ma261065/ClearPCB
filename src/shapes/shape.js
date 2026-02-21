@@ -408,6 +408,13 @@ export class Shape {
         return true;
     }
     
+    /**
+     * Whether this shape supports inline (double-click) text editing.
+     */
+    get supportsInlineEdit() {
+        return false;
+    }
+    
     clone() {
         throw new Error('clone() must be implemented by subclass');
     }

@@ -289,17 +289,6 @@ export class ShapeValidator {
                 }
                 break;
 
-            case 'via':
-                if ('x' in config) validated.x = this.validateCoordinate(config.x, { coerce });
-                if ('y' in config) validated.y = this.validateCoordinate(config.y, { coerce });
-                if ('diameter' in config) {
-                    validated.diameter = this.validateNumber(config.diameter, { min: 0.1, max: 100, coerce, name: 'diameter' });
-                }
-                if ('hole' in config) {
-                    validated.hole = this.validateNumber(config.hole, { min: 0.01, max: 50, coerce, name: 'hole' });
-                }
-                break;
-
             case 'wire':
                 if ('points' in config && Array.isArray(config.points)) {
                     validated.points = config.points.map((p, i) => {
@@ -318,16 +307,6 @@ export class ShapeValidator {
                 }
                 break;
 
-            case 'pad':
-                if ('x' in config) validated.x = this.validateCoordinate(config.x, { coerce });
-                if ('y' in config) validated.y = this.validateCoordinate(config.y, { coerce });
-                if ('width' in config) {
-                    validated.width = this.validateNumber(config.width, { min: 0.1, coerce, name: 'width' });
-                }
-                if ('height' in config) {
-                    validated.height = this.validateNumber(config.height, { min: 0.1, coerce, name: 'height' });
-                }
-                break;
         }
 
         return validated;
@@ -349,14 +328,4 @@ export class ShapeValidator {
         }
         return value.toFixed(decimals);
     }
-}
-
-/**
- * Higher-order function to wrap shape properties with validation
- * @example
- * const shape = new Line({ x1: NaN, x2: '100' });  // Would fail
- * const validated = validateShapeProperties(Line, config);
- */
-export function validateShapeProperties(ShapeClass, config) {
-    return ShapeValidator.validateShapeConfig(config, ShapeClass.prototype.type || 'generic');
 }

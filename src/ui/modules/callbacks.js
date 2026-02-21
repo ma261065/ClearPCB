@@ -1,4 +1,12 @@
 export function setupCallbacks(app) {
+    // Event bus listeners (component picker)
+    app.eventBus.on('component:selected', (def) => {
+        app._onComponentDefinitionSelected(def);
+    });
+    app.eventBus.on('component:pickerClosed', () => {
+        app._onComponentPickerClosed();
+    });
+
     let lastStatusUpdate = 0;
     let lastHoverUpdate = 0;
     const STATUS_THROTTLE = 50;
