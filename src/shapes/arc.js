@@ -5,7 +5,7 @@
  */
 
 import { Shape } from './shape.js';
-import { circumcircle } from '../core/geometry.js';
+import { circumcircle, projectOntoChordBisector, clampBulgePoint } from '../core/geometry.js';
 
 export class Arc extends Shape {
     constructor(options = {}) {
@@ -80,8 +80,7 @@ export class Arc extends Shape {
                 radius: Math.hypot(p3.x - p1.x, p3.y - p1.y) / 2,
                 startAngle: Math.atan2(p1.y - (p1.y + p3.y) / 2, p1.x - (p1.x + p3.x) / 2),
                 endAngle: Math.atan2(p3.y - (p1.y + p3.y) / 2, p3.x - (p1.x + p3.x) / 2),
-                sweepFlag: 0,
-                largeArc: 0
+                sweepFlag: 0
             };
         }
         
@@ -93,13 +92,7 @@ export class Arc extends Shape {
         const crossProduct = (p3.x - p1.x) * (p2.y - p1.y) - (p3.y - p1.y) * (p2.x - p1.x);
         const sweepFlag = crossProduct > 0 ? 0 : 1;
         
-        return {
-            cx, cy, radius,
-            startAngle,
-            endAngle,
-            sweepFlag,
-            largeArc: 0
-        };
+        return { cx, cy, radius, startAngle, endAngle, sweepFlag };
     }
     
     // Geometry getters - always computed from three points
@@ -125,10 +118,6 @@ export class Arc extends Shape {
     
     get sweepFlag() {
         return this._getGeometry().sweepFlag;
-    }
-    
-    get largeArc() {
-        return this._getGeometry().largeArc;
     }
     
     _calculateBounds() {
@@ -182,25 +171,19 @@ export class Arc extends Shape {
     _isAngleInRange(angle) {
         const TWO_PI = Math.PI * 2;
         const mod = (a) => ((a % TWO_PI) + TWO_PI) % TWO_PI;
-        
         const geo = this._getGeometry();
-        const start = mod(geo.startAngle);
-        const end = mod(geo.endAngle);
-        // Compute bulge angle directly from the control point for robustness
-        const bulge = mod(Math.atan2(this._bulgePoint.y - geo.cy, this._bulgePoint.x - geo.cx));
         angle = mod(angle);
-        
-        // Shift all angles so start is at 0
-        const dEnd = mod(end - start);
-        const dBulge = mod(bulge - start);
-        const dTest = mod(angle - start);
-        
-        if (dBulge <= dEnd) {
-            // Arc sweeps CCW from start through bulge to end
-            return dTest <= dEnd;
+
+        if (geo.sweepFlag === 1) {
+            // CW: start → end in increasing-angle direction
+            const span = mod(geo.endAngle - geo.startAngle);
+            const test = mod(angle - geo.startAngle);
+            return test <= span;
         } else {
-            // Arc sweeps CW from start through bulge to end
-            return dTest >= dEnd;
+            // CCW: start → end in decreasing-angle direction
+            const span = mod(geo.startAngle - geo.endAngle);
+            const test = mod(geo.startAngle - angle);
+            return test <= span;
         }
     }
     
@@ -268,82 +251,27 @@ export class Arc extends Shape {
     moveAnchor(anchorId, x, y) {
         const start = this.getStartPoint();
         const end = this.getEndPoint();
-        
-        // Clear any previous drag state when starting a new drag
-        if (anchorId === 'start' || anchorId === 'end') {
-            this._draggingMidTo = null;
+
+        if (anchorId === 'mid') {
+            const projected = projectOntoChordBisector(start, end, { x, y });
+            this.bulgePoint = clampBulgePoint(start, end, projected);
+        } else {
+            // Start/end anchor: snapshot bulge at drag start, re-clamp as chord moves
             if (!this._dragMidPoint) {
-                this._dragMidPoint = this._bulgePoint || this.getMidPoint();
+                this._dragMidPoint = { x: this._bulgePoint.x, y: this._bulgePoint.y };
             }
-        } else if (anchorId === 'mid') {
-            this._dragMidPoint = null;
-
-            // Project cursor onto the perpendicular bisector of the chord.
-            // This means only the perpendicular distance from the chord
-            // controls the bulge — for a horizontal arc only cursor-Y matters,
-            // for a vertical arc only cursor-X matters, etc.
-            const mx = (start.x + end.x) / 2;
-            const my = (start.y + end.y) / 2;
-            const chordDx = end.x - start.x;
-            const chordDy = end.y - start.y;
-            // Perpendicular direction (unnormalised)
-            const nx = -chordDy;
-            const ny = chordDx;
-            const nLenSq = nx * nx + ny * ny;
-
-            if (nLenSq > 1e-12) {
-                // Scalar projection of (cursor − midpoint) onto perp direction
-                const t = ((x - mx) * nx + (y - my) * ny) / nLenSq;
-                x = mx + t * nx;
-                y = my + t * ny;
+            if (anchorId === 'start') {
+                this.startPoint = { x, y };
+                this._dragMidPoint = clampBulgePoint({ x, y }, end, this._dragMidPoint);
+            } else {
+                this.endPoint = { x, y };
+                this._dragMidPoint = clampBulgePoint(start, { x, y }, this._dragMidPoint);
             }
-            // else degenerate chord (start ≈ end); fall through with raw position
-
-            const clamped = this._clampBulgePoint(start.x, start.y, end.x, end.y, x, y);
-            x = clamped.x;
-            y = clamped.y;
-            this._draggingMidTo = { x, y };
+            this.bulgePoint = this._dragMidPoint;
         }
-        
-        if (anchorId === 'start') {
-            const clampedMid = this._clampBulgePoint(x, y, end.x, end.y, this._dragMidPoint.x, this._dragMidPoint.y);
-            this._dragMidPoint = clampedMid;
-            this.startPoint = { x, y };
-            this.bulgePoint = clampedMid;
-        } else if (anchorId === 'mid') {
-            this.bulgePoint = { x, y };
-        } else if (anchorId === 'end') {
-            const clampedMid = this._clampBulgePoint(start.x, start.y, x, y, this._dragMidPoint.x, this._dragMidPoint.y);
-            this._dragMidPoint = clampedMid;
-            this.endPoint = { x, y };
-            this.bulgePoint = clampedMid;
-        }
-        
         this.invalidate();
     }
 
-    _clampBulgePoint(x1, y1, x2, y2, bx, by) {
-        const mx = (x1 + x2) / 2;
-        const my = (y1 + y2) / 2;
-        const chordDx = x2 - x1;
-        const chordDy = y2 - y1;
-        const maxRadius = Math.hypot(chordDx, chordDy) / 2;
-
-        if (maxRadius === 0) return { x: bx, y: by };
-
-        const dx = bx - mx;
-        const dy = by - my;
-        const dist = Math.hypot(dx, dy);
-
-        if (dist <= maxRadius) return { x: bx, y: by };
-
-        const scale = maxRadius / dist;
-        return {
-            x: mx + dx * scale,
-            y: my + dy * scale
-        };
-    }
-    
     _createElement() {
         return document.createElementNS('http://www.w3.org/2000/svg', 'path');
     }
@@ -351,14 +279,7 @@ export class Arc extends Shape {
     _updateElement(el, strokeColor, fillColor, scale) {
         const start = this.getStartPoint();
         const end = this.getEndPoint();
-        
-        // Calculate arc sweep (small arc only)
-        const largeArc = 0;
-        
-        // Determine sweep flag: CCW (endAngle > startAngle) maps to SVG sweep 0
-        const sweepFlag = this.sweepFlag !== undefined ? this.sweepFlag : (this.endAngle > this.startAngle ? 0 : 1);
-        
-        const d = `M ${start.x} ${start.y} A ${this.radius} ${this.radius} 0 ${largeArc} ${sweepFlag} ${end.x} ${end.y}`;
+        const d = `M ${start.x} ${start.y} A ${this.radius} ${this.radius} 0 0 ${this.sweepFlag} ${end.x} ${end.y}`;
         
         el.setAttribute('d', d);
         el.setAttribute('stroke', strokeColor);

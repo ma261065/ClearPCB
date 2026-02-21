@@ -1,27 +1,5 @@
 import { Line, Circle, Rect, Arc, Polygon, Text } from '../../shapes/index.js';
-import { circumcircle } from '../../core/geometry.js';
-
-function clampBulgePoint(p1, p2, b) {
-    const mx = (p1.x + p2.x) / 2;
-    const my = (p1.y + p2.y) / 2;
-    const chordDx = p2.x - p1.x;
-    const chordDy = p2.y - p1.y;
-    const maxRadius = Math.hypot(chordDx, chordDy) / 2;
-
-    if (maxRadius === 0) return { x: b.x, y: b.y };
-
-    const dx = b.x - mx;
-    const dy = b.y - my;
-    const dist = Math.hypot(dx, dy);
-
-    if (dist <= maxRadius) return { x: b.x, y: b.y };
-
-    const scale = maxRadius / dist;
-    return {
-        x: mx + dx * scale,
-        y: my + dy * scale
-    };
-}
+import { circumcircle, projectOntoChordBisector, clampBulgePoint } from '../../core/geometry.js';
 
 export function startDrawing(app, worldPos) {
     if (app.currentTool === 'select') return;
@@ -207,29 +185,22 @@ export function updatePreview(app) {
             } else {
                 const p1 = start;
                 const p2 = app.arcEndpoint;
-                const bulgePoint = clampBulgePoint(p1, p2, end);
+                const bulgePoint = clampBulgePoint(p1, p2, projectOntoChordBisector(p1, p2, end));
+                const circ = circumcircle(p1, p2, bulgePoint);
                 
-                const det = 2 * (p1.x * (p2.y - bulgePoint.y) + p2.x * (bulgePoint.y - p1.y) + bulgePoint.x * (p1.y - p2.y));
-                
-                if (Math.abs(det) < 0.001) {
+                if (!circ) {
                     app.previewElement.innerHTML = `<line x1="${p1.x}" y1="${p1.y}" x2="${p2.x}" y2="${p2.y}" 
                             stroke="${opts.color}" stroke-width="${strokeWidth}" stroke-dasharray="0.5 0.5"/>`;
                 } else {
-                    const circ = circumcircle(p1, p2, bulgePoint);
-                    const { cx, cy, radius } = circ;
-                    
+                    const { radius } = circ;
                     const ccw = ((p2.x - p1.x) * (bulgePoint.y - p1.y) - (p2.y - p1.y) * (bulgePoint.x - p1.x)) > 0;
                     const sweepFlag = ccw ? 0 : 1;
-                    const largeArc = 0;
                     
                     app.arcDirection = ccw;
                     app.arcSweepFlag = sweepFlag;
-                    app.arcLargeArc = largeArc;
                     
-                    let svg = `<path d="M ${p1.x} ${p1.y} A ${radius} ${radius} 0 ${largeArc} ${sweepFlag} ${p2.x} ${p2.y}" 
+                    app.previewElement.innerHTML = `<path d="M ${p1.x} ${p1.y} A ${radius} ${radius} 0 0 ${sweepFlag} ${p2.x} ${p2.y}" 
                             stroke="${opts.color}" stroke-width="${strokeWidth}" fill="none" stroke-linecap="round"/>`;
-                    svg += `<circle cx="${bulgePoint.x}" cy="${bulgePoint.y}" r="${2 / app.viewport.scale}" fill="${opts.color}"/>`;
-                    app.previewElement.innerHTML = svg;
                 }
             }
             break;
@@ -311,12 +282,11 @@ export function createShapeFromDrawing(app) {
             
             const p1 = start;
             const p2 = app.arcEndpoint;
-            const bulgePoint = clampBulgePoint(p1, p2, app.drawCurrent);
+            const bulgePoint = clampBulgePoint(p1, p2, projectOntoChordBisector(p1, p2, app.drawCurrent));
             
             // Clear stored direction/flags
             app.arcDirection = undefined;
             app.arcSweepFlag = undefined;
-            app.arcLargeArc = undefined;
             
             return new Arc({
                 bulgePoint: { x: bulgePoint.x, y: bulgePoint.y },

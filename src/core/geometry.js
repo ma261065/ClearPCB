@@ -458,6 +458,37 @@ export function circumcircle(p1, p2, p3) {
 }
 
 /**
+ * Project a point onto the perpendicular bisector of chord p1→p2.
+ * Returns the projected point. If the chord is degenerate, returns the original point.
+ */
+export function projectOntoChordBisector(p1, p2, pt) {
+    const mx = (p1.x + p2.x) / 2;
+    const my = (p1.y + p2.y) / 2;
+    const nx = -(p2.y - p1.y);
+    const ny =  (p2.x - p1.x);
+    const nLenSq = nx * nx + ny * ny;
+    if (nLenSq <= 1e-12) return { x: pt.x, y: pt.y };
+    const t = ((pt.x - mx) * nx + (pt.y - my) * ny) / nLenSq;
+    return { x: mx + t * nx, y: my + t * ny };
+}
+
+/**
+ * Clamp a bulge point so it stays within half-chord distance of the chord midpoint.
+ */
+export function clampBulgePoint(p1, p2, b) {
+    const mx = (p1.x + p2.x) / 2;
+    const my = (p1.y + p2.y) / 2;
+    const maxRadius = Math.hypot(p2.x - p1.x, p2.y - p1.y) / 2;
+    if (maxRadius === 0) return { x: b.x, y: b.y };
+    const dx = b.x - mx;
+    const dy = b.y - my;
+    const dist = Math.hypot(dx, dy);
+    if (dist <= maxRadius) return { x: b.x, y: b.y };
+    const scale = maxRadius / dist;
+    return { x: mx + dx * scale, y: my + dy * scale };
+}
+
+/**
  * Get orthogonal direction (for schematic wiring)
  * Returns 'horizontal' or 'vertical' based on angle between points
  */

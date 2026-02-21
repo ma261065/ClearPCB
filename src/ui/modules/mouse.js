@@ -416,10 +416,6 @@ export function bindMouseEvents(app) {
 
                 for (const shape of app.selection.getSelection()) {
                     if (!shape.locked) {
-                        if (shape.type === 'arc') {
-                            shape._draggingMidTo = null;
-                            shape._dragMidPoint = null;
-                        }
                         shape.move(dx, dy);
                     }
                 }
@@ -509,26 +505,11 @@ export function bindMouseEvents(app) {
                     const command = new ModifyShapeCommand(app, app.dragShape, app.dragShapesBefore, afterState);
                     app.history.execute(command);
                     
-                    // Clear drag-specific arc state
-                    if (app.dragShape._dragMidPoint) {
-                        app.dragShape._dragMidPoint = null;
-                    }
-                    if (app.dragShape._draggingMidTo) {
-                        app.dragShape._draggingMidTo = null;
-                    }
-                    
                     // Keep the shape selected after anchor drag completes
                     app.dragShape.selected = true;
                 } else if (app.dragMode === 'anchor' && !app.didDrag) {
-                    // Anchor drag was initiated but no movement occurred - still keep shape selected
-                    // But make sure to clear any drag-specific state (important for arcs with _dragMidPoint and _draggingMidTo)
+                    // Anchor drag was initiated but no movement occurred - keep shape selected
                     if (app.dragShape) {
-                        if (app.dragShape._dragMidPoint) {
-                            app.dragShape._dragMidPoint = null;
-                        }
-                        if (app.dragShape._draggingMidTo) {
-                            app.dragShape._draggingMidTo = null;
-                        }
                         app.dragShape.selected = true;
                     }
                 }
@@ -540,14 +521,9 @@ export function bindMouseEvents(app) {
             app.dragStart = null;
             app.dragAnchorId = null;
             
-            // Before clearing dragShape, make sure to clean up any arc-specific state
+            // Clear arc-specific drag state before releasing the reference
             if (app.dragShape) {
-                if (app.dragShape._dragMidPoint) {
-                    app.dragShape._dragMidPoint = null;
-                }
-                if (app.dragShape._draggingMidTo) {
-                    app.dragShape._draggingMidTo = null;
-                }
+                app.dragShape._dragMidPoint = null;
             }
             
             app.dragShape = null;

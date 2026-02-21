@@ -8,6 +8,7 @@
  */
 
 import { storageManager } from '../core/StorageManager.js';
+import { circumcircle } from '../core/geometry.js';
 
 export class KiCadFetcher {
     constructor() {
@@ -1871,9 +1872,12 @@ export class KiCadFetcher {
         }
         
         // Calculate center and radius from three points
-        const { cx, cy, r } = this._circleFromThreePoints(
-            startX, startY, midX, midY, endX, endY
+        const circ = circumcircle(
+            { x: startX, y: startY }, { x: midX, y: midY }, { x: endX, y: endY }
         );
+        const cx = circ ? circ.cx : midX;
+        const cy = circ ? circ.cy : midY;
+        const r = circ ? circ.radius : 1;
         
         // Calculate angles
         const startAngle = Math.atan2(startY - cy, startX - cx);
@@ -1890,29 +1894,6 @@ export class KiCadFetcher {
             strokeWidth: strokeWidth,
             fill: fill
         };
-    }
-    
-    /**
-     * Calculate circle from three points
-     */
-    _circleFromThreePoints(x1, y1, x2, y2, x3, y3) {
-        const ax = x1, ay = y1;
-        const bx = x2, by = y2;
-        const cx = x3, cy = y3;
-        
-        const d = 2 * (ax * (by - cy) + bx * (cy - ay) + cx * (ay - by));
-        
-        if (Math.abs(d) < 0.0001) {
-            // Points are collinear
-            return { cx: x2, cy: y2, r: 1 };
-        }
-        
-        const ux = ((ax * ax + ay * ay) * (by - cy) + (bx * bx + by * by) * (cy - ay) + (cx * cx + cy * cy) * (ay - by)) / d;
-        const uy = ((ax * ax + ay * ay) * (cx - bx) + (bx * bx + by * by) * (ax - cx) + (cx * cx + cy * cy) * (bx - ax)) / d;
-        
-        const r = Math.sqrt((ax - ux) * (ax - ux) + (ay - uy) * (ay - uy));
-        
-        return { cx: ux, cy: uy, r: r };
     }
     
     /**

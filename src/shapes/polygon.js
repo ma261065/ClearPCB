@@ -3,7 +3,7 @@
  */
 
 import { Shape } from './shape.js';
-import { distanceToSegment } from '../core/geometry.js';
+import { distanceToSegment, pointInPolygon } from '../core/geometry.js';
 
 export class Polygon extends Shape {
     constructor(options = {}) {
@@ -41,28 +41,10 @@ export class Polygon extends Shape {
     }
     
     hitTest(point, tolerance = 0.5) {
-        if (this.fill && this.closed && this._pointInPolygon(point)) {
+        if (this.fill && this.closed && pointInPolygon(point, this.points)) {
             return true;
         }
         return this.distanceTo(point) <= tolerance + this.lineWidth / 2;
-    }
-    
-    _pointInPolygon(point) {
-        const pts = this.points;
-        const n = pts.length;
-        let inside = false;
-        
-        for (let i = 0, j = n - 1; i < n; j = i++) {
-            const xi = pts[i].x, yi = pts[i].y;
-            const xj = pts[j].x, yj = pts[j].y;
-            
-            if (((yi > point.y) !== (yj > point.y)) &&
-                (point.x < (xj - xi) * (point.y - yi) / (yj - yi) + xi)) {
-                inside = !inside;
-            }
-        }
-        
-        return inside;
     }
     
     distanceTo(point) {
