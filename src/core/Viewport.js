@@ -698,10 +698,12 @@ export class Viewport {
         
         for (let worldX = startX; worldX <= endX; worldX += tickSpacingMm) {
             const screenX = this.worldToScreen({ x: worldX, y: 0 }).x;
-            if (screenX < rs || screenX > w) continue;
+            if (screenX > w) continue;
             
-            svg += `<line x1="${screenX}" y1="${rs}" x2="${screenX}" y2="${rs - 8}" stroke="${colors.rulerLine}"/>`;
-            svg += `<text x="${screenX + 2}" y="12" fill="${colors.rulerText}" font-size="10" font-family="monospace">${formatLabel(worldX)}</text>`;
+            if (screenX >= rs) {
+                svg += `<line x1="${screenX}" y1="${rs}" x2="${screenX}" y2="${rs - 8}" stroke="${colors.rulerLine}"/>`;
+                svg += `<text x="${screenX + 2}" y="12" fill="${colors.rulerText}" font-size="10" font-family="monospace">${formatLabel(worldX)}</text>`;
+            }
             
             // Minor ticks
             for (let i = 1; i < 5; i++) {
