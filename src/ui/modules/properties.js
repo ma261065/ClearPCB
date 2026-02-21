@@ -98,8 +98,8 @@ export function updatePropertiesPanel(app, selection) {
             app.ui.propLineWidth.placeholder = '—';
         }
         
-        // Disable if any selected item is a wire
-        if (selection.some(item => item.type === 'wire')) {
+        // Disable if any selected item doesn't support lineWidth editing
+        if (selection.some(item => item.isPropertyEditable && !item.isPropertyEditable('lineWidth'))) {
             app.ui.propLineWidth.disabled = true;
         }
     }
@@ -109,8 +109,8 @@ export function updatePropertiesPanel(app, selection) {
         .map(item => item.fill);
     setCheckboxState(app.ui.propFill, fillValues);
 
-    const hasText = selection.some(item => item?.type === 'text');
-    if (hasText) {
+    // Disable fill if any selected item doesn't support it
+    if (selection.some(item => item.isPropertyEditable && !item.isPropertyEditable('fill'))) {
         app.ui.propFill.checked = false;
         app.ui.propFill.indeterminate = false;
         app.ui.propFill.disabled = true;

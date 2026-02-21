@@ -91,6 +91,10 @@ export class Circle extends Shape {
         return new Circle({ ...this.toJSON(), x: this.x, y: this.y, radius: this.radius });
     }
     
+    captureState() {
+        return { x: this.x, y: this.y, radius: this.radius };
+    }
+    
     toJSON() {
         return { ...super.toJSON(), x: this.x, y: this.y, radius: this.radius };
     }

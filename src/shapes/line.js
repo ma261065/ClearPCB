@@ -81,6 +81,14 @@ export class Line extends Shape {
         return new Line({ ...this.toJSON(), x1: this.x1, y1: this.y1, x2: this.x2, y2: this.y2 });
     }
     
+    captureState() {
+        return { x1: this.x1, y1: this.y1, x2: this.x2, y2: this.y2 };
+    }
+    
+    getPosition() {
+        return { x: this.x1, y: this.y1 };
+    }
+    
     toJSON() {
         return { ...super.toJSON(), x1: this.x1, y1: this.y1, x2: this.x2, y2: this.y2 };
     }

@@ -356,6 +356,58 @@ export class Shape {
         this.invalidate();
     }
     
+    /**
+     * Capture the mutable geometric state for undo/redo.
+     * Override in subclasses to return a plain object snapshot.
+     */
+    captureState() {
+        return {};
+    }
+    
+    /**
+     * Restore a previously captured state.
+     * Override in subclasses if custom deep-copy logic is needed.
+     */
+    applyState(state) {
+        for (const [key, value] of Object.entries(state)) {
+            this[key] = value;
+        }
+        this.invalidate();
+    }
+    
+    /**
+     * Get a reference position for drag offset calculation.
+     * Override in subclasses with non-standard coordinate layouts.
+     */
+    getPosition() {
+        if (typeof this.x === 'number' && typeof this.y === 'number') {
+            return { x: this.x, y: this.y };
+        }
+        return { x: 0, y: 0 };
+    }
+    
+    /**
+     * Get the snap mode for a given anchor during drag.
+     * Returns 'grid' (default), 'none', or 'axis'.
+     */
+    getAnchorSnapMode(anchorId) {
+        return 'grid';
+    }
+    
+    /**
+     * Clean up transient drag state after an anchor drag completes.
+     */
+    resetDragState() {
+        // Override in subclasses that use transient drag properties
+    }
+    
+    /**
+     * Whether a given property can be edited in the properties panel.
+     */
+    isPropertyEditable(prop) {
+        return true;
+    }
+    
     clone() {
         throw new Error('clone() must be implemented by subclass');
     }

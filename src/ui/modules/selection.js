@@ -52,55 +52,10 @@ export function deleteSelected(app) {
 }
 
 export function captureShapeState(app, shape) {
-    switch (shape.type) {
-        case 'rect':
-            return { x: shape.x, y: shape.y, width: shape.width, height: shape.height };
-        case 'circle':
-            return { x: shape.x, y: shape.y, radius: shape.radius };
-        case 'line':
-            return { x1: shape.x1, y1: shape.y1, x2: shape.x2, y2: shape.y2 };
-        case 'arc':
-            // For arc, only capture the actual stored control points, not computed geometry
-            return {
-                bulgePoint: shape.bulgePoint ? { x: shape.bulgePoint.x, y: shape.bulgePoint.y } : undefined,
-                startPoint: shape.startPoint ? { x: shape.startPoint.x, y: shape.startPoint.y } : undefined,
-                endPoint: shape.endPoint ? { x: shape.endPoint.x, y: shape.endPoint.y } : undefined
-            };
-        case 'polygon':
-            return { points: shape.points.map(p => ({ x: p.x, y: p.y })) };
-        case 'wire':
-            return {
-                points: shape.points.map(p => ({ x: p.x, y: p.y })),
-                connections: shape.connections ? {
-                    start: shape.connections.start ? { ...shape.connections.start } : null,
-                    end: shape.connections.end ? { ...shape.connections.end } : null
-                } : null,
-                net: shape.net || ''
-            };
-        case 'text':
-            return { x: shape.x, y: shape.y, text: shape.text, fontSize: shape.fontSize, fontFamily: shape.fontFamily, textAnchor: shape.textAnchor };
-        case 'pad':
-            return { x: shape.x, y: shape.y, width: shape.width, height: shape.height, rotation: shape.rotation,
-                shape: shape.shape, cornerRadius: shape.cornerRadius, hole: shape.hole,
-                holeShape: shape.holeShape, holeWidth: shape.holeWidth, holeHeight: shape.holeHeight };
-        case 'via':
-            return { x: shape.x, y: shape.y, diameter: shape.diameter, hole: shape.hole };
-        default:
-            console.warn('Unknown shape type for state capture:', shape.type);
-            return {};
-    }
+    return shape.captureState();
 }
 
 export function applyShapeState(app, shape, state) {
-    for (const [key, value] of Object.entries(state)) {
-        if (key === 'points' && Array.isArray(value)) {
-            shape.points = value.map(p => ({ x: p.x, y: p.y }));
-        } else if ((key === 'startPoint' || key === 'endPoint' || key === 'bulgePoint') && value) {
-            shape[key] = { x: value.x, y: value.y };
-        } else {
-            shape[key] = value;
-        }
-    }
-    shape.invalidate();
+    shape.applyState(state);
     app.renderShapes(true);
 }

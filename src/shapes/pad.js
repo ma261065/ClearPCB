@@ -152,6 +152,12 @@ export class Pad extends Shape {
         return new Pad({ ...this.toJSON() });
     }
     
+    captureState() {
+        return { x: this.x, y: this.y, width: this.width, height: this.height, rotation: this.rotation,
+            shape: this.shape, cornerRadius: this.cornerRadius, hole: this.hole,
+            holeShape: this.holeShape, holeWidth: this.holeWidth, holeHeight: this.holeHeight };
+    }
+    
     toJSON() {
         return {
             ...super.toJSON(),

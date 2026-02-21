@@ -182,8 +182,8 @@ export function updateShapePanelOptions(app, selection, toolIdArg) {
                     lineWidthInput.placeholder = '—';
                 }
                 
-                // Disable if any selected item is a wire
-                if (items.some(item => item.type === 'wire')) {
+                // Disable if any selected item doesn't support lineWidth editing
+                if (items.some(item => item.isPropertyEditable && !item.isPropertyEditable('lineWidth'))) {
                     lineWidthInput.disabled = true;
                 }
             }

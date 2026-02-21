@@ -78,6 +78,10 @@ export class Via extends Shape {
         return new Via({ ...this.toJSON() });
     }
     
+    captureState() {
+        return { x: this.x, y: this.y, diameter: this.diameter, hole: this.hole };
+    }
+    
     toJSON() {
         return {
             ...super.toJSON(),

@@ -116,6 +116,15 @@ export class Text extends Shape {
             textAnchor: this.textAnchor
         });
     }
+    
+    captureState() {
+        return { x: this.x, y: this.y, text: this.text, fontSize: this.fontSize, fontFamily: this.fontFamily, textAnchor: this.textAnchor };
+    }
+    
+    isPropertyEditable(prop) {
+        if (prop === 'fill' || prop === 'lineWidth') return false;
+        return true;
+    }
 
     toJSON() {
         return {

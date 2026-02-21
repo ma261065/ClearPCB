@@ -301,6 +301,33 @@ export class Arc extends Shape {
         return new Arc(this.toJSON());
     }
     
+    captureState() {
+        return {
+            startPoint: { x: this._startPoint.x, y: this._startPoint.y },
+            endPoint: { x: this._endPoint.x, y: this._endPoint.y },
+            bulgePoint: { x: this._bulgePoint.x, y: this._bulgePoint.y }
+        };
+    }
+    
+    applyState(state) {
+        if (state.startPoint) this.startPoint = { x: state.startPoint.x, y: state.startPoint.y };
+        if (state.endPoint) this.endPoint = { x: state.endPoint.x, y: state.endPoint.y };
+        if (state.bulgePoint) this.bulgePoint = { x: state.bulgePoint.x, y: state.bulgePoint.y };
+        this.invalidate();
+    }
+    
+    getPosition() {
+        return { x: this._startPoint.x, y: this._startPoint.y };
+    }
+    
+    getAnchorSnapMode(anchorId) {
+        return anchorId === 'mid' ? 'none' : 'grid';
+    }
+    
+    resetDragState() {
+        this._dragMidPoint = null;
+    }
+    
     toJSON() {
         return {
             ...super.toJSON(),

@@ -257,17 +257,7 @@ export class ModifyShapeCommand extends Command {
     }
 
     _applyState(shape, state) {
-        for (const [key, value] of Object.entries(state)) {
-            if (key === 'points' && Array.isArray(value)) {
-                // Deep copy for points array
-                shape.points = value.map(p => ({ ...p }));
-            } else if ((key === 'startPoint' || key === 'endPoint' || key === 'bulgePoint') && value) {
-                shape[key] = { x: value.x, y: value.y };
-            } else {
-                shape[key] = value;
-            }
-        }
-        shape.invalidate();
+        shape.applyState(state);
         this.app.renderShapes(true);
     }
 }

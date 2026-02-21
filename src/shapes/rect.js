@@ -172,8 +172,10 @@ export class Rect extends Shape {
     clone() {
         return new Rect({ ...this.toJSON(), x: this.x, y: this.y, width: this.width, height: this.height, cornerRadius: this.cornerRadius });
     }
-    
-    toJSON() {
+        captureState() {
+        return { x: this.x, y: this.y, width: this.width, height: this.height };
+    }
+        toJSON() {
         return { ...super.toJSON(), x: this.x, y: this.y, width: this.width, height: this.height, cornerRadius: this.cornerRadius };
     }
 }

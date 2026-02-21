@@ -185,6 +185,39 @@ export class Wire extends Shape {
             points: this.points.map(p => ({ ...p }))
         });
     }
+    
+    captureState() {
+        return {
+            points: this.points.map(p => ({ x: p.x, y: p.y })),
+            connections: {
+                start: this.connections.start ? { ...this.connections.start } : null,
+                end: this.connections.end ? { ...this.connections.end } : null
+            },
+            net: this.net
+        };
+    }
+    
+    applyState(state) {
+        if (state.points) {
+            this.points = state.points.map(p => ({ x: p.x, y: p.y }));
+        }
+        if (state.connections !== undefined) this.connections = state.connections;
+        if (state.net !== undefined) this.net = state.net;
+        this.invalidate();
+    }
+    
+    getPosition() {
+        return this.points.length > 0 ? { x: this.points[0].x, y: this.points[0].y } : { x: 0, y: 0 };
+    }
+    
+    getAnchorSnapMode(anchorId) {
+        return 'axis';
+    }
+    
+    isPropertyEditable(prop) {
+        if (prop === 'lineWidth') return false;
+        return true;
+    }
 
     /**
      * Serialize to JSON

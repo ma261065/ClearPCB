@@ -117,24 +117,15 @@ export function bindMouseEvents(app) {
                 // Store the actual unsnapped position of the first selected shape
                 const firstShape = app.selection.getSelection()[0];
                 if (firstShape) {
-                    // Handle different shape types (some use x/y, some use points, some use x1/y1)
-                    if (typeof firstShape.x === 'number' && typeof firstShape.y === 'number') {
-                        app.dragObjectStartPos = { x: firstShape.x, y: firstShape.y };
-                    } else if (typeof firstShape.x1 === 'number' && typeof firstShape.y1 === 'number') {
-                        app.dragObjectStartPos = { x: firstShape.x1, y: firstShape.y1 };
-                    } else if (firstShape.points && firstShape.points.length > 0) {
-                        app.dragObjectStartPos = { x: firstShape.points[0].x, y: firstShape.points[0].y };
-                    } else {
-                        app.dragObjectStartPos = { ...snapped };
-                    }
+                    app.dragObjectStartPos = firstShape.getPosition();
                 } else {
                     app.dragObjectStartPos = { ...snapped };
                 }
                 // Snap object's current position to current grid in case grid changed
                 const objectSnapped = app.viewport.getSnappedPosition(app.dragObjectStartPos);
                 // If object is off-grid, move it to grid before drag
-                // (Skip for arcs - their geometry is computed from three control points, not a single x,y position)
-                if (firstShape && firstShape.type !== 'arc' && 
+                // (Skip for shapes that don't support grid snap, e.g. arcs with computed geometry)
+                if (firstShape && firstShape.getAnchorSnapMode() !== 'none' && 
                     (objectSnapped.x !== app.dragObjectStartPos.x || objectSnapped.y !== app.dragObjectStartPos.y)) {
                     const adjX = objectSnapped.x - app.dragObjectStartPos.x;
                     const adjY = objectSnapped.y - app.dragObjectStartPos.y;
@@ -376,12 +367,11 @@ export function bindMouseEvents(app) {
                     app.dragAnchorId = anchorId;
                     app.dragShape = shape;
                     app.dragWireAnchorOriginal = null;
-                    if (shape.type === 'wire') {
-                        const match = anchorId.match(/point(\d+)/);
-                        const idx = match ? parseInt(match[1]) : null;
-                        if (idx !== null && idx >= 0 && idx < shape.points.length) {
-                            const current = shape.points[idx];
-                            app.dragWireAnchorOriginal = { x: current.x, y: current.y };
+                    // For axis-snap anchors, capture the original anchor position
+                    if (shape.getAnchorSnapMode(anchorId) === 'axis') {
+                        const anchor = shape.getAnchors().find(a => a.id === anchorId);
+                        if (anchor) {
+                            app.dragWireAnchorOriginal = { x: anchor.x, y: anchor.y };
                         }
                     }
                     app.dragShapesBefore = app._captureShapeState(shape);
@@ -433,10 +423,11 @@ export function bindMouseEvents(app) {
             
             // For arc mid-anchor, use worldPos (not snapped). For everything else, use snapped.
             let anchorPos;
-            if (app.dragShape.type === 'wire') {
+            const snapMode = app.dragShape.getAnchorSnapMode(app.dragAnchorId);
+            if (snapMode === 'axis') {
                 anchorPos = app._getWireAnchorSnappedPosition(app.dragShape, app.dragAnchorId, worldPos);
-            } else if (app.dragShape.type === 'arc' && app.dragAnchorId === 'mid') {
-                anchorPos = worldPos; // No snapping for arc mid-anchor
+            } else if (snapMode === 'none') {
+                anchorPos = worldPos;
             } else {
                 anchorPos = snapped;
             }
@@ -521,9 +512,9 @@ export function bindMouseEvents(app) {
             app.dragStart = null;
             app.dragAnchorId = null;
             
-            // Clear arc-specific drag state before releasing the reference
+            // Clear transient drag state before releasing the reference
             if (app.dragShape) {
-                app.dragShape._dragMidPoint = null;
+                app.dragShape.resetDragState();
             }
             
             app.dragShape = null;

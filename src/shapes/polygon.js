@@ -124,6 +124,21 @@ export class Polygon extends Shape {
         });
     }
     
+    captureState() {
+        return { points: this.points.map(p => ({ x: p.x, y: p.y })) };
+    }
+    
+    applyState(state) {
+        if (state.points) {
+            this.points = state.points.map(p => ({ x: p.x, y: p.y }));
+        }
+        this.invalidate();
+    }
+    
+    getPosition() {
+        return this.points.length > 0 ? { x: this.points[0].x, y: this.points[0].y } : { x: 0, y: 0 };
+    }
+    
     toJSON() {
         return {
             ...super.toJSON(),
