@@ -6,8 +6,8 @@ import { CommandHistory } from '../core/CommandHistory.js';
 import { SelectionManager } from '../core/SelectionManager.js';
 import { FileManager } from '../core/FileManager.js';
 import { ComponentPicker } from '../components/ComponentPicker.js';
-import { Line, Wire, Circle, Rect, Arc, Polygon, Text, createShape } from '../shapes/index.js';
-import { Component, getComponentLibrary } from '../components/index.js';
+import { createShape } from '../shapes/index.js';
+import { getComponentLibrary } from '../components/index.js';
 import { bindMouseEvents } from './modules/mouse.js';
 import { handleEscape, bindKeyboardShortcuts } from './modules/keyboard.js';
 import { bindPropertiesPanel, applyCommonProperty, updatePropertiesPanel } from './modules/properties.js';
@@ -42,8 +42,7 @@ import {
     renderShapes
 } from './modules/shape-management.js';
 
-// Shape classes are imported individually for drawing.js and other modules
-// that construct specific types. For deserialization, use createShape() from shapes/index.js.
+// Shape construction uses createShape() from shapes/index.js.
 
 class SchematicApp {
 

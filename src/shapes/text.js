@@ -83,7 +83,7 @@ export class Text extends Shape {
         return document.createElementNS('http://www.w3.org/2000/svg', 'text');
     }
 
-    _updateElement(el, strokeColor, fillColor) {
+    _updateElement(el, strokeColor, fillColor, scale) {
         el.setAttribute('x', this.x);
         el.setAttribute('y', this.y);
         el.setAttribute('fill', this.fill ? fillColor : 'none');

@@ -1,3 +1,5 @@
+import { createLockIcon, LOCK_SIZE } from '../core/ui-helpers.js';
+
 /**
  * Component class - represents an electronic component instance on the schematic
  */
@@ -204,64 +206,10 @@ export class Component {
         // Draw lock icon when locked and selected
         if (this.locked && this.selected) {
             const localBounds = this._getLocalBounds();
-            
-            const ns = 'http://www.w3.org/2000/svg';
-            const lockGroup = document.createElementNS(ns, 'g');
-            lockGroup.setAttribute('class', 'component-lock-icon');
-            lockGroup.style.cursor = 'pointer';
-            
-            const lockSize = 0.8; // world units
             const offset = 0.6;
-            const strokeW = 0.15;
-            
-            // Position lock icon at top-left of local component bounds
-            const lockX = localBounds.minX - offset - lockSize;
-            const lockY = localBounds.minY - offset - lockSize * 0.6;
-            
-            const bodyW = lockSize;
-            const bodyH = lockSize * 0.7;
-            const bodyY = lockY + bodyH * 0.25;
-            
-            // Lock body
-            const body = document.createElementNS(ns, 'rect');
-            body.setAttribute('x', lockX);
-            body.setAttribute('y', bodyY);
-            body.setAttribute('width', bodyW);
-            body.setAttribute('height', bodyH);
-            body.setAttribute('rx', lockSize * 0.12);
-            body.setAttribute('fill', 'var(--lock-icon, #666666)');
-            body.setAttribute('stroke', 'var(--lock-icon, #666666)');
-            body.setAttribute('stroke-width', strokeW);
-            lockGroup.appendChild(body);
-            
-            // Lock shackle
-            const shackleR = bodyW * 0.35;
-            const shackleY = lockY + bodyH * 0.25;
-            const shacklePath = document.createElementNS(ns, 'path');
-            const shackleCx = lockX + bodyW / 2;
-            const shackleD = `M ${shackleCx - shackleR} ${shackleY} ` +
-                `A ${shackleR} ${shackleR} 0 0 1 ${shackleCx + shackleR} ${shackleY}`;
-            shacklePath.setAttribute('d', shackleD);
-            shacklePath.setAttribute('fill', 'none');
-            shacklePath.setAttribute('stroke', 'var(--lock-icon, #666666)');
-            shacklePath.setAttribute('stroke-width', strokeW);
-            lockGroup.appendChild(shacklePath);
-            
-            // Click handler to unlock the component
-            const comp = this;
-            lockGroup.addEventListener('mousedown', (e) => {
-                e.stopPropagation();
-                e.preventDefault();
-            });
-            lockGroup.addEventListener('click', (e) => {
-                e.stopPropagation();
-                comp.element.dispatchEvent(new CustomEvent('unlock-shape', {
-                    bubbles: true,
-                    detail: { shape: comp }
-                }));
-            });
-            
-            this.element.appendChild(lockGroup);
+            const lockX = localBounds.minX - offset - LOCK_SIZE;
+            const lockY = localBounds.minY - offset - LOCK_SIZE * 0.6;
+            this.element.appendChild(createLockIcon(lockX, lockY, this, 'component-lock-icon'));
         }
     }
 
