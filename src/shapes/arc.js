@@ -240,7 +240,29 @@ export class Arc extends Shape {
     }
     
     getMidPoint() {
-        return { x: this._bulgePoint.x, y: this._bulgePoint.y };
+        const geo = this._getGeometry();
+        const { cx, cy, radius, sweepFlag } = geo;
+
+        // Use the same sweepFlag that drives SVG rendering so the
+        // anchor always sits on the drawn curve.
+        const TWO_PI = Math.PI * 2;
+        const mod = (a) => ((a % TWO_PI) + TWO_PI) % TWO_PI;
+
+        let midAngle;
+        if (sweepFlag === 1) {
+            // CW in SVG (positive-angle / increasing atan2 with Y-down)
+            const span = mod(geo.endAngle - geo.startAngle);
+            midAngle = geo.startAngle + span / 2;
+        } else {
+            // CCW in SVG (decreasing angles)
+            const span = mod(geo.startAngle - geo.endAngle);
+            midAngle = geo.startAngle - span / 2;
+        }
+
+        return {
+            x: cx + radius * Math.cos(midAngle),
+            y: cy + radius * Math.sin(midAngle)
+        };
     }
     
     moveAnchor(anchorId, x, y) {
@@ -255,7 +277,28 @@ export class Arc extends Shape {
             }
         } else if (anchorId === 'mid') {
             this._dragMidPoint = null;
-            // Clamp bulge to maximum curvature, then set new position
+
+            // Project cursor onto the perpendicular bisector of the chord.
+            // This means only the perpendicular distance from the chord
+            // controls the bulge — for a horizontal arc only cursor-Y matters,
+            // for a vertical arc only cursor-X matters, etc.
+            const mx = (start.x + end.x) / 2;
+            const my = (start.y + end.y) / 2;
+            const chordDx = end.x - start.x;
+            const chordDy = end.y - start.y;
+            // Perpendicular direction (unnormalised)
+            const nx = -chordDy;
+            const ny = chordDx;
+            const nLenSq = nx * nx + ny * ny;
+
+            if (nLenSq > 1e-12) {
+                // Scalar projection of (cursor − midpoint) onto perp direction
+                const t = ((x - mx) * nx + (y - my) * ny) / nLenSq;
+                x = mx + t * nx;
+                y = my + t * ny;
+            }
+            // else degenerate chord (start ≈ end); fall through with raw position
+
             const clamped = this._clampBulgePoint(start.x, start.y, end.x, end.y, x, y);
             x = clamped.x;
             y = clamped.y;
