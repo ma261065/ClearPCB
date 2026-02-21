@@ -568,12 +568,12 @@ class SchematicApp {
     
     // Update SelectionManager with all selectable items (shapes + components)
     _updateSelectableItems() {
-        updateSelectableItems(this);
+        ComponentTools.updateSelectableItems(this);
     }
     
     // Generate a reference designator for a component
     _generateReference(definition) {
-        return generateReference(this, definition);
+        return ComponentTools.generateReference(this, definition);
     }
     
     // Rotate component during placement (or selected components)
