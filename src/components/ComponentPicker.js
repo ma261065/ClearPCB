@@ -461,18 +461,7 @@ export class ComponentPicker {
                 this._setFootprintPreviewStatus('Footprint not specified', false);
                 this._set3dPreviewStatus('3D model not verified', false);
                 // Allow placement even without a footprint — it's a schematic symbol
-                const placeDefNoFp = kicadDefinition?.symbol
-                    ? { ...kicadDefinition, _source: 'KiCad' }
-                    : {
-                        name: `KiCad_${result.name}`,
-                        description: `${result.name} from KiCad ${result.library} library`,
-                        category: 'KiCad',
-                        symbol: kicadSymbol,
-                        _source: 'KiCad'
-                    };
-                if (kicadSymbol?._kicadRaw) {
-                    placeDefNoFp._kicadRaw = kicadSymbol._kicadRaw;
-                }
+                const placeDefNoFp = this._buildKiCadDefinition(kicadDefinition, result);
                 const hasRenderable = (kicadSymbol?.pins?.length || 0) > 0 || (kicadSymbol?.graphics?.length || 0) > 0;
                 this.placeBtn.disabled = !hasRenderable;
                 this.placeBtn.textContent = hasRenderable ? 'Place Component' : 'No symbol data';
@@ -533,18 +522,7 @@ export class ComponentPicker {
             }
 
             const ready = availability.hasFootprint;
-            const placeDefinition = kicadDefinition?.symbol
-                ? { ...kicadDefinition, _source: 'KiCad' }
-                : {
-                    name: `KiCad_${result.name}`,
-                    description: `${result.name} from KiCad ${result.library} library`,
-                    category: 'KiCad',
-                    symbol: kicadSymbol,
-                    _source: 'KiCad'
-                };
-            if (kicadSymbol?._kicadRaw) {
-                placeDefinition._kicadRaw = kicadSymbol._kicadRaw;
-            }
+            const placeDefinition = this._buildKiCadDefinition(kicadDefinition, result);
             this.placeBtn.disabled = !ready;
             this.placeBtn.textContent = ready ? 'Place Component' : 'Missing footprint';
             this.placeBtn.onclick = ready
@@ -587,15 +565,7 @@ export class ComponentPicker {
                 }
 
                 // Create a component definition from KiCad data
-                const definition = kicadData?.symbol
-                    ? { ...kicadData, _source: 'KiCad' }
-                    : {
-                        name: `KiCad_${result.name}`,
-                        description: `${result.name} from KiCad ${result.library} library`,
-                        category: 'KiCad',
-                        symbol: kicadSymbol,
-                        _source: 'KiCad'
-                    };
+                const definition = this._buildKiCadDefinition(kicadData, result);
                 
                 this.library.addDefinition(definition, 'KiCad');
                 this._beginPlacement(definition, { skipFootprint3d: true });
@@ -1692,6 +1662,23 @@ export class ComponentPicker {
         return svg;
     }
 
+
+    _buildKiCadDefinition(kicadData, result) {
+        const kicadSymbol = kicadData?.symbol || kicadData;
+        const kicadProperties = kicadData?.properties || kicadData?.symbol?.properties || kicadSymbol?.properties;
+        const def = kicadData?.symbol
+            ? { ...kicadData, _source: 'KiCad' }
+            : {
+                name: `KiCad_${result.name}`,
+                description: `${result.name} from KiCad ${result.library} library`,
+                category: 'KiCad',
+                symbol: kicadSymbol,
+                _source: 'KiCad'
+            };
+        def.defaultValue = this._getPropertyValue(kicadProperties, 'Value') || result.name;
+        if (kicadSymbol?._kicadRaw) def._kicadRaw = kicadSymbol._kicadRaw;
+        return def;
+    }
 
     _getPropertyValue(properties, key) {
         if (!properties || typeof properties !== 'object') return '';

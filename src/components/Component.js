@@ -62,47 +62,52 @@ export class Component {
 
     /**
      * Create the Reference and Value Text shapes as independent shapes.
-     * Call once after the component is placed. Adds them to app.shapes
-     * and the viewport.
+     * Reference is placed centered above the symbol, Value centered below.
+     * Both use 1.778mm font (≈7pt/70mil). Call once after the component
+     * is placed. Adds them to app.shapes and the viewport.
      */
     createFieldTexts(app) {
         const symbol = this.symbol;
-        if (!symbol?.graphics) return;
+        if (!symbol) return;
 
-        for (const g of symbol.graphics) {
-            if (g.type !== 'text') continue;
-            const tmpl = g.text || '';
-            const isRef = tmpl.includes('${REF}');
-            const isVal = tmpl.includes('${VALUE}');
-            if (!isRef && !isVal) continue;
+        // Compute local bounds (already includes 1.0 padding — matches the
+        // selection / bounding box the user sees)
+        const lb = this._getLocalBounds();
+        // Center x — undo mirror swap so localToWorld works correctly
+        let cx = (lb.minX + lb.maxX) / 2;
+        if (this.mirror) cx = -cx;
 
-            // Get world position from local symbol coords
-            const world = this.localToWorld(g.x, g.y);
+        const fontSize = 1.778;   // 7pt / 70mil
+        const gap = 0.4;          // spacing outside the bounding box
 
-            const source = symbol._source || this.definition?._source;
-            const textScale = source === 'KiCad' ? 1.6 : 1.0;
+        // Reference: alphabetic baseline means glyph bottoms sit at the y coord,
+        // so offset by ~70% of fontSize (cap height) to clear the box edge.
+        const refLocal  = { x: cx, y: lb.minY - gap - fontSize * 0.35 };
+        const valLocal  = { x: cx, y: lb.maxY + gap + fontSize };
 
+        const fields = [
+            { key: 'reference', label: this.reference, local: refLocal, visible: this.showReference },
+            { key: 'value',     label: this.value,     local: valLocal, visible: this.showValue }
+        ];
+
+        for (const f of fields) {
+            const world = this.localToWorld(f.local.x, f.local.y);
             const text = new Text({
                 x: world.x,
                 y: world.y,
-                text: isRef ? this.reference : this.value,
-                fontSize: (g.fontSize || 1.5) * textScale,
-                fontFamily: source === 'KiCad' ? 'Verdana' : 'Arial',
-                textAnchor: g.anchor || 'start',
+                text: f.label,
+                fontSize,
+                fontFamily: 'Arial',
+                textAnchor: 'middle',
                 color: '#cccccc'
             });
             text.parentComponent = this;
-            text.fieldKey = isRef ? 'reference' : 'value';
+            text.fieldKey = f.key;
+            text.visible = f.visible;
 
-            if (isRef) {
-                this.refText = text;
-                text.visible = this.showReference;
-            } else {
-                this.valueText = text;
-                text.visible = this.showValue;
-            }
+            if (f.key === 'reference') this.refText = text;
+            else this.valueText = text;
 
-            // Add to app
             app.shapes.push(text);
             text.render(app.viewport.scale);
             app.viewport.addContent(text.element);

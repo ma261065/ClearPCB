@@ -282,6 +282,7 @@ export class ComponentLibrary {
             name: `LCSC_${lcscId}`,
             description: metadata.description,
             category: metadata.category || 'LCSC',
+            defaultValue: metadata.mpn || metadata.description || lcscId,
             datasheet: metadata.datasheet,
             symbol: symbol,
             // LCSC-specific metadata
