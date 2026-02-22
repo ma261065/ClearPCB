@@ -256,9 +256,14 @@ export class ComponentPicker {
         const fetcher = this.library.kicadFetcher;
         if (!fetcher.libraryIndex) {
             await fetcher.ensureIndexLoaded((progress) => {
-                this._showIndexingProgress(progress.message, progress.loaded, progress.total);
+                // Only show indexing progress if still in LCSC mode and same search
+                if (this.searchMode === 'lcsc' && this._searchGeneration === searchId) {
+                    this._showIndexingProgress(progress.message, progress.loaded, progress.total);
+                }
             });
             if (this._searchGeneration !== searchId) return;
+            // If user switched to local mode while indexing, abort this search
+            if (this.searchMode !== 'lcsc') return;
         }
         
         this._showLoading();
