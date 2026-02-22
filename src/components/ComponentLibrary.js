@@ -922,10 +922,15 @@ export class ComponentLibrary {
             const fontSize = Number.isFinite(pos.fontSize)
                 ? pos.fontSize * scale
                 : null;
+            // EasyEDA positions text by its top-left corner.  Shift y up
+            // by half the cap-height so `dominant-baseline: middle` centres
+            // the text at the intended visual midpoint.
+            const capHeightFraction = 0.4;   // approx cap-height / fontSize
+            const yShift = fontSize ? fontSize * capHeightFraction : 0;
             return {
                 ...pos,
                 x: (pos.x - offsetX) * scale,
-                y: (pos.y - offsetY) * scale,
+                y: (pos.y - offsetY) * scale - yShift,
                 fontSize
             };
         };

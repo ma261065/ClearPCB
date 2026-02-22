@@ -776,7 +776,7 @@ export class Component {
         // _readablePinText will add 180° to the text rotation.
         // We must also reflect the text position across the pin line
         // so it stays on the correct side visually.
-        if (source !== 'EasyEDA') {
+        {
             const _reflectPerp = (vis, tX, tY) => {
                 if (vis > 90 && vis <= 270) {
                     if (orient === 'right' || orient === 'left')
@@ -861,9 +861,7 @@ export class Component {
             if (effNameAnchor) {
                 nameTxt.setAttribute('text-anchor', effNameAnchor);
             }
-            if (this.symbol?._source !== 'EasyEDA') {
-                nameTxt.setAttribute('dominant-baseline', 'middle');
-            }
+            nameTxt.setAttribute('dominant-baseline', 'middle');
             nameTxt.textContent = cleanName;
 
             if (effNameRot !== 0) {
@@ -916,8 +914,8 @@ export class Component {
                 numTxt.setAttribute('text-anchor', effNumAnchor);
             }
             if (this.symbol?._source === 'KiCad') {
-                numTxt.setAttribute('dominant-baseline', numRead.flipped ? 'text-before-edge' : 'text-after-edge');
-            } else if (this.symbol?._source !== 'EasyEDA') {
+                numTxt.setAttribute('dominant-baseline', 'text-after-edge');
+            } else {
                 numTxt.setAttribute('dominant-baseline', 'middle');
             }
             numTxt.textContent = pin.number;
