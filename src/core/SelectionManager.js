@@ -73,7 +73,7 @@ export class SelectionManager {
             const hits = [];
             for (let i = this.shapes.length - 1; i >= 0; i--) {
                 const shape = this.shapes[i];
-                if (!shape.visible) continue;
+                if (!shape.visible || shape._culled) continue;
                 if (shape.hitTest(point, this.tolerance)) {
                     hits.push(shape);
                 }
@@ -90,7 +90,7 @@ export class SelectionManager {
         // Pass 1: Check selected items
         for (let i = this.shapes.length - 1; i >= 0; i--) {
             const shape = this.shapes[i];
-            if (!shape.visible || !shape.selected) continue;
+            if (!shape.visible || shape._culled || !shape.selected) continue;
             
             if (shape.hitTest(point, this.tolerance)) {
                 this.hitTestCache.lastPoint = cacheKey;
@@ -103,7 +103,7 @@ export class SelectionManager {
         // Pass 2: Check unselected items
         for (let i = this.shapes.length - 1; i >= 0; i--) {
             const shape = this.shapes[i];
-            if (!shape.visible || shape.selected) continue;
+            if (!shape.visible || shape._culled || shape.selected) continue;
             
             if (shape.hitTest(point, this.tolerance)) {
                this.hitTestCache.lastPoint = cacheKey;

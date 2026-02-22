@@ -460,19 +460,26 @@ body {
     -webkit-user-select: none;
 }
 
-.ribbon-properties .ribbon-group-items {
+/* Properties panel – prop-row layout inside ribbon-group-items */
+[data-panel="properties"] .ribbon-group-items {
     flex-direction: row;
-    align-items: center;
     flex-wrap: wrap;
-    gap: 10px;
-    overflow: visible;
+    align-items: center;
+    gap: 4px 8px;
 }
 
-.ribbon-group.ribbon-properties {
-    flex: 0 0 auto;
-    width: max-content;
-    min-width: max-content;
+[data-panel="properties"] .ribbon-group {
+    min-width: 0;
+    height: 100%;
 }
+
+/* Paste-preview ghost: override selection highlight colours via CSS
+   so we don't need per-element querySelectorAll fixup */
+.paste-preview [stroke="#e94560"] { stroke: currentColor; }
+.paste-preview [fill="#e94560"]   { fill: currentColor; }
+
+/* Viewport culling — hide off-screen elements so the SVG renderer skips them */
+.culled { display: none !important; }
 
 .ribbon-help .ribbon-group-items {
     flex-direction: row;

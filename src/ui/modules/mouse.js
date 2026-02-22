@@ -32,6 +32,12 @@ export function bindMouseEvents(app) {
         const worldPos = app.viewport.screenToWorld(screenPos);
         const snapped = app.viewport.getSnappedPosition(worldPos);
 
+        if (app.pastingClipboard) {
+            app._confirmPaste(snapped);
+            e.preventDefault();
+            return;
+        }
+
         if (app.placingComponent) {
             app._placeComponent(snapped);
             e.preventDefault();
@@ -306,8 +312,11 @@ export function bindMouseEvents(app) {
             }
         }
 
-        // Always update component preview if we are placing one.
+        // Always update paste/component preview if active.
         // This must happen before any tool-specific logic or returns.
+        if (app.pastingClipboard) {
+            app._updatePastePreview(snapped);
+        }
         if (app.placingComponent) {
             app._updateComponentPreview(snapped);
         }

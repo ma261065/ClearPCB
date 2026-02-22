@@ -440,16 +440,18 @@ export class Viewport {
                 currentBounds.maxX !== this.cachedVisibleBounds.maxX ||
                 currentBounds.maxY !== this.cachedVisibleBounds.maxY;
             
+            const scaleChanged = this._lastNotifiedScale !== this.scale;
+
             // Only redraw if bounds actually changed
             if (boundsChanged) {
                 this.cachedVisibleBounds = currentBounds;
-                if (this.gridDirty) this._createGrid();
+                // Grid only needs full redraw when scale changes (stroke-width, spacing)
+                if (this.gridDirty && scaleChanged) this._createGrid();
                 if (this.paperDirty) this._drawPaperOutline();
                 this._createRulers();
             }
             
             if (this.onViewChanged) {
-                const scaleChanged = this._lastNotifiedScale !== this.scale;
                 this._lastNotifiedScale = this.scale;
                 this.onViewChanged({
                     offset: this.offset,
@@ -491,16 +493,18 @@ export class Viewport {
         if (!this.gridVisible) return;
         
         const bounds = this.getVisibleBounds();
-        const margin = Math.max(bounds.maxX - bounds.minX, bounds.maxY - bounds.minY);
         
         // Use the shared adaptive grid spacing calculation
         const gridSpacing = this.getEffectiveGridSize();
         
-        // Calculate range for lines/axes
-        const startX = Math.floor((bounds.minX - margin) / gridSpacing) * gridSpacing;
-        const endX = Math.ceil((bounds.maxX + margin) / gridSpacing) * gridSpacing;
-        const startY = Math.floor((bounds.minY - margin) / gridSpacing) * gridSpacing;
-        const endY = Math.ceil((bounds.maxY + margin) / gridSpacing) * gridSpacing;
+        // Large fixed coverage rect — pattern tiles automatically, no per-line DOM.
+        // Use 10× viewport so pan doesn't reveal edges before next rAF redraw.
+        const w = (bounds.maxX - bounds.minX) * 10;
+        const h = (bounds.maxY - bounds.minY) * 10;
+        const cx = (bounds.minX + bounds.maxX) / 2;
+        const cy = (bounds.minY + bounds.maxY) / 2;
+        const startX = cx - w / 2;
+        const startY = cy - h / 2;
         
         // Line width in world units (1 screen pixel)
         const strokeWidth = 1 / this.scale;
@@ -509,46 +513,36 @@ export class Viewport {
         const colors = this.themeColors || this._getThemeColors();
         
         if (this.gridStyle === 'dots') {
-            // Use SVG pattern for efficient dot grid
+            // SVG pattern for dot grid
             const dotSize = strokeWidth * 2.5;
-            const patternId = 'dotPattern';
-            
-            // Pattern origin aligns with world grid
-            const patternX = Math.floor(startX / gridSpacing) * gridSpacing;
-            const patternY = Math.floor(startY / gridSpacing) * gridSpacing;
-            
             const svg = `
                 <defs>
-                    <pattern id="${patternId}" x="${patternX}" y="${patternY}" width="${gridSpacing}" height="${gridSpacing}" patternUnits="userSpaceOnUse">
+                    <pattern id="gridPattern" x="0" y="0" width="${gridSpacing}" height="${gridSpacing}" patternUnits="userSpaceOnUse">
                         <circle cx="0" cy="0" r="${dotSize}" fill="${colors.gridMajor}"/>
                     </pattern>
                 </defs>
-                <rect x="${startX}" y="${startY}" width="${endX - startX}" height="${endY - startY}" fill="url(#${patternId})"/>
+                <rect x="${startX}" y="${startY}" width="${w}" height="${h}" fill="url(#gridPattern)"/>
             `;
             this.gridLayer.innerHTML = svg;
         } else {
-            // Line grid
-            let lines = `<g stroke="${colors.gridMinor}" stroke-width="${strokeWidth}">`;
-            
-            for (let x = startX; x <= endX; x += gridSpacing) {
-                if (Math.abs(x) < gridSpacing / 2) continue;
-                lines += `<line x1="${x}" y1="${startY}" x2="${x}" y2="${endY}"/>`;
-            }
-            
-            for (let y = startY; y <= endY; y += gridSpacing) {
-                if (Math.abs(y) < gridSpacing / 2) continue;
-                lines += `<line x1="${startX}" y1="${y}" x2="${endX}" y2="${y}"/>`;
-            }
-            
-            lines += '</g>';
-            this.gridLayer.innerHTML = lines;
+            // SVG pattern for line grid — 2 lines per cell instead of hundreds of <line> elements
+            const svg = `
+                <defs>
+                    <pattern id="gridPattern" x="0" y="0" width="${gridSpacing}" height="${gridSpacing}" patternUnits="userSpaceOnUse">
+                        <line x1="0" y1="0" x2="0" y2="${gridSpacing}" stroke="${colors.gridMinor}" stroke-width="${strokeWidth}"/>
+                        <line x1="0" y1="0" x2="${gridSpacing}" y2="0" stroke="${colors.gridMinor}" stroke-width="${strokeWidth}"/>
+                    </pattern>
+                </defs>
+                <rect x="${startX}" y="${startY}" width="${w}" height="${h}" fill="url(#gridPattern)"/>
+            `;
+            this.gridLayer.innerHTML = svg;
         }
         
-        // Axes
+        // Axes  — only two lines
         const axes = `
             <g stroke="${colors.axis}" stroke-width="${strokeWidth}">
-                <line x1="${startX}" y1="0" x2="${endX}" y2="0"/>
-                <line x1="0" y1="${startY}" x2="0" y2="${endY}"/>
+                <line x1="${startX}" y1="0" x2="${startX + w}" y2="0"/>
+                <line x1="0" y1="${startY}" x2="0" y2="${startY + h}"/>
             </g>
         `;
         this.axesLayer.innerHTML = axes;
@@ -895,12 +889,13 @@ export class Viewport {
                 this.viewBox.x = this.panStartViewBox.x - dx;
                 this.viewBox.y = this.panStartViewBox.y - dy;
                 this._updateViewBox();
-                // Throttle ruler updates during pan via rAF
-                if (!this._rulerUpdatePending) {
-                    this._rulerUpdatePending = true;
+                // Throttle ruler + cull updates during pan via rAF
+                if (!this._panUpdatePending) {
+                    this._panUpdatePending = true;
                     requestAnimationFrame(() => {
-                        this._rulerUpdatePending = false;
+                        this._panUpdatePending = false;
                         this._createRulers();
+                        if (this.onViewportCull) this.onViewportCull();
                     });
                 }
             }

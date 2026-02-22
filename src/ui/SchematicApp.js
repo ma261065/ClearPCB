@@ -16,6 +16,7 @@ import { updateCrosshair, getToolIconPath, setToolCursor, showCrosshair, hideCro
 import { bindViewportControls, updateGridDropdown, fitToContent } from './modules/viewport.js';
 import { bindThemeToggle, toggleTheme, loadTheme, updateComponentColors } from './modules/theme.js';
 import { toggleSelectionLock, deleteSelected, captureShapeState, applyShapeState } from './modules/selection.js';
+import { copySelection, cutSelection, beginPastePreview, updatePastePreview, confirmPaste, cancelPaste } from './modules/clipboard.js';
 import { createBoxSelectElement, updateBoxSelectElement, removeBoxSelectElement, getBoxSelectBounds } from './modules/box-selection.js';
 import { bindPaperEvents } from './modules/paper.js';
 import * as WireTools from './modules/wire.js';
@@ -139,7 +140,6 @@ class SchematicApp {
             undoBtn: document.getElementById('undoBtn'),
             redoBtn: document.getElementById('redoBtn'),
             propertiesPanel: document.getElementById('propertiesPanel'),
-            propertiesHeaderLabel: document.getElementById('propertiesHeaderLabel'),
         };
 
         // Component code tooltip (copyable)
@@ -805,6 +805,30 @@ class SchematicApp {
     
     _deleteSelected() {
         deleteSelected(this);
+    }
+
+    _copySelection() {
+        copySelection(this);
+    }
+
+    _cutSelection() {
+        cutSelection(this);
+    }
+
+    _pasteClipboard() {
+        beginPastePreview(this);
+    }
+
+    _updatePastePreview(worldPos) {
+        updatePastePreview(this, worldPos);
+    }
+
+    _confirmPaste(worldPos) {
+        confirmPaste(this, worldPos);
+    }
+
+    _cancelPaste() {
+        cancelPaste(this);
     }
     
     // ==================== Box Selection ====================

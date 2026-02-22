@@ -1,3 +1,5 @@
+import { hasClipboard } from './clipboard.js';
+
 export function bindRibbon(app) {
     const showSaveToast = (anchorEl, text = 'Saved') => {
         if (!anchorEl) return;
@@ -86,6 +88,9 @@ export function bindRibbon(app) {
     get('ribbonDelete')?.addEventListener('click', () => app._deleteSelected());
     get('ribbonToggleLock')?.addEventListener('click', () => app._toggleSelectionLock());
     get('ribbonRotate')?.addEventListener('click', () => app._rotateComponentRight());
+    get('ribbonCut')?.addEventListener('click', () => app._cutSelection());
+    get('ribbonCopy')?.addEventListener('click', () => app._copySelection());
+    get('ribbonPaste')?.addEventListener('click', () => app._pasteClipboard());
     
     // ESC key goes to home tab
     const ribbonEscHandler = (e) => {
@@ -192,9 +197,15 @@ export function updateRibbonState(app, selection) {
     const lockBtn = document.getElementById('ribbonToggleLock');
     const deleteBtn = document.getElementById('ribbonDelete');
     const rotateBtn = document.getElementById('ribbonRotate');
+    const cutBtn = document.getElementById('ribbonCut');
+    const copyBtn = document.getElementById('ribbonCopy');
+    const pasteBtn = document.getElementById('ribbonPaste');
 
     if (deleteBtn) deleteBtn.disabled = count === 0;
     if (lockBtn) lockBtn.disabled = count === 0;
+    if (cutBtn) cutBtn.disabled = count === 0;
+    if (copyBtn) copyBtn.disabled = count === 0;
+    if (pasteBtn) pasteBtn.disabled = !hasClipboard();
 
     if (rotateBtn) {
         const hasComponent = selection.some(item => item?.definition);

@@ -516,6 +516,77 @@ export class TransformComponentCommand extends Command {
 }
 
 /**
+ * Bulk paste command — adds many shapes and components in one go.
+ * Only rebuilds the selectable-items map once at the end (O(N) instead of O(N²)).
+ */
+export class PasteCommand extends Command {
+    constructor(app, shapes, components) {
+        const n = shapes.length + components.length;
+        super(`Paste ${n} item${n !== 1 ? 's' : ''}`);
+        this.app = app;
+        this.shapes = shapes;
+        this.components = components;
+    }
+
+    execute() {
+        const app = this.app;
+        // Bulk-add shapes without per-item updateSelectableItems
+        for (const shape of this.shapes) {
+            app.shapes.push(shape);
+            shape.render(app.viewport.scale);
+            app.viewport.addContent(shape.element);
+        }
+        // Bulk-add components
+        for (const comp of this.components) {
+            app.components.push(comp);
+            if (!comp.element) comp.createSymbolElement();
+            app.viewport.addComponentContent(comp.element);
+            if (!comp.refText && !comp.valueText) {
+                comp.createFieldTexts(app);
+            } else {
+                for (const ft of comp.getFieldTexts()) {
+                    if (!app.shapes.includes(ft)) {
+                        app.shapes.push(ft);
+                        ft.render(app.viewport.scale);
+                        app.viewport.addContent(ft.element);
+                    }
+                }
+            }
+        }
+        // One-time bookkeeping
+        app._updateSelectableItems();
+        app.selection._invalidateHitTestCache();
+        app.fileManager.setDirty(true);
+    }
+
+    undo() {
+        const app = this.app;
+        // Remove components (and their field texts)
+        for (const comp of this.components) {
+            const idx = app.components.indexOf(comp);
+            if (idx !== -1) app.components.splice(idx, 1);
+            if (comp.element?.parentNode) comp.element.parentNode.removeChild(comp.element);
+            for (const ft of comp.getFieldTexts()) {
+                const si = app.shapes.indexOf(ft);
+                if (si !== -1) app.shapes.splice(si, 1);
+                if (ft.element?.parentNode) ft.element.parentNode.removeChild(ft.element);
+            }
+        }
+        // Remove shapes
+        for (const shape of this.shapes) {
+            const idx = app.shapes.indexOf(shape);
+            if (idx !== -1) app.shapes.splice(idx, 1);
+            if (shape.element?.parentNode) shape.element.parentNode.removeChild(shape.element);
+            if (shape.anchorsGroup?.parentNode) shape.anchorsGroup.parentNode.removeChild(shape.anchorsGroup);
+            app.selection.deselect(shape);
+        }
+        app._updateSelectableItems();
+        app.selection._invalidateHitTestCache();
+        app.fileManager.setDirty(true);
+    }
+}
+
+/**
  * Command that groups multiple sub-commands into a single undo/redo entry
  */
 export class BatchCommand extends Command {

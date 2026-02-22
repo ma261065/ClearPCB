@@ -15,6 +15,10 @@ export function handleEscape(app) {
         }
         return;
     }
+    if (app.pastingClipboard) {
+        app._cancelPaste();
+        return;
+    }
     if (app.placingComponent) {
         app._cancelComponentPlacement();
         return;
@@ -109,6 +113,18 @@ export function bindKeyboardShortcuts(app) {
                     e.preventDefault();
                     app.selection.selectAll();
                     app.renderShapes(true);
+                    break;
+                case 'c':
+                    e.preventDefault();
+                    app._copySelection();
+                    break;
+                case 'x':
+                    e.preventDefault();
+                    app._cutSelection();
+                    break;
+                case 'v':
+                    e.preventDefault();
+                    app._pasteClipboard();
                     break;
             }
         } else {

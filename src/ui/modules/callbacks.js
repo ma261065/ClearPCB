@@ -1,3 +1,5 @@
+import { updateViewportCulling } from './shape-management.js';
+
 export function setupCallbacks(app) {
     // Event bus listeners (component picker)
     app.eventBus.on('component:selected', (def) => {
@@ -22,6 +24,10 @@ export function setupCallbacks(app) {
                 app._updateDrawing(snapped);
                 app._updateCrosshair(snapped);
             }
+        }
+
+        if (app.pastingClipboard && app.pastePreviewGroup) {
+            app._updatePastePreview(snapped);
         }
 
         if (app.placingComponent && app.componentPreview) {
@@ -91,11 +97,19 @@ export function setupCallbacks(app) {
             app.ui.viewportInfo.textContent = `${widthDisplay} × ${heightDisplay}${unitLabel}`;
         }
 
+        // Cull off-screen elements before rendering (so renderShapes can skip them)
+        updateViewportCulling(app);
+
         // Only force full re-render when zoom/scale changed (stroke widths, anchors depend on scale).
         // On pan-only, shapes don't need any update since SVG viewBox handles translation.
         if (view.scaleChanged) {
             app.renderShapes(true);
         }
         app._updateTextEditOverlay?.();
+    };
+
+    // Throttled culling during pan (fired by Viewport rAF)
+    app.viewport.onViewportCull = () => {
+        updateViewportCulling(app);
     };
 }

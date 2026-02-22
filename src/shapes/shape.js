@@ -177,6 +177,7 @@ export class Shape {
         this._updateAnchors(scale);
         
         this._dirty = false;
+        this._lastScale = scale;
         return this.element;
     }
     

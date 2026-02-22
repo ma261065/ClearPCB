@@ -12,8 +12,20 @@ export function bindViewportControls(app) {
         app._updateGridDropdown();
     });
 
+    // Sync initial snap-to-grid disabled state
+    if (!app.ui.showGrid.checked) {
+        app.ui.snapToGrid.disabled = true;
+    }
+
     app.ui.showGrid.addEventListener('change', (e) => {
-        app.viewport.setGridVisible(e.target.checked);
+        const gridOn = e.target.checked;
+        app.viewport.setGridVisible(gridOn);
+        // Disable snap-to-grid when grid is off
+        app.ui.snapToGrid.disabled = !gridOn;
+        if (!gridOn) {
+            app.ui.snapToGrid.checked = false;
+            app.viewport.snapToGrid = false;
+        }
     });
 
     app.ui.snapToGrid.addEventListener('change', (e) => {

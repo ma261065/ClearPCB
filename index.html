@@ -61,6 +61,14 @@
                     </div>
                 </div>
                 <div class="ribbon-group">
+                    <div class="ribbon-group-title">Clipboard</div>
+                    <div class="ribbon-group-items">
+                        <button id="ribbonCut" title="Cut (Ctrl+X)">✂ Cut</button>
+                        <button id="ribbonCopy" title="Copy (Ctrl+C)">⧉ Copy</button>
+                        <button id="ribbonPaste" title="Paste (Ctrl+V)">📋 Paste</button>
+                    </div>
+                </div>
+                <div class="ribbon-group">
                     <div class="ribbon-group-title">Grid</div>
                     <div class="ribbon-group-items">
                         <label class="ribbon-checkbox"><input type="checkbox" id="showGrid" checked> Grid</label>
@@ -115,15 +123,7 @@
                     </div>
                 </div>
             </div>
-            <div class="ribbon-panel" data-panel="properties">
-                <div class="ribbon-group ribbon-properties">
-                    <div class="ribbon-group-title" id="propertiesHeaderLabel">Properties</div>
-                    <div class="ribbon-group-items ribbon-properties-content" id="propertiesPanel">
-                        <div class="prop-row">
-                            <span class="prop-value">None selected</span>
-                        </div>
-                    </div>
-                </div>
+            <div class="ribbon-panel" data-panel="properties" id="propertiesPanel">
             </div>
             <div class="ribbon-panel" data-panel="help">
                 <div class="ribbon-group ribbon-help">
