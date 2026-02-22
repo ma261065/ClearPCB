@@ -538,14 +538,32 @@ class SchematicApp {
         return ComponentTools.generateReference(this, definition);
     }
     
-    // Rotate component during placement (or selected components)
+    // Rotate component right during placement (or selected components)
     _rotateComponent() {
-        ComponentTools.rotateComponent(this);
+        ComponentTools.rotateComponentRight(this);
     }
     
-    // Mirror component during placement (or selected components)
+    _rotateComponentRight() {
+        ComponentTools.rotateComponentRight(this);
+    }
+
+    _rotateComponentLeft() {
+        ComponentTools.rotateComponentLeft(this);
+    }
+    
+    // Flip component horizontally (or during placement)
+    _flipComponentH() {
+        ComponentTools.flipComponentH(this);
+    }
+
+    // Flip component vertically
+    _flipComponentV() {
+        ComponentTools.flipComponentV(this);
+    }
+    
+    // Legacy alias
     _mirrorComponent() {
-        ComponentTools.mirrorComponent(this);
+        ComponentTools.flipComponentH(this);
     }
     
     // Cancel component placement mode

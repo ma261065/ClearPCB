@@ -177,8 +177,12 @@ export class Component {
     }
 
     applyState(state) {
+        const mirChanged = state.mirror !== undefined && state.mirror !== this.mirror;
+        const rotChanged = state.rotation !== undefined && state.rotation !== this.rotation;
         Object.assign(this, state);
-        if (this.element) {
+        if (mirChanged || rotChanged) {
+            this._recreateElement();
+        } else if (this.element) {
             const transform = this._buildTransform();
             if (transform) this.element.setAttribute('transform', transform);
             else this.element.removeAttribute('transform');
@@ -558,7 +562,7 @@ export class Component {
 
     /**
      * Rebuild the component SVG element in-place.
-     * Used after mirror changes since mirror is baked into element creation.
+     * Used after rotation/mirror changes since both are baked into element creation.
      */
     _recreateElement() {
         const parent = this.element?.parentNode;
@@ -566,6 +570,28 @@ export class Component {
         this.pinElements.clear();
         this.createSymbolElement();
         if (parent) parent.appendChild(this.element);
+    }
+
+    /**
+     * Adjust a pin text's local rotation and anchor so it stays readable
+     * regardless of the component's rotation.
+     *
+     * The visual angle is (componentRotation + localRot).  If that falls
+     * in the range (90°, 270°] the text would appear upside-down or
+     * read top-to-bottom, so we add 180° and flip the text-anchor.
+     *
+     * @returns {{ rot: number, anchor: string, flipped: boolean }}
+     */
+    _readablePinText(localRot, anchor) {
+        let visual = ((this.rotation + localRot) % 360 + 360) % 360;
+        let flipped = false;
+        if (visual > 90 && visual <= 270) {
+            localRot += 180;
+            flipped = true;
+            if (anchor === 'start')      anchor = 'end';
+            else if (anchor === 'end')   anchor = 'start';
+        }
+        return { rot: localRot, anchor, flipped };
     }
 
     _createPinElement(pin, ns) {
@@ -746,6 +772,32 @@ export class Component {
             }
         }
 
+        // When the component rotation makes pin text upside-down,
+        // _readablePinText will add 180° to the text rotation.
+        // We must also reflect the text position across the pin line
+        // so it stays on the correct side visually.
+        if (source !== 'EasyEDA') {
+            const _reflectPerp = (vis, tX, tY) => {
+                if (vis > 90 && vis <= 270) {
+                    if (orient === 'right' || orient === 'left')
+                        return { x: tX, y: 2 * y1 - tY };
+                    else
+                        return { x: 2 * x1 - tX, y: tY };
+                }
+                return { x: tX, y: tY };
+            };
+            if (numX !== undefined && numY !== undefined) {
+                const numVis = ((this.rotation + numRot) % 360 + 360) % 360;
+                const rn = _reflectPerp(numVis, numX, numY);
+                numX = rn.x; numY = rn.y;
+            }
+            if (nameX !== undefined && nameY !== undefined) {
+                const nameVis = ((this.rotation + nameRot) % 360 + 360) % 360;
+                const rn = _reflectPerp(nameVis, nameX, nameY);
+                nameX = rn.x; nameY = rn.y;
+            }
+        }
+
         let lineX2 = x2, lineY2 = y2;
         if (isActiveLow) {
             const bOffset = bubbleRadius * 2;
@@ -802,17 +854,20 @@ export class Component {
             if (nameFontFamily) {
                 nameTxt.setAttribute('font-family', nameFontFamily);
             }
-            nameTxt.setAttribute('fill', 'var(--sch-pin-name, #00cccc)'); 
-            if (nameAnchor) {
-                nameTxt.setAttribute('text-anchor', nameAnchor);
+            nameTxt.setAttribute('fill', 'var(--sch-pin-name, #00cccc)');
+            const nameRead = this._readablePinText(nameRot, nameAnchor || 'start');
+            const effNameRot = nameRead.rot;
+            const effNameAnchor = nameRead.anchor;
+            if (effNameAnchor) {
+                nameTxt.setAttribute('text-anchor', effNameAnchor);
             }
             if (this.symbol?._source !== 'EasyEDA') {
                 nameTxt.setAttribute('dominant-baseline', 'middle');
             }
             nameTxt.textContent = cleanName;
 
-            if (nameRot !== 0) {
-                labelGroup.setAttribute('transform', `translate(${nameX},${nameY}) rotate(${nameRot})`);
+            if (effNameRot !== 0) {
+                labelGroup.setAttribute('transform', `translate(${nameX},${nameY}) rotate(${effNameRot})`);
             } else {
                 nameTxt.setAttribute('x', nameX); nameTxt.setAttribute('y', nameY);
             }
@@ -821,13 +876,13 @@ export class Component {
             if (isActiveLow) {
                 const overbar = document.createElementNS(ns, 'line');
                 const textWidth = cleanName.length * 0.65; 
-                let oy = (nameRot !== 0) ? -0.8 : nameY - 0.8; 
+                let oy = (effNameRot !== 0) ? (nameRead.flipped ? 0.8 : -0.8) : nameY - 0.8; 
                 let ox1, ox2;
-                if (nameAnchor === 'start') {
-                    ox1 = (nameRot !== 0) ? 0.1 : nameX + 0.1;
+                if (effNameAnchor === 'start') {
+                    ox1 = (effNameRot !== 0) ? 0.1 : nameX + 0.1;
                     ox2 = ox1 + textWidth;
                 } else {
-                    ox2 = (nameRot !== 0) ? -0.1 : nameX - 0.1;
+                    ox2 = (effNameRot !== 0) ? -0.1 : nameX - 0.1;
                     ox1 = ox2 - textWidth;
                 }
                 overbar.setAttribute('x1', ox1); overbar.setAttribute('y1', oy);
@@ -854,17 +909,20 @@ export class Component {
                 numTxt.setAttribute('font-family', numFontFamily);
             }
             numTxt.setAttribute('fill', 'var(--sch-pin-number, #aa0000)');
-            if (numAnchor) {
-                numTxt.setAttribute('text-anchor', numAnchor);
+            const numRead = this._readablePinText(numRot, numAnchor || 'middle');
+            const effNumRot = numRead.rot;
+            const effNumAnchor = numRead.anchor;
+            if (effNumAnchor) {
+                numTxt.setAttribute('text-anchor', effNumAnchor);
             }
             if (this.symbol?._source === 'KiCad') {
-                numTxt.setAttribute('dominant-baseline', 'text-after-edge');
+                numTxt.setAttribute('dominant-baseline', numRead.flipped ? 'text-before-edge' : 'text-after-edge');
             } else if (this.symbol?._source !== 'EasyEDA') {
                 numTxt.setAttribute('dominant-baseline', 'middle');
             }
             numTxt.textContent = pin.number;
-            if (numRot !== 0) {
-                numLabelGroup.setAttribute('transform', `translate(${numX},${numY}) rotate(${numRot})`);
+            if (effNumRot !== 0) {
+                numLabelGroup.setAttribute('transform', `translate(${numX},${numY}) rotate(${effNumRot})`);
             } else {
                 numTxt.setAttribute('x', numX); numTxt.setAttribute('y', numY);
             }
@@ -1031,11 +1089,60 @@ export class Component {
     }
 
     /**
-     * Rotate component by given degrees
+     * Get the local-space center in raw (un-mirrored) coordinates.
+     * This is the correct frame for use with localToWorld(), which applies
+     * its own mirror negation.
+     */
+    _getLocalCenter() {
+        const b = this._getLocalBounds();
+        // Remove the padding that _getLocalBounds adds
+        let cx = (b.minX + 1.0 + b.maxX - 1.0) / 2;
+        const cy = (b.minY + 1.0 + b.maxY - 1.0) / 2;
+        // _getLocalBounds returns baked-mirror bounds; undo the swap so
+        // the result is in the raw frame that localToWorld expects.
+        if (this.mirror) cx = -cx;
+        return { x: cx, y: cy };
+    }
+
+    /**
+     * Rotate component by given degrees around its visual center.
      */
     rotate(degrees) {
-        const oldRotation = this.rotation;
+        // Find world-space center before rotation
+        const lc = this._getLocalCenter();
+        const beforeCenter = this.localToWorld(lc.x, lc.y);
+
         this.rotation = (this.rotation + degrees) % 360;
+        
+        // Find where the center ended up after rotation
+        const afterCenter = this.localToWorld(lc.x, lc.y);
+        
+        // Adjust position to keep the visual center in place
+        this.x += beforeCenter.x - afterCenter.x;
+        this.y += beforeCenter.y - afterCenter.y;
+
+        // Recreate SVG so pin text readability corrections are refreshed
+        this._recreateElement();
+    }
+
+    /**
+     * Flip horizontally (mirror) around the visual center.
+     */
+    flipHorizontal() {
+        // Find world-space visual center before mirror
+        const lc = this._getLocalCenter();
+        const beforeCenter = this.localToWorld(lc.x, lc.y);
+
+        this.mirror = !this.mirror;
+        // Recreate SVG since mirror is baked into element creation
+        this._recreateElement();
+
+        // Adjust position so the visual center stays in place
+        const lc2 = this._getLocalCenter();
+        const afterCenter = this.localToWorld(lc2.x, lc2.y);
+        this.x += beforeCenter.x - afterCenter.x;
+        this.y += beforeCenter.y - afterCenter.y;
+
         if (this.element) {
             const transform = this._buildTransform();
             if (transform) {
@@ -1044,34 +1151,19 @@ export class Component {
                 this.element.removeAttribute('transform');
             }
         }
-        // Rotate field text positions around component origin
-        const delta = degrees * Math.PI / 180;
-        const cos = Math.cos(delta), sin = Math.sin(delta);
-        for (const ft of this.getFieldTexts()) {
-            const dx = ft.x - this.x;
-            const dy = ft.y - this.y;
-            ft.x = this.x + dx * cos - dy * sin;
-            ft.y = this.y + dx * sin + dy * cos;
-            ft.invalidate();
-        }
+
     }
 
+    /** Backward-compatible alias */
+    toggleMirror() { this.flipHorizontal(); }
+
     /**
-     * Toggle horizontal mirror
+     * Flip vertically around the visual center.
+     * Equivalent to horizontal flip + 180° rotation.
      */
-    toggleMirror() {
-        this.mirror = !this.mirror;
-        // Recreate SVG since mirror is baked into element creation
-        this._recreateElement();
-        // Mirror field text positions across the component's Y axis (world-space)
-        for (const ft of this.getFieldTexts()) {
-            const local = this.worldToLocal(ft.x, ft.y);
-            local.x = -local.x;  // flip across component Y axis
-            const world = this.localToWorld(local.x, local.y);
-            ft.x = world.x;
-            ft.y = world.y;
-            ft.invalidate();
-        }
+    flipVertical() {
+        this.flipHorizontal();
+        this.rotate(180);
     }
 
     setPosition(x, y) {

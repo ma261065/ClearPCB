@@ -564,6 +564,45 @@ body {
     font-size: 12px;
 }
 
+.prop-actions {
+    display: flex;
+    gap: 4px;
+    flex-wrap: wrap;
+}
+
+.prop-icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    color: var(--text-primary);
+    cursor: pointer;
+}
+
+.prop-icon-btn:hover:not(:disabled) {
+    background: var(--accent-color);
+    color: #ffffff;
+}
+
+.prop-icon-btn:disabled {
+    opacity: 0.4;
+    cursor: default;
+}
+
+.prop-icon-btn.ribbon-danger:hover:not(:disabled) {
+    background: #d9534f;
+    color: #ffffff;
+}
+
+.prop-icon-btn svg {
+    display: block;
+}
+
 /* Drawing crosshair - shown only while drawing */
 .drawing-crosshair {
     position: absolute;

@@ -172,7 +172,7 @@ export function bindKeyboardShortcuts(app) {
                 case 'r':
                 case 'R':
                     if (app.placingComponent) {
-                        app._rotateComponent();
+                        app._rotateComponentRight();
                         e.preventDefault();
                     } else {
                         app._onToolSelected('rect');
@@ -181,7 +181,7 @@ export function bindKeyboardShortcuts(app) {
                 case 'm':
                 case 'M':
                     if (app.placingComponent) {
-                        app._mirrorComponent();
+                        app._flipComponentH();
                         e.preventDefault();
                     }
                     break;

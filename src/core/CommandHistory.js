@@ -295,7 +295,14 @@ export class ModifyPropertyCommand extends Command {
             const item = this._findItem(entry.id);
             if (!item) continue;
             const val = useNew ? entry.newValue : entry.oldValue;
-            item[this.prop] = val;
+            // Mirror/flip needs special handling — must use flipHorizontal() for SVG recreation
+            if (this.prop === 'mirror' && typeof item.flipHorizontal === 'function') {
+                if (item.mirror !== val) {
+                    item.flipHorizontal();
+                }
+            } else {
+                item[this.prop] = val;
+            }
             if (typeof item.invalidate === 'function') item.invalidate();
             // Sync field text changes back to parent component
             if (this.prop === 'text' && item.parentComponent && item.fieldKey) {
@@ -443,7 +450,7 @@ export class AddComponentCommand extends Command {
 }
 
 /**
- * Command to transform a component (rotate/mirror)
+ * Command to transform a component (rotate/flip)
  */
 export class TransformComponentCommand extends Command {
     constructor(app, components, type) {
@@ -455,6 +462,8 @@ export class TransformComponentCommand extends Command {
         this.type = type;
         this.entries = components.map(c => ({
             id: c.id,
+            oldX: c.x,
+            oldY: c.y,
             oldRotation: c.rotation,
             oldMirror: c.mirror,
             // Capture field text positions for undo
@@ -467,23 +476,27 @@ export class TransformComponentCommand extends Command {
             const comp = this.app.components.find(c => c.id === entry.id);
             if (!comp) continue;
             if (useOld) {
-                // Restore old rotation/mirror and field text positions
+                // Restore old position/rotation/mirror and field text positions
                 const mirrorChanged = comp.mirror !== entry.oldMirror;
+                comp.x = entry.oldX;
+                comp.y = entry.oldY;
                 comp.rotation = entry.oldRotation;
                 comp.mirror = entry.oldMirror;
                 for (const fp of entry.fieldPositions) {
                     const ft = comp.getFieldTexts().find(f => f.id === fp.id);
                     if (ft) { ft.x = fp.x; ft.y = fp.y; ft.invalidate(); }
                 }
-                // Mirror is baked into element creation — recreate SVG if mirror changed
-                if (mirrorChanged) {
-                    comp._recreateElement();
-                }
+                // Rotation and mirror are baked into element creation — always recreate
+                comp._recreateElement();
             } else {
-                if (this.type === 'Rotate') {
-                    comp.rotate(90);  // Uses component method which syncs field texts
-                } else {
-                    comp.toggleMirror();  // toggleMirror recreates the SVG element
+                switch (this.type) {
+                    case 'RotateRight': comp.rotate(90); break;
+                    case 'RotateLeft':  comp.rotate(-90); break;
+                    case 'FlipH':       comp.flipHorizontal(); break;
+                    case 'FlipV':       comp.flipVertical(); break;
+                    // Legacy support
+                    case 'Rotate':      comp.rotate(90); break;
+                    case 'Mirror':      comp.flipHorizontal(); break;
                 }
             }
             if (comp.element) {

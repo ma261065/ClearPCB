@@ -98,7 +98,7 @@ export function placeComponent(app, worldPos) {
     console.log('Placed component:', component.reference, 'at', worldPos.x, worldPos.y);
 }
 
-export function rotateComponent(app) {
+export function rotateComponentRight(app) {
     if (app.placingComponent) {
         app.componentRotation = (app.componentRotation + 90) % 360;
         createComponentPreview(app, app.placingComponent);
@@ -108,13 +108,29 @@ export function rotateComponent(app) {
     } else {
         const selected = app._getSelectedComponents();
         if (selected.length > 0) {
-            const command = new TransformComponentCommand(app, selected, 'Rotate');
+            const command = new TransformComponentCommand(app, selected, 'RotateRight');
             app.history.execute(command);
         }
     }
 }
 
-export function mirrorComponent(app) {
+export function rotateComponentLeft(app) {
+    if (app.placingComponent) {
+        app.componentRotation = (app.componentRotation - 90 + 360) % 360;
+        createComponentPreview(app, app.placingComponent);
+        if (app.lastCrosshairWorld) {
+            updateComponentPreview(app, app.lastCrosshairWorld);
+        }
+    } else {
+        const selected = app._getSelectedComponents();
+        if (selected.length > 0) {
+            const command = new TransformComponentCommand(app, selected, 'RotateLeft');
+            app.history.execute(command);
+        }
+    }
+}
+
+export function flipComponentH(app) {
     if (app.placingComponent) {
         app.componentMirror = !app.componentMirror;
         createComponentPreview(app, app.placingComponent);
@@ -124,7 +140,17 @@ export function mirrorComponent(app) {
     } else {
         const selected = app._getSelectedComponents();
         if (selected.length > 0) {
-            const command = new TransformComponentCommand(app, selected, 'Mirror');
+            const command = new TransformComponentCommand(app, selected, 'FlipH');
+            app.history.execute(command);
+        }
+    }
+}
+
+export function flipComponentV(app) {
+    if (!app.placingComponent) {
+        const selected = app._getSelectedComponents();
+        if (selected.length > 0) {
+            const command = new TransformComponentCommand(app, selected, 'FlipV');
             app.history.execute(command);
         }
     }

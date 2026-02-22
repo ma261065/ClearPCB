@@ -85,7 +85,7 @@ export function bindRibbon(app) {
 
     get('ribbonDelete')?.addEventListener('click', () => app._deleteSelected());
     get('ribbonToggleLock')?.addEventListener('click', () => app._toggleSelectionLock());
-    get('ribbonRotate')?.addEventListener('click', () => app._rotateComponent());
+    get('ribbonRotate')?.addEventListener('click', () => app._rotateComponentRight());
     
     // ESC key goes to home tab
     const ribbonEscHandler = (e) => {

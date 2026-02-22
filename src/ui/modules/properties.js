@@ -162,22 +162,48 @@ export function updatePropertiesPanel(app, selection) {
     const actionsRow = document.createElement('div');
     actionsRow.className = 'prop-row';
     const actionsDiv = document.createElement('div');
-    actionsDiv.className = 'ribbon-group-items';
+    actionsDiv.className = 'ribbon-group-items prop-actions';
 
     const hasComponent = selection.some(s => s.definition);
     if (hasComponent) {
-        const rotateBtn = document.createElement('button');
-        rotateBtn.textContent = '⟳ Rotate';
-        rotateBtn.title = 'Rotate Components';
-        rotateBtn.id = 'ribbonRotate';
-        actionsDiv.appendChild(rotateBtn);
+        // Rotate Left
+        const rotLeftBtn = document.createElement('button');
+        rotLeftBtn.className = 'prop-icon-btn';
+        rotLeftBtn.title = 'Rotate Left';
+        rotLeftBtn.id = 'propRotateLeft';
+        rotLeftBtn.innerHTML = `<svg width="18" height="18" viewBox="0 0 18 18"><path d="M5 3L2 6l3 3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M2 6h7a5 5 0 0 1 5 5v1" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>`;
+        actionsDiv.appendChild(rotLeftBtn);
+
+        // Rotate Right
+        const rotRightBtn = document.createElement('button');
+        rotRightBtn.className = 'prop-icon-btn';
+        rotRightBtn.title = 'Rotate Right';
+        rotRightBtn.id = 'propRotateRight';
+        rotRightBtn.innerHTML = `<svg width="18" height="18" viewBox="0 0 18 18"><path d="M13 3l3 3-3 3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M16 6H9a5 5 0 0 0-5 5v1" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>`;
+        actionsDiv.appendChild(rotRightBtn);
+
+        // Flip Horizontal
+        const flipHBtn = document.createElement('button');
+        flipHBtn.className = 'prop-icon-btn';
+        flipHBtn.title = 'Flip Horizontal';
+        flipHBtn.id = 'propFlipH';
+        flipHBtn.innerHTML = `<svg width="18" height="18" viewBox="0 0 18 18"><path d="M9 2v14" stroke="currentColor" stroke-width="1" stroke-dasharray="2 2"/><path d="M6 5L2 9l4 4z" fill="currentColor"/><path d="M12 5l4 4-4 4z" fill="none" stroke="currentColor" stroke-width="1.2"/></svg>`;
+        actionsDiv.appendChild(flipHBtn);
+
+        // Flip Vertical
+        const flipVBtn = document.createElement('button');
+        flipVBtn.className = 'prop-icon-btn';
+        flipVBtn.title = 'Flip Vertical';
+        flipVBtn.id = 'propFlipV';
+        flipVBtn.innerHTML = `<svg width="18" height="18" viewBox="0 0 18 18"><path d="M2 9h14" stroke="currentColor" stroke-width="1" stroke-dasharray="2 2"/><path d="M5 6L9 2l4 4z" fill="currentColor"/><path d="M5 12l4 4 4-4z" fill="none" stroke="currentColor" stroke-width="1.2"/></svg>`;
+        actionsDiv.appendChild(flipVBtn);
     }
 
     const deleteBtn = document.createElement('button');
-    deleteBtn.textContent = '🗑️ Delete';
+    deleteBtn.className = 'prop-icon-btn ribbon-danger';
     deleteBtn.title = 'Delete (Del)';
-    deleteBtn.className = 'ribbon-danger';
     deleteBtn.id = 'ribbonDelete';
+    deleteBtn.innerHTML = `<svg width="18" height="18" viewBox="0 0 18 18"><path d="M4 5h10l-1 10H5L4 5z" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M3 5h12M7 3h4" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><path d="M7 7v6M11 7v6" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round"/></svg>`;
     if (allLocked) {
         deleteBtn.disabled = true;
         deleteBtn.style.opacity = '0.5';
@@ -198,9 +224,21 @@ function _bindActionButtons(app) {
     if (deleteBtn) {
         deleteBtn.addEventListener('click', () => app._deleteSelected());
     }
-    const rotateBtn = document.getElementById('ribbonRotate');
-    if (rotateBtn) {
-        rotateBtn.addEventListener('click', () => app._rotateComponent());
+    const rotLeftBtn = document.getElementById('propRotateLeft');
+    if (rotLeftBtn) {
+        rotLeftBtn.addEventListener('click', () => app._rotateComponentLeft());
+    }
+    const rotRightBtn = document.getElementById('propRotateRight');
+    if (rotRightBtn) {
+        rotRightBtn.addEventListener('click', () => app._rotateComponentRight());
+    }
+    const flipHBtn = document.getElementById('propFlipH');
+    if (flipHBtn) {
+        flipHBtn.addEventListener('click', () => app._flipComponentH());
+    }
+    const flipVBtn = document.getElementById('propFlipV');
+    if (flipVBtn) {
+        flipVBtn.addEventListener('click', () => app._flipComponentV());
     }
 }
 
