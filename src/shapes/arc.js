@@ -5,7 +5,7 @@
  */
 
 import { Shape } from './shape.js';
-import { circumcircle, projectOntoChordBisector, clampBulgePoint } from '../core/geometry.js';
+import { circumcircle, projectOntoChordBisector, clampBulgePoint, bulgeRatio, bulgePointFromRatio } from '../core/geometry.js';
 
 export class Arc extends Shape {
     constructor(options = {}) {
@@ -256,18 +256,18 @@ export class Arc extends Shape {
             const projected = projectOntoChordBisector(start, end, { x, y });
             this.bulgePoint = clampBulgePoint(start, end, projected);
         } else {
-            // Start/end anchor: snapshot bulge at drag start, re-clamp as chord moves
-            if (!this._dragMidPoint) {
-                this._dragMidPoint = { x: this._bulgePoint.x, y: this._bulgePoint.y };
+            // Start/end anchor: snapshot bulge *ratio* at drag start so the
+            // curvature stays constant as the chord changes length.
+            if (this._dragBulgeRatio == null) {
+                this._dragBulgeRatio = bulgeRatio(start, end, this._bulgePoint);
             }
             if (anchorId === 'start') {
                 this.startPoint = { x, y };
-                this._dragMidPoint = clampBulgePoint({ x, y }, end, this._dragMidPoint);
+                this.bulgePoint = bulgePointFromRatio({ x, y }, end, this._dragBulgeRatio);
             } else {
                 this.endPoint = { x, y };
-                this._dragMidPoint = clampBulgePoint(start, { x, y }, this._dragMidPoint);
+                this.bulgePoint = bulgePointFromRatio(start, { x, y }, this._dragBulgeRatio);
             }
-            this.bulgePoint = this._dragMidPoint;
         }
         this.invalidate();
     }
@@ -332,7 +332,7 @@ export class Arc extends Shape {
     }
     
     resetDragState() {
-        this._dragMidPoint = null;
+        this._dragBulgeRatio = null;
     }
     
     toJSON() {

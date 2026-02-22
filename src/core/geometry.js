@@ -120,3 +120,44 @@ export function clampBulgePoint(p1, p2, b) {
     const scale = maxRadius / dist;
     return { x: mx + dx * scale, y: my + dy * scale };
 }
+
+/**
+ * Compute a signed bulge ratio for a bulge point relative to chord p1->p2.
+ * The ratio is the signed perpendicular distance from the chord midpoint,
+ * normalized by the half-chord length.  Positive = left side of p1->p2.
+ * Returns 0 if the chord is degenerate.
+ */
+export function bulgeRatio(p1, p2, b) {
+    const halfChord = Math.hypot(p2.x - p1.x, p2.y - p1.y) / 2;
+    if (halfChord < 1e-12) return 0;
+    const mx = (p1.x + p2.x) / 2;
+    const my = (p1.y + p2.y) / 2;
+    // Perpendicular (left-normal) of the chord direction
+    const nx = -(p2.y - p1.y);
+    const ny =  (p2.x - p1.x);
+    const nLen = Math.hypot(nx, ny);
+    if (nLen < 1e-12) return 0;
+    const signedDist = ((b.x - mx) * nx + (b.y - my) * ny) / nLen;
+    return signedDist / halfChord;
+}
+
+/**
+ * Reconstruct a bulge point from a signed ratio and a chord p1->p2.
+ * Inverse of bulgeRatio().  The result is clamped to half-chord distance.
+ */
+export function bulgePointFromRatio(p1, p2, ratio) {
+    const mx = (p1.x + p2.x) / 2;
+    const my = (p1.y + p2.y) / 2;
+    const halfChord = Math.hypot(p2.x - p1.x, p2.y - p1.y) / 2;
+    if (halfChord < 1e-12) return { x: mx, y: my };
+    // Unit perpendicular (left-normal)
+    const nx = -(p2.y - p1.y);
+    const ny =  (p2.x - p1.x);
+    const nLen = Math.hypot(nx, ny);
+    const ux = nx / nLen;
+    const uy = ny / nLen;
+    // Clamp ratio to [-1, 1] so point stays within semicircle
+    const clamped = Math.max(-1, Math.min(1, ratio));
+    const dist = clamped * halfChord;
+    return { x: mx + ux * dist, y: my + uy * dist };
+}
