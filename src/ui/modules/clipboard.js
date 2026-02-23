@@ -69,11 +69,18 @@ export function copySelection(app) {
     const selection = app.selection.getSelection();
     if (selection.length === 0) return;
 
-    const origin = centroid(selection);
-    clipboard = selection.map(item => serialiseItem(item, origin));
+    // Deduplicate: skip field texts whose parent component is also selected,
+    // since the component will recreate them on paste.
+    const selectedSet = new Set(selection);
+    const deduped = selection.filter(item =>
+        !(item.parentComponent && item.fieldKey && selectedSet.has(item.parentComponent))
+    );
+
+    const origin = centroid(deduped);
+    clipboard = deduped.map(item => serialiseItem(item, origin));
 
     // Build ghost SVG now by cloning rendered elements (cheap DOM cloneNode)
-    _buildGhostFromSelection(selection, origin);
+    _buildGhostFromSelection(deduped, origin);
 }
 
 /**
@@ -87,11 +94,17 @@ export function cutSelection(app) {
     const cuttable = selection.filter(item => !item.locked);
     if (cuttable.length === 0) return;
 
-    const origin = centroid(cuttable);
-    clipboard = cuttable.map(item => serialiseItem(item, origin));
+    // Deduplicate: skip field texts whose parent component is also selected
+    const cuttableSet = new Set(cuttable);
+    const deduped = cuttable.filter(item =>
+        !(item.parentComponent && item.fieldKey && cuttableSet.has(item.parentComponent))
+    );
+
+    const origin = centroid(deduped);
+    clipboard = deduped.map(item => serialiseItem(item, origin));
 
     // Build ghost SVG before deleting (elements still in DOM)
-    _buildGhostFromSelection(cuttable, origin);
+    _buildGhostFromSelection(deduped, origin);
 
     // Delete via undo-able commands (same logic as deleteSelected)
     app.selection.clearSelection();

@@ -127,24 +127,10 @@ export function bindMouseEvents(app) {
                 } else {
                     app.dragObjectStartPos = { ...snapped };
                 }
-                // Snap object's current position to current grid in case grid changed
-                const objectSnapped = app.viewport.getSnappedPosition(app.dragObjectStartPos);
-                // If object is off-grid, move it to grid before drag
-                // (Skip for shapes that don't support grid snap, e.g. arcs with computed geometry)
-                if (firstShape && firstShape.getAnchorSnapMode() !== 'none' && 
-                    (objectSnapped.x !== app.dragObjectStartPos.x || objectSnapped.y !== app.dragObjectStartPos.y)) {
-                    const adjX = objectSnapped.x - app.dragObjectStartPos.x;
-                    const adjY = objectSnapped.y - app.dragObjectStartPos.y;
-                    for (const shape of app.selection.getSelection()) {
-                        if (!shape.locked) {
-                            shape.move(adjX, adjY);
-                        }
-                    }
-                    app.dragObjectStartPos = { ...objectSnapped };
-                }
-                // Initialize drag refs from the object's (now-snapped) position
-                app.dragStart = { ...objectSnapped };
-                app.dragLastSnapped = { ...objectSnapped };
+                // Snap the *mouse* start to grid so drag deltas are grid-aligned,
+                // but do NOT move the object to grid (avoids jump for off-grid items).
+                app.dragStart = { ...app.dragObjectStartPos };
+                app.dragLastSnapped = { ...app.dragObjectStartPos };
                 app.dragTotalDx = 0;
                 app.dragTotalDy = 0;
                 app.dragStartWorldPos = { ...worldPos };
@@ -391,16 +377,16 @@ export function bindMouseEvents(app) {
         if (app.viewport.isPanning) return;
 
         if (app.dragMode === 'move') {
-            // Calculate movement from mouse, then snap the object's position to current grid
-            const mouseMovement = {
+            // Snap the absolute target position to grid so dragged items
+            // land on grid points.  The object's off-grid starting position
+            // is NOT adjusted on mousedown (no initial jump).
+            const mouseDelta = {
                 x: worldPos.x - app.dragStartWorldPos.x,
                 y: worldPos.y - app.dragStartWorldPos.y
             };
-            
-            // Apply movement to object's starting position and snap to current grid
             const targetPos = {
-                x: app.dragObjectStartPos.x + mouseMovement.x,
-                y: app.dragObjectStartPos.y + mouseMovement.y
+                x: app.dragObjectStartPos.x + mouseDelta.x,
+                y: app.dragObjectStartPos.y + mouseDelta.y
             };
             const snappedTarget = app.viewport.getSnappedPosition(targetPos);
             
