@@ -610,7 +610,7 @@ class SchematicApp {
     
     _onSelectionChanged(shapes) {
         console.log(`Selection: ${shapes.length} shape(s)`);
-        this.renderShapes(true);
+        this.renderShapes();
         this.eventBus.emit('selectionChanged', shapes);
     }
 
@@ -654,13 +654,13 @@ class SchematicApp {
         // Undo/Redo buttons
         this.ui.undoBtn.addEventListener('click', () => {
             if (this.history.undo()) {
-                this.renderShapes(true);
+                this.renderShapes();
             }
         });
         
         this.ui.redoBtn.addEventListener('click', () => {
             if (this.history.redo()) {
-                this.renderShapes(true);
+                this.renderShapes();
             }
         });
         

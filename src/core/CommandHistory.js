@@ -157,25 +157,62 @@ export class DeleteShapesCommand extends Command {
     constructor(app, shapes) {
         super(shapes.length === 1 ? `Delete ${shapes[0].type}` : `Delete ${shapes.length} shapes`);
         this.app = app;
-        // Store shape data for restoration
+        // Build index map in one pass O(N) instead of O(N²) indexOf per shape
+        const indexMap = new Map();
+        for (let i = 0; i < app.shapes.length; i++) {
+            indexMap.set(app.shapes[i], i);
+        }
         this.shapesData = shapes.map(s => ({
             shape: s,
-            index: app.shapes.indexOf(s)
+            index: indexMap.get(s) ?? -1
         }));
     }
     
     execute() {
-        // Remove in reverse order to maintain indices
-        for (let i = this.shapesData.length - 1; i >= 0; i--) {
-            this.app._removeShapeInternal(this.shapesData[i].shape);
+        const app = this.app;
+        const toRemove = new Set(this.shapesData.map(d => d.shape));
+        // In-place filter: O(N) instead of O(N²) indexOf+splice per shape
+        let writeIdx = 0;
+        for (let i = 0; i < app.shapes.length; i++) {
+            if (!toRemove.has(app.shapes[i])) {
+                app.shapes[writeIdx++] = app.shapes[i];
+            }
         }
+        app.shapes.length = writeIdx;
+        // Remove DOM elements and clear selection state
+        for (const data of this.shapesData) {
+            const shape = data.shape;
+            if (shape.element?.parentNode) shape.element.parentNode.removeChild(shape.element);
+            if (shape.anchorsGroup?.parentNode) shape.anchorsGroup.parentNode.removeChild(shape.anchorsGroup);
+            if (shape.selected) {
+                shape.selected = false;
+                app.selection.selected.delete(shape.id);
+                app.selection._selectionCache = null;
+            }
+        }
+        // One-time bookkeeping
+        app.selection._invalidateHitTestCache();
+        app.selection._notifySelectionChanged();
+        app._updateSelectableItems();
+        app.fileManager.setDirty(true);
     }
     
     undo() {
-        // Re-add in original order at original positions
+        const app = this.app;
+        // Re-render and add to DOM
         for (const data of this.shapesData) {
-            this.app._addShapeInternalAt(data.shape, data.index);
+            data.shape.render(app.viewport.scale);
+            app.viewport.addContent(data.shape.element);
         }
+        // Merge back at original positions, sorted by index
+        const sorted = [...this.shapesData].sort((a, b) => a.index - b.index);
+        for (const data of sorted) {
+            const idx = Math.min(data.index, app.shapes.length);
+            app.shapes.splice(idx, 0, data.shape);
+        }
+        app._updateSelectableItems();
+        app.selection._invalidateHitTestCache();
+        app.fileManager.setDirty(true);
     }
 }
 
@@ -343,57 +380,73 @@ export class DeleteComponentsCommand extends Command {
             ? `Delete ${components[0].reference || 'component'}`
             : `Delete ${components.length} components`);
         this.app = app;
+        // Build index map in one pass O(N)
+        const indexMap = new Map();
+        for (let i = 0; i < app.components.length; i++) {
+            indexMap.set(app.components[i], i);
+        }
         this.componentsData = components.map(c => ({
             component: c,
-            index: app.components.indexOf(c)
+            index: indexMap.get(c) ?? -1
         }));
     }
 
     execute() {
-        for (let i = this.componentsData.length - 1; i >= 0; i--) {
-            const comp = this.componentsData[i].component;
-            const idx = this.app.components.indexOf(comp);
-            if (idx !== -1) {
-                this.app.components.splice(idx, 1);
-            }
-            if (comp.element && comp.element.parentNode) {
-                comp.element.parentNode.removeChild(comp.element);
-            }
-            // Remove field texts
+        const app = this.app;
+        // Collect all items to remove
+        const compsToRemove = new Set(this.componentsData.map(d => d.component));
+        const ftsToRemove = new Set();
+        for (const data of this.componentsData) {
+            const comp = data.component;
+            if (comp.element?.parentNode) comp.element.parentNode.removeChild(comp.element);
             for (const ft of comp.getFieldTexts()) {
-                const si = this.app.shapes.indexOf(ft);
-                if (si !== -1) this.app.shapes.splice(si, 1);
-                if (ft.element && ft.element.parentNode) ft.element.parentNode.removeChild(ft.element);
+                ftsToRemove.add(ft);
+                if (ft.element?.parentNode) ft.element.parentNode.removeChild(ft.element);
             }
         }
-        this.app._updateSelectableItems();
-        this.app.fileManager.setDirty(true);
+        // In-place filter components: O(N) instead of O(N²)
+        let writeIdx = 0;
+        for (let i = 0; i < app.components.length; i++) {
+            if (!compsToRemove.has(app.components[i])) {
+                app.components[writeIdx++] = app.components[i];
+            }
+        }
+        app.components.length = writeIdx;
+        // In-place filter field texts from shapes: O(N)
+        if (ftsToRemove.size > 0) {
+            writeIdx = 0;
+            for (let i = 0; i < app.shapes.length; i++) {
+                if (!ftsToRemove.has(app.shapes[i])) {
+                    app.shapes[writeIdx++] = app.shapes[i];
+                }
+            }
+            app.shapes.length = writeIdx;
+        }
+        app._updateSelectableItems();
+        app.fileManager.setDirty(true);
     }
 
     undo() {
-        for (const data of this.componentsData) {
+        const app = this.app;
+        const sorted = [...this.componentsData].sort((a, b) => a.index - b.index);
+        const shapeSet = new Set(app.shapes);
+        for (const data of sorted) {
             const comp = data.component;
-            // Re-create SVG element if it was destroyed
-            if (!comp.element) {
-                comp.createSymbolElement();
-            }
-            if (data.index >= 0 && data.index < this.app.components.length) {
-                this.app.components.splice(data.index, 0, comp);
-            } else {
-                this.app.components.push(comp);
-            }
-            this.app.viewport.addComponentContent(comp.element);
-            // Re-add field texts
+            if (!comp.element) comp.createSymbolElement();
+            const idx = Math.min(data.index, app.components.length);
+            app.components.splice(idx, 0, comp);
+            app.viewport.addComponentContent(comp.element);
             for (const ft of comp.getFieldTexts()) {
-                if (!this.app.shapes.includes(ft)) {
-                    this.app.shapes.push(ft);
-                    ft.render(this.app.viewport.scale);
-                    this.app.viewport.addContent(ft.element);
+                if (!shapeSet.has(ft)) {
+                    app.shapes.push(ft);
+                    shapeSet.add(ft);
+                    ft.render(app.viewport.scale);
+                    app.viewport.addContent(ft.element);
                 }
             }
         }
-        this.app._updateSelectableItems();
-        this.app.fileManager.setDirty(true);
+        app._updateSelectableItems();
+        app.fileManager.setDirty(true);
     }
 }
 
@@ -561,27 +614,57 @@ export class PasteCommand extends Command {
 
     undo() {
         const app = this.app;
-        // Remove components (and their field texts)
+        // Collect all items to remove in Sets for O(N) filtering
+        const shapesToRemove = new Set(this.shapes);
+        const compsToRemove = new Set(this.components);
+        const ftsToRemove = new Set();
+
+        // Remove component DOM and collect field texts
         for (const comp of this.components) {
-            const idx = app.components.indexOf(comp);
-            if (idx !== -1) app.components.splice(idx, 1);
             if (comp.element?.parentNode) comp.element.parentNode.removeChild(comp.element);
             for (const ft of comp.getFieldTexts()) {
-                const si = app.shapes.indexOf(ft);
-                if (si !== -1) app.shapes.splice(si, 1);
+                ftsToRemove.add(ft);
                 if (ft.element?.parentNode) ft.element.parentNode.removeChild(ft.element);
+                if (ft.selected) {
+                    ft.selected = false;
+                    app.selection.selected.delete(ft.id);
+                }
+            }
+            if (comp.selected) {
+                comp.selected = false;
+                app.selection.selected.delete(comp.id);
             }
         }
-        // Remove shapes
+        // Remove shape DOM
         for (const shape of this.shapes) {
-            const idx = app.shapes.indexOf(shape);
-            if (idx !== -1) app.shapes.splice(idx, 1);
             if (shape.element?.parentNode) shape.element.parentNode.removeChild(shape.element);
             if (shape.anchorsGroup?.parentNode) shape.anchorsGroup.parentNode.removeChild(shape.anchorsGroup);
-            app.selection.deselect(shape);
+            if (shape.selected) {
+                shape.selected = false;
+                app.selection.selected.delete(shape.id);
+            }
         }
-        app._updateSelectableItems();
+        // In-place filter shapes array: O(N) instead of O(N²)
+        let writeIdx = 0;
+        for (let i = 0; i < app.shapes.length; i++) {
+            if (!shapesToRemove.has(app.shapes[i]) && !ftsToRemove.has(app.shapes[i])) {
+                app.shapes[writeIdx++] = app.shapes[i];
+            }
+        }
+        app.shapes.length = writeIdx;
+        // In-place filter components array: O(N)
+        writeIdx = 0;
+        for (let i = 0; i < app.components.length; i++) {
+            if (!compsToRemove.has(app.components[i])) {
+                app.components[writeIdx++] = app.components[i];
+            }
+        }
+        app.components.length = writeIdx;
+        // One-time bookkeeping
+        app.selection._selectionCache = null;
         app.selection._invalidateHitTestCache();
+        app.selection._notifySelectionChanged();
+        app._updateSelectableItems();
         app.fileManager.setDirty(true);
     }
 }

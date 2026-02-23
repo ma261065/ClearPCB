@@ -21,13 +21,18 @@ export function deleteSelected(app) {
     const toDelete = app.selection.getSelection().filter(item => !item.locked);
     if (toDelete.length === 0) return;
 
-    app.selection.clearSelection();
+    // Silent clear — avoids triggering _onSelectionChanged → renderShapes(true)
+    // before the items are removed. The command handles final notification.
+    app.selection._clearSelection();
 
+    // Use Sets for O(1) membership checks instead of O(N) includes()
+    const shapeSet = new Set(app.shapes);
+    const compSet = new Set(app.components);
     const shapesToDelete = [];
     const componentsToDelete = [];
 
     for (const item of toDelete) {
-        if (app.shapes.includes(item)) {
+        if (shapeSet.has(item)) {
             // Field texts: toggle visibility instead of deleting
             if (item.parentComponent && item.fieldKey) {
                 const showKey = item.fieldKey === 'reference' ? 'showReference' : 'showValue';
@@ -39,7 +44,7 @@ export function deleteSelected(app) {
                 continue;
             }
             shapesToDelete.push(item);
-        } else if (app.components.includes(item)) {
+        } else if (compSet.has(item)) {
             componentsToDelete.push(item);
         }
     }
@@ -58,7 +63,8 @@ export function deleteSelected(app) {
         app.history.execute(command);
     }
 
-    app.renderShapes(true);
+    app.selection._notifySelectionChanged();
+    app.renderShapes();
 }
 
 export function captureShapeState(app, shape) {
