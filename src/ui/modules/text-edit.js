@@ -467,20 +467,37 @@ function measurePlaceholderBBox(app, el) {
 
 function getCaretX(app, shape, el, bbox, caretIndex) {
     if (!el || caretIndex <= 0) {
+        // Caret at position 0 — left edge of first character
+        try {
+            if (typeof el?.getStartPositionOfChar === 'function' && (shape.text || '').length > 0) {
+                const start = el.getStartPositionOfChar(0);
+                if (start && Number.isFinite(start.x)) return start.x;
+            }
+        } catch (e) { /* fall through */ }
         return Number.isFinite(shape.x) ? shape.x : bbox.x;
     }
 
     try {
         const textValue = typeof shape.text === 'string' ? shape.text : '';
-        if (textValue.includes(' ') && app?.viewport) {
-            const measured = measureCaretWithClone(app, el, textValue, caretIndex);
-            if (Number.isFinite(measured)) {
-                return measured;
-            }
+        const clampedIndex = Math.min(caretIndex, textValue.length);
+
+        // Use getEndPositionOfChar for the character just before the caret.
+        // This works correctly for all text-anchor values (start/middle/end).
+        if (typeof el.getEndPositionOfChar === 'function' && clampedIndex > 0) {
+            const endPos = el.getEndPositionOfChar(clampedIndex - 1);
+            if (endPos && Number.isFinite(endPos.x)) return endPos.x;
         }
+
+        // Fallback: clone-based measurement for texts with spaces
+        if (textValue.includes(' ') && app?.viewport) {
+            const measured = measureCaretWithClone(app, el, textValue, clampedIndex);
+            if (Number.isFinite(measured)) return measured;
+        }
+
+        // Fallback: start + substring length (only reliable for text-anchor="start")
         if (typeof el.getSubStringLength === 'function' && typeof el.getStartPositionOfChar === 'function') {
             const start = el.getStartPositionOfChar(0);
-            const length = el.getSubStringLength(0, caretIndex);
+            const length = el.getSubStringLength(0, clampedIndex);
             if (start && Number.isFinite(start.x) && Number.isFinite(length)) {
                 return start.x + length;
             }

@@ -217,8 +217,8 @@ class SchematicApp {
         // If we have a pending auto-load, do it now that everything is ready
         if (this._pendingAutoLoad) {
             // Use the same logic as loadDocument
-            import('./modules/files.js').then(FileTools => {
-                FileTools.loadDocument(this, this._pendingAutoLoad);
+            import('./modules/files.js').then(async FileTools => {
+                await FileTools.loadDocument(this, this._pendingAutoLoad);
                 this._pendingAutoLoad = null;
             }).catch(err => {
                 console.error('Failed to auto-load document:', err);
@@ -873,8 +873,8 @@ class SchematicApp {
     }
     
     // Load shapes from document data
-    _loadDocument(data) {
-        FileTools.loadDocument(this, data);
+    async _loadDocument(data) {
+        await FileTools.loadDocument(this, data);
     }
     
     // Create component instance from serialized data

@@ -20,10 +20,12 @@ const PAPER_SIZES = {
 
 const STORAGE_KEY = 'clearpcb_paper_size';
 const ORIENTATION_KEY = 'clearpcb_paper_orientation';
+const TITLE_BLOCK_KEY = 'clearpcb_title_block';
 
 export function bindPaperEvents(app) {
     const paperSelect = document.getElementById('paperSize');
     const orientationSelect = document.getElementById('paperOrientation');
+    const titleBlockCheckbox = document.getElementById('showTitleBlock');
     
     if (!paperSelect) return;
     
@@ -31,6 +33,13 @@ export function bindPaperEvents(app) {
     const savedOrientation = localStorage.getItem(ORIENTATION_KEY) || 'landscape';
     if (orientationSelect) {
         orientationSelect.value = savedOrientation;
+    }
+    
+    // Restore saved title block state
+    const savedTitleBlock = localStorage.getItem(TITLE_BLOCK_KEY) === 'true';
+    if (titleBlockCheckbox) {
+        titleBlockCheckbox.checked = savedTitleBlock;
+        app.viewport.setTitleBlock(savedTitleBlock);
     }
     
     // Restore saved paper size with current orientation
@@ -64,6 +73,14 @@ export function bindPaperEvents(app) {
             if (paperSizeKey && PAPER_SIZES[paperSizeKey]) {
                 updatePaperDisplay(app, paperSizeKey, orientation);
             }
+        });
+    }
+    
+    if (titleBlockCheckbox) {
+        titleBlockCheckbox.addEventListener('change', (e) => {
+            const show = e.target.checked;
+            app.viewport.setTitleBlock(show);
+            localStorage.setItem(TITLE_BLOCK_KEY, String(show));
         });
     }
 }

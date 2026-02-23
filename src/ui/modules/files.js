@@ -8,14 +8,19 @@ export function serializeDocument(app) {
         created: new Date().toISOString(),
         settings: {
             gridSize: app.viewport.gridSize,
-            units: app.viewport.units
+            units: app.viewport.units,
+            paperSize: app.viewport.paperSizeKey || null,
+            paperOrientation: app.viewport.paperSize
+                ? (app.viewport.paperSize.width >= app.viewport.paperSize.height ? 'landscape' : 'portrait')
+                : null,
+            titleBlock: app.viewport.showTitleBlock || false
         },
         shapes: app.shapes.map(s => s.toJSON()),
         components: app.components.map(c => c.toJSON())
     };
 }
 
-export function loadDocument(app, data) {
+export async function loadDocument(app, data) {
     app.selection.clearSelection();
     if (app.textEdit?.shape) app._endTextEdit(false);
     app._clearAllShapes();
@@ -70,6 +75,32 @@ export function loadDocument(app, data) {
             if (typeof app._updateGridDropdown === 'function') {
                 app._updateGridDropdown();
             }
+        }
+        // Restore paper size, orientation, and title block from file
+        if (data.settings.paperSize) {
+            const paperSelect = document.getElementById('paperSize');
+            const orientationSelect = document.getElementById('paperOrientation');
+            const titleBlockCheckbox = document.getElementById('showTitleBlock');
+            const orientation = data.settings.paperOrientation || 'landscape';
+            if (paperSelect) paperSelect.value = data.settings.paperSize;
+            if (orientationSelect) orientationSelect.value = orientation;
+            // Trigger paper display update via the same path as UI
+            const { PAPER_SIZES } = await import('./paper.js');
+            if (PAPER_SIZES[data.settings.paperSize]) {
+                let size = { ...PAPER_SIZES[data.settings.paperSize] };
+                if (orientation === 'portrait') {
+                    if (size.width > size.height) [size.width, size.height] = [size.height, size.width];
+                } else {
+                    if (size.width < size.height) [size.width, size.height] = [size.height, size.width];
+                }
+                app.viewport.setPaperSize(size, data.settings.paperSize);
+                localStorage.setItem('clearpcb_paper_size', data.settings.paperSize);
+                localStorage.setItem('clearpcb_paper_orientation', orientation);
+            }
+            const showTitleBlock = data.settings.titleBlock || false;
+            app.viewport.setTitleBlock(showTitleBlock);
+            if (titleBlockCheckbox) titleBlockCheckbox.checked = showTitleBlock;
+            localStorage.setItem('clearpcb_title_block', String(showTitleBlock));
         }
     }
 

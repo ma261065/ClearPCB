@@ -83,6 +83,7 @@ export class Viewport {
         // Paper size
         this.paperSize = null;  // null = no paper outline
         this.paperSizeKey = null;  // Name of the paper size (e.g., 'A4')
+        this.showTitleBlock = false; // Double border with zone markers
         
         // Units
         this.units = 'mm';
@@ -561,6 +562,12 @@ export class Viewport {
         this.paperDirty = true;
         this._drawPaperOutline();
     }
+
+    setTitleBlock(show) {
+        this.showTitleBlock = show;
+        this.paperDirty = true;
+        this._drawPaperOutline();
+    }
     
     _drawPaperOutline() {
         // If reference is lost, try to find the layer in the SVG
@@ -584,13 +591,65 @@ export class Viewport {
         const x = 0;
         const y = -height;
         
-        // Draw paper outline with label at top right, outside the corner
+        let paperSvg = '';
+        
+        if (this.showTitleBlock) {
+            // Double border with zone markers
+            const margin = 4; // mm
+            const outerSW = 0.5; // mm - fixed for print
+            const innerSW = 0.25;
+            // Target ~50mm per block (A4 landscape: 297/6≈49.5, 210/4≈52.5)
+            const targetBlock = 50;
+            const cols = Math.max(6, Math.round(width / targetBlock));
+            const rows = Math.max(4, Math.round(height / targetBlock));
+            const colW = width / cols;
+            const rowH = height / rows;
+            const fs = margin * 0.4; // label font size
+            const color = colors.axis;
+            
+            // Outer border
+            paperSvg += `<rect x="${x}" y="${y}" width="${width}" height="${height}" stroke="${color}" stroke-width="${outerSW}" fill="none"/>`;
+            // Inner border
+            paperSvg += `<rect x="${x + margin}" y="${y + margin}" width="${width - 2 * margin}" height="${height - 2 * margin}" stroke="${color}" stroke-width="${innerSW}" fill="none"/>`;
+            
+            // Column zone dividers & labels (top and bottom margins)
+            for (let i = 0; i <= cols; i++) {
+                const cx = x + i * colW;
+                if (i > 0 && i < cols) {
+                    paperSvg += `<line x1="${cx}" y1="${y}" x2="${cx}" y2="${y + margin}" stroke="${color}" stroke-width="${innerSW}"/>`;
+                    paperSvg += `<line x1="${cx}" y1="${y + height - margin}" x2="${cx}" y2="${y + height}" stroke="${color}" stroke-width="${innerSW}"/>`;
+                }
+                if (i < cols) {
+                    const lx = cx + colW / 2;
+                    paperSvg += `<text x="${lx}" y="${y + margin / 2}" font-size="${fs}" fill="${color}" font-family="sans-serif" text-anchor="middle" dominant-baseline="central">${i + 1}</text>`;
+                    paperSvg += `<text x="${lx}" y="${y + height - margin / 2}" font-size="${fs}" fill="${color}" font-family="sans-serif" text-anchor="middle" dominant-baseline="central">${i + 1}</text>`;
+                }
+            }
+            
+            // Row zone dividers & labels (left and right margins)
+            for (let i = 0; i <= rows; i++) {
+                const cy = y + i * rowH;
+                if (i > 0 && i < rows) {
+                    paperSvg += `<line x1="${x}" y1="${cy}" x2="${x + margin}" y2="${cy}" stroke="${color}" stroke-width="${innerSW}"/>`;
+                    paperSvg += `<line x1="${x + width - margin}" y1="${cy}" x2="${x + width}" y2="${cy}" stroke="${color}" stroke-width="${innerSW}"/>`;
+                }
+                if (i < rows) {
+                    const letter = String.fromCharCode(65 + i); // A, B, C, D, E, ...
+                    const ly = cy + rowH / 2;
+                    paperSvg += `<text x="${x + margin / 2}" y="${ly}" font-size="${fs}" fill="${color}" font-family="sans-serif" text-anchor="middle" dominant-baseline="central">${letter}</text>`;
+                    paperSvg += `<text x="${x + width - margin / 2}" y="${ly}" font-size="${fs}" fill="${color}" font-family="sans-serif" text-anchor="middle" dominant-baseline="central">${letter}</text>`;
+                }
+            }
+        } else {
+            // Simple paper outline
+            paperSvg += `<rect x="${x}" y="${y}" width="${width}" height="${height}" stroke="${colors.axis}" stroke-width="${strokeWidth}" fill="none"/>`;
+        }
+        
+        // Paper size label (top-right, outside the border)
         const label = this.paperSizeKey || 'Paper';
-        const fontSize = Math.max(12 / this.scale, 2);  // Bigger font
-        const paperSvg = `
-            <rect x="${x}" y="${y}" width="${width}" height="${height}" stroke="${colors.axis}" stroke-width="${strokeWidth}" fill="none"/>
-            <text x="${x + width + 1}" y="${y - 1}" font-size="${fontSize}" fill="${colors.paperLabel}" font-family="sans-serif" text-anchor="end" font-weight="bold">${label}</text>
-        `;
+        const fontSize = Math.max(12 / this.scale, 2);
+        paperSvg += `<text x="${x + width + 1}" y="${y - 1}" font-size="${fontSize}" fill="${colors.paperLabel}" font-family="sans-serif" text-anchor="end" font-weight="bold">${label}</text>`;
+        
         this.paperOutlineLayer.innerHTML = paperSvg;
     }
     
@@ -841,16 +900,29 @@ export class Viewport {
             };
             const mouseWorld = this.screenToWorld(mouseScreen);
             
-            // Pan amount in world units (scale by view size for consistent feel)
-            const panAmount = (this.viewBox.width / 10) * Math.sign(e.deltaY);
-            
-            if (e.ctrlKey || e.metaKey) {
-                // Ctrl+wheel: pan vertically
+            // Trackpad pinch-to-zoom fires as ctrlKey + wheel in most browsers.
+            // Detect it: ctrlKey is set, but deltaMode is 0 (pixel) and deltaY
+            // is a small fractional value (not the ±100/±120 of a real mouse wheel).
+            const isTrackpadPinch = (e.ctrlKey || e.metaKey) &&
+                                    e.deltaMode === 0 &&
+                                    Math.abs(e.deltaY) < 50;
+
+            if (isTrackpadPinch) {
+                // Treat as zoom (same as regular wheel)
+                if (e.deltaY > 0) {
+                    this.zoomOut(mouseWorld);
+                } else if (e.deltaY < 0) {
+                    this.zoomIn(mouseWorld);
+                }
+            } else if (e.ctrlKey || e.metaKey) {
+                // Real Ctrl+wheel: pan vertically
+                const panAmount = (this.viewBox.width / 10) * Math.sign(e.deltaY);
                 this.viewBox.y += panAmount;
                 this._updateViewBox();
                 this._notifyViewChanged();
             } else if (e.shiftKey) {
                 // Shift+wheel: pan horizontally
+                const panAmount = (this.viewBox.width / 10) * Math.sign(e.deltaY);
                 this.viewBox.x += panAmount;
                 this._updateViewBox();
                 this._notifyViewChanged();
@@ -858,7 +930,7 @@ export class Viewport {
                 // Regular wheel: zoom
                 if (e.deltaY > 0) {
                     this.zoomOut(mouseWorld);
-                } else {
+                } else if (e.deltaY < 0) {
                     this.zoomIn(mouseWorld);
                 }
             }
