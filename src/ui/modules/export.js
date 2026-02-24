@@ -303,7 +303,9 @@ export function forceMonochromeSvg(svgRoot) {
             el.setAttribute('stroke', '#000000');
         }
 
-        if ((fill === null || fill === 'none') && (stroke === null || stroke === 'none')) {
+        // Safety net: force stroke only when fill is truly missing (null),
+        // NOT when it's explicitly "none" (intentionally invisible element)
+        if (fill === null && (stroke === null || stroke === 'none')) {
             if (['line', 'path', 'polyline', 'polygon', 'rect', 'circle', 'ellipse'].includes(tag)) {
                 el.setAttribute('stroke', '#000000');
             }

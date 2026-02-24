@@ -780,7 +780,7 @@ export class Viewport {
             { key: 'sheet',   rx: bx + companyDateW,ry: by + topH,      rw: sheetW,        rh: botH }
         ];
         for (const c of cells) {
-            s += `<rect x="${c.rx}" y="${c.ry}" width="${c.rw}" height="${c.rh}" fill="transparent" pointer-events="all" data-tb-field="${c.key}" style="cursor:text"/>`;
+            s += `<rect x="${c.rx}" y="${c.ry}" width="${c.rw}" height="${c.rh}" fill="none" pointer-events="all" data-tb-field="${c.key}" style="cursor:text"/>`;
         }
 
         return s;
