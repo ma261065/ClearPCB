@@ -24,6 +24,11 @@ export class Viewport {
         this.gridLayer = this._createGroup('gridLayer');
         this.paperOutlineLayer = this._createGroup('paperOutlineLayer');
         this.contentLayer = this._createGroup('contentLayer');
+        
+        // Title block in-place edit state
+        this._titleBlockEditActive = false;
+        this._titleBlockEditInput = null;
+        this._cancelTitleBlockEdit = () => {};
         // Sub-layer for components (always below shapes)
         this.componentLayer = document.createElementNS('http://www.w3.org/2000/svg', 'g');
         this.componentLayer.setAttribute('id', 'componentLayer');
@@ -84,6 +89,15 @@ export class Viewport {
         this.paperSize = null;  // null = no paper outline
         this.paperSizeKey = null;  // Name of the paper size (e.g., 'A4')
         this.showTitleBlock = false; // Double border with zone markers
+        this.showTitleBlockInfo = false; // Title block info box
+        this.titleBlockData = {
+            title: '',
+            rev: '',
+            company: '',
+            date: new Date().toISOString().slice(0, 10),
+            drawnBy: '',
+            sheet: '1/1'
+        };
         
         // Units
         this.units = 'mm';
@@ -199,6 +213,7 @@ export class Viewport {
         this.svg.style.backgroundColor = this.themeColors.canvasBg;
         this._createGrid();
         this._createRulers();
+        this._drawPaperOutline();
     }
 
     // ==================== View Management ====================
@@ -568,6 +583,18 @@ export class Viewport {
         this.paperDirty = true;
         this._drawPaperOutline();
     }
+
+    setTitleBlockInfo(show) {
+        this.showTitleBlockInfo = show;
+        this.paperDirty = true;
+        this._drawPaperOutline();
+    }
+
+    setTitleBlockData(data) {
+        Object.assign(this.titleBlockData, data);
+        this.paperDirty = true;
+        this._drawPaperOutline();
+    }
     
     _drawPaperOutline() {
         // If reference is lost, try to find the layer in the SVG
@@ -604,7 +631,7 @@ export class Viewport {
             const rows = Math.max(4, Math.round(height / targetBlock));
             const colW = width / cols;
             const rowH = height / rows;
-            const fs = margin * 0.4; // label font size
+            const fs = margin * 0.55; // label font size
             const color = colors.axis;
             
             // Outer border
@@ -644,6 +671,14 @@ export class Viewport {
             // Simple paper outline
             paperSvg += `<rect x="${x}" y="${y}" width="${width}" height="${height}" stroke="${colors.axis}" stroke-width="${strokeWidth}" fill="none"/>`;
         }
+
+        // ── Title block info box (independent of border) ──
+        if (this.showTitleBlockInfo) {
+            const tbMargin = this.showTitleBlock ? 4 : 0; // inside inner border vs paper edge
+            const tbSW = this.showTitleBlock ? 0.25 : Math.min(0.25, strokeWidth);
+            const tbColor = colors.axis;
+            paperSvg += this._renderTitleBlockInfo(x, y, width, height, tbMargin, tbSW, tbColor);
+        }
         
         // Paper size label (top-right, outside the border)
         const label = this.paperSizeKey || 'Paper';
@@ -653,6 +688,244 @@ export class Viewport {
         this.paperOutlineLayer.innerHTML = paperSvg;
     }
     
+    /**
+     * Render the title block info box (EasyEDA-style) in the bottom-right corner.
+     * Sits inside the inner border of the title block.
+     */
+    _renderTitleBlockInfo(px, py, pw, ph, margin, sw, color) {
+        const d = this.titleBlockData || {};
+        // Info box dimensions (mm)
+        const boxW = 120;
+        const boxH = 30;
+        const rightEdge = px + pw - margin;
+        const bottomEdge = py + ph - margin;
+        const bx = rightEdge - boxW;
+        const by = bottomEdge - boxH;
+
+        // Row heights: top row (title) = 15mm, bottom row = 15mm split into two sub-rows
+        const topH = 15;
+        const botH = 15;
+        const subH = botH / 2;
+
+        // Column splits
+        const revW = 25;  // REV column width
+        const sheetW = 25; // Sheet column width
+        const titleW = boxW - revW;
+        const companyDateW = boxW - sheetW;
+        const dateW = companyDateW / 2;
+
+        // Font sizes
+        const labelFs = 2;
+        const valueFs = 3.5;
+        const pad = 1.5;
+
+        let s = '';
+
+        // Outer box
+        s += `<rect x="${bx}" y="${by}" width="${boxW}" height="${boxH}" stroke="${color}" stroke-width="${sw}" fill="none"/>`;
+
+        // ── Top row: TITLE + REV ──
+        // Vertical divider between title and rev
+        s += `<line x1="${bx + titleW}" y1="${by}" x2="${bx + titleW}" y2="${by + topH}" stroke="${color}" stroke-width="${sw}"/>`;
+        // Horizontal divider between top and bottom
+        s += `<line x1="${bx}" y1="${by + topH}" x2="${bx + boxW}" y2="${by + topH}" stroke="${color}" stroke-width="${sw}"/>`;
+
+        // Title label + value
+        const titleFs = 4.5;
+        s += `<text x="${bx + pad}" y="${by + pad + labelFs}" font-size="${labelFs}" fill="${color}" font-family="sans-serif">TITLE:</text>`;
+        s += `<text x="${bx + pad}" y="${by + topH / 2 + titleFs / 2 + 2}" font-size="${titleFs}" fill="${color}" font-family="sans-serif">${this._escSvg(d.title || '')}</text>`;
+
+        // Rev label + value
+        const revX = bx + titleW;
+        s += `<text x="${revX + pad}" y="${by + pad + labelFs}" font-size="${labelFs}" fill="${color}" font-family="sans-serif">REV:</text>`;
+        s += `<text x="${revX + pad}" y="${by + topH / 2 + valueFs / 2 + 2}" font-size="${valueFs}" fill="${color}" font-family="sans-serif">${this._escSvg(d.rev || '')}</text>`;
+
+        // ── Bottom row: Company/Date/DrawnBy + Sheet ──
+        // Vertical divider between company/date and sheet
+        s += `<line x1="${bx + companyDateW}" y1="${by + topH}" x2="${bx + companyDateW}" y2="${by + boxH}" stroke="${color}" stroke-width="${sw}"/>`;
+        // Horizontal sub-divider (splits bottom into two sub-rows)
+        s += `<line x1="${bx}" y1="${by + topH + subH}" x2="${bx + companyDateW}" y2="${by + topH + subH}" stroke="${color}" stroke-width="${sw}"/>`;
+        // Vertical divider between date and drawn by in bottom sub-row
+        s += `<line x1="${bx + dateW}" y1="${by + topH + subH}" x2="${bx + dateW}" y2="${by + boxH}" stroke="${color}" stroke-width="${sw}"/>`;
+
+        // Company label + value (top of bottom row)
+        const compY = by + topH;
+        const bottomValY = compY + subH / 2 + valueFs / 3;
+        s += `<text x="${bx + pad}" y="${bottomValY}" font-size="${labelFs}" fill="${color}" font-family="sans-serif">Company:</text>`;
+        s += `<text x="${bx + pad + 10}" y="${bottomValY}" font-size="${valueFs}" fill="${color}" font-family="sans-serif">${this._escSvg(d.company || '')}</text>`;
+
+        // Date label + value (bottom-left of bottom row)
+        const dateY = compY + subH;
+        const dateValY = dateY + subH / 2 + valueFs / 3;
+        s += `<text x="${bx + pad}" y="${dateValY}" font-size="${labelFs}" fill="${color}" font-family="sans-serif">Date:</text>`;
+        s += `<text x="${bx + pad + 6}" y="${dateValY}" font-size="${valueFs}" fill="${color}" font-family="sans-serif">${this._escSvg(d.date || '')}</text>`;
+
+        // Drawn By label + value (bottom-right of bottom row, left of sheet)
+        const drawnX = bx + dateW;
+        s += `<text x="${drawnX + pad}" y="${dateValY}" font-size="${labelFs}" fill="${color}" font-family="sans-serif">Drawn By:</text>`;
+        s += `<text x="${drawnX + pad + 10}" y="${dateValY}" font-size="${valueFs}" fill="${color}" font-family="sans-serif">${this._escSvg(d.drawnBy || '')}</text>`;
+
+        // Sheet label + value
+        const sheetX = bx + companyDateW;
+        s += `<text x="${sheetX + pad}" y="${compY + pad + labelFs}" font-size="${labelFs}" fill="${color}" font-family="sans-serif">Sheet:</text>`;
+        s += `<text x="${sheetX + pad}" y="${compY + botH / 2 + valueFs / 2}" font-size="${valueFs}" fill="${color}" font-family="sans-serif">${this._escSvg(d.sheet || '')}</text>`;
+
+        // ── Transparent clickable rects for in-place editing ──
+        const cells = [
+            { key: 'title',   rx: bx,              ry: by,              rw: titleW,        rh: topH },
+            { key: 'rev',     rx: bx + titleW,     ry: by,              rw: revW,          rh: topH },
+            { key: 'company', rx: bx,              ry: by + topH,       rw: companyDateW,  rh: subH },
+            { key: 'date',    rx: bx,              ry: by + topH + subH,rw: dateW,         rh: subH },
+            { key: 'drawnBy', rx: bx + dateW,      ry: by + topH + subH,rw: dateW,         rh: subH },
+            { key: 'sheet',   rx: bx + companyDateW,ry: by + topH,      rw: sheetW,        rh: botH }
+        ];
+        for (const c of cells) {
+            s += `<rect x="${c.rx}" y="${c.ry}" width="${c.rw}" height="${c.rh}" fill="transparent" pointer-events="all" data-tb-field="${c.key}" style="cursor:text"/>`;
+        }
+
+        return s;
+    }
+
+    /** Escape text for safe SVG embedding */
+    _escSvg(str) {
+        return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    /**
+     * Handle double-click on title block cells for in-place editing.
+     * Called from mouse.js when no shape was hit at the dblclick location.
+     */
+    _onTitleBlockDblClick(worldPos) {
+        if (!this.showTitleBlockInfo || !this.paperSize) return false;
+
+        // If already editing, cancel the current edit first
+        if (this._titleBlockEditActive) {
+            this._cancelTitleBlockEdit();
+        }
+
+        // Hit-test against the title block cell rects
+        const rects = this.paperOutlineLayer.querySelectorAll('rect[data-tb-field]');
+        let hitRect = null;
+        for (const r of rects) {
+            const rx = parseFloat(r.getAttribute('x'));
+            const ry = parseFloat(r.getAttribute('y'));
+            const rw = parseFloat(r.getAttribute('width'));
+            const rh = parseFloat(r.getAttribute('height'));
+            if (worldPos.x >= rx && worldPos.x <= rx + rw &&
+                worldPos.y >= ry && worldPos.y <= ry + rh) {
+                hitRect = r;
+                break;
+            }
+        }
+        if (!hitRect) return false;
+
+        const field = hitRect.getAttribute('data-tb-field');
+        this._titleBlockEditActive = true;
+        this._titleBlockEditCancelled = false;
+
+        // Max lengths per field
+        const maxLengths = { title: 24, rev: 8, company: 28, date: 13, drawnBy: 12, sheet: 8 };
+        const maxLen = maxLengths[field] || 40;
+
+        // Get the cell rect bounds in SVG world coords
+        const rx = parseFloat(hitRect.getAttribute('x'));
+        const ry = parseFloat(hitRect.getAttribute('y'));
+        const rw = parseFloat(hitRect.getAttribute('width'));
+        const rh = parseFloat(hitRect.getAttribute('height'));
+
+        // Convert corners to screen coords (relative to SVG element)
+        const topLeft = this.worldToScreen({ x: rx, y: ry });
+        const botRight = this.worldToScreen({ x: rx + rw, y: ry + rh });
+        const svgRect = this.svg.getBoundingClientRect();
+
+        const left = svgRect.left + topLeft.x;
+        const top = svgRect.top + topLeft.y;
+        const w = botRight.x - topLeft.x;
+        const h = botRight.y - topLeft.y;
+
+        // Create HTML input overlay
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.value = this.titleBlockData[field] || '';
+        input.maxLength = maxLen;
+        input.style.cssText = `
+            position: fixed;
+            left: ${left}px;
+            top: ${top}px;
+            width: ${w}px;
+            height: ${h}px;
+            box-sizing: border-box;
+            border: 2px solid #0078d4;
+            border-radius: 0;
+            padding: 0 3px;
+            margin: 0;
+            font-family: sans-serif;
+            font-size: ${Math.max(10, h * 0.35)}px;
+            background: var(--sch-bg, #1e1e1e);
+            color: var(--sch-fg, #ccc);
+            outline: none;
+            z-index: 10000;
+        `;
+        document.body.appendChild(input);
+        input.focus();
+        input.select();
+
+        const commit = () => {
+            if (this._titleBlockEditCancelled || !input.parentNode) return;
+            const val = input.value;
+            this.titleBlockData[field] = val;
+            document.body.removeChild(input);
+            this._titleBlockEditActive = false;
+            this._titleBlockEditInput = null;
+            this.paperDirty = true;
+            this._drawPaperOutline();
+        };
+
+        const cancel = () => {
+            if (!input.parentNode) return;
+            this._titleBlockEditCancelled = true;
+            document.body.removeChild(input);
+            this._titleBlockEditActive = false;
+            this._titleBlockEditInput = null;
+        };
+
+        // Click outside the input → commit
+        const onMouseDown = (ev) => {
+            if (ev.target !== input) {
+                ev.preventDefault();
+                document.removeEventListener('mousedown', onMouseDown, true);
+                commit();
+            }
+        };
+        document.addEventListener('mousedown', onMouseDown, true);
+
+        input.addEventListener('blur', () => {
+            // Defer to let mousedown handler run first
+            setTimeout(() => {
+                document.removeEventListener('mousedown', onMouseDown, true);
+                commit();
+            }, 0);
+        });
+        input.addEventListener('keydown', (ev) => {
+            if (ev.key === 'Enter') {
+                ev.preventDefault();
+                document.removeEventListener('mousedown', onMouseDown, true);
+                commit();
+            } else if (ev.key === 'Escape') {
+                ev.preventDefault();
+                ev.stopPropagation();
+                document.removeEventListener('mousedown', onMouseDown, true);
+                cancel();
+            }
+        });
+
+        // Store reference so we can cancel externally
+        this._titleBlockEditInput = input;
+        this._cancelTitleBlockEdit = cancel;
+
+        return true;
+    }
+
     // ==================== Rulers ====================
     
     _createRulers() {

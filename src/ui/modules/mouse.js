@@ -606,11 +606,18 @@ export function bindMouseEvents(app) {
         const worldPos = app.viewport.screenToWorld(screenPos);
         const hit = app.selection.hitTest(worldPos);
 
+        // Priority 1: shape inline edit (text shapes)
         if (hit && hit.supportsInlineEdit) {
             app.selection.select(hit, false);
             app.renderShapes(true);
             app._startTextEdit(hit);
             app._setTextEditCaretFromScreen(screenPos);
+            return;
+        }
+
+        // Priority 2: title block cell in-place edit
+        if (!hit) {
+            app.viewport._onTitleBlockDblClick(worldPos);
         }
     });
 }

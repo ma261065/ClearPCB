@@ -13,7 +13,9 @@ export function serializeDocument(app) {
             paperOrientation: app.viewport.paperSize
                 ? (app.viewport.paperSize.width >= app.viewport.paperSize.height ? 'landscape' : 'portrait')
                 : null,
-            titleBlock: app.viewport.showTitleBlock || false
+            titleBlock: app.viewport.showTitleBlock || false,
+            titleBlockInfo: app.viewport.showTitleBlockInfo || false,
+            titleBlockData: app.viewport.titleBlockData || {}
         },
         shapes: app.shapes.map(s => s.toJSON()),
         components: app.components.map(c => c.toJSON())
@@ -101,6 +103,16 @@ export async function loadDocument(app, data) {
             app.viewport.setTitleBlock(showTitleBlock);
             if (titleBlockCheckbox) titleBlockCheckbox.checked = showTitleBlock;
             localStorage.setItem('clearpcb_title_block', String(showTitleBlock));
+            // Restore title block info box state
+            const showTitleBlockInfo = data.settings.titleBlockInfo || false;
+            const titleBlockInfoCheckbox = document.getElementById('showTitleBlockInfo');
+            app.viewport.setTitleBlockInfo(showTitleBlockInfo);
+            if (titleBlockInfoCheckbox) titleBlockInfoCheckbox.checked = showTitleBlockInfo;
+            localStorage.setItem('clearpcb_title_block_info', String(showTitleBlockInfo));
+            // Restore title block info data
+            if (data.settings.titleBlockData) {
+                app.viewport.setTitleBlockData(data.settings.titleBlockData);
+            }
         }
     }
 
