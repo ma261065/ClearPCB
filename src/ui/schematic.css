@@ -18,8 +18,8 @@
     
     /* === Schematic Canvas === */
     --sch-background: #1a1a2e;
-    --sch-grid: rgba(255, 255, 255, 0.08);
-    --sch-grid-major: rgba(255, 255, 255, 0.15);
+    --sch-grid: rgba(255, 255, 255, 0.15);
+    --sch-grid-major: rgba(255, 255, 255, 0.22);
     --sch-selection: #3399ff;
     --sch-selection-fill: rgba(51, 153, 255, 0.2);
     
@@ -82,8 +82,8 @@
     
     /* === Schematic Canvas === */
     --sch-background: #ffffff;
-    --sch-grid: rgba(0, 0, 0, 0.08);
-    --sch-grid-major: rgba(0, 0, 0, 0.15);
+    --sch-grid: rgba(0, 0, 0, 0.15);
+    --sch-grid-major: rgba(0, 0, 0, 0.22);
     --sch-selection: #0066cc;
     --sch-selection-fill: rgba(0, 102, 204, 0.2);
     

@@ -59,7 +59,7 @@ export function renderShapes(app, force = false) {
         } else if (shape._lastScale !== scale && shape.element) {
             // Only stroke-width changed on zoom — fast-path update
             const sw = shape._getEffectiveStrokeWidth(scale);
-            shape.element.setAttribute('stroke-width', sw);
+            if (sw > 0) shape.element.setAttribute('stroke-width', sw);
             shape._lastScale = scale;
         }
     }

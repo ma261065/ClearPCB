@@ -100,10 +100,12 @@ export class Text extends Shape {
         el.setAttribute('text-anchor', this.textAnchor);
         el.setAttribute('dominant-baseline', 'alphabetic');
         el.setAttribute('alignment-baseline', 'alphabetic');
+        el.setAttribute('text-rendering', 'geometricPrecision');
         el.setAttribute('xml:space', 'preserve');
         el.style.whiteSpace = 'pre';
         el.textContent = typeof this.text === 'string' ? this.text : '';
-        el.removeAttribute('stroke');
+        el.setAttribute('stroke', 'none');
+        el.removeAttribute('stroke-width');
     }
 
     move(dx, dy) {
@@ -111,6 +113,10 @@ export class Text extends Shape {
         this.x += dx;
         this.y += dy;
         this.invalidate();
+    }
+
+    _getEffectiveStrokeWidth(scale) {
+        return 0;
     }
 
     clone() {

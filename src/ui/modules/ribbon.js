@@ -151,8 +151,9 @@ export function updateShapePanelOptions(app, selection, toolIdArg) {
 
     const toolSupportsLineWidth = ['line', 'rect', 'circle', 'arc', 'polygon'].includes(toolId);
     const toolSupportsFill = ['rect', 'circle', 'polygon'].includes(toolId);
+    const toolSupportsFontSize = toolId === 'text';
 
-    if (!toolSupportsLineWidth && !toolSupportsFill) {
+    if (!toolSupportsLineWidth && !toolSupportsFill && !toolSupportsFontSize) {
         container.innerHTML = '';
         return;
     }
@@ -188,6 +189,24 @@ export function updateShapePanelOptions(app, selection, toolIdArg) {
         });
         label.appendChild(input);
         label.append(' Fill');
+        container.appendChild(label);
+    }
+
+    if (toolSupportsFontSize) {
+        const label = document.createElement('label');
+        label.textContent = 'Text size ';
+        const input = document.createElement('input');
+        input.type = 'number';
+        input.id = 'ribbonShapeFontSize';
+        input.step = '0.5';
+        input.min = '0.5';
+        input.max = '50';
+        input.value = app.toolOptions?.fontSize ?? 2.0;
+        input.addEventListener('change', () => {
+            const v = parseFloat(input.value);
+            if (!Number.isNaN(v)) app.toolOptions.fontSize = v;
+        });
+        label.appendChild(input);
         container.appendChild(label);
     }
 }
