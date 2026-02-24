@@ -5,6 +5,7 @@
 import { Shape } from './shape.js';
 import { ShapeValidator } from '../core/ShapeValidator.js';
 import { distanceToSegment, pointInPolygon } from '../core/geometry.js';
+import { createLockIcon, LOCK_SIZE } from '../core/ui-helpers.js';
 
 export class Polygon extends Shape {
     constructor(options = {}) {
@@ -67,21 +68,152 @@ export class Polygon extends Shape {
     }
     
     getAnchors() {
-        return this.points.map((p, i) => ({
+        const anchors = this.points.map((p, i) => ({
             id: `p${i}`,
             x: p.x,
             y: p.y,
             cursor: 'move'
         }));
+        // Add midpoint anchors between consecutive edges (including closing edge)
+        const n = this.points.length;
+        const edgeCount = this.closed ? n : n - 1;
+        for (let i = 0; i < edgeCount; i++) {
+            const a = this.points[i];
+            const b = this.points[(i + 1) % n];
+            anchors.push({
+                id: `mid${i}`,
+                x: (a.x + b.x) / 2,
+                y: (a.y + b.y) / 2,
+                cursor: 'copy',
+                midpoint: true
+            });
+        }
+        return anchors;
     }
     
     moveAnchor(anchorId, x, y) {
+        if (anchorId.startsWith('mid')) {
+            // Insert a new point after the segment start index
+            const segIndex = parseInt(anchorId.substring(3));
+            const insertIndex = segIndex + 1;
+            this.points.splice(insertIndex, 0, { x, y });
+            this.invalidate();
+            return `p${insertIndex}`;
+        }
         const index = parseInt(anchorId.substring(1));
         if (index >= 0 && index < this.points.length) {
             this.points[index].x = x;
             this.points[index].y = y;
         }
         this.invalidate();
+    }
+
+    /**
+     * Delete a point anchor. Returns true if deleted, false if not allowed
+     * (minimum 3 points required for a polygon).
+     */
+    deleteAnchor(anchorId) {
+        if (!anchorId.startsWith('p')) return false;
+        if (this.points.length <= 3) return false;
+        const index = parseInt(anchorId.substring(1));
+        if (index < 0 || index >= this.points.length) return false;
+        this.points.splice(index, 1);
+        this.invalidate();
+        return true;
+    }
+
+    _updateAnchors(scale) {
+        if (!this.selected) {
+            if (this.anchorsGroup) {
+                this.anchorsGroup.remove();
+                this.anchorsGroup = null;
+                this._anchorRects = null;
+            }
+            return;
+        }
+
+        const anchors = this.getAnchors();
+        const pointAnchors = anchors.filter(a => !a.midpoint);
+        const midAnchors = anchors.filter(a => a.midpoint);
+        const size = 8 / scale;
+        const midR = 5.5 / scale;
+        const strokeW = 1 / scale;
+
+        // Full rebuild every time (anchor count can change with midpoint operations)
+        if (this.anchorsGroup) {
+            this.anchorsGroup.remove();
+        }
+
+        const ns = 'http://www.w3.org/2000/svg';
+        this.anchorsGroup = document.createElementNS(ns, 'g');
+        this.anchorsGroup.setAttribute('class', 'shape-anchors');
+        this._anchorRects = [];
+
+        // Regular point anchors (squares)
+        for (const anchor of pointAnchors) {
+            const rect = document.createElementNS(ns, 'rect');
+            rect.setAttribute('x', anchor.x - size / 2);
+            rect.setAttribute('y', anchor.y - size / 2);
+            rect.setAttribute('width', size);
+            rect.setAttribute('height', size);
+            rect.setAttribute('fill', '#fff');
+            rect.setAttribute('stroke', '#e94560');
+            rect.setAttribute('stroke-width', strokeW);
+            rect.setAttribute('data-anchor-id', anchor.id);
+            this.anchorsGroup.appendChild(rect);
+            this._anchorRects.push(rect);
+        }
+
+        // Midpoint anchors (circle with +)
+        for (const anchor of midAnchors) {
+            const g = document.createElementNS(ns, 'g');
+            g.setAttribute('data-anchor-id', anchor.id);
+
+            const circle = document.createElementNS(ns, 'circle');
+            circle.setAttribute('cx', anchor.x);
+            circle.setAttribute('cy', anchor.y);
+            circle.setAttribute('r', midR);
+            circle.setAttribute('fill', '#fff');
+            circle.setAttribute('stroke', '#4aa3df');
+            circle.setAttribute('stroke-width', strokeW);
+            g.appendChild(circle);
+
+            const plusLen = midR * 1.1;
+            const plusH = document.createElementNS(ns, 'line');
+            plusH.setAttribute('x1', anchor.x - plusLen);
+            plusH.setAttribute('y1', anchor.y);
+            plusH.setAttribute('x2', anchor.x + plusLen);
+            plusH.setAttribute('y2', anchor.y);
+            plusH.setAttribute('stroke', '#4aa3df');
+            plusH.setAttribute('stroke-width', strokeW * 1.5);
+            plusH.setAttribute('stroke-linecap', 'round');
+            g.appendChild(plusH);
+
+            const plusV = document.createElementNS(ns, 'line');
+            plusV.setAttribute('x1', anchor.x);
+            plusV.setAttribute('y1', anchor.y - plusLen);
+            plusV.setAttribute('x2', anchor.x);
+            plusV.setAttribute('y2', anchor.y + plusLen);
+            plusV.setAttribute('stroke', '#4aa3df');
+            plusV.setAttribute('stroke-width', strokeW * 1.5);
+            plusV.setAttribute('stroke-linecap', 'round');
+            g.appendChild(plusV);
+
+            this.anchorsGroup.appendChild(g);
+        }
+
+        // Lock icon when locked
+        if (this.locked && pointAnchors.length > 0) {
+            const primary = pointAnchors[0];
+            const offset = 0.6;
+            const lockX = primary.x + offset;
+            const lockY = primary.y - offset - LOCK_SIZE * 0.6;
+            this.anchorsGroup.appendChild(createLockIcon(lockX, lockY, this, 'lock-icon'));
+        }
+
+        if (this.element.parentNode) {
+            this.element.parentNode.insertBefore(this.anchorsGroup, this.element.nextSibling);
+        }
     }
     
     _createElement() {

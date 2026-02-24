@@ -1,3 +1,5 @@
+import { clearDragState } from './mouse.js';
+
 export function handleEscape(app) {
     if (app._suppressNextEscape) {
         app._suppressNextEscape = false;
@@ -5,6 +7,29 @@ export function handleEscape(app) {
     }
     if (app.textEdit) {
         app._endTextEdit(false);
+        return;
+    }
+    // Cancel active anchor drag — revert shape to pre-drag state
+    if (app.isDragging && app.dragMode === 'anchor' && app.dragShape) {
+        if (app.dragShapesBefore) {
+            app._applyShapeState(app.dragShape, app.dragShapesBefore);
+        }
+        const shape = app.dragShape;
+        clearDragState(app, { clearDidDrag: true, resetCursor: true });
+        shape.selected = true;
+        app.renderShapes(true);
+        return;
+    }
+    // Cancel pending anchor drag (click-and-release, waiting for movement threshold)
+    if (app.pendingAnchorDrag) {
+        const { shape, preInsertState } = app.pendingAnchorDrag;
+        if (preInsertState) {
+            app._applyShapeState(shape, preInsertState);
+        }
+        shape.selected = true;
+        app.pendingAnchorDrag = null;
+        app.viewport.svg.style.cursor = '';
+        app.renderShapes(true);
         return;
     }
     if (app.isDrawing) {

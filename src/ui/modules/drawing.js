@@ -11,6 +11,10 @@ export function startDrawing(app, worldPos) {
     if (app.currentTool === 'polygon') {
         app.polygonPoints = [{ ...worldPos }];
     }
+
+    if (app.currentTool === 'line') {
+        app.linePoints = [{ ...worldPos }];
+    }
     
     if (app.currentTool === 'arc') {
         app.arcEndpoint = null;
@@ -54,6 +58,16 @@ export function addPolygonPoint(app, worldPos) {
 
 export function finishPolygon(app) {
     if (app.currentTool === 'polygon' && app.isDrawing && app.polygonPoints.length >= 3) {
+        // Remove duplicate trailing points (double-click adds two at the same spot)
+        while (app.polygonPoints.length > 3) {
+            const last = app.polygonPoints[app.polygonPoints.length - 1];
+            const prev = app.polygonPoints[app.polygonPoints.length - 2];
+            if (last.x === prev.x && last.y === prev.y) {
+                app.polygonPoints.pop();
+            } else {
+                break;
+            }
+        }
         const shape = new Polygon({
             points: app.polygonPoints.map(p => ({ ...p })),
             color: app.toolOptions.color,
@@ -68,11 +82,41 @@ export function finishPolygon(app) {
     cancelDrawing(app);
 }
 
+export function addLinePoint(app, worldPos) {
+    if (app.currentTool === 'line' && app.isDrawing) {
+        app.linePoints.push({ ...worldPos });
+        updatePreview(app);
+    }
+}
+
+export function finishLine(app) {
+    if (app.currentTool === 'line' && app.isDrawing && app.linePoints.length >= 2) {
+        // Remove duplicate trailing points (double-click adds two at the same spot)
+        while (app.linePoints.length > 2) {
+            const last = app.linePoints[app.linePoints.length - 1];
+            const prev = app.linePoints[app.linePoints.length - 2];
+            if (last.x === prev.x && last.y === prev.y) {
+                app.linePoints.pop();
+            } else {
+                break;
+            }
+        }
+        const shape = new Line({
+            points: app.linePoints.map(p => ({ ...p })),
+            color: app.toolOptions.color,
+            lineWidth: app.toolOptions.lineWidth
+        });
+        app.addShape(shape);
+    }
+    cancelDrawing(app);
+}
+
 export function cancelDrawing(app) {
     app.isDrawing = false;
     app.drawStart = null;
     app.drawCurrent = null;
     app.polygonPoints = [];
+    app.linePoints = [];
     app.arcEndpoint = null;
 
     if (app.previewElement) {
@@ -120,7 +164,22 @@ export function updatePreview(app) {
     };
 
     switch (tool) {
-        case 'line':
+        case 'line': {
+            if (app.linePoints && app.linePoints.length > 0) {
+                const points = [...app.linePoints, end];
+                const pointsStr = points.map(p => `${p.x},${p.y}`).join(' ');
+                let svg = `<polyline points="${pointsStr}" 
+                        stroke="${opts.color}" stroke-width="${strokeWidth}" 
+                        fill="none"
+                        stroke-linecap="round" stroke-linejoin="round"/>`;
+                for (const p of app.linePoints) {
+                    svg += `<circle cx="${p.x}" cy="${p.y}" r="${2 / app.viewport.scale}" fill="${opts.color}"/>`;
+                }
+                app.previewElement.innerHTML = svg;
+            }
+            break;
+        }
+
         case 'wire': {
             let el = ensureChild('line');
             if (el) {
@@ -210,7 +269,9 @@ export function updatePreview(app) {
             if (app.polygonPoints.length > 0) {
                 const points = [...app.polygonPoints, end];
                 const pointsStr = points.map(p => `${p.x},${p.y}`).join(' ');
-                let svg = `<polyline points="${pointsStr}" 
+                // Use <polygon> (closed) once we have 3+ points so the closing edge is visible
+                const tag = points.length >= 3 ? 'polygon' : 'polyline';
+                let svg = `<${tag} points="${pointsStr}" 
                         stroke="${opts.color}" stroke-width="${strokeWidth}" 
                         fill="${opts.fill ? opts.color : 'none'}" fill-opacity="0.3"
                         stroke-linecap="round" stroke-linejoin="round"/>`;
@@ -233,14 +294,13 @@ export function createShapeFromDrawing(app) {
     const minSize = 0.5;
 
     switch (app.currentTool) {
-        case 'line':
         case 'wire': {
             const length = Math.hypot(end.x - start.x, end.y - start.y);
             if (length < minSize) return null;
             return new Line({
                 x1: start.x, y1: start.y,
                 x2: end.x, y2: end.y,
-                color: app.currentTool === 'wire' ? '#00cc66' : opts.color,
+                color: '#00cc66',
                 lineWidth: opts.lineWidth
             });
         }

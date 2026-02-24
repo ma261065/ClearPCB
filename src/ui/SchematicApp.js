@@ -402,6 +402,14 @@ class SchematicApp {
     _finishPolygon() {
         DrawingTools.finishPolygon(this);
     }
+
+    _addLinePoint(worldPos) {
+        DrawingTools.addLinePoint(this, worldPos);
+    }
+
+    _finishLine() {
+        DrawingTools.finishLine(this);
+    }
     
     _cancelDrawing() {
         DrawingTools.cancelDrawing(this);
