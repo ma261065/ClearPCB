@@ -14,6 +14,7 @@ function getEventPositions(e, viewport) {
         y: e.clientY - rect.top
     };
     const worldPos = viewport.screenToWorld(screenPos);
+    viewport.shiftHeld = e.shiftKey;
     const snapped = viewport.getSnappedPosition(worldPos);
     return { screenPos, worldPos, snapped };
 }

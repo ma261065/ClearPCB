@@ -84,6 +84,7 @@ export class Viewport {
         
         // Snapping
         this.snapToGrid = true;
+        this.shiftHeld = false;  // tracked from mouse events for shift-reversal
         
         // Paper size
         this.paperSize = null;  // null = no paper outline
@@ -285,7 +286,10 @@ export class Viewport {
     }
     
     getSnappedPosition(worldPos) {
-        if (!this.snapToGrid) return worldPos;
+        // Shift temporarily reverses the snap setting, but only if grid is visible
+        let shouldSnap = this.snapToGrid;
+        if (this.shiftHeld && this.gridVisible) shouldSnap = !shouldSnap;
+        if (!shouldSnap) return worldPos;
         // Always snap to base grid size for precision
         return {
             x: Math.round(worldPos.x / this.gridSize) * this.gridSize,
@@ -1246,6 +1250,7 @@ export class Viewport {
             }
             
             this.currentMouseWorld = this.screenToWorld(mouseScreen);
+            this.shiftHeld = e.shiftKey;
             
             if (this.onMouseMove) {
                 this.onMouseMove(this.currentMouseWorld, this.getSnappedPosition(this.currentMouseWorld));
