@@ -169,6 +169,11 @@ function _buildGhostFromSelection(selection, origin) {
 export function beginPastePreview(app) {
     if (clipboard.length === 0) return;
 
+    // Cancel any existing paste preview first (prevents orphaned ghost SVGs)
+    if (app.pastingClipboard) {
+        cancelPaste(app);
+    }
+
     // Cancel any in-progress placement or drawing
     if (app.placingComponent) app._cancelComponentPlacement();
     if (app.isDrawing) app._cancelDrawing();
