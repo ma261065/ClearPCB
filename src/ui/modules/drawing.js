@@ -49,6 +49,21 @@ export function finishDrawing(app, worldPos) {
     cancelDrawing(app);
 }
 
+/**
+ * Remove duplicate trailing points caused by double-click adding two at the same spot.
+ */
+function stripDuplicateTrailingPoints(points, minCount) {
+    while (points.length > minCount) {
+        const last = points[points.length - 1];
+        const prev = points[points.length - 2];
+        if (last.x === prev.x && last.y === prev.y) {
+            points.pop();
+        } else {
+            break;
+        }
+    }
+}
+
 export function addPolygonPoint(app, worldPos) {
     if (app.currentTool === 'polygon' && app.isDrawing) {
         app.polygonPoints.push({ ...worldPos });
@@ -58,16 +73,7 @@ export function addPolygonPoint(app, worldPos) {
 
 export function finishPolygon(app) {
     if (app.currentTool === 'polygon' && app.isDrawing && app.polygonPoints.length >= 3) {
-        // Remove duplicate trailing points (double-click adds two at the same spot)
-        while (app.polygonPoints.length > 3) {
-            const last = app.polygonPoints[app.polygonPoints.length - 1];
-            const prev = app.polygonPoints[app.polygonPoints.length - 2];
-            if (last.x === prev.x && last.y === prev.y) {
-                app.polygonPoints.pop();
-            } else {
-                break;
-            }
-        }
+        stripDuplicateTrailingPoints(app.polygonPoints, 3);
         const shape = new Polygon({
             points: app.polygonPoints.map(p => ({ ...p })),
             color: app.toolOptions.color,
@@ -91,16 +97,7 @@ export function addLinePoint(app, worldPos) {
 
 export function finishLine(app) {
     if (app.currentTool === 'line' && app.isDrawing && app.linePoints.length >= 2) {
-        // Remove duplicate trailing points (double-click adds two at the same spot)
-        while (app.linePoints.length > 2) {
-            const last = app.linePoints[app.linePoints.length - 1];
-            const prev = app.linePoints[app.linePoints.length - 2];
-            if (last.x === prev.x && last.y === prev.y) {
-                app.linePoints.pop();
-            } else {
-                break;
-            }
-        }
+        stripDuplicateTrailingPoints(app.linePoints, 2);
         const shape = new Line({
             points: app.linePoints.map(p => ({ ...p })),
             color: app.toolOptions.color,

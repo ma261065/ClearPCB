@@ -69,3 +69,88 @@ export function createLockIcon(x, y, item, cls) {
 
     return g;
 }
+
+/**
+ * Build the full anchors SVG group for a points-based shape (Line, Polygon).
+ * Renders point anchors as white/red squares and midpoint anchors as white/blue
+ * circles with a "+" sign.
+ *
+ * @param {object} shape   Shape instance (must have getAnchors(), locked, element)
+ * @param {number} scale   Current viewport scale
+ */
+export function buildPointAnchorsGroup(shape, scale) {
+    const anchors = shape.getAnchors();
+    const pointAnchors = anchors.filter(a => !a.midpoint);
+    const midAnchors = anchors.filter(a => a.midpoint);
+    const size = 8 / scale;
+    const midR = 5.5 / scale;
+    const strokeW = 1 / scale;
+
+    const g = document.createElementNS(NS, 'g');
+    g.setAttribute('class', 'shape-anchors');
+    const rects = [];
+
+    // Regular point anchors (squares)
+    for (const anchor of pointAnchors) {
+        const rect = document.createElementNS(NS, 'rect');
+        rect.setAttribute('x', anchor.x - size / 2);
+        rect.setAttribute('y', anchor.y - size / 2);
+        rect.setAttribute('width', size);
+        rect.setAttribute('height', size);
+        rect.setAttribute('fill', '#fff');
+        rect.setAttribute('stroke', '#e94560');
+        rect.setAttribute('stroke-width', strokeW);
+        rect.setAttribute('data-anchor-id', anchor.id);
+        g.appendChild(rect);
+        rects.push(rect);
+    }
+
+    // Midpoint anchors (circle with +)
+    for (const anchor of midAnchors) {
+        const mg = document.createElementNS(NS, 'g');
+        mg.setAttribute('data-anchor-id', anchor.id);
+
+        const circle = document.createElementNS(NS, 'circle');
+        circle.setAttribute('cx', anchor.x);
+        circle.setAttribute('cy', anchor.y);
+        circle.setAttribute('r', midR);
+        circle.setAttribute('fill', '#fff');
+        circle.setAttribute('stroke', '#4aa3df');
+        circle.setAttribute('stroke-width', strokeW);
+        mg.appendChild(circle);
+
+        const plusLen = midR * 1.1;
+        const plusH = document.createElementNS(NS, 'line');
+        plusH.setAttribute('x1', anchor.x - plusLen);
+        plusH.setAttribute('y1', anchor.y);
+        plusH.setAttribute('x2', anchor.x + plusLen);
+        plusH.setAttribute('y2', anchor.y);
+        plusH.setAttribute('stroke', '#4aa3df');
+        plusH.setAttribute('stroke-width', strokeW * 1.5);
+        plusH.setAttribute('stroke-linecap', 'round');
+        mg.appendChild(plusH);
+
+        const plusV = document.createElementNS(NS, 'line');
+        plusV.setAttribute('x1', anchor.x);
+        plusV.setAttribute('y1', anchor.y - plusLen);
+        plusV.setAttribute('x2', anchor.x);
+        plusV.setAttribute('y2', anchor.y + plusLen);
+        plusV.setAttribute('stroke', '#4aa3df');
+        plusV.setAttribute('stroke-width', strokeW * 1.5);
+        plusV.setAttribute('stroke-linecap', 'round');
+        mg.appendChild(plusV);
+
+        g.appendChild(mg);
+    }
+
+    // Lock icon when locked
+    if (shape.locked && pointAnchors.length > 0) {
+        const primary = pointAnchors[0];
+        const offset = 0.6;
+        const lockX = primary.x + offset;
+        const lockY = primary.y - offset - LOCK_SIZE * 0.6;
+        g.appendChild(createLockIcon(lockX, lockY, shape, 'lock-icon'));
+    }
+
+    return { group: g, rects };
+}

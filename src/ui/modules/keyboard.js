@@ -53,10 +53,7 @@ export function handleEscape(app) {
         return;
     }
     if (app.dragMode === 'box') {
-        app._removeBoxSelectElement();
-        app.isDragging = false;
-        app.dragMode = null;
-        app.boxSelectStart = null;
+        clearDragState(app, { clearDidDrag: true });
         return;
     }
     if (app.currentTool !== 'select') {

@@ -5,7 +5,7 @@
 import { Shape } from './shape.js';
 import { distanceToSegment } from '../core/geometry.js';
 import { ShapeValidator } from '../core/ShapeValidator.js';
-import { createLockIcon, LOCK_SIZE } from '../core/ui-helpers.js';
+import { buildPointAnchorsGroup } from '../core/ui-helpers.js';
 
 export class Line extends Shape {
     constructor(options = {}) {
@@ -133,86 +133,14 @@ export class Line extends Shape {
             return;
         }
 
-        const anchors = this.getAnchors();
-        const pointAnchors = anchors.filter(a => !a.midpoint);
-        const midAnchors = anchors.filter(a => a.midpoint);
-        const size = 8 / scale;
-        const midR = 5.5 / scale;
-        const strokeW = 1 / scale;
-
         // Full rebuild every time (anchors can change count when midpoints are used)
         if (this.anchorsGroup) {
             this.anchorsGroup.remove();
         }
 
-        const ns = 'http://www.w3.org/2000/svg';
-        this.anchorsGroup = document.createElementNS(ns, 'g');
-        this.anchorsGroup.setAttribute('class', 'shape-anchors');
-        this._anchorRects = [];
-
-        // Regular point anchors (squares)
-        for (const anchor of pointAnchors) {
-            const rect = document.createElementNS(ns, 'rect');
-            rect.setAttribute('x', anchor.x - size / 2);
-            rect.setAttribute('y', anchor.y - size / 2);
-            rect.setAttribute('width', size);
-            rect.setAttribute('height', size);
-            rect.setAttribute('fill', '#fff');
-            rect.setAttribute('stroke', '#e94560');
-            rect.setAttribute('stroke-width', strokeW);
-            rect.setAttribute('data-anchor-id', anchor.id);
-            this.anchorsGroup.appendChild(rect);
-            this._anchorRects.push(rect);
-        }
-
-        // Midpoint anchors (circle with +)
-        for (const anchor of midAnchors) {
-            const g = document.createElementNS(ns, 'g');
-            g.setAttribute('data-anchor-id', anchor.id);
-
-            const circle = document.createElementNS(ns, 'circle');
-            circle.setAttribute('cx', anchor.x);
-            circle.setAttribute('cy', anchor.y);
-            circle.setAttribute('r', midR);
-            circle.setAttribute('fill', '#fff');
-            circle.setAttribute('stroke', '#4aa3df');
-            circle.setAttribute('stroke-width', strokeW);
-            g.appendChild(circle);
-
-            // Horizontal bar of +
-            const plusH = document.createElementNS(ns, 'line');
-            const plusLen = midR * 1.1;
-            plusH.setAttribute('x1', anchor.x - plusLen);
-            plusH.setAttribute('y1', anchor.y);
-            plusH.setAttribute('x2', anchor.x + plusLen);
-            plusH.setAttribute('y2', anchor.y);
-            plusH.setAttribute('stroke', '#4aa3df');
-            plusH.setAttribute('stroke-width', strokeW * 1.5);
-            plusH.setAttribute('stroke-linecap', 'round');
-            g.appendChild(plusH);
-
-            // Vertical bar of +
-            const plusV = document.createElementNS(ns, 'line');
-            plusV.setAttribute('x1', anchor.x);
-            plusV.setAttribute('y1', anchor.y - plusLen);
-            plusV.setAttribute('x2', anchor.x);
-            plusV.setAttribute('y2', anchor.y + plusLen);
-            plusV.setAttribute('stroke', '#4aa3df');
-            plusV.setAttribute('stroke-width', strokeW * 1.5);
-            plusV.setAttribute('stroke-linecap', 'round');
-            g.appendChild(plusV);
-
-            this.anchorsGroup.appendChild(g);
-        }
-
-        // Lock icon when locked
-        if (this.locked && pointAnchors.length > 0) {
-            const primary = pointAnchors[0];
-            const offset = 0.6;
-            const lockX = primary.x + offset;
-            const lockY = primary.y - offset - LOCK_SIZE * 0.6;
-            this.anchorsGroup.appendChild(createLockIcon(lockX, lockY, this, 'lock-icon'));
-        }
+        const { group, rects } = buildPointAnchorsGroup(this, scale);
+        this.anchorsGroup = group;
+        this._anchorRects = rects;
 
         if (this.element.parentNode) {
             this.element.parentNode.insertBefore(this.anchorsGroup, this.element.nextSibling);
