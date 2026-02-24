@@ -506,10 +506,19 @@ export class AddComponentCommand extends Command {
             this.component.element.parentNode.removeChild(this.component.element);
         }
         // Remove field texts
+        const ftsToRemove = new Set();
         for (const ft of this.component.getFieldTexts()) {
-            const si = this.app.shapes.indexOf(ft);
-            if (si !== -1) this.app.shapes.splice(si, 1);
+            ftsToRemove.add(ft);
             if (ft.element && ft.element.parentNode) ft.element.parentNode.removeChild(ft.element);
+        }
+        if (ftsToRemove.size > 0) {
+            let writeIdx = 0;
+            for (let i = 0; i < this.app.shapes.length; i++) {
+                if (!ftsToRemove.has(this.app.shapes[i])) {
+                    this.app.shapes[writeIdx++] = this.app.shapes[i];
+                }
+            }
+            this.app.shapes.length = writeIdx;
         }
         this.app._updateSelectableItems();
         this.app.fileManager.setDirty(true);
@@ -597,11 +606,14 @@ export class PasteCommand extends Command {
 
     execute() {
         const app = this.app;
+        // Build a Set for O(1) membership checks on field texts
+        const shapeSet = new Set(app.shapes);
         // Bulk-add shapes without per-item updateSelectableItems
         for (const shape of this.shapes) {
             app.shapes.push(shape);
             shape.render(app.viewport.scale);
             app.viewport.addContent(shape.element);
+            shapeSet.add(shape);
         }
         // Bulk-add components
         for (const comp of this.components) {
@@ -612,8 +624,9 @@ export class PasteCommand extends Command {
                 comp.createFieldTexts(app);
             } else {
                 for (const ft of comp.getFieldTexts()) {
-                    if (!app.shapes.includes(ft)) {
+                    if (!shapeSet.has(ft)) {
                         app.shapes.push(ft);
+                        shapeSet.add(ft);
                         ft.render(app.viewport.scale);
                         app.viewport.addContent(ft.element);
                     }
