@@ -179,7 +179,7 @@ export class DeleteShapesCommand extends Command {
             }
         }
         app.shapes.length = writeIdx;
-        // Remove DOM elements and clear selection state
+        // Remove DOM elements and clear selection/hover state
         for (const data of this.shapesData) {
             const shape = data.shape;
             if (shape.element?.parentNode) shape.element.parentNode.removeChild(shape.element);
@@ -188,6 +188,10 @@ export class DeleteShapesCommand extends Command {
                 shape.selected = false;
                 app.selection.selected.delete(shape.id);
                 app.selection._selectionCache = null;
+            }
+            if (shape.hovered) {
+                shape.hovered = false;
+                if (app.selection.hovered === shape.id) app.selection.hovered = null;
             }
         }
         // One-time bookkeeping
@@ -199,8 +203,9 @@ export class DeleteShapesCommand extends Command {
     
     undo() {
         const app = this.app;
-        // Re-render and add to DOM
+        // Re-render and add to DOM, ensuring hover state is clean
         for (const data of this.shapesData) {
+            data.shape.hovered = false;
             data.shape.render(app.viewport.scale);
             app.viewport.addContent(data.shape.element);
         }
@@ -398,9 +403,17 @@ export class DeleteComponentsCommand extends Command {
         const ftsToRemove = new Set();
         for (const data of this.componentsData) {
             const comp = data.component;
+            if (comp.hovered) {
+                comp.hovered = false;
+                if (app.selection.hovered === comp.id) app.selection.hovered = null;
+            }
             if (comp.element?.parentNode) comp.element.parentNode.removeChild(comp.element);
             for (const ft of comp.getFieldTexts()) {
                 ftsToRemove.add(ft);
+                if (ft.hovered) {
+                    ft.hovered = false;
+                    if (app.selection.hovered === ft.id) app.selection.hovered = null;
+                }
                 if (ft.element?.parentNode) ft.element.parentNode.removeChild(ft.element);
             }
         }
@@ -432,6 +445,7 @@ export class DeleteComponentsCommand extends Command {
         const shapeSet = new Set(app.shapes);
         for (const data of sorted) {
             const comp = data.component;
+            comp.hovered = false;
             if (!comp.element) comp.createSymbolElement();
             const idx = Math.min(data.index, app.components.length);
             app.components.splice(idx, 0, comp);
