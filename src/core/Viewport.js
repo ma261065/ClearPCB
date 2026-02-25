@@ -716,7 +716,7 @@ export class Viewport {
         const sheetW = 25; // Sheet column width
         const titleW = boxW - revW;
         const companyDateW = boxW - sheetW;
-        const dateW = companyDateW / 2;
+        const dateW = 35;  // Date column; Drawn By gets the remainder
 
         // Font sizes
         const labelFs = 2;
@@ -780,7 +780,7 @@ export class Viewport {
             { key: 'rev',     rx: bx + titleW,     ry: by,              rw: revW,          rh: topH },
             { key: 'company', rx: bx,              ry: by + topH,       rw: companyDateW,  rh: subH },
             { key: 'date',    rx: bx,              ry: by + topH + subH,rw: dateW,         rh: subH },
-            { key: 'drawnBy', rx: bx + dateW,      ry: by + topH + subH,rw: dateW,         rh: subH },
+            { key: 'drawnBy', rx: bx + dateW,      ry: by + topH + subH,rw: companyDateW - dateW, rh: subH },
             { key: 'sheet',   rx: bx + companyDateW,ry: by + topH,      rw: sheetW,        rh: botH }
         ];
         for (const c of cells) {
@@ -827,15 +827,32 @@ export class Viewport {
         this._titleBlockEditActive = true;
         this._titleBlockEditCancelled = false;
 
-        // Max lengths per field
-        const maxLengths = { title: 24, rev: 8, company: 28, date: 13, drawnBy: 12, sheet: 8 };
-        const maxLen = maxLengths[field] || 40;
-
         // Get the cell rect bounds in SVG world coords
         const rx = parseFloat(hitRect.getAttribute('x'));
         const ry = parseFloat(hitRect.getAttribute('y'));
         const rw = parseFloat(hitRect.getAttribute('width'));
         const rh = parseFloat(hitRect.getAttribute('height'));
+
+        // Dynamic text-width limit: measure actual text width against
+        // the available space in the SVG cell instead of a fixed char count.
+        // Text offsets account for inline labels (e.g. "Company:", "Date:").
+        const textOffsets = { title: 1.5, rev: 1.5, company: 11.5, date: 7.5, drawnBy: 11.5, sheet: 1.5 };
+        const fontSizes  = { title: 4.5, rev: 3.5, company: 3.5, date: 3.5, drawnBy: 3.5, sheet: 3.5 };
+        const pad = 1.5;
+        const availW = rw - (textOffsets[field] || pad) - pad;
+        const svgFontSize = fontSizes[field] || 3.5;
+
+        // Lazy-create a canvas context for text measurement
+        if (!this._tbMeasureCtx) {
+            this._tbMeasureCtx = document.createElement('canvas').getContext('2d');
+        }
+        const mCtx = this._tbMeasureCtx;
+        const refPx = 200; // large reference size for accuracy
+        mCtx.font = `${refPx}px sans-serif`;
+        const textFits = (text) => {
+            const measured = mCtx.measureText(text).width;
+            return measured * (svgFontSize / refPx) <= availW;
+        };
 
         // Convert corners to screen coords (relative to SVG element)
         const topLeft = this.worldToScreen({ x: rx, y: ry });
@@ -851,7 +868,6 @@ export class Viewport {
         const input = document.createElement('input');
         input.type = 'text';
         input.value = this.titleBlockData[field] || '';
-        input.maxLength = maxLen;
         input.style.cssText = `
             position: fixed;
             left: ${left}px;
@@ -873,6 +889,19 @@ export class Viewport {
         document.body.appendChild(input);
         input.focus();
         input.select();
+
+        // Enforce dynamic width limit on every keystroke
+        let lastGoodValue = input.value;
+        input.addEventListener('input', () => {
+            if (textFits(input.value)) {
+                lastGoodValue = input.value;
+            } else {
+                // Revert to last value that fit and restore cursor position
+                const pos = Math.max(0, input.selectionStart - 1);
+                input.value = lastGoodValue;
+                input.setSelectionRange(pos, pos);
+            }
+        });
 
         const commit = () => {
             if (this._titleBlockEditCancelled || !input.parentNode) return;
