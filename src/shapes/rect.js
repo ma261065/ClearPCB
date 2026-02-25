@@ -5,6 +5,8 @@
 import { Shape } from './shape.js';
 import { ShapeValidator } from '../core/ShapeValidator.js';
 
+const _r4 = v => Math.round(v * 10000) / 10000;
+
 export class Rect extends Shape {
     constructor(options = {}) {
         super(options);
@@ -192,6 +194,11 @@ export class Rect extends Shape {
     }
 
     toJSON() {
-        return { ...super.toJSON(), x: this.x, y: this.y, width: this.width, height: this.height, cornerRadius: this.cornerRadius, fill: this.fill, fillColor: this.fillColor, fillAlpha: this.fillAlpha };
+        const json = { ...super.toJSON(), x: _r4(this.x), y: _r4(this.y), w: _r4(this.width), h: _r4(this.height) };
+        if (this.cornerRadius) json.cr = _r4(this.cornerRadius);
+        if (this.fill) json.f = true;
+        if (this.fillColor !== this.color) json.fc = this.fillColor;
+        if (this.fillAlpha !== 0.3) json.fa = this.fillAlpha;
+        return json;
     }
 }

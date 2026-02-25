@@ -5,6 +5,8 @@
 import { Shape } from './shape.js';
 import { ShapeValidator } from '../core/ShapeValidator.js';
 
+const _r4 = v => Math.round(v * 10000) / 10000;
+
 export class Text extends Shape {
     constructor(options = {}) {
         super(options);
@@ -158,16 +160,16 @@ export class Text extends Shape {
     toJSON() {
         const json = {
             ...super.toJSON(),
-            x: this.x,
-            y: this.y,
-            text: this.text,
-            fontSize: this.fontSize,
-            fontFamily: this.fontFamily,
-            textAnchor: this.textAnchor
+            x: _r4(this.x),
+            y: _r4(this.y),
+            t: this.text,
         };
+        if (this.fontSize !== 2.0) json.fs = this.fontSize;
+        if (this.fontFamily !== 'Arial') json.ff = this.fontFamily;
+        if (this.textAnchor !== 'start') json.ta = this.textAnchor;
         if (this.parentComponent) {
-            json.componentId = this.parentComponent.id;
-            json.fieldKey = this.fieldKey;
+            json.cid = this.parentComponent.id;
+            json.fk = this.fieldKey;
         }
         return json;
     }

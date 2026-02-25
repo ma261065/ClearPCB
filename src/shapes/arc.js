@@ -7,6 +7,8 @@
 import { Shape } from './shape.js';
 import { circumcircle, projectOntoChordBisector, clampBulgePoint, bulgeRatio, bulgePointFromRatio } from '../core/geometry.js';
 
+const _r4 = v => Math.round(v * 10000) / 10000;
+
 export class Arc extends Shape {
     constructor(options = {}) {
         super(options);
@@ -338,9 +340,9 @@ export class Arc extends Shape {
     toJSON() {
         return {
             ...super.toJSON(),
-            startPoint: { x: this._startPoint.x, y: this._startPoint.y },
-            endPoint: { x: this._endPoint.x, y: this._endPoint.y },
-            bulgePoint: { x: this._bulgePoint.x, y: this._bulgePoint.y }
+            sp: { x: _r4(this._startPoint.x), y: _r4(this._startPoint.y) },
+            ep: { x: _r4(this._endPoint.x), y: _r4(this._endPoint.y) },
+            bp: { x: _r4(this._bulgePoint.x), y: _r4(this._bulgePoint.y) }
         };
     }
 }

@@ -1,9 +1,23 @@
 import { updateIdCounter } from '../../shapes/index.js';
-import { Component } from '../../components/index.js';
+import { Component, updateComponentIdCounter } from '../../components/index.js';
 
 export function serializeDocument(app) {
-    return {
-        version: '1.1',
+    const components = app.components.map(c => c.toJSON());
+
+    // Deduplicate definitions: extract into a top-level map so each
+    // unique definition is stored only once instead of per-instance.
+    const defs = {};
+    for (const comp of components) {
+        if (comp.def && comp.dn) {
+            if (!defs[comp.dn]) {
+                defs[comp.dn] = comp.def;
+            }
+            delete comp.def;
+        }
+    }
+
+    const doc = {
+        version: '1.2',
         type: 'clearpcb-schematic',
         created: new Date().toISOString(),
         settings: {
@@ -18,8 +32,14 @@ export function serializeDocument(app) {
             titleBlockData: app.viewport.titleBlockData || {}
         },
         shapes: app.shapes.map(s => s.toJSON()),
-        components: app.components.map(c => c.toJSON())
+        components
     };
+
+    if (Object.keys(defs).length > 0) {
+        doc.defs = defs;
+    }
+
+    return doc;
 }
 
 export async function loadDocument(app, data) {
@@ -37,9 +57,11 @@ export async function loadDocument(app, data) {
             const shape = app._createShapeFromData(shapeData);
             if (shape) {
                 // Preserve component field linkage for re-linking after components load
-                if (shapeData.componentId && shapeData.fieldKey) {
-                    shape._pendingComponentId = shapeData.componentId;
-                    shape.fieldKey = shapeData.fieldKey;
+                const compId = shapeData.cid || shapeData.componentId;
+                const fieldKey = shapeData.fk || shapeData.fieldKey;
+                if (compId && fieldKey) {
+                    shape._pendingComponentId = compId;
+                    shape.fieldKey = fieldKey;
                 }
                 app.shapes.push(shape);
                 shape.render(app.viewport.scale);
@@ -48,8 +70,20 @@ export async function loadDocument(app, data) {
         }
     }
 
+    // Resolve deduplicated definitions from top-level map
+    const defsMap = data.defs || data.definitions;
+    if (defsMap && data.components) {
+        for (const compData of data.components) {
+            const dn = compData.dn || compData.definitionName;
+            if (!compData.def && !compData.definition && dn && defsMap[dn]) {
+                compData.def = defsMap[dn];
+            }
+        }
+    }
+
     if (data.components && Array.isArray(data.components)) {
         for (const compData of data.components) {
+            if (compData.id) updateComponentIdCounter(compData.id);
             const component = app._createComponentFromData(compData);
             if (component) {
                 app.components.push(component);
@@ -121,35 +155,37 @@ export async function loadDocument(app, data) {
 }
 
 export function createComponentFromData(app, data) {
-    let def = app.componentLibrary.getDefinition(data.definitionName);
+    const dn = data.dn || data.definitionName;
+    const def_data = data.def || data.definition;
+    let def = app.componentLibrary.getDefinition(dn);
 
-    if (!def && data.definition) {
+    if (!def && def_data) {
         try {
-            console.log('Adding embedded definition from saved file:', data.definitionName);
+            console.log('Adding embedded definition from saved file:', dn);
 
-            if (!data.definition.symbol && (data.definition.graphics || data.definition.pins)) {
-                console.log('Reconstructing symbol object for:', data.definitionName);
-                data.definition.symbol = {
-                    width: data.definition.width || 10,
-                    height: data.definition.height || 10,
-                    origin: data.definition.origin || { x: 5, y: 5 },
-                    graphics: data.definition.graphics || [],
-                    pins: data.definition.pins || []
+            if (!def_data.symbol && (def_data.graphics || def_data.pins)) {
+                console.log('Reconstructing symbol object for:', dn);
+                def_data.symbol = {
+                    width: def_data.width || 10,
+                    height: def_data.height || 10,
+                    origin: def_data.origin || { x: 5, y: 5 },
+                    graphics: def_data.graphics || [],
+                    pins: def_data.pins || []
                 };
             }
 
-            app.componentLibrary.addDefinition(data.definition, data.definition._source || 'User');
-            def = app.componentLibrary.getDefinition(data.definitionName);
+            app.componentLibrary.addDefinition(def_data, def_data._source || 'User');
+            def = app.componentLibrary.getDefinition(dn);
             if (def) {
-                console.log('Successfully loaded embedded definition:', data.definitionName);
+                console.log('Successfully loaded embedded definition:', dn);
             }
         } catch (e) {
-            console.warn('Failed to add embedded definition:', data.definitionName, e);
+            console.warn('Failed to add embedded definition:', dn, e);
         }
     }
 
     if (!def) {
-        console.warn('Component definition not found:', data.definitionName);
+        console.warn('Component definition not found:', dn);
         return null;
     }
 
@@ -157,13 +193,15 @@ export function createComponentFromData(app, data) {
         id: data.id,
         x: data.x,
         y: data.y,
-        rotation: data.rotation || 0,
-        mirror: data.mirror || false,
-        reference: data.reference,
-        value: data.value,
-        showReference: data.showReference,
-        showValue: data.showValue,
-        properties: data.properties
+        rotation: data.rot ?? data.rotation ?? 0,
+        mirror: data.mir ?? data.mirror ?? false,
+        reference: data.ref ?? data.reference,
+        value: data.val ?? data.value,
+        showReference: data.sr ?? data.showReference,
+        showValue: data.sv ?? data.showValue,
+        properties: data.props ?? data.properties,
+        visible: data.v ?? data.visible,
+        locked: data.lk ?? data.locked,
     });
 }
 

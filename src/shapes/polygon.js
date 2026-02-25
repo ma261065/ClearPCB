@@ -7,6 +7,8 @@ import { ShapeValidator } from '../core/ShapeValidator.js';
 import { distanceToSegment, pointInPolygon } from '../core/geometry.js';
 import { buildPointAnchorsGroup } from '../core/ui-helpers.js';
 
+const _r4 = v => Math.round(v * 10000) / 10000;
+
 export class Polygon extends Shape {
     constructor(options = {}) {
         super(options);
@@ -212,13 +214,14 @@ export class Polygon extends Shape {
     }
     
     toJSON() {
-        return {
+        const json = {
             ...super.toJSON(),
-            points: this.points.map(p => ({ x: p.x, y: p.y })),
-            closed: this.closed,
-            fill: this.fill,
-            fillColor: this.fillColor,
-            fillAlpha: this.fillAlpha
+            pts: this.points.flatMap(p => [_r4(p.x), _r4(p.y)]),
         };
+        if (!this.closed) json.cl = false;
+        if (!this.fill) json.f = false;
+        if (this.fillColor !== this.color) json.fc = this.fillColor;
+        if (this.fillAlpha !== 0.5) json.fa = this.fillAlpha;
+        return json;
     }
 }

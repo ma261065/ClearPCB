@@ -7,6 +7,8 @@ import { Shape } from './shape.js';
 import { distanceToSegment } from '../core/geometry.js';
 import { ShapeValidator } from '../core/ShapeValidator.js';
 
+const _r4 = v => Math.round(v * 10000) / 10000;
+
 export class Wire extends Shape {
     constructor(options = {}) {
         super(options);
@@ -224,15 +226,18 @@ export class Wire extends Shape {
      * Serialize to JSON
      */
     toJSON() {
-        return {
+        const json = {
             ...super.toJSON(),
             type: 'wire',
-            points: this.points.map(p => ({ x: p.x, y: p.y })),
-            connections: {
+            pts: this.points.flatMap(p => [_r4(p.x), _r4(p.y)]),
+        };
+        if (this.connections.start || this.connections.end) {
+            json.cn = {
                 start: this.connections.start ? { ...this.connections.start } : null,
                 end: this.connections.end ? { ...this.connections.end } : null
-            },
-            net: this.net
-        };
+            };
+        }
+        if (this.net) json.n = this.net;
+        return json;
     }
 }

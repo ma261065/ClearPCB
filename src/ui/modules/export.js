@@ -48,18 +48,12 @@ export async function savePdf(app) {
         await saveBlobAsFile(pdfBlob, pdfFileName, 'application/pdf', ['.pdf']);
 
         // Restore previous selection
-        app.selection.clearSelection();
-        for (const shape of previousSelection) {
-            app.selection.select(shape, true);
-        }
+        app.selection.selectMultiple(previousSelection, false);
         app.renderShapes(true);
     } catch (err) {
         alert('Failed to save PDF: ' + (err?.message || 'Unknown error'));
         // Restore selection in case of error
-        app.selection.clearSelection();
-        for (const shape of previousSelection) {
-            app.selection.select(shape, true);
-        }
+        app.selection.selectMultiple(previousSelection, false);
         app.renderShapes(true);
     }
 }
@@ -154,20 +148,14 @@ export async function printSchematic(app) {
                 document.body.removeChild(iframe);
                 
                 // Restore selection
-                app.selection.clearSelection();
-                for (const shape of previousSelection) {
-                    app.selection.select(shape, true);
-                }
+                app.selection.selectMultiple(previousSelection, false);
                 app.renderShapes(true);
             }, 500);
         }, 250);
     } catch (err) {
         alert('Failed to print: ' + (err?.message || 'Unknown error'));
         // Restore selection in case of error
-        app.selection.clearSelection();
-        for (const shape of previousSelection) {
-            app.selection.select(shape, true);
-        }
+        app.selection.selectMultiple(previousSelection, false);
         app.renderShapes(true);
     }
 }

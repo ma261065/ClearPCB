@@ -1,12 +1,27 @@
 import { createLockIcon, LOCK_SIZE } from '../core/ui-helpers.js';
 import { Text } from '../shapes/text.js';
 
+let compIdCounter = 0;
+
+/**
+ * Update the ID counter to avoid collisions with loaded components
+ */
+export function updateComponentIdCounter(id) {
+    if (typeof id === 'string') {
+        const match = id.match(/^comp_(\d+)$/);
+        if (match) {
+            const num = parseInt(match[1], 10);
+            if (num >= compIdCounter) compIdCounter = num + 1;
+        }
+    }
+}
+
 /**
  * Component class - represents an electronic component instance on the schematic
  */
 export class Component {
     constructor(definition, options = {}) {
-        this.id = options.id || `component_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        this.id = options.id || `comp_${++compIdCounter}`;
         this.definition = definition;
         this.x = options.x || 0;
         this.y = options.y || 0;
@@ -331,9 +346,11 @@ export class Component {
         // Update highlight for selection/hover
         this._updateHighlight();
         
-        // Remove existing lock icon
-        const existing = this.element.querySelector('.component-lock-icon');
-        if (existing) existing.remove();
+        // Remove existing lock icon (use cached ref, not querySelector)
+        if (this._lockIconEl) {
+            this._lockIconEl.remove();
+            this._lockIconEl = null;
+        }
         
         // Draw lock icon when locked and selected
         if (this.locked && this.selected) {
@@ -341,7 +358,8 @@ export class Component {
             const offset = 0.6;
             const lockX = localBounds.minX - offset - LOCK_SIZE;
             const lockY = localBounds.minY - offset - LOCK_SIZE * 0.6;
-            this.element.appendChild(createLockIcon(lockX, lockY, this, 'component-lock-icon'));
+            this._lockIconEl = createLockIcon(lockX, lockY, this, 'component-lock-icon');
+            this.element.appendChild(this._lockIconEl);
         }
     }
 
@@ -1195,32 +1213,32 @@ export class Component {
      * Serialize component to JSON
      */
     toJSON() {
+        const _r4 = v => Math.round(v * 10000) / 10000;
         const json = {
             type: 'component',
             id: this.id,
-            definitionName: this.definition.name,
-            x: this.x,
-            y: this.y,
-            rotation: this.rotation,
-            mirror: this.mirror,
-            reference: this.reference,
-            value: this.value,
-            showReference: this.showReference,
-            showValue: this.showValue,
-            properties: this.properties,
-            visible: this.visible,
-            locked: this.locked
+            dn: this.definition.name,
+            x: _r4(this.x),
+            y: _r4(this.y),
         };
+        if (this.rotation) json.rot = this.rotation;
+        if (this.mirror) json.mir = true;
+        json.ref = this.reference;
+        json.val = this.value;
+        if (!this.showReference) json.sr = false;
+        if (!this.showValue) json.sv = false;
+        if (Object.keys(this.properties).length) json.props = this.properties;
+        if (!this.visible) json.v = false;
+        if (this.locked) json.lk = true;
         
         // Include full definition for online components (KiCad, LCSC, etc.)
         // This ensures the component can be loaded even if the library hasn't cached it
         if (this.definition._source && this.definition._source !== 'Built-in') {
-            // Save a safe copy of the definition (avoid circular refs)
-            json.definition = {
+            json.def = {
                 name: this.definition.name,
                 category: this.definition.category,
                 description: this.definition.description,
-                symbol: this.definition.symbol,
+                symbol: this._cleanSymbol(this.definition.symbol),
                 defaultReference: this.definition.defaultReference,
                 defaultValue: this.definition.defaultValue,
                 defaultProperties: this.definition.defaultProperties,
@@ -1229,6 +1247,52 @@ export class Component {
         }
         
         return json;
+    }
+
+    /**
+     * Create a lean copy of a symbol for serialization, stripping
+     * internal/transient fields and rounding coordinates.
+     */
+    _cleanSymbol(sym) {
+        if (!sym) return sym;
+        const _r4 = v => Math.round(v * 10000) / 10000;
+        const clean = { ...sym };
+        // Remove internal fields
+        delete clean.kicadName;
+        delete clean._boundsIncludePins;
+        // Round origin
+        if (clean.origin) clean.origin = { x: _r4(clean.origin.x), y: _r4(clean.origin.y) };
+        // Clean pins
+        if (clean.pins) {
+            clean.pins = clean.pins.map(pin => {
+                const p = { ...pin, x: _r4(pin.x), y: _r4(pin.y) };
+                delete p._coordKey;
+                // Omit null font sizes (default)
+                if (p.kicadNameFontSize == null) delete p.kicadNameFontSize;
+                if (p.kicadNumberFontSize == null) delete p.kicadNumberFontSize;
+                return p;
+            });
+        }
+        // Round graphic coordinates
+        if (clean.graphics) {
+            clean.graphics = clean.graphics.map(g => {
+                const c = { ...g };
+                if (c.x != null) c.x = _r4(c.x);
+                if (c.y != null) c.y = _r4(c.y);
+                if (c.x1 != null) c.x1 = _r4(c.x1);
+                if (c.y1 != null) c.y1 = _r4(c.y1);
+                if (c.x2 != null) c.x2 = _r4(c.x2);
+                if (c.y2 != null) c.y2 = _r4(c.y2);
+                if (c.cx != null) c.cx = _r4(c.cx);
+                if (c.cy != null) c.cy = _r4(c.cy);
+                if (c.r != null) c.r = _r4(c.r);
+                if (c.startAngle != null) c.startAngle = _r4(c.startAngle);
+                if (c.endAngle != null) c.endAngle = _r4(c.endAngle);
+                if (c.points) c.points = c.points.map(pt => ({ x: _r4(pt.x), y: _r4(pt.y) }));
+                return c;
+            });
+        }
+        return clean;
     }
 
 }

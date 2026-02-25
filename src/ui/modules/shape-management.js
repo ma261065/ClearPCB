@@ -54,20 +54,20 @@ export function renderShapes(app, force = false) {
     const scale = app.viewport.scale;
     for (const shape of app.shapes) {
         if (shape._culled) continue; // skip off-screen
-        if (force || shape._dirty || shape.selected || shape.hovered) {
+        if (shape._dirty || shape.selected || shape.hovered) {
             shape.render(scale);
-        } else if (shape._lastScale !== scale && shape.element) {
-            // Only stroke-width changed on zoom — fast-path update
+        } else if (force || (shape._lastScale !== scale && shape.element)) {
+            // Only stroke-width changed on zoom or force — fast-path update
             const sw = shape._getEffectiveStrokeWidth(scale);
             if (sw > 0) shape.element.setAttribute('stroke-width', sw);
             shape._lastScale = scale;
         }
     }
     
-    // Also render components when selected, hovered, or locked
+    // Only render components that actually need visual updates
     for (const comp of app.components) {
         if (comp._culled) continue; // skip off-screen
-        if (force || comp.selected || comp.hovered || comp.locked) {
+        if (comp.selected || comp.hovered || comp.locked) {
             comp.render(scale);
         }
     }

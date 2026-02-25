@@ -358,15 +358,16 @@ export class Shape {
     }
     
     toJSON() {
-        return {
+        const json = {
             id: this.id,
             type: this.type,
-            layer: this.layer,
-            color: this.color,
-            lineWidth: this.lineWidth,
-            visible: this.visible,
-            locked: this.locked
+            c: this.color,
         };
+        if (this.layer !== 'top') json.l = this.layer;
+        if (this.lineWidth !== 0.2) json.lw = this.lineWidth;
+        if (!this.visible) json.v = false;
+        if (this.locked) json.lk = true;
+        return json;
     }
     
     destroy() {

@@ -21,25 +21,25 @@ export function deleteSelected(app) {
     const toDelete = app.selection.getSelection().filter(item => !item.locked);
     if (toDelete.length === 0) return;
 
-    // Silent clear — avoids triggering _onSelectionChanged → renderShapes(true)
-    // before the items are removed. The command handles final notification.
     app.selection._clearSelection();
 
-    // Use Sets for O(1) membership checks instead of O(N) includes()
     const shapeSet = new Set(app.shapes);
     const compSet = new Set(app.components);
+    const deleteSet = new Set(toDelete);
     const shapesToDelete = [];
     const componentsToDelete = [];
+    const showFlagCommands = [];
 
     for (const item of toDelete) {
         if (shapeSet.has(item)) {
-            // Field texts: toggle visibility instead of deleting
             if (item.parentComponent && item.fieldKey) {
-                const showKey = item.fieldKey === 'reference' ? 'showReference' : 'showValue';
-                if (item.parentComponent[showKey]) {
-                    const command = new ModifyPropertyCommand(
-                        app, [item.parentComponent], showKey, false);
-                    app.history.execute(command);
+                // Skip show-flag toggle if parent component is also being deleted
+                if (!deleteSet.has(item.parentComponent)) {
+                    const showKey = item.fieldKey === 'reference' ? 'showReference' : 'showValue';
+                    if (item.parentComponent[showKey]) {
+                        showFlagCommands.push(new ModifyPropertyCommand(
+                            app, [item.parentComponent], showKey, false));
+                    }
                 }
                 continue;
             }
@@ -49,22 +49,23 @@ export function deleteSelected(app) {
         }
     }
 
-    if (shapesToDelete.length > 0 && componentsToDelete.length > 0) {
-        // Mixed selection: wrap both deletes in a single undo entry
+    const needsBatch = (shapesToDelete.length > 0) + (componentsToDelete.length > 0) + (showFlagCommands.length > 0) > 1;
+
+    if (needsBatch) {
         const batch = new BatchCommand('Delete selection');
-        batch.add(new DeleteShapesCommand(app, shapesToDelete));
-        batch.add(new DeleteComponentsCommand(app, componentsToDelete));
+        for (const cmd of showFlagCommands) batch.add(cmd);
+        if (shapesToDelete.length > 0) batch.add(new DeleteShapesCommand(app, shapesToDelete));
+        if (componentsToDelete.length > 0) batch.add(new DeleteComponentsCommand(app, componentsToDelete));
         app.history.execute(batch);
+    } else if (showFlagCommands.length > 0) {
+        app.history.execute(showFlagCommands[0]);
     } else if (shapesToDelete.length > 0) {
-        const command = new DeleteShapesCommand(app, shapesToDelete);
-        app.history.execute(command);
+        app.history.execute(new DeleteShapesCommand(app, shapesToDelete));
     } else if (componentsToDelete.length > 0) {
-        const command = new DeleteComponentsCommand(app, componentsToDelete);
-        app.history.execute(command);
+        app.history.execute(new DeleteComponentsCommand(app, componentsToDelete));
     }
 
     app.selection._notifySelectionChanged();
-    app.renderShapes();
 }
 
 export function captureShapeState(app, shape) {

@@ -2,9 +2,6 @@ import { Component } from '../../components/index.js';
 import { AddComponentCommand, TransformComponentCommand } from '../../core/CommandHistory.js';
 
 export function updateSelectableItems(app) {
-    // Components first (lower z-order), then shapes (higher z-order)
-    // hitTest iterates in reverse, so shapes at the end get priority — 
-    // matching the visual layering (contentLayer above componentLayer)
     const items = [...app.components, ...app.shapes];
     app.selection.setShapes(items);
 }

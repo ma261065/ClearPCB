@@ -171,7 +171,6 @@ export class DeleteShapesCommand extends Command {
     execute() {
         const app = this.app;
         const toRemove = new Set(this.shapesData.map(d => d.shape));
-        // In-place filter: O(N) instead of O(N²) indexOf+splice per shape
         let writeIdx = 0;
         for (let i = 0; i < app.shapes.length; i++) {
             if (!toRemove.has(app.shapes[i])) {
@@ -179,7 +178,11 @@ export class DeleteShapesCommand extends Command {
             }
         }
         app.shapes.length = writeIdx;
-        // Remove DOM elements and clear selection/hover state
+
+        const layer = app.viewport.contentLayer;
+        const parent = layer.parentNode;
+        const nextSib = layer.nextSibling;
+        if (parent) parent.removeChild(layer);
         for (const data of this.shapesData) {
             const shape = data.shape;
             if (shape.element?.parentNode) shape.element.parentNode.removeChild(shape.element);
@@ -187,29 +190,36 @@ export class DeleteShapesCommand extends Command {
             if (shape.selected) {
                 shape.selected = false;
                 app.selection.selected.delete(shape.id);
-                app.selection._selectionCache = null;
             }
             if (shape.hovered) {
                 shape.hovered = false;
                 if (app.selection.hovered === shape.id) app.selection.hovered = null;
             }
         }
-        // One-time bookkeeping
+        if (parent) parent.insertBefore(layer, nextSib);
+
+        app.selection._selectionCache = null;
         app.selection._invalidateHitTestCache();
-        app.selection._notifySelectionChanged();
         app._updateSelectableItems();
         app.fileManager.setDirty(true);
     }
     
     undo() {
         const app = this.app;
+        // Detach content layer for batched DOM additions
+        const layer = app.viewport.contentLayer;
+        const parent = layer.parentNode;
+        const nextSib = layer.nextSibling;
+        if (parent) parent.removeChild(layer);
         // Re-render and add to DOM, ensuring hover state is clean
         for (const data of this.shapesData) {
             data.shape.hovered = false;
             data.shape.render(app.viewport.scale);
             app.viewport.addContent(data.shape.element);
         }
-        // Merge back at original positions, sorted by index
+        // Reattach content layer
+        if (parent) parent.insertBefore(layer, nextSib);
+        // Merge back at original positions using a single rebuild
         const sorted = [...this.shapesData].sort((a, b) => a.index - b.index);
         for (const data of sorted) {
             const idx = Math.min(data.index, app.shapes.length);
@@ -236,31 +246,27 @@ export class MoveShapesCommand extends Command {
         this.dy = dy;
     }
     
-    _findItem(id) {
-        // Search in both shapes and components
-        let item = this.app.shapes.find(s => s.id === id);
-        if (!item) {
-            item = this.app.components.find(c => c.id === id);
-        }
-        return item;
+    _buildLookup() {
+        const map = new Map();
+        for (const s of this.app.shapes) map.set(s.id, s);
+        for (const c of this.app.components) map.set(c.id, c);
+        return map;
     }
     
     execute() {
+        const lookup = this._buildLookup();
         for (const id of this.itemIds) {
-            const item = this._findItem(id);
-            if (item) {
-                item.move(this.dx, this.dy);
-            }
+            const item = lookup.get(id);
+            if (item) item.move(this.dx, this.dy);
         }
         this.app.renderShapes(true);
     }
     
     undo() {
+        const lookup = this._buildLookup();
         for (const id of this.itemIds) {
-            const item = this._findItem(id);
-            if (item) {
-                item.move(-this.dx, -this.dy);
-            }
+            const item = lookup.get(id);
+            if (item) item.move(-this.dx, -this.dy);
         }
         this.app.renderShapes(true);
     }
@@ -279,23 +285,23 @@ export class ModifyShapeCommand extends Command {
     }
     
     execute() {
-        const shape = this._findShape(this.shapeId);
+        const shape = this._findItem(this.shapeId);
         if (shape) {
             this._applyState(shape, this.afterState);
         }
     }
     
     undo() {
-        const shape = this._findShape(this.shapeId);
+        const shape = this._findItem(this.shapeId);
         if (shape) {
             this._applyState(shape, this.beforeState);
         }
     }
     
-    _findShape(id) {
-        let shape = this.app.shapes.find(s => s.id === id);
-        if (!shape) shape = this.app.components.find(c => c.id === id);
-        return shape;
+    _findItem(id) {
+        let item = this.app.shapes.find(s => s.id === id);
+        if (!item) item = this.app.components.find(c => c.id === id);
+        return item;
     }
 
     _applyState(shape, state) {
@@ -333,8 +339,11 @@ export class ModifyPropertyCommand extends Command {
     }
 
     _applyValues(useNew) {
+        const lookup = new Map();
+        for (const s of this.app.shapes) lookup.set(s.id, s);
+        for (const c of this.app.components) lookup.set(c.id, c);
         for (const entry of this.entries) {
-            const item = this._findItem(entry.id);
+            const item = lookup.get(entry.id);
             if (!item) continue;
             const val = useNew ? entry.newValue : entry.oldValue;
             // Mirror/flip needs special handling — must use flipHorizontal() for SVG recreation
@@ -401,6 +410,11 @@ export class DeleteComponentsCommand extends Command {
         // Collect all items to remove
         const compsToRemove = new Set(this.componentsData.map(d => d.component));
         const ftsToRemove = new Set();
+        // Detach content layer to batch DOM removals
+        const layer = app.viewport.contentLayer;
+        const parent = layer.parentNode;
+        const nextSib = layer.nextSibling;
+        if (parent) parent.removeChild(layer);
         for (const data of this.componentsData) {
             const comp = data.component;
             if (comp.hovered) {
@@ -417,6 +431,8 @@ export class DeleteComponentsCommand extends Command {
                 if (ft.element?.parentNode) ft.element.parentNode.removeChild(ft.element);
             }
         }
+        // Reattach content layer
+        if (parent) parent.insertBefore(layer, nextSib);
         // In-place filter components: O(N) instead of O(N²)
         let writeIdx = 0;
         for (let i = 0; i < app.components.length; i++) {
@@ -633,7 +649,6 @@ export class PasteCommand extends Command {
                 }
             }
         }
-        // One-time bookkeeping
         app._updateSelectableItems();
         app.selection._invalidateHitTestCache();
         app.fileManager.setDirty(true);
@@ -710,15 +725,10 @@ export class BatchCommand extends Command {
     }
 
     execute() {
-        for (const cmd of this.commands) {
-            cmd.execute();
-        }
+        for (const cmd of this.commands) cmd.execute();
     }
 
     undo() {
-        // Undo in reverse order
-        for (let i = this.commands.length - 1; i >= 0; i--) {
-            this.commands[i].undo();
-        }
+        for (let i = this.commands.length - 1; i >= 0; i--) this.commands[i].undo();
     }
 }

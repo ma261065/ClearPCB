@@ -617,8 +617,6 @@ class SchematicApp {
     }
     
     _onSelectionChanged(shapes) {
-        console.log(`Selection: ${shapes.length} shape(s)`);
-        this.renderShapes();
         this.eventBus.emit('selectionChanged', shapes);
     }
 

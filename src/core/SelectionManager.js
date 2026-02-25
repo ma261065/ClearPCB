@@ -383,6 +383,44 @@ export class SelectionManager {
             this.clearSelection();
         }
     }
+
+    /**
+     * Diff-based box selection for live drag preview.
+     * Only invalidates shapes whose selected state actually changed,
+     * avoiding O(N) re-renders on every mousemove.
+     * Does NOT fire selectionChanged notifications (caller handles that).
+     */
+    syncBoxSelection(bounds, additive = false, mode = 'contain') {
+        const hits = this.hitTestRect(bounds, mode);
+        const newSet = new Set(hits.map(h => h.id));
+        if (additive) {
+            // Merge with base selection captured at drag start
+            if (this._boxSelectBase) {
+                for (const id of this._boxSelectBase) newSet.add(id);
+            }
+        }
+        // Deselect shapes that are no longer in the new set
+        for (const id of this.selected) {
+            if (!newSet.has(id)) {
+                const shape = this._getShape(id);
+                if (shape) { shape.selected = false; shape.invalidate(); }
+            }
+        }
+        // Select shapes newly added to the set
+        for (const id of newSet) {
+            if (!this.selected.has(id)) {
+                const shape = this._getShape(id);
+                if (shape) { shape.selected = true; shape.invalidate(); }
+            }
+        }
+        this.selected = newSet;
+        this._selectionCache = null;
+    }
+
+    /** Capture current selection as additive base for box drag. */
+    captureBoxSelectBase() {
+        this._boxSelectBase = new Set(this.selected);
+    }
     
     _getShape(id) {
         return this._shapeMap.get(id) || null;

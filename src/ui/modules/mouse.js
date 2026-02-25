@@ -76,7 +76,7 @@ function showAnchorContextMenu(app, shape, anchorId, clientX, clientY) {
             const command = new ModifyShapeCommand(app, shape, beforeState, afterState);
             app.history.execute(command);
             shape.selected = true;
-            app.renderShapes(true);
+            // Command's execute() already calls renderShapes(true)
         }
     });
     menu.appendChild(item);
@@ -259,6 +259,7 @@ export function bindMouseEvents(app) {
             app.isDragging = true;
             app.dragMode = 'box';
             app.boxSelectStart = { ...worldPos };
+            app.selection.captureBoxSelectBase();
             app._createBoxSelectElement();
             e.preventDefault();
             return;
@@ -550,9 +551,9 @@ export function bindMouseEvents(app) {
         } else if (app.dragMode === 'box' && app.boxSelectStart) {
             app.didDrag = true;
             app._updateBoxSelectElement(worldPos);
-            // Live selection feedback during drag
+            // Diff-based live selection: only invalidates shapes whose state changed
             const bounds = app._getBoxSelectBounds(worldPos);
-            app.selection.handleBoxSelect(bounds, e.shiftKey, 'contain');
+            app.selection.syncBoxSelection(bounds, e.shiftKey, 'contain');
             app.renderShapes(false);
         }
     });
@@ -568,7 +569,10 @@ export function bindMouseEvents(app) {
             app._removeBoxSelectElement();
 
             if (app.didDrag) {
-                app.selection.handleBoxSelect(bounds, e.shiftKey, 'contain');
+                // Selection is already correct from live syncBoxSelection;
+                // just fire the notification for properties panel / ribbon
+                app.selection.syncBoxSelection(bounds, e.shiftKey, 'contain');
+                app.selection._notifySelectionChanged();
                 app.renderShapes(true);
             }
 

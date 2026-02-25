@@ -212,9 +212,9 @@ function _buildGhostFallback(app) {
             const temp = new Component(def, {
                 x: data._clipX,
                 y: data._clipY,
-                rotation: data.rotation || 0,
-                mirror: data.mirror || false,
-                reference: data.reference || 'U?'
+                rotation: data.rot || 0,
+                mirror: data.mir || false,
+                reference: data.ref || 'U?'
             });
             ghost.appendChild(temp.createSymbolElement());
         } else {
@@ -257,13 +257,13 @@ export function confirmPaste(app, worldPos) {
             const comp = new Component(def, {
                 x: snapped.x + data._clipX,
                 y: snapped.y + data._clipY,
-                rotation: data.rotation || 0,
-                mirror: data.mirror || false,
+                rotation: data.rot || 0,
+                mirror: data.mir || false,
                 reference: app._generateReference(def),
-                value: data.value,
-                showReference: data.showReference,
-                showValue: data.showValue,
-                properties: data.properties
+                value: data.val,
+                showReference: data.sr,
+                showValue: data.sv,
+                properties: data.props
             });
             pastedComponents.push(comp);
         } else {
@@ -311,42 +311,34 @@ export function cancelPaste(app) {
 function offsetShapeData(data, tx, ty) {
     const type = data.type;
 
-    if (type === 'line') {
-        const cx = (data.x1 + data.x2) / 2;
-        const cy = (data.y1 + data.y2) / 2;
-        const dx = tx - cx;
-        const dy = ty - cy;
-        data.x1 += dx; data.y1 += dy;
-        data.x2 += dx; data.y2 += dy;
-    } else if (type === 'polygon' || type === 'wire') {
-        if (data.points && data.points.length > 0) {
-            let sx = 0, sy = 0;
-            for (const p of data.points) { sx += p.x; sy += p.y; }
-            const cx = sx / data.points.length;
-            const cy = sy / data.points.length;
-            const dx = tx - cx;
-            const dy = ty - cy;
-            for (const p of data.points) { p.x += dx; p.y += dy; }
+    if (type === 'line' || type === 'polygon' || type === 'wire') {
+        // pts is a flat array [x0,y0,x1,y1,...]
+        if (data.pts && data.pts.length >= 2) {
+            let sx = 0, sy = 0, n = data.pts.length / 2;
+            for (let i = 0; i < data.pts.length; i += 2) { sx += data.pts[i]; sy += data.pts[i + 1]; }
+            const dx = tx - sx / n;
+            const dy = ty - sy / n;
+            for (let i = 0; i < data.pts.length; i += 2) { data.pts[i] += dx; data.pts[i + 1] += dy; }
         }
     } else if (type === 'arc') {
-        // Arc stores startPoint, endPoint, bulgePoint
-        if (data.startPoint && data.endPoint && data.bulgePoint) {
-            const cx = (data.startPoint.x + data.endPoint.x + data.bulgePoint.x) / 3;
-            const cy = (data.startPoint.y + data.endPoint.y + data.bulgePoint.y) / 3;
+        if (data.sp && data.ep && data.bp) {
+            const cx = (data.sp.x + data.ep.x + data.bp.x) / 3;
+            const cy = (data.sp.y + data.ep.y + data.bp.y) / 3;
             const dx = tx - cx;
             const dy = ty - cy;
-            data.startPoint.x += dx; data.startPoint.y += dy;
-            data.endPoint.x += dx; data.endPoint.y += dy;
-            data.bulgePoint.x += dx; data.bulgePoint.y += dy;
+            data.sp.x += dx; data.sp.y += dy;
+            data.ep.x += dx; data.ep.y += dy;
+            data.bp.x += dx; data.bp.y += dy;
         }
     } else if (type === 'rect') {
-        // Rect stores x, y, width, height  — x,y is top-left
-        const cx = data.x + data.width / 2;
-        const cy = data.y + data.height / 2;
+        const w = data.w || 0;
+        const h = data.h || 0;
+        const cx = data.x + w / 2;
+        const cy = data.y + h / 2;
         data.x += tx - cx;
         data.y += ty - cy;
     } else {
-        // circle, text, via, pad — use x, y as centre
+        // circle, text — use x, y as centre
         data.x = tx;
         data.y = ty;
     }

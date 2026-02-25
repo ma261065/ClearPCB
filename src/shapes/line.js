@@ -7,6 +7,8 @@ import { distanceToSegment } from '../core/geometry.js';
 import { ShapeValidator } from '../core/ShapeValidator.js';
 import { buildPointAnchorsGroup } from '../core/ui-helpers.js';
 
+const _r4 = v => Math.round(v * 10000) / 10000;
+
 export class Line extends Shape {
     constructor(options = {}) {
         super(options);
@@ -206,7 +208,7 @@ export class Line extends Shape {
     toJSON() {
         return {
             ...super.toJSON(),
-            points: this.points.map(p => ({ x: p.x, y: p.y }))
+            pts: this.points.flatMap(p => [_r4(p.x), _r4(p.y)])
         };
     }
 }

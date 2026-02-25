@@ -5,6 +5,8 @@
 import { Shape } from './shape.js';
 import { ShapeValidator } from '../core/ShapeValidator.js';
 
+const _r4 = v => Math.round(v * 10000) / 10000;
+
 export class Circle extends Shape {
     constructor(options = {}) {
         super(options);
@@ -111,6 +113,10 @@ export class Circle extends Shape {
     }
 
     toJSON() {
-        return { ...super.toJSON(), x: this.x, y: this.y, radius: this.radius, fill: this.fill, fillColor: this.fillColor, fillAlpha: this.fillAlpha };
+        const json = { ...super.toJSON(), x: _r4(this.x), y: _r4(this.y), r: _r4(this.radius) };
+        if (this.fill) json.f = true;
+        if (this.fillColor !== this.color) json.fc = this.fillColor;
+        if (this.fillAlpha !== 0.3) json.fa = this.fillAlpha;
+        return json;
     }
 }
