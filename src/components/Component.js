@@ -199,7 +199,6 @@ export class Component {
     getPropertyDescriptors() {
         return [
             { key: 'locked',        label: 'Locked',          type: 'checkbox' },
-            { key: 'name',          label: 'Name',            type: 'text', readonly: true },
             { key: 'reference',     label: 'Reference',       type: 'text' },
             { key: 'showReference', label: 'Show Reference',  type: 'checkbox' },
             { key: 'value',         label: 'Value',           type: 'text' },

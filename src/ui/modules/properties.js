@@ -29,9 +29,19 @@ function mergeDescriptors(selection) {
 
 function headerLabel(selection) {
     if (selection.length === 0) return 'Properties';
+    const displayNames = { rect: 'Rectangle' };
     const types = selection.map(s => s.definition ? 'Component' : (s.type || 'object'));
     const first = types[0];
-    if (types.every(t => t === first)) return first.charAt(0).toUpperCase() + first.slice(1);
+    if (types.every(t => t === first)) {
+        if (first === 'Component') {
+            const names = new Set(selection.map(s => s.name).filter(Boolean));
+            if (names.size === 1) {
+                return `Component - ${[...names][0].toUpperCase()}`;
+            }
+            return 'Component';
+        }
+        return displayNames[first] || first.charAt(0).toUpperCase() + first.slice(1);
+    }
     return 'Multiple';
 }
 
