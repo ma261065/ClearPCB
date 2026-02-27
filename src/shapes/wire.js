@@ -1,11 +1,14 @@
 /**
  * Wire - Multi-segment wire for connecting component pins
- * Wires consist of multiple line segments forming a path
+ * Wires consist of multiple line segments forming a path.
+ * Supports midpoint anchors (+ in circle) for inserting new points,
+ * junction dots where wires join, and sticky connections to pins.
  */
 
 import { Shape } from './shape.js';
 import { distanceToSegment } from '../core/geometry.js';
 import { ShapeValidator } from '../core/ShapeValidator.js';
+import { buildPointAnchorsGroup } from '../core/ui-helpers.js';
 
 const _r4 = v => Math.round(v * 10000) / 10000;
 
@@ -39,6 +42,10 @@ export class Wire extends Shape {
         
         // Net information (for schematic purposes)
         this.net = options.net || '';
+
+        // Junction indices — points where another wire T-joins onto this wire
+        // Stored as Set of point indices that should render a junction dot
+        this.junctions = new Set(options.junctions || []);
     }
 
     _calculateBounds() {
@@ -75,6 +82,16 @@ export class Wire extends Shape {
     }
 
     /**
+     * Return the index of the segment closest to the given point,
+     * or -1 if the wire has fewer than 2 points.
+     */
+    hitTestSegment(point, tolerance = 0.5) {
+        if (this.points.length < 2) return -1;
+        const { segIndex, distance } = this.closestSegment(point);
+        return distance <= tolerance + this.lineWidth / 2 ? segIndex : -1;
+    }
+
+    /**
      * Distance from point to nearest segment of the wire
      */
     distanceTo(point) {
@@ -93,22 +110,49 @@ export class Wire extends Shape {
     }
 
     /**
-     * Get anchor points for editing
+     * Get anchor points for editing — vertex anchors + midpoint insertion anchors
      */
     getAnchors() {
-        return this.points.map((p, i) => ({
-            id: `point${i}`,
+        const anchors = this.points.map((p, i) => ({
+            id: `p${i}`,
             x: p.x,
             y: p.y,
             cursor: 'move'
         }));
+        // Add midpoint anchors between consecutive points (+ in circle)
+        for (let i = 0; i < this.points.length - 1; i++) {
+            const a = this.points[i];
+            const b = this.points[i + 1];
+            anchors.push({
+                id: `mid${i}`,
+                x: (a.x + b.x) / 2,
+                y: (a.y + b.y) / 2,
+                cursor: 'copy',
+                midpoint: true
+            });
+        }
+        return anchors;
     }
 
     /**
-     * Move an anchor (waypoint)
+     * Move an anchor (waypoint) or insert a new point at a midpoint
      */
     moveAnchor(anchorId, x, y) {
-        const match = anchorId.match(/point(\d+)/);
+        if (anchorId.startsWith('mid')) {
+            // Insert a new point at the midpoint position
+            const segIndex = parseInt(anchorId.substring(3));
+            const insertIndex = segIndex + 1;
+            this.points.splice(insertIndex, 0, { x, y });
+            // Shift junction indices that are at or after the insertion point
+            const shifted = new Set();
+            for (const j of this.junctions) {
+                shifted.add(j >= insertIndex ? j + 1 : j);
+            }
+            this.junctions = shifted;
+            this.invalidate();
+            return `p${insertIndex}`;
+        }
+        const match = anchorId.match(/^p(\d+)$/);
         if (match) {
             const idx = parseInt(match[1]);
             if (idx >= 0 && idx < this.points.length) {
@@ -116,6 +160,27 @@ export class Wire extends Shape {
                 this.invalidate();
             }
         }
+    }
+
+    /**
+     * Delete a point anchor. Returns true if deleted, false if not allowed.
+     * Minimum 2 points required.
+     */
+    deleteAnchor(anchorId) {
+        if (!anchorId.startsWith('p')) return false;
+        if (this.points.length <= 2) return false;
+        const index = parseInt(anchorId.substring(1));
+        if (index < 0 || index >= this.points.length) return false;
+        this.points.splice(index, 1);
+        // Remove junction at deleted index, shift those after
+        const shifted = new Set();
+        for (const j of this.junctions) {
+            if (j === index) continue;
+            shifted.add(j > index ? j - 1 : j);
+        }
+        this.junctions = shifted;
+        this.invalidate();
+        return true;
     }
 
     /**
@@ -141,10 +206,105 @@ export class Wire extends Shape {
     }
 
     /**
-     * Create SVG element
+     * Find the segment index closest to the given point.
+     * Returns { segIndex, t, point } where t is the parameter along the segment (0–1).
+     */
+    closestSegment(point) {
+        let bestDist = Infinity, bestSeg = -1, bestT = 0;
+        for (let i = 0; i < this.points.length - 1; i++) {
+            const a = this.points[i], b = this.points[i + 1];
+            const dx = b.x - a.x, dy = b.y - a.y;
+            const lenSq = dx * dx + dy * dy;
+            let t = lenSq === 0 ? 0 : ((point.x - a.x) * dx + (point.y - a.y) * dy) / lenSq;
+            t = Math.max(0, Math.min(1, t));
+            const px = a.x + t * dx, py = a.y + t * dy;
+            const d = Math.hypot(point.x - px, point.y - py);
+            if (d < bestDist) { bestDist = d; bestSeg = i; bestT = t; }
+        }
+        const a = this.points[bestSeg], b = this.points[bestSeg + 1];
+        return {
+            segIndex: bestSeg,
+            t: bestT,
+            point: { x: a.x + bestT * (b.x - a.x), y: a.y + bestT * (b.y - a.y) },
+            distance: bestDist
+        };
+    }
+
+    /**
+     * Split this wire at the given point, inserting a new vertex.
+     * Returns the index of the inserted point.
+     */
+    splitAt(point) {
+        const { segIndex } = this.closestSegment(point);
+        const insertIndex = segIndex + 1;
+        this.points.splice(insertIndex, 0, { x: point.x, y: point.y });
+        // Shift junction indices
+        const shifted = new Set();
+        for (const j of this.junctions) {
+            shifted.add(j >= insertIndex ? j + 1 : j);
+        }
+        this.junctions = shifted;
+        this.invalidate();
+        return insertIndex;
+    }
+
+    /**
+     * Check if a point is at (or very near) an endpoint of this wire.
+     * Returns 'start', 'end', or null.
+     */
+    endpointAt(point, epsilon = 0.15) {
+        if (this.points.length === 0) return null;
+        const s = this.points[0], e = this.points[this.points.length - 1];
+        if (Math.hypot(point.x - s.x, point.y - s.y) < epsilon) return 'start';
+        if (Math.hypot(point.x - e.x, point.y - e.y) < epsilon) return 'end';
+        return null;
+    }
+
+    /**
+     * Check if a point lies on a segment (not at an endpoint) within tolerance.
+     * Returns { segIndex, point } or null.
+     */
+    pointOnSegment(point, tolerance = 0.15) {
+        const result = this.closestSegment(point);
+        if (result.distance > tolerance) return null;
+        // Exclude if at an existing vertex
+        for (const p of this.points) {
+            if (Math.hypot(point.x - p.x, point.y - p.y) < tolerance) return null;
+        }
+        return result;
+    }
+
+    _updateAnchors(scale) {
+        if (!this.selected) {
+            if (this.anchorsGroup) {
+                this.anchorsGroup.remove();
+                this.anchorsGroup = null;
+                this._anchorRects = null;
+            }
+            return;
+        }
+
+        // Full rebuild every time (anchors can change count when midpoints are used)
+        if (this.anchorsGroup) {
+            this.anchorsGroup.remove();
+        }
+
+        const { group, rects } = buildPointAnchorsGroup(this, scale);
+        this.anchorsGroup = group;
+        this._anchorRects = rects;
+
+        if (this.element?.parentNode) {
+            this.element.parentNode.insertBefore(this.anchorsGroup, this.element.nextSibling);
+        }
+    }
+
+    /**
+     * Create SVG element — a group containing polyline + junction dots
      */
     _createElement() {
-        return document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
+        const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        g.appendChild(document.createElementNS('http://www.w3.org/2000/svg', 'polyline'));
+        return g;
     }
 
     /**
@@ -157,13 +317,33 @@ export class Wire extends Shape {
             typeof p.y === 'number' && !isNaN(p.y)
         );
 
+        const polyline = el.querySelector('polyline') || el;
         const points = validPoints.map(p => `${p.x},${p.y}`).join(' ');
-        el.setAttribute('points', points);
-        el.setAttribute('stroke', strokeColor);
-        el.setAttribute('stroke-width', this._getEffectiveStrokeWidth(scale));
-        el.setAttribute('stroke-linecap', 'round');
-        el.setAttribute('stroke-linejoin', 'round');
-        el.setAttribute('fill', 'none');
+        polyline.setAttribute('points', points);
+        polyline.setAttribute('stroke', strokeColor);
+        polyline.setAttribute('stroke-width', this._getEffectiveStrokeWidth(scale));
+        polyline.setAttribute('stroke-linecap', 'round');
+        polyline.setAttribute('stroke-linejoin', 'round');
+        polyline.setAttribute('fill', 'none');
+
+        // Render junction dots
+        // Remove existing junction circles
+        const existing = el.querySelectorAll('.junction-dot');
+        for (const c of existing) c.remove();
+
+        const junctionRadius = Math.max(0.4, 2.5 / scale);
+        for (const idx of this.junctions) {
+            if (idx < 0 || idx >= this.points.length) continue;
+            const p = this.points[idx];
+            const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+            circle.setAttribute('cx', p.x);
+            circle.setAttribute('cy', p.y);
+            circle.setAttribute('r', junctionRadius);
+            circle.setAttribute('fill', strokeColor);
+            circle.setAttribute('stroke', 'none');
+            circle.classList.add('junction-dot');
+            el.appendChild(circle);
+        }
     }
 
     /**
@@ -184,7 +364,8 @@ export class Wire extends Shape {
     clone() {
         return new Wire({
             ...this.toJSON(),
-            points: this.points.map(p => ({ ...p }))
+            points: this.points.map(p => ({ ...p })),
+            junctions: [...this.junctions]
         });
     }
     
@@ -195,7 +376,8 @@ export class Wire extends Shape {
                 start: this.connections.start ? { ...this.connections.start } : null,
                 end: this.connections.end ? { ...this.connections.end } : null
             },
-            net: this.net
+            net: this.net,
+            junctions: [...this.junctions]
         };
     }
     
@@ -205,6 +387,7 @@ export class Wire extends Shape {
         }
         if (state.connections !== undefined) this.connections = state.connections;
         if (state.net !== undefined) this.net = state.net;
+        if (state.junctions !== undefined) this.junctions = new Set(state.junctions);
         this.invalidate();
     }
     
@@ -238,6 +421,7 @@ export class Wire extends Shape {
             };
         }
         if (this.net) json.n = this.net;
+        if (this.junctions.size > 0) json.jn = [...this.junctions];
         return json;
     }
 }

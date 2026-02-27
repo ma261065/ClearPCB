@@ -300,6 +300,11 @@ export class Component {
                 this._highlightEl.remove();
                 this._highlightEl = null;
             }
+            // Hide all pin dots when deselected
+            for (const pinGroup of this.pinElements.values()) {
+                const dot = pinGroup.querySelector('circle');
+                if (dot) dot.setAttribute('display', 'none');
+            }
             return;
         }
         
@@ -334,6 +339,14 @@ export class Component {
         // Insert at beginning so it's behind component graphics
         if (!highlight.parentNode || highlight.parentNode !== this.element) {
             this.element.insertBefore(highlight, this.element.firstChild);
+        }
+
+        // Show all pin dots when selected
+        if (this.selected) {
+            for (const pinGroup of this.pinElements.values()) {
+                const dot = pinGroup.querySelector('circle');
+                if (dot) dot.setAttribute('display', '');
+            }
         }
     }
 
@@ -840,7 +853,8 @@ export class Component {
         dot.setAttribute('cx', connectionX); dot.setAttribute('cy', connectionY);
         dot.setAttribute('r', dotRadius);
         dot.setAttribute('fill', 'var(--sch-pin, #aa0000)'); 
-        dot.setAttribute('stroke', 'none'); 
+        dot.setAttribute('stroke', 'none');
+        dot.setAttribute('display', 'none');
         group.appendChild(dot);
 
         if (isActiveLow) {
@@ -1256,43 +1270,35 @@ export class Component {
     _cleanSymbol(sym) {
         if (!sym) return sym;
         const _r4 = v => Math.round(v * 10000) / 10000;
-        const clean = { ...sym };
-        // Remove internal fields
-        delete clean.kicadName;
-        delete clean._boundsIncludePins;
-        // Round origin
-        if (clean.origin) clean.origin = { x: _r4(clean.origin.x), y: _r4(clean.origin.y) };
-        // Clean pins
-        if (clean.pins) {
-            clean.pins = clean.pins.map(pin => {
-                const p = { ...pin, x: _r4(pin.x), y: _r4(pin.y) };
-                delete p._coordKey;
-                // Omit null font sizes (default)
-                if (p.kicadNameFontSize == null) delete p.kicadNameFontSize;
-                if (p.kicadNumberFontSize == null) delete p.kicadNumberFontSize;
-                return p;
-            });
-        }
-        // Round graphic coordinates
-        if (clean.graphics) {
-            clean.graphics = clean.graphics.map(g => {
-                const c = { ...g };
-                if (c.x != null) c.x = _r4(c.x);
-                if (c.y != null) c.y = _r4(c.y);
-                if (c.x1 != null) c.x1 = _r4(c.x1);
-                if (c.y1 != null) c.y1 = _r4(c.y1);
-                if (c.x2 != null) c.x2 = _r4(c.x2);
-                if (c.y2 != null) c.y2 = _r4(c.y2);
-                if (c.cx != null) c.cx = _r4(c.cx);
-                if (c.cy != null) c.cy = _r4(c.cy);
-                if (c.r != null) c.r = _r4(c.r);
-                if (c.startAngle != null) c.startAngle = _r4(c.startAngle);
-                if (c.endAngle != null) c.endAngle = _r4(c.endAngle);
-                if (c.points) c.points = c.points.map(pt => ({ x: _r4(pt.x), y: _r4(pt.y) }));
-                return c;
-            });
-        }
-        return clean;
+
+        // Deep-round all numbers, strip keys starting with '_', and clean specific fields
+        const STRIP_KEYS = new Set(['kicadName', '_boundsIncludePins', '_kicadRaw',
+            '_easyedaRawShapes', '_coordKey', '_source',
+            'pinType', 'shape',                  // pin metadata unused by renderer
+            'stroke', 'fill']);                   // graphics always use theme colors
+        const OMIT_DEFAULTS = { strokeWidth: 0.254, kicadNameFontSize: null, kicadNumberFontSize: null };
+
+        const deepClean = (val) => {
+            if (val == null) return val;
+            if (typeof val === 'number') return _r4(val);
+            if (typeof val === 'string') {
+                // Round floats inside path data strings (e.g. "M 19.380200000000002 4.114800000000001 h 2.54")
+                return val.replace(/-?\d+\.\d{5,}/g, m => String(_r4(Number(m))));
+            }
+            if (Array.isArray(val)) return val.map(deepClean);
+            if (typeof val === 'object') {
+                const out = {};
+                for (const [k, v] of Object.entries(val)) {
+                    if (STRIP_KEYS.has(k)) continue;
+                    if (k in OMIT_DEFAULTS && v === OMIT_DEFAULTS[k]) continue;
+                    out[k] = deepClean(v);
+                }
+                return out;
+            }
+            return val;
+        };
+
+        return deepClean(sym);
     }
 
 }

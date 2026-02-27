@@ -32,7 +32,7 @@ const shapeRegistry = {
 /** Map short serialisation keys back to constructor-friendly long names. */
 const SHORT_KEYS = {
     c: 'color', l: 'layer', lw: 'lineWidth', v: 'visible', lk: 'locked',
-    pts: 'points', cn: 'connections', n: 'net',
+    pts: 'points', cn: 'connections', n: 'net', jn: 'junctions',
     r: 'radius', w: 'width', h: 'height', cr: 'cornerRadius',
     f: 'fill', fc: 'fillColor', fa: 'fillAlpha', cl: 'closed',
     sp: 'startPoint', ep: 'endPoint', bp: 'bulgePoint',

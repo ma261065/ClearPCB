@@ -38,6 +38,7 @@ export function handleEscape(app) {
         } else {
             app._cancelDrawing();
         }
+        app._onToolSelected('select');
         return;
     }
     if (app.pastingClipboard) {
@@ -162,8 +163,16 @@ export function bindKeyboardShortcuts(app) {
                     app._handleEscape();
                     break;
                 case 'Enter':
-                    if (app.currentTool === 'wire' && app.isDrawing && app.wirePoints.length >= 2) {
-                        app._finishWireDrawing(app.drawCurrent);
+                    if (app.isDrawing) {
+                        if (app.currentTool === 'wire' && app.wirePoints.length >= 1) {
+                            app._finishWireDrawing(app.drawCurrent);
+                        } else if (app.currentTool === 'line') {
+                            app._finishLine();
+                        } else if (app.currentTool === 'polygon') {
+                            app._finishPolygon();
+                        } else if (app.drawCurrent) {
+                            app._finishDrawing(app.drawCurrent);
+                        }
                         e.preventDefault();
                     }
                     break;

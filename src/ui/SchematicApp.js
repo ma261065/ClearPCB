@@ -81,9 +81,6 @@ class SchematicApp {
         this.wirePoints = [];
         this.wireSnapPin = null;
         this.wireStartPin = null;
-        this.wireAutoCorner = null;
-        this.wireActiveAxis = null;
-        this.wireLastAdjustedPoint = null;
         this.lastSnappedData = null;
 
         // Crosshair
@@ -102,6 +99,8 @@ class SchematicApp {
         this.dragAnchorId = null;
         this.dragShape = null;
         this.dragWireAnchorOriginal = null;
+        this.dragWireSegIndex = -1;  // For wire-segment drag: which segment
+        this.dragWireStates = null;  // For wire-segment drag: before-states of all affected wires
         this.skipClickSelection = false;
 
         // Box selection
@@ -435,13 +434,9 @@ class SchematicApp {
 
     // ==================== Wire Drawing ====================
     
-    /**
-     * Get snapped position for wire drawing with directional routing
-     * First segment from pin: lock Y (horizontal) or X (vertical)
-     * Later segments: grid snap, but override with target pin Y/X when approaching
-     */
+    /** Get snapped position for wire drawing with orthogonal routing */
     _getWireSnappedPosition(worldPos) {
-        return WireTools.getWireSnappedPosition(this, worldPos);
+        return WireTools.getDrawingSnappedPosition(this, worldPos);
     }
     
     /**
@@ -462,11 +457,6 @@ class SchematicApp {
     // Check if two points are essentially the same (within epsilon)
     _pointsMatch(a, b, epsilon = 1e-6) {
         return WireTools.pointsMatch(a, b, epsilon);
-    }
-
-    // Check auto-corner triggers (deadband and grid-line crossing)
-    _checkAutoCornerTriggers(rawDx, rawDy, primaryDir, gridSize, lastWorldPos, worldPos) {
-        return WireTools.checkAutoCornerTriggers(this, rawDx, rawDy, primaryDir, gridSize, lastWorldPos, worldPos);
     }
     
     // Start drawing a wire - click to place first point or snap to pin

@@ -252,6 +252,7 @@ body {
     cursor: pointer;
     font-size: 11px;
     transition: background 0.12s, border-color 0.12s;
+    outline: none;
 }
 
 .ribbon-group-items button:hover:not(:disabled) {
@@ -781,6 +782,10 @@ body {
 }
 
 .tool-btn:focus {
+    outline: none;
+}
+
+.tool-btn:focus-visible {
     outline: none;
 }
 
