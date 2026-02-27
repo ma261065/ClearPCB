@@ -291,17 +291,6 @@ export function createShapeFromDrawing(app) {
     const minSize = 0.5;
 
     switch (app.currentTool) {
-        case 'wire': {
-            const length = Math.hypot(end.x - start.x, end.y - start.y);
-            if (length < minSize) return null;
-            return new Line({
-                x1: start.x, y1: start.y,
-                x2: end.x, y2: end.y,
-                color: '#00cc66',
-                lineWidth: opts.lineWidth
-            });
-        }
-
         case 'rect': {
             const w = Math.abs(end.x - start.x);
             const h = Math.abs(end.y - start.y);

@@ -474,16 +474,6 @@ export function updateWirePreview(app) {
         svg += `<circle cx="${p.x}" cy="${p.y}" r="${2 / app.viewport.scale}" fill="#00cc66"/>`;
     }
 
-    // Debug: draw choice zone circle around last waypoint (original position)
-    if (pts.length > 0) {
-        const last = pts[pts.length - 1];
-        const cx = last._savedX !== undefined ? last._savedX : last.x;
-        const cy = last._savedY !== undefined ? last._savedY : last.y;
-        const zoneRadius = Math.max(strokeWidth * 2, 20 / app.viewport.scale);
-        svg += `<circle cx="${cx}" cy="${cy}" r="${zoneRadius}" 
-                fill="none" stroke="#ffff00" stroke-width="${1 / app.viewport.scale}" stroke-opacity="0.5" stroke-dasharray="${3 / app.viewport.scale}"/>`;
-    }
-
     // Draw live segment from last waypoint to cursor (with optional corner)
     if (app.drawCurrent && pts.length > 0) {
         const last = pts[pts.length - 1];
@@ -598,13 +588,6 @@ export function updateSnapHighlight(app, target) {
     } else if (isWireJunction) {
         _showWireJunctionDot(app, target);
     }
-}
-
-// Keep named exports for backward compatibility (SchematicApp delegates)
-export function highlightPin(app, snapPin) { _showPinDot(app, snapPin); }
-export function unhighlightPin(app) {
-    _hidePinDot(app);
-    app.wireSnapPin = null;
 }
 
 // --- Wire junction detection ---
@@ -1435,9 +1418,4 @@ export function computeStickyWireNudge(app, movingCompIds, proposedDx, proposedD
     return { x: bestNudgeX || 0, y: bestNudgeY || 0 };
 }
 
-// --- Legacy shim (still used by callbacks.js via SchematicApp delegate) ---
 
-/** @deprecated Use getDrawingSnappedPosition instead. */
-export function getWireSnappedPosition(app, worldPos) {
-    return getDrawingSnappedPosition(app, worldPos);
-}

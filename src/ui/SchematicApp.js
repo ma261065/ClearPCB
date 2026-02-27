@@ -516,16 +516,6 @@ class SchematicApp {
         WireTools.updateWirePreview(this);
     }
     
-    // Highlight a pin during snapping
-    _highlightPin(snapPin) {
-        WireTools.highlightPin(this, snapPin);
-    }
-    
-    // Remove pin highlight
-    _unhighlightPin() {
-        WireTools.unhighlightPin(this);
-    }
-
     // ==================== Component Handling ====================
     
     // Called when a component definition is selected in the picker

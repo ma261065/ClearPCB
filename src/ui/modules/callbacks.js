@@ -15,17 +15,6 @@ export function setupCallbacks(app) {
     const HOVER_THROTTLE = 30;
 
     app.viewport.onMouseMove = (world, snapped) => {
-        if (app.isDrawing) {
-            if (app.currentTool === 'wire') {
-                const wireSnapped = app._getWireSnappedPosition(world);
-                app._updateDrawing(wireSnapped);
-                app._updateCrosshair(wireSnapped);
-            } else {
-                app._updateDrawing(snapped);
-                app._updateCrosshair(snapped);
-            }
-        }
-
         if (app.pastingClipboard && app.pastePreviewGroup) {
             app._updatePastePreview(snapped);
         }
