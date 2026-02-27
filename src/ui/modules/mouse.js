@@ -49,6 +49,8 @@ export function clearDragState(app, { clearDidDrag = false, resetCursor = false 
         for (const line of app._collinearGuides) line.remove();
         app._collinearGuides = null;
     }
+    // Hide crosshairs (shown during anchor drag)
+    app._hideCrosshair();
     // Defensive: ensure box select rect is always removed
     app._removeBoxSelectElement();
     app.boxSelectStart = null;
@@ -716,6 +718,9 @@ export function bindMouseEvents(app) {
                     }
                     // Use pre-insert state if midpoint was already inserted on mousedown
                     app.dragShapesBefore = preInsertState || app._captureShapeState(shape);
+                    // Show crosshairs during anchor drag to help with alignment
+                    app._showCrosshair();
+                    app._updateCrosshair(startSnapped);
                 }
             }
             if (!app.isDragging) return;
@@ -827,6 +832,9 @@ export function bindMouseEvents(app) {
                     renderGuideLines(app, result.guides);
                 }
             }
+
+            // Update crosshairs to track the anchor position
+            app._updateCrosshair(anchorPos);
 
             const newAnchorId = app.dragShape.moveAnchor(app.dragAnchorId, anchorPos.x, anchorPos.y);
             if (newAnchorId && newAnchorId !== app.dragAnchorId) {
