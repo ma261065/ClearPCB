@@ -1098,6 +1098,31 @@ export function bindMouseEvents(app) {
                     }
                 }
 
+                // Also check if the rubber-banding adjacent segments become H/V.
+                // These segments change angle as the dragged segment moves.
+                // Segment before: wire.points[segIdx-1] (fixed) → futureA (moving)
+                if (segIdx > 0) {
+                    const fixed = wire.points[segIdx - 1];
+                    const moving = { x: snappedTarget.x, y: snappedTarget.y };
+                    if (Math.abs(moving.y - fixed.y) < threshold) {
+                        snappedTarget.y = fixed.y;
+                        guides.push([fixed, { x: snappedTarget.x, y: snappedTarget.y }]);
+                    } else if (Math.abs(moving.x - fixed.x) < threshold) {
+                        snappedTarget.x = fixed.x;
+                        guides.push([fixed, { x: snappedTarget.x, y: snappedTarget.y }]);
+                    }
+                }
+                // Segment after: futureB (moving) → wire.points[segIdx+2] (fixed)
+                if (segIdx + 2 < wire.points.length) {
+                    const fixed = wire.points[segIdx + 2];
+                    const moving = { x: snappedTarget.x + segOffX, y: snappedTarget.y + segOffY };
+                    if (Math.abs(moving.y - fixed.y) < threshold) {
+                        guides.push([moving, fixed]);
+                    } else if (Math.abs(moving.x - fixed.x) < threshold) {
+                        guides.push([moving, fixed]);
+                    }
+                }
+
                 // Render guide lines
                 if (!app._collinearGuides) app._collinearGuides = [];
                 const wireStroke = app._getEffectiveStrokeWidth(0.25);

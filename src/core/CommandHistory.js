@@ -259,6 +259,7 @@ export class MoveShapesCommand extends Command {
             const item = lookup.get(id);
             if (item) item.move(this.dx, this.dy);
         }
+        this._updateStickyWires();
         this.app.renderShapes(true);
     }
     
@@ -268,7 +269,41 @@ export class MoveShapesCommand extends Command {
             const item = lookup.get(id);
             if (item) item.move(-this.dx, -this.dy);
         }
+        this._updateStickyWires();
         this.app.renderShapes(true);
+    }
+
+    /**
+     * Update wire endpoints connected to component pins after move/undo.
+     */
+    _updateStickyWires() {
+        for (const shape of this.app.shapes) {
+            if (shape.type !== 'wire') continue;
+            const conn = shape.connections;
+            if (conn.start) {
+                const comp = this.app.components.find(c => c.id === conn.start.componentId);
+                if (comp) {
+                    const pos = comp.getPinPosition(conn.start.pinNumber);
+                    if (pos) {
+                        shape.points[0].x = pos.x;
+                        shape.points[0].y = pos.y;
+                        shape.invalidate();
+                    }
+                }
+            }
+            if (conn.end) {
+                const comp = this.app.components.find(c => c.id === conn.end.componentId);
+                if (comp) {
+                    const pos = comp.getPinPosition(conn.end.pinNumber);
+                    if (pos) {
+                        const last = shape.points[shape.points.length - 1];
+                        last.x = pos.x;
+                        last.y = pos.y;
+                        shape.invalidate();
+                    }
+                }
+            }
+        }
     }
 }
 
