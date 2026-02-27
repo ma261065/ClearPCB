@@ -94,9 +94,9 @@ export class Viewport {
         this.titleBlockData = {
             title: '',
             rev: '',
-            company: '',
-            date: new Date().toISOString().slice(0, 10),
-            drawnBy: '',
+            company: localStorage.getItem('clearpcb_tb_company') || '',
+            date: new Date().toLocaleDateString(),
+            drawnBy: localStorage.getItem('clearpcb_tb_drawnBy') || '',
             sheet: '1/1'
         };
         
@@ -907,6 +907,9 @@ export class Viewport {
             if (this._titleBlockEditCancelled || !input.parentNode) return;
             const val = input.value;
             this.titleBlockData[field] = val;
+            // Persist user-identity fields across sessions
+            if (field === 'company') localStorage.setItem('clearpcb_tb_company', val);
+            if (field === 'drawnBy') localStorage.setItem('clearpcb_tb_drawnBy', val);
             document.body.removeChild(input);
             this._titleBlockEditActive = false;
             this._titleBlockEditInput = null;
