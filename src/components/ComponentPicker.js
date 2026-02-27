@@ -886,10 +886,10 @@ export class ComponentPicker {
             this._updateFootprintPreview(metadata);
             this._update3dPreview(metadata);
 
-            const ready = metadata.hasFootprint && metadata.has3d;
+            const ready = metadata.hasFootprint;
             if (!ready) {
                 this.placeBtn.disabled = true;
-                this.placeBtn.textContent = 'Missing footprint/3D';
+                this.placeBtn.textContent = 'Missing footprint';
                 this.placeBtn.onclick = null;
                 return;
             }
@@ -959,11 +959,11 @@ export class ComponentPicker {
                     definition.has3d = definition.has3d || !!detail.has3d || !!detail.model3dName;
                 }
 
-                if (!definition.hasFootprint || !definition.has3d) {
-                    this.previewInfo.innerHTML += `<br><span style="color:var(--accent-color)">Missing footprint/3D data</span>`;
+                if (!definition.hasFootprint) {
+                    this.previewInfo.innerHTML += `<br><span style="color:var(--accent-color)">Missing footprint data</span>`;
                     this._updatePreview(definition);
                     this.placeBtn.disabled = true;
-                    this.placeBtn.textContent = 'Missing footprint/3D';
+                    this.placeBtn.textContent = 'Missing footprint';
                     this.placeBtn.onclick = null;
                     return;
                 }
@@ -1006,11 +1006,11 @@ export class ComponentPicker {
                     definition.has3d = definition.has3d || !!detail.has3d || !!detail.model3dName;
                 }
 
-                if (!definition.hasFootprint || !definition.has3d) {
-                    this.previewInfo.innerHTML += `<br><span style="color:var(--accent-color)">Missing footprint/3D data</span>`;
+                if (!definition.hasFootprint) {
+                    this.previewInfo.innerHTML += `<br><span style="color:var(--accent-color)">Missing footprint data</span>`;
                     this._updatePreview(definition);
                     this.placeBtn.disabled = true;
-                    this.placeBtn.textContent = 'Missing footprint/3D';
+                    this.placeBtn.textContent = 'Missing footprint';
                     this.placeBtn.onclick = null;
                     return;
                 }
