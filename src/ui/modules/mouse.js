@@ -1,6 +1,6 @@
 import { MoveShapesCommand, ModifyShapeCommand, BatchCommand, AddShapeCommand, DeleteShapesCommand } from '../../core/CommandHistory.js';
 import { Wire } from '../../shapes/wire.js';
-import { updateStickyWires, processWireAnchorMerge, refreshWireConnections, updateSnapHighlight, findNearbyWirePoint } from './wire.js';
+import { updateStickyWires, processWireAnchorMerge, refreshWireConnections, updateSnapHighlight, findNearbyWirePoint, resolveWireSnapPosition } from './wire.js';
 
 // Pre-allocated tool sets to avoid array creation in hot paths
 const DRAWING_TOOLS = new Set(['line', 'rect', 'circle', 'polygon']);
@@ -474,10 +474,9 @@ export function bindMouseEvents(app) {
                 }
                 app.selection.clearSelection();
                 app.renderShapes(true);
-                const snapPin = app._findNearbyPin(worldPos);
-                const startData = snapPin ?
-                    { x: snapPin.worldPos.x, y: snapPin.worldPos.y, snapPin: snapPin } :
-                    { ...app.viewport.getSnappedPosition(worldPos), snapPin: null };
+                // Use the unified snap resolver — same logic as pre-draw hover
+                const snap = resolveWireSnapPosition(app, worldPos, { pinTolerance: 0.5 });
+                const startData = { x: snap.x, y: snap.y, snapPin: snap.snapPin || null };
                 app._startWireDrawing(startData);
             } else if (app.drawCurrent) {
                 // When finishing on a wire junction (segment T-junction), snap
@@ -660,9 +659,16 @@ export function bindMouseEvents(app) {
             if (app.isDrawing) {
                 app._updateWireDrawing(worldPos);
             } else {
-                // Not drawing — still highlight pins on hover
-                const snapPin = app._findNearbyPin(worldPos);
-                updateSnapHighlight(app, snapPin);
+                // Not drawing — highlight pins and wire endpoints/segments on hover
+                // Uses the unified snap resolver for consistent priority logic
+                const snap = resolveWireSnapPosition(app, worldPos, { pinTolerance: 0.5 });
+                if (snap.snapType === 'pin') {
+                    updateSnapHighlight(app, snap.snapPin);
+                } else if (snap.snapType === 'endpoint' || snap.snapType === 'segment') {
+                    updateSnapHighlight(app, { x: snap.x, y: snap.y, type: snap.snapType });
+                } else {
+                    updateSnapHighlight(app, null);
+                }
             }
             app._showCrosshair();
             app._updateCrosshair(snapped, screenPos);
@@ -1164,14 +1170,22 @@ export function bindMouseEvents(app) {
 
                 // Also check if the rubber-banding adjacent segments become H/V.
                 // These segments change angle as the dragged segment moves.
+                // Only highlight when the alignment is on the axis that CAN
+                // change during this drag — e.g. dragging a horizontal segment
+                // vertically can make a neighbor become horizontal (same Y),
+                // but a neighbor that shares X was already vertical and always
+                // will be, so highlighting it is unnecessary.
                 // Segment before: wire.points[segIdx-1] (fixed) → futureA (moving)
                 if (segIdx > 0) {
                     const fixed = wire.points[segIdx - 1];
                     const moving = { x: snappedTarget.x, y: snappedTarget.y };
-                    if (Math.abs(moving.y - fixed.y) < threshold) {
+                    // Horizontal alignment (same Y) — only interesting when drag moves Y
+                    if (app.dragSegAxis !== 'horizontal' && Math.abs(moving.y - fixed.y) < threshold) {
                         snappedTarget.y = fixed.y;
                         guides.push([fixed, { x: snappedTarget.x, y: snappedTarget.y }]);
-                    } else if (Math.abs(moving.x - fixed.x) < threshold) {
+                    }
+                    // Vertical alignment (same X) — only interesting when drag moves X
+                    else if (app.dragSegAxis !== 'vertical' && Math.abs(moving.x - fixed.x) < threshold) {
                         snappedTarget.x = fixed.x;
                         guides.push([fixed, { x: snappedTarget.x, y: snappedTarget.y }]);
                     }
@@ -1180,9 +1194,9 @@ export function bindMouseEvents(app) {
                 if (segIdx + 2 < wire.points.length) {
                     const fixed = wire.points[segIdx + 2];
                     const moving = { x: snappedTarget.x + segOffX, y: snappedTarget.y + segOffY };
-                    if (Math.abs(moving.y - fixed.y) < threshold) {
+                    if (app.dragSegAxis !== 'horizontal' && Math.abs(moving.y - fixed.y) < threshold) {
                         guides.push([moving, fixed]);
-                    } else if (Math.abs(moving.x - fixed.x) < threshold) {
+                    } else if (app.dragSegAxis !== 'vertical' && Math.abs(moving.x - fixed.x) < threshold) {
                         guides.push([moving, fixed]);
                     }
                 }

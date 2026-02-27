@@ -76,7 +76,72 @@ function pinDepartAxis(pin) {
 // --- Snap helpers ---
 
 /**
- * Snap a position considering grid, nearby pins, and orthogonal constraints.
+ * Resolve a world position to the best snap target for wire operations.
+ * This is the single source of truth for snap priority:
+ *   pin > wire endpoint (exact) > wire segment (constrained+grid) > grid snap.
+ *
+ * Used by pre-draw hover, wire start click, and internally by
+ * getDrawingSnappedPosition (which layers drawing-specific constraints on
+ * top of the result).
+ *
+ * @param {object} app
+ * @param {object} worldPos - Raw (unsnapped) cursor world position
+ * @param {object} [options]
+ * @param {object} [options.excludePin] - Pin snap to exclude (e.g. start pin)
+ * @param {object} [options.excludeWire] - Wire to exclude from wire snap
+ * @param {number} [options.pinTolerance=1.5] - Pin detection radius
+ * @param {number} [options.wireTolerance=0.5] - Wire detection radius
+ * @returns {{ x, y, snapPin, snapType: 'pin'|'endpoint'|'segment'|'grid', wireDir? }}
+ */
+export function resolveWireSnapPosition(app, worldPos, options = {}) {
+    const {
+        excludePin = null,
+        excludeWire = null,
+        pinTolerance = 1.5,
+        wireTolerance = 0.5
+    } = options;
+
+    // 1. Pin snap (highest priority)
+    const nearPin = findNearbyPin(app.components, worldPos, pinTolerance);
+    if (nearPin && !(excludePin && isSamePin(excludePin, nearPin))) {
+        return {
+            x: nearPin.worldPos.x,
+            y: nearPin.worldPos.y,
+            snapPin: nearPin,
+            snapType: 'pin',
+        };
+    }
+
+    // 2. Wire snap (endpoint > segment — handled inside findNearbyWirePoint)
+    const nearWire = findNearbyWirePoint(app, worldPos, wireTolerance, excludeWire);
+    if (nearWire) {
+        if (nearWire.type === 'endpoint') {
+            return {
+                x: nearWire.x,
+                y: nearWire.y,
+                snapPin: null,
+                snapType: 'endpoint',
+            };
+        } else {
+            // Segment T-junction: constrain wire's axis, grid-snap the free axis
+            const gridSnapped = app.viewport.getSnappedPosition(nearWire);
+            if (nearWire.wireDir === 'horizontal') {
+                return { x: gridSnapped.x, y: nearWire.y, snapPin: null, snapType: 'segment', wireDir: 'horizontal' };
+            } else {
+                return { x: nearWire.x, y: gridSnapped.y, snapPin: null, snapType: 'segment', wireDir: 'vertical' };
+            }
+        }
+    }
+
+    // 3. Grid snap (fallback)
+    const gridSnapped = app.viewport.getSnappedPosition(worldPos);
+    return { ...gridSnapped, snapPin: null, snapType: 'grid' };
+}
+
+/**
+ * Snap a position considering grid, nearby pins, and orthogonal constraints
+ * during active wire drawing. Layers drawing-specific behaviour (axis
+ * choice zone, adjustLast, auto-corner) on top of resolveWireSnapPosition.
  *
  * When drawing:
  *  - The segment from lastPoint to cursor is constrained to be strictly
@@ -87,13 +152,10 @@ function pinDepartAxis(pin) {
  *    orientation axis.
  */
 export function getDrawingSnappedPosition(app, worldPos) {
-    const gridSnapped = app.viewport.getSnappedPosition(worldPos);
-
-    // No points yet - just grid-snap, but prefer nearby pin
+    // No points yet — use unified resolver (pin tol 1.0, no wires to snap to)
     if (app.wirePoints.length === 0) {
-        const nearPin = findNearbyPin(app.components, worldPos, 1.0);
-        if (nearPin) return { x: nearPin.worldPos.x, y: nearPin.worldPos.y, snapPin: nearPin };
-        return { ...gridSnapped, snapPin: null };
+        const snap = resolveWireSnapPosition(app, worldPos, { pinTolerance: 1.0 });
+        return { x: snap.x, y: snap.y, snapPin: snap.snapPin, snapType: snap.snapType };
     }
 
     const lastPoint = app.wirePoints[app.wirePoints.length - 1];
@@ -103,8 +165,8 @@ export function getDrawingSnappedPosition(app, worldPos) {
     // --- Axis choice zone ---
     // A small zone around the segment start lets the user pick H/V direction.
     // Once the cursor exits, the axis is locked until the cursor returns.
-    // Radius matches the visible debug circle (2× effective stroke width).
-    const choiceRadius = app._getEffectiveStrokeWidth(0.2) * 2;
+    // Radius is at least 2× effective stroke width, but no smaller than 20 screen pixels.
+    const choiceRadius = Math.max(app._getEffectiveStrokeWidth(0.2) * 2, 20 / app.viewport.scale);
     const inChoiceZone = rawDx < choiceRadius && rawDy < choiceRadius;
 
     let axis;
@@ -133,51 +195,48 @@ export function getDrawingSnappedPosition(app, worldPos) {
         }
     }
 
-    // Check for nearby target pin first (use raw mouse pos, not snapped)
-    const nearPin = findNearbyPin(app.components, worldPos, 1.5);
-    if (nearPin && !(lastPoint.pin && isSamePin(lastPoint, nearPin))) {
-        const pinPos = nearPin.worldPos;
+    // Use the unified resolver for snap target detection.
+    // Exclude the start pin so we don't snap back to our own origin.
+    const excludePin = lastPoint.pin ? { component: lastPoint.pin.component, pin: lastPoint.pin.pin } : null;
+    const snap = resolveWireSnapPosition(app, worldPos, {
+        excludePin,
+        pinTolerance: 1.5,
+        wireTolerance: 0.5,
+    });
+
+    // --- Apply drawing-specific adjustments based on snap type ---
+
+    if (snap.snapType === 'pin') {
         // Approaching a pin: snap the free axis to the pin, and shift the
         // constrained axis of *both* the endpoint AND the previous waypoint
         // so the segment remains perfectly horizontal / vertical.
         if (axis === 'horizontal') {
-            return { x: pinPos.x, y: pinPos.y, snapPin: nearPin, adjustLastY: pinPos.y };
+            return { x: snap.x, y: snap.y, snapPin: snap.snapPin, snapType: 'pin', adjustLastY: snap.y };
         } else {
-            return { x: pinPos.x, y: pinPos.y, snapPin: nearPin, adjustLastX: pinPos.x };
+            return { x: snap.x, y: snap.y, snapPin: snap.snapPin, snapType: 'pin', adjustLastX: snap.x };
         }
     }
 
-    // Check for nearby wire endpoint or segment
-    const nearWire = findNearbyWirePoint(app, worldPos, 0.5);
-    if (nearWire) {
-        if (nearWire.type === 'endpoint') {
-            // Snap to exact endpoint (like a pin)
-            if (axis === 'horizontal') {
-                return { x: nearWire.x, y: nearWire.y, snapPin: null, adjustLastY: nearWire.y };
-            } else {
-                return { x: nearWire.x, y: nearWire.y, snapPin: null, adjustLastX: nearWire.x };
-            }
+    if (snap.snapType === 'endpoint') {
+        // Snap to exact endpoint (like a pin) with adjustLast
+        if (axis === 'horizontal') {
+            return { x: snap.x, y: snap.y, snapPin: null, snapType: 'endpoint', adjustLastY: snap.y };
         } else {
-            // Segment T-junction: endpoint slides along the wire with grid snap.
-            // Wire constrains its perpendicular axis; free axis is grid-snapped.
-            // An automatic corner is created so lastPoint stays put.
-            let tx, ty;
-            if (nearWire.wireDir === 'horizontal') {
-                tx = gridSnapped.x;
-                ty = nearWire.y;
-            } else {
-                tx = nearWire.x;
-                ty = gridSnapped.y;
-            }
-            // Corner: go horizontal from lastPoint to tx, then vertical to ty
-            // (or vice-versa depending on which is the longer leg).
-            const corner = { x: tx, y: lastPoint.y };
-            return { x: tx, y: ty, snapPin: null, corner };
+            return { x: snap.x, y: snap.y, snapPin: null, snapType: 'endpoint', adjustLastX: snap.x };
         }
+    }
+
+    if (snap.snapType === 'segment') {
+        // Segment T-junction: endpoint position comes from resolveWireSnapPosition
+        // (free axis grid-snapped, constrained axis on wire). Add auto-corner
+        // so lastPoint stays put and we get an L-shaped path.
+        const corner = { x: snap.x, y: lastPoint.y };
+        return { x: snap.x, y: snap.y, snapPin: null, snapType: 'segment', corner };
     }
 
     // Normal orthogonal constraint — but prefer a nearby pin's coordinate
     // as a snap line on the free axis so off-grid pins are reachable.
+    const gridSnapped = app.viewport.getSnappedPosition(worldPos);
     const gridSize = app.viewport.gridSize || 1.0;
     const halfGrid = gridSize * 0.5;
     const pinSnap = findNearbyPin(app.components, worldPos, 1.5);
@@ -187,13 +246,13 @@ export function getDrawingSnappedPosition(app, worldPos) {
         if (pinSnap && Math.abs(worldPos.x - pinSnap.worldPos.x) <= halfGrid) {
             freeX = pinSnap.worldPos.x;
         }
-        return { x: freeX, y: lastPoint.y, snapPin: null };
+        return { x: freeX, y: lastPoint.y, snapPin: null, snapType: 'grid' };
     } else {
         let freeY = gridSnapped.y;
         if (pinSnap && Math.abs(worldPos.y - pinSnap.worldPos.y) <= halfGrid) {
             freeY = pinSnap.worldPos.y;
         }
-        return { x: lastPoint.x, y: freeY, snapPin: null };
+        return { x: lastPoint.x, y: freeY, snapPin: null, snapType: 'grid' };
     }
 }
 
@@ -266,31 +325,18 @@ export function startWireDrawing(app, snappedData) {
 export function updateWireDrawing(app, worldPos) {
     if (!app.isDrawing || app.wirePoints.length === 0) return;
 
-    // Detect nearby pin for highlight
-    let nearPin = findNearbyPin(app.components, worldPos, 1.5);
-    if (nearPin && app.wireStartPin && app.wirePoints.length === 1) {
-        if (isSamePin({ component: nearPin.component, pin: nearPin.pin }, app.wireStartPin)) {
-            nearPin = null;
-        }
-    }
-
-    if (nearPin) {
-        updateSnapHighlight(app, nearPin);
-    }
-
-    // Calculate snapped target
+    // Calculate snapped target (includes snap detection via resolveWireSnapPosition)
     const target = getDrawingSnappedPosition(app, worldPos);
 
-    if (!nearPin) {
-        // Show wire junction highlight at the SNAPPED position (grid-aligned
-        // on the free axis) rather than the raw wire projection.
-        const nearWire = findNearbyWirePoint(app, worldPos, 0.5);
-        if (nearWire) {
-            updateSnapHighlight(app, { x: target.x, y: target.y, type: nearWire.type });
-        } else {
-            updateSnapHighlight(app, null);
-        }
+    // Highlight uses snapType from the unified resolver — no duplicate detection
+    if (target.snapType === 'pin' && target.snapPin) {
+        updateSnapHighlight(app, target.snapPin);
+    } else if (target.snapType === 'endpoint' || target.snapType === 'segment') {
+        updateSnapHighlight(app, { x: target.x, y: target.y, type: target.snapType });
+    } else {
+        updateSnapHighlight(app, null);
     }
+
     app.drawCurrent = { x: target.x, y: target.y };
     app.drawCorner = target.corner || null;
     app.lastSnappedData = { x: target.x, y: target.y, snapPin: target.snapPin };
@@ -433,7 +479,7 @@ export function updateWirePreview(app) {
         const last = pts[pts.length - 1];
         const cx = last._savedX !== undefined ? last._savedX : last.x;
         const cy = last._savedY !== undefined ? last._savedY : last.y;
-        const zoneRadius = strokeWidth * 2;
+        const zoneRadius = Math.max(strokeWidth * 2, 20 / app.viewport.scale);
         svg += `<circle cx="${cx}" cy="${cy}" r="${zoneRadius}" 
                 fill="none" stroke="#ffff00" stroke-width="${1 / app.viewport.scale}" stroke-opacity="0.5" stroke-dasharray="${3 / app.viewport.scale}"/>`;
     }
