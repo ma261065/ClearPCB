@@ -666,13 +666,24 @@ export function findNearbyWirePoint(app, worldPos, tolerance, excludeWire = null
     return bestEp || bestSeg;
 }
 
+// --- Constants ---
+
+/** Snap threshold in screen pixels (divided by viewport.scale for world units). */
+export const SNAP_SCREEN_PX = 5;
+
+/** Epsilon for detecting collinear H/V segments (world units). */
+export const COLLINEAR_EPSILON = 0.01;
+
+/** Angle tolerance for general collinearity check (sin of max angle). */
+export const ANGLE_TOL = 0.05;
+
 // --- Collinearity helper ---
 
 /**
  * Check if two segments are collinear (parallel and overlapping direction).
  * seg1/seg2 are { a: {x,y}, b: {x,y} }.
  */
-function segmentsCollinear(seg1, seg2, angleTol = 0.05) {
+function segmentsCollinear(seg1, seg2, angleTol = ANGLE_TOL) {
     const dx1 = seg1.b.x - seg1.a.x, dy1 = seg1.b.y - seg1.a.y;
     const dx2 = seg2.b.x - seg2.a.x, dy2 = seg2.b.y - seg2.a.y;
     const len1 = Math.hypot(dx1, dy1), len2 = Math.hypot(dx2, dy2);
@@ -1032,12 +1043,334 @@ export function processWireAnchorMerge(app, wire) {
     return changed;
 }
 
-// --- Legacy shims ---
+// --- Guide line rendering ---
 
-/** @deprecated No longer used - auto-corner removed. */
-export function checkAutoCornerTriggers() {
-    return { triggered: false };
+/**
+ * Render an array of guide line segments as blue highlight overlays.
+ * Manages a pool of SVG line elements in app._collinearGuides.
+ *
+ * @param {object} app
+ * @param {Array<[{x,y},{x,y}]>} guides - Array of [pointA, pointB] pairs
+ */
+export function renderGuideLines(app, guides) {
+    if (!app._collinearGuides) app._collinearGuides = [];
+    const wireStroke = app._getEffectiveStrokeWidth(0.25);
+    for (let gi = 0; gi < guides.length; gi++) {
+        const [gA, gB] = guides[gi];
+        if (!app._collinearGuides[gi]) {
+            const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+            line.setAttribute('pointer-events', 'none');
+            app.viewport.svg.appendChild(line);
+            app._collinearGuides[gi] = line;
+        }
+        const line = app._collinearGuides[gi];
+        line.setAttribute('x1', gA.x);
+        line.setAttribute('y1', gA.y);
+        line.setAttribute('x2', gB.x);
+        line.setAttribute('y2', gB.y);
+        line.setAttribute('stroke', '#88bbff');
+        line.setAttribute('stroke-width', String(wireStroke * 3));
+        line.setAttribute('stroke-opacity', '0.15');
+        line.setAttribute('stroke-dasharray', 'none');
+        line.setAttribute('display', '');
+    }
+    for (let gi = guides.length; gi < app._collinearGuides.length; gi++) {
+        app._collinearGuides[gi].setAttribute('display', 'none');
+    }
 }
+
+// --- Collinear snap helpers for drag operations ---
+
+/**
+ * Check if three points are collinear within a world-unit threshold.
+ * If so, returns the projection of `mid` onto the line through
+ * `outer` and `far`. Otherwise returns null.
+ */
+export function collinearSnap(outer, mid, far, threshold) {
+    const dx1 = mid.x - outer.x, dy1 = mid.y - outer.y;
+    const len1 = Math.hypot(dx1, dy1);
+    if (len1 < 1e-9) return null;
+    const ldx = far.x - outer.x, ldy = far.y - outer.y;
+    const lenSq = ldx * ldx + ldy * ldy;
+    if (lenSq < 1e-9) return null;
+    const cross = Math.abs(dx1 * ldy - dy1 * ldx) / Math.sqrt(lenSq);
+    if (cross < threshold) {
+        const t = (dx1 * ldx + dy1 * ldy) / lenSq;
+        return { x: outer.x + t * ldx, y: outer.y + t * ldy };
+    }
+    return null;
+}
+
+/**
+ * Compute collinear/H-V snap and guide lines for a wire anchor drag.
+ *
+ * @param {object} app
+ * @param {object} wire - The wire being edited
+ * @param {string} anchorId - e.g. 'p2'
+ * @param {{x,y}} anchorPos - Current (pre-snap) anchor position
+ * @returns {{ anchorPos: {x,y}, guides: Array<[{x,y},{x,y}]> }}
+ */
+export function computeAnchorCollinearSnap(app, wire, anchorId, anchorPos) {
+    const match = anchorId.match(/^p(\d+)$/);
+    if (!match) return { anchorPos, guides: [] };
+
+    const idx = parseInt(match[1]);
+    const pts = wire.points;
+    const threshold = SNAP_SCREEN_PX / app.viewport.scale;
+    let snapped = false;
+    const guides = [];
+
+    // Build list of neighbor pairs to check collinearity against
+    const pairs = [];
+    if (idx > 0 && idx < pts.length - 1) {
+        pairs.push([pts[idx - 1], pts[idx + 1]]);
+    }
+    if (idx === 0 && pts.length >= 3) {
+        pairs.push([pts[1], pts[2]]);
+    }
+    if (idx === pts.length - 1 && pts.length >= 3) {
+        pairs.push([pts[pts.length - 2], pts[pts.length - 3]]);
+    }
+    // Extended pairs: segment beyond each immediate neighbor
+    if (idx + 2 < pts.length) {
+        pairs.push([pts[idx + 1], pts[idx + 2]]);
+    }
+    if (idx - 2 >= 0) {
+        pairs.push([pts[idx - 1], pts[idx - 2]]);
+    }
+
+    for (const [pA, pB] of pairs) {
+        if (snapped) break;
+        // Horizontal collinearity
+        if (Math.abs(pA.y - pB.y) < COLLINEAR_EPSILON) {
+            if (Math.abs(anchorPos.y - pA.y) < threshold) {
+                anchorPos = { x: anchorPos.x, y: pA.y };
+                snapped = true;
+                guides.push([pA, pB]);
+            }
+        }
+        // Vertical collinearity
+        if (!snapped && Math.abs(pA.x - pB.x) < COLLINEAR_EPSILON) {
+            if (Math.abs(anchorPos.x - pA.x) < threshold) {
+                anchorPos = { x: pA.x, y: anchorPos.y };
+                snapped = true;
+                guides.push([pA, pB]);
+            }
+        }
+        // General diagonal case
+        if (!snapped) {
+            const ldx = pB.x - pA.x;
+            const ldy = pB.y - pA.y;
+            const lenSq = ldx * ldx + ldy * ldy;
+            if (lenSq > 0.001) {
+                const t = ((anchorPos.x - pA.x) * ldx + (anchorPos.y - pA.y) * ldy) / lenSq;
+                const projX = pA.x + t * ldx;
+                const projY = pA.y + t * ldy;
+                const dist = Math.hypot(anchorPos.x - projX, anchorPos.y - projY);
+                if (dist < threshold) {
+                    anchorPos = { x: projX, y: projY };
+                    snapped = true;
+                    guides.push([pA, pB]);
+                }
+            }
+        }
+    }
+
+    // H/V snap: check each immediate neighbor independently
+    const neighbors = [];
+    if (idx > 0) neighbors.push(pts[idx - 1]);
+    if (idx < pts.length - 1) neighbors.push(pts[idx + 1]);
+    for (const neighbor of neighbors) {
+        if (Math.abs(anchorPos.y - neighbor.y) < threshold) {
+            if (!snapped) {
+                anchorPos = { x: anchorPos.x, y: neighbor.y };
+                snapped = true;
+            }
+            guides.push([anchorPos, neighbor]);
+        } else if (Math.abs(anchorPos.x - neighbor.x) < threshold) {
+            if (!snapped) {
+                anchorPos = { x: neighbor.x, y: anchorPos.y };
+                snapped = true;
+            }
+            guides.push([anchorPos, neighbor]);
+        }
+    }
+
+    // Extend guides to cover full straight segment including anchor
+    const extendedGuides = guides.map(([gA, gB]) => {
+        const all3 = [anchorPos, gA, gB];
+        const rx = Math.abs(gB.x - gA.x);
+        const ry = Math.abs(gB.y - gA.y);
+        if (rx >= ry) {
+            all3.sort((a, b) => a.x - b.x);
+        } else {
+            all3.sort((a, b) => a.y - b.y);
+        }
+        return [all3[0], all3[2]];
+    });
+
+    return { anchorPos, guides: extendedGuides };
+}
+
+/**
+ * Compute snap position, pin/wire highlight, and guide lines for a wire
+ * segment drag.
+ *
+ * @param {object} app
+ * @param {object} wire - The wire being dragged
+ * @param {number} segIdx - Index of the dragged segment's first point
+ * @param {object} origState - Captured shape state before drag
+ * @param {{x,y}} target - Raw (un-snapped) target position for point A
+ * @param {string|null} dragSegAxis - 'horizontal', 'vertical', or null
+ * @returns {{ snappedTarget: {x,y}, guides: Array, highlight: object|null }}
+ */
+export function computeSegmentDragSnap(app, wire, segIdx, origState, target, dragSegAxis) {
+    const snappedTarget = app.viewport.getSnappedPosition(target);
+    const gridSize = app.viewport.gridSize || 1.0;
+    const halfGrid = gridSize * 0.5;
+    const origPtA = origState.points[segIdx];
+    const origPtB = origState.points[segIdx + 1];
+    const segOffX = origPtB.x - origPtA.x;
+    const segOffY = origPtB.y - origPtA.y;
+
+    // Off-grid neighbor snap lines
+    const neighborBefore = segIdx > 0 ? origState.points[segIdx - 1] : null;
+    const neighborAfter = segIdx + 2 < origState.points.length ? origState.points[segIdx + 2] : null;
+    for (const nb of [neighborBefore, neighborAfter]) {
+        if (!nb) continue;
+        if (Math.abs(target.x - nb.x) <= halfGrid) snappedTarget.x = nb.x;
+        if (Math.abs(target.y - nb.y) <= halfGrid) snappedTarget.y = nb.y;
+    }
+
+    // Pin snap — check both endpoints, pick closest
+    const rawA = target;
+    const rawB = { x: target.x + segOffX, y: target.y + segOffY };
+    let highlight = null;
+
+    const pinA = findNearbyPin(app.components, rawA, 1.5);
+    const pinB = findNearbyPin(app.components, rawB, 1.5);
+    let bestPin = null, bestRaw = null;
+    if (pinA && pinB) {
+        bestPin = pinA.distance <= pinB.distance ? pinA : pinB;
+        bestRaw = pinA.distance <= pinB.distance ? rawA : rawB;
+    } else if (pinA) { bestPin = pinA; bestRaw = rawA; }
+    else if (pinB) { bestPin = pinB; bestRaw = rawB; }
+
+    if (bestPin) {
+        let offX = bestPin.worldPos.x - bestRaw.x;
+        let offY = bestPin.worldPos.y - bestRaw.y;
+        if (dragSegAxis === 'vertical') offX = 0;
+        else if (dragSegAxis === 'horizontal') offY = 0;
+        snappedTarget.x = target.x + offX;
+        snappedTarget.y = target.y + offY;
+        highlight = bestPin;
+    } else {
+        // Wire junction highlight
+        const futureA = { x: snappedTarget.x, y: snappedTarget.y };
+        const futureB = { x: snappedTarget.x + segOffX, y: snappedTarget.y + segOffY };
+        for (const ep of [futureA, futureB]) {
+            const nw = findNearbyWirePoint(app, ep, 0.5, wire);
+            if (nw) { highlight = nw; break; }
+        }
+    }
+
+    // Collinear and rubber-band H/V guides
+    const threshold = SNAP_SCREEN_PX / app.viewport.scale;
+    const guides = [];
+
+    // Collinear: outer_before → futureA → futureB
+    if (segIdx > 0) {
+        const outer = wire.points[segIdx - 1];
+        const futureA = { x: snappedTarget.x, y: snappedTarget.y };
+        const futureB = { x: snappedTarget.x + segOffX, y: snappedTarget.y + segOffY };
+        const snap = collinearSnap(outer, futureA, futureB, threshold);
+        if (snap) {
+            const offX = snap.x - futureA.x;
+            const offY = snap.y - futureA.y;
+            if (dragSegAxis === 'vertical') {
+                if (Math.abs(offY) < threshold) snappedTarget.y += offY;
+            } else if (dragSegAxis === 'horizontal') {
+                if (Math.abs(offX) < threshold) snappedTarget.x += offX;
+            } else {
+                snappedTarget.x += offX;
+                snappedTarget.y += offY;
+            }
+            const snappedB = { x: snappedTarget.x + segOffX, y: snappedTarget.y + segOffY };
+            guides.push([outer, snappedB]);
+        }
+    }
+
+    // Collinear: futureA → futureB → outer_after
+    if (segIdx + 2 < wire.points.length) {
+        const outer = wire.points[segIdx + 2];
+        const updatedA = { x: snappedTarget.x, y: snappedTarget.y };
+        const updatedB = { x: snappedTarget.x + segOffX, y: snappedTarget.y + segOffY };
+        const snap = collinearSnap(outer, updatedB, updatedA, threshold);
+        if (snap) {
+            guides.push([updatedA, outer]);
+        }
+    }
+
+    // Rubber-band H/V: only highlight when the alignment axis can change
+    if (segIdx > 0) {
+        const fixed = wire.points[segIdx - 1];
+        const moving = { x: snappedTarget.x, y: snappedTarget.y };
+        if (dragSegAxis !== 'horizontal' && Math.abs(moving.y - fixed.y) < threshold) {
+            snappedTarget.y = fixed.y;
+            guides.push([fixed, { x: snappedTarget.x, y: snappedTarget.y }]);
+        } else if (dragSegAxis !== 'vertical' && Math.abs(moving.x - fixed.x) < threshold) {
+            snappedTarget.x = fixed.x;
+            guides.push([fixed, { x: snappedTarget.x, y: snappedTarget.y }]);
+        }
+    }
+    if (segIdx + 2 < wire.points.length) {
+        const fixed = wire.points[segIdx + 2];
+        const moving = { x: snappedTarget.x + segOffX, y: snappedTarget.y + segOffY };
+        if (dragSegAxis !== 'horizontal' && Math.abs(moving.y - fixed.y) < threshold) {
+            guides.push([moving, fixed]);
+        } else if (dragSegAxis !== 'vertical' && Math.abs(moving.x - fixed.x) < threshold) {
+            guides.push([moving, fixed]);
+        }
+    }
+
+    return { snappedTarget, guides, highlight };
+}
+
+/**
+ * Compute H/V guide lines for sticky wire segments connected to
+ * moving components.
+ *
+ * @param {object} app
+ * @param {Set<string>} movingCompIds - IDs of components being moved
+ * @returns {Array<[{x,y},{x,y}]>} guide line pairs
+ */
+export function computeStickyWireGuides(app, movingCompIds) {
+    const threshold = SNAP_SCREEN_PX / app.viewport.scale;
+    const guides = [];
+    for (const shape of app.shapes) {
+        if (shape.type !== 'wire') continue;
+        const conn = shape.connections;
+        if (!conn.start && !conn.end) continue;
+        const startComp = conn.start && movingCompIds.has(conn.start.componentId);
+        const endComp = conn.end && movingCompIds.has(conn.end.componentId);
+        if (!startComp && !endComp) continue;
+        if (startComp && shape.points.length >= 2) {
+            const pA = shape.points[0], pB = shape.points[1];
+            if (Math.abs(pA.y - pB.y) < threshold || Math.abs(pA.x - pB.x) < threshold) {
+                guides.push([pA, pB]);
+            }
+        }
+        if (endComp && shape.points.length >= 2) {
+            const pA = shape.points[shape.points.length - 2], pB = shape.points[shape.points.length - 1];
+            if (Math.abs(pA.y - pB.y) < threshold || Math.abs(pA.x - pB.x) < threshold) {
+                guides.push([pA, pB]);
+            }
+        }
+    }
+    return guides;
+}
+
+// --- Legacy shim (still used by callbacks.js via SchematicApp delegate) ---
 
 /** @deprecated Use getDrawingSnappedPosition instead. */
 export function getWireSnappedPosition(app, worldPos) {
