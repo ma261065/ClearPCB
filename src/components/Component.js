@@ -286,6 +286,10 @@ export class Component {
      */
     invalidate() {
         this._updateHighlight();
+        // Invalidate field texts so they update their color to reflect parent selection
+        for (const ft of this.getFieldTexts()) {
+            ft.invalidate();
+        }
     }
 
     /**

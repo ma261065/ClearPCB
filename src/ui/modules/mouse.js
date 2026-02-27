@@ -825,6 +825,15 @@ export function bindMouseEvents(app) {
                         // End endpoint: check if collinear with pts[n-2] and pts[n-3]
                         pairs.push([pts[pts.length - 2], pts[pts.length - 3]]);
                     }
+                    // Extended pairs: check if dragged point is collinear with
+                    // the segment beyond each immediate neighbor (e.g. dragging p1
+                    // checks if p1 falls on the line through p2-p3)
+                    if (idx + 2 < pts.length) {
+                        pairs.push([pts[idx + 1], pts[idx + 2]]);
+                    }
+                    if (idx - 2 >= 0) {
+                        pairs.push([pts[idx - 1], pts[idx - 2]]);
+                    }
 
                     for (const [pA, pB] of pairs) {
                         if (snapped) break;
@@ -1024,6 +1033,97 @@ export function bindMouseEvents(app) {
 
             const dx = snappedTarget.x - (wire.points[segIdx].x);
             const dy = snappedTarget.y - (wire.points[segIdx].y);
+
+            // Collinear alignment highlighting: check if the segment becomes
+            // collinear with an adjacent segment after the move
+            {
+                const segOffX = origPtB.x - origPtA.x;
+                const segOffY = origPtB.y - origPtA.y;
+                const futureA = { x: snappedTarget.x, y: snappedTarget.y };
+                const futureB = { x: snappedTarget.x + segOffX, y: snappedTarget.y + segOffY };
+                const threshold = 5 / app.viewport.scale;
+                const guides = [];
+
+                // Helper: check if three points are collinear (within threshold).
+                // Returns the snapped position of mid if collinear, or null.
+                function collinearSnap(outer, mid, far, thresh) {
+                    const dx1 = mid.x - outer.x, dy1 = mid.y - outer.y;
+                    const len1 = Math.hypot(dx1, dy1);
+                    if (len1 < 1e-9) return null;
+                    // Project mid onto line from outer in direction outer→far
+                    const ldx = far.x - outer.x, ldy = far.y - outer.y;
+                    const lenSq = ldx * ldx + ldy * ldy;
+                    if (lenSq < 1e-9) return null;
+                    // Distance from mid to line through outer→far
+                    const cross = Math.abs(dx1 * ldy - dy1 * ldx) / Math.sqrt(lenSq);
+                    if (cross < thresh) {
+                        // Snap mid onto the line
+                        const t = (dx1 * ldx + dy1 * ldy) / lenSq;
+                        return { x: outer.x + t * ldx, y: outer.y + t * ldy };
+                    }
+                    return null;
+                }
+
+                // Check if outer_before → futureA → futureB are collinear
+                if (segIdx > 0) {
+                    const outer = wire.points[segIdx - 1];
+                    const snap = collinearSnap(outer, futureA, futureB, threshold);
+                    if (snap) {
+                        // Compute delta to apply to snappedTarget
+                        const offX = snap.x - futureA.x;
+                        const offY = snap.y - futureA.y;
+                        // Respect axis lock
+                        if (app.dragSegAxis === 'vertical') {
+                            if (Math.abs(offY) < threshold) { snappedTarget.y += offY; }
+                        } else if (app.dragSegAxis === 'horizontal') {
+                            if (Math.abs(offX) < threshold) { snappedTarget.x += offX; }
+                        } else {
+                            snappedTarget.x += offX;
+                            snappedTarget.y += offY;
+                        }
+                        // Guide spans full extent: outer → through segment → futureB
+                        const snappedB = { x: snappedTarget.x + segOffX, y: snappedTarget.y + segOffY };
+                        guides.push([outer, snappedB]);
+                    }
+                }
+                // Check if futureA → futureB → outer_after are collinear
+                if (segIdx + 2 < wire.points.length) {
+                    const outer = wire.points[segIdx + 2];
+                    const updatedA = { x: snappedTarget.x, y: snappedTarget.y };
+                    const updatedB = { x: snappedTarget.x + segOffX, y: snappedTarget.y + segOffY };
+                    const snap = collinearSnap(outer, updatedB, updatedA, threshold);
+                    if (snap) {
+                        // Guide spans full extent: futureA → through segment → outer
+                        guides.push([updatedA, outer]);
+                    }
+                }
+
+                // Render guide lines
+                if (!app._collinearGuides) app._collinearGuides = [];
+                const wireStroke = app._getEffectiveStrokeWidth(0.25);
+                for (let gi = 0; gi < guides.length; gi++) {
+                    const [gA, gB] = guides[gi];
+                    if (!app._collinearGuides[gi]) {
+                        const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                        line.setAttribute('pointer-events', 'none');
+                        app.viewport.svg.appendChild(line);
+                        app._collinearGuides[gi] = line;
+                    }
+                    const line = app._collinearGuides[gi];
+                    line.setAttribute('x1', gA.x);
+                    line.setAttribute('y1', gA.y);
+                    line.setAttribute('x2', gB.x);
+                    line.setAttribute('y2', gB.y);
+                    line.setAttribute('stroke', '#88bbff');
+                    line.setAttribute('stroke-width', String(wireStroke * 3));
+                    line.setAttribute('stroke-opacity', '0.15');
+                    line.setAttribute('stroke-dasharray', 'none');
+                    line.setAttribute('display', '');
+                }
+                for (let gi = guides.length; gi < app._collinearGuides.length; gi++) {
+                    app._collinearGuides[gi].setAttribute('display', 'none');
+                }
+            }
 
             if (dx !== 0 || dy !== 0) {
                 app.didDrag = true;
