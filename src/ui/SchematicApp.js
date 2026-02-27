@@ -27,6 +27,7 @@ import * as ExportTools from './modules/export.js';
 import { onToolSelected, onComponentPickerClosed, onOptionsChanged, loadToolOptions } from './modules/tool.js';
 import { setupCallbacks } from './modules/callbacks.js';
 import { updateUndoRedoButtons, makeHelpPanelDraggable } from './modules/ui-utils.js';
+import { needsValueDialog, showValueDialog } from './modules/value-dialog.js';
 import {
     startTextEdit,
     endTextEdit,
@@ -313,6 +314,27 @@ class SchematicApp {
     }
 
     _startTextEdit(shape) {
+        // For value fields on passive components, show the value dialog instead
+        if (shape && shape.fieldKey === 'value' && shape.parentComponent) {
+            const comp = shape.parentComponent;
+            if (needsValueDialog(comp.definition)) {
+                const screenPos = this.viewport.worldToScreen({ x: shape.x, y: shape.y });
+                showValueDialog(comp.definition, screenPos.x, screenPos.y, {
+                    currentValue: comp.value, allowEscape: true
+                }).then(value => {
+                    if (value !== null && comp.valueText) {
+                        const oldValue = comp.value;
+                        if (value !== oldValue) {
+                            comp.value = value;
+                            comp.valueText.text = value;
+                            comp.valueText.invalidate();
+                            this.renderShapes(true);
+                        }
+                    }
+                });
+                return;
+            }
+        }
         startTextEdit(this, shape);
     }
 

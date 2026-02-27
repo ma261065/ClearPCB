@@ -1068,9 +1068,9 @@ export function renderGuideLines(app, guides) {
         line.setAttribute('y1', gA.y);
         line.setAttribute('x2', gB.x);
         line.setAttribute('y2', gB.y);
-        line.setAttribute('stroke', '#88bbff');
+        line.setAttribute('stroke', '#4488ff');
         line.setAttribute('stroke-width', String(wireStroke * 3));
-        line.setAttribute('stroke-opacity', '0.15');
+        line.setAttribute('stroke-opacity', '0.22');
         line.setAttribute('stroke-dasharray', 'none');
         line.setAttribute('display', '');
     }
@@ -1368,6 +1368,71 @@ export function computeStickyWireGuides(app, movingCompIds) {
         }
     }
     return guides;
+}
+
+/**
+ * Compute a small positional nudge so that sticky wire segments connected
+ * to moving components land exactly on H or V alignment.
+ *
+ * Call BEFORE moving shapes.  The returned {x, y} offset should be added
+ * to the grid-snapped target position.
+ *
+ * @param {object} app
+ * @param {Set<string>} movingCompIds
+ * @param {number} proposedDx - grid-snapped dx about to be applied
+ * @param {number} proposedDy - grid-snapped dy about to be applied
+ * @returns {{x: number, y: number}} nudge offset (0,0 if no nudge)
+ */
+export function computeStickyWireNudge(app, movingCompIds, proposedDx, proposedDy) {
+    const threshold = SNAP_SCREEN_PX / app.viewport.scale;
+    let bestNudgeX = null, bestAbsX = Infinity;
+    let bestNudgeY = null, bestAbsY = Infinity;
+
+    for (const shape of app.shapes) {
+        if (shape.type !== 'wire') continue;
+        const conn = shape.connections;
+        if (!conn.start && !conn.end) continue;
+        const startComp = conn.start && movingCompIds.has(conn.start.componentId);
+        const endComp = conn.end && movingCompIds.has(conn.end.componentId);
+        if (!startComp && !endComp) continue;
+
+        // For each connected end, project where the moving endpoint will be
+        // and compare with the fixed neighbor.
+        if (startComp && shape.points.length >= 2) {
+            const moving = shape.points[0];  // follows the component
+            const fixed = shape.points[1];   // stays put
+            const projX = moving.x + proposedDx;
+            const projY = moving.y + proposedDy;
+            const diffX = Math.abs(projX - fixed.x);
+            const diffY = Math.abs(projY - fixed.y);
+            if (diffY < threshold && diffY < bestAbsY) {
+                bestNudgeY = fixed.y - projY;
+                bestAbsY = diffY;
+            }
+            if (diffX < threshold && diffX < bestAbsX) {
+                bestNudgeX = fixed.x - projX;
+                bestAbsX = diffX;
+            }
+        }
+        if (endComp && shape.points.length >= 2) {
+            const moving = shape.points[shape.points.length - 1];
+            const fixed = shape.points[shape.points.length - 2];
+            const projX = moving.x + proposedDx;
+            const projY = moving.y + proposedDy;
+            const diffX = Math.abs(projX - fixed.x);
+            const diffY = Math.abs(projY - fixed.y);
+            if (diffY < threshold && diffY < bestAbsY) {
+                bestNudgeY = fixed.y - projY;
+                bestAbsY = diffY;
+            }
+            if (diffX < threshold && diffX < bestAbsX) {
+                bestNudgeX = fixed.x - projX;
+                bestAbsX = diffX;
+            }
+        }
+    }
+
+    return { x: bestNudgeX || 0, y: bestNudgeY || 0 };
 }
 
 // --- Legacy shim (still used by callbacks.js via SchematicApp delegate) ---

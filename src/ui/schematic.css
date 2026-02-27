@@ -1443,3 +1443,103 @@ body {
     user-select: none;
     -webkit-user-select: none;
 }
+
+/* ========================================
+   Component Value Dialog
+   ======================================== */
+.value-dialog-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 500;
+    /* transparent overlay just to capture clicks outside */
+}
+
+.value-dialog {
+    position: fixed;
+    z-index: 501;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    padding: 10px 12px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 220px;
+}
+
+.value-dialog-title {
+    font-size: 11px;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.value-dialog-row {
+    display: flex;
+    gap: 4px;
+    align-items: center;
+}
+
+.value-dialog-input {
+    flex: 1;
+    padding: 5px 8px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    color: var(--text-primary);
+    font-size: 14px;
+    font-family: inherit;
+    outline: none;
+    min-width: 0;
+}
+
+.value-dialog-input:focus {
+    border-color: var(--accent-color);
+}
+
+.value-dialog-select {
+    padding: 5px 6px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    color: var(--text-primary);
+    font-size: 13px;
+    font-family: inherit;
+    outline: none;
+    cursor: pointer;
+    min-width: 60px;
+}
+
+.value-dialog-select:focus {
+    border-color: var(--accent-color);
+}
+
+.value-dialog-buttons {
+    display: flex;
+    gap: 6px;
+    justify-content: flex-end;
+}
+
+.value-dialog-btn {
+    padding: 4px 14px;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.value-dialog-btn:hover {
+    background: var(--bg-tertiary);
+}
+
+.value-dialog-btn.primary {
+    background: var(--accent-color);
+    border-color: var(--accent-color);
+}
+
+.value-dialog-btn.primary:hover {
+    filter: brightness(1.15);
+}

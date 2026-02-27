@@ -1,6 +1,6 @@
 import { MoveShapesCommand, ModifyShapeCommand, BatchCommand, AddShapeCommand, DeleteShapesCommand } from '../../core/CommandHistory.js';
 import { Wire } from '../../shapes/wire.js';
-import { updateStickyWires, processWireAnchorMerge, refreshWireConnections, updateSnapHighlight, resolveWireSnapPosition, renderGuideLines, computeAnchorCollinearSnap, computeSegmentDragSnap, computeStickyWireGuides, SNAP_SCREEN_PX, COLLINEAR_EPSILON, ANGLE_TOL } from './wire.js';
+import { updateStickyWires, processWireAnchorMerge, refreshWireConnections, updateSnapHighlight, resolveWireSnapPosition, renderGuideLines, computeAnchorCollinearSnap, computeSegmentDragSnap, computeStickyWireGuides, computeStickyWireNudge, SNAP_SCREEN_PX, COLLINEAR_EPSILON, ANGLE_TOL } from './wire.js';
 
 // Pre-allocated tool sets to avoid array creation in hot paths
 const DRAWING_TOOLS = new Set(['line', 'rect', 'circle', 'polygon']);
@@ -740,7 +740,24 @@ export function bindMouseEvents(app) {
                 y: app.dragObjectStartPos.y + mouseDelta.y
             };
             const snappedTarget = app.viewport.getSnappedPosition(targetPos);
-            
+
+            // Build set of component IDs being moved (needed for nudge + sticky wires)
+            const sel = app.selection.getSelection();
+            const movingCompIds = new Set();
+            for (const s of sel) {
+                if (s.definition) movingCompIds.add(s.id);
+            }
+
+            // H/V nudge: if a sticky wire segment is almost horizontal or
+            // vertical, nudge the snap target so it lands exactly on alignment
+            if (movingCompIds.size > 0) {
+                const proposedDx = snappedTarget.x - app.dragLastSnapped.x;
+                const proposedDy = snappedTarget.y - app.dragLastSnapped.y;
+                const nudge = computeStickyWireNudge(app, movingCompIds, proposedDx, proposedDy);
+                snappedTarget.x += nudge.x;
+                snappedTarget.y += nudge.y;
+            }
+
             // Calculate actual movement from object's last snapped position
             const dx = snappedTarget.x - app.dragLastSnapped.x;
             const dy = snappedTarget.y - app.dragLastSnapped.y;
@@ -749,14 +766,6 @@ export function bindMouseEvents(app) {
                 app.didDrag = true;
                 app.dragTotalDx += dx;
                 app.dragTotalDy += dy;
-
-                const sel = app.selection.getSelection();
-                // Build set of component IDs being moved, so we can skip
-                // their field texts (component.move already handles them)
-                const movingCompIds = new Set();
-                for (const s of sel) {
-                    if (s.definition) movingCompIds.add(s.id);  // is a Component
-                }
 
                 for (const shape of sel) {
                     if (shape.locked) continue;

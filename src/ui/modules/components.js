@@ -1,5 +1,6 @@
 import { Component } from '../../components/index.js';
 import { AddComponentCommand, TransformComponentCommand } from '../../core/CommandHistory.js';
+import { needsValueDialog, showValueDialog } from './value-dialog.js';
 
 export function updateSelectableItems(app) {
     const items = [...app.components, ...app.shapes];
@@ -76,12 +77,13 @@ export function updateComponentPreview(app, worldPos) {
     app.componentPreview.setAttribute('transform', parts.join(' '));
 }
 
-export function placeComponent(app, worldPos) {
+export async function placeComponent(app, worldPos) {
     if (!app.placingComponent) return;
 
-    const ref = app._generateReference(app.placingComponent);
+    const definition = app.placingComponent;
+    const ref = app._generateReference(definition);
 
-    const component = new Component(app.placingComponent, {
+    const component = new Component(definition, {
         x: worldPos.x,
         y: worldPos.y,
         rotation: app.componentRotation,
@@ -93,6 +95,18 @@ export function placeComponent(app, worldPos) {
     app.history.execute(command);
 
     console.log('Placed component:', component.reference, 'at', worldPos.x, worldPos.y);
+
+    // Show value dialog for passive components (R, C, L)
+    if (needsValueDialog(definition)) {
+        const screenPos = app.viewport.worldToScreen(worldPos);
+        const value = await showValueDialog(definition, screenPos.x, screenPos.y);
+        if (value !== null && component.valueText) {
+            component.value = value;
+            component.valueText.text = value;
+            component.valueText.invalidate();
+            app.renderShapes(true);
+        }
+    }
 }
 
 export function rotateComponentRight(app) {
