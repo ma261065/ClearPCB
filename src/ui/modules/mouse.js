@@ -552,6 +552,19 @@ export function bindMouseEvents(app) {
 
     svg.addEventListener('mousedown', (e) => {
         if (e.button !== 2) return;
+        // Record right-click start position to detect drag vs click on mouseup
+        app._rightClickStart = { x: e.clientX, y: e.clientY };
+    });
+
+    svg.addEventListener('mouseup', (e) => {
+        if (e.button !== 2) return;
+        // Only finish drawing tools if we didn't drag (pan) during right-click
+        const start = app._rightClickStart;
+        app._rightClickStart = null;
+        if (!start) return;
+        const movedDist = Math.hypot(e.clientX - start.x, e.clientY - start.y);
+        if (movedDist > 3) return; // dragged — was a pan, don't finish
+
         const { worldPos, snapped } = getEventPositions(e, app.viewport);
 
         if (app.currentTool === 'wire' && app.isDrawing && app.wirePoints.length >= 1) {
@@ -743,6 +756,57 @@ export function bindMouseEvents(app) {
                 // Sticky wires: update wire endpoints connected to moved components
                 if (movingCompIds.size > 0) {
                     updateStickyWires(app);
+
+                    // H/V highlighting for sticky wires: check if any segment
+                    // of a connected wire has become horizontal or vertical
+                    const threshold = 5 / app.viewport.scale;
+                    const guides = [];
+                    for (const shape of app.shapes) {
+                        if (shape.type !== 'wire') continue;
+                        const conn = shape.connections;
+                        if (!conn.start && !conn.end) continue;
+                        const startComp = conn.start && movingCompIds.has(conn.start.componentId);
+                        const endComp = conn.end && movingCompIds.has(conn.end.componentId);
+                        if (!startComp && !endComp) continue;
+                        // Only check the segment connected to the moving component
+                        if (startComp && shape.points.length >= 2) {
+                            const pA = shape.points[0], pB = shape.points[1];
+                            if (Math.abs(pA.y - pB.y) < threshold || Math.abs(pA.x - pB.x) < threshold) {
+                                guides.push([pA, pB]);
+                            }
+                        }
+                        if (endComp && shape.points.length >= 2) {
+                            const pA = shape.points[shape.points.length - 2], pB = shape.points[shape.points.length - 1];
+                            if (Math.abs(pA.y - pB.y) < threshold || Math.abs(pA.x - pB.x) < threshold) {
+                                guides.push([pA, pB]);
+                            }
+                        }
+                    }
+
+                    if (!app._collinearGuides) app._collinearGuides = [];
+                    const wireStroke = app._getEffectiveStrokeWidth(0.25);
+                    for (let gi = 0; gi < guides.length; gi++) {
+                        const [gA, gB] = guides[gi];
+                        if (!app._collinearGuides[gi]) {
+                            const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                            line.setAttribute('pointer-events', 'none');
+                            app.viewport.svg.appendChild(line);
+                            app._collinearGuides[gi] = line;
+                        }
+                        const line = app._collinearGuides[gi];
+                        line.setAttribute('x1', gA.x);
+                        line.setAttribute('y1', gA.y);
+                        line.setAttribute('x2', gB.x);
+                        line.setAttribute('y2', gB.y);
+                        line.setAttribute('stroke', '#88bbff');
+                        line.setAttribute('stroke-width', String(wireStroke * 3));
+                        line.setAttribute('stroke-opacity', '0.15');
+                        line.setAttribute('stroke-dasharray', 'none');
+                        line.setAttribute('display', '');
+                    }
+                    for (let gi = guides.length; gi < app._collinearGuides.length; gi++) {
+                        app._collinearGuides[gi].setAttribute('display', 'none');
+                    }
                 }
 
                 // T-junction following: when a moved wire had junction points
