@@ -74,7 +74,7 @@ export class Polygon extends Shape {
             id: `p${i}`,
             x: p.x,
             y: p.y,
-            cursor: 'move'
+            cursor: 'nwse-resize'
         }));
         // Add midpoint anchors between consecutive edges (including closing edge)
         const n = this.points.length;

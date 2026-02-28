@@ -1,6 +1,6 @@
 import { MoveShapesCommand, ModifyShapeCommand, BatchCommand, AddShapeCommand, DeleteShapesCommand } from '../../core/CommandHistory.js';
 import { Wire } from '../../shapes/wire.js';
-import { updateStickyWires, processWireAnchorMerge, refreshWireConnections, updateSnapHighlight, resolveWireSnapPosition, renderGuideLines, computeAnchorCollinearSnap, computeSegmentDragSnap, computeStickyWireGuides, computeStickyWireNudge, SNAP_SCREEN_PX, COLLINEAR_EPSILON, ANGLE_TOL } from './wire.js';
+import { updateStickyWires, processWireAnchorMerge, refreshWireConnections, updateSnapHighlight, resolveWireSnapPosition, renderGuideLines, computeAnchorCollinearSnap, computeSegmentDragSnap, computeStickyWireSnaps, SNAP_SCREEN_PX, COLLINEAR_EPSILON, ANGLE_TOL } from './wire.js';
 
 // Pre-allocated tool sets to avoid array creation in hot paths
 const DRAWING_TOOLS = new Set(['line', 'rect', 'circle', 'polygon']);
@@ -748,14 +748,15 @@ export function bindMouseEvents(app) {
                 if (s.definition) movingCompIds.add(s.id);
             }
 
-            // H/V nudge: if a sticky wire segment is almost horizontal or
-            // vertical, nudge the snap target so it lands exactly on alignment
+            // H/V snap for sticky wire segments: compute nudge + guides together
+            let stickyGuides = [];
             if (movingCompIds.size > 0) {
                 const proposedDx = snappedTarget.x - app.dragLastSnapped.x;
                 const proposedDy = snappedTarget.y - app.dragLastSnapped.y;
-                const nudge = computeStickyWireNudge(app, movingCompIds, proposedDx, proposedDy);
-                snappedTarget.x += nudge.x;
-                snappedTarget.y += nudge.y;
+                const stickySnap = computeStickyWireSnaps(app, movingCompIds, proposedDx, proposedDy);
+                snappedTarget.x += stickySnap.adjustX;
+                snappedTarget.y += stickySnap.adjustY;
+                stickyGuides = stickySnap.guides;
             }
 
             // Calculate actual movement from object's last snapped position
@@ -776,8 +777,7 @@ export function bindMouseEvents(app) {
                 // Sticky wires: update wire endpoints connected to moved components
                 if (movingCompIds.size > 0) {
                     updateStickyWires(app);
-                    const guides = computeStickyWireGuides(app, movingCompIds);
-                    renderGuideLines(app, guides);
+                    renderGuideLines(app, stickyGuides);
                 }
 
                 // T-junction following: when a moved wire had junction points

@@ -76,7 +76,7 @@ export class Line extends Shape {
             id: `p${i}`,
             x: p.x,
             y: p.y,
-            cursor: 'move'
+            cursor: 'nwse-resize'
         }));
         // Add midpoint anchors between consecutive points
         for (let i = 0; i < this.points.length - 1; i++) {

@@ -1062,14 +1062,14 @@ export function renderGuideLines(app, guides) {
     }
 }
 
-// --- Collinear snap helpers for drag operations ---
+// --- Collinear / H-V snap for moving wire segments ---
 
 /**
  * Check if three points are collinear within a world-unit threshold.
  * If so, returns the projection of `mid` onto the line through
  * `outer` and `far`. Otherwise returns null.
  */
-export function collinearSnap(outer, mid, far, threshold) {
+function collinearSnap(outer, mid, far, threshold) {
     const dx1 = mid.x - outer.x, dy1 = mid.y - outer.y;
     const len1 = Math.hypot(dx1, dy1);
     if (len1 < 1e-9) return null;
@@ -1085,13 +1085,92 @@ export function collinearSnap(outer, mid, far, threshold) {
 }
 
 /**
- * Compute collinear/H-V snap and guide lines for a wire anchor drag.
+ * Unified H/V and collinear snap for moving wire segments.
  *
- * @param {object} app
- * @param {object} wire - The wire being edited
- * @param {string} anchorId - e.g. 'p2'
- * @param {{x,y}} anchorPos - Current (pre-snap) anchor position
- * @returns {{ anchorPos: {x,y}, guides: Array<[{x,y},{x,y}]> }}
+ * Each edge describes a segment where `moving` is the endpoint being
+ * displaced and `fixed` is the stationary neighbor.  If `beyond` is
+ * supplied, a collinear check is also performed against the line through
+ * `fixed` and `beyond`.
+ *
+ * Works regardless of snap-to-grid — the threshold is screen-pixel-based.
+ *
+ * @param {number} threshold - snap distance in world units
+ * @param {Array<{ moving: {x,y}, fixed: {x,y}, beyond?: {x,y} }>} edges
+ * @param {string} [axisLock] - 'horizontal'|'vertical' drag-axis constraint
+ * @returns {{ adjustX: number, adjustY: number, guides: Array<[{x,y},{x,y}]> }}
+ */
+export function computeMovingSegmentSnaps(threshold, edges, axisLock) {
+    let adjustX = 0, adjustY = 0;
+
+    // ── Collinear snap (first match adjusts position) ──
+    let collinearSnapped = false;
+    for (const { moving, fixed, beyond } of edges) {
+        if (!beyond) continue;
+        const mx = moving.x + adjustX, my = moving.y + adjustY;
+        const snap = collinearSnap(fixed, { x: mx, y: my }, beyond, threshold);
+        if (!snap) continue;
+        let offX = snap.x - mx, offY = snap.y - my;
+        if (axisLock === 'vertical') offX = 0;
+        else if (axisLock === 'horizontal') offY = 0;
+        adjustX += offX;
+        adjustY += offY;
+        collinearSnapped = true;
+        break;
+    }
+
+    // ── H/V snap (skipped if collinear already adjusted) ──
+    if (!collinearSnapped) {
+        let bestAbsX = Infinity, bestAbsY = Infinity;
+        let bestAdjX = 0, bestAdjY = 0;
+        for (const { moving, fixed } of edges) {
+            const mx = moving.x + adjustX, my = moving.y + adjustY;
+            const diffY = Math.abs(my - fixed.y);
+            const diffX = Math.abs(mx - fixed.x);
+            if (axisLock !== 'horizontal' && diffY < threshold && diffY < bestAbsY) {
+                bestAdjY = fixed.y - my;
+                bestAbsY = diffY;
+            }
+            if (axisLock !== 'vertical' && diffX < threshold && diffX < bestAbsX) {
+                bestAdjX = fixed.x - mx;
+                bestAbsX = diffX;
+            }
+        }
+        adjustX += bestAdjX;
+        adjustY += bestAdjY;
+    }
+
+    // ── Guides: one per unique fixed point, collinear preferred over H/V ──
+    const covered = new Set();
+    const guides = [];
+    // Collinear guides first
+    for (const { moving, fixed, beyond } of edges) {
+        if (!beyond) continue;
+        const mx = moving.x + adjustX, my = moving.y + adjustY;
+        if (!collinearSnap(fixed, { x: mx, y: my }, beyond, threshold)) continue;
+        covered.add(fixed);
+        covered.add(beyond);
+        const pts = [{ x: mx, y: my }, fixed, beyond];
+        const rx = Math.abs(beyond.x - fixed.x);
+        const ry = Math.abs(beyond.y - fixed.y);
+        pts.sort((a, b) => rx >= ry ? a.x - b.x : a.y - b.y);
+        guides.push([pts[0], pts[2]]);
+    }
+    // H/V guides (skip fixed points already covered by collinear)
+    for (const { moving, fixed } of edges) {
+        if (covered.has(fixed)) continue;
+        const mx = moving.x + adjustX, my = moving.y + adjustY;
+        if (Math.abs(my - fixed.y) < threshold || Math.abs(mx - fixed.x) < threshold) {
+            guides.push([{ x: mx, y: my }, fixed]);
+            covered.add(fixed);
+        }
+    }
+
+    return { adjustX, adjustY, guides };
+}
+
+/**
+ * Compute collinear/H-V snap and guide lines for a wire anchor drag.
+ * Delegates to computeMovingSegmentSnaps.
  */
 export function computeAnchorCollinearSnap(app, wire, anchorId, anchorPos) {
     const match = anchorId.match(/^p(\d+)$/);
@@ -1100,112 +1179,43 @@ export function computeAnchorCollinearSnap(app, wire, anchorId, anchorPos) {
     const idx = parseInt(match[1]);
     const pts = wire.points;
     const threshold = SNAP_SCREEN_PX / app.viewport.scale;
-    let snapped = false;
-    const guides = [];
+    const edges = [];
 
-    // Build list of neighbor pairs to check collinearity against
-    const pairs = [];
+    // Interior point: collinear across the bend (prev ↔ next)
     if (idx > 0 && idx < pts.length - 1) {
-        pairs.push([pts[idx - 1], pts[idx + 1]]);
+        edges.push({ moving: anchorPos, fixed: pts[idx - 1], beyond: pts[idx + 1] });
+        // Extended: collinear with segment beyond each neighbor
+        // (only for interior points — endpoint cases already cover this)
+        if (idx + 2 < pts.length) {
+            edges.push({ moving: anchorPos, fixed: pts[idx + 1], beyond: pts[idx + 2] });
+        }
+        if (idx - 2 >= 0) {
+            edges.push({ moving: anchorPos, fixed: pts[idx - 1], beyond: pts[idx - 2] });
+        }
     }
+    // Endpoint 0: collinear with first two neighbors
     if (idx === 0 && pts.length >= 3) {
-        pairs.push([pts[1], pts[2]]);
+        edges.push({ moving: anchorPos, fixed: pts[1], beyond: pts[2] });
     }
+    // Last endpoint: collinear with last two neighbors
     if (idx === pts.length - 1 && pts.length >= 3) {
-        pairs.push([pts[pts.length - 2], pts[pts.length - 3]]);
+        edges.push({ moving: anchorPos, fixed: pts[pts.length - 2], beyond: pts[pts.length - 3] });
     }
-    // Extended pairs: segment beyond each immediate neighbor
-    if (idx + 2 < pts.length) {
-        pairs.push([pts[idx + 1], pts[idx + 2]]);
-    }
-    if (idx - 2 >= 0) {
-        pairs.push([pts[idx - 1], pts[idx - 2]]);
-    }
+    // H/V with immediate neighbors
+    if (idx > 0) edges.push({ moving: anchorPos, fixed: pts[idx - 1] });
+    if (idx < pts.length - 1) edges.push({ moving: anchorPos, fixed: pts[idx + 1] });
 
-    for (const [pA, pB] of pairs) {
-        if (snapped) break;
-        // Horizontal collinearity
-        if (Math.abs(pA.y - pB.y) < COLLINEAR_EPSILON) {
-            if (Math.abs(anchorPos.y - pA.y) < threshold) {
-                anchorPos = { x: anchorPos.x, y: pA.y };
-                snapped = true;
-                guides.push([pA, pB]);
-            }
-        }
-        // Vertical collinearity
-        if (!snapped && Math.abs(pA.x - pB.x) < COLLINEAR_EPSILON) {
-            if (Math.abs(anchorPos.x - pA.x) < threshold) {
-                anchorPos = { x: pA.x, y: anchorPos.y };
-                snapped = true;
-                guides.push([pA, pB]);
-            }
-        }
-        // General diagonal case
-        if (!snapped) {
-            const ldx = pB.x - pA.x;
-            const ldy = pB.y - pA.y;
-            const lenSq = ldx * ldx + ldy * ldy;
-            if (lenSq > 0.001) {
-                const t = ((anchorPos.x - pA.x) * ldx + (anchorPos.y - pA.y) * ldy) / lenSq;
-                const projX = pA.x + t * ldx;
-                const projY = pA.y + t * ldy;
-                const dist = Math.hypot(anchorPos.x - projX, anchorPos.y - projY);
-                if (dist < threshold) {
-                    anchorPos = { x: projX, y: projY };
-                    snapped = true;
-                    guides.push([pA, pB]);
-                }
-            }
-        }
-    }
-
-    // H/V snap: check each immediate neighbor independently
-    const neighbors = [];
-    if (idx > 0) neighbors.push(pts[idx - 1]);
-    if (idx < pts.length - 1) neighbors.push(pts[idx + 1]);
-    for (const neighbor of neighbors) {
-        if (Math.abs(anchorPos.y - neighbor.y) < threshold) {
-            if (!snapped) {
-                anchorPos = { x: anchorPos.x, y: neighbor.y };
-                snapped = true;
-            }
-            guides.push([anchorPos, neighbor]);
-        } else if (Math.abs(anchorPos.x - neighbor.x) < threshold) {
-            if (!snapped) {
-                anchorPos = { x: neighbor.x, y: anchorPos.y };
-                snapped = true;
-            }
-            guides.push([anchorPos, neighbor]);
-        }
-    }
-
-    // Extend guides to cover full straight segment including anchor
-    const extendedGuides = guides.map(([gA, gB]) => {
-        const all3 = [anchorPos, gA, gB];
-        const rx = Math.abs(gB.x - gA.x);
-        const ry = Math.abs(gB.y - gA.y);
-        if (rx >= ry) {
-            all3.sort((a, b) => a.x - b.x);
-        } else {
-            all3.sort((a, b) => a.y - b.y);
-        }
-        return [all3[0], all3[2]];
-    });
-
-    return { anchorPos, guides: extendedGuides };
+    const result = computeMovingSegmentSnaps(threshold, edges);
+    return {
+        anchorPos: { x: anchorPos.x + result.adjustX, y: anchorPos.y + result.adjustY },
+        guides: result.guides
+    };
 }
 
 /**
  * Compute snap position, pin/wire highlight, and guide lines for a wire
- * segment drag.
- *
- * @param {object} app
- * @param {object} wire - The wire being dragged
- * @param {number} segIdx - Index of the dragged segment's first point
- * @param {object} origState - Captured shape state before drag
- * @param {{x,y}} target - Raw (un-snapped) target position for point A
- * @param {string|null} dragSegAxis - 'horizontal', 'vertical', or null
- * @returns {{ snappedTarget: {x,y}, guides: Array, highlight: object|null }}
+ * segment drag.  Collinear and H/V logic delegates to
+ * computeMovingSegmentSnaps.
  */
 export function computeSegmentDragSnap(app, wire, segIdx, origState, target, dragSegAxis) {
     const snappedTarget = app.viewport.getSnappedPosition(target);
@@ -1257,119 +1267,42 @@ export function computeSegmentDragSnap(app, wire, segIdx, origState, target, dra
         }
     }
 
-    // Collinear and rubber-band H/V guides
+    // Collinear and H/V via unified function
+    const futureA = { x: snappedTarget.x, y: snappedTarget.y };
+    const futureB = { x: snappedTarget.x + segOffX, y: snappedTarget.y + segOffY };
+    const snapEdges = [];
+    if (segIdx > 0) {
+        snapEdges.push({ moving: futureA, fixed: wire.points[segIdx - 1], beyond: futureB });
+    }
+    if (segIdx + 2 < wire.points.length) {
+        snapEdges.push({ moving: futureB, fixed: wire.points[segIdx + 2], beyond: futureA });
+    }
     const threshold = SNAP_SCREEN_PX / app.viewport.scale;
-    const guides = [];
+    const snapResult = computeMovingSegmentSnaps(threshold, snapEdges, dragSegAxis);
+    snappedTarget.x += snapResult.adjustX;
+    snappedTarget.y += snapResult.adjustY;
 
-    // Collinear: outer_before → futureA → futureB
-    if (segIdx > 0) {
-        const outer = wire.points[segIdx - 1];
-        const futureA = { x: snappedTarget.x, y: snappedTarget.y };
-        const futureB = { x: snappedTarget.x + segOffX, y: snappedTarget.y + segOffY };
-        const snap = collinearSnap(outer, futureA, futureB, threshold);
-        if (snap) {
-            const offX = snap.x - futureA.x;
-            const offY = snap.y - futureA.y;
-            if (dragSegAxis === 'vertical') {
-                if (Math.abs(offY) < threshold) snappedTarget.y += offY;
-            } else if (dragSegAxis === 'horizontal') {
-                if (Math.abs(offX) < threshold) snappedTarget.x += offX;
-            } else {
-                snappedTarget.x += offX;
-                snappedTarget.y += offY;
-            }
-            const snappedB = { x: snappedTarget.x + segOffX, y: snappedTarget.y + segOffY };
-            guides.push([outer, snappedB]);
-        }
-    }
-
-    // Collinear: futureA → futureB → outer_after
-    if (segIdx + 2 < wire.points.length) {
-        const outer = wire.points[segIdx + 2];
-        const updatedA = { x: snappedTarget.x, y: snappedTarget.y };
-        const updatedB = { x: snappedTarget.x + segOffX, y: snappedTarget.y + segOffY };
-        const snap = collinearSnap(outer, updatedB, updatedA, threshold);
-        if (snap) {
-            guides.push([updatedA, outer]);
-        }
-    }
-
-    // Rubber-band H/V: only highlight when the alignment axis can change
-    if (segIdx > 0) {
-        const fixed = wire.points[segIdx - 1];
-        const moving = { x: snappedTarget.x, y: snappedTarget.y };
-        if (dragSegAxis !== 'horizontal' && Math.abs(moving.y - fixed.y) < threshold) {
-            snappedTarget.y = fixed.y;
-            guides.push([fixed, { x: snappedTarget.x, y: snappedTarget.y }]);
-        } else if (dragSegAxis !== 'vertical' && Math.abs(moving.x - fixed.x) < threshold) {
-            snappedTarget.x = fixed.x;
-            guides.push([fixed, { x: snappedTarget.x, y: snappedTarget.y }]);
-        }
-    }
-    if (segIdx + 2 < wire.points.length) {
-        const fixed = wire.points[segIdx + 2];
-        const moving = { x: snappedTarget.x + segOffX, y: snappedTarget.y + segOffY };
-        if (dragSegAxis !== 'horizontal' && Math.abs(moving.y - fixed.y) < threshold) {
-            guides.push([moving, fixed]);
-        } else if (dragSegAxis !== 'vertical' && Math.abs(moving.x - fixed.x) < threshold) {
-            guides.push([moving, fixed]);
-        }
-    }
-
-    return { snappedTarget, guides, highlight };
+    return { snappedTarget, guides: snapResult.guides, highlight };
 }
 
 /**
- * Compute H/V guide lines for sticky wire segments connected to
- * moving components.
- *
- * @param {object} app
- * @param {Set<string>} movingCompIds - IDs of components being moved
- * @returns {Array<[{x,y},{x,y}]>} guide line pairs
- */
-export function computeStickyWireGuides(app, movingCompIds) {
-    const threshold = SNAP_SCREEN_PX / app.viewport.scale;
-    const guides = [];
-    for (const shape of app.shapes) {
-        if (shape.type !== 'wire') continue;
-        const conn = shape.connections;
-        if (!conn.start && !conn.end) continue;
-        const startComp = conn.start && movingCompIds.has(conn.start.componentId);
-        const endComp = conn.end && movingCompIds.has(conn.end.componentId);
-        if (!startComp && !endComp) continue;
-        if (startComp && shape.points.length >= 2) {
-            const pA = shape.points[0], pB = shape.points[1];
-            if (Math.abs(pA.y - pB.y) < threshold || Math.abs(pA.x - pB.x) < threshold) {
-                guides.push([pA, pB]);
-            }
-        }
-        if (endComp && shape.points.length >= 2) {
-            const pA = shape.points[shape.points.length - 2], pB = shape.points[shape.points.length - 1];
-            if (Math.abs(pA.y - pB.y) < threshold || Math.abs(pA.x - pB.x) < threshold) {
-                guides.push([pA, pB]);
-            }
-        }
-    }
-    return guides;
-}
-
-/**
- * Compute a small positional nudge so that sticky wire segments connected
- * to moving components land exactly on H or V alignment.
- *
- * Call BEFORE moving shapes.  The returned {x, y} offset should be added
- * to the grid-snapped target position.
+ * Compute H/V snap adjustment and guide lines for sticky wire segments
+ * connected to moving components.  Combines the nudge and guide logic
+ * into a single call via computeMovingSegmentSnaps.
  *
  * @param {object} app
  * @param {Set<string>} movingCompIds
  * @param {number} proposedDx - grid-snapped dx about to be applied
  * @param {number} proposedDy - grid-snapped dy about to be applied
- * @returns {{x: number, y: number}} nudge offset (0,0 if no nudge)
+ * @returns {{ adjustX: number, adjustY: number, guides: Array<[{x,y},{x,y}]> }}
  */
-export function computeStickyWireNudge(app, movingCompIds, proposedDx, proposedDy) {
-    const threshold = SNAP_SCREEN_PX / app.viewport.scale;
-    let bestNudgeX = null, bestAbsX = Infinity;
-    let bestNudgeY = null, bestAbsY = Infinity;
+export function computeStickyWireSnaps(app, movingCompIds, proposedDx, proposedDy) {
+    // Threshold must be at least half-grid so the nudge can bridge the gap
+    // between a grid-snapped component position and off-grid pin alignment.
+    const screenThreshold = SNAP_SCREEN_PX / app.viewport.scale;
+    const halfGrid = (app.viewport.gridSize || 1.0) * 0.5;
+    const threshold = Math.max(screenThreshold, halfGrid);
+    const edges = [];
 
     for (const shape of app.shapes) {
         if (shape.type !== 'wire') continue;
@@ -1379,43 +1312,22 @@ export function computeStickyWireNudge(app, movingCompIds, proposedDx, proposedD
         const endComp = conn.end && movingCompIds.has(conn.end.componentId);
         if (!startComp && !endComp) continue;
 
-        // For each connected end, project where the moving endpoint will be
-        // and compare with the fixed neighbor.
         if (startComp && shape.points.length >= 2) {
-            const moving = shape.points[0];  // follows the component
-            const fixed = shape.points[1];   // stays put
-            const projX = moving.x + proposedDx;
-            const projY = moving.y + proposedDy;
-            const diffX = Math.abs(projX - fixed.x);
-            const diffY = Math.abs(projY - fixed.y);
-            if (diffY < threshold && diffY < bestAbsY) {
-                bestNudgeY = fixed.y - projY;
-                bestAbsY = diffY;
-            }
-            if (diffX < threshold && diffX < bestAbsX) {
-                bestNudgeX = fixed.x - projX;
-                bestAbsX = diffX;
-            }
+            edges.push({
+                moving: { x: shape.points[0].x + proposedDx, y: shape.points[0].y + proposedDy },
+                fixed: shape.points[1]
+            });
         }
         if (endComp && shape.points.length >= 2) {
-            const moving = shape.points[shape.points.length - 1];
-            const fixed = shape.points[shape.points.length - 2];
-            const projX = moving.x + proposedDx;
-            const projY = moving.y + proposedDy;
-            const diffX = Math.abs(projX - fixed.x);
-            const diffY = Math.abs(projY - fixed.y);
-            if (diffY < threshold && diffY < bestAbsY) {
-                bestNudgeY = fixed.y - projY;
-                bestAbsY = diffY;
-            }
-            if (diffX < threshold && diffX < bestAbsX) {
-                bestNudgeX = fixed.x - projX;
-                bestAbsX = diffX;
-            }
+            edges.push({
+                moving: { x: shape.points[shape.points.length - 1].x + proposedDx,
+                           y: shape.points[shape.points.length - 1].y + proposedDy },
+                fixed: shape.points[shape.points.length - 2]
+            });
         }
     }
 
-    return { x: bestNudgeX || 0, y: bestNudgeY || 0 };
+    return computeMovingSegmentSnaps(threshold, edges);
 }
 
 
