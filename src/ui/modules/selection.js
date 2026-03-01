@@ -1,4 +1,5 @@
-import { DeleteShapesCommand, DeleteComponentsCommand, ModifyPropertyCommand, BatchCommand } from '../../core/CommandHistory.js';
+import { DeleteShapesCommand, DeleteComponentsCommand, ModifyPropertyCommand, ModifyShapeCommand, BatchCommand } from '../../core/CommandHistory.js';
+import { cleanupOrphanedTJunctions } from './wire.js';
 import { updateRibbonState } from './ribbon.js';
 
 export function toggleSelectionLock(app) {
@@ -49,20 +50,37 @@ export function deleteSelected(app) {
         }
     }
 
-    const needsBatch = (shapesToDelete.length > 0) + (componentsToDelete.length > 0) + (showFlagCommands.length > 0) > 1;
+    // Clean up orphaned T-junction vertices on surviving wires.
+    // When a wire is deleted, collinear midpoints that were inserted via
+    // splitAt() on other wires become redundant and should be removed.
+    const deletedWires = shapesToDelete.filter(s => s.type === 'wire');
+    const tjCleanupCmds = [];
+    if (deletedWires.length > 0) {
+        const allPts = deletedWires.flatMap(w => w.points);
+        for (const { wire: w, beforeState, afterState } of cleanupOrphanedTJunctions(app, allPts, shapesToDelete)) {
+            tjCleanupCmds.push(new ModifyShapeCommand(app, w, beforeState, afterState));
+        }
+    }
+
+    const cmdCount = (shapesToDelete.length > 0 ? 1 : 0) + (componentsToDelete.length > 0 ? 1 : 0)
+        + showFlagCommands.length + tjCleanupCmds.length;
+    const needsBatch = cmdCount > 1;
 
     if (needsBatch) {
         const batch = new BatchCommand('Delete selection');
         for (const cmd of showFlagCommands) batch.add(cmd);
         if (shapesToDelete.length > 0) batch.add(new DeleteShapesCommand(app, shapesToDelete));
         if (componentsToDelete.length > 0) batch.add(new DeleteComponentsCommand(app, componentsToDelete));
+        for (const cmd of tjCleanupCmds) batch.add(cmd);
         app.history.execute(batch);
     } else if (showFlagCommands.length > 0) {
         app.history.execute(showFlagCommands[0]);
-    } else if (shapesToDelete.length > 0) {
+    } else if (shapesToDelete.length > 0 && tjCleanupCmds.length === 0) {
         app.history.execute(new DeleteShapesCommand(app, shapesToDelete));
     } else if (componentsToDelete.length > 0) {
         app.history.execute(new DeleteComponentsCommand(app, componentsToDelete));
+    } else if (tjCleanupCmds.length > 0) {
+        app.history.execute(tjCleanupCmds[0]);
     }
 
     app.selection._notifySelectionChanged();

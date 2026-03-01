@@ -597,7 +597,11 @@ export function updateSnapHighlight(app, target) {
  * that is within tolerance of worldPos.  Returns { x, y, type } or null.
  * type is 'endpoint' (merge) or 'segment' (T-junction).
  */
-export function findNearbyWirePoint(app, worldPos, tolerance, excludeWire = null) {
+export function findNearbyWirePoint(app, worldPos, tolerance, excludeWires = null) {
+    // Normalize exclusion to a Set for uniform handling
+    const excludeSet = !excludeWires ? new Set() :
+        excludeWires instanceof Set ? excludeWires : new Set([excludeWires]);
+
     // Pass 1: find closest endpoint (preferred — endpoint snaps are exact)
     let bestEp = null;
     let bestEpDist = tolerance;
@@ -608,7 +612,7 @@ export function findNearbyWirePoint(app, worldPos, tolerance, excludeWire = null
 
     for (const shape of app.shapes) {
         if (shape.type !== 'wire' || shape.points.length < 2) continue;
-        if (shape === excludeWire) continue;
+        if (excludeSet.has(shape)) continue;
 
         // Check endpoints
         const first = shape.points[0];
@@ -751,12 +755,83 @@ export function processWireJoins(app, newWire) {
                 const insertIdx = shape.splitAt(pt);
                 shape.junctions.add(insertIdx);
                 shape.invalidate();
-                const epIdx = pointsMatch(pt, newWire.points[0]) ? 0 : newWire.points.length - 1;
-                newWire.junctions.add(epIdx);
-                newWire.invalidate();
             }
         }
     }
+}
+
+/**
+ * Check whether any other wire has a point at the given location,
+ * indicating a T-junction that must not be optimised away.
+ * @param {object} app
+ * @param {{x:number,y:number}} pt  - point to test
+ * @param {...object} excludeWires  - wires to skip (the ones being merged/edited)
+ */
+export function isTJunctionPoint(app, pt, ...excludeWires) {
+    if (!app) return false;
+    for (const s of app.shapes) {
+        if (s.type !== 'wire') continue;
+        if (excludeWires.includes(s)) continue;
+        for (const p of s.points) {
+            if (Math.abs(p.x - pt.x) < 0.15 && Math.abs(p.y - pt.y) < 0.15) return true;
+        }
+    }
+    return false;
+}
+
+/**
+ * Clean up orphaned T-junction vertices on surviving wires after wire deletion.
+ * Scans surviving wires for collinear midpoints at the given orphaned points
+ * and removes them if no third wire still connects there.
+ *
+ * @param {object}   app           - the app instance
+ * @param {Array<{x:number,y:number}>} orphanedPts - points being removed from the wire graph
+ * @param {Array}    excludeWires  - wires being deleted (excluded from the scan)
+ * @returns {Array<{wire, beforeState, afterState}>}  wires that were modified
+ */
+export function cleanupOrphanedTJunctions(app, orphanedPts, excludeWires) {
+    const excludeSet = new Set(excludeWires);
+    const tjCleanup = new Map(); // surviving wire -> Set of midpoint indices to remove
+
+    for (const pt of orphanedPts) {
+        for (const other of app.shapes) {
+            if (excludeSet.has(other) || other.type !== 'wire') continue;
+            for (let i = 1; i < other.points.length - 1; i++) {
+                const op = other.points[i];
+                if (Math.abs(op.x - pt.x) >= 0.15 || Math.abs(op.y - pt.y) >= 0.15) continue;
+                // Only remove collinear midpoints (junction-inserted)
+                const a = other.points[i - 1], c = other.points[i + 1];
+                const dx1 = op.x - a.x, dy1 = op.y - a.y;
+                const dx2 = c.x - op.x, dy2 = c.y - op.y;
+                const cross = Math.abs(dx1 * dy2 - dy1 * dx2);
+                if (cross >= ANGLE_TOL * Math.hypot(dx1, dy1) * Math.hypot(dx2, dy2) + 1e-9) continue;
+                // Keep if a third wire still connects here
+                if (isTJunctionPoint(app, pt, ...excludeWires, other)) continue;
+                if (!tjCleanup.has(other)) tjCleanup.set(other, new Set());
+                tjCleanup.get(other).add(i);
+            }
+        }
+    }
+
+    const results = [];
+    for (const [other, idxSet] of tjCleanup) {
+        const beforeState = other.captureState();
+        const sorted = [...idxSet].sort((a, b) => b - a);
+        for (const i of sorted) other.points.splice(i, 1);
+        const newJunctions = new Set();
+        for (const j of other.junctions) {
+            if (idxSet.has(j)) continue;
+            let adj = j;
+            for (const ri of sorted) { if (ri < j) adj--; }
+            newJunctions.add(adj);
+        }
+        other.junctions = newJunctions;
+        other.invalidate();
+        const afterState = other.captureState();
+        other.applyState(beforeState);
+        results.push({ wire: other, beforeState, afterState });
+    }
+    return results;
 }
 
 /**
@@ -764,13 +839,15 @@ export function processWireJoins(app, newWire) {
  * collinear with its neighbors (no redundant anchor on a straight wire).
  * front ends at the shared point; back starts after it.
  */
-function mergeWirePoints(front, back) {
+function mergeWirePoints(app, front, back, wireA, wireB) {
     if (front.length >= 2 && back.length >= 1) {
         const a = front[front.length - 2];
         const b = front[front.length - 1]; // seam point
         const c = back[0];
         if (segmentsCollinear({ a, b }, { a: b, b: c })) {
-            return [...front.slice(0, -1), ...back];
+            if (!isTJunctionPoint(app, b, wireA, wireB)) {
+                return [...front.slice(0, -1), ...back];
+            }
         }
     }
     return [...front, ...back];
@@ -793,6 +870,20 @@ export function processWireMerges(app, newWire) {
             const otherEnd = shape.endpointAt(myPt);
             if (!otherEnd) continue;
 
+            // Don't merge if a third wire also connects at this point —
+            // that means it's a junction and the wires should stay separate.
+            let hasThirdWire = false;
+            for (const third of app.shapes) {
+                if (third === newWire || third === shape || third.type !== 'wire') continue;
+                for (const p of third.points) {
+                    if (Math.abs(p.x - myPt.x) < 0.15 && Math.abs(p.y - myPt.y) < 0.15) {
+                        hasThirdWire = true; break;
+                    }
+                }
+                if (hasThirdWire) break;
+            }
+            if (hasThirdWire) continue;
+
             // Both wires share this endpoint - merge
             const otherPts = shape.points.map(p => ({ ...p }));
             // Reverse when both shared-ends match (start-start or end-end)
@@ -800,9 +891,9 @@ export function processWireMerges(app, newWire) {
             if (myEnd === otherEnd) otherPts.reverse();
 
             if (myEnd === 'start') {
-                newWire.points = mergeWirePoints(otherPts, newWire.points.slice(1));
+                newWire.points = mergeWirePoints(app, otherPts, newWire.points.slice(1), newWire, shape);
             } else {
-                newWire.points = mergeWirePoints(newWire.points, otherPts.slice(1));
+                newWire.points = mergeWirePoints(app, newWire.points, otherPts.slice(1), newWire, shape);
             }
 
             newWire.junctions = new Set();
@@ -910,9 +1001,11 @@ export function processWireAnchorMerge(app, wire) {
 
     // 2. Remove redundant collinear midpoints (e.g. middle anchor dragged
     //    onto the same line as its neighbours → straight line with extra point).
+    //    Preserve points that are T-junctions with other wires.
     for (let i = wire.points.length - 2; i >= 1; i--) {
         const a = wire.points[i - 1], b = wire.points[i], c = wire.points[i + 1];
         if (segmentsCollinear({ a, b }, { a: b, b: c })) {
+            if (isTJunctionPoint(app, b, wire)) continue;
             wire.points.splice(i, 1);
             // Shift junction indices
             const shifted = new Set();
@@ -942,12 +1035,26 @@ export function processWireAnchorMerge(app, wire) {
             // Endpoint-to-endpoint merge
             const otherEnd = other.endpointAt(pt);
             if (otherEnd) {
+                // Don't merge if a third wire also connects at this point —
+                // that means it's a junction and the wires should stay separate.
+                let hasThirdWire = false;
+                for (const third of app.shapes) {
+                    if (third === wire || third === other || third.type !== 'wire') continue;
+                    for (const p of third.points) {
+                        if (Math.abs(p.x - pt.x) < 0.15 && Math.abs(p.y - pt.y) < 0.15) {
+                            hasThirdWire = true; break;
+                        }
+                    }
+                    if (hasThirdWire) break;
+                }
+                if (hasThirdWire) continue;
+
                 const otherPts = other.points.map(p => ({ ...p }));
                 if (end === otherEnd) otherPts.reverse();
                 if (end === 'start') {
-                    wire.points = mergeWirePoints(otherPts, wire.points.slice(1));
+                    wire.points = mergeWirePoints(app, otherPts, wire.points.slice(1), wire, other);
                 } else {
-                    wire.points = mergeWirePoints(wire.points, otherPts.slice(1));
+                    wire.points = mergeWirePoints(app, wire.points, otherPts.slice(1), wire, other);
                 }
                 wire.junctions = new Set();
                 wire.invalidate();
@@ -1000,9 +1107,9 @@ export function processWireAnchorMerge(app, wire) {
                         const otherPts2 = other.points.map(p => ({ ...p }));
                         if (end === otherEnd2) otherPts2.reverse();
                         if (end === 'start') {
-                            wire.points = mergeWirePoints(otherPts2, wire.points.slice(1));
+                            wire.points = mergeWirePoints(app, otherPts2, wire.points.slice(1), wire, other);
                         } else {
-                            wire.points = mergeWirePoints(wire.points, otherPts2.slice(1));
+                            wire.points = mergeWirePoints(app, wire.points, otherPts2.slice(1), wire, other);
                         }
                         wire.junctions = new Set();
                         wire.invalidate();
@@ -1015,9 +1122,6 @@ export function processWireAnchorMerge(app, wire) {
                 const insertIdx = other.splitAt(pt);
                 other.junctions.add(insertIdx);
                 other.invalidate();
-                const epIdx = end === 'start' ? 0 : wire.points.length - 1;
-                wire.junctions.add(epIdx);
-                wire.invalidate();
                 changed = true;
             }
         }
@@ -1099,6 +1203,28 @@ function collinearSnap(outer, mid, far, threshold) {
  * @param {string} [axisLock] - 'horizontal'|'vertical' drag-axis constraint
  * @returns {{ adjustX: number, adjustY: number, guides: Array<[{x,y},{x,y}]> }}
  */
+
+/**
+ * Override a grid-snapped position with off-grid neighbor coordinates
+ * when the raw (un-snapped) position is within half a grid cell of a
+ * neighbor's X or Y.  This creates invisible snap lines at every
+ * neighbor coordinate so off-grid alignment is preserved.
+ *
+ * Mutates `snapped` in place.
+ *
+ * @param {{ x: number, y: number }} raw      - un-snapped world position
+ * @param {{ x: number, y: number }} snapped  - grid-snapped position (mutated)
+ * @param {Array<{ x: number, y: number }>} neighbors - points to snap to
+ * @param {number} gridSize - current grid size in world units
+ */
+export function applyOffGridNeighborSnap(raw, snapped, neighbors, gridSize) {
+    const halfGrid = gridSize * 0.5;
+    for (const nb of neighbors) {
+        if (Math.abs(raw.x - nb.x) <= halfGrid) snapped.x = nb.x;
+        if (Math.abs(raw.y - nb.y) <= halfGrid) snapped.y = nb.y;
+    }
+}
+
 export function computeMovingSegmentSnaps(threshold, edges, axisLock) {
     let adjustX = 0, adjustY = 0;
 
@@ -1155,11 +1281,14 @@ export function computeMovingSegmentSnaps(threshold, edges, axisLock) {
         pts.sort((a, b) => rx >= ry ? a.x - b.x : a.y - b.y);
         guides.push([pts[0], pts[2]]);
     }
-    // H/V guides (skip fixed points already covered by collinear)
+    // H/V guides (skip fixed points already covered by collinear,
+    // and skip alignments that are trivially preserved by the axis lock)
     for (const { moving, fixed } of edges) {
         if (covered.has(fixed)) continue;
         const mx = moving.x + adjustX, my = moving.y + adjustY;
-        if (Math.abs(my - fixed.y) < threshold || Math.abs(mx - fixed.x) < threshold) {
+        const yAligned = axisLock !== 'horizontal' && Math.abs(my - fixed.y) < threshold;
+        const xAligned = axisLock !== 'vertical' && Math.abs(mx - fixed.x) < threshold;
+        if (yAligned || xAligned) {
             guides.push([{ x: mx, y: my }, fixed]);
             covered.add(fixed);
         }
@@ -1217,23 +1346,19 @@ export function computeAnchorCollinearSnap(app, wire, anchorId, anchorPos) {
  * segment drag.  Collinear and H/V logic delegates to
  * computeMovingSegmentSnaps.
  */
-export function computeSegmentDragSnap(app, wire, segIdx, origState, target, dragSegAxis) {
+export function computeSegmentDragSnap(app, wire, segIdx, origState, target, dragSegAxis, excludeWires = null) {
     const snappedTarget = app.viewport.getSnappedPosition(target);
     const gridSize = app.viewport.gridSize || 1.0;
-    const halfGrid = gridSize * 0.5;
     const origPtA = origState.points[segIdx];
     const origPtB = origState.points[segIdx + 1];
     const segOffX = origPtB.x - origPtA.x;
     const segOffY = origPtB.y - origPtA.y;
 
     // Off-grid neighbor snap lines
-    const neighborBefore = segIdx > 0 ? origState.points[segIdx - 1] : null;
-    const neighborAfter = segIdx + 2 < origState.points.length ? origState.points[segIdx + 2] : null;
-    for (const nb of [neighborBefore, neighborAfter]) {
-        if (!nb) continue;
-        if (Math.abs(target.x - nb.x) <= halfGrid) snappedTarget.x = nb.x;
-        if (Math.abs(target.y - nb.y) <= halfGrid) snappedTarget.y = nb.y;
-    }
+    const neighbors = [];
+    if (segIdx > 0) neighbors.push(origState.points[segIdx - 1]);
+    if (segIdx + 2 < origState.points.length) neighbors.push(origState.points[segIdx + 2]);
+    applyOffGridNeighborSnap(target, snappedTarget, neighbors, gridSize);
 
     // Pin snap — check both endpoints, pick closest
     const rawA = target;
@@ -1258,11 +1383,13 @@ export function computeSegmentDragSnap(app, wire, segIdx, origState, target, dra
         snappedTarget.y = target.y + offY;
         highlight = bestPin;
     } else {
-        // Wire junction highlight
+        // Wire junction highlight (exclude T-junction-linked wires that move
+        // along with the drag — they are not new connections)
+        const wireExclude = excludeWires ? new Set([wire, ...excludeWires]) : new Set([wire]);
         const futureA = { x: snappedTarget.x, y: snappedTarget.y };
         const futureB = { x: snappedTarget.x + segOffX, y: snappedTarget.y + segOffY };
         for (const ep of [futureA, futureB]) {
-            const nw = findNearbyWirePoint(app, ep, 0.5, wire);
+            const nw = findNearbyWirePoint(app, ep, 0.5, wireExclude);
             if (nw) { highlight = nw; break; }
         }
     }

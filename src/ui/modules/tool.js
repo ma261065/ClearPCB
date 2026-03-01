@@ -1,3 +1,5 @@
+import { updateSnapHighlight } from './wire.js';
+
 const STORAGE_KEY = 'clearpcb_tool_options';
 
 export function loadToolOptions() {
@@ -23,6 +25,9 @@ export function saveToolOptions(options) {
 export function onToolSelected(app, tool) {
     app._cancelDrawing();
     
+    // Clear any snap highlight left from the previous tool (e.g. wire hover dot)
+    updateSnapHighlight(app, null);
+
     // Update current tool first so that listeners (like ribbon) 
     // see the new tool state when selection is cleared
     app.currentTool = tool;

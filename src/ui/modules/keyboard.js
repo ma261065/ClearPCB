@@ -14,6 +14,12 @@ export function handleEscape(app) {
         if (app.dragShapesBefore) {
             app._applyShapeState(app.dragShape, app.dragShapesBefore);
         }
+        // Also revert any linked wire states (e.g. junction removal)
+        if (app.dragAnchorWireStates) {
+            for (const [wire, beforeState] of app.dragAnchorWireStates) {
+                app._applyShapeState(wire, beforeState);
+            }
+        }
         const shape = app.dragShape;
         clearDragState(app, { clearDidDrag: true, resetCursor: true });
         shape.selected = true;
