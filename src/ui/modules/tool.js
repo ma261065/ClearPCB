@@ -36,6 +36,7 @@ export function onToolSelected(app, tool) {
     // control default tool options (new shapes) rather than editing existing selection.
     if (tool !== 'select') {
         app.selection.clearSelection();
+        app.renderShapes(true);
     }
 
     if (tool !== 'component' && app.placingComponent) {
