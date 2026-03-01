@@ -257,54 +257,6 @@ export function getDrawingSnappedPosition(app, worldPos) {
     }
 }
 
-/**
- * Snap for wire anchor editing (requirement 10).
- * The other end of each connected segment provides an invisible snap line
- * so wires stay orthogonal even off-grid. Grid still applies in the
- * perpendicular direction.
- */
-export function getWireAnchorSnappedPosition(app, wireShape, anchorId, worldPos) {
-    const snapped = app.viewport.getSnappedPosition(worldPos);
-    const match = anchorId?.match(/^p(\d+)$/);
-    if (!match || !wireShape?.points) return snapped;
-
-    const idx = parseInt(match[1]);
-    if (idx < 0 || idx >= wireShape.points.length) return snapped;
-
-    const gridSize = app.viewport.gridSize || 1.0;
-    const halfGrid = gridSize * 0.5;
-
-    // Collect snap lines from neighboring vertices
-    const neighbors = [];
-    if (idx > 0) neighbors.push(wireShape.points[idx - 1]);
-    if (idx < wireShape.points.length - 1) neighbors.push(wireShape.points[idx + 1]);
-
-    // Also check pin snap lines
-    const pinSnap = findNearbyPin(app.components, worldPos, 1.5);
-
-    let snapX = snapped.x;
-    let snapY = snapped.y;
-
-    for (const n of neighbors) {
-        if (Math.abs(worldPos.x - n.x) <= halfGrid) snapX = n.x;
-        if (Math.abs(worldPos.y - n.y) <= halfGrid) snapY = n.y;
-    }
-
-    if (pinSnap) {
-        if (Math.abs(worldPos.x - pinSnap.worldPos.x) <= halfGrid) snapX = pinSnap.worldPos.x;
-        if (Math.abs(worldPos.y - pinSnap.worldPos.y) <= halfGrid) snapY = pinSnap.worldPos.y;
-    }
-
-    // Also check nearby wire endpoints/segments for off-grid snap
-    const nearWire = findNearbyWirePoint(app, worldPos, halfGrid, wireShape);
-    if (nearWire) {
-        if (Math.abs(worldPos.x - nearWire.x) <= halfGrid) snapX = nearWire.x;
-        if (Math.abs(worldPos.y - nearWire.y) <= halfGrid) snapY = nearWire.y;
-    }
-
-    return { x: snapX, y: snapY };
-}
-
 // --- Drawing lifecycle ---
 
 export function startWireDrawing(app, snappedData) {
@@ -440,6 +392,9 @@ export function finishWireDrawing(app, worldPos) {
 
     // Check for end-to-end merges (may remove wires)
     processWireMerges(app, wire);
+
+    // Update pin connections after merge may have changed endpoints
+    refreshWireConnections(app, wire);
 
     // Build a single BatchCommand that captures everything:
     //   - the new wire addition
@@ -673,6 +628,10 @@ export function findNearbyWirePoint(app, worldPos, tolerance, excludeWires = nul
     let bestEp = null;
     let bestEpDist = tolerance;
 
+    // Pass 1b: find closest interior vertex (corner junction)
+    let bestCorner = null;
+    let bestCornerDist = tolerance;
+
     // Pass 2: find closest segment (T-junction, only used if no endpoint)
     let bestSeg = null;
     let bestSegDist = tolerance;
@@ -689,6 +648,16 @@ export function findNearbyWirePoint(app, worldPos, tolerance, excludeWires = nul
             if (d < bestEpDist) {
                 bestEpDist = d;
                 bestEp = { x: ep.x, y: ep.y, type: 'endpoint' };
+            }
+        }
+
+        // Check interior vertices (corners)
+        for (let i = 1; i < shape.points.length - 1; i++) {
+            const p = shape.points[i];
+            const d = Math.hypot(worldPos.x - p.x, worldPos.y - p.y);
+            if (d < bestCornerDist) {
+                bestCornerDist = d;
+                bestCorner = { x: p.x, y: p.y, type: 'endpoint' };
             }
         }
 
@@ -716,8 +685,8 @@ export function findNearbyWirePoint(app, worldPos, tolerance, excludeWires = nul
         }
     }
 
-    // Endpoints always win over segments when within tolerance
-    return bestEp || bestSeg;
+    // Endpoints always win, then interior vertices, then segments
+    return bestEp || bestCorner || bestSeg;
 }
 
 // --- Constants ---
@@ -775,6 +744,15 @@ export function processWireJoins(app, newWire) {
     for (const { pt, end } of endpoints) {
         for (const shape of app.shapes) {
             if (shape === newWire || shape.type !== 'wire') continue;
+
+            // Check if endpoint lands on an interior vertex (corner) of the other wire
+            const cornerIdx = shape.interiorVertexAt(pt, 0.15);
+            if (cornerIdx >= 0) {
+                shape.junctions.add(cornerIdx);
+                shape.invalidate();
+                continue;
+            }
+
             const onSeg = shape.pointOnSegment(pt, 0.15);
             if (onSeg) {
                 // Get the incoming segment of the new wire and the target segment
@@ -1088,109 +1066,128 @@ export function processWireAnchorMerge(app, wire) {
 
     wire.invalidate();
 
-    // 3. Check endpoints against other wires for merge / T-join
-    const endpoints = [
-        { pt: wire.points[0], end: 'start' },
-        { pt: wire.points[wire.points.length - 1], end: 'end' }
-    ];
+    // 3. Check endpoints against other wires for merge / T-join.
+    //    Loop until no more merges occur (a merge changes wire.points,
+    //    so we need to re-check both endpoints).
+    let merging = true;
+    while (merging) {
+        merging = false;
+        const endpoints = [
+            { pt: wire.points[0], end: 'start' },
+            { pt: wire.points[wire.points.length - 1], end: 'end' }
+        ];
 
-    for (const { pt, end } of endpoints) {
-        for (const other of [...app.shapes]) {
-            if (other === wire || other.type !== 'wire') continue;
-            if (!app.shapes.includes(other)) continue;
+        for (const { pt, end } of endpoints) {
+            let merged = false;
+            for (const other of [...app.shapes]) {
+                if (other === wire || other.type !== 'wire') continue;
+                if (!app.shapes.includes(other)) continue;
 
-            // Endpoint-to-endpoint merge
-            const otherEnd = other.endpointAt(pt);
-            if (otherEnd) {
-                // Don't merge if a third wire also connects at this point —
-                // that means it's a junction and the wires should stay separate.
-                let hasThirdWire = false;
-                for (const third of app.shapes) {
-                    if (third === wire || third === other || third.type !== 'wire') continue;
-                    for (const p of third.points) {
-                        if (Math.abs(p.x - pt.x) < 0.15 && Math.abs(p.y - pt.y) < 0.15) {
-                            hasThirdWire = true; break;
+                // Endpoint-to-endpoint merge
+                const otherEnd = other.endpointAt(pt);
+                if (otherEnd) {
+                    // Don't merge if a third wire also connects at this point —
+                    // that means it's a junction and the wires should stay separate.
+                    let hasThirdWire = false;
+                    for (const third of app.shapes) {
+                        if (third === wire || third === other || third.type !== 'wire') continue;
+                        for (const p of third.points) {
+                            if (Math.abs(p.x - pt.x) < 0.15 && Math.abs(p.y - pt.y) < 0.15) {
+                                hasThirdWire = true; break;
+                            }
                         }
+                        if (hasThirdWire) break;
                     }
-                    if (hasThirdWire) break;
-                }
-                if (hasThirdWire) continue;
+                    if (hasThirdWire) continue;
 
-                const otherPts = other.points.map(p => ({ ...p }));
-                if (end === otherEnd) otherPts.reverse();
-                if (end === 'start') {
-                    wire.points = mergeWirePoints(app, otherPts, wire.points.slice(1), wire, other);
-                } else {
-                    wire.points = mergeWirePoints(app, wire.points, otherPts.slice(1), wire, other);
-                }
-                wire.junctions = new Set();
-                wire.invalidate();
-                app._removeShapeInternal(other);
-                changed = true;
-                break; // restart outer since points changed
-            }
-
-            // Endpoint onto segment (T-junction) — only if not collinear
-            const onSeg = other.pointOnSegment(pt, 0.15);
-            if (onSeg) {
-                const incoming = terminalSegment(wire, end);
-                const target = { a: other.points[onSeg.segIndex], b: other.points[onSeg.segIndex + 1] };
-
-                if (incoming && segmentsCollinear(incoming, target)) {
-                    // Collinear overshoot: snap endpoint to nearest vertex of
-                    // the target segment, then do endpoint-to-endpoint merge.
-                    const segA = other.points[onSeg.segIndex];
-                    const segB = other.points[onSeg.segIndex + 1];
-                    const dA = Math.hypot(pt.x - segA.x, pt.y - segA.y);
-                    const dB = Math.hypot(pt.x - segB.x, pt.y - segB.y);
-                    const nearIdx = dA < dB ? onSeg.segIndex : onSeg.segIndex + 1;
-                    const snapPt = other.points[nearIdx];
-
-                    // Snap wire endpoint
+                    const otherPts = other.points.map(p => ({ ...p }));
+                    if (end === otherEnd) otherPts.reverse();
                     if (end === 'start') {
-                        wire.points[0] = { x: snapPt.x, y: snapPt.y };
+                        wire.points = mergeWirePoints(app, otherPts, wire.points.slice(1), wire, other);
                     } else {
-                        wire.points[wire.points.length - 1] = { x: snapPt.x, y: snapPt.y };
+                        wire.points = mergeWirePoints(app, wire.points, otherPts.slice(1), wire, other);
                     }
+                    wire.junctions = new Set();
                     wire.invalidate();
-
-                    // If interior, split target so one half has this endpoint
-                    if (nearIdx > 0 && nearIdx < other.points.length - 1) {
-                        const secondPts = other.points.slice(nearIdx).map(p => ({ x: p.x, y: p.y }));
-                        other.points = other.points.slice(0, nearIdx + 1);
-                        other.junctions = new Set();
-                        other.invalidate();
-                        const secondWire = new Wire({
-                            points: secondPts,
-                            color: '#00cc66',
-                            lineWidth: 0.25,
-                        });
-                        app.addShape(secondWire);
-                    }
-
-                    // Now try endpoint merge
-                    const otherEnd2 = other.endpointAt(snapPt);
-                    if (otherEnd2) {
-                        const otherPts2 = other.points.map(p => ({ ...p }));
-                        if (end === otherEnd2) otherPts2.reverse();
-                        if (end === 'start') {
-                            wire.points = mergeWirePoints(app, otherPts2, wire.points.slice(1), wire, other);
-                        } else {
-                            wire.points = mergeWirePoints(app, wire.points, otherPts2.slice(1), wire, other);
-                        }
-                        wire.junctions = new Set();
-                        wire.invalidate();
-                        app._removeShapeInternal(other);
-                    }
+                    app._removeShapeInternal(other);
                     changed = true;
-                    break;
+                    merged = true;
+                    break; // restart — points changed
                 }
 
-                const insertIdx = other.splitAt(pt);
-                other.junctions.add(insertIdx);
-                other.invalidate();
-                changed = true;
+                // Check if endpoint lands on an interior vertex (corner) of the other wire
+                const cornerIdx = other.interiorVertexAt(pt, 0.15);
+                if (cornerIdx >= 0) {
+                    other.junctions.add(cornerIdx);
+                    other.invalidate();
+                    changed = true;
+                    continue;
+                }
+
+                // Endpoint onto segment (T-junction) — only if not collinear
+                const onSeg = other.pointOnSegment(pt, 0.15);
+                if (onSeg) {
+                    const incoming = terminalSegment(wire, end);
+                    const target = { a: other.points[onSeg.segIndex], b: other.points[onSeg.segIndex + 1] };
+
+                    if (incoming && segmentsCollinear(incoming, target)) {
+                        // Collinear overshoot: snap endpoint to nearest vertex of
+                        // the target segment, then do endpoint-to-endpoint merge.
+                        const segA = other.points[onSeg.segIndex];
+                        const segB = other.points[onSeg.segIndex + 1];
+                        const dA = Math.hypot(pt.x - segA.x, pt.y - segA.y);
+                        const dB = Math.hypot(pt.x - segB.x, pt.y - segB.y);
+                        const nearIdx = dA < dB ? onSeg.segIndex : onSeg.segIndex + 1;
+                        const snapPt = other.points[nearIdx];
+
+                        // Snap wire endpoint
+                        if (end === 'start') {
+                            wire.points[0] = { x: snapPt.x, y: snapPt.y };
+                        } else {
+                            wire.points[wire.points.length - 1] = { x: snapPt.x, y: snapPt.y };
+                        }
+                        wire.invalidate();
+
+                        // If interior, split target so one half has this endpoint
+                        if (nearIdx > 0 && nearIdx < other.points.length - 1) {
+                            const secondPts = other.points.slice(nearIdx).map(p => ({ x: p.x, y: p.y }));
+                            other.points = other.points.slice(0, nearIdx + 1);
+                            other.junctions = new Set();
+                            other.invalidate();
+                            const secondWire = new Wire({
+                                points: secondPts,
+                                color: '#00cc66',
+                                lineWidth: 0.25,
+                            });
+                            app._addShapeInternal(secondWire);
+                        }
+
+                        // Now try endpoint merge
+                        const otherEnd2 = other.endpointAt(snapPt);
+                        if (otherEnd2) {
+                            const otherPts2 = other.points.map(p => ({ ...p }));
+                            if (end === otherEnd2) otherPts2.reverse();
+                            if (end === 'start') {
+                                wire.points = mergeWirePoints(app, otherPts2, wire.points.slice(1), wire, other);
+                            } else {
+                                wire.points = mergeWirePoints(app, wire.points, otherPts2.slice(1), wire, other);
+                            }
+                            wire.junctions = new Set();
+                            wire.invalidate();
+                            app._removeShapeInternal(other);
+                        }
+                        changed = true;
+                        merged = true;
+                        break;
+                    }
+
+                    const insertIdx = other.splitAt(pt);
+                    other.junctions.add(insertIdx);
+                    other.invalidate();
+                    changed = true;
+                }
             }
+            if (merged) { merging = true; break; } // restart both endpoints
         }
     }
 

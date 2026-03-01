@@ -210,6 +210,7 @@ export class Wire extends Shape {
      * Returns { segIndex, t, point } where t is the parameter along the segment (0–1).
      */
     closestSegment(point) {
+        if (this.points.length < 2) return null;
         let bestDist = Infinity, bestSeg = -1, bestT = 0;
         for (let i = 0; i < this.points.length - 1; i++) {
             const a = this.points[i], b = this.points[i + 1];
@@ -235,8 +236,9 @@ export class Wire extends Shape {
      * Returns the index of the inserted point.
      */
     splitAt(point) {
-        const { segIndex } = this.closestSegment(point);
-        const insertIndex = segIndex + 1;
+        const seg = this.closestSegment(point);
+        if (!seg) return 0;
+        const insertIndex = seg.segIndex + 1;
         this.points.splice(insertIndex, 0, { x: point.x, y: point.y });
         // Shift junction indices
         const shifted = new Set();
@@ -266,12 +268,25 @@ export class Wire extends Shape {
      */
     pointOnSegment(point, tolerance = 0.15) {
         const result = this.closestSegment(point);
-        if (result.distance > tolerance) return null;
+        if (!result || result.distance > tolerance) return null;
         // Exclude if at an existing vertex
         for (const p of this.points) {
             if (Math.hypot(point.x - p.x, point.y - p.y) < tolerance) return null;
         }
         return result;
+    }
+
+    /**
+     * Check if a point coincides with an interior vertex (not start/end).
+     * Returns the vertex index, or -1 if not found.
+     */
+    interiorVertexAt(point, epsilon = 0.15) {
+        for (let i = 1; i < this.points.length - 1; i++) {
+            if (Math.hypot(point.x - this.points[i].x, point.y - this.points[i].y) < epsilon) {
+                return i;
+            }
+        }
+        return -1;
     }
 
     _updateAnchors(scale) {

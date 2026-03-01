@@ -61,6 +61,19 @@ export function clearDragState(app, { clearDidDrag = false, resetCursor = false 
 }
 
 /**
+ * Splice a point out of a wire and shift junction indices accordingly.
+ */
+function spliceWirePoint(wire, idx) {
+    wire.points.splice(idx, 1);
+    const shifted = new Set();
+    for (const j of wire.junctions) {
+        if (j === idx) continue;
+        shifted.add(j > idx ? j - 1 : j);
+    }
+    wire.junctions = shifted;
+}
+
+/**
  * Remove zero-length segments and collinear midpoints from a wire,
  * keeping T-junction vertices where another wire connects.
  */
@@ -69,13 +82,7 @@ function collapseRedundantWirePoints(app, wire) {
     for (let i = wire.points.length - 1; i > 0; i--) {
         const a = wire.points[i], b = wire.points[i - 1];
         if (Math.abs(a.x - b.x) < 1e-6 && Math.abs(a.y - b.y) < 1e-6) {
-            wire.points.splice(i, 1);
-            const shifted = new Set();
-            for (const j of wire.junctions) {
-                if (j === i) continue;
-                shifted.add(j > i ? j - 1 : j);
-            }
-            wire.junctions = shifted;
+            spliceWirePoint(wire, i);
         }
     }
     // Remove collinear midpoints, but keep T-junction vertices
@@ -117,13 +124,7 @@ function collapseRedundantWirePoints(app, wire) {
             if (keep) break;
         }
         if (keep) continue;
-        wire.points.splice(removeIdx, 1);
-        const shifted = new Set();
-        for (const j of wire.junctions) {
-            if (j === removeIdx) continue;
-            shifted.add(j > removeIdx ? j - 1 : j);
-        }
-        wire.junctions = shifted;
+        spliceWirePoint(wire, removeIdx);
     }
     wire.invalidate();
 }
@@ -146,6 +147,14 @@ function commitAnchorDrag(app) {
         }
         processWireAnchorMerge(app, app.dragShape);
         refreshWireConnections(app, app.dragShape);
+        // Also refresh TJ-linked wires whose endpoints may have moved
+        if (app.dragAnchorWireStates) {
+            for (const wire of app.dragAnchorWireStates.keys()) {
+                if (app.shapes.includes(wire)) {
+                    refreshWireConnections(app, wire);
+                }
+            }
+        }
     }
 
     // Check if shape collapsed to a degenerate state (all points coincident)
@@ -306,13 +315,7 @@ function deleteJunction(app, junctionInfo) {
         if (shouldUnsplit) {
             // Last connection — remove the junction vertex
             const unsplitBefore = app._captureShapeState(splitWire);
-            splitWire.points.splice(splitIdx, 1);
-            const shifted = new Set();
-            for (const j of splitWire.junctions) {
-                if (j === splitIdx) continue;
-                shifted.add(j > splitIdx ? j - 1 : j);
-            }
-            splitWire.junctions = shifted;
+            spliceWirePoint(splitWire, splitIdx);
             splitWire.invalidate();
             app.dragAnchorWireStates.set(splitWire, unsplitBefore);
         }
@@ -345,13 +348,7 @@ function deleteJunction(app, junctionInfo) {
 
         // Capture & unsplit
         const unsplitBefore = app._captureShapeState(splitWire);
-        splitWire.points.splice(splitIdx, 1);
-        const shifted = new Set();
-        for (const j of splitWire.junctions) {
-            if (j === splitIdx) continue;
-            shifted.add(j > splitIdx ? j - 1 : j);
-        }
-        splitWire.junctions = shifted;
+        spliceWirePoint(splitWire, splitIdx);
         splitWire.invalidate();
 
         const unsplitAfter = app._captureShapeState(splitWire);
@@ -1202,6 +1199,8 @@ export function bindMouseEvents(app) {
                 const anchorIdx = m ? parseInt(m[1]) : -1;
                 const isEndpoint = anchorIdx === 0 || anchorIdx === app.dragShape.points.length - 1;
 
+                // Endpoints try pin/wire snap first
+                let snappedToTarget = false;
                 if (isEndpoint) {
                     const snap = resolveWireSnapPosition(app, worldPos, {
                         excludeWire: app.dragShape,
@@ -1211,23 +1210,16 @@ export function bindMouseEvents(app) {
 
                     if (snap.snapType === 'pin') {
                         updateSnapHighlight(app, snap.snapPin);
+                        snappedToTarget = true;
                     } else if (snap.snapType === 'endpoint' || snap.snapType === 'segment') {
                         updateSnapHighlight(app, { x: snap.x, y: snap.y, type: snap.snapType });
-                    } else {
-                        updateSnapHighlight(app, null);
-                        // Off-grid neighbor snap: invisible snap lines at each
-                        // neighbor's coordinate so off-grid alignment is preserved.
-                        const pts = app.dragShape.points;
-                        const neighbors = [];
-                        if (anchorIdx > 0) neighbors.push(pts[anchorIdx - 1]);
-                        if (anchorIdx < pts.length - 1) neighbors.push(pts[anchorIdx + 1]);
-                        applyOffGridNeighborSnap(worldPos, anchorPos, neighbors, app.viewport.gridSize || 1.0);
-                        const result = computeAnchorCollinearSnap(app, app.dragShape, app.dragAnchorId, anchorPos);
-                        anchorPos = result.anchorPos;
-                        anchorGuides = result.guides;
+                        snappedToTarget = true;
                     }
-                } else {
-                    // Midpoint anchor: collinear + H/V neighbor snap only, no wire/pin snap
+                }
+
+                // If no pin/wire/endpoint snap (or midpoint), use off-grid
+                // neighbor snap + collinear/H-V alignment
+                if (!snappedToTarget) {
                     updateSnapHighlight(app, null);
                     const pts = app.dragShape.points;
                     const neighbors = [];
@@ -1482,8 +1474,32 @@ export function bindMouseEvents(app) {
                             if (other === draggedWire || other.type !== 'wire') continue;
                             // Skip if already at an endpoint (that would be a merge, not T-junction)
                             if (other.endpointAt(pt, 0.15)) continue;
+
+                            // Check if endpoint lands on an interior vertex (corner)
+                            const cornerIdx = other.interiorVertexAt(pt, 0.15);
+                            if (cornerIdx >= 0) {
+                                if (!app.dragWireStates.has(other)) {
+                                    app.dragWireStates.set(other, app._captureShapeState(other));
+                                }
+                                other.junctions.add(cornerIdx);
+                                other.invalidate();
+                                continue;
+                            }
+
                             const onSeg = other.pointOnSegment(pt, 0.15);
                             if (onSeg) {
+                                // Skip collinear overlaps — these should merge, not junction
+                                const incoming = end === 'start'
+                                    ? { a: draggedWire.points[0], b: draggedWire.points[1] }
+                                    : { a: draggedWire.points[draggedWire.points.length - 1], b: draggedWire.points[draggedWire.points.length - 2] };
+                                const target = { a: other.points[onSeg.segIndex], b: other.points[onSeg.segIndex + 1] };
+                                const dx1 = incoming.b.x - incoming.a.x, dy1 = incoming.b.y - incoming.a.y;
+                                const dx2 = target.b.x - target.a.x, dy2 = target.b.y - target.a.y;
+                                const len1 = Math.hypot(dx1, dy1), len2 = Math.hypot(dx2, dy2);
+                                if (len1 > 1e-9 && len2 > 1e-9 &&
+                                    Math.abs(dx1 * dy2 - dy1 * dx2) / (len1 * len2) < ANGLE_TOL) {
+                                    continue; // collinear — skip T-junction
+                                }
                                 // Capture before-state for the other wire if not already tracked
                                 if (!app.dragWireStates.has(other)) {
                                     app.dragWireStates.set(other, app._captureShapeState(other));

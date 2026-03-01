@@ -491,10 +491,6 @@ class SchematicApp {
         WireTools.updateWireDrawing(this, worldPos);
     }
 
-    // Get snapped position for wire anchor editing, allowing snap to original position
-    _getWireAnchorSnappedPosition(wireShape, anchorId, worldPos) {
-        return WireTools.getWireAnchorSnappedPosition(this, wireShape, anchorId, worldPos);
-    }
     
     // Add a waypoint to the wire
     _addWireWaypoint(waypointData) {
