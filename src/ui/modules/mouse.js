@@ -87,24 +87,41 @@ function commitAnchorDrag(app) {
                 }
             }
         }
+        // Absorb existing wires now fully covered by the dragged wire
+        if (app.shapes.includes(app.dragShape)) {
+            if (!app.dragAnchorWireStates) app.dragAnchorWireStates = new Map();
+            for (const other of [...app.shapes]) {
+                if (other === app.dragShape || other.type !== 'wire') continue;
+                if (app.dragAnchorWireStates.has(other)) continue;
+                if (isWireRedundant(app, other)) {
+                    app.dragAnchorWireStates.set(other, app._captureShapeState(other));
+                    app._removeShapeInternal(other);
+                }
+            }
+        }
     }
 
-    // Check if shape collapsed to a degenerate state (all points coincident)
+    // Check if shape was removed by processWireAnchorMerge (redundancy)
+    // or collapsed to a degenerate state (all points coincident)
+    const wasRemoved = !app.shapes.includes(app.dragShape);
     const pts = app.dragShape.points;
     let degenerate = false;
-    if (pts && pts.length >= 2) {
-        degenerate = pts.every(p =>
-            Math.abs(p.x - pts[0].x) < 1e-6 &&
-            Math.abs(p.y - pts[0].y) < 1e-6
-        );
-    } else if (pts && pts.length < 2) {
-        degenerate = true;
+    if (!wasRemoved) {
+        if (pts && pts.length >= 2) {
+            degenerate = pts.every(p =>
+                Math.abs(p.x - pts[0].x) < 1e-6 &&
+                Math.abs(p.y - pts[0].y) < 1e-6
+            );
+        } else if (pts && pts.length < 2) {
+            degenerate = true;
+        }
     }
 
     // Build undo command(s) — includes T-junction linked wires if any
     const commands = [];
-    if (degenerate) {
-        app._applyShapeState(app.dragShape, app.dragShapesBefore);
+    if (wasRemoved || degenerate) {
+        app.dragShape.applyState(app.dragShapesBefore);
+        if (!app.shapes.includes(app.dragShape)) app.shapes.push(app.dragShape);
         commands.push(new DeleteShapesCommand(app, [app.dragShape]));
     } else {
         const afterState = app._captureShapeState(app.dragShape);
@@ -113,10 +130,16 @@ function commitAnchorDrag(app) {
     }
     if (app.dragAnchorWireStates) {
         for (const [wire, beforeState] of app.dragAnchorWireStates) {
-            if (!app.shapes.includes(wire)) continue;
-            const afterState = app._captureShapeState(wire);
-            app._applyShapeState(wire, beforeState);
-            commands.push(new ModifyShapeCommand(app, wire, beforeState, afterState));
+            if (!app.shapes.includes(wire)) {
+                // Wire was absorbed (redundancy) — delete it with undo support
+                wire.applyState(beforeState);
+                app.shapes.push(wire);
+                commands.push(new DeleteShapesCommand(app, [wire]));
+            } else {
+                const afterState = app._captureShapeState(wire);
+                app._applyShapeState(wire, beforeState);
+                commands.push(new ModifyShapeCommand(app, wire, beforeState, afterState));
+            }
         }
     }
     if (commands.length === 1) {
@@ -150,9 +173,10 @@ function commitSegmentDrag(app) {
     const draggedWire = app.dragShape;
     if (draggedWire && draggedWire.type === 'wire' && app.shapes.includes(draggedWire)) {
         processWireAnchorMerge(app, draggedWire);
-        // Remove any wires that were consumed by the merge
+        // Remove OTHER wires consumed by the merge (keep dragged wire
+        // in the map even if removed, so the batch can handle undo).
         for (const wire of [...app.dragWireStates.keys()]) {
-            if (!app.shapes.includes(wire)) {
+            if (wire !== draggedWire && !app.shapes.includes(wire)) {
                 app.dragWireStates.delete(wire);
             }
         }
@@ -173,11 +197,27 @@ function commitSegmentDrag(app) {
         }
     }
 
+    // Absorb existing wires now fully covered by the dragged wire
+    if (draggedWire && app.shapes.includes(draggedWire)) {
+        for (const other of [...app.shapes]) {
+            if (app.dragWireStates.has(other)) continue;
+            if (other === draggedWire || other.type !== 'wire') continue;
+            if (isWireRedundant(app, other)) {
+                app.dragWireStates.set(other, app._captureShapeState(other));
+                app._removeShapeInternal(other);
+            }
+        }
+    }
+
     // Build undo batch for all wires affected by the segment drag
     const batch = new BatchCommand('Move wire segment');
     for (const [wire, beforeState] of app.dragWireStates) {
-        if (wire.points.length < 2) {
-            app._applyShapeState(wire, beforeState);
+        if (!app.shapes.includes(wire) || wire.points.length < 2) {
+            // Wire was removed (redundancy check) or degenerate — delete it.
+            // Restore to pre-drag state and re-add so DeleteShapesCommand
+            // captures the correct index for undo.
+            wire.applyState(beforeState);
+            if (!app.shapes.includes(wire)) app.shapes.push(wire);
             batch.add(new DeleteShapesCommand(app, [wire]));
         } else {
             const afterState = app._captureShapeState(wire);
@@ -1501,13 +1541,15 @@ export function bindMouseEvents(app) {
                     const command = new MoveShapesCommand(app, itemsForCommand, app.dragTotalDx, app.dragTotalDy);
                     app.history.execute(command);
 
-                    // After moving, check if any moved wires are now fully
-                    // redundant (overlapping another wire). If so, delete them.
-                    const redundantWires = movedShapes.filter(s =>
-                        s.type === 'wire' && app.shapes.includes(s) && isWireRedundant(app, s)
+                    // After moving, check if any wires are now fully
+                    // redundant (overlapping another wire). This catches both
+                    // moved wires landing on existing ones AND existing wires
+                    // now covered by a moved wire.
+                    const allRedundant = app.shapes.filter(s =>
+                        s.type === 'wire' && isWireRedundant(app, s)
                     );
-                    if (redundantWires.length > 0) {
-                        const delCmd = new DeleteShapesCommand(app, redundantWires);
+                    if (allRedundant.length > 0) {
+                        const delCmd = new DeleteShapesCommand(app, allRedundant);
                         app.history.execute(delCmd);
                     }
                 }

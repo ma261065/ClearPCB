@@ -403,6 +403,17 @@ export function finishWireDrawing(app, worldPos) {
     // Update pin connections after merge may have changed endpoints
     refreshWireConnections(app, wire);
 
+    // Absorb existing wires now fully covered by the new/merged wire.
+    // The before-state diff below will capture these removals automatically.
+    if (app.shapes.includes(wire)) {
+        for (const other of [...app.shapes]) {
+            if (other === wire || other.type !== 'wire') continue;
+            if (isWireRedundant(app, other)) {
+                app._removeShapeInternal(other);
+            }
+        }
+    }
+
     // Build a single BatchCommand that captures everything:
     //   - the new wire addition
     //   - any existing wires that were modified (split / junction added)
@@ -793,8 +804,13 @@ export function pointsCollinear(a, b, c) {
 
 /**
  * Check if a wire is entirely redundant — every segment is collinear with
- * and covered by an existing wire's segment.  Used to absorb duplicate
- * wires drawn on top of existing wiring.
+ * and fully contained by an existing wire's segment.  Used to absorb
+ * duplicate wires drawn or dropped on top of existing wiring.
+ *
+ * "Contained" means both endpoints of the wire's segment project within
+ * [0, 1] on the covering segment (parametrically), not just the midpoint.
+ * This ensures a long wire is never incorrectly flagged as redundant when
+ * only its midpoint happens to land on a shorter collinear wire.
  */
 export function isWireRedundant(app, wire) {
     if (wire.points.length < 2) return true;
@@ -808,8 +824,17 @@ export function isWireRedundant(app, wire) {
             // Check if segment midpoint lies on a collinear segment of `other`
             const hit = other.closestSegment(mid);
             if (!hit || hit.distance > VERTEX_EPSILON) continue;
-            const target = { a: other.points[hit.segIndex], b: other.points[hit.segIndex + 1] };
-            if (segmentsCollinear({ a, b }, target)) {
+            const tA = other.points[hit.segIndex], tB = other.points[hit.segIndex + 1];
+            if (!segmentsCollinear({ a, b }, { a: tA, b: tB })) continue;
+            // Verify containment: both endpoints of the wire's segment must
+            // project within the covering segment's parametric range [0, 1].
+            const tdx = tB.x - tA.x, tdy = tB.y - tA.y;
+            const tLenSq = tdx * tdx + tdy * tdy;
+            if (tLenSq < 1e-18) continue;
+            const projA = ((a.x - tA.x) * tdx + (a.y - tA.y) * tdy) / tLenSq;
+            const projB = ((b.x - tA.x) * tdx + (b.y - tA.y) * tdy) / tLenSq;
+            const eps = VERTEX_EPSILON / Math.sqrt(tLenSq);
+            if (projA >= -eps && projA <= 1 + eps && projB >= -eps && projB <= 1 + eps) {
                 covered = true;
                 break;
             }
@@ -878,38 +903,13 @@ export function processEndpointJoin(app, wire, pt, end, other, stateMap) {
     const target = { a: other.points[onSeg.segIndex], b: other.points[onSeg.segIndex + 1] };
 
     if (incoming && segmentsCollinear(incoming, target)) {
-        // Collinear overshoot: snap endpoint to nearest vertex of the
-        // target segment, then let the merge pass handle it.
-        const segA = other.points[onSeg.segIndex];
-        const segB = other.points[onSeg.segIndex + 1];
-        const dA = Math.hypot(pt.x - segA.x, pt.y - segA.y);
-        const dB = Math.hypot(pt.x - segB.x, pt.y - segB.y);
-        const nearIdx = dA < dB ? onSeg.segIndex : onSeg.segIndex + 1;
-        const snapPt = other.points[nearIdx];
-
-        if (end === 'start') {
-            wire.points[0] = { x: snapPt.x, y: snapPt.y };
-        } else {
-            wire.points[wire.points.length - 1] = { x: snapPt.x, y: snapPt.y };
-        }
-        wire.invalidate();
-
-        // If snap point is interior, split target so one half has this endpoint
-        if (nearIdx > 0 && nearIdx < other.points.length - 1) {
-            if (stateMap && !stateMap.has(other)) {
-                stateMap.set(other, app._captureShapeState(other));
-            }
-            const secondPts = other.points.slice(nearIdx).map(p => ({ x: p.x, y: p.y }));
-            other.points = other.points.slice(0, nearIdx + 1);
-            other.junctions = new Set();
-            other.invalidate();
-            app._addShapeInternal(new Wire({
-                points: secondPts,
-                color: WIRE_COLOR,
-                lineWidth: WIRE_WIDTH,
-            }));
-        }
-        return true;
+        // Collinear containment: the wire's endpoint sits inside a collinear
+        // segment of another wire.  pointOnSegment already excludes hits
+        // near existing vertices, so this only fires for genuine containment
+        // (endpoint deep inside the segment), never for near-endpoint
+        // overshoot.  Skip it — the redundancy check (isWireRedundant) will
+        // absorb the shorter wire if it is fully covered.
+        return false;
     }
 
     // Non-collinear: real T-junction — split and add junction dot
@@ -1162,6 +1162,14 @@ export function processWireAnchorMerge(app, wire) {
     collapseRedundantWirePoints(app, wire);
     if (wire.points.length !== ptsBefore) changed = true;
     if (wire.points.length < 2) return changed;
+
+    // Early redundancy check: if the wire is already fully covered by
+    // existing wires, remove it before the merge loop can destructively
+    // absorb the covering wire's points.
+    if (isWireRedundant(app, wire)) {
+        app._removeShapeInternal(wire);
+        return true;
+    }
 
     // 3. Check endpoints against other wires for merge / T-join.
     //    Loop until no more merges occur (a merge changes wire.points,
