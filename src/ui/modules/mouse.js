@@ -1,6 +1,6 @@
 import { MoveShapesCommand, ModifyShapeCommand, BatchCommand, AddShapeCommand, DeleteShapesCommand } from '../../core/CommandHistory.js';
 import { Wire } from '../../shapes/wire.js';
-import { updateStickyWires, processWireAnchorMerge, refreshWireConnections, updateSnapHighlight, resolveWireSnapPosition, renderGuideLines, computeAnchorCollinearSnap, computeSegmentDragSnap, computeStickyWireSnaps, applyOffGridNeighborSnap, isTJunctionPoint, cleanupOrphanedTJunctions, SNAP_SCREEN_PX, COLLINEAR_EPSILON, ANGLE_TOL } from './wire.js';
+import { updateStickyWires, processWireAnchorMerge, refreshWireConnections, updateSnapHighlight, resolveWireSnapPosition, renderGuideLines, computeAnchorCollinearSnap, computeSegmentDragSnap, computeStickyWireSnaps, applyOffGridNeighborSnap, isTJunctionPoint, cleanupOrphanedTJunctions, processEndpointJoin, spliceWirePoint, collapseRedundantWirePoints, SNAP_SCREEN_PX, COLLINEAR_EPSILON, ANGLE_TOL, VERTEX_EPSILON } from './wire.js';
 
 // Pre-allocated tool sets to avoid array creation in hot paths
 const DRAWING_TOOLS = new Set(['line', 'rect', 'circle', 'polygon']);
@@ -58,75 +58,6 @@ export function clearDragState(app, { clearDidDrag = false, resetCursor = false 
     app.boxSelectStart = null;
     if (clearDidDrag) app.didDrag = false;
     if (resetCursor) app.viewport.svg.style.cursor = '';
-}
-
-/**
- * Splice a point out of a wire and shift junction indices accordingly.
- */
-function spliceWirePoint(wire, idx) {
-    wire.points.splice(idx, 1);
-    const shifted = new Set();
-    for (const j of wire.junctions) {
-        if (j === idx) continue;
-        shifted.add(j > idx ? j - 1 : j);
-    }
-    wire.junctions = shifted;
-}
-
-/**
- * Remove zero-length segments and collinear midpoints from a wire,
- * keeping T-junction vertices where another wire connects.
- */
-function collapseRedundantWirePoints(app, wire) {
-    // Remove adjacent duplicate points (zero-length segments)
-    for (let i = wire.points.length - 1; i > 0; i--) {
-        const a = wire.points[i], b = wire.points[i - 1];
-        if (Math.abs(a.x - b.x) < 1e-6 && Math.abs(a.y - b.y) < 1e-6) {
-            spliceWirePoint(wire, i);
-        }
-    }
-    // Remove collinear midpoints, but keep T-junction vertices
-    // (where another wire connects at that point).
-    // Uses parametric projection to find which of three collinear
-    // points is geometrically interior (handles drag-past-endpoint).
-    for (let i = wire.points.length - 2; i >= 1; i--) {
-        const a = wire.points[i - 1], b = wire.points[i], c = wire.points[i + 1];
-        const dx1 = b.x - a.x, dy1 = b.y - a.y;
-        const dx2 = c.x - b.x, dy2 = c.y - b.y;
-        const cross = Math.abs(dx1 * dy2 - dy1 * dx2);
-        if (cross >= ANGLE_TOL * Math.hypot(dx1, dy1) * Math.hypot(dx2, dy2) + 1e-9) continue;
-
-        // Project b onto the a→c line.  t < 0 means b is past a
-        // (a is the interior point); t > 1 means b is past c
-        // (c is interior); otherwise b itself is interior.
-        const dxAC = c.x - a.x, dyAC = c.y - a.y;
-        const lenSqAC = dxAC * dxAC + dyAC * dyAC;
-        let removeIdx;
-        if (lenSqAC < 1e-12) {
-            removeIdx = i; // a and c coincident — remove b
-        } else {
-            const t = ((b.x - a.x) * dxAC + (b.y - a.y) * dyAC) / lenSqAC;
-            if (t < 0) removeIdx = i - 1;      // a is interior
-            else if (t > 1) removeIdx = i + 1;  // c is interior
-            else removeIdx = i;                  // b is interior (normal)
-        }
-
-        // Keep if any other wire has a point here (T-junction)
-        const rp = wire.points[removeIdx];
-        let keep = false;
-        for (const other of app.shapes) {
-            if (other === wire || other.type !== 'wire') continue;
-            for (const p of other.points) {
-                if (Math.abs(p.x - rp.x) < 0.15 && Math.abs(p.y - rp.y) < 0.15) {
-                    keep = true; break;
-                }
-            }
-            if (keep) break;
-        }
-        if (keep) continue;
-        spliceWirePoint(wire, removeIdx);
-    }
-    wire.invalidate();
 }
 
 /**
@@ -229,7 +160,7 @@ function detectTJunction(app, shape, anchorId) {
             if (other === shape || other.type !== 'wire') continue;
             for (let i = 1; i < other.points.length - 1; i++) {
                 const op = other.points[i];
-                if (Math.abs(op.x - pt.x) >= 0.15 || Math.abs(op.y - pt.y) >= 0.15) continue;
+                if (Math.abs(op.x - pt.x) >= VERTEX_EPSILON || Math.abs(op.y - pt.y) >= VERTEX_EPSILON) continue;
                 // Check collinearity (junction-inserted midpoint)
                 const a = other.points[i - 1], c = other.points[i + 1];
                 const dx1 = op.x - a.x, dy1 = op.y - a.y;
@@ -250,7 +181,7 @@ function detectTJunction(app, shape, anchorId) {
         const otherConnecting = [];
         for (const other of app.shapes) {
             if (other === shape || other === splitWire || other.type !== 'wire') continue;
-            const end = other.endpointAt(pt, 0.15);
+            const end = other.endpointAt(pt, VERTEX_EPSILON);
             if (end) otherConnecting.push({ wire: other, end });
         }
 
@@ -275,7 +206,7 @@ function detectTJunction(app, shape, anchorId) {
         const connecting = [];
         for (const other of app.shapes) {
             if (other === shape || other.type !== 'wire') continue;
-            const end = other.endpointAt(pt, 0.15);
+            const end = other.endpointAt(pt, VERTEX_EPSILON);
             if (end) connecting.push({ wire: other, end });
         }
         if (connecting.length === 0) return null;
@@ -606,7 +537,7 @@ export function bindMouseEvents(app) {
                         for (const other of app.shapes) {
                             if (other === shape || other.type !== 'wire') continue;
                             for (const op of other.points) {
-                                if (Math.abs(pt.x - op.x) < 0.15 && Math.abs(pt.y - op.y) < 0.15) {
+                                if (Math.abs(pt.x - op.x) < VERTEX_EPSILON && Math.abs(pt.y - op.y) < VERTEX_EPSILON) {
                                     atJunction = true; break;
                                 }
                             }
@@ -1073,7 +1004,7 @@ export function bindMouseEvents(app) {
                                     if (other === shape || other.type !== 'wire') continue;
                                     for (let oi = 0; oi < other.points.length; oi++) {
                                         const op = other.points[oi];
-                                        if (Math.abs(pt.x - op.x) < 0.15 && Math.abs(pt.y - op.y) < 0.15) {
+                                        if (Math.abs(pt.x - op.x) < VERTEX_EPSILON && Math.abs(pt.y - op.y) < VERTEX_EPSILON) {
                                             app.dragAnchorTJLinks.push({ otherWire: other, otherIdx: oi });
                                             if (!app.dragAnchorWireStates.has(other)) {
                                                 app.dragAnchorWireStates.set(other, app._captureShapeState(other));
@@ -1473,41 +1404,9 @@ export function bindMouseEvents(app) {
                         for (const other of app.shapes) {
                             if (other === draggedWire || other.type !== 'wire') continue;
                             // Skip if already at an endpoint (that would be a merge, not T-junction)
-                            if (other.endpointAt(pt, 0.15)) continue;
+                            if (other.endpointAt(pt, VERTEX_EPSILON)) continue;
 
-                            // Check if endpoint lands on an interior vertex (corner)
-                            const cornerIdx = other.interiorVertexAt(pt, 0.15);
-                            if (cornerIdx >= 0) {
-                                if (!app.dragWireStates.has(other)) {
-                                    app.dragWireStates.set(other, app._captureShapeState(other));
-                                }
-                                other.junctions.add(cornerIdx);
-                                other.invalidate();
-                                continue;
-                            }
-
-                            const onSeg = other.pointOnSegment(pt, 0.15);
-                            if (onSeg) {
-                                // Skip collinear overlaps — these should merge, not junction
-                                const incoming = end === 'start'
-                                    ? { a: draggedWire.points[0], b: draggedWire.points[1] }
-                                    : { a: draggedWire.points[draggedWire.points.length - 1], b: draggedWire.points[draggedWire.points.length - 2] };
-                                const target = { a: other.points[onSeg.segIndex], b: other.points[onSeg.segIndex + 1] };
-                                const dx1 = incoming.b.x - incoming.a.x, dy1 = incoming.b.y - incoming.a.y;
-                                const dx2 = target.b.x - target.a.x, dy2 = target.b.y - target.a.y;
-                                const len1 = Math.hypot(dx1, dy1), len2 = Math.hypot(dx2, dy2);
-                                if (len1 > 1e-9 && len2 > 1e-9 &&
-                                    Math.abs(dx1 * dy2 - dy1 * dx2) / (len1 * len2) < ANGLE_TOL) {
-                                    continue; // collinear — skip T-junction
-                                }
-                                // Capture before-state for the other wire if not already tracked
-                                if (!app.dragWireStates.has(other)) {
-                                    app.dragWireStates.set(other, app._captureShapeState(other));
-                                }
-                                const insertIdx = other.splitAt(pt);
-                                other.junctions.add(insertIdx);
-                                other.invalidate();
-                            }
+                            processEndpointJoin(app, draggedWire, pt, end, other, app.dragWireStates);
                         }
                     }
                 }
