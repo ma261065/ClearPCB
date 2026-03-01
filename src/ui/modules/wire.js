@@ -495,12 +495,12 @@ export function updateWirePreview(app) {
     // Draw committed segments
     for (let i = 0; i < pts.length - 1; i++) {
         svg += `<line x1="${pts[i].x}" y1="${pts[i].y}" x2="${pts[i + 1].x}" y2="${pts[i + 1].y}" 
-                stroke="#00cc66" stroke-width="${strokeWidth}" stroke-linecap="round"/>`;
+                stroke="${WIRE_COLOR}" stroke-width="${strokeWidth}" stroke-linecap="round"/>`;
     }
 
     // Draw waypoint dots
     for (const p of pts) {
-        svg += `<circle cx="${p.x}" cy="${p.y}" r="${2 / app.viewport.scale}" fill="#00cc66"/>`;
+        svg += `<circle cx="${p.x}" cy="${p.y}" r="${2 / app.viewport.scale}" fill="${WIRE_COLOR}"/>`;    
     }
 
     // Draw live segment from last waypoint to cursor (with optional corner)
@@ -509,12 +509,12 @@ export function updateWirePreview(app) {
         if (app.drawCorner) {
             const c = app.drawCorner;
             svg += `<line x1="${last.x}" y1="${last.y}" x2="${c.x}" y2="${c.y}" 
-                    stroke="#00cc66" stroke-width="${strokeWidth}" stroke-linecap="round" stroke-opacity="0.6"/>`;
+                    stroke="${WIRE_COLOR}" stroke-width="${strokeWidth}" stroke-linecap="round" stroke-opacity="0.6"/>`;
             svg += `<line x1="${c.x}" y1="${c.y}" x2="${app.drawCurrent.x}" y2="${app.drawCurrent.y}" 
-                    stroke="#00cc66" stroke-width="${strokeWidth}" stroke-linecap="round" stroke-opacity="0.6"/>`;
+                    stroke="${WIRE_COLOR}" stroke-width="${strokeWidth}" stroke-linecap="round" stroke-opacity="0.6"/>`;    
         } else {
             svg += `<line x1="${last.x}" y1="${last.y}" x2="${app.drawCurrent.x}" y2="${app.drawCurrent.y}" 
-                    stroke="#00cc66" stroke-width="${strokeWidth}" stroke-linecap="round" stroke-opacity="0.6"/>`;
+                    stroke="${WIRE_COLOR}" stroke-width="${strokeWidth}" stroke-linecap="round" stroke-opacity="0.6"/>`;    
         }
     }
 
@@ -1272,22 +1272,6 @@ function collinearSnap(outer, mid, far, threshold) {
 }
 
 /**
- * Unified H/V and collinear snap for moving wire segments.
- *
- * Each edge describes a segment where `moving` is the endpoint being
- * displaced and `fixed` is the stationary neighbor.  If `beyond` is
- * supplied, a collinear check is also performed against the line through
- * `fixed` and `beyond`.
- *
- * Works regardless of snap-to-grid — the threshold is screen-pixel-based.
- *
- * @param {number} threshold - snap distance in world units
- * @param {Array<{ moving: {x,y}, fixed: {x,y}, beyond?: {x,y} }>} edges
- * @param {string} [axisLock] - 'horizontal'|'vertical' drag-axis constraint
- * @returns {{ adjustX: number, adjustY: number, guides: Array<[{x,y},{x,y}]> }}
- */
-
-/**
  * Override a grid-snapped position with off-grid neighbor coordinates
  * when the raw (un-snapped) position is within half a grid cell of a
  * neighbor's X or Y.  This creates invisible snap lines at every
@@ -1308,6 +1292,21 @@ export function applyOffGridNeighborSnap(raw, snapped, neighbors, gridSize) {
     }
 }
 
+/**
+ * Unified H/V and collinear snap for moving wire segments.
+ *
+ * Each edge describes a segment where `moving` is the endpoint being
+ * displaced and `fixed` is the stationary neighbor.  If `beyond` is
+ * supplied, a collinear check is also performed against the line through
+ * `fixed` and `beyond`.
+ *
+ * Works regardless of snap-to-grid — the threshold is screen-pixel-based.
+ *
+ * @param {number} threshold - snap distance in world units
+ * @param {Array<{ moving: {x,y}, fixed: {x,y}, beyond?: {x,y} }>} edges
+ * @param {string} [axisLock] - 'horizontal'|'vertical' drag-axis constraint
+ * @returns {{ adjustX: number, adjustY: number, guides: Array<[{x,y},{x,y}]> }}
+ */
 export function computeMovingSegmentSnaps(threshold, edges, axisLock) {
     let adjustX = 0, adjustY = 0;
 
