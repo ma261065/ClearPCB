@@ -1,6 +1,6 @@
 import { MoveShapesCommand, ModifyShapeCommand, BatchCommand, AddShapeCommand, DeleteShapesCommand } from '../../core/CommandHistory.js';
 import { Wire } from '../../shapes/wire.js';
-import { updateStickyWires, processWireAnchorMerge, refreshWireConnections, updateSnapHighlight, resolveWireSnapPosition, renderGuideLines, computeAnchorCollinearSnap, computeSegmentDragSnap, computeStickyWireSnaps, applyOffGridNeighborSnap, isTJunctionPoint, cleanupOrphanedTJunctions, processEndpointJoin, spliceWirePoint, collapseRedundantWirePoints, pointsCollinear, isWireRedundant, SNAP_SCREEN_PX, COLLINEAR_EPSILON, VERTEX_EPSILON, PIN_SNAP_TOL, WIRE_COLOR, WIRE_WIDTH } from './wire.js';
+import { updateStickyWires, reconcileWires, reconcileWiresWithUndo, refreshWireConnections, updateSnapHighlight, resolveWireSnapPosition, renderGuideLines, computeAnchorCollinearSnap, computeSegmentDragSnap, computeStickyWireSnaps, applyOffGridNeighborSnap, isTJunctionPoint, cleanupOrphanedTJunctions, spliceWirePoint, collapseRedundantWirePoints, pointsCollinear, SNAP_SCREEN_PX, COLLINEAR_EPSILON, VERTEX_EPSILON, PIN_SNAP_TOL, WIRE_COLOR, WIRE_WIDTH } from './wire.js';
 
 // Pre-allocated tool sets to avoid array creation in hot paths
 const DRAWING_TOOLS = new Set(['line', 'rect', 'circle', 'polygon']);
@@ -68,88 +68,102 @@ export function clearDragState(app, { clearDidDrag = false, resetCursor = false 
 function commitAnchorDrag(app) {
     if (!app.dragShape || !app.dragShapesBefore) return false;
 
-    // After wire anchor drag: collapse duplicates, merge/join with other wires
     if (app.dragShape.type === 'wire') {
+        // Final cleanup: collapse redundant collinear midpoints
         collapseRedundantWirePoints(app, app.dragShape);
-        // Also collapse T-junction-linked wires that may have doubled back
         if (app.dragAnchorWireStates) {
             for (const wire of app.dragAnchorWireStates.keys()) {
                 collapseRedundantWirePoints(app, wire);
             }
         }
-        processWireAnchorMerge(app, app.dragShape);
-        refreshWireConnections(app, app.dragShape);
-        // Also refresh TJ-linked wires whose endpoints may have moved
+
+        // Build complete before-state map.
+        // Dragged wire + TJ-linked wires: captured at drag start.
+        // All other wires: capture now (unchanged by the drag).
+        const beforeAll = new Map();
+        beforeAll.set(app.dragShape, app.dragShapesBefore);
+        if (app.dragAnchorWireStates) {
+            for (const [w, b] of app.dragAnchorWireStates) beforeAll.set(w, b);
+        }
+        for (const s of app.shapes) {
+            if (s.type === 'wire' && !beforeAll.has(s)) {
+                beforeAll.set(s, s.captureState());
+            }
+        }
+
+        // Run unified reconciliation (overlap, merge, collapse, junctions)
+        const changedWires = [app.dragShape];
         if (app.dragAnchorWireStates) {
             for (const wire of app.dragAnchorWireStates.keys()) {
-                if (app.shapes.includes(wire)) {
-                    refreshWireConnections(app, wire);
+                if (app.shapes.includes(wire)) changedWires.push(wire);
+            }
+        }
+        reconcileWires(app, changedWires);
+
+        // Refresh pin connections for surviving changed wires
+        for (const w of changedWires) {
+            if (app.shapes.includes(w)) refreshWireConnections(app, w);
+        }
+
+        // Build undo batch by diffing pre-drag vs post-reconcile
+        const batch = new BatchCommand('Move anchor');
+        for (const [w, before] of beforeAll) {
+            if (!app.shapes.includes(w)) {
+                w.applyState(before);
+                if (!app.shapes.includes(w)) app.shapes.push(w);
+                batch.add(new DeleteShapesCommand(app, [w]));
+            } else {
+                const after = w.captureState();
+                if (JSON.stringify(before) !== JSON.stringify(after)) {
+                    w.applyState(before);
+                    batch.add(new ModifyShapeCommand(app, w, before, after));
                 }
             }
         }
-        // Absorb existing wires now fully covered by the dragged wire
+        // New wires created by reconcile splits
+        for (const s of [...app.shapes]) {
+            if (s.type === 'wire' && !beforeAll.has(s)) {
+                app._removeShapeInternal(s);
+                batch.add(new AddShapeCommand(app, s));
+            }
+        }
+
+        if (batch.commands.length > 0) {
+            app.history.execute(batch);
+        }
+
+        // Select surviving dragged wire if not degenerate
         if (app.shapes.includes(app.dragShape)) {
-            if (!app.dragAnchorWireStates) app.dragAnchorWireStates = new Map();
-            for (const other of [...app.shapes]) {
-                if (other === app.dragShape || other.type !== 'wire') continue;
-                if (app.dragAnchorWireStates.has(other)) continue;
-                if (isWireRedundant(app, other)) {
-                    app.dragAnchorWireStates.set(other, app._captureShapeState(other));
-                    app._removeShapeInternal(other);
-                }
-            }
+            const pts = app.dragShape.points;
+            const degenerate = !pts || pts.length < 2 ||
+                pts.every(p => Math.abs(p.x - pts[0].x) < 1e-6 && Math.abs(p.y - pts[0].y) < 1e-6);
+            if (!degenerate) app.dragShape.selected = true;
         }
+        return true;
     }
 
-    // Check if shape was removed by processWireAnchorMerge (redundancy)
-    // or collapsed to a degenerate state (all points coincident)
+    // Non-wire shape: simple modify/delete command
     const wasRemoved = !app.shapes.includes(app.dragShape);
     const pts = app.dragShape.points;
     let degenerate = false;
-    if (!wasRemoved) {
-        if (pts && pts.length >= 2) {
+    if (!wasRemoved && pts) {
+        if (pts.length >= 2) {
             degenerate = pts.every(p =>
-                Math.abs(p.x - pts[0].x) < 1e-6 &&
-                Math.abs(p.y - pts[0].y) < 1e-6
-            );
-        } else if (pts && pts.length < 2) {
+                Math.abs(p.x - pts[0].x) < 1e-6 && Math.abs(p.y - pts[0].y) < 1e-6);
+        } else if (pts.length < 2) {
             degenerate = true;
         }
     }
-
-    // Build undo command(s) — includes T-junction linked wires if any
-    const commands = [];
     if (wasRemoved || degenerate) {
         app.dragShape.applyState(app.dragShapesBefore);
         if (!app.shapes.includes(app.dragShape)) app.shapes.push(app.dragShape);
-        commands.push(new DeleteShapesCommand(app, [app.dragShape]));
+        app.history.execute(new DeleteShapesCommand(app, [app.dragShape]));
     } else {
         const afterState = app._captureShapeState(app.dragShape);
         app._applyShapeState(app.dragShape, app.dragShapesBefore);
-        commands.push(new ModifyShapeCommand(app, app.dragShape, app.dragShapesBefore, afterState));
+        app.history.execute(new ModifyShapeCommand(app, app.dragShape, app.dragShapesBefore, afterState));
+        app.dragShape.selected = true;
     }
-    if (app.dragAnchorWireStates) {
-        for (const [wire, beforeState] of app.dragAnchorWireStates) {
-            if (!app.shapes.includes(wire)) {
-                // Wire was absorbed (redundancy) — delete it with undo support
-                wire.applyState(beforeState);
-                app.shapes.push(wire);
-                commands.push(new DeleteShapesCommand(app, [wire]));
-            } else {
-                const afterState = app._captureShapeState(wire);
-                app._applyShapeState(wire, beforeState);
-                commands.push(new ModifyShapeCommand(app, wire, beforeState, afterState));
-            }
-        }
-    }
-    if (commands.length === 1) {
-        app.history.execute(commands[0]);
-    } else {
-        const batch = new BatchCommand('Move anchor');
-        for (const cmd of commands) batch.add(cmd);
-        app.history.execute(batch);
-    }
-    if (!degenerate) app.dragShape.selected = true;
     return true;
 }
 
@@ -163,69 +177,51 @@ function commitSegmentDrag(app) {
         collapseRedundantWirePoints(app, wire);
     }
 
-    // Refresh pin connections for all affected wires before capturing after-state
-    for (const wire of app.dragWireStates.keys()) {
-        refreshWireConnections(app, wire);
-    }
-
-    // Endpoint-to-endpoint merge: if the dragged wire's endpoint
-    // now coincides with another wire's endpoint, merge them.
-    const draggedWire = app.dragShape;
-    if (draggedWire && draggedWire.type === 'wire' && app.shapes.includes(draggedWire)) {
-        processWireAnchorMerge(app, draggedWire);
-        // Remove OTHER wires consumed by the merge (keep dragged wire
-        // in the map even if removed, so the batch can handle undo).
-        for (const wire of [...app.dragWireStates.keys()]) {
-            if (wire !== draggedWire && !app.shapes.includes(wire)) {
-                app.dragWireStates.delete(wire);
-            }
+    // Build complete before-state map.
+    // Dragged wires: captured at drag start (in app.dragWireStates).
+    // All other wires: capture now (unchanged by the drag).
+    const beforeAll = new Map(app.dragWireStates);
+    for (const s of app.shapes) {
+        if (s.type === 'wire' && !beforeAll.has(s)) {
+            beforeAll.set(s, s.captureState());
         }
     }
 
-    // Check for new T-junctions created by the drag
-    if (draggedWire && draggedWire.type === 'wire' && app.shapes.includes(draggedWire)) {
-        const eps = [
-            { pt: draggedWire.points[0], end: 'start' },
-            { pt: draggedWire.points[draggedWire.points.length - 1], end: 'end' }
-        ];
-        for (const { pt, end } of eps) {
-            for (const other of app.shapes) {
-                if (other === draggedWire || other.type !== 'wire') continue;
-                if (other.endpointAt(pt, VERTEX_EPSILON)) continue;
-                processEndpointJoin(app, draggedWire, pt, end, other, app.dragWireStates);
-            }
-        }
+    // Run unified reconciliation on all dragged wires
+    const changedWires = [...app.dragWireStates.keys()].filter(w => app.shapes.includes(w));
+    reconcileWires(app, changedWires);
+
+    // Refresh pin connections for surviving changed wires
+    for (const w of changedWires) {
+        if (app.shapes.includes(w)) refreshWireConnections(app, w);
     }
 
-    // Absorb existing wires now fully covered by the dragged wire
-    if (draggedWire && app.shapes.includes(draggedWire)) {
-        for (const other of [...app.shapes]) {
-            if (app.dragWireStates.has(other)) continue;
-            if (other === draggedWire || other.type !== 'wire') continue;
-            if (isWireRedundant(app, other)) {
-                app.dragWireStates.set(other, app._captureShapeState(other));
-                app._removeShapeInternal(other);
-            }
-        }
-    }
-
-    // Build undo batch for all wires affected by the segment drag
+    // Build undo batch by diffing pre-drag vs post-reconcile
     const batch = new BatchCommand('Move wire segment');
-    for (const [wire, beforeState] of app.dragWireStates) {
-        if (!app.shapes.includes(wire) || wire.points.length < 2) {
-            // Wire was removed (redundancy check) or degenerate — delete it.
-            // Restore to pre-drag state and re-add so DeleteShapesCommand
-            // captures the correct index for undo.
-            wire.applyState(beforeState);
-            if (!app.shapes.includes(wire)) app.shapes.push(wire);
-            batch.add(new DeleteShapesCommand(app, [wire]));
+    for (const [w, before] of beforeAll) {
+        if (!app.shapes.includes(w)) {
+            w.applyState(before);
+            if (!app.shapes.includes(w)) app.shapes.push(w);
+            batch.add(new DeleteShapesCommand(app, [w]));
         } else {
-            const afterState = app._captureShapeState(wire);
-            app._applyShapeState(wire, beforeState);
-            batch.add(new ModifyShapeCommand(app, wire, beforeState, afterState));
+            const after = w.captureState();
+            if (JSON.stringify(before) !== JSON.stringify(after)) {
+                w.applyState(before);
+                batch.add(new ModifyShapeCommand(app, w, before, after));
+            }
         }
     }
-    app.history.execute(batch);
+    // New wires created by reconcile splits
+    for (const s of [...app.shapes]) {
+        if (s.type === 'wire' && !beforeAll.has(s)) {
+            app._removeShapeInternal(s);
+            batch.add(new AddShapeCommand(app, s));
+        }
+    }
+
+    if (batch.commands.length > 0) {
+        app.history.execute(batch);
+    }
     app.renderShapes(true);
 }
 
@@ -1541,16 +1537,21 @@ export function bindMouseEvents(app) {
                     const command = new MoveShapesCommand(app, itemsForCommand, app.dragTotalDx, app.dragTotalDy);
                     app.history.execute(command);
 
-                    // After moving, check if any wires are now fully
-                    // redundant (overlapping another wire). This catches both
-                    // moved wires landing on existing ones AND existing wires
-                    // now covered by a moved wire.
-                    const allRedundant = app.shapes.filter(s =>
-                        s.type === 'wire' && isWireRedundant(app, s)
-                    );
-                    if (allRedundant.length > 0) {
-                        const delCmd = new DeleteShapesCommand(app, allRedundant);
-                        app.history.execute(delCmd);
+                    // Post-move: reconcile wire overlaps, merges, and junctions
+                    const movedWires = movedShapes.filter(s => s.type === 'wire' && app.shapes.includes(s));
+                    if (movedWires.length > 0) {
+                        const reconcileBatch = reconcileWiresWithUndo(app, movedWires);
+                        if (reconcileBatch) {
+                            // Combine MoveShapesCommand + reconcile into a single undo entry
+                            app.history.undoStack.pop(); // pop reconcile batch
+                            app.history.undoStack.pop(); // pop MoveShapesCommand
+                            const combined = new BatchCommand('Move + wire cleanup');
+                            combined.add(command);
+                            for (const cmd of reconcileBatch.commands) combined.add(cmd);
+                            app.history.undoStack.push(combined);
+                            app.history.redoStack = [];
+                            app.history._notifyChanged();
+                        }
                     }
                 }
             } else if (app.didDrag && app.dragMode === 'wire-segment' && app.dragWireStates) {
