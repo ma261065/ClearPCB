@@ -22,6 +22,7 @@
  */
 
 import { Wire } from '../../shapes/index.js';
+import { BatchCommand, AddShapeCommand, ModifyShapeCommand, DeleteShapesCommand } from '../../core/CommandHistory.js';
 
 // --- Pin helpers ---
 
@@ -424,13 +425,79 @@ export function finishWireDrawing(app, worldPos) {
         }
     });
 
-    app.addShape(wire);
+    // Capture before-states of all existing wires so that mutations from
+    // processWireJoins / processWireMerges can be undone as a single batch.
+    const existingWires = app.shapes.filter(s => s.type === 'wire');
+    const beforeStates = new Map();
+    for (const w of existingWires) beforeStates.set(w, w.captureState());
 
-    // Post-placement: check for joins onto other wires
+    // Add wire without creating a standalone undo entry — it will be
+    // part of the batch command below.
+    app._addShapeInternal(wire);
+
+    // Post-placement: check for joins onto other wires (may split/mutate)
     processWireJoins(app, wire);
 
-    // Check for end-to-end merges
+    // Check for end-to-end merges (may remove wires)
     processWireMerges(app, wire);
+
+    // Build a single BatchCommand that captures everything:
+    //   - the new wire addition
+    //   - any existing wires that were modified (split / junction added)
+    //   - any existing wires that were removed (merged into newWire)
+    //   - any new wires created by collinear split in processWireJoins
+    const batch = new BatchCommand('Draw wire');
+
+    // Collect after-states and identify changes
+    const removedWires = [];      // { wire, before }
+    const modifiedWires = [];     // { wire, before, after }
+    const addedWires = [];        // wires created by collinear split
+
+    for (const [w, before] of beforeStates) {
+        if (!app.shapes.includes(w)) {
+            removedWires.push({ wire: w, before });
+        } else {
+            const after = w.captureState();
+            if (JSON.stringify(before) !== JSON.stringify(after)) {
+                modifiedWires.push({ wire: w, before, after });
+            }
+        }
+    }
+    for (const s of app.shapes) {
+        if (s.type !== 'wire' || s === wire) continue;
+        if (!beforeStates.has(s)) {
+            addedWires.push(s);
+        }
+    }
+
+    // Revert everything to pre-mutation state so batch.execute() can replay
+    for (const { wire: w, before } of modifiedWires) {
+        w.applyState(before);
+        w.invalidate();
+    }
+    for (const { wire: w, before } of removedWires) {
+        w.applyState(before);
+        app._addShapeInternal(w);
+    }
+    for (const s of addedWires) {
+        app._removeShapeInternal(s);
+    }
+    app._removeShapeInternal(wire);
+
+    // Build batch: deletes first, then modifications, then adds
+    for (const { wire: w } of removedWires) {
+        batch.add(new DeleteShapesCommand(app, [w]));
+    }
+    for (const { wire: w, before, after } of modifiedWires) {
+        batch.add(new ModifyShapeCommand(app, w, before, after));
+    }
+    for (const s of addedWires) {
+        batch.add(new AddShapeCommand(app, s));
+    }
+    batch.add(new AddShapeCommand(app, wire));
+
+    // Execute the batch — replays all commands, reaching the final state
+    app.history.execute(batch);
 
     cancelWireDrawing(app);
 
@@ -745,7 +812,7 @@ export function processWireJoins(app, newWire) {
                             color: '#00cc66',
                             lineWidth: 0.25,
                         });
-                        app.addShape(secondWire);
+                        app._addShapeInternal(secondWire);
                     }
                     // processWireMerges will handle the endpoint-to-endpoint merge
                     continue;
