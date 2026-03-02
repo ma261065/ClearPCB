@@ -710,7 +710,7 @@ export function bindMouseEvents(app) {
                 let snappedToTarget = false;
                 if (isLeaf) {
                     const snap = resolveWireSnapPosition(app, worldPos, {
-                        excludeWire: app.dragShape,
+                        excludeNode: { wire: app.dragShape, nodeId: app.dragAnchorId },
                         pinTolerance: PIN_SNAP_TOL
                     });
                     anchorPos = { x: snap.x, y: snap.y };

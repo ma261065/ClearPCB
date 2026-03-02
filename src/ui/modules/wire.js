@@ -128,7 +128,9 @@ function pinDepartAxis(pin) {
  * @param {object} worldPos - Raw (unsnapped) cursor world position
  * @param {object} [options]
  * @param {object} [options.excludePin] - Pin snap to exclude (e.g. start pin)
- * @param {object} [options.excludeWire] - Wire to exclude from wire snap
+ * @param {object} [options.excludeWire] - Wire to exclude entirely from wire snap
+ * @param {{wire,nodeId}} [options.excludeNode] - Skip one node + its incident edges (partial exclusion)
+ * @param {Array<{a:{x,y},b:{x,y}}>} [options.extraSegments] - Additional segments to check (e.g. in-progress wirePoints)
  * @param {number} [options.pinTolerance=PIN_SNAP_TOL] - Pin detection radius
  * @param {number} [options.wireTolerance=WIRE_SNAP_TOL] - Wire detection radius
  * @returns {{ x, y, snapPin, snapType: 'pin'|'endpoint'|'segment'|'grid', wireDir? }}
@@ -137,6 +139,8 @@ export function resolveWireSnapPosition(app, worldPos, options = {}) {
     const {
         excludePin = null,
         excludeWire = null,
+        excludeNode = null,
+        extraSegments = null,
         pinTolerance = PIN_SNAP_TOL,
         wireTolerance = WIRE_SNAP_TOL
     } = options;
@@ -153,7 +157,7 @@ export function resolveWireSnapPosition(app, worldPos, options = {}) {
     }
 
     // 2. Wire snap (endpoint > segment — handled inside findNearbyWirePoint)
-    const nearWire = findNearbyWirePoint(app, worldPos, wireTolerance, excludeWire);
+    const nearWire = findNearbyWirePoint(app, worldPos, wireTolerance, excludeWire, { excludeNode, extraSegments });
     if (nearWire) {
         if (nearWire.type === 'endpoint') {
             return {
@@ -237,9 +241,13 @@ export function getDrawingSnappedPosition(app, worldPos) {
 
     // Use the unified resolver for snap target detection.
     // Exclude the start pin so we don't snap back to our own origin.
+    // Pass earlier wirePoints as extra segments so loop-back self-join
+    // snapping works — these segments aren't in app.shapes yet.
     const excludePin = lastPoint.pin ? { component: lastPoint.pin.component, pin: lastPoint.pin.pin } : null;
+    const extraSegments = _buildDrawingExtraSegments(app.wirePoints);
     const snap = resolveWireSnapPosition(app, worldPos, {
         excludePin,
+        extraSegments,
         pinTolerance: PIN_SNAP_TOL,
         wireTolerance: WIRE_SNAP_TOL,
     });
@@ -294,6 +302,23 @@ export function getDrawingSnappedPosition(app, worldPos) {
         }
         return { x: lastPoint.x, y: freeY, snapPin: null, snapType: 'grid' };
     }
+}
+
+/**
+ * Build the extra-segments array from in-progress wirePoints for
+ * self-join detection.  Skips the last segment (it leads into the
+ * current cursor position) and needs ≥ 3 points (≥ 2 segments).
+ *
+ * @param {Array<{x:number,y:number}>} pts - app.wirePoints
+ * @returns {Array<{a:{x,y},b:{x,y}}>|null}
+ */
+function _buildDrawingExtraSegments(pts) {
+    if (!pts || pts.length < 3) return null;
+    const segs = [];
+    for (let i = 0, end = pts.length - 2; i < end; i++) {
+        segs.push({ a: pts[i], b: pts[i + 1] });
+    }
+    return segs;
 }
 
 // --- Drawing lifecycle ---
@@ -660,19 +685,33 @@ export function updateSnapHighlight(app, target) {
  * that is within tolerance of worldPos.  Returns { x, y, type } or null.
  * type is 'endpoint' (snap to node) or 'segment' (T-junction on edge).
  */
-export function findNearbyWirePoint(app, worldPos, tolerance, excludeWires = null) {
+export function findNearbyWirePoint(app, worldPos, tolerance, excludeWires = null, options = {}) {
     const excludeSet = !excludeWires ? new Set() :
         excludeWires instanceof Set ? excludeWires : new Set([excludeWires]);
+
+    // Node-level exclusion: skip a specific node and its incident edges
+    // on a wire, while still considering the wire's other nodes/edges.
+    const { excludeNode = null, extraSegments = null } = options;
+    let excNodeEdgeIds = null;
+    if (excludeNode) {
+        excNodeEdgeIds = new Set(
+            excludeNode.wire.incidentEdges(excludeNode.nodeId).map(e => e.edgeId)
+        );
+    }
 
     let bestNode = null, bestNodeDist = tolerance;
     let bestEdge = null, bestEdgeDist = tolerance;
 
     for (const shape of app.shapes) {
         if (shape.type !== 'wire' || shape.edges.size === 0) continue;
+        // Full-wire exclusion (skip entire shape)
         if (excludeSet.has(shape)) continue;
 
+        const isPartiallyExcluded = excludeNode && shape === excludeNode.wire;
+
         // Check all nodes (endpoints, junctions, corners)
-        for (const [, pos] of shape.nodes) {
+        for (const [nid, pos] of shape.nodes) {
+            if (isPartiallyExcluded && nid === excludeNode.nodeId) continue;
             const d = Math.hypot(worldPos.x - pos.x, worldPos.y - pos.y);
             if (d < bestNodeDist) {
                 bestNodeDist = d;
@@ -681,18 +720,49 @@ export function findNearbyWirePoint(app, worldPos, tolerance, excludeWires = nul
         }
 
         // Check edges (T-junction)
-        const closest = shape.closestEdge(worldPos);
-        if (closest && closest.distance < bestEdgeDist) {
-            // Only count if not at an existing node
-            if (!shape.nodeAt(closest.point, VERTEX_EPSILON)) {
-                bestEdgeDist = closest.distance;
-                const e = shape.edges.get(closest.edgeId);
-                const a = shape.nodes.get(e.from), b = shape.nodes.get(e.to);
-                const dx = Math.abs(b.x - a.x), dy = Math.abs(b.y - a.y);
+        for (const [eid, e] of shape.edges) {
+            if (isPartiallyExcluded && excNodeEdgeIds.has(eid)) continue;
+            const a = shape.nodes.get(e.from), b = shape.nodes.get(e.to);
+            if (!a || !b) continue;
+            const dx = b.x - a.x, dy = b.y - a.y;
+            const lenSq = dx * dx + dy * dy;
+            if (lenSq === 0) continue;
+            let t = ((worldPos.x - a.x) * dx + (worldPos.y - a.y) * dy) / lenSq;
+            t = Math.max(0, Math.min(1, t));
+            const px = a.x + t * dx, py = a.y + t * dy;
+            const d = Math.hypot(worldPos.x - px, worldPos.y - py);
+            if (d < bestEdgeDist) {
+                // Only count if not at an existing node (but ignore the
+                // excluded node — it may have been moved here by a prior frame)
+                const hitNode = shape.nodeAt({ x: px, y: py }, VERTEX_EPSILON);
+                if (!hitNode || (isPartiallyExcluded && hitNode === excludeNode.nodeId)) {
+                    bestEdgeDist = d;
+                    bestEdge = {
+                        x: px, y: py,
+                        type: 'segment',
+                        wireDir: Math.abs(dx) >= Math.abs(dy) ? 'horizontal' : 'vertical'
+                    };
+                }
+            }
+        }
+    }
+
+    // Extra segments: in-progress wirePoints not yet in app.shapes
+    if (extraSegments) {
+        for (const { a, b } of extraSegments) {
+            const dx = b.x - a.x, dy = b.y - a.y;
+            const lenSq = dx * dx + dy * dy;
+            if (lenSq === 0) continue;
+            let t = ((worldPos.x - a.x) * dx + (worldPos.y - a.y) * dy) / lenSq;
+            t = Math.max(0, Math.min(1, t));
+            const px = a.x + t * dx, py = a.y + t * dy;
+            const d = Math.hypot(worldPos.x - px, worldPos.y - py);
+            if (d < bestEdgeDist) {
+                bestEdgeDist = d;
                 bestEdge = {
-                    x: closest.point.x, y: closest.point.y,
+                    x: px, y: py,
                     type: 'segment',
-                    wireDir: dx >= dy ? 'horizontal' : 'vertical'
+                    wireDir: Math.abs(dx) >= Math.abs(dy) ? 'horizontal' : 'vertical'
                 };
             }
         }
