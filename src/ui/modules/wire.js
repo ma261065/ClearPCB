@@ -24,8 +24,6 @@
 import { Wire, COLLINEAR_EPSILON as _SHAPE_COLLINEAR_EPSILON } from '../../shapes/index.js';
 import { BatchCommand, AddShapeCommand, ModifyShapeCommand, DeleteShapesCommand } from '../../core/CommandHistory.js';
 import { distanceToSegment, pointsMatch, pointsCollinear, segmentsCollinear, collinearSnap } from '../../core/geometry.js';
-// Re-export pure geometry helpers so existing consumers (SchematicApp, mouse.js) don't break
-export { pointsMatch, pointsCollinear, segmentsCollinear };
 
 // --- Constants ---
 

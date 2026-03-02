@@ -8,6 +8,9 @@ import { FileManager } from '../core/FileManager.js';
 import { ComponentPicker } from '../components/ComponentPicker.js';
 import { createShape } from '../shapes/index.js';
 import { getComponentLibrary } from '../components/index.js';
+// Modules with a small public API use named imports; modules with many
+// exports (wire, drawing, components, files, export) use namespace imports
+// to keep the import block manageable.
 import { bindMouseEvents } from './modules/mouse.js';
 import { handleEscape, bindKeyboardShortcuts } from './modules/keyboard.js';
 import { bindPropertiesPanel, applyCommonProperty, updatePropertiesPanel } from './modules/properties.js';
@@ -46,6 +49,17 @@ import {
 
 // Shape construction uses createShape() from shapes/index.js.
 
+/**
+ * Central application class — a thin facade over the `ui/modules/` layer.
+ *
+ * Almost all logic lives in the module files (mouse.js, wire.js, drawing.js,
+ * keyboard.js, etc.).  Methods here delegate to those modules, passing `this`
+ * as the shared app context.  If you're looking for how a feature works, check
+ * the corresponding module rather than this file.
+ *
+ * The constructor is the single source of truth for application state — every
+ * property that modules read or write on `app` is initialised here.
+ */
 class SchematicApp {
 
     /**
@@ -75,7 +89,7 @@ class SchematicApp {
         });
         this._updateSelectableItems();
 
-        // Tool/drawing state
+        // ── Tool / drawing state ─────────────────────────────────────
         this.currentTool = 'select';
         this.isDrawing = false;
         this.drawStart = null;
@@ -86,8 +100,13 @@ class SchematicApp {
         this.wireSnapPin = null;
         this.wireStartPin = null;
         this.lastSnappedData = null;
+        this.drawCorner = null;         // set by wire.js — auto-corner waypoint
+        this.linePoints = [];           // set by drawing.js — polyline vertices
+        this.arcEndpoint = null;        // set by drawing.js / mouse.js — arc second click
+        this.arcDirection = undefined;  // set by drawing.js — arc CW/CCW flag
+        this.arcSweepFlag = undefined;  // set by drawing.js — SVG sweep-flag
 
-        // Crosshair
+        // ── Crosshair ──────────────────────────────────────────────────
         this.crosshair = {
             container: document.getElementById('drawingCrosshair'),
             lineX: document.getElementById('crosshairX'),
@@ -95,26 +114,40 @@ class SchematicApp {
             toolIcon: document.getElementById('crosshairToolIcon')
         };
 
-        // Drag state
+        // ── Drag state (mutated by mouse.js / drag.js) ─────────────────
         this.isDragging = false;
-        this.didDrag = false;  // Track if actual drag occurred
-        this.dragMode = null;  // 'move', 'anchor', or 'box'
+        this.didDrag = false;              // true once an actual drag occurred
+        this.dragMode = null;              // 'move' | 'anchor' | 'wire-segment' | 'box'
         this.dragStart = null;
+        this.dragStartScreen = null;       // screen-space start for threshold check
+        this.dragStartWorldPos = null;     // world-space start for delta calculation
+        this.dragObjectStartPos = null;    // first selected shape's position at drag start
+        this.dragLastSnapped = null;       // last grid-snapped target position
         this.dragAnchorId = null;
         this.dragShape = null;
+        this.dragShapesBefore = null;      // state before drag for anchor modifications
         this.dragWireAnchorOriginal = null;
-        this.dragEdgeId = null;  // For wire-segment drag: which edge
-        this.dragWireStates = null;  // For wire-segment drag: before-states of all affected wires
+        this.dragEdgeId = null;            // wire-segment drag: which edge
+        this.dragSegAxis = null;           // wire-segment drag: axis lock ('horizontal'|'vertical')
+        this.dragWireStates = null;        // wire-segment drag: before-states of all affected wires
+        this.dragWireWorkingState = null;  // wire-segment drag: post-bridge-insertion state
+        this.dragTJunctionLinks = null;    // wire-segment drag: T-junction node links
+        this.dragAnchorTJLinks = null;     // anchor drag: T-junction links to other wires
+        this.dragAnchorWireStates = null;  // anchor drag: before-states of T-junction wires
+        this.pendingAnchorDrag = null;     // deferred anchor drag (before threshold is met)
+        this.dragTotalDx = 0;
+        this.dragTotalDy = 0;
         this.skipClickSelection = false;
+        this._collinearGuides = null;      // guide lines rendered during anchor drag
+        this._rightClickStart = null;      // screen pos for right-click drag detection
 
-        // Box selection
+        // ── Box selection ──────────────────────────────────────────────
         this.boxSelectElement = null;
         this.boxSelectStart = null;
 
-        // Drag tracking for undo/redo
-        this.dragTotalDx = 0;
-        this.dragTotalDy = 0;
-        this.dragShapesBefore = null;  // State before drag for anchor modifications
+        // ── Clipboard / paste state (set by clipboard.js) ─────────────
+        this.pastePreviewGroup = null;
+        this.pastingClipboard = false;
 
         // Tool options
         const savedOptions = loadToolOptions();
