@@ -286,8 +286,20 @@ export function getDrawingSnappedPosition(app, worldPos) {
         // Segment T-junction: endpoint position comes from resolveWireSnapPosition
         // (free axis grid-snapped, constrained axis on wire). Add auto-corner
         // so lastPoint stays put and we get an L-shaped path.
-        const corner = { x: snap.x, y: lastPoint.y };
-        return { x: snap.x, y: snap.y, snapPin: null, snapType: 'segment', corner };
+        //
+        // Guard: only accept the segment snap if the axis-constrained drawing
+        // position is itself near the snap point.  Without this, the raw cursor
+        // wandering toward a parallel wire above/below triggers an unwanted
+        // auto-corner even though the constrained wire is far from the target.
+        const constrainedPos = axis === 'horizontal'
+            ? { x: worldPos.x, y: lastPoint.y }
+            : { x: lastPoint.x, y: worldPos.y };
+        const distFromConstrained = Math.hypot(constrainedPos.x - snap.x, constrainedPos.y - snap.y);
+        if (distFromConstrained <= WIRE_SNAP_TOL) {
+            const corner = { x: snap.x, y: lastPoint.y };
+            return { x: snap.x, y: snap.y, snapPin: null, snapType: 'segment', corner };
+        }
+        // Segment too far from constrained position — fall through to grid snap
     }
 
     // Normal orthogonal constraint — but prefer a nearby pin's coordinate
