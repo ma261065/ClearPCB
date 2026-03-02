@@ -7,9 +7,18 @@ import { ShapeValidator } from '../core/ShapeValidator.js';
 import { distanceToSegment, pointInPolygon } from '../core/geometry.js';
 import { buildPointAnchorsGroup } from '../core/ui-helpers.js';
 
+/** Round to 4 decimal places for compact serialisation. */
 const _r4 = v => Math.round(v * 10000) / 10000;
 
 export class Polygon extends Shape {
+    /**
+     * @param {Object} [options]
+     * @param {Array<{x:number,y:number}>} [options.points] - Ordered vertices.
+     * @param {boolean} [options.fill=true]    - Whether the polygon is filled.
+     * @param {boolean} [options.closed=true]  - Closed polygon vs open polyline.
+     * @param {string}  [options.fillColor]    - Fill colour.
+     * @param {number}  [options.fillAlpha=0.5] - Fill opacity.
+     */
     constructor(options = {}) {
         super(options);
         this.type = 'polygon';
@@ -21,6 +30,7 @@ export class Polygon extends Shape {
         this.closed = options.closed !== undefined ? options.closed : true;
     }
     
+    /** @override */
     _calculateBounds() {
         if (this.points.length === 0) {
             return { minX: 0, minY: 0, maxX: 0, maxY: 0 };
@@ -45,6 +55,7 @@ export class Polygon extends Shape {
         };
     }
     
+    /** @override */
     hitTest(point, tolerance = 0.5) {
         if (this.fill && this.closed && pointInPolygon(point, this.points)) {
             return true;
@@ -52,6 +63,7 @@ export class Polygon extends Shape {
         return this.distanceTo(point) <= tolerance + this.lineWidth / 2;
     }
     
+    /** @override */
     distanceTo(point) {
         if (this.points.length < 2) return Infinity;
         
@@ -69,6 +81,7 @@ export class Polygon extends Shape {
         return minDist;
     }
     
+    /** @override — includes midpoint insertion anchors on each edge. */
     getAnchors() {
         const anchors = this.points.map((p, i) => ({
             id: `p${i}`,
@@ -93,6 +106,7 @@ export class Polygon extends Shape {
         return anchors;
     }
     
+    /** @override — dragging a midpoint anchor inserts a new vertex. */
     moveAnchor(anchorId, x, y) {
         if (anchorId.startsWith('mid')) {
             // Insert a new point after the segment start index
@@ -124,6 +138,7 @@ export class Polygon extends Shape {
         return true;
     }
 
+    /** @override — full rebuild every frame (vertex count can change). */
     _updateAnchors(scale) {
         if (!this.selected) {
             if (this.anchorsGroup) {
@@ -148,10 +163,11 @@ export class Polygon extends Shape {
         }
     }
     
+    /** @override */
     _createElement() {
         return document.createElementNS('http://www.w3.org/2000/svg', this.closed ? 'polygon' : 'polyline');
     }
-    
+    /** @override */
     _updateElement(el, strokeColor, fillColor, scale) {
         // Filter out invalid points to prevent crashes
         const validPoints = this.points.filter(p => 
@@ -174,6 +190,7 @@ export class Polygon extends Shape {
         }
     }
     
+    /** @override */
     move(dx, dy) {
         if (!Number.isFinite(dx) || !Number.isFinite(dy)) return;
         for (const p of this.points) {
@@ -183,17 +200,18 @@ export class Polygon extends Shape {
         this.invalidate();
     }
     
+    /** @override */
     clone() {
         return new Polygon({
             ...this.toJSON(),
             points: this.points.map(p => ({ x: p.x, y: p.y }))
         });
     }
-    
+    /** @override */
     captureState() {
         return { points: this.points.map(p => ({ x: p.x, y: p.y })) };
     }
-    
+    /** @override */
     applyState(state) {
         if (state.points) {
             this.points = state.points.map(p => ({ x: p.x, y: p.y }));
@@ -201,6 +219,7 @@ export class Polygon extends Shape {
         this.invalidate();
     }
     
+    /** @override */
     getPropertyDescriptors() {
         return [
             { key: 'locked',    label: 'Locked',     type: 'checkbox' },
@@ -208,11 +227,11 @@ export class Polygon extends Shape {
             { key: 'fill',      label: 'Fill',        type: 'checkbox' },
         ];
     }
-
+    /** @override */
     getPosition() {
         return this.points.length > 0 ? { x: this.points[0].x, y: this.points[0].y } : { x: 0, y: 0 };
     }
-    
+    /** @override */
     toJSON() {
         const json = {
             ...super.toJSON(),

@@ -5,6 +5,12 @@
  */
 
 export class CommandHistory {
+    /**
+     * Create a new CommandHistory.
+     * @param {Object} [options]
+     * @param {number} [options.maxSize=100] - Maximum number of undo entries to keep
+     * @param {Function} [options.onChanged] - Callback fired after every undo/redo/execute/clear
+     */
     constructor(options = {}) {
         this.undoStack = [];
         this.redoStack = [];
@@ -102,6 +108,7 @@ export class CommandHistory {
         return this.redoStack[this.redoStack.length - 1].description;
     }
     
+    /** Notify the onChanged callback with current undo/redo state. */
     _notifyChanged() {
         if (this.onChanged) {
             this.onChanged({
@@ -118,14 +125,19 @@ export class CommandHistory {
  * Base Command class
  */
 export class Command {
+    /**
+     * @param {string} [description='Unknown action'] - Human-readable description for the undo/redo menu
+     */
     constructor(description = 'Unknown action') {
         this.description = description;
     }
     
+    /** Execute (or re-execute) the command. Subclasses must override. */
     execute() {
         throw new Error('execute() must be implemented');
     }
     
+    /** Reverse the command. Subclasses must override. */
     undo() {
         throw new Error('undo() must be implemented');
     }
@@ -135,16 +147,22 @@ export class Command {
  * Command to add a shape
  */
 export class AddShapeCommand extends Command {
+    /**
+     * @param {SchematicApp} app - Application instance
+     * @param {Shape} shape - The shape to add
+     */
     constructor(app, shape) {
         super(`Add ${shape.type}`);
         this.app = app;
         this.shape = shape;
     }
     
+    /** Add the shape to the canvas. */
     execute() {
         this.app._addShapeInternal(this.shape);
     }
     
+    /** Remove the shape from the canvas. */
     undo() {
         this.app._removeShapeInternal(this.shape);
     }
@@ -154,6 +172,10 @@ export class AddShapeCommand extends Command {
  * Command to delete shapes
  */
 export class DeleteShapesCommand extends Command {
+    /**
+     * @param {SchematicApp} app - Application instance
+     * @param {Shape[]} shapes - The shapes to delete
+     */
     constructor(app, shapes) {
         super(shapes.length === 1 ? `Delete ${shapes[0].type}` : `Delete ${shapes.length} shapes`);
         this.app = app;
@@ -168,6 +190,7 @@ export class DeleteShapesCommand extends Command {
         }));
     }
     
+    /** Remove the shapes from the canvas and deselect them. */
     execute() {
         const app = this.app;
         const toRemove = new Set(this.shapesData.map(d => d.shape));
@@ -204,6 +227,7 @@ export class DeleteShapesCommand extends Command {
         app.fileManager.setDirty(true);
     }
     
+    /** Re-insert the shapes at their original z-order positions. */
     undo() {
         const app = this.app;
         // Detach content layer for batched DOM additions
@@ -235,6 +259,12 @@ export class DeleteShapesCommand extends Command {
  * Command to move shapes
  */
 export class MoveShapesCommand extends Command {
+    /**
+     * @param {SchematicApp} app - Application instance
+     * @param {Array<Shape|Component>} items - Items to move
+     * @param {number} dx - Horizontal displacement
+     * @param {number} dy - Vertical displacement
+     */
     constructor(app, items, dx, dy) {
         const label = items.length === 1 
             ? `Move ${items[0].type || items[0].reference || 'item'}` 
@@ -246,6 +276,10 @@ export class MoveShapesCommand extends Command {
         this.dy = dy;
     }
     
+    /**
+     * Build a Map of id → shape/component for O(1) lookups.
+     * @returns {Map<string, Shape|Component>}
+     */
     _buildLookup() {
         const map = new Map();
         for (const s of this.app.shapes) map.set(s.id, s);
@@ -253,6 +287,7 @@ export class MoveShapesCommand extends Command {
         return map;
     }
     
+    /** Move all items by (dx, dy) and update sticky wires. */
     execute() {
         const lookup = this._buildLookup();
         for (const id of this.itemIds) {
@@ -263,6 +298,7 @@ export class MoveShapesCommand extends Command {
         this.app.renderShapes(true);
     }
     
+    /** Move all items by (-dx, -dy) and update sticky wires. */
     undo() {
         const lookup = this._buildLookup();
         for (const id of this.itemIds) {
@@ -275,6 +311,8 @@ export class MoveShapesCommand extends Command {
 
     /**
      * Update wire nodes connected to component pins after move/undo.
+     * NOTE: Duplicates updateStickyWires() in ui/modules/wire.js.
+     * Kept inline to avoid circular import (wire.js imports from this module).
      */
     _updateStickyWires() {
         for (const shape of this.app.shapes) {
@@ -301,6 +339,12 @@ export class MoveShapesCommand extends Command {
  * Command to modify a shape (e.g., resize via anchor drag)
  */
 export class ModifyShapeCommand extends Command {
+    /**
+     * @param {SchematicApp} app - Application instance
+     * @param {Shape|Component} shape - The item being modified
+     * @param {Object} beforeState - Snapshot of shape state before the edit
+     * @param {Object} afterState - Snapshot of shape state after the edit
+     */
     constructor(app, shape, beforeState, afterState) {
         super(`Modify ${shape.type}`);
         this.app = app;
@@ -309,6 +353,7 @@ export class ModifyShapeCommand extends Command {
         this.afterState = afterState;
     }
     
+    /** Apply the after-state to restore the modification. */
     execute() {
         const shape = this._findItem(this.shapeId);
         if (shape) {
@@ -316,6 +361,7 @@ export class ModifyShapeCommand extends Command {
         }
     }
     
+    /** Apply the before-state to reverse the modification. */
     undo() {
         const shape = this._findItem(this.shapeId);
         if (shape) {
@@ -323,12 +369,22 @@ export class ModifyShapeCommand extends Command {
         }
     }
     
+    /**
+     * Find a shape or component by ID.
+     * @param {string} id
+     * @returns {Shape|Component|undefined}
+     */
     _findItem(id) {
         let item = this.app.shapes.find(s => s.id === id);
         if (!item) item = this.app.components.find(c => c.id === id);
         return item;
     }
 
+    /**
+     * Apply a captured state snapshot to a shape and re-render.
+     * @param {Shape|Component} shape
+     * @param {Object} state - State object from captureState()
+     */
     _applyState(shape, state) {
         shape.applyState(state);
         // Sync field text changes back to parent component
@@ -343,6 +399,12 @@ export class ModifyShapeCommand extends Command {
  * Command to modify properties on one or more shapes/components
  */
 export class ModifyPropertyCommand extends Command {
+    /**
+     * @param {SchematicApp} app - Application instance
+     * @param {Array<Shape|Component>} items - Items whose property is changing
+     * @param {string} prop - Property name to modify
+     * @param {*} newValue - New value for the property
+     */
     constructor(app, items, prop, newValue) {
         const label = items.length === 1
             ? `Change ${prop} of ${items[0].type || 'item'}`
@@ -357,12 +419,23 @@ export class ModifyPropertyCommand extends Command {
         this.prop = prop;
     }
 
+    /**
+     * Find a shape or component by ID.
+     * @param {string} id
+     * @returns {Shape|Component|undefined}
+     */
     _findItem(id) {
         let item = this.app.shapes.find(s => s.id === id);
         if (!item) item = this.app.components.find(c => c.id === id);
         return item;
     }
 
+    /**
+     * Apply new or old property values to all affected items and re-render.
+     * Handles special cases like mirror (flipHorizontal), field text sync,
+     * and show-reference/show-value visibility toggling.
+     * @param {boolean} useNew - If true apply newValue; otherwise restore oldValue
+     */
     _applyValues(useNew) {
         const lookup = new Map();
         for (const s of this.app.shapes) lookup.set(s.id, s);
@@ -406,7 +479,9 @@ export class ModifyPropertyCommand extends Command {
         this.app.renderShapes(true);
     }
 
+    /** Apply the new property values. */
     execute() { this._applyValues(true); }
+    /** Restore the old property values. */
     undo() { this._applyValues(false); }
 }
 
@@ -414,6 +489,10 @@ export class ModifyPropertyCommand extends Command {
  * Command to delete components
  */
 export class DeleteComponentsCommand extends Command {
+    /**
+     * @param {SchematicApp} app - Application instance
+     * @param {Component[]} components - Components to delete
+     */
     constructor(app, components) {
         super(components.length === 1
             ? `Delete ${components[0].reference || 'component'}`
@@ -430,6 +509,7 @@ export class DeleteComponentsCommand extends Command {
         }));
     }
 
+    /** Remove the components and their field texts from the canvas. */
     execute() {
         const app = this.app;
         // Collect all items to remove
@@ -480,6 +560,7 @@ export class DeleteComponentsCommand extends Command {
         app.fileManager.setDirty(true);
     }
 
+    /** Re-insert the components at their original positions and restore field texts. */
     undo() {
         const app = this.app;
         const sorted = [...this.componentsData].sort((a, b) => a.index - b.index);
@@ -509,12 +590,17 @@ export class DeleteComponentsCommand extends Command {
  * Command to add a component
  */
 export class AddComponentCommand extends Command {
+    /**
+     * @param {SchematicApp} app - Application instance
+     * @param {Component} component - The component to add
+     */
     constructor(app, component) {
         super(`Add ${component.reference || 'component'}`);
         this.app = app;
         this.component = component;
     }
 
+    /** Add the component and its field texts to the canvas. */
     execute() {
         this.app.components.push(this.component);
         if (!this.component.element) {
@@ -538,6 +624,7 @@ export class AddComponentCommand extends Command {
         this.app.fileManager.setDirty(true);
     }
 
+    /** Remove the component and its field texts from the canvas. */
     undo() {
         const idx = this.app.components.indexOf(this.component);
         if (idx !== -1) {
@@ -570,6 +657,11 @@ export class AddComponentCommand extends Command {
  * Command to transform a component (rotate/flip)
  */
 export class TransformComponentCommand extends Command {
+    /**
+     * @param {SchematicApp} app - Application instance
+     * @param {Component[]} components - Components to transform
+     * @param {string} type - Transform type: 'RotateRight', 'RotateLeft', 'FlipH', 'FlipV', 'Rotate', or 'Mirror'
+     */
     constructor(app, components, type) {
         const label = components.length === 1
             ? `${type} ${components[0].reference || 'component'}`
@@ -588,6 +680,11 @@ export class TransformComponentCommand extends Command {
         }));
     }
 
+    /**
+     * Apply or reverse the transform on all affected components.
+     * @param {boolean} useOld - If true, restore the captured before-state (undo);
+     *                           if false, perform the transform (execute)
+     */
     _apply(useOld) {
         for (const entry of this.entries) {
             const comp = this.app.components.find(c => c.id === entry.id);
@@ -628,7 +725,9 @@ export class TransformComponentCommand extends Command {
         this.app.renderShapes(true);
     }
 
+    /** Perform the transform. */
     execute() { this._apply(false); }
+    /** Reverse the transform by restoring captured state. */
     undo() { this._apply(true); }
 }
 
@@ -637,6 +736,11 @@ export class TransformComponentCommand extends Command {
  * Only rebuilds the selectable-items map once at the end (O(N) instead of O(N²)).
  */
 export class PasteCommand extends Command {
+    /**
+     * @param {SchematicApp} app - Application instance
+     * @param {Shape[]} shapes - Pasted shapes
+     * @param {Component[]} components - Pasted components
+     */
     constructor(app, shapes, components) {
         const n = shapes.length + components.length;
         super(`Paste ${n} item${n !== 1 ? 's' : ''}`);
@@ -645,6 +749,7 @@ export class PasteCommand extends Command {
         this.components = components;
     }
 
+    /** Add all pasted shapes and components to the canvas. */
     execute() {
         const app = this.app;
         // Build a Set for O(1) membership checks on field texts
@@ -679,6 +784,7 @@ export class PasteCommand extends Command {
         app.fileManager.setDirty(true);
     }
 
+    /** Remove all pasted shapes and components from the canvas. */
     undo() {
         const app = this.app;
         // Collect all items to remove in Sets for O(N) filtering
@@ -740,19 +846,28 @@ export class PasteCommand extends Command {
  * Command that groups multiple sub-commands into a single undo/redo entry
  */
 export class BatchCommand extends Command {
+    /**
+     * @param {string} label - Description for the grouped operation
+     */
     constructor(label) {
         super(label);
         this.commands = [];
     }
 
+    /**
+     * Append a sub-command to the batch.
+     * @param {Command} command
+     */
     add(command) {
         this.commands.push(command);
     }
 
+    /** Execute all sub-commands in order. */
     execute() {
         for (const cmd of this.commands) cmd.execute();
     }
 
+    /** Undo all sub-commands in reverse order. */
     undo() {
         for (let i = this.commands.length - 1; i >= 0; i--) this.commands[i].undo();
     }

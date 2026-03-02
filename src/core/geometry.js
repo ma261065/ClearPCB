@@ -161,3 +161,58 @@ export function bulgePointFromRatio(p1, p2, ratio) {
     const dist = clamped * halfChord;
     return { x: mx + ux * dist, y: my + uy * dist };
 }
+
+// ==================== Collinearity / Point Matching ====================
+
+/**
+ * Check if two points match within epsilon (Chebyshev distance).
+ */
+export function pointsMatch(a, b, epsilon = 1e-6) {
+    return a && b && Math.abs(a.x - b.x) < epsilon && Math.abs(a.y - b.y) < epsilon;
+}
+
+/**
+ * Check if three sequential points are collinear.
+ * Uses the normalized cross product (sine of the angle at b).
+ * Returns true if the angle deviates less than angleTol from 180°.
+ * Degenerate zero-length spans are treated as collinear.
+ */
+export function pointsCollinear(a, b, c, angleTol = 0.05) {
+    const dx1 = b.x - a.x, dy1 = b.y - a.y;
+    const dx2 = c.x - b.x, dy2 = c.y - b.y;
+    const len1 = Math.hypot(dx1, dy1), len2 = Math.hypot(dx2, dy2);
+    if (len1 < 1e-9 || len2 < 1e-9) return true;
+    return Math.abs(dx1 * dy2 - dy1 * dx2) / (len1 * len2) < angleTol;
+}
+
+/**
+ * Check if two segments are collinear (parallel and overlapping direction).
+ * seg1/seg2 are { a: {x,y}, b: {x,y} }.
+ */
+export function segmentsCollinear(seg1, seg2, angleTol = 0.05) {
+    const dx1 = seg1.b.x - seg1.a.x, dy1 = seg1.b.y - seg1.a.y;
+    const dx2 = seg2.b.x - seg2.a.x, dy2 = seg2.b.y - seg2.a.y;
+    const len1 = Math.hypot(dx1, dy1), len2 = Math.hypot(dx2, dy2);
+    if (len1 < 1e-9 || len2 < 1e-9) return true;
+    return Math.abs(dx1 * dy2 - dy1 * dx2) / (len1 * len2) < angleTol;
+}
+
+/**
+ * If three points are nearly collinear (within threshold world units),
+ * project mid onto the line through outer and far.
+ * Returns the projected point, or null if not collinear enough.
+ */
+export function collinearSnap(outer, mid, far, threshold) {
+    const dx1 = mid.x - outer.x, dy1 = mid.y - outer.y;
+    const len1 = Math.hypot(dx1, dy1);
+    if (len1 < 1e-9) return null;
+    const ldx = far.x - outer.x, ldy = far.y - outer.y;
+    const lenSq = ldx * ldx + ldy * ldy;
+    if (lenSq < 1e-9) return null;
+    const cross = Math.abs(dx1 * ldy - dy1 * ldx) / Math.sqrt(lenSq);
+    if (cross < threshold) {
+        const t = (dx1 * ldx + dy1 * ldy) / lenSq;
+        return { x: outer.x + t * ldx, y: outer.y + t * ldy };
+    }
+    return null;
+}

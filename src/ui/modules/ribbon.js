@@ -1,5 +1,11 @@
 import { hasClipboard } from './clipboard.js';
 
+/**
+ * Binds all ribbon tab buttons, tool buttons, file commands, edit commands,
+ * and event listeners; sets up the save toast, active tab tracking, and
+ * shape panel options.
+ * @param {object} app - Application state.
+ */
 export function bindRibbon(app) {
     const showSaveToast = (anchorEl, text = 'Saved') => {
         if (!anchorEl) return;
@@ -135,6 +141,13 @@ export function bindRibbon(app) {
     });
 }
 
+/**
+ * Populates or clears the shape-options panel (line width, fill checkbox,
+ * font size) based on the active tool when nothing is selected.
+ * @param {object} app - Application state.
+ * @param {Array} selection - Currently selected items.
+ * @param {string} [toolIdArg] - Active tool identifier override.
+ */
 export function updateShapePanelOptions(app, selection, toolIdArg) {
     const container = document.getElementById('ribbonShapeOptions');
     if (!container) return;
@@ -211,6 +224,12 @@ export function updateShapePanelOptions(app, selection, toolIdArg) {
     }
 }
 
+/**
+ * Enables/disables ribbon buttons (delete, lock, cut, copy, paste, rotate)
+ * based on the current selection count and clipboard state.
+ * @param {object} app - Application state.
+ * @param {Array} selection - Currently selected items.
+ */
 export function updateRibbonState(app, selection) {
     const count = selection.length;
     const lockBtn = document.getElementById('ribbonToggleLock');

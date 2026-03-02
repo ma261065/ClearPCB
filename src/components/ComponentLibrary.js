@@ -20,6 +20,7 @@ import { KiCadFetcher } from './KiCadFetcher.js';
 import { storageManager } from '../core/StorageManager.js';
 
 export class ComponentLibrary {
+    /** Initialise the component library, loading built-in and user components. */
     constructor() {
         // Component definitions by name
         this.definitions = new Map();
@@ -354,6 +355,12 @@ export class ComponentLibrary {
     }
 
 
+    /**
+     * Parse an EasyEDA symbol data object into an internal symbol definition.
+     * Converts raw EasyEDA coordinates to local coords scaled by 0.254.
+     * @param {Object} dataStr - EasyEDA symbol payload (contains `.shape` array and optional `.BBox`)
+     * @returns {Object|null} Symbol definition or null on failure
+     */
     _createEasyEDASymbol(dataStr) {
         if (!dataStr || !Array.isArray(dataStr.shape)) {
             return null;
@@ -520,6 +527,13 @@ export class ComponentLibrary {
         };
     }
 
+    /**
+     * Parse a single EasyEDA shape string into a graphic descriptor.
+     * Handles line (L), polyline (PL), polygon (PG), rect (R), circle (C),
+     * ellipse (E), arc (A), and path (PT) types.
+     * @param {string} shape - Tilde-separated shape string
+     * @returns {Object|null} Graphic descriptor or null if unrecognised
+     */
     _parseEasyEDAGraphic(shape) {
         const parts = shape.split('~');
         const type = parts[0];
@@ -663,6 +677,12 @@ export class ComponentLibrary {
         }
     }
 
+    /**
+     * Parse an EasyEDA pin shape string into a pin descriptor.
+     * Extracts connection point, orientation, name/number and label positions.
+     * @param {string} shape - Pin shape string (segments joined by '^^')
+     * @returns {Object|null} Pin descriptor or null on failure
+     */
     _parseEasyEDAPin(shape) {
         const segments = shape.split('^^');
         const header = segments[0].split('~');
@@ -801,6 +821,12 @@ export class ComponentLibrary {
         };
     }
 
+    /**
+     * Extract orientation and length from an EasyEDA pin path string.
+     * Handles M...h, M...v, and M...L formats.
+     * @param {string} path - SVG path data (e.g. 'M 0 0 h 10')
+     * @returns {{orientation: string, length: number}|null}
+     */
     _parseEasyEDAPinPath(path) {
         const hMatch = path.match(/M\s*(-?\d+(?:\.\d+)?)\s*[ ,]\s*(-?\d+(?:\.\d+)?)\s*h\s*(-?\d+(?:\.\d+)?)/i);
         if (hMatch) {
@@ -844,6 +870,11 @@ export class ComponentLibrary {
         return null;
     }
 
+    /**
+     * Convert an EasyEDA rotation angle to a cardinal orientation string.
+     * @param {number} angle - Angle in degrees (0, 90, 180, 270)
+     * @returns {'left'|'right'|'up'|'down'}
+     */
     _easyedaAngleToOrientation(angle) {
         const normalized = ((Number(angle) % 360) + 360) % 360;
         if (normalized === 0) return 'left';
@@ -853,6 +884,14 @@ export class ComponentLibrary {
         return 'right';
     }
 
+    /**
+     * Translate and scale an EasyEDA graphic from raw coordinates to local symbol space.
+     * @param {Object} graphic - Graphic descriptor from _parseEasyEDAGraphic
+     * @param {number} offsetX - X origin offset (subtracted before scaling)
+     * @param {number} offsetY - Y origin offset
+     * @param {number} scale - Coordinate scale factor (typically 0.254)
+     * @returns {Object} Transformed graphic
+     */
     _transformEasyEDAGraphic(graphic, offsetX, offsetY, scale) {
         const strokeWidth = Number.isFinite(graphic.strokeWidth) ? graphic.strokeWidth * scale : 0.254;
 
@@ -917,6 +956,14 @@ export class ComponentLibrary {
         }
     }
 
+    /**
+     * Translate and scale an EasyEDA pin (position, length, path data, label positions).
+     * @param {Object} pin - Pin descriptor from _parseEasyEDAPin
+     * @param {number} offsetX - X origin offset
+     * @param {number} offsetY - Y origin offset
+     * @param {number} scale - Coordinate scale factor
+     * @returns {Object} Transformed pin
+     */
     _transformEasyEDAPin(pin, offsetX, offsetY, scale) {
         const scaleFont = (pos) => {
             if (!pos) return null;
@@ -980,6 +1027,12 @@ export class ComponentLibrary {
         };
     }
 
+    /**
+     * Estimate the number of pins for a component from its footprint pad data
+     * or package string.
+     * @param {Object} metadata - LCSC component metadata
+     * @returns {number} Estimated pin count (0 if unknown)
+     */
     _estimatePinCount(metadata) {
         if (!metadata) return 0;
 
@@ -1009,6 +1062,11 @@ export class ComponentLibrary {
         return 0;
     }
 
+    /**
+     * Create a generic inline symbol (pins down the left side, body rectangle).
+     * @param {number} pinCount - Number of pins
+     * @returns {Object} Symbol definition
+     */
     _createGenericInlineSymbol(pinCount) {
         const spacing = 2.54;
         const width = 6;
@@ -1049,6 +1107,10 @@ export class ComponentLibrary {
         return symbol;
     }
 
+    /**
+     * Create a 3-pin toggle switch symbol.
+     * @returns {Object} Symbol definition
+     */
     _createSwitch3PinSymbol() {
         return {
             width: 10,
@@ -1329,6 +1391,10 @@ export class ComponentLibrary {
 // Singleton instance
 let libraryInstance = null;
 
+/**
+ * Return (or create) the global ComponentLibrary singleton.
+ * @returns {ComponentLibrary}
+ */
 export function getComponentLibrary() {
     if (!libraryInstance) {
         libraryInstance = new ComponentLibrary();

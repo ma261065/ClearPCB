@@ -1,6 +1,11 @@
 import { setCheckboxState } from './ui-utils.js';
 import { ModifyPropertyCommand } from '../../core/CommandHistory.js';
 
+/**
+ * Initializes the properties panel and subscribes to `selectionChanged`
+ * events to rebuild it when the selection changes.
+ * @param {object} app - Application state.
+ */
 export function bindPropertiesPanel(app) {
     if (!app.ui.propertiesPanel) return;
 
@@ -61,6 +66,12 @@ function _createSection(title) {
 
 // ── panel rendering ──────────────────────────────────────────────
 
+/**
+ * Rebuilds the properties panel DOM: shows merged property descriptors,
+ * clipboard actions, transform buttons (for components), and delete.
+ * @param {object} app - Application state.
+ * @param {Array} selection - Currently selected shapes/components.
+ */
 export function updatePropertiesPanel(app, selection) {
     const panel = app.ui.propertiesPanel;
     if (!panel) return;
@@ -313,6 +324,13 @@ function _bindActionButtons(app) {
 
 // ── property application ─────────────────────────────────────────
 
+/**
+ * Applies a property value change to all selected items via
+ * `ModifyPropertyCommand`, with duplicate reference validation for components.
+ * @param {object} app - Application state.
+ * @param {string} prop - Property key to modify.
+ * @param {*} value - New value for the property.
+ */
 export function applyCommonProperty(app, prop, value) {
     const selection = app.selection.getSelection();
     if (selection.length === 0) return;

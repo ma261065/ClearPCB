@@ -4,7 +4,7 @@
 
 export { Shape, updateIdCounter, resetIdCounter } from './shape.js';
 export { Line } from './line.js';
-export { Wire } from './wire.js';
+export { Wire, bumpWireLabelCounter, resetWireLabelCounter, COLLINEAR_EPSILON } from './wire.js';
 export { Circle } from './circle.js';
 export { Rect } from './rect.js';
 export { Arc } from './arc.js';
@@ -32,8 +32,8 @@ const shapeRegistry = {
 /** Map short serialisation keys back to constructor-friendly long names. */
 const SHORT_KEYS = {
     c: 'color', l: 'layer', lw: 'lineWidth', v: 'visible', lk: 'locked',
-    pts: 'points', cn: 'connections', n: 'net', jn: 'junctions',
-    nd: 'graphNodes', ed: 'graphEdges', pc: 'pinConnections',
+    pts: 'points', n: 'net',
+    nd: 'graphNodes', ed: 'graphEdges', pc: 'pinConnections', wl: 'wireLabel',
     r: 'radius', w: 'width', h: 'height', cr: 'cornerRadius',
     f: 'fill', fc: 'fillColor', fa: 'fillAlpha', cl: 'closed',
     sp: 'startPoint', ep: 'endPoint', bp: 'bulgePoint',
@@ -41,6 +41,12 @@ const SHORT_KEYS = {
     cid: 'componentId', fk: 'fieldKey',
 };
 
+/**
+ * Expand short serialisation keys to constructor-friendly long names
+ * and unflatten flat point arrays.
+ * @param {Object} data - Compact JSON shape data.
+ * @returns {Object} Expanded data ready for shape constructor.
+ */
 function expandShapeData(data) {
     const out = {};
     for (const [k, v] of Object.entries(data)) {

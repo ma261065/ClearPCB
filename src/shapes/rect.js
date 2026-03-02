@@ -5,9 +5,21 @@
 import { Shape } from './shape.js';
 import { ShapeValidator } from '../core/ShapeValidator.js';
 
+/** Round to 4 decimal places for compact serialisation. */
 const _r4 = v => Math.round(v * 10000) / 10000;
 
 export class Rect extends Shape {
+    /**
+     * @param {Object} [options]
+     * @param {number}  [options.x=0]           - Top-left X in mm.
+     * @param {number}  [options.y=0]           - Top-left Y in mm.
+     * @param {number}  [options.width=10]      - Width in mm.
+     * @param {number}  [options.height=10]     - Height in mm.
+     * @param {number}  [options.cornerRadius=0] - Corner rounding radius.
+     * @param {boolean} [options.fill=false]     - Whether the rect is filled.
+     * @param {string}  [options.fillColor]      - Fill colour.
+     * @param {number}  [options.fillAlpha=0.3]  - Fill opacity.
+     */
     constructor(options = {}) {
         super(options);
         this.type = 'rect';
@@ -27,6 +39,7 @@ export class Rect extends Shape {
         });
     }
     
+    /** @override */
     _calculateBounds() {
         const hw = this.lineWidth / 2;
         return {
@@ -37,6 +50,7 @@ export class Rect extends Shape {
         };
     }
     
+    /** @override */
     hitTest(point, tolerance = 0.5) {
         const bounds = this.getBounds();
         const expanded = {
@@ -68,6 +82,7 @@ export class Rect extends Shape {
         return !insideInner;
     }
     
+    /** @override */
     distanceTo(point) {
         const cx = this.x + this.width / 2;
         const cy = this.y + this.height / 2;
@@ -78,6 +93,7 @@ export class Rect extends Shape {
         return Math.hypot(dx, dy);
     }
     
+    /** @override */
     getAnchors() {
         return [
             { id: 'tl', x: this.x, y: this.y, cursor: 'nwse-resize' },
@@ -87,6 +103,7 @@ export class Rect extends Shape {
         ];
     }
     
+    /** @override — returns new anchor ID when dimensions flip. */
     moveAnchor(anchorId, x, y) {
         switch (anchorId) {
             case 'tl':
@@ -146,10 +163,11 @@ export class Rect extends Shape {
         return newAnchorId;
     }
     
+    /** @override */
     _createElement() {
         return document.createElementNS('http://www.w3.org/2000/svg', 'rect');
     }
-    
+    /** @override */
     _updateElement(el, strokeColor, fillColor, scale) {
         el.setAttribute('x', this.x);
         el.setAttribute('y', this.y);
@@ -171,6 +189,7 @@ export class Rect extends Shape {
         }
     }
     
+    /** @override */
     move(dx, dy) {
         if (!Number.isFinite(dx) || !Number.isFinite(dy)) return;
         this.x += dx;
@@ -178,13 +197,16 @@ export class Rect extends Shape {
         this.invalidate();
     }
     
+    /** @override */
     clone() {
         return new Rect({ ...this.toJSON(), x: this.x, y: this.y, width: this.width, height: this.height, cornerRadius: this.cornerRadius });
     }
+    /** @override */
         captureState() {
         return { x: this.x, y: this.y, width: this.width, height: this.height };
     }
     
+    /** @override */
     getPropertyDescriptors() {
         return [
             { key: 'locked',    label: 'Locked',     type: 'checkbox' },
@@ -192,7 +214,7 @@ export class Rect extends Shape {
             { key: 'fill',      label: 'Fill',        type: 'checkbox' },
         ];
     }
-
+    /** @override */
     toJSON() {
         const json = { ...super.toJSON(), x: _r4(this.x), y: _r4(this.y), w: _r4(this.width), h: _r4(this.height) };
         if (this.cornerRadius) json.cr = _r4(this.cornerRadius);

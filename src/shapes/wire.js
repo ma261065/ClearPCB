@@ -11,16 +11,69 @@
  */
 
 import { Shape } from './shape.js';
-import { distanceToSegment } from '../core/geometry.js';
+import { distanceToSegment, pointsCollinear } from '../core/geometry.js';
 import { buildPointAnchorsGroup } from '../core/ui-helpers.js';
 
+/** Round to 4 decimal places for compact serialisation. */
 const _r4 = v => Math.round(v * 10000) / 10000;
-const COLLINEAR_EPSILON = 0.01;
+
+// ── Geometry constants ────────────────────────────────────────────
+
+/** Threshold for treating points as coincident (world units). */
+export const COLLINEAR_EPSILON = 0.01;
+
+/** Snap radius for finding a node near a point (world units). */
+const NODE_SNAP_EPSILON = 0.15;
+
+/** Margin from edge endpoints when detecting node-on-edge (t-parameter). */
+const T_ENDPOINT_MARGIN = 0.001;
+
+/** Default tolerance for hit-testing (world units). */
+const HIT_TEST_TOLERANCE = 0.5;
+
+/** Minimum junction dot radius (world units). */
+const MIN_JUNCTION_RADIUS = 0.4;
+
+/** Junction dot radius in screen pixels (divided by scale). */
+const JUNCTION_SCREEN_PX = 2.5;
+
+/** Maximum iterations for cleanGraph convergence loop. */
+const MAX_CLEAN_ITERATIONS = 100;
+
+// ── Wire label counter (Wnnnn) ────────────────────────────────────
+let _wireLabelCounter = 0;
+
+/** Allocate the next wire label (W0001, W0002, …). */
+export function nextWireLabel() {
+    return `W${String(++_wireLabelCounter).padStart(4, '0')}`;
+}
+
+/** Ensure counter stays ahead of any loaded label. */
+export function bumpWireLabelCounter(label) {
+    const m = label && label.match(/^W(\d+)$/);
+    if (m) {
+        const n = parseInt(m[1], 10);
+        if (n >= _wireLabelCounter) _wireLabelCounter = n;
+    }
+}
+
+/** Reset the wire label counter (for testing / new-document). */
+export function resetWireLabelCounter() {
+    _wireLabelCounter = 0;
+}
 
 export class Wire extends Shape {
 
     /* ──────────────────────── constructor ──────────────────────── */
 
+    /**
+     * @param {object} [options]
+     * @param {object} [options.graphNodes] - Node map {id: {x,y} | [x,y]}
+     * @param {object} [options.graphEdges] - Edge map {id: {from,to} | [from,to]}
+     * @param {object} [options.pinConnections] - Pin map {nodeId: {componentId, pinNumber}}
+     * @param {string} [options.net] - Net name
+     * @param {string} [options.wireLabel] - Existing label (Wnnnn); auto-assigned if omitted
+     */
     constructor(options = {}) {
         super(options);
         this.type = 'wire';
@@ -35,6 +88,14 @@ export class Wire extends Shape {
 
         this.net = options.net || '';
 
+        // Human-readable wire label (Wnnnn)
+        if (options.wireLabel) {
+            this.wireLabel = options.wireLabel;
+            bumpWireLabelCounter(options.wireLabel);
+        } else {
+            this.wireLabel = nextWireLabel();
+        }
+
         // ── Initialise from graph format ──────────────────────
         if (options.graphNodes && options.graphEdges) {
             this._loadGraph(options.graphNodes, options.graphEdges, options.pinConnections);
@@ -43,6 +104,13 @@ export class Wire extends Shape {
 
     /* ──────────────────── graph loading helpers ────────────────── */
 
+    /**
+     * Populate the graph from deserialised node/edge/pin data.
+     * Accepts both object ({x,y}) and array ([x,y]) position formats.
+     * @param {object} graphNodes - {nodeId: {x,y} | [x,y]}
+     * @param {object} graphEdges - {edgeId: {from,to} | [from,to]}
+     * @param {object} [pinConnections] - {nodeId: {componentId, pinNumber}}
+     */
     _loadGraph(graphNodes, graphEdges, pinConnections) {
         for (const [id, pos] of Object.entries(graphNodes)) {
             const c = Array.isArray(pos) ? { x: pos[0], y: pos[1] } : pos;
@@ -60,6 +128,11 @@ export class Wire extends Shape {
         }
     }
 
+    /**
+     * Advance an internal counter past a loaded ID so new IDs don't collide.
+     * @param {string} prop - Counter property name ('_nodeCounter' | '_edgeCounter')
+     * @param {string} id - An existing ID like 'n5' or 'e12'
+     */
     _bumpCounter(prop, id) {
         const m = id.match(/\d+$/);
         if (m) {
@@ -70,6 +143,12 @@ export class Wire extends Shape {
 
     /* ──────────────────── graph mutation ───────────────────────── */
 
+    /**
+     * Add a new node at the given position.
+     * @param {number} x
+     * @param {number} y
+     * @returns {string} The new node ID (e.g. 'n3')
+     */
     addNode(x, y) {
         const id = `n${this._nodeCounter++}`;
         this.nodes.set(id, { x, y });
@@ -77,6 +156,12 @@ export class Wire extends Shape {
         return id;
     }
 
+    /**
+     * Add an edge connecting two nodes. Self-loops are rejected.
+     * @param {string} fromId
+     * @param {string} toId
+     * @returns {string|null} The new edge ID, or null if self-loop
+     */
     addEdge(fromId, toId) {
         if (fromId === toId) return null;           // no self-loops
         const id = `e${this._edgeCounter++}`;
@@ -85,6 +170,10 @@ export class Wire extends Shape {
         return id;
     }
 
+    /**
+     * Remove a node and all its incident edges.
+     * @param {string} nodeId
+     */
     removeNode(nodeId) {
         for (const [eid, e] of [...this.edges]) {
             if (e.from === nodeId || e.to === nodeId) this.edges.delete(eid);
@@ -94,6 +183,10 @@ export class Wire extends Shape {
         this.invalidate();
     }
 
+    /**
+     * Remove an edge (does not remove its endpoint nodes).
+     * @param {string} edgeId
+     */
     removeEdge(edgeId) {
         this.edges.delete(edgeId);
         this.invalidate();
@@ -101,6 +194,11 @@ export class Wire extends Shape {
 
     /* ──────────────────── graph queries ────────────────────────── */
 
+    /**
+     * Get the degree (number of incident edges) of a node.
+     * @param {string} nodeId
+     * @returns {number}
+     */
     degree(nodeId) {
         let c = 0;
         for (const e of this.edges.values()) {
@@ -109,6 +207,11 @@ export class Wire extends Shape {
         return c;
     }
 
+    /**
+     * Get all edges incident to a node.
+     * @param {string} nodeId
+     * @returns {Array<{edgeId: string, edge: object, otherNode: string}>}
+     */
     incidentEdges(nodeId) {
         const out = [];
         for (const [eid, e] of this.edges) {
@@ -118,22 +221,41 @@ export class Wire extends Shape {
         return out;
     }
 
+    /**
+     * Get IDs of all nodes directly connected to a node.
+     * @param {string} nodeId
+     * @returns {string[]}
+     */
     neighborNodes(nodeId) {
         return this.incidentEdges(nodeId).map(e => e.otherNode);
     }
 
+    /**
+     * Get IDs of all junction nodes (degree ≥ 3).
+     * @returns {string[]}
+     */
     getJunctionNodes() {
         const r = [];
         for (const nid of this.nodes.keys()) if (this.degree(nid) >= 3) r.push(nid);
         return r;
     }
 
+    /**
+     * Get IDs of all leaf nodes (degree 1).
+     * @returns {string[]}
+     */
     getLeafNodes() {
         const r = [];
         for (const nid of this.nodes.keys()) if (this.degree(nid) === 1) r.push(nid);
         return r;
     }
 
+    /**
+     * Check whether an edge exists between two nodes (either direction).
+     * @param {string} a - Node ID
+     * @param {string} b - Node ID
+     * @returns {boolean}
+     */
     hasEdgeBetween(a, b) {
         for (const e of this.edges.values()) {
             if ((e.from === a && e.to === b) || (e.from === b && e.to === a)) return true;
@@ -143,15 +265,25 @@ export class Wire extends Shape {
 
     /* ──────────────────── spatial queries ──────────────────────── */
 
-    /** Find node at or very near a point */
-    nodeAt(point, epsilon = 0.15) {
+    /**
+     * Find a node at or very near a point.
+     * @param {{x: number, y: number}} point
+     * @param {number} [epsilon=NODE_SNAP_EPSILON] - Search radius (world units)
+     * @returns {string|null} Node ID, or null if none found
+     */
+    nodeAt(point, epsilon = NODE_SNAP_EPSILON) {
         for (const [id, pos] of this.nodes) {
             if (Math.hypot(point.x - pos.x, point.y - pos.y) < epsilon) return id;
         }
         return null;
     }
 
-    /** Closest edge to a point → {edgeId, t, point, distance} | null */
+    /**
+     * Find the closest edge to a point.
+     * @param {{x: number, y: number}} point
+     * @returns {{edgeId: string, t: number, point: {x,y}, distance: number}|null}
+     *          t is the parametric position along the edge (0–1).
+     */
     closestEdge(point) {
         let bestD = Infinity, bestId = null, bestT = 0;
         for (const [eid, e] of this.edges) {
@@ -174,15 +306,26 @@ export class Wire extends Shape {
         };
     }
 
-    /** Hit-test returning edgeId or null */
-    hitTestEdge(point, tolerance = 0.5) {
+    /**
+     * Hit-test a point against all edges, accounting for line width.
+     * @param {{x: number, y: number}} point
+     * @param {number} [tolerance=HIT_TEST_TOLERANCE]
+     * @returns {string|null} Edge ID if hit, otherwise null
+     */
+    hitTestEdge(point, tolerance = HIT_TEST_TOLERANCE) {
         const c = this.closestEdge(point);
         if (!c) return null;
         return c.distance <= tolerance + this.lineWidth / 2 ? c.edgeId : null;
     }
 
-    /** Point on an edge but NOT near any node */
-    pointOnEdge(point, tolerance = 0.15) {
+    /**
+     * Find the closest point on an edge, but only if it's not near an existing node.
+     * Used to detect clicks on edge interiors (for splitting, T-junctions, etc.).
+     * @param {{x: number, y: number}} point
+     * @param {number} [tolerance=NODE_SNAP_EPSILON]
+     * @returns {{edgeId: string, t: number, point: {x,y}, distance: number}|null}
+     */
+    pointOnEdge(point, tolerance = NODE_SNAP_EPSILON) {
         const c = this.closestEdge(point);
         if (!c || c.distance > tolerance) return null;
         if (this.nodeAt(point, tolerance)) return null;
@@ -256,12 +399,10 @@ export class Wire extends Shape {
         return comps;
     }
 
-    /** Extract a subgraph (preserving original IDs) */
+    /** Extract a subgraph (preserving original IDs). Gets a new wireLabel. */
     extractSubgraph(nodeIds) {
         const ns = nodeIds instanceof Set ? nodeIds : new Set(nodeIds);
         const sub = new Wire({ color: this.color, lineWidth: this.lineWidth, net: this.net });
-        sub.nodes.clear(); sub.edges.clear();
-        sub._nodeCounter = 0; sub._edgeCounter = 0;
 
         for (const nid of ns) {
             const p = this.nodes.get(nid);
@@ -287,8 +428,11 @@ export class Wire extends Shape {
      */
     cleanGraph() {
         let changed = true;
-        while (changed) {
+        let iterations = 0;
+        while (changed && iterations < MAX_CLEAN_ITERATIONS) {
             changed = false;
+
+            iterations++;
 
             // 0a. Co-located nodes → merge (even if no shared edge)
             {
@@ -319,7 +463,7 @@ export class Wire extends Shape {
                     const lenSq = dx * dx + dy * dy;
                     if (lenSq < COLLINEAR_EPSILON * COLLINEAR_EPSILON) continue;
                     let t = ((pos.x - a.x) * dx + (pos.y - a.y) * dy) / lenSq;
-                    if (t <= 0.001 || t >= 0.999) continue;  // near endpoints → handled by 0a
+                    if (t <= T_ENDPOINT_MARGIN || t >= 1 - T_ENDPOINT_MARGIN) continue;  // near endpoints → handled by 0a
                     const px = a.x + t * dx, py = a.y + t * dy;
                     if (Math.hypot(pos.x - px, pos.y - py) < COLLINEAR_EPSILON) {
                         const { newNodeId } = this.splitEdge(eid, pos);
@@ -378,9 +522,16 @@ export class Wire extends Shape {
         this.invalidate();
     }
 
+    /**
+     * Test whether three points are collinear within COLLINEAR_EPSILON.
+     * Delegates to the shared geometry helper.
+     * @param {{x,y}} p1
+     * @param {{x,y}} p2
+     * @param {{x,y}} p3
+     * @returns {boolean}
+     */
     _areCollinear(p1, p2, p3) {
-        const cross = (p2.x - p1.x) * (p3.y - p1.y) - (p2.y - p1.y) * (p3.x - p1.x);
-        return Math.abs(cross) < COLLINEAR_EPSILON;
+        return pointsCollinear(p1, p2, p3, COLLINEAR_EPSILON);
     }
 
     /**
@@ -405,6 +556,7 @@ export class Wire extends Shape {
 
     /* ──────────────────── Shape interface ──────────────────────── */
 
+    /** @returns {{minX: number, minY: number, maxX: number, maxY: number}} */
     _calculateBounds() {
         if (this.nodes.size === 0) return { minX: 0, minY: 0, maxX: 0, maxY: 0 };
         let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
@@ -416,10 +568,21 @@ export class Wire extends Shape {
         return { minX: minX - hw, minY: minY - hw, maxX: maxX + hw, maxY: maxY + hw };
     }
 
-    hitTest(point, tolerance = 0.5) {
+    /**
+     * Test whether a point is within tolerance of any edge.
+     * @param {{x: number, y: number}} point
+     * @param {number} [tolerance=HIT_TEST_TOLERANCE]
+     * @returns {boolean}
+     */
+    hitTest(point, tolerance = HIT_TEST_TOLERANCE) {
         return this.distanceTo(point) <= tolerance + this.lineWidth / 2;
     }
 
+    /**
+     * Minimum distance from a point to any edge in the wire.
+     * @param {{x: number, y: number}} point
+     * @returns {number} Distance in world units (Infinity if no edges)
+     */
     distanceTo(point) {
         if (this.edges.size === 0) return Infinity;
         let min = Infinity;
@@ -431,6 +594,12 @@ export class Wire extends Shape {
         return min;
     }
 
+    /**
+     * Get anchor handles for the selection UI.
+     * Returns one anchor per node (vertex handle) plus one per edge midpoint
+     * (insertion handle, marked with midpoint: true).
+     * @returns {Array<{id: string, x: number, y: number, cursor: string, midpoint?: boolean}>}
+     */
     getAnchors() {
         const anchors = [];
         for (const [nid, pos] of this.nodes)
@@ -489,34 +658,51 @@ export class Wire extends Shape {
         return false;   // junction nodes (degree ≥ 3) not deletable
     }
 
+    /**
+     * Translate the entire wire by (dx, dy).
+     * @param {number} dx
+     * @param {number} dy
+     */
     move(dx, dy) {
         if (!Number.isFinite(dx) || !Number.isFinite(dy)) return;
         for (const p of this.nodes.values()) { p.x += dx; p.y += dy; }
         this.invalidate();
     }
 
+    /**
+     * Create a deep copy of this wire with a new wireLabel.
+     * Node/edge IDs are preserved in the clone.
+     * @returns {Wire}
+     */
     clone() {
         const c = new Wire({
             color: this.color, lineWidth: this.lineWidth,
             layer: this.layer, net: this.net,
             visible: this.visible, locked: this.locked,
+            // Clone gets a fresh wireLabel (it's a new wire)
         });
-        c.nodes.clear(); c.edges.clear();
-        c._nodeCounter = 0; c._edgeCounter = 0;
         for (const [id, p] of this.nodes) { c.nodes.set(id, { x: p.x, y: p.y }); c._bumpCounter('_nodeCounter', id); }
         for (const [id, e] of this.edges) { c.edges.set(id, { from: e.from, to: e.to }); c._bumpCounter('_edgeCounter', id); }
         for (const [id, cn] of this.pinConnections) c.pinConnections.set(id, { ...cn });
         return c;
     }
 
+    /**
+     * Capture the current graph state for undo/redo.
+     * @returns {object} Plain-object snapshot (nodes, edges, pinConnections, counters)
+     */
     captureState() {
-        const s = { nodes: {}, edges: {}, pinConnections: {}, net: this.net, _nc: this._nodeCounter, _ec: this._edgeCounter };
+        const s = { nodes: {}, edges: {}, pinConnections: {}, net: this.net, wireLabel: this.wireLabel, _nc: this._nodeCounter, _ec: this._edgeCounter };
         for (const [id, p] of this.nodes) s.nodes[id] = { x: p.x, y: p.y };
         for (const [id, e] of this.edges) s.edges[id] = { from: e.from, to: e.to };
         for (const [id, c] of this.pinConnections) s.pinConnections[id] = { ...c };
         return s;
     }
 
+    /**
+     * Restore the graph from a previously captured state snapshot.
+     * @param {object} state - Snapshot from {@link captureState}
+     */
     applyState(state) {
         this.nodes = new Map();
         this.edges = new Map();
@@ -526,29 +712,50 @@ export class Wire extends Shape {
         if (state.pinConnections)
             for (const [id, c] of Object.entries(state.pinConnections)) this.pinConnections.set(id, { ...c });
         this.net = state.net || '';
-        this._nodeCounter = state._nc || 0;
-        this._edgeCounter = state._ec || 0;
+        if (state.wireLabel) this.wireLabel = state.wireLabel;
+        this._nodeCounter = state._nc ?? 0;
+        this._edgeCounter = state._ec ?? 0;
         this.invalidate();
     }
 
+    /**
+     * Get a representative position (first node) for this wire.
+     * @returns {{x: number, y: number}}
+     */
     getPosition() {
         if (this.nodes.size === 0) return { x: 0, y: 0 };
         const first = this.nodes.values().next().value;
         return { x: first.x, y: first.y };
     }
 
+    /** @returns {'axis'} Anchors snap along H/V axes, not freely. */
     getAnchorSnapMode() { return 'axis'; }
 
+    /**
+     * Property descriptors for the properties panel.
+     * @returns {Array<{key: string, label: string, type: string, readonly?: boolean}>}
+     */
     getPropertyDescriptors() {
-        return [{ key: 'locked', label: 'Locked', type: 'checkbox' }];
+        return [
+            { key: 'wireLabel', label: 'ID', type: 'text', readonly: true },
+            { key: 'locked',    label: 'Locked',  type: 'checkbox' },
+        ];
     }
 
     /* ──────────────────── SVG rendering ────────────────────────── */
 
+    /** Create the root SVG <g> element for this wire. */
     _createElement() {
         return document.createElementNS('http://www.w3.org/2000/svg', 'g');
     }
 
+    /**
+     * Rebuild SVG children: one <line> per edge, one <circle> per junction.
+     * @param {SVGGElement} el - The root <g> element
+     * @param {string} strokeColor - CSS color
+     * @param {string} _fillColor - Unused (wires have no fill)
+     * @param {number} scale - Current viewport scale (px per world unit)
+     */
     _updateElement(el, strokeColor, _fillColor, scale) {
         el.textContent = '';                               // clear children
 
@@ -569,7 +776,7 @@ export class Wire extends Shape {
         }
 
         // Junction dots at degree ≥ 3 nodes
-        const jr = Math.max(0.4, 2.5 / scale);
+        const jr = Math.max(MIN_JUNCTION_RADIUS, JUNCTION_SCREEN_PX / scale);
         for (const [nid, pos] of this.nodes) {
             if (this.degree(nid) >= 3) {
                 const c = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
@@ -583,6 +790,10 @@ export class Wire extends Shape {
         }
     }
 
+    /**
+     * Rebuild anchor handle overlays for selected-wire editing.
+     * @param {number} scale - Current viewport scale
+     */
     _updateAnchors(scale) {
         if (!this.selected) {
             if (this.anchorsGroup) { this.anchorsGroup.remove(); this.anchorsGroup = null; this._anchorRects = null; }
@@ -598,8 +809,14 @@ export class Wire extends Shape {
 
     /* ──────────────────── serialization ────────────────────────── */
 
+    /**
+     * Serialise to a compact JSON-friendly object.
+     * Uses short keys (nd, ed, pc, wl, n) for file size.
+     * @returns {object}
+     */
     toJSON() {
         const json = { ...super.toJSON(), type: 'wire', nd: {}, ed: {} };
+        json.wl = this.wireLabel;
         for (const [id, p] of this.nodes) json.nd[id] = [_r4(p.x), _r4(p.y)];
         for (const [id, e] of this.edges) json.ed[id] = [e.from, e.to];
         if (this.pinConnections.size > 0) {

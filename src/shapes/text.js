@@ -5,9 +5,19 @@
 import { Shape } from './shape.js';
 import { ShapeValidator } from '../core/ShapeValidator.js';
 
+/** Round to 4 decimal places for compact serialisation. */
 const _r4 = v => Math.round(v * 10000) / 10000;
 
 export class Text extends Shape {
+    /**
+     * @param {Object} [options]
+     * @param {number} [options.x=0]            - Anchor X in mm.
+     * @param {number} [options.y=0]            - Anchor Y in mm.
+     * @param {string} [options.text='']        - Display text.
+     * @param {number} [options.fontSize=2.0]   - Font size in mm.
+     * @param {string} [options.fontFamily='Arial'] - CSS font family.
+     * @param {string} [options.textAnchor='start'] - SVG text-anchor.
+     */
     constructor(options = {}) {
         super(options);
         this.type = 'text';
@@ -29,6 +39,7 @@ export class Text extends Shape {
         this.fieldKey = null;  // 'reference' or 'value'
     }
 
+    /** @override — uses SVG `getBBox()` when rendered, else estimates from text length. */
     _calculateBounds() {
         if (this.element) {
             try {
@@ -60,6 +71,7 @@ export class Text extends Shape {
         };
     }
 
+    /** @override */
     hitTest(point, tolerance = 0.5) {
         const bounds = this.getBounds();
         return (
@@ -70,12 +82,13 @@ export class Text extends Shape {
         );
     }
 
+    /** @override */
     getAnchors() {
         return [
             { id: 'pos', x: this.x, y: this.y, cursor: 'move', hidden: true }
         ];
     }
-
+    /** @override */
     moveAnchor(anchorId, x, y) {
         if (anchorId === 'pos') {
             this.x = x;
@@ -84,10 +97,11 @@ export class Text extends Shape {
         }
     }
 
+    /** @override */
     _createElement() {
         return document.createElementNS('http://www.w3.org/2000/svg', 'text');
     }
-
+    /** @override */
     _updateElement(el, strokeColor, fillColor, scale) {
         el.setAttribute('x', this.x);
         el.setAttribute('y', this.y);
@@ -110,6 +124,7 @@ export class Text extends Shape {
         el.removeAttribute('stroke-width');
     }
 
+    /** @override */
     move(dx, dy) {
         if (!Number.isFinite(dx) || !Number.isFinite(dy)) return;
         this.x += dx;
@@ -117,10 +132,11 @@ export class Text extends Shape {
         this.invalidate();
     }
 
+    /** @override — text shapes have no visible stroke. */
     _getEffectiveStrokeWidth(scale) {
         return 0;
     }
-
+    /** @override */
     clone() {
         return new Text({
             ...this.toJSON(),
@@ -133,10 +149,11 @@ export class Text extends Shape {
         });
     }
     
+    /** @override */
     captureState() {
         return { x: this.x, y: this.y, text: this.text, fontSize: this.fontSize, fontFamily: this.fontFamily, textAnchor: this.textAnchor };
     }
-    
+    /** @override */
     getPropertyDescriptors() {
         if (this.fieldKey) {
             // Component field text — show text content as editable, plus size
@@ -153,10 +170,11 @@ export class Text extends Shape {
         ];
     }
     
+    /** @override */
     get supportsInlineEdit() {
         return true;
     }
-
+    /** @override */
     toJSON() {
         const json = {
             ...super.toJSON(),

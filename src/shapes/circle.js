@@ -5,9 +5,19 @@
 import { Shape } from './shape.js';
 import { ShapeValidator } from '../core/ShapeValidator.js';
 
+/** Round to 4 decimal places for compact serialisation. */
 const _r4 = v => Math.round(v * 10000) / 10000;
 
 export class Circle extends Shape {
+    /**
+     * @param {Object} [options]
+     * @param {number} [options.x=0]      - Centre X in mm.
+     * @param {number} [options.y=0]      - Centre Y in mm.
+     * @param {number} [options.radius=5] - Radius in mm.
+     * @param {boolean} [options.fill=false] - Whether the circle is filled.
+     * @param {string}  [options.fillColor]  - Fill colour (defaults to stroke).
+     * @param {number}  [options.fillAlpha=0.3] - Fill opacity.
+     */
     constructor(options = {}) {
         super(options);
         this.type = 'circle';
@@ -25,6 +35,7 @@ export class Circle extends Shape {
         });
     }
     
+    /** @override */
     _calculateBounds() {
         const r = this.radius + this.lineWidth / 2;
         return {
@@ -35,6 +46,7 @@ export class Circle extends Shape {
         };
     }
     
+    /** @override */
     hitTest(point, tolerance = 0.5) {
         const dist = Math.hypot(point.x - this.x, point.y - this.y);
         
@@ -45,6 +57,7 @@ export class Circle extends Shape {
         }
     }
     
+    /** @override */
     distanceTo(point) {
         const dist = Math.hypot(point.x - this.x, point.y - this.y);
         if (this.fill) {
@@ -53,6 +66,7 @@ export class Circle extends Shape {
         return Math.abs(dist - this.radius);
     }
     
+    /** @override */
     getAnchors() {
         return [
             { id: 'center', x: this.x, y: this.y, cursor: 'move' },
@@ -60,6 +74,7 @@ export class Circle extends Shape {
         ];
     }
     
+    /** @override */
     moveAnchor(anchorId, x, y) {
         if (anchorId === 'center') {
             this.x = x;
@@ -70,10 +85,11 @@ export class Circle extends Shape {
         this.invalidate();
     }
     
+    /** @override */
     _createElement() {
         return document.createElementNS('http://www.w3.org/2000/svg', 'circle');
     }
-    
+    /** @override */
     _updateElement(el, strokeColor, fillColor, scale) {
         el.setAttribute('cx', this.x);
         el.setAttribute('cy', this.y);
@@ -89,6 +105,7 @@ export class Circle extends Shape {
         }
     }
     
+    /** @override */
     move(dx, dy) {
         if (!Number.isFinite(dx) || !Number.isFinite(dy)) return;
         this.x += dx;
@@ -96,14 +113,15 @@ export class Circle extends Shape {
         this.invalidate();
     }
     
+    /** @override */
     clone() {
         return new Circle({ ...this.toJSON(), x: this.x, y: this.y, radius: this.radius });
     }
-    
+    /** @override */
     captureState() {
         return { x: this.x, y: this.y, radius: this.radius };
     }
-    
+    /** @override */
     getPropertyDescriptors() {
         return [
             { key: 'locked',    label: 'Locked',     type: 'checkbox' },
@@ -112,6 +130,7 @@ export class Circle extends Shape {
         ];
     }
 
+    /** @override */
     toJSON() {
         const json = { ...super.toJSON(), x: _r4(this.x), y: _r4(this.y), r: _r4(this.radius) };
         if (this.fill) json.f = true;

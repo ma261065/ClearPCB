@@ -1,6 +1,12 @@
-import { updateIdCounter } from '../../shapes/index.js';
+import { updateIdCounter, resetWireLabelCounter } from '../../shapes/index.js';
 import { Component, updateComponentIdCounter } from '../../components/index.js';
 
+/**
+ * Serializes the entire document (shapes, components, settings, paper size,
+ * title block) into a JSON-ready object with deduplicated component definitions.
+ * @param {object} app - Application state.
+ * @returns {object} Serialized document object.
+ */
 export function serializeDocument(app) {
     const components = app.components.map(c => c.toJSON());
 
@@ -42,11 +48,18 @@ export function serializeDocument(app) {
     return doc;
 }
 
+/**
+ * Clears the canvas and reconstitutes all shapes, components, and settings
+ * from a saved document object.
+ * @param {object} app - Application state.
+ * @param {object} data - Previously serialized document.
+ */
 export async function loadDocument(app, data) {
     app.selection.clearSelection();
     if (app.textEdit?.shape) app._endTextEdit(false);
     app._clearAllShapes();
     app._clearAllComponents();
+    resetWireLabelCounter();
 
     if (data.shapes && Array.isArray(data.shapes)) {
         for (const shapeData of data.shapes) {
@@ -154,6 +167,13 @@ export async function loadDocument(app, data) {
     app.renderShapes(true);
 }
 
+/**
+ * Creates a `Component` instance from serialized data, resolving definitions
+ * from the library or embedding them if missing.
+ * @param {object} app - Application state.
+ * @param {object} data - Serialized component data.
+ * @returns {import('../../components/Component.js').Component|null} The created component, or `null` if definition not found.
+ */
 export function createComponentFromData(app, data) {
     const dn = data.dn || data.definitionName;
     const def_data = data.def || data.definition;
@@ -205,6 +225,11 @@ export function createComponentFromData(app, data) {
     });
 }
 
+/**
+ * Updates `document.title` and the UI title element with the file name
+ * and dirty indicator (`•`).
+ * @param {object} app - Application state.
+ */
 export function updateTitle(app) {
     const dirty = app.fileManager.isDirty ? '•' : '';
     // Format: ClearPCB (•mike.json) or ClearPCB (mike.json)
@@ -217,6 +242,11 @@ export function updateTitle(app) {
     }
 }
 
+/**
+ * Checks for auto-saved content on startup and prompts the user to recover
+ * or discard it.
+ * @param {object} app - Application state.
+ */
 export function checkAutoSave(app) {
     if (app.fileManager.hasAutoSave()) {
         const saved = app.fileManager.loadAutoSave();
@@ -237,6 +267,10 @@ export function checkAutoSave(app) {
     }
 }
 
+/**
+ * Fetches `version.json` and displays the version number in the UI.
+ * @param {object} app - Application state.
+ */
 export async function loadVersion(app) {
     try {
         const paths = [
@@ -269,6 +303,11 @@ export async function loadVersion(app) {
     }
 }
 
+/**
+ * Creates a new blank document, clearing all shapes/components and resetting
+ * title block defaults. Prompts if there are unsaved changes.
+ * @param {object} app - Application state.
+ */
 export async function newFile(app) {
     if (app.fileManager.isDirty) {
         if (!confirm('You have unsaved changes. Create new document anyway?')) {
@@ -280,6 +319,7 @@ export async function newFile(app) {
     if (app.textEdit?.shape) app._endTextEdit(false);
     app._clearAllShapes();
     app._clearAllComponents();
+    resetWireLabelCounter();
     app.fileManager.newDocument();
     app.viewport.resetView();
 
@@ -296,6 +336,11 @@ export async function newFile(app) {
     console.log('New document created');
 }
 
+/**
+ * Serializes and saves the document using the file manager. Shows toast on success.
+ * @param {object} app - Application state.
+ * @returns {Promise<{success: boolean, fileName?: string, error?: string}>}
+ */
 export async function saveFile(app) {
     const data = app._serializeDocument();
     const result = await app.fileManager.save(data);
@@ -311,6 +356,11 @@ export async function saveFile(app) {
     return result;
 }
 
+/**
+ * Serializes and saves the document with a new file name/location ("Save As").
+ * @param {object} app - Application state.
+ * @returns {Promise<{success: boolean, fileName?: string, error?: string}>}
+ */
 export async function saveFileAs(app) {
     const data = app._serializeDocument();
     const result = await app.fileManager.saveAs(data);
@@ -326,6 +376,11 @@ export async function saveFileAs(app) {
     return result;
 }
 
+/**
+ * Opens a file via the file manager, loads its data, and updates the title.
+ * Prompts if there are unsaved changes.
+ * @param {object} app - Application state.
+ */
 export async function openFile(app) {
     if (app.fileManager.isDirty) {
         if (!confirm('You have unsaved changes. Open another file anyway?')) {

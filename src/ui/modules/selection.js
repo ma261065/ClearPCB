@@ -1,7 +1,11 @@
 import { DeleteShapesCommand, DeleteComponentsCommand, ModifyPropertyCommand, ModifyShapeCommand, BatchCommand } from '../../core/CommandHistory.js';
-import { cleanupOrphanedTJunctions } from './wire.js';
 import { updateRibbonState } from './ribbon.js';
 
+/**
+ * Toggles the `locked` property on all selected items via `ModifyPropertyCommand`
+ * and refreshes the properties panel and ribbon.
+ * @param {object} app - Application state.
+ */
 export function toggleSelectionLock(app) {
     const selection = app.selection.getSelection();
     if (selection.length === 0) return;
@@ -18,6 +22,11 @@ export function toggleSelectionLock(app) {
     updateRibbonState(app, selection);
 }
 
+/**
+ * Deletes all unlocked selected items (shapes and components), handling
+ * component field-text show-flag toggling and batching delete commands for undo.
+ * @param {object} app - Application state.
+ */
 export function deleteSelected(app) {
     const toDelete = app.selection.getSelection().filter(item => !item.locked);
     if (toDelete.length === 0) return;
@@ -50,12 +59,8 @@ export function deleteSelected(app) {
         }
     }
 
-    // T-junction cleanup is no longer needed in the graph model —
-    // junctions are derived from node degree and don't leave orphaned vertices.
-    const tjCleanupCmds = [];
-
     const cmdCount = (shapesToDelete.length > 0 ? 1 : 0) + (componentsToDelete.length > 0 ? 1 : 0)
-        + showFlagCommands.length + tjCleanupCmds.length;
+        + showFlagCommands.length;
     const needsBatch = cmdCount > 1;
 
     if (needsBatch) {
@@ -63,25 +68,34 @@ export function deleteSelected(app) {
         for (const cmd of showFlagCommands) batch.add(cmd);
         if (shapesToDelete.length > 0) batch.add(new DeleteShapesCommand(app, shapesToDelete));
         if (componentsToDelete.length > 0) batch.add(new DeleteComponentsCommand(app, componentsToDelete));
-        for (const cmd of tjCleanupCmds) batch.add(cmd);
         app.history.execute(batch);
     } else if (showFlagCommands.length > 0) {
         app.history.execute(showFlagCommands[0]);
-    } else if (shapesToDelete.length > 0 && tjCleanupCmds.length === 0) {
+    } else if (shapesToDelete.length > 0) {
         app.history.execute(new DeleteShapesCommand(app, shapesToDelete));
     } else if (componentsToDelete.length > 0) {
         app.history.execute(new DeleteComponentsCommand(app, componentsToDelete));
-    } else if (tjCleanupCmds.length > 0) {
-        app.history.execute(tjCleanupCmds[0]);
     }
 
     app.selection._notifySelectionChanged();
 }
 
+/**
+ * Snapshots a shape's current state for undo purposes.
+ * @param {object} app - Application state.
+ * @param {import('../../shapes/shape.js').Shape} shape - Shape to capture.
+ * @returns {object} The captured state object.
+ */
 export function captureShapeState(app, shape) {
     return shape.captureState();
 }
 
+/**
+ * Restores a shape to a previously captured state and triggers a full re-render.
+ * @param {object} app - Application state.
+ * @param {import('../../shapes/shape.js').Shape} shape - Shape to restore.
+ * @param {object} state - Previously captured state.
+ */
 export function applyShapeState(app, shape, state) {
     shape.applyState(state);
     app.renderShapes(true);

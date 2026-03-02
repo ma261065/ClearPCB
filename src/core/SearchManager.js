@@ -16,6 +16,10 @@
 import { storageManager } from './StorageManager.js';
 
 export class SearchManager {
+    /**
+     * Create a new SearchManager.
+     * @param {ComponentLibrary} componentLibrary - The component library to search against
+     */
     constructor(componentLibrary) {
         this.library = componentLibrary;
         this.searchCache = new Map();
@@ -264,11 +268,14 @@ export class SearchManager {
     }
 }
 
-/**
- * Global singleton search manager instance
- */
+/** @type {SearchManager|null} Global singleton search manager instance. */
 let searchManagerInstance = null;
 
+/**
+ * Initialise the global SearchManager singleton.
+ * @param {ComponentLibrary} componentLibrary
+ * @returns {SearchManager}
+ */
 export function initSearchManager(componentLibrary) {
     if (!searchManagerInstance) {
         searchManagerInstance = new SearchManager(componentLibrary);
@@ -276,6 +283,10 @@ export function initSearchManager(componentLibrary) {
     return searchManagerInstance;
 }
 
+/**
+ * Return the global SearchManager singleton (or null if not yet initialised).
+ * @returns {SearchManager|null}
+ */
 export function getSearchManager() {
     return searchManagerInstance;
 }

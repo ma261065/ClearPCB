@@ -3,6 +3,12 @@ import { ModifyShapeCommand } from '../../core/CommandHistory.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
+/**
+ * Begins inline text editing on a text shape: initializes caret, creates
+ * the overlay (box + blinking caret), and pushes a ModalManager entry.
+ * @param {object} app - Application state.
+ * @param {import('../../shapes/text.js').Text} shape - Text shape to edit.
+ */
 export function startTextEdit(app, shape) {
     if (!shape || shape.type !== 'text') return;
     if (shape.locked) return;
@@ -48,6 +54,13 @@ export function startTextEdit(app, shape) {
     });
 }
 
+/**
+ * Ends text editing. If `commit` is true, creates an undo command for the
+ * text change and syncs to the parent component; otherwise reverts.
+ * Cleans up the overlay.
+ * @param {object} app - Application state.
+ * @param {boolean} [commit=true] - Whether to commit the edit.
+ */
 export function endTextEdit(app, commit = true) {
     const state = app.textEdit;
     if (!state) return;
@@ -120,6 +133,13 @@ export function endTextEdit(app, commit = true) {
     }
 }
 
+/**
+ * Handles all keystrokes during text editing: arrow keys, Home/End,
+ * Backspace, Delete, printable characters, Enter (commit), Escape (cancel).
+ * @param {object} app - Application state.
+ * @param {KeyboardEvent} e - The keyboard event.
+ * @returns {boolean} `true` if the key was consumed.
+ */
 export function handleTextEditKey(app, e) {
     const state = app.textEdit;
     if (!state) return false;
@@ -223,6 +243,11 @@ export function handleTextEditKey(app, e) {
     return true;
 }
 
+/**
+ * Repositions and resizes the text-edit overlay box and caret based on
+ * the text shape's current bounding box and caret index.
+ * @param {object} app - Application state.
+ */
 export function updateTextEditOverlay(app) {
     const state = app.textEdit;
     if (!state || !state.shape || !state.overlayGroup) return;
@@ -297,6 +322,13 @@ export function updateTextEditOverlay(app) {
     state.overlayCaret.setAttribute('y2', caretBottom);
 }
 
+/**
+ * Applies an incremental pixel offset to the text-edit overlay group
+ * (used during drag to keep the overlay in sync).
+ * @param {object} app - Application state.
+ * @param {number} dx - Horizontal offset in world units.
+ * @param {number} dy - Vertical offset in world units.
+ */
 export function nudgeTextEditOverlay(app, dx, dy) {
     const state = app.textEdit;
     if (!state || !state.overlayGroup) return;
@@ -309,6 +341,12 @@ export function nudgeTextEditOverlay(app, dx, dy) {
     state.overlayGroup.setAttribute('transform', `translate(${originX + nextX} ${originY + nextY})`);
 }
 
+/**
+ * Sets the text caret position from a screen-space click coordinate
+ * using `getCharNumAtPosition`.
+ * @param {object} app - Application state.
+ * @param {{x: number, y: number}} screenPos - Screen-space click position.
+ */
 export function setTextCaretFromScreen(app, screenPos) {
     const state = app.textEdit;
     if (!state || !state.shape || !state.shape.element) return;

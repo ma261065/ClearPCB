@@ -1,3 +1,8 @@
+/**
+ * Creates an SVG rect element for the box-selection marquee with blue stroke/fill
+ * and attaches it to the viewport content layer.
+ * @param {object} app - Application state.
+ */
 export function createBoxSelectElement(app) {
     app.boxSelectElement = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
     app.boxSelectElement.setAttribute('fill', 'rgba(51, 153, 255, 0.15)');
@@ -8,6 +13,12 @@ export function createBoxSelectElement(app) {
     app.viewport.contentLayer.appendChild(app.boxSelectElement);
 }
 
+/**
+ * Updates the box-select rectangle's position and dimensions based on the
+ * stored start point and the current cursor position.
+ * @param {object} app - Application state.
+ * @param {{x: number, y: number}} currentPos - Current cursor position in world coordinates.
+ */
 export function updateBoxSelectElement(app, currentPos) {
     if (!app.boxSelectElement || !app.boxSelectStart) return;
 
@@ -22,6 +33,10 @@ export function updateBoxSelectElement(app, currentPos) {
     app.boxSelectElement.setAttribute('height', height);
 }
 
+/**
+ * Removes the box-select SVG element from the DOM and nulls the reference.
+ * @param {object} app - Application state.
+ */
 export function removeBoxSelectElement(app) {
     if (app.boxSelectElement) {
         app.boxSelectElement.remove();
@@ -29,6 +44,12 @@ export function removeBoxSelectElement(app) {
     }
 }
 
+/**
+ * Returns a bounding box from the stored start point to the current position.
+ * @param {object} app - Application state.
+ * @param {{x: number, y: number}} currentPos - Current cursor position in world coordinates.
+ * @returns {{minX: number, minY: number, maxX: number, maxY: number}}
+ */
 export function getBoxSelectBounds(app, currentPos) {
     return {
         minX: Math.min(app.boxSelectStart.x, currentPos.x),

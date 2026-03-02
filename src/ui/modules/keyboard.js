@@ -1,5 +1,11 @@
 import { clearDragState } from './mouse.js';
 
+/**
+ * Central Escape key handler. Cascades through text edit, active/pending
+ * anchor drag, active drawing, paste, component placement, component picker,
+ * box select, tool reset, or clears selection.
+ * @param {object} app - Application state.
+ */
 export function handleEscape(app) {
     if (app._suppressNextEscape) {
         app._suppressNextEscape = false;
@@ -71,6 +77,12 @@ export function handleEscape(app) {
     }
 }
 
+/**
+ * Registers global keyboard event listeners for all shortcuts
+ * (Ctrl+S/O/N/Z/Y/A/C/X/V/P, tool keys, Enter, Delete, Escape, etc.).
+ * @param {object} app - Application state.
+ * @returns {Function} Cleanup function that removes the keyboard listeners.
+ */
 export function bindKeyboardShortcuts(app) {
     const onKeyDown = (e) => {
         // Allow shortcuts through for non-text inputs (checkboxes, buttons, etc.)

@@ -2,6 +2,10 @@ import { updateSnapHighlight } from './wire.js';
 
 const STORAGE_KEY = 'clearpcb_tool_options';
 
+/**
+ * Reads persisted tool options (line width, fill, font size) from localStorage.
+ * @returns {object|null} Parsed options object, or `null` if none stored.
+ */
 export function loadToolOptions() {
     try {
         const stored = localStorage.getItem(STORAGE_KEY);
@@ -14,6 +18,10 @@ export function loadToolOptions() {
     return null;
 }
 
+/**
+ * Persists tool options to localStorage.
+ * @param {object} options - Tool options to save.
+ */
 export function saveToolOptions(options) {
     try {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(options));
@@ -22,6 +30,13 @@ export function saveToolOptions(options) {
     }
 }
 
+/**
+ * Switches the active drawing tool: cancels current drawing, clears snap
+ * highlight, clears selection for non-select tools, opens/closes the component
+ * picker, and updates cursor and ribbon state.
+ * @param {object} app - Application state.
+ * @param {string} tool - Tool identifier to activate.
+ */
 export function onToolSelected(app, tool) {
     app._cancelDrawing();
     
@@ -65,12 +80,22 @@ export function onToolSelected(app, tool) {
     app._updatePropertiesPanel(app.selection.getSelection());
 }
 
+/**
+ * Handles the component picker closing — switches back to select tool
+ * if the current tool is `'component'`.
+ * @param {object} app - Application state.
+ */
 export function onComponentPickerClosed(app) {
     if (app.currentTool === 'component') {
         app._onToolSelected('select');
     }
 }
 
+/**
+ * Merges new options into `app.toolOptions` and persists to storage.
+ * @param {object} app - Application state.
+ * @param {object} options - Tool option overrides to merge.
+ */
 export function onOptionsChanged(app, options) {
     app.toolOptions = { ...app.toolOptions, ...options };
     saveToolOptions(app.toolOptions);

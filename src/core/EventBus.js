@@ -8,6 +8,7 @@
  */
 
 export class EventBus {
+    /** Initialises the listener map. */
     constructor() {
         this.listeners = new Map();
     }

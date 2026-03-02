@@ -11,6 +11,7 @@ import { storageManager } from '../core/StorageManager.js';
 import { circumcircle } from '../core/geometry.js';
 
 export class KiCadFetcher {
+    /** Initialise GitLab base URLs, CORS proxies and in-memory caches. */
     constructor() {
         // GitLab raw file base URLs
         this.symbolsBase = 'https://gitlab.com/kicad/libraries/kicad-symbols/-/raw/master';
@@ -35,6 +36,7 @@ export class KiCadFetcher {
         this.fetchFailed = false;
     }
     
+    /** @returns {string} The primary CORS proxy URL. */
     get corsProxy() {
         return this.corsProxies[0];
     }
@@ -246,6 +248,11 @@ export class KiCadFetcher {
         }
     }
 
+    /**
+     * Check whether a KiCad footprint file and its 3D STEP model exist on GitLab.
+     * @param {string} footprintName - e.g. 'Resistor_SMD:R_0603_1608Metric'
+     * @returns {Promise<{hasFootprint: boolean, has3d: boolean, footprintUrl?: string, modelUrl?: string}>}
+     */
     async checkFootprintAvailability(footprintName) {
         if (!footprintName || typeof footprintName !== 'string') {
             return { hasFootprint: false, has3d: false };
@@ -276,6 +283,11 @@ export class KiCadFetcher {
         return { hasFootprint, has3d, footprintUrl, modelUrl };
     }
 
+    /**
+     * Fetch and parse a `.kicad_mod` footprint file into a pad-shape preview.
+     * @param {string} footprintName - e.g. 'Resistor_SMD:R_0603_1608Metric'
+     * @returns {Promise<{shapes: Array, bbox: Object}|null>}
+     */
     async fetchFootprintPreview(footprintName) {
         if (!footprintName || typeof footprintName !== 'string') {
             return null;
@@ -470,6 +482,12 @@ export class KiCadFetcher {
         return prefixMatches.length > 0 ? prefixMatches[0] : null;
     }
 
+    /**
+     * Fetch a single `.kicad_sym` file from a symdir on GitLab.
+     * @param {string} symDirPath - Directory path within the symbols repo
+     * @param {string} symbolName - Symbol name (used as filename stem)
+     * @returns {Promise<string|null>} Raw file content or null
+     */
     async _fetchSymbolFile(symDirPath, symbolName) {
         const fileName = `${symbolName}.kicad_sym`;
         const targetUrls = [
@@ -508,6 +526,12 @@ export class KiCadFetcher {
         return null;
     }
 
+    /**
+     * Fetch JSON from a URL through CORS proxies.
+     * @param {string} targetUrl
+     * @param {boolean} [returnHeaders=false] - If true, return `{ json, headers }`
+     * @returns {Promise<Object|null>}
+     */
     async _fetchJsonWithProxy(targetUrl, returnHeaders = false) {
         for (let attempt = 0; attempt < this.corsProxies.length; attempt++) {
             try {
@@ -529,6 +553,12 @@ export class KiCadFetcher {
         return returnHeaders ? null : null;
     }
 
+    /**
+     * Wrap fetch() with an AbortController timeout.
+     * @param {string} url
+     * @param {number} [timeoutMs=15000]
+     * @returns {Promise<Response>}
+     */
     async _fetchWithTimeout(url, timeoutMs = 15000) {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
@@ -539,6 +569,11 @@ export class KiCadFetcher {
         }
     }
 
+    /**
+     * Load or refresh the library-name → file/directory path index from GitLab.
+     * Uses a 7-day TTL cache in localStorage.
+     * @param {boolean} [force=false] - Force refresh even if cached
+     */
     async _loadLibraryPathIndex(force = false) {
         if (!force && this.libraryPathIndex) {
             return;
@@ -600,6 +635,11 @@ export class KiCadFetcher {
         }
     }
 
+    /**
+     * Check whether a URL exists by attempting a fetch through CORS proxies.
+     * @param {string} targetUrl
+     * @returns {Promise<boolean>}
+     */
     async _checkUrlExists(targetUrl) {
         for (let attempt = 0; attempt < this.corsProxies.length; attempt++) {
             try {
@@ -618,6 +658,12 @@ export class KiCadFetcher {
         return false;
     }
 
+    /**
+     * Fetch a `.kicad_mod` footprint file with 7-day localStorage caching.
+     * @param {string} lib - Footprint library name
+     * @param {string} name - Footprint name (without extension)
+     * @returns {Promise<string|null>} Raw file content or null
+     */
     async _fetchFootprintFile(lib, name) {
         const cacheKey = `kicad_fp_${lib}_${name}`;
         const cached = storageManager.get(cacheKey);
@@ -655,6 +701,12 @@ export class KiCadFetcher {
         return null;
     }
 
+    /**
+     * Parse a `.kicad_mod` S-expression into a simplified pad-shapes array
+     * with a bounding box, suitable for rendering a footprint preview.
+     * @param {string} content - Raw `.kicad_mod` file content
+     * @returns {{shapes: Array, bbox: Object}|null}
+     */
     _parseFootprintPreview(content) {
         if (!content) return null;
 
@@ -732,6 +784,13 @@ export class KiCadFetcher {
         };
     }
 
+    /**
+     * Extract the `Footprint` property value for a given symbol name
+     * from raw KiCad library file content.
+     * @param {string} content - Raw `.kicad_sym` content
+     * @param {string} symbolName
+     * @returns {string} Footprint reference or empty string
+     */
     _extractFootprintFromContent(content, symbolName) {
         if (!content || !symbolName) return '';
 
@@ -1018,6 +1077,14 @@ export class KiCadFetcher {
         return parse();
     }
 
+    /**
+     * If a parsed symbol has no pins or graphics, try to rebuild it
+     * from its unit sub-symbols (e.g. `NE555_1_1`).
+     * @param {Array} sexp - Parsed S-expression of the library
+     * @param {Object} symbol - Already-converted symbol object
+     * @param {string} baseName - Symbol base name (without unit suffix)
+     * @returns {Object} Original or rebuilt symbol
+     */
     _rebuildSymbolFromUnitsIfNeeded(sexp, symbol, baseName) {
         if ((symbol?.pins?.length || 0) > 0 || (symbol?.graphics?.length || 0) > 0) {
             return symbol;
@@ -1033,6 +1100,13 @@ export class KiCadFetcher {
         return symbol;
     }
 
+    /**
+     * Build a complete symbol by locating and merging all unit sub-symbols
+     * (e.g. `SymbolName_1_1`, `_1_2`, ...) from a library S-expression.
+     * @param {Array} sexp - Parsed library S-expression
+     * @param {string} baseName - Symbol base name
+     * @returns {Object|null} Merged symbol or null
+     */
     _buildSymbolFromUnits(sexp, baseName) {
         if (!Array.isArray(sexp) || !baseName) return null;
         const cleanBase = baseName.replace(/^"|"$/g, '');
@@ -1384,6 +1458,13 @@ export class KiCadFetcher {
         };
     }
 
+    /**
+     * Build a symbol from nested `(symbol ...)` unit elements within a
+     * top-level symbol S-expression. Deduplicates pins and normalises
+     * coordinates to a shared origin.
+     * @param {Array} symbolSexp - Top-level symbol S-expression
+     * @returns {Object|null} Symbol with graphics, pins, and computed bounds
+     */
     _buildSymbolFromNestedUnits(symbolSexp) {
         if (!Array.isArray(symbolSexp)) return null;
 
@@ -1524,6 +1605,12 @@ export class KiCadFetcher {
         return result;
     }
 
+    /**
+     * Process a single symbol unit sub-element, extracting its pins,
+     * rectangles, polylines, circles and arcs, and tracking min/max bounds.
+     * @param {Array} unitSexp - Unit S-expression
+     * @returns {{graphics: Array, pins: Array, minX: number, minY: number, maxX: number, maxY: number}}
+     */
     _processSymbolUnit(unitSexp) {
         const result = {
             graphics: [],
@@ -1684,6 +1771,11 @@ export class KiCadFetcher {
         return pin;
     }
 
+    /**
+     * Parse a `(property "Name" "Value")` S-expression.
+     * @param {Array} propSexp
+     * @returns {{name: string, value: string}|null}
+     */
     _parseKiCadProperty(propSexp) {
         if (!Array.isArray(propSexp) || propSexp.length < 3) return null;
         const nameRaw = propSexp[1];

@@ -354,6 +354,10 @@ function offsetShapeData(data, tx, ty) {
     }
 }
 
+/**
+ * Returns `true` if the internal clipboard array contains any items.
+ * @returns {boolean}
+ */
 export function hasClipboard() {
     return clipboard.length > 0;
 }

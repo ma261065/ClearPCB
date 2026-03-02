@@ -7,9 +7,18 @@ import { distanceToSegment } from '../core/geometry.js';
 import { ShapeValidator } from '../core/ShapeValidator.js';
 import { buildPointAnchorsGroup } from '../core/ui-helpers.js';
 
+/** Round to 4 decimal places for compact serialisation. */
 const _r4 = v => Math.round(v * 10000) / 10000;
 
 export class Line extends Shape {
+    /**
+     * @param {Object} [options]
+     * @param {Array<{x:number,y:number}>} [options.points] - Ordered vertices.
+     * @param {number} [options.x1] - Legacy start X.
+     * @param {number} [options.y1] - Legacy start Y.
+     * @param {number} [options.x2] - Legacy end X.
+     * @param {number} [options.y2] - Legacy end Y.
+     */
     constructor(options = {}) {
         super(options);
         this.type = 'line';
@@ -26,16 +35,24 @@ export class Line extends Shape {
         }
     }
 
-    // Legacy accessors for backward compatibility
+    /** @deprecated Legacy accessor — use `points[0].x`. */
     get x1() { return this.points[0]?.x || 0; }
+    /** @deprecated */
     set x1(v) { if (this.points[0]) this.points[0].x = v; }
+    /** @deprecated */
     get y1() { return this.points[0]?.y || 0; }
+    /** @deprecated */
     set y1(v) { if (this.points[0]) this.points[0].y = v; }
+    /** @deprecated */
     get x2() { return this.points[this.points.length - 1]?.x || 0; }
+    /** @deprecated */
     set x2(v) { if (this.points.length > 0) this.points[this.points.length - 1].x = v; }
+    /** @deprecated */
     get y2() { return this.points[this.points.length - 1]?.y || 0; }
+    /** @deprecated */
     set y2(v) { if (this.points.length > 0) this.points[this.points.length - 1].y = v; }
     
+    /** @override */
     _calculateBounds() {
         if (this.points.length === 0) {
             return { minX: 0, minY: 0, maxX: 0, maxY: 0 };
@@ -57,10 +74,11 @@ export class Line extends Shape {
         };
     }
     
+    /** @override */
     hitTest(point, tolerance = 0.5) {
         return this.distanceTo(point) <= tolerance + this.lineWidth / 2;
     }
-    
+    /** @override */
     distanceTo(point) {
         if (this.points.length < 2) return Infinity;
         let minDist = Infinity;
@@ -71,6 +89,7 @@ export class Line extends Shape {
         return minDist;
     }
     
+    /** @override — includes midpoint insertion anchors between vertices. */
     getAnchors() {
         const anchors = this.points.map((p, i) => ({
             id: `p${i}`,
@@ -93,6 +112,7 @@ export class Line extends Shape {
         return anchors;
     }
     
+    /** @override — dragging a midpoint anchor inserts a new vertex. */
     moveAnchor(anchorId, x, y) {
         if (anchorId.startsWith('mid')) {
             // Insert a new point at the midpoint position
@@ -125,6 +145,7 @@ export class Line extends Shape {
         return true;
     }
 
+    /** @override — full rebuild every frame (vertex count can change). */
     _updateAnchors(scale) {
         if (!this.selected) {
             if (this.anchorsGroup) {
@@ -149,10 +170,11 @@ export class Line extends Shape {
         }
     }
 
+    /** @override */
     _createElement() {
         return document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
     }
-    
+    /** @override */
     _updateElement(el, strokeColor, fillColor, scale) {
         const validPoints = this.points.filter(p => 
             p && typeof p.x === 'number' && !isNaN(p.x) && 
@@ -167,6 +189,7 @@ export class Line extends Shape {
         el.setAttribute('fill', 'none');
     }
     
+    /** @override */
     move(dx, dy) {
         if (!Number.isFinite(dx) || !Number.isFinite(dy)) return;
         for (const p of this.points) {
@@ -176,17 +199,18 @@ export class Line extends Shape {
         this.invalidate();
     }
     
+    /** @override */
     clone() {
         return new Line({
             ...this.toJSON(),
             points: this.points.map(p => ({ x: p.x, y: p.y }))
         });
     }
-    
+    /** @override */
     captureState() {
         return { points: this.points.map(p => ({ x: p.x, y: p.y })) };
     }
-
+    /** @override */
     applyState(state) {
         if (state.points) {
             this.points = state.points.map(p => ({ x: p.x, y: p.y }));
@@ -194,17 +218,18 @@ export class Line extends Shape {
         this.invalidate();
     }
 
+    /** @override */
     getPropertyDescriptors() {
         return [
             { key: 'locked',    label: 'Locked',    type: 'checkbox' },
             { key: 'lineWidth', label: 'Line width', type: 'number', min: 0.05, max: 5, step: 0.05 },
         ];
     }
-
+    /** @override */
     getPosition() {
         return this.points.length > 0 ? { x: this.points[0].x, y: this.points[0].y } : { x: 0, y: 0 };
     }
-    
+    /** @override */
     toJSON() {
         return {
             ...super.toJSON(),

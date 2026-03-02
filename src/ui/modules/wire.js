@@ -21,9 +21,40 @@
  *     stay orthogonal even off-grid.
  */
 
-import { Wire } from '../../shapes/index.js';
+import { Wire, COLLINEAR_EPSILON as _SHAPE_COLLINEAR_EPSILON } from '../../shapes/index.js';
 import { BatchCommand, AddShapeCommand, ModifyShapeCommand, DeleteShapesCommand } from '../../core/CommandHistory.js';
-import { distanceToSegment } from '../../core/geometry.js';
+import { distanceToSegment, pointsMatch, pointsCollinear, segmentsCollinear, collinearSnap } from '../../core/geometry.js';
+// Re-export pure geometry helpers so existing consumers (SchematicApp, mouse.js) don't break
+export { pointsMatch, pointsCollinear, segmentsCollinear };
+
+// --- Constants ---
+
+/** Snap threshold in screen pixels (divided by viewport.scale for world units). */
+export const SNAP_SCREEN_PX = 5;
+
+/** Epsilon for detecting collinear H/V segments (world units). Re-exported from Wire shape. */
+export const COLLINEAR_EPSILON = _SHAPE_COLLINEAR_EPSILON;
+
+/** Angle tolerance for general collinearity check (sin of max angle). */
+export const ANGLE_TOL = 0.05;
+
+/** Tolerance for vertex coincidence checks (world units). */
+export const VERTEX_EPSILON = 0.15;
+
+/** Tolerance for pin snap detection during drawing (world units). */
+export const PIN_SNAP_TOL = 1.5;
+
+/** Tolerance for wire-to-wire snap detection (world units). */
+export const WIRE_SNAP_TOL = 0.5;
+
+/** Default wire stroke color. */
+export const WIRE_COLOR = '#00cc66';
+
+/** Default wire stroke width (world units). */
+export const WIRE_WIDTH = 0.25;
+
+/** Maximum iterations for pairwise merge loop. */
+const MAX_MERGE_ITERATIONS = 50;
 
 // --- Pin helpers ---
 
@@ -53,16 +84,25 @@ export function findNearbyPin(components, worldPos, tolerance = 0.5) {
     return nearest;
 }
 
-export function isSamePin(pin1, pin2) {
-    if (pin1?.component?.id !== pin2?.component?.id) return false;
-    const key1 = pin1?.pinKey || pin1?.pin?._key || pin1?.pin?._id || pin1?.pin?.number;
-    const key2 = pin2?.pinKey || pin2?.pin?._key || pin2?.pin?._id || pin2?.pin?.number;
-    if (key1 && key2) return key1 === key2;
-    return pin1?.pin?.number === pin2?.pin?.number;
+/**
+ * Resolve the unique key for a pin-snap object.
+ * Handles the multiple fallback fields in component pin data.
+ */
+function _getPinKey(snapInfo) {
+    return snapInfo?.pinKey || snapInfo?.pin?._key || snapInfo?.pin?._id || snapInfo?.pin?.number;
 }
 
-export function pointsMatch(a, b, epsilon = 1e-6) {
-    return a && b && Math.abs(a.x - b.x) < epsilon && Math.abs(a.y - b.y) < epsilon;
+/**
+ * Compare two pin-snap objects for identity (same component + same pin).
+ * @param {object} pin1 - Pin snap info
+ * @param {object} pin2 - Pin snap info
+ * @returns {boolean}
+ */
+export function isSamePin(pin1, pin2) {
+    if (pin1?.component?.id !== pin2?.component?.id) return false;
+    const key1 = _getPinKey(pin1), key2 = _getPinKey(pin2);
+    if (key1 && key2) return key1 === key2;
+    return pin1?.pin?.number === pin2?.pin?.number;
 }
 
 /**
@@ -260,6 +300,12 @@ export function getDrawingSnappedPosition(app, worldPos) {
 
 // --- Drawing lifecycle ---
 
+/**
+ * Begin drawing a new wire from a snapped start position.
+ * Sets up app.wirePoints, axis lock, and shows the crosshair.
+ * @param {object} app - SchematicApp instance
+ * @param {{x: number, y: number, snapPin?: object}} snappedData - Start position
+ */
 export function startWireDrawing(app, snappedData) {
     const snapPin = snappedData.snapPin || null;
     const startPoint = { x: snappedData.x, y: snappedData.y };
@@ -276,20 +322,19 @@ export function startWireDrawing(app, snappedData) {
     app._setToolCursor(app.currentTool, app.viewport.svg);
 }
 
+/**
+ * Update the wire-drawing preview as the cursor moves.
+ * Calculates snap target and updates the preview SVG.
+ * @param {object} app - SchematicApp instance
+ * @param {{x: number, y: number}} worldPos - Raw cursor position in world coords
+ */
 export function updateWireDrawing(app, worldPos) {
     if (!app.isDrawing || app.wirePoints.length === 0) return;
 
     // Calculate snapped target (includes snap detection via resolveWireSnapPosition)
     const target = getDrawingSnappedPosition(app, worldPos);
 
-    // Highlight uses snapType from the unified resolver — no duplicate detection
-    if (target.snapType === 'pin' && target.snapPin) {
-        updateSnapHighlight(app, target.snapPin);
-    } else if (target.snapType === 'endpoint' || target.snapType === 'segment') {
-        updateSnapHighlight(app, { x: target.x, y: target.y, type: target.snapType });
-    } else {
-        updateSnapHighlight(app, null);
-    }
+    updateSnapHighlight(app, target);
 
     app.drawCurrent = { x: target.x, y: target.y };
     app.drawCorner = target.corner || null;
@@ -313,6 +358,12 @@ export function updateWireDrawing(app, worldPos) {
     updateWirePreview(app);
 }
 
+/**
+ * Add a waypoint (corner) to the wire being drawn.
+ * Collinear points are collapsed automatically.
+ * @param {object} app - SchematicApp instance
+ * @param {{x: number, y: number, snapPin?: object}} waypointData
+ */
 export function addWireWaypoint(app, waypointData) {
     if (app.wirePoints.length === 0) return;
 
@@ -345,6 +396,13 @@ export function addWireWaypoint(app, waypointData) {
     updateWirePreview(app);
 }
 
+/**
+ * Finish the current wire drawing: create a Wire shape from the
+ * accumulated waypoints, run reconciliation (merge, overlap,
+ * junctions), and push an undo batch.
+ * @param {object} app - SchematicApp instance
+ * @param {{x: number, y: number, snapPin?: object}} worldPos - Final endpoint
+ */
 export function finishWireDrawing(app, worldPos) {
     // Add final point if different from last waypoint
     if (app.drawCurrent) {
@@ -406,7 +464,6 @@ export function finishWireDrawing(app, worldPos) {
 
     // If the wire was fully absorbed (e.g. redundant), revert and cancel
     if (!app.shapes.includes(wire) && wire.edges.size === 0) {
-        // Restore everything and bail
         for (const [w, before] of beforeStates) {
             if (!app.shapes.includes(w)) {
                 w.applyState(before);
@@ -419,53 +476,17 @@ export function finishWireDrawing(app, worldPos) {
         return;
     }
 
-    // Build undo batch by diffing before/after states
-    const batch = new BatchCommand('Draw wire');
-
-    const removedWires = [];
-    const modifiedWires = [];
-    const addedWires = [];
-
-    for (const [w, before] of beforeStates) {
-        if (!app.shapes.includes(w)) {
-            removedWires.push({ wire: w, before });
-        } else {
-            const after = w.captureState();
-            if (JSON.stringify(before) !== JSON.stringify(after)) {
-                modifiedWires.push({ wire: w, before, after });
-            }
-        }
-    }
-    for (const s of app.shapes) {
-        if (s.type !== 'wire' || s === wire) continue;
-        if (!beforeStates.has(s)) addedWires.push(s);
-    }
-
-    // Revert to pre-mutation state so batch.execute() can replay
-    for (const { wire: w, before } of modifiedWires) {
-        w.applyState(before);
-        w.invalidate();
-    }
-    for (const { wire: w, before } of removedWires) {
-        w.applyState(before);
-        app._addShapeInternal(w);
-    }
-    for (const s of addedWires) app._removeShapeInternal(s);
-    if (app.shapes.includes(wire)) app._removeShapeInternal(wire);
-
-    // Build batch: deletes, modifications, then adds
-    for (const { wire: w } of removedWires)
-        batch.add(new DeleteShapesCommand(app, [w]));
-    for (const { wire: w, before, after } of modifiedWires)
-        batch.add(new ModifyShapeCommand(app, w, before, after));
-    for (const s of addedWires) batch.add(new AddShapeCommand(app, s));
-    batch.add(new AddShapeCommand(app, wire));
-
-    app.history.execute(batch);
+    // Build undo batch (drawn wire is an extra add since it's new)
+    const batch = buildWireDiffBatch(app, beforeStates, 'Draw wire', [wire]);
+    if (batch) app.history.execute(batch);
     cancelWireDrawing(app);
     app.renderShapes(true);
 }
 
+/**
+ * Cancel the current wire drawing, cleaning up preview and state.
+ * @param {object} app - SchematicApp instance
+ */
 export function cancelWireDrawing(app) {
     app.wirePoints = [];
     app._wireAxisLock = null;
@@ -484,6 +505,11 @@ export function cancelWireDrawing(app) {
 
 // --- Wire preview ---
 
+/**
+ * Redraw the wire-drawing preview SVG from app.wirePoints
+ * plus the current cursor position (app.drawCurrent).
+ * @param {object} app - SchematicApp instance
+ */
 export function updateWirePreview(app) {
     if (!app.previewElement) return;
 
@@ -526,8 +552,7 @@ export function updateWirePreview(app) {
  * Low-level: show yellow dot on a component pin.
  */
 function _showPinDot(app, snapPin) {
-    const pinKey = snapPin.pinKey || snapPin.pin._key || snapPin.pin._id || snapPin.pin.number;
-    const pinGroup = snapPin.component.pinElements?.get(pinKey);
+    const pinGroup = snapPin.component.pinElements?.get(_getPinKey(snapPin));
     if (pinGroup) {
         const dot = pinGroup.querySelector('circle');
         if (dot) {
@@ -543,8 +568,7 @@ function _showPinDot(app, snapPin) {
  */
 function _hidePinDot(app) {
     if (!app.wireSnapPin?.pin) return;
-    const pinKey = app.wireSnapPin.pinKey || app.wireSnapPin.pin._key || app.wireSnapPin.pin._id || app.wireSnapPin.pin.number;
-    const pinGroup = app.wireSnapPin.component.pinElements?.get(pinKey);
+    const pinGroup = app.wireSnapPin.component.pinElements?.get(_getPinKey(app.wireSnapPin));
     if (pinGroup) {
         const dot = pinGroup.querySelector('circle');
         if (dot) {
@@ -589,11 +613,24 @@ function _hideWireJunctionDot(app) {
  * Unified snap highlight: show a yellow dot for a pin or wire junction,
  * automatically cleaning up any previous highlight of either type.
  *
- * @param {object} app
- * @param {object|null} target - A pin snap object (has .pin), a wire
- *        junction {x, y} (no .pin), or null to clear all highlights.
+ * Accepts three input forms:
+ *   - A snap result (has .snapType): automatically converted
+ *   - A pin snap object (has .pin): show pin dot
+ *   - A wire junction {x, y, type} (no .pin): show junction dot
+ *   - null: clear all highlights
  */
 export function updateSnapHighlight(app, target) {
+    // Accept snap resolver results directly — convert to highlight format
+    if (target?.snapType) {
+        if (target.snapType === 'pin' && target.snapPin) {
+            target = target.snapPin;
+        } else if (target.snapType === 'endpoint' || target.snapType === 'segment') {
+            target = { x: target.x, y: target.y, type: target.snapType };
+        } else {
+            target = null;
+        }
+    }
+
     const isPin = target?.pin != null;
     const isWireJunction = target && !isPin;
     const prevPin = app.wireSnapPin;
@@ -667,75 +704,20 @@ export function findNearbyWirePoint(app, worldPos, tolerance, excludeWires = nul
     return bestNode || bestEdge;
 }
 
-// --- Constants ---
-
-/** Snap threshold in screen pixels (divided by viewport.scale for world units). */
-export const SNAP_SCREEN_PX = 5;
-
-/** Epsilon for detecting collinear H/V segments (world units). */
-export const COLLINEAR_EPSILON = 0.01;
-
-/** Angle tolerance for general collinearity check (sin of max angle). */
-export const ANGLE_TOL = 0.05;
-
-/** Tolerance for vertex coincidence checks (world units). */
-export const VERTEX_EPSILON = 0.15;
-
-/** Tolerance for pin snap detection during drawing (world units). */
-export const PIN_SNAP_TOL = 1.5;
-
-/** Tolerance for wire-to-wire snap detection (world units). */
-export const WIRE_SNAP_TOL = 0.5;
-
-/** Default wire stroke color. */
-export const WIRE_COLOR = '#00cc66';
-
-/** Default wire stroke width (world units). */
-export const WIRE_WIDTH = 0.25;
-
 // --- Wire point cleanup (graph model — handled by Wire.cleanGraph()) ---
 
-// Legacy stub: no longer needed with graph model (junction indices don't exist).
-export function spliceWirePoint(wire, idx) { /* no-op */ }
-
-// Legacy stub: graph model handles this via Wire.cleanGraph().
+/**
+ * Collapse redundant collinear points in a wire.
+ * Delegates to Wire.cleanGraph() in the graph model.
+ */
 export function collapseRedundantWirePoints(app, wire) {
     if (wire && wire.cleanGraph) wire.cleanGraph();
-}
-
-// --- Collinearity helper ---
-
-/**
- * Check if three consecutive points are collinear (the angle at b
- * deviates less than ANGLE_TOL from 180°).  Handles degenerate
- * zero-length spans gracefully.
- */
-export function pointsCollinear(a, b, c) {
-    const dx1 = b.x - a.x, dy1 = b.y - a.y;
-    const dx2 = c.x - b.x, dy2 = c.y - b.y;
-    const len1 = Math.hypot(dx1, dy1), len2 = Math.hypot(dx2, dy2);
-    if (len1 < 1e-9 || len2 < 1e-9) return true;
-    return Math.abs(dx1 * dy2 - dy1 * dx2) / (len1 * len2) < ANGLE_TOL;
-}
-
-/**
- * Check if two segments are collinear (parallel and overlapping direction).
- * seg1/seg2 are { a: {x,y}, b: {x,y} }.
- */
-export function segmentsCollinear(seg1, seg2, angleTol = ANGLE_TOL) {
-    const dx1 = seg1.b.x - seg1.a.x, dy1 = seg1.b.y - seg1.a.y;
-    const dx2 = seg2.b.x - seg2.a.x, dy2 = seg2.b.y - seg2.a.y;
-    const len1 = Math.hypot(dx1, dy1), len2 = Math.hypot(dx2, dy2);
-    if (len1 < 1e-9 || len2 < 1e-9) return true; // degenerate
-    const cross = Math.abs(dx1 * dy2 - dy1 * dx2) / (len1 * len2);
-    return cross < angleTol;
 }
 
 // --- Junctions (graph model — junctions are degree ≥ 3 nodes, automatic) ---
 
 /**
- * Legacy stub — with graph model, T-junction checking is implicit
- * (nodes with degree ≥ 3 are junctions).
+ * Check whether a point coincides with a node on any non-excluded wire.
  */
 export function isTJunctionPoint(app, pt, ...excludeWires) {
     if (!app) return false;
@@ -745,15 +727,6 @@ export function isTJunctionPoint(app, pt, ...excludeWires) {
         if (s.nodeAt(pt, VERTEX_EPSILON)) return true;
     }
     return false;
-}
-
-/**
- * Legacy stub — with graph model, orphaned junctions don't exist
- * (junction dots are derived from node degree, not stored).
- * Returns empty array for compatibility with callers that build undo batches.
- */
-export function cleanupOrphanedTJunctions(app, orphanedPts, excludeWires) {
-    return [];
 }
 
 // --- Sticky wires (requirement 6) ---
@@ -780,6 +753,8 @@ export function refreshWireConnections(app, wire) {
 /**
  * Call this after moving components. For every wire node that has a pin
  * connection, update that node to the pin's current world position.
+ * NOTE: Also duplicated inline in MoveShapesCommand (core/CommandHistory.js)
+ * to avoid circular imports — keep both in sync.
  */
 export function updateStickyWires(app) {
     for (const shape of app.shapes) {
@@ -897,7 +872,7 @@ export function reconcileWires(app, changedWires, skipSet = null) {
     // ── Pass 1: Merge touching graphs ──
     let stable = false;
     let iterations = 0;
-    while (!stable && iterations < 50) {
+    while (!stable && iterations < MAX_MERGE_ITERATIONS) {
         stable = true;
         iterations++;
         for (const wireA of [...affected]) {
@@ -945,11 +920,51 @@ export function reconcileWires(app, changedWires, skipSet = null) {
 }
 
 /**
- * Legacy stub — with graph model, junction dots are computed from node
- * degree automatically.  This function is a no-op.
+ * Diff wire states before/after mutation and build an undo batch.
+ * Reverts all wires to their before-state so batch.execute() replays correctly.
+ *
+ * @param {object} app
+ * @param {Map<Wire, object>} beforeStates - captured states before mutation
+ * @param {string} label - undo command label
+ * @param {Wire[]} [extraAdds] - additional new wires to include as AddShapeCommand
+ * @returns {BatchCommand|null} - batch or null if nothing changed
  */
-export function rebuildJunctions(app) {
-    // No-op: junction dots are derived from node degree in _updateElement
+export function buildWireDiffBatch(app, beforeStates, label, extraAdds = []) {
+    const batch = new BatchCommand(label);
+    let anyChanges = false;
+
+    for (const [w, before] of beforeStates) {
+        if (!app.shapes.includes(w)) {
+            w.applyState(before);
+            if (!app.shapes.includes(w)) app.shapes.push(w);
+            batch.add(new DeleteShapesCommand(app, [w]));
+            anyChanges = true;
+        } else {
+            const after = w.captureState();
+            if (JSON.stringify(before) !== JSON.stringify(after)) {
+                w.applyState(before);
+                batch.add(new ModifyShapeCommand(app, w, before, after));
+                anyChanges = true;
+            }
+        }
+    }
+    // New wires (from splits) — exclude extraAdds so they aren't double-counted
+    const extraSet = new Set(extraAdds);
+    for (const s of [...app.shapes]) {
+        if (s.type === 'wire' && !beforeStates.has(s) && !extraSet.has(s)) {
+            app._removeShapeInternal(s);
+            batch.add(new AddShapeCommand(app, s));
+            anyChanges = true;
+        }
+    }
+    // Additional new wires (e.g. the drawn wire in finishWireDrawing)
+    for (const w of extraAdds) {
+        if (app.shapes.includes(w)) app._removeShapeInternal(w);
+        batch.add(new AddShapeCommand(app, w));
+        anyChanges = true;
+    }
+
+    return anyChanges ? batch : null;
 }
 
 /**
@@ -965,7 +980,6 @@ export function reconcileWiresWithUndo(app, changedWires, skipSet = null) {
     // Snapshot all wires BEFORE
     const allWires = app.shapes.filter(s => s.type === 'wire');
     const beforeStates = new Map(allWires.map(w => [w, w.captureState()]));
-    const beforeShapes = new Set(allWires);
 
     // Run reconciliation
     reconcileWires(app, changedWires, skipSet);
@@ -976,37 +990,9 @@ export function reconcileWiresWithUndo(app, changedWires, skipSet = null) {
     }
 
     // Diff and build undo batch
-    const batch = new BatchCommand('Wire reconciliation');
-    let anyChanges = false;
+    const batch = buildWireDiffBatch(app, beforeStates, 'Wire reconciliation');
+    if (!batch) return null;
 
-    for (const [w, before] of beforeStates) {
-        if (!app.shapes.includes(w)) {
-            // Wire was removed — restore it then add DeleteShapesCommand
-            w.applyState(before);
-            if (!app.shapes.includes(w)) app.shapes.push(w);
-            batch.add(new DeleteShapesCommand(app, [w]));
-            anyChanges = true;
-        } else {
-            const after = w.captureState();
-            if (JSON.stringify(before) !== JSON.stringify(after)) {
-                w.applyState(before);
-                batch.add(new ModifyShapeCommand(app, w, before, after));
-                anyChanges = true;
-            }
-        }
-    }
-    // New wires (from splits)
-    for (const s of [...app.shapes]) {
-        if (s.type === 'wire' && !beforeStates.has(s)) {
-            app._removeShapeInternal(s);
-            batch.add(new AddShapeCommand(app, s));
-            anyChanges = true;
-        }
-    }
-
-    if (!anyChanges) return null;
-
-    // Execute the batch (replays from before→after)
     batch.execute();
     return batch;
 }
@@ -1048,26 +1034,6 @@ export function renderGuideLines(app, guides) {
 }
 
 // --- Collinear / H-V snap for moving wire segments ---
-
-/**
- * Check if three points are collinear within a world-unit threshold.
- * If so, returns the projection of `mid` onto the line through
- * `outer` and `far`. Otherwise returns null.
- */
-function collinearSnap(outer, mid, far, threshold) {
-    const dx1 = mid.x - outer.x, dy1 = mid.y - outer.y;
-    const len1 = Math.hypot(dx1, dy1);
-    if (len1 < 1e-9) return null;
-    const ldx = far.x - outer.x, ldy = far.y - outer.y;
-    const lenSq = ldx * ldx + ldy * ldy;
-    if (lenSq < 1e-9) return null;
-    const cross = Math.abs(dx1 * ldy - dy1 * ldx) / Math.sqrt(lenSq);
-    if (cross < threshold) {
-        const t = (dx1 * ldx + dy1 * ldy) / lenSq;
-        return { x: outer.x + t * ldx, y: outer.y + t * ldy };
-    }
-    return null;
-}
 
 /**
  * Override a grid-snapped position with off-grid neighbor coordinates

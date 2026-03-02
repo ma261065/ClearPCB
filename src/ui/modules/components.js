@@ -2,11 +2,23 @@ import { Component } from '../../components/index.js';
 import { AddComponentCommand, TransformComponentCommand } from '../../core/CommandHistory.js';
 import { needsValueDialog, showValueDialog } from './value-dialog.js';
 
+/**
+ * Rebuilds the selection manager's list of selectable items by merging
+ * `app.components` and `app.shapes`.
+ * @param {object} app - Application state.
+ */
 export function updateSelectableItems(app) {
     const items = [...app.components, ...app.shapes];
     app.selection.setShapes(items);
 }
 
+/**
+ * Generates the next unique reference designator (e.g. `R3`, `U5`) for a
+ * component definition by scanning existing components.
+ * @param {object} app - Application state.
+ * @param {object} definition - Component definition with `defaultReference`.
+ * @returns {string} Next available reference designator.
+ */
 export function generateReference(app, definition) {
     let prefix = definition.defaultReference || 'U?';
     prefix = prefix.replace(/[0-9?]+$/, '');
@@ -22,10 +34,21 @@ export function generateReference(app, definition) {
     return `${prefix}${maxNum + 1}`;
 }
 
+/**
+ * Filters the current selection to return only `Component` instances.
+ * @param {object} app - Application state.
+ * @returns {import('../../components/Component.js').Component[]} Selected components.
+ */
 export function getSelectedComponents(app) {
     return app.selection.getSelection().filter(item => item instanceof Component);
 }
 
+/**
+ * Handles a component definition being chosen from the picker — sets placement
+ * mode, creates a preview, and sets crosshair cursor.
+ * @param {object} app - Application state.
+ * @param {object} definition - The selected component definition.
+ */
 export function onComponentDefinitionSelected(app, definition) {
     app._cancelDrawing();
 
@@ -42,6 +65,12 @@ export function onComponentDefinitionSelected(app, definition) {
     console.log('Placing component:', definition.name);
 }
 
+/**
+ * Creates a semi-transparent SVG element showing the component symbol
+ * under the cursor during placement.
+ * @param {object} app - Application state.
+ * @param {object} definition - Component definition to preview.
+ */
 export function createComponentPreview(app, definition) {
     if (app.componentPreview) {
         app.componentPreview.remove();
@@ -63,6 +92,12 @@ export function createComponentPreview(app, definition) {
     app.viewport.componentLayer.appendChild(app.componentPreview);
 }
 
+/**
+ * Moves the component placement preview to follow the cursor, applying
+ * current rotation and mirror transforms.
+ * @param {object} app - Application state.
+ * @param {{x: number, y: number}} worldPos - Cursor position in world coordinates.
+ */
 export function updateComponentPreview(app, worldPos) {
     if (!app.componentPreview || !app.placingComponent) return;
 
@@ -77,6 +112,13 @@ export function updateComponentPreview(app, worldPos) {
     app.componentPreview.setAttribute('transform', parts.join(' '));
 }
 
+/**
+ * Instantiates a `Component` at the given position, executes an
+ * `AddComponentCommand`, and optionally shows a value dialog for passive
+ * components (R/C/L).
+ * @param {object} app - Application state.
+ * @param {{x: number, y: number}} worldPos - Placement position in world coordinates.
+ */
 export async function placeComponent(app, worldPos) {
     if (!app.placingComponent) return;
 
@@ -109,6 +151,11 @@ export async function placeComponent(app, worldPos) {
     }
 }
 
+/**
+ * Rotates the placement preview +90°, or rotates all selected components
+ * right via `TransformComponentCommand`.
+ * @param {object} app - Application state.
+ */
 export function rotateComponentRight(app) {
     if (app.placingComponent) {
         app.componentRotation = (app.componentRotation + 90) % 360;
@@ -125,6 +172,11 @@ export function rotateComponentRight(app) {
     }
 }
 
+/**
+ * Rotates the placement preview −90°, or rotates all selected components
+ * left via `TransformComponentCommand`.
+ * @param {object} app - Application state.
+ */
 export function rotateComponentLeft(app) {
     if (app.placingComponent) {
         app.componentRotation = (app.componentRotation - 90 + 360) % 360;
@@ -141,6 +193,11 @@ export function rotateComponentLeft(app) {
     }
 }
 
+/**
+ * Toggles horizontal mirror on the placement preview, or flips selected
+ * components horizontally via `TransformComponentCommand`.
+ * @param {object} app - Application state.
+ */
 export function flipComponentH(app) {
     if (app.placingComponent) {
         app.componentMirror = !app.componentMirror;
@@ -157,6 +214,11 @@ export function flipComponentH(app) {
     }
 }
 
+/**
+ * Flips selected components vertically via `TransformComponentCommand`
+ * (no effect during placement).
+ * @param {object} app - Application state.
+ */
 export function flipComponentV(app) {
     if (!app.placingComponent) {
         const selected = app._getSelectedComponents();
@@ -167,6 +229,11 @@ export function flipComponentV(app) {
     }
 }
 
+/**
+ * Removes the placement preview, resets rotation/mirror state, and switches
+ * back to the select tool.
+ * @param {object} app - Application state.
+ */
 export function cancelComponentPlacement(app) {
     if (app.componentPreview) {
         app.componentPreview.remove();

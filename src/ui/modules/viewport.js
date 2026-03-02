@@ -1,3 +1,8 @@
+/**
+ * Binds change listeners for grid size, grid style, units, show-grid,
+ * snap-to-grid dropdowns/checkboxes, and zoom/fit/reset buttons.
+ * @param {object} app - Application state.
+ */
 export function bindViewportControls(app) {
     app.ui.gridSize.addEventListener('change', (e) => {
         app.viewport.setGridSize(parseFloat(e.target.value));
@@ -49,6 +54,11 @@ export function bindViewportControls(app) {
     });
 }
 
+/**
+ * Rebuilds the grid-size `<select>` options for the current unit system
+ * and selects the closest match to the current grid size.
+ * @param {object} app - Application state.
+ */
 export function updateGridDropdown(app) {
     const options = app.viewport.getGridOptions();
     const currentValue = app.viewport.gridSize;
@@ -76,6 +86,11 @@ export function updateGridDropdown(app) {
     app.viewport.setGridSize(options[closestIdx].value);
 }
 
+/**
+ * Computes the bounding box of all shapes and components and calls
+ * `viewport.fitToBounds` to zoom/pan to fit them with padding.
+ * @param {object} app - Application state.
+ */
 export function fitToContent(app) {
     // Always fit to content (shapes + components), paper is just a guide
     if (app.shapes.length === 0 && app.components.length === 0) {

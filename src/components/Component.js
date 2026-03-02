@@ -20,6 +20,23 @@ export function updateComponentIdCounter(id) {
  * Component class - represents an electronic component instance on the schematic
  */
 export class Component {
+    /**
+     * Create a component instance.
+     * @param {Object} definition - Component definition (symbol, name, defaults, etc.)
+     * @param {Object} [options]
+     * @param {string} [options.id] - Unique ID (auto-generated if omitted)
+     * @param {number} [options.x=0] - World X position
+     * @param {number} [options.y=0] - World Y position
+     * @param {number} [options.rotation=0] - Rotation in degrees
+     * @param {boolean} [options.mirror=false] - Horizontal mirror flag
+     * @param {string} [options.reference] - Reference designator (e.g. 'R1')
+     * @param {string} [options.value] - Component value (e.g. '10k')
+     * @param {boolean} [options.showReference=true] - Whether the reference text is visible
+     * @param {boolean} [options.showValue=true] - Whether the value text is visible
+     * @param {boolean} [options.visible=true] - Component visibility
+     * @param {boolean} [options.locked=false] - Lock against edits
+     * @param {Object} [options.properties] - Additional user properties
+     */
     constructor(definition, options = {}) {
         this.id = options.id || `comp_${++compIdCounter}`;
         this.definition = definition;
@@ -46,7 +63,9 @@ export class Component {
         this.hovered = false;
     }
 
+    /** @returns {Object} The symbol definition (graphics + pins). */
     get symbol() { return this.definition.symbol; }
+    /** @returns {string} The component definition name. */
     get name() { return this.definition.name; }
 
     // ── Coordinate transforms ─────────────────────────────────────
@@ -186,16 +205,29 @@ export class Component {
 
     // ── Shape-compatible API ──────────────────────────────────────
 
+    /**
+     * Return the component's world position.
+     * @returns {{x: number, y: number}}
+     */
     getPosition() {
         return { x: this.x, y: this.y };
     }
 
+    /**
+     * Capture current state for undo/redo.
+     * @returns {Object} Serialisable snapshot of mutable properties
+     */
     captureState() {
         return { x: this.x, y: this.y, rotation: this.rotation, mirror: this.mirror,
                  reference: this.reference, value: this.value,
                  showReference: this.showReference, showValue: this.showValue };
     }
 
+    /**
+     * Restore a previously captured state, recreating the SVG element if
+     * the rotation or mirror has changed.
+     * @param {Object} state - State snapshot from captureState()
+     */
     applyState(state) {
         const mirChanged = state.mirror !== undefined && state.mirror !== this.mirror;
         const rotChanged = state.rotation !== undefined && state.rotation !== this.rotation;
@@ -209,8 +241,14 @@ export class Component {
         }
     }
 
+    /** @returns {'grid'} Components always snap to the grid. */
     getAnchorSnapMode() { return 'grid'; }
+    /** No-op — components have no drag state to reset. */
     resetDragState() {}
+    /**
+     * Return property descriptors for the properties panel.
+     * @returns {Array<{key: string, label: string, type: string}>}
+     */
     getPropertyDescriptors() {
         return [
             { key: 'locked',        label: 'Locked',          type: 'checkbox' },
@@ -220,6 +258,7 @@ export class Component {
             { key: 'showValue',     label: 'Show Value',      type: 'checkbox' },
         ];
     }
+    /** @returns {false} Components do not support in-place text editing. */
     get supportsInlineEdit() { return false; }
 
     /**
@@ -380,6 +419,12 @@ export class Component {
         }
     }
 
+    /**
+     * Compute the axis-aligned bounding box in component-local coordinates,
+     * including all graphics, pins and a 1.0 unit padding.
+     * If the component is mirrored the X axis is reflected.
+     * @returns {{minX: number, minY: number, maxX: number, maxY: number}}
+     */
     _getLocalBounds() {
         const symbol = this.symbol;
         const width = symbol?.width || 10;
@@ -569,6 +614,12 @@ export class Component {
         };
     }
 
+    /**
+     * Create the SVG `<g>` element for this component including
+     * all graphic shapes and pins.
+     * @param {string} [ns='http://www.w3.org/2000/svg'] - SVG namespace
+     * @returns {SVGGElement} The component group element
+     */
     createSymbolElement(ns = 'http://www.w3.org/2000/svg') {
         const group = document.createElementNS(ns, 'g');
         group.setAttribute('class', 'component');
@@ -633,6 +684,13 @@ export class Component {
         return { rot: localRot, anchor, flipped };
     }
 
+    /**
+     * Create the SVG elements for a single pin (line, connection dot,
+     * optional bubble, name and number labels).
+     * @param {Object} pin - Pin descriptor from the symbol definition
+     * @param {string} ns - SVG namespace
+     * @returns {SVGGElement} Pin group element
+     */
     _createPinElement(pin, ns) {
         const group = document.createElementNS(ns, 'g');
         const length = Number.isFinite(pin.length) ? pin.length : 0;
@@ -970,6 +1028,14 @@ export class Component {
         return group;
     }
 
+    /**
+     * Create an SVG element for a graphics primitive (rect, circle, line,
+     * polyline, polygon, arc, path, or text). Colours are replaced with
+     * CSS custom properties for theming; mirror is applied to X coordinates.
+     * @param {Object} g - Graphics descriptor from the symbol definition
+     * @param {string} ns - SVG namespace
+     * @returns {SVGElement|null} The created element, or null if skipped
+     */
     _createGraphicElement(g, ns) {
         let el;
         // Ignore colors from component data, use themed colors
@@ -1092,6 +1158,10 @@ export class Component {
         return el;
     }
 
+    /**
+     * Build the SVG transform string for the component's position and rotation.
+     * @returns {string|null} e.g. 'translate(10,20) rotate(90)', or null if at origin with no rotation
+     */
     _buildTransform() {
         const parts = [];
         if (this.x || this.y) parts.push(`translate(${this.x},${this.y})`);
@@ -1099,6 +1169,11 @@ export class Component {
         return parts.length ? parts.join(' ') : null;
     }
 
+    /**
+     * Get a pin's connection point in world coordinates.
+     * @param {string|number} number - Pin number
+     * @returns {{x: number, y: number}|null}
+     */
     getPinPosition(number) {
         const pin = this.getPin(number);
         if (!pin) return null;
@@ -1111,6 +1186,11 @@ export class Component {
         };
     }
 
+    /**
+     * Look up a pin descriptor by its number.
+     * @param {string|number} num - Pin number
+     * @returns {Object|undefined}
+     */
     getPin(num) { return this.symbol?.pins?.find(p => p.number === String(num)); }
 
     /**
@@ -1204,6 +1284,11 @@ export class Component {
         this.rotate(180);
     }
 
+    /**
+     * Set the component position and update the SVG transform.
+     * @param {number} x - World X
+     * @param {number} y - World Y
+     */
     setPosition(x, y) {
         this.x = x; this.y = y;
         if (this.element) {

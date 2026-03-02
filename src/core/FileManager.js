@@ -5,6 +5,7 @@
  */
 
 export class FileManager {
+    /** Initialises the file manager with default state (no file open). */
     constructor() {
         // Current file handle (for "Save" without prompting)
         this.fileHandle = null;
@@ -51,6 +52,10 @@ export class FileManager {
         }
     }
 
+    /**
+     * Set the current file path, deriving fileName from the path if not already set.
+     * @param {string|null} path - Full file path or name
+     */
     setFilePath(path) {
         this.filePath = path;
         if (!this.fileName && path) {

@@ -7,9 +7,16 @@
 import { Shape } from './shape.js';
 import { circumcircle, projectOntoChordBisector, clampBulgePoint, bulgeRatio, bulgePointFromRatio } from '../core/geometry.js';
 
+/** Round to 4 decimal places for compact serialisation. */
 const _r4 = v => Math.round(v * 10000) / 10000;
 
 export class Arc extends Shape {
+    /**
+     * @param {Object} [options]
+     * @param {{x:number,y:number}} [options.startPoint] - Arc start.
+     * @param {{x:number,y:number}} [options.endPoint]   - Arc end.
+     * @param {{x:number,y:number}} [options.bulgePoint]  - Arc midpoint (curvature control).
+     */
     constructor(options = {}) {
         super(options);
         this.type = 'arc';
@@ -21,28 +28,29 @@ export class Arc extends Shape {
         this._cachedGeometry = null;
     }
     
+    /** @returns {{x:number,y:number}} Arc start control point. */
     get startPoint() {
         return this._startPoint;
     }
-    
+    /** @param {{x:number,y:number}} val */
     set startPoint(val) {
         this._startPoint = val;
         this._cachedGeometry = null;
     }
-    
+    /** @returns {{x:number,y:number}} Arc end control point. */
     get endPoint() {
         return this._endPoint;
     }
-    
+    /** @param {{x:number,y:number}} val */
     set endPoint(val) {
         this._endPoint = val;
         this._cachedGeometry = null;
     }
-    
+    /** @returns {{x:number,y:number}} Bulge (curvature) control point. */
     get bulgePoint() {
         return this._bulgePoint;
     }
-    
+    /** @param {{x:number,y:number}} val */
     set bulgePoint(val) {
         this._bulgePoint = val;
         this._cachedGeometry = null;
@@ -67,6 +75,11 @@ export class Arc extends Shape {
         return geo;
     }
 
+    /**
+     * Derive centre, radius, angles, and sweep from the three control points
+     * via circumcircle calculation.
+     * @returns {{cx:number, cy:number, radius:number, startAngle:number, endAngle:number, sweepFlag:0|1}}
+     */
     _computeGeometry() {
         const p1 = this._startPoint;
         const p2 = this._bulgePoint;
@@ -97,31 +110,33 @@ export class Arc extends Shape {
         return { cx, cy, radius, startAngle, endAngle, sweepFlag };
     }
     
-    // Geometry getters - always computed from three points
+    /** Centre X, derived from control points. */
     get x() {
         return this._getGeometry().cx;
     }
     
+    /** Centre Y, derived from control points. */
     get y() {
         return this._getGeometry().cy;
     }
-    
+    /** Arc radius in mm. */
     get radius() {
         return this._getGeometry().radius;
     }
-    
+    /** Start angle in radians. */
     get startAngle() {
         return this._getGeometry().startAngle;
     }
-    
+    /** End angle in radians. */
     get endAngle() {
         return this._getGeometry().endAngle;
     }
-    
+    /** SVG sweep flag (0 = CCW, 1 = CW). */
     get sweepFlag() {
         return this._getGeometry().sweepFlag;
     }
     
+    /** @override */
     _calculateBounds() {
         const geo = this._getGeometry();
         const { cx, cy, radius } = geo;
@@ -159,6 +174,7 @@ export class Arc extends Shape {
         };
     }
     
+    /** @override */
     hitTest(point, tolerance = 0.5) {
         const dist = Math.hypot(point.x - this.x, point.y - this.y);
         
@@ -170,6 +186,11 @@ export class Arc extends Shape {
         return this._isAngleInRange(angle);
     }
     
+    /**
+     * Test whether an angle lies on the drawn arc.
+     * @param {number} angle - Angle in radians.
+     * @returns {boolean}
+     */
     _isAngleInRange(angle) {
         const TWO_PI = Math.PI * 2;
         const mod = (a) => ((a % TWO_PI) + TWO_PI) % TWO_PI;
@@ -189,6 +210,7 @@ export class Arc extends Shape {
         }
     }
     
+    /** @override */
     distanceTo(point) {
         const dist = Math.hypot(point.x - this.x, point.y - this.y);
         const angle = Math.atan2(point.y - this.y, point.x - this.x);
@@ -205,14 +227,16 @@ export class Arc extends Shape {
         );
     }
     
+    /** @returns {{x:number,y:number}} Copy of the arc start point. */
     getStartPoint() {
         return { x: this._startPoint.x, y: this._startPoint.y };
     }
-    
+    /** @returns {{x:number,y:number}} Copy of the arc end point. */
     getEndPoint() {
         return { x: this._endPoint.x, y: this._endPoint.y };
     }
 
+    /** @override */
     getAnchors() {
         const start = this.getStartPoint();
         const end = this.getEndPoint();
@@ -224,6 +248,10 @@ export class Arc extends Shape {
         ];
     }
     
+    /**
+     * Compute the midpoint of the drawn arc (for the "mid" anchor handle).
+     * @returns {{x:number,y:number}}
+     */
     getMidPoint() {
         const geo = this._getGeometry();
         const { cx, cy, radius, sweepFlag } = geo;
@@ -250,6 +278,7 @@ export class Arc extends Shape {
         };
     }
     
+    /** @override */
     moveAnchor(anchorId, x, y) {
         const start = this.getStartPoint();
         const end = this.getEndPoint();
@@ -274,10 +303,11 @@ export class Arc extends Shape {
         this.invalidate();
     }
 
+    /** @override */
     _createElement() {
         return document.createElementNS('http://www.w3.org/2000/svg', 'path');
     }
-    
+    /** @override */
     _updateElement(el, strokeColor, fillColor, scale) {
         const start = this.getStartPoint();
         const end = this.getEndPoint();
@@ -290,6 +320,7 @@ export class Arc extends Shape {
         el.setAttribute('stroke-linecap', 'round');
     }
     
+    /** @override */
     move(dx, dy) {
         if (!Number.isFinite(dx) || !Number.isFinite(dy)) return;
         // Assign new objects through setters so _cachedGeometry is cleared at each step
@@ -299,10 +330,11 @@ export class Arc extends Shape {
         this.invalidate();
     }
     
+    /** @override */
     clone() {
         return new Arc(this.toJSON());
     }
-    
+    /** @override */
     captureState() {
         return {
             startPoint: { x: this._startPoint.x, y: this._startPoint.y },
@@ -311,13 +343,14 @@ export class Arc extends Shape {
         };
     }
 
+    /** @override */
     getPropertyDescriptors() {
         return [
             { key: 'locked',    label: 'Locked',    type: 'checkbox' },
             { key: 'lineWidth', label: 'Line width', type: 'number', min: 0.05, max: 5, step: 0.05 },
         ];
     }
-    
+    /** @override */
     applyState(state) {
         if (state.startPoint) this.startPoint = { x: state.startPoint.x, y: state.startPoint.y };
         if (state.endPoint) this.endPoint = { x: state.endPoint.x, y: state.endPoint.y };
@@ -325,18 +358,19 @@ export class Arc extends Shape {
         this.invalidate();
     }
     
+    /** @override */
     getPosition() {
         return { x: this._startPoint.x, y: this._startPoint.y };
     }
-    
+    /** @override — 'none' for the mid anchor, 'grid' for start/end. */
     getAnchorSnapMode(anchorId) {
         return anchorId === 'mid' ? 'none' : 'grid';
     }
-    
+    /** @override — clears the cached bulge ratio from start/end drags. */
     resetDragState() {
         this._dragBulgeRatio = null;
     }
-    
+    /** @override */
     toJSON() {
         return {
             ...super.toJSON(),

@@ -48,6 +48,9 @@ import {
 
 class SchematicApp {
 
+    /**
+     * Initializes the schematic editor app: viewport, event bus, history, selection, UI elements, component picker, and binds all event handlers.
+     */
     constructor() {
         this.fileManager = new FileManager();
         if (!this._recoverAutoSave()) return; // reload triggered
@@ -296,6 +299,10 @@ class SchematicApp {
         return true;
     }
 
+    /**
+     * Restores auto-saved document data and marks the document as dirty.
+     * @param {Object} entry - The auto-save index entry to restore.
+     */
     _applyAutoSave(entry) {
         const saved = this.fileManager.loadAutoSave(entry.fileName);
         if (saved && saved.data) {
@@ -309,10 +316,17 @@ class SchematicApp {
         }
     }
 
+    /**
+     * Handles Escape key, cascading through active operations (text edit, drawing, placement, etc.).
+     */
     _handleEscape() {
         handleEscape(this);
     }
 
+    /**
+     * Begins inline text editing on a text shape, or shows a value dialog for passive component fields.
+     * @param {Object} shape - The text shape to edit.
+     */
     _startTextEdit(shape) {
         // For value fields on passive components, show the value dialog instead
         if (shape && shape.fieldKey === 'value' && shape.parentComponent) {
@@ -338,54 +352,99 @@ class SchematicApp {
         startTextEdit(this, shape);
     }
 
+    /**
+     * Ends inline text editing, committing or discarding changes.
+     * @param {boolean} [commit=true] - Whether to commit the text changes.
+     */
     _endTextEdit(commit = true) {
         endTextEdit(this, commit);
     }
 
+    /**
+     * Forwards a keyboard event to the text-edit handler during inline editing.
+     * @param {KeyboardEvent} e - The keyboard event to handle.
+     * @returns {*} The result from the text-edit key handler.
+     */
     _handleTextEditKey(e) {
         return handleTextEditKey(this, e);
     }
 
+    /**
+     * Refreshes the text-edit overlay position and content.
+     */
     _updateTextEditOverlay() {
         updateTextEditOverlay(this);
     }
 
+    /**
+     * Shifts the text-edit overlay by the given delta.
+     * @param {number} dx - Horizontal offset.
+     * @param {number} dy - Vertical offset.
+     */
     _nudgeTextEditOverlay(dx, dy) {
         nudgeTextEditOverlay(this, dx, dy);
     }
 
+    /**
+     * Sets the text-edit caret position from screen coordinates.
+     * @param {Object} screenPos - The screen position {x, y}.
+     */
     _setTextEditCaretFromScreen(screenPos) {
         setTextCaretFromScreen(this, screenPos);
     }
 
     // ==================== Tool Handling ====================
     
+    /**
+     * Switches the active tool and emits a toolChanged event.
+     * @param {string} tool - The tool identifier to activate.
+     */
     _onToolSelected(tool) {
         onToolSelected(this, tool);
         this.eventBus.emit('toolChanged', tool);
     }
     
+    /**
+     * Reverts to select tool when the component picker closes.
+     */
     _onComponentPickerClosed() {
         onComponentPickerClosed(this);
     }
     
+    /**
+     * Merges updated tool options and persists to storage.
+     * @param {Object} options - The tool options to apply.
+     */
     _onOptionsChanged(options) {
         onOptionsChanged(this, options);
     }
 
     // ==================== Shape Management ====================
     
-    // Add a shape (creates an undoable command)
+    /**
+     * Adds a shape to the canvas via an undoable command.
+     * @param {Object} shape - The shape to add.
+     * @returns {*} The result of the add operation.
+     */
     addShape(shape) {
         return addShape(this, shape);
     }
     
-    // Internal add - used by commands, no history entry
+    /**
+     * Adds a shape without undo (used by command execution).
+     * @param {Object} shape - The shape to add internally.
+     * @returns {*} The result of the internal add.
+     */
     _addShapeInternal(shape) {
         return addShapeInternal(this, shape);
     }
     
-    // Internal add at specific index - used by undo
+    /**
+     * Inserts a shape at a specific array index without undo.
+     * @param {Object} shape - The shape to insert.
+     * @param {number} index - The array position to insert at.
+     * @returns {*} The result of the insertion.
+     */
     _addShapeInternalAt(shape, index) {
         return addShapeInternalAt(this, shape, index);
     }
@@ -398,58 +457,105 @@ class SchematicApp {
         removeShapeInternal(this, shape);
     }
     
+    /**
+     * Re-renders all shapes; if force is true, recalculates stroke widths.
+     * @param {boolean} [force=false] - Whether to force recalculation of stroke widths.
+     */
     renderShapes(force = false) {
         renderShapes(this, force);
     }
 
     // ==================== Drawing ====================
     
+    /**
+     * Begins a shape-drawing session at the given position.
+     * @param {Object} worldPos - The starting world coordinate {x, y}.
+     */
     _startDrawing(worldPos) {
         DrawingTools.startDrawing(this, worldPos);
     }
     
+    /**
+     * Updates the drawing preview as the cursor moves.
+     * @param {Object} worldPos - The current world coordinate {x, y}.
+     */
     _updateDrawing(worldPos) {
         DrawingTools.updateDrawing(this, worldPos);
     }
     
+    /**
+     * Completes the drawing and creates the final shape.
+     * @param {Object} worldPos - The ending world coordinate {x, y}.
+     */
     _finishDrawing(worldPos) {
         DrawingTools.finishDrawing(this, worldPos);
     }
     
+    /**
+     * Adds a vertex to the in-progress polygon.
+     * @param {Object} worldPos - The vertex world coordinate {x, y}.
+     */
     _addPolygonPoint(worldPos) {
         DrawingTools.addPolygonPoint(this, worldPos);
     }
     
+    /**
+     * Completes the polygon (at least 3 points required).
+     */
     _finishPolygon() {
         DrawingTools.finishPolygon(this);
     }
 
+    /**
+     * Adds a vertex to the in-progress polyline.
+     * @param {Object} worldPos - The vertex world coordinate {x, y}.
+     */
     _addLinePoint(worldPos) {
         DrawingTools.addLinePoint(this, worldPos);
     }
 
+    /**
+     * Completes the multi-segment line.
+     */
     _finishLine() {
         DrawingTools.finishLine(this);
     }
     
+    /**
+     * Cancels drawing, removing preview and resetting state.
+     */
     _cancelDrawing() {
         DrawingTools.cancelDrawing(this);
     }
     
+    /**
+     * Creates a preview SVG element for the shape being drawn.
+     */
     _createPreview() {
         DrawingTools.createPreview(this);
     }
     
     
-    // Calculate effective stroke width with minimum screen pixel size
+    /**
+     * Returns the effective stroke width at current zoom.
+     * @param {number} lineWidth - The base line width.
+     * @returns {number} The effective stroke width.
+     */
     _getEffectiveStrokeWidth(lineWidth) {
         return DrawingTools.getEffectiveStrokeWidth(this, lineWidth);
     }
     
+    /**
+     * Redraws the preview SVG for the current tool and cursor position.
+     */
     _updatePreview() {
         DrawingTools.updatePreview(this);
     }
     
+    /**
+     * Instantiates a shape from the current drawing state.
+     * @returns {Object|null} The created shape, or null.
+     */
     _createShapeFromDrawing() {
         return DrawingTools.createShapeFromDrawing(this);
     }
@@ -471,113 +577,177 @@ class SchematicApp {
         return WireTools.findNearbyPin(this.components, worldPos, tolerance);
     }
 
-    // Check if two pins are the same (by component and pin number)
+    /**
+     * Checks if two pin references refer to the same component pin.
+     * @param {Object} pin1 - First pin reference.
+     * @param {Object} pin2 - Second pin reference.
+     * @returns {boolean} True if pins are identical.
+     */
     _isSamePin(pin1, pin2) {
         return WireTools.isSamePin(pin1, pin2);
     }
 
-    // Check if two points are essentially the same (within epsilon)
+    /**
+     * Tests whether two points are coincident within epsilon.
+     * @param {Object} a - First point {x, y}.
+     * @param {Object} b - Second point {x, y}.
+     * @param {number} [epsilon=1e-6] - Tolerance for comparison.
+     * @returns {boolean} True if the points match.
+     */
     _pointsMatch(a, b, epsilon = 1e-6) {
         return WireTools.pointsMatch(a, b, epsilon);
     }
     
-    // Start drawing a wire - click to place first point or snap to pin
+    /**
+     * Begins wire drawing from a snapped position.
+     * @param {Object} snappedData - The snapped position data.
+     */
     _startWireDrawing(snappedData) {
         WireTools.startWireDrawing(this, snappedData);
     }
     
-    // Update wire preview while drawing
+    /**
+     * Updates the wire routing preview as the cursor moves.
+     * @param {Object} worldPos - The current world coordinate {x, y}.
+     */
     _updateWireDrawing(worldPos) {
         WireTools.updateWireDrawing(this, worldPos);
     }
 
     
-    // Add a waypoint to the wire
+    /**
+     * Adds an intermediate waypoint to the wire being drawn.
+     * @param {Object} waypointData - The waypoint position data.
+     */
     _addWireWaypoint(waypointData) {
         WireTools.addWireWaypoint(this, waypointData);
     }
     
-    // Finish drawing the wire
+    /**
+     * Completes wire drawing and creates the final wire shape.
+     * @param {Object} worldPos - The ending world coordinate {x, y}.
+     */
     _finishWireDrawing(worldPos) {
         WireTools.finishWireDrawing(this, worldPos);
     }
     
-    // Cancel wire drawing
+    /**
+     * Cancels wire drawing and removes its preview.
+     */
     _cancelWireDrawing() {
         WireTools.cancelWireDrawing(this);
     }
     
-    // Update wire preview visualization
+    /**
+     * Refreshes the wire preview SVG element.
+     */
     _updateWirePreview() {
         WireTools.updateWirePreview(this);
     }
     
     // ==================== Component Handling ====================
     
-    // Called when a component definition is selected in the picker
+    /**
+     * Enters component placement mode with a preview.
+     * @param {Object} definition - The component definition to place.
+     */
     _onComponentDefinitionSelected(definition) {
         ComponentTools.onComponentDefinitionSelected(this, definition);
     }
     
-    // Create component preview that follows cursor
+    /**
+     * Creates a cursor-following preview of the component.
+     * @param {Object} definition - The component definition to preview.
+     */
     _createComponentPreview(definition) {
         ComponentTools.createComponentPreview(this, definition);
     }
     
-    // Update component preview position
+    /**
+     * Moves the component placement preview to follow the cursor.
+     * @param {Object} worldPos - The current world coordinate {x, y}.
+     */
     _updateComponentPreview(worldPos) {
         ComponentTools.updateComponentPreview(this, worldPos);
     }
     
-    // Place the current component at the given position
+    /**
+     * Places a component instance at the given position.
+     * @param {Object} worldPos - The world coordinate {x, y} for placement.
+     */
     _placeComponent(worldPos) {
         ComponentTools.placeComponent(this, worldPos);
     }
     
-    // Update SelectionManager with all selectable items (shapes + components)
+    /**
+     * Rebuilds the selection manager's item list.
+     */
     _updateSelectableItems() {
         ComponentTools.updateSelectableItems(this);
     }
     
-    // Generate a reference designator for a component
+    /**
+     * Generates the next unique reference designator.
+     * @param {Object} definition - The component definition.
+     * @returns {string} The generated reference designator.
+     */
     _generateReference(definition) {
         return ComponentTools.generateReference(this, definition);
     }
     
-    // Rotate component right during placement (or selected components)
+    /**
+     * Rotates placement preview or selected components right.
+     */
     _rotateComponent() {
         ComponentTools.rotateComponentRight(this);
     }
     
+    /**
+     * Rotates placement preview or selected components +90 degrees.
+     */
     _rotateComponentRight() {
         ComponentTools.rotateComponentRight(this);
     }
 
+    /**
+     * Rotates placement preview or selected components -90 degrees.
+     */
     _rotateComponentLeft() {
         ComponentTools.rotateComponentLeft(this);
     }
     
-    // Flip component horizontally (or during placement)
+    /**
+     * Flips placement preview or selected components horizontally.
+     */
     _flipComponentH() {
         ComponentTools.flipComponentH(this);
     }
 
-    // Flip component vertically
+    /**
+     * Flips selected components vertically.
+     */
     _flipComponentV() {
         ComponentTools.flipComponentV(this);
     }
     
-    // Legacy alias
+    /**
+     * Legacy alias for _flipComponentH().
+     */
     _mirrorComponent() {
         ComponentTools.flipComponentH(this);
     }
     
-    // Cancel component placement mode
+    /**
+     * Exits placement mode and removes the preview.
+     */
     _cancelComponentPlacement() {
         ComponentTools.cancelComponentPlacement(this);
     }
     
-    // Get selected components (for future selection integration)
+    /**
+     * Returns currently selected Component instances.
+     * @returns {Array} The selected components.
+     */
     _getSelectedComponents() {
         return ComponentTools.getSelectedComponents(this);
     }
@@ -586,70 +756,130 @@ class SchematicApp {
 
     // ==================== Callbacks ====================
 
+    /**
+     * Registers event bus listeners and viewport callbacks.
+     */
     _setupCallbacks() {
         setupCallbacks(this);
     }
     
+    /**
+     * Positions the crosshair at the snapped world position.
+     * @param {Object} snapped - The snapped position data.
+     * @param {Object|null} [screenPosOverride=null] - Optional screen position override.
+     */
     _updateCrosshair(snapped, screenPosOverride = null) {
         updateCrosshair(this, snapped, screenPosOverride);
     }
 
+    /**
+     * Returns the SVG path string for a tool cursor icon.
+     * @param {string} tool - The tool identifier.
+     * @returns {string} The SVG path data.
+     */
     _getToolIconPath(tool) {
         return getToolIconPath(tool);
     }
 
+    /**
+     * Sets the CSS cursor on the SVG canvas for the active tool.
+     * @param {string} tool - The tool identifier.
+     * @param {SVGElement} svg - The SVG element to set the cursor on.
+     */
     _setToolCursor(tool, svg) {
         setToolCursor(this, tool, svg);
     }
 
+    /**
+     * Makes the help panel draggable by its header.
+     */
     _makeHelpPanelDraggable() {
         makeHelpPanelDraggable();
     }
     
+    /**
+     * Shows the crosshair overlay.
+     */
     _showCrosshair() {
         showCrosshair(this);
     }
     
+    /**
+     * Hides the crosshair overlay.
+     */
     _hideCrosshair() {
         hideCrosshair(this);
     }
     
+    /**
+     * Emits selectionChanged on the event bus.
+     * @param {Array} shapes - The currently selected shapes.
+     */
     _onSelectionChanged(shapes) {
         this.eventBus.emit('selectionChanged', shapes);
     }
 
+    /**
+     * Binds event listeners for the properties panel.
+     */
     _bindPropertiesPanel() {
         bindPropertiesPanel(this);
     }
 
+    /**
+     * Binds event listeners for the ribbon toolbar.
+     */
     _bindRibbon() {
         bindRibbon(this);
     }
 
+    /**
+     * Updates shape-options panel for the active tool.
+     * @param {Array} selection - The current selection.
+     * @param {string} toolId - The active tool identifier.
+     */
     _updateShapePanelOptions(selection, toolId) {
         updateShapePanelOptions(this, selection, toolId);
     }
 
+    /**
+     * Toggles locked state on selected items.
+     */
     _toggleSelectionLock() {
         toggleSelectionLock(this);
     }
 
+    /**
+     * Applies a property change to selected items with undo.
+     * @param {string} prop - The property name to change.
+     * @param {*} value - The new value to apply.
+     */
     _applyCommonProperty(prop, value) {
         applyCommonProperty(this, prop, value);
     }
     
+    /**
+     * Refreshes the properties panel for the given selection.
+     * @param {Array} selection - The currently selected shapes.
+     */
     _updatePropertiesPanel(selection) {
         updatePropertiesPanel(this, selection);
     }
 
     // ==================== Mouse Events ====================
     
+    /**
+     * Binds mouse event handlers to the SVG viewport.
+     */
     _bindMouseEvents() {
         bindMouseEvents(this);
     }
 
     // ==================== UI Controls ====================
 
+    /**
+     * Binds viewport controls, undo/redo, theme, and paper events.
+     */
     _bindUIControls() {
         bindViewportControls(this);
         
@@ -684,6 +914,11 @@ class SchematicApp {
         this._bindRibbon();
     }
 
+    /**
+     * Returns the topmost component at a world coordinate, or null.
+     * @param {Object} point - The world coordinate {x, y} to test.
+     * @returns {Object|null} The component at the point, or null.
+     */
     _findComponentAt(point) {
         for (let i = this.components.length - 1; i >= 0; i--) {
             const comp = this.components[i];
@@ -695,6 +930,12 @@ class SchematicApp {
         return null;
     }
 
+    /**
+     * Shows, updates, or hides the component debug tooltip.
+     * @param {Object|null} component - The component to display info for, or null to hide.
+     * @param {Object|null} screenPos - The screen position {x, y} for the tooltip.
+     * @param {Object} [options={}] - Options (e.g., { forceHide: true }).
+     */
     _updateComponentCodeTooltip(component, screenPos, options = {}) {
         const tooltip = this._componentCodeTooltip;
         if (!tooltip) return;
@@ -740,6 +981,11 @@ class SchematicApp {
     }
 
 
+    /**
+     * Pins the component tooltip at a fixed position.
+     * @param {Object} component - The component to pin the tooltip for.
+     * @param {Object} screenPos - The screen position {x, y} to pin at.
+     */
     _pinComponentCodeTooltip(component, screenPos) {
         if (!component || !screenPos) return;
         this._componentCodeTooltipPinned = true;
@@ -747,6 +993,9 @@ class SchematicApp {
         this._updateComponentCodeTooltip(component, screenPos);
     }
 
+    /**
+     * Clears cached component data from localStorage.
+     */
     _clearComponentCaches() {
         if (!confirm('Clear cached components and search results?')) {
             return;
@@ -783,110 +1032,185 @@ class SchematicApp {
         this._showSaveToast?.('Cache cleared');
     }
     
-    // Toggle between dark and light theme
+    /**
+     * Toggles between dark and light themes.
+     */
     _toggleTheme() {
         toggleTheme(this);
     }
     
-    // Load saved theme preference
+    /**
+     * Loads the saved theme from storage on startup.
+     */
     _loadTheme() {
         loadTheme(this);
     }
     
-    // Update component colors for current theme
+    /**
+     * Updates component SVG colors for the current theme.
+     */
     _updateComponentColors() {
         updateComponentColors(this);
     }
     
-    // Update grid dropdown options based on current units
+    /**
+     * Updates grid size dropdown options for current units.
+     */
     _updateGridDropdown() {
         updateGridDropdown(this);
     }
 
+    /**
+     * Binds keyboard shortcuts and stores the cleanup function.
+     */
     _bindKeyboardShortcuts() {
         this._destroyKeyboard = bindKeyboardShortcuts(this);
     }
     
+    /**
+     * Deletes unlocked selected items with undo support.
+     */
     _deleteSelected() {
         deleteSelected(this);
     }
 
+    /**
+     * Copies selected items to the internal clipboard.
+     */
     _copySelection() {
         copySelection(this);
     }
 
+    /**
+     * Copies selection to clipboard then deletes the items.
+     */
     _cutSelection() {
         cutSelection(this);
     }
 
+    /**
+     * Begins paste preview mode with clipboard contents.
+     */
     _pasteClipboard() {
         beginPastePreview(this);
     }
 
+    /**
+     * Updates paste preview position as cursor moves.
+     * @param {Object} worldPos - The current world coordinate {x, y}.
+     */
     _updatePastePreview(worldPos) {
         updatePastePreview(this, worldPos);
     }
 
+    /**
+     * Places pasted items at the given position.
+     * @param {Object} worldPos - The world coordinate {x, y} for placement.
+     */
     _confirmPaste(worldPos) {
         confirmPaste(this, worldPos);
     }
 
+    /**
+     * Cancels paste preview and removes preview elements.
+     */
     _cancelPaste() {
         cancelPaste(this);
     }
     
     // ==================== Box Selection ====================
     
+    /**
+     * Creates the box-selection marquee SVG element.
+     */
     _createBoxSelectElement() {
         createBoxSelectElement(this);
     }
     
+    /**
+     * Updates the box-selection rectangle dimensions.
+     * @param {Object} currentPos - The current cursor position {x, y}.
+     */
     _updateBoxSelectElement(currentPos) {
         updateBoxSelectElement(this, currentPos);
     }
     
+    /**
+     * Removes the box-selection element.
+     */
     _removeBoxSelectElement() {
         removeBoxSelectElement(this);
     }
     
+    /**
+     * Returns the bounding box of the box selection area.
+     * @param {Object} currentPos - The current cursor position {x, y}.
+     * @returns {Object} The bounding box {x, y, width, height}.
+     */
     _getBoxSelectBounds(currentPos) {
         return getBoxSelectBounds(this, currentPos);
     }
     
     // ==================== Shape State Helpers (for undo/redo) ====================
     
-    // Capture the geometric state of a shape for undo/redo
+    /**
+     * Captures a shape's state snapshot for undo.
+     * @param {Object} shape - The shape to capture state from.
+     * @returns {Object} The captured state snapshot.
+     */
     _captureShapeState(shape) {
         return captureShapeState(this, shape);
     }
     
-    // Apply a captured state to a shape
+    /**
+     * Restores a shape from a captured state snapshot.
+     * @param {Object} shape - The shape to restore.
+     * @param {Object} state - The state snapshot to apply.
+     */
     _applyShapeState(shape, state) {
         applyShapeState(this, shape, state);
     }
     
+    /**
+     * Zooms and pans to fit all content.
+     */
     _fitToContent() {
         fitToContent(this);
     }
     
     // ==================== File Operations ====================
     
-    // Serialize document to JSON-compatible object
+    /**
+     * Serializes the document to a JSON-ready object.
+     * @returns {Object} The serialized document data.
+     */
     _serializeDocument() {
         return FileTools.serializeDocument(this);
     }
     
-    // Load shapes from document data
+    /**
+     * Loads a document from serialized data.
+     * @param {Object} data - The serialized document data.
+     * @returns {Promise<void>}
+     */
     async _loadDocument(data) {
         await FileTools.loadDocument(this, data);
     }
     
-    // Create component instance from serialized data
+    /**
+     * Creates a component from serialized data.
+     * @param {Object} data - The serialized component data.
+     * @returns {Object} The created component instance.
+     */
     _createComponentFromData(data) {
         return FileTools.createComponentFromData(this, data);
     }
     
-    // Create shape instance from serialized data
+    /**
+     * Creates a shape from serialized type/options data.
+     * @param {Object} data - The serialized shape data.
+     * @returns {Object|null} The created shape, or null if the type is unknown.
+     */
     _createShapeFromData(data) {
         try {
             return createShape(data);
@@ -896,7 +1220,9 @@ class SchematicApp {
         }
     }
     
-    // Clear all shapes from canvas
+    /**
+     * Removes all shapes, clears undo history.
+     */
     _clearAllShapes() {
         for (const shape of this.shapes) {
             this.viewport.removeContent(shape.element);
@@ -908,7 +1234,9 @@ class SchematicApp {
         this._updateUndoRedoButtons();
     }
     
-    // Clear all components from canvas
+    /**
+     * Removes all components and their field texts.
+     */
     _clearAllComponents() {
         for (const comp of this.components) {
             // Remove field texts from shapes array and DOM
@@ -927,77 +1255,133 @@ class SchematicApp {
         this._updateSelectableItems();
     }
     
-    // Update window/document title
+    /**
+     * Updates document title with filename and dirty indicator.
+     */
     _updateTitle() {
         FileTools.updateTitle(this);
     }
     
-    // Update undo/redo button enabled states
+    /**
+     * Enables or disables undo/redo buttons.
+     */
     _updateUndoRedoButtons() {
         updateUndoRedoButtons(this);
     }
     
-    // Check for auto-saved content on startup
+    /**
+     * Checks for auto-saved content on startup.
+     */
     _checkAutoSave() {
         FileTools.checkAutoSave(this);
     }
     
-    // Load and display version number
+    /**
+     * Fetches and displays the version number.
+     * @returns {Promise<void>}
+     */
     async _loadVersion() {
         await FileTools.loadVersion(this);
     }
     
-    // Create new document
+    /**
+     * Creates a new blank document; prompts if unsaved.
+     * @returns {Promise<void>}
+     */
     async newFile() {
         await FileTools.newFile(this);
     }
     
-    // Save current document
+    /**
+     * Saves the document; shows toast on success.
+     * @returns {Promise<*>} The save result.
+     */
     async saveFile() {
         return await FileTools.saveFile(this);
     }
     
-    // Save As - always prompt for location
+    /**
+     * Saves with a new file name/location.
+     * @returns {Promise<*>} The save result.
+     */
     async saveFileAs() {
         return await FileTools.saveFileAs(this);
     }
 
-    // Save current view to PDF
+    /**
+     * Exports schematic as a vector PDF.
+     * @returns {Promise<void>}
+     */
     async savePdf() {
         await ExportTools.savePdf(this);
     }
 
-    // Print current view with preview
+    /**
+     * Prints the schematic via a hidden iframe.
+     * @returns {Promise<void>}
+     */
     async print() {
         await ExportTools.printSchematic(this);
     }
 
+    /**
+     * Lazy-loads jsPDF and svg2pdf vendor scripts.
+     * @returns {Promise<void>}
+     */
     _loadVectorPdfLibs() {
         return ExportTools.loadVectorPdfLibs(this);
     }
 
+    /**
+     * Deep-clones viewport SVG for export with inlined styles.
+     * @returns {SVGElement} The cloned SVG element.
+     */
     _cloneViewportSvgForExport() {
         return ExportTools.cloneViewportSvgForExport(this);
     }
 
+    /**
+     * Forces all SVG colors to black for printing.
+     * @param {SVGElement} svgRoot - The SVG root element to modify.
+     */
     _forceMonochromeSvg(svgRoot) {
         ExportTools.forceMonochromeSvg(svgRoot);
     }
 
+    /**
+     * Copies computed styles to a cloned SVG.
+     * @param {SVGElement} originalSvg - The original SVG element.
+     * @param {SVGElement} clonedSvg - The cloned SVG element to receive styles.
+     */
     _inlineSvgComputedStyles(originalSvg, clonedSvg) {
         ExportTools.inlineSvgComputedStyles(originalSvg, clonedSvg);
     }
 
+    /**
+     * Saves a Blob via File System Access API.
+     * @param {Blob} blob - The data blob to save.
+     * @param {string} suggestedName - The suggested file name.
+     * @param {string} mimeType - The MIME type of the file.
+     * @param {Array<string>} extensions - Accepted file extensions.
+     * @returns {Promise<void>}
+     */
     async _saveBlobAsFile(blob, suggestedName, mimeType, extensions) {
         await ExportTools.saveBlobAsFile(blob, suggestedName, mimeType, extensions);
     }
 
-    // Render the current viewport SVG to a canvas
+    /**
+     * Renders viewport to a canvas at the given scale.
+     * @param {number} [scale=2] - The rendering scale factor.
+     * @returns {HTMLCanvasElement} The rendered canvas element.
+     */
     _renderViewportToCanvas(scale = 2) {
         return ExportTools.renderViewportToCanvas(this, scale);
     }
     
-    // Open file
+    /**
+     * Opens a file via picker and loads it.
+     * @returns {Promise<void>}
+     */
     async openFile() {
         await FileTools.openFile(this);
     }

@@ -1,5 +1,11 @@
 import { updateViewportCulling } from './shape-management.js';
 
+/**
+ * Wires up EventBus listeners (component picker) and viewport callbacks
+ * (`onMouseMove`, `onViewChanged`, `onViewportCull`) for status bar updates,
+ * cursor tracking, hover detection, and viewport culling.
+ * @param {object} app - Application state.
+ */
 export function setupCallbacks(app) {
     // Event bus listeners (component picker)
     app.eventBus.on('component:selected', (def) => {

@@ -12,6 +12,16 @@
  */
 
 export class LazyLoader {
+    /**
+     * Create a new LazyLoader.
+     * @param {Object} [options]
+     * @param {HTMLElement} [options.container] - Scroll container to observe
+     * @param {Function} [options.renderCallback] - Called when an item becomes visible
+     * @param {Function} [options.unrenderCallback] - Called when an item leaves the viewport
+     * @param {number} [options.threshold=0.1] - Intersection ratio to trigger rendering
+     * @param {string} [options.rootMargin='50px'] - Margin around the root for early loading
+     * @param {number} [options.batchSize=10] - Number of items to render per batch
+     */
     constructor(options = {}) {
         this.container = options.container || null;
         this.renderCallback = options.renderCallback || (() => {});

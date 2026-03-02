@@ -1,3 +1,10 @@
+/**
+ * Positions the full-screen crosshair lines (horizontal + vertical)
+ * at the given snapped world position.
+ * @param {object} app - Application state.
+ * @param {{x: number, y: number}} snapped - Snapped world position.
+ * @param {{x: number, y: number}|null} [screenPosOverride=null] - Optional override for screen coords.
+ */
 export function updateCrosshair(app, snapped, screenPosOverride = null) {
     const screenPos = app.viewport.worldToScreen(snapped);
     const w = app.container.clientWidth;
@@ -16,6 +23,11 @@ export function updateCrosshair(app, snapped, screenPosOverride = null) {
     app.crosshair.lineY.setAttribute('y2', h);
 }
 
+/**
+ * Returns an SVG path string for the given tool name, used as a cursor icon.
+ * @param {string} tool - Tool identifier (e.g. 'line', 'wire', 'rect', 'circle').
+ * @returns {string} SVG path data, or empty string for unknown tools.
+ */
 export function getToolIconPath(tool) {
     switch (tool) {
         case 'line':
@@ -39,6 +51,13 @@ export function getToolIconPath(tool) {
     }
 }
 
+/**
+ * Sets the SVG element's CSS cursor to a custom crosshair-with-tool-icon data URI,
+ * or `'default'` for the select tool.
+ * @param {object} app - Application state.
+ * @param {string} tool - Active tool identifier.
+ * @param {SVGSVGElement} svg - The SVG element whose cursor to set.
+ */
 export function setToolCursor(app, tool, svg) {
     if (!svg) return;
     if (tool === 'select') {
@@ -66,10 +85,18 @@ export function setToolCursor(app, tool, svg) {
     svg.style.cursor = `url("data:image/svg+xml,${encoded}") 16 18, crosshair`;
 }
 
+/**
+ * Shows the crosshair by adding the `'active'` CSS class to its container.
+ * @param {object} app - Application state.
+ */
 export function showCrosshair(app) {
     app.crosshair.container.classList.add('active');
 }
 
+/**
+ * Hides the crosshair by removing the `'active'` CSS class from its container.
+ * @param {object} app - Application state.
+ */
 export function hideCrosshair(app) {
     app.crosshair.container.classList.remove('active');
 }

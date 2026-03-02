@@ -1,3 +1,8 @@
+/**
+ * Exports the schematic to a vector PDF using jsPDF + svg2pdf,
+ * then prompts the user for a save location.
+ * @param {object} app - Application state.
+ */
 export async function savePdf(app) {
     // Save current selection before try block so it's accessible in catch
     const previousSelection = app.selection.getSelection();
@@ -58,6 +63,10 @@ export async function savePdf(app) {
     }
 }
 
+/**
+ * Prints the schematic via a hidden iframe with proper page sizing and margins.
+ * @param {object} app - Application state.
+ */
 export async function printSchematic(app) {
     // Save current selection before try block so it's accessible in catch
     const previousSelection = app.selection.getSelection();
@@ -160,6 +169,11 @@ export async function printSchematic(app) {
     }
 }
 
+/**
+ * Lazy-loads jspdf and svg2pdf vendor scripts.
+ * @param {object} app - Application state.
+ * @returns {Promise<Function>} Resolves to the `jsPDF` constructor.
+ */
 export function loadVectorPdfLibs(app) {
     if (app._pdfVectorLoader) return app._pdfVectorLoader;
 
@@ -199,6 +213,12 @@ export function loadVectorPdfLibs(app) {
     return app._pdfVectorLoader;
 }
 
+/**
+ * Deep-clones the viewport SVG, sets viewBox to paper or viewport bounds,
+ * inlines styles, forces monochrome, and removes grid/axes layers.
+ * @param {object} app - Application state.
+ * @returns {{svgNode: SVGSVGElement, paperSize: {width: number, height: number}|null}}
+ */
 export function cloneViewportSvgForExport(app) {
     const originalSvg = app.viewport.svg;
     const svgNode = originalSvg.cloneNode(true);
@@ -264,6 +284,11 @@ export function cloneViewportSvgForExport(app) {
     return { svgNode, paperSize };
 }
 
+/**
+ * Walks all SVG descendants and forces strokes/fills to black and text to
+ * black, for print-friendly output.
+ * @param {SVGElement} svgRoot - Root SVG element to process.
+ */
 export function forceMonochromeSvg(svgRoot) {
     const nodes = svgRoot.querySelectorAll('*');
     nodes.forEach((el) => {
@@ -301,6 +326,12 @@ export function forceMonochromeSvg(svgRoot) {
     });
 }
 
+/**
+ * Copies computed CSS properties (fill, stroke, font, etc.) from the live SVG
+ * to a cloned SVG so styles survive serialization.
+ * @param {SVGSVGElement} originalSvg - The live SVG in the DOM.
+ * @param {SVGSVGElement} clonedSvg - The deep-cloned SVG to receive styles.
+ */
 export function inlineSvgComputedStyles(originalSvg, clonedSvg) {
     const props = [
         'fill',
@@ -341,6 +372,14 @@ export function inlineSvgComputedStyles(originalSvg, clonedSvg) {
     }
 }
 
+/**
+ * Saves a Blob using the File System Access API (`showSaveFilePicker`)
+ * with fallback to a download link.
+ * @param {Blob} blob - Data to save.
+ * @param {string} suggestedName - Default file name.
+ * @param {string} mimeType - MIME type for the file.
+ * @param {string[]} extensions - Accepted file extensions (e.g. `['.pdf']`).
+ */
 export async function saveBlobAsFile(blob, suggestedName, mimeType, extensions) {
     if ('showSaveFilePicker' in window) {
         try {
@@ -368,6 +407,13 @@ export async function saveBlobAsFile(blob, suggestedName, mimeType, extensions) 
     URL.revokeObjectURL(url);
 }
 
+/**
+ * Returns a Promise resolving to an HTML `<canvas>` with the viewport
+ * rendered as a rasterized image at the given scale.
+ * @param {object} app - Application state.
+ * @param {number} [scale=2] - Pixel density multiplier.
+ * @returns {Promise<HTMLCanvasElement>}
+ */
 export function renderViewportToCanvas(app, scale = 2) {
     return new Promise((resolve, reject) => {
         try {

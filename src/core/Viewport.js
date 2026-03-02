@@ -5,6 +5,10 @@
  */
 
 export class Viewport {
+    /**
+     * Create the SVG viewport with pan, zoom, grid, rulers, and paper outline.
+     * @param {HTMLElement} container - DOM element to host the SVG canvas.
+     */
     constructor(container) {
         this.container = container;
         
@@ -147,6 +151,11 @@ export class Viewport {
         this._disableBrowserZoom();
     }
     
+    /**
+     * Create an SVG `<g>` element and append it to the root SVG.
+     * @param {string} id - Element ID attribute.
+     * @returns {SVGGElement} The new group element.
+     */
     _createGroup(id) {
         const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
         g.setAttribute('id', id);
@@ -154,31 +163,33 @@ export class Viewport {
         return g;
     }
     
+    /** Viewport width in CSS pixels. */
     get width() {
         return this.svg.clientWidth || this.container.clientWidth;
     }
     
+    /** Viewport height in CSS pixels. */
     get height() {
         return this.svg.clientHeight || this.container.clientHeight;
     }
     
+    /** Pixels per world unit (mm). */
     get scale() {
-        // Pixels per world unit
         return this.width / this.viewBox.width;
     }
     
+    /** Zoom multiplier (1.0 = 100% = `baseWidth` mm visible). */
     get zoom() {
-        // Zoom multiplier (1.0 = 100% = baseWidth visible)
         return this.baseWidth / this.viewBox.width;
     }
     
+    /** Current visible width in mm. */
     get viewWidth() {
-        // Current view width in mm
         return this.viewBox.width;
     }
     
+    /** Centre of the viewBox in world coordinates. */
     get offset() {
-        // Center of viewBox in world coords
         return {
             x: this.viewBox.x + this.viewBox.width / 2,
             y: this.viewBox.y + this.viewBox.height / 2
@@ -219,11 +230,13 @@ export class Viewport {
 
     // ==================== View Management ====================
     
+    /** Push the current viewBox state to the SVG element attribute. */
     _updateViewBox() {
         const vb = this.viewBox;
         this.svg.setAttribute('viewBox', `${vb.x} ${vb.y} ${vb.width} ${vb.height}`);
     }
     
+    /** Handle container resize: adjust viewBox height to maintain aspect ratio. */
     _onResize() {
         // Invalidate rect cache since viewport dimensions changed
         this.cachedRect = null;
@@ -247,6 +260,11 @@ export class Viewport {
         return this.cachedRect;
     }
     
+    /**
+     * Convert a screen-space position (pixels relative to SVG element) to world coordinates (mm).
+     * @param {{x: number, y: number}} screenPos - Position in pixels relative to SVG top-left.
+     * @returns {{x: number, y: number}} World position in mm.
+     */
     screenToWorld(screenPos) {
         const rect = this._getCachedRect();
         const x = this.viewBox.x + (screenPos.x / rect.width) * this.viewBox.width;
@@ -254,6 +272,11 @@ export class Viewport {
         return { x, y };
     }
     
+    /**
+     * Convert a world-space position (mm) to screen pixels relative to the SVG element.
+     * @param {{x: number, y: number}} worldPos - Position in mm.
+     * @returns {{x: number, y: number}} Screen position in pixels.
+     */
     worldToScreen(worldPos) {
         const rect = this._getCachedRect();
         const x = ((worldPos.x - this.viewBox.x) / this.viewBox.width) * rect.width;
@@ -261,6 +284,12 @@ export class Viewport {
         return { x, y };
     }
     
+    /**
+     * Calculate the adaptive grid spacing for display using a 1-2-5 sequence.
+     * Returns the smallest multiple of the base grid that keeps lines at least
+     * `minPixelSpacing` screen pixels apart.
+     * @returns {number} Grid spacing in mm.
+     */
     getEffectiveGridSize() {
         // Calculate adaptive grid spacing for display using 1-2-5 sequence
         // This gives smoother transitions than 10x jumps
@@ -285,6 +314,12 @@ export class Viewport {
         return gridSpacing;
     }
     
+    /**
+     * Snap a world position to the grid (if snapping is enabled).
+     * Holding Shift toggles the snap setting when the grid is visible.
+     * @param {{x: number, y: number}} worldPos - Unsnapped world position.
+     * @returns {{x: number, y: number}} Snapped (or original) position.
+     */
     getSnappedPosition(worldPos) {
         // Shift temporarily reverses the snap setting, but only if grid is visible
         let shouldSnap = this.snapToGrid;
@@ -297,6 +332,11 @@ export class Viewport {
         };
     }
     
+    /**
+     * Pan the view by the given world-unit delta.
+     * @param {number} dx - Horizontal offset in mm.
+     * @param {number} dy - Vertical offset in mm.
+     */
     pan(dx, dy) {
         this.viewBox.x += dx;
         this.viewBox.y += dy;
@@ -304,6 +344,11 @@ export class Viewport {
         this._notifyViewChanged();
     }
     
+    /**
+     * Zoom in or out by one discrete level towards a world point.
+     * @param {{x: number, y: number}} worldPoint - Focal point in mm.
+     * @param {number} factor - >1 zooms in, <1 zooms out.
+     */
     zoomAt(worldPoint, factor) {
         // Determine zoom direction and step
         // factor > 1 means zoom in (higher index = smaller view width)
@@ -311,6 +356,11 @@ export class Viewport {
         this.zoomToLevel(this.zoomIndex + step, worldPoint);
     }
     
+    /**
+     * Jump to a specific zoom level, optionally anchored on a world point.
+     * @param {number} index - Target index into `zoomLevels`.
+     * @param {{x: number, y: number}|null} [worldPoint=null] - Focal point; defaults to view centre.
+     */
     zoomToLevel(index, worldPoint = null) {
         const newIndex = Math.max(this.minZoomIndex, Math.min(this.maxZoomIndex, index));
         
@@ -338,14 +388,23 @@ export class Viewport {
         this._notifyViewChanged();
     }
     
+    /**
+     * Zoom in by one level towards the given point.
+     * @param {{x: number, y: number}|null} [worldPoint=null] - Focal point.
+     */
     zoomIn(worldPoint = null) {
         this.zoomToLevel(this.zoomIndex + 1, worldPoint);
     }
     
+    /**
+     * Zoom out by one level towards the given point.
+     * @param {{x: number, y: number}|null} [worldPoint=null] - Focal point.
+     */
     zoomOut(worldPoint = null) {
         this.zoomToLevel(this.zoomIndex - 1, worldPoint);
     }
     
+    /** Reset zoom to 100% and position the origin 3 mm from the ruler edges. */
     resetView() {
         // Reset to 100% zoom (index 8)
         this.zoomIndex = 8;
@@ -374,6 +433,15 @@ export class Viewport {
         this._notifyViewChanged();
     }
     
+    /**
+     * Zoom and centre the view to fit the given bounding box.
+     * Selects the tightest discrete zoom level that contains the bounds.
+     * @param {number} minX - Left edge in mm.
+     * @param {number} minY - Top edge in mm.
+     * @param {number} maxX - Right edge in mm.
+     * @param {number} maxY - Bottom edge in mm.
+     * @param {number} [paddingPercent=10] - Extra margin as a % of content size.
+     */
     fitToBounds(minX, minY, maxX, maxY, paddingPercent = 10) {
         const contentWidth = maxX - minX;
         const contentHeight = maxY - minY;
@@ -426,10 +494,15 @@ export class Viewport {
         this._notifyViewChanged();
     }
     
+    /** Fit the view to a default content area (placeholder). */
     fitToContent() {
         this.fitToBounds(-50, -50, 50, 50);
     }
     
+    /**
+     * Get the world-coordinate bounds currently visible on screen.
+     * @returns {{minX: number, minY: number, maxX: number, maxY: number}}
+     */
     getVisibleBounds() {
         return {
             minX: this.viewBox.x,
@@ -439,6 +512,11 @@ export class Viewport {
         };
     }
     
+    /**
+     * Schedule a debounced view-change update on the next animation frame.
+     * Redraws grid, rulers, and paper outline only when bounds or scale change,
+     * then fires the `onViewChanged` callback.
+     */
     _notifyViewChanged() {
         // Mark as dirty for lazy redraw
         this.gridDirty = true;
@@ -485,12 +563,20 @@ export class Viewport {
     
     // ==================== Grid ====================
     
+    /**
+     * Set the base grid spacing and redraw.
+     * @param {number} size - Grid cell size in mm (clamped to >= 0.01).
+     */
     setGridSize(size) {
         this.gridSize = Math.max(0.01, size);
         this.gridDirty = true;
         this._createGrid();
     }
     
+    /**
+     * Switch the grid rendering style.
+     * @param {'lines'|'dots'} style - Grid style.
+     */
     setGridStyle(style) {
         if (style === 'lines' || style === 'dots') {
             this.gridStyle = style;
@@ -499,12 +585,21 @@ export class Viewport {
         }
     }
     
+    /**
+     * Show or hide the grid.
+     * @param {boolean} visible - Whether the grid is visible.
+     */
     setGridVisible(visible) {
         this.gridVisible = visible;
         this.gridDirty = true;
         this._createGrid();
     }
     
+    /**
+     * Rebuild the SVG grid pattern and axis lines for the current view.
+     * Uses an SVG `<pattern>` covering 10× the viewport so panning doesn't
+     * reveal empty edges before the next animation-frame redraw.
+     */
     _createGrid() {
         // Clear existing grid
         this.gridLayer.innerHTML = '';
@@ -582,24 +677,40 @@ export class Viewport {
         this._drawPaperOutline();
     }
 
+    /**
+     * Toggle the title-block double-border with zone markers.
+     * @param {boolean} show - Whether to display the border.
+     */
     setTitleBlock(show) {
         this.showTitleBlock = show;
         this.paperDirty = true;
         this._drawPaperOutline();
     }
 
+    /**
+     * Toggle the title-block info box.
+     * @param {boolean} show - Whether to display the info box.
+     */
     setTitleBlockInfo(show) {
         this.showTitleBlockInfo = show;
         this.paperDirty = true;
         this._drawPaperOutline();
     }
 
+    /**
+     * Merge new values into the title-block data and redraw.
+     * @param {Object} data - Key/value pairs (title, rev, company, etc.).
+     */
     setTitleBlockData(data) {
         Object.assign(this.titleBlockData, data);
         this.paperDirty = true;
         this._drawPaperOutline();
     }
     
+    /**
+     * Rebuild the paper-outline SVG: simple border or title-block border
+     * with zone markers, plus the optional info box and paper-size label.
+     */
     _drawPaperOutline() {
         // If reference is lost, try to find the layer in the SVG
         if (!this.paperOutlineLayer || !this.paperOutlineLayer.parentNode) {
@@ -964,6 +1075,10 @@ export class Viewport {
 
     // ==================== Rulers ====================
     
+    /**
+     * Rebuild the ruler SVGs (top + left) for the current view and units.
+     * Computes adaptive tick spacing using unit-appropriate nice-number sequences.
+     */
     _createRulers() {
         if (!this.showRulers) {
             this.rulerContainer.innerHTML = '';
@@ -1112,6 +1227,10 @@ export class Viewport {
     
     // ==================== Units ====================
     
+    /**
+     * Switch display units and refresh rulers.
+     * @param {'mm'|'mil'|'inch'} units - Target unit system.
+     */
     setUnits(units) {
         if (this.unitConversions[units] && units !== this.units) {
             this.units = units;
@@ -1181,6 +1300,7 @@ export class Viewport {
     
     // ==================== Browser Zoom Prevention ====================
     
+    /** Prevent Ctrl+Plus/Minus/0 from triggering the browser's native zoom. */
     _disableBrowserZoom() {
         // Prevent Ctrl+wheel browser zoom
         // (handled in wheel event below)
@@ -1197,6 +1317,7 @@ export class Viewport {
     
     // ==================== Events ====================
     
+    /** Bind wheel, mouse, keyboard, and resize event handlers to the SVG and window. */
     _bindEvents() {
         // Store handlers for cleanup
         this.boundHandlers.wheel = (e) => {
@@ -1360,20 +1481,36 @@ export class Viewport {
     
     // ==================== Content Management ====================
     
+    /**
+     * Append an SVG element to the main content layer.
+     * @param {SVGElement} svgElement - Element to add.
+     */
     addContent(svgElement) {
         this.contentLayer.appendChild(svgElement);
     }
     
+    /**
+     * Remove an SVG element from the content or component layer.
+     * @param {SVGElement} svgElement - Element to remove.
+     */
     removeContent(svgElement) {
         if (svgElement.parentNode === this.contentLayer || svgElement.parentNode === this.componentLayer) {
             svgElement.parentNode.removeChild(svgElement);
         }
     }
 
+    /**
+     * Append an SVG element to the component sub-layer (rendered below shapes).
+     * @param {SVGElement} svgElement - Element to add.
+     */
     addComponentContent(svgElement) {
         this.componentLayer.appendChild(svgElement);
     }
     
+    /**
+     * Create a detached SVG `<g>` element.
+     * @returns {SVGGElement} New group element.
+     */
     createGroup() {
         return document.createElementNS('http://www.w3.org/2000/svg', 'g');
     }

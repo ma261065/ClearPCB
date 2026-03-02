@@ -9,6 +9,11 @@ import { getSearchManager, initSearchManager } from '../core/SearchManager.js';
 import { LazyLoader } from '../core/LazyLoader.js';
 
 export class ComponentPicker {
+    /**
+     * Creates a new ComponentPicker instance for browsing and selecting components.
+     * @param {Object} [options] - Configuration options.
+     * @param {Object} [options.eventBus] - Event bus for component events.
+     */
     constructor(options = {}) {
         this.library = getComponentLibrary();
         this.eventBus = options.eventBus || globalEventBus;
@@ -43,6 +48,9 @@ export class ComponentPicker {
         this._populateComponents();
     }
     
+    /**
+     * Creates the DOM structure for the component picker panel.
+     */
     _createDOM() {
         this.element = document.createElement('div');
         this.element.className = 'component-picker';
@@ -156,6 +164,10 @@ export class ComponentPicker {
         });
     }
     
+    /**
+     * Switches between local and LCSC/online search modes.
+     * @param {string} mode - The search mode ('local' or 'lcsc').
+     */
     _setSearchMode(mode) {
         this.searchMode = mode;
         
@@ -190,6 +202,9 @@ export class ComponentPicker {
         }
     }
     
+    /**
+     * Displays the LCSC search prompt with usage examples.
+     */
     _showLCSCPrompt() {
         this.listEl.innerHTML = `
             <div class="cp-lcsc-prompt">
@@ -205,6 +220,9 @@ export class ComponentPicker {
         `;
     }
     
+    /**
+     * Displays a loading spinner in the component list area.
+     */
     _showLoading() {
         this.listEl.innerHTML = `
             <div class="cp-loading">
@@ -214,6 +232,12 @@ export class ComponentPicker {
         `;
     }
 
+    /**
+     * Displays an indexing progress bar during KiCad library initialization.
+     * @param {string} message - Progress message to display.
+     * @param {number} loaded - Number of items loaded so far.
+     * @param {number} total - Total number of items to load.
+     */
     _showIndexingProgress(message, loaded, total) {
         const pct = total > 0 ? Math.min(100, Math.round(loaded / total * 100)) : 0;
         const barStyle = total > 0
@@ -229,6 +253,9 @@ export class ComponentPicker {
         `;
     }
     
+    /**
+     * Debounces the LCSC search to avoid excessive API calls during typing.
+     */
     _debouncedLCSCSearch() {
         if (this.searchDebounceTimer) {
             clearTimeout(this.searchDebounceTimer);
@@ -238,6 +265,10 @@ export class ComponentPicker {
         }, 400);
     }
     
+    /**
+     * Searches online EasyEDA and KiCad catalogs for components matching the current query.
+     * @returns {Promise<void>}
+     */
     async _searchLCSC() {
         const query = this.searchQuery.trim();
         
@@ -296,6 +327,11 @@ export class ComponentPicker {
         }
     }
     
+    /**
+     * Falls back to KiCad and local library search when LCSC search fails.
+     * @param {string} query - The search query string.
+     * @returns {Promise<void>}
+     */
     async _searchKiCadFallback(query) {
         try {
             // Use SearchManager for KiCad search
@@ -328,6 +364,10 @@ export class ComponentPicker {
         }
     }
     
+    /**
+     * Populates the results list with KiCad library search results.
+     * @param {Array<Object>} results - Array of KiCad search result objects.
+     */
     _populateKiCadResults(results) {
         this.listEl.innerHTML = `
             <div class="cp-kicad-notice">
@@ -357,6 +397,12 @@ export class ComponentPicker {
         }
     }
     
+    /**
+     * Populates the results list with local library fallback results.
+     * @param {Array<Object>} results - Array of local component definitions.
+     * @param {string} query - The original search query for display.
+     * @returns {Promise<void>}
+     */
     async _populateLocalFallbackResults(results, query) {
         this.listEl.innerHTML = `
             <div class="cp-kicad-notice">
@@ -389,6 +435,11 @@ export class ComponentPicker {
         }
     }
     
+    /**
+     * Handles selection of a KiCad search result and loads its preview.
+     * @param {Object} result - The selected KiCad result object.
+     * @param {HTMLElement} itemEl - The clicked DOM element.
+     */
     _selectKiCadResult(result, itemEl) {
         this.listEl.querySelectorAll('.cp-item').forEach(el => el.classList.remove('selected'));
         itemEl.classList.add('selected');
@@ -425,6 +476,11 @@ export class ComponentPicker {
         this._loadKiCadFootprintStatus(result);
     }
 
+    /**
+     * Loads and verifies KiCad footprint and 3D model availability for a selected result.
+     * @param {Object} result - The KiCad result to check footprint status for.
+     * @returns {Promise<void>}
+     */
     async _loadKiCadFootprintStatus(result) {
         const selId = ++this._selectionGeneration;
         try {
@@ -550,6 +606,11 @@ export class ComponentPicker {
         }
     }
     
+    /**
+     * Fetches full KiCad symbol data and initiates component placement.
+     * @param {Object} result - The KiCad result to fetch and place.
+     * @returns {Promise<void>}
+     */
     async _fetchAndPlaceKiCad(result) {
         this.placeBtn.disabled = true;
         this.placeBtn.textContent = 'Fetching...';
@@ -588,6 +649,9 @@ export class ComponentPicker {
         }
     }
     
+    /**
+     * Populates the results list with combined EasyEDA and KiCad search results in a two-column layout.
+     */
     _populateLCSCResults() {
         this.listEl.innerHTML = '';
         
@@ -748,6 +812,9 @@ export class ComponentPicker {
         this._balanceResultsColumns();
     }
 
+    /**
+     * Balances scroll behavior of the two results columns so shorter lists don't scroll past their content.
+     */
     _balanceResultsColumns() {
         requestAnimationFrame(() => {
             const grid = this.listEl.querySelector('.cp-results-grid');
@@ -802,6 +869,12 @@ export class ComponentPicker {
         });
     }
     
+    /**
+     * Handles selection of an LCSC/EasyEDA search result and loads its preview.
+     * @param {Object} result - The selected LCSC result object.
+     * @param {HTMLElement} itemEl - The clicked DOM element.
+     * @returns {Promise<void>}
+     */
     async _selectLCSCResult(result, itemEl) {
         this.listEl.querySelectorAll('.cp-item').forEach(el => el.classList.remove('selected'));
         itemEl.classList.add('selected');
@@ -853,6 +926,11 @@ export class ComponentPicker {
         await this._loadEasyEDADetailForPreview(result);
     }
 
+    /**
+     * Loads EasyEDA component detail metadata and updates footprint/3D previews.
+     * @param {Object} result - The LCSC result to load detail for.
+     * @returns {Promise<void>}
+     */
     async _loadEasyEDADetailForPreview(result) {
         const selId = ++this._selectionGeneration;
         try {
@@ -930,6 +1008,11 @@ export class ComponentPicker {
         }
     }
     
+    /**
+     * Fetches full EasyEDA/LCSC component data and initiates placement.
+     * @param {Object} result - The LCSC result to fetch and place.
+     * @returns {Promise<void>}
+     */
     async _fetchAndPlace(result) {
         this.placeBtn.disabled = true;
         this.placeBtn.textContent = 'Placing...';
@@ -981,6 +1064,11 @@ export class ComponentPicker {
         }
     }
 
+    /**
+     * Places a component using prefetched LCSC data, including footprint and 3D metadata.
+     * @param {Object} result - The LCSC result with prefetched definition data.
+     * @returns {Promise<void>}
+     */
     async _placePrefetchedLCSC(result) {
         this.placeBtn.disabled = true;
         this.placeBtn.textContent = 'Placing...';
@@ -1025,6 +1113,9 @@ export class ComponentPicker {
         }
     }
     
+    /**
+     * Populates the category dropdown with available component categories from the library.
+     */
     _populateCategories() {
         const categories = this.library.getCategoryNames();
         categories.sort();
@@ -1037,6 +1128,9 @@ export class ComponentPicker {
         }
     }
     
+    /**
+     * Populates the component list based on the current search query and selected category.
+     */
     _populateComponents() {
         this.listEl.innerHTML = '';
         this.componentItems.clear();
@@ -1095,6 +1189,9 @@ export class ComponentPicker {
         this._setupLazyLoading();
     }
     
+    /**
+     * Sets up lazy loading for component preview thumbnails using an IntersectionObserver.
+     */
     _setupLazyLoading() {
         // Create lazy loader for rendering component previews
         this.lazyLoader = new LazyLoader({
@@ -1131,6 +1228,11 @@ export class ComponentPicker {
         }
     }
     
+    /**
+     * Selects a local component and updates the preview panel.
+     * @param {Object} comp - The component definition to select.
+     * @param {HTMLElement} [itemEl] - The clicked DOM element to highlight.
+     */
     _selectComponent(comp, itemEl) {
         const normalized = this._normalizeDefinition(comp);
         // Update selection state
@@ -1161,6 +1263,12 @@ export class ComponentPicker {
         this._updatePreview(normalized);
     }
 
+    /**
+     * Begins component placement by emitting a selection event.
+     * @param {Object} definition - The normalized component definition.
+     * @param {Object} [options] - Placement options.
+     * @param {boolean} [options.skipFootprint3d] - Whether to skip footprint/3D preview updates.
+     */
     _beginPlacement(definition, options = {}) {
         if (!definition) return;
         this.selectedComponent = this._normalizeDefinition(definition);
@@ -1169,6 +1277,11 @@ export class ComponentPicker {
         this.eventBus.emit('component:selected', this.selectedComponent);
     }
 
+    /**
+     * Normalizes a component definition to ensure it has a consistent structure with a symbol property.
+     * @param {Object} definition - The raw component definition.
+     * @returns {Object} The normalized definition.
+     */
     _normalizeDefinition(definition) {
         if (!definition || typeof definition !== 'object') return definition;
 
@@ -1192,6 +1305,11 @@ export class ComponentPicker {
         return definition;
     }
     
+    /**
+     * Creates a small SVG preview of a component for use in the list view.
+     * @param {Object} comp - The component definition to preview.
+     * @returns {Promise<string>} HTML string containing the SVG preview.
+     */
     async _createMiniPreview(comp) {
         if (!comp.symbol) return '<span style="color:var(--text-muted)">?</span>';
         
@@ -1245,11 +1363,22 @@ export class ComponentPicker {
         }
     }
 
+    /**
+     * Checks whether a URL points directly to an image file.
+     * @param {string} url - The URL to test.
+     * @returns {boolean} True if the URL ends with a common image extension.
+     */
     _isDirectImageUrl(url) {
         if (!url || typeof url !== 'string') return false;
         return /\.(png|jpe?g|gif|webp)(\?.*)?$/i.test(url);
     }
 
+    /**
+     * Applies an LCSC product thumbnail image to the given icon element.
+     * @param {HTMLElement} iconEl - The icon container element.
+     * @param {Object} result - The LCSC result with thumbnail URL data.
+     * @returns {Promise<void>}
+     */
     async _applyLCSCThumbnail(iconEl, result) {
         const thumbUrl = result.thumbUrl || result.imageUrl || '';
         if (!thumbUrl) return;
@@ -1276,6 +1405,12 @@ export class ComponentPicker {
         }
     }
 
+    /**
+     * Attempts to apply an LCSC thumbnail; returns whether a photo was successfully applied.
+     * @param {HTMLElement} iconEl - The icon container element.
+     * @param {Object} result - The LCSC result with thumbnail URL data.
+     * @returns {Promise<boolean>} True if a photo thumbnail was applied.
+     */
     async _tryApplyLCSCThumbnail(iconEl, result) {
         const thumbUrl = result.thumbUrl || result.imageUrl || '';
         if (!thumbUrl && (!result.lcscPartNumber || !this.library?.lcscFetcher)) {
@@ -1309,6 +1444,11 @@ export class ComponentPicker {
         return false;
     }
 
+    /**
+     * Updates the preview panel's product image for an LCSC result.
+     * @param {Object} result - The LCSC result to display the image for.
+     * @returns {Promise<void>}
+     */
     async _updateLCSCPreviewImage(result) {
         if (!this.previewImage) return;
 
@@ -1337,6 +1477,13 @@ export class ComponentPicker {
         }
     }
     
+    /**
+     * Updates the full symbol preview SVG and info panel for a component.
+     * @param {Object} comp - The component definition to preview.
+     * @param {Object} [options] - Preview options.
+     * @param {boolean} [options.skipFootprint3d] - Whether to skip footprint/3D updates.
+     * @returns {Promise<void>}
+     */
     async _updatePreview(comp, options = {}) {
         try {
             if (!comp || !comp.symbol) {
@@ -1421,6 +1568,11 @@ export class ComponentPicker {
         }
     }
 
+    /**
+     * Computes the bounding box of a symbol's graphics and pins.
+     * @param {Object} symbol - The symbol definition with graphics and pins arrays.
+     * @returns {Object|null} Bounds object with minX, minY, maxX, maxY, width, height, or null if invalid.
+     */
     _computeSymbolBounds(symbol) {
         if (!symbol) return null;
 
@@ -1519,6 +1671,11 @@ export class ComponentPicker {
         };
     }
 
+    /**
+     * Sets the footprint preview section to a status message.
+     * @param {string} message - The status message to display.
+     * @param {boolean} available - Whether the footprint is available.
+     */
     _setFootprintPreviewStatus(message, available) {
         if (!this.previewFootprint) return;
         this.previewFootprint.innerHTML = `<div class="cp-preview-placeholder">${message}</div>`;
@@ -1529,6 +1686,11 @@ export class ComponentPicker {
         }
     }
 
+    /**
+     * Sets the 3D model preview section to a status message.
+     * @param {string} message - The status message to display.
+     * @param {boolean} available - Whether the 3D model is available.
+     */
     _set3dPreviewStatus(message, available) {
         if (!this.preview3d) return;
         this.preview3d.innerHTML = `<div class="cp-preview-placeholder">${message}</div>`;
@@ -1539,6 +1701,10 @@ export class ComponentPicker {
         }
     }
 
+    /**
+     * Updates the footprint preview panel with rendered SVG from component metadata.
+     * @param {Object} metadata - Component metadata containing footprint shapes and bounding box.
+     */
     _updateFootprintPreview(metadata) {
         if (!metadata || !metadata.hasFootprint) {
             this._setFootprintPreviewStatus('No footprint data', false);
@@ -1561,6 +1727,11 @@ export class ComponentPicker {
         }
     }
 
+    /**
+     * Updates the 3D model preview panel by rendering VRML or OBJ model data.
+     * @param {Object} metadata - Component metadata containing 3D model URL or OBJ data.
+     * @returns {Promise<void>}
+     */
     async _update3dPreview(metadata) {
         if (!metadata || !metadata.has3d) {
             this._set3dPreviewStatus('No 3D model', false);
@@ -1627,6 +1798,12 @@ export class ComponentPicker {
         }
     }
 
+    /**
+     * Renders footprint pad shapes into an SVG string.
+     * @param {Array<string>} shapes - Array of shape descriptor strings (e.g., PAD~ format).
+     * @param {Object} bbox - Bounding box with x, y, width, height properties.
+     * @returns {string} SVG markup string, or empty string if no valid shapes.
+     */
     _renderFootprintSVG(shapes, bbox) {
         if (!Array.isArray(shapes) || shapes.length === 0) return '';
 
@@ -1668,6 +1845,12 @@ export class ComponentPicker {
     }
 
 
+    /**
+     * Builds a normalized component definition from raw KiCad data.
+     * @param {Object} kicadData - Raw KiCad symbol data (may contain nested symbol property).
+     * @param {Object} result - The KiCad search result with name and library info.
+     * @returns {Object} A component definition suitable for placement.
+     */
     _buildKiCadDefinition(kicadData, result) {
         const kicadSymbol = kicadData?.symbol || kicadData;
         const kicadProperties = kicadData?.properties || kicadData?.symbol?.properties || kicadSymbol?.properties;
@@ -1685,6 +1868,12 @@ export class ComponentPicker {
         return def;
     }
 
+    /**
+     * Retrieves a property value from a properties object using case-insensitive key matching.
+     * @param {Object} properties - The properties object to search.
+     * @param {string} key - The property key to look up.
+     * @returns {string} The property value, or empty string if not found.
+     */
     _getPropertyValue(properties, key) {
         if (!properties || typeof properties !== 'object') return '';
         if (properties[key]) return properties[key];
@@ -1694,6 +1883,12 @@ export class ComponentPicker {
         return match ? properties[match] : '';
     }
     
+    /**
+     * Renders an array of graphic primitives into SVG markup strings.
+     * @param {Array<Object>} graphics - Array of graphic objects (line, rect, circle, etc.).
+     * @param {number} [defaultStrokeWidth=0.254] - Default stroke width for rendered elements.
+     * @returns {string} Concatenated SVG element strings.
+     */
     _renderGraphicsToSVG(graphics, defaultStrokeWidth = 0.254) {
         try {
             if (!graphics || !Array.isArray(graphics)) return '';
@@ -1784,6 +1979,11 @@ export class ComponentPicker {
         }
     }
     
+    /**
+     * Renders a single component pin as SVG markup including its connection line and endpoint dot.
+     * @param {Object} pin - The pin object with x, y coordinates and optional path data.
+     * @returns {string} SVG markup string for the pin.
+     */
     _renderPinToSVG(pin) {
         try {
             if (!pin || typeof pin.x !== 'number' || typeof pin.y !== 'number') {
@@ -1855,6 +2055,9 @@ export class ComponentPicker {
         }
     }
     
+    /**
+     * Toggles the component picker panel open or closed.
+     */
     toggle() {
         this.isOpen = !this.isOpen;
         if (this.isOpen) {
@@ -1871,6 +2074,9 @@ export class ComponentPicker {
         }
     }
     
+    /**
+     * Closes the component picker panel and cleans up the lazy loader.
+     */
     close() {
         if (this.isOpen) {
             this.toggle();
@@ -1882,20 +2088,34 @@ export class ComponentPicker {
         }
     }
     
+    /**
+     * Opens the component picker panel if it is not already open.
+     */
     open() {
         if (!this.isOpen) {
             this.toggle();
         }
     }
     
+    /**
+     * Appends the component picker element to a parent DOM node.
+     * @param {HTMLElement} parent - The parent element to append to.
+     */
     appendTo(parent) {
         parent.appendChild(this.element);
     }
     
+    /**
+     * Returns the currently selected component definition.
+     * @returns {Object|null} The selected component, or null if none is selected.
+     */
     getSelectedComponent() {
         return this.selectedComponent;
     }
     
+    /**
+     * Clears the current component selection and resets the preview panel.
+     */
     clearSelection() {
         this.selectedComponent = null;
         this.placeBtn.disabled = true;

@@ -23,6 +23,11 @@ const ORIENTATION_KEY = 'clearpcb_paper_orientation';
 const TITLE_BLOCK_KEY = 'clearpcb_title_block';
 const TITLE_BLOCK_INFO_KEY = 'clearpcb_title_block_info';
 
+/**
+ * Binds change listeners for paper size, orientation, and title block
+ * checkboxes; restores persisted state from localStorage.
+ * @param {object} app - Application state.
+ */
 export function bindPaperEvents(app) {
     const paperSelect = document.getElementById('paperSize');
     const orientationSelect = document.getElementById('paperOrientation');
@@ -121,6 +126,11 @@ function updatePaperDisplay(app, paperSizeKey, orientation) {
     app.viewport.setPaperSize(size, paperSizeKey);
 }
 
+/**
+ * Returns the width and height (in mm) for a named paper size key.
+ * @param {string} key - Paper size key (e.g. `'A4'`, `'Letter'`).
+ * @returns {{width: number, height: number}|null} Size in mm, or `null` if not found.
+ */
 export function getPaperSize(key) {
     return PAPER_SIZES[key] || null;
 }

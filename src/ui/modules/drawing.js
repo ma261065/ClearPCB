@@ -1,6 +1,12 @@
 import { Line, Circle, Rect, Arc, Polygon, Text } from '../../shapes/index.js';
 import { circumcircle, projectOntoChordBisector, clampBulgePoint } from '../../core/geometry.js';
 
+/**
+ * Begins a shape-drawing session: stores start position, initializes
+ * polygon/line/arc state, creates preview, and shows crosshair.
+ * @param {object} app - Application state.
+ * @param {{x: number, y: number}} worldPos - Starting position in world coordinates.
+ */
 export function startDrawing(app, worldPos) {
     if (app.currentTool === 'select') return;
 
@@ -26,6 +32,11 @@ export function startDrawing(app, worldPos) {
     app._setToolCursor(app.currentTool, app.viewport.svg);
 }
 
+/**
+ * Updates the current cursor position during drawing and refreshes the preview.
+ * @param {object} app - Application state.
+ * @param {{x: number, y: number}} worldPos - Current cursor position in world coordinates.
+ */
 export function updateDrawing(app, worldPos) {
     if (!app.isDrawing) return;
 
@@ -33,6 +44,12 @@ export function updateDrawing(app, worldPos) {
     updatePreview(app);
 }
 
+/**
+ * Completes the drawing: creates the final shape, adds it to the canvas,
+ * starts text edit if text tool, then cancels drawing mode.
+ * @param {object} app - Application state.
+ * @param {{x: number, y: number}} worldPos - Final position in world coordinates.
+ */
 export function finishDrawing(app, worldPos) {
     if (!app.isDrawing) return;
 
@@ -64,6 +81,11 @@ function stripDuplicateTrailingPoints(points, minCount) {
     }
 }
 
+/**
+ * Adds a vertex to the in-progress polygon and updates the preview.
+ * @param {object} app - Application state.
+ * @param {{x: number, y: number}} worldPos - Vertex position in world coordinates.
+ */
 export function addPolygonPoint(app, worldPos) {
     if (app.currentTool === 'polygon' && app.isDrawing) {
         app.polygonPoints.push({ ...worldPos });
@@ -71,6 +93,11 @@ export function addPolygonPoint(app, worldPos) {
     }
 }
 
+/**
+ * Completes the polygon (≥3 points required), strips duplicate trailing
+ * points, creates a `Polygon` shape, and adds it to the canvas.
+ * @param {object} app - Application state.
+ */
 export function finishPolygon(app) {
     if (app.currentTool === 'polygon' && app.isDrawing && app.polygonPoints.length >= 3) {
         stripDuplicateTrailingPoints(app.polygonPoints, 3);
@@ -88,6 +115,11 @@ export function finishPolygon(app) {
     cancelDrawing(app);
 }
 
+/**
+ * Adds a vertex to the in-progress polyline and updates the preview.
+ * @param {object} app - Application state.
+ * @param {{x: number, y: number}} worldPos - Vertex position in world coordinates.
+ */
 export function addLinePoint(app, worldPos) {
     if (app.currentTool === 'line' && app.isDrawing) {
         app.linePoints.push({ ...worldPos });
@@ -95,6 +127,11 @@ export function addLinePoint(app, worldPos) {
     }
 }
 
+/**
+ * Completes the line (≥2 points required), strips duplicates, creates
+ * a `Line` shape, and adds it to the canvas.
+ * @param {object} app - Application state.
+ */
 export function finishLine(app) {
     if (app.currentTool === 'line' && app.isDrawing && app.linePoints.length >= 2) {
         stripDuplicateTrailingPoints(app.linePoints, 2);
@@ -108,6 +145,11 @@ export function finishLine(app) {
     cancelDrawing(app);
 }
 
+/**
+ * Cancels active drawing: resets all state, removes the preview SVG,
+ * hides crosshair, and restores cursor.
+ * @param {object} app - Application state.
+ */
 export function cancelDrawing(app) {
     app.isDrawing = false;
     app.drawStart = null;
@@ -125,6 +167,10 @@ export function cancelDrawing(app) {
     app._setToolCursor(app.currentTool, app.viewport.svg);
 }
 
+/**
+ * Creates a semi-transparent SVG `<g>` for previewing the shape being drawn.
+ * @param {object} app - Application state.
+ */
 export function createPreview(app) {
     app.previewElement = document.createElementNS('http://www.w3.org/2000/svg', 'g');
     app.previewElement.setAttribute('class', 'preview');
@@ -133,11 +179,23 @@ export function createPreview(app) {
     app.viewport.contentLayer.appendChild(app.previewElement);
 }
 
+/**
+ * Returns the larger of `lineWidth` or the minimum visible stroke width
+ * at the current zoom level.
+ * @param {object} app - Application state.
+ * @param {number} lineWidth - Requested line width.
+ * @returns {number} Effective stroke width.
+ */
 export function getEffectiveStrokeWidth(app, lineWidth) {
     const minWorldWidth = 1 / app.viewport.scale;
     return Math.max(lineWidth, minWorldWidth);
 }
 
+/**
+ * Redraws the preview SVG to match the current tool, start position, and
+ * cursor position (handles line, wire, rect, circle, arc, polygon, text).
+ * @param {object} app - Application state.
+ */
 export function updatePreview(app) {
     if (!app.previewElement || !app.drawStart || !app.drawCurrent) return;
 
@@ -284,6 +342,12 @@ export function updatePreview(app) {
     }
 }
 
+/**
+ * Instantiates the appropriate shape object (Rect, Circle, Arc, Text) from
+ * the current drawing state and tool options.
+ * @param {object} app - Application state.
+ * @returns {import('../../shapes/shape.js').Shape|null} The created shape, or `null` if too small.
+ */
 export function createShapeFromDrawing(app) {
     const start = app.drawStart;
     const end = app.drawCurrent;

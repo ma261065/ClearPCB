@@ -1,3 +1,8 @@
+/**
+ * Enables/disables and adjusts opacity of the undo and redo toolbar buttons
+ * based on `app.history` state.
+ * @param {object} app - Application state.
+ */
 export function updateUndoRedoButtons(app) {
     if (app.ui.undoBtn) {
         app.ui.undoBtn.disabled = !app.history.canUndo();
@@ -32,6 +37,10 @@ export function setCheckboxState(el, values) {
     }
 }
 
+/**
+ * Makes the `.help-panel` element draggable by its `<h3>` header,
+ * clamped to the window bounds.
+ */
 export function makeHelpPanelDraggable() {
     const panel = document.querySelector('.help-panel');
     if (!panel) return;

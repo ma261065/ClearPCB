@@ -41,6 +41,16 @@ export function resetIdCounter() {
 }
 
 export class Shape {
+    /**
+     * Create a new shape.
+     * @param {Object} [options] - Shape configuration.
+     * @param {string} [options.id] - Unique ID (auto-generated if omitted).
+     * @param {string} [options.layer='top'] - Board layer ('top', 'bottom', etc.).
+     * @param {string|number} [options.color='#00b894'] - Stroke/fill colour.
+     * @param {number} [options.lineWidth=0.2] - Stroke width in mm.
+     * @param {boolean} [options.visible=true] - Whether the shape is rendered.
+     * @param {boolean} [options.locked=false] - Whether the shape is locked.
+     */
     constructor(options = {}) {
         this.id = options.id || `shape_${++shapeIdCounter}`;
         this.type = 'shape';
@@ -65,19 +75,33 @@ export class Shape {
         this._dirty = true;
     }
     
-    // Convert color to CSS format
+    /**
+     * Convert a colour value to a CSS-compatible string.
+     * Handles both string colours (pass-through) and hex numbers.
+     * @param {string|number} color - Colour as CSS string or hex integer.
+     * @returns {string} CSS colour string (e.g. '#00b894').
+     */
     _colorToCSS(color) {
         if (typeof color === 'string') return color;
         // Convert hex number to CSS hex string
         return '#' + color.toString(16).padStart(6, '0');
     }
     
-    // Calculate effective stroke width with minimum screen pixel size
+    /**
+     * Calculate stroke width enforcing a minimum screen-pixel thickness.
+     * Ensures strokes remain visible regardless of zoom level.
+     * @param {number} scale - Current viewport scale (pixels per mm).
+     * @returns {number} Stroke width in world units (mm).
+     */
     _getEffectiveStrokeWidth(scale) {
         const minWorldWidth = MIN_STROKE_PIXELS / scale;
         return Math.max(this.lineWidth, minWorldWidth);
     }
     
+    /**
+     * Get the axis-aligned bounding box, using a cached value when clean.
+     * @returns {{minX: number, minY: number, maxX: number, maxY: number}}
+     */
     getBounds() {
         if (!this._bounds || this._dirty) {
             this._bounds = this._calculateBounds();
@@ -85,14 +109,29 @@ export class Shape {
         return this._bounds;
     }
     
+    /**
+     * Compute the axis-aligned bounding box. Override in subclasses.
+     * @returns {{minX: number, minY: number, maxX: number, maxY: number}}
+     */
     _calculateBounds() {
         return { minX: 0, minY: 0, maxX: 0, maxY: 0 };
     }
     
+    /**
+     * Test whether a point intersects this shape. Override in subclasses.
+     * @param {{x: number, y: number}} point - World-space point to test.
+     * @param {number} [tolerance=0.5] - Hit margin in mm.
+     * @returns {boolean} True if the point hits the shape.
+     */
     hitTest(point, tolerance = 0.5) {
         return false;
     }
     
+    /**
+     * Minimum distance from a world point to this shape. Override in subclasses.
+     * @param {{x: number, y: number}} point - World-space point.
+     * @returns {number} Distance in mm (Infinity by default).
+     */
     distanceTo(point) {
         return Infinity;
     }
@@ -133,11 +172,21 @@ export class Shape {
         this.invalidate();
     }
     
+    /**
+     * Mark the shape as dirty, clearing the cached bounding box.
+     * Call after any geometric mutation so the next render recalculates.
+     */
     invalidate() {
         this._dirty = true;
         this._bounds = null;
     }
     
+    /**
+     * Create or update the SVG element for this shape.
+     * Applies selection/hover colouring and rebuilds anchor handles.
+     * @param {number} scale - Current viewport scale (pixels per mm).
+     * @returns {SVGElement} The root SVG element representing this shape.
+     */
     render(scale) {
         if (!this.element) {
             this.element = this._createElement();
@@ -181,15 +230,33 @@ export class Shape {
         return this.element;
     }
     
+    /**
+     * Create the root SVG element for this shape. Override in subclasses.
+     * @returns {SVGElement} A new SVG element (defaults to an empty `<g>`).
+     */
     _createElement() {
         // Override in subclass
         return document.createElementNS('http://www.w3.org/2000/svg', 'g');
     }
     
+    /**
+     * Update the SVG element's attributes for the current state.
+     * Override in subclasses to set geometry and style.
+     * @param {SVGElement} el - The root SVG element to update.
+     * @param {string} strokeColor - CSS stroke colour.
+     * @param {string} fillColor - CSS fill colour.
+     * @param {number} scale - Current viewport scale (pixels per mm).
+     */
     _updateElement(el, strokeColor, fillColor, scale) {
         // Override in subclass
     }
     
+    /**
+     * Rebuild or update the anchor-handle overlay for a selected shape.
+     * Uses a fast path when handle count is unchanged (drag), and a full
+     * rebuild otherwise. Adds a lock icon near the primary anchor when locked.
+     * @param {number} scale - Current viewport scale (pixels per mm).
+     */
     _updateAnchors(scale) {
         // Only show anchors when selected
         if (!this.selected) {
@@ -286,6 +353,11 @@ export class Shape {
         }
     }
     
+    /**
+     * Translate the shape by the given delta. Override in subclasses.
+     * @param {number} dx - Horizontal offset in mm.
+     * @param {number} dy - Vertical offset in mm.
+     */
     move(dx, dy) {
         this.invalidate();
     }
@@ -353,10 +425,20 @@ export class Shape {
         return false;
     }
     
+    /**
+     * Create a deep copy of this shape with a new unique ID.
+     * Must be implemented by every concrete subclass.
+     * @returns {Shape} A new independent shape instance.
+     */
     clone() {
         throw new Error('clone() must be implemented by subclass');
     }
     
+    /**
+     * Serialise the shape to a compact JSON-friendly object.
+     * Subclasses should call `super.toJSON()` and extend the result.
+     * @returns {Object} Plain object with short keys (`c`, `l`, `lw`, etc.).
+     */
     toJSON() {
         const json = {
             id: this.id,
@@ -370,6 +452,10 @@ export class Shape {
         return json;
     }
     
+    /**
+     * Remove SVG elements from the DOM and release references.
+     * Call when permanently deleting a shape.
+     */
     destroy() {
         if (this.element && this.element.parentNode) {
             this.element.parentNode.removeChild(this.element);

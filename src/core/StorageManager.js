@@ -8,6 +8,10 @@
  */
 
 export class StorageManager {
+    /**
+     * Create a new StorageManager.
+     * @param {number} [ttlMs=86400000] - Default time-to-live for cached entries (ms)
+     */
     constructor(ttlMs = 24 * 60 * 60 * 1000) {
         this.ttlMs = ttlMs; // Default 24 hours
     }

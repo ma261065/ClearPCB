@@ -1,10 +1,14 @@
 import { MoveShapesCommand, ModifyShapeCommand, BatchCommand, AddShapeCommand, DeleteShapesCommand } from '../../core/CommandHistory.js';
 import { Wire } from '../../shapes/wire.js';
-import { updateStickyWires, reconcileWires, reconcileWiresWithUndo, refreshWireConnections, updateSnapHighlight, resolveWireSnapPosition, renderGuideLines, computeAnchorCollinearSnap, computeSegmentDragSnap, computeStickyWireSnaps, applyOffGridNeighborSnap, isTJunctionPoint, cleanupOrphanedTJunctions, spliceWirePoint, collapseRedundantWirePoints, pointsCollinear, SNAP_SCREEN_PX, COLLINEAR_EPSILON, VERTEX_EPSILON, PIN_SNAP_TOL, WIRE_COLOR, WIRE_WIDTH } from './wire.js';
+import { updateStickyWires, reconcileWires, reconcileWiresWithUndo, refreshWireConnections, updateSnapHighlight, resolveWireSnapPosition, renderGuideLines, computeAnchorCollinearSnap, computeSegmentDragSnap, computeStickyWireSnaps, applyOffGridNeighborSnap, collapseRedundantWirePoints, buildWireDiffBatch, SNAP_SCREEN_PX, COLLINEAR_EPSILON, VERTEX_EPSILON, PIN_SNAP_TOL, WIRE_COLOR, WIRE_WIDTH } from './wire.js';
+import { pointsCollinear } from '../../core/geometry.js';
 
 // Pre-allocated tool sets to avoid array creation in hot paths
 const DRAWING_TOOLS = new Set(['line', 'rect', 'circle', 'polygon']);
 const CLICK_TO_END_TOOLS = new Set(['rect', 'circle', 'arc']);
+
+/** Pixel threshold to promote a pending anchor click into a drag. */
+const DRAG_THRESHOLD_PX = 3;
 
 /**
  * Compute screen, world, and grid-snapped positions from a mouse event.
@@ -106,31 +110,8 @@ function commitAnchorDrag(app) {
         }
 
         // Build undo batch by diffing pre-drag vs post-reconcile
-        const batch = new BatchCommand('Move anchor');
-        for (const [w, before] of beforeAll) {
-            if (!app.shapes.includes(w)) {
-                w.applyState(before);
-                if (!app.shapes.includes(w)) app.shapes.push(w);
-                batch.add(new DeleteShapesCommand(app, [w]));
-            } else {
-                const after = w.captureState();
-                if (JSON.stringify(before) !== JSON.stringify(after)) {
-                    w.applyState(before);
-                    batch.add(new ModifyShapeCommand(app, w, before, after));
-                }
-            }
-        }
-        // New wires created by reconcile splits
-        for (const s of [...app.shapes]) {
-            if (s.type === 'wire' && !beforeAll.has(s)) {
-                app._removeShapeInternal(s);
-                batch.add(new AddShapeCommand(app, s));
-            }
-        }
-
-        if (batch.commands.length > 0) {
-            app.history.execute(batch);
-        }
+        const batch = buildWireDiffBatch(app, beforeAll, 'Move anchor');
+        if (batch) app.history.execute(batch);
 
         // Select surviving dragged wire if not degenerate
         if (app.shapes.includes(app.dragShape)) {
@@ -195,31 +176,9 @@ function commitSegmentDrag(app) {
     }
 
     // Build undo batch by diffing pre-drag vs post-reconcile
-    const batch = new BatchCommand('Move wire segment');
-    for (const [w, before] of beforeAll) {
-        if (!app.shapes.includes(w)) {
-            w.applyState(before);
-            if (!app.shapes.includes(w)) app.shapes.push(w);
-            batch.add(new DeleteShapesCommand(app, [w]));
-        } else {
-            const after = w.captureState();
-            if (JSON.stringify(before) !== JSON.stringify(after)) {
-                w.applyState(before);
-                batch.add(new ModifyShapeCommand(app, w, before, after));
-            }
-        }
-    }
-    // New wires created by reconcile splits
-    for (const s of [...app.shapes]) {
-        if (s.type === 'wire' && !beforeAll.has(s)) {
-            app._removeShapeInternal(s);
-            batch.add(new AddShapeCommand(app, s));
-        }
-    }
-
-    if (batch.commands.length > 0) {
-        app.history.execute(batch);
-    }
+    // Build undo batch by diffing pre-drag vs post-reconcile
+    const batch = buildWireDiffBatch(app, beforeAll, 'Move wire segment');
+    if (batch) app.history.execute(batch);
     app.renderShapes(true);
 }
 
@@ -487,6 +446,10 @@ function showAnchorContextMenu(app, shape, anchorId, clientX, clientY, canDelete
     menu._dismissHandlers = { dismiss, dismissOnKey };
 }
 
+/**
+ * Remove the currently visible anchor/segment context menu and its
+ * global event listeners. Safe to call when no menu is open.
+ */
 function dismissAnchorContextMenu() {
     const existing = document.querySelector('.anchor-context-menu');
     if (existing) {
@@ -620,6 +583,12 @@ function deleteWire(app, wire) {
     app.renderShapes(true);
 }
 
+/**
+ * Wire all mouse-event handlers (mousedown, mouseup, mousemove, click,
+ * dblclick) to the SVG canvas. Handles selection, dragging, anchor
+ * manipulation, box-select, and context menus.
+ * @param {Object} app - The SchematicApp instance.
+ */
 export function bindMouseEvents(app) {
     const svg = app.viewport.svg;
 
@@ -978,7 +947,7 @@ export function bindMouseEvents(app) {
         app._rightClickStart = null;
         if (!start) return;
         const movedDist = Math.hypot(e.clientX - start.x, e.clientY - start.y);
-        if (movedDist > 3) return; // dragged — was a pan, don't finish
+        if (movedDist > DRAG_THRESHOLD_PX) return; // dragged — was a pan, don't finish
 
         const { worldPos, snapped } = getEventPositions(e, app.viewport);
 
@@ -1114,15 +1083,7 @@ export function bindMouseEvents(app) {
                 app._updateWireDrawing(worldPos);
             } else {
                 // Not drawing — highlight pins and wire endpoints/segments on hover
-                // Uses the unified snap resolver for consistent priority logic
-                const snap = resolveWireSnapPosition(app, worldPos, { pinTolerance: 0.5 });
-                if (snap.snapType === 'pin') {
-                    updateSnapHighlight(app, snap.snapPin);
-                } else if (snap.snapType === 'endpoint' || snap.snapType === 'segment') {
-                    updateSnapHighlight(app, { x: snap.x, y: snap.y, type: snap.snapType });
-                } else {
-                    updateSnapHighlight(app, null);
-                }
+                updateSnapHighlight(app, resolveWireSnapPosition(app, worldPos, { pinTolerance: 0.5 }));
             }
             app._showCrosshair();
             app._updateCrosshair(snapped, screenPos);
@@ -1151,7 +1112,7 @@ export function bindMouseEvents(app) {
                 const dx = screenPos.x - app.pendingAnchorDrag.screenPos.x;
                 const dy = screenPos.y - app.pendingAnchorDrag.screenPos.y;
                 const moved = Math.hypot(dx, dy);
-                if (moved >= 3) {
+                if (moved >= DRAG_THRESHOLD_PX) {
                     const { shape, anchorId, snapped: startSnapped, preInsertState } = app.pendingAnchorDrag;
                     app.pendingAnchorDrag = null;
                     app.isDragging = true;
@@ -1307,14 +1268,8 @@ export function bindMouseEvents(app) {
                         pinTolerance: PIN_SNAP_TOL
                     });
                     anchorPos = { x: snap.x, y: snap.y };
-
-                    if (snap.snapType === 'pin') {
-                        updateSnapHighlight(app, snap.snapPin);
-                        snappedToTarget = true;
-                    } else if (snap.snapType === 'endpoint' || snap.snapType === 'segment') {
-                        updateSnapHighlight(app, { x: snap.x, y: snap.y, type: snap.snapType });
-                        snappedToTarget = true;
-                    }
+                    snappedToTarget = snap.snapType === 'pin' || snap.snapType === 'endpoint' || snap.snapType === 'segment';
+                    if (snappedToTarget) updateSnapHighlight(app, snap);
                 }
 
                 // If no pin/wire/endpoint snap (or non-leaf node), use off-grid
@@ -1666,6 +1621,10 @@ export function bindMouseEvents(app) {
         if (hit && hit.supportsInlineEdit) {
             app.selection.select(hit, false);
             app.renderShapes(true);
+            // Clear any pending anchor drag left over from the second mousedown
+            // of the dblclick — otherwise the stale state causes the text label
+            // to follow the mouse after the value dialog closes.
+            app.pendingAnchorDrag = null;
             app._startTextEdit(hit);
             app._setTextEditCaretFromScreen(screenPos);
             return;

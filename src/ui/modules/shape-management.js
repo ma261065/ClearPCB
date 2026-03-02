@@ -1,11 +1,24 @@
 import { AddShapeCommand } from '../../core/CommandHistory.js';
 
+/**
+ * Adds a shape to the canvas via an undoable `AddShapeCommand`.
+ * @param {object} app - Application state.
+ * @param {import('../../shapes/shape.js').Shape} shape - Shape to add.
+ * @returns {import('../../shapes/shape.js').Shape} The added shape.
+ */
 export function addShape(app, shape) {
     const command = new AddShapeCommand(app, shape);
     app.history.execute(command);
     return shape;
 }
 
+/**
+ * Directly adds a shape (no undo) — pushes to `app.shapes`, renders,
+ * adds SVG element, updates selectable items, and marks dirty.
+ * @param {object} app - Application state.
+ * @param {import('../../shapes/shape.js').Shape} shape - Shape to add.
+ * @returns {import('../../shapes/shape.js').Shape} The added shape.
+ */
 export function addShapeInternal(app, shape) {
     app.shapes.push(shape);
     shape.render(app.viewport.scale);
@@ -16,6 +29,14 @@ export function addShapeInternal(app, shape) {
     return shape;
 }
 
+/**
+ * Like `addShapeInternal` but inserts at a specific index in the shapes array
+ * (used for undo re-insertion at original position).
+ * @param {object} app - Application state.
+ * @param {import('../../shapes/shape.js').Shape} shape - Shape to insert.
+ * @param {number} index - Array index at which to insert.
+ * @returns {import('../../shapes/shape.js').Shape} The inserted shape.
+ */
 export function addShapeInternalAt(app, shape, index) {
     shape.render(app.viewport.scale);
 
@@ -30,6 +51,12 @@ export function addShapeInternalAt(app, shape, index) {
     return shape;
 }
 
+/**
+ * Directly removes a shape (no undo) — splices from array, removes SVG elements,
+ * deselects, invalidates hit-test cache, and marks dirty.
+ * @param {object} app - Application state.
+ * @param {import('../../shapes/shape.js').Shape} shape - Shape to remove.
+ */
 export function removeShapeInternal(app, shape) {
     const idx = app.shapes.indexOf(shape);
     if (idx !== -1) {
@@ -47,6 +74,12 @@ export function removeShapeInternal(app, shape) {
     }
 }
 
+/**
+ * Re-renders all visible (non-culled) shapes and components. If `force` is true,
+ * invalidates hit-test cache and recalculates stroke widths on zoom.
+ * @param {object} app - Application state.
+ * @param {boolean} [force=false] - Force full re-render regardless of dirty state.
+ */
 export function renderShapes(app, force = false) {
     if (force && app.selection) {
         app.selection._invalidateHitTestCache();

@@ -9,6 +9,12 @@
  */
 
 export class SelectionManager {
+    /**
+     * Create a new SelectionManager.
+     * @param {Object} [options]
+     * @param {number} [options.tolerance=0.5] - Hit-test tolerance in world units
+     * @param {Function} [options.onSelectionChanged] - Callback fired when selection changes
+     */
     constructor(options = {}) {
         this.shapes = [];  // Reference to all shapes (set by Document)
         this._shapeMap = new Map();  // ID → shape for O(1) lookups
@@ -422,10 +428,18 @@ export class SelectionManager {
         this._boxSelectBase = new Set(this.selected);
     }
     
+    /**
+     * Look up a shape by ID from the internal map.
+     * @param {string} id - Shape identifier
+     * @returns {Shape|null}
+     */
     _getShape(id) {
         return this._shapeMap.get(id) || null;
     }
     
+    /**
+     * Fire the onSelectionChanged callback with the current selection.
+     */
     _notifySelectionChanged() {
         const selection = this.getSelection();
         

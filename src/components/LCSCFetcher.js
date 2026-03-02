@@ -14,6 +14,7 @@
  */
 
 export class LCSCFetcher {
+    /** Initialise API endpoints, CORS proxies and in-memory caches. */
     constructor() {
         // CORS proxy list (try multiple fallbacks)
         // Tokens: {encodedUrl}, {url}, {urlSansScheme}
@@ -38,6 +39,11 @@ export class LCSCFetcher {
         this.corsBlocked = false;
     }
 
+    /**
+     * Normalise a search query — trims whitespace and upper-cases LCSC part numbers.
+     * @param {string} query
+     * @returns {string}
+     */
     _normalizeQuery(query) {
         const trimmed = (query || '').trim();
         if (/^c\d+$/i.test(trimmed)) {
@@ -46,7 +52,13 @@ export class LCSCFetcher {
         return trimmed;
     }
 
-
+    /**
+     * Fetch JSON from a target URL through the CORS proxy list.
+     * Tries proxies in order; returns `{ data }` on success or `{ error }` on failure.
+     * @param {string} targetUrl
+     * @param {RequestInit} [options]
+     * @returns {Promise<{data?: any, error?: Error}>}
+     */
     async _fetchJsonWithProxies(targetUrl, options = {}) {
         const proxies = this.lastWorkingProxy
             ? [this.lastWorkingProxy, ...this.corsProxies.filter(p => p !== this.lastWorkingProxy)]
@@ -101,6 +113,11 @@ export class LCSCFetcher {
         return { error: lastError };
     }
 
+    /**
+     * Search the EasyEDA component API.
+     * @param {string} query
+     * @returns {Promise<Array>} Normalised search result objects
+     */
     async _searchEasyEDA(query) {
         const normalizedQuery = this._normalizeQuery(query);
 
@@ -134,6 +151,11 @@ export class LCSCFetcher {
         return [];
     }
 
+    /**
+     * Fetch detailed component data (symbol, footprint, 3D) from EasyEDA.
+     * @param {string} lcscPartNumber - e.g. 'C46749'
+     * @returns {Promise<Object|null>} Component detail or null
+     */
     async _fetchEasyEDADetail(lcscPartNumber) {
         const normalizedPart = this._normalizeQuery(lcscPartNumber);
         const targetUrl = `https://easyeda.com/api/products/${encodeURIComponent(normalizedPart)}/components?version=${this.easyedaDetailVersion}`;
@@ -144,6 +166,12 @@ export class LCSCFetcher {
         return null;
     }
 
+    /**
+     * Fetch a 3D model (OBJ format) from the EasyEDA modules API.
+     * @param {string} uuid3d - Model UUID
+     * @param {string} [datastrid] - Data string ID (unused, reserved)
+     * @returns {Promise<string|null>} OBJ text or null
+     */
     async _fetchEasyEDA3DModel(uuid3d, datastrid) {
         // EasyEDA stores 3D models in OBJ format at modules.easyeda.com
         if (uuid3d) {
@@ -177,6 +205,11 @@ export class LCSCFetcher {
         return null;
     }
 
+    /**
+     * Extract the component list array from various EasyEDA response shapes.
+     * @param {Object|Array} data - Raw EasyEDA API response
+     * @returns {Array}
+     */
     _extractEasyEDAList(data) {
         if (!data) return [];
         if (Array.isArray(data)) return data;
@@ -205,6 +238,11 @@ export class LCSCFetcher {
         return [];
     }
 
+    /**
+     * Map raw EasyEDA search items to normalised result objects.
+     * @param {Array} items - Raw result items
+     * @returns {Array<Object>} Normalised results with lcscPartNumber, mpn, etc.
+     */
     _formatEasyEDASearchResults(items) {
         return items.map(item => {
             const lcscPartNumber = item?.lcsc?.number || item?.szlcsc?.number || item.lcscPartNumber || item.lcsc_part_number || item.lcsc || item.productCode || item.product_code || item.component_code || item.componentCode || item.lcsc_number || '';
@@ -235,6 +273,11 @@ export class LCSCFetcher {
         });
     }
 
+    /**
+     * Convert protocol-relative URLs to absolute HTTPS.
+     * @param {string} url
+     * @returns {string}
+     */
     _normalizeEasyedaUrl(url) {
         if (!url || typeof url !== 'string') return '';
         if (url.startsWith('//')) return `https:${url}`;
@@ -351,6 +394,12 @@ export class LCSCFetcher {
         return null;
     }
 
+    /**
+     * Fetch a product image URL from the EasyEDA product image API.
+     * Results are cached by normalised part number.
+     * @param {string} lcscPartNumber
+     * @returns {Promise<string>} Image URL or empty string
+     */
     async fetchEasyedaProductImage(lcscPartNumber) {
         const normalizedPart = this._normalizeQuery(lcscPartNumber);
         if (!normalizedPart) return '';
