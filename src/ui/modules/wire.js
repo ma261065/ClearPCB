@@ -1256,17 +1256,37 @@ export function computeAnchorCollinearSnap(app, wire, anchorId, anchorPos) {
     const neighbors = wire.incidentEdges(anchorId);
 
     // For each incident edge, add an H/V snap edge (moving ↔ neighbor)
+    // plus walk collinear chains to find the farthest aligned node beyond
     for (const { otherNode } of neighbors) {
         const npos = wire.nodes.get(otherNode);
         if (!npos) continue;
         edges.push({ moving: anchorPos, fixed: npos });
 
-        // Extended collinear: check across the bend through the neighbor
-        const beyondEdges = wire.incidentEdges(otherNode);
-        for (const { otherNode: beyondNode } of beyondEdges) {
-            if (beyondNode === anchorId) continue;
-            const bpos = wire.nodes.get(beyondNode);
-            if (bpos) edges.push({ moving: anchorPos, fixed: npos, beyond: bpos });
+        // Walk collinear chain from neighbor outward to find the endpoint
+        let farthest = null;
+        const visited = new Set([anchorId, otherNode]);
+        const queue = [{ nodeId: otherNode, prevPos: anchorPos }];
+        while (queue.length > 0) {
+            const { nodeId: current, prevPos } = queue.shift();
+            const currentPos = wire.nodes.get(current);
+            if (!currentPos) continue;
+            for (const { otherNode: beyond } of wire.incidentEdges(current)) {
+                if (visited.has(beyond)) continue;
+                visited.add(beyond);
+                const bpos = wire.nodes.get(beyond);
+                if (!bpos) continue;
+                // Continue walking if this node continues the chain direction
+                if (pointsCollinear(prevPos, currentPos, bpos)) {
+                    farthest = bpos;
+                    queue.push({ nodeId: beyond, prevPos: currentPos });
+                } else {
+                    // Non-collinear branch: still a candidate for single-hop snap
+                    edges.push({ moving: anchorPos, fixed: npos, beyond: bpos });
+                }
+            }
+        }
+        if (farthest) {
+            edges.push({ moving: anchorPos, fixed: npos, beyond: farthest });
         }
     }
 
@@ -1308,21 +1328,37 @@ export function computeSegmentDragSnap(app, wire, dragEdgeId, origState, target,
     const segOffX = origB.x - origA.x;
     const segOffY = origB.y - origA.y;
 
-    // Off-grid neighbor snap lines (fixed neighbors of the dragged edge)
-    const neighbors = [];
-    for (const { otherNode } of wire.incidentEdges(origEdge.from)) {
-        if (otherNode !== origEdge.to) {
-            const p = wire.nodes.get(otherNode);
-            if (p) neighbors.push(p);
+    // Build the collinear chain: all nodes that move with the dragged segment
+    const movingNodes = new Set([origEdge.from, origEdge.to]);
+    let grew = true;
+    while (grew) {
+        grew = false;
+        for (const nodeId of [...movingNodes]) {
+            for (const inc of wire.incidentEdges(nodeId)) {
+                if (inc.edgeId === dragEdgeId || movingNodes.has(inc.otherNode)) continue;
+                const a = origState.nodes[inc.otherNode];
+                const b = origState.nodes[nodeId];
+                if (!a || !b || !origA || !origB) continue;
+                if (pointsCollinear(a, b, origA) && pointsCollinear(a, b, origB)) {
+                    movingNodes.add(inc.otherNode);
+                    grew = true;
+                }
+            }
         }
     }
-    for (const { otherNode } of wire.incidentEdges(origEdge.to)) {
-        if (otherNode !== origEdge.from) {
+
+    // Collect fixed neighbors at the chain boundary (for off-grid snap + guides)
+    const fixedNeighbors = [];
+    for (const nodeId of movingNodes) {
+        for (const { otherNode } of wire.incidentEdges(nodeId)) {
+            if (movingNodes.has(otherNode)) continue;
             const p = wire.nodes.get(otherNode);
-            if (p) neighbors.push(p);
+            if (p) fixedNeighbors.push(p);
         }
     }
-    applyOffGridNeighborSnap(target, snappedTarget, neighbors, gridSize);
+
+    // Off-grid neighbor snap (use fixed chain-boundary neighbors)
+    applyOffGridNeighborSnap(target, snappedTarget, fixedNeighbors, gridSize);
 
     // Pin snap — check both endpoints, pick closest
     const rawA = target;
@@ -1375,17 +1411,9 @@ export function computeSegmentDragSnap(app, wire, dragEdgeId, origState, target,
     const futureA = { x: snappedTarget.x, y: snappedTarget.y };
     const futureB = { x: snappedTarget.x + segOffX, y: snappedTarget.y + segOffY };
     const snapEdges = [];
-    // Neighbors of the from-node (excluding the dragged edge's to-node)
-    for (const { otherNode } of wire.incidentEdges(origEdge.from)) {
-        if (otherNode === origEdge.to) continue;
-        const p = wire.nodes.get(otherNode);
-        if (p) snapEdges.push({ moving: futureA, fixed: p, beyond: futureB });
-    }
-    // Neighbors of the to-node (excluding the dragged edge's from-node)
-    for (const { otherNode } of wire.incidentEdges(origEdge.to)) {
-        if (otherNode === origEdge.from) continue;
-        const p = wire.nodes.get(otherNode);
-        if (p) snapEdges.push({ moving: futureB, fixed: p, beyond: futureA });
+    // Use fixed chain-boundary neighbors as snap/guide targets
+    for (const p of fixedNeighbors) {
+        snapEdges.push({ moving: futureA, fixed: p, beyond: futureB });
     }
     const threshold = SNAP_SCREEN_PX / app.viewport.scale;
     const snapResult = computeMovingSegmentSnaps(threshold, snapEdges, dragSegAxis);
