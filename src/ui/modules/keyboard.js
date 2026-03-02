@@ -15,6 +15,17 @@ export function handleEscape(app) {
         app._endTextEdit(false);
         return;
     }
+    // Cancel active segment drag — revert bridge insertions
+    if (app.isDragging && app.dragMode === 'wire-segment' && app.dragWireStates) {
+        for (const [wire, beforeState] of app.dragWireStates) {
+            app._applyShapeState(wire, beforeState);
+        }
+        const shape = app.dragShape;
+        clearDragState(app, { clearDidDrag: true, resetCursor: true });
+        if (shape) shape.selected = true;
+        app.renderShapes(true);
+        return;
+    }
     // Cancel active anchor drag — revert shape to pre-drag state
     if (app.isDragging && app.dragMode === 'anchor' && app.dragShape) {
         if (app.dragShapesBefore) {

@@ -31,6 +31,7 @@ export function clearDragState(app, { clearDidDrag = false, resetCursor = false 
     app.dragWireWorkingState = null;
     app.dragAnchorTJLinks = null;
     app.dragAnchorWireStates = null;
+    app.dragAnchorExcludePin = null;
     app.pendingAnchorDrag = null;
     app.dragTotalDx = 0;
     app.dragTotalDy = 0;

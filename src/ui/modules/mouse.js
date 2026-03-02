@@ -594,6 +594,17 @@ export function bindMouseEvents(app) {
                             }
                         }
                     }
+                    // If the dragged node is connected to a pin, record it so
+                    // resolveWireSnapPosition can exclude that pin during drag
+                    // (prevents the node from snapping back to the same pin).
+                    app.dragAnchorExcludePin = null;
+                    if (shape.type === 'wire' && shape.pinConnections.has(anchorId)) {
+                        const conn = shape.pinConnections.get(anchorId);
+                        app.dragAnchorExcludePin = {
+                            component: { id: conn.componentId },
+                            pin: { number: conn.pinNumber }
+                        };
+                    }
                     // Show crosshairs during anchor drag to help with alignment
                     app._showCrosshair();
                     app._updateCrosshair(startSnapped);
@@ -711,6 +722,7 @@ export function bindMouseEvents(app) {
                 if (isLeaf) {
                     const snap = resolveWireSnapPosition(app, worldPos, {
                         excludeNode: { wire: app.dragShape, nodeId: app.dragAnchorId },
+                        excludePin: app.dragAnchorExcludePin || null,
                         pinTolerance: PIN_SNAP_TOL
                     });
                     anchorPos = { x: snap.x, y: snap.y };
@@ -960,8 +972,15 @@ export function bindMouseEvents(app) {
                         }
                     }
                 }
-            } else if (app.didDrag && app.dragMode === 'wire-segment' && app.dragWireStates) {
-                commitSegmentDrag(app);
+            } else if (app.dragMode === 'wire-segment' && app.dragWireStates) {
+                if (app.didDrag) {
+                    commitSegmentDrag(app);
+                } else {
+                    // No movement — undo bridge insertions from mousedown
+                    for (const [wire, state] of app.dragWireStates) {
+                        app._applyShapeState(wire, state);
+                    }
+                }
             } else if (app.dragShape) {
                 if (app.dragMode === 'anchor' && app.dragShapesBefore) {
                     if (app.didDrag || (app.dragAnchorWireStates && app.dragAnchorWireStates.size > 0)) {
