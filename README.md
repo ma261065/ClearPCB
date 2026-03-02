@@ -1,250 +1,167 @@
-# ClearPCB - Project Structure
+# ClearPCB
+
+A browser-based schematic editor built with vanilla JavaScript and SVG.  No build step, no framework — open `index.html` and start drawing.
+
+## Features
+
+- **Drawing tools** — Line, Rectangle, Circle, Arc, Polygon, Text
+- **Wire tool** — Graph-based wiring with automatic junctions, T-junction splitting, sticky wires that follow moved components, pin-snap lines, and orthogonal alignment
+- **Components** — Built-in library of common symbols (resistors, capacitors, ICs, connectors, etc.) plus live fetching from the KiCad symbol library via GitLab
+- **Selection** — Click, Shift+click cycle, Ctrl+click toggle, box select, selection lock
+- **Undo / redo** — Full command history for all operations
+- **File I/O** — Save/open JSON documents, auto-save to localStorage, PDF and print export
+- **Theming** — Light and dark modes
+- **PWA** — Installable as a standalone app via `manifest.json`
+
+## Getting started
+
+Serve the project root with any static HTTP server:
+
+```bash
+# Python
+python -m http.server 8000
+
+# Node
+npx serve .
+```
+
+Then open `http://localhost:8000` in a browser.
+
+## Project structure
 
 ```
 clearpcb/
-│
-├── index.html                  # Main entry point
-├── package.json                # Project config (for future bundling)
+├── index.html                  # Entry point — all HTML lives here
+├── manifest.json               # PWA manifest
 │
 ├── src/
-│   ├── core/                   # Shared core functionality
-│   │   ├── Viewport.js         # Canvas viewport, pan/zoom/grid
-│   │   ├── EventBus.js         # Pub/sub for decoupled communication
-│   │   ├── CommandHistory.js   # Undo/redo system
-│   │   ├── SelectionManager.js # Multi-select, box select
-│   │   ├── SpatialIndex.js     # R-tree for hit testing
-│   │   ├── Geometry.js         # Math utilities (intersection, distance, etc.)
-│   │   ├── Units.js            # Unit conversion (mm, mil, inch)
-│   │   └── Colors.js           # Color palette and layer colors
+│   ├── core/                   # Framework-agnostic infrastructure
+│   │   ├── Viewport.js         # SVG canvas, pan/zoom, grid rendering
+│   │   ├── CommandHistory.js   # Undo/redo command stack
+│   │   ├── SelectionManager.js # Hit-testing, multi-select, box-select
+│   │   ├── EventBus.js         # Global pub/sub
+│   │   ├── FileManager.js      # Dirty tracking, auto-save, file naming
+│   │   ├── StorageManager.js   # localStorage / IndexedDB abstraction
+│   │   ├── geometry.js         # Point/segment math helpers
+│   │   ├── ShapeValidator.js   # Validates shape data on load
+│   │   ├── ModalManager.js     # Reusable modal dialog helper
+│   │   ├── SearchManager.js    # Fuzzy text search for component picker
+│   │   ├── LazyLoader.js       # Deferred script/resource loading
+│   │   └── ui-helpers.js       # Small shared DOM utilities
 │   │
-│   ├── schematic/              # Schematic capture module
-│   │   ├── SchematicEditor.js  # Main schematic editor class
-│   │   ├── SchematicSheet.js   # Single schematic sheet data model
-│   │   ├── Wire.js             # Wire/net wire primitive
-│   │   ├── Junction.js         # Wire junction point
-│   │   ├── NetLabel.js         # Net name labels
-│   │   ├── PowerSymbol.js      # VCC, GND, etc.
-│   │   ├── Bus.js              # Bus lines
-│   │   ├── NetlistExtractor.js # Generate netlist from schematic
-│   │   │
-│   │   ├── tools/              # Schematic editing tools
-│   │   │   ├── SelectTool.js   # Selection and move
-│   │   │   ├── WireTool.js     # Draw wires
-│   │   │   ├── PlaceTool.js    # Place symbols
-│   │   │   ├── LabelTool.js    # Add net labels
-│   │   │   └── MeasureTool.js  # Measure distances
-│   │   │
-│   │   └── symbols/            # Symbol handling
-│   │       ├── Symbol.js       # Symbol data model
-│   │       ├── SymbolInstance.js # Placed symbol instance
-│   │       ├── Pin.js          # Symbol pin definition
-│   │       ├── SymbolRenderer.js # Draw symbols
-│   │       └── SymbolEditor.js # Create/edit symbols
+│   ├── shapes/                 # Shape primitives (each extends Shape)
+│   │   ├── index.js            # Registry + createShape() factory
+│   │   ├── shape.js            # Abstract base: render, hit-test, anchors
+│   │   ├── line.js             # Polyline
+│   │   ├── wire.js             # Graph-based wire (nodes + edges)
+│   │   ├── rect.js             # Rectangle
+│   │   ├── circle.js           # Circle
+│   │   ├── arc.js              # Three-point arc
+│   │   ├── polygon.js          # Closed polygon
+│   │   └── text.js             # Text label
 │   │
-│   ├── pcb/                    # PCB layout module
-│   │   ├── PCBEditor.js        # Main PCB editor class
-│   │   ├── Board.js            # Board outline and stackup
-│   │   ├── Track.js            # Copper traces
-│   │   ├── Via.js              # Vias (through, blind, buried)
-│   │   ├── Zone.js             # Copper pours/fills
-│   │   ├── Layer.js            # Layer definitions
-│   │   ├── LayerStack.js       # PCB layer stackup
-│   │   ├── DRC.js              # Design rule checker
-│   │   ├── Ratsnest.js         # Unrouted connections display
-│   │   │
-│   │   ├── tools/              # PCB editing tools
-│   │   │   ├── SelectTool.js   # Selection and move
-│   │   │   ├── RouteTool.js    # Interactive routing
-│   │   │   ├── DrawTool.js     # Draw board outline, zones
-│   │   │   ├── PlaceTool.js    # Place footprints
-│   │   │   ├── ViaTool.js      # Place vias manually
-│   │   │   └── MeasureTool.js  # Measure distances
-│   │   │
-│   │   └── footprints/         # Footprint handling
-│   │       ├── Footprint.js    # Footprint data model
-│   │       ├── FootprintInstance.js # Placed footprint
-│   │       ├── Pad.js          # SMD and through-hole pads
-│   │       ├── FootprintRenderer.js # Draw footprints
-│   │       └── FootprintEditor.js # Create/edit footprints
+│   ├── components/             # Electronic component system
+│   │   ├── index.js            # getComponentLibrary() entry point
+│   │   ├── Component.js        # Placed component instance
+│   │   ├── ComponentLibrary.js # Manages built-in + KiCad libraries
+│   │   ├── ComponentPicker.js  # Search/browse UI panel
+│   │   ├── BuiltInComponents.js# Hand-drawn symbol definitions
+│   │   ├── KiCadFetcher.js     # Fetches KiCad symbols from GitLab
+│   │   ├── LCSCFetcher.js      # LCSC/JLCPCB part lookup
+│   │   ├── STEPPreview.js      # 3D model preview (lazy-loaded)
+│   │   └── VRMLPreview.js      # VRML model preview (lazy-loaded)
 │   │
-│   ├── ui/                     # User interface components
-│   │   ├── App.js              # Main application shell
-│   │   ├── Toolbar.js          # Tool selection bar
-│   │   ├── MenuBar.js          # File/Edit/View menus
-│   │   ├── StatusBar.js        # Bottom status display
-│   │   │
-│   │   ├── components/         # Reusable UI components
-│   │   │   ├── Button.js
-│   │   │   ├── Dropdown.js
-│   │   │   ├── ColorPicker.js
-│   │   │   ├── NumberInput.js
-│   │   │   └── TreeView.js     # For library browser
-│   │   │
-│   │   ├── panels/             # Side panels
-│   │   │   ├── LayerPanel.js   # Layer visibility/selection
-│   │   │   ├── PropertyPanel.js # Selected item properties
-│   │   │   ├── LibraryPanel.js # Symbol/footprint browser
-│   │   │   ├── DesignRulesPanel.js # DRC settings
-│   │   │   └── NetlistPanel.js # Net browser
-│   │   │
-│   │   └── dialogs/            # Modal dialogs
-│   │       ├── NewProjectDialog.js
-│   │       ├── BoardSetupDialog.js
-│   │       ├── ExportDialog.js
-│   │       ├── DRCResultsDialog.js
-│   │       └── AboutDialog.js
-│   │
-│   ├── lib/                    # Library management
-│   │   ├── LibraryManager.js   # Load/save libraries
-│   │   ├── SymbolLibrary.js    # Symbol library format
-│   │   ├── FootprintLibrary.js # Footprint library format
-│   │   └── ComponentMapper.js  # Symbol ↔ Footprint mapping
-│   │
-│   └── io/                     # File import/export
-│       ├── ProjectFile.js      # Native project format (.cpcb)
-│       ├── KiCadImporter.js    # Import KiCad files
-│       ├── KiCadExporter.js    # Export to KiCad
-│       ├── GerberExporter.js   # Export Gerber/drill files
-│       ├── PDFExporter.js      # Export to PDF
-│       ├── SVGExporter.js      # Export to SVG
-│       ├── BOMExporter.js      # Bill of materials
-│       └── NetlistExporter.js  # Various netlist formats
+│   └── ui/                     # Application layer
+│       ├── SchematicApp.js     # Central facade — delegates to modules
+│       ├── schematic.css       # All styles
+│       └── modules/            # Feature modules (functional, not classes)
+│           ├── mouse.js        # Mouse event binding (click, drag, box-select)
+│           ├── drag.js         # Drag commit + cleanup helpers
+│           ├── context-menu.js # Right-click menus, junction/segment deletion
+│           ├── keyboard.js     # Keyboard shortcuts and hotkeys
+│           ├── wire.js         # Wire drawing, snapping, reconciliation
+│           ├── drawing.js      # Shape drawing (line, rect, circle, arc, polygon)
+│           ├── components.js   # Component placement, rotation, mirroring
+│           ├── clipboard.js    # Copy, cut, paste with preview
+│           ├── selection.js    # Selection helpers, lock toggle
+│           ├── box-selection.js# Box-select rectangle management
+│           ├── text-edit.js    # Inline text editing overlay
+│           ├── value-dialog.js # Component value edit dialog
+│           ├── properties.js   # Properties panel binding
+│           ├── ribbon.js       # Ribbon toolbar binding
+│           ├── cursor.js       # Crosshair and tool cursors
+│           ├── theme.js        # Light/dark theme toggle
+│           ├── viewport.js     # Viewport UI controls (grid, zoom)
+│           ├── shape-management.js # Add/remove/render shapes
+│           ├── files.js        # Open, save, serialise documents
+│           ├── export.js       # PDF, print, SVG export
+│           ├── paper.js        # Paper/title-block events
+│           ├── tool.js         # Tool selection, option persistence
+│           ├── callbacks.js    # Event-bus wiring
+│           └── ui-utils.js     # Small UI helpers (undo buttons, etc.)
 │
 ├── assets/
-│   ├── icons/                  # Tool and UI icons (SVG)
-│   │   ├── tools/
-│   │   ├── actions/
-│   │   └── layers/
-│   │
-│   └── styles/
-│       ├── main.css            # Global styles
-│       ├── toolbar.css
-│       ├── panels.css
-│       └── dialogs.css
-│
-├── libraries/                  # Built-in component libraries
-│   ├── symbols/
-│   │   ├── basic.json          # R, C, L, diode, etc.
-│   │   ├── discrete.json       # Transistors, etc.
-│   │   ├── logic.json          # Gates, flip-flops
-│   │   ├── microcontrollers.json
-│   │   └── connectors.json
-│   │
-│   └── footprints/
-│       ├── resistors.json      # 0402, 0603, 0805, etc.
-│       ├── capacitors.json
-│       ├── sot.json            # SOT-23, SOT-223, etc.
-│       ├── soic.json           # SOIC-8, SOIC-16, etc.
-│       ├── qfp.json            # TQFP, LQFP, etc.
-│       └── connectors.json
+│   ├── icons/                  # Favicon and PWA icons
+│   ├── vendor/                 # Third-party libs (jsPDF, svg2pdf)
+│   └── version.json            # App version number
 │
 └── docs/
-    ├── PROJECT_STRUCTURE.md    # This file
-    ├── DATA_MODEL.md           # Data structure documentation
-    ├── ARCHITECTURE.md         # System architecture
-    └── API.md                  # Public API documentation
+    └── project_structure.md    # (legacy — see this README)
 ```
 
-## Module Dependencies
+## Architecture
 
 ```
-                    ┌─────────────┐
-                    │    App.js   │
-                    └──────┬──────┘
+                  ┌──────────────────┐
+                  │  SchematicApp.js │   thin facade
+                  │  (constructor +  │   passes `this` as
+                  │   delegations)   │   shared app context
+                  └────────┬─────────┘
                            │
-          ┌────────────────┼────────────────┐
-          │                │                │
-          ▼                ▼                ▼
-   ┌──────────────┐ ┌──────────────┐ ┌──────────────┐
-   │  Schematic   │ │     PCB      │ │     UI       │
-   │    Editor    │ │    Editor    │ │   Panels     │
-   └──────┬───────┘ └──────┬───────┘ └──────┬───────┘
-          │                │                │
-          └────────────────┼────────────────┘
-                           │
-                           ▼
-                    ┌─────────────┐
-                    │    Core     │
-                    │  (Viewport, │
-                    │  Commands,  │
-                    │  Selection) │
-                    └─────────────┘
+        ┌──────────────────┼──────────────────┐
+        │                  │                  │
+        ▼                  ▼                  ▼
+  ┌───────────┐    ┌─────────────┐    ┌────────────┐
+  │ ui/modules│    │   shapes/   │    │ components/│
+  │ (features)│    │ (primitives)│    │ (symbols)  │
+  └─────┬─────┘    └──────┬──────┘    └─────┬──────┘
+        │                 │                 │
+        └─────────────────┼─────────────────┘
+                          │
+                          ▼
+                   ┌─────────────┐
+                   │    core/    │
+                   │  Viewport   │
+                   │  Commands   │
+                   │  Selection  │
+                   │  EventBus   │
+                   └─────────────┘
 ```
 
-## Data Flow
+**Key patterns:**
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                         Project File                             │
-│  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐         │
-│  │  Schematic  │───▶│   Netlist   │◀───│     PCB     │         │
-│  │   Sheets    │    │             │    │   Layout    │         │
-│  └─────────────┘    └─────────────┘    └─────────────┘         │
-│         │                 ▲                   │                  │
-│         │                 │                   │                  │
-│         ▼                 │                   ▼                  │
-│  ┌─────────────┐          │           ┌─────────────┐           │
-│  │   Symbol    │          │           │  Footprint  │           │
-│  │  Instances  │          │           │  Instances  │           │
-│  └──────┬──────┘          │           └──────┬──────┘           │
-│         │                 │                  │                   │
-│         ▼                 │                  ▼                   │
-│  ┌─────────────┐          │           ┌─────────────┐           │
-│  │   Symbol    │    Component        │  Footprint  │           │
-│  │   Library   │◀───Mapping────────▶│   Library   │           │
-│  └─────────────┘                      └─────────────┘           │
-└─────────────────────────────────────────────────────────────────┘
-```
+- **Facade** — `SchematicApp` owns all state in its constructor and exposes ~110 methods, but ~103 are one-line delegations to module functions.  The real logic lives in `ui/modules/`.
+- **Command** — Every edit (move, add, delete, modify) creates a command object pushed onto `CommandHistory`, giving full undo/redo.
+- **Graph-based wires** — Wires use a node+edge graph model (`shapes/wire.js`) rather than simple point arrays, enabling T-junctions, segment dragging, and merge/split operations.
+- **Functional modules** — `ui/modules/` files export plain functions that receive the app object as their first argument.  No classes, no singletons.
 
-## Key Design Decisions
+## Keyboard shortcuts
 
-### 1. Separation of Concerns
-- **Core**: No knowledge of schematic or PCB specifics
-- **Schematic/PCB**: Independent modules, communicate via netlist
-- **UI**: Thin layer, delegates to editors
+| Key | Action |
+|-----|--------|
+| `Ctrl+Z` / `Ctrl+Y` | Undo / Redo |
+| `Ctrl+C` / `Ctrl+X` / `Ctrl+V` | Copy / Cut / Paste |
+| `Ctrl+S` / `Ctrl+Shift+S` | Save / Save As |
+| `Ctrl+N` / `Ctrl+O` | New / Open |
+| `Ctrl+A` | Select all |
+| `Delete` | Delete selected |
+| `Escape` | Cancel current operation |
+| `L` | Lock/unlock selection |
+| `R` | Rotate component (while placing) |
+| `M` | Mirror component (while placing) |
+| `Ctrl+P` | Print |
+| `F` | Fit to content |
 
-### 2. Tool Pattern
-Each tool handles its own mouse/keyboard input:
-```javascript
-class Tool {
-    onMouseDown(event, worldPos) {}
-    onMouseMove(event, worldPos) {}
-    onMouseUp(event, worldPos) {}
-    onKeyDown(event) {}
-    render(ctx, viewport) {}  // Tool-specific overlay
-}
-```
+## License
 
-### 3. Command Pattern for Undo
-All edits go through commands:
-```javascript
-class PlaceComponentCommand {
-    constructor(component, position) { ... }
-    execute() { /* add to document */ }
-    undo() { /* remove from document */ }
-}
-```
-
-### 4. Event-Driven Updates
-Components don't directly modify each other:
-```javascript
-eventBus.emit('component:added', component);
-eventBus.emit('selection:changed', selectedItems);
-eventBus.emit('net:highlighted', netName);
-```
-
-### 5. Library Format
-JSON-based for easy editing and version control:
-```json
-{
-    "name": "Basic Passives",
-    "symbols": [
-        {
-            "id": "resistor",
-            "name": "Resistor",
-            "pins": [...],
-            "graphics": [...]
-        }
-    ]
-}
-```
+MIT
