@@ -1,4 +1,5 @@
 import { AddShapeCommand } from '../../core/CommandHistory.js';
+import { freeWireLabel, bumpWireLabelCounter } from '../../shapes/wire.js';
 
 /**
  * Adds a shape to the canvas via an undoable `AddShapeCommand`.
@@ -23,6 +24,7 @@ export function addShapeInternal(app, shape) {
     app.shapes.push(shape);
     shape.render(app.viewport.scale);
     app.viewport.addContent(shape.element);
+    if (shape.type === 'wire' && shape.wireLabel) bumpWireLabelCounter(shape.wireLabel);
     app._updateSelectableItems();
     app.selection._invalidateHitTestCache();
     app.fileManager.setDirty(true);
@@ -46,6 +48,7 @@ export function addShapeInternalAt(app, shape, index) {
         app.shapes.push(shape);
     }
     app.viewport.addContent(shape.element);
+    if (shape.type === 'wire' && shape.wireLabel) bumpWireLabelCounter(shape.wireLabel);
     app._updateSelectableItems();
     app.fileManager.setDirty(true);
     return shape;
@@ -61,6 +64,7 @@ export function removeShapeInternal(app, shape) {
     const idx = app.shapes.indexOf(shape);
     if (idx !== -1) {
         app.shapes.splice(idx, 1);
+        if (shape.type === 'wire' && shape.wireLabel) freeWireLabel(shape.wireLabel);
         if (shape.element && shape.element.parentNode) {
             shape.element.parentNode.removeChild(shape.element);
         }

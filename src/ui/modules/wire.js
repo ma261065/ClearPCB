@@ -1279,9 +1279,6 @@ export function computeAnchorCollinearSnap(app, wire, anchorId, anchorPos) {
                 if (pointsCollinear(prevPos, currentPos, bpos)) {
                     farthest = bpos;
                     queue.push({ nodeId: beyond, prevPos: currentPos });
-                } else {
-                    // Non-collinear branch: still a candidate for single-hop snap
-                    edges.push({ moving: anchorPos, fixed: npos, beyond: bpos });
                 }
             }
         }

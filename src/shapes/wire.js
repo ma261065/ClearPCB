@@ -40,26 +40,31 @@ const JUNCTION_SCREEN_PX = 2.5;
 /** Maximum iterations for cleanGraph convergence loop. */
 const MAX_CLEAN_ITERATIONS = 100;
 
-// ── Wire label counter (Wnnnn) ────────────────────────────────────
-let _wireLabelCounter = 0;
+// ── Wire label tracking (Wnnnn) ───────────────────────────────────
+const _usedWireLabels = new Set();
 
-/** Allocate the next wire label (W0001, W0002, …). */
+/** Allocate the lowest unused wire label (W0001, W0002, …). */
 export function nextWireLabel() {
-    return `W${String(++_wireLabelCounter).padStart(4, '0')}`;
+    let i = 1;
+    while (_usedWireLabels.has(`W${String(i).padStart(4, '0')}`)) i++;
+    const label = `W${String(i).padStart(4, '0')}`;
+    _usedWireLabels.add(label);
+    return label;
 }
 
-/** Ensure counter stays ahead of any loaded label. */
+/** Register a loaded label so it won't be reused. */
 export function bumpWireLabelCounter(label) {
-    const m = label && label.match(/^W(\d+)$/);
-    if (m) {
-        const n = parseInt(m[1], 10);
-        if (n >= _wireLabelCounter) _wireLabelCounter = n;
-    }
+    if (label) _usedWireLabels.add(label);
 }
 
-/** Reset the wire label counter (for testing / new-document). */
+/** Free a label so it can be reused (call when a wire is deleted). */
+export function freeWireLabel(label) {
+    if (label) _usedWireLabels.delete(label);
+}
+
+/** Reset the wire label pool (for testing / new-document). */
 export function resetWireLabelCounter() {
-    _wireLabelCounter = 0;
+    _usedWireLabels.clear();
 }
 
 export class Wire extends Shape {
@@ -77,9 +82,6 @@ export class Wire extends Shape {
     constructor(options = {}) {
         super(options);
         this.type = 'wire';
-
-        this._nodeCounter = 0;
-        this._edgeCounter = 0;
 
         // Core graph data
         this.nodes = new Map();           // nodeId → {x, y}
@@ -115,29 +117,14 @@ export class Wire extends Shape {
         for (const [id, pos] of Object.entries(graphNodes)) {
             const c = Array.isArray(pos) ? { x: pos[0], y: pos[1] } : pos;
             this.nodes.set(id, { x: c.x, y: c.y });
-            this._bumpCounter('_nodeCounter', id);
         }
         for (const [id, ep] of Object.entries(graphEdges)) {
             const e = Array.isArray(ep) ? { from: ep[0], to: ep[1] } : ep;
             this.edges.set(id, { from: e.from, to: e.to });
-            this._bumpCounter('_edgeCounter', id);
         }
         if (pinConnections) {
             for (const [nid, conn] of Object.entries(pinConnections))
                 this.pinConnections.set(nid, { ...conn });
-        }
-    }
-
-    /**
-     * Advance an internal counter past a loaded ID so new IDs don't collide.
-     * @param {string} prop - Counter property name ('_nodeCounter' | '_edgeCounter')
-     * @param {string} id - An existing ID like 'n5' or 'e12'
-     */
-    _bumpCounter(prop, id) {
-        const m = id.match(/\d+$/);
-        if (m) {
-            const n = parseInt(m[0], 10) + 1;
-            if (n > this[prop]) this[prop] = n;
         }
     }
 
@@ -150,7 +137,10 @@ export class Wire extends Shape {
      * @returns {string} The new node ID (e.g. 'n3')
      */
     addNode(x, y) {
-        const id = `n${this._nodeCounter++}`;
+        let id;
+        let i = 0;
+        while (this.nodes.has(`n${i}`)) i++;
+        id = `n${i}`;
         this.nodes.set(id, { x, y });
         this.invalidate();
         return id;
@@ -164,7 +154,9 @@ export class Wire extends Shape {
      */
     addEdge(fromId, toId) {
         if (fromId === toId) return null;           // no self-loops
-        const id = `e${this._edgeCounter++}`;
+        let i = 0;
+        while (this.edges.has(`e${i}`)) i++;
+        const id = `e${i}`;
         this.edges.set(id, { from: fromId, to: toId });
         this.invalidate();
         return id;
@@ -406,12 +398,11 @@ export class Wire extends Shape {
 
         for (const nid of ns) {
             const p = this.nodes.get(nid);
-            if (p) { sub.nodes.set(nid, { x: p.x, y: p.y }); sub._bumpCounter('_nodeCounter', nid); }
+            if (p) sub.nodes.set(nid, { x: p.x, y: p.y });
         }
         for (const [eid, e] of this.edges) {
             if (ns.has(e.from) && ns.has(e.to)) {
                 sub.edges.set(eid, { from: e.from, to: e.to });
-                sub._bumpCounter('_edgeCounter', eid);
             }
         }
         for (const nid of ns) {
@@ -681,8 +672,8 @@ export class Wire extends Shape {
             visible: this.visible, locked: this.locked,
             // Clone gets a fresh wireLabel (it's a new wire)
         });
-        for (const [id, p] of this.nodes) { c.nodes.set(id, { x: p.x, y: p.y }); c._bumpCounter('_nodeCounter', id); }
-        for (const [id, e] of this.edges) { c.edges.set(id, { from: e.from, to: e.to }); c._bumpCounter('_edgeCounter', id); }
+        for (const [id, p] of this.nodes) { c.nodes.set(id, { x: p.x, y: p.y }); }
+        for (const [id, e] of this.edges) { c.edges.set(id, { from: e.from, to: e.to }); }
         for (const [id, cn] of this.pinConnections) c.pinConnections.set(id, { ...cn });
         return c;
     }
@@ -692,7 +683,7 @@ export class Wire extends Shape {
      * @returns {object} Plain-object snapshot (nodes, edges, pinConnections, counters)
      */
     captureState() {
-        const s = { nodes: {}, edges: {}, pinConnections: {}, net: this.net, wireLabel: this.wireLabel, _nc: this._nodeCounter, _ec: this._edgeCounter };
+        const s = { nodes: {}, edges: {}, pinConnections: {}, net: this.net, wireLabel: this.wireLabel };
         for (const [id, p] of this.nodes) s.nodes[id] = { x: p.x, y: p.y };
         for (const [id, e] of this.edges) s.edges[id] = { from: e.from, to: e.to };
         for (const [id, c] of this.pinConnections) s.pinConnections[id] = { ...c };
@@ -713,8 +704,6 @@ export class Wire extends Shape {
             for (const [id, c] of Object.entries(state.pinConnections)) this.pinConnections.set(id, { ...c });
         this.net = state.net || '';
         if (state.wireLabel) this.wireLabel = state.wireLabel;
-        this._nodeCounter = state._nc ?? 0;
-        this._edgeCounter = state._ec ?? 0;
         this.invalidate();
     }
 

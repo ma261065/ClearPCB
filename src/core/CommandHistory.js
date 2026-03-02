@@ -4,6 +4,8 @@
  * Uses the Command pattern to track reversible operations.
  */
 
+import { freeWireLabel, bumpWireLabelCounter } from '../shapes/wire.js';
+
 export class CommandHistory {
     /**
      * Create a new CommandHistory.
@@ -202,6 +204,11 @@ export class DeleteShapesCommand extends Command {
         }
         app.shapes.length = writeIdx;
 
+        for (const data of this.shapesData) {
+            const shape = data.shape;
+            if (shape.type === 'wire' && shape.wireLabel) freeWireLabel(shape.wireLabel);
+        }
+
         const layer = app.viewport.contentLayer;
         const parent = layer.parentNode;
         const nextSib = layer.nextSibling;
@@ -248,6 +255,7 @@ export class DeleteShapesCommand extends Command {
         for (const data of sorted) {
             const idx = Math.min(data.index, app.shapes.length);
             app.shapes.splice(idx, 0, data.shape);
+            if (data.shape.type === 'wire' && data.shape.wireLabel) bumpWireLabelCounter(data.shape.wireLabel);
         }
         app._updateSelectableItems();
         app.selection._invalidateHitTestCache();
