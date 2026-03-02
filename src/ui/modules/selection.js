@@ -50,17 +50,9 @@ export function deleteSelected(app) {
         }
     }
 
-    // Clean up orphaned T-junction vertices on surviving wires.
-    // When a wire is deleted, collinear midpoints that were inserted via
-    // splitAt() on other wires become redundant and should be removed.
-    const deletedWires = shapesToDelete.filter(s => s.type === 'wire');
+    // T-junction cleanup is no longer needed in the graph model —
+    // junctions are derived from node degree and don't leave orphaned vertices.
     const tjCleanupCmds = [];
-    if (deletedWires.length > 0) {
-        const allPts = deletedWires.flatMap(w => w.points);
-        for (const { wire: w, beforeState, afterState } of cleanupOrphanedTJunctions(app, allPts, shapesToDelete)) {
-            tjCleanupCmds.push(new ModifyShapeCommand(app, w, beforeState, afterState));
-        }
-    }
 
     const cmdCount = (shapesToDelete.length > 0 ? 1 : 0) + (componentsToDelete.length > 0 ? 1 : 0)
         + showFlagCommands.length + tjCleanupCmds.length;

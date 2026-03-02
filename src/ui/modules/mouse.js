@@ -36,7 +36,7 @@ export function clearDragState(app, { clearDidDrag = false, resetCursor = false 
     app.dragShape = null;
     app.dragShapesBefore = null;
     app.dragWireAnchorOriginal = null;
-    app.dragWireSegIndex = -1;
+    app.dragEdgeId = null;
     app.dragSegAxis = null;
     app.dragWireStates = null;
     app.dragWireWorkingState = null;
@@ -134,9 +134,7 @@ function commitAnchorDrag(app) {
 
         // Select surviving dragged wire if not degenerate
         if (app.shapes.includes(app.dragShape)) {
-            const pts = app.dragShape.points;
-            const degenerate = !pts || pts.length < 2 ||
-                pts.every(p => Math.abs(p.x - pts[0].x) < 1e-6 && Math.abs(p.y - pts[0].y) < 1e-6);
+            const degenerate = app.dragShape.edges.size === 0;
             if (!degenerate) app.dragShape.selected = true;
         }
         return true;
@@ -226,159 +224,193 @@ function commitSegmentDrag(app) {
 }
 
 /**
- * Detect whether an anchor point on a wire is at a T-junction.
- * Returns junction info or null if not a T-junction.
+ * Detect whether an anchor point on a wire is at a T-junction (degree ≥ 3 node).
+ * In the graph model, a junction is simply a node with 3+ incident edges.
+ * We also check for cross-wire junctions (same position, different graph).
  *
  * Returned object:
- *   splitWire      – the wire with the collinear midpoint (to potentially unsplit)
- *   splitIdx       – index of that midpoint
- *   wireToDrag     – the wire whose endpoint should be attached to the cursor
- *                    (null when multiple connecting wires exist at a midpoint)
- *   dragAnchorId   – anchor id on wireToDrag (null when wireToDrag is null)
- *   shouldUnsplit  – true only if removing the connection leaves no other wires
- *                    still connected at the split point
- *   allConnecting  – array of { wire, end } for every wire with an endpoint here
+ *   junctionWire   – the wire containing the junction node
+ *   junctionNodeId – node ID of the junction
+ *   wireToDrag     – a wire whose leaf node can be detached and dragged
+ *                    (null when multiple connecting wires exist)
+ *   dragAnchorId   – anchor id on wireToDrag (the leaf node ID)
+ *   allConnecting  – array of { wire, nodeId } for every wire with a node here
  */
 function detectTJunction(app, shape, anchorId) {
     if (shape.type !== 'wire') return null;
-    const m = anchorId.match(/^p(\d+)$/);
-    if (!m) return null;
-    const anchorIdx = parseInt(m[1]);
-    const pt = shape.points[anchorIdx];
-    if (!pt) return null;
+    if (!shape.nodes.has(anchorId)) return null;
+    const pos = shape.nodes.get(anchorId);
 
-    const isEndpoint = anchorIdx === 0 || anchorIdx === shape.points.length - 1;
-
-    if (isEndpoint) {
-        // This wire's endpoint: look for another wire with a collinear midpoint here
-        let splitWire = null, splitIdx = -1;
+    // Case 1: intra-graph junction — degree ≥ 3 within a single graph
+    if (shape.degree(anchorId) >= 3) {
+        // Find leaf-node wires that connect here from OTHER graphs
+        const crossWires = [];
         for (const other of app.shapes) {
             if (other === shape || other.type !== 'wire') continue;
-            for (let i = 1; i < other.points.length - 1; i++) {
-                const op = other.points[i];
-                if (Math.abs(op.x - pt.x) >= VERTEX_EPSILON || Math.abs(op.y - pt.y) >= VERTEX_EPSILON) continue;
-                // Check collinearity (junction-inserted midpoint)
-                const a = other.points[i - 1], c = other.points[i + 1];
-                if (pointsCollinear(a, op, c)) {
-                    splitWire = other;
-                    splitIdx = i;
-                    break;
-                }
+            const nid = other.nodeAt(pos, VERTEX_EPSILON);
+            if (nid && other.degree(nid) === 1) {
+                crossWires.push({ wire: other, nodeId: nid });
             }
-            if (splitWire) break;
         }
-        if (!splitWire) return null;
-
-        // Count OTHER wires also connecting at this junction (excluding the
-        // wire being detached and the split wire itself)
-        const otherConnecting = [];
-        for (const other of app.shapes) {
-            if (other === shape || other === splitWire || other.type !== 'wire') continue;
-            const end = other.endpointAt(pt, VERTEX_EPSILON);
-            if (end) otherConnecting.push({ wire: other, end });
-        }
-
         return {
-            splitWire, splitIdx,
-            wireToDrag: shape, dragAnchorId: anchorId,
-            shouldUnsplit: otherConnecting.length === 0,
+            junctionWire: shape,
+            junctionNodeId: anchorId,
+            wireToDrag: null,   // degree ≥ 3 in same graph — no single wire to drag
+            dragAnchorId: null,
             allConnecting: [
-                { wire: shape, end: anchorIdx === 0 ? 'start' : 'end' },
-                ...otherConnecting
+                { wire: shape, nodeId: anchorId },
+                ...crossWires
             ]
         };
-    } else {
-        // Midpoint on the split wire: look for connecting wires' endpoints here
-        const a = shape.points[anchorIdx - 1], b = pt, c = shape.points[anchorIdx + 1];
-        if (!pointsCollinear(a, b, c)) return null;
-
-        // Find ALL wires with an endpoint at this junction
-        const connecting = [];
-        for (const other of app.shapes) {
-            if (other === shape || other.type !== 'wire') continue;
-            const end = other.endpointAt(pt, VERTEX_EPSILON);
-            if (end) connecting.push({ wire: other, end });
-        }
-        if (connecting.length === 0) return null;
-
-        // Single connecting wire: drag it. Multiple: no drag (commit immediately).
-        const single = connecting.length === 1;
-        return {
-            splitWire: shape, splitIdx: anchorIdx,
-            wireToDrag: single ? connecting[0].wire : null,
-            dragAnchorId: single
-                ? (connecting[0].end === 'start' ? 'p0' : `p${connecting[0].wire.points.length - 1}`)
-                : null,
-            shouldUnsplit: true,
-            allConnecting: connecting
-        };
     }
+
+    // Case 2: cross-graph junction — leaf nodes from multiple wires meet at same point
+    const connectingHere = [{ wire: shape, nodeId: anchorId }];
+    for (const other of app.shapes) {
+        if (other === shape || other.type !== 'wire') continue;
+        const nid = other.nodeAt(pos, VERTEX_EPSILON);
+        if (nid) connectingHere.push({ wire: other, nodeId: nid });
+    }
+    if (connectingHere.length < 2) return null;
+
+    // Find one wire with a leaf node here to drag
+    const leafEntry = connectingHere.find(c => c.wire.degree(c.nodeId) === 1);
+    return {
+        junctionWire: shape,
+        junctionNodeId: anchorId,
+        wireToDrag: leafEntry ? leafEntry.wire : null,
+        dragAnchorId: leafEntry ? leafEntry.nodeId : null,
+        allConnecting: connectingHere
+    };
 }
 
 /**
- * Delete a T-junction: remove the junction vertex from the split wire
- * (if no other wires remain connected), then attach the connecting wire's
- * endpoint to the mouse for dragging.  When multiple wires connect at
- * the junction, the unsplit is committed immediately with no drag.
+ * Delete a T-junction: split the degree-≥3 node so each branch becomes
+ * a separate wire.  Fully undoable.
  */
 function deleteJunction(app, junctionInfo) {
-    const { splitWire, splitIdx, wireToDrag, dragAnchorId, shouldUnsplit, allConnecting } = junctionInfo;
+    const { junctionWire, junctionNodeId } = junctionInfo;
+    if (!junctionWire || !junctionNodeId) return;
+    if (!app.shapes.includes(junctionWire)) return;
 
-    if (wireToDrag) {
-        // --- Single wire to detach (endpoint case, or midpoint with 1 connection) ---
-        const dm = dragAnchorId.match(/^p(\d+)$/);
-        const dragIdx = dm ? parseInt(dm[1]) : 0;
-        const anchorPt = { x: wireToDrag.points[dragIdx].x, y: wireToDrag.points[dragIdx].y };
+    const wire = junctionWire;
+    const deg = wire.degree(junctionNodeId);
+    if (deg < 3) return;
 
-        const dragBefore = app._captureShapeState(wireToDrag);
-        app.dragAnchorWireStates = new Map();
+    const pos = wire.nodes.get(junctionNodeId);
+    if (!pos) return;
 
-        if (shouldUnsplit) {
-            // Last connection — remove the junction vertex
-            const unsplitBefore = app._captureShapeState(splitWire);
-            spliceWirePoint(splitWire, splitIdx);
-            splitWire.invalidate();
-            app.dragAnchorWireStates.set(splitWire, unsplitBefore);
+    // Split the junction node: give each incident edge its own node copy.
+    // Pick the branch most perpendicular to the dominant direction to detach.
+    const incidents = [...wire.incidentEdges(junctionNodeId)];
+
+    // Compute unit direction vectors for each incident edge
+    const dirs = incidents.map(({ otherNode }) => {
+        const other = wire.nodes.get(otherNode);
+        const dx = other.x - pos.x, dy = other.y - pos.y;
+        const len = Math.hypot(dx, dy) || 1;
+        return { x: dx / len, y: dy / len };
+    });
+
+    // Find the dominant direction: the pair of edges most closely forming
+    // a straight line (dot product closest to -1 = 180°).
+    let bestDot = Infinity;
+    let dominantA = -1, dominantB = -1;
+    for (let i = 0; i < dirs.length; i++) {
+        for (let j = i + 1; j < dirs.length; j++) {
+            const dot = dirs[i].x * dirs[j].x + dirs[i].y * dirs[j].y;
+            if (dot < bestDot) { bestDot = dot; dominantA = i; dominantB = j; }
         }
-
-        // Select the wire to drag
-        app.selection.clearSelection();
-        app.selection.select(wireToDrag, false);
-        wireToDrag.selected = true;
-
-        // Set up anchor drag state (click-to-place mode)
-        app.isDragging = true;
-        app.dragMode = 'anchor';
-        app.dragAnchorId = dragAnchorId;
-        app.dragShape = wireToDrag;
-        app.dragShapesBefore = dragBefore;
-        app.dragWireAnchorOriginal = { ...anchorPt };
-        app.dragStart = { ...anchorPt };
-        app.dragTotalDx = 0;
-        app.dragTotalDy = 0;
-        app.didDrag = false;
-        app.dragAnchorTJLinks = [];
-
-        app.renderShapes(true);
-        app._showCrosshair();
-        app._updateCrosshair(anchorPt);
-        app.viewport.svg.style.cursor = 'move';
-    } else {
-        // --- Multiple connecting wires at a midpoint — commit immediately ---
-        const batch = new BatchCommand('Delete junction');
-
-        // Capture & unsplit
-        const unsplitBefore = app._captureShapeState(splitWire);
-        spliceWirePoint(splitWire, splitIdx);
-        splitWire.invalidate();
-
-        const unsplitAfter = app._captureShapeState(splitWire);
-        app._applyShapeState(splitWire, unsplitBefore);
-        batch.add(new ModifyShapeCommand(app, splitWire, unsplitBefore, unsplitAfter));
-
-        app.history.execute(batch);
-        app.renderShapes(true);
     }
+
+    // The drag target is the edge NOT part of the dominant pair
+    let dragEdgeIdx;
+    if (incidents.length === 3 && dominantA >= 0 && dominantB >= 0) {
+        dragEdgeIdx = incidents.findIndex((_, i) => i !== dominantA && i !== dominantB);
+    } else {
+        // Fallback for 4+ edges: pick the edge most perpendicular to the dominant direction
+        const domDir = dirs[dominantA];
+        let maxPerp = -Infinity;
+        dragEdgeIdx = 0;
+        for (let i = 0; i < dirs.length; i++) {
+            if (i === dominantA || i === dominantB) continue;
+            const perp = Math.abs(domDir.x * dirs[i].y - domDir.y * dirs[i].x); // |cross product|
+            if (perp > maxPerp) { maxPerp = perp; dragEdgeIdx = i; }
+        }
+    }
+
+    let dragNewNodeId = null;
+    for (let i = 0; i < incidents.length; i++) {
+        const { edgeId } = incidents[i];
+        const newNodeId = wire.addNode(pos.x, pos.y);
+        const edge = wire.edges.get(edgeId);
+        if (edge.from === junctionNodeId) edge.from = newNodeId;
+        if (edge.to === junctionNodeId) edge.to = newNodeId;
+        if (i === dragEdgeIdx) dragNewNodeId = newNodeId;
+    }
+    // Remove the original junction node (now degree 0)
+    wire.nodes.delete(junctionNodeId);
+    wire.pinConnections.delete(junctionNodeId);
+
+    // Split disconnected components into separate wire objects
+    const comps = wire.connectedComponents();
+    let dragWire = wire;
+    if (comps.length > 1) {
+        comps.sort((a, b) => b.size - a.size);
+        for (let i = 1; i < comps.length; i++) {
+            const sub = wire.extractSubgraph(comps[i]);
+            if (sub.edges.size > 0) {
+                app._addShapeInternal(sub);
+                // Track which wire owns the drag node
+                if (dragNewNodeId && comps[i].has(dragNewNodeId)) {
+                    // Node IDs are preserved by extractSubgraph
+                    dragWire = sub;
+                }
+            }
+        }
+        const keepSet = comps[0];
+        for (const nid of [...wire.nodes.keys()]) {
+            if (!keepSet.has(nid)) wire.removeNode(nid);
+        }
+    }
+    wire.invalidate();
+
+    // Capture before-states for the drag wire (and any TJ-linked wires)
+    // so commitAnchorDrag can build the undo batch.
+    const dragBefore = app._captureShapeState(dragWire);
+    const anchorWireStates = new Map();
+    // Include the original wire (and any other split-off wires) so
+    // commitAnchorDrag snapshots them correctly.
+    for (const s of app.shapes) {
+        if (s.type === 'wire' && s !== dragWire) {
+            anchorWireStates.set(s, s.captureState());
+        }
+    }
+
+    const pt = { x: pos.x, y: pos.y };
+
+    // Select the freed wire and enter anchor drag mode
+    app.selection.clearSelection();
+    app.selection.select(dragWire, false);
+    dragWire.selected = true;
+
+    app.isDragging = true;
+    app.dragMode = 'anchor';
+    app.dragAnchorId = dragNewNodeId;
+    app.dragShape = dragWire;
+    app.dragShapesBefore = dragBefore;
+    app.dragAnchorWireStates = anchorWireStates;
+    app.dragWireAnchorOriginal = { ...pt };
+    app.dragStart = { ...pt };
+    app.dragTotalDx = 0;
+    app.dragTotalDy = 0;
+    app.didDrag = false;
+    app.dragAnchorTJLinks = [];
+
+    app.renderShapes(true);
+    app._showCrosshair();
+    app._updateCrosshair(pt);
+    app.viewport.svg.style.cursor = 'move';
 }
 
 /**
@@ -469,7 +501,7 @@ function dismissAnchorContextMenu() {
 /**
  * Show a context menu for wire segment operations (delete segment).
  */
-function showSegmentContextMenu(app, wire, segIdx, clientX, clientY) {
+function showSegmentContextMenu(app, wire, edgeId, clientX, clientY) {
     dismissAnchorContextMenu();
 
     const menu = document.createElement('div');
@@ -485,8 +517,8 @@ function showSegmentContextMenu(app, wire, segIdx, clientX, clientY) {
         white-space: nowrap;
     `;
 
-    // Only show Delete Segment for multi-segment wires
-    if (wire.points.length > 2) {
+    // Only show Delete Segment for multi-edge wires
+    if (wire.edges.size > 1) {
         const segItem = document.createElement('div');
         segItem.textContent = 'Delete Segment';
         segItem.style.cssText = itemStyle;
@@ -494,7 +526,7 @@ function showSegmentContextMenu(app, wire, segIdx, clientX, clientY) {
         segItem.addEventListener('mouseleave', () => segItem.style.background = '');
         segItem.addEventListener('click', () => {
             dismissAnchorContextMenu();
-            deleteWireSegment(app, wire, segIdx);
+            deleteWireSegment(app, wire, edgeId);
         });
         menu.appendChild(segItem);
     }
@@ -526,77 +558,63 @@ function showSegmentContextMenu(app, wire, segIdx, clientX, clientY) {
 }
 
 /**
- * Delete a wire segment.  If the wire has only one segment, delete the
- * whole wire.  Otherwise split the wire into the left part (points
- * 0..segIdx) and the right part (points segIdx+1..end), keeping only
- * halves that have >= 2 points.
+ * Delete a wire segment (edge).  If the wire has only one edge, delete the
+ * whole wire.  Otherwise remove the edge and split into connected components,
+ * keeping only components with at least one edge.
  */
-function deleteWireSegment(app, wire, segIdx) {
+function deleteWireSegment(app, wire, edgeId) {
+    if (wire.edges.size <= 1) {
+        deleteWire(app, wire);
+        return;
+    }
+
     const batch = new BatchCommand('Delete segment');
 
-    // Capture endpoints of the segment being deleted (for T-junction cleanup)
-    const segPt1 = { x: wire.points[segIdx].x, y: wire.points[segIdx].y };
-    const segPt2 = { x: wire.points[segIdx + 1].x, y: wire.points[segIdx + 1].y };
+    // Capture before state
+    const beforeState = wire.captureState();
 
-    // Remove original wire
-    batch.add(new DeleteShapesCommand(app, [wire]));
+    // Remove the edge
+    wire.removeEdge(edgeId);
 
-    // Build left and right halves
-    const leftPts  = wire.points.slice(0, segIdx + 1);
-    const rightPts = wire.points.slice(segIdx + 1);
+    // Clean up: merge collinear degree-2 nodes, remove isolated nodes, etc.
+    wire.cleanGraph();
 
-    if (leftPts.length >= 2) {
-        const leftWire = new Wire({
-            points: leftPts.map(p => ({ x: p.x, y: p.y })),
-            color: wire.color || WIRE_COLOR,
-            lineWidth: wire.lineWidth || WIRE_WIDTH,
-            connections: {
-                start: wire.connections?.start ? { ...wire.connections.start } : null,
-                end: null
-            }
-        });
-        batch.add(new AddShapeCommand(app, leftWire));
+    // If the wire is now empty, just delete it
+    if (wire.edges.size === 0) {
+        wire.applyState(beforeState);
+        deleteWire(app, wire);
+        return;
     }
 
-    if (rightPts.length >= 2) {
-        const rightWire = new Wire({
-            points: rightPts.map(p => ({ x: p.x, y: p.y })),
-            color: wire.color || WIRE_COLOR,
-            lineWidth: wire.lineWidth || WIRE_WIDTH,
-            connections: {
-                start: null,
-                end: wire.connections?.end ? { ...wire.connections.end } : null
+    // Split into connected components
+    const components = wire.connectedComponents();
+    if (components.length <= 1) {
+        // Still one connected component — just modify in place
+        const afterState = wire.captureState();
+        wire.applyState(beforeState);
+        batch.add(new ModifyShapeCommand(app, wire, beforeState, afterState));
+    } else {
+        // Multiple components — delete original, create new wires for each component with edges
+        batch.add(new DeleteShapesCommand(app, [wire]));
+        for (const nodeSet of components) {
+            const sub = wire.extractSubgraph(nodeSet);
+            if (sub.edges.size > 0) {
+                batch.add(new AddShapeCommand(app, sub));
             }
-        });
-        batch.add(new AddShapeCommand(app, rightWire));
-    }
-
-    // Clean up orphaned T-junction vertices on other wires.
-    // A segment endpoint is "orphaned" when no half-wire survives to cover it.
-    const orphanedPts = [];
-    if (leftPts.length < 2) orphanedPts.push(segPt1);
-    if (rightPts.length < 2) orphanedPts.push(segPt2);
-    for (const { wire: w, beforeState, afterState } of cleanupOrphanedTJunctions(app, orphanedPts, [wire])) {
-        batch.add(new ModifyShapeCommand(app, w, beforeState, afterState));
+        }
+        // Restore original for undo
+        wire.applyState(beforeState);
     }
 
     app.history.execute(batch);
 }
 
 /**
- * Delete an entire wire (with undo) and clean up orphaned T-junction
- * vertices left on other wires.
+ * Delete an entire wire (with undo).
  */
 function deleteWire(app, wire) {
     const batch = new BatchCommand('Delete wire');
     batch.add(new DeleteShapesCommand(app, [wire]));
-
-    // All wire points are potential orphaned T-junction sites
-    const pts = wire.points.map(p => ({ x: p.x, y: p.y }));
-    for (const { wire: w, beforeState, afterState } of cleanupOrphanedTJunctions(app, pts, [wire])) {
-        batch.add(new ModifyShapeCommand(app, w, beforeState, afterState));
-    }
-
     app.history.execute(batch);
     app.selection.clear();
     app.renderShapes(true);
@@ -653,21 +671,17 @@ export function bindMouseEvents(app) {
                 if (shape.locked) continue;
                 const anchorId = shape.hitTestAnchor(worldPos, app.viewport.scale);
                 if (anchorId) {
-                    // For single-segment wires, prefer segment drag over endpoint
+                    // For single-edge wires, prefer segment drag over endpoint
                     // anchor drag when the endpoint is at a T-junction.  This
                     // ensures the whole wire moves instead of stretching.
-                    if (shape.type === 'wire' && shape.points.length <= 2 && anchorId.startsWith('p')) {
-                        const idx = parseInt(anchorId.substring(1));
-                        const pt = shape.points[idx];
+                    if (shape.type === 'wire' && shape.edges.size <= 1 && shape.nodes.has(anchorId)) {
+                        const pos = shape.nodes.get(anchorId);
                         let atJunction = false;
                         for (const other of app.shapes) {
                             if (other === shape || other.type !== 'wire') continue;
-                            for (const op of other.points) {
-                                if (Math.abs(pt.x - op.x) < VERTEX_EPSILON && Math.abs(pt.y - op.y) < VERTEX_EPSILON) {
-                                    atJunction = true; break;
-                                }
+                            if (other.nodeAt(pos, VERTEX_EPSILON)) {
+                                atJunction = true; break;
                             }
-                            if (atJunction) break;
                         }
                         if (atJunction) break; // fall through to segment drag
                     }
@@ -757,86 +771,75 @@ export function bindMouseEvents(app) {
                 }
 
                 // Wire segment drag: when a single wire is clicked, drag
-                // only the clicked segment (neighbors rubber-band).
+                // only the clicked edge (neighbors rubber-band).
                 if (hitShape.type === 'wire' && app.selection.getSelection().length === 1) {
-                    const segIdx = hitShape.hitTestSegment(worldPos, SNAP_SCREEN_PX / app.viewport.scale);
-                    if (segIdx >= 0) {
+                    const dragEdgeId = hitShape.hitTestEdge(worldPos, SNAP_SCREEN_PX / app.viewport.scale);
+                    if (dragEdgeId) {
+                        const edge = hitShape.edges.get(dragEdgeId);
                         app.isDragging = true;
                         app.dragMode = 'wire-segment';
                         app.dragShape = hitShape;
-                        app.dragWireSegIndex = segIdx;
+                        app.dragEdgeId = dragEdgeId;
                         app.dragStartWorldPos = { ...worldPos };
                         app.dragTotalDx = 0;
                         app.dragTotalDy = 0;
-                        // Determine axis lock: H segments move only vertically, V only horizontally.
-                        // For simple 2-point wires (single segment), allow free movement.
-                        if (hitShape.points.length > 2) {
-                            const pA = hitShape.points[segIdx], pB = hitShape.points[segIdx + 1];
-                            const sDx = Math.abs(pB.x - pA.x), sDy = Math.abs(pB.y - pA.y);
-                            if (sDy < COLLINEAR_EPSILON && sDx > COLLINEAR_EPSILON) app.dragSegAxis = 'vertical';       // horizontal segment
-                            else if (sDx < COLLINEAR_EPSILON && sDy > COLLINEAR_EPSILON) app.dragSegAxis = 'horizontal'; // vertical segment
-                            else app.dragSegAxis = null;  // diagonal — free movement
-                        } else {
-                            app.dragSegAxis = null;  // 2-point wire — free movement
-                        }
                         // Capture before-state of this wire + any T-junction wires.
-                        // This is the undo state (original wire before any insertions).
                         app.dragWireStates = new Map();
                         app.dragWireStates.set(hitShape, app._captureShapeState(hitShape));
 
-                        // If collinear expansion would reach a pin-connected
-                        // endpoint, pre-insert a duplicate corner point so the
-                        // segment translates cleanly and a new elbow connects
-                        // back to the pin.
+                        // If the edge endpoints are at pin-connected nodes,
+                        // insert an intermediate node so the pin stays fixed
+                        // and the dragged segment gets an L-bend.
+                        // Before: pinNode ---dragEdge--- otherNode
+                        // After:  pinNode ---bridgeEdge--- newNode ---dragEdge--- otherNode
                         {
-                            let si = segIdx;
-                            const pts = hitShape.points;
-                            // Check backward: would expansion reach start?
-                            // segIdx == 0 means the segment already starts at point 0.
-                            let reachesStart = (si === 0);
-                            if (!reachesStart) {
-                                let testStart = si;
-                                while (testStart > 0 && pointsCollinear(pts[testStart - 1], pts[testStart], pts[si + 1])) testStart--;
-                                reachesStart = (testStart === 0);
+                            const edge_ = hitShape.edges.get(dragEdgeId);
+                            // Handle 'from' endpoint
+                            if (hitShape.pinConnections.has(edge_.from)) {
+                                const pinPos = hitShape.nodes.get(edge_.from);
+                                const newId = hitShape.addNode(pinPos.x, pinPos.y);
+                                hitShape.addEdge(edge_.from, newId);  // bridge edge
+                                edge_.from = newId;                   // redirect dragged edge
                             }
-                            if (reachesStart && hitShape.connections?.start) {
-                                pts.splice(1, 0, { x: pts[0].x, y: pts[0].y });
-                                si++;
+                            // Handle 'to' endpoint
+                            const edge2_ = hitShape.edges.get(dragEdgeId);
+                            if (edge2_ && hitShape.pinConnections.has(edge2_.to)) {
+                                const pinPos = hitShape.nodes.get(edge2_.to);
+                                const newId = hitShape.addNode(pinPos.x, pinPos.y);
+                                hitShape.addEdge(edge2_.to, newId);   // bridge edge
+                                edge2_.to = newId;                    // redirect dragged edge
                             }
-                            // Check forward: would expansion reach end?
-                            // si+1 == last index means the segment already ends at the last point.
-                            let reachesEnd = (si + 1 === pts.length - 1);
-                            if (!reachesEnd) {
-                                let testEnd = si + 1;
-                                while (testEnd < pts.length - 1 && pointsCollinear(pts[testEnd - 1], pts[testEnd], pts[testEnd + 1])) testEnd++;
-                                reachesEnd = (testEnd === pts.length - 1);
-                            }
-                            if (reachesEnd && hitShape.connections?.end) {
-                                const last = pts.length - 1;
-                                pts.splice(last, 0, { x: pts[last].x, y: pts[last].y });
-                            }
-                            app.dragWireSegIndex = si;
-                            hitShape.invalidate();
                         }
 
-                        // Store post-insertion working state so the drag math
-                        // (refPt lookups, collinear expansion) uses correct indices.
+                        // Determine axis lock AFTER bridge insertion so edge count is final.
+                        // H segments move only vertically, V only horizontally.
+                        // Single-edge wires (no bridges added) allow free movement.
+                        {
+                            const edgeLock = hitShape.edges.get(dragEdgeId);
+                            if (hitShape.edges.size > 1 && edgeLock) {
+                                const pA = hitShape.nodes.get(edgeLock.from), pB = hitShape.nodes.get(edgeLock.to);
+                                const sDx = Math.abs(pB.x - pA.x), sDy = Math.abs(pB.y - pA.y);
+                                if (sDy < COLLINEAR_EPSILON && sDx > COLLINEAR_EPSILON) app.dragSegAxis = 'vertical';
+                                else if (sDx < COLLINEAR_EPSILON && sDy > COLLINEAR_EPSILON) app.dragSegAxis = 'horizontal';
+                                else app.dragSegAxis = null;
+                            } else {
+                                app.dragSegAxis = null;
+                            }
+                        }
+
+                        // Store post-insertion working state so the drag math uses correct state.
                         app.dragWireWorkingState = app._captureShapeState(hitShape);
-                        // Record which points on OTHER wires coincide with this
-                        // wire's points at drag start, so we only move those
-                        // (prevents "capturing" unrelated junctions mid-drag).
+                        // Record which nodes on OTHER wires coincide with this
+                        // wire's nodes at drag start, so we only move those.
                         app.dragTJunctionLinks = [];
-                        for (let pi = 0; pi < hitShape.points.length; pi++) {
-                            const pt = hitShape.points[pi];
+                        for (const [nid, pos] of hitShape.nodes) {
                             for (const other of app.shapes) {
                                 if (other === hitShape || other.type !== 'wire') continue;
-                                for (let oi = 0; oi < other.points.length; oi++) {
-                                    const op = other.points[oi];
-                                    if (Math.abs(pt.x - op.x) < VERTEX_EPSILON && Math.abs(pt.y - op.y) < VERTEX_EPSILON) {
-                                        app.dragTJunctionLinks.push({ wireIdx: pi, otherWire: other, otherIdx: oi });
-                                        if (!app.dragWireStates.has(other)) {
-                                            app.dragWireStates.set(other, app._captureShapeState(other));
-                                        }
+                                const otherNid = other.nodeAt(pos, VERTEX_EPSILON);
+                                if (otherNid) {
+                                    app.dragTJunctionLinks.push({ wireNodeId: nid, otherWire: other, otherNodeId: otherNid });
+                                    if (!app.dragWireStates.has(other)) {
+                                        app.dragWireStates.set(other, app._captureShapeState(other));
                                     }
                                 }
                             }
@@ -1006,11 +1009,19 @@ export function bindMouseEvents(app) {
             for (const shape of selectedShapes) {
                 if (shape.locked) continue;
                 const anchorId = shape.hitTestAnchor(worldPos, app.viewport.scale);
-                if (anchorId && anchorId.startsWith('p')) {
-                    const minPoints = shape.type === 'polygon' ? 4 : 3;
-                    const canDeletePoint = typeof shape.deleteAnchor === 'function' &&
-                                           shape.points && shape.points.length >= minPoints;
+                if (anchorId && !anchorId.startsWith('mid')) {
+                    // For wire graph nodes, check if the node can be deleted
+                    let canDeletePoint = false;
+                    if (shape.type === 'wire') {
+                        canDeletePoint = shape.nodes.has(anchorId) && shape.edges.size > 1;
+                    } else {
+                        const minPoints = shape.type === 'polygon' ? 4 : 3;
+                        canDeletePoint = typeof shape.deleteAnchor === 'function' &&
+                                         shape.points && shape.points.length >= minPoints;
+                    }
                     const junctionInfo = detectTJunction(app, shape, anchorId);
+                    // At a junction, only show "Delete junction" — "Delete point" is ambiguous
+                    if (junctionInfo && shape.type === 'wire') canDeletePoint = false;
                     if (canDeletePoint || junctionInfo) {
                         showAnchorContextMenu(app, shape, anchorId, e.clientX, e.clientY, canDeletePoint, junctionInfo);
                         e.preventDefault();
@@ -1026,22 +1037,19 @@ export function bindMouseEvents(app) {
             const junctionTol = Math.max(0.5, 3 / app.viewport.scale);
             for (const wire of app.shapes) {
                 if (wire.type !== 'wire' || wire.locked) continue;
-                for (let i = 0; i < wire.points.length; i++) {
-                    const p = wire.points[i];
-                    if (Math.abs(p.x - worldPos.x) > junctionTol || Math.abs(p.y - worldPos.y) > junctionTol) continue;
-                    const anchorId = `p${i}`;
-                    const junctionInfo = detectTJunction(app, wire, anchorId);
-                    if (junctionInfo) {
-                        // Select the wire so anchors become visible
-                        app.selection.clearSelection();
-                        app.selection.select(wire, false);
-                        wire.selected = true;
-                        app.renderShapes(true);
-                        const minPoints = wire.points.length >= 3;
-                        showAnchorContextMenu(app, wire, anchorId, e.clientX, e.clientY, minPoints, junctionInfo);
-                        e.preventDefault();
-                        return;
-                    }
+                const nid = wire.nodeAt(worldPos, junctionTol);
+                if (!nid) continue;
+                const junctionInfo = detectTJunction(app, wire, nid);
+                if (junctionInfo) {
+                    // Select the wire so anchors become visible
+                    app.selection.clearSelection();
+                    app.selection.select(wire, false);
+                    wire.selected = true;
+                    app.renderShapes(true);
+                    const canDelete = false; // junction — only show "Delete junction"
+                    showAnchorContextMenu(app, wire, nid, e.clientX, e.clientY, canDelete, junctionInfo);
+                    e.preventDefault();
+                    return;
                 }
             }
         }
@@ -1051,15 +1059,15 @@ export function bindMouseEvents(app) {
             const segTolerance = SNAP_SCREEN_PX / app.viewport.scale;
             for (const shape of app.shapes) {
                 if (shape.locked || shape.type !== 'wire') continue;
-                const segIdx = shape.hitTestSegment(worldPos, segTolerance);
-                if (segIdx >= 0) {
+                const edgeId = shape.hitTestEdge(worldPos, segTolerance);
+                if (edgeId) {
                     if (!shape.selected) {
                         app.selection.clearSelection();
                         app.selection.select(shape, false);
                         shape.selected = true;
                         app.renderShapes(true);
                     }
-                    showSegmentContextMenu(app, shape, segIdx, e.clientX, e.clientY);
+                    showSegmentContextMenu(app, shape, edgeId, e.clientX, e.clientY);
                     e.preventDefault();
                     return;
                 }
@@ -1166,22 +1174,15 @@ export function bindMouseEvents(app) {
                     // point at this anchor, so they move together during drag
                     app.dragAnchorTJLinks = [];
                     app.dragAnchorWireStates = new Map();
-                    if (shape.type === 'wire') {
-                        const m = anchorId.match(/^p(\d+)$/);
-                        if (m) {
-                            const pt = shape.points[parseInt(m[1])];
-                            if (pt) {
-                                for (const other of app.shapes) {
-                                    if (other === shape || other.type !== 'wire') continue;
-                                    for (let oi = 0; oi < other.points.length; oi++) {
-                                        const op = other.points[oi];
-                                        if (Math.abs(pt.x - op.x) < VERTEX_EPSILON && Math.abs(pt.y - op.y) < VERTEX_EPSILON) {
-                                            app.dragAnchorTJLinks.push({ otherWire: other, otherIdx: oi });
-                                            if (!app.dragAnchorWireStates.has(other)) {
-                                                app.dragAnchorWireStates.set(other, app._captureShapeState(other));
-                                            }
-                                        }
-                                    }
+                    if (shape.type === 'wire' && shape.nodes.has(anchorId)) {
+                        const pos = shape.nodes.get(anchorId);
+                        for (const other of app.shapes) {
+                            if (other === shape || other.type !== 'wire') continue;
+                            const otherNid = other.nodeAt(pos, VERTEX_EPSILON);
+                            if (otherNid) {
+                                app.dragAnchorTJLinks.push({ otherWire: other, otherNodeId: otherNid });
+                                if (!app.dragAnchorWireStates.has(other)) {
+                                    app.dragAnchorWireStates.set(other, app._captureShapeState(other));
                                 }
                             }
                         }
@@ -1248,18 +1249,18 @@ export function bindMouseEvents(app) {
                     renderGuideLines(app, stickyGuides);
                 }
 
-                // T-junction following: when a moved wire had junction points
-                // shared with other (non-selected) wires, move those points too
+                // T-junction following: when a moved wire had nodes
+                // shared with other (non-selected) wires, move those nodes too
                 const movedWires = sel.filter(s => s.type === 'wire');
                 if (movedWires.length > 0) {
                     const selSet = new Set(sel);
                     for (const mw of movedWires) {
-                        for (const mp of mw.points) {
-                            const prevX = mp.x - dx;
-                            const prevY = mp.y - dy;
+                        for (const pos of mw.nodes.values()) {
+                            const prevX = pos.x - dx;
+                            const prevY = pos.y - dy;
                             for (const shape of app.shapes) {
                                 if (selSet.has(shape) || shape.type !== 'wire') continue;
-                                for (const sp of shape.points) {
+                                for (const sp of shape.nodes.values()) {
                                     if (Math.abs(sp.x - prevX) < VERTEX_EPSILON && Math.abs(sp.y - prevY) < VERTEX_EPSILON) {
                                         sp.x += dx;
                                         sp.y += dy;
@@ -1293,17 +1294,14 @@ export function bindMouseEvents(app) {
             }
 
             // Wire anchor drag: single snap resolver, same as wire drawing
-            // Pin/wire snap only for endpoint anchors (T-junctions are only
-            // created at endpoints, so midpoint snapping would be misleading).
+            // Pin/wire snap only for leaf-node anchors (degree 1).
             let anchorGuides = [];
             if (app.dragShape.type === 'wire') {
-                const m = app.dragAnchorId.match(/^p(\d+)$/);
-                const anchorIdx = m ? parseInt(m[1]) : -1;
-                const isEndpoint = anchorIdx === 0 || anchorIdx === app.dragShape.points.length - 1;
+                const isLeaf = app.dragShape.nodes.has(app.dragAnchorId) && app.dragShape.degree(app.dragAnchorId) <= 1;
 
-                // Endpoints try pin/wire snap first
+                // Leaf nodes try pin/wire snap first
                 let snappedToTarget = false;
-                if (isEndpoint) {
+                if (isLeaf) {
                     const snap = resolveWireSnapPosition(app, worldPos, {
                         excludeWire: app.dragShape,
                         pinTolerance: PIN_SNAP_TOL
@@ -1319,14 +1317,13 @@ export function bindMouseEvents(app) {
                     }
                 }
 
-                // If no pin/wire/endpoint snap (or midpoint), use off-grid
+                // If no pin/wire/endpoint snap (or non-leaf node), use off-grid
                 // neighbor snap + collinear/H-V alignment
                 if (!snappedToTarget) {
                     updateSnapHighlight(app, null);
-                    const pts = app.dragShape.points;
-                    const neighbors = [];
-                    if (anchorIdx > 0) neighbors.push(pts[anchorIdx - 1]);
-                    if (anchorIdx < pts.length - 1) neighbors.push(pts[anchorIdx + 1]);
+                    const neighbors = app.dragShape.neighborNodes(app.dragAnchorId)
+                        .map(nid => app.dragShape.nodes.get(nid))
+                        .filter(Boolean);
                     applyOffGridNeighborSnap(worldPos, anchorPos, neighbors, app.viewport.gridSize || 1.0);
                     const result = computeAnchorCollinearSnap(app, app.dragShape, app.dragAnchorId, anchorPos);
                     anchorPos = result.anchorPos;
@@ -1340,9 +1337,8 @@ export function bindMouseEvents(app) {
             // Compute collinear snap for T-junction-linked wires, merge with main guides
             if (app.dragAnchorTJLinks && app.dragAnchorTJLinks.length > 0) {
                 for (const link of app.dragAnchorTJLinks) {
-                    const oi = link.otherIdx;
                     const tjResult = computeAnchorCollinearSnap(
-                        app, link.otherWire, `p${oi}`, anchorPos
+                        app, link.otherWire, link.otherNodeId, anchorPos
                     );
                     if (tjResult.anchorPos.x !== anchorPos.x || tjResult.anchorPos.y !== anchorPos.y) {
                         anchorPos = tjResult.anchorPos;
@@ -1356,10 +1352,10 @@ export function bindMouseEvents(app) {
             if (newAnchorId && newAnchorId !== app.dragAnchorId) {
                 app.dragAnchorId = newAnchorId;
             }
-            // Move T-junction linked points on other wires
+            // Move T-junction linked nodes on other wires
             if (app.dragAnchorTJLinks) {
                 for (const link of app.dragAnchorTJLinks) {
-                    const p = link.otherWire.points[link.otherIdx];
+                    const p = link.otherWire.nodes.get(link.otherNodeId);
                     if (p) {
                         p.x = anchorPos.x;
                         p.y = anchorPos.y;
@@ -1376,7 +1372,7 @@ export function bindMouseEvents(app) {
             // Wire segment drag: move only the clicked segment's endpoints.
             // Neighboring segments rubber-band automatically.
             const wire = app.dragShape;
-            const segIdx = app.dragWireSegIndex;
+            const dragEdgeId = app.dragEdgeId;
 
             const mouseDelta = {
                 x: worldPos.x - app.dragStartWorldPos.x,
@@ -1385,40 +1381,43 @@ export function bindMouseEvents(app) {
             // Lock to perpendicular axis for orthogonal segments
             if (app.dragSegAxis === 'vertical') mouseDelta.x = 0;
             else if (app.dragSegAxis === 'horizontal') mouseDelta.y = 0;
-            // Use the first endpoint as the reference for grid snapping.
-            // Use the working state (post-corner-insertion) for correct indices.
+            // Use the 'from' node of the dragged edge as the reference for grid snapping.
             const origState = app.dragWireWorkingState || app.dragWireStates.get(wire);
-            const refPt = origState.points[segIdx];
+            const origEdge = origState.edges[dragEdgeId];
+            const refPt = origEdge ? origState.nodes[origEdge.from] : null;
+            if (!refPt) { /* edge was removed — bail */ }
+            else {
             const target = {
                 x: refPt.x + mouseDelta.x,
                 y: refPt.y + mouseDelta.y
             };
             // Grid snap, then augment with snap lines from off-grid neighbors
-            // and nearby pins so off-grid alignment is preserved.
-            // Build set of T-junction-linked wires to exclude from highlight
             const tJunctionWires = new Set();
             if (app.dragTJunctionLinks) {
                 for (const link of app.dragTJunctionLinks) tJunctionWires.add(link.otherWire);
             }
             const { snappedTarget, guides: segGuides, highlight: segHighlight } =
-                computeSegmentDragSnap(app, wire, segIdx, origState, target, app.dragSegAxis, tJunctionWires);
+                computeSegmentDragSnap(app, wire, dragEdgeId, origState, target, app.dragSegAxis, tJunctionWires);
             updateSnapHighlight(app, segHighlight);
 
             // Also compute collinear guides for T-junction-linked wires.
-            // When the dragged wire moves a TJ point on another wire, show
-            // a guide when that wire's midpoint becomes collinear again.
             let allSegGuides = segGuides;
             if (app.dragTJunctionLinks) {
+                const edge = wire.edges.get(dragEdgeId);
                 for (const link of app.dragTJunctionLinks) {
-                    if (link.wireIdx < segIdx || link.wireIdx > segIdx + 1) continue;
+                    // Only follow if this linked node is one of the edge's endpoints
+                    if (!edge) continue;
+                    const fromPos = wire.nodes.get(edge.from);
+                    const toPos = wire.nodes.get(edge.to);
+                    if (link.wireNodeId !== edge.from && link.wireNodeId !== edge.to) continue;
                     const ow = link.otherWire;
-                    const oi = link.otherIdx;
-                    // Compute where this TJ point will be after the drag
+                    const otherPos = ow.nodes.get(link.otherNodeId);
+                    if (!otherPos || !fromPos) continue;
                     const tjPos = {
-                        x: ow.points[oi].x + (snappedTarget.x - wire.points[segIdx].x),
-                        y: ow.points[oi].y + (snappedTarget.y - wire.points[segIdx].y)
+                        x: otherPos.x + (snappedTarget.x - fromPos.x),
+                        y: otherPos.y + (snappedTarget.y - fromPos.y)
                     };
-                    const tjResult = computeAnchorCollinearSnap(app, ow, `p${oi}`, tjPos);
+                    const tjResult = computeAnchorCollinearSnap(app, ow, link.otherNodeId, tjPos);
                     if (tjResult.guides.length > 0) {
                         allSegGuides = allSegGuides.concat(tjResult.guides);
                     }
@@ -1426,51 +1425,56 @@ export function bindMouseEvents(app) {
             }
             renderGuideLines(app, allSegGuides);
 
-            const dx = snappedTarget.x - wire.points[segIdx].x;
-            const dy = snappedTarget.y - wire.points[segIdx].y;
+            // Compute delta from current position of the from-node
+            const curFromPos = wire.nodes.get(origEdge.from);
+            const dx = snappedTarget.x - (curFromPos ? curFromPos.x : refPt.x);
+            const dy = snappedTarget.y - (curFromPos ? curFromPos.y : refPt.y);
 
             if (dx !== 0 || dy !== 0) {
                 app.didDrag = true;
                 app.dragTotalDx += dx;
                 app.dragTotalDy += dy;
 
-                // Expand dragged region to include collinear neighbors.
-                // When a T-junction splits a straight wire, the two resulting
-                // segments are collinear — dragging one should move both so the
-                // user sees the original straight line moving as a unit.
-                let moveStart = segIdx;
-                let moveEnd = segIdx + 1;
-                const origPts = origState.points;
+                // Move both endpoints of the dragged edge
+                const edge = wire.edges.get(dragEdgeId);
+                if (edge) {
+                    const nodesToMove = new Set([edge.from, edge.to]);
+                    // Expand to collinear neighbors: if an adjacent edge is collinear
+                    // with the dragged edge, include its other endpoint too
+                    const expandCollinear = (nodeId) => {
+                        for (const inc of wire.incidentEdges(nodeId)) {
+                            if (inc.edgeId === dragEdgeId || nodesToMove.has(inc.otherNode)) continue;
+                            const a = origState.nodes[inc.otherNode];
+                            const b = origState.nodes[nodeId];
+                            const fromOrig = origState.nodes[edge.from];
+                            const toOrig = origState.nodes[edge.to];
+                            if (!a || !b || !fromOrig || !toOrig) continue;
+                            if (pointsCollinear(a, b, fromOrig) && pointsCollinear(a, b, toOrig)) {
+                                nodesToMove.add(inc.otherNode);
+                            }
+                        }
+                    };
+                    expandCollinear(edge.from);
+                    expandCollinear(edge.to);
 
-                // Expand backward: check if segment before moveStart is collinear
-                while (moveStart > 0) {
-                    if (!pointsCollinear(origPts[moveStart - 1], origPts[moveStart], origPts[moveEnd])) break;
-                    moveStart--;
+                    // Don't move pin-connected nodes (they were already split on drag start)
+                    for (const nid of nodesToMove) {
+                        if (wire.pinConnections.has(nid)) continue;
+                        const p = wire.nodes.get(nid);
+                        if (p) { p.x += dx; p.y += dy; }
+                    }
+                    wire.invalidate();
                 }
-                // Expand forward: check if segment after moveEnd is collinear
-                while (moveEnd < wire.points.length - 1) {
-                    if (!pointsCollinear(origPts[moveStart], origPts[moveEnd], origPts[moveEnd + 1])) break;
-                    moveEnd++;
-                }
 
-                // Never move endpoints connected to a pin — the pre-inserted
-                // corner point will form the elbow back to the pin instead.
-                if (moveStart === 0 && wire.connections?.start) moveStart++;
-                if (moveEnd === wire.points.length - 1 && wire.connections?.end) moveEnd--;
-
-                // Move all points in the expanded range
-                for (let i = moveStart; i <= moveEnd; i++) {
-                    wire.points[i].x += dx;
-                    wire.points[i].y += dy;
-                }
-                wire.invalidate();
-
-                // Move T-junction points on other wires using pre-recorded links
-                if (app.dragTJunctionLinks) {
+                // Move T-junction nodes on other wires using pre-recorded links
+                if (app.dragTJunctionLinks && edge) {
+                    const movedNodes = new Set();
+                    // Collect which of our nodes actually moved
+                    const edgeNow = wire.edges.get(dragEdgeId);
+                    if (edgeNow) { movedNodes.add(edgeNow.from); movedNodes.add(edgeNow.to); }
                     for (const link of app.dragTJunctionLinks) {
-                        // Only follow if this wire point index is in the moved range
-                        if (link.wireIdx >= moveStart && link.wireIdx <= moveEnd) {
-                            const sp = link.otherWire.points[link.otherIdx];
+                        if (movedNodes.has(link.wireNodeId)) {
+                            const sp = link.otherWire.nodes.get(link.otherNodeId);
                             if (sp) {
                                 sp.x += dx;
                                 sp.y += dy;
@@ -1483,6 +1487,7 @@ export function bindMouseEvents(app) {
                 app.renderShapes(false);
                 app.fileManager.setDirty(true);
             }
+            } // end of refPt null check
         } else if (app.dragMode === 'box' && app.boxSelectStart) {
             app.didDrag = true;
             app._updateBoxSelectElement(worldPos);

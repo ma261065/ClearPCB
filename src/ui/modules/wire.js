@@ -23,6 +23,7 @@
 
 import { Wire } from '../../shapes/index.js';
 import { BatchCommand, AddShapeCommand, ModifyShapeCommand, DeleteShapesCommand } from '../../core/CommandHistory.js';
+import { distanceToSegment } from '../../core/geometry.js';
 
 // --- Pin helpers ---
 
@@ -364,17 +365,29 @@ export function finishWireDrawing(app, worldPos) {
 
     updateSnapHighlight(app, null);
 
-    const firstPt = app.wirePoints[0];
-    const lastPt = app.wirePoints[app.wirePoints.length - 1];
+    // Build graph nodes/edges from the drawn points
+    const graphNodes = {}, graphEdges = {}, pinConns = {};
+    let nc = 0, ec = 0;
+    const pts = app.wirePoints;
+    let prevId = null;
+    for (const pt of pts) {
+        const nid = `n${nc++}`;
+        graphNodes[nid] = { x: pt.x, y: pt.y };
+        if (prevId !== null) {
+            const eid = `e${ec++}`;
+            graphEdges[eid] = { from: prevId, to: nid };
+        }
+        prevId = nid;
+    }
+    const firstPt = pts[0], lastPt = pts[pts.length - 1];
+    if (firstPt.pin)
+        pinConns['n0'] = { componentId: firstPt.pin.component.id, pinNumber: firstPt.pin.pin.number };
+    if (lastPt.pin)
+        pinConns[`n${nc - 1}`] = { componentId: lastPt.pin.component.id, pinNumber: lastPt.pin.pin.number };
 
     const wire = new Wire({
-        points: app.wirePoints.map(p => ({ x: p.x, y: p.y })),
-        color: WIRE_COLOR,
-        lineWidth: WIRE_WIDTH,
-        connections: {
-            start: firstPt.pin ? { componentId: firstPt.pin.component.id, pinNumber: firstPt.pin.pin.number } : null,
-            end: lastPt.pin ? { componentId: lastPt.pin.component.id, pinNumber: lastPt.pin.pin.number } : null
-        }
+        graphNodes, graphEdges, pinConnections: pinConns,
+        color: WIRE_COLOR, lineWidth: WIRE_WIDTH,
     });
 
     // Snapshot all existing wires before any mutations
@@ -392,7 +405,7 @@ export function finishWireDrawing(app, worldPos) {
     if (app.shapes.includes(wire)) refreshWireConnections(app, wire);
 
     // If the wire was fully absorbed (e.g. redundant), revert and cancel
-    if (!app.shapes.includes(wire) && wire.points.length < 2) {
+    if (!app.shapes.includes(wire) && wire.edges.size === 0) {
         // Restore everything and bail
         for (const [w, before] of beforeStates) {
             if (!app.shapes.includes(w)) {
@@ -608,78 +621,50 @@ export function updateSnapHighlight(app, target) {
 // --- Wire junction detection ---
 
 /**
- * Find the nearest point on another wire (endpoint or segment interior)
+ * Find the nearest point on another wire (node or edge interior)
  * that is within tolerance of worldPos.  Returns { x, y, type } or null.
- * type is 'endpoint' (merge) or 'segment' (T-junction).
+ * type is 'endpoint' (snap to node) or 'segment' (T-junction on edge).
  */
 export function findNearbyWirePoint(app, worldPos, tolerance, excludeWires = null) {
-    // Normalize exclusion to a Set for uniform handling
     const excludeSet = !excludeWires ? new Set() :
         excludeWires instanceof Set ? excludeWires : new Set([excludeWires]);
 
-    // Pass 1: find closest endpoint (preferred — endpoint snaps are exact)
-    let bestEp = null;
-    let bestEpDist = tolerance;
-
-    // Pass 1b: find closest interior vertex (corner junction)
-    let bestCorner = null;
-    let bestCornerDist = tolerance;
-
-    // Pass 2: find closest segment (T-junction, only used if no endpoint)
-    let bestSeg = null;
-    let bestSegDist = tolerance;
+    let bestNode = null, bestNodeDist = tolerance;
+    let bestEdge = null, bestEdgeDist = tolerance;
 
     for (const shape of app.shapes) {
-        if (shape.type !== 'wire' || shape.points.length < 2) continue;
+        if (shape.type !== 'wire' || shape.edges.size === 0) continue;
         if (excludeSet.has(shape)) continue;
 
-        // Check endpoints
-        const first = shape.points[0];
-        const last = shape.points[shape.points.length - 1];
-        for (const ep of [first, last]) {
-            const d = Math.hypot(worldPos.x - ep.x, worldPos.y - ep.y);
-            if (d < bestEpDist) {
-                bestEpDist = d;
-                bestEp = { x: ep.x, y: ep.y, type: 'endpoint' };
+        // Check all nodes (endpoints, junctions, corners)
+        for (const [, pos] of shape.nodes) {
+            const d = Math.hypot(worldPos.x - pos.x, worldPos.y - pos.y);
+            if (d < bestNodeDist) {
+                bestNodeDist = d;
+                bestNode = { x: pos.x, y: pos.y, type: 'endpoint' };
             }
         }
 
-        // Check interior vertices (corners)
-        for (let i = 1; i < shape.points.length - 1; i++) {
-            const p = shape.points[i];
-            const d = Math.hypot(worldPos.x - p.x, worldPos.y - p.y);
-            if (d < bestCornerDist) {
-                bestCornerDist = d;
-                bestCorner = { x: p.x, y: p.y, type: 'endpoint' };
-            }
-        }
-
-        // Check segments (T-junction)
-        const seg = shape.closestSegment(worldPos);
-        if (seg && seg.distance < bestSegDist) {
-            // Only count as T-junction if not at an existing vertex
-            let atVertex = false;
-            for (const p of shape.points) {
-                if (Math.hypot(seg.point.x - p.x, seg.point.y - p.y) < VERTEX_EPSILON) {
-                    atVertex = true;
-                    break;
-                }
-            }
-            if (!atVertex) {
-                bestSegDist = seg.distance;
-                const segA = shape.points[seg.segIndex];
-                const segB = shape.points[seg.segIndex + 1];
-                const segDx = Math.abs(segB.x - segA.x);
-                const segDy = Math.abs(segB.y - segA.y);
-                // Wire direction: 'horizontal' if dx>dy, 'vertical' otherwise
-                const wireDir = segDx >= segDy ? 'horizontal' : 'vertical';
-                bestSeg = { x: seg.point.x, y: seg.point.y, type: 'segment', wireDir };
+        // Check edges (T-junction)
+        const closest = shape.closestEdge(worldPos);
+        if (closest && closest.distance < bestEdgeDist) {
+            // Only count if not at an existing node
+            if (!shape.nodeAt(closest.point, VERTEX_EPSILON)) {
+                bestEdgeDist = closest.distance;
+                const e = shape.edges.get(closest.edgeId);
+                const a = shape.nodes.get(e.from), b = shape.nodes.get(e.to);
+                const dx = Math.abs(b.x - a.x), dy = Math.abs(b.y - a.y);
+                bestEdge = {
+                    x: closest.point.x, y: closest.point.y,
+                    type: 'segment',
+                    wireDir: dx >= dy ? 'horizontal' : 'vertical'
+                };
             }
         }
     }
 
-    // Endpoints always win, then interior vertices, then segments
-    return bestEp || bestCorner || bestSeg;
+    // Nodes always win over edges
+    return bestNode || bestEdge;
 }
 
 // --- Constants ---
@@ -708,58 +693,14 @@ export const WIRE_COLOR = '#00cc66';
 /** Default wire stroke width (world units). */
 export const WIRE_WIDTH = 0.25;
 
-// --- Wire point cleanup ---
+// --- Wire point cleanup (graph model — handled by Wire.cleanGraph()) ---
 
-/**
- * Splice a point out of a wire and shift junction indices accordingly.
- */
-export function spliceWirePoint(wire, idx) {
-    wire.points.splice(idx, 1);
-    const shifted = new Set();
-    for (const j of wire.junctions) {
-        if (j === idx) continue;
-        shifted.add(j > idx ? j - 1 : j);
-    }
-    wire.junctions = shifted;
-}
+// Legacy stub: no longer needed with graph model (junction indices don't exist).
+export function spliceWirePoint(wire, idx) { /* no-op */ }
 
-/**
- * Remove zero-length segments and collinear midpoints from a wire,
- * keeping T-junction vertices where another wire connects.
- * Uses parametric projection to handle drag-past-endpoint correctly.
- */
+// Legacy stub: graph model handles this via Wire.cleanGraph().
 export function collapseRedundantWirePoints(app, wire) {
-    // Remove adjacent duplicate points (zero-length segments)
-    for (let i = wire.points.length - 1; i > 0; i--) {
-        const a = wire.points[i], b = wire.points[i - 1];
-        if (Math.abs(a.x - b.x) < 1e-6 && Math.abs(a.y - b.y) < 1e-6) {
-            spliceWirePoint(wire, i);
-        }
-    }
-    // Remove collinear midpoints, but keep T-junction vertices.
-    // Uses parametric projection to find which of three collinear
-    // points is geometrically interior (handles drag-past-endpoint).
-    for (let i = wire.points.length - 2; i >= 1; i--) {
-        const a = wire.points[i - 1], b = wire.points[i], c = wire.points[i + 1];
-        if (!pointsCollinear(a, b, c)) continue;
-
-        const dxAC = c.x - a.x, dyAC = c.y - a.y;
-        const lenSqAC = dxAC * dxAC + dyAC * dyAC;
-        let removeIdx;
-        if (lenSqAC < 1e-12) {
-            removeIdx = i;
-        } else {
-            const t = ((b.x - a.x) * dxAC + (b.y - a.y) * dyAC) / lenSqAC;
-            if (t < 0) removeIdx = i - 1;
-            else if (t > 1) removeIdx = i + 1;
-            else removeIdx = i;
-        }
-
-        const rp = wire.points[removeIdx];
-        if (isTJunctionPoint(app, rp, wire)) continue;
-        spliceWirePoint(wire, removeIdx);
-    }
-    wire.invalidate();
+    if (wire && wire.cleanGraph) wire.cleanGraph();
 }
 
 // --- Collinearity helper ---
@@ -790,576 +731,225 @@ export function segmentsCollinear(seg1, seg2, angleTol = ANGLE_TOL) {
     return cross < angleTol;
 }
 
-// --- Junctions ---
+// --- Junctions (graph model — junctions are degree ≥ 3 nodes, automatic) ---
 
 /**
- * Check whether any other wire has a point at the given location,
- * indicating a T-junction that must not be optimised away.
- * @param {object} app
- * @param {{x:number,y:number}} pt  - point to test
- * @param {...object} excludeWires  - wires to skip (the ones being merged/edited)
+ * Legacy stub — with graph model, T-junction checking is implicit
+ * (nodes with degree ≥ 3 are junctions).
  */
 export function isTJunctionPoint(app, pt, ...excludeWires) {
     if (!app) return false;
     for (const s of app.shapes) {
         if (s.type !== 'wire') continue;
         if (excludeWires.includes(s)) continue;
-        for (const p of s.points) {
-            if (Math.abs(p.x - pt.x) < VERTEX_EPSILON && Math.abs(p.y - pt.y) < VERTEX_EPSILON) return true;
-        }
+        if (s.nodeAt(pt, VERTEX_EPSILON)) return true;
     }
     return false;
 }
 
 /**
- * Clean up orphaned T-junction vertices on surviving wires after wire deletion.
- * Scans surviving wires for collinear midpoints at the given orphaned points
- * and removes them if no third wire still connects there.
- *
- * @param {object}   app           - the app instance
- * @param {Array<{x:number,y:number}>} orphanedPts - points being removed from the wire graph
- * @param {Array}    excludeWires  - wires being deleted (excluded from the scan)
- * @returns {Array<{wire, beforeState, afterState}>}  wires that were modified
+ * Legacy stub — with graph model, orphaned junctions don't exist
+ * (junction dots are derived from node degree, not stored).
+ * Returns empty array for compatibility with callers that build undo batches.
  */
 export function cleanupOrphanedTJunctions(app, orphanedPts, excludeWires) {
-    const excludeSet = new Set(excludeWires);
-    const tjCleanup = new Map(); // surviving wire -> Set of midpoint indices to remove
-
-    for (const pt of orphanedPts) {
-        for (const other of app.shapes) {
-            if (excludeSet.has(other) || other.type !== 'wire') continue;
-            for (let i = 1; i < other.points.length - 1; i++) {
-                const op = other.points[i];
-                if (Math.abs(op.x - pt.x) >= VERTEX_EPSILON || Math.abs(op.y - pt.y) >= VERTEX_EPSILON) continue;
-                // Only remove collinear midpoints (junction-inserted)
-                const a = other.points[i - 1], c = other.points[i + 1];
-                if (!pointsCollinear(a, op, c)) continue;
-                // Keep if a third wire still connects here
-                if (isTJunctionPoint(app, pt, ...excludeWires, other)) continue;
-                if (!tjCleanup.has(other)) tjCleanup.set(other, new Set());
-                tjCleanup.get(other).add(i);
-            }
-        }
-    }
-
-    const results = [];
-    for (const [other, idxSet] of tjCleanup) {
-        const beforeState = other.captureState();
-        const sorted = [...idxSet].sort((a, b) => b - a);
-        for (const i of sorted) other.points.splice(i, 1);
-        const newJunctions = new Set();
-        for (const j of other.junctions) {
-            if (idxSet.has(j)) continue;
-            let adj = j;
-            for (const ri of sorted) { if (ri < j) adj--; }
-            newJunctions.add(adj);
-        }
-        other.junctions = newJunctions;
-        other.invalidate();
-        const afterState = other.captureState();
-        other.applyState(beforeState);
-        results.push({ wire: other, beforeState, afterState });
-    }
-    return results;
-}
-
-/**
- * Merge two point arrays at a shared seam, dropping the seam point if
- * collinear with its neighbors (no redundant anchor on a straight wire).
- * front ends at the shared point; back starts after it.
- */
-function mergeWirePoints(app, front, back, wireA, wireB) {
-    if (front.length >= 2 && back.length >= 1) {
-        const a = front[front.length - 2];
-        const b = front[front.length - 1]; // seam point
-        const c = back[0];
-        if (segmentsCollinear({ a, b }, { a: b, b: c })) {
-            if (!isTJunctionPoint(app, b, wireA, wireB)) {
-                return [...front.slice(0, -1), ...back];
-            }
-        }
-    }
-    return [...front, ...back];
+    return [];
 }
 
 // --- Sticky wires (requirement 6) ---
 
 /**
- * Refresh a wire's connection info by checking whether its first/last
- * points coincide with a component pin.  Call after anchor or segment
- * drags so that dragged endpoints "stick" to the pin they land on (or
- * detach from a pin they were dragged away from).
+ * Refresh a wire's pin connections by checking which nodes coincide
+ * with component pins.  Call after anchor or segment drags.
  */
 export function refreshWireConnections(app, wire) {
-    if (!wire || wire.type !== 'wire' || wire.points.length < 2) return;
+    if (!wire || wire.type !== 'wire' || wire.edges.size === 0) return;
     const tolerance = 0.1;
-
-    // Check start point
-    const startPt = wire.points[0];
-    const startPin = findNearbyPin(app.components, startPt, tolerance);
-    wire.connections.start = startPin
-        ? { componentId: startPin.component.id, pinNumber: startPin.pin.number }
-        : null;
-
-    // Check end point
-    const endPt = wire.points[wire.points.length - 1];
-    const endPin = findNearbyPin(app.components, endPt, tolerance);
-    wire.connections.end = endPin
-        ? { componentId: endPin.component.id, pinNumber: endPin.pin.number }
-        : null;
+    wire.pinConnections.clear();
+    for (const [nodeId, pos] of wire.nodes) {
+        const nearPin = findNearbyPin(app.components, pos, tolerance);
+        if (nearPin) {
+            wire.pinConnections.set(nodeId, {
+                componentId: nearPin.component.id,
+                pinNumber: nearPin.pin.number
+            });
+        }
+    }
 }
 
 /**
- * Call this after moving components. For every wire whose endpoint is
- * connected to a pin, update that endpoint to the pin current world
- * position.
+ * Call this after moving components. For every wire node that has a pin
+ * connection, update that node to the pin's current world position.
  */
 export function updateStickyWires(app) {
     for (const shape of app.shapes) {
         if (shape.type !== 'wire') continue;
-        const conn = shape.connections;
-        if (conn.start) {
-            const comp = app.components.find(c => c.id === conn.start.componentId);
-            if (comp) {
-                const pos = comp.getPinPosition(conn.start.pinNumber);
-                if (pos) {
-                    shape.points[0].x = pos.x;
-                    shape.points[0].y = pos.y;
-                    shape.invalidate();
-                }
-            }
-        }
-        if (conn.end) {
-            const comp = app.components.find(c => c.id === conn.end.componentId);
-            if (comp) {
-                const pos = comp.getPinPosition(conn.end.pinNumber);
-                if (pos) {
-                    const last = shape.points[shape.points.length - 1];
-                    last.x = pos.x;
-                    last.y = pos.y;
-                    shape.invalidate();
-                }
+        for (const [nodeId, conn] of shape.pinConnections) {
+            const comp = app.components.find(c => c.id === conn.componentId);
+            if (!comp) continue;
+            const pos = comp.getPinPosition(conn.pinNumber);
+            if (!pos) continue;
+            const node = shape.nodes.get(nodeId);
+            if (node) {
+                node.x = pos.x;
+                node.y = pos.y;
+                shape.invalidate();
             }
         }
     }
 }
 
-// --- Unified wire reconciliation ---
+// --- Unified wire reconciliation (graph model) ---
 
 /**
- * Compute the 1-D overlap between two collinear segments projected
- * onto their shared axis.  Returns the overlap interval [oStart, oEnd]
- * in parametric coordinates of seg T (tA→tB) or null if no overlap.
- *
- * @param {{x,y}} sA, sB - endpoints of source segment
- * @param {{x,y}} tA, tB - endpoints of target segment
- * @returns {{ oStart: number, oEnd: number }|null}
+ * Try to merge two wire graphs.  Checks if any node of wireA is near
+ * a node or on an edge of wireB (and vice-versa).  If found, absorbs
+ * wireB into wireA, merges coincident nodes, and removes wireB from
+ * app.shapes.  Returns true if a merge occurred.
  */
-function collinearOverlap1D(sA, sB, tA, tB) {
-    const tdx = tB.x - tA.x, tdy = tB.y - tA.y;
-    const tLenSq = tdx * tdx + tdy * tdy;
-    if (tLenSq < 1e-18) return null;
-    // Project source endpoints onto target axis
-    const pA = ((sA.x - tA.x) * tdx + (sA.y - tA.y) * tdy) / tLenSq;
-    const pB = ((sB.x - tA.x) * tdx + (sB.y - tA.y) * tdy) / tLenSq;
-    const lo = Math.min(pA, pB), hi = Math.max(pA, pB);
-    const eps = VERTEX_EPSILON / Math.sqrt(tLenSq);
-    const oStart = Math.max(lo, -eps);
-    const oEnd   = Math.min(hi, 1 + eps);
-    if (oEnd - oStart < eps) return null; // no meaningful overlap
-    return { oStart, oEnd };
-}
-
-/**
- * Trim collinear overlap between a segment of `wire` and a segment of
- * `other`.  Removes the overlapping portion from `wire` by replacing
- * the covered part with the boundary point(s) of the overlap.
- *
- * When trimming would move a corner point shared with a non-collinear
- * adjacent segment, the wire is SPLIT into two wires instead.
- *
- * Modifies wire.points in place.  Returns null if no change, or an
- * object { modified: true, newWire: Wire|null } where newWire is a
- * split-off portion (needs to be added to app.shapes by caller).
- */
-function trimOverlap(app, wire, segIdx, other, otherSegIdx) {
-    const sA = wire.points[segIdx], sB = wire.points[segIdx + 1];
-    const tA = other.points[otherSegIdx], tB = other.points[otherSegIdx + 1];
-    if (!segmentsCollinear({ a: sA, b: sB }, { a: tA, b: tB })) return null;
-
-    // Project source segment onto target axis
-    const tdx = tB.x - tA.x, tdy = tB.y - tA.y;
-    const tLenSq = tdx * tdx + tdy * tdy;
-    if (tLenSq < 1e-18) return null;
-    const pA = ((sA.x - tA.x) * tdx + (sA.y - tA.y) * tdy) / tLenSq;
-    const pB = ((sB.x - tA.x) * tdx + (sB.y - tA.y) * tdy) / tLenSq;
-
-    // Also project source onto its own axis for self-parametric coords
-    const sdx = sB.x - sA.x, sdy = sB.y - sA.y;
-    const sLenSq = sdx * sdx + sdy * sdy;
-    if (sLenSq < 1e-18) return null;
-
-    // Overlap region in target-parameter space
-    const eps = VERTEX_EPSILON / Math.sqrt(tLenSq);
-    const tLo = Math.max(Math.min(pA, pB), -eps);
-    const tHi = Math.min(Math.max(pA, pB), 1 + eps);
-    if (tHi - tLo < eps) return null; // no overlap
-
-    // Convert overlap boundaries back to source-parameter space
-    const overlapStart_t = Math.max(tLo, 0);
-    const overlapEnd_t = Math.min(tHi, 1);
-    const oStartWorld = { x: tA.x + overlapStart_t * tdx, y: tA.y + overlapStart_t * tdy };
-    const oEndWorld   = { x: tA.x + overlapEnd_t * tdx,   y: tA.y + overlapEnd_t * tdy };
-
-    const oStartS = ((oStartWorld.x - sA.x) * sdx + (oStartWorld.y - sA.y) * sdy) / sLenSq;
-    const oEndS   = ((oEndWorld.x - sA.x) * sdx + (oEndWorld.y - sA.y) * sdy) / sLenSq;
-    const sLo = Math.min(oStartS, oEndS);
-    const sHi = Math.max(oStartS, oEndS);
-    const sEps = VERTEX_EPSILON / Math.sqrt(sLenSq);
-
-    const keepStart = sLo > sEps;
-    const keepEnd   = sHi < 1 - sEps;
-
-    const isFirstSeg = (segIdx === 0);
-    const isLastSeg  = (segIdx === wire.points.length - 2);
-
-    if (!keepStart && !keepEnd) {
-        // Entire segment covered
-        if (wire.points.length === 2) {
-            wire.points.length = 0;
-        } else if (isFirstSeg) {
-            wire.points.splice(0, 1);
-        } else if (isLastSeg) {
-            wire.points.splice(wire.points.length - 1, 1);
-        } else {
-            // Interior segment — split wire at this segment
-            const tailPts = wire.points.splice(segIdx + 1);
-            // wire keeps points[0..segIdx] (before the covered segment)
-            // tailPts = points after the covered segment
-            const newWire = new Wire({
-                points: tailPts.map(p => ({ x: p.x, y: p.y })),
-                color: wire.color || WIRE_COLOR,
-                lineWidth: wire.lineWidth || WIRE_WIDTH
-            });
-            wire.invalidate();
-            return { modified: true, newWire };
+function _tryMergeGraphs(app, wireA, wireB, affected, changed) {
+    // Forward: A's nodes → B's nodes/edges
+    for (const [nodeId, pos] of wireA.nodes) {
+        const match = wireB.nodeAt(pos, VERTEX_EPSILON);
+        if (match) {
+            const remap = wireA.absorb(wireB);
+            wireA.mergeNodes(nodeId, remap.get(match));
+            _removeMerged(app, wireB, affected, changed, wireA);
+            return true;
         }
-    } else if (keepStart && keepEnd) {
-        // Middle of segment covered: insert split points
-        const splitA = { x: sA.x + sLo * sdx, y: sA.y + sLo * sdy };
-        const splitB = { x: sA.x + sHi * sdx, y: sA.y + sHi * sdy };
-        wire.points.splice(segIdx + 1, 0, splitA, splitB);
-    } else if (keepStart) {
-        // Trim end: surviving portion is sA → trimPt
-        const snapPt = { x: sA.x + sLo * sdx, y: sA.y + sLo * sdy };
-        if (isLastSeg) {
-            // Safe — sB is the wire's last point, no adjacent segment after it
-            wire.points[segIdx + 1] = snapPt;
-        } else {
-            // sB is a corner shared with the next segment — split the wire
-            const tailPts = wire.points.splice(segIdx + 1);
-            wire.points.push(snapPt);
-            const newWire = new Wire({
-                points: tailPts.map(p => ({ x: p.x, y: p.y })),
-                color: wire.color || WIRE_COLOR,
-                lineWidth: wire.lineWidth || WIRE_WIDTH
-            });
-            wire.invalidate();
-            return { modified: true, newWire };
-        }
-    } else {
-        // Trim start: surviving portion is trimPt → sB
-        const snapPt = { x: sA.x + sHi * sdx, y: sA.y + sHi * sdy };
-        if (isFirstSeg) {
-            // Safe — sA is the wire's first point, no adjacent segment before it
-            wire.points[segIdx] = snapPt;
-        } else {
-            // sA is a corner shared with the previous segment — split the wire
-            const tailPts = wire.points.splice(segIdx);
-            tailPts[0] = snapPt;
-            const newWire = new Wire({
-                points: tailPts.map(p => ({ x: p.x, y: p.y })),
-                color: wire.color || WIRE_COLOR,
-                lineWidth: wire.lineWidth || WIRE_WIDTH
-            });
-            wire.invalidate();
-            return { modified: true, newWire };
+        const onEdge = wireB.closestEdge(pos);
+        if (onEdge && onEdge.distance < VERTEX_EPSILON) {
+            const split = wireB.splitEdge(onEdge.edgeId, pos);
+            const remap = wireA.absorb(wireB);
+            wireA.mergeNodes(nodeId, remap.get(split.newNodeId));
+            _removeMerged(app, wireB, affected, changed, wireA);
+            return true;
         }
     }
+    // Reverse: B's nodes → A's edges
+    for (const [nodeId, pos] of wireB.nodes) {
+        if (wireA.nodeAt(pos, VERTEX_EPSILON)) continue;   // handled above
+        const onEdge = wireA.closestEdge(pos);
+        if (onEdge && onEdge.distance < VERTEX_EPSILON) {
+            const split = wireA.splitEdge(onEdge.edgeId, pos);
+            const remap = wireA.absorb(wireB);
+            wireA.mergeNodes(split.newNodeId, remap.get(nodeId));
+            _removeMerged(app, wireB, affected, changed, wireA);
+            return true;
+        }
+    }
+    return false;
+}
 
-    wire.invalidate();
-    return { modified: true, newWire: null };
+function _removeMerged(app, removed, affected, changed, keeper) {
+    app._removeShapeInternal(removed);
+    affected.delete(removed);
+    changed.delete(removed);
+    if (!changed.has(keeper)) changed.add(keeper);
 }
 
 /**
- * Unified wire reconciliation.  Given one or more wires that just changed
- * (drawn, moved, dragged), performs 4 sequential passes:
+ * Unified wire reconciliation (graph model).
  *
- *   1. Overlap removal — trim collinear overlapping segments
- *   2. Endpoint merge  — concatenate wires sharing an endpoint
- *   3. Collinear collapse — remove redundant collinear midpoints
- *   4. Junction rebuild — recompute junction dots from scratch
+ * Given one or more wires that just changed (drawn, moved, dragged),
+ * performs 3 sequential passes:
+ *
+ *   1. Graph merge — absorb touching wires into one graph
+ *   2. Clean graph — deduplicate edges, remove collinear degree-2 nodes
+ *   3. Split disconnected components into separate Wire objects
  *
  * Discovers affected partner wires automatically by geometric proximity.
- * Modifies wires in place (points, junctions).  May remove wires from
- * app.shapes.
+ * Modifies wires in place (nodes, edges).  May remove wires from app.shapes.
  *
  * @param {object} app
  * @param {Wire[]} changedWires - the wires that just changed
  * @param {Set<Wire>} [skipSet] - wires to skip pairwise checks against
- *                                (e.g. other wires being moved together)
  */
 export function reconcileWires(app, changedWires, skipSet = null) {
     const changed = new Set(changedWires.filter(w => app.shapes.includes(w)));
     if (changed.size === 0) return;
 
-    // Discover affected wires (any wire whose segments are near a changed wire)
+    // Discover affected wires (any wire whose nodes/edges are near a changed wire)
     const affected = new Set(changed);
     for (const cw of changed) {
         for (const other of app.shapes) {
             if (other.type !== 'wire' || affected.has(other)) continue;
             if (skipSet && skipSet.has(other)) continue;
-            // Check if any endpoint or segment of cw is near other
-            for (const pt of cw.points) {
-                if (other.distanceTo(pt) < VERTEX_EPSILON * 2) {
-                    affected.add(other);
-                    break;
+            // Forward: changed wire's nodes near other wire's edges
+            let found = false;
+            for (const pos of cw.nodes.values()) {
+                if (other.distanceTo(pos) < VERTEX_EPSILON * 2) {
+                    found = true; break;
                 }
             }
+            // Reverse: other wire's nodes near changed wire's edges
+            if (!found) {
+                for (const pos of other.nodes.values()) {
+                    if (cw.distanceTo(pos) < VERTEX_EPSILON * 2) {
+                        found = true; break;
+                    }
+                }
+            }
+            if (found) affected.add(other);
         }
     }
 
-    // ── Pass 1: Overlap removal ──
-    // For each changed wire, check its segments against every affected
-    // partner for collinear overlap.  Trim the covered portion from the
-    // changed wire (or the shorter wire if both changed).
+    // ── Pass 1: Merge touching graphs ──
     let stable = false;
     let iterations = 0;
-    while (!stable && iterations < 10) {
+    while (!stable && iterations < 50) {
         stable = true;
         iterations++;
-        for (const cw of [...changed]) {
-            if (!app.shapes.includes(cw) || cw.points.length < 2) continue;
-            for (const other of [...affected]) {
-                if (other === cw || !app.shapes.includes(other) || other.points.length < 2) continue;
-                // Check each segment of cw against each segment of other
-                for (let si = 0; si < cw.points.length - 1; si++) {
-                    const sA = cw.points[si], sB = cw.points[si + 1];
-                    if (Math.hypot(sB.x - sA.x, sB.y - sA.y) < 1e-9) continue;
-                    for (let ti = 0; ti < other.points.length - 1; ti++) {
-                        const tA = other.points[ti], tB = other.points[ti + 1];
-                        if (Math.hypot(tB.x - tA.x, tB.y - tA.y) < 1e-9) continue;
-                        if (!segmentsCollinear({ a: sA, b: sB }, { a: tA, b: tB })) continue;
-                        const ov = collinearOverlap1D(sA, sB, tA, tB);
-                        if (!ov) continue;
-                        // Trim from the changed wire (may split it)
-                        const result = trimOverlap(app, cw, si, other, ti);
-                        if (result && result.modified) {
-                            if (result.newWire) {
-                                app._addShapeInternal(result.newWire);
-                                affected.add(result.newWire);
-                                changed.add(result.newWire);
-                            }
-                            stable = false;
-                            break; // cw.points changed, restart inner loop
-                        }
-                    }
-                    if (!stable) break;
+        for (const wireA of [...affected]) {
+            if (!app.shapes.includes(wireA)) continue;
+            for (const wireB of [...affected]) {
+                if (wireB === wireA || !app.shapes.includes(wireB)) continue;
+                if (_tryMergeGraphs(app, wireA, wireB, affected, changed)) {
+                    stable = false;
+                    break;
                 }
-                if (!stable) break;
             }
             if (!stable) break;
         }
-        // Remove degenerate wires
-        for (const w of [...affected]) {
-            if (app.shapes.includes(w) && w.points.length < 2) {
-                app._removeShapeInternal(w);
-            }
-        }
-    }
-    // ── Pass 2: Endpoint merge ──
-    // If two wires share an endpoint and no third wire connects there,
-    // concatenate them into one wire.
-    let mergePass = true;
-    while (mergePass) {
-        mergePass = false;
-        for (const cw of [...affected]) {
-            if (!app.shapes.includes(cw) || cw.points.length < 2) continue;
-            const endpoints = [
-                { pt: cw.points[0], end: 'start' },
-                { pt: cw.points[cw.points.length - 1], end: 'end' }
-            ];
-            for (const { pt, end } of endpoints) {
-                for (const other of [...app.shapes]) {
-                    if (other === cw || other.type !== 'wire' || !app.shapes.includes(other)) continue;
-                    const otherEnd = other.endpointAt(pt, VERTEX_EPSILON);
-                    if (!otherEnd) continue;
-                    if (isTJunctionPoint(app, pt, cw, other)) continue;
-
-                    // Check if both wires share BOTH endpoints (fully overlapping)
-                    const oppPt = end === 'start'
-                        ? cw.points[cw.points.length - 1]
-                        : cw.points[0];
-                    if (other.endpointAt(oppPt, VERTEX_EPSILON)) {
-                        // Fully overlapping — absorb the shorter one
-                        const cwLen = cw.points.reduce((s, p, i) => i === 0 ? 0 : s + Math.hypot(p.x - cw.points[i-1].x, p.y - cw.points[i-1].y), 0);
-                        const otherLen = other.points.reduce((s, p, i) => i === 0 ? 0 : s + Math.hypot(p.x - other.points[i-1].x, p.y - other.points[i-1].y), 0);
-                        if (otherLen <= cwLen) {
-                            app._removeShapeInternal(other);
-                        } else {
-                            app._removeShapeInternal(cw);
-                        }
-                        mergePass = true;
-                        break;
-                    }
-
-                    // Transfer pin connections from other to cw
-                    const otherPts = other.points.map(p => ({ ...p }));
-                    if (end === otherEnd) otherPts.reverse();
-                    // Determine which connection endpoint comes from other
-                    const otherConn = other.connections || {};
-                    let inheritConn = null;
-                    if (end === otherEnd) {
-                        // other was reversed → its 'end' connection is now at the far end
-                        inheritConn = otherEnd === 'start' ? otherConn.end : otherConn.start;
-                    } else {
-                        inheritConn = otherEnd === 'start' ? otherConn.end : otherConn.start;
-                    }
-
-                    // Merge points, dropping the seam vertex if collinear
-                    if (end === 'start') {
-                        cw.points = mergeWirePoints(app, otherPts, cw.points.slice(1), cw, other);
-                        if (inheritConn) cw.connections.start = inheritConn;
-                    } else {
-                        cw.points = mergeWirePoints(app, cw.points, otherPts.slice(1), cw, other);
-                        if (inheritConn) cw.connections.end = inheritConn;
-                    }
-                    cw.invalidate();
-                    app._removeShapeInternal(other);
-                    affected.add(cw);
-                    mergePass = true;
-                    break;
-                }
-                if (mergePass) break;
-            }
-            if (mergePass) break;
-        }
     }
 
-    // ── Pass 3: Collinear collapse ──
+    // ── Pass 2: Clean graphs ──
     for (const w of affected) {
-        if (!app.shapes.includes(w) || w.points.length < 2) continue;
-        collapseRedundantWirePoints(app, w);
-        // Remove degenerate wires created by collapse
-        if (w.points.length < 2) {
-            app._removeShapeInternal(w);
-        }
+        if (!app.shapes.includes(w)) continue;
+        w.cleanGraph();
+        if (w.edges.size === 0) app._removeShapeInternal(w);
     }
-    // ── Pass 4: Junction rebuild ──
-    // Clear and recompute junctions for all affected wires still alive.
-    // A vertex gets a junction dot when another wire's endpoint touches it
-    // at an interior position (not at the other wire's own endpoint-to-endpoint
-    // connection, which is a merge, not a T-junction).
-    rebuildJunctions(app);
+
+    // ── Pass 3: Split disconnected components ──
+    for (const w of [...affected]) {
+        if (!app.shapes.includes(w)) continue;
+        const comps = w.connectedComponents();
+        if (comps.length <= 1) continue;
+        // Keep the largest component in the original wire
+        comps.sort((a, b) => b.size - a.size);
+        const keepSet = comps[0];
+        for (let i = 1; i < comps.length; i++) {
+            const sub = w.extractSubgraph(comps[i]);
+            if (sub.edges.size > 0) {
+                app._addShapeInternal(sub);
+                changed.add(sub);
+            }
+        }
+        // Trim original to keep only the largest component
+        for (const nid of [...w.nodes.keys()]) {
+            if (!keepSet.has(nid)) w.removeNode(nid);
+        }
+        w.invalidate();
+        if (w.edges.size === 0) app._removeShapeInternal(w);
+    }
 }
 
 /**
- * Rebuild junction dots for all wires from scratch.
- * A vertex gets a junction if another wire has an endpoint at the same
- * position AND that vertex is interior to this wire (not its own endpoint),
- * OR if three or more wire endpoints meet at the same point.
+ * Legacy stub — with graph model, junction dots are computed from node
+ * degree automatically.  This function is a no-op.
  */
 export function rebuildJunctions(app) {
-    // Collect all wire endpoints
-    const wires = app.shapes.filter(s => s.type === 'wire' && s.points.length >= 2);
-
-    // Build a spatial map of endpoint positions → list of wires
-    const endpointMap = new Map(); // "x,y" → [{wire, end}]
-    for (const w of wires) {
-        for (const end of ['start', 'end']) {
-            const pt = end === 'start' ? w.points[0] : w.points[w.points.length - 1];
-            const key = `${Math.round(pt.x * 1000)},${Math.round(pt.y * 1000)}`;
-            if (!endpointMap.has(key)) endpointMap.set(key, []);
-            endpointMap.get(key).push({ wire: w, end, pt });
-        }
-    }
-
-    // Clear all junctions
-    for (const w of wires) {
-        w.junctions = new Set();
-    }
-
-    // For each wire endpoint, check if it touches another wire's interior vertex
-    // or if 3+ wire endpoints meet (3-way junction)
-    for (const entries of endpointMap.values()) {
-        if (entries.length < 1) continue;
-        const refPt = entries[0].pt;
-
-        // Check: does this endpoint land on another wire's interior?
-        for (const w of wires) {
-            // Skip wires whose own endpoint is at this position
-            const wStart = w.points[0], wEnd = w.points[w.points.length - 1];
-            const atStart = Math.hypot(refPt.x - wStart.x, refPt.y - wStart.y) < VERTEX_EPSILON;
-            const atEnd = Math.hypot(refPt.x - wEnd.x, refPt.y - wEnd.y) < VERTEX_EPSILON;
-            if (atStart && atEnd) continue; // degenerate wire
-
-            // Check interior vertices of w
-            for (let i = 0; i < w.points.length; i++) {
-                const wp = w.points[i];
-                if (Math.hypot(refPt.x - wp.x, refPt.y - wp.y) >= VERTEX_EPSILON) continue;
-                // Skip if this is w's own endpoint and only its own endpoints are here
-                if ((i === 0 || i === w.points.length - 1) && entries.every(e => e.wire === w)) continue;
-                // This wire has a vertex at the endpoint position
-                // Check if any other wire's endpoint is here
-                const hasOtherEndpoint = entries.some(e => e.wire !== w);
-                if (hasOtherEndpoint) {
-                    w.junctions.add(i);
-                }
-            }
-        }
-
-        // 3+ wire endpoints at same point → junction on the wire that has
-        // an interior split vertex there
-        if (entries.length >= 3) {
-            // At least 3 wire endpoints meet: find wires with interior vertex here
-            for (const w of wires) {
-                for (let i = 1; i < w.points.length - 1; i++) {
-                    if (Math.hypot(refPt.x - w.points[i].x, refPt.y - w.points[i].y) < VERTEX_EPSILON) {
-                        w.junctions.add(i);
-                    }
-                }
-            }
-        }
-    }
-
-    // Also handle T-junctions where a wire endpoint is on another wire's
-    // segment (not at an existing vertex) — need to split the other wire first
-    for (const entries of endpointMap.values()) {
-        const refPt = entries[0].pt;
-        const endpointWires = new Set(entries.map(e => e.wire));
-
-        for (const w of wires) {
-            if (!app.shapes.includes(w) || w.points.length < 2) continue;
-            if (endpointWires.has(w)) continue; // skip if w's own endpoint is here
-
-            // Check if refPt is near an interior vertex (already handled above)
-            const vertexIdx = w.interiorVertexAt(refPt, VERTEX_EPSILON);
-            if (vertexIdx >= 0) continue; // already added junction above
-
-            // Check if refPt is on a segment of w
-            const onSeg = w.pointOnSegment(refPt, VERTEX_EPSILON);
-            if (!onSeg) continue;
-
-            // Split w at this point and add junction
-            const insertIdx = w.splitAt(refPt);
-            w.junctions.add(insertIdx);
-        }
-    }
-
-    // Invalidate all affected wires
-    for (const w of wires) {
-        if (app.shapes.includes(w)) w.invalidate();
-    }
+    // No-op: junction dots are derived from node degree in _updateElement
 }
 
 /**
@@ -1594,37 +1184,35 @@ export function computeMovingSegmentSnaps(threshold, edges, axisLock) {
  * Delegates to computeMovingSegmentSnaps.
  */
 export function computeAnchorCollinearSnap(app, wire, anchorId, anchorPos) {
-    const match = anchorId.match(/^p(\d+)$/);
-    if (!match) return { anchorPos, guides: [] };
+    if (!wire.nodes.has(anchorId)) return { anchorPos, guides: [] };
 
-    const idx = parseInt(match[1]);
-    const pts = wire.points;
     const threshold = SNAP_SCREEN_PX / app.viewport.scale;
     const edges = [];
+    const neighbors = wire.incidentEdges(anchorId);
 
-    // Interior point: collinear across the bend (prev ↔ next)
-    if (idx > 0 && idx < pts.length - 1) {
-        edges.push({ moving: anchorPos, fixed: pts[idx - 1], beyond: pts[idx + 1] });
-        // Extended: collinear with segment beyond each neighbor
-        // (only for interior points — endpoint cases already cover this)
-        if (idx + 2 < pts.length) {
-            edges.push({ moving: anchorPos, fixed: pts[idx + 1], beyond: pts[idx + 2] });
+    // For each incident edge, add an H/V snap edge (moving ↔ neighbor)
+    for (const { otherNode } of neighbors) {
+        const npos = wire.nodes.get(otherNode);
+        if (!npos) continue;
+        edges.push({ moving: anchorPos, fixed: npos });
+
+        // Extended collinear: check across the bend through the neighbor
+        const beyondEdges = wire.incidentEdges(otherNode);
+        for (const { otherNode: beyondNode } of beyondEdges) {
+            if (beyondNode === anchorId) continue;
+            const bpos = wire.nodes.get(beyondNode);
+            if (bpos) edges.push({ moving: anchorPos, fixed: npos, beyond: bpos });
         }
-        if (idx - 2 >= 0) {
-            edges.push({ moving: anchorPos, fixed: pts[idx - 1], beyond: pts[idx - 2] });
+    }
+
+    // Collinear across the node (if degree 2, check through both neighbors)
+    if (neighbors.length === 2) {
+        const p1 = wire.nodes.get(neighbors[0].otherNode);
+        const p2 = wire.nodes.get(neighbors[1].otherNode);
+        if (p1 && p2) {
+            edges.push({ moving: anchorPos, fixed: p1, beyond: p2 });
         }
     }
-    // Endpoint 0: collinear with first two neighbors
-    if (idx === 0 && pts.length >= 3) {
-        edges.push({ moving: anchorPos, fixed: pts[1], beyond: pts[2] });
-    }
-    // Last endpoint: collinear with last two neighbors
-    if (idx === pts.length - 1 && pts.length >= 3) {
-        edges.push({ moving: anchorPos, fixed: pts[pts.length - 2], beyond: pts[pts.length - 3] });
-    }
-    // H/V with immediate neighbors
-    if (idx > 0) edges.push({ moving: anchorPos, fixed: pts[idx - 1] });
-    if (idx < pts.length - 1) edges.push({ moving: anchorPos, fixed: pts[idx + 1] });
 
     const result = computeMovingSegmentSnaps(threshold, edges);
     return {
@@ -1635,21 +1223,40 @@ export function computeAnchorCollinearSnap(app, wire, anchorId, anchorPos) {
 
 /**
  * Compute snap position, pin/wire highlight, and guide lines for a wire
- * segment drag.  Collinear and H/V logic delegates to
+ * segment (edge) drag.  Collinear and H/V logic delegates to
  * computeMovingSegmentSnaps.
+ *
+ * @param {object} app
+ * @param {Wire}   wire         - the wire being dragged
+ * @param {string} dragEdgeId   - the edge being dragged
+ * @param {object} origState    - captured state before drag {nodes, edges, …}
+ * @param {{x,y}}  target       - raw cursor world position
+ * @param {string} dragSegAxis  - 'horizontal'|'vertical'|null axis lock
+ * @param {Set|null} excludeWires - wires to exclude from snap detection
  */
-export function computeSegmentDragSnap(app, wire, segIdx, origState, target, dragSegAxis, excludeWires = null) {
+export function computeSegmentDragSnap(app, wire, dragEdgeId, origState, target, dragSegAxis, excludeWires = null) {
     const snappedTarget = app.viewport.getSnappedPosition(target);
     const gridSize = app.viewport.gridSize || 1.0;
-    const origPtA = origState.points[segIdx];
-    const origPtB = origState.points[segIdx + 1];
-    const segOffX = origPtB.x - origPtA.x;
-    const segOffY = origPtB.y - origPtA.y;
+    const origEdge = origState.edges[dragEdgeId];
+    const origA = origState.nodes[origEdge.from];
+    const origB = origState.nodes[origEdge.to];
+    const segOffX = origB.x - origA.x;
+    const segOffY = origB.y - origA.y;
 
-    // Off-grid neighbor snap lines
+    // Off-grid neighbor snap lines (fixed neighbors of the dragged edge)
     const neighbors = [];
-    if (segIdx > 0) neighbors.push(origState.points[segIdx - 1]);
-    if (segIdx + 2 < origState.points.length) neighbors.push(origState.points[segIdx + 2]);
+    for (const { otherNode } of wire.incidentEdges(origEdge.from)) {
+        if (otherNode !== origEdge.to) {
+            const p = wire.nodes.get(otherNode);
+            if (p) neighbors.push(p);
+        }
+    }
+    for (const { otherNode } of wire.incidentEdges(origEdge.to)) {
+        if (otherNode !== origEdge.from) {
+            const p = wire.nodes.get(otherNode);
+            if (p) neighbors.push(p);
+        }
+    }
     applyOffGridNeighborSnap(target, snappedTarget, neighbors, gridSize);
 
     // Pin snap — check both endpoints, pick closest
@@ -1675,8 +1282,7 @@ export function computeSegmentDragSnap(app, wire, segIdx, origState, target, dra
         snappedTarget.y = target.y + offY;
         highlight = bestPin;
     } else {
-        // Wire junction highlight (exclude T-junction-linked wires that move
-        // along with the drag — they are not new connections)
+        // Wire junction highlight — check endpoint proximity first
         const wireExclude = excludeWires ? new Set([wire, ...excludeWires]) : new Set([wire]);
         const futureA = { x: snappedTarget.x, y: snappedTarget.y };
         const futureB = { x: snappedTarget.x + segOffX, y: snappedTarget.y + segOffY };
@@ -1684,17 +1290,37 @@ export function computeSegmentDragSnap(app, wire, segIdx, origState, target, dra
             const nw = findNearbyWirePoint(app, ep, WIRE_SNAP_TOL, wireExclude);
             if (nw) { highlight = nw; break; }
         }
+        // Also check if any other wire's node falls on the dragged edge body
+        if (!highlight) {
+            for (const other of app.shapes) {
+                if (other.type !== 'wire' || wireExclude.has(other)) continue;
+                for (const [, npos] of other.nodes) {
+                    const d = distanceToSegment(npos, futureA, futureB);
+                    if (d < WIRE_SNAP_TOL) {
+                        highlight = { x: npos.x, y: npos.y, type: 'endpoint' };
+                        break;
+                    }
+                }
+                if (highlight) break;
+            }
+        }
     }
 
     // Collinear and H/V via unified function
     const futureA = { x: snappedTarget.x, y: snappedTarget.y };
     const futureB = { x: snappedTarget.x + segOffX, y: snappedTarget.y + segOffY };
     const snapEdges = [];
-    if (segIdx > 0) {
-        snapEdges.push({ moving: futureA, fixed: wire.points[segIdx - 1], beyond: futureB });
+    // Neighbors of the from-node (excluding the dragged edge's to-node)
+    for (const { otherNode } of wire.incidentEdges(origEdge.from)) {
+        if (otherNode === origEdge.to) continue;
+        const p = wire.nodes.get(otherNode);
+        if (p) snapEdges.push({ moving: futureA, fixed: p, beyond: futureB });
     }
-    if (segIdx + 2 < wire.points.length) {
-        snapEdges.push({ moving: futureB, fixed: wire.points[segIdx + 2], beyond: futureA });
+    // Neighbors of the to-node (excluding the dragged edge's from-node)
+    for (const { otherNode } of wire.incidentEdges(origEdge.to)) {
+        if (otherNode === origEdge.from) continue;
+        const p = wire.nodes.get(otherNode);
+        if (p) snapEdges.push({ moving: futureB, fixed: p, beyond: futureA });
     }
     const threshold = SNAP_SCREEN_PX / app.viewport.scale;
     const snapResult = computeMovingSegmentSnaps(threshold, snapEdges, dragSegAxis);
@@ -1705,9 +1331,8 @@ export function computeSegmentDragSnap(app, wire, segIdx, origState, target, dra
 }
 
 /**
- * Compute H/V snap adjustment and guide lines for sticky wire segments
- * connected to moving components.  Combines the nudge and guide logic
- * into a single call via computeMovingSegmentSnaps.
+ * Compute H/V snap adjustment and guide lines for sticky wire nodes
+ * connected to moving components.
  *
  * @param {object} app
  * @param {Set<string>} movingCompIds
@@ -1716,8 +1341,6 @@ export function computeSegmentDragSnap(app, wire, segIdx, origState, target, dra
  * @returns {{ adjustX: number, adjustY: number, guides: Array<[{x,y},{x,y}]> }}
  */
 export function computeStickyWireSnaps(app, movingCompIds, proposedDx, proposedDy) {
-    // Threshold must be at least half-grid so the nudge can bridge the gap
-    // between a grid-snapped component position and off-grid pin alignment.
     const screenThreshold = SNAP_SCREEN_PX / app.viewport.scale;
     const halfGrid = (app.viewport.gridSize || 1.0) * 0.5;
     const threshold = Math.max(screenThreshold, halfGrid);
@@ -1725,24 +1348,25 @@ export function computeStickyWireSnaps(app, movingCompIds, proposedDx, proposedD
 
     for (const shape of app.shapes) {
         if (shape.type !== 'wire') continue;
-        const conn = shape.connections;
-        if (!conn.start && !conn.end) continue;
-        const startComp = conn.start && movingCompIds.has(conn.start.componentId);
-        const endComp = conn.end && movingCompIds.has(conn.end.componentId);
-        if (!startComp && !endComp) continue;
+        if (shape.pinConnections.size === 0) continue;
 
-        if (startComp && shape.points.length >= 2) {
-            edges.push({
-                moving: { x: shape.points[0].x + proposedDx, y: shape.points[0].y + proposedDy },
-                fixed: shape.points[1]
-            });
-        }
-        if (endComp && shape.points.length >= 2) {
-            edges.push({
-                moving: { x: shape.points[shape.points.length - 1].x + proposedDx,
-                           y: shape.points[shape.points.length - 1].y + proposedDy },
-                fixed: shape.points[shape.points.length - 2]
-            });
+        for (const [nodeId, conn] of shape.pinConnections) {
+            if (!movingCompIds.has(conn.componentId)) continue;
+            const node = shape.nodes.get(nodeId);
+            if (!node) continue;
+            // Find a non-moving neighbor node for the snap reference
+            const neighbors = shape.incidentEdges(nodeId);
+            for (const { otherNode } of neighbors) {
+                const npos = shape.nodes.get(otherNode);
+                if (!npos) continue;
+                // Only use non-moving neighbors as fixed reference
+                const otherConn = shape.pinConnections.get(otherNode);
+                if (otherConn && movingCompIds.has(otherConn.componentId)) continue;
+                edges.push({
+                    moving: { x: node.x + proposedDx, y: node.y + proposedDy },
+                    fixed: npos
+                });
+            }
         }
     }
 

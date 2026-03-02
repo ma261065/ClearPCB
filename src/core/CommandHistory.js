@@ -274,32 +274,22 @@ export class MoveShapesCommand extends Command {
     }
 
     /**
-     * Update wire endpoints connected to component pins after move/undo.
+     * Update wire nodes connected to component pins after move/undo.
      */
     _updateStickyWires() {
         for (const shape of this.app.shapes) {
             if (shape.type !== 'wire') continue;
-            const conn = shape.connections;
-            if (conn.start) {
-                const comp = this.app.components.find(c => c.id === conn.start.componentId);
+            for (const [nodeId, conn] of shape.pinConnections) {
+                const comp = this.app.components.find(c => c.id === conn.componentId);
                 if (comp) {
-                    const pos = comp.getPinPosition(conn.start.pinNumber);
+                    const pos = comp.getPinPosition(conn.pinNumber);
                     if (pos) {
-                        shape.points[0].x = pos.x;
-                        shape.points[0].y = pos.y;
-                        shape.invalidate();
-                    }
-                }
-            }
-            if (conn.end) {
-                const comp = this.app.components.find(c => c.id === conn.end.componentId);
-                if (comp) {
-                    const pos = comp.getPinPosition(conn.end.pinNumber);
-                    if (pos) {
-                        const last = shape.points[shape.points.length - 1];
-                        last.x = pos.x;
-                        last.y = pos.y;
-                        shape.invalidate();
+                        const node = shape.nodes.get(nodeId);
+                        if (node) {
+                            node.x = pos.x;
+                            node.y = pos.y;
+                            shape.invalidate();
+                        }
                     }
                 }
             }

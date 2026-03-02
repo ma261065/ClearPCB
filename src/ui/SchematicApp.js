@@ -100,7 +100,7 @@ class SchematicApp {
         this.dragAnchorId = null;
         this.dragShape = null;
         this.dragWireAnchorOriginal = null;
-        this.dragWireSegIndex = -1;  // For wire-segment drag: which segment
+        this.dragEdgeId = null;  // For wire-segment drag: which edge
         this.dragWireStates = null;  // For wire-segment drag: before-states of all affected wires
         this.skipClickSelection = false;
 

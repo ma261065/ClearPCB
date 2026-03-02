@@ -33,6 +33,7 @@ const shapeRegistry = {
 const SHORT_KEYS = {
     c: 'color', l: 'layer', lw: 'lineWidth', v: 'visible', lk: 'locked',
     pts: 'points', cn: 'connections', n: 'net', jn: 'junctions',
+    nd: 'graphNodes', ed: 'graphEdges', pc: 'pinConnections',
     r: 'radius', w: 'width', h: 'height', cr: 'cornerRadius',
     f: 'fill', fc: 'fillColor', fa: 'fillAlpha', cl: 'closed',
     sp: 'startPoint', ep: 'endPoint', bp: 'bulgePoint',

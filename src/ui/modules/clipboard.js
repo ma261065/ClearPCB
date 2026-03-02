@@ -311,7 +311,17 @@ export function cancelPaste(app) {
 function offsetShapeData(data, tx, ty) {
     const type = data.type;
 
-    if (type === 'line' || type === 'polygon' || type === 'wire') {
+    if (type === 'wire' && data.nd) {
+        // Graph-based wire: nd is {nodeId: [x, y], ...}
+        const nodeIds = Object.keys(data.nd);
+        if (nodeIds.length > 0) {
+            let sx = 0, sy = 0;
+            for (const nid of nodeIds) { sx += data.nd[nid][0]; sy += data.nd[nid][1]; }
+            const dx = tx - sx / nodeIds.length;
+            const dy = ty - sy / nodeIds.length;
+            for (const nid of nodeIds) { data.nd[nid][0] += dx; data.nd[nid][1] += dy; }
+        }
+    } else if (type === 'line' || type === 'polygon' || (type === 'wire' && data.pts)) {
         // pts is a flat array [x0,y0,x1,y1,...]
         if (data.pts && data.pts.length >= 2) {
             let sx = 0, sy = 0, n = data.pts.length / 2;
