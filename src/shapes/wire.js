@@ -465,7 +465,7 @@ export class Wire extends Shape {
                     let t = ((pos.x - a.x) * dx + (pos.y - a.y) * dy) / lenSq;
                     if (t <= T_ENDPOINT_MARGIN || t >= 1 - T_ENDPOINT_MARGIN) continue;  // near endpoints → handled by 0a
                     const px = a.x + t * dx, py = a.y + t * dy;
-                    if (Math.hypot(pos.x - px, pos.y - py) < COLLINEAR_EPSILON) {
+                    if (Math.hypot(pos.x - px, pos.y - py) < NODE_SNAP_EPSILON) {
                         const { newNodeId } = this.splitEdge(eid, pos);
                         this.mergeNodes(nid, newNodeId);
                         changed = true; break;

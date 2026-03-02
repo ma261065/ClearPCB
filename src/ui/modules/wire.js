@@ -167,12 +167,20 @@ export function resolveWireSnapPosition(app, worldPos, options = {}) {
                 snapType: 'endpoint',
             };
         } else {
-            // Segment T-junction: constrain wire's axis, grid-snap the free axis
-            const gridSnapped = app.viewport.getSnappedPosition(nearWire);
+            // Segment T-junction snap.
+            // For axis-aligned (H/V) segments, constrain the wire's axis
+            // and grid-snap the free axis.  For angled segments, snap to
+            // the nearest point along the segment direction so we stay
+            // exactly on the line.
             if (nearWire.wireDir === 'horizontal') {
+                const gridSnapped = app.viewport.getSnappedPosition(nearWire);
                 return { x: gridSnapped.x, y: nearWire.y, snapPin: null, snapType: 'segment', wireDir: 'horizontal' };
-            } else {
+            } else if (nearWire.wireDir === 'vertical') {
+                const gridSnapped = app.viewport.getSnappedPosition(nearWire);
                 return { x: nearWire.x, y: gridSnapped.y, snapPin: null, snapType: 'segment', wireDir: 'vertical' };
+            } else {
+                // Angled segment: use the on-segment point directly
+                return { x: nearWire.x, y: nearWire.y, snapPin: null, snapType: 'segment', wireDir: nearWire.wireDir };
             }
         }
     }
@@ -681,6 +689,17 @@ export function updateSnapHighlight(app, target) {
 // --- Wire junction detection ---
 
 /**
+ * Classify a segment direction as horizontal, vertical, or angled.
+ * H/V threshold: the minor axis must be < 5% of the major axis.
+ */
+function _classifyDir(dx, dy) {
+    const ax = Math.abs(dx), ay = Math.abs(dy);
+    const ratio = Math.min(ax, ay) / Math.max(ax, ay);
+    if (ratio < 0.05) return ax >= ay ? 'horizontal' : 'vertical';
+    return 'angled';
+}
+
+/**
  * Find the nearest point on another wire (node or edge interior)
  * that is within tolerance of worldPos.  Returns { x, y, type } or null.
  * type is 'endpoint' (snap to node) or 'segment' (T-junction on edge).
@@ -740,7 +759,7 @@ export function findNearbyWirePoint(app, worldPos, tolerance, excludeWires = nul
                     bestEdge = {
                         x: px, y: py,
                         type: 'segment',
-                        wireDir: Math.abs(dx) >= Math.abs(dy) ? 'horizontal' : 'vertical'
+                        wireDir: _classifyDir(dx, dy)
                     };
                 }
             }
@@ -762,7 +781,7 @@ export function findNearbyWirePoint(app, worldPos, tolerance, excludeWires = nul
                 bestEdge = {
                     x: px, y: py,
                     type: 'segment',
-                    wireDir: Math.abs(dx) >= Math.abs(dy) ? 'horizontal' : 'vertical'
+                    wireDir: _classifyDir(dx, dy)
                 };
             }
         }
