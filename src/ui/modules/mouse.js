@@ -853,22 +853,29 @@ export function bindMouseEvents(app) {
                 if (edge) {
                     const nodesToMove = new Set([edge.from, edge.to]);
                     // Expand to collinear neighbors: if an adjacent edge is collinear
-                    // with the dragged edge, include its other endpoint too
-                    const expandCollinear = (nodeId) => {
-                        for (const inc of wire.incidentEdges(nodeId)) {
-                            if (inc.edgeId === dragEdgeId || nodesToMove.has(inc.otherNode)) continue;
-                            const a = origState.nodes[inc.otherNode];
-                            const b = origState.nodes[nodeId];
-                            const fromOrig = origState.nodes[edge.from];
-                            const toOrig = origState.nodes[edge.to];
-                            if (!a || !b || !fromOrig || !toOrig) continue;
-                            if (pointsCollinear(a, b, fromOrig) && pointsCollinear(a, b, toOrig)) {
-                                nodesToMove.add(inc.otherNode);
+                    // with the dragged edge, include its other endpoint too.
+                    // Iterate until stable so chains of collinear segments are
+                    // fully collected (e.g. E-shape with 4+ horizontal tines).
+                    const fromOrig = origState.nodes[edge.from];
+                    const toOrig = origState.nodes[edge.to];
+                    if (fromOrig && toOrig) {
+                        let grew = true;
+                        while (grew) {
+                            grew = false;
+                            for (const nodeId of [...nodesToMove]) {
+                                for (const inc of wire.incidentEdges(nodeId)) {
+                                    if (inc.edgeId === dragEdgeId || nodesToMove.has(inc.otherNode)) continue;
+                                    const a = origState.nodes[inc.otherNode];
+                                    const b = origState.nodes[nodeId];
+                                    if (!a || !b) continue;
+                                    if (pointsCollinear(a, b, fromOrig) && pointsCollinear(a, b, toOrig)) {
+                                        nodesToMove.add(inc.otherNode);
+                                        grew = true;
+                                    }
+                                }
                             }
                         }
-                    };
-                    expandCollinear(edge.from);
-                    expandCollinear(edge.to);
+                    }
 
                     // Don't move pin-connected nodes (they were already split on drag start)
                     for (const nid of nodesToMove) {
