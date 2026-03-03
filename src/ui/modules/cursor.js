@@ -44,6 +44,10 @@ export function getToolIconPath(tool) {
             return 'M 4 0 L 8 3 L 6 8 L 2 8 L 0 3 Z';
         case 'text':
             return 'M 1 1 H 7 M 4 1 V 7';
+        case 'netlabel':
+            return 'M 0 4 L 2 1 H 8 V 7 H 2 Z';
+        case 'noconnect':
+            return 'M 1 1 L 7 7 M 7 1 L 1 7';
         case 'component':
             return 'M 1 1 H 7 V 7 H 1 Z M 4 2 V 6 M 2 4 H 6';
         default:

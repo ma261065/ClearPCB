@@ -10,7 +10,7 @@ const SVG_NS = 'http://www.w3.org/2000/svg';
  * @param {import('../../shapes/text.js').Text} shape - Text shape to edit.
  */
 export function startTextEdit(app, shape) {
-    if (!shape || shape.type !== 'text') return;
+    if (!shape || !shape.supportsInlineEdit) return;
     if (shape.locked) return;
 
     const activeEl = document.activeElement;
@@ -257,14 +257,17 @@ export function updateTextEditOverlay(app) {
     }
 
     const shape = state.shape;
-    const el = shape.element;
+    const el = shape.getTextElement?.() || shape.element;
     if (!el) {
         state.overlayGroup.style.display = 'none';
         return;
     }
 
-    const originX = Number.isFinite(shape.x) ? shape.x : 0;
-    const originY = Number.isFinite(shape.y) ? shape.y : 0;
+    // For shapes with a text element inside a group (e.g. NetLabel),
+    // use the shape's textEditOrigin if available, otherwise shape.x/y.
+    const editOrigin = shape.getTextEditOrigin?.() || { x: shape.x, y: shape.y };
+    const originX = Number.isFinite(editOrigin.x) ? editOrigin.x : 0;
+    const originY = Number.isFinite(editOrigin.y) ? editOrigin.y : 0;
     const nudgeX = state.overlayOffset?.x || 0;
     const nudgeY = state.overlayOffset?.y || 0;
     state.overlayGroup.setAttribute('transform', `translate(${originX + nudgeX} ${originY + nudgeY})`);
@@ -336,8 +339,9 @@ export function nudgeTextEditOverlay(app, dx, dy) {
     const nextX = (state.overlayOffset?.x || 0) + dx;
     const nextY = (state.overlayOffset?.y || 0) + dy;
     state.overlayOffset = { x: nextX, y: nextY };
-    const originX = Number.isFinite(state.shape?.x) ? state.shape.x : 0;
-    const originY = Number.isFinite(state.shape?.y) ? state.shape.y : 0;
+    const editOrigin = state.shape?.getTextEditOrigin?.() || { x: state.shape?.x, y: state.shape?.y };
+    const originX = Number.isFinite(editOrigin.x) ? editOrigin.x : 0;
+    const originY = Number.isFinite(editOrigin.y) ? editOrigin.y : 0;
     state.overlayGroup.setAttribute('transform', `translate(${originX + nextX} ${originY + nextY})`);
 }
 
@@ -349,10 +353,10 @@ export function nudgeTextEditOverlay(app, dx, dy) {
  */
 export function setTextCaretFromScreen(app, screenPos) {
     const state = app.textEdit;
-    if (!state || !state.shape || !state.shape.element) return;
+    if (!state || !state.shape) return;
 
-    const el = state.shape.element;
-    if (typeof el.getCharNumAtPosition !== 'function') {
+    const el = state.shape.getTextElement?.() || state.shape.element;
+    if (!el || typeof el.getCharNumAtPosition !== 'function') {
         state.caretIndex = (state.shape.text || '').length;
         updateTextEditOverlay(app);
         return;

@@ -1,7 +1,8 @@
 import { MoveShapesCommand, ModifyShapeCommand, BatchCommand } from '../../core/CommandHistory.js';
-import { updateStickyWires, reconcileWiresWithUndo, updateSnapHighlight, resolveWireSnapPosition, renderGuideLines, computeAnchorCollinearSnap, computeSegmentDragSnap, computeStickyWireSnaps, applyOffGridNeighborSnap, collapseRedundantWirePoints, buildCollinearChain, SNAP_SCREEN_PX, COLLINEAR_EPSILON, VERTEX_EPSILON, PIN_SNAP_TOL } from './wire.js';
+import { updateStickyWires, reconcileWiresWithUndo, updateSnapHighlight, resolveWireSnapPosition, refreshNoConnectConnection, renderGuideLines, computeAnchorCollinearSnap, computeSegmentDragSnap, computeStickyWireSnaps, applyOffGridNeighborSnap, collapseRedundantWirePoints, buildCollinearChain, SNAP_SCREEN_PX, COLLINEAR_EPSILON, VERTEX_EPSILON, PIN_SNAP_TOL } from './wire.js';
 import { clearDragState, commitAnchorDrag, commitSegmentDrag } from './drag.js';
 import { detectTJunction, showAnchorContextMenu, showSegmentContextMenu } from './context-menu.js';
+import { updateToolGhost } from './tool.js';
 
 // Re-export clearDragState so existing consumers (keyboard.js) don't break.
 export { clearDragState } from './drag.js';
@@ -259,6 +260,17 @@ export function bindMouseEvents(app) {
                                 }
                             }
                         }
+                        // Record NoConnect shapes at segment endpoints
+                        // so they move with the wire during segment drag.
+                        app.dragSegmentNCLinks = [];
+                        for (const [nid, pos] of hitShape.nodes) {
+                            for (const s of app.shapes) {
+                                if (s.type !== 'noconnect') continue;
+                                if (Math.hypot(s.x - pos.x, s.y - pos.y) < VERTEX_EPSILON) {
+                                    app.dragSegmentNCLinks.push({ wireNodeId: nid, nc: s, before: s.captureState() });
+                                }
+                            }
+                        }
                         app.viewport.svg.style.cursor = 'move';
                         e.preventDefault();
                         return;
@@ -370,6 +382,16 @@ export function bindMouseEvents(app) {
              } else {
                  app._finishDrawing(snapped);
              }
+        } else if (app.currentTool === 'noconnect' || app.currentTool === 'netlabel') {
+            // Pin-aware snap: pin > wire endpoint/segment > grid
+            const resolved = resolveWireSnapPosition(app, worldPos, { pinTolerance: PIN_SNAP_TOL });
+            app._drawSnapResult = resolved;
+            const pos = { x: resolved.x, y: resolved.y };
+            if (!app.isDrawing) {
+                app._startDrawing(pos);
+            } else {
+                app._finishDrawing(pos);
+            }
         } else {
             // Default fallback for any other tools in future
              if (!app.isDrawing) {
@@ -535,6 +557,15 @@ export function bindMouseEvents(app) {
             app._updateCrosshair(snapped, screenPos);
             return;
         }
+
+        // Highlight pins / wire endpoints for noconnect and netlabel tools
+        if (app.currentTool === 'noconnect' || app.currentTool === 'netlabel') {
+            if (!app.isDrawing) {
+                const resolved = resolveWireSnapPosition(app, worldPos, { pinTolerance: PIN_SNAP_TOL });
+                updateSnapHighlight(app, resolved);
+                updateToolGhost(app, { x: resolved.x, y: resolved.y });
+            }
+        }
         
         // Update drawing preview for arc (bulge point not grid-snapped) and other tools
         if (app.isDrawing) {
@@ -594,6 +625,18 @@ export function bindMouseEvents(app) {
                             }
                         }
                     }
+                    // Record NoConnect shapes at the dragged node so they
+                    // move with the wire anchor.
+                    app.dragAnchorNCLinks = [];
+                    if (shape.type === 'wire' && shape.nodes.has(anchorId)) {
+                        const nodePos = shape.nodes.get(anchorId);
+                        for (const s of app.shapes) {
+                            if (s.type !== 'noconnect') continue;
+                            if (Math.hypot(s.x - nodePos.x, s.y - nodePos.y) < VERTEX_EPSILON) {
+                                app.dragAnchorNCLinks.push({ nc: s, before: s.captureState() });
+                            }
+                        }
+                    }
                     // If the dragged node is connected to a pin, record it so
                     // resolveWireSnapPosition can exclude that pin during drag
                     // (prevents the node from snapping back to the same pin).
@@ -630,8 +673,17 @@ export function bindMouseEvents(app) {
             };
             const snappedTarget = app.viewport.getSnappedPosition(targetPos);
 
-            // Build set of component IDs being moved (needed for nudge + sticky wires)
+            // Pin-aware snap for solo noconnect moves: allow landing on off-grid pins
             const sel = app.selection.getSelection();
+            const soloNoConnect = sel.length === 1 && sel[0].type === 'noconnect' ? sel[0] : null;
+            if (soloNoConnect) {
+                const snap = resolveWireSnapPosition(app, targetPos, { pinTolerance: PIN_SNAP_TOL });
+                snappedTarget.x = snap.x;
+                snappedTarget.y = snap.y;
+                updateSnapHighlight(app, snap);
+            }
+
+            // Build set of component IDs being moved (needed for nudge + sticky wires)
             const movingCompIds = new Set();
             for (const s of sel) {
                 if (s.definition) movingCompIds.add(s.id);
@@ -713,6 +765,13 @@ export function bindMouseEvents(app) {
                 anchorPos = snapped;
             }
 
+            // NoConnect anchor drag: pin-aware snap so it can land on off-grid pins
+            if (app.dragShape.type === 'noconnect') {
+                const snap = resolveWireSnapPosition(app, worldPos, { pinTolerance: PIN_SNAP_TOL });
+                anchorPos = { x: snap.x, y: snap.y };
+                updateSnapHighlight(app, snap);
+            }
+
             // Wire anchor drag: single snap resolver, same as wire drawing
             // Pin/wire snap only for leaf-node anchors (degree 1).
             let anchorGuides = [];
@@ -785,6 +844,14 @@ export function bindMouseEvents(app) {
                         p.y = anchorPos.y;
                         link.otherWire.invalidate();
                     }
+                }
+            }
+            // Move NoConnect shapes linked to the dragged anchor
+            if (app.dragAnchorNCLinks) {
+                for (const link of app.dragAnchorNCLinks) {
+                    link.nc.x = anchorPos.x;
+                    link.nc.y = anchorPos.y;
+                    link.nc.invalidate();
                 }
             }
             app.renderShapes(false);
@@ -891,6 +958,20 @@ export function bindMouseEvents(app) {
                     }
                 }
 
+                // Move NoConnect shapes linked to moved segment endpoints
+                if (app.dragSegmentNCLinks && edge) {
+                    const movedNodes = new Set();
+                    const edgeNow = wire.edges.get(dragEdgeId);
+                    if (edgeNow) { movedNodes.add(edgeNow.from); movedNodes.add(edgeNow.to); }
+                    for (const link of app.dragSegmentNCLinks) {
+                        if (movedNodes.has(link.wireNodeId)) {
+                            link.nc.x += dx;
+                            link.nc.y += dy;
+                            link.nc.invalidate();
+                        }
+                    }
+                }
+
                 app.renderShapes(false);
                 app.fileManager.setDirty(true);
             }
@@ -965,7 +1046,37 @@ export function bindMouseEvents(app) {
                             app.history._notifyChanged();
                         }
                     }
+
+                    // Post-move: refresh pin connections for moved noconnect shapes
+                    // and record the pinConnection change as undo-able commands.
+                    const movedNCs = movedShapes.filter(s => s.type === 'noconnect');
+                    if (movedNCs.length > 0) {
+                        const ncCmds = [];
+                        for (const nc of movedNCs) {
+                            const beforeNC = app._captureShapeState(nc);
+                            refreshNoConnectConnection(app, nc);
+                            const afterNC = app._captureShapeState(nc);
+                            if (JSON.stringify(beforeNC) !== JSON.stringify(afterNC)) {
+                                nc.applyState(beforeNC); // revert so execute() applies it
+                                ncCmds.push(new ModifyShapeCommand(app, nc, beforeNC, afterNC));
+                            }
+                        }
+                        if (ncCmds.length > 0) {
+                            // Merge into the top undo entry (MoveShapesCommand or combined batch)
+                            const top = app.history.undoStack.pop();
+                            const combined = top instanceof BatchCommand
+                                ? top
+                                : (() => { const b = new BatchCommand('Move + NC update'); b.add(top); return b; })();
+                            for (const cmd of ncCmds) combined.add(cmd);
+                            app.history.undoStack.push(combined);
+                            // Re-execute the NC commands so the state is applied
+                            for (const cmd of ncCmds) cmd.execute();
+                            app.history.redoStack = [];
+                            app.history._notifyChanged();
+                        }
+                    }
                 }
+                updateSnapHighlight(app, null);
             } else if (app.dragMode === 'wire-segment' && app.dragWireStates) {
                 if (app.didDrag) {
                     commitSegmentDrag(app);

@@ -164,7 +164,7 @@ export function updateShapePanelOptions(app, selection, toolIdArg) {
 
     const toolSupportsLineWidth = ['line', 'rect', 'circle', 'arc', 'polygon'].includes(toolId);
     const toolSupportsFill = ['rect', 'circle', 'polygon'].includes(toolId);
-    const toolSupportsFontSize = toolId === 'text';
+    const toolSupportsFontSize = ['text', 'netlabel'].includes(toolId);
 
     if (!toolSupportsLineWidth && !toolSupportsFill && !toolSupportsFontSize) {
         container.innerHTML = '';

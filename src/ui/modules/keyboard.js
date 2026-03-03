@@ -237,6 +237,14 @@ export function bindKeyboardShortcuts(app) {
                 case 'T':
                     app._onToolSelected('text');
                     break;
+                case 'n':
+                case 'N':
+                    app._onToolSelected('netlabel');
+                    break;
+                case 'x':
+                case 'X':
+                    app._onToolSelected('noconnect');
+                    break;
                 case 'i':
                 case 'I':
                     app._onToolSelected('component');

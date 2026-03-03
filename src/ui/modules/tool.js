@@ -2,6 +2,9 @@ import { updateSnapHighlight } from './wire.js';
 
 const STORAGE_KEY = 'clearpcb_tool_options';
 
+/** Half-size of the NoConnect X mark in mm (mirrors noconnect.js NC_HALF). */
+const NC_HALF = 0.8;
+
 /**
  * Reads persisted tool options (line width, fill, font size) from localStorage.
  * @returns {object|null} Parsed options object, or `null` if none stored.
@@ -75,6 +78,12 @@ export function onToolSelected(app, tool) {
     const svg = app.viewport.svg;
     app._setToolCursor(tool, svg);
 
+    // Manage placement ghost for single-click tools
+    _removeToolGhost(app);
+    if (tool === 'noconnect') {
+        _createNCGhost(app);
+    }
+
     app._setActiveToolButton?.(tool);
     app._updateShapePanelOptions(app.selection.getSelection(), tool);
     app._updatePropertiesPanel(app.selection.getSelection());
@@ -88,6 +97,60 @@ export function onToolSelected(app, tool) {
 export function onComponentPickerClosed(app) {
     if (app.currentTool === 'component') {
         app._onToolSelected('select');
+    }
+}
+
+// ─── Placement ghost helpers ───────────────────────────────────
+
+/**
+ * Creates a semi-transparent NoConnect "X" ghost that follows the cursor
+ * before the first click, giving visual feedback of what will be placed.
+ * @param {object} app - Application state.
+ */
+function _createNCGhost(app) {
+    const ns = 'http://www.w3.org/2000/svg';
+    const g = document.createElementNS(ns, 'g');
+    g.style.opacity = '0.5';
+    g.style.pointerEvents = 'none';
+
+    const color = 'var(--sch-no-connect, #cc0000)';
+    const sw = 0.25;
+    const l1 = document.createElementNS(ns, 'line');
+    l1.setAttribute('x1', -NC_HALF); l1.setAttribute('y1', -NC_HALF);
+    l1.setAttribute('x2',  NC_HALF); l1.setAttribute('y2',  NC_HALF);
+    l1.setAttribute('stroke', color); l1.setAttribute('stroke-width', sw);
+    l1.setAttribute('stroke-linecap', 'round');
+    const l2 = document.createElementNS(ns, 'line');
+    l2.setAttribute('x1', -NC_HALF); l2.setAttribute('y1',  NC_HALF);
+    l2.setAttribute('x2',  NC_HALF); l2.setAttribute('y2', -NC_HALF);
+    l2.setAttribute('stroke', color); l2.setAttribute('stroke-width', sw);
+    l2.setAttribute('stroke-linecap', 'round');
+    g.appendChild(l1);
+    g.appendChild(l2);
+
+    app.viewport.contentLayer.appendChild(g);
+    app._toolGhost = g;
+}
+
+/**
+ * Removes any active tool placement ghost.
+ * @param {object} app - Application state.
+ */
+function _removeToolGhost(app) {
+    if (app._toolGhost) {
+        app._toolGhost.remove();
+        app._toolGhost = null;
+    }
+}
+
+/**
+ * Moves the tool placement ghost to the given world position.
+ * @param {object} app - Application state.
+ * @param {{x: number, y: number}} pos - Position in world coordinates.
+ */
+export function updateToolGhost(app, pos) {
+    if (app._toolGhost) {
+        app._toolGhost.setAttribute('transform', `translate(${pos.x},${pos.y})`);
     }
 }
 

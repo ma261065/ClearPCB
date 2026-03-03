@@ -10,6 +10,8 @@ export { Rect } from './rect.js';
 export { Arc } from './arc.js';
 export { Polygon } from './polygon.js';
 export { Text } from './text.js';
+export { NetLabel } from './netlabel.js';
+export { NoConnect } from './noconnect.js';
 
 import { Line } from './line.js';
 import { Wire } from './wire.js';
@@ -18,6 +20,8 @@ import { Rect } from './rect.js';
 import { Arc } from './arc.js';
 import { Polygon } from './polygon.js';
 import { Text } from './text.js';
+import { NetLabel } from './netlabel.js';
+import { NoConnect } from './noconnect.js';
 
 const shapeRegistry = {
     line: Line,
@@ -26,7 +30,9 @@ const shapeRegistry = {
     rect: Rect,
     arc: Arc,
     polygon: Polygon,
-    text: Text
+    text: Text,
+    netlabel: NetLabel,
+    noconnect: NoConnect
 };
 
 /** Map short serialisation keys back to constructor-friendly long names. */
@@ -38,7 +44,8 @@ const SHORT_KEYS = {
     f: 'fill', fc: 'fillColor', fa: 'fillAlpha', cl: 'closed',
     sp: 'startPoint', ep: 'endPoint', bp: 'bulgePoint',
     t: 'text', fs: 'fontSize', ff: 'fontFamily', ta: 'textAnchor',
-    cid: 'componentId', fk: 'fieldKey',
+    cid: 'componentId', fk: 'fieldKey', rot: 'rotation',
+    pn: 'pinConnection',
 };
 
 /**

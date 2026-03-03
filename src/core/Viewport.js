@@ -1494,7 +1494,8 @@ export class Viewport {
      * @param {SVGElement} svgElement - Element to remove.
      */
     removeContent(svgElement) {
-        if (svgElement.parentNode === this.contentLayer || svgElement.parentNode === this.componentLayer) {
+        if (svgElement.parentNode === this.contentLayer ||
+            svgElement.parentNode === this.componentLayer) {
             svgElement.parentNode.removeChild(svgElement);
         }
     }

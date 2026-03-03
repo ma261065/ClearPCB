@@ -28,6 +28,7 @@ import * as ComponentTools from './modules/components.js';
 import * as FileTools from './modules/files.js';
 import * as ExportTools from './modules/export.js';
 import { onToolSelected, onComponentPickerClosed, onOptionsChanged, loadToolOptions } from './modules/tool.js';
+import { adaptShortcutsInDOM } from './modules/platform-keys.js';
 import { setupCallbacks } from './modules/callbacks.js';
 import { updateUndoRedoButtons, makeHelpPanelDraggable } from './modules/ui-utils.js';
 import { needsValueDialog, showValueDialog } from './modules/value-dialog.js';
@@ -264,6 +265,9 @@ class SchematicApp {
 
         // Load version after a brief delay to ensure DOM is ready
         setTimeout(() => this._loadVersion(), 100);
+
+        // Rewrite shortcut labels for macOS (⌘/⌥/⇧ instead of Ctrl/Alt/Shift)
+        adaptShortcutsInDOM();
 
         console.log('Schematic Editor initialized');
     }

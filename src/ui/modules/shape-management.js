@@ -12,6 +12,8 @@ export function addShape(app, shape) {
     app.history.execute(command);
     return shape;
 }
+/** Shape types that render above wires (re-appended at end of each render cycle). */
+const OVERLAY_TYPES = new Set(['noconnect', 'netlabel']);
 
 /**
  * Directly adds a shape (no undo) — pushes to `app.shapes`, renders,
@@ -106,6 +108,25 @@ export function renderShapes(app, force = false) {
         if (comp._culled) continue; // skip off-screen
         if (comp.selected || comp.hovered || comp.locked) {
             comp.render(scale);
+        }
+    }
+
+    // Ensure overlay-type shapes (noconnect, netlabel) render above wires.
+    // Selected-shape rendering calls appendChild() which can move wire SVG
+    // elements past overlay shapes. Re-append overlay shape elements (and
+    // their anchor groups) as the last children of contentLayer so they
+    // always paint on top.  Skip when shapes are selected so anchor
+    // handles remain accessible during editing.
+    if (!app.selection?.selected?.size) {
+        const cl = app.viewport.contentLayer;
+        for (const shape of app.shapes) {
+            if (shape._culled || !shape.element) continue;
+            if (OVERLAY_TYPES.has(shape.type)) {
+                cl.appendChild(shape.element);
+                if (shape.anchorsGroup && shape.anchorsGroup.parentNode) {
+                    cl.appendChild(shape.anchorsGroup);
+                }
+            }
         }
     }
 }

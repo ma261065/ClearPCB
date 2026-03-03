@@ -1,4 +1,4 @@
-import { Line, Circle, Rect, Arc, Polygon, Text } from '../../shapes/index.js';
+import { Line, Circle, Rect, Arc, Polygon, Text, NetLabel, NoConnect } from '../../shapes/index.js';
 import { circumcircle, projectOntoChordBisector, clampBulgePoint } from '../../core/geometry.js';
 
 /**
@@ -58,7 +58,7 @@ export function finishDrawing(app, worldPos) {
     const shape = createShapeFromDrawing(app);
     if (shape) {
         app.addShape(shape);
-        if (shape.type === 'text') {
+        if (shape.type === 'text' || shape.type === 'netlabel') {
             app._startTextEdit?.(shape);
         }
     }
@@ -415,6 +415,31 @@ export function createShapeFromDrawing(app) {
                 fillColor: opts.color,
                 fontSize: app.toolOptions.fontSize || 2.0
             });
+        }
+
+        case 'netlabel': {
+            return new NetLabel({
+                x: start.x,
+                y: start.y,
+                net: 'NET',
+                fontSize: app.toolOptions.fontSize || 1.8
+            });
+        }
+
+        case 'noconnect': {
+            const snap = app._drawSnapResult;
+            app._drawSnapResult = null;
+            const nc = new NoConnect({
+                x: start.x,
+                y: start.y
+            });
+            if (snap?.snapPin) {
+                nc.pinConnection = {
+                    componentId: snap.snapPin.component.id,
+                    pinNumber: snap.snapPin.pin.number
+                };
+            }
+            return nc;
         }
 
         default:

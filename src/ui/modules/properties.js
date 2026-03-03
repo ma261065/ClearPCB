@@ -1,5 +1,6 @@
 import { setCheckboxState } from './ui-utils.js';
 import { ModifyPropertyCommand } from '../../core/CommandHistory.js';
+import { adaptShortcutText } from './platform-keys.js';
 
 /**
  * Initializes the properties panel and subscribes to `selectionChanged`
@@ -34,7 +35,7 @@ function mergeDescriptors(selection) {
 
 function headerLabel(selection) {
     if (selection.length === 0) return 'Properties';
-    const displayNames = { rect: 'Rectangle' };
+    const displayNames = { rect: 'Rectangle', netlabel: 'Net Label', noconnect: 'No Connect' };
     const types = selection.map(s => s.definition ? 'Component' : (s.type || 'object'));
     const first = types[0];
     if (types.every(t => t === first)) {
@@ -184,6 +185,40 @@ export function updatePropertiesPanel(app, selection) {
                         });
                     }
                     row.appendChild(input);
+
+                } else if (desc.type === 'select' && Array.isArray(desc.options)) {
+                    const lbl = document.createElement('label');
+                    lbl.setAttribute('for', `prop_${desc.key}`);
+                    lbl.textContent = desc.label;
+                    row.appendChild(lbl);
+
+                    const select = document.createElement('select');
+                    select.id = `prop_${desc.key}`;
+                    for (const opt of desc.options) {
+                        const option = document.createElement('option');
+                        option.value = opt.value;
+                        option.textContent = opt.label;
+                        select.appendChild(option);
+                    }
+
+                    const values = selection.map(s => s[desc.key]);
+                    const first = values[0];
+                    const allSame = values.every(v => v === first);
+                    select.value = allSame ? first : '';
+
+                    if (disabled) {
+                        select.disabled = true;
+                        select.style.opacity = '0.7';
+                    } else {
+                        select.addEventListener('change', () => {
+                            let v = select.value;
+                            // Convert to number if the option values are numeric
+                            const num = parseFloat(v);
+                            if (!Number.isNaN(num) && String(num) === v) v = num;
+                            applyCommonProperty(app, desc.key, v);
+                        });
+                    }
+                    row.appendChild(select);
                 }
 
                 sec.content.appendChild(row);
@@ -204,20 +239,20 @@ export function updatePropertiesPanel(app, selection) {
         div.className = 'prop-actions';
 
         const cutBtn = document.createElement('button');
-        cutBtn.title = 'Cut (Ctrl+X)';
+        cutBtn.title = adaptShortcutText('Cut (Ctrl+X)');
         cutBtn.id = 'propCut';
         cutBtn.textContent = '✂ Cut';
         if (allLocked) { cutBtn.disabled = true; }
         div.appendChild(cutBtn);
 
         const copyBtn = document.createElement('button');
-        copyBtn.title = 'Copy (Ctrl+C)';
+        copyBtn.title = adaptShortcutText('Copy (Ctrl+C)');
         copyBtn.id = 'propCopy';
         copyBtn.textContent = '⧉ Copy';
         div.appendChild(copyBtn);
 
         const pasteBtn = document.createElement('button');
-        pasteBtn.title = 'Paste (Ctrl+V)';
+        pasteBtn.title = adaptShortcutText('Paste (Ctrl+V)');
         pasteBtn.id = 'propPaste';
         pasteBtn.textContent = '📋 Paste';
         div.appendChild(pasteBtn);

@@ -8,7 +8,7 @@
  */
 
 import { ModifyShapeCommand, DeleteShapesCommand } from '../../core/CommandHistory.js';
-import { updateSnapHighlight, reconcileWires, refreshWireConnections, collapseRedundantWirePoints, buildWireDiffBatch } from './wire.js';
+import { updateSnapHighlight, reconcileWires, refreshWireConnections, refreshNoConnectConnection, collapseRedundantWirePoints, buildWireDiffBatch } from './wire.js';
 
 /**
  * Reset all drag-related state on the app.
@@ -32,6 +32,8 @@ export function clearDragState(app, { clearDidDrag = false, resetCursor = false 
     app.dragAnchorTJLinks = null;
     app.dragAnchorWireStates = null;
     app.dragAnchorExcludePin = null;
+    app.dragAnchorNCLinks = null;
+    app.dragSegmentNCLinks = null;
     app.pendingAnchorDrag = null;
     app.dragTotalDx = 0;
     app.dragTotalDy = 0;
@@ -95,8 +97,25 @@ export function commitAnchorDrag(app) {
             if (app.shapes.includes(w)) refreshWireConnections(app, w);
         }
 
+        // Refresh NoConnect shapes that moved with this anchor
+        if (app.dragAnchorNCLinks) {
+            for (const link of app.dragAnchorNCLinks) refreshNoConnectConnection(app, link.nc);
+        }
+
         // Build undo batch by diffing pre-drag vs post-reconcile
         const batch = buildWireDiffBatch(app, beforeAll, 'Move anchor');
+
+        // Add ModifyShapeCommands for NoConnect shapes that moved with the anchor
+        if (batch && app.dragAnchorNCLinks) {
+            for (const link of app.dragAnchorNCLinks) {
+                const after = link.nc.captureState();
+                if (JSON.stringify(link.before) !== JSON.stringify(after)) {
+                    link.nc.applyState(link.before);
+                    batch.add(new ModifyShapeCommand(app, link.nc, link.before, after));
+                }
+            }
+        }
+
         if (batch) app.history.execute(batch);
 
         // Select surviving dragged wire if not degenerate
@@ -124,6 +143,10 @@ export function commitAnchorDrag(app) {
         if (!app.shapes.includes(app.dragShape)) app.shapes.push(app.dragShape);
         app.history.execute(new DeleteShapesCommand(app, [app.dragShape]));
     } else {
+        // Refresh noconnect pin connection after drag
+        if (app.dragShape.type === 'noconnect') {
+            refreshNoConnectConnection(app, app.dragShape);
+        }
         const afterState = app._captureShapeState(app.dragShape);
         app._applyShapeState(app.dragShape, app.dragShapesBefore);
         app.history.execute(new ModifyShapeCommand(app, app.dragShape, app.dragShapesBefore, afterState));
@@ -161,8 +184,25 @@ export function commitSegmentDrag(app) {
         if (app.shapes.includes(w)) refreshWireConnections(app, w);
     }
 
+    // Refresh NoConnect shapes that moved with a segment drag
+    if (app.dragSegmentNCLinks) {
+        for (const link of app.dragSegmentNCLinks) refreshNoConnectConnection(app, link.nc);
+    }
+
     // Build undo batch by diffing pre-drag vs post-reconcile
     const batch = buildWireDiffBatch(app, beforeAll, 'Move wire segment');
+
+    // Add ModifyShapeCommands for NoConnect shapes that moved with the segment
+    if (batch && app.dragSegmentNCLinks) {
+        for (const link of app.dragSegmentNCLinks) {
+            const after = link.nc.captureState();
+            if (JSON.stringify(link.before) !== JSON.stringify(after)) {
+                link.nc.applyState(link.before);
+                batch.add(new ModifyShapeCommand(app, link.nc, link.before, after));
+            }
+        }
+    }
+
     if (batch) app.history.execute(batch);
     app.renderShapes(true);
 }

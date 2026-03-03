@@ -4,7 +4,7 @@ A browser-based schematic editor built with vanilla JavaScript and SVG.  No buil
 
 ## Features
 
-- **Drawing tools** — Line, Rectangle, Circle, Arc, Polygon, Text
+- **Drawing tools** — Line, Rectangle, Circle, Arc, Polygon, Text, Net Label, No Connect
 - **Wire tool** — Graph-based wiring with automatic junctions, T-junction splitting, sticky wires that follow moved components, pin-snap lines, and orthogonal alignment
 - **Components** — Built-in library of common symbols (resistors, capacitors, ICs, connectors, etc.) plus live fetching from the KiCad symbol library via GitLab
 - **Selection** — Click, Shift+click cycle, Ctrl+click toggle, box select, selection lock

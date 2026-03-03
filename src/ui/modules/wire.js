@@ -850,6 +850,24 @@ export function refreshWireConnections(app, wire) {
 }
 
 /**
+ * Refresh a noconnect's pin connection by checking whether its position
+ * coincides with a component pin.  Call after dragging a noconnect.
+ */
+export function refreshNoConnectConnection(app, nc) {
+    if (!nc || nc.type !== 'noconnect') return;
+    const tolerance = 0.1;
+    const nearPin = findNearbyPin(app.components, { x: nc.x, y: nc.y }, tolerance);
+    if (nearPin) {
+        nc.pinConnection = {
+            componentId: nearPin.component.id,
+            pinNumber: nearPin.pin.number
+        };
+    } else {
+        nc.pinConnection = null;
+    }
+}
+
+/**
  * Call this after moving components. For every wire node that has a pin
  * connection, update that node to the pin's current world position.
  * NOTE: Also duplicated inline in MoveShapesCommand (core/CommandHistory.js)
@@ -857,18 +875,27 @@ export function refreshWireConnections(app, wire) {
  */
 export function updateStickyWires(app) {
     for (const shape of app.shapes) {
-        if (shape.type !== 'wire') continue;
-        for (const [nodeId, conn] of shape.pinConnections) {
-            const comp = app.components.find(c => c.id === conn.componentId);
-            if (!comp) continue;
-            const pos = comp.getPinPosition(conn.pinNumber);
-            if (!pos) continue;
-            const node = shape.nodes.get(nodeId);
-            if (node) {
-                node.x = pos.x;
-                node.y = pos.y;
-                shape.invalidate();
+        if (shape.type === 'wire') {
+            for (const [nodeId, conn] of shape.pinConnections) {
+                const comp = app.components.find(c => c.id === conn.componentId);
+                if (!comp) continue;
+                const pos = comp.getPinPosition(conn.pinNumber);
+                if (!pos) continue;
+                const node = shape.nodes.get(nodeId);
+                if (node) {
+                    node.x = pos.x;
+                    node.y = pos.y;
+                    shape.invalidate();
+                }
             }
+        } else if (shape.type === 'noconnect' && shape.pinConnection) {
+            const comp = app.components.find(c => c.id === shape.pinConnection.componentId);
+            if (!comp) continue;
+            const pos = comp.getPinPosition(shape.pinConnection.pinNumber);
+            if (!pos) continue;
+            shape.x = pos.x;
+            shape.y = pos.y;
+            shape.invalidate();
         }
     }
 }
