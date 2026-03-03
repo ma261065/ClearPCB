@@ -730,6 +730,7 @@ export class TransformComponentCommand extends Command {
                 }
             }
         }
+        this._updateStickyWires();
         this.app.renderShapes(true);
     }
 
@@ -737,6 +738,32 @@ export class TransformComponentCommand extends Command {
     execute() { this._apply(false); }
     /** Reverse the transform by restoring captured state. */
     undo() { this._apply(true); }
+
+    /**
+     * Update wire nodes connected to component pins after transform.
+     * NOTE: Duplicates updateStickyWires() in ui/modules/wire.js and
+     * MoveShapesCommand._updateStickyWires() — kept inline to avoid
+     * circular imports.
+     */
+    _updateStickyWires() {
+        for (const shape of this.app.shapes) {
+            if (shape.type !== 'wire') continue;
+            for (const [nodeId, conn] of shape.pinConnections) {
+                const comp = this.app.components.find(c => c.id === conn.componentId);
+                if (comp) {
+                    const pos = comp.getPinPosition(conn.pinNumber);
+                    if (pos) {
+                        const node = shape.nodes.get(nodeId);
+                        if (node) {
+                            node.x = pos.x;
+                            node.y = pos.y;
+                            shape.invalidate();
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 /**
