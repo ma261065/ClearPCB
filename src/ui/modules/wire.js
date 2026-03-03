@@ -1135,6 +1135,52 @@ export function renderGuideLines(app, guides) {
 // --- Collinear / H-V snap for moving wire segments ---
 
 /**
+ * Build the set of nodes that move together with a dragged segment.
+ *
+ * Starting from the two endpoints of the dragged edge, walk outward along
+ * adjacent edges whose direction is collinear with the dragged edge.  This
+ * captures chains of aligned segments (e.g. several horizontal tines of an
+ * E-shape) so they all move as a unit.
+ *
+ * Pin-connected nodes are never absorbed — they stay fixed because the
+ * bridge insertion at drag-start keeps them anchored to the pin.
+ *
+ * Uses an iterative fixed-point loop: keeps expanding until no new nodes
+ * are found.  Positions are looked up from `origState` (the snapshot taken
+ * at drag start) so that in-progress movement doesn't skew the collinearity
+ * check.
+ *
+ * @param {import('../../shapes/wire.js').Wire} wire - the live wire graph
+ * @param {string} dragEdgeId - the edge being dragged
+ * @param {object} origState  - captured state snapshot {nodes, edges, …}
+ * @returns {Set<string>} IDs of all nodes that should move with the drag
+ */
+export function buildCollinearChain(wire, dragEdgeId, origState) {
+    const origEdge = origState.edges[dragEdgeId];
+    const origA = origState.nodes[origEdge.from];
+    const origB = origState.nodes[origEdge.to];
+    const movingNodes = new Set([origEdge.from, origEdge.to]);
+    let grew = true;
+    while (grew) {
+        grew = false;
+        for (const nodeId of [...movingNodes]) {
+            for (const inc of wire.incidentEdges(nodeId)) {
+                if (inc.edgeId === dragEdgeId || movingNodes.has(inc.otherNode)) continue;
+                if (wire.pinConnections.has(inc.otherNode)) continue;
+                const a = origState.nodes[inc.otherNode];
+                const b = origState.nodes[nodeId];
+                if (!a || !b || !origA || !origB) continue;
+                if (pointsCollinear(a, b, origA) && pointsCollinear(a, b, origB)) {
+                    movingNodes.add(inc.otherNode);
+                    grew = true;
+                }
+            }
+        }
+    }
+    return movingNodes;
+}
+
+/**
  * Override a grid-snapped position with off-grid neighbor coordinates
  * when the raw (un-snapped) position is within half a grid cell of a
  * neighbor's X or Y.  This creates invisible snap lines at every
@@ -1325,37 +1371,35 @@ export function computeSegmentDragSnap(app, wire, dragEdgeId, origState, target,
     const segOffX = origB.x - origA.x;
     const segOffY = origB.y - origA.y;
 
-    // Build the collinear chain: all nodes that move with the dragged segment
-    const movingNodes = new Set([origEdge.from, origEdge.to]);
-    let grew = true;
-    while (grew) {
-        grew = false;
-        for (const nodeId of [...movingNodes]) {
-            for (const inc of wire.incidentEdges(nodeId)) {
-                if (inc.edgeId === dragEdgeId || movingNodes.has(inc.otherNode)) continue;
-                const a = origState.nodes[inc.otherNode];
-                const b = origState.nodes[nodeId];
-                if (!a || !b || !origA || !origB) continue;
-                if (pointsCollinear(a, b, origA) && pointsCollinear(a, b, origB)) {
-                    movingNodes.add(inc.otherNode);
-                    grew = true;
-                }
-            }
-        }
-    }
+    // Build the collinear chain: all nodes that move with the dragged segment.
+    const movingNodes = buildCollinearChain(wire, dragEdgeId, origState);
 
-    // Collect fixed neighbors at the chain boundary (for off-grid snap + guides)
-    const fixedNeighbors = [];
+    // Collect fixed neighbors at the chain boundary (for off-grid snap + guides).
+    // Track which moving node each fixed neighbor is adjacent to, so we use the
+    // correct endpoint (futureA vs futureB) for guide line computation.
+    const fixedNeighbors = [];      // { pos, movingNodeId }
     for (const nodeId of movingNodes) {
         for (const { otherNode } of wire.incidentEdges(nodeId)) {
             if (movingNodes.has(otherNode)) continue;
             const p = wire.nodes.get(otherNode);
-            if (p) fixedNeighbors.push(p);
+            if (p) fixedNeighbors.push({ pos: p, movingNodeId: nodeId });
         }
     }
 
-    // Off-grid neighbor snap (use fixed chain-boundary neighbors)
-    applyOffGridNeighborSnap(target, snappedTarget, fixedNeighbors, gridSize);
+    // Off-grid neighbor snap for both segment endpoints.
+    // target is the raw position of the 'from' node; the 'to' node is at
+    // target + segOff.  A fixed neighbor (e.g. a pin node) may be adjacent
+    // to either endpoint, so we check both.
+    {
+        const halfGrid = gridSize * 0.5;
+        const rawBx = target.x + segOffX, rawBy = target.y + segOffY;
+        for (const { pos: nb } of fixedNeighbors) {
+            if (Math.abs(target.x - nb.x) <= halfGrid) snappedTarget.x = nb.x;
+            else if (Math.abs(rawBx - nb.x) <= halfGrid) snappedTarget.x = nb.x - segOffX;
+            if (Math.abs(target.y - nb.y) <= halfGrid) snappedTarget.y = nb.y;
+            else if (Math.abs(rawBy - nb.y) <= halfGrid) snappedTarget.y = nb.y - segOffY;
+        }
+    }
 
     // Pin snap — check both endpoints, pick closest
     const rawA = target;
@@ -1370,6 +1414,16 @@ export function computeSegmentDragSnap(app, wire, dragEdgeId, origState, target,
         bestRaw = pinA.distance <= pinB.distance ? rawA : rawB;
     } else if (pinA) { bestPin = pinA; bestRaw = rawA; }
     else if (pinB) { bestPin = pinB; bestRaw = rawB; }
+
+    if (bestPin) {
+        // Don't snap to a pin the wire is already connected to — the bridge
+        // maintains the connection and pin snap would fight the drag.
+        const alreadyConnected = [...wire.pinConnections.values()].some(
+            conn => conn.componentId === bestPin.component.id &&
+                    String(conn.pinNumber) === String(bestPin.pin.number)
+        );
+        if (alreadyConnected) bestPin = null;
+    }
 
     if (bestPin) {
         let offX = bestPin.worldPos.x - bestRaw.x;
@@ -1408,9 +1462,13 @@ export function computeSegmentDragSnap(app, wire, dragEdgeId, origState, target,
     const futureA = { x: snappedTarget.x, y: snappedTarget.y };
     const futureB = { x: snappedTarget.x + segOffX, y: snappedTarget.y + segOffY };
     const snapEdges = [];
-    // Use fixed chain-boundary neighbors as snap/guide targets
-    for (const p of fixedNeighbors) {
-        snapEdges.push({ moving: futureA, fixed: p, beyond: futureB });
+    // Use fixed chain-boundary neighbors as snap/guide targets.
+    // Each fixed neighbor knows which moving node it connects to, so we
+    // use the correct future position (A or B) as the moving point.
+    for (const { pos: p, movingNodeId } of fixedNeighbors) {
+        const movingPt = (movingNodeId === origEdge.from) ? futureA : futureB;
+        const beyondPt = (movingNodeId === origEdge.from) ? futureB : futureA;
+        snapEdges.push({ moving: movingPt, fixed: p, beyond: beyondPt });
     }
     const threshold = SNAP_SCREEN_PX / app.viewport.scale;
     const snapResult = computeMovingSegmentSnaps(threshold, snapEdges, dragSegAxis);

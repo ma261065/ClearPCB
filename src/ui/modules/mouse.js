@@ -1,6 +1,5 @@
 import { MoveShapesCommand, ModifyShapeCommand, BatchCommand } from '../../core/CommandHistory.js';
-import { updateStickyWires, reconcileWiresWithUndo, updateSnapHighlight, resolveWireSnapPosition, renderGuideLines, computeAnchorCollinearSnap, computeSegmentDragSnap, computeStickyWireSnaps, applyOffGridNeighborSnap, collapseRedundantWirePoints, SNAP_SCREEN_PX, COLLINEAR_EPSILON, VERTEX_EPSILON, PIN_SNAP_TOL } from './wire.js';
-import { pointsCollinear } from '../../core/geometry.js';
+import { updateStickyWires, reconcileWiresWithUndo, updateSnapHighlight, resolveWireSnapPosition, renderGuideLines, computeAnchorCollinearSnap, computeSegmentDragSnap, computeStickyWireSnaps, applyOffGridNeighborSnap, collapseRedundantWirePoints, buildCollinearChain, SNAP_SCREEN_PX, COLLINEAR_EPSILON, VERTEX_EPSILON, PIN_SNAP_TOL } from './wire.js';
 import { clearDragState, commitAnchorDrag, commitSegmentDrag } from './drag.js';
 import { detectTJunction, showAnchorContextMenu, showSegmentContextMenu } from './context-menu.js';
 
@@ -207,6 +206,7 @@ export function bindMouseEvents(app) {
                         // and the dragged segment gets an L-bend.
                         // Before: pinNode ---dragEdge--- otherNode
                         // After:  pinNode ---bridgeEdge--- newNode ---dragEdge--- otherNode
+                        const preBridgeEdgeCount = hitShape.edges.size;
                         {
                             const edge_ = hitShape.edges.get(dragEdgeId);
                             // Handle 'from' endpoint
@@ -228,10 +228,10 @@ export function bindMouseEvents(app) {
 
                         // Determine axis lock AFTER bridge insertion so edge count is final.
                         // H segments move only vertically, V only horizontally.
-                        // Single-edge wires (no bridges added) allow free movement.
+                        // Single-edge wires (before bridges) allow free movement.
                         {
                             const edgeLock = hitShape.edges.get(dragEdgeId);
-                            if (hitShape.edges.size > 1 && edgeLock) {
+                            if (preBridgeEdgeCount > 1 && edgeLock) {
                                 const pA = hitShape.nodes.get(edgeLock.from), pB = hitShape.nodes.get(edgeLock.to);
                                 const sDx = Math.abs(pB.x - pA.x), sDy = Math.abs(pB.y - pA.y);
                                 if (sDy < COLLINEAR_EPSILON && sDx > COLLINEAR_EPSILON) app.dragSegAxis = 'vertical';
@@ -600,9 +600,11 @@ export function bindMouseEvents(app) {
                     app.dragAnchorExcludePin = null;
                     if (shape.type === 'wire' && shape.pinConnections.has(anchorId)) {
                         const conn = shape.pinConnections.get(anchorId);
+                        const nodePos = shape.nodes.get(anchorId);
                         app.dragAnchorExcludePin = {
                             component: { id: conn.componentId },
-                            pin: { number: conn.pinNumber }
+                            pin: { number: conn.pinNumber },
+                            worldPos: nodePos ? { x: nodePos.x, y: nodePos.y } : null
                         };
                     }
                     // Show crosshairs during anchor drag to help with alignment
@@ -716,6 +718,15 @@ export function bindMouseEvents(app) {
             let anchorGuides = [];
             if (app.dragShape.type === 'wire') {
                 const isLeaf = app.dragShape.nodes.has(app.dragAnchorId) && app.dragShape.degree(app.dragAnchorId) <= 1;
+
+                // Once the anchor leaves the snap zone of the excluded pin,
+                // clear the exclusion so the pin can be re-approached.
+                if (app.dragAnchorExcludePin?.worldPos) {
+                    const ep = app.dragAnchorExcludePin.worldPos;
+                    if (Math.hypot(worldPos.x - ep.x, worldPos.y - ep.y) > PIN_SNAP_TOL) {
+                        app.dragAnchorExcludePin = null;
+                    }
+                }
 
                 // Leaf nodes try pin/wire snap first
                 let snappedToTarget = false;
@@ -851,31 +862,7 @@ export function bindMouseEvents(app) {
                 // Move both endpoints of the dragged edge
                 const edge = wire.edges.get(dragEdgeId);
                 if (edge) {
-                    const nodesToMove = new Set([edge.from, edge.to]);
-                    // Expand to collinear neighbors: if an adjacent edge is collinear
-                    // with the dragged edge, include its other endpoint too.
-                    // Iterate until stable so chains of collinear segments are
-                    // fully collected (e.g. E-shape with 4+ horizontal tines).
-                    const fromOrig = origState.nodes[edge.from];
-                    const toOrig = origState.nodes[edge.to];
-                    if (fromOrig && toOrig) {
-                        let grew = true;
-                        while (grew) {
-                            grew = false;
-                            for (const nodeId of [...nodesToMove]) {
-                                for (const inc of wire.incidentEdges(nodeId)) {
-                                    if (inc.edgeId === dragEdgeId || nodesToMove.has(inc.otherNode)) continue;
-                                    const a = origState.nodes[inc.otherNode];
-                                    const b = origState.nodes[nodeId];
-                                    if (!a || !b) continue;
-                                    if (pointsCollinear(a, b, fromOrig) && pointsCollinear(a, b, toOrig)) {
-                                        nodesToMove.add(inc.otherNode);
-                                        grew = true;
-                                    }
-                                }
-                            }
-                        }
-                    }
+                    const nodesToMove = buildCollinearChain(wire, dragEdgeId, origState);
 
                     // Don't move pin-connected nodes (they were already split on drag start)
                     for (const nid of nodesToMove) {
