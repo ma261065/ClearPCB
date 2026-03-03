@@ -256,7 +256,16 @@ export class Component {
             { key: 'showReference', label: 'Show Reference',  type: 'checkbox' },
             { key: 'value',         label: 'Value',           type: 'text' },
             { key: 'showValue',     label: 'Show Value',      type: 'checkbox' },
+            { key: 'source',        label: 'Source',          type: 'text', readonly: true },
         ];
+    }
+
+    /** @returns {string} Display name for the component's origin library. */
+    get source() {
+        const raw = this.symbol?._source || this.definition?._source;
+        if (!raw) return 'Built-in';
+        if (raw === 'EasyEDA') return 'LCSC';
+        return raw;
     }
     /** @returns {false} Components do not support in-place text editing. */
     get supportsInlineEdit() { return false; }
@@ -767,7 +776,7 @@ export class Component {
 
         const hasNamePos = pin.namePos && Number.isFinite(pin.namePos.x) && Number.isFinite(pin.namePos.y);
         const hasNumberPos = pin.numberPos && Number.isFinite(pin.numberPos.x) && Number.isFinite(pin.numberPos.y);
-        const allowInfer = !(this.symbol?._source === 'EasyEDA');
+        const allowInfer = !(source === 'EasyEDA');
 
         if (hasNamePos) {
             nameX = mx(pin.namePos.x);
@@ -928,7 +937,7 @@ export class Component {
             else if (orient === 'down') by -= bubbleRadius;
             bubble.setAttribute('cx', bx); bubble.setAttribute('cy', by);
             bubble.setAttribute('r', bubbleRadius);
-            bubble.setAttribute('fill', 'var(--sch-symbol-fill, #ffffc0)');
+            bubble.setAttribute('fill', 'none');
             bubble.setAttribute('stroke', 'var(--sch-pin, #aa0000)');
             bubble.setAttribute('stroke-width', 0.254);
             group.appendChild(bubble);
@@ -1011,7 +1020,7 @@ export class Component {
             if (effNumAnchor) {
                 numTxt.setAttribute('text-anchor', effNumAnchor);
             }
-            if (this.symbol?._source === 'KiCad') {
+            if (source === 'KiCad') {
                 numTxt.setAttribute('dominant-baseline', 'text-after-edge');
             } else {
                 numTxt.setAttribute('dominant-baseline', 'middle');
