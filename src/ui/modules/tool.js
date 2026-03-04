@@ -4,6 +4,23 @@ const STORAGE_KEY = 'clearpcb_tool_options';
 
 /** Half-size of the NoConnect X mark in mm (mirrors noconnect.js NC_HALF). */
 const NC_HALF = 0.8;
+/** NetLabel ghost sizing constants (mirrors netlabel.js geometry intent). */
+const NL_FLAG_TIP = 1.0;
+const NL_FLAG_PAD_X = 0.6;
+const NL_FLAG_PAD_Y = 0.3;
+const NL_FONT_SIZE = 1.8;
+
+function _nextNetLabelName(app) {
+    const used = new Set();
+    for (const shape of app.shapes) {
+        if (shape?.type !== 'netlabel' || typeof shape.net !== 'string') continue;
+        const m = shape.net.trim().match(/^NET(\d+)$/i);
+        if (m) used.add(Number(m[1]));
+    }
+    let i = 1;
+    while (used.has(i)) i += 1;
+    return `NET${i}`;
+}
 
 /**
  * Reads persisted tool options (line width, fill, font size) from localStorage.
@@ -82,6 +99,8 @@ export function onToolSelected(app, tool) {
     _removeToolGhost(app);
     if (tool === 'noconnect') {
         _createNCGhost(app);
+    } else if (tool === 'netlabel') {
+        _createNetLabelGhost(app);
     }
 
     app._setActiveToolButton?.(tool);
@@ -133,6 +152,51 @@ function _createNCGhost(app) {
 }
 
 /**
+ * Creates a semi-transparent NetLabel ghost (flag + text) that follows
+ * the cursor before click placement.
+ * @param {object} app - Application state.
+ */
+function _createNetLabelGhost(app) {
+    const ns = 'http://www.w3.org/2000/svg';
+    const g = document.createElementNS(ns, 'g');
+    g.style.opacity = '0.55';
+    g.style.pointerEvents = 'none';
+
+    const net = _nextNetLabelName(app);
+    const textW = net.length * NL_FONT_SIZE * 0.6;
+    const halfH = NL_FONT_SIZE / 2 + NL_FLAG_PAD_Y;
+    const bodyW = textW + NL_FLAG_PAD_X * 2;
+
+    const path = document.createElementNS(ns, 'path');
+    path.setAttribute(
+        'd',
+        `M 0 0 L ${NL_FLAG_TIP} ${-halfH} L ${NL_FLAG_TIP + bodyW} ${-halfH} L ${NL_FLAG_TIP + bodyW} ${halfH} L ${NL_FLAG_TIP} ${halfH} Z`
+    );
+    path.setAttribute('fill', 'none');
+    path.setAttribute('stroke', 'var(--sch-net-label, #00cccc)');
+    path.setAttribute('stroke-width', '0.25');
+    path.setAttribute('stroke-linejoin', 'miter');
+
+    const text = document.createElementNS(ns, 'text');
+    text.setAttribute('x', NL_FLAG_TIP + NL_FLAG_PAD_X);
+    text.setAttribute('y', 0);
+    text.setAttribute('fill', 'var(--sch-net-label, #00cccc)');
+    text.setAttribute('font-size', NL_FONT_SIZE);
+    text.setAttribute('font-family', 'Arial');
+    text.setAttribute('dominant-baseline', 'middle');
+    text.setAttribute('alignment-baseline', 'middle');
+    text.setAttribute('text-anchor', 'start');
+    text.textContent = net;
+
+    g.appendChild(path);
+    g.appendChild(text);
+    app.viewport.contentLayer.appendChild(g);
+    g.__ghostType = 'netlabel';
+    g.__ghostTextEl = text;
+    app._toolGhost = g;
+}
+
+/**
  * Removes any active tool placement ghost.
  * @param {object} app - Application state.
  */
@@ -150,6 +214,9 @@ function _removeToolGhost(app) {
  */
 export function updateToolGhost(app, pos) {
     if (app._toolGhost) {
+        if (app._toolGhost.__ghostType === 'netlabel' && app._toolGhost.__ghostTextEl) {
+            app._toolGhost.__ghostTextEl.textContent = _nextNetLabelName(app);
+        }
         app._toolGhost.setAttribute('transform', `translate(${pos.x},${pos.y})`);
     }
 }

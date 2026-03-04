@@ -1,5 +1,6 @@
 import { AddShapeCommand } from '../../core/CommandHistory.js';
 import { freeWireLabel, bumpWireLabelCounter } from '../../shapes/wire.js';
+import { Text } from '../../shapes/text.js';
 
 /**
  * Adds a shape to the canvas via an undoable `AddShapeCommand`.
@@ -27,6 +28,10 @@ export function addShapeInternal(app, shape) {
     shape.render(app.viewport.scale);
     app.viewport.addContent(shape.element);
     if (shape.type === 'wire' && shape.wireLabel) bumpWireLabelCounter(shape.wireLabel);
+    // Auto-create label Text shape for new wires (like Component.createFieldTexts)
+    if (shape.type === 'wire' && !shape.labelText) {
+        _createWireLabelText(app, shape);
+    }
     app._updateSelectableItems();
     app.selection._invalidateHitTestCache();
     app.fileManager.setDirty(true);
@@ -67,6 +72,11 @@ export function removeShapeInternal(app, shape) {
     if (idx !== -1) {
         app.shapes.splice(idx, 1);
         if (shape.type === 'wire' && shape.wireLabel) freeWireLabel(shape.wireLabel);
+        // Also remove the linked label Text shape
+        if (shape.type === 'wire' && shape.labelText) {
+            removeShapeInternal(app, shape.labelText);
+            shape.labelText = null;
+        }
         if (shape.element && shape.element.parentNode) {
             shape.element.parentNode.removeChild(shape.element);
         }
@@ -183,3 +193,42 @@ export function updateViewportCulling(app) {
         }
     }
 }
+
+// ─── Wire label Text helper ──────────────────────────────────────
+
+/** Wire label font size (mm) — matches WIRE_LABEL_FONT_SIZE in wire.js. */
+const WIRE_LABEL_FONT_SIZE = 1.4;
+
+/**
+ * Creates a Text shape for a wire's label, adds it to app.shapes and
+ * the viewport, and links it to the wire via parentComponent/fieldKey.
+ * Follows the same pattern as Component.createFieldTexts.
+ * @param {object} app
+ * @param {import('../../shapes/wire.js').Wire} wire
+ */
+function _createWireLabelText(app, wire) {
+    const pos = wire.getLabelPosition();
+    const text = new Text({
+        x: pos.x,
+        y: pos.y,
+        text: wire.wireLabel,
+        fontSize: WIRE_LABEL_FONT_SIZE,
+        fontFamily: 'Arial',
+        textAnchor: 'middle',
+        color: 'var(--sch-wire-label, #669966)'
+    });
+    text.parentComponent = wire;
+    text.fieldKey = 'wireLabel';
+    text.visible = wire.showLabel;
+    wire.labelText = text;
+
+    app.shapes.push(text);
+    text.render(app.viewport.scale);
+    app.viewport.addContent(text.element);
+}
+
+/**
+ * Exported helper so files.js can create label texts for wires loaded
+ * from file that don't already have one.
+ */
+export { _createWireLabelText as createWireLabelText };

@@ -223,6 +223,42 @@ export function updatePropertiesPanel(app, selection) {
 
                 sec.content.appendChild(row);
             }
+
+            // H/V rotation buttons for text shapes
+            const textShapes = selection.filter(s => s.type === 'text');
+            if (textShapes.length > 0 && textShapes.length === selection.length) {
+                const hvRow = document.createElement('div');
+                hvRow.className = 'prop-row';
+                const hvLabel = document.createElement('label');
+                hvLabel.textContent = 'Orientation';
+                hvRow.appendChild(hvLabel);
+
+                const hvBtns = document.createElement('span');
+                hvBtns.style.cssText = 'display:flex;gap:2px;';
+                const curRot = textShapes[0].rotation || 0;
+                const allSameRot = textShapes.every(s => (s.rotation || 0) === curRot);
+
+                const hBtn = document.createElement('button');
+                hBtn.textContent = 'H';
+                hBtn.title = 'Horizontal';
+                hBtn.style.cssText = 'padding:1px 6px;font-size:11px;min-width:0;';
+                if (allSameRot && curRot === 0) hBtn.classList.add('active');
+                hBtn.addEventListener('click', () => {
+                    applyCommonProperty(app, 'rotation', 0);
+                });
+                const vBtn = document.createElement('button');
+                vBtn.textContent = 'V';
+                vBtn.title = 'Vertical (bottom to top)';
+                vBtn.style.cssText = 'padding:1px 6px;font-size:11px;min-width:0;';
+                if (allSameRot && curRot === 270) vBtn.classList.add('active');
+                vBtn.addEventListener('click', () => {
+                    applyCommonProperty(app, 'rotation', 270);
+                });
+                hvBtns.appendChild(hBtn);
+                hvBtns.appendChild(vBtn);
+                hvRow.appendChild(hvBtns);
+                sec.content.appendChild(hvRow);
+            }
         }
 
         panel.appendChild(sec.group);
@@ -231,6 +267,56 @@ export function updatePropertiesPanel(app, selection) {
     if (selection.length === 0) return;
 
     const allLocked = selection.every(s => s.locked);
+
+    // ── Wire Label section (only for single wire selection) ──
+    const singleWire = selection.length === 1 && selection[0].type === 'wire' ? selection[0] : null;
+    if (singleWire) {
+        const sec = _createSection('Label');
+        const wire = singleWire;
+        const disabled = allLocked;
+
+        // Row 1: Name text input
+        const nameRow = document.createElement('div');
+        nameRow.className = 'prop-row';
+        const nameLbl = document.createElement('label');
+        nameLbl.setAttribute('for', 'prop_wireLabel');
+        nameLbl.textContent = 'Name';
+        nameRow.appendChild(nameLbl);
+        const nameInput = document.createElement('input');
+        nameInput.type = 'text';
+        nameInput.id = 'prop_wireLabel';
+        nameInput.value = wire.wireLabel;
+        if (disabled) {
+            nameInput.readOnly = true;
+            nameInput.style.opacity = '0.7';
+        } else {
+            nameInput.addEventListener('change', () => {
+                applyCommonProperty(app, 'wireLabel', nameInput.value);
+            });
+        }
+        nameRow.appendChild(nameInput);
+        sec.content.appendChild(nameRow);
+
+        // Row 2: Show checkbox
+        const optRow = document.createElement('div');
+        optRow.className = 'prop-row';
+        const showLbl = document.createElement('label');
+        showLbl.style.display = 'flex';
+        showLbl.style.alignItems = 'center';
+        showLbl.style.gap = '4px';
+        const showChk = document.createElement('input');
+        showChk.type = 'checkbox';
+        showChk.checked = wire.showLabel;
+        showChk.addEventListener('change', () => {
+            applyCommonProperty(app, 'showLabel', showChk.checked);
+        });
+        showLbl.appendChild(showChk);
+        showLbl.append('Show');
+        optRow.appendChild(showLbl);
+        sec.content.appendChild(optRow);
+
+        panel.appendChild(sec.group);
+    }
 
     // ── Clipboard section ──
     {
@@ -400,6 +486,32 @@ export function applyCommonProperty(app, prop, value) {
                 app._updatePropertiesPanel(selection);
                 return;
             }
+        }
+        // Check if any affected item is a wire label field text
+        const wireLabelFields = changing.filter(s => s.parentComponent?.type === 'wire' && s.fieldKey === 'wireLabel');
+        if (wireLabelFields.length > 0 && value) {
+            const parentWireIds = new Set(wireLabelFields.map(f => f.parentComponent.id));
+            const dup = app.shapes.find(s =>
+                s.type === 'wire' && !parentWireIds.has(s.id) &&
+                s.wireLabel.toUpperCase() === value.toUpperCase());
+            if (dup) {
+                alert(`Wire name "${value}" is already used by another wire.`);
+                app._updatePropertiesPanel(selection);
+                return;
+            }
+        }
+    }
+
+    // Enforce unique wire labels (via properties panel or inline edit)
+    if (prop === 'wireLabel' && value) {
+        const changingIds = new Set(changing.map(s => s.id));
+        const dup = app.shapes.find(s =>
+            s.type === 'wire' && !changingIds.has(s.id) &&
+            s.wireLabel.toUpperCase() === value.toUpperCase());
+        if (dup) {
+            alert(`Wire name "${value}" is already used by another wire.`);
+            app._updatePropertiesPanel(selection);
+            return;
         }
     }
 

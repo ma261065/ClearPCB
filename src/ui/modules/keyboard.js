@@ -1,4 +1,5 @@
 import { clearDragState } from './mouse.js';
+import { ModifyPropertyCommand } from '../../core/CommandHistory.js';
 
 /**
  * Central Escape key handler. Cascades through text edit, active/pending
@@ -244,6 +245,21 @@ export function bindKeyboardShortcuts(app) {
                 case 'x':
                 case 'X':
                     app._onToolSelected('noconnect');
+                    break;
+                case ' ':
+                    // Spacebar: toggle H/V rotation on any selected text shape
+                    if (!app.textEdit && !app.isDrawing && app.currentTool === 'select') {
+                        const sel = app.selection.getSelection();
+                        const textShapes = sel.filter(s => s.type === 'text');
+                        if (textShapes.length > 0) {
+                            const newRot = textShapes[0].rotation === 270 ? 0 : 270;
+                            const cmd = new ModifyPropertyCommand(app, textShapes, 'rotation', newRot);
+                            app.history.execute(cmd);
+                            app.renderShapes(true);
+                            app._updatePropertiesPanel(sel);
+                            e.preventDefault();
+                        }
+                    }
                     break;
                 case 'i':
                 case 'I':

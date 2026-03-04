@@ -45,7 +45,7 @@ const SHORT_KEYS = {
     sp: 'startPoint', ep: 'endPoint', bp: 'bulgePoint',
     t: 'text', fs: 'fontSize', ff: 'fontFamily', ta: 'textAnchor',
     cid: 'componentId', fk: 'fieldKey', rot: 'rotation',
-    pn: 'pinConnection',
+    pn: 'pinConnection', lo: 'labelOffset', sl: 'showLabel',
 };
 
 /**
@@ -65,6 +65,10 @@ function expandShapeData(data) {
         const pts = [];
         for (let i = 0; i < flat.length - 1; i += 2) pts.push({ x: flat[i], y: flat[i + 1] });
         out.points = pts;
+    }
+    // Unflatten labelOffset: [x, y] → {x, y}
+    if (Array.isArray(out.labelOffset)) {
+        out.labelOffset = { x: out.labelOffset[0] || 0, y: out.labelOffset[1] || 0 };
     }
     return out;
 }

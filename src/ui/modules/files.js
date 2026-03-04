@@ -1,5 +1,6 @@
 import { updateIdCounter, resetWireLabelCounter } from '../../shapes/index.js';
 import { Component, updateComponentIdCounter } from '../../components/index.js';
+import { createWireLabelText } from './shape-management.js';
 
 /**
  * Serializes the entire document (shapes, components, settings, paper size,
@@ -105,6 +106,16 @@ export async function loadDocument(app, data) {
                 
                 // Re-link field texts from loaded shapes
                 component.linkFieldTexts(app.shapes);
+            }
+        }
+    }
+
+    // Re-link wire label texts and create them for wires that don't have one
+    for (const shape of app.shapes) {
+        if (shape.type === 'wire') {
+            shape.linkLabelText(app.shapes);
+            if (!shape.labelText) {
+                createWireLabelText(app, shape);
             }
         }
     }

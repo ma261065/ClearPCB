@@ -2,6 +2,24 @@ import { Line, Circle, Rect, Arc, Polygon, Text, NetLabel, NoConnect } from '../
 import { circumcircle, projectOntoChordBisector, clampBulgePoint } from '../../core/geometry.js';
 
 /**
+ * Allocate the lowest unused default net name in the current document.
+ * Example: NET1, NET2, NET3 ... (fills gaps).
+ * @param {object} app - Application state.
+ * @returns {string}
+ */
+function nextNetLabelName(app) {
+    const used = new Set();
+    for (const shape of app.shapes) {
+        if (shape?.type !== 'netlabel' || typeof shape.net !== 'string') continue;
+        const m = shape.net.trim().match(/^NET(\d+)$/i);
+        if (m) used.add(Number(m[1]));
+    }
+    let i = 1;
+    while (used.has(i)) i += 1;
+    return `NET${i}`;
+}
+
+/**
  * Begins a shape-drawing session: stores start position, initializes
  * polygon/line/arc state, creates preview, and shows crosshair.
  * @param {object} app - Application state.
@@ -421,7 +439,7 @@ export function createShapeFromDrawing(app) {
             return new NetLabel({
                 x: start.x,
                 y: start.y,
-                net: 'NET',
+                net: nextNetLabelName(app),
                 fontSize: app.toolOptions.fontSize || 1.8
             });
         }

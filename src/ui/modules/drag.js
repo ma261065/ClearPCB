@@ -34,6 +34,7 @@ export function clearDragState(app, { clearDidDrag = false, resetCursor = false 
     app.dragAnchorExcludePin = null;
     app.dragAnchorNCLinks = null;
     app.dragSegmentNCLinks = null;
+    app.dragSegmentLabelBefore = null;
     app.pendingAnchorDrag = null;
     app.dragTotalDx = 0;
     app.dragTotalDy = 0;
@@ -200,6 +201,17 @@ export function commitSegmentDrag(app) {
                 link.nc.applyState(link.before);
                 batch.add(new ModifyShapeCommand(app, link.nc, link.before, after));
             }
+        }
+    }
+
+    // Add ModifyShapeCommand for wire label text that moved with the segment
+    if (batch && app.dragSegmentLabelBefore && app.dragShape?.labelText) {
+        const lt = app.dragShape.labelText;
+        const after = lt.captureState();
+        const before = app.dragSegmentLabelBefore;
+        if (JSON.stringify(before) !== JSON.stringify(after)) {
+            lt.applyState(before);
+            batch.add(new ModifyShapeCommand(app, lt, before, after));
         }
     }
 

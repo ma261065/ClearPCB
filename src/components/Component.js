@@ -346,8 +346,11 @@ export class Component {
     _updateHighlight() {
         if (!this.element) return;
         
-        // Remove highlight if neither hovered nor selected
-        if (!this.hovered && !this.selected) {
+        // Check if any field text is selected (ownership highlight)
+        const fieldTextSelected = this.getFieldTexts().some(ft => ft.selected);
+        
+        // Remove highlight if neither hovered, selected, nor field-text-selected
+        if (!this.hovered && !this.selected && !fieldTextSelected) {
             if (this._highlightEl) {
                 this._highlightEl.remove();
                 this._highlightEl = null;

@@ -181,6 +181,12 @@ export class SelectionManager {
             shapeObj.selected = true;
             shapeObj.invalidate();
         }
+
+        // When selecting a field text, invalidate its parent so it
+        // re-renders with the ownership highlight.
+        if (shapeObj.type === 'text' && shapeObj.parentComponent) {
+            shapeObj.parentComponent.invalidate();
+        }
         
         this._notifySelectionChanged();
     }
@@ -269,6 +275,10 @@ export class SelectionManager {
             if (shape) {
                 shape.selected = false;
                 shape.invalidate();
+                // Invalidate parent so its ownership highlight is removed
+                if (shape.type === 'text' && shape.parentComponent) {
+                    shape.parentComponent.invalidate();
+                }
             }
         }
         this.selected.clear();

@@ -79,7 +79,7 @@ export class NetLabel extends Shape {
         return {
             points,
             textX: FLAG_TIP + FLAG_PAD_X,
-            textY: this.fontSize * 0.35,
+            textY: 0,
             width: FLAG_TIP + bodyW,
             height: halfH * 2
         };
@@ -179,7 +179,9 @@ export class NetLabel extends Shape {
         text.setAttribute('fill', fillColor);
         text.setAttribute('font-size', this.fontSize);
         text.setAttribute('font-family', 'Arial');
-        text.setAttribute('dominant-baseline', 'central');
+        text.setAttribute('dominant-baseline', 'middle');
+        text.setAttribute('alignment-baseline', 'middle');
+        text.setAttribute('text-anchor', 'start');
         text.setAttribute('text-rendering', 'geometricPrecision');
         text.textContent = this.net;
 
@@ -257,9 +259,7 @@ export class NetLabel extends Shape {
      * Accounts for rotation by computing the text element's position in world coords.
      */
     getTextEditOrigin() {
-        const geo = this._getGeometry();
-        const rp = this._rotatePoint(geo.textX, 0);
-        return { x: this.x + rp.x, y: this.y + rp.y };
+        return { x: this.x, y: this.y };
     }
 
     /** @override */

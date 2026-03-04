@@ -29,6 +29,7 @@
     --sch-bus-entry: #0088cc;
     --sch-junction: #00cc66;
     --sch-no-connect: #cc0000;
+    --sch-wire-label: #669966;
     
     /* === Labels === */
     --sch-net-label: #00cccc;
@@ -93,6 +94,7 @@
     --sch-bus-entry: #0000aa;
     --sch-junction: #008800;
     --sch-no-connect: #cc0000;
+    --sch-wire-label: #668866;
     
     /* === Labels === */
     --sch-net-label: #008080;
@@ -607,6 +609,14 @@ body {
 
 .prop-row label {
     color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.prop-row input[type="checkbox"] {
+    margin: 0;
+    vertical-align: middle;
 }
 
 .prop-row input[type="number"],

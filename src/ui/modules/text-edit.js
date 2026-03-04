@@ -1,5 +1,6 @@
 import { ModalManager } from '../../core/ModalManager.js';
 import { ModifyShapeCommand } from '../../core/CommandHistory.js';
+import { freeWireLabel, bumpWireLabelCounter } from '../../shapes/wire.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
@@ -12,6 +13,13 @@ const SVG_NS = 'http://www.w3.org/2000/svg';
 export function startTextEdit(app, shape) {
     if (!shape || !shape.supportsInlineEdit) return;
     if (shape.locked) return;
+
+    // Keep edited shape selected so render z-order logic does not move
+    // overlay-type shapes above the text-edit overlay while typing.
+    if (app.selection && !app.selection.isSelected(shape)) {
+        app.selection.select(shape, false);
+        app.renderShapes(true);
+    }
 
     const activeEl = document.activeElement;
     if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'SELECT' || activeEl.tagName === 'TEXTAREA')) {
@@ -93,6 +101,22 @@ export function endTextEdit(app, commit = true) {
                 if (typeof state.shape.invalidate === 'function') state.shape.invalidate();
                 app.renderShapes(true);
                 // Skip command creation — fall through to cleanup
+                _cleanupTextEditState(state, app, shape);
+                return;
+            }
+        }
+
+        // Enforce unique wire labels
+        if (state.shape.parentComponent?.type === 'wire' && state.shape.fieldKey === 'wireLabel' && state.shape.text) {
+            const parentWire = state.shape.parentComponent;
+            const dup = app.shapes.find(s =>
+                s.type === 'wire' && s !== parentWire &&
+                s.wireLabel.toUpperCase() === state.shape.text.toUpperCase());
+            if (dup) {
+                alert(`Wire name "${state.shape.text}" is already used by another wire.`);
+                state.shape.text = state.originalText;
+                if (typeof state.shape.invalidate === 'function') state.shape.invalidate();
+                app.renderShapes(true);
                 _cleanupTextEditState(state, app, shape);
                 return;
             }
@@ -257,11 +281,14 @@ export function updateTextEditOverlay(app) {
     }
 
     const shape = state.shape;
-    const el = shape.getTextElement?.() || shape.element;
+    const textEl = shape.getTextElement?.();
+    const el = textEl || shape.element;
     if (!el) {
         state.overlayGroup.style.display = 'none';
         return;
     }
+
+    const usesNestedTextCoords = !!textEl && textEl !== shape.element;
 
     // For shapes with a text element inside a group (e.g. NetLabel),
     // use the shape's textEditOrigin if available, otherwise shape.x/y.
@@ -270,7 +297,11 @@ export function updateTextEditOverlay(app) {
     const originY = Number.isFinite(editOrigin.y) ? editOrigin.y : 0;
     const nudgeX = state.overlayOffset?.x || 0;
     const nudgeY = state.overlayOffset?.y || 0;
-    state.overlayGroup.setAttribute('transform', `translate(${originX + nudgeX} ${originY + nudgeY})`);
+    // Apply same rotation as the text shape so the edit overlay aligns
+    const rot = shape.rotation || 0;
+    let groupTransform = `translate(${originX + nudgeX} ${originY + nudgeY})`;
+    if (rot) groupTransform += ` rotate(${rot})`;
+    state.overlayGroup.setAttribute('transform', groupTransform);
 
     let bbox;
     try {
@@ -296,13 +327,20 @@ export function updateTextEditOverlay(app) {
     const minHeight = Math.max(shape.fontSize || 2.5, 1);
     const minWidth = Math.max((shape.fontSize || 2.5) * 0.6, 1);
 
-    const baseX = (bbox ? bbox.x : originX) - originX;
-    const baseY = (bbox ? bbox.y : originY) - originY;
+    const baseX = usesNestedTextCoords
+        ? (bbox ? bbox.x : 0)
+        : ((bbox ? bbox.x : originX) - originX);
+    const baseY = usesNestedTextCoords
+        ? (bbox ? bbox.y : 0)
+        : ((bbox ? bbox.y : originY) - originY);
     const width = Math.max(bbox ? bbox.width : 0, minWidth);
     const height = Math.max(bbox ? bbox.height : 0, minHeight);
 
-    const caretXAbs = getCaretX(app, shape, el, { x: baseX + originX, width }, state.caretIndex ?? 0);
-    const caretX = caretXAbs - originX;
+    const caretProbe = usesNestedTextCoords
+        ? { x: baseX, width }
+        : { x: baseX + originX, width };
+    const caretXAbs = getCaretX(app, shape, el, caretProbe, state.caretIndex ?? 0);
+    const caretX = usesNestedTextCoords ? caretXAbs : (caretXAbs - originX);
     const caretInset = 0.25;
     const caretTop = baseY - pad + caretInset;
     const caretBottom = baseY + height + pad - caretInset;
@@ -342,7 +380,10 @@ export function nudgeTextEditOverlay(app, dx, dy) {
     const editOrigin = state.shape?.getTextEditOrigin?.() || { x: state.shape?.x, y: state.shape?.y };
     const originX = Number.isFinite(editOrigin.x) ? editOrigin.x : 0;
     const originY = Number.isFinite(editOrigin.y) ? editOrigin.y : 0;
-    state.overlayGroup.setAttribute('transform', `translate(${originX + nextX} ${originY + nextY})`);
+    const rot = state.shape?.rotation || 0;
+    let t = `translate(${originX + nextX} ${originY + nextY})`;
+    if (rot) t += ` rotate(${rot})`;
+    state.overlayGroup.setAttribute('transform', t);
 }
 
 /**
@@ -432,6 +473,7 @@ function ensureOverlay(app) {
     const caret = document.createElementNS(SVG_NS, 'line');
     caret.setAttribute('stroke', 'var(--accent-color, #00ccff)');
     caret.setAttribute('stroke-width', '0.2');
+    caret.style.opacity = '1';
 
     const blink = document.createElementNS(SVG_NS, 'animate');
     blink.setAttribute('attributeName', 'opacity');
@@ -516,7 +558,7 @@ function getCaretX(app, shape, el, bbox, caretIndex) {
                 if (start && Number.isFinite(start.x)) return start.x;
             }
         } catch (e) { /* fall through */ }
-        return Number.isFinite(shape.x) ? shape.x : bbox.x;
+        return Number.isFinite(bbox?.x) ? bbox.x : 0;
     }
 
     try {
@@ -583,9 +625,18 @@ function measureCaretWithClone(app, el, textValue, caretIndex) {
 
 // ── field text helpers ───────────────────────────────────────────
 
-/** Sync a field Text shape's content back to its parent component. */
+/** Sync a field Text shape's content back to its parent component or wire. */
 function _syncFieldToComponent(textShape) {
     if (!textShape.parentComponent || !textShape.fieldKey) return;
+    // Wire label: track label counter
+    if (textShape.fieldKey === 'wireLabel' && textShape.parentComponent.type === 'wire') {
+        const wire = textShape.parentComponent;
+        freeWireLabel(wire.wireLabel);
+        wire.wireLabel = textShape.text;
+        bumpWireLabelCounter(textShape.text);
+        wire.invalidate();
+        return;
+    }
     textShape.parentComponent[textShape.fieldKey] = textShape.text;
 }
 

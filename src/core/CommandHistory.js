@@ -412,9 +412,16 @@ export class ModifyShapeCommand extends Command {
      */
     _applyState(shape, state) {
         shape.applyState(state);
-        // Sync field text changes back to parent component
+        // Sync field text changes back to parent component or wire
         if ('text' in state && shape.parentComponent && shape.fieldKey) {
-            shape.parentComponent[shape.fieldKey] = shape.text;
+            if (shape.fieldKey === 'wireLabel' && shape.parentComponent.type === 'wire') {
+                freeWireLabel(shape.parentComponent.wireLabel);
+                shape.parentComponent.wireLabel = shape.text;
+                bumpWireLabelCounter(shape.text);
+                shape.parentComponent.invalidate();
+            } else {
+                shape.parentComponent[shape.fieldKey] = shape.text;
+            }
         }
         this.app.renderShapes(true);
     }
@@ -481,6 +488,22 @@ export class ModifyPropertyCommand extends Command {
             // Sync field text changes back to parent component
             if (this.prop === 'text' && item.parentComponent && item.fieldKey) {
                 item.parentComponent[item.fieldKey] = val;
+            }
+            // Sync wireLabel property edits through the label tracking system
+            if (this.prop === 'wireLabel' && item.type === 'wire') {
+                const otherLabel = useNew ? entry.oldValue : entry.newValue;
+                freeWireLabel(otherLabel);
+                bumpWireLabelCounter(val);
+                // Update the separate label Text shape
+                if (item.labelText) {
+                    item.labelText.text = val;
+                    item.labelText.invalidate();
+                }
+            }
+            // Sync wire showLabel to label Text visibility
+            if (this.prop === 'showLabel' && item.type === 'wire' && item.labelText) {
+                item.labelText.visible = val;
+                item.labelText.invalidate();
             }
             // Sync component reference/value to field text content
             if (this.prop === 'reference' && item.refText) {

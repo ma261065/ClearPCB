@@ -271,6 +271,10 @@ export function bindMouseEvents(app) {
                                 }
                             }
                         }
+                        // Capture label text before-state for undo
+                        app.dragSegmentLabelBefore = hitShape.labelText
+                            ? app._captureShapeState(hitShape.labelText)
+                            : null;
                         app.viewport.svg.style.cursor = 'move';
                         e.preventDefault();
                         return;
@@ -392,6 +396,9 @@ export function bindMouseEvents(app) {
             } else {
                 app._finishDrawing(pos);
             }
+            // Keep placement ghost synced immediately (e.g. NET index updates
+            // after placing a netlabel even before the next mousemove).
+            updateToolGhost(app, pos);
         } else {
             // Default fallback for any other tools in future
              if (!app.isDrawing) {
@@ -683,10 +690,11 @@ export function bindMouseEvents(app) {
                 updateSnapHighlight(app, snap);
             }
 
-            // Build set of component IDs being moved (needed for nudge + sticky wires)
+            // Build set of parent IDs being moved (components + wires that own field texts)
             const movingCompIds = new Set();
             for (const s of sel) {
                 if (s.definition) movingCompIds.add(s.id);
+                if (s.type === 'wire') movingCompIds.add(s.id);
             }
 
             // H/V snap for sticky wire segments: compute nudge + guides together
@@ -972,6 +980,13 @@ export function bindMouseEvents(app) {
                     }
                 }
 
+                // Move wire label text with the segment drag
+                if (wire.labelText) {
+                    wire.labelText.x += dx;
+                    wire.labelText.y += dy;
+                    wire.labelText.invalidate();
+                }
+
                 app.renderShapes(false);
                 app.fileManager.setDirty(true);
             }
@@ -1021,6 +1036,7 @@ export function bindMouseEvents(app) {
                     const movingCompIds = new Set();
                     for (const s of movedShapes) {
                         if (s.definition) movingCompIds.add(s.id);
+                        if (s.type === 'wire') movingCompIds.add(s.id);
                     }
                     const itemsForCommand = movedShapes.filter(s =>
                         !(s.parentComponent && movingCompIds.has(s.parentComponent.id)));

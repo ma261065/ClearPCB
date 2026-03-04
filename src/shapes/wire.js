@@ -37,6 +37,12 @@ const MIN_JUNCTION_RADIUS = 0.4;
 /** Junction dot radius in screen pixels (divided by scale). */
 const JUNCTION_SCREEN_PX = 2.5;
 
+/** Default font size for the wire label text (mm). */
+const WIRE_LABEL_FONT_SIZE = 1.4;
+
+/** Default vertical offset of the label above the wire centroid (mm). */
+const WIRE_LABEL_DEFAULT_OFFSET_Y = -0.5;
+
 /** Maximum iterations for cleanGraph convergence loop. */
 const MAX_CLEAN_ITERATIONS = 100;
 
@@ -97,6 +103,17 @@ export class Wire extends Shape {
         } else {
             this.wireLabel = nextWireLabel();
         }
+
+        // Label display offset (relative to wire centroid)
+        this.labelOffset = options.labelOffset
+            ? { x: options.labelOffset.x || 0, y: options.labelOffset.y || 0 }
+            : { x: 0, y: WIRE_LABEL_DEFAULT_OFFSET_Y };
+
+        /** Whether to display the wire label. */
+        this.showLabel = options.showLabel !== undefined ? !!options.showLabel : false;
+
+        /** Reference to the linked label Text shape (set by createLabelText / linkLabelText). */
+        this.labelText = null;
 
         // ── Initialise from graph format ──────────────────────
         if (options.graphNodes && options.graphEdges) {
@@ -657,6 +674,12 @@ export class Wire extends Shape {
     move(dx, dy) {
         if (!Number.isFinite(dx) || !Number.isFinite(dy)) return;
         for (const p of this.nodes.values()) { p.x += dx; p.y += dy; }
+        // Move linked label text by the same delta (like Component.move)
+        if (this.labelText) {
+            this.labelText.x += dx;
+            this.labelText.y += dy;
+            this.labelText.invalidate();
+        }
         this.invalidate();
     }
 
@@ -670,6 +693,8 @@ export class Wire extends Shape {
             color: this.color, lineWidth: this.lineWidth,
             layer: this.layer, net: this.net,
             visible: this.visible, locked: this.locked,
+            labelOffset: { x: this.labelOffset.x, y: this.labelOffset.y },
+            showLabel: this.showLabel,
             // Clone gets a fresh wireLabel (it's a new wire)
         });
         for (const [id, p] of this.nodes) { c.nodes.set(id, { x: p.x, y: p.y }); }
@@ -683,7 +708,12 @@ export class Wire extends Shape {
      * @returns {object} Plain-object snapshot (nodes, edges, pinConnections, counters)
      */
     captureState() {
-        const s = { nodes: {}, edges: {}, pinConnections: {}, net: this.net, wireLabel: this.wireLabel };
+        const s = {
+            nodes: {}, edges: {}, pinConnections: {},
+            net: this.net, wireLabel: this.wireLabel,
+            labelOffset: { x: this.labelOffset.x, y: this.labelOffset.y },
+            showLabel: this.showLabel
+        };
         for (const [id, p] of this.nodes) s.nodes[id] = { x: p.x, y: p.y };
         for (const [id, e] of this.edges) s.edges[id] = { from: e.from, to: e.to };
         for (const [id, c] of this.pinConnections) s.pinConnections[id] = { ...c };
@@ -695,15 +725,31 @@ export class Wire extends Shape {
      * @param {object} state - Snapshot from {@link captureState}
      */
     applyState(state) {
-        this.nodes = new Map();
-        this.edges = new Map();
-        this.pinConnections = new Map();
-        for (const [id, p] of Object.entries(state.nodes)) this.nodes.set(id, { x: p.x, y: p.y });
-        for (const [id, e] of Object.entries(state.edges)) this.edges.set(id, { from: e.from, to: e.to });
-        if (state.pinConnections)
-            for (const [id, c] of Object.entries(state.pinConnections)) this.pinConnections.set(id, { ...c });
-        this.net = state.net || '';
-        if (state.wireLabel) this.wireLabel = state.wireLabel;
+        if (state.nodes) {
+            this.nodes = new Map();
+            this.edges = new Map();
+            this.pinConnections = new Map();
+            for (const [id, p] of Object.entries(state.nodes)) this.nodes.set(id, { x: p.x, y: p.y });
+            if (state.edges)
+                for (const [id, e] of Object.entries(state.edges)) this.edges.set(id, { from: e.from, to: e.to });
+            if (state.pinConnections)
+                for (const [id, c] of Object.entries(state.pinConnections)) this.pinConnections.set(id, { ...c });
+            if ('net' in state) this.net = state.net || '';
+        }
+        if (state.wireLabel) {
+            freeWireLabel(this.wireLabel);
+            this.wireLabel = state.wireLabel;
+            bumpWireLabelCounter(state.wireLabel);
+            // Keep the linked label Text shape in sync
+            if (this.labelText) {
+                this.labelText.text = state.wireLabel;
+                this.labelText.invalidate();
+            }
+        }
+        if (state.labelOffset) {
+            this.labelOffset = { x: state.labelOffset.x || 0, y: state.labelOffset.y || 0 };
+        }
+        if ('showLabel' in state) this.showLabel = !!state.showLabel;
         this.invalidate();
     }
 
@@ -717,7 +763,7 @@ export class Wire extends Shape {
         return { x: first.x, y: first.y };
     }
 
-    /** @returns {'axis'} Anchors snap along H/V axes, not freely. */
+    /** @returns {'axis'} Wire node anchors snap along H/V axes. */
     getAnchorSnapMode() { return 'axis'; }
 
     /**
@@ -726,9 +772,58 @@ export class Wire extends Shape {
      */
     getPropertyDescriptors() {
         return [
-            { key: 'wireLabel', label: 'ID', type: 'text', readonly: true },
-            { key: 'locked',    label: 'Locked',  type: 'checkbox' },
+            { key: 'locked',     label: 'Locked',      type: 'checkbox' },
         ];
+    }
+
+    // ─── Label text (separate Text shape) ────────────────────
+
+    /**
+     * Create a Text shape for the wire label, add it to app.shapes and
+     * the viewport.  Follows the same pattern as Component.createFieldTexts.
+     * Call ONCE after the wire is first placed (not on every render).
+     * @param {object} app - Application state with shapes[], viewport, etc.
+     */
+    /**
+     * Re-link the label Text shape after deserialization.
+     * @param {Array} shapes - All loaded shapes.
+     */
+    linkLabelText(shapes) {
+        for (const s of shapes) {
+            if (s.type === 'text' && s._pendingComponentId === this.id && s.fieldKey === 'wireLabel') {
+                s.parentComponent = this;
+                this.labelText = s;
+                s.visible = this.showLabel;
+                delete s._pendingComponentId;
+                break;
+            }
+        }
+    }
+
+    /**
+     * Keep the label Text shape content/visibility in sync with wire state.
+     */
+    syncLabelText() {
+        if (!this.labelText) return;
+        this.labelText.text = this.wireLabel;
+        this.labelText.visible = this.showLabel;
+        this.labelText.invalidate();
+    }
+
+    /** Compute the centroid (average) of all node positions. */
+    _getCentroid() {
+        let sx = 0, sy = 0, n = 0;
+        for (const p of this.nodes.values()) { sx += p.x; sy += p.y; n++; }
+        return n > 0 ? { x: sx / n, y: sy / n } : { x: 0, y: 0 };
+    }
+
+    /**
+     * Get the world-space position for the label text.
+     * @returns {{x: number, y: number}}
+     */
+    getLabelPosition() {
+        const c = this._getCentroid();
+        return { x: c.x + this.labelOffset.x, y: c.y + this.labelOffset.y };
     }
 
     /* ──────────────────── SVG rendering ────────────────────────── */
@@ -747,6 +842,12 @@ export class Wire extends Shape {
      */
     _updateElement(el, strokeColor, _fillColor, scale) {
         el.textContent = '';                               // clear children
+
+        // When the label text is selected but the wire isn't, tint blue
+        // to show ownership (mirrors the component field text pattern).
+        if (!this.selected && !this.hovered && this.labelText?.selected) {
+            strokeColor = 'var(--sch-selection, #3399ff)';
+        }
 
         const sw = this._getEffectiveStrokeWidth(scale);
 
@@ -777,6 +878,9 @@ export class Wire extends Shape {
                 el.appendChild(c);
             }
         }
+
+        // Invalidate label text so it turns blue/normal with the wire
+        if (this.labelText) this.labelText.invalidate();
     }
 
     /**
@@ -813,6 +917,11 @@ export class Wire extends Shape {
             for (const [nid, c] of this.pinConnections) json.pc[nid] = { ...c };
         }
         if (this.net) json.n = this.net;
+        // Label offset — only save if non-default
+        if (this.labelOffset.x !== 0 || this.labelOffset.y !== WIRE_LABEL_DEFAULT_OFFSET_Y) {
+            json.lo = [_r4(this.labelOffset.x), _r4(this.labelOffset.y)];
+        }
+        if (this.showLabel) json.sl = true;
         return json;
     }
 }
