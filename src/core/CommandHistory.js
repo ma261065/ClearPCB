@@ -157,15 +157,50 @@ export class AddShapeCommand extends Command {
         super(`Add ${shape.type}`);
         this.app = app;
         this.shape = shape;
+        this.linkedWireLabelText = shape.type === 'wire' ? (shape.labelText || null) : null;
+    }
+
+    _ensureWireLabelTextPresent() {
+        if (this.shape.type !== 'wire') return;
+        const labelText = this.shape.labelText || this.linkedWireLabelText;
+        if (!labelText) return;
+
+        this.linkedWireLabelText = labelText;
+        this.shape.labelText = labelText;
+        labelText.parentComponent = this.shape;
+
+        if (!this.app.shapes.includes(labelText)) {
+            this.app.shapes.push(labelText);
+        }
+        if (!labelText.element || !labelText.element.parentNode) {
+            labelText.render(this.app.viewport.scale);
+            this.app.viewport.addContent(labelText.element);
+        }
     }
     
     /** Add the shape to the canvas. */
     execute() {
+        if (this.shape.type === 'wire' && this.linkedWireLabelText && !this.shape.labelText) {
+            this.shape.labelText = this.linkedWireLabelText;
+        }
         this.app._addShapeInternal(this.shape);
+        this._ensureWireLabelTextPresent();
+        this.app._updateSelectableItems();
+        this.app.selection._invalidateHitTestCache();
     }
     
     /** Remove the shape from the canvas. */
     undo() {
+        if (this.shape.type === 'wire') {
+            this.app._removeShapeInternal(this.shape, { preserveWireLabelRef: true });
+            const linked = this.shape.labelText || this.linkedWireLabelText;
+            if (linked) {
+                this.linkedWireLabelText = linked;
+                this.shape.labelText = linked;
+                linked.parentComponent = this.shape;
+            }
+            return;
+        }
         this.app._removeShapeInternal(this.shape);
     }
 }

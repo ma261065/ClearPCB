@@ -490,8 +490,8 @@ class SchematicApp {
      * Internal remove - used by commands, no history entry
      * Does NOT destroy the shape so it can be re-added on undo
      */
-    _removeShapeInternal(shape) {
-        removeShapeInternal(this, shape);
+    _removeShapeInternal(shape, options = undefined) {
+        removeShapeInternal(this, shape, options);
     }
     
     /**

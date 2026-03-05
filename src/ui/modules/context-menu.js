@@ -225,6 +225,8 @@ export function deleteWireSegment(app, wire, edgeId) {
 
     // Capture before state
     const beforeState = wire.captureState();
+    const preSplitLabel = wire.wireLabel;
+    const preSplitVisible = wire.labelText?.visible ?? false;
 
     // Remove the edge
     wire.removeEdge(edgeId);
@@ -249,12 +251,21 @@ export function deleteWireSegment(app, wire, edgeId) {
     } else {
         // Multiple components — delete original, create new wires for each component with edges
         batch.add(new DeleteShapesCommand(app, [wire]));
+        const fragments = [];
         for (const nodeSet of components) {
             const sub = wire.extractSubgraph(nodeSet);
             if (sub.edges.size > 0) {
+                fragments.push(sub);
+            }
+        }
+
+        if (fragments.length > 0) {
+            applySplitLabelRules(fragments[0], fragments.slice(1), preSplitLabel, preSplitVisible);
+            for (const sub of fragments) {
                 batch.add(new AddShapeCommand(app, sub));
             }
         }
+
         // Restore original for undo
         wire.applyState(beforeState);
     }

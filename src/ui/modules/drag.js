@@ -7,7 +7,7 @@
  * the user finishes an anchor or segment drag.
  */
 
-import { ModifyShapeCommand, DeleteShapesCommand } from '../../core/CommandHistory.js';
+import { ModifyShapeCommand, DeleteShapesCommand, BatchCommand } from '../../core/CommandHistory.js';
 import { updateSnapHighlight, reconcileWires, refreshWireConnections, refreshNoConnectConnection, collapseRedundantWirePoints, buildWireDiffBatch } from './wire.js';
 
 /**

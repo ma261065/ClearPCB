@@ -66,16 +66,19 @@ export function addShapeInternalAt(app, shape, index) {
  * deselects, invalidates hit-test cache, and marks dirty.
  * @param {object} app - Application state.
  * @param {import('../../shapes/shape.js').Shape} shape - Shape to remove.
+ * @param {{ preserveWireLabelRef?: boolean }} [options] - Optional remove behavior.
  */
-export function removeShapeInternal(app, shape) {
+export function removeShapeInternal(app, shape, options = {}) {
+    const { preserveWireLabelRef = false } = options;
     const idx = app.shapes.indexOf(shape);
     if (idx !== -1) {
         app.shapes.splice(idx, 1);
         if (shape.type === 'wire' && shape.wireLabel) freeWireLabel(shape.wireLabel);
         // Also remove the linked label Text shape
         if (shape.type === 'wire' && shape.labelText) {
-            removeShapeInternal(app, shape.labelText);
-            shape.labelText = null;
+            const linkedLabel = shape.labelText;
+            removeShapeInternal(app, linkedLabel, options);
+            shape.labelText = preserveWireLabelRef ? linkedLabel : null;
         }
         if (shape.element && shape.element.parentNode) {
             shape.element.parentNode.removeChild(shape.element);
