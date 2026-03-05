@@ -964,9 +964,15 @@ function _tryMergeGraphs(app, wireA, wireB, affected, changed) {
     return false;
 }
 
-function _removeMerged(app, removed, affected, changed, keeper, keeperPreSegs, removedPreSegs) {
+function _syncWireLabelText(wire) {
+    if (!wire?.labelText) return;
+    wire.labelText.text = wire.wireLabel;
+    wire.labelText.invalidate();
+}
+
+function _applyMergeLabelRules(keeper, removed, keeperPreSegs, removedPreSegs, removedLabelMeta) {
     const keeperVis = keeper.labelText?.visible ?? false;
-    const removedVis = removed.labelText?.visible ?? false;
+    const removedVis = removedLabelMeta.visible;
     const postVisible = keeperVis || removedVis;
 
     let useRemovedLabel = false;
@@ -976,11 +982,60 @@ function _removeMerged(app, removed, affected, changed, keeper, keeperPreSegs, r
         useRemovedLabel = removedPreSegs > keeperPreSegs;
     }
 
-    // Capture label info before removing the absorbed wire
-    const removedLabel = removed.wireLabel;
-    const removedLabelPos = removed.labelText
-        ? { x: removed.labelText.x, y: removed.labelText.y, rotation: removed.labelText.rotation }
-        : null;
+    if (useRemovedLabel) {
+        const removedLabel = removed.wireLabel;
+        const removedLabelPos = removedLabelMeta.position;
+
+        freeWireLabel(keeper.wireLabel);
+        keeper.wireLabel = removedLabel;
+        bumpWireLabelCounter(removedLabel);
+        _syncWireLabelText(keeper);
+
+        if (keeper.labelText && removedLabelPos) {
+            keeper.labelText.x = removedLabelPos.x;
+            keeper.labelText.y = removedLabelPos.y;
+            keeper.labelText.rotation = removedLabelPos.rotation;
+            keeper.labelText.invalidate();
+        }
+    }
+
+    if (keeper.labelText) {
+        keeper.labelText.visible = postVisible;
+        keeper.labelText.invalidate();
+    }
+}
+
+export function applySplitLabelRules(originalWire, newFragments, preSplitLabel, preSplitVisible) {
+    const allPostWires = [originalWire, ...newFragments];
+    allPostWires.sort((a, b) => b.edges.size - a.edges.size);
+    const winner = allPostWires[0];
+
+    if (winner !== originalWire) {
+        freeWireLabel(winner.wireLabel);
+        winner.wireLabel = preSplitLabel;
+        bumpWireLabelCounter(preSplitLabel);
+        _syncWireLabelText(winner);
+
+        freeWireLabel(originalWire.wireLabel);
+        originalWire.wireLabel = nextWireLabel();
+        _syncWireLabelText(originalWire);
+    }
+
+    for (const wire of allPostWires) {
+        if (wire.labelText) {
+            wire.labelText.visible = preSplitVisible;
+            wire.labelText.invalidate();
+        }
+    }
+}
+
+function _removeMerged(app, removed, affected, changed, keeper, keeperPreSegs, removedPreSegs) {
+    const removedLabelMeta = {
+        visible: removed.labelText?.visible ?? false,
+        position: removed.labelText
+            ? { x: removed.labelText.x, y: removed.labelText.y, rotation: removed.labelText.rotation }
+            : null
+    };
 
     // Remove the absorbed wire first (this frees its wireLabel from the tracking set)
     app._removeShapeInternal(removed);
@@ -989,24 +1044,7 @@ function _removeMerged(app, removed, affected, changed, keeper, keeperPreSegs, r
     if (!changed.has(keeper)) changed.add(keeper);
 
     // Now apply label rules on the keeper
-    if (useRemovedLabel) {
-        freeWireLabel(keeper.wireLabel);
-        keeper.wireLabel = removedLabel;
-        bumpWireLabelCounter(removedLabel);
-        if (keeper.labelText) {
-            keeper.labelText.text = removedLabel;
-            if (removedLabelPos) {
-                keeper.labelText.x = removedLabelPos.x;
-                keeper.labelText.y = removedLabelPos.y;
-                keeper.labelText.rotation = removedLabelPos.rotation;
-            }
-            keeper.labelText.invalidate();
-        }
-    }
-    if (keeper.labelText) {
-        keeper.labelText.visible = postVisible;
-        keeper.labelText.invalidate();
-    }
+    _applyMergeLabelRules(keeper, removed, keeperPreSegs, removedPreSegs, removedLabelMeta);
 }
 
 /**
@@ -1115,34 +1153,7 @@ export function reconcileWires(app, changedWires, skipSet = null) {
         // Winner = post-split wire with most segments, keeps original label.
         // Other fragments get new (auto) labels.
         // All post-split wires inherit pre-split visibility.
-        const allPostWires = [w, ...newFragments];
-        allPostWires.sort((a, b) => b.edges.size - a.edges.size);
-        const winner = allPostWires[0];
-
-        if (winner !== w) {
-            // Winner is a fragment — swap labels
-            freeWireLabel(winner.wireLabel);
-            winner.wireLabel = preSplitLabel;
-            bumpWireLabelCounter(preSplitLabel);
-            if (winner.labelText) {
-                winner.labelText.text = preSplitLabel;
-                winner.labelText.invalidate();
-            }
-            freeWireLabel(w.wireLabel);
-            w.wireLabel = nextWireLabel();
-            if (w.labelText) {
-                w.labelText.text = w.wireLabel;
-                w.labelText.invalidate();
-            }
-        }
-
-        // Set visibility on all post-split wires to match pre-split
-        for (const pw of allPostWires) {
-            if (pw.labelText) {
-                pw.labelText.visible = preSplitVisible;
-                pw.labelText.invalidate();
-            }
-        }
+        applySplitLabelRules(w, newFragments, preSplitLabel, preSplitVisible);
     }
 }
 

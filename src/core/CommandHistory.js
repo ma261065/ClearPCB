@@ -190,20 +190,26 @@ export class DeleteShapesCommand extends Command {
             shape: s,
             index: indexMap.get(s) ?? -1
         }));
+
+        const explicitShapes = new Set(shapes);
+        this.linkedLabelData = [];
+        for (const data of this.shapesData) {
+            const shape = data.shape;
+            if (shape.type === 'wire' && shape.labelText && !explicitShapes.has(shape.labelText)) {
+                this.linkedLabelData.push({
+                    shape: shape.labelText,
+                    index: indexMap.get(shape.labelText) ?? -1,
+                    parentWire: shape
+                });
+            }
+        }
     }
     
     /** Remove the shapes from the canvas and deselect them. */
     execute() {
         const app = this.app;
-        const toRemove = new Set(this.shapesData.map(d => d.shape));
-
-        // Also remove label texts linked to deleted wires
-        for (const data of this.shapesData) {
-            const shape = data.shape;
-            if (shape.type === 'wire' && shape.labelText) {
-                toRemove.add(shape.labelText);
-            }
-        }
+        const allData = [...this.shapesData, ...this.linkedLabelData];
+        const toRemove = new Set(allData.map(d => d.shape));
 
         let writeIdx = 0;
         for (let i = 0; i < app.shapes.length; i++) {
@@ -222,19 +228,10 @@ export class DeleteShapesCommand extends Command {
         const parent = layer.parentNode;
         const nextSib = layer.nextSibling;
         if (parent) parent.removeChild(layer);
-        for (const data of this.shapesData) {
+        for (const data of allData) {
             const shape = data.shape;
             if (shape.element?.parentNode) shape.element.parentNode.removeChild(shape.element);
             if (shape.anchorsGroup?.parentNode) shape.anchorsGroup.parentNode.removeChild(shape.anchorsGroup);
-            // Remove linked wire label text element
-            if (shape.type === 'wire' && shape.labelText) {
-                if (shape.labelText.element?.parentNode) shape.labelText.element.parentNode.removeChild(shape.labelText.element);
-                if (shape.labelText.anchorsGroup?.parentNode) shape.labelText.anchorsGroup.parentNode.removeChild(shape.labelText.anchorsGroup);
-                if (shape.labelText.selected) {
-                    shape.labelText.selected = false;
-                    app.selection.selected.delete(shape.labelText.id);
-                }
-            }
             if (shape.selected) {
                 shape.selected = false;
                 app.selection.selected.delete(shape.id);
@@ -255,36 +252,32 @@ export class DeleteShapesCommand extends Command {
     /** Re-insert the shapes at their original z-order positions. */
     undo() {
         const app = this.app;
+        const allData = [...this.shapesData, ...this.linkedLabelData];
         // Detach content layer for batched DOM additions
         const layer = app.viewport.contentLayer;
         const parent = layer.parentNode;
         const nextSib = layer.nextSibling;
         if (parent) parent.removeChild(layer);
         // Re-render and add to DOM, ensuring hover state is clean
-        for (const data of this.shapesData) {
+        for (const data of allData) {
             data.shape.hovered = false;
             data.shape.render(app.viewport.scale);
             app.viewport.addContent(data.shape.element);
-            // Re-add linked wire label text
-            if (data.shape.type === 'wire' && data.shape.labelText) {
-                data.shape.labelText.hovered = false;
-                data.shape.labelText.render(app.viewport.scale);
-                app.viewport.addContent(data.shape.labelText.element);
-            }
         }
         // Reattach content layer
         if (parent) parent.insertBefore(layer, nextSib);
         // Merge back at original positions using a single rebuild
-        const sorted = [...this.shapesData].sort((a, b) => a.index - b.index);
+        const sorted = [...allData].sort((a, b) => a.index - b.index);
         for (const data of sorted) {
-            const idx = Math.min(data.index, app.shapes.length);
+            if (app.shapes.includes(data.shape)) continue;
+            const idx = data.index >= 0 ? Math.min(data.index, app.shapes.length) : app.shapes.length;
             app.shapes.splice(idx, 0, data.shape);
             if (data.shape.type === 'wire' && data.shape.wireLabel) bumpWireLabelCounter(data.shape.wireLabel);
-            // Re-add linked wire label text to shapes array
-            if (data.shape.type === 'wire' && data.shape.labelText) {
-                if (!app.shapes.includes(data.shape.labelText)) {
-                    app.shapes.push(data.shape.labelText);
-                }
+        }
+
+        for (const linked of this.linkedLabelData) {
+            if (linked.parentWire && linked.parentWire.labelText !== linked.shape) {
+                linked.parentWire.labelText = linked.shape;
             }
         }
         app._updateSelectableItems();

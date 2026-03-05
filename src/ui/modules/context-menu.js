@@ -7,8 +7,7 @@
  */
 
 import { ModifyShapeCommand, BatchCommand, AddShapeCommand, DeleteShapesCommand } from '../../core/CommandHistory.js';
-import { VERTEX_EPSILON } from './wire.js';
-import { freeWireLabel, nextWireLabel, bumpWireLabelCounter } from '../../shapes/wire.js';
+import { VERTEX_EPSILON, applySplitLabelRules } from './wire.js';
 
 // ─── T-junction detection ──────────────────────────────────────────
 
@@ -169,32 +168,7 @@ export function deleteJunction(app, junctionInfo) {
         // ── Split label rules ──
         // Winner = post-split wire with most segments, keeps original label.
         // All post-split wires inherit pre-split visibility.
-        const allPostWires = [wire, ...newFragments];
-        allPostWires.sort((a, b) => b.edges.size - a.edges.size);
-        const winner = allPostWires[0];
-        if (winner !== wire) {
-            freeWireLabel(winner.wireLabel);
-            winner.wireLabel = preSplitLabel;
-            bumpWireLabelCounter(preSplitLabel);
-            if (winner.labelText) {
-                winner.labelText.text = preSplitLabel;
-                winner.labelText.invalidate();
-            }
-            freeWireLabel(wire.wireLabel);
-            wire.wireLabel = nextWireLabel();
-            if (wire.labelText) {
-                wire.labelText.text = wire.wireLabel;
-                wire.labelText.invalidate();
-            }
-        }
-        // All post-split wires inherit pre-split visibility.
-        // Only reposition labels on newly created fragments (not the original wire).
-        for (const pw of allPostWires) {
-            if (pw.labelText) {
-                pw.labelText.visible = preSplitVisible;
-                pw.labelText.invalidate();
-            }
-        }
+        applySplitLabelRules(wire, newFragments, preSplitLabel, preSplitVisible);
     }
     wire.invalidate();
 
