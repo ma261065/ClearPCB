@@ -43,12 +43,20 @@ export function deleteSelected(app) {
     for (const item of toDelete) {
         if (shapeSet.has(item)) {
             if (item.parentComponent && item.fieldKey) {
-                // Skip show-flag toggle if parent component is also being deleted
+                // Skip show-flag toggle if parent is also being deleted
                 if (!deleteSet.has(item.parentComponent)) {
-                    const showKey = item.fieldKey === 'reference' ? 'showReference' : 'showValue';
-                    if (item.parentComponent[showKey]) {
-                        showFlagCommands.push(new ModifyPropertyCommand(
-                            app, [item.parentComponent], showKey, false));
+                    if (item.fieldKey === 'wireLabel' && item.parentComponent.type === 'wire') {
+                        // Wire label: hide via showLabel
+                        if (item.parentComponent.showLabel) {
+                            showFlagCommands.push(new ModifyPropertyCommand(
+                                app, [item.parentComponent], 'showLabel', false));
+                        }
+                    } else {
+                        const showKey = item.fieldKey === 'reference' ? 'showReference' : 'showValue';
+                        if (item.parentComponent[showKey]) {
+                            showFlagCommands.push(new ModifyPropertyCommand(
+                                app, [item.parentComponent], showKey, false));
+                        }
                     }
                 }
                 continue;
