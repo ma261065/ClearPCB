@@ -215,7 +215,10 @@ export class Text extends Shape {
     
     /** @override */
     captureState() {
-        return { x: this.x, y: this.y, text: this.text, fontSize: this.fontSize, fontFamily: this.fontFamily, textAnchor: this.textAnchor, rotation: this.rotation };
+        const state = { x: this.x, y: this.y, text: this.text, fontSize: this.fontSize, fontFamily: this.fontFamily, textAnchor: this.textAnchor, rotation: this.rotation };
+        // Include visibility for field texts so merge/split undo restores it
+        if (this.fieldKey) state.visible = this.visible;
+        return state;
     }
     /** @override */
     getPropertyDescriptors() {
