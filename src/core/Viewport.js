@@ -95,13 +95,15 @@ export class Viewport {
         this.paperSizeKey = null;  // Name of the paper size (e.g., 'A4')
         this.showTitleBlock = false; // Double border with zone markers
         this.showTitleBlockInfo = false; // Title block info box
+        this._titleBlockStorageKey = 'clearpcb_tb_data';
+        const persistedTitleBlockData = this._loadPersistedTitleBlockData();
         this.titleBlockData = {
-            title: '',
-            rev: '',
-            company: localStorage.getItem('clearpcb_tb_company') || '',
-            date: new Date().toLocaleDateString(),
-            drawnBy: localStorage.getItem('clearpcb_tb_drawnBy') || '',
-            sheet: '1/1'
+            title: persistedTitleBlockData.title ?? '',
+            rev: persistedTitleBlockData.rev ?? '',
+            company: persistedTitleBlockData.company ?? (localStorage.getItem('clearpcb_tb_company') || ''),
+            date: persistedTitleBlockData.date ?? new Date().toLocaleDateString(),
+            drawnBy: persistedTitleBlockData.drawnBy ?? (localStorage.getItem('clearpcb_tb_drawnBy') || ''),
+            sheet: persistedTitleBlockData.sheet ?? '1/1'
         };
         
         // Units
@@ -703,8 +705,34 @@ export class Viewport {
      */
     setTitleBlockData(data) {
         Object.assign(this.titleBlockData, data);
+        this._persistTitleBlockData();
         this.paperDirty = true;
         this._drawPaperOutline();
+    }
+
+    _loadPersistedTitleBlockData() {
+        try {
+            const raw = localStorage.getItem(this._titleBlockStorageKey);
+            if (!raw) return {};
+            const parsed = JSON.parse(raw);
+            return parsed && typeof parsed === 'object' ? parsed : {};
+        } catch {
+            return {};
+        }
+    }
+
+    _persistTitleBlockData() {
+        try {
+            localStorage.setItem(this._titleBlockStorageKey, JSON.stringify(this.titleBlockData));
+            if (this.titleBlockData.company !== undefined) {
+                localStorage.setItem('clearpcb_tb_company', this.titleBlockData.company || '');
+            }
+            if (this.titleBlockData.drawnBy !== undefined) {
+                localStorage.setItem('clearpcb_tb_drawnBy', this.titleBlockData.drawnBy || '');
+            }
+        } catch {
+            // ignore storage failures
+        }
     }
     
     /**
@@ -1017,15 +1045,10 @@ export class Viewport {
         const commit = () => {
             if (this._titleBlockEditCancelled || !input.parentNode) return;
             const val = input.value;
-            this.titleBlockData[field] = val;
-            // Persist user-identity fields across sessions
-            if (field === 'company') localStorage.setItem('clearpcb_tb_company', val);
-            if (field === 'drawnBy') localStorage.setItem('clearpcb_tb_drawnBy', val);
+            this.setTitleBlockData({ [field]: val });
             document.body.removeChild(input);
             this._titleBlockEditActive = false;
             this._titleBlockEditInput = null;
-            this.paperDirty = true;
-            this._drawPaperOutline();
         };
 
         const cancel = () => {

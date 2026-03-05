@@ -335,12 +335,14 @@ export async function newFile(app) {
     app.viewport.resetView();
 
     // Reset title block to defaults (preserve persisted user-identity fields)
-    app.viewport.titleBlockData.title = '';
-    app.viewport.titleBlockData.rev = '';
-    app.viewport.titleBlockData.sheet = '1/1';
-    app.viewport.titleBlockData.date = new Date().toLocaleDateString();
-    app.viewport.titleBlockData.company = localStorage.getItem('clearpcb_tb_company') || '';
-    app.viewport.titleBlockData.drawnBy = localStorage.getItem('clearpcb_tb_drawnBy') || '';
+    app.viewport.setTitleBlockData({
+        title: '',
+        rev: '',
+        sheet: '1/1',
+        date: new Date().toLocaleDateString(),
+        company: localStorage.getItem('clearpcb_tb_company') || '',
+        drawnBy: localStorage.getItem('clearpcb_tb_drawnBy') || ''
+    });
 
     app._updateTitle();
     app.invalidate?.();
