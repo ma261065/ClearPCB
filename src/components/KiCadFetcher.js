@@ -88,7 +88,11 @@ export class KiCadFetcher {
             return cachedResults;
         }
         
-        // Load library index if not loaded yet
+        // If index is currently being fetched, wait for it
+        if (!this.libraryIndex && this._indexLoadPromise) {
+            await this._indexLoadPromise;
+        }
+        // If still not loaded, try to load (shouldn’t normally happen)
         if (!this.libraryIndex) {
             await this.ensureIndexLoaded();
         }
@@ -944,7 +948,11 @@ export class KiCadFetcher {
 
             if (Object.keys(index).length > 0) {
                 this.libraryIndex = { symbols: index };
-                storageManager.set('kicad_full_symbol_index', index, 7 * 24 * 60 * 60 * 1000);
+                const saved = storageManager.set('kicad_full_symbol_index', index, 7 * 24 * 60 * 60 * 1000);
+                if (!saved) {
+                    console.warn('KiCadFetcher: Failed to cache index in localStorage (quota exceeded?). ' +
+                        'The index will need to be re-downloaded on next visit.');
+                }
 
                 // Populate the per-library symdir cache
                 for (const [lib, symbols] of Object.entries(index)) {

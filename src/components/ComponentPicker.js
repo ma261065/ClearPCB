@@ -286,6 +286,10 @@ export class ComponentPicker {
         // Ensure the KiCad index is loaded (shows progress bar on first use)
         const fetcher = this.library.kicadFetcher;
         if (!fetcher.libraryIndex) {
+            // Show immediate feedback that the index is loading
+            if (this._searchGeneration === searchId) {
+                this._showIndexingProgress('Loading KiCad library index...', 0, 0);
+            }
             await fetcher.ensureIndexLoaded((progress) => {
                 // Only show indexing progress if still in LCSC mode and same search
                 if (this.searchMode === 'lcsc' && this._searchGeneration === searchId) {
