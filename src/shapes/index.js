@@ -45,7 +45,7 @@ const SHORT_KEYS = {
     sp: 'startPoint', ep: 'endPoint', bp: 'bulgePoint',
     t: 'text', fs: 'fontSize', ff: 'fontFamily', ta: 'textAnchor',
     cid: 'componentId', fk: 'fieldKey', rot: 'rotation',
-    pn: 'pinConnection', lo: 'labelOffset', sl: 'showLabel',
+    pn: 'pinConnection', lo: 'labelOffset',
 };
 
 /**

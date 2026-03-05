@@ -84,6 +84,14 @@ export function commitAnchorDrag(app) {
             }
         }
 
+        // Capture label text states before reconciliation
+        const labelTextBefore = new Map();
+        for (const [w] of beforeAll) {
+            if (w.labelText && app.shapes.includes(w.labelText)) {
+                labelTextBefore.set(w.labelText, w.labelText.captureState());
+            }
+        }
+
         // Run unified reconciliation (overlap, merge, collapse, junctions)
         const changedWires = [app.dragShape];
         if (app.dragAnchorWireStates) {
@@ -103,21 +111,30 @@ export function commitAnchorDrag(app) {
             for (const link of app.dragAnchorNCLinks) refreshNoConnectConnection(app, link.nc);
         }
 
-        // Build undo batch by diffing pre-drag vs post-reconcile
-        const batch = buildWireDiffBatch(app, beforeAll, 'Move anchor');
+        // Build undo batch by diffing pre-drag vs post-reconcile (pure snapshot)
+        const batch = buildWireDiffBatch(app, beforeAll, 'Move anchor', [], labelTextBefore);
 
         // Add ModifyShapeCommands for NoConnect shapes that moved with the anchor
-        if (batch && app.dragAnchorNCLinks) {
+        if (app.dragAnchorNCLinks) {
+            const b = batch || new BatchCommand('Move anchor');
             for (const link of app.dragAnchorNCLinks) {
                 const after = link.nc.captureState();
                 if (JSON.stringify(link.before) !== JSON.stringify(after)) {
-                    link.nc.applyState(link.before);
-                    batch.add(new ModifyShapeCommand(app, link.nc, link.before, after));
+                    b.add(new ModifyShapeCommand(app, link.nc, link.before, after));
                 }
+            }
+            if (!batch && b.commands.length > 0) {
+                app.history.undoStack.push(b);
+                app.history.redoStack = [];
+                app.history._notifyChanged();
             }
         }
 
-        if (batch) app.history.execute(batch);
+        if (batch) {
+            app.history.undoStack.push(batch);
+            app.history.redoStack = [];
+            app.history._notifyChanged();
+        }
 
         // Select surviving dragged wire if not degenerate
         if (app.shapes.includes(app.dragShape)) {
@@ -176,6 +193,14 @@ export function commitSegmentDrag(app) {
         }
     }
 
+    // Capture label text states before reconciliation
+    const labelTextBefore = new Map();
+    for (const [w] of beforeAll) {
+        if (w.labelText && app.shapes.includes(w.labelText)) {
+            labelTextBefore.set(w.labelText, w.labelText.captureState());
+        }
+    }
+
     // Run unified reconciliation on all dragged wires
     const changedWires = [...app.dragWireStates.keys()].filter(w => app.shapes.includes(w));
     reconcileWires(app, changedWires);
@@ -190,31 +215,35 @@ export function commitSegmentDrag(app) {
         for (const link of app.dragSegmentNCLinks) refreshNoConnectConnection(app, link.nc);
     }
 
-    // Build undo batch by diffing pre-drag vs post-reconcile
-    const batch = buildWireDiffBatch(app, beforeAll, 'Move wire segment');
+    // Build undo batch by diffing pre-drag vs post-reconcile (pure snapshot)
+    const batch = buildWireDiffBatch(app, beforeAll, 'Move wire segment', [], labelTextBefore);
 
     // Add ModifyShapeCommands for NoConnect shapes that moved with the segment
-    if (batch && app.dragSegmentNCLinks) {
+    const b = batch || new BatchCommand('Move wire segment');
+    if (app.dragSegmentNCLinks) {
         for (const link of app.dragSegmentNCLinks) {
             const after = link.nc.captureState();
             if (JSON.stringify(link.before) !== JSON.stringify(after)) {
-                link.nc.applyState(link.before);
-                batch.add(new ModifyShapeCommand(app, link.nc, link.before, after));
+                b.add(new ModifyShapeCommand(app, link.nc, link.before, after));
             }
         }
     }
 
     // Add ModifyShapeCommand for wire label text that moved with the segment
-    if (batch && app.dragSegmentLabelBefore && app.dragShape?.labelText) {
+    if (app.dragSegmentLabelBefore && app.dragShape?.labelText) {
         const lt = app.dragShape.labelText;
         const after = lt.captureState();
         const before = app.dragSegmentLabelBefore;
         if (JSON.stringify(before) !== JSON.stringify(after)) {
-            lt.applyState(before);
-            batch.add(new ModifyShapeCommand(app, lt, before, after));
+            b.add(new ModifyShapeCommand(app, lt, before, after));
         }
     }
 
-    if (batch) app.history.execute(batch);
+    const finalBatch = batch || (b.commands.length > 0 ? b : null);
+    if (finalBatch) {
+        app.history.undoStack.push(finalBatch);
+        app.history.redoStack = [];
+        app.history._notifyChanged();
+    }
     app.renderShapes(true);
 }

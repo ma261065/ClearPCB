@@ -46,10 +46,10 @@ export function deleteSelected(app) {
                 // Skip show-flag toggle if parent is also being deleted
                 if (!deleteSet.has(item.parentComponent)) {
                     if (item.fieldKey === 'wireLabel' && item.parentComponent.type === 'wire') {
-                        // Wire label: hide via showLabel
-                        if (item.parentComponent.showLabel) {
+                        // Wire label: hide by setting visible = false on the text shape
+                        if (item.visible) {
                             showFlagCommands.push(new ModifyPropertyCommand(
-                                app, [item.parentComponent], 'showLabel', false));
+                                app, [item], 'visible', false));
                         }
                     } else {
                         const showKey = item.fieldKey === 'reference' ? 'showReference' : 'showValue';

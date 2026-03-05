@@ -22,6 +22,7 @@
  */
 
 import { Wire, COLLINEAR_EPSILON as _SHAPE_COLLINEAR_EPSILON } from '../../shapes/index.js';
+import { freeWireLabel, nextWireLabel, bumpWireLabelCounter } from '../../shapes/wire.js';
 import { BatchCommand, AddShapeCommand, ModifyShapeCommand, DeleteShapesCommand } from '../../core/CommandHistory.js';
 import { distanceToSegment, pointsMatch, pointsCollinear, segmentsCollinear, collinearSnap } from '../../core/geometry.js';
 
@@ -531,9 +532,14 @@ export function finishWireDrawing(app, worldPos) {
         return;
     }
 
-    // Build undo batch (drawn wire is an extra add since it's new)
+    // Build undo batch (pure snapshot, no revert/replay)
     const batch = buildWireDiffBatch(app, beforeStates, 'Draw wire', [wire], labelTextBefore);
-    if (batch) app.history.execute(batch);
+    if (batch) {
+        // Push to undo stack without executing — state is already correct
+        app.history.undoStack.push(batch);
+        app.history.redoStack = [];
+        app.history._notifyChanged();
+    }
     cancelWireDrawing(app);
     app.renderShapes(true);
 }
@@ -921,13 +927,17 @@ export function updateStickyWires(app) {
  * app.shapes.  Returns true if a merge occurred.
  */
 function _tryMergeGraphs(app, wireA, wireB, affected, changed) {
+    // Capture pre-merge segment counts for label winner determination
+    const segsA = wireA.edges.size;
+    const segsB = wireB.edges.size;
+
     // Forward: A's nodes → B's nodes/edges
     for (const [nodeId, pos] of wireA.nodes) {
         const match = wireB.nodeAt(pos, VERTEX_EPSILON);
         if (match) {
             const remap = wireA.absorb(wireB);
             wireA.mergeNodes(nodeId, remap.get(match));
-            _removeMerged(app, wireB, affected, changed, wireA);
+            _removeMerged(app, wireB, affected, changed, wireA, segsA, segsB);
             return true;
         }
         const onEdge = wireB.closestEdge(pos);
@@ -935,50 +945,68 @@ function _tryMergeGraphs(app, wireA, wireB, affected, changed) {
             const split = wireB.splitEdge(onEdge.edgeId, pos);
             const remap = wireA.absorb(wireB);
             wireA.mergeNodes(nodeId, remap.get(split.newNodeId));
-            _removeMerged(app, wireB, affected, changed, wireA);
+            _removeMerged(app, wireB, affected, changed, wireA, segsA, segsB);
             return true;
         }
     }
     // Reverse: B's nodes → A's edges
     for (const [nodeId, pos] of wireB.nodes) {
-        if (wireA.nodeAt(pos, VERTEX_EPSILON)) continue;   // handled above
+        if (wireA.nodeAt(pos, VERTEX_EPSILON)) continue;
         const onEdge = wireA.closestEdge(pos);
         if (onEdge && onEdge.distance < VERTEX_EPSILON) {
             const split = wireA.splitEdge(onEdge.edgeId, pos);
             const remap = wireA.absorb(wireB);
             wireA.mergeNodes(split.newNodeId, remap.get(nodeId));
-            _removeMerged(app, wireB, affected, changed, wireA);
+            _removeMerged(app, wireB, affected, changed, wireA, segsA, segsB);
             return true;
         }
     }
     return false;
 }
 
-function _removeMerged(app, removed, affected, changed, keeper) {
-    // Inherit label visibility / custom name from the absorbed wire
-    // so the user doesn't lose a visible label after a merge.
-    if (removed.showLabel && !keeper.showLabel) {
-        keeper.showLabel = true;
-        if (keeper.labelText) {
-            keeper.labelText.visible = true;
-            keeper.labelText.invalidate();
-        }
+function _removeMerged(app, removed, affected, changed, keeper, keeperPreSegs, removedPreSegs) {
+    const keeperVis = keeper.labelText?.visible ?? false;
+    const removedVis = removed.labelText?.visible ?? false;
+    const postVisible = keeperVis || removedVis;
+
+    let useRemovedLabel = false;
+    if (keeperVis !== removedVis) {
+        useRemovedLabel = removedVis;
+    } else {
+        useRemovedLabel = removedPreSegs > keeperPreSegs;
     }
-    // If the removed wire had a user-assigned name (not the default Wnnnn pattern)
-    // and the keeper still has a default name, inherit it.
-    const isDefaultName = /^W\d{4,}$/.test(keeper.wireLabel);
-    const removedIsCustom = removed.wireLabel && !/^W\d{4,}$/.test(removed.wireLabel);
-    if (removedIsCustom && isDefaultName) {
-        keeper.wireLabel = removed.wireLabel;
-        if (keeper.labelText) {
-            keeper.labelText.text = removed.wireLabel;
-            keeper.labelText.invalidate();
-        }
-    }
+
+    // Capture label info before removing the absorbed wire
+    const removedLabel = removed.wireLabel;
+    const removedLabelPos = removed.labelText
+        ? { x: removed.labelText.x, y: removed.labelText.y, rotation: removed.labelText.rotation }
+        : null;
+
+    // Remove the absorbed wire first (this frees its wireLabel from the tracking set)
     app._removeShapeInternal(removed);
     affected.delete(removed);
     changed.delete(removed);
     if (!changed.has(keeper)) changed.add(keeper);
+
+    // Now apply label rules on the keeper
+    if (useRemovedLabel) {
+        freeWireLabel(keeper.wireLabel);
+        keeper.wireLabel = removedLabel;
+        bumpWireLabelCounter(removedLabel);
+        if (keeper.labelText) {
+            keeper.labelText.text = removedLabel;
+            if (removedLabelPos) {
+                keeper.labelText.x = removedLabelPos.x;
+                keeper.labelText.y = removedLabelPos.y;
+                keeper.labelText.rotation = removedLabelPos.rotation;
+            }
+            keeper.labelText.invalidate();
+        }
+    }
+    if (keeper.labelText) {
+        keeper.labelText.visible = postVisible;
+        keeper.labelText.invalidate();
+    }
 }
 
 /**
@@ -1058,25 +1086,14 @@ export function reconcileWires(app, changedWires, skipSet = null) {
         if (!app.shapes.includes(w)) continue;
         const comps = w.connectedComponents();
         if (comps.length <= 1) continue;
+
+        // Capture pre-split label state
+        const preSplitLabel = w.wireLabel;
+        const preSplitVisible = w.labelText?.visible ?? false;
+
         // Keep the largest component in the original wire
         comps.sort((a, b) => b.size - a.size);
         const keepSet = comps[0];
-
-        // Before splitting, check which fragment the label text is closest to
-        // so we can transfer the label to the right fragment.
-        let labelClosestComp = 0; // default: keep with largest (index 0)
-        if (w.labelText && w.showLabel) {
-            const ltx = w.labelText.x, lty = w.labelText.y;
-            let bestDist = Infinity;
-            for (let ci = 0; ci < comps.length; ci++) {
-                for (const nid of comps[ci]) {
-                    const p = w.nodes.get(nid);
-                    if (!p) continue;
-                    const d = Math.hypot(p.x - ltx, p.y - lty);
-                    if (d < bestDist) { bestDist = d; labelClosestComp = ci; }
-                }
-            }
-        }
 
         const newFragments = [];
         for (let i = 1; i < comps.length; i++) {
@@ -1084,7 +1101,7 @@ export function reconcileWires(app, changedWires, skipSet = null) {
             if (sub.edges.size > 0) {
                 app._addShapeInternal(sub);
                 changed.add(sub);
-                newFragments.push({ index: i, wire: sub });
+                newFragments.push(sub);
             }
         }
         // Trim original to keep only the largest component
@@ -1094,26 +1111,36 @@ export function reconcileWires(app, changedWires, skipSet = null) {
         w.invalidate();
         if (w.edges.size === 0) { app._removeShapeInternal(w); continue; }
 
-        // Transfer label to the closest fragment if it split away
-        if (labelClosestComp > 0 && w.labelText) {
-            const target = newFragments.find(f => f.index === labelClosestComp);
-            if (target) {
-                const lt = w.labelText;
-                // Remove the auto-created label on the target fragment
-                if (target.wire.labelText && target.wire.labelText !== lt) {
-                    app._removeShapeInternal(target.wire.labelText);
-                    target.wire.labelText = null;
-                }
-                // Transfer label properties and text shape to the fragment
-                target.wire.showLabel = w.showLabel;
-                target.wire.wireLabel = w.wireLabel;
-                lt.parentComponent = target.wire;
-                lt.text = target.wire.wireLabel;
-                lt.invalidate();
-                target.wire.labelText = lt;
-                // Reset original wire to default hidden label
-                w.labelText = null;
-                w.showLabel = false;
+        // ── Split label rules ──
+        // Winner = post-split wire with most segments, keeps original label.
+        // Other fragments get new (auto) labels.
+        // All post-split wires inherit pre-split visibility.
+        const allPostWires = [w, ...newFragments];
+        allPostWires.sort((a, b) => b.edges.size - a.edges.size);
+        const winner = allPostWires[0];
+
+        if (winner !== w) {
+            // Winner is a fragment — swap labels
+            freeWireLabel(winner.wireLabel);
+            winner.wireLabel = preSplitLabel;
+            bumpWireLabelCounter(preSplitLabel);
+            if (winner.labelText) {
+                winner.labelText.text = preSplitLabel;
+                winner.labelText.invalidate();
+            }
+            freeWireLabel(w.wireLabel);
+            w.wireLabel = nextWireLabel();
+            if (w.labelText) {
+                w.labelText.text = w.wireLabel;
+                w.labelText.invalidate();
+            }
+        }
+
+        // Set visibility on all post-split wires to match pre-split
+        for (const pw of allPostWires) {
+            if (pw.labelText) {
+                pw.labelText.visible = preSplitVisible;
+                pw.labelText.invalidate();
             }
         }
     }
@@ -1133,48 +1160,42 @@ export function buildWireDiffBatch(app, beforeStates, label, extraAdds = [], lab
     const batch = new BatchCommand(label);
     let anyChanges = false;
 
+    // --- Wire diffs (snapshot-based, no revert/replay) ---
     for (const [w, before] of beforeStates) {
         if (!app.shapes.includes(w)) {
-            w.applyState(before);
-            if (!app.shapes.includes(w)) app.shapes.push(w);
+            // Wire was removed during reconciliation (absorbed) → record deletion.
+            // Store a snapshot command that can re-add on undo and re-delete on redo.
             batch.add(new DeleteShapesCommand(app, [w]));
             anyChanges = true;
         } else {
             const after = w.captureState();
             if (JSON.stringify(before) !== JSON.stringify(after)) {
-                w.applyState(before);
                 batch.add(new ModifyShapeCommand(app, w, before, after));
                 anyChanges = true;
             }
         }
     }
-    // New wires (from splits) — exclude extraAdds so they aren't double-counted
+
+    // New wires (from splits) — not in beforeStates
     const extraSet = new Set(extraAdds);
     for (const s of [...app.shapes]) {
         if (s.type === 'wire' && !beforeStates.has(s) && !extraSet.has(s)) {
-            app._removeShapeInternal(s);
             batch.add(new AddShapeCommand(app, s));
             anyChanges = true;
         }
     }
     // Additional new wires (e.g. the drawn wire in finishWireDrawing)
     for (const w of extraAdds) {
-        if (app.shapes.includes(w)) app._removeShapeInternal(w);
         batch.add(new AddShapeCommand(app, w));
         anyChanges = true;
     }
 
-    // Diff label text states that changed during reconciliation
+    // --- Label text diffs ---
     if (labelTextBefore) {
         for (const [lt, before] of labelTextBefore) {
-            if (!app.shapes.includes(lt)) {
-                // Label text was removed (wire got absorbed) — already handled
-                // by DeleteShapesCommand on the wire via removeShapeInternal
-                continue;
-            }
+            if (!app.shapes.includes(lt)) continue;
             const after = lt.captureState();
             if (JSON.stringify(before) !== JSON.stringify(after)) {
-                lt.applyState(before);
                 batch.add(new ModifyShapeCommand(app, lt, before, after));
                 anyChanges = true;
             }
@@ -1214,11 +1235,14 @@ export function reconcileWiresWithUndo(app, changedWires, skipSet = null) {
         if (app.shapes.includes(cw)) refreshWireConnections(app, cw);
     }
 
-    // Diff and build undo batch
+    // Diff and build undo batch (pure snapshot, no revert/replay)
     const batch = buildWireDiffBatch(app, beforeStates, 'Wire reconciliation', [], labelTextBefore);
     if (!batch) return null;
 
-    batch.execute();
+    // Push to undo stack without executing — state is already correct
+    app.history.undoStack.push(batch);
+    app.history.redoStack = [];
+    app.history._notifyChanged();
     return batch;
 }
 

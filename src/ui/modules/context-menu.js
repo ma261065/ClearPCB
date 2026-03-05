@@ -8,6 +8,7 @@
 
 import { ModifyShapeCommand, BatchCommand, AddShapeCommand, DeleteShapesCommand } from '../../core/CommandHistory.js';
 import { VERTEX_EPSILON } from './wire.js';
+import { freeWireLabel, nextWireLabel, bumpWireLabelCounter } from '../../shapes/wire.js';
 
 // ─── T-junction detection ──────────────────────────────────────────
 
@@ -130,27 +131,29 @@ export function deleteJunction(app, junctionInfo) {
     }
 
     let dragNewNodeId = null;
-    for (let i = 0; i < incidents.length; i++) {
-        const { edgeId } = incidents[i];
-        const newNodeId = wire.addNode(pos.x, pos.y);
-        const edge = wire.edges.get(edgeId);
-        if (edge.from === junctionNodeId) edge.from = newNodeId;
-        if (edge.to === junctionNodeId) edge.to = newNodeId;
-        if (i === dragEdgeIdx) dragNewNodeId = newNodeId;
+    // Only detach the drag edge — keep the dominant pair connected at the junction.
+    // This avoids creating unnecessary fragments that get merged back immediately.
+    {
+        const dragIncident = incidents[dragEdgeIdx];
+        dragNewNodeId = wire.addNode(pos.x, pos.y);
+        const edge = wire.edges.get(dragIncident.edgeId);
+        if (edge.from === junctionNodeId) edge.from = dragNewNodeId;
+        if (edge.to === junctionNodeId) edge.to = dragNewNodeId;
     }
-    // Remove the original junction node (now degree 0)
-    wire.nodes.delete(junctionNodeId);
-    wire.pinConnections.delete(junctionNodeId);
 
     // Split disconnected components into separate wire objects
     const comps = wire.connectedComponents();
     let dragWire = wire;
+    const newFragments = [];
+    const preSplitLabel = wire.wireLabel;
+    const preSplitVisible = wire.labelText?.visible ?? false;
     if (comps.length > 1) {
         comps.sort((a, b) => b.size - a.size);
         for (let i = 1; i < comps.length; i++) {
             const sub = wire.extractSubgraph(comps[i]);
             if (sub.edges.size > 0) {
                 app._addShapeInternal(sub);
+                newFragments.push(sub);
                 // Track which wire owns the drag node
                 if (dragNewNodeId && comps[i].has(dragNewNodeId)) {
                     // Node IDs are preserved by extractSubgraph
@@ -161,6 +164,36 @@ export function deleteJunction(app, junctionInfo) {
         const keepSet = comps[0];
         for (const nid of [...wire.nodes.keys()]) {
             if (!keepSet.has(nid)) wire.removeNode(nid);
+        }
+
+        // ── Split label rules ──
+        // Winner = post-split wire with most segments, keeps original label.
+        // All post-split wires inherit pre-split visibility.
+        const allPostWires = [wire, ...newFragments];
+        allPostWires.sort((a, b) => b.edges.size - a.edges.size);
+        const winner = allPostWires[0];
+        if (winner !== wire) {
+            freeWireLabel(winner.wireLabel);
+            winner.wireLabel = preSplitLabel;
+            bumpWireLabelCounter(preSplitLabel);
+            if (winner.labelText) {
+                winner.labelText.text = preSplitLabel;
+                winner.labelText.invalidate();
+            }
+            freeWireLabel(wire.wireLabel);
+            wire.wireLabel = nextWireLabel();
+            if (wire.labelText) {
+                wire.labelText.text = wire.wireLabel;
+                wire.labelText.invalidate();
+            }
+        }
+        // All post-split wires inherit pre-split visibility.
+        // Only reposition labels on newly created fragments (not the original wire).
+        for (const pw of allPostWires) {
+            if (pw.labelText) {
+                pw.labelText.visible = preSplitVisible;
+                pw.labelText.invalidate();
+            }
         }
     }
     wire.invalidate();
@@ -309,7 +342,7 @@ export function showAnchorContextMenu(app, shape, anchorId, clientX, clientY, ca
 
     if (junctionInfo) {
         const jItem = document.createElement('div');
-        jItem.textContent = 'Delete junction';
+        jItem.textContent = 'Split junction';
         jItem.style.cssText = `
             padding: 6px 16px; color: #eee; cursor: pointer; font: 13px/1.4 system-ui, sans-serif;
             white-space: nowrap;

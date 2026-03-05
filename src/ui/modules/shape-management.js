@@ -219,7 +219,7 @@ function _createWireLabelText(app, wire) {
     });
     text.parentComponent = wire;
     text.fieldKey = 'wireLabel';
-    text.visible = wire.showLabel;
+    text.visible = false;  // hidden by default; user enables via Show checkbox
     wire.labelText = text;
 
     app.shapes.push(text);

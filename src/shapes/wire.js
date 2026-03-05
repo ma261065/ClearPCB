@@ -109,9 +109,6 @@ export class Wire extends Shape {
             ? { x: options.labelOffset.x || 0, y: options.labelOffset.y || 0 }
             : { x: 0, y: WIRE_LABEL_DEFAULT_OFFSET_Y };
 
-        /** Whether to display the wire label. */
-        this.showLabel = options.showLabel !== undefined ? !!options.showLabel : false;
-
         /** Reference to the linked label Text shape (set by createLabelText / linkLabelText). */
         this.labelText = null;
 
@@ -694,7 +691,6 @@ export class Wire extends Shape {
             layer: this.layer, net: this.net,
             visible: this.visible, locked: this.locked,
             labelOffset: { x: this.labelOffset.x, y: this.labelOffset.y },
-            showLabel: this.showLabel,
             // Clone gets a fresh wireLabel (it's a new wire)
         });
         for (const [id, p] of this.nodes) { c.nodes.set(id, { x: p.x, y: p.y }); }
@@ -711,8 +707,7 @@ export class Wire extends Shape {
         const s = {
             nodes: {}, edges: {}, pinConnections: {},
             net: this.net, wireLabel: this.wireLabel,
-            labelOffset: { x: this.labelOffset.x, y: this.labelOffset.y },
-            showLabel: this.showLabel
+            labelOffset: { x: this.labelOffset.x, y: this.labelOffset.y }
         };
         for (const [id, p] of this.nodes) s.nodes[id] = { x: p.x, y: p.y };
         for (const [id, e] of this.edges) s.edges[id] = { from: e.from, to: e.to };
@@ -749,7 +744,6 @@ export class Wire extends Shape {
         if (state.labelOffset) {
             this.labelOffset = { x: state.labelOffset.x || 0, y: state.labelOffset.y || 0 };
         }
-        if ('showLabel' in state) this.showLabel = !!state.showLabel;
         this.invalidate();
     }
 
@@ -793,7 +787,6 @@ export class Wire extends Shape {
             if (s.type === 'text' && s._pendingComponentId === this.id && s.fieldKey === 'wireLabel') {
                 s.parentComponent = this;
                 this.labelText = s;
-                s.visible = this.showLabel;
                 delete s._pendingComponentId;
                 break;
             }
@@ -801,12 +794,11 @@ export class Wire extends Shape {
     }
 
     /**
-     * Keep the label Text shape content/visibility in sync with wire state.
+     * Keep the label Text shape content in sync with wire state.
      */
     syncLabelText() {
         if (!this.labelText) return;
         this.labelText.text = this.wireLabel;
-        this.labelText.visible = this.showLabel;
         this.labelText.invalidate();
     }
 
@@ -921,7 +913,6 @@ export class Wire extends Shape {
         if (this.labelOffset.x !== 0 || this.labelOffset.y !== WIRE_LABEL_DEFAULT_OFFSET_Y) {
             json.lo = [_r4(this.labelOffset.x), _r4(this.labelOffset.y)];
         }
-        if (this.showLabel) json.sl = true;
         return json;
     }
 }

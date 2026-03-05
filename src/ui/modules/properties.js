@@ -306,9 +306,14 @@ export function updatePropertiesPanel(app, selection) {
         showLbl.style.gap = '4px';
         const showChk = document.createElement('input');
         showChk.type = 'checkbox';
-        showChk.checked = wire.showLabel;
+        showChk.checked = wire.labelText?.visible ?? false;
         showChk.addEventListener('change', () => {
-            applyCommonProperty(app, 'showLabel', showChk.checked);
+            if (wire.labelText) {
+                const cmd = new ModifyPropertyCommand(app, [wire.labelText], 'visible', showChk.checked);
+                app.history.execute(cmd);
+                app.renderShapes(true);
+                app._updatePropertiesPanel(selection);
+            }
         });
         showLbl.appendChild(showChk);
         showLbl.append('Show');

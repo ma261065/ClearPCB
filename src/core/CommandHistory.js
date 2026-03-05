@@ -196,6 +196,15 @@ export class DeleteShapesCommand extends Command {
     execute() {
         const app = this.app;
         const toRemove = new Set(this.shapesData.map(d => d.shape));
+
+        // Also remove label texts linked to deleted wires
+        for (const data of this.shapesData) {
+            const shape = data.shape;
+            if (shape.type === 'wire' && shape.labelText) {
+                toRemove.add(shape.labelText);
+            }
+        }
+
         let writeIdx = 0;
         for (let i = 0; i < app.shapes.length; i++) {
             if (!toRemove.has(app.shapes[i])) {
@@ -217,6 +226,15 @@ export class DeleteShapesCommand extends Command {
             const shape = data.shape;
             if (shape.element?.parentNode) shape.element.parentNode.removeChild(shape.element);
             if (shape.anchorsGroup?.parentNode) shape.anchorsGroup.parentNode.removeChild(shape.anchorsGroup);
+            // Remove linked wire label text element
+            if (shape.type === 'wire' && shape.labelText) {
+                if (shape.labelText.element?.parentNode) shape.labelText.element.parentNode.removeChild(shape.labelText.element);
+                if (shape.labelText.anchorsGroup?.parentNode) shape.labelText.anchorsGroup.parentNode.removeChild(shape.labelText.anchorsGroup);
+                if (shape.labelText.selected) {
+                    shape.labelText.selected = false;
+                    app.selection.selected.delete(shape.labelText.id);
+                }
+            }
             if (shape.selected) {
                 shape.selected = false;
                 app.selection.selected.delete(shape.id);
@@ -247,6 +265,12 @@ export class DeleteShapesCommand extends Command {
             data.shape.hovered = false;
             data.shape.render(app.viewport.scale);
             app.viewport.addContent(data.shape.element);
+            // Re-add linked wire label text
+            if (data.shape.type === 'wire' && data.shape.labelText) {
+                data.shape.labelText.hovered = false;
+                data.shape.labelText.render(app.viewport.scale);
+                app.viewport.addContent(data.shape.labelText.element);
+            }
         }
         // Reattach content layer
         if (parent) parent.insertBefore(layer, nextSib);
@@ -256,6 +280,12 @@ export class DeleteShapesCommand extends Command {
             const idx = Math.min(data.index, app.shapes.length);
             app.shapes.splice(idx, 0, data.shape);
             if (data.shape.type === 'wire' && data.shape.wireLabel) bumpWireLabelCounter(data.shape.wireLabel);
+            // Re-add linked wire label text to shapes array
+            if (data.shape.type === 'wire' && data.shape.labelText) {
+                if (!app.shapes.includes(data.shape.labelText)) {
+                    app.shapes.push(data.shape.labelText);
+                }
+            }
         }
         app._updateSelectableItems();
         app.selection._invalidateHitTestCache();
@@ -499,11 +529,6 @@ export class ModifyPropertyCommand extends Command {
                     item.labelText.text = val;
                     item.labelText.invalidate();
                 }
-            }
-            // Sync wire showLabel to label Text visibility
-            if (this.prop === 'showLabel' && item.type === 'wire' && item.labelText) {
-                item.labelText.visible = val;
-                item.labelText.invalidate();
             }
             // Sync component reference/value to field text content
             if (this.prop === 'reference' && item.refText) {
