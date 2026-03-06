@@ -1243,9 +1243,39 @@ export class Viewport {
         // Borders
         svg += `<line x1="${rs}" y1="0" x2="${rs}" y2="${h}" stroke="${colors.rulerBorder}"/>`;
         svg += `<line x1="0" y1="${rs}" x2="${w}" y2="${rs}" stroke="${colors.rulerBorder}"/>`;
+
+        // Mouse-position indicators on rulers
+        svg += `<line id="rulerCursorX" x1="${rs}" y1="0" x2="${rs}" y2="${rs}" stroke="${colors.axis}" stroke-width="1" stroke-opacity="0.9"/>`;
+        svg += `<line id="rulerCursorY" x1="0" y1="${rs}" x2="${rs}" y2="${rs}" stroke="${colors.axis}" stroke-width="1" stroke-opacity="0.9"/>`;
         
         svg += '</svg>';
         this.rulerContainer.innerHTML = svg;
+        this._updateRulerCursor();
+    }
+
+    /** Update ruler mouse-position indicators without rebuilding ruler ticks/labels. */
+    _updateRulerCursor() {
+        if (!this.showRulers || !this.rulerContainer.firstElementChild) return;
+
+        const rs = this.rulerSize;
+        const w = this.width;
+        const h = this.height;
+        const screen = this.worldToScreen(this.currentMouseWorld || { x: 0, y: 0 });
+
+        const cx = Math.max(rs, Math.min(w, screen.x));
+        const cy = Math.max(rs, Math.min(h, screen.y));
+
+        const xLine = this.rulerContainer.querySelector('#rulerCursorX');
+        if (xLine) {
+            xLine.setAttribute('x1', String(cx));
+            xLine.setAttribute('x2', String(cx));
+        }
+
+        const yLine = this.rulerContainer.querySelector('#rulerCursorY');
+        if (yLine) {
+            yLine.setAttribute('y1', String(cy));
+            yLine.setAttribute('y2', String(cy));
+        }
     }
     
     // ==================== Units ====================
@@ -1427,6 +1457,7 @@ export class Viewport {
             
             this.currentMouseWorld = this.screenToWorld(mouseScreen);
             this.shiftHeld = e.shiftKey;
+            this._updateRulerCursor();
             
             if (this.onMouseMove) {
                 this.onMouseMove(this.currentMouseWorld, this.getSnappedPosition(this.currentMouseWorld));
