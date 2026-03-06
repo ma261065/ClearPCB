@@ -17,8 +17,16 @@ const NC_HALF = 0.8;
 export class NoConnect extends Shape {
     /**
      * @param {Object} [options]
+        * @param {string} [options.id]
+        * @param {string} [options.layer]
+        * @param {string|number} [options.color]
+        * @param {string|number} [options.fillColor]
+        * @param {number} [options.lineWidth]
+        * @param {boolean} [options.visible]
+        * @param {boolean} [options.locked]
      * @param {number} [options.x=0] - Centre X in mm.
      * @param {number} [options.y=0] - Centre Y in mm.
+        * @param {{ componentId: string, pinNumber: string|number }|null} [options.pinConnection]
      */
     constructor(options = {}) {
         if (!options.color) options.color = 'var(--sch-no-connect, #cc0000)';
@@ -71,6 +79,7 @@ export class NoConnect extends Shape {
             this.y = y;
             this.invalidate();
         }
+        return undefined;
     }
 
     /** @override */

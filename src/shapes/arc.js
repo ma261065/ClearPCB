@@ -13,6 +13,13 @@ const _r4 = v => Math.round(v * 10000) / 10000;
 export class Arc extends Shape {
     /**
      * @param {Object} [options]
+        * @param {string} [options.id]
+        * @param {string} [options.layer]
+        * @param {string|number} [options.color]
+        * @param {string|number} [options.fillColor]
+        * @param {number} [options.lineWidth]
+        * @param {boolean} [options.visible]
+        * @param {boolean} [options.locked]
      * @param {{x:number,y:number}} [options.startPoint] - Arc start.
      * @param {{x:number,y:number}} [options.endPoint]   - Arc end.
      * @param {{x:number,y:number}} [options.bulgePoint]  - Arc midpoint (curvature control).
@@ -301,6 +308,7 @@ export class Arc extends Shape {
             }
         }
         this.invalidate();
+        return undefined;
     }
 
     /** @override */

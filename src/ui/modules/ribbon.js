@@ -43,12 +43,19 @@ export function bindRibbon(app) {
     if (tabs.length === 0 || panels.length === 0) return;
 
     app._setActiveRibbonTab = (tabId) => {
-        tabs.forEach(tab => tab.classList.toggle('active', tab.dataset.tab === tabId));
-        panels.forEach(panel => panel.classList.toggle('active', panel.dataset.panel === tabId));
+        tabs.forEach(tab => {
+            const t = /** @type {HTMLElement} */ (tab);
+            t.classList.toggle('active', t.dataset.tab === tabId);
+        });
+        panels.forEach(panel => {
+            const p = /** @type {HTMLElement} */ (panel);
+            p.classList.toggle('active', p.dataset.panel === tabId);
+        });
     };
 
     tabs.forEach(tab => {
-        tab.addEventListener('click', () => app._setActiveRibbonTab(tab.dataset.tab));
+        const t = /** @type {HTMLElement} */ (tab);
+        tab.addEventListener('click', () => app._setActiveRibbonTab(t.dataset.tab));
     });
     app._setActiveRibbonTab('home');
 
@@ -80,7 +87,7 @@ export function bindRibbon(app) {
     get('ribbonExportPdf')?.addEventListener('click', () => app.savePdf());
     get('ribbonPrint')?.addEventListener('click', () => app.print());
     get('ribbonClearComponentCache')?.addEventListener('click', () => app._clearComponentCaches?.());
-    const tooltipToggle = get('ribbonToggleComponentTooltip');
+    const tooltipToggle = /** @type {HTMLInputElement|null} */ (get('ribbonToggleComponentTooltip'));
     if (tooltipToggle) {
         tooltipToggle.checked = app.showComponentDebugTooltip !== false;
         tooltipToggle.addEventListener('change', () => {
@@ -109,12 +116,16 @@ export function bindRibbon(app) {
 
     const ribbonToolButtons = Array.from(document.querySelectorAll('.ribbon-tool-btn'));
     const setActiveToolButton = (toolId) => {
-        ribbonToolButtons.forEach(btn => btn.classList.toggle('active', btn.dataset.tool === toolId));
+        ribbonToolButtons.forEach(btn => {
+            const button = /** @type {HTMLElement} */ (btn);
+            button.classList.toggle('active', button.dataset.tool === toolId);
+        });
     };
     app._setActiveToolButton = setActiveToolButton;
     ribbonToolButtons.forEach(btn => {
+        const button = /** @type {HTMLElement} */ (btn);
         btn.addEventListener('click', () => {
-            const toolId = btn.dataset.tool;
+            const toolId = button.dataset.tool;
             app._onToolSelected(toolId);
         });
     });
@@ -232,12 +243,12 @@ export function updateShapePanelOptions(app, selection, toolIdArg) {
  */
 export function updateRibbonState(app, selection) {
     const count = selection.length;
-    const lockBtn = document.getElementById('ribbonToggleLock');
-    const deleteBtn = document.getElementById('ribbonDelete');
-    const rotateBtn = document.getElementById('ribbonRotate');
-    const cutBtn = document.getElementById('ribbonCut');
-    const copyBtn = document.getElementById('ribbonCopy');
-    const pasteBtn = document.getElementById('ribbonPaste');
+    const lockBtn = /** @type {HTMLButtonElement|null} */ (document.getElementById('ribbonToggleLock'));
+    const deleteBtn = /** @type {HTMLButtonElement|null} */ (document.getElementById('ribbonDelete'));
+    const rotateBtn = /** @type {HTMLButtonElement|null} */ (document.getElementById('ribbonRotate'));
+    const cutBtn = /** @type {HTMLButtonElement|null} */ (document.getElementById('ribbonCut'));
+    const copyBtn = /** @type {HTMLButtonElement|null} */ (document.getElementById('ribbonCopy'));
+    const pasteBtn = /** @type {HTMLButtonElement|null} */ (document.getElementById('ribbonPaste'));
 
     if (deleteBtn) deleteBtn.disabled = count === 0;
     if (lockBtn) lockBtn.disabled = count === 0;

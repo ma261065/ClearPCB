@@ -6,6 +6,10 @@
 
 import { freeWireLabel, bumpWireLabelCounter } from '../shapes/wire.js';
 
+/** @typedef {any} SchematicApp */
+/** @typedef {any} Shape */
+/** @typedef {any} Component */
+
 export class CommandHistory {
     /**
      * Create a new CommandHistory.

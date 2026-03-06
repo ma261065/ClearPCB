@@ -126,7 +126,7 @@ export class Component {
 
         for (const f of fields) {
             const world = this.localToWorld(f.local.x, f.local.y);
-            const text = new Text({
+            const text = new Text(/** @type {any} */ ({
                 x: world.x,
                 y: world.y,
                 text: f.label,
@@ -134,7 +134,7 @@ export class Component {
                 fontFamily: 'Arial',
                 textAnchor: 'middle',
                 color: '#cccccc'
-            });
+            }));
             text.parentComponent = this;
             text.fieldKey = f.key;
             text.visible = f.visible;
@@ -256,7 +256,7 @@ export class Component {
             { key: 'showReference', label: 'Show Reference',  type: 'checkbox' },
             { key: 'value',         label: 'Value',           type: 'text' },
             { key: 'showValue',     label: 'Show Value',      type: 'checkbox' },
-            { key: 'source',        label: 'Source',          type: 'text', readonly: true },
+            /** @type {{key:string,label:string,type:string}} */ ({ key: 'source', label: 'Source', type: 'text', readonly: true }),
         ];
     }
 
@@ -633,7 +633,7 @@ export class Component {
      * @returns {SVGGElement} The component group element
      */
     createSymbolElement(ns = 'http://www.w3.org/2000/svg') {
-        const group = document.createElementNS(ns, 'g');
+        const group = /** @type {SVGGElement} */ (document.createElementNS(ns, 'g'));
         group.setAttribute('class', 'component');
         group.setAttribute('data-id', this.id);
         
@@ -704,7 +704,7 @@ export class Component {
      * @returns {SVGGElement} Pin group element
      */
     _createPinElement(pin, ns) {
-        const group = document.createElementNS(ns, 'g');
+        const group = /** @type {SVGGElement} */ (document.createElementNS(ns, 'g'));
         const length = Number.isFinite(pin.length) ? pin.length : 0;
         const source = this.symbol?._source || this.definition?._source;
         const m = this.mirror;
@@ -920,12 +920,12 @@ export class Component {
         line.setAttribute('x1', x1); line.setAttribute('y1', y1);
         line.setAttribute('x2', lineX2); line.setAttribute('y2', lineY2);
         line.setAttribute('stroke', 'var(--sch-pin, #aa0000)');
-        line.setAttribute('stroke-width', 0.2);
+        line.setAttribute('stroke-width', String(0.2));
         group.appendChild(line);
 
         const dot = document.createElementNS(ns, 'circle');
         dot.setAttribute('cx', connectionX); dot.setAttribute('cy', connectionY);
-        dot.setAttribute('r', dotRadius);
+        dot.setAttribute('r', String(dotRadius));
         dot.setAttribute('fill', 'var(--sch-pin, #aa0000)'); 
         dot.setAttribute('stroke', 'none');
         dot.setAttribute('display', 'none');
@@ -939,10 +939,10 @@ export class Component {
             else if (orient === 'up') by += bubbleRadius;
             else if (orient === 'down') by -= bubbleRadius;
             bubble.setAttribute('cx', bx); bubble.setAttribute('cy', by);
-            bubble.setAttribute('r', bubbleRadius);
+            bubble.setAttribute('r', String(bubbleRadius));
             bubble.setAttribute('fill', 'none');
             bubble.setAttribute('stroke', 'var(--sch-pin, #aa0000)');
-            bubble.setAttribute('stroke-width', 0.254);
+            bubble.setAttribute('stroke-width', String(0.254));
             group.appendChild(bubble);
         }
 
@@ -960,7 +960,7 @@ export class Component {
             const nameFontFamily = (pin.namePos && pin.namePos.fontFamily)
                 ? pin.namePos.fontFamily
                 : (source === 'EasyEDA' || source === 'KiCad' ? 'Verdana' : null);
-            nameTxt.setAttribute('font-size', nameFontSize);
+            nameTxt.setAttribute('font-size', String(nameFontSize));
             if (nameFontFamily) {
                 nameTxt.setAttribute('font-family', nameFontFamily);
             }
@@ -993,9 +993,9 @@ export class Component {
                     ox2 = (effNameRot !== 0) ? -0.1 : nameX - 0.1;
                     ox1 = ox2 - textWidth;
                 }
-                overbar.setAttribute('x1', ox1); overbar.setAttribute('y1', oy);
-                overbar.setAttribute('x2', ox2); overbar.setAttribute('y2', oy);
-                overbar.setAttribute('stroke', 'var(--sch-pin-name, #00cccc)'); overbar.setAttribute('stroke-width', 0.15);
+                overbar.setAttribute('x1', String(ox1)); overbar.setAttribute('y1', String(oy));
+                overbar.setAttribute('x2', String(ox2)); overbar.setAttribute('y2', String(oy));
+                overbar.setAttribute('stroke', 'var(--sch-pin-name, #00cccc)'); overbar.setAttribute('stroke-width', String(0.15));
                 labelGroup.appendChild(overbar);
             }
             group.appendChild(labelGroup);
@@ -1012,7 +1012,7 @@ export class Component {
             const numFontFamily = (pin.numberPos && pin.numberPos.fontFamily)
                 ? pin.numberPos.fontFamily
                 : (source === 'EasyEDA' || source === 'KiCad' ? 'Verdana' : null);
-            numTxt.setAttribute('font-size', numFontSize);
+            numTxt.setAttribute('font-size', String(numFontSize));
             if (numFontFamily) {
                 numTxt.setAttribute('font-family', numFontFamily);
             }
@@ -1049,6 +1049,7 @@ export class Component {
      * @returns {SVGElement|null} The created element, or null if skipped
      */
     _createGraphicElement(g, ns) {
+        /** @type {SVGElement|null} */
         let el;
         // Ignore colors from component data, use themed colors
         const stroke = 'var(--sch-symbol-outline, #000000)';
@@ -1057,33 +1058,33 @@ export class Component {
         const mx = x => m ? -x : x;
         switch (g.type) {
             case 'rect':
-                el = document.createElementNS(ns, 'rect');
+                el = /** @type {SVGElement} */ (document.createElementNS(ns, 'rect'));
                 el.setAttribute('x', m ? -(g.x + g.width) : g.x); el.setAttribute('y', g.y);
                 el.setAttribute('width', g.width); el.setAttribute('height', g.height);
                 if (Number.isFinite(g.rx)) el.setAttribute('rx', g.rx);
                 if (Number.isFinite(g.ry)) el.setAttribute('ry', g.ry);
                 break;
             case 'circle':
-                el = document.createElementNS(ns, 'circle');
+                el = /** @type {SVGElement} */ (document.createElementNS(ns, 'circle'));
                 el.setAttribute('cx', mx(g.cx)); el.setAttribute('cy', g.cy); el.setAttribute('r', g.r);
                 break;
             case 'line':
-                el = document.createElementNS(ns, 'line');
+                el = /** @type {SVGElement} */ (document.createElementNS(ns, 'line'));
                 el.setAttribute('x1', mx(g.x1)); el.setAttribute('y1', g.y1);
                 el.setAttribute('x2', mx(g.x2)); el.setAttribute('y2', g.y2);
                 break;
             case 'polyline':
-                el = document.createElementNS(ns, 'polyline');
+                el = /** @type {SVGElement} */ (document.createElementNS(ns, 'polyline'));
                 const pts = g.points.map(p => `${mx(p[0])},${p[1]}`).join(' ');
                 el.setAttribute('points', pts);
                 break;
             case 'polygon':
-                el = document.createElementNS(ns, 'polygon');
+                el = /** @type {SVGElement} */ (document.createElementNS(ns, 'polygon'));
                 const polPts = g.points.map(p => `${mx(p[0])},${p[1]}`).join(' ');
                 el.setAttribute('points', polPts);
                 break;
             case 'arc': {
-                el = document.createElementNS(ns, 'path');
+                el = /** @type {SVGElement} */ (document.createElementNS(ns, 'path'));
                 const r = g.r || 1;
                 const sa = (g.startAngle || 0) * Math.PI / 180;
                 const ea = (g.endAngle || 0) * Math.PI / 180;
@@ -1113,7 +1114,7 @@ export class Component {
                 break;
             }
             case 'path':
-                el = document.createElementNS(ns, 'path');
+                el = /** @type {SVGElement} */ (document.createElementNS(ns, 'path'));
                 if (m) {
                     // Wrap path in a group with scale(-1,1) to mirror it
                     // (parsing SVG path data to negate x is fragile)
@@ -1121,12 +1122,12 @@ export class Component {
                     wrapper.setAttribute('transform', 'scale(-1,1)');
                     el.setAttribute('d', g.d);
                     el.setAttribute('stroke', stroke); el.setAttribute('fill', fill);
-                    el.setAttribute('stroke-width', g.strokeWidth || 0.254);
+                    el.setAttribute('stroke-width', String(g.strokeWidth || 0.254));
                     el.setAttribute('stroke-linecap', 'round');
                     el.setAttribute('stroke-linejoin', 'round');
                     if (g.transform) el.setAttribute('transform', g.transform);
                     wrapper.appendChild(el);
-                    return wrapper;
+                    return /** @type {SVGElement} */ (wrapper);
                 }
                 el.setAttribute('d', g.d);
                 break;
@@ -1134,12 +1135,12 @@ export class Component {
                 const tmpl = g.text || '';
                 // Skip template text — these are rendered as independent field Text shapes
                 if (tmpl.includes('${REF}') || tmpl.includes('${VALUE}')) return null;
-                el = document.createElementNS(ns, 'text');
+                el = /** @type {SVGElement} */ (document.createElementNS(ns, 'text'));
                 el.setAttribute('x', mx(g.x)); el.setAttribute('y', g.y);
                 const textSize = g.fontSize || 1.5;
                 const source = this.symbol?._source || this.definition?._source;
                 const textScale = source === 'KiCad' ? 1.6 : 1.0;
-                el.setAttribute('font-size', textSize * textScale);
+                el.setAttribute('font-size', String(textSize * textScale));
                 if (source === 'KiCad') {
                     el.setAttribute('font-family', 'Verdana');
                 }
@@ -1160,7 +1161,7 @@ export class Component {
         }
         if (el) {
             el.setAttribute('stroke', stroke); el.setAttribute('fill', fill);
-            el.setAttribute('stroke-width', g.strokeWidth || 0.254);
+            el.setAttribute('stroke-width', String(g.strokeWidth || 0.254));
             el.setAttribute('stroke-linecap', 'round');
             el.setAttribute('stroke-linejoin', 'round');
             if (g.transform) {

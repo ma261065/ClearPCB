@@ -79,11 +79,18 @@ export class Wire extends Shape {
 
     /**
      * @param {object} [options]
+        * @param {string} [options.id]
+        * @param {string} [options.layer]
+        * @param {string|number} [options.color]
+        * @param {number} [options.lineWidth]
+        * @param {boolean} [options.visible]
+        * @param {boolean} [options.locked]
      * @param {object} [options.graphNodes] - Node map {id: {x,y} | [x,y]}
      * @param {object} [options.graphEdges] - Edge map {id: {from,to} | [from,to]}
      * @param {object} [options.pinConnections] - Pin map {nodeId: {componentId, pinNumber}}
      * @param {string} [options.net] - Net name
      * @param {string} [options.wireLabel] - Existing label (Wnnnn); auto-assigned if omitted
+        * @param {{x?: number, y?: number}} [options.labelOffset] - Label offset from centroid
      */
     constructor(options = {}) {
         super(options);
@@ -369,7 +376,7 @@ export class Wire extends Shape {
 
     /**
      * Absorb another Wire's graph into this one (re-mapping IDs).
-     * @returns {Map<oldNodeId, newNodeId>} node remapping
+        * @returns {Map<string, string>} node remapping
      */
     absorb(other) {
         const remap = new Map();
@@ -851,7 +858,7 @@ export class Wire extends Shape {
             ln.setAttribute('x1', a.x); ln.setAttribute('y1', a.y);
             ln.setAttribute('x2', b.x); ln.setAttribute('y2', b.y);
             ln.setAttribute('stroke', strokeColor);
-            ln.setAttribute('stroke-width', sw);
+            ln.setAttribute('stroke-width', String(sw));
             ln.setAttribute('stroke-linecap', 'round');
             ln.setAttribute('fill', 'none');
             el.appendChild(ln);
@@ -863,7 +870,7 @@ export class Wire extends Shape {
             if (this.degree(nid) >= 3) {
                 const c = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
                 c.setAttribute('cx', pos.x); c.setAttribute('cy', pos.y);
-                c.setAttribute('r', jr);
+                c.setAttribute('r', String(jr));
                 c.setAttribute('fill', strokeColor);
                 c.setAttribute('stroke', 'none');
                 c.classList.add('junction-dot');

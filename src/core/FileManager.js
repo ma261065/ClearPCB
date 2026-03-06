@@ -125,8 +125,8 @@ export class FileManager {
                     accept: { 'application/json': ['.json'] }
                 }]
             };
-            
-            const handle = await window.showSaveFilePicker(options);
+
+            const handle = await /** @type {any} */ (window).showSaveFilePicker(options);
             await this.saveToHandle(data, handle);
             
             this.fileHandle = handle;
@@ -212,8 +212,8 @@ export class FileManager {
                     accept: { 'application/json': ['.json'] }
                 }]
             };
-            
-            const [handle] = await window.showOpenFilePicker(options);
+
+            const [handle] = await /** @type {any} */ (window).showOpenFilePicker(options);
             const file = await handle.getFile();
             const text = await file.text();
             const data = JSON.parse(text);
@@ -245,7 +245,8 @@ export class FileManager {
             input.accept = '.json';
             
             input.onchange = async (e) => {
-                const file = e.target.files[0];
+                const target = /** @type {HTMLInputElement|null} */ (e.target);
+                const file = target?.files?.[0];
                 if (!file) {
                     resolve({ success: false, cancelled: true });
                     return;

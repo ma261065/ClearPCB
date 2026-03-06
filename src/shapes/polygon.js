@@ -83,6 +83,7 @@ export class Polygon extends Shape {
     
     /** @override — includes midpoint insertion anchors on each edge. */
     getAnchors() {
+        /** @type {Array<{id: string, x: number, y: number, cursor: string, midpoint?: boolean}>} */
         const anchors = this.points.map((p, i) => ({
             id: `p${i}`,
             x: p.x,

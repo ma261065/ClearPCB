@@ -9,6 +9,20 @@
 import { ModifyShapeCommand, BatchCommand, AddShapeCommand, DeleteShapesCommand } from '../../core/CommandHistory.js';
 import { VERTEX_EPSILON, applySplitLabelRules } from './wire.js';
 
+/**
+ * @typedef {HTMLDivElement & {
+ *   _dismissHandlers?: {
+ *     dismiss: (e: MouseEvent) => void,
+ *     dismissOnKey: (e: KeyboardEvent) => void
+ *   }
+ * }} AnchorContextMenuEl
+ */
+
+/** @param {Element | null} el */
+function asAnchorContextMenuEl(el) {
+    return /** @type {AnchorContextMenuEl | null} */ (el);
+}
+
 // ─── T-junction detection ──────────────────────────────────────────
 
 /**
@@ -299,7 +313,7 @@ export function showAnchorContextMenu(app, shape, anchorId, clientX, clientY, ca
     // Remove any existing anchor context menu
     dismissAnchorContextMenu();
 
-    const menu = document.createElement('div');
+    const menu = /** @type {AnchorContextMenuEl} */ (document.createElement('div'));
     menu.className = 'anchor-context-menu';
     menu.style.cssText = `
         position: fixed; left: ${clientX}px; top: ${clientY}px; z-index: 10000;
@@ -371,7 +385,7 @@ export function showAnchorContextMenu(app, shape, anchorId, clientX, clientY, ca
  * global event listeners. Safe to call when no menu is open.
  */
 export function dismissAnchorContextMenu() {
-    const existing = document.querySelector('.anchor-context-menu');
+    const existing = asAnchorContextMenuEl(document.querySelector('.anchor-context-menu'));
     if (existing) {
         if (existing._dismissHandlers) {
             document.removeEventListener('mousedown', existing._dismissHandlers.dismiss, { capture: true });
@@ -387,7 +401,7 @@ export function dismissAnchorContextMenu() {
 export function showSegmentContextMenu(app, wire, edgeId, clientX, clientY) {
     dismissAnchorContextMenu();
 
-    const menu = document.createElement('div');
+    const menu = /** @type {AnchorContextMenuEl} */ (document.createElement('div'));
     menu.className = 'anchor-context-menu';
     menu.style.cssText = `
         position: fixed; left: ${clientX}px; top: ${clientY}px; z-index: 10000;

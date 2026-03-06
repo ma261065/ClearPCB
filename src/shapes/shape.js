@@ -47,6 +47,7 @@ export class Shape {
      * @param {string} [options.id] - Unique ID (auto-generated if omitted).
      * @param {string} [options.layer='top'] - Board layer ('top', 'bottom', etc.).
      * @param {string|number} [options.color='#00b894'] - Stroke/fill colour.
+    * @param {string|number|null} [options.fillColor] - Optional fill colour override.
      * @param {number} [options.lineWidth=0.2] - Stroke width in mm.
      * @param {boolean} [options.visible=true] - Whether the shape is rendered.
      * @param {boolean} [options.locked=false] - Whether the shape is locked.
@@ -58,6 +59,7 @@ export class Shape {
         // Validate and apply common properties
         this.layer = ShapeValidator.validateLayer(options.layer || 'top');
         this.color = ShapeValidator.validateColor(options.color || '#00b894');
+        this.fillColor = options.fillColor ?? null;
         this.lineWidth = ShapeValidator.validateLineWidth(options.lineWidth || 0.2);
         
         // State
@@ -170,6 +172,7 @@ export class Shape {
     moveAnchor(anchorId, x, y) {
         // Override in subclass
         this.invalidate();
+        return undefined;
     }
     
     /**
@@ -191,7 +194,7 @@ export class Shape {
         if (!this.element) {
             this.element = this._createElement();
             // Store reference to shape on the element for easy lookup
-            this.element.__shape = this;
+            /** @type {any} */ (this.element).__shape = this;
         }
         
         if (!this.visible) {
@@ -203,7 +206,8 @@ export class Shape {
         
         // Determine colors based on state
         let strokeColor = this._colorToCSS(this.color);
-        let fillColor = this._colorToCSS(this.fillColor ?? this.color);
+        const shapeWithFill = /** @type {{fillColor?: string|number|null}} */ (this);
+        let fillColor = this._colorToCSS(shapeWithFill.fillColor ?? this.color);
         
         if (this.selected) {
             strokeColor = '#e94560';
@@ -289,11 +293,11 @@ export class Shape {
             for (let i = 0; i < visibleAnchors.length; i++) {
                 const anchor = visibleAnchors[i];
                 const rect = this._anchorRects[i];
-                rect.setAttribute('x', anchor.x - size / 2);
-                rect.setAttribute('y', anchor.y - size / 2);
-                rect.setAttribute('width', size);
-                rect.setAttribute('height', size);
-                rect.setAttribute('stroke-width', strokeW);
+                rect.setAttribute('x', String(anchor.x - size / 2));
+                rect.setAttribute('y', String(anchor.y - size / 2));
+                rect.setAttribute('width', String(size));
+                rect.setAttribute('height', String(size));
+                rect.setAttribute('stroke-width', String(strokeW));
             }
             // Re-position anchors group right after element so it renders on top
             if (this.element.parentNode && this.anchorsGroup.previousSibling !== this.element) {
@@ -315,13 +319,13 @@ export class Shape {
         
         for (const anchor of visibleAnchors) {
             const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-            rect.setAttribute('x', anchor.x - size / 2);
-            rect.setAttribute('y', anchor.y - size / 2);
-            rect.setAttribute('width', size);
-            rect.setAttribute('height', size);
+            rect.setAttribute('x', String(anchor.x - size / 2));
+            rect.setAttribute('y', String(anchor.y - size / 2));
+            rect.setAttribute('width', String(size));
+            rect.setAttribute('height', String(size));
             rect.setAttribute('fill', '#fff');
             rect.setAttribute('stroke', '#e94560');
-            rect.setAttribute('stroke-width', 1 / scale);
+            rect.setAttribute('stroke-width', String(1 / scale));
             rect.setAttribute('data-anchor-id', anchor.id);
             this.anchorsGroup.appendChild(rect);
             this._anchorRects.push(rect);
@@ -386,8 +390,9 @@ export class Shape {
      * Override in subclasses with non-standard coordinate layouts.
      */
     getPosition() {
-        if (typeof this.x === 'number' && typeof this.y === 'number') {
-            return { x: this.x, y: this.y };
+        const positioned = /** @type {{x?: number, y?: number}} */ (this);
+        if (typeof positioned.x === 'number' && typeof positioned.y === 'number') {
+            return { x: positioned.x, y: positioned.y };
         }
         return { x: 0, y: 0 };
     }

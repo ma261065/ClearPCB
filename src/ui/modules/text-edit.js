@@ -22,7 +22,7 @@ export function startTextEdit(app, shape) {
     }
 
     const activeEl = document.activeElement;
-    if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'SELECT' || activeEl.tagName === 'TEXTAREA')) {
+    if (activeEl instanceof HTMLElement && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'SELECT' || activeEl.tagName === 'TEXTAREA')) {
         activeEl.blur();
     }
 
@@ -36,7 +36,8 @@ export function startTextEdit(app, shape) {
     }
 
     const initialText = typeof shape.text === 'string' ? shape.text : '';
-    const storedCaret = Number.isFinite(shape._lastCaretIndex) ? shape._lastCaretIndex : null;
+    const shapeWithCaret = /** @type {import('../../shapes/text.js').Text & {_lastCaretIndex?: number}} */ (shape);
+    const storedCaret = Number.isFinite(shapeWithCaret._lastCaretIndex) ? shapeWithCaret._lastCaretIndex : null;
     const initialCaret = storedCaret === null
         ? initialText.length
         : Math.max(0, Math.min(initialText.length, storedCaret));

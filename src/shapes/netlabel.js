@@ -23,6 +23,13 @@ const FLAG_TIP  = 1.0;    // width of the pointed tip
 export class NetLabel extends Shape {
     /**
      * @param {Object} [options]
+        * @param {string} [options.id]
+        * @param {string} [options.layer]
+        * @param {string|number} [options.color]
+        * @param {string|number} [options.fillColor]
+        * @param {number} [options.lineWidth]
+        * @param {boolean} [options.visible]
+        * @param {boolean} [options.locked]
      * @param {number} [options.x=0]          - Anchor X (connection point) in mm.
      * @param {number} [options.y=0]          - Anchor Y (connection point) in mm.
      * @param {string} [options.net='NET']    - Net name text.
@@ -141,6 +148,7 @@ export class NetLabel extends Shape {
             this.y = y;
             this.invalidate();
         }
+        return undefined;
     }
 
     /** @override */

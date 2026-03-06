@@ -5,6 +5,7 @@ import { globalEventBus } from '../core/EventBus.js';
 import { CommandHistory } from '../core/CommandHistory.js';
 import { SelectionManager } from '../core/SelectionManager.js';
 import { FileManager } from '../core/FileManager.js';
+import { pointsMatch } from '../core/geometry.js';
 import { ComponentPicker } from '../components/ComponentPicker.js';
 import { createShape } from '../shapes/index.js';
 import { getComponentLibrary } from '../components/index.js';
@@ -192,8 +193,9 @@ class SchematicApp {
         this._componentCodeTooltipPinned = false;
         this._componentCodeTooltipPosition = null;
         this.showComponentDebugTooltip = false;
+        this._showSaveToast = null;
         this._componentCodeTooltip.addEventListener('click', (e) => {
-            if (e.target?.classList?.contains('component-code-tooltip-close')) {
+            if (e.target instanceof Element && e.target.classList.contains('component-code-tooltip-close')) {
                 this._updateComponentCodeTooltip(null, null, { forceHide: true });
             }
         });
@@ -221,7 +223,8 @@ class SchematicApp {
 
         // Listen for lock icon clicks (bubbles up from shape SVG elements)
         this.viewport.svg.addEventListener('unlock-shape', (e) => {
-            const shape = e.detail?.shape;
+            const customEvent = /** @type {CustomEvent} */ (e);
+            const shape = customEvent.detail?.shape;
             if (shape && shape.locked) {
                 this._applyCommonProperty('locked', false);
             }
@@ -345,7 +348,7 @@ class SchematicApp {
         if (saved && saved.data) {
             this.shapes = [];
             this.components = [];
-            this.ui = {};
+            this.ui = /** @type {any} */ ({});
             this._pendingAutoLoad = saved.data;
             if (saved.fileName) this.fileManager.setFileName(saved.fileName);
             this.fileManager.setDirty(true);
@@ -632,7 +635,7 @@ class SchematicApp {
      * @returns {boolean} True if the points match.
      */
     _pointsMatch(a, b, epsilon = 1e-6) {
-        return WireTools.pointsMatch(a, b, epsilon);
+        return pointsMatch(a, b, epsilon);
     }
     
     /**
@@ -821,7 +824,7 @@ class SchematicApp {
     /**
      * Sets the CSS cursor on the SVG canvas for the active tool.
      * @param {string} tool - The tool identifier.
-     * @param {SVGElement} svg - The SVG element to set the cursor on.
+     * @param {SVGSVGElement} svg - The SVG element to set the cursor on.
      */
     _setToolCursor(tool, svg) {
         setToolCursor(this, tool, svg);
@@ -997,7 +1000,7 @@ class SchematicApp {
             return;
         }
 
-        const textEl = tooltip.querySelector('.component-code-tooltip-text');
+        const textEl = /** @type {HTMLTextAreaElement|null} */ (tooltip.querySelector('.component-code-tooltip-text'));
         if (textEl && this._componentCodeTooltipActiveId !== component.id) {
             textEl.value = hasEasyeda ? easyedaRaw.join('\n') : kicadRaw;
             this._componentCodeTooltipActiveId = component.id;
@@ -1066,7 +1069,9 @@ class SchematicApp {
         }
 
         console.log(`Cleared component caches (${removed} entries)`);
-        this._showSaveToast?.('Cache cleared');
+        if (typeof this._showSaveToast === 'function') {
+            this._showSaveToast('Cache cleared');
+        }
     }
     
     /**
@@ -1363,7 +1368,7 @@ class SchematicApp {
 
     /**
      * Lazy-loads jsPDF and svg2pdf vendor scripts.
-     * @returns {Promise<void>}
+     * @returns {Promise<Function>}
      */
     _loadVectorPdfLibs() {
         return ExportTools.loadVectorPdfLibs(this);
@@ -1371,7 +1376,7 @@ class SchematicApp {
 
     /**
      * Deep-clones viewport SVG for export with inlined styles.
-     * @returns {SVGElement} The cloned SVG element.
+     * @returns {{svgNode: SVGSVGElement, paperSize: {width: number, height: number}|null}} Export payload.
      */
     _cloneViewportSvgForExport() {
         return ExportTools.cloneViewportSvgForExport(this);
@@ -1387,8 +1392,8 @@ class SchematicApp {
 
     /**
      * Copies computed styles to a cloned SVG.
-     * @param {SVGElement} originalSvg - The original SVG element.
-     * @param {SVGElement} clonedSvg - The cloned SVG element to receive styles.
+     * @param {SVGSVGElement} originalSvg - The original SVG element.
+     * @param {SVGSVGElement} clonedSvg - The cloned SVG element to receive styles.
      */
     _inlineSvgComputedStyles(originalSvg, clonedSvg) {
         ExportTools.inlineSvgComputedStyles(originalSvg, clonedSvg);
@@ -1409,7 +1414,7 @@ class SchematicApp {
     /**
      * Renders viewport to a canvas at the given scale.
      * @param {number} [scale=2] - The rendering scale factor.
-     * @returns {HTMLCanvasElement} The rendered canvas element.
+     * @returns {Promise<HTMLCanvasElement>} The rendered canvas element.
      */
     _renderViewportToCanvas(scale = 2) {
         return ExportTools.renderViewportToCanvas(this, scale);
@@ -1426,5 +1431,5 @@ class SchematicApp {
 
 // Initialize when DOM is ready
 document.addEventListener('DOMContentLoaded', () => {
-    window.app = new SchematicApp();
+    /** @type {any} */ (window).app = new SchematicApp();
 });

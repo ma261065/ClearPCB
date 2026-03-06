@@ -152,11 +152,11 @@ export function showValueDialog(definition, screenX, screenY, opts = {}) {
         select.className = 'value-dialog-select';
         for (let i = 0; i < table.units.length; i++) {
             const opt = document.createElement('option');
-            opt.value = i;
+            opt.value = String(i);
             opt.textContent = table.units[i].suffix;
             select.appendChild(opt);
         }
-        select.value = seedUnit;
+        select.value = String(seedUnit);
 
         row.appendChild(input);
         row.appendChild(select);
@@ -183,7 +183,7 @@ export function showValueDialog(definition, screenX, screenY, opts = {}) {
         input.addEventListener('input', () => {
             const p = parseValueInput(input.value, table);
             if (p && p.unitIdx >= 0) {
-                select.value = p.unitIdx;
+                select.value = String(p.unitIdx);
                 lastNumeric = p.number;
                 input.value = p.number;
                 input.setSelectionRange(p.number.length, p.number.length);
@@ -198,7 +198,7 @@ export function showValueDialog(definition, screenX, screenY, opts = {}) {
                         for (let i = 0; i < table.units.length; i++) {
                             const u = table.units[i];
                             if (u.suffix.toLowerCase() === pureAlpha || u.aliases.includes(pureAlpha)) {
-                                select.value = i;
+                                select.value = String(i);
                                 input.value = lastNumeric;
                                 input.setSelectionRange(lastNumeric.length, lastNumeric.length);
                                 return;

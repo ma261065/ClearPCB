@@ -164,6 +164,7 @@ body {
     padding: 6px 12px;
     border-bottom: 2px solid transparent;
     transition: color 0.15s, border-color 0.15s;
+    -webkit-user-select: none;
     user-select: none;
 }
 
@@ -498,14 +499,14 @@ body {
     flex: 1;
     position: relative;
     overflow: hidden;
-    user-select: none;
     -webkit-user-select: none;
+    user-select: none;
 }
 
 .canvas-container svg,
 .canvas-container text {
-    user-select: none;
     -webkit-user-select: none;
+    user-select: none;
 }
 
 /* Properties panel – prop-row layout inside ribbon-group-items */
@@ -691,8 +692,8 @@ body {
     stroke-width: 1.4;
     stroke-linecap: round;
     stroke-linejoin: round;
-    user-select: none;
     -webkit-user-select: none;
+    user-select: none;
     display: none;
 }
 
@@ -736,6 +737,7 @@ body {
     border-radius: 6px;
     box-shadow: 0 4px 12px rgba(0,0,0,0.4);
     z-index: 1000;
+    -webkit-user-select: none;
     user-select: none;
     display: none;
 }
@@ -857,6 +859,7 @@ body {
     font-size: 11px;
     line-height: 1.8;
     z-index: 10;
+    -webkit-user-select: none;
     user-select: none;
 }
 
@@ -1439,19 +1442,19 @@ body {
 /* Component styling - match shape behavior */
 .component {
     cursor: default;
-    user-select: none;
     -webkit-user-select: none;
+    user-select: none;
 }
 
 .component text {
     pointer-events: none;
-    user-select: none;
     -webkit-user-select: none;
+    user-select: none;
 }
 
 .component * {
-    user-select: none;
     -webkit-user-select: none;
+    user-select: none;
 }
 
 /* ========================================

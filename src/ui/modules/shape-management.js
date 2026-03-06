@@ -27,10 +27,11 @@ export function addShapeInternal(app, shape) {
     app.shapes.push(shape);
     shape.render(app.viewport.scale);
     app.viewport.addContent(shape.element);
-    if (shape.type === 'wire' && shape.wireLabel) bumpWireLabelCounter(shape.wireLabel);
+    const wireShape = shape.type === 'wire' ? /** @type {import('../../shapes/wire.js').Wire} */ (shape) : null;
+    if (wireShape?.wireLabel) bumpWireLabelCounter(wireShape.wireLabel);
     // Auto-create label Text shape for new wires (like Component.createFieldTexts)
-    if (shape.type === 'wire' && !shape.labelText) {
-        _createWireLabelText(app, shape);
+    if (wireShape && !wireShape.labelText) {
+        _createWireLabelText(app, wireShape);
     }
     app._updateSelectableItems();
     app.selection._invalidateHitTestCache();
@@ -55,7 +56,8 @@ export function addShapeInternalAt(app, shape, index) {
         app.shapes.push(shape);
     }
     app.viewport.addContent(shape.element);
-    if (shape.type === 'wire' && shape.wireLabel) bumpWireLabelCounter(shape.wireLabel);
+    const wireShape = shape.type === 'wire' ? /** @type {import('../../shapes/wire.js').Wire} */ (shape) : null;
+    if (wireShape?.wireLabel) bumpWireLabelCounter(wireShape.wireLabel);
     app._updateSelectableItems();
     app.fileManager.setDirty(true);
     return shape;
@@ -73,12 +75,13 @@ export function removeShapeInternal(app, shape, options = {}) {
     const idx = app.shapes.indexOf(shape);
     if (idx !== -1) {
         app.shapes.splice(idx, 1);
-        if (shape.type === 'wire' && shape.wireLabel) freeWireLabel(shape.wireLabel);
+        const wireShape = shape.type === 'wire' ? /** @type {import('../../shapes/wire.js').Wire} */ (shape) : null;
+        if (wireShape?.wireLabel) freeWireLabel(wireShape.wireLabel);
         // Also remove the linked label Text shape
-        if (shape.type === 'wire' && shape.labelText) {
-            const linkedLabel = shape.labelText;
+        if (wireShape?.labelText) {
+            const linkedLabel = wireShape.labelText;
             removeShapeInternal(app, linkedLabel, options);
-            shape.labelText = preserveWireLabelRef ? linkedLabel : null;
+            wireShape.labelText = preserveWireLabelRef ? linkedLabel : null;
         }
         if (shape.element && shape.element.parentNode) {
             shape.element.parentNode.removeChild(shape.element);
@@ -210,8 +213,9 @@ const WIRE_LABEL_FONT_SIZE = 1.4;
  * @param {import('../../shapes/wire.js').Wire} wire
  */
 function _createWireLabelText(app, wire) {
-    const pos = wire._pendingLabelPosition || wire.getLabelPosition();
-    const text = new Text({
+    const wireExt = /** @type {import('../../shapes/wire.js').Wire & {_pendingLabelVisible?: boolean, _pendingLabelPosition?: {x:number,y:number,rotation?: number}}} */ (wire);
+    const pos = wireExt._pendingLabelPosition || wire.getLabelPosition();
+    const text = new Text(/** @type {any} */ ({
         x: pos.x,
         y: pos.y,
         text: wire.wireLabel,
@@ -219,16 +223,16 @@ function _createWireLabelText(app, wire) {
         fontFamily: 'Arial',
         textAnchor: 'middle',
         color: 'var(--sch-wire-label, #669966)'
-    });
+    }));
     text.parentComponent = wire;
     text.fieldKey = 'wireLabel';
-    text.visible = wire._pendingLabelVisible ?? false;  // hidden by default unless split rules set pending visibility
-    if (wire._pendingLabelPosition && wire._pendingLabelPosition.rotation !== undefined) {
-        text.rotation = wire._pendingLabelPosition.rotation;
+    text.visible = wireExt._pendingLabelVisible ?? false;  // hidden by default unless split rules set pending visibility
+    if (wireExt._pendingLabelPosition && wireExt._pendingLabelPosition.rotation !== undefined) {
+        text.rotation = wireExt._pendingLabelPosition.rotation;
     }
     wire.labelText = text;
-    delete wire._pendingLabelVisible;
-    delete wire._pendingLabelPosition;
+    delete wireExt._pendingLabelVisible;
+    delete wireExt._pendingLabelPosition;
 
     app.shapes.push(text);
     text.render(app.viewport.scale);

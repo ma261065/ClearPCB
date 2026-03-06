@@ -74,7 +74,13 @@ export class Circle extends Shape {
         ];
     }
     
-    /** @override */
+    /**
+     * @override
+     * @param {string} anchorId
+     * @param {number} x
+     * @param {number} y
+     * @returns {string|undefined}
+     */
     moveAnchor(anchorId, x, y) {
         if (anchorId === 'center') {
             this.x = x;
@@ -83,6 +89,7 @@ export class Circle extends Shape {
             this.radius = Math.max(0.1, Math.hypot(x - this.x, y - this.y));
         }
         this.invalidate();
+        return undefined;
     }
     
     /** @override */

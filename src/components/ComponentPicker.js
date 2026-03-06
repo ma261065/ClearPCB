@@ -95,22 +95,22 @@ export class ComponentPicker {
         `;
         
         // Get references
-        this.searchInput = this.element.querySelector('.cp-search-input');
-        this.searchClearBtn = this.element.querySelector('.cp-search-clear');
-        this.categorySelect = this.element.querySelector('.cp-category-select');
-        this.body = this.element.querySelector('.cp-body');
-        this.listEl = this.element.querySelector('.cp-list');
-        this.previewSvg = this.element.querySelector('.cp-preview-svg');
-        this.previewInfo = this.element.querySelector('.cp-preview-info');
-        this.previewImage = this.element.querySelector('.cp-preview-image');
-        this.previewFootprint = this.element.querySelector('.cp-preview-footprint');
-        this.previewFootprintInfo = this.element.querySelector('.cp-preview-footprint-info');
-        this.preview3d = this.element.querySelector('.cp-preview-3d');
-        this.preview3dInfo = this.element.querySelector('.cp-preview-3d-info');
-        this.placeBtn = this.element.querySelector('.cp-place-btn');
-        this.bodyEl = this.element.querySelector('.cp-body');
-        this.modeButtons = this.element.querySelectorAll('.cp-mode-btn');
-        this.categoriesEl = this.element.querySelector('.cp-categories');
+        this.searchInput = /** @type {HTMLInputElement} */ (this.element.querySelector('.cp-search-input'));
+        this.searchClearBtn = /** @type {HTMLButtonElement} */ (this.element.querySelector('.cp-search-clear'));
+        this.categorySelect = /** @type {HTMLSelectElement} */ (this.element.querySelector('.cp-category-select'));
+        this.body = /** @type {HTMLElement} */ (this.element.querySelector('.cp-body'));
+        this.listEl = /** @type {HTMLElement} */ (this.element.querySelector('.cp-list'));
+        this.previewSvg = /** @type {HTMLElement} */ (this.element.querySelector('.cp-preview-svg'));
+        this.previewInfo = /** @type {HTMLElement} */ (this.element.querySelector('.cp-preview-info'));
+        this.previewImage = /** @type {HTMLElement} */ (this.element.querySelector('.cp-preview-image'));
+        this.previewFootprint = /** @type {HTMLElement} */ (this.element.querySelector('.cp-preview-footprint'));
+        this.previewFootprintInfo = /** @type {HTMLElement} */ (this.element.querySelector('.cp-preview-footprint-info'));
+        this.preview3d = /** @type {HTMLElement} */ (this.element.querySelector('.cp-preview-3d'));
+        this.preview3dInfo = /** @type {HTMLElement} */ (this.element.querySelector('.cp-preview-3d-info'));
+        this.placeBtn = /** @type {HTMLButtonElement} */ (this.element.querySelector('.cp-place-btn'));
+        this.bodyEl = /** @type {HTMLElement} */ (this.element.querySelector('.cp-body'));
+        this.modeButtons = /** @type {NodeListOf<HTMLButtonElement>} */ (this.element.querySelectorAll('.cp-mode-btn'));
+        this.categoriesEl = /** @type {HTMLElement} */ (this.element.querySelector('.cp-categories'));
         // Start collapsed if configured
         if (!this.isOpen) {
             this.element.classList.add('collapsed');
@@ -477,7 +477,7 @@ export class ComponentPicker {
         this.placeBtn.textContent = 'Checking footprint...';
         this.placeBtn.onclick = null;
 
-        this._loadKiCadFootprintStatus(result);
+                this._loadKiCadFootprintStatus(/** @type {Object} */ (result));
     }
 
     /**
@@ -747,7 +747,7 @@ export class ComponentPicker {
 
                 const iconEl = item.querySelector('.cp-item-icon');
                 if (iconEl) {
-                    this._applyLCSCThumbnail(iconEl, result);
+                    this._applyLCSCThumbnail(/** @type {HTMLElement} */ (iconEl), result);
                 }
 
                 item.addEventListener('click', () => this._selectLCSCResult(result, item));
@@ -821,9 +821,9 @@ export class ComponentPicker {
      */
     _balanceResultsColumns() {
         requestAnimationFrame(() => {
-            const grid = this.listEl.querySelector('.cp-results-grid');
+            const grid = /** @type {HTMLElement|null} */ (this.listEl.querySelector('.cp-results-grid'));
             if (!grid) return;
-            const lists = Array.from(grid.querySelectorAll('.cp-results-col-list'));
+            const lists = /** @type {HTMLElement[]} */ (Array.from(grid.querySelectorAll('.cp-results-col-list')));
             if (lists.length < 2) return;
 
             // Remove spacers - we'll use JS to control scroll
@@ -834,8 +834,8 @@ export class ComponentPicker {
 
             // Get actual content heights (without spacers)
             const contentHeights = lists.map(list => {
-                const items = Array.from(list.querySelectorAll('.cp-item'));
-                return items.reduce((sum, item) => sum + item.offsetHeight + parseFloat(getComputedStyle(item).marginBottom || 0), 0);
+                const items = /** @type {HTMLElement[]} */ (Array.from(list.querySelectorAll('.cp-item')));
+                return items.reduce((sum, item) => sum + item.offsetHeight + parseFloat(getComputedStyle(item).marginBottom || '0'), 0);
             });
 
             const maxHeight = Math.max(...contentHeights);
@@ -990,7 +990,7 @@ export class ComponentPicker {
                         const iconEl = selectedItem.querySelector('.cp-item-icon');
                         if (iconEl) {
                             // Try to show photo first, fall back to rendered symbol
-                            const hasPhoto = await this._tryApplyLCSCThumbnail(iconEl, result);
+                            const hasPhoto = await this._tryApplyLCSCThumbnail(/** @type {HTMLElement} */ (iconEl), result);
                             if (!hasPhoto) {
                                 iconEl.innerHTML = await this._createMiniPreview(definition);
                             }

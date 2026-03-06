@@ -32,9 +32,11 @@ export async function savePdf(app) {
                 format: [width, height]
               };
 
-        const pdf = new jsPDF(pdfConfig);
+        const JsPdfCtor = /** @type {any} */ (jsPDF);
+        const pdf = new JsPdfCtor(pdfConfig);
 
-        const svg2pdf = window.svg2pdf?.svg2pdf || window.svg2pdf?.default || window.svg2pdf;
+        const w = /** @type {any} */ (window);
+        const svg2pdf = w.svg2pdf?.svg2pdf || w.svg2pdf?.default || w.svg2pdf;
         if (typeof svg2pdf !== 'function') {
             throw new Error('svg2pdf is not available');
         }
@@ -203,11 +205,12 @@ export function loadVectorPdfLibs(app) {
         await loadScript('./assets/vendor/jspdf.umd.min.js');
         await loadScript('./assets/vendor/svg2pdf.umd.min.js');
 
-        const svg2pdfFn = window.svg2pdf?.svg2pdf || window.svg2pdf?.default || window.svg2pdf;
-        if (!window.jspdf?.jsPDF || typeof svg2pdfFn !== 'function') {
+        const w = /** @type {any} */ (window);
+        const svg2pdfFn = w.svg2pdf?.svg2pdf || w.svg2pdf?.default || w.svg2pdf;
+        if (!w.jspdf?.jsPDF || typeof svg2pdfFn !== 'function') {
             throw new Error('Vector PDF libraries failed to load');
         }
-        return window.jspdf.jsPDF;
+        return w.jspdf.jsPDF;
     })();
 
     return app._pdfVectorLoader;
@@ -353,18 +356,22 @@ export function inlineSvgComputedStyles(originalSvg, clonedSvg) {
     let cloneNode = cloneIter.nextNode();
 
     while (origNode && cloneNode) {
-        const style = window.getComputedStyle(origNode);
+        if (origNode.nodeType === Node.ELEMENT_NODE && cloneNode.nodeType === Node.ELEMENT_NODE) {
+            const origEl = /** @type {Element} */ (origNode);
+            const cloneEl = /** @type {Element} */ (cloneNode);
+            const style = window.getComputedStyle(origEl);
 
-        for (const prop of props) {
-            const cssValue = style[prop];
-            if (cssValue && cssValue !== 'initial' && cssValue !== 'inherit') {
-                const attr = prop.replace(/[A-Z]/g, (m) => `-${m.toLowerCase()}`);
-                cloneNode.setAttribute(attr, cssValue);
+            for (const prop of props) {
+                const cssValue = style[prop];
+                if (cssValue && cssValue !== 'initial' && cssValue !== 'inherit') {
+                    const attr = prop.replace(/[A-Z]/g, (m) => `-${m.toLowerCase()}`);
+                    cloneEl.setAttribute(attr, cssValue);
+                }
             }
-        }
 
-        if (origNode.nodeName.toLowerCase() === 'text') {
-            cloneNode.textContent = origNode.textContent;
+            if (origEl.nodeName.toLowerCase() === 'text') {
+                cloneEl.textContent = origEl.textContent;
+            }
         }
 
         origNode = origIter.nextNode();
@@ -381,9 +388,10 @@ export function inlineSvgComputedStyles(originalSvg, clonedSvg) {
  * @param {string[]} extensions - Accepted file extensions (e.g. `['.pdf']`).
  */
 export async function saveBlobAsFile(blob, suggestedName, mimeType, extensions) {
-    if ('showSaveFilePicker' in window) {
+    const savePicker = /** @type {any} */ (window).showSaveFilePicker;
+    if (typeof savePicker === 'function') {
         try {
-            const handle = await window.showSaveFilePicker({
+            const handle = await savePicker({
                 suggestedName,
                 types: [{ description: 'PDF', accept: { [mimeType]: extensions } }]
             });

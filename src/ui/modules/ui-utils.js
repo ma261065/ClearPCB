@@ -42,14 +42,15 @@ export function setCheckboxState(el, values) {
  * clamped to the window bounds.
  */
 export function makeHelpPanelDraggable() {
-    const panel = document.querySelector('.help-panel');
+    const panel = /** @type {HTMLElement|null} */ (document.querySelector('.help-panel'));
     if (!panel) return;
-    const header = panel.querySelector('h3') || panel;
+    const header = /** @type {HTMLElement} */ (panel.querySelector('h3') || panel);
 
     let isDragging = false;
     let offsetX = 0;
     let offsetY = 0;
 
+    /** @param {MouseEvent} e */
     const onMouseMove = (e) => {
         if (!isDragging) return;
         const x = e.clientX - offsetX;
@@ -73,7 +74,8 @@ export function makeHelpPanelDraggable() {
         }
     };
 
-    header.addEventListener('mousedown', (e) => {
+    /** @param {MouseEvent} e */
+    const onMouseDown = (e) => {
         isDragging = true;
         const rect = panel.getBoundingClientRect();
         offsetX = e.clientX - rect.left;
@@ -82,5 +84,7 @@ export function makeHelpPanelDraggable() {
         window.addEventListener('mousemove', onMouseMove);
         window.addEventListener('mouseup', onMouseUp);
         e.preventDefault();
-    });
+    };
+
+    header.addEventListener('mousedown', onMouseDown);
 }

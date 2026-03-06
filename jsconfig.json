@@ -1,9 +1,17 @@
 {
   "compilerOptions": {
+    "target": "ES2021",
+    "module": "ESNext",
+    "lib": ["ES2021", "DOM", "DOM.Iterable"],
+    "allowJs": true,
     "checkJs": true,
     "forceConsistentCasingInFileNames": false
   },
   "include": [
     "src/**/*.js"
+  ],
+  "exclude": [
+    "assets/vendor/**",
+    ".venv/**"
   ]
 }

@@ -135,14 +135,14 @@ function _createNCGhost(app) {
     const color = 'var(--sch-no-connect, #cc0000)';
     const sw = 0.25;
     const l1 = document.createElementNS(ns, 'line');
-    l1.setAttribute('x1', -NC_HALF); l1.setAttribute('y1', -NC_HALF);
-    l1.setAttribute('x2',  NC_HALF); l1.setAttribute('y2',  NC_HALF);
-    l1.setAttribute('stroke', color); l1.setAttribute('stroke-width', sw);
+    l1.setAttribute('x1', String(-NC_HALF)); l1.setAttribute('y1', String(-NC_HALF));
+    l1.setAttribute('x2',  String(NC_HALF)); l1.setAttribute('y2',  String(NC_HALF));
+    l1.setAttribute('stroke', color); l1.setAttribute('stroke-width', String(sw));
     l1.setAttribute('stroke-linecap', 'round');
     const l2 = document.createElementNS(ns, 'line');
-    l2.setAttribute('x1', -NC_HALF); l2.setAttribute('y1',  NC_HALF);
-    l2.setAttribute('x2',  NC_HALF); l2.setAttribute('y2', -NC_HALF);
-    l2.setAttribute('stroke', color); l2.setAttribute('stroke-width', sw);
+    l2.setAttribute('x1', String(-NC_HALF)); l2.setAttribute('y1',  String(NC_HALF));
+    l2.setAttribute('x2',  String(NC_HALF)); l2.setAttribute('y2', String(-NC_HALF));
+    l2.setAttribute('stroke', color); l2.setAttribute('stroke-width', String(sw));
     l2.setAttribute('stroke-linecap', 'round');
     g.appendChild(l1);
     g.appendChild(l2);
@@ -178,10 +178,10 @@ function _createNetLabelGhost(app) {
     path.setAttribute('stroke-linejoin', 'miter');
 
     const text = document.createElementNS(ns, 'text');
-    text.setAttribute('x', NL_FLAG_TIP + NL_FLAG_PAD_X);
-    text.setAttribute('y', 0);
+    text.setAttribute('x', String(NL_FLAG_TIP + NL_FLAG_PAD_X));
+    text.setAttribute('y', String(0));
     text.setAttribute('fill', 'var(--sch-net-label, #00cccc)');
-    text.setAttribute('font-size', NL_FONT_SIZE);
+    text.setAttribute('font-size', String(NL_FONT_SIZE));
     text.setAttribute('font-family', 'Arial');
     text.setAttribute('dominant-baseline', 'middle');
     text.setAttribute('alignment-baseline', 'middle');
@@ -191,8 +191,8 @@ function _createNetLabelGhost(app) {
     g.appendChild(path);
     g.appendChild(text);
     app.viewport.contentLayer.appendChild(g);
-    g.__ghostType = 'netlabel';
-    g.__ghostTextEl = text;
+    /** @type {any} */ (g).__ghostType = 'netlabel';
+    /** @type {any} */ (g).__ghostTextEl = text;
     app._toolGhost = g;
 }
 

@@ -15,6 +15,8 @@
 
 import { storageManager } from './StorageManager.js';
 
+/** @typedef {any} ComponentLibrary */
+
 export class SearchManager {
     /**
      * Create a new SearchManager.

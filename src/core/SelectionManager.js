@@ -8,6 +8,8 @@
  * - Selection change events
  */
 
+/** @typedef {any} Shape */
+
 export class SelectionManager {
     /**
      * Create a new SelectionManager.

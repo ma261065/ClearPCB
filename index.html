@@ -5,9 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ClearPCB - Schematic Editor</title>
     <link rel="icon" href="assets/icons/favicon.ico">
+    <link rel="apple-touch-icon" href="assets/icons/favicon.ico">
     <link rel="stylesheet" href="src/ui/schematic.css">
     <link rel="manifest" href="manifest.json">
-    <meta name="theme-color" content="#002b00">
 </head>
 <body>
     <div class="ribbon">
@@ -80,15 +80,15 @@
                     <div class="ribbon-group-items">
                         <label class="ribbon-checkbox"><input type="checkbox" id="showGrid" checked> Grid</label>
                         <label class="ribbon-checkbox"><input type="checkbox" id="snapToGrid" checked> Snap</label>
-                        <select id="gridSize">
+                        <select id="gridSize" title="Grid size">
                             <!-- Options populated by JavaScript based on units -->
                             <option value="1">1 mm</option>
                         </select>
-                        <select id="gridStyle">
+                        <select id="gridStyle" title="Grid style">
                             <option value="lines" selected>Lines</option>
                             <option value="dots">Dots</option>
                         </select>
-                        <select id="units">
+                        <select id="units" title="Units">
                             <option value="mm" selected>mm</option>
                             <option value="mil">mil</option>
                             <option value="inch">inch</option>
@@ -98,7 +98,7 @@
                 <div class="ribbon-group">
                     <div class="ribbon-group-title">Paper</div>
                     <div class="ribbon-group-items">
-                        <select id="paperSize">
+                        <select id="paperSize" title="Paper size">
                             <option value="">None</option>
                             <optgroup label="Metric">
                                 <option value="A4">A4 (210 × 297 mm)</option>
@@ -113,7 +113,7 @@
                                 <option value="Tabloid">Tabloid (11 × 17 inch)</option>
                             </optgroup>
                         </select>
-                        <select id="paperOrientation">
+                        <select id="paperOrientation" title="Paper orientation">
                             <option value="landscape" selected>Landscape</option>
                             <option value="portrait">Portrait</option>
                         </select>

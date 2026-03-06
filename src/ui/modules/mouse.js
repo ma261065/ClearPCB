@@ -43,7 +43,7 @@ export function bindMouseEvents(app) {
         if (app.viewport.isPanning) return;
 
         const activeTab = document.querySelector('.ribbon-tab.active');
-        if (activeTab?.dataset?.tab === 'file') {
+        if (activeTab instanceof HTMLElement && activeTab.dataset?.tab === 'file') {
             app._setActiveRibbonTab?.('home');
         }
 

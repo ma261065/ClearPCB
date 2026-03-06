@@ -650,7 +650,7 @@ function _showWireJunctionDot(app, pos) {
     const dot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
     dot.setAttribute('cx', pos.x);
     dot.setAttribute('cy', pos.y);
-    dot.setAttribute('r', Math.max(0.4, 3 / app.viewport.scale));
+    dot.setAttribute('r', String(Math.max(0.4, 3 / app.viewport.scale)));
     dot.setAttribute('fill', '#ffff00');
     dot.setAttribute('stroke', 'none');
     dot.setAttribute('pointer-events', 'none');
@@ -1453,7 +1453,7 @@ export function computeMovingSegmentSnaps(threshold, edges, axisLock) {
         const rx = Math.abs(beyond.x - fixed.x);
         const ry = Math.abs(beyond.y - fixed.y);
         pts.sort((a, b) => rx >= ry ? a.x - b.x : a.y - b.y);
-        guides.push([pts[0], pts[2]]);
+        guides.push(/** @type {[{x:number,y:number},{x:number,y:number}]} */ ([pts[0], pts[2]]));
     }
     // H/V guides (skip fixed points already covered by collinear,
     // and skip alignments that are trivially preserved by the axis lock)
@@ -1463,7 +1463,7 @@ export function computeMovingSegmentSnaps(threshold, edges, axisLock) {
         const yAligned = axisLock !== 'horizontal' && Math.abs(my - fixed.y) < threshold;
         const xAligned = axisLock !== 'vertical' && Math.abs(mx - fixed.x) < threshold;
         if (yAligned || xAligned) {
-            guides.push([{ x: mx, y: my }, fixed]);
+            guides.push(/** @type {[{x:number,y:number},{x:number,y:number}]} */ ([{ x: mx, y: my }, fixed]));
             covered.add(fixed);
         }
     }

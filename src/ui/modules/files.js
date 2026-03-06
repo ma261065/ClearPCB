@@ -138,9 +138,9 @@ export async function loadDocument(app, data) {
         }
         // Restore paper size, orientation, and title block from file
         if (data.settings.paperSize) {
-            const paperSelect = document.getElementById('paperSize');
-            const orientationSelect = document.getElementById('paperOrientation');
-            const titleBlockCheckbox = document.getElementById('showTitleBlock');
+            const paperSelect = /** @type {HTMLSelectElement|null} */ (document.getElementById('paperSize'));
+            const orientationSelect = /** @type {HTMLSelectElement|null} */ (document.getElementById('paperOrientation'));
+            const titleBlockCheckbox = /** @type {HTMLInputElement|null} */ (document.getElementById('showTitleBlock'));
             const orientation = data.settings.paperOrientation || 'landscape';
             if (paperSelect) paperSelect.value = data.settings.paperSize;
             if (orientationSelect) orientationSelect.value = orientation;
@@ -163,7 +163,7 @@ export async function loadDocument(app, data) {
             localStorage.setItem('clearpcb_title_block', String(showTitleBlock));
             // Restore title block info box state
             const showTitleBlockInfo = data.settings.titleBlockInfo || false;
-            const titleBlockInfoCheckbox = document.getElementById('showTitleBlockInfo');
+            const titleBlockInfoCheckbox = /** @type {HTMLInputElement|null} */ (document.getElementById('showTitleBlockInfo'));
             app.viewport.setTitleBlockInfo(showTitleBlockInfo);
             if (titleBlockInfoCheckbox) titleBlockInfoCheckbox.checked = showTitleBlockInfo;
             localStorage.setItem('clearpcb_title_block_info', String(showTitleBlockInfo));

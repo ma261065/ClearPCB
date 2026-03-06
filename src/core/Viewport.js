@@ -135,6 +135,7 @@ export class Viewport {
         // Callbacks
         this.onViewChanged = null;
         this.onMouseMove = null;
+        this.onViewportCull = null;
         
         // Event handlers (stored for cleanup)
         this.boundHandlers = {
@@ -744,7 +745,7 @@ export class Viewport {
     _drawPaperOutline() {
         // If reference is lost, try to find the layer in the SVG
         if (!this.paperOutlineLayer || !this.paperOutlineLayer.parentNode) {
-            this.paperOutlineLayer = this.svg.querySelector('#paperOutlineLayer');
+            this.paperOutlineLayer = /** @type {SVGGElement|null} */ (this.svg.querySelector('#paperOutlineLayer'));
         }
         
         if (!this.paperOutlineLayer) return;
@@ -838,7 +839,7 @@ export class Viewport {
      * Sits inside the inner border of the title block.
      */
     _renderTitleBlockInfo(px, py, pw, ph, margin, sw, color) {
-        const d = this.titleBlockData || {};
+        const d = /** @type {{title?: string, rev?: string, company?: string, date?: string, drawnBy?: string, sheet?: string}} */ (this.titleBlockData || {});
         // Info box dimensions (mm)
         const boxW = 120;
         const boxH = 30;

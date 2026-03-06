@@ -732,7 +732,7 @@ export class ComponentLibrary {
             pathData = path; // Store the raw path data
             const parsed = this._parseEasyEDAPinPath(path);
             if (parsed) {
-                orientation = parsed.orientation;
+                orientation = /** @type {'right'|'up'|'left'|'down'} */ (parsed.orientation);
                 length = parsed.length;
             }
         }

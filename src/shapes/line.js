@@ -13,6 +13,13 @@ const _r4 = v => Math.round(v * 10000) / 10000;
 export class Line extends Shape {
     /**
      * @param {Object} [options]
+        * @param {string} [options.id]
+        * @param {string} [options.layer]
+        * @param {string|number} [options.color]
+        * @param {string|number} [options.fillColor]
+        * @param {number} [options.lineWidth]
+        * @param {boolean} [options.visible]
+        * @param {boolean} [options.locked]
      * @param {Array<{x:number,y:number}>} [options.points] - Ordered vertices.
      * @param {number} [options.x1] - Legacy start X.
      * @param {number} [options.y1] - Legacy start Y.
@@ -91,6 +98,7 @@ export class Line extends Shape {
     
     /** @override — includes midpoint insertion anchors between vertices. */
     getAnchors() {
+        /** @type {Array<{id: string, x: number, y: number, cursor: string, midpoint?: boolean}>} */
         const anchors = this.points.map((p, i) => ({
             id: `p${i}`,
             x: p.x,
