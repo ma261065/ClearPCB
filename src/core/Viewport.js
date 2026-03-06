@@ -44,6 +44,8 @@ export class Viewport {
         this.rulerContainer = document.createElement('div');
         this.rulerContainer.style.cssText = 'position:absolute;top:0;left:0;pointer-events:none;';
         container.appendChild(this.rulerContainer);
+        this._rulerCursorXLine = null;
+        this._rulerCursorYLine = null;
         
         // View state - viewBox defines visible world area
         this.baseWidth = 200; // mm visible at 100% zoom (for display purposes)
@@ -1250,6 +1252,8 @@ export class Viewport {
         
         svg += '</svg>';
         this.rulerContainer.innerHTML = svg;
+        this._rulerCursorXLine = this.rulerContainer.querySelector('#rulerCursorX');
+        this._rulerCursorYLine = this.rulerContainer.querySelector('#rulerCursorY');
         this._updateRulerCursor();
     }
 
@@ -1265,16 +1269,14 @@ export class Viewport {
         const cx = Math.max(rs, Math.min(w, screen.x));
         const cy = Math.max(rs, Math.min(h, screen.y));
 
-        const xLine = this.rulerContainer.querySelector('#rulerCursorX');
-        if (xLine) {
-            xLine.setAttribute('x1', String(cx));
-            xLine.setAttribute('x2', String(cx));
+        if (this._rulerCursorXLine) {
+            this._rulerCursorXLine.setAttribute('x1', String(cx));
+            this._rulerCursorXLine.setAttribute('x2', String(cx));
         }
 
-        const yLine = this.rulerContainer.querySelector('#rulerCursorY');
-        if (yLine) {
-            yLine.setAttribute('y1', String(cy));
-            yLine.setAttribute('y2', String(cy));
+        if (this._rulerCursorYLine) {
+            this._rulerCursorYLine.setAttribute('y1', String(cy));
+            this._rulerCursorYLine.setAttribute('y2', String(cy));
         }
     }
     

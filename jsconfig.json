@@ -1,0 +1,9 @@
+{
+  "compilerOptions": {
+    "checkJs": true,
+    "forceConsistentCasingInFileNames": false
+  },
+  "include": [
+    "src/**/*.js"
+  ]
+}
