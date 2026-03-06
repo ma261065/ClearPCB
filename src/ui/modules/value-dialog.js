@@ -221,10 +221,10 @@ export function showValueDialog(definition, screenX, screenY, opts = {}) {
             let numStr, unitIdx;
             if (p) {
                 numStr = p.number;
-                unitIdx = p.unitIdx >= 0 ? p.unitIdx : parseInt(select.value);
+                unitIdx = p.unitIdx >= 0 ? p.unitIdx : parseInt(select.value, 10);
             } else {
                 numStr = raw || seedNum;
-                unitIdx = parseInt(select.value);
+                unitIdx = parseInt(select.value, 10);
             }
             ModalManager.pop('valueDialog');
             overlay.remove();

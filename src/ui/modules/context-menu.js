@@ -23,6 +23,21 @@ function asAnchorContextMenuEl(el) {
     return /** @type {AnchorContextMenuEl | null} */ (el);
 }
 
+/** @param {AnchorContextMenuEl} menu */
+function attachDismissHandlers(menu) {
+    const dismiss = (e) => {
+        if (!menu.contains(/** @type {Node | null} */ (e.target))) dismissAnchorContextMenu();
+    };
+    const dismissOnKey = (e) => {
+        if (e.key === 'Escape') dismissAnchorContextMenu();
+    };
+    setTimeout(() => {
+        document.addEventListener('mousedown', dismiss, { capture: true });
+        document.addEventListener('keydown', dismissOnKey, { capture: true });
+    }, 0);
+    menu._dismissHandlers = { dismiss, dismissOnKey };
+}
+
 // ─── T-junction detection ──────────────────────────────────────────
 
 /**
@@ -363,21 +378,7 @@ export function showAnchorContextMenu(app, shape, anchorId, clientX, clientY, ca
 
     document.body.appendChild(menu);
 
-    // Dismiss on any click or escape
-    const dismiss = (e) => {
-        if (!menu.contains(e.target)) dismissAnchorContextMenu();
-    };
-    const dismissOnKey = (e) => {
-        if (e.key === 'Escape') dismissAnchorContextMenu();
-    };
-    // Use setTimeout so the current event doesn't immediately dismiss
-    setTimeout(() => {
-        document.addEventListener('mousedown', dismiss, { capture: true });
-        document.addEventListener('keydown', dismissOnKey, { capture: true });
-    }, 0);
-
-    // Store cleanup references
-    menu._dismissHandlers = { dismiss, dismissOnKey };
+    attachDismissHandlers(menu);
 }
 
 /**
@@ -441,15 +442,5 @@ export function showSegmentContextMenu(app, wire, edgeId, clientX, clientY) {
 
     document.body.appendChild(menu);
 
-    const dismiss = (e) => {
-        if (!menu.contains(e.target)) dismissAnchorContextMenu();
-    };
-    const dismissOnKey = (e) => {
-        if (e.key === 'Escape') dismissAnchorContextMenu();
-    };
-    setTimeout(() => {
-        document.addEventListener('mousedown', dismiss, { capture: true });
-        document.addEventListener('keydown', dismissOnKey, { capture: true });
-    }, 0);
-    menu._dismissHandlers = { dismiss, dismissOnKey };
+    attachDismissHandlers(menu);
 }
