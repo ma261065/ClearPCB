@@ -495,13 +495,13 @@ export function finishWireDrawing(app, worldPos) {
     // Snapshot all existing wires before any mutations
     const existingWires = app.shapes.filter(s => s.type === 'wire');
     const beforeStates = new Map();
-    for (const w of existingWires) beforeStates.set(w, w.captureState());
+    for (const w of existingWires) beforeStates.set(w, _captureShapeSnapshot(w));
 
     // Snapshot label texts before mutations
     const labelTextBefore = new Map();
     for (const w of existingWires) {
         if (w.labelText && app.shapes.includes(w.labelText)) {
-            labelTextBefore.set(w.labelText, w.labelText.captureState());
+            labelTextBefore.set(w.labelText, _captureShapeSnapshot(w.labelText));
         }
     }
 
@@ -516,7 +516,8 @@ export function finishWireDrawing(app, worldPos) {
 
     // If the wire was fully absorbed (e.g. redundant), revert and cancel
     if (!app.shapes.includes(wire) && wire.edges.size === 0) {
-        for (const [w, before] of beforeStates) {
+        for (const [w, beforeSnapshot] of beforeStates) {
+            const before = beforeSnapshot.state;
             if (!app.shapes.includes(w)) {
                 w.applyState(before);
                 app._addShapeInternal(w);
@@ -525,8 +526,8 @@ export function finishWireDrawing(app, worldPos) {
             }
         }
         // Revert label text states
-        for (const [lt, before] of labelTextBefore) {
-            if (app.shapes.includes(lt)) lt.applyState(before);
+        for (const [lt, beforeSnapshot] of labelTextBefore) {
+            if (app.shapes.includes(lt)) lt.applyState(beforeSnapshot.state);
         }
         cancelWireDrawing(app);
         return;
@@ -970,45 +971,74 @@ function _syncWireLabelText(wire) {
     wire.labelText.invalidate();
 }
 
+function _setWireLabelVisibility(wire, visible) {
+    if (wire.labelText) {
+        wire.labelText.visible = visible;
+        wire.labelText.invalidate();
+    } else {
+        wire._pendingLabelVisible = visible;
+    }
+}
+
+function _setWireLabelPosition(wire, position) {
+    if (!position) return;
+    if (wire.labelText) {
+        wire.labelText.x = position.x;
+        wire.labelText.y = position.y;
+        wire.labelText.rotation = position.rotation;
+        wire.labelText.invalidate();
+    } else {
+        wire._pendingLabelPosition = {
+            x: position.x,
+            y: position.y,
+            rotation: position.rotation
+        };
+    }
+}
+
+function _selectSplitWinner(wires) {
+    return [...wires].sort((a, b) => b.edges.size - a.edges.size)[0] || null;
+}
+
+function _shouldUseRemovedLabel(keeperPreSegs, removedPreSegs, keeperVisible, removedVisible) {
+    if (keeperVisible !== removedVisible) return removedVisible;
+    return removedPreSegs > keeperPreSegs;
+}
+
+function _captureShapeSnapshot(shape) {
+    const state = shape.captureState();
+    return { state, signature: JSON.stringify(state) };
+}
+
+function _snapshotChanged(snapshot, afterState) {
+    return snapshot.signature !== JSON.stringify(afterState);
+}
+
 function _applyMergeLabelRules(keeper, removed, keeperPreSegs, removedPreSegs, removedLabelMeta) {
     const keeperVis = keeper.labelText?.visible ?? false;
     const removedVis = removedLabelMeta.visible;
     const postVisible = keeperVis || removedVis;
 
-    let useRemovedLabel = false;
-    if (keeperVis !== removedVis) {
-        useRemovedLabel = removedVis;
-    } else {
-        useRemovedLabel = removedPreSegs > keeperPreSegs;
-    }
+    const useRemovedLabel = _shouldUseRemovedLabel(keeperPreSegs, removedPreSegs, keeperVis, removedVis);
 
     if (useRemovedLabel) {
         const removedLabel = removed.wireLabel;
-        const removedLabelPos = removedLabelMeta.position;
 
         freeWireLabel(keeper.wireLabel);
         keeper.wireLabel = removedLabel;
         bumpWireLabelCounter(removedLabel);
         _syncWireLabelText(keeper);
 
-        if (keeper.labelText && removedLabelPos) {
-            keeper.labelText.x = removedLabelPos.x;
-            keeper.labelText.y = removedLabelPos.y;
-            keeper.labelText.rotation = removedLabelPos.rotation;
-            keeper.labelText.invalidate();
-        }
+        _setWireLabelPosition(keeper, removedLabelMeta.position);
     }
 
-    if (keeper.labelText) {
-        keeper.labelText.visible = postVisible;
-        keeper.labelText.invalidate();
-    }
+    _setWireLabelVisibility(keeper, postVisible);
 }
 
 export function applySplitLabelRules(originalWire, newFragments, preSplitLabel, preSplitVisible, preSplitLabelPosition = null) {
     const allPostWires = [originalWire, ...newFragments];
-    allPostWires.sort((a, b) => b.edges.size - a.edges.size);
-    const winner = allPostWires[0];
+    const winner = _selectSplitWinner(allPostWires);
+    if (!winner) return;
 
     const currentOwner = allPostWires.find(w => w.wireLabel === preSplitLabel) || null;
     if (currentOwner !== winner) {
@@ -1016,18 +1046,7 @@ export function applySplitLabelRules(originalWire, newFragments, preSplitLabel, 
         winner.wireLabel = preSplitLabel;
         bumpWireLabelCounter(preSplitLabel);
         _syncWireLabelText(winner);
-        if (winner.labelText && preSplitLabelPosition) {
-            winner.labelText.x = preSplitLabelPosition.x;
-            winner.labelText.y = preSplitLabelPosition.y;
-            winner.labelText.rotation = preSplitLabelPosition.rotation;
-            winner.labelText.invalidate();
-        } else if (preSplitLabelPosition) {
-            winner._pendingLabelPosition = {
-                x: preSplitLabelPosition.x,
-                y: preSplitLabelPosition.y,
-                rotation: preSplitLabelPosition.rotation
-            };
-        }
+        _setWireLabelPosition(winner, preSplitLabelPosition);
 
         if (currentOwner) {
             freeWireLabel(currentOwner.wireLabel);
@@ -1037,12 +1056,7 @@ export function applySplitLabelRules(originalWire, newFragments, preSplitLabel, 
     }
 
     for (const wire of allPostWires) {
-        if (wire.labelText) {
-            wire.labelText.visible = preSplitVisible;
-            wire.labelText.invalidate();
-        } else {
-            wire._pendingLabelVisible = preSplitVisible;
-        }
+        _setWireLabelVisibility(wire, preSplitVisible);
     }
 }
 
@@ -1182,7 +1196,7 @@ export function reconcileWires(app, changedWires, skipSet = null) {
  * Reverts all wires to their before-state so batch.execute() replays correctly.
  *
  * @param {object} app
- * @param {Map<Wire, object>} beforeStates - captured states before mutation
+ * @param {Map<Wire, {state: object, signature: string}>} beforeStates - captured states before mutation
  * @param {string} label - undo command label
  * @param {Wire[]} [extraAdds] - additional new wires to include as AddShapeCommand
  * @returns {BatchCommand|null} - batch or null if nothing changed
@@ -1192,7 +1206,8 @@ export function buildWireDiffBatch(app, beforeStates, label, extraAdds = [], lab
     let anyChanges = false;
 
     // --- Wire diffs (snapshot-based, no revert/replay) ---
-    for (const [w, before] of beforeStates) {
+    for (const [w, beforeSnapshot] of beforeStates) {
+        const before = beforeSnapshot.state;
         if (!app.shapes.includes(w)) {
             // Wire was removed during reconciliation (absorbed) → record deletion.
             // Store a snapshot command that can re-add on undo and re-delete on redo.
@@ -1200,7 +1215,7 @@ export function buildWireDiffBatch(app, beforeStates, label, extraAdds = [], lab
             anyChanges = true;
         } else {
             const after = w.captureState();
-            if (JSON.stringify(before) !== JSON.stringify(after)) {
+            if (_snapshotChanged(beforeSnapshot, after)) {
                 batch.add(new ModifyShapeCommand(app, w, before, after));
                 anyChanges = true;
             }
@@ -1223,10 +1238,11 @@ export function buildWireDiffBatch(app, beforeStates, label, extraAdds = [], lab
 
     // --- Label text diffs ---
     if (labelTextBefore) {
-        for (const [lt, before] of labelTextBefore) {
+        for (const [lt, beforeSnapshot] of labelTextBefore) {
+            const before = beforeSnapshot.state;
             if (!app.shapes.includes(lt)) continue;
             const after = lt.captureState();
-            if (JSON.stringify(before) !== JSON.stringify(after)) {
+            if (_snapshotChanged(beforeSnapshot, after)) {
                 batch.add(new ModifyShapeCommand(app, lt, before, after));
                 anyChanges = true;
             }
@@ -1248,13 +1264,13 @@ export function buildWireDiffBatch(app, beforeStates, label, extraAdds = [], lab
 export function reconcileWiresWithUndo(app, changedWires, skipSet = null) {
     // Snapshot all wires BEFORE
     const allWires = app.shapes.filter(s => s.type === 'wire');
-    const beforeStates = new Map(allWires.map(w => [w, w.captureState()]));
+    const beforeStates = new Map(allWires.map(w => [w, _captureShapeSnapshot(w)]));
 
     // Snapshot all wire label texts BEFORE
     const labelTextBefore = new Map();
     for (const w of allWires) {
         if (w.labelText && app.shapes.includes(w.labelText)) {
-            labelTextBefore.set(w.labelText, w.labelText.captureState());
+            labelTextBefore.set(w.labelText, _captureShapeSnapshot(w.labelText));
         }
     }
 
