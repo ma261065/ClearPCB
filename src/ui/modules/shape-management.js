@@ -210,7 +210,7 @@ const WIRE_LABEL_FONT_SIZE = 1.4;
  * @param {import('../../shapes/wire.js').Wire} wire
  */
 function _createWireLabelText(app, wire) {
-    const pos = wire.getLabelPosition();
+    const pos = wire._pendingLabelPosition || wire.getLabelPosition();
     const text = new Text({
         x: pos.x,
         y: pos.y,
@@ -222,8 +222,13 @@ function _createWireLabelText(app, wire) {
     });
     text.parentComponent = wire;
     text.fieldKey = 'wireLabel';
-    text.visible = false;  // hidden by default; user enables via Show checkbox
+    text.visible = wire._pendingLabelVisible ?? false;  // hidden by default unless split rules set pending visibility
+    if (wire._pendingLabelPosition && wire._pendingLabelPosition.rotation !== undefined) {
+        text.rotation = wire._pendingLabelPosition.rotation;
+    }
     wire.labelText = text;
+    delete wire._pendingLabelVisible;
+    delete wire._pendingLabelPosition;
 
     app.shapes.push(text);
     text.render(app.viewport.scale);

@@ -146,6 +146,9 @@ export function deleteJunction(app, junctionInfo) {
     const newFragments = [];
     const preSplitLabel = wire.wireLabel;
     const preSplitVisible = wire.labelText?.visible ?? false;
+    const preSplitLabelPosition = wire.labelText
+        ? { x: wire.labelText.x, y: wire.labelText.y, rotation: wire.labelText.rotation }
+        : null;
     if (comps.length > 1) {
         comps.sort((a, b) => b.size - a.size);
         for (let i = 1; i < comps.length; i++) {
@@ -168,7 +171,7 @@ export function deleteJunction(app, junctionInfo) {
         // ── Split label rules ──
         // Winner = post-split wire with most segments, keeps original label.
         // All post-split wires inherit pre-split visibility.
-        applySplitLabelRules(wire, newFragments, preSplitLabel, preSplitVisible);
+        applySplitLabelRules(wire, newFragments, preSplitLabel, preSplitVisible, preSplitLabelPosition);
     }
     wire.invalidate();
 
@@ -227,6 +230,9 @@ export function deleteWireSegment(app, wire, edgeId) {
     const beforeState = wire.captureState();
     const preSplitLabel = wire.wireLabel;
     const preSplitVisible = wire.labelText?.visible ?? false;
+    const preSplitLabelPosition = wire.labelText
+        ? { x: wire.labelText.x, y: wire.labelText.y, rotation: wire.labelText.rotation }
+        : null;
 
     // Remove the edge
     wire.removeEdge(edgeId);
@@ -260,7 +266,7 @@ export function deleteWireSegment(app, wire, edgeId) {
         }
 
         if (fragments.length > 0) {
-            applySplitLabelRules(fragments[0], fragments.slice(1), preSplitLabel, preSplitVisible);
+            applySplitLabelRules(fragments[0], fragments.slice(1), preSplitLabel, preSplitVisible, preSplitLabelPosition);
             for (const sub of fragments) {
                 batch.add(new AddShapeCommand(app, sub));
             }

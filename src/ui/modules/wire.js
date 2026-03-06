@@ -1005,26 +1005,43 @@ function _applyMergeLabelRules(keeper, removed, keeperPreSegs, removedPreSegs, r
     }
 }
 
-export function applySplitLabelRules(originalWire, newFragments, preSplitLabel, preSplitVisible) {
+export function applySplitLabelRules(originalWire, newFragments, preSplitLabel, preSplitVisible, preSplitLabelPosition = null) {
     const allPostWires = [originalWire, ...newFragments];
     allPostWires.sort((a, b) => b.edges.size - a.edges.size);
     const winner = allPostWires[0];
 
-    if (winner !== originalWire) {
+    const currentOwner = allPostWires.find(w => w.wireLabel === preSplitLabel) || null;
+    if (currentOwner !== winner) {
         freeWireLabel(winner.wireLabel);
         winner.wireLabel = preSplitLabel;
         bumpWireLabelCounter(preSplitLabel);
         _syncWireLabelText(winner);
+        if (winner.labelText && preSplitLabelPosition) {
+            winner.labelText.x = preSplitLabelPosition.x;
+            winner.labelText.y = preSplitLabelPosition.y;
+            winner.labelText.rotation = preSplitLabelPosition.rotation;
+            winner.labelText.invalidate();
+        } else if (preSplitLabelPosition) {
+            winner._pendingLabelPosition = {
+                x: preSplitLabelPosition.x,
+                y: preSplitLabelPosition.y,
+                rotation: preSplitLabelPosition.rotation
+            };
+        }
 
-        freeWireLabel(originalWire.wireLabel);
-        originalWire.wireLabel = nextWireLabel();
-        _syncWireLabelText(originalWire);
+        if (currentOwner) {
+            freeWireLabel(currentOwner.wireLabel);
+            currentOwner.wireLabel = nextWireLabel();
+            _syncWireLabelText(currentOwner);
+        }
     }
 
     for (const wire of allPostWires) {
         if (wire.labelText) {
             wire.labelText.visible = preSplitVisible;
             wire.labelText.invalidate();
+        } else {
+            wire._pendingLabelVisible = preSplitVisible;
         }
     }
 }
@@ -1128,6 +1145,9 @@ export function reconcileWires(app, changedWires, skipSet = null) {
         // Capture pre-split label state
         const preSplitLabel = w.wireLabel;
         const preSplitVisible = w.labelText?.visible ?? false;
+        const preSplitLabelPosition = w.labelText
+            ? { x: w.labelText.x, y: w.labelText.y, rotation: w.labelText.rotation }
+            : null;
 
         // Keep the largest component in the original wire
         comps.sort((a, b) => b.size - a.size);
@@ -1153,7 +1173,7 @@ export function reconcileWires(app, changedWires, skipSet = null) {
         // Winner = post-split wire with most segments, keeps original label.
         // Other fragments get new (auto) labels.
         // All post-split wires inherit pre-split visibility.
-        applySplitLabelRules(w, newFragments, preSplitLabel, preSplitVisible);
+        applySplitLabelRules(w, newFragments, preSplitLabel, preSplitVisible, preSplitLabelPosition);
     }
 }
 
