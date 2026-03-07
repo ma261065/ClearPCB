@@ -267,24 +267,25 @@ export class KiCadFetcher {
             return { hasFootprint: false, has3d: false };
         }
 
-        const footprintUrl = `${this.footprintsBase}/${lib}.pretty/${name}.kicad_mod`;
-        const modelUrl = `${this.models3dBase}/${lib}.3dshapes/${name}.step`;
+        const footprintCandidates = this._buildRawUrlCandidates(
+            this.footprintsBase,
+            `${lib}.pretty/${name}.kicad_mod`
+        );
+        const modelCandidates = [];
+        for (const base of this._getRawBaseCandidates(this.models3dBase)) {
+            modelCandidates.push(`${base}/${lib}.3dshapes/${name}.step`);
+            modelCandidates.push(`${base}/${lib}.3dshapes/${name}.stp`);
+        }
 
-        const footprintCacheKey = `fp:${footprintUrl}`;
-        const modelCacheKey = `3d:${modelUrl}`;
+        const footprintResolved = await this._resolveFirstExistingUrl(footprintCandidates, this.footprintExistsCache, 'fp');
+        const modelResolved = await this._resolveFirstExistingUrl(modelCandidates, this.model3dExistsCache, '3d');
 
-        const hasFootprint = this.footprintExistsCache.has(footprintCacheKey)
-            ? this.footprintExistsCache.get(footprintCacheKey)
-            : await this._checkUrlExists(footprintUrl);
-
-        const has3d = this.model3dExistsCache.has(modelCacheKey)
-            ? this.model3dExistsCache.get(modelCacheKey)
-            : await this._checkUrlExists(modelUrl);
-
-        this.footprintExistsCache.set(footprintCacheKey, hasFootprint);
-        this.model3dExistsCache.set(modelCacheKey, has3d);
-
-        return { hasFootprint, has3d, footprintUrl, modelUrl };
+        return {
+            hasFootprint: !!footprintResolved,
+            has3d: !!modelResolved,
+            footprintUrl: footprintResolved || footprintCandidates[0],
+            modelUrl: modelResolved || modelCandidates[0]
+        };
     }
 
     /**
@@ -675,30 +676,86 @@ export class KiCadFetcher {
             return cached;
         }
 
-        const targetUrl = `${this.footprintsBase}/${lib}.pretty/${name}.kicad_mod`;
+        const targetUrls = this._buildRawUrlCandidates(this.footprintsBase, `${lib}.pretty/${name}.kicad_mod`);
 
-        for (let attempt = 0; attempt < this.corsProxies.length; attempt++) {
-            try {
-                const proxy = this.corsProxies[attempt];
-                const url = `${proxy}${encodeURIComponent(targetUrl)}`;
-                const response = await this._fetchWithTimeout(url);
-                if (!response.ok) {
-                    continue;
+        for (const targetUrl of targetUrls) {
+            for (let attempt = 0; attempt < this.corsProxies.length; attempt++) {
+                try {
+                    const proxy = this.corsProxies[attempt];
+                    const url = `${proxy}${encodeURIComponent(targetUrl)}`;
+                    const response = await this._fetchWithTimeout(url);
+                    if (!response.ok) {
+                        continue;
+                    }
+
+                    const content = await response.text();
+                    if (typeof content !== 'string') {
+                        return null;
+                    }
+
+                    if (!content.includes('footprint')) {
+                        continue;
+                    }
+
+                    storageManager.set(cacheKey, content, 7 * 24 * 60 * 60 * 1000);
+                    return content;
+                } catch (error) {
+                    console.error(`KiCad footprint fetch error with proxy ${this.corsProxies[attempt]}:`, error);
                 }
+            }
+        }
 
-                const content = await response.text();
-                if (typeof content !== 'string') {
-                    return null;
-                }
+        return null;
+    }
 
-                if (!content.includes('footprint')) {
-                    continue;
-                }
+    /**
+     * Returns candidate raw bases, preferring configured base then alternate main/master.
+     * @param {string} base
+     * @returns {string[]}
+     */
+    _getRawBaseCandidates(base) {
+        const candidates = [base];
+        if (base.includes('/-/raw/master')) {
+            candidates.push(base.replace('/-/raw/master', '/-/raw/main'));
+        } else if (base.includes('/-/raw/main')) {
+            candidates.push(base.replace('/-/raw/main', '/-/raw/master'));
+        }
 
-                storageManager.set(cacheKey, content, 7 * 24 * 60 * 60 * 1000);
-                return content;
-            } catch (error) {
-                console.error(`KiCad footprint fetch error with proxy ${this.corsProxies[attempt]}:`, error);
+        return [...new Set(candidates)];
+    }
+
+    /**
+     * Builds raw URL candidates by combining raw base candidates and relative path.
+     * @param {string} base
+     * @param {string} relativePath
+     * @returns {string[]}
+     */
+    _buildRawUrlCandidates(base, relativePath) {
+        return this._getRawBaseCandidates(base).map(rawBase => `${rawBase}/${relativePath}`);
+    }
+
+    /**
+     * Resolves first existing URL from candidates with existence-cache support.
+     * @param {string[]} candidates
+     * @param {Map<string, boolean>} cache
+     * @param {string} prefix
+     * @returns {Promise<string|null>}
+     */
+    async _resolveFirstExistingUrl(candidates, cache, prefix) {
+        for (const candidate of candidates) {
+            const key = `${prefix}:${candidate}`;
+            const cached = cache.has(key) ? cache.get(key) : null;
+            if (cached === true) {
+                return candidate;
+            }
+            if (cached === false) {
+                continue;
+            }
+
+            const exists = await this._checkUrlExists(candidate);
+            cache.set(key, exists);
+            if (exists) {
+                return candidate;
             }
         }
 

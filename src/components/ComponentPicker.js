@@ -7,6 +7,7 @@ import { ModalManager } from '../core/ModalManager.js';
 import { globalEventBus } from '../core/EventBus.js';
 import { getSearchManager, initSearchManager } from '../core/SearchManager.js';
 import { LazyLoader } from '../core/LazyLoader.js';
+import { createDebouncedRunner, createGenerationGate } from './async-control.js';
 
 export class ComponentPicker {
     /**
@@ -35,9 +36,11 @@ export class ComponentPicker {
         this.lcscResults = [];
         this.kicadResults = [];
         this.isSearching = false;
-        this._searchGeneration = 0;
-        this._selectionGeneration = 0;
-        this.searchDebounceTimer = null;
+        this.searchRequestGate = createGenerationGate();
+        this.selectionRequestGate = createGenerationGate();
+        this.searchDebouncer = createDebouncedRunner(400, () => {
+            this._searchLCSC();
+        });
         
         // Lazy loading
         this.lazyLoader = null;
@@ -170,6 +173,10 @@ export class ComponentPicker {
      */
     _setSearchMode(mode) {
         this.searchMode = mode;
+        this.searchDebouncer.cancel();
+        this.searchRequestGate.invalidate();
+        this.selectionRequestGate.invalidate();
+        this.isSearching = false;
         
         // Update button states
         this.modeButtons.forEach(btn => {
@@ -257,12 +264,7 @@ export class ComponentPicker {
      * Debounces the LCSC search to avoid excessive API calls during typing.
      */
     _debouncedLCSCSearch() {
-        if (this.searchDebounceTimer) {
-            clearTimeout(this.searchDebounceTimer);
-        }
-        this.searchDebounceTimer = setTimeout(() => {
-            this._searchLCSC();
-        }, 400);
+        this.searchDebouncer.run();
     }
     
     /**
@@ -281,22 +283,22 @@ export class ComponentPicker {
         this._showLoading();
         
         // Track search generation to prevent stale results overwriting newer ones
-        const searchId = ++this._searchGeneration;
+        const searchId = this.searchRequestGate.next();
 
         // Ensure the KiCad index is loaded (shows progress bar on first use)
         const fetcher = this.library.kicadFetcher;
         if (!fetcher.libraryIndex) {
             // Show immediate feedback that the index is loading
-            if (this._searchGeneration === searchId) {
+            if (this.searchRequestGate.isCurrent(searchId)) {
                 this._showIndexingProgress('Loading KiCad library index...', 0, 0);
             }
             await fetcher.ensureIndexLoaded((progress) => {
                 // Only show indexing progress if still in LCSC mode and same search
-                if (this.searchMode === 'lcsc' && this._searchGeneration === searchId) {
+                if (this.searchMode === 'lcsc' && this.searchRequestGate.isCurrent(searchId)) {
                     this._showIndexingProgress(progress.message, progress.loaded, progress.total);
                 }
             });
-            if (this._searchGeneration !== searchId) return;
+            if (!this.searchRequestGate.isCurrent(searchId)) return;
             // If user switched to local mode while indexing, abort this search
             if (this.searchMode !== 'lcsc') return;
         }
@@ -311,13 +313,13 @@ export class ComponentPicker {
             ]);
 
             // Discard results if a newer search has been initiated
-            if (this._searchGeneration !== searchId) return;
+            if (!this.searchRequestGate.isCurrent(searchId) || this.searchMode !== 'lcsc') return;
 
             this.lcscResults = onlineResults || [];
             this.kicadResults = kicadResults || [];
             this._populateLCSCResults();
         } catch (error) {
-            if (this._searchGeneration !== searchId) return;
+            if (!this.searchRequestGate.isCurrent(searchId) || this.searchMode !== 'lcsc') return;
             console.error('LCSC search error:', error);
             this.listEl.innerHTML = `
                 <div class="cp-error">
@@ -325,7 +327,7 @@ export class ComponentPicker {
                 </div>
             `;
         } finally {
-            if (this._searchGeneration === searchId) {
+            if (this.searchRequestGate.isCurrent(searchId)) {
                 this.isSearching = false;
             }
         }
@@ -486,10 +488,10 @@ export class ComponentPicker {
      * @returns {Promise<void>}
      */
     async _loadKiCadFootprintStatus(result) {
-        const selId = ++this._selectionGeneration;
+        const selId = this.selectionRequestGate.next();
         try {
             const kicadDefinition = await this.searchManager.fetchFromKiCad(result.library, result.name);
-            if (this._selectionGeneration !== selId) return;
+            if (!this.selectionRequestGate.isCurrent(selId)) return;
             const kicadSymbol = kicadDefinition?.symbol || kicadDefinition;
             const kicadProperties = kicadDefinition?.properties || kicadDefinition?.symbol?.properties || kicadSymbol?.properties;
             const footprintName = this._getPropertyValue(kicadProperties, 'Footprint');
@@ -538,7 +540,7 @@ export class ComponentPicker {
             }
 
             const availability = await this.library.kicadFetcher.checkFootprintAvailability(footprintName);
-            if (this._selectionGeneration !== selId) return;
+            if (!this.selectionRequestGate.isCurrent(selId)) return;
             if (availability.hasFootprint) {
                 const preview = await this.library.kicadFetcher.fetchFootprintPreview(footprintName);
                 if (preview?.shapes && preview.shapes.length > 0) {
@@ -936,7 +938,7 @@ export class ComponentPicker {
      * @returns {Promise<void>}
      */
     async _loadEasyEDADetailForPreview(result) {
-        const selId = ++this._selectionGeneration;
+        const selId = this.selectionRequestGate.next();
         try {
             if (!result || !result.lcscPartNumber) {
                 this._setFootprintPreviewStatus('No footprint data', false);
@@ -952,7 +954,7 @@ export class ComponentPicker {
             }
 
             const metadata = await result._detailPromise;
-            if (this._selectionGeneration !== selId) return;
+            if (!this.selectionRequestGate.isCurrent(selId)) return;
             if (!metadata) {
                 this._setFootprintPreviewStatus('No footprint data', false);
                 this._set3dPreviewStatus('No 3D model', false);
@@ -981,7 +983,7 @@ export class ComponentPicker {
             }
 
             const definition = await result._definitionPromise;
-            if (this._selectionGeneration !== selId) return;
+            if (!this.selectionRequestGate.isCurrent(selId)) return;
             if (definition?.symbol) {
                 this._updatePreview(definition);
                 if (this.selectedLCSCResult === result) {
@@ -2135,6 +2137,9 @@ export class ComponentPicker {
      */
     destroy() {
         this.close();
+        if (this.searchDebouncer) {
+            this.searchDebouncer.dispose();
+        }
         if (this._scrollHandler && this.listEl) {
             this.listEl.removeEventListener('scroll', this._scrollHandler);
             this._scrollHandler = null;
