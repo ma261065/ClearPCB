@@ -1331,6 +1331,28 @@ function handlePrimaryMouseDownDispatch(app, event) {
 }
 
 /**
+ * Ensure a draggable session is active and canvas is not panning.
+ * Returns true when drag handling should continue.
+ */
+function canHandleActiveDragMouseMove(app, screenPos) {
+    if (!app.isDragging) {
+        promotePendingAnchorDragSession(app, screenPos, {
+            dragThresholdPx: DRAG_THRESHOLD_PX,
+            vertexEpsilon: VERTEX_EPSILON
+        });
+        if (!app.isDragging) {
+            return false;
+        }
+    }
+
+    if (app.viewport.isPanning) {
+        return false;
+    }
+
+    return true;
+}
+
+/**
  * Wire all mouse-event handlers (mousedown, mouseup, mousemove, click,
  * dblclick) to the SVG canvas. Handles selection, dragging, anchor
  * manipulation, box-select, and context menus.
@@ -1380,14 +1402,7 @@ export function bindMouseEvents(app) {
             updateToolCrosshair(app, snapped, screenPos);
         }
 
-        if (!app.isDragging) {
-            promotePendingAnchorDragSession(app, screenPos, {
-                dragThresholdPx: DRAG_THRESHOLD_PX,
-                vertexEpsilon: VERTEX_EPSILON
-            });
-            if (!app.isDragging) return;
-        }
-        if (app.viewport.isPanning) return;
+        if (!canHandleActiveDragMouseMove(app, screenPos)) return;
 
         handleActiveDragMouseMove(app, worldPos, snapped);
     });
