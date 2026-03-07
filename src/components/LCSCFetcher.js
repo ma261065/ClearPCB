@@ -53,15 +53,45 @@ export class LCSCFetcher {
     }
 
     /**
+     * Normalize an LCSC part number for case-insensitive comparisons.
+     * @param {string} partNumber
+     * @returns {string}
+     */
+    _normalizePartLookupKey(partNumber) {
+        return this._normalizeQuery(partNumber).toUpperCase();
+    }
+
+    /**
      * Find exact LCSC part match in search results.
      * @param {Array} results
      * @param {string} normalizedPart
      * @returns {Object|undefined}
      */
     _findExactLCSCResult(results, normalizedPart) {
+        const expectedPartKey = this._normalizePartLookupKey(normalizedPart);
         return results.find(item =>
-            (item.lcscPartNumber || '').toUpperCase() === normalizedPart.toUpperCase()
+            this._normalizePartLookupKey(item.lcscPartNumber || '') === expectedPartKey
         );
+    }
+
+    /**
+     * Read metadata cache entry only when it already contains useful symbol/footprint/3D data.
+     * Invalid cached placeholders are removed.
+     * @param {string} normalizedPart
+     * @returns {Object|null}
+     */
+    _getCachedMetadataIfComplete(normalizedPart) {
+        if (!this.metadataCache.has(normalizedPart)) {
+            return null;
+        }
+
+        const cached = this.metadataCache.get(normalizedPart);
+        if (cached?.hasEasyedaSymbol || cached?.hasFootprint || cached?.has3d) {
+            return cached;
+        }
+
+        this.metadataCache.delete(normalizedPart);
+        return null;
     }
 
     /**
@@ -305,7 +335,7 @@ export class LCSCFetcher {
             const imageUrl = this._normalizeEasyedaUrl(item?.szlcsc?.image || item.imageUrl || item.image || item.productImageUrl || item.productImageUrlBig || '');
             const thumbUrl = this._normalizeEasyedaUrl(item.thumb || item.thumbUrl || item.thumbnail || '');
             const fallbackThumb = lcscPartNumber
-                ? `https://easyeda.com/api/eda/product/img/${encodeURIComponent(lcscPartNumber)}?version=${this.easyedaVersion}`
+                ? this._buildEasyedaProductImageUrl(lcscPartNumber)
                 : '';
 
             return {
@@ -345,6 +375,18 @@ export class LCSCFetcher {
      */
     _buildLCSCProductUrl(partNumber) {
         return partNumber ? `https://www.lcsc.com/product-detail/${partNumber}.html` : '';
+    }
+
+    /**
+     * Build EasyEDA product-image API URL for a part number.
+     * @param {string} partNumber
+     * @returns {string}
+     */
+    _buildEasyedaProductImageUrl(partNumber) {
+        if (!partNumber) {
+            return '';
+        }
+        return `https://easyeda.com/api/eda/product/img/${encodeURIComponent(partNumber)}?version=${this.easyedaVersion}`;
     }
 
     /**
@@ -452,13 +494,9 @@ export class LCSCFetcher {
      */
     async fetchComponentMetadata(lcscPartNumber) {
         const normalizedPart = this._normalizeQuery(lcscPartNumber);
-        // Check cache first
-        if (this.metadataCache.has(normalizedPart)) {
-            const cached = this.metadataCache.get(normalizedPart);
-            if (cached?.hasEasyedaSymbol || cached?.hasFootprint || cached?.has3d) {
-                return cached;
-            }
-            this.metadataCache.delete(normalizedPart);
+        const cached = this._getCachedMetadataIfComplete(normalizedPart);
+        if (cached) {
+            return cached;
         }
 
         // Try EasyEDA search first
@@ -495,7 +533,7 @@ export class LCSCFetcher {
             return this.imageCache.get(normalizedPart);
         }
 
-        const targetUrl = `https://easyeda.com/api/eda/product/img/${encodeURIComponent(normalizedPart)}?version=${this.easyedaVersion}`;
+        const targetUrl = this._buildEasyedaProductImageUrl(normalizedPart);
         const result = await this._fetchJsonWithProxies(targetUrl);
         const url = result?.data?.result || '';
         if (url) {
