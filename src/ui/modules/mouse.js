@@ -627,6 +627,57 @@ function handleSelectedAnchorMouseDown(app, selectedShapes, worldPos, snapped, s
     return false;
 }
 
+/**
+ * Handle select-tool mousedown flow, including anchor/shape/box interactions.
+ * Returns true when the event was fully handled.
+ */
+function handleSelectToolMouseDown(app, event, worldPos, snapped, screenPos) {
+    const selectedShapes = app.selection.getSelection();
+    if (handleSelectedAnchorMouseDown(app, selectedShapes, worldPos, snapped, screenPos)) {
+        event.preventDefault();
+        return true;
+    }
+
+    let hitShape = app.selection.hitTest(worldPos);
+
+    if (handleCycleSelectionMouseDown(app, event, worldPos)) {
+        event.preventDefault();
+        return true;
+    }
+
+    if (hitShape) {
+        if (handleAdditiveSelectionMouseDown(app, event, hitShape)) {
+            event.preventDefault();
+            return true;
+        }
+        if (!hitShape.selected) {
+            app.selection.select(hitShape, false);
+            app.renderShapes(true);
+        }
+
+        if (hitShape.locked) {
+            event.preventDefault();
+            return true;
+        }
+
+        // Wire segment drag: when a single wire is clicked, drag
+        // only the clicked edge (neighbors rubber-band).
+        if (tryBeginWireSegmentDrag(app, hitShape, worldPos)) {
+            event.preventDefault();
+            return true;
+        }
+
+        beginMoveDragFromHit(app, worldPos, snapped);
+        event.preventDefault();
+        return true;
+    }
+
+    const additiveBox = isAdditiveSelectionModifier(event);
+    beginBoxSelectSession(app, worldPos, additiveBox);
+    event.preventDefault();
+    return true;
+}
+
 function handleAnchorContextMenu(app, worldPos, clientX, clientY) {
     const selectedShapes = app.selection.getSelection();
     for (const shape of selectedShapes) {
@@ -1085,49 +1136,9 @@ export function bindMouseEvents(app) {
         }
 
         if (app.currentTool === 'select') {
-            const selectedShapes = app.selection.getSelection();
-            if (handleSelectedAnchorMouseDown(app, selectedShapes, worldPos, snapped, screenPos)) {
-                e.preventDefault();
+            if (handleSelectToolMouseDown(app, e, worldPos, snapped, screenPos)) {
                 return;
             }
-            let hitShape = app.selection.hitTest(worldPos);
-
-            if (handleCycleSelectionMouseDown(app, e, worldPos)) {
-                e.preventDefault();
-                return;
-            }
-
-            if (hitShape) {
-                if (handleAdditiveSelectionMouseDown(app, e, hitShape)) {
-                    e.preventDefault();
-                    return;
-                }
-                if (!hitShape.selected) {
-                    app.selection.select(hitShape, false);
-                    app.renderShapes(true);
-                }
-
-                if (hitShape.locked) {
-                    e.preventDefault();
-                    return;
-                }
-
-                // Wire segment drag: when a single wire is clicked, drag
-                // only the clicked edge (neighbors rubber-band).
-                if (tryBeginWireSegmentDrag(app, hitShape, worldPos)) {
-                    e.preventDefault();
-                    return;
-                }
-
-                beginMoveDragFromHit(app, worldPos, snapped);
-                e.preventDefault();
-                return;
-            }
-
-            const additiveBox = isAdditiveSelectionModifier(e);
-            beginBoxSelectSession(app, worldPos, additiveBox);
-            e.preventDefault();
-            return;
         } else if (app.currentTool === 'wire') {
             handleWireToolMouseDown(app, worldPos);
             e.preventDefault();
