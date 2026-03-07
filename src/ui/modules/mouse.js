@@ -1012,6 +1012,18 @@ function getReusableSet(app, key) {
 }
 
 /**
+ * Get a reusable point-like scratch object stored on app.
+ */
+function getReusablePoint(app, key) {
+    let point = app[key];
+    if (!point) {
+        point = { x: 0, y: 0 };
+        app[key] = point;
+    }
+    return point;
+}
+
+/**
  * Build a Set of other wires linked by T-junction metadata during segment drag.
  */
 function getDragTJunctionWireSet(app) {
@@ -1170,10 +1182,9 @@ function handleWireSegmentDragMouseMove(app, worldPos) {
     const wire = app.dragShape;
     const dragEdgeId = app.dragEdgeId;
 
-    const mouseDelta = {
-        x: worldPos.x - app.dragStartWorldPos.x,
-        y: worldPos.y - app.dragStartWorldPos.y
-    };
+    const mouseDelta = getReusablePoint(app, '_dragSegmentMouseDeltaScratch');
+    mouseDelta.x = worldPos.x - app.dragStartWorldPos.x;
+    mouseDelta.y = worldPos.y - app.dragStartWorldPos.y;
     // Lock to perpendicular axis for orthogonal segments
     if (app.dragSegAxis === 'vertical') mouseDelta.x = 0;
     else if (app.dragSegAxis === 'horizontal') mouseDelta.y = 0;
@@ -1185,10 +1196,9 @@ function handleWireSegmentDragMouseMove(app, worldPos) {
         return; // edge was removed — bail
     }
 
-    const target = {
-        x: refPt.x + mouseDelta.x,
-        y: refPt.y + mouseDelta.y
-    };
+    const target = getReusablePoint(app, '_dragSegmentTargetScratch');
+    target.x = refPt.x + mouseDelta.x;
+    target.y = refPt.y + mouseDelta.y;
     // Grid snap, then augment with snap lines from off-grid neighbors
     const tJunctionWires = getDragTJunctionWireSet(app);
     const { snappedTarget, guides: segGuides, highlight: segHighlight } =
