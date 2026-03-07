@@ -17,6 +17,10 @@ import { storageManager } from './StorageManager.js';
 
 /** @typedef {any} ComponentLibrary */
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+const SEARCH_CACHE_TTL_MS = DAY_MS;
+const ENTITY_CACHE_TTL_MS = 7 * DAY_MS;
+
 export class SearchManager {
     /**
      * Create a new SearchManager.
@@ -127,7 +131,7 @@ export class SearchManager {
             
             // Only cache non-empty results
             if (results && results.length > 0) {
-                this._cacheSearchResults(cacheKey, `clearpcb_search_kicad_${query}`, results, 24 * 60 * 60 * 1000);
+                this._cacheSearchResults(cacheKey, `clearpcb_search_kicad_${query}`, results, SEARCH_CACHE_TTL_MS);
             }
             
             return results || [];
@@ -171,7 +175,7 @@ export class SearchManager {
             }
             
             // Cache the results (24-hour TTL for online data)
-            this._cacheSearchResults(cacheKey, `clearpcb_search_lcsc_${normalizedQuery}`, results, 24 * 60 * 60 * 1000);
+            this._cacheSearchResults(cacheKey, `clearpcb_search_lcsc_${normalizedQuery}`, results, SEARCH_CACHE_TTL_MS);
             
             return results || [];
         } catch (error) {
@@ -227,7 +231,7 @@ export class SearchManager {
         if (!value) {
             return;
         }
-        storageManager.set(cacheKey, value, 7 * 24 * 60 * 60 * 1000);
+        storageManager.set(cacheKey, value, ENTITY_CACHE_TTL_MS);
     }
 
     /**
@@ -298,7 +302,7 @@ export class SearchManager {
     /**
      * Cache a component definition
      */
-    cacheComponent(component, ttl = 7 * 24 * 60 * 60 * 1000) {
+    cacheComponent(component, ttl = ENTITY_CACHE_TTL_MS) {
         try {
             if (component && component.name) {
                 storageManager.set(`clearpcb_component_${component.name}`, component, ttl);
