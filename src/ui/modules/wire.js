@@ -980,33 +980,45 @@ function _setWireLabelVisibility(wire, visible) {
     }
 }
 
+function _getWireLabelVisibility(wire) {
+    if (wire.labelText) return wire.labelText.visible;
+    if (wire._pendingLabelVisible !== undefined) return wire._pendingLabelVisible;
+    return false;
+}
+
 function _setWireLabelPosition(wire, position) {
     if (!position) return;
+    const rotation = position.rotation
+        ?? wire.labelText?.rotation
+        ?? wire._pendingLabelPosition?.rotation
+        ?? 0;
     if (wire.labelText) {
         wire.labelText.x = position.x;
         wire.labelText.y = position.y;
-        wire.labelText.rotation = position.rotation;
+        wire.labelText.rotation = rotation;
         wire.labelText.invalidate();
     } else {
         wire._pendingLabelPosition = {
             x: position.x,
             y: position.y,
-            rotation: position.rotation
+            rotation
         };
     }
 }
 
 function _resetWireLabelPositionToDefault(wire) {
     const pos = wire.getLabelPosition();
+    const rotation = wire.labelText?.rotation ?? wire._pendingLabelPosition?.rotation ?? 0;
     if (wire.labelText) {
         wire.labelText.x = pos.x;
         wire.labelText.y = pos.y;
+        wire.labelText.rotation = rotation;
         wire.labelText.invalidate();
     } else {
         wire._pendingLabelPosition = {
             x: pos.x,
             y: pos.y,
-            rotation: 0
+            rotation
         };
     }
 }
@@ -1025,21 +1037,34 @@ function _getWireLabelPosition(wire) {
     return null;
 }
 
-function _deoverlapWireLabelPosition(wire, referencePos) {
+function _distanceToClosest(pos, refs) {
+    if (!refs || refs.length === 0) return Infinity;
+    let min = Infinity;
+    for (const ref of refs) {
+        const d = Math.hypot(pos.x - ref.x, pos.y - ref.y);
+        if (d < min) min = d;
+    }
+    return min;
+}
+
+function _deoverlapWireLabelPosition(wire, referencePositions) {
     const current = _getWireLabelPosition(wire);
-    if (!current) return;
+    if (!current) return null;
+    const refs = Array.isArray(referencePositions) ? referencePositions.filter(Boolean) : [];
+    const minDist = 0.9;
+    if (_distanceToClosest(current, refs) >= minDist) return current;
 
     // Place on the opposite side of this wire using the local segment normal.
     // Keep similar offset magnitude, but enforce a minimum clearance based on
     // font size so the label baseline does not sit on the wire.
     const nearest = wire.closestEdge(current);
-    if (!nearest || !nearest.point) return;
+    if (!nearest || !nearest.point) return null;
 
     const edge = wire.edges.get(nearest.edgeId);
-    if (!edge) return;
+    if (!edge) return null;
     const a = wire.nodes.get(edge.from);
     const b = wire.nodes.get(edge.to);
-    if (!a || !b) return;
+    if (!a || !b) return null;
 
     const dx = b.x - a.x;
     const dy = b.y - a.y;
@@ -1047,37 +1072,81 @@ function _deoverlapWireLabelPosition(wire, referencePos) {
     const nx = -dy / len;
     const ny = dx / len;
 
+    // Signed normal distance from current label to this wire segment.
     const signedCurrent = (current.x - nearest.point.x) * nx + (current.y - nearest.point.y) * ny;
-    const signedReference = referencePos
-        ? (referencePos.x - nearest.point.x) * nx + (referencePos.y - nearest.point.y) * ny
-        : 0;
+    // Default to neutral centerline unless a nearby reference label exists.
+    let signedReference = 0;
+    if (refs.length > 0) {
+        const closestRef = refs.reduce((best, ref) => {
+            const d = Math.hypot(current.x - ref.x, current.y - ref.y);
+            if (!best || d < best.d) return { ref, d };
+            return best;
+        }, null)?.ref;
+        if (closestRef) {
+            signedReference = (closestRef.x - nearest.point.x) * nx + (closestRef.y - nearest.point.y) * ny;
+        }
+    }
 
     const fontSize = wire.labelText?.fontSize ?? 1.4;
     const minOffset = Math.max(0.95, fontSize * 1.05);
 
     let targetSigned;
     if (Math.abs(signedCurrent) < 1e-6) {
+        // If centered, choose opposite side of the nearest reference when available.
         const refSign = Math.abs(signedReference) < 1e-6 ? 1 : Math.sign(signedReference);
         targetSigned = -refSign * minOffset;
     } else {
+        // Otherwise mirror across the wire and preserve/raise clearance.
         targetSigned = -Math.sign(signedCurrent) * Math.max(Math.abs(signedCurrent), minOffset);
     }
 
-    const mirrored = {
+    let mirrored = {
         x: nearest.point.x + nx * targetSigned,
         y: nearest.point.y + ny * targetSigned
     };
 
+    // If still too close to another label, push farther on the chosen side.
+    if (_distanceToClosest(mirrored, refs) < minDist) {
+        const expanded = {
+            x: nearest.point.x + nx * targetSigned * 1.35,
+            y: nearest.point.y + ny * targetSigned * 1.35
+        };
+        mirrored = _distanceToClosest(expanded, refs) > _distanceToClosest(mirrored, refs)
+            ? expanded
+            : mirrored;
+    }
+
     _setWireLabelPosition(wire, { x: mirrored.x, y: mirrored.y, rotation: current.rotation });
+    return _getWireLabelPosition(wire);
 }
 
-function _selectSplitWinner(wires) {
-    return [...wires].sort((a, b) => b.edges.size - a.edges.size)[0] || null;
+function _selectSplitWinner(wires, preferredOnTie = null) {
+    if (!wires || wires.length === 0) return null;
+    let winner = wires[0];
+    for (let i = 1; i < wires.length; i++) {
+        const candidate = wires[i];
+        if (candidate.edges.size > winner.edges.size) {
+            winner = candidate;
+            continue;
+        }
+        if (candidate.edges.size === winner.edges.size) {
+            if (preferredOnTie && candidate === preferredOnTie) {
+                winner = candidate;
+                continue;
+            }
+            if (preferredOnTie && winner === preferredOnTie) continue;
+            if (String(candidate.wireLabel).localeCompare(String(winner.wireLabel), undefined, { sensitivity: 'base' }) < 0) {
+                winner = candidate;
+            }
+        }
+    }
+    return winner;
 }
 
-function _shouldUseRemovedLabel(keeperPreSegs, removedPreSegs, keeperVisible, removedVisible) {
+function _shouldUseRemovedLabel(keeperPreSegs, removedPreSegs, keeperVisible, removedVisible, keeperLabel = '', removedLabel = '') {
     if (keeperVisible !== removedVisible) return removedVisible;
-    return removedPreSegs > keeperPreSegs;
+    if (removedPreSegs !== keeperPreSegs) return removedPreSegs > keeperPreSegs;
+    return String(removedLabel).localeCompare(String(keeperLabel), undefined, { sensitivity: 'base' }) < 0;
 }
 
 function _captureShapeSnapshot(shape) {
@@ -1099,30 +1168,41 @@ function _normalizeSnapshot(snapshotOrState) {
     };
 }
 
-// Joining:
-// If both pre-join wires have visibilty on, 
-// or both wires have visibility off, the wire with the most segments (pre-join) is the winner
-// whose label is kept for the new post-join wire. 
-// If only one pre-join wire has visibility on, the post-join label becomes 
-// the one from the wire that had visibility on. 
-// Visibility of the label on the post-join wire is on if either or both 
-// pre-join wires had label visibility on.
+// Wire label rules (implemented behavior):
+// 1) Joining:
+//    - If only one pre-join wire is visible, that wire's label wins.
+//    - If both pre-join wires share visibility (both on or both off), the wire
+//      with more pre-join segments wins.
+//    - Tie-break is deterministic by label name (case-insensitive lexical order).
+//    - Post-join visibility is OR of the two pre-join visibilities.
 //
-// Splitting:
-// The wire with the most segments (post-split) is the winner who keeps the 
-// label from the pre-split wire. 
-// The other wire gets a new label. 
-// Visibility of the labels on the post-split wires is on for both if the pre-split wire
-// had label visibility on, or off for both if the pre-split wire had label 
-// visibility off.
-// Additionally, a label that has been positioned should never move.
+// 2) Splitting:
+//    - Winner is the post-split wire with the most segments; it keeps the
+//      pre-split label.
+//    - Tie-break prefers the current owner of the pre-split label; if still tied,
+//      uses deterministic label-name order.
+//    - All post-split wires inherit pre-split visibility.
+//    - Winner label position is preserved.
+//    - Non-winner labels are placed from each wire's default label position,
+//      then flipped/de-overlapped against already placed labels.
+//
+// 3) Hidden/visible consistency:
+//    - Positioning logic is shared for visible labelText and pending hidden-label
+//      position state so behavior matches in both modes.
 
 function _applyMergeLabelRules(keeper, removed, keeperPreSegs, removedPreSegs, removedLabelMeta) {
-    const keeperVis = keeper.labelText?.visible ?? false;
+    const keeperVis = _getWireLabelVisibility(keeper);
     const removedVis = removedLabelMeta.visible;
     const postVisible = keeperVis || removedVis;
 
-    const useRemovedLabel = _shouldUseRemovedLabel(keeperPreSegs, removedPreSegs, keeperVis, removedVis);
+    const useRemovedLabel = _shouldUseRemovedLabel(
+        keeperPreSegs,
+        removedPreSegs,
+        keeperVis,
+        removedVis,
+        keeper.wireLabel,
+        removed.wireLabel
+    );
 
     if (useRemovedLabel) {
         const removedLabel = removed.wireLabel;
@@ -1140,10 +1220,10 @@ function _applyMergeLabelRules(keeper, removed, keeperPreSegs, removedPreSegs, r
 
 export function applySplitLabelRules(originalWire, newFragments, preSplitLabel, preSplitVisible, preSplitLabelPosition = null) {
     const allPostWires = [originalWire, ...newFragments];
-    const winner = _selectSplitWinner(allPostWires);
+    const currentOwner = allPostWires.find(w => w.wireLabel === preSplitLabel) || null;
+    const winner = _selectSplitWinner(allPostWires, currentOwner);
     if (!winner) return;
 
-    const currentOwner = allPostWires.find(w => w.wireLabel === preSplitLabel) || null;
     if (currentOwner !== winner) {
         freeWireLabel(winner.wireLabel);
         winner.wireLabel = preSplitLabel;
@@ -1169,20 +1249,22 @@ export function applySplitLabelRules(originalWire, newFragments, preSplitLabel, 
         }
     }
 
+    const placedPositions = [];
     const winnerPos = _getWireLabelPosition(winner);
+    if (winnerPos) placedPositions.push(winnerPos);
+
     for (const wire of allPostWires) {
         if (wire !== winner) {
-            _deoverlapWireLabelPosition(wire, winnerPos);
+            const placed = _deoverlapWireLabelPosition(wire, placedPositions);
+            if (placed) placedPositions.push(placed);
         }
     }
 }
 
 function _removeMerged(app, removed, affected, changed, keeper, keeperPreSegs, removedPreSegs) {
     const removedLabelMeta = {
-        visible: removed.labelText?.visible ?? false,
-        position: removed.labelText
-            ? { x: removed.labelText.x, y: removed.labelText.y, rotation: removed.labelText.rotation }
-            : null
+        visible: _getWireLabelVisibility(removed),
+        position: _getWireLabelPosition(removed)
     };
 
     // Remove the absorbed wire first (this frees its wireLabel from the tracking set)
@@ -1275,10 +1357,8 @@ export function reconcileWires(app, changedWires, skipSet = null) {
 
         // Capture pre-split label state
         const preSplitLabel = w.wireLabel;
-        const preSplitVisible = w.labelText?.visible ?? false;
-        const preSplitLabelPosition = w.labelText
-            ? { x: w.labelText.x, y: w.labelText.y, rotation: w.labelText.rotation }
-            : null;
+        const preSplitVisible = _getWireLabelVisibility(w);
+        const preSplitLabelPosition = _getWireLabelPosition(w);
 
         // Keep the largest component in the original wire
         comps.sort((a, b) => b.size - a.size);

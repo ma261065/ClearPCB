@@ -38,6 +38,20 @@ function attachDismissHandlers(menu) {
     menu._dismissHandlers = { dismiss, dismissOnKey };
 }
 
+function getWireSplitLabelMeta(wire) {
+    const preSplitVisible = wire.labelText?.visible ?? wire._pendingLabelVisible ?? false;
+    const preSplitLabelPosition = wire.labelText
+        ? { x: wire.labelText.x, y: wire.labelText.y, rotation: wire.labelText.rotation }
+        : (wire._pendingLabelPosition
+            ? {
+                x: wire._pendingLabelPosition.x,
+                y: wire._pendingLabelPosition.y,
+                rotation: wire._pendingLabelPosition.rotation ?? 0
+            }
+            : null);
+    return { preSplitVisible, preSplitLabelPosition };
+}
+
 // ─── T-junction detection ──────────────────────────────────────────
 
 /**
@@ -187,10 +201,7 @@ export function deleteJunction(app, junctionInfo) {
     let dragWire = wire;
     const newFragments = [];
     const preSplitLabel = wire.wireLabel;
-    const preSplitVisible = wire.labelText?.visible ?? false;
-    const preSplitLabelPosition = wire.labelText
-        ? { x: wire.labelText.x, y: wire.labelText.y, rotation: wire.labelText.rotation }
-        : null;
+    const { preSplitVisible, preSplitLabelPosition } = getWireSplitLabelMeta(wire);
     if (comps.length > 1) {
         comps.sort((a, b) => b.size - a.size);
         for (let i = 1; i < comps.length; i++) {
@@ -273,10 +284,7 @@ export function deleteWireSegment(app, wire, edgeId) {
     // Capture before state
     const beforeState = wire.captureState();
     const preSplitLabel = wire.wireLabel;
-    const preSplitVisible = wire.labelText?.visible ?? false;
-    const preSplitLabelPosition = wire.labelText
-        ? { x: wire.labelText.x, y: wire.labelText.y, rotation: wire.labelText.rotation }
-        : null;
+    const { preSplitVisible, preSplitLabelPosition } = getWireSplitLabelMeta(wire);
 
     // Remove the edge
     wire.removeEdge(edgeId);
