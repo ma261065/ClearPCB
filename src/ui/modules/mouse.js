@@ -485,6 +485,24 @@ function tryBeginWireSegmentDrag(app, hitShape, worldPos) {
 }
 
 /**
+ * Begin a move-drag session from the currently selected hit shape.
+ */
+function beginMoveDragFromHit(app, worldPos, snapped) {
+    // Store the actual unsnapped position of the first selected shape
+    const firstShape = app.selection.getSelection()[0];
+    const dragObjectStartPos = firstShape
+        ? firstShape.getPosition()
+        : { ...snapped };
+
+    beginMoveDragSession(app, {
+        worldPos,
+        dragObjectStartPos
+    });
+    app.viewport.svg.style.cursor = 'move';
+    app.renderShapes(true);
+}
+
+/**
  * Handle immediate left-click actions that consume the event.
  */
 function handleImmediatePlacementMouseDown(app, event, snapped) {
@@ -1022,18 +1040,7 @@ export function bindMouseEvents(app) {
                     return;
                 }
 
-                // Store the actual unsnapped position of the first selected shape
-                const firstShape = app.selection.getSelection()[0];
-                const dragObjectStartPos = firstShape
-                    ? firstShape.getPosition()
-                    : { ...snapped };
-
-                beginMoveDragSession(app, {
-                    worldPos,
-                    dragObjectStartPos
-                });
-                app.viewport.svg.style.cursor = 'move';
-                app.renderShapes(true);
+                beginMoveDragFromHit(app, worldPos, snapped);
                 e.preventDefault();
                 return;
             }
