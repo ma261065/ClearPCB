@@ -5,6 +5,7 @@
  */
 
 import { freeWireLabel, bumpWireLabelCounter } from '../shapes/wire.js';
+import { applyStickyConnections } from '../ui/modules/sticky-wires.js';
 
 /** @typedef {any} SchematicApp */
 /** @typedef {any} Shape */
@@ -281,40 +282,9 @@ export class MoveShapesCommand extends Command {
      * Kept inline to avoid circular import (wire.js imports from this module).
      */
     _updateStickyWires() {
-        // Build set of moved item IDs so we can skip NoConnect shapes that
-        // the user is intentionally moving away from their pin.
-        const movedIds = new Set(this.itemIds);
-        for (const shape of this.app.shapes) {
-            if (shape.type === 'wire') {
-                for (const [nodeId, conn] of shape.pinConnections) {
-                    const comp = this.app.components.find(c => c.id === conn.componentId);
-                    if (comp) {
-                        const pos = comp.getPinPosition(conn.pinNumber);
-                        if (pos) {
-                            const node = shape.nodes.get(nodeId);
-                            if (node) {
-                                node.x = pos.x;
-                                node.y = pos.y;
-                                shape.invalidate();
-                            }
-                        }
-                    }
-                }
-            } else if (shape.type === 'noconnect' && shape.pinConnection) {
-                // Skip if this NC is one of the items being moved — the user
-                // is deliberately dragging it, so don't snap it back to the pin.
-                if (movedIds.has(shape.id)) continue;
-                const comp = this.app.components.find(c => c.id === shape.pinConnection.componentId);
-                if (comp) {
-                    const pos = comp.getPinPosition(shape.pinConnection.pinNumber);
-                    if (pos) {
-                        shape.x = pos.x;
-                        shape.y = pos.y;
-                        shape.invalidate();
-                    }
-                }
-            }
-        }
+        // Skip explicitly moved NoConnect shapes so user-intentful drags
+        // don't snap back to connected pins.
+        applyStickyConnections(this.app, { movedIds: new Set(this.itemIds) });
     }
 }
 

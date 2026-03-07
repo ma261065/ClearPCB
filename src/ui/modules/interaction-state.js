@@ -14,6 +14,7 @@ import {
 } from './drag.js';
 import { ModifyShapeCommand } from '../../core/CommandHistory.js';
 import { collapseRedundantWirePoints } from './wire.js';
+import { areCapturedStatesEqual } from './state-compare.js';
 
 /** @param {object} app */
 export function getPendingAnchorDrag(app) {
@@ -199,7 +200,7 @@ export function commitPendingMidpointAfterDrag(app) {
     const afterState = app._captureShapeState(shape);
 
     // Only commit if the shape actually changed
-    if (JSON.stringify(preInsertState) !== JSON.stringify(afterState)) {
+    if (!areCapturedStatesEqual(preInsertState, afterState)) {
         app._applyShapeState(shape, preInsertState);
         const command = new ModifyShapeCommand(app, shape, preInsertState, afterState);
         app.history.execute(command);

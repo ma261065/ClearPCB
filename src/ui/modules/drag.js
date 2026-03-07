@@ -9,6 +9,7 @@
 
 import { MoveShapesCommand, ModifyShapeCommand, DeleteShapesCommand, BatchCommand } from '../../core/CommandHistory.js';
 import { updateSnapHighlight, reconcileWires, reconcileWiresWithUndo, refreshWireConnections, refreshNoConnectConnection, collapseRedundantWirePoints, buildWireDiffBatch } from './wire.js';
+import { areCapturedStatesEqual } from './state-compare.js';
 
 /**
  * Reset all drag-related state on the app.
@@ -131,7 +132,7 @@ export function commitAnchorDrag(app) {
             const b = batch || new BatchCommand('Move anchor');
             for (const link of app.dragAnchorNCLinks) {
                 const after = link.nc.captureState();
-                if (JSON.stringify(link.before) !== JSON.stringify(after)) {
+                if (!areCapturedStatesEqual(link.before, after)) {
                     b.add(new ModifyShapeCommand(app, link.nc, link.before, after));
                 }
             }
@@ -259,7 +260,7 @@ export function commitSegmentDrag(app) {
     if (app.dragSegmentNCLinks) {
         for (const link of app.dragSegmentNCLinks) {
             const after = link.nc.captureState();
-            if (JSON.stringify(link.before) !== JSON.stringify(after)) {
+            if (!areCapturedStatesEqual(link.before, after)) {
                 b.add(new ModifyShapeCommand(app, link.nc, link.before, after));
             }
         }
@@ -270,7 +271,7 @@ export function commitSegmentDrag(app) {
         const lt = app.dragShape.labelText;
         const after = lt.captureState();
         const before = app.dragSegmentLabelBefore;
-        if (JSON.stringify(before) !== JSON.stringify(after)) {
+        if (!areCapturedStatesEqual(before, after)) {
             b.add(new ModifyShapeCommand(app, lt, before, after));
         }
     }
@@ -354,7 +355,7 @@ export function commitMoveDrag(app) {
                 const beforeNC = app._captureShapeState(nc);
                 refreshNoConnectConnection(app, nc);
                 const afterNC = app._captureShapeState(nc);
-                if (JSON.stringify(beforeNC) !== JSON.stringify(afterNC)) {
+                if (!areCapturedStatesEqual(beforeNC, afterNC)) {
                     nc.applyState(beforeNC); // revert so execute() applies it
                     ncCmds.push(new ModifyShapeCommand(app, nc, beforeNC, afterNC));
                 }

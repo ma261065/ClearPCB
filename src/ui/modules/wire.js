@@ -25,6 +25,7 @@ import { Wire, COLLINEAR_EPSILON as _SHAPE_COLLINEAR_EPSILON } from '../../shape
 import { freeWireLabel, nextWireLabel, bumpWireLabelCounter } from '../../shapes/wire.js';
 import { BatchCommand, AddShapeCommand, ModifyShapeCommand, DeleteShapesCommand } from '../../core/CommandHistory.js';
 import { distanceToSegment, pointsMatch, pointsCollinear, segmentsCollinear, collinearSnap } from '../../core/geometry.js';
+import { applyStickyConnections } from './sticky-wires.js';
 
 // --- Constants ---
 
@@ -889,34 +890,9 @@ export function refreshNoConnectConnection(app, nc) {
 /**
  * Call this after moving components. For every wire node that has a pin
  * connection, update that node to the pin's current world position.
- * NOTE: Also duplicated inline in MoveShapesCommand (core/CommandHistory.js)
- * to avoid circular imports — keep both in sync.
  */
 export function updateStickyWires(app) {
-    for (const shape of app.shapes) {
-        if (shape.type === 'wire') {
-            for (const [nodeId, conn] of shape.pinConnections) {
-                const comp = app.components.find(c => c.id === conn.componentId);
-                if (!comp) continue;
-                const pos = comp.getPinPosition(conn.pinNumber);
-                if (!pos) continue;
-                const node = shape.nodes.get(nodeId);
-                if (node) {
-                    node.x = pos.x;
-                    node.y = pos.y;
-                    shape.invalidate();
-                }
-            }
-        } else if (shape.type === 'noconnect' && shape.pinConnection) {
-            const comp = app.components.find(c => c.id === shape.pinConnection.componentId);
-            if (!comp) continue;
-            const pos = comp.getPinPosition(shape.pinConnection.pinNumber);
-            if (!pos) continue;
-            shape.x = pos.x;
-            shape.y = pos.y;
-            shape.invalidate();
-        }
-    }
+    applyStickyConnections(app);
 }
 
 // --- Unified wire reconciliation (graph model) ---
