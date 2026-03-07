@@ -1165,67 +1165,84 @@ function applyWireSegmentLabelMovement(wire, dx, dy) {
     wire.labelText.invalidate();
 }
 
+/**
+ * Resolve initial anchor position based on anchor snap mode.
+ */
+function getInitialAnchorDragPosition(app, worldPos, snapped) {
+    const snapMode = app.dragShape.getAnchorSnapMode(app.dragAnchorId);
+    return snapMode === 'none' ? worldPos : snapped;
+}
+
+/**
+ * Resolve pin-aware no-connect anchor drag position.
+ */
+function resolveNoConnectAnchorDragPosition(app, worldPos) {
+    const snap = resolveWireSnapPosition(app, worldPos, { pinTolerance: PIN_SNAP_TOL });
+    updateSnapHighlight(app, snap);
+    return { x: snap.x, y: snap.y };
+}
+
+/**
+ * Resolve wire anchor drag snapping and collinear guides.
+ */
+function resolveWireAnchorDragPosition(app, worldPos, anchorPos, anchorGuidesOut) {
+    const isLeaf = app.dragShape.nodes.has(app.dragAnchorId)
+        && app.dragShape.degree(app.dragAnchorId) <= 1;
+
+    if (app.dragAnchorExcludePin?.worldPos) {
+        const excludedPin = app.dragAnchorExcludePin.worldPos;
+        if (Math.hypot(worldPos.x - excludedPin.x, worldPos.y - excludedPin.y) > PIN_SNAP_TOL) {
+            app.dragAnchorExcludePin = null;
+        }
+    }
+
+    let resolvedAnchorPos = anchorPos;
+    let snappedToTarget = false;
+    if (isLeaf) {
+        const snap = resolveWireSnapPosition(app, worldPos, {
+            excludeNode: { wire: app.dragShape, nodeId: app.dragAnchorId },
+            excludePin: app.dragAnchorExcludePin || null,
+            pinTolerance: PIN_SNAP_TOL
+        });
+        resolvedAnchorPos = { x: snap.x, y: snap.y };
+        snappedToTarget = snap.snapType === 'pin' || snap.snapType === 'endpoint' || snap.snapType === 'segment';
+        if (snappedToTarget) {
+            updateSnapHighlight(app, snap);
+        }
+    }
+
+    if (!snappedToTarget) {
+        updateSnapHighlight(app, null);
+        const neighbors = app.dragShape.neighborNodes(app.dragAnchorId)
+            .map(nid => app.dragShape.nodes.get(nid))
+            .filter(Boolean);
+        applyOffGridNeighborSnap(worldPos, resolvedAnchorPos, neighbors, app.viewport.gridSize || 1.0);
+        const collinearSnap = computeAnchorCollinearSnap(app, app.dragShape, app.dragAnchorId, resolvedAnchorPos);
+        resolvedAnchorPos = collinearSnap.anchorPos;
+        anchorGuidesOut.length = 0;
+        anchorGuidesOut.push(...collinearSnap.guides);
+    }
+
+    return resolvedAnchorPos;
+}
+
 function handleAnchorDragMouseMove(app, worldPos, snapped) {
     app.didDrag = true;
     // Ensure shape stays selected and visible during anchor drag
     app.dragShape.selected = true;
 
-    // For arc mid-anchor, use worldPos (not snapped). For everything else, use snapped.
-    let anchorPos;
-    const snapMode = app.dragShape.getAnchorSnapMode(app.dragAnchorId);
-    if (snapMode === 'none') {
-        anchorPos = worldPos;
-    } else {
-        anchorPos = snapped;
-    }
+    let anchorPos = getInitialAnchorDragPosition(app, worldPos, snapped);
 
     // NoConnect anchor drag: pin-aware snap so it can land on off-grid pins
     if (app.dragShape.type === 'noconnect') {
-        const snap = resolveWireSnapPosition(app, worldPos, { pinTolerance: PIN_SNAP_TOL });
-        anchorPos = { x: snap.x, y: snap.y };
-        updateSnapHighlight(app, snap);
+        anchorPos = resolveNoConnectAnchorDragPosition(app, worldPos);
     }
 
     // Wire anchor drag: single snap resolver, same as wire drawing
     // Pin/wire snap only for leaf-node anchors (degree 1).
     let anchorGuides = [];
     if (app.dragShape.type === 'wire') {
-        const isLeaf = app.dragShape.nodes.has(app.dragAnchorId) && app.dragShape.degree(app.dragAnchorId) <= 1;
-
-        // Once the anchor leaves the snap zone of the excluded pin,
-        // clear the exclusion so the pin can be re-approached.
-        if (app.dragAnchorExcludePin?.worldPos) {
-            const ep = app.dragAnchorExcludePin.worldPos;
-            if (Math.hypot(worldPos.x - ep.x, worldPos.y - ep.y) > PIN_SNAP_TOL) {
-                app.dragAnchorExcludePin = null;
-            }
-        }
-
-        // Leaf nodes try pin/wire snap first
-        let snappedToTarget = false;
-        if (isLeaf) {
-            const snap = resolveWireSnapPosition(app, worldPos, {
-                excludeNode: { wire: app.dragShape, nodeId: app.dragAnchorId },
-                excludePin: app.dragAnchorExcludePin || null,
-                pinTolerance: PIN_SNAP_TOL
-            });
-            anchorPos = { x: snap.x, y: snap.y };
-            snappedToTarget = snap.snapType === 'pin' || snap.snapType === 'endpoint' || snap.snapType === 'segment';
-            if (snappedToTarget) updateSnapHighlight(app, snap);
-        }
-
-        // If no pin/wire/endpoint snap (or non-leaf node), use off-grid
-        // neighbor snap + collinear/H-V alignment
-        if (!snappedToTarget) {
-            updateSnapHighlight(app, null);
-            const neighbors = app.dragShape.neighborNodes(app.dragAnchorId)
-                .map(nid => app.dragShape.nodes.get(nid))
-                .filter(Boolean);
-            applyOffGridNeighborSnap(worldPos, anchorPos, neighbors, app.viewport.gridSize || 1.0);
-            const result = computeAnchorCollinearSnap(app, app.dragShape, app.dragAnchorId, anchorPos);
-            anchorPos = result.anchorPos;
-            anchorGuides = result.guides;
-        }
+        anchorPos = resolveWireAnchorDragPosition(app, worldPos, anchorPos, anchorGuides);
     }
 
     // Update crosshairs to track the anchor position
