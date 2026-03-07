@@ -822,18 +822,35 @@ function collectMovingComponentIds(selection) {
  * Propagate moved wire node deltas to coincident nodes on non-selected wires.
  */
 function propagateMovedWireJunctions(app, selection, dx, dy) {
-    const movedWires = selection.filter(shape => shape.type === 'wire');
-    if (movedWires.length === 0) {
+    let hasMovedWire = false;
+    for (const shape of selection) {
+        if (shape.type === 'wire') {
+            hasMovedWire = true;
+            break;
+        }
+    }
+    if (!hasMovedWire) {
         return;
     }
 
-    const selectedSet = new Set(selection);
-    for (const movedWire of movedWires) {
+    const selectedSet = getReusableSet(app, '_propagateSelectedSetScratch');
+    for (const shape of selection) {
+        selectedSet.add(shape);
+    }
+
+    const nonSelectedWires = app._propagateNonSelectedWiresScratch || (app._propagateNonSelectedWiresScratch = []);
+    nonSelectedWires.length = 0;
+    for (const shape of app.shapes) {
+        if (shape.type !== 'wire' || selectedSet.has(shape)) continue;
+        nonSelectedWires.push(shape);
+    }
+
+    for (const movedWire of selection) {
+        if (movedWire.type !== 'wire') continue;
         for (const pos of movedWire.nodes.values()) {
             const prevX = pos.x - dx;
             const prevY = pos.y - dy;
-            for (const shape of app.shapes) {
-                if (selectedSet.has(shape) || shape.type !== 'wire') continue;
+            for (const shape of nonSelectedWires) {
                 for (const shapePos of shape.nodes.values()) {
                     if (Math.abs(shapePos.x - prevX) < VERTEX_EPSILON
                         && Math.abs(shapePos.y - prevY) < VERTEX_EPSILON) {
