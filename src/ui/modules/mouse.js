@@ -554,6 +554,36 @@ function handleComponentTooltipMouseMove(app, worldPos, screenPos) {
 }
 
 /**
+ * Update paste/component placement previews during mouse move.
+ */
+function updatePlacementPreviewsOnMouseMove(app, snapped) {
+    if (app.pastingClipboard) {
+        app._updatePastePreview(snapped);
+    }
+    if (app.placingComponent) {
+        app._updateComponentPreview(snapped);
+    }
+}
+
+/**
+ * Update drawing preview while an active drawing session is in progress.
+ */
+function updateDrawingPreviewOnMouseMove(app, worldPos, snapped) {
+    if (!app.isDrawing) {
+        return;
+    }
+
+    if (app.currentTool === 'arc') {
+        app._updateDrawing(app.arcEndpoint ? worldPos : snapped);
+        return;
+    }
+
+    if (DRAWING_TOOLS.has(app.currentTool)) {
+        app._updateDrawing(snapped);
+    }
+}
+
+/**
  * Handle immediate left-click actions that consume the event.
  */
 function handleImmediatePlacementMouseDown(app, event, snapped) {
@@ -1225,12 +1255,7 @@ export function bindMouseEvents(app) {
 
         // Always update paste/component preview if active.
         // This must happen before any tool-specific logic or returns.
-        if (app.pastingClipboard) {
-            app._updatePastePreview(snapped);
-        }
-        if (app.placingComponent) {
-            app._updateComponentPreview(snapped);
-        }
+        updatePlacementPreviewsOnMouseMove(app, snapped);
 
         if (handleWireToolMouseMove(app, worldPos, snapped, screenPos)) {
             return;
@@ -1238,16 +1263,7 @@ export function bindMouseEvents(app) {
 
         handlePinSnapToolHover(app, worldPos);
         
-        // Update drawing preview for arc (bulge point not grid-snapped) and other tools
-        if (app.isDrawing) {
-            if (app.currentTool === 'arc') {
-                // For arc: first stage uses snapped, second stage (bulge) uses worldPos
-                app._updateDrawing(app.arcEndpoint ? worldPos : snapped);
-            } else if (DRAWING_TOOLS.has(app.currentTool)) {
-                // For other tools, use snapped position
-                app._updateDrawing(snapped);
-            }
-        }
+        updateDrawingPreviewOnMouseMove(app, worldPos, snapped);
 
         if (app.currentTool !== 'select') {
             updateToolCrosshair(app, snapped, screenPos);
