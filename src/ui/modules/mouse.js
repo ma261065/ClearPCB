@@ -55,6 +55,16 @@ function selectOnlyShapeAndRender(app, shape) {
 }
 
 /**
+ * Ensure a context-menu target shape is selected and rendered.
+ */
+function selectContextTargetShape(app, shape) {
+    if (!shape.selected) {
+        selectOnlyShapeAndRender(app, shape);
+    }
+    shape.selected = true;
+}
+
+/**
  * Return next shape in overlap cycle stack for a world position.
  */
 function getNextCycleHitShape(app, worldPos) {
@@ -480,8 +490,7 @@ function handleAnchorContextMenu(app, worldPos, clientX, clientY) {
         if (!nid) continue;
         const junctionInfo = detectTJunction(app, wire, nid);
         if (junctionInfo) {
-            selectOnlyShapeAndRender(app, wire);
-            wire.selected = true;
+            selectContextTargetShape(app, wire);
             const canDelete = false;
             showAnchorContextMenu(app, wire, nid, clientX, clientY, canDelete, junctionInfo);
             return true;
@@ -498,10 +507,7 @@ function handleSegmentContextMenu(app, worldPos, clientX, clientY) {
         const edgeId = shape.hitTestEdge(worldPos, segTolerance);
         if (!edgeId) continue;
 
-        if (!shape.selected) {
-            selectOnlyShapeAndRender(app, shape);
-            shape.selected = true;
-        }
+        selectContextTargetShape(app, shape);
         showSegmentContextMenu(app, shape, edgeId, clientX, clientY);
         return true;
     }
