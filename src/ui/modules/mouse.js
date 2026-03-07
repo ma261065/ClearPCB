@@ -8,6 +8,7 @@ import {
     beginMoveDragSession,
     beginWireSegmentDragSession,
     clearPendingAnchorDrag,
+    clearPendingAnchorDragIfIdle,
     consumePendingAnchorDrag,
     finalizeDragInteraction,
     getPendingAnchorDrag,
@@ -17,6 +18,7 @@ import {
     handleRightClickDrawingMouseUp,
     isAdditiveSelectionModifier,
     isCycleSelectionModifier,
+    promotePendingAnchorDragSession,
     setPendingAnchorDrag
 } from './interaction-state.js';
 
@@ -474,11 +476,7 @@ export function bindMouseEvents(app) {
 
         app.didDrag = false;
         
-        // Clear any pending anchor drag that might be lingering from previous interaction
-        // This ensures we don't get confused by stale pending state
-        if (getPendingAnchorDrag(app) && !app.isDragging) {
-            clearPendingAnchorDrag(app);
-        }
+        clearPendingAnchorDragIfIdle(app);
 
         const { screenPos, worldPos, snapped } = getEventPositions(e, app.viewport);
 
@@ -914,80 +912,10 @@ export function bindMouseEvents(app) {
         }
 
         if (!app.isDragging) {
-            // Start deferred anchor drag once movement exceeds threshold
-            const pendingAnchorDrag = getPendingAnchorDrag(app);
-            if (pendingAnchorDrag) {
-                const dx = screenPos.x - pendingAnchorDrag.screenPos.x;
-                const dy = screenPos.y - pendingAnchorDrag.screenPos.y;
-                const moved = Math.hypot(dx, dy);
-                if (moved >= DRAG_THRESHOLD_PX) {
-                    const consumed = consumePendingAnchorDrag(app);
-                    if (!consumed) return;
-                    const { shape, anchorId, snapped: startSnapped, preInsertState } = consumed;
-
-                    beginAnchorDragSession(app, {
-                        shape,
-                        anchorId,
-                        startSnapped,
-                        screenPos,
-                        preInsertState
-                    });
-
-                    // For axis-snap anchors, capture the original anchor position
-                    if (shape.getAnchorSnapMode(anchorId) === 'axis') {
-                        const anchor = shape.getAnchors().find(a => a.id === anchorId);
-                        if (anchor) {
-                            app.dragWireAnchorOriginal = { x: anchor.x, y: anchor.y };
-                        }
-                    }
-
-                    // Record T-junction links: other wires with a coincident
-                    // point at this anchor, so they move together during drag
-                    app.dragAnchorTJLinks = [];
-                    app.dragAnchorWireStates = new Map();
-                    if (shape.type === 'wire' && shape.nodes.has(anchorId)) {
-                        const pos = shape.nodes.get(anchorId);
-                        for (const other of app.shapes) {
-                            if (other === shape || other.type !== 'wire') continue;
-                            const otherNid = other.nodeAt(pos, VERTEX_EPSILON);
-                            if (otherNid) {
-                                app.dragAnchorTJLinks.push({ otherWire: other, otherNodeId: otherNid });
-                                if (!app.dragAnchorWireStates.has(other)) {
-                                    app.dragAnchorWireStates.set(other, app._captureShapeState(other));
-                                }
-                            }
-                        }
-                    }
-                    // Record NoConnect shapes at the dragged node so they
-                    // move with the wire anchor.
-                    app.dragAnchorNCLinks = [];
-                    if (shape.type === 'wire' && shape.nodes.has(anchorId)) {
-                        const nodePos = shape.nodes.get(anchorId);
-                        for (const s of app.shapes) {
-                            if (s.type !== 'noconnect') continue;
-                            if (Math.hypot(s.x - nodePos.x, s.y - nodePos.y) < VERTEX_EPSILON) {
-                                app.dragAnchorNCLinks.push({ nc: s, before: s.captureState() });
-                            }
-                        }
-                    }
-                    // If the dragged node is connected to a pin, record it so
-                    // resolveWireSnapPosition can exclude that pin during drag
-                    // (prevents the node from snapping back to the same pin).
-                    app.dragAnchorExcludePin = null;
-                    if (shape.type === 'wire' && shape.pinConnections.has(anchorId)) {
-                        const conn = shape.pinConnections.get(anchorId);
-                        const nodePos = shape.nodes.get(anchorId);
-                        app.dragAnchorExcludePin = {
-                            component: { id: conn.componentId },
-                            pin: { number: conn.pinNumber },
-                            worldPos: nodePos ? { x: nodePos.x, y: nodePos.y } : null
-                        };
-                    }
-                    // Show crosshairs during anchor drag to help with alignment
-                    app._showCrosshair();
-                    app._updateCrosshair(startSnapped);
-                }
-            }
+            promotePendingAnchorDragSession(app, screenPos, {
+                dragThresholdPx: DRAG_THRESHOLD_PX,
+                vertexEpsilon: VERTEX_EPSILON
+            });
             if (!app.isDragging) return;
         }
         if (app.viewport.isPanning) return;

@@ -27,6 +27,20 @@ export function clearPendingAnchorDrag(app) {
 }
 
 /**
+ * Clear stale pending-anchor drag state when no drag session is active.
+ *
+ * @param {object} app
+ * @returns {boolean} True when stale pending state was cleared.
+ */
+export function clearPendingAnchorDragIfIdle(app) {
+    if (app.pendingAnchorDrag && !app.isDragging) {
+        app.pendingAnchorDrag = null;
+        return true;
+    }
+    return false;
+}
+
+/**
  * @param {object} app
  * @param {object} pending
  */
@@ -42,6 +56,86 @@ export function consumePendingAnchorDrag(app) {
     const pending = app.pendingAnchorDrag || null;
     app.pendingAnchorDrag = null;
     return pending;
+}
+
+/**
+ * Promote deferred pending anchor drag into an active drag session.
+ *
+ * @param {object} app
+ * @param {{x:number,y:number}} screenPos
+ * @param {{dragThresholdPx:number, vertexEpsilon:number}} options
+ * @returns {boolean} True when pending state was promoted to active drag.
+ */
+export function promotePendingAnchorDragSession(app, screenPos, options) {
+    const pendingAnchorDrag = getPendingAnchorDrag(app);
+    if (!pendingAnchorDrag) return false;
+
+    const { dragThresholdPx, vertexEpsilon } = options;
+    const dx = screenPos.x - pendingAnchorDrag.screenPos.x;
+    const dy = screenPos.y - pendingAnchorDrag.screenPos.y;
+    const moved = Math.hypot(dx, dy);
+    if (moved < dragThresholdPx) return false;
+
+    const consumed = consumePendingAnchorDrag(app);
+    if (!consumed) return false;
+    const { shape, anchorId, snapped: startSnapped, preInsertState } = consumed;
+
+    beginAnchorDragSession(app, {
+        shape,
+        anchorId,
+        startSnapped,
+        screenPos,
+        preInsertState
+    });
+
+    if (shape.getAnchorSnapMode(anchorId) === 'axis') {
+        const anchor = shape.getAnchors().find(a => a.id === anchorId);
+        if (anchor) {
+            app.dragWireAnchorOriginal = { x: anchor.x, y: anchor.y };
+        }
+    }
+
+    app.dragAnchorTJLinks = [];
+    app.dragAnchorWireStates = new Map();
+    if (shape.type === 'wire' && shape.nodes.has(anchorId)) {
+        const pos = shape.nodes.get(anchorId);
+        for (const other of app.shapes) {
+            if (other === shape || other.type !== 'wire') continue;
+            const otherNid = other.nodeAt(pos, vertexEpsilon);
+            if (otherNid) {
+                app.dragAnchorTJLinks.push({ otherWire: other, otherNodeId: otherNid });
+                if (!app.dragAnchorWireStates.has(other)) {
+                    app.dragAnchorWireStates.set(other, app._captureShapeState(other));
+                }
+            }
+        }
+    }
+
+    app.dragAnchorNCLinks = [];
+    if (shape.type === 'wire' && shape.nodes.has(anchorId)) {
+        const nodePos = shape.nodes.get(anchorId);
+        for (const shapeEntry of app.shapes) {
+            if (shapeEntry.type !== 'noconnect') continue;
+            if (Math.hypot(shapeEntry.x - nodePos.x, shapeEntry.y - nodePos.y) < vertexEpsilon) {
+                app.dragAnchorNCLinks.push({ nc: shapeEntry, before: shapeEntry.captureState() });
+            }
+        }
+    }
+
+    app.dragAnchorExcludePin = null;
+    if (shape.type === 'wire' && shape.pinConnections.has(anchorId)) {
+        const conn = shape.pinConnections.get(anchorId);
+        const nodePos = shape.nodes.get(anchorId);
+        app.dragAnchorExcludePin = {
+            component: { id: conn.componentId },
+            pin: { number: conn.pinNumber },
+            worldPos: nodePos ? { x: nodePos.x, y: nodePos.y } : null
+        };
+    }
+
+    app._showCrosshair();
+    app._updateCrosshair(startSnapped);
+    return true;
 }
 
 /**
