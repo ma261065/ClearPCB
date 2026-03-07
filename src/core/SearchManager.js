@@ -183,6 +183,43 @@ export class SearchManager {
     }
 
     /**
+     * Execute a remote search with shared cache/miss/error handling.
+     * @param {Object} options
+     * @param {'KiCad'|'LCSC'} options.source
+     * @param {'kicad'|'lcsc'} options.domain
+     * @param {string} options.storageQuery
+     * @param {string} options.cacheKey
+     * @param {(results: any) => boolean} options.isCacheValid
+     * @param {() => Promise<any>} options.fetcher
+     * @param {(results: any) => boolean} options.shouldCache
+     * @returns {Promise<Array>}
+     */
+    async _runRemoteSearch({ source, domain, storageQuery, cacheKey, isCacheValid, fetcher, shouldCache }) {
+        const cached = this._getCachedSearchResults(cacheKey, isCacheValid);
+        if (cached) {
+            console.log(`SearchManager: ${source} cache hit`);
+            return cached;
+        }
+
+        this._recordSearchCacheMiss();
+
+        try {
+            const results = await fetcher();
+            if (shouldCache(results)) {
+                this._cacheSearchResults(
+                    cacheKey,
+                    this._buildSearchStorageKey(domain, storageQuery),
+                    results,
+                    SEARCH_CACHE_TTL_MS
+                );
+            }
+            return results || [];
+        } catch (error) {
+            return this._handleSearchError(source, error);
+        }
+    }
+
+    /**
      * Search KiCad library with caching
      */
     async searchKiCad(query) {
@@ -190,28 +227,16 @@ export class SearchManager {
             return [];
         }
 
-        // Check in-memory cache first (skip empty arrays — may be stale)
         const cacheKey = `kicad:${query.toLowerCase()}`;
-        const cached = this._getCachedSearchResults(cacheKey, results => Array.isArray(results) && results.length > 0);
-        if (cached) {
-            console.log('SearchManager: KiCad cache hit');
-            return cached;
-        }
-
-        this._recordSearchCacheMiss();
-
-        try {
-            const results = await this.library.searchKiCad(query);
-            
-            // Only cache non-empty results
-            if (results && results.length > 0) {
-                this._cacheSearchResults(cacheKey, this._buildSearchStorageKey('kicad', query), results, SEARCH_CACHE_TTL_MS);
-            }
-            
-            return results || [];
-        } catch (error) {
-            return this._handleSearchError('KiCad', error);
-        }
+        return this._runRemoteSearch({
+            source: 'KiCad',
+            domain: 'kicad',
+            storageQuery: query,
+            cacheKey,
+            isCacheValid: results => Array.isArray(results) && results.length > 0,
+            fetcher: () => this.library.searchKiCad(query),
+            shouldCache: results => !!(results && results.length > 0)
+        });
     }
 
     /**
@@ -223,35 +248,16 @@ export class SearchManager {
         }
 
         const normalizedQuery = this._normalizeLCSCQuery(query);
-
-        // Check in-memory cache first
         const cacheKey = `lcsc:${normalizedQuery}`;
-        const cached = this._getCachedSearchResults(
+        return this._runRemoteSearch({
+            source: 'LCSC',
+            domain: 'lcsc',
+            storageQuery: normalizedQuery,
             cacheKey,
-            results => Array.isArray(results) && results.some(item => item && item.thumbUrl)
-        );
-        if (cached) {
-            console.log('SearchManager: LCSC cache hit');
-            return cached;
-        }
-
-        this._recordSearchCacheMiss();
-
-        try {
-            const results = await this.library.searchLCSC(normalizedQuery);
-
-            // Do not cache proxy/CORS error results
-            if (this._isSingleErrorResult(results)) {
-                return results;
-            }
-            
-            // Cache the results (24-hour TTL for online data)
-            this._cacheSearchResults(cacheKey, this._buildSearchStorageKey('lcsc', normalizedQuery), results, SEARCH_CACHE_TTL_MS);
-            
-            return results || [];
-        } catch (error) {
-            return this._handleSearchError('LCSC', error);
-        }
+            isCacheValid: results => Array.isArray(results) && results.some(item => item && item.thumbUrl),
+            fetcher: () => this.library.searchLCSC(normalizedQuery),
+            shouldCache: results => !this._isSingleErrorResult(results)
+        });
     }
 
     /**
