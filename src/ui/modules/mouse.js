@@ -1240,6 +1240,40 @@ function handleWindowMouseUp(app, event) {
 }
 
 /**
+ * Handle SVG click behavior for select-tool selection updates.
+ */
+function handleSvgClick(app, event) {
+    if (app.viewport.isPanning) {
+        return;
+    }
+
+    if (shouldSkipSelectClick(app)) {
+        return;
+    }
+
+    const { worldPos } = getEventPositions(event, app.viewport);
+    if (app.currentTool === 'select') {
+        handleSelectToolClick(app, worldPos, event);
+    }
+}
+
+/**
+ * Handle SVG double-click behavior for drawing completion and select edits.
+ */
+function handleSvgDoubleClick(app, event) {
+    if (handleDoubleClickDrawing(app)) {
+        return;
+    }
+
+    if (app.currentTool !== 'select') {
+        return;
+    }
+
+    const { screenPos, worldPos } = getEventPositions(event, app.viewport);
+    handleSelectToolDoubleClick(app, worldPos, screenPos);
+}
+
+/**
  * Wire all mouse-event handlers (mousedown, mouseup, mousemove, click,
  * dblclick) to the SVG canvas. Handles selection, dragging, anchor
  * manipulation, box-select, and context menus.
@@ -1337,27 +1371,10 @@ export function bindMouseEvents(app) {
     });
 
     svg.addEventListener('click', (e) => {
-        if (app.viewport.isPanning) return;
-
-        if (shouldSkipSelectClick(app)) {
-            return;
-        }
-
-        const { worldPos } = getEventPositions(e, app.viewport);
-
-        if (app.currentTool === 'select') {
-            handleSelectToolClick(app, worldPos, e);
-        }
+        handleSvgClick(app, e);
     });
 
     svg.addEventListener('dblclick', (e) => {
-        if (handleDoubleClickDrawing(app)) {
-            return;
-        }
-
-        if (app.currentTool !== 'select') return;
-
-        const { screenPos, worldPos } = getEventPositions(e, app.viewport);
-        handleSelectToolDoubleClick(app, worldPos, screenPos);
+        handleSvgDoubleClick(app, e);
     });
 }
