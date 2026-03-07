@@ -357,10 +357,7 @@ export class KiCadFetcher {
                 continue;
             }
 
-            // Cache the result with 7-day TTL
-            storageManager.set(cacheKey, content, CONTENT_CACHE_TTL_MS);
-            console.log(`Cached KiCad library: ${library}`);
-
+            this._cacheLibraryContent(cacheKey, library, content);
             return content;
         }
         
@@ -381,13 +378,23 @@ export class KiCadFetcher {
                     continue;
                 }
 
-                storageManager.set(cacheKey, content, CONTENT_CACHE_TTL_MS);
-                console.log(`Cached KiCad library: ${library}`);
+                this._cacheLibraryContent(cacheKey, library, content);
                 return content;
             }
         }
 
         throw new Error(`Failed to fetch KiCad library ${library} - all proxies failed`);
+    }
+
+    /**
+     * Cache fetched KiCad library content and emit a debug log.
+     * @param {string} cacheKey
+     * @param {string} library
+     * @param {string} content
+     */
+    _cacheLibraryContent(cacheKey, library, content) {
+        storageManager.set(cacheKey, content, CONTENT_CACHE_TTL_MS);
+        console.log(`Cached KiCad library: ${library}`);
     }
 
     /**
