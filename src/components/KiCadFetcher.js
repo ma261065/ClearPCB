@@ -17,6 +17,7 @@ const SYMBOL_LIBRARY_MARKER = 'kicad_symbol_lib';
 const FOOTPRINT_MARKER = 'footprint';
 const CONTENT_PREVIEW_LENGTH = 200;
 const KICAD_GIT_REFS = ['master', 'main'];
+const KICAD_SYMBOLS_PROJECT_PATH = 'kicad%2Flibraries%2Fkicad-symbols';
 const KICAD_LIBRARY_INDEX_CACHE_KEY = 'kicad_library_index';
 const KICAD_FULL_SYMBOL_INDEX_CACHE_KEY = 'kicad_full_symbol_index';
 
@@ -442,13 +443,17 @@ export class KiCadFetcher {
             return this._symdirCache.get(library);
         }
 
-        const projectPath = 'kicad%2Flibraries%2Fkicad-symbols';
         const symDirPath = `${library}.kicad_symdir`;
         const refs = KICAD_GIT_REFS;
 
         for (const ref of refs) {
-            const apiUrl = `https://gitlab.com/api/v4/projects/${projectPath}/repository/tree?path=${encodeURIComponent(symDirPath)}&ref=${ref}&per_page=100`;
-            const data = await this._fetchJsonWithProxy(apiUrl);
+            const data = await this._fetchGitLabTreePage({
+                projectPath: KICAD_SYMBOLS_PROJECT_PATH,
+                path: symDirPath,
+                ref,
+                perPage: 100,
+                page: 1
+            });
             if (!Array.isArray(data) || data.length === 0) continue;
 
             const files = data
@@ -565,6 +570,50 @@ export class KiCadFetcher {
     }
 
     /**
+     * Build a GitLab repository/tree API URL.
+     * @param {Object} params
+     * @param {string} params.projectPath
+     * @param {string} params.ref
+     * @param {number} [params.perPage=100]
+     * @param {number} [params.page=1]
+     * @param {boolean} [params.recursive=false]
+     * @param {string} [params.path]
+     * @returns {string}
+     */
+    _buildGitLabTreeApiUrl({ projectPath, ref, perPage = 100, page = 1, recursive = false, path }) {
+        const params = new URLSearchParams({
+            ref,
+            per_page: String(perPage),
+            page: String(page)
+        });
+        if (recursive) {
+            params.set('recursive', 'true');
+        }
+        if (typeof path === 'string' && path.length > 0) {
+            params.set('path', path);
+        }
+
+        return `https://gitlab.com/api/v4/projects/${projectPath}/repository/tree?${params.toString()}`;
+    }
+
+    /**
+     * Fetch a GitLab repository/tree page through the configured proxy chain.
+     * @param {Object} params
+     * @param {string} params.projectPath
+     * @param {string} params.ref
+     * @param {number} [params.perPage=100]
+     * @param {number} [params.page=1]
+     * @param {boolean} [params.recursive=false]
+     * @param {string} [params.path]
+     * @param {boolean} [returnHeaders=false]
+     * @returns {Promise<Object|null>}
+     */
+    _fetchGitLabTreePage(params, returnHeaders = false) {
+        const apiUrl = this._buildGitLabTreeApiUrl(params);
+        return this._fetchJsonWithProxy(apiUrl, returnHeaders);
+    }
+
+    /**
      * Wrap fetch() with an AbortController timeout.
      * @param {string} url
      * @param {number} [timeoutMs=15000]
@@ -623,7 +672,6 @@ export class KiCadFetcher {
             }
         }
 
-        const projectPath = 'kicad%2Flibraries%2Fkicad-symbols';
         const perPage = 100;
         const refs = KICAD_GIT_REFS;
 
@@ -633,8 +681,12 @@ export class KiCadFetcher {
             let hasMore = true;
 
             while (hasMore) {
-                const apiUrl = `https://gitlab.com/api/v4/projects/${projectPath}/repository/tree?ref=${encodeURIComponent(ref)}&per_page=${perPage}&page=${page}`;
-                const data = await this._fetchJsonWithProxy(apiUrl);
+                const data = await this._fetchGitLabTreePage({
+                    projectPath: KICAD_SYMBOLS_PROJECT_PATH,
+                    ref,
+                    perPage,
+                    page
+                });
                 if (!Array.isArray(data) || data.length === 0) {
                     hasMore = false;
                     break;
@@ -948,7 +1000,6 @@ export class KiCadFetcher {
      * { Timer: ['NE555D', ...], ... }.  Caches the result for 7 days.
      */
     async _fetchFullSymbolIndex() {
-        const projectPath = 'kicad%2Flibraries%2Fkicad-symbols';
         const refs = KICAD_GIT_REFS;
 
         for (const ref of refs) {
@@ -963,20 +1014,28 @@ export class KiCadFetcher {
             }
 
             while (hasMore) {
-                const apiUrl =
-                    `https://gitlab.com/api/v4/projects/${projectPath}/repository/tree` +
-                    `?recursive=true&ref=${ref}&per_page=100&page=${page}`;
-
                 // On the first page, read the x-total header for progress
                 let data;
                 if (page === 1) {
-                    const result = await this._fetchJsonWithProxy(apiUrl, true);
+                    const result = await this._fetchGitLabTreePage({
+                        projectPath: KICAD_SYMBOLS_PROJECT_PATH,
+                        recursive: true,
+                        ref,
+                        perPage: 100,
+                        page
+                    }, true);
                     if (!result) { hasMore = false; break; }
                     data = result.json;
                     const xt = result.headers?.get('x-total');
                     if (xt) totalExpected = parseInt(xt, 10) || 0;
                 } else {
-                    data = await this._fetchJsonWithProxy(apiUrl);
+                    data = await this._fetchGitLabTreePage({
+                        projectPath: KICAD_SYMBOLS_PROJECT_PATH,
+                        recursive: true,
+                        ref,
+                        perPage: 100,
+                        page
+                    });
                 }
 
                 if (!Array.isArray(data) || data.length === 0) {
