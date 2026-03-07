@@ -806,6 +806,47 @@ function handleSelectContextMenu(app, worldPos, clientX, clientY) {
     return handleSegmentContextMenu(app, worldPos, clientX, clientY);
 }
 
+/**
+ * Collect selected component/wire IDs that own dependent geometry/text.
+ */
+function collectMovingComponentIds(selection) {
+    const movingCompIds = new Set();
+    for (const shape of selection) {
+        if (shape.definition) movingCompIds.add(shape.id);
+        if (shape.type === 'wire') movingCompIds.add(shape.id);
+    }
+    return movingCompIds;
+}
+
+/**
+ * Propagate moved wire node deltas to coincident nodes on non-selected wires.
+ */
+function propagateMovedWireJunctions(app, selection, dx, dy) {
+    const movedWires = selection.filter(shape => shape.type === 'wire');
+    if (movedWires.length === 0) {
+        return;
+    }
+
+    const selectedSet = new Set(selection);
+    for (const movedWire of movedWires) {
+        for (const pos of movedWire.nodes.values()) {
+            const prevX = pos.x - dx;
+            const prevY = pos.y - dy;
+            for (const shape of app.shapes) {
+                if (selectedSet.has(shape) || shape.type !== 'wire') continue;
+                for (const shapePos of shape.nodes.values()) {
+                    if (Math.abs(shapePos.x - prevX) < VERTEX_EPSILON
+                        && Math.abs(shapePos.y - prevY) < VERTEX_EPSILON) {
+                        shapePos.x += dx;
+                        shapePos.y += dy;
+                        shape.invalidate();
+                    }
+                }
+            }
+        }
+    }
+}
+
 function handleMoveDragMouseMove(app, worldPos) {
     // Snap the absolute target position to grid so dragged items
     // land on grid points.  The object's off-grid starting position
@@ -831,11 +872,7 @@ function handleMoveDragMouseMove(app, worldPos) {
     }
 
     // Build set of parent IDs being moved (components + wires that own field texts)
-    const movingCompIds = new Set();
-    for (const s of sel) {
-        if (s.definition) movingCompIds.add(s.id);
-        if (s.type === 'wire') movingCompIds.add(s.id);
-    }
+    const movingCompIds = collectMovingComponentIds(sel);
 
     // H/V snap for sticky wire segments: compute nudge + guides together
     let stickyGuides = [];
@@ -869,28 +906,9 @@ function handleMoveDragMouseMove(app, worldPos) {
             renderGuideLines(app, stickyGuides);
         }
 
-        // T-junction following: when a moved wire had nodes
-        // shared with other (non-selected) wires, move those nodes too
-        const movedWires = sel.filter(s => s.type === 'wire');
-        if (movedWires.length > 0) {
-            const selSet = new Set(sel);
-            for (const mw of movedWires) {
-                for (const pos of mw.nodes.values()) {
-                    const prevX = pos.x - dx;
-                    const prevY = pos.y - dy;
-                    for (const shape of app.shapes) {
-                        if (selSet.has(shape) || shape.type !== 'wire') continue;
-                        for (const sp of shape.nodes.values()) {
-                            if (Math.abs(sp.x - prevX) < VERTEX_EPSILON && Math.abs(sp.y - prevY) < VERTEX_EPSILON) {
-                                sp.x += dx;
-                                sp.y += dy;
-                                shape.invalidate();
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        // T-junction following: when a moved wire had nodes shared with
+        // other (non-selected) wires, move those coincident nodes too.
+        propagateMovedWireJunctions(app, sel, dx, dy);
 
         app.dragLastSnapped = { ...snappedTarget };
         app.renderShapes(false);
