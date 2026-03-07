@@ -177,6 +177,51 @@ function queuePendingAnchorDrag(app, params) {
 }
 
 /**
+ * Handle select-tool click behavior, including text-edit blur and selection.
+ */
+function handleSelectToolClick(app, worldPos, event) {
+    const hit = app.selection.hitTest(worldPos);
+
+    if (app.textEdit) {
+        if (!hit || hit !== app.textEdit.shape) {
+            app._endTextEdit(true);
+        }
+    }
+
+    app.selection.handleClick(worldPos, isAdditiveSelectionModifier(event));
+    app.renderShapes(true);
+}
+
+/**
+ * Handle select-tool double-click behavior.
+ * Returns true when the event was handled.
+ */
+function handleSelectToolDoubleClick(app, worldPos, screenPos) {
+    const hit = app.selection.hitTest(worldPos);
+
+    // Priority 1: shape inline edit (text shapes)
+    if (hit && hit.supportsInlineEdit) {
+        app.selection.select(hit, false);
+        app.renderShapes(true);
+        // Clear any pending anchor drag left over from the second mousedown
+        // of the dblclick — otherwise the stale state causes the text label
+        // to follow the mouse after the value dialog closes.
+        clearPendingAnchorDrag(app);
+        app._startTextEdit(hit);
+        app._setTextEditCaretFromScreen(screenPos);
+        return true;
+    }
+
+    // Priority 2: title block cell in-place edit
+    if (!hit) {
+        app.viewport._onTitleBlockDblClick(worldPos);
+        return true;
+    }
+
+    return false;
+}
+
+/**
  * Handle immediate left-click actions that consume the event.
  */
 function handleImmediatePlacementMouseDown(app, event, snapped) {
@@ -1062,16 +1107,7 @@ export function bindMouseEvents(app) {
         const { worldPos } = getEventPositions(e, app.viewport);
 
         if (app.currentTool === 'select') {
-            const hit = app.selection.hitTest(worldPos);
-
-            if (app.textEdit) {
-                if (!hit || hit !== app.textEdit.shape) {
-                    app._endTextEdit(true);
-                }
-            }
-
-            app.selection.handleClick(worldPos, isAdditiveSelectionModifier(e));
-            app.renderShapes(true);
+            handleSelectToolClick(app, worldPos, e);
         }
     });
 
@@ -1083,24 +1119,6 @@ export function bindMouseEvents(app) {
         if (app.currentTool !== 'select') return;
 
         const { screenPos, worldPos } = getEventPositions(e, app.viewport);
-        const hit = app.selection.hitTest(worldPos);
-
-        // Priority 1: shape inline edit (text shapes)
-        if (hit && hit.supportsInlineEdit) {
-            app.selection.select(hit, false);
-            app.renderShapes(true);
-            // Clear any pending anchor drag left over from the second mousedown
-            // of the dblclick — otherwise the stale state causes the text label
-            // to follow the mouse after the value dialog closes.
-            clearPendingAnchorDrag(app);
-            app._startTextEdit(hit);
-            app._setTextEditCaretFromScreen(screenPos);
-            return;
-        }
-
-        // Priority 2: title block cell in-place edit
-        if (!hit) {
-            app.viewport._onTitleBlockDblClick(worldPos);
-        }
+        handleSelectToolDoubleClick(app, worldPos, screenPos);
     });
 }
