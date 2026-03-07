@@ -678,6 +678,45 @@ function handleSelectToolMouseDown(app, event, worldPos, snapped, screenPos) {
     return true;
 }
 
+/**
+ * Handle non-select tool mousedown flow.
+ */
+function handleNonSelectToolMouseDown(app, event, worldPos, snapped) {
+    if (app.currentTool === 'wire') {
+        handleWireToolMouseDown(app, worldPos);
+        event.preventDefault();
+        return;
+    }
+
+    if (app.currentTool === 'line') {
+        handlePointAppendingToolMouseDown(app, snapped, point => app._addLinePoint(point));
+        return;
+    }
+
+    if (app.currentTool === 'polygon') {
+        handlePointAppendingToolMouseDown(app, snapped, point => app._addPolygonPoint(point));
+        return;
+    }
+
+    if (app.currentTool === 'arc') {
+        handleArcToolMouseDown(app, snapped, worldPos);
+        return;
+    }
+
+    if (app.currentTool === 'rect' || app.currentTool === 'circle') {
+        handleStartFinishToolMouseDown(app, snapped);
+        return;
+    }
+
+    if (app.currentTool === 'noconnect' || app.currentTool === 'netlabel') {
+        handlePinSnapToolMouseDown(app, worldPos);
+        return;
+    }
+
+    // Default fallback for any other tools in future
+    handleStartFinishToolMouseDown(app, snapped);
+}
+
 function handleAnchorContextMenu(app, worldPos, clientX, clientY) {
     const selectedShapes = app.selection.getSelection();
     for (const shape of selectedShapes) {
@@ -1139,22 +1178,8 @@ export function bindMouseEvents(app) {
             if (handleSelectToolMouseDown(app, e, worldPos, snapped, screenPos)) {
                 return;
             }
-        } else if (app.currentTool === 'wire') {
-            handleWireToolMouseDown(app, worldPos);
-            e.preventDefault();
-        } else if (app.currentTool === 'line') {
-            handlePointAppendingToolMouseDown(app, snapped, point => app._addLinePoint(point));
-        } else if (app.currentTool === 'polygon') {
-            handlePointAppendingToolMouseDown(app, snapped, point => app._addPolygonPoint(point));
-        } else if (app.currentTool === 'arc') {
-            handleArcToolMouseDown(app, snapped, worldPos);
-        } else if (app.currentTool === 'rect' || app.currentTool === 'circle') {
-            handleStartFinishToolMouseDown(app, snapped);
-        } else if (app.currentTool === 'noconnect' || app.currentTool === 'netlabel') {
-            handlePinSnapToolMouseDown(app, worldPos);
         } else {
-            // Default fallback for any other tools in future
-            handleStartFinishToolMouseDown(app, snapped);
+            handleNonSelectToolMouseDown(app, e, worldPos, snapped);
         }
     });
 
