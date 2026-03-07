@@ -1095,6 +1095,76 @@ function collectWireSegmentDragGuides(app, wire, dragEdgeId, snappedTarget, base
     return allGuides;
 }
 
+/**
+ * Apply wire-segment node movement and return moved endpoint node IDs.
+ */
+function applyWireSegmentNodeMovement(app, wire, dragEdgeId, origState, dx, dy) {
+    const edge = wire.edges.get(dragEdgeId);
+    if (!edge) {
+        return null;
+    }
+
+    const nodesToMove = buildCollinearChain(wire, dragEdgeId, origState);
+    for (const nid of nodesToMove) {
+        if (wire.pinConnections.has(nid)) continue;
+        const p = wire.nodes.get(nid);
+        if (p) {
+            p.x += dx;
+            p.y += dy;
+        }
+    }
+    wire.invalidate();
+
+    return getDraggedSegmentEndpointNodeIds(
+        wire,
+        dragEdgeId,
+        getReusableSet(app, '_dragSegmentMovedNodesScratch')
+    );
+}
+
+/**
+ * Propagate dragged segment delta to linked T-junction and NoConnect nodes.
+ */
+function propagateWireSegmentLinkedMovement(app, movedNodes, dx, dy) {
+    if (!movedNodes) {
+        return;
+    }
+
+    if (app.dragTJunctionLinks) {
+        for (const link of app.dragTJunctionLinks) {
+            if (!movedNodes.has(link.wireNodeId)) continue;
+            const sp = link.otherWire.nodes.get(link.otherNodeId);
+            if (sp) {
+                sp.x += dx;
+                sp.y += dy;
+                link.otherWire.invalidate();
+            }
+        }
+    }
+
+    if (app.dragSegmentNCLinks) {
+        for (const link of app.dragSegmentNCLinks) {
+            if (!movedNodes.has(link.wireNodeId)) continue;
+            link.nc.x += dx;
+            link.nc.y += dy;
+            link.nc.invalidate();
+        }
+    }
+}
+
+/**
+ * Move wire label text by segment drag delta when present.
+ */
+function applyWireSegmentLabelMovement(wire, dx, dy) {
+    if (!wire.labelText) {
+        return;
+    }
+
+    wire.labelText.x += dx;
+    wire.labelText.y += dy;
+    wire.labelText.invalidate();
+}
+
 function handleAnchorDragMouseMove(app, worldPos, snapped) {
     app.didDrag = true;
     // Ensure shape stays selected and visible during anchor drag
@@ -1219,55 +1289,9 @@ function handleWireSegmentDragMouseMove(app, worldPos) {
         app.dragTotalDx += dx;
         app.dragTotalDy += dy;
 
-        // Move both endpoints of the dragged edge
-        const edge = wire.edges.get(dragEdgeId);
-        if (edge) {
-            const nodesToMove = buildCollinearChain(wire, dragEdgeId, origState);
-
-            // Don't move pin-connected nodes (they were already split on drag start)
-            for (const nid of nodesToMove) {
-                if (wire.pinConnections.has(nid)) continue;
-                const p = wire.nodes.get(nid);
-                if (p) { p.x += dx; p.y += dy; }
-            }
-            wire.invalidate();
-        }
-
-        const movedNodes = edge
-            ? getDraggedSegmentEndpointNodeIds(wire, dragEdgeId, getReusableSet(app, '_dragSegmentMovedNodesScratch'))
-            : null;
-
-        // Move T-junction nodes on other wires using pre-recorded links
-        if (app.dragTJunctionLinks && movedNodes) {
-            for (const link of app.dragTJunctionLinks) {
-                if (movedNodes.has(link.wireNodeId)) {
-                    const sp = link.otherWire.nodes.get(link.otherNodeId);
-                    if (sp) {
-                        sp.x += dx;
-                        sp.y += dy;
-                        link.otherWire.invalidate();
-                    }
-                }
-            }
-        }
-
-        // Move NoConnect shapes linked to moved segment endpoints
-        if (app.dragSegmentNCLinks && movedNodes) {
-            for (const link of app.dragSegmentNCLinks) {
-                if (movedNodes.has(link.wireNodeId)) {
-                    link.nc.x += dx;
-                    link.nc.y += dy;
-                    link.nc.invalidate();
-                }
-            }
-        }
-
-        // Move wire label text with the segment drag
-        if (wire.labelText) {
-            wire.labelText.x += dx;
-            wire.labelText.y += dy;
-            wire.labelText.invalidate();
-        }
+        const movedNodes = applyWireSegmentNodeMovement(app, wire, dragEdgeId, origState, dx, dy);
+        propagateWireSegmentLinkedMovement(app, movedNodes, dx, dy);
+        applyWireSegmentLabelMovement(wire, dx, dy);
 
         app.renderShapes(false);
         app.fileManager.setDirty(true);
