@@ -45,6 +45,66 @@ function getEventPositions(e, viewport) {
 }
 
 /**
+ * Select only the provided shape and render immediately.
+ */
+function selectOnlyShapeAndRender(app, shape) {
+    app.selection.clearSelection();
+    app.selection.select(shape, false);
+    app.renderShapes(true);
+}
+
+/**
+ * Return next shape in overlap cycle stack for a world position.
+ */
+function getNextCycleHitShape(app, worldPos) {
+    const originalTolerance = app.selection.tolerance;
+    app.selection.tolerance = 2.0;
+    const hits = app.selection.hitTest(worldPos, true);
+    app.selection.tolerance = originalTolerance;
+
+    if (!hits || hits.length === 0) {
+        return null;
+    }
+
+    const selectedIndex = hits.findIndex(shape => shape.selected);
+    const nextIndex = (selectedIndex + 1) % hits.length;
+    return hits[nextIndex];
+}
+
+/**
+ * Handle Shift-based overlap cycling selection.
+ * Returns true when the event was handled and should stop further processing.
+ */
+function handleCycleSelectionMouseDown(app, event, worldPos) {
+    if (!isCycleSelectionModifier(event)) {
+        return false;
+    }
+
+    const nextShape = getNextCycleHitShape(app, worldPos);
+    if (nextShape) {
+        selectOnlyShapeAndRender(app, nextShape);
+    }
+
+    app.skipClickSelection = true;
+    return true;
+}
+
+/**
+ * Handle Ctrl/Cmd additive selection toggling.
+ * Returns true when a hit-shape toggle was applied.
+ */
+function handleAdditiveSelectionMouseDown(app, event, hitShape) {
+    if (!hitShape || !isAdditiveSelectionModifier(event)) {
+        return false;
+    }
+
+    app.selection.toggle(hitShape);
+    app.renderShapes(true);
+    app.skipClickSelection = true;
+    return true;
+}
+
+/**
  * Click-to-add tools (line/polygon): start drawing on first click,
  * append a point on subsequent clicks.
  */
@@ -562,49 +622,13 @@ export function bindMouseEvents(app) {
             }
             let hitShape = app.selection.hitTest(worldPos);
 
-            // Shift+Click: Cycle through overlapping shapes
-            // Note: Ctrl is reserved for Multi-Select (Additive)
-            if (isCycleSelectionModifier(e)) {
-                 // Important: Use a larger tolerance for "cycling" to make it easier to grab things
-                 // Temporarily boost tolerance
-                 const originalTolerance = app.selection.tolerance;
-                 app.selection.tolerance = 2.0; // Boost tolerance for finding overlapping stuff
-                 
-                 const hits = app.selection.hitTest(worldPos, true);
-                 
-                 // Restore tolerance
-                 app.selection.tolerance = originalTolerance;
-
-                 if (hits && hits.length > 0) {
-                     // Try to find currently selected shape in the hit list
-                     const selectedIndex = hits.findIndex(h => h.selected);
-                     
-                     // If something is selected in this stack, pick the next one
-                     // If nothing is selected (selectedIndex = -1), pick the first one (index 0)
-                     const nextIndex = (selectedIndex + 1) % hits.length;
-                     
-                     hitShape = hits[nextIndex];
-
-                     // Explicitly clear selection first to be absolutely sure
-                     app.selection.clearSelection();
-                     
-                     // Update selection immediately
-                     app.selection.select(hitShape, false);
-                     app.renderShapes(true);
-                 }
-                
-                // Stop here - Disable dragging while holding Shift
-                app.skipClickSelection = true;
+            if (handleCycleSelectionMouseDown(app, e, worldPos)) {
                 e.preventDefault();
                 return;
             }
 
             if (hitShape) {
-                const additive = isAdditiveSelectionModifier(e);
-                if (additive) {
-                    app.selection.toggle(hitShape);
-                    app.renderShapes(true);
-                    app.skipClickSelection = true;
+                if (handleAdditiveSelectionMouseDown(app, e, hitShape)) {
                     e.preventDefault();
                     return;
                 }
