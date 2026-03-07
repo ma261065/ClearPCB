@@ -517,6 +517,43 @@ function consumeRightClickAsClick(app, event, dragThresholdPx) {
 }
 
 /**
+ * Handle component debug tooltip behavior on context-menu invocation.
+ */
+function handleComponentTooltipContextMenu(app, worldPos, screenPos) {
+    if (app.showComponentDebugTooltip === false) {
+        return;
+    }
+
+    const hitComponent = app._findComponentAt?.(worldPos);
+    if (hitComponent) {
+        app._pinComponentCodeTooltip?.(hitComponent, screenPos);
+    } else {
+        app._updateComponentCodeTooltip?.(null, null, { forceHide: true });
+    }
+}
+
+/**
+ * Handle component debug tooltip hover updates on mouse move.
+ */
+function handleComponentTooltipMouseMove(app, worldPos, screenPos) {
+    const canShowHoverTooltip = app.showComponentDebugTooltip !== false
+        && !app.isDragging
+        && !app.viewport.isPanning
+        && !app.placingComponent
+        && !app._componentCodeTooltipPinned;
+
+    if (canShowHoverTooltip) {
+        const hitComponent = app._findComponentAt?.(worldPos);
+        app._updateComponentCodeTooltip?.(hitComponent, screenPos);
+        return;
+    }
+
+    if (!app._componentCodeTooltipPinned) {
+        app._updateComponentCodeTooltip?.(null, screenPos);
+    }
+}
+
+/**
  * Handle immediate left-click actions that consume the event.
  */
 function handleImmediatePlacementMouseDown(app, event, snapped) {
@@ -1110,14 +1147,7 @@ export function bindMouseEvents(app) {
             return;
         }
 
-        if (app.showComponentDebugTooltip !== false) {
-            const hitComponent = app._findComponentAt?.(worldPos);
-            if (hitComponent) {
-                app._pinComponentCodeTooltip?.(hitComponent, screenPos);
-            } else {
-                app._updateComponentCodeTooltip?.(null, null, { forceHide: true });
-            }
-        }
+        handleComponentTooltipContextMenu(app, worldPos, screenPos);
         if (app.currentTool !== 'select') {
             app._setToolCursor(app.currentTool, app.viewport.svg);
         }
@@ -1127,14 +1157,7 @@ export function bindMouseEvents(app) {
     svg.addEventListener('mousemove', (e) => {
         const { screenPos, worldPos, snapped } = getEventPositions(e, app.viewport);
 
-        if (app.showComponentDebugTooltip !== false && !app.isDragging && !app.viewport.isPanning && !app.placingComponent && !app._componentCodeTooltipPinned) {
-            const hitComponent = app._findComponentAt?.(worldPos);
-            app._updateComponentCodeTooltip?.(hitComponent, screenPos);
-        } else {
-            if (!app._componentCodeTooltipPinned) {
-                app._updateComponentCodeTooltip?.(null, screenPos);
-            }
-        }
+        handleComponentTooltipMouseMove(app, worldPos, screenPos);
 
         // Always update paste/component preview if active.
         // This must happen before any tool-specific logic or returns.
