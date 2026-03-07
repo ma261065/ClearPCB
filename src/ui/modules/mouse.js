@@ -503,6 +503,20 @@ function beginMoveDragFromHit(app, worldPos, snapped) {
 }
 
 /**
+ * Consume right-click start state and determine whether it was a click (not drag).
+ */
+function consumeRightClickAsClick(app, event, dragThresholdPx) {
+    const start = app._rightClickStart;
+    app._rightClickStart = null;
+    if (!start) {
+        return false;
+    }
+
+    const movedDist = Math.hypot(event.clientX - start.x, event.clientY - start.y);
+    return movedDist <= dragThresholdPx;
+}
+
+/**
  * Handle immediate left-click actions that consume the event.
  */
 function handleImmediatePlacementMouseDown(app, event, snapped) {
@@ -1077,11 +1091,7 @@ export function bindMouseEvents(app) {
     svg.addEventListener('mouseup', (e) => {
         if (e.button !== 2) return;
         // Only finish drawing tools if we didn't drag (pan) during right-click
-        const start = app._rightClickStart;
-        app._rightClickStart = null;
-        if (!start) return;
-        const movedDist = Math.hypot(e.clientX - start.x, e.clientY - start.y);
-        if (movedDist > DRAG_THRESHOLD_PX) return; // dragged — was a pan, don't finish
+        if (!consumeRightClickAsClick(app, e, DRAG_THRESHOLD_PX)) return;
 
         const { worldPos, snapped } = getEventPositions(e, app.viewport);
 
