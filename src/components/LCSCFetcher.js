@@ -320,6 +320,83 @@ export class LCSCFetcher {
 
         return [];
     }
+
+    /**
+     * Extract a 3D model UUID from EasyEDA shape data.
+     * @param {Array} shapeList
+     * @returns {string|null}
+     */
+    _extractModel3DUuidFromShapes(shapeList) {
+        if (!Array.isArray(shapeList)) {
+            return null;
+        }
+
+        for (const shape of shapeList) {
+            if (typeof shape !== 'string' || !shape.startsWith('SVGNODE~')) {
+                continue;
+            }
+
+            try {
+                const jsonStr = shape.substring(8);
+                const svgData = JSON.parse(jsonStr);
+                const uuid = svgData?.attrs?.uuid;
+                if (uuid) {
+                    return uuid;
+                }
+            } catch (error) {
+                console.warn('Failed to parse SVGNODE:', error);
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Apply EasyEDA detail response to a normalized result item.
+     * @param {Object} exact
+     * @param {Object|null} detail
+     * @returns {Promise<void>}
+     */
+    async _applyEasyEDADetailToMetadata(exact, detail) {
+        if (detail?.dataStr && Array.isArray(detail.dataStr.shape)) {
+            exact.easyedaSymbolData = detail.dataStr;
+            exact.easyedaSymbolBBox = detail.dataStr.BBox || detail.dataStr.bbox || null;
+            exact.hasEasyedaSymbol = true;
+        } else {
+            exact.hasEasyedaSymbol = false;
+        }
+
+        if (!detail?.packageDetail?.dataStr) {
+            exact.hasFootprint = false;
+            exact.has3d = false;
+            return;
+        }
+
+        const dataStr = detail.packageDetail.dataStr;
+        exact.footprintName = detail.packageDetail.title || dataStr?.head?.c_para?.package || '';
+        exact.footprintShapes = Array.isArray(dataStr.shape) ? dataStr.shape : [];
+        exact.footprintBBox = dataStr.BBox || dataStr.bbox || null;
+        exact.model3dName = dataStr?.head?.c_para?.['3DModel'] || '';
+        exact.hasFootprint = exact.footprintShapes.length > 0;
+        exact.has3d = !!exact.model3dName;
+
+        if (!exact.has3d) {
+            return;
+        }
+
+        const model3dUuid = this._extractModel3DUuidFromShapes(dataStr.shape);
+        if (!model3dUuid) {
+            console.log('No 3D model UUID found in SVGNODE');
+            return;
+        }
+
+        console.log('Fetching 3D model for uuid:', model3dUuid);
+        const model3dData = await this._fetchEasyEDA3DModel(model3dUuid);
+        if (model3dData) {
+            console.log('Successfully fetched 3D model data (OBJ format)');
+            exact.model3dObj = model3dData;
+        }
+    }
     
     /**
      * Fetch detailed metadata for a specific component
@@ -347,58 +424,7 @@ export class LCSCFetcher {
             if (exact) {
                 // Fetch detail to get footprint + 3D data
                 const detail = await this._fetchEasyEDADetail(normalizedPart);
-                
-                if (detail?.dataStr && Array.isArray(detail.dataStr.shape)) {
-                    exact.easyedaSymbolData = detail.dataStr;
-                    exact.easyedaSymbolBBox = detail.dataStr.BBox || detail.dataStr.bbox || null;
-                    exact.hasEasyedaSymbol = true;
-                } else {
-                    exact.hasEasyedaSymbol = false;
-                }
-
-                if (detail?.packageDetail?.dataStr) {
-                    const dataStr = detail.packageDetail.dataStr;
-                    exact.footprintName = detail.packageDetail.title || dataStr?.head?.c_para?.package || '';
-                    exact.footprintShapes = Array.isArray(dataStr.shape) ? dataStr.shape : [];
-                    exact.footprintBBox = dataStr.BBox || dataStr.bbox || null;
-                    exact.model3dName = dataStr?.head?.c_para?.['3DModel'] || '';
-                    exact.hasFootprint = exact.footprintShapes.length > 0;
-                    exact.has3d = !!exact.model3dName;
-                    
-                    // Fetch EasyEDA 3D model data (OBJ format) if available
-                    if (exact.has3d) {
-                        // Find the SVGNODE in the shape array and extract its uuid
-                        let model3dUuid = null;
-                        if (Array.isArray(dataStr.shape)) {
-                            for (const shape of dataStr.shape) {
-                                if (typeof shape === 'string' && shape.startsWith('SVGNODE~')) {
-                                    try {
-                                        const jsonStr = shape.substring(8); // Remove 'SVGNODE~' prefix
-                                        const svgData = JSON.parse(jsonStr);
-                                        model3dUuid = svgData?.attrs?.uuid;
-                                        if (model3dUuid) break;
-                                    } catch (e) {
-                                        console.warn('Failed to parse SVGNODE:', e);
-                                    }
-                                }
-                            }
-                        }
-                        
-                        if (model3dUuid) {
-                            console.log('Fetching 3D model for uuid:', model3dUuid);
-                            const model3dData = await this._fetchEasyEDA3DModel(model3dUuid);
-                            if (model3dData) {
-                                console.log('Successfully fetched 3D model data (OBJ format)');
-                                exact.model3dObj = model3dData; // Store as OBJ format
-                            }
-                        } else {
-                            console.log('No 3D model UUID found in SVGNODE');
-                        }
-                    }
-                } else {
-                    exact.hasFootprint = false;
-                    exact.has3d = false;
-                }
+                await this._applyEasyEDADetailToMetadata(exact, detail);
 
                 this.metadataCache.set(normalizedPart, exact);
                 return exact;
