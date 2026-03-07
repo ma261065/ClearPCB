@@ -20,6 +20,9 @@ import { storageManager } from './StorageManager.js';
 const DAY_MS = 24 * 60 * 60 * 1000;
 const SEARCH_CACHE_TTL_MS = DAY_MS;
 const ENTITY_CACHE_TTL_MS = 7 * DAY_MS;
+const SEARCH_STORAGE_PREFIX = 'clearpcb_search_';
+const ENTITY_STORAGE_PREFIX = 'clearpcb_';
+const COMPONENT_STORAGE_PREFIX = 'clearpcb_component_';
 
 export class SearchManager {
     /**
@@ -43,7 +46,7 @@ export class SearchManager {
         this.searchCache.clear();
         // Also clear localStorage caches
         for (const key of Object.keys(localStorage)) {
-            if (key.startsWith('clearpcb_search_')) {
+            if (key.startsWith(SEARCH_STORAGE_PREFIX)) {
                 localStorage.removeItem(key);
             }
         }
@@ -107,7 +110,7 @@ export class SearchManager {
      * @returns {string}
      */
     _buildSearchStorageKey(domain, query) {
-        return `clearpcb_search_${domain}_${query}`;
+        return `${SEARCH_STORAGE_PREFIX}${domain}_${query}`;
     }
 
     /**
@@ -117,7 +120,7 @@ export class SearchManager {
      * @returns {string}
      */
     _buildEntityStorageKey(domain, ...parts) {
-        return `clearpcb_${domain}_${parts.join('_')}`;
+        return `${ENTITY_STORAGE_PREFIX}${domain}_${parts.join('_')}`;
     }
 
     /**
@@ -126,7 +129,7 @@ export class SearchManager {
      * @returns {string}
      */
     _buildComponentStorageKey(name) {
-        return `clearpcb_component_${name}`;
+        return `${COMPONENT_STORAGE_PREFIX}${name}`;
     }
 
     /**
