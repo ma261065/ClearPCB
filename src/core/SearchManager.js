@@ -101,6 +101,35 @@ export class SearchManager {
     }
 
     /**
+     * Build a search-result storage key by domain and query.
+     * @param {'kicad'|'lcsc'} domain
+     * @param {string} query
+     * @returns {string}
+     */
+    _buildSearchStorageKey(domain, query) {
+        return `clearpcb_search_${domain}_${query}`;
+    }
+
+    /**
+     * Build a cached fetched-entity storage key.
+     * @param {'lcsc_component'|'kicad_symbol'} domain
+     * @param {...string} parts
+     * @returns {string}
+     */
+    _buildEntityStorageKey(domain, ...parts) {
+        return `clearpcb_${domain}_${parts.join('_')}`;
+    }
+
+    /**
+     * Build a component-definition storage key.
+     * @param {string} name
+     * @returns {string}
+     */
+    _buildComponentStorageKey(name) {
+        return `clearpcb_component_${name}`;
+    }
+
+    /**
      * Record a cache miss and increment search counters for an outbound search.
      */
     _recordSearchCacheMiss() {
@@ -131,7 +160,7 @@ export class SearchManager {
             
             // Only cache non-empty results
             if (results && results.length > 0) {
-                this._cacheSearchResults(cacheKey, `clearpcb_search_kicad_${query}`, results, SEARCH_CACHE_TTL_MS);
+                this._cacheSearchResults(cacheKey, this._buildSearchStorageKey('kicad', query), results, SEARCH_CACHE_TTL_MS);
             }
             
             return results || [];
@@ -175,7 +204,7 @@ export class SearchManager {
             }
             
             // Cache the results (24-hour TTL for online data)
-            this._cacheSearchResults(cacheKey, `clearpcb_search_lcsc_${normalizedQuery}`, results, SEARCH_CACHE_TTL_MS);
+            this._cacheSearchResults(cacheKey, this._buildSearchStorageKey('lcsc', normalizedQuery), results, SEARCH_CACHE_TTL_MS);
             
             return results || [];
         } catch (error) {
@@ -240,7 +269,7 @@ export class SearchManager {
     async fetchFromLCSC(lcscId) {
         try {
             const definition = await this.library.fetchFromLCSC(lcscId);
-            this._cacheFetchedEntity(`clearpcb_lcsc_component_${lcscId}`, definition);
+            this._cacheFetchedEntity(this._buildEntityStorageKey('lcsc_component', lcscId), definition);
             return definition;
         } catch (error) {
             console.error('SearchManager: Failed to fetch from LCSC:', error);
@@ -254,7 +283,7 @@ export class SearchManager {
     async fetchFromKiCad(library, symbolName) {
         try {
             const symbol = await this.library.kicadFetcher.fetchSymbol(library, symbolName);
-            this._cacheFetchedEntity(`clearpcb_kicad_symbol_${library}_${symbolName}`, symbol);
+            this._cacheFetchedEntity(this._buildEntityStorageKey('kicad_symbol', library, symbolName), symbol);
             return symbol;
         } catch (error) {
             console.error('SearchManager: Failed to fetch from KiCad:', error);
@@ -291,7 +320,7 @@ export class SearchManager {
      */
     getCachedComponent(name) {
         try {
-            const cached = storageManager.get(`clearpcb_component_${name}`);
+            const cached = storageManager.get(this._buildComponentStorageKey(name));
             return cached || null;
         } catch (error) {
             console.warn('SearchManager: Failed to get cached component:', error);
@@ -305,7 +334,7 @@ export class SearchManager {
     cacheComponent(component, ttl = ENTITY_CACHE_TTL_MS) {
         try {
             if (component && component.name) {
-                storageManager.set(`clearpcb_component_${component.name}`, component, ttl);
+                storageManager.set(this._buildComponentStorageKey(component.name), component, ttl);
             }
         } catch (error) {
             console.warn('SearchManager: Failed to cache component:', error);
