@@ -63,6 +63,48 @@ export class SearchManager {
     }
 
     /**
+     * Read cached search results if valid.
+     * @param {string} cacheKey
+     * @param {(results: any) => boolean} [isValid]
+     * @returns {any|null}
+     */
+    _getCachedSearchResults(cacheKey, isValid) {
+        if (!this.searchCache.has(cacheKey)) {
+            return null;
+        }
+
+        const cached = this.searchCache.get(cacheKey);
+        const valid = typeof isValid === 'function' ? isValid(cached) : true;
+        if (!valid) {
+            this.searchCache.delete(cacheKey);
+            return null;
+        }
+
+        this.stats.cacheHits++;
+        return cached;
+    }
+
+    /**
+     * Cache search results in memory and localStorage.
+     * @param {string} cacheKey
+     * @param {string} storageKey
+     * @param {any} results
+     * @param {number} ttl
+     */
+    _cacheSearchResults(cacheKey, storageKey, results, ttl) {
+        this.searchCache.set(cacheKey, results);
+        storageManager.set(storageKey, results, ttl);
+    }
+
+    /**
+     * Record a cache miss and increment search counters for an outbound search.
+     */
+    _recordSearchCacheMiss() {
+        this.stats.cacheMisses++;
+        this.stats.searchCount++;
+    }
+
+    /**
      * Search KiCad library with caching
      */
     async searchKiCad(query) {
@@ -72,23 +114,20 @@ export class SearchManager {
 
         // Check in-memory cache first (skip empty arrays — may be stale)
         const cacheKey = `kicad:${query.toLowerCase()}`;
-        const cached = this.searchCache.get(cacheKey);
-        if (cached && cached.length > 0) {
-            this.stats.cacheHits++;
+        const cached = this._getCachedSearchResults(cacheKey, results => Array.isArray(results) && results.length > 0);
+        if (cached) {
             console.log('SearchManager: KiCad cache hit');
             return cached;
         }
 
-        this.stats.cacheMisses++;
-        this.stats.searchCount++;
+        this._recordSearchCacheMiss();
 
         try {
             const results = await this.library.searchKiCad(query);
             
             // Only cache non-empty results
             if (results && results.length > 0) {
-                this.searchCache.set(cacheKey, results);
-                storageManager.set(`clearpcb_search_kicad_${query}`, results, 24 * 60 * 60 * 1000);
+                this._cacheSearchResults(cacheKey, `clearpcb_search_kicad_${query}`, results, 24 * 60 * 60 * 1000);
             }
             
             return results || [];
@@ -112,19 +151,16 @@ export class SearchManager {
 
         // Check in-memory cache first
         const cacheKey = `lcsc:${normalizedQuery}`;
-        if (this.searchCache.has(cacheKey)) {
-            const cached = this.searchCache.get(cacheKey);
-            const hasThumbs = Array.isArray(cached) && cached.some(item => item && item.thumbUrl);
-            if (hasThumbs) {
-                this.stats.cacheHits++;
-                console.log('SearchManager: LCSC cache hit');
-                return cached;
-            }
-            this.searchCache.delete(cacheKey);
+        const cached = this._getCachedSearchResults(
+            cacheKey,
+            results => Array.isArray(results) && results.some(item => item && item.thumbUrl)
+        );
+        if (cached) {
+            console.log('SearchManager: LCSC cache hit');
+            return cached;
         }
 
-        this.stats.cacheMisses++;
-        this.stats.searchCount++;
+        this._recordSearchCacheMiss();
 
         try {
             const results = await this.library.searchLCSC(normalizedQuery);
@@ -135,8 +171,7 @@ export class SearchManager {
             }
             
             // Cache the results (24-hour TTL for online data)
-            this.searchCache.set(cacheKey, results);
-            storageManager.set(`clearpcb_search_lcsc_${normalizedQuery}`, results, 24 * 60 * 60 * 1000);
+            this._cacheSearchResults(cacheKey, `clearpcb_search_lcsc_${normalizedQuery}`, results, 24 * 60 * 60 * 1000);
             
             return results || [];
         } catch (error) {
