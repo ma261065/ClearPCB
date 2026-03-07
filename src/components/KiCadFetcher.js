@@ -16,6 +16,7 @@ const CONTENT_CACHE_TTL_MS = 7 * DAY_MS;
 const SYMBOL_LIBRARY_MARKER = 'kicad_symbol_lib';
 const FOOTPRINT_MARKER = 'footprint';
 const CONTENT_PREVIEW_LENGTH = 200;
+const KICAD_GIT_REFS = ['master', 'main'];
 
 export class KiCadFetcher {
     /** Initialise GitLab base URLs, CORS proxies and in-memory caches. */
@@ -408,7 +409,7 @@ export class KiCadFetcher {
 
         const projectPath = 'kicad%2Flibraries%2Fkicad-symbols';
         const symDirPath = `${library}.kicad_symdir`;
-        const refs = ['master', 'main'];
+        const refs = KICAD_GIT_REFS;
 
         for (const ref of refs) {
             const apiUrl = `https://gitlab.com/api/v4/projects/${projectPath}/repository/tree?path=${encodeURIComponent(symDirPath)}&ref=${ref}&per_page=100`;
@@ -582,7 +583,7 @@ export class KiCadFetcher {
 
         const projectPath = 'kicad%2Flibraries%2Fkicad-symbols';
         const perPage = 100;
-        const refs = ['master', 'main'];
+        const refs = KICAD_GIT_REFS;
 
         for (const ref of refs) {
             const index = {};
@@ -916,7 +917,7 @@ export class KiCadFetcher {
      */
     async _fetchFullSymbolIndex() {
         const projectPath = 'kicad%2Flibraries%2Fkicad-symbols';
-        const refs = ['master', 'main'];
+        const refs = KICAD_GIT_REFS;
 
         for (const ref of refs) {
             const index = {};
