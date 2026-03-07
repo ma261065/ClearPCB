@@ -1041,6 +1041,48 @@ function getDraggedSegmentEndpointNodeIds(wire, dragEdgeId, reuseSet) {
     return movedNodes;
 }
 
+/**
+ * Build segment-drag guide list using reusable storage to avoid concat churn.
+ */
+function collectWireSegmentDragGuides(app, wire, dragEdgeId, snappedTarget, baseGuides) {
+    const allGuides = app._segmentDragGuidesScratch || (app._segmentDragGuidesScratch = []);
+    allGuides.length = 0;
+    if (baseGuides && baseGuides.length > 0) {
+        allGuides.push(...baseGuides);
+    }
+
+    if (!app.dragTJunctionLinks) {
+        return allGuides;
+    }
+
+    const edge = wire.edges.get(dragEdgeId);
+    if (!edge) {
+        return allGuides;
+    }
+
+    const fromPos = wire.nodes.get(edge.from);
+    if (!fromPos) {
+        return allGuides;
+    }
+
+    for (const link of app.dragTJunctionLinks) {
+        if (link.wireNodeId !== edge.from && link.wireNodeId !== edge.to) continue;
+        const ow = link.otherWire;
+        const otherPos = ow.nodes.get(link.otherNodeId);
+        if (!otherPos) continue;
+        const tjPos = {
+            x: otherPos.x + (snappedTarget.x - fromPos.x),
+            y: otherPos.y + (snappedTarget.y - fromPos.y)
+        };
+        const tjResult = computeAnchorCollinearSnap(app, ow, link.otherNodeId, tjPos);
+        if (tjResult.guides.length > 0) {
+            allGuides.push(...tjResult.guides);
+        }
+    }
+
+    return allGuides;
+}
+
 function handleAnchorDragMouseMove(app, worldPos, snapped) {
     app.didDrag = true;
     // Ensure shape stays selected and visible during anchor drag
@@ -1154,28 +1196,7 @@ function handleWireSegmentDragMouseMove(app, worldPos) {
     updateSnapHighlight(app, segHighlight);
 
     // Also compute collinear guides for T-junction-linked wires.
-    let allSegGuides = segGuides;
-    if (app.dragTJunctionLinks) {
-        const edge = wire.edges.get(dragEdgeId);
-        for (const link of app.dragTJunctionLinks) {
-            // Only follow if this linked node is one of the edge's endpoints
-            if (!edge) continue;
-            const fromPos = wire.nodes.get(edge.from);
-            const toPos = wire.nodes.get(edge.to);
-            if (link.wireNodeId !== edge.from && link.wireNodeId !== edge.to) continue;
-            const ow = link.otherWire;
-            const otherPos = ow.nodes.get(link.otherNodeId);
-            if (!otherPos || !fromPos) continue;
-            const tjPos = {
-                x: otherPos.x + (snappedTarget.x - fromPos.x),
-                y: otherPos.y + (snappedTarget.y - fromPos.y)
-            };
-            const tjResult = computeAnchorCollinearSnap(app, ow, link.otherNodeId, tjPos);
-            if (tjResult.guides.length > 0) {
-                allSegGuides = allSegGuides.concat(tjResult.guides);
-            }
-        }
-    }
+    const allSegGuides = collectWireSegmentDragGuides(app, wire, dragEdgeId, snappedTarget, segGuides);
     renderGuideLines(app, allSegGuides);
 
     // Compute delta from current position of the from-node
