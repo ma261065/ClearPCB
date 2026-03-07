@@ -1019,6 +1019,34 @@ function handleWireSegmentDragMouseMove(app, worldPos) {
 }
 
 /**
+ * Route active drag-session mousemove handling by drag mode.
+ */
+function handleActiveDragMouseMove(app, worldPos, snapped) {
+    if (app.dragMode === 'move') {
+        handleMoveDragMouseMove(app, worldPos);
+        return;
+    }
+
+    if (app.dragMode === 'anchor' && app.dragShape) {
+        handleAnchorDragMouseMove(app, worldPos, snapped);
+        return;
+    }
+
+    if (app.dragMode === 'wire-segment' && app.dragShape) {
+        handleWireSegmentDragMouseMove(app, worldPos);
+        return;
+    }
+
+    if (app.dragMode === 'box' && app.boxSelectStart) {
+        app.didDrag = true;
+        app._updateBoxSelectElement(worldPos);
+        const bounds = app._getBoxSelectBounds(worldPos);
+        app.selection.syncBoxSelection(bounds, !!app.boxSelectAdditive, 'contain');
+        app.renderShapes(false);
+    }
+}
+
+/**
  * Wire all mouse-event handlers (mousedown, mouseup, mousemove, click,
  * dblclick) to the SVG canvas. Handles selection, dragging, anchor
  * manipulation, box-select, and context menus.
@@ -1198,20 +1226,7 @@ export function bindMouseEvents(app) {
         }
         if (app.viewport.isPanning) return;
 
-        if (app.dragMode === 'move') {
-            handleMoveDragMouseMove(app, worldPos);
-        } else if (app.dragMode === 'anchor' && app.dragShape) {
-            handleAnchorDragMouseMove(app, worldPos, snapped);
-        } else if (app.dragMode === 'wire-segment' && app.dragShape) {
-            handleWireSegmentDragMouseMove(app, worldPos);
-        } else if (app.dragMode === 'box' && app.boxSelectStart) {
-            app.didDrag = true;
-            app._updateBoxSelectElement(worldPos);
-            // Diff-based live selection: only invalidates shapes whose state changed
-            const bounds = app._getBoxSelectBounds(worldPos);
-            app.selection.syncBoxSelection(bounds, !!app.boxSelectAdditive, 'contain');
-            app.renderShapes(false);
-        }
+        handleActiveDragMouseMove(app, worldPos, snapped);
     });
 
     // Listen on window so mouseup is caught even if mouse leaves the SVG
