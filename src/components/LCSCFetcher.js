@@ -53,6 +53,33 @@ export class LCSCFetcher {
     }
 
     /**
+     * Returns proxy order, optionally prioritising the last known working proxy.
+     * @param {boolean} [preferLastWorking=true]
+     * @returns {string[]}
+     */
+    _getProxyOrder(preferLastWorking = true) {
+        if (!preferLastWorking || !this.lastWorkingProxy) {
+            return [...this.corsProxies];
+        }
+        return [this.lastWorkingProxy, ...this.corsProxies.filter(p => p !== this.lastWorkingProxy)];
+    }
+
+    /**
+     * Expand proxy template tokens for a target URL.
+     * @param {string} proxy
+     * @param {string} targetUrl
+     * @returns {string}
+     */
+    _buildProxyUrl(proxy, targetUrl) {
+        const encodedUrl = encodeURIComponent(targetUrl);
+        const urlSansScheme = targetUrl.replace(/^https?:\/\//, '');
+        return proxy
+            .replace('{encodedUrl}', encodedUrl)
+            .replace('{urlSansScheme}', urlSansScheme)
+            .replace('{url}', targetUrl);
+    }
+
+    /**
      * Fetch JSON from a target URL through the CORS proxy list.
      * Tries proxies in order; returns `{ data }` on success or `{ error }` on failure.
      * @param {string} targetUrl
@@ -60,20 +87,12 @@ export class LCSCFetcher {
      * @returns {Promise<{data?: any, error?: Error}>}
      */
     async _fetchJsonWithProxies(targetUrl, options = {}) {
-        const proxies = this.lastWorkingProxy
-            ? [this.lastWorkingProxy, ...this.corsProxies.filter(p => p !== this.lastWorkingProxy)]
-            : [...this.corsProxies];
+        const proxies = this._getProxyOrder(true);
 
         let lastError = null;
 
-        const encodedUrl = encodeURIComponent(targetUrl);
-        const urlSansScheme = targetUrl.replace(/^https?:\/\//, '');
-
         for (const proxy of proxies) {
-            const url = proxy
-                .replace('{encodedUrl}', encodedUrl)
-                .replace('{urlSansScheme}', urlSansScheme)
-                .replace('{url}', targetUrl);
+            const url = this._buildProxyUrl(proxy, targetUrl);
             try {
                 const response = await fetch(url, options);
 
@@ -178,12 +197,9 @@ export class LCSCFetcher {
             const targetUrl = `https://modules.easyeda.com/3dmodel/${uuid3d}`;
             console.log('Fetching EasyEDA 3D model from:', targetUrl);
 
-            for (const proxy of this.corsProxies) {
+            for (const proxy of this._getProxyOrder(false)) {
                 try {
-                    const proxyUrl = proxy
-                        .replace('{encodedUrl}', encodeURIComponent(targetUrl))
-                        .replace('{url}', targetUrl)
-                        .replace('{urlSansScheme}', targetUrl.replace(/^https?:\/\//, ''));
+                    const proxyUrl = this._buildProxyUrl(proxy, targetUrl);
 
                     const response = await fetch(proxyUrl);
 
