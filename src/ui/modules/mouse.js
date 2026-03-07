@@ -971,6 +971,19 @@ function syncAnchorDragLinkedNodes(app, anchorPos) {
     }
 }
 
+/**
+ * Return current endpoint node IDs for the active dragged wire segment.
+ */
+function getDraggedSegmentEndpointNodeIds(wire, dragEdgeId) {
+    const movedNodes = new Set();
+    const edgeNow = wire.edges.get(dragEdgeId);
+    if (edgeNow) {
+        movedNodes.add(edgeNow.from);
+        movedNodes.add(edgeNow.to);
+    }
+    return movedNodes;
+}
+
 function handleAnchorDragMouseMove(app, worldPos, snapped) {
     app.didDrag = true;
     // Ensure shape stays selected and visible during anchor drag
@@ -1139,10 +1152,7 @@ function handleWireSegmentDragMouseMove(app, worldPos) {
 
         // Move T-junction nodes on other wires using pre-recorded links
         if (app.dragTJunctionLinks && edge) {
-            const movedNodes = new Set();
-            // Collect which of our nodes actually moved
-            const edgeNow = wire.edges.get(dragEdgeId);
-            if (edgeNow) { movedNodes.add(edgeNow.from); movedNodes.add(edgeNow.to); }
+            const movedNodes = getDraggedSegmentEndpointNodeIds(wire, dragEdgeId);
             for (const link of app.dragTJunctionLinks) {
                 if (movedNodes.has(link.wireNodeId)) {
                     const sp = link.otherWire.nodes.get(link.otherNodeId);
@@ -1157,9 +1167,7 @@ function handleWireSegmentDragMouseMove(app, worldPos) {
 
         // Move NoConnect shapes linked to moved segment endpoints
         if (app.dragSegmentNCLinks && edge) {
-            const movedNodes = new Set();
-            const edgeNow = wire.edges.get(dragEdgeId);
-            if (edgeNow) { movedNodes.add(edgeNow.from); movedNodes.add(edgeNow.to); }
+            const movedNodes = getDraggedSegmentEndpointNodeIds(wire, dragEdgeId);
             for (const link of app.dragSegmentNCLinks) {
                 if (movedNodes.has(link.wireNodeId)) {
                     link.nc.x += dx;
