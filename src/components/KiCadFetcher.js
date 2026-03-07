@@ -348,46 +348,32 @@ export class KiCadFetcher {
         const targetUrls = expandedBases.map(base => `${base}/${library}.kicad_sym`);
         
         for (const targetUrl of targetUrls) {
-            // Try each proxy
-            for (let attempt = 0; attempt < this.corsProxies.length; attempt++) {
-                try {
-                    const proxy = this.corsProxies[attempt];
-                    const url = `${proxy}${encodeURIComponent(targetUrl)}`;
-                    
-                    console.log(`Fetching KiCad library: ${library}`);
-                    
-                    const response = await this._fetchWithTimeout(url);
-                    
-                    if (!response.ok) {
-                        console.warn(`KiCad fetch failed with status ${response.status}`);
-                        continue;
-                    }
-                    
-                    const content = await response.text();
-                    console.log(`KiCad library ${library} fetched, size: ${content.length} bytes`);
-                    
-                    // Validate content is a string
-                    if (typeof content !== 'string') {
-                        console.warn('KiCad content is not a string, skipping cache');
-                        return null;
-                    }
-                    
-                    // Verify it looks like a KiCad file
-                    if (!content.includes('kicad_symbol_lib')) {
-                        console.warn('Response does not look like a KiCad library file:', content.substring(0, 200));
-                        continue;
-                    }
-                    
-                    // Cache the result with 7-day TTL
-                    storageManager.set(cacheKey, content, 7 * 24 * 60 * 60 * 1000);
-                    console.log(`Cached KiCad library: ${library}`);
-                    
-                    return content;
-                    
-                } catch (error) {
-                    console.error(`KiCad fetch error with proxy ${this.corsProxies[attempt]}:`, error);
-                }
+            console.log(`Fetching KiCad library: ${library}`);
+            const response = await this._fetchFirstOkResponse(targetUrl);
+            if (!response) {
+                continue;
             }
+
+            const content = await response.text();
+            console.log(`KiCad library ${library} fetched, size: ${content.length} bytes`);
+
+            // Validate content is a string
+            if (typeof content !== 'string') {
+                console.warn('KiCad content is not a string, skipping cache');
+                return null;
+            }
+
+            // Verify it looks like a KiCad file
+            if (!content.includes('kicad_symbol_lib')) {
+                console.warn('Response does not look like a KiCad library file:', content.substring(0, 200));
+                continue;
+            }
+
+            // Cache the result with 7-day TTL
+            storageManager.set(cacheKey, content, 7 * 24 * 60 * 60 * 1000);
+            console.log(`Cached KiCad library: ${library}`);
+
+            return content;
         }
         
         // If initial attempts failed, refresh the index once and retry with discovered paths
@@ -396,37 +382,26 @@ export class KiCadFetcher {
         if (refreshedPath && !refreshedPath.endsWith('.kicad_symdir')) {
             const retryUrls = baseCandidates.map(base => `${base}/${refreshedPath}`);
             for (const targetUrl of retryUrls) {
-                for (let attempt = 0; attempt < this.corsProxies.length; attempt++) {
-                    try {
-                        const proxy = this.corsProxies[attempt];
-                        const url = `${proxy}${encodeURIComponent(targetUrl)}`;
-
-                        console.log(`Fetching KiCad library (retry): ${library}`);
-
-                        const response = await this._fetchWithTimeout(url);
-                        if (!response.ok) {
-                            console.warn(`KiCad fetch failed with status ${response.status}`);
-                            continue;
-                        }
-
-                        const content = await response.text();
-                        if (typeof content !== 'string') {
-                            console.warn('KiCad content is not a string, skipping cache');
-                            return null;
-                        }
-
-                        if (!content.includes('kicad_symbol_lib')) {
-                            console.warn('Response does not look like a KiCad library file:', content.substring(0, 200));
-                            continue;
-                        }
-
-                        storageManager.set(cacheKey, content, 7 * 24 * 60 * 60 * 1000);
-                        console.log(`Cached KiCad library: ${library}`);
-                        return content;
-                    } catch (error) {
-                        console.error(`KiCad fetch error with proxy ${this.corsProxies[attempt]}:`, error);
-                    }
+                console.log(`Fetching KiCad library (retry): ${library}`);
+                const response = await this._fetchFirstOkResponse(targetUrl);
+                if (!response) {
+                    continue;
                 }
+
+                const content = await response.text();
+                if (typeof content !== 'string') {
+                    console.warn('KiCad content is not a string, skipping cache');
+                    return null;
+                }
+
+                if (!content.includes('kicad_symbol_lib')) {
+                    console.warn('Response does not look like a KiCad library file:', content.substring(0, 200));
+                    continue;
+                }
+
+                storageManager.set(cacheKey, content, 7 * 24 * 60 * 60 * 1000);
+                console.log(`Cached KiCad library: ${library}`);
+                return content;
             }
         }
 
@@ -495,38 +470,25 @@ export class KiCadFetcher {
      */
     async _fetchSymbolFile(symDirPath, symbolName) {
         const fileName = `${symbolName}.kicad_sym`;
-        const targetUrls = [
-            `${this.symbolsBase}/${symDirPath}/${fileName}`
-        ];
-        if (this.symbolsBase.includes('/-/raw/master')) {
-            targetUrls.push(`${this.symbolsBase.replace('/-/raw/master', '/-/raw/main')}/${symDirPath}/${fileName}`);
-        }
+        const targetUrls = this._buildRawUrlCandidates(this.symbolsBase, `${symDirPath}/${fileName}`);
 
         for (const targetUrl of targetUrls) {
-            for (let attempt = 0; attempt < this.corsProxies.length; attempt++) {
-                try {
-                    const proxy = this.corsProxies[attempt];
-                    const url = `${proxy}${encodeURIComponent(targetUrl)}`;
-                    console.log(`Fetching KiCad symbol file: ${symDirPath}/${fileName}`);
-                    const response = await this._fetchWithTimeout(url);
-                    if (!response.ok) {
-                        console.warn(`KiCad fetch failed with status ${response.status}`);
-                        continue;
-                    }
-                    const content = await response.text();
-                    if (typeof content !== 'string') {
-                        console.warn('KiCad content is not a string, skipping cache');
-                        return null;
-                    }
-                    if (!content.includes('kicad_symbol_lib')) {
-                        console.warn('Response does not look like a KiCad library file:', content.substring(0, 200));
-                        continue;
-                    }
-                    return content;
-                } catch (error) {
-                    console.error(`KiCad fetch error with proxy ${this.corsProxies[attempt]}:`, error);
-                }
+            console.log(`Fetching KiCad symbol file: ${symDirPath}/${fileName}`);
+            const response = await this._fetchFirstOkResponse(targetUrl);
+            if (!response) {
+                continue;
             }
+
+            const content = await response.text();
+            if (typeof content !== 'string') {
+                console.warn('KiCad content is not a string, skipping cache');
+                return null;
+            }
+            if (!content.includes('kicad_symbol_lib')) {
+                console.warn('Response does not look like a KiCad library file:', content.substring(0, 200));
+                continue;
+            }
+            return content;
         }
         return null;
     }
@@ -538,23 +500,21 @@ export class KiCadFetcher {
      * @returns {Promise<Object|null>}
      */
     async _fetchJsonWithProxy(targetUrl, returnHeaders = false) {
-        for (let attempt = 0; attempt < this.corsProxies.length; attempt++) {
-            try {
-                const proxy = this.corsProxies[attempt];
-                const url = `${proxy}${encodeURIComponent(targetUrl)}`;
-                const response = await this._fetchWithTimeout(url);
-                if (!response.ok) {
-                    continue;
-                }
-                const json = await response.json();
-                if (returnHeaders) {
-                    return { json, headers: response.headers };
-                }
-                return json;
-            } catch (error) {
-                console.error(`KiCad fetch error with proxy ${this.corsProxies[attempt]}:`, error);
-            }
+        const response = await this._fetchFirstOkResponse(targetUrl);
+        if (!response) {
+            return returnHeaders ? null : null;
         }
+
+        try {
+            const json = await response.json();
+            if (returnHeaders) {
+                return { json, headers: response.headers };
+            }
+            return json;
+        } catch (error) {
+            console.error('KiCad JSON parse error:', error);
+        }
+
         return returnHeaders ? null : null;
     }
 
@@ -572,6 +532,30 @@ export class KiCadFetcher {
         } finally {
             clearTimeout(timeoutId);
         }
+    }
+
+    /**
+     * Fetch a target URL through configured proxies and return the first successful response.
+     * @param {string} targetUrl
+     * @param {string} [errorContext='KiCad fetch error']
+     * @returns {Promise<Response|null>}
+     */
+    async _fetchFirstOkResponse(targetUrl, errorContext = 'KiCad fetch error') {
+        for (let attempt = 0; attempt < this.corsProxies.length; attempt++) {
+            try {
+                const proxy = this.corsProxies[attempt];
+                const url = `${proxy}${encodeURIComponent(targetUrl)}`;
+                const response = await this._fetchWithTimeout(url);
+                if (response.ok) {
+                    return response;
+                }
+                console.warn(`KiCad fetch failed with status ${response.status}`);
+            } catch (error) {
+                console.error(`${errorContext} with proxy ${this.corsProxies[attempt]}:`, error);
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -646,21 +630,8 @@ export class KiCadFetcher {
      * @returns {Promise<boolean>}
      */
     async _checkUrlExists(targetUrl) {
-        for (let attempt = 0; attempt < this.corsProxies.length; attempt++) {
-            try {
-                const proxy = this.corsProxies[attempt];
-                const url = `${proxy}${encodeURIComponent(targetUrl)}`;
-
-                const response = await this._fetchWithTimeout(url);
-                if (response.ok) {
-                    return true;
-                }
-            } catch (error) {
-                console.error(`KiCad fetch error with proxy ${this.corsProxies[attempt]}:`, error);
-            }
-        }
-
-        return false;
+        const response = await this._fetchFirstOkResponse(targetUrl);
+        return !!response;
     }
 
     /**
@@ -679,30 +650,22 @@ export class KiCadFetcher {
         const targetUrls = this._buildRawUrlCandidates(this.footprintsBase, `${lib}.pretty/${name}.kicad_mod`);
 
         for (const targetUrl of targetUrls) {
-            for (let attempt = 0; attempt < this.corsProxies.length; attempt++) {
-                try {
-                    const proxy = this.corsProxies[attempt];
-                    const url = `${proxy}${encodeURIComponent(targetUrl)}`;
-                    const response = await this._fetchWithTimeout(url);
-                    if (!response.ok) {
-                        continue;
-                    }
-
-                    const content = await response.text();
-                    if (typeof content !== 'string') {
-                        return null;
-                    }
-
-                    if (!content.includes('footprint')) {
-                        continue;
-                    }
-
-                    storageManager.set(cacheKey, content, 7 * 24 * 60 * 60 * 1000);
-                    return content;
-                } catch (error) {
-                    console.error(`KiCad footprint fetch error with proxy ${this.corsProxies[attempt]}:`, error);
-                }
+            const response = await this._fetchFirstOkResponse(targetUrl, 'KiCad footprint fetch error');
+            if (!response) {
+                continue;
             }
+
+            const content = await response.text();
+            if (typeof content !== 'string') {
+                return null;
+            }
+
+            if (!content.includes('footprint')) {
+                continue;
+            }
+
+            storageManager.set(cacheKey, content, 7 * 24 * 60 * 60 * 1000);
+            return content;
         }
 
         return null;
