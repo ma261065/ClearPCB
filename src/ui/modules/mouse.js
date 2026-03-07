@@ -847,6 +847,35 @@ function propagateMovedWireJunctions(app, selection, dx, dy) {
     }
 }
 
+/**
+ * Resolve snapped target and sticky guides for move-drag updates.
+ */
+function resolveMoveDragTarget(app, targetPos, selection, movingCompIds) {
+    const snappedTarget = app.viewport.getSnappedPosition(targetPos);
+
+    const soloNoConnect = selection.length === 1 && selection[0].type === 'noconnect'
+        ? selection[0]
+        : null;
+    if (soloNoConnect) {
+        const snap = resolveWireSnapPosition(app, targetPos, { pinTolerance: PIN_SNAP_TOL });
+        snappedTarget.x = snap.x;
+        snappedTarget.y = snap.y;
+        updateSnapHighlight(app, snap);
+    }
+
+    let stickyGuides = [];
+    if (movingCompIds.size > 0) {
+        const proposedDx = snappedTarget.x - app.dragLastSnapped.x;
+        const proposedDy = snappedTarget.y - app.dragLastSnapped.y;
+        const stickySnap = computeStickyWireSnaps(app, movingCompIds, proposedDx, proposedDy);
+        snappedTarget.x += stickySnap.adjustX;
+        snappedTarget.y += stickySnap.adjustY;
+        stickyGuides = stickySnap.guides;
+    }
+
+    return { snappedTarget, stickyGuides };
+}
+
 function handleMoveDragMouseMove(app, worldPos) {
     // Snap the absolute target position to grid so dragged items
     // land on grid points.  The object's off-grid starting position
@@ -859,31 +888,9 @@ function handleMoveDragMouseMove(app, worldPos) {
         x: app.dragObjectStartPos.x + mouseDelta.x,
         y: app.dragObjectStartPos.y + mouseDelta.y
     };
-    const snappedTarget = app.viewport.getSnappedPosition(targetPos);
-
-    // Pin-aware snap for solo noconnect moves: allow landing on off-grid pins
     const sel = app.selection.getSelection();
-    const soloNoConnect = sel.length === 1 && sel[0].type === 'noconnect' ? sel[0] : null;
-    if (soloNoConnect) {
-        const snap = resolveWireSnapPosition(app, targetPos, { pinTolerance: PIN_SNAP_TOL });
-        snappedTarget.x = snap.x;
-        snappedTarget.y = snap.y;
-        updateSnapHighlight(app, snap);
-    }
-
-    // Build set of parent IDs being moved (components + wires that own field texts)
     const movingCompIds = collectMovingComponentIds(sel);
-
-    // H/V snap for sticky wire segments: compute nudge + guides together
-    let stickyGuides = [];
-    if (movingCompIds.size > 0) {
-        const proposedDx = snappedTarget.x - app.dragLastSnapped.x;
-        const proposedDy = snappedTarget.y - app.dragLastSnapped.y;
-        const stickySnap = computeStickyWireSnaps(app, movingCompIds, proposedDx, proposedDy);
-        snappedTarget.x += stickySnap.adjustX;
-        snappedTarget.y += stickySnap.adjustY;
-        stickyGuides = stickySnap.guides;
-    }
+    const { snappedTarget, stickyGuides } = resolveMoveDragTarget(app, targetPos, sel, movingCompIds);
 
     // Calculate actual movement from object's last snapped position
     const dx = snappedTarget.x - app.dragLastSnapped.x;
