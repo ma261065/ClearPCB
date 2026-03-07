@@ -1313,6 +1313,24 @@ function handlePrimaryMouseDownPreflight(app, event) {
 }
 
 /**
+ * Handle post-preflight primary mousedown tool dispatch.
+ */
+function handlePrimaryMouseDownDispatch(app, event) {
+    const { screenPos, worldPos, snapped } = getEventPositions(event, app.viewport);
+
+    if (handleImmediatePlacementMouseDown(app, event, snapped)) {
+        return;
+    }
+
+    if (app.currentTool === 'select') {
+        handleSelectToolMouseDown(app, event, worldPos, snapped, screenPos);
+        return;
+    }
+
+    handleNonSelectToolMouseDown(app, event, worldPos, snapped);
+}
+
+/**
  * Wire all mouse-event handlers (mousedown, mouseup, mousemove, click,
  * dblclick) to the SVG canvas. Handles selection, dragging, anchor
  * manipulation, box-select, and context menus.
@@ -1326,19 +1344,7 @@ export function bindMouseEvents(app) {
             return;
         }
 
-        const { screenPos, worldPos, snapped } = getEventPositions(e, app.viewport);
-
-        if (handleImmediatePlacementMouseDown(app, e, snapped)) {
-            return;
-        }
-
-        if (app.currentTool === 'select') {
-            if (handleSelectToolMouseDown(app, e, worldPos, snapped, screenPos)) {
-                return;
-            }
-        } else {
-            handleNonSelectToolMouseDown(app, e, worldPos, snapped);
-        }
+        handlePrimaryMouseDownDispatch(app, e);
     });
 
     svg.addEventListener('mousedown', (e) => {
