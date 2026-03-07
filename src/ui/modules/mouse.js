@@ -146,6 +146,35 @@ function shouldSkipSelectClick(app) {
     return false;
 }
 
+/**
+ * True when midpoint-anchor drag should immediately insert an editable point.
+ */
+function canQueueMidpointAnchorDrag(shape, anchorId) {
+    if (!anchorId?.startsWith('mid')) {
+        return false;
+    }
+    return shape.type === 'line' || shape.type === 'polygon' || shape.type === 'wire';
+}
+
+/**
+ * Queue deferred anchor drag metadata used by mousemove promotion.
+ */
+function queuePendingAnchorDrag(app, params) {
+    const { shape, anchorId, screenPos, snapped, preInsertState } = params;
+    const pending = {
+        shape,
+        anchorId,
+        screenPos: { ...screenPos },
+        snapped: { ...snapped }
+    };
+
+    if (preInsertState) {
+        pending.preInsertState = preInsertState;
+    }
+
+    setPendingAnchorDrag(app, pending);
+}
+
 function handleAnchorContextMenu(app, worldPos, clientX, clientY) {
     const selectedShapes = app.selection.getSelection();
     for (const shape of selectedShapes) {
@@ -609,25 +638,25 @@ export function bindMouseEvents(app) {
                     }
                     // For midpoint anchors, immediately insert the point
                     // so visual feedback (anchor square + move cursor) is instant
-                    if (anchorId.startsWith('mid') && (shape.type === 'line' || shape.type === 'polygon' || shape.type === 'wire')) {
+                    if (canQueueMidpointAnchorDrag(shape, anchorId)) {
                         const beforeState = app._captureShapeState(shape);
                         const newAnchorId = shape.moveAnchor(anchorId, snapped.x, snapped.y);
                         app.renderShapes(true);
                         app.viewport.svg.style.cursor = 'move';
-                        setPendingAnchorDrag(app, {
+                        queuePendingAnchorDrag(app, {
                             shape,
                             anchorId: newAnchorId || anchorId,
-                            screenPos: { ...screenPos },
-                            snapped: { ...snapped },
+                            screenPos,
+                            snapped,
                             preInsertState: beforeState
                         });
                     } else {
                         // Defer anchor drag until the mouse actually moves
-                        setPendingAnchorDrag(app, {
+                        queuePendingAnchorDrag(app, {
                             shape,
                             anchorId,
-                            screenPos: { ...screenPos },
-                            snapped: { ...snapped }
+                            screenPos,
+                            snapped
                         });
                     }
                     e.preventDefault();
