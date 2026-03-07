@@ -926,6 +926,51 @@ function handleMoveDragMouseMove(app, worldPos) {
     }
 }
 
+/**
+ * Merge collinear snap guides from T-junction-linked wires during anchor drag.
+ */
+function mergeAnchorTJunctionGuides(app, anchorPos, anchorGuides) {
+    if (!(app.dragAnchorTJLinks && app.dragAnchorTJLinks.length > 0)) {
+        return { anchorPos, anchorGuides };
+    }
+
+    let mergedAnchorPos = anchorPos;
+    let mergedGuides = anchorGuides;
+    for (const link of app.dragAnchorTJLinks) {
+        const tjResult = computeAnchorCollinearSnap(app, link.otherWire, link.otherNodeId, mergedAnchorPos);
+        if (tjResult.anchorPos.x !== mergedAnchorPos.x || tjResult.anchorPos.y !== mergedAnchorPos.y) {
+            mergedAnchorPos = tjResult.anchorPos;
+        }
+        mergedGuides = mergedGuides.concat(tjResult.guides);
+    }
+
+    return { anchorPos: mergedAnchorPos, anchorGuides: mergedGuides };
+}
+
+/**
+ * Sync linked wire and noconnect endpoints to the active dragged anchor position.
+ */
+function syncAnchorDragLinkedNodes(app, anchorPos) {
+    if (app.dragAnchorTJLinks) {
+        for (const link of app.dragAnchorTJLinks) {
+            const p = link.otherWire.nodes.get(link.otherNodeId);
+            if (p) {
+                p.x = anchorPos.x;
+                p.y = anchorPos.y;
+                link.otherWire.invalidate();
+            }
+        }
+    }
+
+    if (app.dragAnchorNCLinks) {
+        for (const link of app.dragAnchorNCLinks) {
+            link.nc.x = anchorPos.x;
+            link.nc.y = anchorPos.y;
+            link.nc.invalidate();
+        }
+    }
+}
+
 function handleAnchorDragMouseMove(app, worldPos, snapped) {
     app.didDrag = true;
     // Ensure shape stays selected and visible during anchor drag
@@ -992,43 +1037,16 @@ function handleAnchorDragMouseMove(app, worldPos, snapped) {
     // Update crosshairs to track the anchor position
     app._updateCrosshair(anchorPos);
 
-    // Compute collinear snap for T-junction-linked wires, merge with main guides
-    if (app.dragAnchorTJLinks && app.dragAnchorTJLinks.length > 0) {
-        for (const link of app.dragAnchorTJLinks) {
-            const tjResult = computeAnchorCollinearSnap(
-                app, link.otherWire, link.otherNodeId, anchorPos
-            );
-            if (tjResult.anchorPos.x !== anchorPos.x || tjResult.anchorPos.y !== anchorPos.y) {
-                anchorPos = tjResult.anchorPos;
-            }
-            anchorGuides = anchorGuides.concat(tjResult.guides);
-        }
-    }
+    const mergedAnchorState = mergeAnchorTJunctionGuides(app, anchorPos, anchorGuides);
+    anchorPos = mergedAnchorState.anchorPos;
+    anchorGuides = mergedAnchorState.anchorGuides;
     renderGuideLines(app, anchorGuides);
 
     const newAnchorId = app.dragShape.moveAnchor(app.dragAnchorId, anchorPos.x, anchorPos.y);
     if (newAnchorId && newAnchorId !== app.dragAnchorId) {
         app.dragAnchorId = newAnchorId;
     }
-    // Move T-junction linked nodes on other wires
-    if (app.dragAnchorTJLinks) {
-        for (const link of app.dragAnchorTJLinks) {
-            const p = link.otherWire.nodes.get(link.otherNodeId);
-            if (p) {
-                p.x = anchorPos.x;
-                p.y = anchorPos.y;
-                link.otherWire.invalidate();
-            }
-        }
-    }
-    // Move NoConnect shapes linked to the dragged anchor
-    if (app.dragAnchorNCLinks) {
-        for (const link of app.dragAnchorNCLinks) {
-            link.nc.x = anchorPos.x;
-            link.nc.y = anchorPos.y;
-            link.nc.invalidate();
-        }
-    }
+    syncAnchorDragLinkedNodes(app, anchorPos);
     app.renderShapes(false);
     if (app.textEdit) {
         app._updateTextEditOverlay?.();
