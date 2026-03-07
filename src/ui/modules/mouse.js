@@ -3,15 +3,12 @@ import { commitAnchorDrag } from './drag.js';
 import { detectTJunction, showAnchorContextMenu, showSegmentContextMenu } from './context-menu.js';
 import { updateToolGhost } from './tool.js';
 import {
-    beginAnchorDragSession,
     beginBoxSelectSession,
     beginMoveDragSession,
     beginWireSegmentDragSession,
     clearPendingAnchorDrag,
     clearPendingAnchorDragIfIdle,
-    consumePendingAnchorDrag,
     finalizeDragInteraction,
-    getPendingAnchorDrag,
     handleActiveDragMouseUp,
     handleDrawingToolMouseUp,
     handleBoxSelectMouseUp,
@@ -45,6 +42,30 @@ function getEventPositions(e, viewport) {
     viewport.shiftHeld = e.shiftKey;
     const snapped = viewport.getSnappedPosition(worldPos);
     return { screenPos, worldPos, snapped };
+}
+
+/**
+ * Click-to-add tools (line/polygon): start drawing on first click,
+ * append a point on subsequent clicks.
+ */
+function handlePointAppendingToolMouseDown(app, snapped, appendPoint) {
+    if (!app.isDrawing) {
+        app._startDrawing(snapped);
+        return;
+    }
+    appendPoint(snapped);
+}
+
+/**
+ * Start/finish tools (rect/circle/default fallback): first click starts,
+ * next click finishes at snapped position.
+ */
+function handleStartFinishToolMouseDown(app, snapped) {
+    if (!app.isDrawing) {
+        app._startDrawing(snapped);
+        return;
+    }
+    app._finishDrawing(snapped);
 }
 
 function handleAnchorContextMenu(app, worldPos, clientX, clientY) {
@@ -752,17 +773,9 @@ export function bindMouseEvents(app) {
             }
             e.preventDefault();
         } else if (app.currentTool === 'line') {
-            if (!app.isDrawing) {
-                app._startDrawing(snapped);
-            } else {
-                app._addLinePoint(snapped);
-            }
+            handlePointAppendingToolMouseDown(app, snapped, point => app._addLinePoint(point));
         } else if (app.currentTool === 'polygon') {
-            if (!app.isDrawing) {
-                app._startDrawing(snapped);
-            } else {
-                app._addPolygonPoint(snapped);
-            }
+            handlePointAppendingToolMouseDown(app, snapped, point => app._addPolygonPoint(point));
         } else if (app.currentTool === 'arc') {
             if (!app.isDrawing) {
                 // Start arc: first endpoint
@@ -779,11 +792,7 @@ export function bindMouseEvents(app) {
                 app._setToolCursor(app.currentTool, app.viewport.svg);
             }
         } else if (app.currentTool === 'rect' || app.currentTool === 'circle') {
-             if (!app.isDrawing) {
-                 app._startDrawing(snapped);
-             } else {
-                 app._finishDrawing(snapped);
-             }
+            handleStartFinishToolMouseDown(app, snapped);
         } else if (app.currentTool === 'noconnect' || app.currentTool === 'netlabel') {
             // Pin-aware snap: pin > wire endpoint/segment > grid
             const resolved = resolveWireSnapPosition(app, worldPos, { pinTolerance: PIN_SNAP_TOL });
@@ -799,11 +808,7 @@ export function bindMouseEvents(app) {
             updateToolGhost(app, pos);
         } else {
             // Default fallback for any other tools in future
-             if (!app.isDrawing) {
-                app._startDrawing(snapped);
-             } else {
-                 app._finishDrawing(snapped);
-             }
+            handleStartFinishToolMouseDown(app, snapped);
         }
     });
 
