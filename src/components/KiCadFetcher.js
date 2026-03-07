@@ -17,6 +17,8 @@ const SYMBOL_LIBRARY_MARKER = 'kicad_symbol_lib';
 const FOOTPRINT_MARKER = 'footprint';
 const CONTENT_PREVIEW_LENGTH = 200;
 const KICAD_GIT_REFS = ['master', 'main'];
+const KICAD_LIBRARY_INDEX_CACHE_KEY = 'kicad_library_index';
+const KICAD_FULL_SYMBOL_INDEX_CACHE_KEY = 'kicad_full_symbol_index';
 
 export class KiCadFetcher {
     /** Initialise GitLab base URLs, CORS proxies and in-memory caches. */
@@ -366,7 +368,7 @@ export class KiCadFetcher {
         await this._loadLibraryPathIndex(true);
         const refreshedPath = this.libraryPathIndex?.[library];
         if (refreshedPath && !refreshedPath.endsWith('.kicad_symdir')) {
-            const retryUrls = baseCandidates.map(base => `${base}/${refreshedPath}`);
+            const retryUrls = this._buildRawUrlCandidates(this.symbolsBase, refreshedPath);
             for (const targetUrl of retryUrls) {
                 console.log(`Fetching KiCad library (retry): ${library}`);
                 const response = await this._fetchFirstOkResponse(targetUrl);
@@ -394,8 +396,18 @@ export class KiCadFetcher {
      * @param {string} content
      */
     _cacheLibraryContent(cacheKey, library, content) {
-        storageManager.set(cacheKey, content, CONTENT_CACHE_TTL_MS);
+        this._setContentCache(cacheKey, content);
         console.log(`Cached KiCad library: ${library}`);
+    }
+
+    /**
+     * Cache content data with the standard content TTL.
+     * @param {string} key
+     * @param {any} value
+     * @returns {boolean}
+     */
+    _setContentCache(key, value) {
+        return storageManager.set(key, value, CONTENT_CACHE_TTL_MS);
     }
 
     /**
@@ -506,7 +518,7 @@ export class KiCadFetcher {
     async _fetchJsonWithProxy(targetUrl, returnHeaders = false) {
         const response = await this._fetchFirstOkResponse(targetUrl);
         if (!response) {
-            return returnHeaders ? null : null;
+            return null;
         }
 
         try {
@@ -519,7 +531,7 @@ export class KiCadFetcher {
             console.error('KiCad JSON parse error:', error);
         }
 
-        return returnHeaders ? null : null;
+        return null;
     }
 
     /**
@@ -572,7 +584,7 @@ export class KiCadFetcher {
             return;
         }
 
-        const cacheKey = 'kicad_library_index';
+        const cacheKey = KICAD_LIBRARY_INDEX_CACHE_KEY;
         if (!force) {
             const cached = storageManager.get(cacheKey);
             if (cached && typeof cached === 'object') {
@@ -622,7 +634,7 @@ export class KiCadFetcher {
 
             if (Object.keys(index).length > 0) {
                 this.libraryPathIndex = index;
-                storageManager.set(cacheKey, index, CONTENT_CACHE_TTL_MS);
+                this._setContentCache(cacheKey, index);
                 return;
             }
         }
@@ -668,7 +680,7 @@ export class KiCadFetcher {
                 continue;
             }
 
-            storageManager.set(cacheKey, content, CONTENT_CACHE_TTL_MS);
+            this._setContentCache(cacheKey, content);
             return content;
         }
 
@@ -867,7 +879,7 @@ export class KiCadFetcher {
 
         // Stale-while-revalidate: serve expired cache immediately,
         // then refresh in the background so the user can search right away.
-        const cacheKey = 'kicad_full_symbol_index';
+        const cacheKey = KICAD_FULL_SYMBOL_INDEX_CACHE_KEY;
         const cached = storageManager.getRaw(cacheKey);
 
         if (cached && cached.data && typeof cached.data === 'object'
@@ -989,7 +1001,7 @@ export class KiCadFetcher {
 
             if (Object.keys(index).length > 0) {
                 this.libraryIndex = { symbols: index };
-                const saved = storageManager.set('kicad_full_symbol_index', index, CONTENT_CACHE_TTL_MS);
+                const saved = this._setContentCache(KICAD_FULL_SYMBOL_INDEX_CACHE_KEY, index);
                 if (!saved) {
                     console.warn('KiCadFetcher: Failed to cache index in localStorage (quota exceeded?). ' +
                         'The index will need to be re-downloaded on next visit.');
