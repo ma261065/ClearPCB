@@ -336,6 +336,42 @@ export function handleActiveDragMouseUp(app) {
 }
 
 /**
+ * True when a drawing tool should not auto-finish on left mouseup.
+ *
+ * @param {string} tool
+ * @param {Set<string>} clickToEndTools
+ * @returns {boolean}
+ */
+function shouldIgnoreLeftMouseUpForTool(tool, clickToEndTools) {
+    if (tool === 'line' || tool === 'polygon' || tool === 'wire') {
+        return true;
+    }
+    return clickToEndTools.has(tool);
+}
+
+/**
+ * True when the specified drawing tool is currently active.
+ *
+ * @param {object} app
+ * @param {string} tool
+ * @returns {boolean}
+ */
+function isActiveDrawingTool(app, tool) {
+    return app.currentTool === tool && app.isDrawing;
+}
+
+/**
+ * True when an array-like point list meets minimum length.
+ *
+ * @param {unknown} points
+ * @param {number} minLength
+ * @returns {boolean}
+ */
+function hasMinimumPoints(points, minLength) {
+    return Array.isArray(points) && points.length >= minLength;
+}
+
+/**
  * Handle drawing-tool completion rules on left-button mouseup.
  *
  * @param {object} app
@@ -344,20 +380,7 @@ export function handleActiveDragMouseUp(app) {
  * @returns {boolean} True when a drawing action was finalized.
  */
 export function handleDrawingToolMouseUp(app, snapped, clickToEndTools) {
-    if (app.currentTool === 'line') {
-        // Line continues until double-click, right-click, or Escape
-        return false;
-    }
-    if (app.currentTool === 'polygon') {
-        // Polygon continues until double-click or Escape
-        return false;
-    }
-    if (app.currentTool === 'wire') {
-        // Wire continues until Enter is pressed
-        return false;
-    }
-    if (clickToEndTools.has(app.currentTool)) {
-        // These tools now use Click-Move-Click, so do NOT finish on mouseup
+    if (shouldIgnoreLeftMouseUpForTool(app.currentTool, clickToEndTools)) {
         return false;
     }
     if (app.isDrawing) {
@@ -376,21 +399,21 @@ export function handleDrawingToolMouseUp(app, snapped, clickToEndTools) {
  * @returns {boolean} True when a matching drawing tool was finished.
  */
 export function handleRightClickDrawingMouseUp(app, worldPos, snapped) {
-    if (app.currentTool === 'wire' && app.isDrawing && app.wirePoints.length >= 1) {
+    if (isActiveDrawingTool(app, 'wire') && hasMinimumPoints(app.wirePoints, 1)) {
         app._finishWireDrawing(app.drawCurrent || worldPos);
         return true;
     }
-    if (app.currentTool === 'arc' && app.isDrawing && app.arcEndpoint) {
+    if (isActiveDrawingTool(app, 'arc') && app.arcEndpoint) {
         app._updateDrawing(worldPos);
         app._finishDrawing(worldPos);
         return true;
     }
-    if (app.currentTool === 'line' && app.isDrawing && app.linePoints && app.linePoints.length >= 2) {
+    if (isActiveDrawingTool(app, 'line') && hasMinimumPoints(app.linePoints, 2)) {
         app._addLinePoint(snapped);
         app._finishLine();
         return true;
     }
-    if (app.currentTool === 'polygon' && app.isDrawing) {
+    if (isActiveDrawingTool(app, 'polygon')) {
         app._addPolygonPoint(snapped);
         app._finishPolygon();
         return true;
