@@ -10,6 +10,10 @@
 import { storageManager } from '../core/StorageManager.js';
 import { circumcircle } from '../core/geometry.js';
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+const SEARCH_CACHE_TTL_MS = DAY_MS;
+const CONTENT_CACHE_TTL_MS = 7 * DAY_MS;
+
 export class KiCadFetcher {
     /** Initialise GitLab base URLs, CORS proxies and in-memory caches. */
     constructor() {
@@ -150,7 +154,7 @@ export class KiCadFetcher {
         
         // Only cache non-empty results (empty may be due to index not loaded yet)
         if (limitedResults.length > 0) {
-            storageManager.set(cacheKey, limitedResults, 24 * 60 * 60 * 1000);
+            storageManager.set(cacheKey, limitedResults, SEARCH_CACHE_TTL_MS);
         }
         
         return limitedResults;
@@ -351,7 +355,7 @@ export class KiCadFetcher {
             }
 
             // Cache the result with 7-day TTL
-            storageManager.set(cacheKey, content, 7 * 24 * 60 * 60 * 1000);
+            storageManager.set(cacheKey, content, CONTENT_CACHE_TTL_MS);
             console.log(`Cached KiCad library: ${library}`);
 
             return content;
@@ -374,7 +378,7 @@ export class KiCadFetcher {
                     continue;
                 }
 
-                storageManager.set(cacheKey, content, 7 * 24 * 60 * 60 * 1000);
+                storageManager.set(cacheKey, content, CONTENT_CACHE_TTL_MS);
                 console.log(`Cached KiCad library: ${library}`);
                 return content;
             }
@@ -607,7 +611,7 @@ export class KiCadFetcher {
 
             if (Object.keys(index).length > 0) {
                 this.libraryPathIndex = index;
-                storageManager.set(cacheKey, index, 7 * 24 * 60 * 60 * 1000);
+                storageManager.set(cacheKey, index, CONTENT_CACHE_TTL_MS);
                 return;
             }
         }
@@ -653,7 +657,7 @@ export class KiCadFetcher {
                 continue;
             }
 
-            storageManager.set(cacheKey, content, 7 * 24 * 60 * 60 * 1000);
+            storageManager.set(cacheKey, content, CONTENT_CACHE_TTL_MS);
             return content;
         }
 
@@ -974,7 +978,7 @@ export class KiCadFetcher {
 
             if (Object.keys(index).length > 0) {
                 this.libraryIndex = { symbols: index };
-                const saved = storageManager.set('kicad_full_symbol_index', index, 7 * 24 * 60 * 60 * 1000);
+                const saved = storageManager.set('kicad_full_symbol_index', index, CONTENT_CACHE_TTL_MS);
                 if (!saved) {
                     console.warn('KiCadFetcher: Failed to cache index in localStorage (quota exceeded?). ' +
                         'The index will need to be re-downloaded on next visit.');
