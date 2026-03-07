@@ -150,6 +150,7 @@ class SchematicApp {
         // ── Box selection ──────────────────────────────────────────────
         this.boxSelectElement = null;
         this.boxSelectStart = null;
+        this.boxSelectAdditive = false;
 
         // ── Clipboard / paste state (set by clipboard.js) ─────────────
         this.pastePreviewGroup = null;

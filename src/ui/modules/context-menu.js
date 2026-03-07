@@ -52,6 +52,20 @@ function getWireSplitLabelMeta(wire) {
     return { preSplitVisible, preSplitLabelPosition };
 }
 
+function getWireAnchorPosition(shape, anchorId) {
+    if (shape?.type !== 'wire' || !shape.nodes?.has(anchorId)) return null;
+    const pos = shape.nodes.get(anchorId);
+    return pos ? { x: pos.x, y: pos.y } : null;
+}
+
+function findNoConnectsAtPosition(app, pos) {
+    if (!pos) return [];
+    return app.shapes.filter(s =>
+        s.type === 'noconnect' &&
+        Math.hypot(s.x - pos.x, s.y - pos.y) < VERTEX_EPSILON
+    );
+}
+
 // ─── T-junction detection ──────────────────────────────────────────
 
 /**
@@ -371,11 +385,17 @@ export function showAnchorContextMenu(app, shape, anchorId, clientX, clientY, ca
         item.addEventListener('click', () => {
             dismissAnchorContextMenu();
             const beforeState = app._captureShapeState(shape);
+            const anchorPos = getWireAnchorPosition(shape, anchorId);
+            const attachedNCs = findNoConnectsAtPosition(app, anchorPos);
             if (shape.deleteAnchor(anchorId)) {
                 const afterState = app._captureShapeState(shape);
                 app._applyShapeState(shape, beforeState);
-                const command = new ModifyShapeCommand(app, shape, beforeState, afterState);
-                app.history.execute(command);
+                const batch = new BatchCommand('Delete point');
+                batch.add(new ModifyShapeCommand(app, shape, beforeState, afterState));
+                if (attachedNCs.length > 0) {
+                    batch.add(new DeleteShapesCommand(app, attachedNCs));
+                }
+                app.history.execute(batch);
                 shape.selected = true;
                 // Command's execute() already calls renderShapes(true)
             }
