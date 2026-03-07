@@ -133,6 +133,48 @@ export class SearchManager {
     }
 
     /**
+     * Check whether a query is valid for remote search.
+     * @param {string} query
+     * @param {number} [minLength=2]
+     * @returns {boolean}
+     */
+    _isRemoteSearchQueryValid(query, minLength = 2) {
+        return !!query && query.length >= minLength;
+    }
+
+    /**
+     * Normalize query for LCSC lookups.
+     * @param {string} query
+     * @returns {string}
+     */
+    _normalizeLCSCQuery(query) {
+        const trimmed = query.trim();
+        return /^c\d+$/i.test(trimmed)
+            ? trimmed.toUpperCase()
+            : trimmed;
+    }
+
+    /**
+     * Whether a result set is a single proxy/CORS error payload.
+     * @param {any} results
+     * @returns {boolean}
+     */
+    _isSingleErrorResult(results) {
+        return !!(results && results.length === 1 && results[0]?.error);
+    }
+
+    /**
+     * Log and return a default empty search result list.
+     * @param {string} source
+     * @param {unknown} error
+     * @returns {Array}
+     */
+    _handleSearchError(source, error) {
+        console.error(`SearchManager: ${source} search error:`, error);
+        return [];
+    }
+
+    /**
      * Record a cache miss and increment search counters for an outbound search.
      */
     _recordSearchCacheMiss() {
@@ -144,7 +186,7 @@ export class SearchManager {
      * Search KiCad library with caching
      */
     async searchKiCad(query) {
-        if (!query || query.length < 2) {
+        if (!this._isRemoteSearchQueryValid(query)) {
             return [];
         }
 
@@ -168,8 +210,7 @@ export class SearchManager {
             
             return results || [];
         } catch (error) {
-            console.error('SearchManager: KiCad search error:', error);
-            return [];
+            return this._handleSearchError('KiCad', error);
         }
     }
 
@@ -177,13 +218,11 @@ export class SearchManager {
      * Search LCSC with caching
      */
     async searchLCSC(query) {
-        if (!query || query.length < 2) {
+        if (!this._isRemoteSearchQueryValid(query)) {
             return [];
         }
 
-        const normalizedQuery = /^c\d+$/i.test(query.trim())
-            ? query.trim().toUpperCase()
-            : query.trim();
+        const normalizedQuery = this._normalizeLCSCQuery(query);
 
         // Check in-memory cache first
         const cacheKey = `lcsc:${normalizedQuery}`;
@@ -202,7 +241,7 @@ export class SearchManager {
             const results = await this.library.searchLCSC(normalizedQuery);
 
             // Do not cache proxy/CORS error results
-            if (results && results.length === 1 && results[0]?.error) {
+            if (this._isSingleErrorResult(results)) {
                 return results;
             }
             
@@ -211,8 +250,7 @@ export class SearchManager {
             
             return results || [];
         } catch (error) {
-            console.error('SearchManager: LCSC search error:', error);
-            return [];
+            return this._handleSearchError('LCSC', error);
         }
     }
 
