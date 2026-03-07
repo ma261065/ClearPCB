@@ -343,26 +343,13 @@ export class KiCadFetcher {
             return cached;
         }
 
-        const baseCandidates = this._getRawBaseCandidates(this.symbolsBase);
         const targetUrls = this._buildSymbolLibraryUrlCandidates(library);
-        
-        for (const targetUrl of targetUrls) {
-            console.log(`Fetching KiCad library: ${library}`);
-            const response = await this._fetchFirstOkResponse(targetUrl);
-            if (!response) {
-                continue;
-            }
-
-            const content = await this._readValidatedResponseText(
-                response,
-                value => this._isValidKiCadSymbolContent(value)
-            );
-            if (!content) {
-                continue;
-            }
-
+        const content = await this._fetchFirstValidContentFromUrls(targetUrls, {
+            validator: value => this._isValidKiCadSymbolContent(value),
+            logPrefix: `Fetching KiCad library: ${library}`
+        });
+        if (content) {
             console.log(`KiCad library ${library} fetched, size: ${content.length} bytes`);
-
             this._cacheLibraryContent(cacheKey, library, content);
             return content;
         }
@@ -372,23 +359,13 @@ export class KiCadFetcher {
         const refreshedPath = this.libraryPathIndex?.[library];
         if (refreshedPath && !refreshedPath.endsWith('.kicad_symdir')) {
             const retryUrls = this._buildRawUrlCandidates(this.symbolsBase, refreshedPath);
-            for (const targetUrl of retryUrls) {
-                console.log(`Fetching KiCad library (retry): ${library}`);
-                const response = await this._fetchFirstOkResponse(targetUrl);
-                if (!response) {
-                    continue;
-                }
-
-                const content = await this._readValidatedResponseText(
-                    response,
-                    value => this._isValidKiCadSymbolContent(value)
-                );
-                if (!content) {
-                    continue;
-                }
-
-                this._cacheLibraryContent(cacheKey, library, content);
-                return content;
+            const retryContent = await this._fetchFirstValidContentFromUrls(retryUrls, {
+                validator: value => this._isValidKiCadSymbolContent(value),
+                logPrefix: `Fetching KiCad library (retry): ${library}`
+            });
+            if (retryContent) {
+                this._cacheLibraryContent(cacheKey, library, retryContent);
+                return retryContent;
             }
         }
 
@@ -425,6 +402,35 @@ export class KiCadFetcher {
     async _readValidatedResponseText(response, validator) {
         const content = await response.text();
         return validator(content) ? content : null;
+    }
+
+    /**
+     * Fetch the first valid text payload from URL candidates.
+     * @param {string[]} targetUrls
+     * @param {Object} options
+     * @param {(content: unknown) => boolean} options.validator
+     * @param {string} [options.errorContext='KiCad fetch error']
+     * @param {string} [options.logPrefix]
+     * @returns {Promise<string|null>}
+     */
+    async _fetchFirstValidContentFromUrls(targetUrls, { validator, errorContext = 'KiCad fetch error', logPrefix } = {}) {
+        for (const targetUrl of targetUrls) {
+            if (logPrefix) {
+                console.log(logPrefix);
+            }
+
+            const response = await this._fetchFirstOkResponse(targetUrl, errorContext);
+            if (!response) {
+                continue;
+            }
+
+            const content = await this._readValidatedResponseText(response, validator);
+            if (content) {
+                return content;
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -490,24 +496,10 @@ export class KiCadFetcher {
     async _fetchSymbolFile(symDirPath, symbolName) {
         const fileName = `${symbolName}.kicad_sym`;
         const targetUrls = this._buildRawUrlCandidates(this.symbolsBase, `${symDirPath}/${fileName}`);
-
-        for (const targetUrl of targetUrls) {
-            console.log(`Fetching KiCad symbol file: ${symDirPath}/${fileName}`);
-            const response = await this._fetchFirstOkResponse(targetUrl);
-            if (!response) {
-                continue;
-            }
-
-            const content = await this._readValidatedResponseText(
-                response,
-                value => this._isValidKiCadSymbolContent(value)
-            );
-            if (!content) {
-                continue;
-            }
-            return content;
-        }
-        return null;
+        return this._fetchFirstValidContentFromUrls(targetUrls, {
+            validator: value => this._isValidKiCadSymbolContent(value),
+            logPrefix: `Fetching KiCad symbol file: ${symDirPath}/${fileName}`
+        });
     }
 
     /**
@@ -703,20 +695,11 @@ export class KiCadFetcher {
 
         const targetUrls = this._buildRawUrlCandidates(this.footprintsBase, `${lib}.pretty/${name}.kicad_mod`);
 
-        for (const targetUrl of targetUrls) {
-            const response = await this._fetchFirstOkResponse(targetUrl, 'KiCad footprint fetch error');
-            if (!response) {
-                continue;
-            }
-
-            const content = await this._readValidatedResponseText(
-                response,
-                value => this._isValidFootprintContent(value)
-            );
-            if (!content) {
-                continue;
-            }
-
+        const content = await this._fetchFirstValidContentFromUrls(targetUrls, {
+            validator: value => this._isValidFootprintContent(value),
+            errorContext: 'KiCad footprint fetch error'
+        });
+        if (content) {
             this._setContentCache(cacheKey, content);
             return content;
         }
