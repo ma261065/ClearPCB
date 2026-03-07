@@ -387,6 +387,104 @@ function handleArcToolMouseDown(app, snapped, worldPos) {
 }
 
 /**
+ * Try to start wire-segment drag when a single wire is selected/clicked.
+ * Returns true when a segment drag session was started.
+ */
+function tryBeginWireSegmentDrag(app, hitShape, worldPos) {
+    if (!(hitShape?.type === 'wire' && app.selection.getSelection().length === 1)) {
+        return false;
+    }
+
+    const dragEdgeId = hitShape.hitTestEdge(worldPos, SNAP_SCREEN_PX / app.viewport.scale);
+    if (!dragEdgeId) {
+        return false;
+    }
+
+    beginWireSegmentDragSession(app, {
+        shape: hitShape,
+        dragEdgeId,
+        worldPos,
+        beforeState: app._captureShapeState(hitShape)
+    });
+
+    // If the edge endpoints are at pin-connected nodes,
+    // insert an intermediate node so the pin stays fixed
+    // and the dragged segment gets an L-bend.
+    // Before: pinNode ---dragEdge--- otherNode
+    // After:  pinNode ---bridgeEdge--- newNode ---dragEdge--- otherNode
+    const preBridgeEdgeCount = hitShape.edges.size;
+    {
+        const edge_ = hitShape.edges.get(dragEdgeId);
+        // Handle 'from' endpoint
+        if (hitShape.pinConnections.has(edge_.from)) {
+            const pinPos = hitShape.nodes.get(edge_.from);
+            const newId = hitShape.addNode(pinPos.x, pinPos.y);
+            hitShape.addEdge(edge_.from, newId);  // bridge edge
+            edge_.from = newId;                   // redirect dragged edge
+        }
+        // Handle 'to' endpoint
+        const edge2_ = hitShape.edges.get(dragEdgeId);
+        if (edge2_ && hitShape.pinConnections.has(edge2_.to)) {
+            const pinPos = hitShape.nodes.get(edge2_.to);
+            const newId = hitShape.addNode(pinPos.x, pinPos.y);
+            hitShape.addEdge(edge2_.to, newId);   // bridge edge
+            edge2_.to = newId;                    // redirect dragged edge
+        }
+    }
+
+    // Determine axis lock AFTER bridge insertion so edge count is final.
+    // H segments move only vertically, V only horizontally.
+    // Single-edge wires (before bridges) allow free movement.
+    {
+        const edgeLock = hitShape.edges.get(dragEdgeId);
+        if (preBridgeEdgeCount > 1 && edgeLock) {
+            const pA = hitShape.nodes.get(edgeLock.from), pB = hitShape.nodes.get(edgeLock.to);
+            const sDx = Math.abs(pB.x - pA.x), sDy = Math.abs(pB.y - pA.y);
+            if (sDy < COLLINEAR_EPSILON && sDx > COLLINEAR_EPSILON) app.dragSegAxis = 'vertical';
+            else if (sDx < COLLINEAR_EPSILON && sDy > COLLINEAR_EPSILON) app.dragSegAxis = 'horizontal';
+            else app.dragSegAxis = null;
+        } else {
+            app.dragSegAxis = null;
+        }
+    }
+
+    // Store post-insertion working state so the drag math uses correct state.
+    app.dragWireWorkingState = app._captureShapeState(hitShape);
+    // Record which nodes on OTHER wires coincide with this
+    // wire's nodes at drag start, so we only move those.
+    app.dragTJunctionLinks = [];
+    for (const [nid, pos] of hitShape.nodes) {
+        for (const other of app.shapes) {
+            if (other === hitShape || other.type !== 'wire') continue;
+            const otherNid = other.nodeAt(pos, VERTEX_EPSILON);
+            if (otherNid) {
+                app.dragTJunctionLinks.push({ wireNodeId: nid, otherWire: other, otherNodeId: otherNid });
+                if (!app.dragWireStates.has(other)) {
+                    app.dragWireStates.set(other, app._captureShapeState(other));
+                }
+            }
+        }
+    }
+    // Record NoConnect shapes at segment endpoints
+    // so they move with the wire during segment drag.
+    app.dragSegmentNCLinks = [];
+    for (const [nid, pos] of hitShape.nodes) {
+        for (const shape of app.shapes) {
+            if (shape.type !== 'noconnect') continue;
+            if (Math.hypot(shape.x - pos.x, shape.y - pos.y) < VERTEX_EPSILON) {
+                app.dragSegmentNCLinks.push({ wireNodeId: nid, nc: shape, before: shape.captureState() });
+            }
+        }
+    }
+    // Capture label text before-state for undo
+    app.dragSegmentLabelBefore = hitShape.labelText
+        ? app._captureShapeState(hitShape.labelText)
+        : null;
+    app.viewport.svg.style.cursor = 'move';
+    return true;
+}
+
+/**
  * Handle immediate left-click actions that consume the event.
  */
 function handleImmediatePlacementMouseDown(app, event, snapped) {
@@ -919,93 +1017,9 @@ export function bindMouseEvents(app) {
 
                 // Wire segment drag: when a single wire is clicked, drag
                 // only the clicked edge (neighbors rubber-band).
-                if (hitShape.type === 'wire' && app.selection.getSelection().length === 1) {
-                    const dragEdgeId = hitShape.hitTestEdge(worldPos, SNAP_SCREEN_PX / app.viewport.scale);
-                    if (dragEdgeId) {
-                        beginWireSegmentDragSession(app, {
-                            shape: hitShape,
-                            dragEdgeId,
-                            worldPos,
-                            beforeState: app._captureShapeState(hitShape)
-                        });
-
-                        // If the edge endpoints are at pin-connected nodes,
-                        // insert an intermediate node so the pin stays fixed
-                        // and the dragged segment gets an L-bend.
-                        // Before: pinNode ---dragEdge--- otherNode
-                        // After:  pinNode ---bridgeEdge--- newNode ---dragEdge--- otherNode
-                        const preBridgeEdgeCount = hitShape.edges.size;
-                        {
-                            const edge_ = hitShape.edges.get(dragEdgeId);
-                            // Handle 'from' endpoint
-                            if (hitShape.pinConnections.has(edge_.from)) {
-                                const pinPos = hitShape.nodes.get(edge_.from);
-                                const newId = hitShape.addNode(pinPos.x, pinPos.y);
-                                hitShape.addEdge(edge_.from, newId);  // bridge edge
-                                edge_.from = newId;                   // redirect dragged edge
-                            }
-                            // Handle 'to' endpoint
-                            const edge2_ = hitShape.edges.get(dragEdgeId);
-                            if (edge2_ && hitShape.pinConnections.has(edge2_.to)) {
-                                const pinPos = hitShape.nodes.get(edge2_.to);
-                                const newId = hitShape.addNode(pinPos.x, pinPos.y);
-                                hitShape.addEdge(edge2_.to, newId);   // bridge edge
-                                edge2_.to = newId;                    // redirect dragged edge
-                            }
-                        }
-
-                        // Determine axis lock AFTER bridge insertion so edge count is final.
-                        // H segments move only vertically, V only horizontally.
-                        // Single-edge wires (before bridges) allow free movement.
-                        {
-                            const edgeLock = hitShape.edges.get(dragEdgeId);
-                            if (preBridgeEdgeCount > 1 && edgeLock) {
-                                const pA = hitShape.nodes.get(edgeLock.from), pB = hitShape.nodes.get(edgeLock.to);
-                                const sDx = Math.abs(pB.x - pA.x), sDy = Math.abs(pB.y - pA.y);
-                                if (sDy < COLLINEAR_EPSILON && sDx > COLLINEAR_EPSILON) app.dragSegAxis = 'vertical';
-                                else if (sDx < COLLINEAR_EPSILON && sDy > COLLINEAR_EPSILON) app.dragSegAxis = 'horizontal';
-                                else app.dragSegAxis = null;
-                            } else {
-                                app.dragSegAxis = null;
-                            }
-                        }
-
-                        // Store post-insertion working state so the drag math uses correct state.
-                        app.dragWireWorkingState = app._captureShapeState(hitShape);
-                        // Record which nodes on OTHER wires coincide with this
-                        // wire's nodes at drag start, so we only move those.
-                        app.dragTJunctionLinks = [];
-                        for (const [nid, pos] of hitShape.nodes) {
-                            for (const other of app.shapes) {
-                                if (other === hitShape || other.type !== 'wire') continue;
-                                const otherNid = other.nodeAt(pos, VERTEX_EPSILON);
-                                if (otherNid) {
-                                    app.dragTJunctionLinks.push({ wireNodeId: nid, otherWire: other, otherNodeId: otherNid });
-                                    if (!app.dragWireStates.has(other)) {
-                                        app.dragWireStates.set(other, app._captureShapeState(other));
-                                    }
-                                }
-                            }
-                        }
-                        // Record NoConnect shapes at segment endpoints
-                        // so they move with the wire during segment drag.
-                        app.dragSegmentNCLinks = [];
-                        for (const [nid, pos] of hitShape.nodes) {
-                            for (const s of app.shapes) {
-                                if (s.type !== 'noconnect') continue;
-                                if (Math.hypot(s.x - pos.x, s.y - pos.y) < VERTEX_EPSILON) {
-                                    app.dragSegmentNCLinks.push({ wireNodeId: nid, nc: s, before: s.captureState() });
-                                }
-                            }
-                        }
-                        // Capture label text before-state for undo
-                        app.dragSegmentLabelBefore = hitShape.labelText
-                            ? app._captureShapeState(hitShape.labelText)
-                            : null;
-                        app.viewport.svg.style.cursor = 'move';
-                        e.preventDefault();
-                        return;
-                    }
+                if (tryBeginWireSegmentDrag(app, hitShape, worldPos)) {
+                    e.preventDefault();
+                    return;
                 }
 
                 // Store the actual unsnapped position of the first selected shape
