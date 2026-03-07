@@ -80,6 +80,49 @@ export class LCSCFetcher {
     }
 
     /**
+     * Fetch text from a target URL through a specific proxy template.
+     * @param {string} proxy
+     * @param {string} targetUrl
+     * @param {RequestInit} [options]
+     * @returns {Promise<{text?: string, status?: number, error?: Error}>}
+     */
+    async _fetchProxyText(proxy, targetUrl, options = {}) {
+        try {
+            const proxyUrl = this._buildProxyUrl(proxy, targetUrl);
+            const response = await fetch(proxyUrl, options);
+            if (!response.ok) {
+                return { status: response.status };
+            }
+
+            const text = await response.text();
+            return { text };
+        } catch (error) {
+            return { error };
+        }
+    }
+
+    /**
+     * Parse JSON from response text with fallback for prefixed proxy content.
+     * @param {string} text
+     * @returns {{data?: any, error?: Error}}
+     */
+    _parseJsonWithRecovery(text) {
+        try {
+            return { data: JSON.parse(text) };
+        } catch (parseError) {
+            const jsonStart = text.indexOf('{');
+            if (jsonStart !== -1) {
+                try {
+                    return { data: JSON.parse(text.slice(jsonStart)) };
+                } catch (retryError) {
+                    return { error: retryError };
+                }
+            }
+            return { error: parseError };
+        }
+    }
+
+    /**
      * Fetch JSON from a target URL through the CORS proxy list.
      * Tries proxies in order; returns `{ data }` on success or `{ error }` on failure.
      * @param {string} targetUrl
@@ -92,40 +135,28 @@ export class LCSCFetcher {
         let lastError = null;
 
         for (const proxy of proxies) {
-            const url = this._buildProxyUrl(proxy, targetUrl);
-            try {
-                const response = await fetch(url, options);
-
-                if (!response.ok) {
-                    lastError = new Error(`HTTP ${response.status}`);
-                    continue;
-                }
-
-                const text = await response.text();
-                let data;
-                try {
-                    data = JSON.parse(text);
-                } catch (parseError) {
-                    // Some proxies prepend text before JSON; try to recover
-                    const jsonStart = text.indexOf('{');
-                    if (jsonStart !== -1) {
-                        try {
-                            data = JSON.parse(text.slice(jsonStart));
-                        } catch (retryError) {
-                            lastError = retryError;
-                            continue;
-                        }
-                    } else {
-                        lastError = parseError;
-                        continue;
-                    }
-                }
-                this.corsBlocked = false;
-                this.lastWorkingProxy = proxy;
-                return { data };
-            } catch (error) {
-                lastError = error;
+            const result = await this._fetchProxyText(proxy, targetUrl, options);
+            if (typeof result.status === 'number') {
+                lastError = new Error(`HTTP ${result.status}`);
+                continue;
             }
+            if (result.error) {
+                lastError = result.error;
+                continue;
+            }
+            if (typeof result.text !== 'string') {
+                continue;
+            }
+
+            const parsed = this._parseJsonWithRecovery(result.text);
+            if (parsed.error) {
+                lastError = parsed.error;
+                continue;
+            }
+
+            this.corsBlocked = false;
+            this.lastWorkingProxy = proxy;
+            return { data: parsed.data };
         }
 
         this.corsBlocked = true;
@@ -198,23 +229,20 @@ export class LCSCFetcher {
             console.log('Fetching EasyEDA 3D model from:', targetUrl);
 
             for (const proxy of this._getProxyOrder(false)) {
-                try {
-                    const proxyUrl = this._buildProxyUrl(proxy, targetUrl);
+                const result = await this._fetchProxyText(proxy, targetUrl);
+                if (typeof result.status === 'number') {
+                    console.log('3D model not found (HTTP', result.status, ')');
+                    continue;
+                }
+                if (result.error) {
+                    console.log('Failed to fetch EasyEDA 3D model:', result.error.message);
+                    continue;
+                }
 
-                    const response = await fetch(proxyUrl);
-
-                    if (!response.ok) {
-                        console.log('3D model not found (HTTP', response.status, ')');
-                        continue;
-                    }
-
-                    const objText = await response.text();
-                    if (objText && objText.includes('v ')) {
-                        console.log('Successfully fetched OBJ file, size:', objText.length);
-                        return objText;
-                    }
-                } catch (error) {
-                    console.log('Failed to fetch EasyEDA 3D model:', error.message);
+                const objText = result.text;
+                if (objText && objText.includes('v ')) {
+                    console.log('Successfully fetched OBJ file, size:', objText.length);
+                    return objText;
                 }
             }
         }
