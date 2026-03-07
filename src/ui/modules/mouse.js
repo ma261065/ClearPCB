@@ -250,6 +250,15 @@ function handleWireToolMouseMove(app, worldPos, snapped, screenPos) {
 }
 
 /**
+ * Resolve pin-aware snap position for noconnect/netlabel tools.
+ */
+function resolvePinSnapPlacement(app, worldPos) {
+    const resolved = resolveWireSnapPosition(app, worldPos, { pinTolerance: PIN_SNAP_TOL });
+    const pos = { x: resolved.x, y: resolved.y };
+    return { resolved, pos };
+}
+
+/**
  * Handle hover behavior for noconnect/netlabel tools.
  */
 function handlePinSnapToolHover(app, worldPos) {
@@ -258,10 +267,26 @@ function handlePinSnapToolHover(app, worldPos) {
     }
 
     if (!app.isDrawing) {
-        const resolved = resolveWireSnapPosition(app, worldPos, { pinTolerance: PIN_SNAP_TOL });
+        const { resolved, pos } = resolvePinSnapPlacement(app, worldPos);
         updateSnapHighlight(app, resolved);
-        updateToolGhost(app, { x: resolved.x, y: resolved.y });
+        updateToolGhost(app, pos);
     }
+}
+
+/**
+ * Handle mousedown behavior for noconnect/netlabel tools.
+ */
+function handlePinSnapToolMouseDown(app, worldPos) {
+    const { resolved, pos } = resolvePinSnapPlacement(app, worldPos);
+    app._drawSnapResult = resolved;
+    if (!app.isDrawing) {
+        app._startDrawing(pos);
+    } else {
+        app._finishDrawing(pos);
+    }
+    // Keep placement ghost synced immediately (e.g. NET index updates
+    // after placing a netlabel even before the next mousemove).
+    updateToolGhost(app, pos);
 }
 
 /**
@@ -975,18 +1000,7 @@ export function bindMouseEvents(app) {
         } else if (app.currentTool === 'rect' || app.currentTool === 'circle') {
             handleStartFinishToolMouseDown(app, snapped);
         } else if (app.currentTool === 'noconnect' || app.currentTool === 'netlabel') {
-            // Pin-aware snap: pin > wire endpoint/segment > grid
-            const resolved = resolveWireSnapPosition(app, worldPos, { pinTolerance: PIN_SNAP_TOL });
-            app._drawSnapResult = resolved;
-            const pos = { x: resolved.x, y: resolved.y };
-            if (!app.isDrawing) {
-                app._startDrawing(pos);
-            } else {
-                app._finishDrawing(pos);
-            }
-            // Keep placement ghost synced immediately (e.g. NET index updates
-            // after placing a netlabel even before the next mousemove).
-            updateToolGhost(app, pos);
+            handlePinSnapToolMouseDown(app, worldPos);
         } else {
             // Default fallback for any other tools in future
             handleStartFinishToolMouseDown(app, snapped);
