@@ -163,49 +163,15 @@ export class AddShapeCommand extends Command {
         this.shape = shape;
         this.linkedWireLabelText = shape.type === 'wire' ? (shape.labelText || null) : null;
     }
-
-    _ensureWireLabelTextPresent() {
-        if (this.shape.type !== 'wire') return;
-        const labelText = this.shape.labelText || this.linkedWireLabelText;
-        if (!labelText) return;
-
-        this.linkedWireLabelText = labelText;
-        this.shape.labelText = labelText;
-        labelText.parentComponent = this.shape;
-
-        if (!this.app.shapes.includes(labelText)) {
-            this.app.shapes.push(labelText);
-        }
-        if (!labelText.element || !labelText.element.parentNode) {
-            labelText.render(this.app.viewport.scale);
-            this.app.viewport.addContent(labelText.element);
-        }
-    }
     
     /** Add the shape to the canvas. */
     execute() {
-        if (this.shape.type === 'wire' && this.linkedWireLabelText && !this.shape.labelText) {
-            this.shape.labelText = this.linkedWireLabelText;
-        }
-        this.app._addShapeInternal(this.shape);
-        this._ensureWireLabelTextPresent();
-        this.app._updateSelectableItems();
-        this.app.selection._invalidateHitTestCache();
+        this.linkedWireLabelText = this.app._commandAddShape(this.shape, this.linkedWireLabelText) || this.linkedWireLabelText;
     }
     
     /** Remove the shape from the canvas. */
     undo() {
-        if (this.shape.type === 'wire') {
-            this.app._removeShapeInternal(this.shape, { preserveWireLabelRef: true });
-            const linked = this.shape.labelText || this.linkedWireLabelText;
-            if (linked) {
-                this.linkedWireLabelText = linked;
-                this.shape.labelText = linked;
-                linked.parentComponent = this.shape;
-            }
-            return;
-        }
-        this.app._removeShapeInternal(this.shape);
+        this.linkedWireLabelText = this.app._commandRemoveShape(this.shape, { preserveWireLabelRef: true }) || this.linkedWireLabelText;
     }
 }
 
@@ -246,82 +212,12 @@ export class DeleteShapesCommand extends Command {
     
     /** Remove the shapes from the canvas and deselect them. */
     execute() {
-        const app = this.app;
-        const allData = [...this.shapesData, ...this.linkedLabelData];
-        const toRemove = new Set(allData.map(d => d.shape));
-
-        let writeIdx = 0;
-        for (let i = 0; i < app.shapes.length; i++) {
-            if (!toRemove.has(app.shapes[i])) {
-                app.shapes[writeIdx++] = app.shapes[i];
-            }
-        }
-        app.shapes.length = writeIdx;
-
-        for (const data of this.shapesData) {
-            const shape = data.shape;
-            if (shape.type === 'wire' && shape.wireLabel) freeWireLabel(shape.wireLabel);
-        }
-
-        const layer = app.viewport.contentLayer;
-        const parent = layer.parentNode;
-        const nextSib = layer.nextSibling;
-        if (parent) parent.removeChild(layer);
-        for (const data of allData) {
-            const shape = data.shape;
-            if (shape.element?.parentNode) shape.element.parentNode.removeChild(shape.element);
-            if (shape.anchorsGroup?.parentNode) shape.anchorsGroup.parentNode.removeChild(shape.anchorsGroup);
-            if (shape.selected) {
-                shape.selected = false;
-                app.selection.selected.delete(shape.id);
-            }
-            if (shape.hovered) {
-                shape.hovered = false;
-                if (app.selection.hovered === shape.id) app.selection.hovered = null;
-            }
-        }
-        if (parent) parent.insertBefore(layer, nextSib);
-
-        app.selection._selectionCache = null;
-        app.selection._invalidateHitTestCache();
-        app._updateSelectableItems();
-        app.fileManager.setDirty(true);
+        this.app._commandDeleteShapes(this.shapesData, this.linkedLabelData);
     }
     
     /** Re-insert the shapes at their original z-order positions. */
     undo() {
-        const app = this.app;
-        const allData = [...this.shapesData, ...this.linkedLabelData];
-        // Detach content layer for batched DOM additions
-        const layer = app.viewport.contentLayer;
-        const parent = layer.parentNode;
-        const nextSib = layer.nextSibling;
-        if (parent) parent.removeChild(layer);
-        // Re-render and add to DOM, ensuring hover state is clean
-        for (const data of allData) {
-            data.shape.hovered = false;
-            data.shape.render(app.viewport.scale);
-            app.viewport.addContent(data.shape.element);
-        }
-        // Reattach content layer
-        if (parent) parent.insertBefore(layer, nextSib);
-        // Merge back at original positions using a single rebuild
-        const sorted = [...allData].sort((a, b) => a.index - b.index);
-        for (const data of sorted) {
-            if (app.shapes.includes(data.shape)) continue;
-            const idx = data.index >= 0 ? Math.min(data.index, app.shapes.length) : app.shapes.length;
-            app.shapes.splice(idx, 0, data.shape);
-            if (data.shape.type === 'wire' && data.shape.wireLabel) bumpWireLabelCounter(data.shape.wireLabel);
-        }
-
-        for (const linked of this.linkedLabelData) {
-            if (linked.parentWire && linked.parentWire.labelText !== linked.shape) {
-                linked.parentWire.labelText = linked.shape;
-            }
-        }
-        app._updateSelectableItems();
-        app.selection._invalidateHitTestCache();
-        app.fileManager.setDirty(true);
+        this.app._commandRestoreShapes(this.shapesData, this.linkedLabelData);
     }
 }
 

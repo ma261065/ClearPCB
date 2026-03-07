@@ -116,6 +116,19 @@ export function deleteJunction(app, junctionInfo) {
     const deg = wire.degree(junctionNodeId);
     if (deg < 3) return;
 
+    // Capture true pre-split snapshots so undo can restore the original
+    // single-wire junction state (including label visibility ownership).
+    const preSplitWireStates = new Map();
+    for (const s of app.shapes) {
+        if (s.type === 'wire') preSplitWireStates.set(s, s.captureState());
+    }
+    const preSplitLabelTextStates = new Map();
+    for (const [w] of preSplitWireStates) {
+        if (w.labelText && app.shapes.includes(w.labelText)) {
+            preSplitLabelTextStates.set(w.labelText, w.labelText.captureState());
+        }
+    }
+
     const pos = wire.nodes.get(junctionNodeId);
     if (!pos) return;
 
@@ -229,6 +242,8 @@ export function deleteJunction(app, junctionInfo) {
     app.dragShape = dragWire;
     app.dragShapesBefore = dragBefore;
     app.dragAnchorWireStates = anchorWireStates;
+    app.dragJunctionBeforeWireStates = preSplitWireStates;
+    app.dragJunctionBeforeLabelTextStates = preSplitLabelTextStates;
     app.dragWireAnchorOriginal = { ...pt };
     app.dragStart = { ...pt };
     app.dragTotalDx = 0;

@@ -45,6 +45,10 @@ import {
     addShape,
     addShapeInternal,
     addShapeInternalAt,
+    commandAddShapeInternal,
+    commandRemoveShapeInternal,
+    commandDeleteShapesInternal,
+    commandRestoreShapesInternal,
     removeShapeInternal,
     renderShapes
 } from './modules/shape-management.js';
@@ -495,6 +499,34 @@ class SchematicApp {
      */
     _removeShapeInternal(shape, options = undefined) {
         removeShapeInternal(this, shape, options);
+    }
+
+    /**
+     * Command boundary: add one shape with command-safe wire-label handling.
+     */
+    _commandAddShape(shape, linkedWireLabelText = null) {
+        return commandAddShapeInternal(this, shape, linkedWireLabelText);
+    }
+
+    /**
+     * Command boundary: remove one shape with command-safe wire-label handling.
+     */
+    _commandRemoveShape(shape, options = undefined) {
+        return commandRemoveShapeInternal(this, shape, options);
+    }
+
+    /**
+     * Command boundary: batch-delete shapes and linked wire labels.
+     */
+    _commandDeleteShapes(shapesData, linkedLabelData) {
+        commandDeleteShapesInternal(this, shapesData, linkedLabelData);
+    }
+
+    /**
+     * Command boundary: batch-restore shapes and linked wire labels.
+     */
+    _commandRestoreShapes(shapesData, linkedLabelData) {
+        commandRestoreShapesInternal(this, shapesData, linkedLabelData);
     }
     
     /**

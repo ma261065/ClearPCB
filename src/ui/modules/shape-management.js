@@ -40,6 +40,42 @@ export function addShapeInternal(app, shape) {
 }
 
 /**
+ * Command-layer shape add hook to keep AddShapeCommand decoupled from
+ * direct shape-array/DOM bookkeeping details.
+ * @param {object} app
+ * @param {import('../../shapes/shape.js').Shape} shape
+ * @param {import('../../shapes/text.js').Text|null} [linkedWireLabelText]
+ * @returns {import('../../shapes/text.js').Text|null}
+ */
+export function commandAddShapeInternal(app, shape, linkedWireLabelText = null) {
+    const wireShape = shape.type === 'wire' ? /** @type {import('../../shapes/wire.js').Wire} */ (shape) : null;
+    if (wireShape && linkedWireLabelText && !wireShape.labelText) {
+        wireShape.labelText = linkedWireLabelText;
+    }
+
+    addShapeInternal(app, shape);
+
+    if (!wireShape) return null;
+    const labelText = wireShape.labelText || linkedWireLabelText;
+    if (!labelText) return null;
+
+    wireShape.labelText = labelText;
+    labelText.parentComponent = wireShape;
+
+    if (!app.shapes.includes(labelText)) {
+        app.shapes.push(labelText);
+    }
+    if (!labelText.element || !labelText.element.parentNode) {
+        labelText.render(app.viewport.scale);
+        app.viewport.addContent(labelText.element);
+    }
+
+    app._updateSelectableItems();
+    app.selection._invalidateHitTestCache();
+    return labelText;
+}
+
+/**
  * Like `addShapeInternal` but inserts at a specific index in the shapes array
  * (used for undo re-insertion at original position).
  * @param {object} app - Application state.
@@ -94,6 +130,114 @@ export function removeShapeInternal(app, shape, options = {}) {
         app._updateSelectableItems();
         app.fileManager.setDirty(true);
     }
+}
+
+/**
+ * Command-layer shape remove hook to preserve wire/label linkage metadata.
+ * @param {object} app
+ * @param {import('../../shapes/shape.js').Shape} shape
+ * @param {{ preserveWireLabelRef?: boolean }} [options]
+ * @returns {import('../../shapes/text.js').Text|null}
+ */
+export function commandRemoveShapeInternal(app, shape, options = {}) {
+    const wireShape = shape.type === 'wire' ? /** @type {import('../../shapes/wire.js').Wire} */ (shape) : null;
+    const linkedLabel = wireShape?.labelText || null;
+    removeShapeInternal(app, shape, options);
+    if (wireShape && linkedLabel) {
+        wireShape.labelText = linkedLabel;
+        linkedLabel.parentComponent = wireShape;
+    }
+    return linkedLabel;
+}
+
+/**
+ * Command-layer batch delete hook to isolate shape-array/DOM internals.
+ * @param {object} app
+ * @param {Array<{shape: import('../../shapes/shape.js').Shape, index: number}>} shapesData
+ * @param {Array<{shape: import('../../shapes/shape.js').Shape, index: number, parentWire: import('../../shapes/wire.js').Wire}>} linkedLabelData
+ */
+export function commandDeleteShapesInternal(app, shapesData, linkedLabelData) {
+    const allData = [...shapesData, ...linkedLabelData];
+    const toRemove = new Set(allData.map(d => d.shape));
+
+    let writeIdx = 0;
+    for (let i = 0; i < app.shapes.length; i++) {
+        if (!toRemove.has(app.shapes[i])) {
+            app.shapes[writeIdx++] = app.shapes[i];
+        }
+    }
+    app.shapes.length = writeIdx;
+
+    for (const data of shapesData) {
+        const shape = data.shape;
+        const wireShape = shape.type === 'wire' ? /** @type {import('../../shapes/wire.js').Wire} */ (shape) : null;
+        if (wireShape?.wireLabel) freeWireLabel(wireShape.wireLabel);
+    }
+
+    const layer = app.viewport.contentLayer;
+    const parent = layer.parentNode;
+    const nextSib = layer.nextSibling;
+    if (parent) parent.removeChild(layer);
+    for (const data of allData) {
+        const shape = data.shape;
+        if (shape.element?.parentNode) shape.element.parentNode.removeChild(shape.element);
+        if (shape.anchorsGroup?.parentNode) shape.anchorsGroup.parentNode.removeChild(shape.anchorsGroup);
+        if (shape.selected) {
+            shape.selected = false;
+            app.selection.selected.delete(shape.id);
+        }
+        if (shape.hovered) {
+            shape.hovered = false;
+            if (app.selection.hovered === shape.id) app.selection.hovered = null;
+        }
+    }
+    if (parent) parent.insertBefore(layer, nextSib);
+
+    app.selection._selectionCache = null;
+    app.selection._invalidateHitTestCache();
+    app._updateSelectableItems();
+    app.fileManager.setDirty(true);
+}
+
+/**
+ * Command-layer batch restore hook to isolate shape-array/DOM internals.
+ * @param {object} app
+ * @param {Array<{shape: import('../../shapes/shape.js').Shape, index: number}>} shapesData
+ * @param {Array<{shape: import('../../shapes/shape.js').Shape, index: number, parentWire: import('../../shapes/wire.js').Wire}>} linkedLabelData
+ */
+export function commandRestoreShapesInternal(app, shapesData, linkedLabelData) {
+    const allData = [...shapesData, ...linkedLabelData];
+    const layer = app.viewport.contentLayer;
+    const parent = layer.parentNode;
+    const nextSib = layer.nextSibling;
+    if (parent) parent.removeChild(layer);
+
+    for (const data of allData) {
+        data.shape.hovered = false;
+        data.shape.render(app.viewport.scale);
+        app.viewport.addContent(data.shape.element);
+    }
+
+    if (parent) parent.insertBefore(layer, nextSib);
+
+    const sorted = [...allData].sort((a, b) => a.index - b.index);
+    for (const data of sorted) {
+        if (app.shapes.includes(data.shape)) continue;
+        const idx = data.index >= 0 ? Math.min(data.index, app.shapes.length) : app.shapes.length;
+        app.shapes.splice(idx, 0, data.shape);
+        const wireShape = data.shape.type === 'wire' ? /** @type {import('../../shapes/wire.js').Wire} */ (data.shape) : null;
+        if (wireShape?.wireLabel) bumpWireLabelCounter(wireShape.wireLabel);
+    }
+
+    for (const linked of linkedLabelData) {
+        if (linked.parentWire && linked.parentWire.labelText !== linked.shape) {
+            linked.parentWire.labelText = linked.shape;
+        }
+    }
+
+    app._updateSelectableItems();
+    app.selection._invalidateHitTestCache();
+    app.fileManager.setDirty(true);
 }
 
 /**

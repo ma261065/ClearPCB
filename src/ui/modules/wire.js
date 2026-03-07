@@ -996,6 +996,81 @@ function _setWireLabelPosition(wire, position) {
     }
 }
 
+function _resetWireLabelPositionToDefault(wire) {
+    const pos = wire.getLabelPosition();
+    if (wire.labelText) {
+        wire.labelText.x = pos.x;
+        wire.labelText.y = pos.y;
+        wire.labelText.invalidate();
+    } else {
+        wire._pendingLabelPosition = {
+            x: pos.x,
+            y: pos.y,
+            rotation: 0
+        };
+    }
+}
+
+function _getWireLabelPosition(wire) {
+    if (wire.labelText) {
+        return { x: wire.labelText.x, y: wire.labelText.y, rotation: wire.labelText.rotation || 0 };
+    }
+    if (wire._pendingLabelPosition) {
+        return {
+            x: wire._pendingLabelPosition.x,
+            y: wire._pendingLabelPosition.y,
+            rotation: wire._pendingLabelPosition.rotation || 0
+        };
+    }
+    return null;
+}
+
+function _deoverlapWireLabelPosition(wire, referencePos) {
+    const current = _getWireLabelPosition(wire);
+    if (!current) return;
+
+    // Place on the opposite side of this wire using the local segment normal.
+    // Keep similar offset magnitude, but enforce a minimum clearance based on
+    // font size so the label baseline does not sit on the wire.
+    const nearest = wire.closestEdge(current);
+    if (!nearest || !nearest.point) return;
+
+    const edge = wire.edges.get(nearest.edgeId);
+    if (!edge) return;
+    const a = wire.nodes.get(edge.from);
+    const b = wire.nodes.get(edge.to);
+    if (!a || !b) return;
+
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const len = Math.hypot(dx, dy) || 1;
+    const nx = -dy / len;
+    const ny = dx / len;
+
+    const signedCurrent = (current.x - nearest.point.x) * nx + (current.y - nearest.point.y) * ny;
+    const signedReference = referencePos
+        ? (referencePos.x - nearest.point.x) * nx + (referencePos.y - nearest.point.y) * ny
+        : 0;
+
+    const fontSize = wire.labelText?.fontSize ?? 1.4;
+    const minOffset = Math.max(0.95, fontSize * 1.05);
+
+    let targetSigned;
+    if (Math.abs(signedCurrent) < 1e-6) {
+        const refSign = Math.abs(signedReference) < 1e-6 ? 1 : Math.sign(signedReference);
+        targetSigned = -refSign * minOffset;
+    } else {
+        targetSigned = -Math.sign(signedCurrent) * Math.max(Math.abs(signedCurrent), minOffset);
+    }
+
+    const mirrored = {
+        x: nearest.point.x + nx * targetSigned,
+        y: nearest.point.y + ny * targetSigned
+    };
+
+    _setWireLabelPosition(wire, { x: mirrored.x, y: mirrored.y, rotation: current.rotation });
+}
+
 function _selectSplitWinner(wires) {
     return [...wires].sort((a, b) => b.edges.size - a.edges.size)[0] || null;
 }
@@ -1013,6 +1088,34 @@ function _captureShapeSnapshot(shape) {
 function _snapshotChanged(snapshot, afterState) {
     return snapshot.signature !== JSON.stringify(afterState);
 }
+
+function _normalizeSnapshot(snapshotOrState) {
+    if (snapshotOrState && typeof snapshotOrState === 'object' && 'state' in snapshotOrState && 'signature' in snapshotOrState) {
+        return snapshotOrState;
+    }
+    return {
+        state: snapshotOrState,
+        signature: JSON.stringify(snapshotOrState)
+    };
+}
+
+// Joining:
+// If both pre-join wires have visibilty on, 
+// or both wires have visibility off, the wire with the most segments (pre-join) is the winner
+// whose label is kept for the new post-join wire. 
+// If only one pre-join wire has visibility on, the post-join label becomes 
+// the one from the wire that had visibility on. 
+// Visibility of the label on the post-join wire is on if either or both 
+// pre-join wires had label visibility on.
+//
+// Splitting:
+// The wire with the most segments (post-split) is the winner who keeps the 
+// label from the pre-split wire. 
+// The other wire gets a new label. 
+// Visibility of the labels on the post-split wires is on for both if the pre-split wire
+// had label visibility on, or off for both if the pre-split wire had label 
+// visibility off.
+// Additionally, a label that has been positioned should never move.
 
 function _applyMergeLabelRules(keeper, removed, keeperPreSegs, removedPreSegs, removedLabelMeta) {
     const keeperVis = keeper.labelText?.visible ?? false;
@@ -1052,11 +1155,25 @@ export function applySplitLabelRules(originalWire, newFragments, preSplitLabel, 
             freeWireLabel(currentOwner.wireLabel);
             currentOwner.wireLabel = nextWireLabel();
             _syncWireLabelText(currentOwner);
+            _resetWireLabelPositionToDefault(currentOwner);
         }
     }
 
     for (const wire of allPostWires) {
         _setWireLabelVisibility(wire, preSplitVisible);
+    }
+
+    for (const wire of allPostWires) {
+        if (wire !== winner) {
+            _resetWireLabelPositionToDefault(wire);
+        }
+    }
+
+    const winnerPos = _getWireLabelPosition(winner);
+    for (const wire of allPostWires) {
+        if (wire !== winner) {
+            _deoverlapWireLabelPosition(wire, winnerPos);
+        }
     }
 }
 
@@ -1069,7 +1186,7 @@ function _removeMerged(app, removed, affected, changed, keeper, keeperPreSegs, r
     };
 
     // Remove the absorbed wire first (this frees its wireLabel from the tracking set)
-    app._removeShapeInternal(removed);
+    app._removeShapeInternal(removed, { preserveWireLabelRef: true });
     affected.delete(removed);
     changed.delete(removed);
     if (!changed.has(keeper)) changed.add(keeper);
@@ -1147,7 +1264,7 @@ export function reconcileWires(app, changedWires, skipSet = null) {
     for (const w of affected) {
         if (!app.shapes.includes(w)) continue;
         w.cleanGraph();
-        if (w.edges.size === 0) app._removeShapeInternal(w);
+        if (w.edges.size === 0) app._removeShapeInternal(w, { preserveWireLabelRef: true });
     }
 
     // ── Pass 3: Split disconnected components ──
@@ -1181,12 +1298,9 @@ export function reconcileWires(app, changedWires, skipSet = null) {
             if (!keepSet.has(nid)) w.removeNode(nid);
         }
         w.invalidate();
-        if (w.edges.size === 0) { app._removeShapeInternal(w); continue; }
+        if (w.edges.size === 0) { app._removeShapeInternal(w, { preserveWireLabelRef: true }); continue; }
 
         // ── Split label rules ──
-        // Winner = post-split wire with most segments, keeps original label.
-        // Other fragments get new (auto) labels.
-        // All post-split wires inherit pre-split visibility.
         applySplitLabelRules(w, newFragments, preSplitLabel, preSplitVisible, preSplitLabelPosition);
     }
 }
@@ -1196,7 +1310,7 @@ export function reconcileWires(app, changedWires, skipSet = null) {
  * Reverts all wires to their before-state so batch.execute() replays correctly.
  *
  * @param {object} app
- * @param {Map<Wire, {state: object, signature: string}>} beforeStates - captured states before mutation
+ * @param {Map<Wire, {state: object, signature: string} | object>} beforeStates - captured states before mutation
  * @param {string} label - undo command label
  * @param {Wire[]} [extraAdds] - additional new wires to include as AddShapeCommand
  * @returns {BatchCommand|null} - batch or null if nothing changed
@@ -1206,9 +1320,14 @@ export function buildWireDiffBatch(app, beforeStates, label, extraAdds = [], lab
     let anyChanges = false;
 
     // --- Wire diffs (snapshot-based, no revert/replay) ---
-    for (const [w, beforeSnapshot] of beforeStates) {
+    for (const [w, beforeEntry] of beforeStates) {
+        const beforeSnapshot = _normalizeSnapshot(beforeEntry);
         const before = beforeSnapshot.state;
         if (!app.shapes.includes(w)) {
+            // The removed wire object may have been mutated during merge
+            // (e.g. temporary split node inserted before absorb). Restore
+            // its pre-mutation state so undo re-adds the canonical geometry.
+            w.applyState(before);
             // Wire was removed during reconciliation (absorbed) → record deletion.
             // Store a snapshot command that can re-add on undo and re-delete on redo.
             batch.add(new DeleteShapesCommand(app, [w]));
@@ -1238,7 +1357,8 @@ export function buildWireDiffBatch(app, beforeStates, label, extraAdds = [], lab
 
     // --- Label text diffs ---
     if (labelTextBefore) {
-        for (const [lt, beforeSnapshot] of labelTextBefore) {
+        for (const [lt, beforeEntry] of labelTextBefore) {
+            const beforeSnapshot = _normalizeSnapshot(beforeEntry);
             const before = beforeSnapshot.state;
             if (!app.shapes.includes(lt)) continue;
             const after = lt.captureState();

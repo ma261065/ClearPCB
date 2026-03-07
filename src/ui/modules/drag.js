@@ -33,6 +33,8 @@ export function clearDragState(app, { clearDidDrag = false, resetCursor = false 
     app.dragAnchorWireStates = null;
     app.dragAnchorExcludePin = null;
     app.dragAnchorNCLinks = null;
+    app.dragJunctionBeforeWireStates = null;
+    app.dragJunctionBeforeLabelTextStates = null;
     app.dragSegmentNCLinks = null;
     app.dragSegmentLabelBefore = null;
     app.pendingAnchorDrag = null;
@@ -73,22 +75,32 @@ export function commitAnchorDrag(app) {
         // Build complete before-state map.
         // Dragged wire + TJ-linked wires: captured at drag start.
         // All other wires: capture now (unchanged by the drag).
-        const beforeAll = new Map();
-        beforeAll.set(app.dragShape, app.dragShapesBefore);
-        if (app.dragAnchorWireStates) {
-            for (const [w, b] of app.dragAnchorWireStates) beforeAll.set(w, b);
-        }
-        for (const s of app.shapes) {
-            if (s.type === 'wire' && !beforeAll.has(s)) {
-                beforeAll.set(s, s.captureState());
+        const beforeAll = app.dragJunctionBeforeWireStates
+            ? new Map(app.dragJunctionBeforeWireStates)
+            : new Map();
+
+        if (!app.dragJunctionBeforeWireStates) {
+            beforeAll.set(app.dragShape, app.dragShapesBefore);
+            if (app.dragAnchorWireStates) {
+                for (const [w, b] of app.dragAnchorWireStates) beforeAll.set(w, b);
+            }
+            for (const s of app.shapes) {
+                if (s.type === 'wire' && !beforeAll.has(s)) {
+                    beforeAll.set(s, s.captureState());
+                }
             }
         }
 
         // Capture label text states before reconciliation
-        const labelTextBefore = new Map();
-        for (const [w] of beforeAll) {
-            if (w.labelText && app.shapes.includes(w.labelText)) {
-                labelTextBefore.set(w.labelText, w.labelText.captureState());
+        const labelTextBefore = app.dragJunctionBeforeLabelTextStates
+            ? new Map(app.dragJunctionBeforeLabelTextStates)
+            : new Map();
+
+        if (!app.dragJunctionBeforeLabelTextStates) {
+            for (const [w] of beforeAll) {
+                if (w.labelText && app.shapes.includes(w.labelText)) {
+                    labelTextBefore.set(w.labelText, w.labelText.captureState());
+                }
             }
         }
 
