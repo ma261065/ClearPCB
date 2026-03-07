@@ -282,9 +282,7 @@ export class LCSCFetcher {
                 imageUrl,
                 thumbUrl: thumbUrl || imageUrl || fallbackThumb,
                 datasheet: item.datasheet || item.pdf || item.pdfUrl || '',
-                productUrl: item?.lcsc?.url || item?.szlcsc?.url || item.productUrl || item.url || (lcscPartNumber
-                    ? `https://www.lcsc.com/product-detail/${lcscPartNumber}.html`
-                    : '')
+                productUrl: item?.lcsc?.url || item?.szlcsc?.url || item.productUrl || item.url || this._buildLCSCProductUrl(lcscPartNumber)
             };
         });
     }
@@ -298,6 +296,15 @@ export class LCSCFetcher {
         if (!url || typeof url !== 'string') return '';
         if (url.startsWith('//')) return `https:${url}`;
         return url;
+    }
+
+    /**
+     * Build LCSC product-detail URL for a part number.
+     * @param {string} partNumber
+     * @returns {string}
+     */
+    _buildLCSCProductUrl(partNumber) {
+        return partNumber ? `https://www.lcsc.com/product-detail/${partNumber}.html` : '';
     }
 
     /**
@@ -476,7 +483,7 @@ export class LCSCFetcher {
             isPreferred: product.isHot === true,
             imageUrl: product.productImageUrl || product.productImageUrlBig || '',
             datasheet: product.pdfUrl || '',
-            productUrl: `https://www.lcsc.com/product-detail/${product.productCode}.html`
+            productUrl: this._buildLCSCProductUrl(product.productCode)
         }));
     }
     
@@ -498,7 +505,7 @@ export class LCSCFetcher {
             isPreferred: product.isHot === true,
             imageUrl: product.productImageUrl || product.productImageUrlBig || '',
             datasheet: product.pdfUrl || '',
-            productUrl: `https://www.lcsc.com/product-detail/${product.productCode}.html`,
+            productUrl: this._buildLCSCProductUrl(product.productCode),
             minOrderQty: product.minBuyNumber || 1,
             stockStatus: product.stockNumber > 0 ? 'In Stock' : 'Out of Stock'
         };
