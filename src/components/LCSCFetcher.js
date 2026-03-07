@@ -45,6 +45,13 @@ export class LCSCFetcher {
      * @returns {string}
      */
     _normalizeQuery(query) {
+        const trimmed = (query || '').trim();
+        if (/^c\d+$/i.test(trimmed)) {
+            return trimmed.toUpperCase();
+        }
+        return trimmed;
+    }
+
     /**
      * Find exact LCSC part match in search results.
      * @param {Array} results
@@ -55,12 +62,6 @@ export class LCSCFetcher {
         return results.find(item =>
             (item.lcscPartNumber || '').toUpperCase() === normalizedPart.toUpperCase()
         );
-    }
-        const trimmed = (query || '').trim();
-        if (/^c\d+$/i.test(trimmed)) {
-            return trimmed.toUpperCase();
-        }
-        return trimmed;
     }
 
     /**
@@ -97,7 +98,9 @@ export class LCSCFetcher {
      * @param {RequestInit} [options]
      * @returns {Promise<{text?: string, status?: number, error?: Error}>}
      */
-            const exact = this._findExactLCSCResult(easyedaResults, normalizedPart);
+    async _fetchProxyText(proxy, targetUrl, options = {}) {
+        const proxyUrl = this._buildProxyUrl(proxy, targetUrl);
+        try {
             const response = await fetch(proxyUrl, options);
             if (!response.ok) {
                 return { status: response.status };
@@ -461,9 +464,7 @@ export class LCSCFetcher {
         // Try EasyEDA search first
         try {
             const easyedaResults = await this._searchEasyEDA(normalizedPart);
-            const exact = easyedaResults.find(item =>
-                (item.lcscPartNumber || '').toUpperCase() === normalizedPart.toUpperCase()
-            );
+            const exact = this._findExactLCSCResult(easyedaResults, normalizedPart);
 
             if (exact) {
                 // Fetch detail to get footprint + 3D data
