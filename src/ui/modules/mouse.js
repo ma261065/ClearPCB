@@ -850,30 +850,32 @@ function propagateMovedWireJunctions(app, selection, dx, dy) {
 /**
  * Resolve snapped target and sticky guides for move-drag updates.
  */
-function resolveMoveDragTarget(app, targetPos, selection, movingCompIds) {
+function resolveMoveDragTarget(app, targetPos, selection, movingCompIds, snappedTargetOut) {
     const snappedTarget = app.viewport.getSnappedPosition(targetPos);
+    snappedTargetOut.x = snappedTarget.x;
+    snappedTargetOut.y = snappedTarget.y;
 
     const soloNoConnect = selection.length === 1 && selection[0].type === 'noconnect'
         ? selection[0]
         : null;
     if (soloNoConnect) {
         const snap = resolveWireSnapPosition(app, targetPos, { pinTolerance: PIN_SNAP_TOL });
-        snappedTarget.x = snap.x;
-        snappedTarget.y = snap.y;
+        snappedTargetOut.x = snap.x;
+        snappedTargetOut.y = snap.y;
         updateSnapHighlight(app, snap);
     }
 
-    let stickyGuides = [];
+    let stickyGuides;
     if (movingCompIds.size > 0) {
-        const proposedDx = snappedTarget.x - app.dragLastSnapped.x;
-        const proposedDy = snappedTarget.y - app.dragLastSnapped.y;
+        const proposedDx = snappedTargetOut.x - app.dragLastSnapped.x;
+        const proposedDy = snappedTargetOut.y - app.dragLastSnapped.y;
         const stickySnap = computeStickyWireSnaps(app, movingCompIds, proposedDx, proposedDy);
-        snappedTarget.x += stickySnap.adjustX;
-        snappedTarget.y += stickySnap.adjustY;
+        snappedTargetOut.x += stickySnap.adjustX;
+        snappedTargetOut.y += stickySnap.adjustY;
         stickyGuides = stickySnap.guides;
     }
 
-    return { snappedTarget, stickyGuides };
+    return stickyGuides;
 }
 
 function handleMoveDragMouseMove(app, worldPos) {
@@ -890,7 +892,8 @@ function handleMoveDragMouseMove(app, worldPos) {
     };
     const sel = app.selection.getSelection();
     const movingCompIds = collectMovingComponentIds(sel);
-    const { snappedTarget, stickyGuides } = resolveMoveDragTarget(app, targetPos, sel, movingCompIds);
+    const snappedTarget = app._moveDragSnappedTarget || (app._moveDragSnappedTarget = { x: 0, y: 0 });
+    const stickyGuides = resolveMoveDragTarget(app, targetPos, sel, movingCompIds, snappedTarget);
 
     // Calculate actual movement from object's last snapped position
     const dx = snappedTarget.x - app.dragLastSnapped.x;
@@ -917,7 +920,12 @@ function handleMoveDragMouseMove(app, worldPos) {
         // other (non-selected) wires, move those coincident nodes too.
         propagateMovedWireJunctions(app, sel, dx, dy);
 
-        app.dragLastSnapped = { ...snappedTarget };
+        if (!app.dragLastSnapped) {
+            app.dragLastSnapped = { x: snappedTarget.x, y: snappedTarget.y };
+        } else {
+            app.dragLastSnapped.x = snappedTarget.x;
+            app.dragLastSnapped.y = snappedTarget.y;
+        }
         app.renderShapes(false);
         if (app.textEdit) {
             app._updateTextEditOverlay?.();
@@ -931,20 +939,21 @@ function handleMoveDragMouseMove(app, worldPos) {
  */
 function mergeAnchorTJunctionGuides(app, anchorPos, anchorGuides) {
     if (!(app.dragAnchorTJLinks && app.dragAnchorTJLinks.length > 0)) {
-        return { anchorPos, anchorGuides };
+        return anchorPos;
     }
 
     let mergedAnchorPos = anchorPos;
-    let mergedGuides = anchorGuides;
     for (const link of app.dragAnchorTJLinks) {
         const tjResult = computeAnchorCollinearSnap(app, link.otherWire, link.otherNodeId, mergedAnchorPos);
         if (tjResult.anchorPos.x !== mergedAnchorPos.x || tjResult.anchorPos.y !== mergedAnchorPos.y) {
             mergedAnchorPos = tjResult.anchorPos;
         }
-        mergedGuides = mergedGuides.concat(tjResult.guides);
+        if (tjResult.guides.length > 0) {
+            anchorGuides.push(...tjResult.guides);
+        }
     }
 
-    return { anchorPos: mergedAnchorPos, anchorGuides: mergedGuides };
+    return mergedAnchorPos;
 }
 
 /**
@@ -1050,9 +1059,7 @@ function handleAnchorDragMouseMove(app, worldPos, snapped) {
     // Update crosshairs to track the anchor position
     app._updateCrosshair(anchorPos);
 
-    const mergedAnchorState = mergeAnchorTJunctionGuides(app, anchorPos, anchorGuides);
-    anchorPos = mergedAnchorState.anchorPos;
-    anchorGuides = mergedAnchorState.anchorGuides;
+    anchorPos = mergeAnchorTJunctionGuides(app, anchorPos, anchorGuides);
     renderGuideLines(app, anchorGuides);
 
     const newAnchorId = app.dragShape.moveAnchor(app.dragAnchorId, anchorPos.x, anchorPos.y);
