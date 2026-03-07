@@ -11,6 +11,7 @@ import {
     finalizeDragInteraction,
     handleActiveDragMouseUp,
     handleDrawingToolMouseUp,
+    handleDoubleClickDrawing,
     handleBoxSelectMouseUp,
     handleRightClickDrawingMouseUp,
     isAdditiveSelectionModifier,
@@ -1075,16 +1076,7 @@ export function bindMouseEvents(app) {
     });
 
     svg.addEventListener('dblclick', (e) => {
-        if (app.isDrawing) {
-            if (app.currentTool === 'wire' && app.wirePoints.length >= 1) {
-                app._finishWireDrawing(app.drawCurrent);
-            } else if (app.currentTool === 'line') {
-                app._finishLine();
-            } else if (app.currentTool === 'polygon') {
-                app._finishPolygon();
-            } else if (app.drawCurrent) {
-                app._finishDrawing(app.drawCurrent);
-            }
+        if (handleDoubleClickDrawing(app)) {
             return;
         }
 

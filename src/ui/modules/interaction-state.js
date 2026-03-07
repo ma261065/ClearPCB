@@ -422,6 +422,32 @@ export function handleRightClickDrawingMouseUp(app, worldPos, snapped) {
 }
 
 /**
+ * Handle double-click drawing completion rules.
+ *
+ * @param {object} app
+ * @returns {boolean} True when an active drawing tool was finished.
+ */
+export function handleDoubleClickDrawing(app) {
+    if (isActiveDrawingTool(app, 'wire') && hasMinimumPoints(app.wirePoints, 1)) {
+        app._finishWireDrawing(app.drawCurrent);
+        return true;
+    }
+    if (isActiveDrawingTool(app, 'line')) {
+        app._finishLine();
+        return true;
+    }
+    if (isActiveDrawingTool(app, 'polygon')) {
+        app._finishPolygon();
+        return true;
+    }
+    if (app.isDrawing && app.drawCurrent) {
+        app._finishDrawing(app.drawCurrent);
+        return true;
+    }
+    return false;
+}
+
+/**
  * True when event should perform additive selection.
  * Ctrl/Cmd are additive; Shift is intentionally excluded.
  *
