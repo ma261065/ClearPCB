@@ -1274,6 +1274,45 @@ function handleSvgDoubleClick(app, event) {
 }
 
 /**
+ * Switch away from the file ribbon tab when interaction resumes on canvas.
+ */
+function activateHomeTabIfFileTabOpen(app) {
+    const activeTab = document.querySelector('.ribbon-tab.active');
+    if (activeTab instanceof HTMLElement && activeTab.dataset?.tab === 'file') {
+        app._setActiveRibbonTab?.('home');
+    }
+}
+
+/**
+ * Run primary-button mousedown preflight checks and side effects.
+ * Returns true when handling should stop for this event.
+ */
+function handlePrimaryMouseDownPreflight(app, event) {
+    if (event.button !== 0) {
+        return true;
+    }
+
+    if (app.viewport.isPanning) {
+        return true;
+    }
+
+    activateHomeTabIfFileTabOpen(app);
+
+    if (app.isDragging && app.dragMode === 'anchor' && app.dragShapesBefore
+        && (app.didDrag || (app.dragAnchorWireStates && app.dragAnchorWireStates.size > 0))) {
+        commitAnchorDrag(app);
+        finalizeDragInteraction(app);
+        app.didDrag = true;
+        event.preventDefault();
+        return true;
+    }
+
+    app.didDrag = false;
+    clearPendingAnchorDragIfIdle(app);
+    return false;
+}
+
+/**
  * Wire all mouse-event handlers (mousedown, mouseup, mousemove, click,
  * dblclick) to the SVG canvas. Handles selection, dragging, anchor
  * manipulation, box-select, and context menus.
@@ -1283,27 +1322,9 @@ export function bindMouseEvents(app) {
     const svg = app.viewport.svg;
 
     svg.addEventListener('mousedown', (e) => {
-        if (e.button !== 0) return;
-        if (app.viewport.isPanning) return;
-
-        const activeTab = document.querySelector('.ribbon-tab.active');
-        if (activeTab instanceof HTMLElement && activeTab.dataset?.tab === 'file') {
-            app._setActiveRibbonTab?.('home');
-        }
-
-        // Commit active click-to-place anchor drag on the confirming click
-        if (app.isDragging && app.dragMode === 'anchor' && app.dragShapesBefore &&
-            (app.didDrag || (app.dragAnchorWireStates && app.dragAnchorWireStates.size > 0))) {
-            commitAnchorDrag(app);
-            finalizeDragInteraction(app);
-            app.didDrag = true;   // prevent click handler from re-selecting
-            e.preventDefault();
+        if (handlePrimaryMouseDownPreflight(app, e)) {
             return;
         }
-
-        app.didDrag = false;
-        
-        clearPendingAnchorDragIfIdle(app);
 
         const { screenPos, worldPos, snapped } = getEventPositions(e, app.viewport);
 
