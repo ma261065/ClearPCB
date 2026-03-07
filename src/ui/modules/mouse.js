@@ -1167,6 +1167,79 @@ function handleActiveDragMouseMove(app, worldPos, snapped) {
 }
 
 /**
+ * Record right-click start position for click-vs-drag detection.
+ */
+function handleRightMouseDown(app, event) {
+    if (event.button !== 2) {
+        return;
+    }
+
+    app._rightClickStart = { x: event.clientX, y: event.clientY };
+}
+
+/**
+ * Handle right-button mouseup drawing completion path.
+ */
+function handleRightMouseUp(app, event) {
+    if (event.button !== 2) {
+        return;
+    }
+
+    if (!consumeRightClickAsClick(app, event, DRAG_THRESHOLD_PX)) {
+        return;
+    }
+
+    const { worldPos, snapped } = getEventPositions(event, app.viewport);
+    if (!handleRightClickDrawingMouseUp(app, worldPos, snapped)) {
+        return;
+    }
+
+    app._setToolCursor(app.currentTool, app.viewport.svg);
+    event.preventDefault();
+}
+
+/**
+ * Handle SVG context-menu behavior for selection and tool/cursor state.
+ */
+function handleSvgContextMenu(app, event) {
+    const { screenPos, worldPos } = getEventPositions(event, app.viewport);
+
+    if (app.currentTool === 'select' && handleSelectContextMenu(app, worldPos, event.clientX, event.clientY)) {
+        event.preventDefault();
+        return;
+    }
+
+    handleComponentTooltipContextMenu(app, worldPos, screenPos);
+    if (app.currentTool !== 'select') {
+        app._setToolCursor(app.currentTool, app.viewport.svg);
+    }
+    event.preventDefault();
+}
+
+/**
+ * Handle global left-button mouseup to finalize active interactions.
+ */
+function handleWindowMouseUp(app, event) {
+    if (event.button !== 0) {
+        return;
+    }
+
+    const { worldPos, snapped } = getEventPositions(event, app.viewport);
+
+    if (handleBoxSelectMouseUp(app, worldPos)) {
+        return;
+    }
+
+    handleActiveDragMouseUp(app);
+
+    if (app.viewport.isPanning) {
+        return;
+    }
+
+    handleDrawingToolMouseUp(app, snapped, CLICK_TO_END_TOOLS);
+}
+
+/**
  * Wire all mouse-event handlers (mousedown, mouseup, mousemove, click,
  * dblclick) to the SVG canvas. Handles selection, dragging, anchor
  * manipulation, box-select, and context menus.
@@ -1214,38 +1287,15 @@ export function bindMouseEvents(app) {
     });
 
     svg.addEventListener('mousedown', (e) => {
-        if (e.button !== 2) return;
-        // Record right-click start position to detect drag vs click on mouseup
-        app._rightClickStart = { x: e.clientX, y: e.clientY };
+        handleRightMouseDown(app, e);
     });
 
     svg.addEventListener('mouseup', (e) => {
-        if (e.button !== 2) return;
-        // Only finish drawing tools if we didn't drag (pan) during right-click
-        if (!consumeRightClickAsClick(app, e, DRAG_THRESHOLD_PX)) return;
-
-        const { worldPos, snapped } = getEventPositions(e, app.viewport);
-
-        if (!handleRightClickDrawingMouseUp(app, worldPos, snapped)) {
-            return; // No matching tool — skip preventDefault and cursor reset
-        }
-        app._setToolCursor(app.currentTool, app.viewport.svg);
-        e.preventDefault();
+        handleRightMouseUp(app, e);
     });
 
     svg.addEventListener('contextmenu', (e) => {
-        const { screenPos, worldPos } = getEventPositions(e, app.viewport);
-
-        if (app.currentTool === 'select' && handleSelectContextMenu(app, worldPos, e.clientX, e.clientY)) {
-            e.preventDefault();
-            return;
-        }
-
-        handleComponentTooltipContextMenu(app, worldPos, screenPos);
-        if (app.currentTool !== 'select') {
-            app._setToolCursor(app.currentTool, app.viewport.svg);
-        }
-        e.preventDefault();
+        handleSvgContextMenu(app, e);
     });
 
     svg.addEventListener('mousemove', (e) => {
@@ -1283,20 +1333,7 @@ export function bindMouseEvents(app) {
 
     // Listen on window so mouseup is caught even if mouse leaves the SVG
     window.addEventListener('mouseup', (e) => {
-        if (e.button !== 0) return;
-
-        const { worldPos, snapped } = getEventPositions(e, app.viewport);
-
-        if (handleBoxSelectMouseUp(app, worldPos)) {
-            return;
-        }
-
-        // Always ensure proper cleanup, even during mode 2 click-to-end interaction
-        handleActiveDragMouseUp(app);
-
-        if (app.viewport.isPanning) return;
-
-        handleDrawingToolMouseUp(app, snapped, CLICK_TO_END_TOOLS);
+        handleWindowMouseUp(app, e);
     });
 
     svg.addEventListener('click', (e) => {
