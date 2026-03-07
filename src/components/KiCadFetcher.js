@@ -353,12 +353,15 @@ export class KiCadFetcher {
                 continue;
             }
 
-            const content = await response.text();
-            console.log(`KiCad library ${library} fetched, size: ${content.length} bytes`);
-
-            if (!this._isValidKiCadSymbolContent(content)) {
+            const content = await this._readValidatedResponseText(
+                response,
+                value => this._isValidKiCadSymbolContent(value)
+            );
+            if (!content) {
                 continue;
             }
+
+            console.log(`KiCad library ${library} fetched, size: ${content.length} bytes`);
 
             this._cacheLibraryContent(cacheKey, library, content);
             return content;
@@ -376,8 +379,11 @@ export class KiCadFetcher {
                     continue;
                 }
 
-                const content = await response.text();
-                if (!this._isValidKiCadSymbolContent(content)) {
+                const content = await this._readValidatedResponseText(
+                    response,
+                    value => this._isValidKiCadSymbolContent(value)
+                );
+                if (!content) {
                     continue;
                 }
 
@@ -408,6 +414,17 @@ export class KiCadFetcher {
      */
     _setContentCache(key, value) {
         return storageManager.set(key, value, CONTENT_CACHE_TTL_MS);
+    }
+
+    /**
+     * Read response text and validate it using the provided validator.
+     * @param {Response} response
+     * @param {(content: unknown) => boolean} validator
+     * @returns {Promise<string|null>}
+     */
+    async _readValidatedResponseText(response, validator) {
+        const content = await response.text();
+        return validator(content) ? content : null;
     }
 
     /**
@@ -481,8 +498,11 @@ export class KiCadFetcher {
                 continue;
             }
 
-            const content = await response.text();
-            if (!this._isValidKiCadSymbolContent(content)) {
+            const content = await this._readValidatedResponseText(
+                response,
+                value => this._isValidKiCadSymbolContent(value)
+            );
+            if (!content) {
                 continue;
             }
             return content;
@@ -510,6 +530,34 @@ export class KiCadFetcher {
     }
 
     /**
+     * Validate footprint file content format.
+     * @param {unknown} content
+     * @returns {content is string}
+     */
+    _isValidFootprintContent(content) {
+        return typeof content === 'string' && content.includes(FOOTPRINT_MARKER);
+    }
+
+    /**
+     * Parse JSON from a fetch response and optionally include headers.
+     * @param {Response} response
+     * @param {boolean} [returnHeaders=false]
+     * @returns {Promise<Object|null>}
+     */
+    async _parseJsonFromResponse(response, returnHeaders = false) {
+        try {
+            const json = await response.json();
+            if (returnHeaders) {
+                return { json, headers: response.headers };
+            }
+            return json;
+        } catch (error) {
+            console.error('KiCad JSON parse error:', error);
+            return null;
+        }
+    }
+
+    /**
      * Fetch JSON from a URL through CORS proxies.
      * @param {string} targetUrl
      * @param {boolean} [returnHeaders=false] - If true, return `{ json, headers }`
@@ -521,17 +569,7 @@ export class KiCadFetcher {
             return null;
         }
 
-        try {
-            const json = await response.json();
-            if (returnHeaders) {
-                return { json, headers: response.headers };
-            }
-            return json;
-        } catch (error) {
-            console.error('KiCad JSON parse error:', error);
-        }
-
-        return null;
+        return this._parseJsonFromResponse(response, returnHeaders);
     }
 
     /**
@@ -671,12 +709,11 @@ export class KiCadFetcher {
                 continue;
             }
 
-            const content = await response.text();
-            if (typeof content !== 'string') {
-                return null;
-            }
-
-            if (!content.includes(FOOTPRINT_MARKER)) {
+            const content = await this._readValidatedResponseText(
+                response,
+                value => this._isValidFootprintContent(value)
+            );
+            if (!content) {
                 continue;
             }
 
