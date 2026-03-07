@@ -128,6 +128,24 @@ function handleStartFinishToolMouseDown(app, snapped) {
     app._finishDrawing(snapped);
 }
 
+/**
+ * Consume one-shot click suppression flags.
+ * Returns true when click handling should stop.
+ */
+function shouldSkipSelectClick(app) {
+    if (app.skipClickSelection) {
+        app.skipClickSelection = false;
+        return true;
+    }
+
+    if (app.didDrag) {
+        app.didDrag = false;
+        return true;
+    }
+
+    return false;
+}
+
 function handleAnchorContextMenu(app, worldPos, clientX, clientY) {
     const selectedShapes = app.selection.getSelection();
     for (const shape of selectedShapes) {
@@ -158,10 +176,8 @@ function handleAnchorContextMenu(app, worldPos, clientX, clientY) {
         if (!nid) continue;
         const junctionInfo = detectTJunction(app, wire, nid);
         if (junctionInfo) {
-            app.selection.clearSelection();
-            app.selection.select(wire, false);
+            selectOnlyShapeAndRender(app, wire);
             wire.selected = true;
-            app.renderShapes(true);
             const canDelete = false;
             showAnchorContextMenu(app, wire, nid, clientX, clientY, canDelete, junctionInfo);
             return true;
@@ -179,10 +195,8 @@ function handleSegmentContextMenu(app, worldPos, clientX, clientY) {
         if (!edgeId) continue;
 
         if (!shape.selected) {
-            app.selection.clearSelection();
-            app.selection.select(shape, false);
+            selectOnlyShapeAndRender(app, shape);
             shape.selected = true;
-            app.renderShapes(true);
         }
         showSegmentContextMenu(app, shape, edgeId, clientX, clientY);
         return true;
@@ -986,13 +1000,7 @@ export function bindMouseEvents(app) {
     svg.addEventListener('click', (e) => {
         if (app.viewport.isPanning) return;
 
-        if (app.skipClickSelection) {
-            app.skipClickSelection = false;
-            return;
-        }
-
-        if (app.didDrag) {
-            app.didDrag = false;
+        if (shouldSkipSelectClick(app)) {
             return;
         }
 
