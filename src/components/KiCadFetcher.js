@@ -13,6 +13,9 @@ import { circumcircle } from '../core/geometry.js';
 const DAY_MS = 24 * 60 * 60 * 1000;
 const SEARCH_CACHE_TTL_MS = DAY_MS;
 const CONTENT_CACHE_TTL_MS = 7 * DAY_MS;
+const SYMBOL_LIBRARY_MARKER = 'kicad_symbol_lib';
+const FOOTPRINT_MARKER = 'footprint';
+const CONTENT_PREVIEW_LENGTH = 200;
 
 export class KiCadFetcher {
     /** Initialise GitLab base URLs, CORS proxies and in-memory caches. */
@@ -478,8 +481,8 @@ export class KiCadFetcher {
             return false;
         }
 
-        if (!content.includes('kicad_symbol_lib')) {
-            console.warn('Response does not look like a KiCad library file:', content.substring(0, 200));
+        if (!content.includes(SYMBOL_LIBRARY_MARKER)) {
+            console.warn('Response does not look like a KiCad library file:', content.substring(0, CONTENT_PREVIEW_LENGTH));
             return false;
         }
 
@@ -653,7 +656,7 @@ export class KiCadFetcher {
                 return null;
             }
 
-            if (!content.includes('footprint')) {
+            if (!content.includes(FOOTPRINT_MARKER)) {
                 continue;
             }
 
@@ -745,7 +748,7 @@ export class KiCadFetcher {
         if (!content) return null;
 
         const sexp = this._parseSExp(content);
-        if (!Array.isArray(sexp) || sexp[0] !== 'footprint') {
+        if (!Array.isArray(sexp) || sexp[0] !== FOOTPRINT_MARKER) {
             return null;
         }
 
@@ -1016,7 +1019,7 @@ export class KiCadFetcher {
         
         console.log(`Parsed S-exp type: ${sexp[0]}`);
         
-        if (sexp[0] !== 'kicad_symbol_lib') {
+        if (sexp[0] !== SYMBOL_LIBRARY_MARKER) {
             console.error('Invalid KiCad symbol library format, got:', sexp[0]);
             return null;
         }
