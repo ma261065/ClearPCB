@@ -219,16 +219,24 @@ export class SearchManager {
     }
 
     /**
+     * Cache a fetched entity value with a fixed TTL.
+     * @param {string} cacheKey
+     * @param {any} value
+     */
+    _cacheFetchedEntity(cacheKey, value) {
+        if (!value) {
+            return;
+        }
+        storageManager.set(cacheKey, value, 7 * 24 * 60 * 60 * 1000);
+    }
+
+    /**
      * Fetch and cache a component from LCSC
      */
     async fetchFromLCSC(lcscId) {
         try {
             const definition = await this.library.fetchFromLCSC(lcscId);
-            if (definition) {
-                // Cache the component definition
-                const cacheKey = `clearpcb_lcsc_component_${lcscId}`;
-                storageManager.set(cacheKey, definition, 7 * 24 * 60 * 60 * 1000);
-            }
+            this._cacheFetchedEntity(`clearpcb_lcsc_component_${lcscId}`, definition);
             return definition;
         } catch (error) {
             console.error('SearchManager: Failed to fetch from LCSC:', error);
@@ -242,11 +250,7 @@ export class SearchManager {
     async fetchFromKiCad(library, symbolName) {
         try {
             const symbol = await this.library.kicadFetcher.fetchSymbol(library, symbolName);
-            if (symbol) {
-                // Cache the symbol
-                const cacheKey = `clearpcb_kicad_symbol_${library}_${symbolName}`;
-                storageManager.set(cacheKey, symbol, 7 * 24 * 60 * 60 * 1000);
-            }
+            this._cacheFetchedEntity(`clearpcb_kicad_symbol_${library}_${symbolName}`, symbol);
             return symbol;
         } catch (error) {
             console.error('SearchManager: Failed to fetch from KiCad:', error);
