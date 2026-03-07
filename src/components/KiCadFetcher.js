@@ -333,19 +333,8 @@ export class KiCadFetcher {
             return cached;
         }
 
-        const baseCandidates = [this.symbolsBase];
-        if (this.symbolsBase.includes('/-/raw/master')) {
-            baseCandidates.push(this.symbolsBase.replace('/-/raw/master', '/-/raw/main'));
-        }
-        const expandedBases = [];
-        for (const base of baseCandidates) {
-            expandedBases.push(base);
-            if (!base.endsWith('/symbols')) {
-                expandedBases.push(`${base}/symbols`);
-            }
-        }
-
-        const targetUrls = expandedBases.map(base => `${base}/${library}.kicad_sym`);
+        const baseCandidates = this._getRawBaseCandidates(this.symbolsBase);
+        const targetUrls = this._buildSymbolLibraryUrlCandidates(library);
         
         for (const targetUrl of targetUrls) {
             console.log(`Fetching KiCad library: ${library}`);
@@ -695,6 +684,23 @@ export class KiCadFetcher {
      */
     _buildRawUrlCandidates(base, relativePath) {
         return this._getRawBaseCandidates(base).map(rawBase => `${rawBase}/${relativePath}`);
+    }
+
+    /**
+     * Builds symbol-library URL candidates including optional /symbols subdir variants.
+     * @param {string} library
+     * @returns {string[]}
+     */
+    _buildSymbolLibraryUrlCandidates(library) {
+        const expandedBases = [];
+        for (const base of this._getRawBaseCandidates(this.symbolsBase)) {
+            expandedBases.push(base);
+            if (!base.endsWith('/symbols')) {
+                expandedBases.push(`${base}/symbols`);
+            }
+        }
+
+        return expandedBases.map(base => `${base}/${library}.kicad_sym`);
     }
 
     /**
