@@ -290,6 +290,93 @@ function handlePinSnapToolMouseDown(app, worldPos) {
 }
 
 /**
+ * Handle mousedown behavior for the wire tool.
+ */
+function handleWireToolMouseDown(app, worldPos) {
+    if (!app.isDrawing) {
+        // Deselect everything so anchors are hidden while drawing
+        for (const shape of app.shapes) {
+            if (shape.selected) {
+                shape.selected = false;
+                shape.invalidate();
+            }
+        }
+        for (const component of app.components) {
+            if (component.selected) {
+                component.selected = false;
+                component.invalidate();
+            }
+        }
+        app.selection.clearSelection();
+        app.renderShapes(true);
+
+        // Use the unified snap resolver — same logic as pre-draw hover
+        const snap = resolveWireSnapPosition(app, worldPos, { pinTolerance: 0.5 });
+        const startData = { x: snap.x, y: snap.y, snapPin: snap.snapPin || null };
+        app._startWireDrawing(startData);
+        return;
+    }
+
+    if (!app.drawCurrent) {
+        return;
+    }
+
+    // When finishing on a wire junction (segment T-junction), snap
+    // the final endpoint to the junction position on the wire.
+    let waypointPos = { x: app.drawCurrent.x, y: app.drawCurrent.y };
+    if (app._wireJunctionDot && app._wireJunctionData) {
+        waypointPos = { x: app._wireJunctionData.x, y: app._wireJunctionData.y };
+        // Update drawCurrent so finishWireDrawing doesn't add a
+        // conflicting point from the old grid-snapped position
+        app.drawCurrent = { ...waypointPos };
+    }
+
+    // If there's an auto-corner (T-junction), add the corner
+    // point first so the wire gets the L-shaped path.
+    if (app.drawCorner) {
+        app._addWireWaypoint({
+            x: app.drawCorner.x,
+            y: app.drawCorner.y,
+            snapPin: null
+        });
+    }
+
+    app._addWireWaypoint({
+        ...waypointPos,
+        snapPin: app.lastSnappedData?.snapPin || null
+    });
+
+    // Auto-finish if clicked on a pin or a wire junction dot
+    if (app.wirePoints.length >= 2 && (app.lastSnappedData?.snapPin || app._wireJunctionDot)) {
+        app._finishWireDrawing(app.lastSnappedData);
+    }
+}
+
+/**
+ * Handle mousedown behavior for the arc tool.
+ */
+function handleArcToolMouseDown(app, snapped, worldPos) {
+    if (!app.isDrawing) {
+        // Start arc: first endpoint
+        app._startDrawing(snapped);
+        return;
+    }
+
+    if (!app.arcEndpoint) {
+        // Second endpoint - show a straight line as initial preview
+        app.arcEndpoint = { x: snapped.x, y: snapped.y };
+        app.drawCurrent = { x: snapped.x, y: snapped.y };
+        app._updateDrawing(app.drawCurrent);
+        return;
+    }
+
+    // Third point (bulge) - finish arc on left click (unsnapped)
+    app._updateDrawing(worldPos);
+    app._finishDrawing(worldPos);
+    app._setToolCursor(app.currentTool, app.viewport.svg);
+}
+
+/**
  * Handle immediate left-click actions that consume the event.
  */
 function handleImmediatePlacementMouseDown(app, event, snapped) {
@@ -936,67 +1023,14 @@ export function bindMouseEvents(app) {
             e.preventDefault();
             return;
         } else if (app.currentTool === 'wire') {
-            if (!app.isDrawing) {
-                // Deselect everything so anchors are hidden while drawing
-                for (const s of app.shapes) {
-                    if (s.selected) { s.selected = false; s.invalidate(); }
-                }
-                for (const c of app.components) {
-                    if (c.selected) { c.selected = false; c.invalidate(); }
-                }
-                app.selection.clearSelection();
-                app.renderShapes(true);
-                // Use the unified snap resolver — same logic as pre-draw hover
-                const snap = resolveWireSnapPosition(app, worldPos, { pinTolerance: 0.5 });
-                const startData = { x: snap.x, y: snap.y, snapPin: snap.snapPin || null };
-                app._startWireDrawing(startData);
-            } else if (app.drawCurrent) {
-                // When finishing on a wire junction (segment T-junction), snap
-                // the final endpoint to the junction position on the wire.
-                let waypointPos = { x: app.drawCurrent.x, y: app.drawCurrent.y };
-                if (app._wireJunctionDot && app._wireJunctionData) {
-                    waypointPos = { x: app._wireJunctionData.x, y: app._wireJunctionData.y };
-                    // Update drawCurrent so finishWireDrawing doesn't add a
-                    // conflicting point from the old grid-snapped position
-                    app.drawCurrent = { ...waypointPos };
-                }
-                // If there's an auto-corner (T-junction), add the corner
-                // point first so the wire gets the L-shaped path.
-                if (app.drawCorner) {
-                    app._addWireWaypoint({
-                        x: app.drawCorner.x, y: app.drawCorner.y, snapPin: null
-                    });
-                }
-                app._addWireWaypoint({
-                    ...waypointPos,
-                    snapPin: app.lastSnappedData?.snapPin || null
-                });
-                // Auto-finish if clicked on a pin or a wire junction dot
-                if (app.wirePoints.length >= 2 &&
-                    (app.lastSnappedData?.snapPin || app._wireJunctionDot)) {
-                    app._finishWireDrawing(app.lastSnappedData);
-                }
-            }
+            handleWireToolMouseDown(app, worldPos);
             e.preventDefault();
         } else if (app.currentTool === 'line') {
             handlePointAppendingToolMouseDown(app, snapped, point => app._addLinePoint(point));
         } else if (app.currentTool === 'polygon') {
             handlePointAppendingToolMouseDown(app, snapped, point => app._addPolygonPoint(point));
         } else if (app.currentTool === 'arc') {
-            if (!app.isDrawing) {
-                // Start arc: first endpoint
-                app._startDrawing(snapped);
-            } else if (!app.arcEndpoint) {
-                // Second endpoint - show a straight line as initial preview
-                app.arcEndpoint = { x: snapped.x, y: snapped.y };
-                app.drawCurrent = { x: snapped.x, y: snapped.y };
-                app._updateDrawing(app.drawCurrent);
-            } else {
-                // Third point (bulge) - finish arc on left click (unsnapped)
-                app._updateDrawing(worldPos);
-                app._finishDrawing(worldPos);
-                app._setToolCursor(app.currentTool, app.viewport.svg);
-            }
+            handleArcToolMouseDown(app, snapped, worldPos);
         } else if (app.currentTool === 'rect' || app.currentTool === 'circle') {
             handleStartFinishToolMouseDown(app, snapped);
         } else if (app.currentTool === 'noconnect' || app.currentTool === 'netlabel') {
