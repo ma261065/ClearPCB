@@ -357,15 +357,7 @@ export class KiCadFetcher {
             const content = await response.text();
             console.log(`KiCad library ${library} fetched, size: ${content.length} bytes`);
 
-            // Validate content is a string
-            if (typeof content !== 'string') {
-                console.warn('KiCad content is not a string, skipping cache');
-                return null;
-            }
-
-            // Verify it looks like a KiCad file
-            if (!content.includes('kicad_symbol_lib')) {
-                console.warn('Response does not look like a KiCad library file:', content.substring(0, 200));
+            if (!this._isValidKiCadSymbolContent(content)) {
                 continue;
             }
 
@@ -389,13 +381,7 @@ export class KiCadFetcher {
                 }
 
                 const content = await response.text();
-                if (typeof content !== 'string') {
-                    console.warn('KiCad content is not a string, skipping cache');
-                    return null;
-                }
-
-                if (!content.includes('kicad_symbol_lib')) {
-                    console.warn('Response does not look like a KiCad library file:', content.substring(0, 200));
+                if (!this._isValidKiCadSymbolContent(content)) {
                     continue;
                 }
 
@@ -480,17 +466,31 @@ export class KiCadFetcher {
             }
 
             const content = await response.text();
-            if (typeof content !== 'string') {
-                console.warn('KiCad content is not a string, skipping cache');
-                return null;
-            }
-            if (!content.includes('kicad_symbol_lib')) {
-                console.warn('Response does not look like a KiCad library file:', content.substring(0, 200));
+            if (!this._isValidKiCadSymbolContent(content)) {
                 continue;
             }
             return content;
         }
         return null;
+    }
+
+    /**
+     * Validate that fetched content looks like a KiCad symbol library file.
+     * @param {unknown} content
+     * @returns {content is string}
+     */
+    _isValidKiCadSymbolContent(content) {
+        if (typeof content !== 'string') {
+            console.warn('KiCad content is not a string, skipping cache');
+            return false;
+        }
+
+        if (!content.includes('kicad_symbol_lib')) {
+            console.warn('Response does not look like a KiCad library file:', content.substring(0, 200));
+            return false;
+        }
+
+        return true;
     }
 
     /**
