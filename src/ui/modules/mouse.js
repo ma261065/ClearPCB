@@ -175,6 +175,80 @@ function queuePendingAnchorDrag(app, params) {
     setPendingAnchorDrag(app, pending);
 }
 
+/**
+ * Handle immediate left-click actions that consume the event.
+ */
+function handleImmediatePlacementMouseDown(app, event, snapped) {
+    if (app.pastingClipboard) {
+        app._confirmPaste(snapped);
+        event.preventDefault();
+        return true;
+    }
+
+    if (app.placingComponent) {
+        app._placeComponent(snapped);
+        event.preventDefault();
+        return true;
+    }
+
+    return false;
+}
+
+/**
+ * Handle selected-shape anchor mousedown path and queue deferred anchor drag.
+ */
+function handleSelectedAnchorMouseDown(app, selectedShapes, worldPos, snapped, screenPos) {
+    for (const shape of selectedShapes) {
+        if (shape.locked) continue;
+        const anchorId = shape.hitTestAnchor(worldPos, app.viewport.scale);
+        if (!anchorId) continue;
+
+        // For single-edge wires, prefer segment drag over endpoint
+        // anchor drag when the endpoint is at a T-junction.  This
+        // ensures the whole wire moves instead of stretching.
+        if (shape.type === 'wire' && shape.edges.size <= 1 && shape.nodes.has(anchorId)) {
+            const pos = shape.nodes.get(anchorId);
+            let atJunction = false;
+            for (const other of app.shapes) {
+                if (other === shape || other.type !== 'wire') continue;
+                if (other.nodeAt(pos, VERTEX_EPSILON)) {
+                    atJunction = true;
+                    break;
+                }
+            }
+            if (atJunction) break; // fall through to segment drag
+        }
+
+        // For midpoint anchors, immediately insert the point
+        // so visual feedback (anchor square + move cursor) is instant
+        if (canQueueMidpointAnchorDrag(shape, anchorId)) {
+            const beforeState = app._captureShapeState(shape);
+            const newAnchorId = shape.moveAnchor(anchorId, snapped.x, snapped.y);
+            app.renderShapes(true);
+            app.viewport.svg.style.cursor = 'move';
+            queuePendingAnchorDrag(app, {
+                shape,
+                anchorId: newAnchorId || anchorId,
+                screenPos,
+                snapped,
+                preInsertState: beforeState
+            });
+        } else {
+            // Defer anchor drag until the mouse actually moves
+            queuePendingAnchorDrag(app, {
+                shape,
+                anchorId,
+                screenPos,
+                snapped
+            });
+        }
+
+        return true;
+    }
+
+    return false;
+}
+
 function handleAnchorContextMenu(app, worldPos, clientX, clientY) {
     const selectedShapes = app.selection.getSelection();
     for (const shape of selectedShapes) {
@@ -604,64 +678,15 @@ export function bindMouseEvents(app) {
 
         const { screenPos, worldPos, snapped } = getEventPositions(e, app.viewport);
 
-        if (app.pastingClipboard) {
-            app._confirmPaste(snapped);
-            e.preventDefault();
-            return;
-        }
-
-        if (app.placingComponent) {
-            app._placeComponent(snapped);
-            e.preventDefault();
+        if (handleImmediatePlacementMouseDown(app, e, snapped)) {
             return;
         }
 
         if (app.currentTool === 'select') {
             const selectedShapes = app.selection.getSelection();
-            for (const shape of selectedShapes) {
-                if (shape.locked) continue;
-                const anchorId = shape.hitTestAnchor(worldPos, app.viewport.scale);
-                if (anchorId) {
-                    // For single-edge wires, prefer segment drag over endpoint
-                    // anchor drag when the endpoint is at a T-junction.  This
-                    // ensures the whole wire moves instead of stretching.
-                    if (shape.type === 'wire' && shape.edges.size <= 1 && shape.nodes.has(anchorId)) {
-                        const pos = shape.nodes.get(anchorId);
-                        let atJunction = false;
-                        for (const other of app.shapes) {
-                            if (other === shape || other.type !== 'wire') continue;
-                            if (other.nodeAt(pos, VERTEX_EPSILON)) {
-                                atJunction = true; break;
-                            }
-                        }
-                        if (atJunction) break; // fall through to segment drag
-                    }
-                    // For midpoint anchors, immediately insert the point
-                    // so visual feedback (anchor square + move cursor) is instant
-                    if (canQueueMidpointAnchorDrag(shape, anchorId)) {
-                        const beforeState = app._captureShapeState(shape);
-                        const newAnchorId = shape.moveAnchor(anchorId, snapped.x, snapped.y);
-                        app.renderShapes(true);
-                        app.viewport.svg.style.cursor = 'move';
-                        queuePendingAnchorDrag(app, {
-                            shape,
-                            anchorId: newAnchorId || anchorId,
-                            screenPos,
-                            snapped,
-                            preInsertState: beforeState
-                        });
-                    } else {
-                        // Defer anchor drag until the mouse actually moves
-                        queuePendingAnchorDrag(app, {
-                            shape,
-                            anchorId,
-                            screenPos,
-                            snapped
-                        });
-                    }
-                    e.preventDefault();
-                    return;
-                }
+            if (handleSelectedAnchorMouseDown(app, selectedShapes, worldPos, snapped, screenPos)) {
+                e.preventDefault();
+                return;
             }
             let hitShape = app.selection.hitTest(worldPos);
 
