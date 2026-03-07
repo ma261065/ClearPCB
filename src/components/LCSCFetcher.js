@@ -45,6 +45,17 @@ export class LCSCFetcher {
      * @returns {string}
      */
     _normalizeQuery(query) {
+    /**
+     * Find exact LCSC part match in search results.
+     * @param {Array} results
+     * @param {string} normalizedPart
+     * @returns {Object|undefined}
+     */
+    _findExactLCSCResult(results, normalizedPart) {
+        return results.find(item =>
+            (item.lcscPartNumber || '').toUpperCase() === normalizedPart.toUpperCase()
+        );
+    }
         const trimmed = (query || '').trim();
         if (/^c\d+$/i.test(trimmed)) {
             return trimmed.toUpperCase();
@@ -86,9 +97,7 @@ export class LCSCFetcher {
      * @param {RequestInit} [options]
      * @returns {Promise<{text?: string, status?: number, error?: Error}>}
      */
-    async _fetchProxyText(proxy, targetUrl, options = {}) {
-        try {
-            const proxyUrl = this._buildProxyUrl(proxy, targetUrl);
+            const exact = this._findExactLCSCResult(easyedaResults, normalizedPart);
             const response = await fetch(proxyUrl, options);
             if (!response.ok) {
                 return { status: response.status };
@@ -493,12 +502,14 @@ export class LCSCFetcher {
         }
         return url;
     }
-    
+
     /**
-     * Format search results from LCSC API
+     * Build normalized metadata fields shared by LCSC search and detail records.
+     * @param {Object} product
+     * @returns {Object}
      */
-    _formatSearchResults(products) {
-        return products.map(product => ({
+    _buildBaseProductMetadata(product) {
+        return {
             lcscPartNumber: product.productCode || '',
             mpn: product.productModel || '',
             manufacturer: product.brandNameEn || '',
@@ -512,7 +523,14 @@ export class LCSCFetcher {
             imageUrl: product.productImageUrl || product.productImageUrlBig || '',
             datasheet: product.pdfUrl || '',
             productUrl: this._buildLCSCProductUrl(product.productCode)
-        }));
+        };
+    }
+    
+    /**
+     * Format search results from LCSC API
+     */
+    _formatSearchResults(products) {
+        return products.map(product => this._buildBaseProductMetadata(product));
     }
     
     /**
@@ -520,20 +538,8 @@ export class LCSCFetcher {
      */
     _extractMetadataFromProduct(product) {
         return {
-            lcscPartNumber: product.productCode || '',
-            mpn: product.productModel || '',
-            manufacturer: product.brandNameEn || '',
-            description: product.productIntroEn || product.productDescEn || '',
-            category: product.parentCatalogName || product.catalogName || '',
-            package: product.encapStandard || '',
-            stock: product.stockNumber || 0,
-            price: this._extractPriceFromProduct(product),
+            ...this._buildBaseProductMetadata(product),
             priceBreaks: this._extractPriceBreaksFromProduct(product),
-            isBasic: product.isEnvironment === true,
-            isPreferred: product.isHot === true,
-            imageUrl: product.productImageUrl || product.productImageUrlBig || '',
-            datasheet: product.pdfUrl || '',
-            productUrl: this._buildLCSCProductUrl(product.productCode),
             minOrderQty: product.minBuyNumber || 1,
             stockStatus: product.stockNumber > 0 ? 'In Stock' : 'Out of Stock'
         };
