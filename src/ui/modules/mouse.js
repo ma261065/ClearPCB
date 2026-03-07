@@ -981,10 +981,41 @@ function syncAnchorDragLinkedNodes(app, anchorPos) {
 }
 
 /**
+ * Get a reusable Set scratch buffer stored on app.
+ */
+function getReusableSet(app, key) {
+    let scratch = app[key];
+    if (!scratch) {
+        scratch = new Set();
+        app[key] = scratch;
+    } else {
+        scratch.clear();
+    }
+    return scratch;
+}
+
+/**
+ * Build a Set of other wires linked by T-junction metadata during segment drag.
+ */
+function getDragTJunctionWireSet(app) {
+    const wires = getReusableSet(app, '_dragTJunctionWireSetScratch');
+    if (app.dragTJunctionLinks) {
+        for (const link of app.dragTJunctionLinks) {
+            wires.add(link.otherWire);
+        }
+    }
+    return wires;
+}
+
+/**
  * Return current endpoint node IDs for the active dragged wire segment.
  */
-function getDraggedSegmentEndpointNodeIds(wire, dragEdgeId) {
-    const movedNodes = new Set();
+function getDraggedSegmentEndpointNodeIds(wire, dragEdgeId, reuseSet) {
+    const movedNodes = reuseSet || new Set();
+    if (reuseSet) {
+        movedNodes.clear();
+    }
+
     const edgeNow = wire.edges.get(dragEdgeId);
     if (edgeNow) {
         movedNodes.add(edgeNow.from);
@@ -1100,10 +1131,7 @@ function handleWireSegmentDragMouseMove(app, worldPos) {
         y: refPt.y + mouseDelta.y
     };
     // Grid snap, then augment with snap lines from off-grid neighbors
-    const tJunctionWires = new Set();
-    if (app.dragTJunctionLinks) {
-        for (const link of app.dragTJunctionLinks) tJunctionWires.add(link.otherWire);
-    }
+    const tJunctionWires = getDragTJunctionWireSet(app);
     const { snappedTarget, guides: segGuides, highlight: segHighlight } =
         computeSegmentDragSnap(app, wire, dragEdgeId, origState, target, app.dragSegAxis, tJunctionWires);
     updateSnapHighlight(app, segHighlight);
@@ -1157,9 +1185,12 @@ function handleWireSegmentDragMouseMove(app, worldPos) {
             wire.invalidate();
         }
 
+        const movedNodes = edge
+            ? getDraggedSegmentEndpointNodeIds(wire, dragEdgeId, getReusableSet(app, '_dragSegmentMovedNodesScratch'))
+            : null;
+
         // Move T-junction nodes on other wires using pre-recorded links
-        if (app.dragTJunctionLinks && edge) {
-            const movedNodes = getDraggedSegmentEndpointNodeIds(wire, dragEdgeId);
+        if (app.dragTJunctionLinks && movedNodes) {
             for (const link of app.dragTJunctionLinks) {
                 if (movedNodes.has(link.wireNodeId)) {
                     const sp = link.otherWire.nodes.get(link.otherNodeId);
@@ -1173,8 +1204,7 @@ function handleWireSegmentDragMouseMove(app, worldPos) {
         }
 
         // Move NoConnect shapes linked to moved segment endpoints
-        if (app.dragSegmentNCLinks && edge) {
-            const movedNodes = getDraggedSegmentEndpointNodeIds(wire, dragEdgeId);
+        if (app.dragSegmentNCLinks && movedNodes) {
             for (const link of app.dragSegmentNCLinks) {
                 if (movedNodes.has(link.wireNodeId)) {
                     link.nc.x += dx;
