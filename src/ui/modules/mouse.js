@@ -222,6 +222,49 @@ function handleSelectToolDoubleClick(app, worldPos, screenPos) {
 }
 
 /**
+ * Show and update tool crosshair at snapped position.
+ */
+function updateToolCrosshair(app, snapped, screenPos) {
+    app._showCrosshair();
+    app._updateCrosshair(snapped, screenPos);
+}
+
+/**
+ * Handle mousemove behavior for the wire tool.
+ * Returns true when handled and mousemove should return early.
+ */
+function handleWireToolMouseMove(app, worldPos, snapped, screenPos) {
+    if (app.currentTool !== 'wire') {
+        return false;
+    }
+
+    if (app.isDrawing) {
+        app._updateWireDrawing(worldPos);
+    } else {
+        // Not drawing — highlight pins and wire endpoints/segments on hover
+        updateSnapHighlight(app, resolveWireSnapPosition(app, worldPos, { pinTolerance: 0.5 }));
+    }
+
+    updateToolCrosshair(app, snapped, screenPos);
+    return true;
+}
+
+/**
+ * Handle hover behavior for noconnect/netlabel tools.
+ */
+function handlePinSnapToolHover(app, worldPos) {
+    if (!(app.currentTool === 'noconnect' || app.currentTool === 'netlabel')) {
+        return;
+    }
+
+    if (!app.isDrawing) {
+        const resolved = resolveWireSnapPosition(app, worldPos, { pinTolerance: PIN_SNAP_TOL });
+        updateSnapHighlight(app, resolved);
+        updateToolGhost(app, { x: resolved.x, y: resolved.y });
+    }
+}
+
+/**
  * Handle immediate left-click actions that consume the event.
  */
 function handleImmediatePlacementMouseDown(app, event, snapped) {
@@ -1017,26 +1060,11 @@ export function bindMouseEvents(app) {
             app._updateComponentPreview(snapped);
         }
 
-        if (app.currentTool === 'wire') {
-            if (app.isDrawing) {
-                app._updateWireDrawing(worldPos);
-            } else {
-                // Not drawing — highlight pins and wire endpoints/segments on hover
-                updateSnapHighlight(app, resolveWireSnapPosition(app, worldPos, { pinTolerance: 0.5 }));
-            }
-            app._showCrosshair();
-            app._updateCrosshair(snapped, screenPos);
+        if (handleWireToolMouseMove(app, worldPos, snapped, screenPos)) {
             return;
         }
 
-        // Highlight pins / wire endpoints for noconnect and netlabel tools
-        if (app.currentTool === 'noconnect' || app.currentTool === 'netlabel') {
-            if (!app.isDrawing) {
-                const resolved = resolveWireSnapPosition(app, worldPos, { pinTolerance: PIN_SNAP_TOL });
-                updateSnapHighlight(app, resolved);
-                updateToolGhost(app, { x: resolved.x, y: resolved.y });
-            }
-        }
+        handlePinSnapToolHover(app, worldPos);
         
         // Update drawing preview for arc (bulge point not grid-snapped) and other tools
         if (app.isDrawing) {
@@ -1050,8 +1078,7 @@ export function bindMouseEvents(app) {
         }
 
         if (app.currentTool !== 'select') {
-            app._showCrosshair();
-            app._updateCrosshair(snapped, screenPos);
+            updateToolCrosshair(app, snapped, screenPos);
         }
 
         if (!app.isDragging) {
