@@ -21,7 +21,10 @@ export function handleEscape(app) {
             app._applyShapeState(wire, beforeState);
         }
         const shape = app.dragShape;
-        clearDragState(app, { clearDidDrag: true, resetCursor: true });
+        clearDragState(app);
+        app.didDrag = false;
+        app.viewport.svg.style.cursor = '';
+        app.interactionState = 'idle';
         if (shape) shape.selected = true;
         app.renderShapes(true);
         return;
@@ -38,7 +41,10 @@ export function handleEscape(app) {
             }
         }
         const shape = app.dragShape;
-        clearDragState(app, { clearDidDrag: true, resetCursor: true });
+        clearDragState(app);
+        app.didDrag = false;
+        app.viewport.svg.style.cursor = '';
+        app.interactionState = 'idle';
         shape.selected = true;
         app.renderShapes(true);
         return;
@@ -52,6 +58,7 @@ export function handleEscape(app) {
         shape.selected = true;
         app.pendingAnchorDrag = null;
         app.viewport.svg.style.cursor = '';
+        app.interactionState = 'idle';
         app.renderShapes(true);
         return;
     }
@@ -77,7 +84,10 @@ export function handleEscape(app) {
         return;
     }
     if (app.dragMode === 'box') {
-        clearDragState(app, { clearDidDrag: true });
+        clearDragState(app);
+        app.didDrag = false;
+        app._removeBoxSelectElement();
+        app.interactionState = 'idle';
         return;
     }
     if (app.currentTool !== 'select') {

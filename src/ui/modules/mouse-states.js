@@ -179,6 +179,16 @@ function queuePendingAnchorDrag(app, params) {
 }
 
 function finalizeDragInteraction(app, options = {}) {
+    // UI cleanup (was previously inside clearDragState)
+    updateSnapHighlight(app, null);
+    if (app._collinearGuides) {
+        for (const line of app._collinearGuides) line.remove();
+        app._collinearGuides = null;
+    }
+    app._hideCrosshair();
+    app._removeBoxSelectElement();
+    app.boxSelectStart = null;
+
     clearDragState(app);
     app.renderShapes(true);
     if (options.refreshTextEdit && app.textEdit) app._updateTextEditOverlay?.();

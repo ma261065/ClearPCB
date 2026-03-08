@@ -1,37 +1,41 @@
-/**
- * Drag commit and cleanup helpers.
+﻿/**
+ * Drag commit and state cleanup.
  *
- * Extracted from mouse.js so drag-related undo logic is in one place.
- * clearDragState is the public reset function (also used by keyboard.js).
- * commitAnchorDrag / commitSegmentDrag handle undo-command creation when
- * the user finishes an anchor or segment drag.
+ * Called by mouse-states.js (handleDragEnd) and keyboard.js (Escape cancel)
+ * when a drag interaction ends.  Each commit function creates undo commands
+ * for the drag that just finished.
+ *
+ * clearDragState() resets all drag-related app fields back to idle.
+ * UI cleanup (crosshairs, cursor, snap highlights) is the caller's
+ * responsibility  the state machine or keyboard handler owns that.
  */
 
 import { MoveShapesCommand, ModifyShapeCommand, DeleteShapesCommand, BatchCommand } from '../../core/CommandHistory.js';
-import { updateSnapHighlight, reconcileWires, reconcileWiresWithUndo, refreshWireConnections, refreshNoConnectConnection, collapseRedundantWirePoints, buildWireDiffBatch } from './wire.js';
+import { reconcileWires, reconcileWiresWithUndo, refreshWireConnections, refreshNoConnectConnection, collapseRedundantWirePoints, buildWireDiffBatch } from './wire.js';
 
 /**
- * Compare two captured states for semantic equality.
- * @param {any} beforeState
- * @param {any} afterState
+ * Compare two captured shape states for equality.
+ * @param {any} a
+ * @param {any} b
  * @returns {boolean}
  */
-export function areCapturedStatesEqual(beforeState, afterState) {
-    return JSON.stringify(beforeState) === JSON.stringify(afterState);
+export function areCapturedStatesEqual(a, b) {
+    return JSON.stringify(a) === JSON.stringify(b);
 }
 
+//  State reset 
+
 /**
- * Reset all drag-related state on the app.
- * Call AFTER any undo-commit logic has been performed.
+ * Reset all drag-related fields on app to idle defaults.
+ * Does NOT touch UI (cursor, crosshair, snap highlights, box select element).
+ * Callers are responsible for UI cleanup.
  */
-export function clearDragState(app, { clearDidDrag = false, resetCursor = false } = {}) {
+export function clearDragState(app) {
     app.isDragging = false;
     app.dragMode = null;
     app.dragStart = null;
     app.dragAnchorId = null;
-    if (app.dragShape) {
-        app.dragShape.resetDragState();
-    }
+    if (app.dragShape) app.dragShape.resetDragState();
     app.dragShape = null;
     app.dragShapesBefore = null;
     app.dragWireAnchorOriginal = null;
@@ -50,125 +54,171 @@ export function clearDragState(app, { clearDidDrag = false, resetCursor = false 
     app.pendingAnchorDrag = null;
     app.dragTotalDx = 0;
     app.dragTotalDy = 0;
-    // Clear any snap highlight left from anchor/segment drag
-    updateSnapHighlight(app, null);
-    // Remove collinear guides if present
-    if (app._collinearGuides) {
-        for (const line of app._collinearGuides) line.remove();
-        app._collinearGuides = null;
+}
+
+//  Shared helpers 
+
+/**
+ * Build a complete before-state map for all wires: combine pre-drag
+ * snapshots with current state of unchanged wires.
+ * @param {object} app
+ * @param {Map} preDragStates - Wire  state snapshots from drag start
+ * @returns {Map}
+ */
+function buildBeforeAllWireStates(app, preDragStates) {
+    const beforeAll = new Map(preDragStates);
+    for (const s of app.shapes) {
+        if (s.type === 'wire' && !beforeAll.has(s)) {
+            beforeAll.set(s, s.captureState());
+        }
     }
-    // Hide crosshairs (shown during anchor drag)
-    app._hideCrosshair();
-    // Defensive: ensure box select rect is always removed
-    app._removeBoxSelectElement();
-    app.boxSelectStart = null;
-    if (clearDidDrag) app.didDrag = false;
-    if (resetCursor) app.viewport.svg.style.cursor = '';
+    return beforeAll;
 }
 
 /**
- * Commit an active anchor drag — handles wire merge, degenerate collapse,
- * and undo command creation.  Returns true if a commit was performed.
+ * Capture label text states for all wires in the before-state map.
+ * @param {object} app
+ * @param {Map} beforeAll - Wire  state map
+ * @returns {Map}
  */
-export function commitAnchorDrag(app) {
-    if (!app.dragShape || !app.dragShapesBefore) return false;
+function captureLabelTextStates(app, beforeAll) {
+    const labelStates = new Map();
+    for (const [w] of beforeAll) {
+        if (w.labelText && app.shapes.includes(w.labelText)) {
+            labelStates.set(w.labelText, w.labelText.captureState());
+        }
+    }
+    return labelStates;
+}
 
-    if (app.dragShape.type === 'wire') {
-        // Final cleanup: collapse redundant collinear midpoints
-        collapseRedundantWirePoints(app, app.dragShape);
-        if (app.dragAnchorWireStates) {
-            for (const wire of app.dragAnchorWireStates.keys()) {
+/**
+ * Reconcile wires, refresh connections, and build the undo batch.
+ * Shared by commitAnchorDrag and commitSegmentDrag.
+ *
+ * @param {object} app
+ * @param {object[]} changedWires - Wires that were modified by the drag
+ * @param {Map} beforeAll - Complete wire before-state map
+ * @param {string} label - Undo command label
+ * @param {Map} labelTextBefore - Label text before-states
+ * @returns {BatchCommand|null}
+ */
+function reconcileAndBuildBatch(app, changedWires, beforeAll, label, labelTextBefore) {
+    reconcileWires(app, changedWires);
+    for (const w of changedWires) {
+        if (app.shapes.includes(w)) refreshWireConnections(app, w);
+    }
+    return buildWireDiffBatch(app, beforeAll, label, [], labelTextBefore);
+}
+
+/**
+ * Add NoConnect modify commands to a batch for shapes that moved.
+ * @param {object} app
+ * @param {BatchCommand} batch
+ * @param {Array} ncLinks - Array of {nc, before} objects
+ */
+function addNoConnectCommands(app, batch, ncLinks) {
+    if (!ncLinks) return;
+    for (const link of ncLinks) {
+        refreshNoConnectConnection(app, link.nc);
+        const after = link.nc.captureState();
+        if (!areCapturedStatesEqual(link.before, after)) {
+            batch.add(new ModifyShapeCommand(app, link.nc, link.before, after));
+        }
+    }
+}
+
+/**
+ * Push a batch to the undo stack if it has commands.
+ * @param {object} app
+ * @param {BatchCommand|null} batch
+ */
+function pushBatchIfNonEmpty(app, batch) {
+    if (batch && batch.commands.length > 0) {
+        app.history.undoStack.push(batch);
+        app.history.redoStack = [];
+        app.history._notifyChanged();
+    }
+}
+
+//  Anchor drag commit 
+
+/**
+ * Commit an anchor drag  wire merge, degenerate collapse, undo commands.
+ *
+ * @param {object} app
+ * @param {object} dragShape - The shape being dragged
+ * @param {object} beforeState - Shape state snapshot from drag start
+ * @param {Map} [anchorWireStates] - T-junction linked wire before-states
+ * @param {Array} [ncLinks] - NoConnect shapes that moved with anchor
+ * @param {Map} [junctionBeforeWireStates] - Pre-junction-split wire states
+ * @param {Map} [junctionBeforeLabelTextStates] - Pre-junction-split label states
+ * @returns {boolean}
+ */
+export function commitAnchorDrag(app, dragShape = null, beforeState = null, anchorWireStates = null, ncLinks = null, junctionBeforeWireStates = null, junctionBeforeLabelTextStates = null) {
+    // Legacy call support: read from app flags if params not provided
+    dragShape = dragShape || app.dragShape;
+    beforeState = beforeState || app.dragShapesBefore;
+    anchorWireStates = anchorWireStates || app.dragAnchorWireStates;
+    ncLinks = ncLinks || app.dragAnchorNCLinks;
+    junctionBeforeWireStates = junctionBeforeWireStates || app.dragJunctionBeforeWireStates;
+    junctionBeforeLabelTextStates = junctionBeforeLabelTextStates || app.dragJunctionBeforeLabelTextStates;
+
+    if (!dragShape || !beforeState) return false;
+
+    if (dragShape.type === 'wire') {
+        // Collapse redundant midpoints
+        collapseRedundantWirePoints(app, dragShape);
+        if (anchorWireStates) {
+            for (const wire of anchorWireStates.keys()) {
                 collapseRedundantWirePoints(app, wire);
             }
         }
 
-        // Build complete before-state map.
-        // Dragged wire + TJ-linked wires: captured at drag start.
-        // All other wires: capture now (unchanged by the drag).
-        const beforeAll = app.dragJunctionBeforeWireStates
-            ? new Map(app.dragJunctionBeforeWireStates)
-            : new Map();
-
-        if (!app.dragJunctionBeforeWireStates) {
-            beforeAll.set(app.dragShape, app.dragShapesBefore);
-            if (app.dragAnchorWireStates) {
-                for (const [w, b] of app.dragAnchorWireStates) beforeAll.set(w, b);
-            }
-            for (const s of app.shapes) {
-                if (s.type === 'wire' && !beforeAll.has(s)) {
-                    beforeAll.set(s, s.captureState());
+        // Build before-state maps
+        const preDragStates = junctionBeforeWireStates
+            ? new Map(junctionBeforeWireStates)
+            : (() => {
+                const m = new Map();
+                m.set(dragShape, beforeState);
+                if (anchorWireStates) {
+                    for (const [w, b] of anchorWireStates) m.set(w, b);
                 }
-            }
-        }
+                return m;
+            })();
 
-        // Capture label text states before reconciliation
-        const labelTextBefore = app.dragJunctionBeforeLabelTextStates
-            ? new Map(app.dragJunctionBeforeLabelTextStates)
-            : new Map();
+        const beforeAll = junctionBeforeWireStates
+            ? preDragStates
+            : buildBeforeAllWireStates(app, preDragStates);
 
-        if (!app.dragJunctionBeforeLabelTextStates) {
-            for (const [w] of beforeAll) {
-                if (w.labelText && app.shapes.includes(w.labelText)) {
-                    labelTextBefore.set(w.labelText, w.labelText.captureState());
-                }
-            }
-        }
+        const labelTextBefore = junctionBeforeLabelTextStates
+            ? new Map(junctionBeforeLabelTextStates)
+            : captureLabelTextStates(app, beforeAll);
 
-        // Run unified reconciliation (overlap, merge, collapse, junctions)
-        const changedWires = [app.dragShape];
-        if (app.dragAnchorWireStates) {
-            for (const wire of app.dragAnchorWireStates.keys()) {
+        // Reconcile and build undo
+        const changedWires = [dragShape];
+        if (anchorWireStates) {
+            for (const wire of anchorWireStates.keys()) {
                 if (app.shapes.includes(wire)) changedWires.push(wire);
             }
         }
-        reconcileWires(app, changedWires);
 
-        // Refresh pin connections for surviving changed wires
-        for (const w of changedWires) {
-            if (app.shapes.includes(w)) refreshWireConnections(app, w);
-        }
+        const batch = reconcileAndBuildBatch(app, changedWires, beforeAll, 'Move anchor', labelTextBefore);
 
-        // Refresh NoConnect shapes that moved with this anchor
-        if (app.dragAnchorNCLinks) {
-            for (const link of app.dragAnchorNCLinks) refreshNoConnectConnection(app, link.nc);
-        }
+        // Add NC commands
+        const b = batch || new BatchCommand('Move anchor');
+        addNoConnectCommands(app, b, ncLinks);
+        pushBatchIfNonEmpty(app, batch || (b.commands.length > 0 ? b : null));
 
-        // Build undo batch by diffing pre-drag vs post-reconcile (pure snapshot)
-        const batch = buildWireDiffBatch(app, beforeAll, 'Move anchor', [], labelTextBefore);
-
-        // Add ModifyShapeCommands for NoConnect shapes that moved with the anchor
-        if (app.dragAnchorNCLinks) {
-            const b = batch || new BatchCommand('Move anchor');
-            for (const link of app.dragAnchorNCLinks) {
-                const after = link.nc.captureState();
-                if (!areCapturedStatesEqual(link.before, after)) {
-                    b.add(new ModifyShapeCommand(app, link.nc, link.before, after));
-                }
-            }
-            if (!batch && b.commands.length > 0) {
-                app.history.undoStack.push(b);
-                app.history.redoStack = [];
-                app.history._notifyChanged();
-            }
-        }
-
-        if (batch) {
-            app.history.undoStack.push(batch);
-            app.history.redoStack = [];
-            app.history._notifyChanged();
-        }
-
-        // Select surviving dragged wire if not degenerate
-        if (app.shapes.includes(app.dragShape)) {
-            const degenerate = app.dragShape.edges.size === 0;
-            if (!degenerate) app.dragShape.selected = true;
+        // Select surviving dragged wire
+        if (app.shapes.includes(dragShape)) {
+            if (dragShape.edges.size > 0) dragShape.selected = true;
         }
         return true;
     }
 
-    // Non-wire shape: simple modify/delete command
-    const wasRemoved = !app.shapes.includes(app.dragShape);
-    const pts = app.dragShape.points;
+    // Non-wire shape
+    const wasRemoved = !app.shapes.includes(dragShape);
+    const pts = dragShape.points;
     let degenerate = false;
     if (!wasRemoved && pts) {
         if (pts.length >= 2) {
@@ -178,214 +228,202 @@ export function commitAnchorDrag(app) {
             degenerate = true;
         }
     }
+
     if (wasRemoved || degenerate) {
-        app.dragShape.applyState(app.dragShapesBefore);
-        if (!app.shapes.includes(app.dragShape)) app.shapes.push(app.dragShape);
-        app.history.execute(new DeleteShapesCommand(app, [app.dragShape]));
+        dragShape.applyState(beforeState);
+        if (!app.shapes.includes(dragShape)) app.shapes.push(dragShape);
+        app.history.execute(new DeleteShapesCommand(app, [dragShape]));
     } else {
-        // Refresh noconnect pin connection after drag
-        if (app.dragShape.type === 'noconnect') {
-            refreshNoConnectConnection(app, app.dragShape);
-        }
-        const afterState = app._captureShapeState(app.dragShape);
-        app._applyShapeState(app.dragShape, app.dragShapesBefore);
-        app.history.execute(new ModifyShapeCommand(app, app.dragShape, app.dragShapesBefore, afterState));
-        app.dragShape.selected = true;
+        if (dragShape.type === 'noconnect') refreshNoConnectConnection(app, dragShape);
+        const afterState = app._captureShapeState(dragShape);
+        app._applyShapeState(dragShape, beforeState);
+        app.history.execute(new ModifyShapeCommand(app, dragShape, beforeState, afterState));
+        dragShape.selected = true;
     }
     return true;
 }
 
+//  Anchor drag resolution 
+
 /**
- * Resolve anchor drag end state: commit if movement occurred (or linked-wire
- * changes exist), otherwise keep the dragged shape selected.
+ * Resolve anchor drag on mouseup: commit if moved, otherwise keep selected.
  *
  * @param {object} app
- * @returns {boolean} True when anchor drag state was handled.
+ * @param {object} dragShape
+ * @param {object} beforeState
+ * @param {boolean} didDrag
+ * @param {Map} [anchorWireStates]
+ * @param {Array} [ncLinks]
+ * @param {Map} [junctionBeforeWireStates]
+ * @param {Map} [junctionBeforeLabelTextStates]
+ * @returns {boolean}
  */
-export function resolveAnchorDragOnMouseUp(app) {
-    if (app.dragMode !== 'anchor' || !app.dragShapesBefore) return false;
+export function resolveAnchorDragOnMouseUp(app, dragShape = null, beforeState = null, didDrag = undefined, anchorWireStates = null, ncLinks = null, junctionBeforeWireStates = null, junctionBeforeLabelTextStates = null) {
+    // Legacy call support
+    dragShape = dragShape || app.dragShape;
+    beforeState = beforeState || app.dragShapesBefore;
+    didDrag = didDrag !== undefined ? didDrag : app.didDrag;
+    anchorWireStates = anchorWireStates || app.dragAnchorWireStates;
 
-    const hasLinkedWireChanges = !!(app.dragAnchorWireStates && app.dragAnchorWireStates.size > 0);
-    if (app.didDrag || hasLinkedWireChanges) {
-        // Commit anchor drag: either user moved or junction was deleted
-        commitAnchorDrag(app);
+    if (!beforeState) return false;
+
+    const hasLinkedWireChanges = !!(anchorWireStates && anchorWireStates.size > 0);
+    if (didDrag || hasLinkedWireChanges) {
+        commitAnchorDrag(app, dragShape, beforeState, anchorWireStates, ncLinks, junctionBeforeWireStates, junctionBeforeLabelTextStates);
         return true;
     }
 
-    // Anchor drag was initiated but no movement occurred - keep shape selected
-    if (app.dragShape) {
-        app.dragShape.selected = true;
-    }
+    if (dragShape) dragShape.selected = true;
     return true;
 }
 
+//  Segment drag commit 
+
 /**
- * Commit an active wire-segment drag — collapses redundant points,
- * merges/joins with other wires, and builds the undo batch.
+ * Commit a wire-segment drag  collapse, reconcile, build undo batch.
+ *
+ * @param {object} app
+ * @param {object} dragShape - The dragged wire
+ * @param {Map} wireStates - Before-states for all affected wires
+ * @param {Array} [ncLinks] - NoConnect shapes that moved
+ * @param {object} [labelBefore] - Label text before-state
+ * @returns {boolean}
  */
-export function commitSegmentDrag(app) {
-    // Collapse zero-length segments and redundant collinear midpoints
-    for (const wire of app.dragWireStates.keys()) {
+export function commitSegmentDrag(app, dragShape = null, wireStates = null, ncLinks = null, labelBefore = null) {
+    // Legacy call support
+    wireStates = wireStates || app.dragWireStates;
+    dragShape = dragShape || app.dragShape;
+    ncLinks = ncLinks || app.dragSegmentNCLinks;
+    labelBefore = labelBefore || app.dragSegmentLabelBefore;
+
+    if (!wireStates) return false;
+
+    // Collapse redundant points
+    for (const wire of wireStates.keys()) {
         collapseRedundantWirePoints(app, wire);
     }
 
-    // Build complete before-state map.
-    // Dragged wires: captured at drag start (in app.dragWireStates).
-    // All other wires: capture now (unchanged by the drag).
-    const beforeAll = new Map(app.dragWireStates);
-    for (const s of app.shapes) {
-        if (s.type === 'wire' && !beforeAll.has(s)) {
-            beforeAll.set(s, s.captureState());
-        }
-    }
+    const beforeAll = buildBeforeAllWireStates(app, wireStates);
+    const labelTextBefore = captureLabelTextStates(app, beforeAll);
 
-    // Capture label text states before reconciliation
-    const labelTextBefore = new Map();
-    for (const [w] of beforeAll) {
-        if (w.labelText && app.shapes.includes(w.labelText)) {
-            labelTextBefore.set(w.labelText, w.labelText.captureState());
-        }
-    }
+    const changedWires = [...wireStates.keys()].filter(w => app.shapes.includes(w));
+    const batch = reconcileAndBuildBatch(app, changedWires, beforeAll, 'Move wire segment', labelTextBefore);
 
-    // Run unified reconciliation on all dragged wires
-    const changedWires = [...app.dragWireStates.keys()].filter(w => app.shapes.includes(w));
-    reconcileWires(app, changedWires);
-
-    // Refresh pin connections for surviving changed wires
-    for (const w of changedWires) {
-        if (app.shapes.includes(w)) refreshWireConnections(app, w);
-    }
-
-    // Refresh NoConnect shapes that moved with a segment drag
-    if (app.dragSegmentNCLinks) {
-        for (const link of app.dragSegmentNCLinks) refreshNoConnectConnection(app, link.nc);
-    }
-
-    // Build undo batch by diffing pre-drag vs post-reconcile (pure snapshot)
-    const batch = buildWireDiffBatch(app, beforeAll, 'Move wire segment', [], labelTextBefore);
-
-    // Add ModifyShapeCommands for NoConnect shapes that moved with the segment
+    // Add NC + label commands
     const b = batch || new BatchCommand('Move wire segment');
-    if (app.dragSegmentNCLinks) {
-        for (const link of app.dragSegmentNCLinks) {
-            const after = link.nc.captureState();
-            if (!areCapturedStatesEqual(link.before, after)) {
-                b.add(new ModifyShapeCommand(app, link.nc, link.before, after));
-            }
-        }
-    }
+    addNoConnectCommands(app, b, ncLinks);
 
-    // Add ModifyShapeCommand for wire label text that moved with the segment
-    if (app.dragSegmentLabelBefore && app.dragShape?.labelText) {
-        const lt = app.dragShape.labelText;
+    if (labelBefore && dragShape?.labelText) {
+        const lt = dragShape.labelText;
         const after = lt.captureState();
-        const before = app.dragSegmentLabelBefore;
-        if (!areCapturedStatesEqual(before, after)) {
-            b.add(new ModifyShapeCommand(app, lt, before, after));
+        if (!areCapturedStatesEqual(labelBefore, after)) {
+            b.add(new ModifyShapeCommand(app, lt, labelBefore, after));
         }
     }
 
-    const finalBatch = batch || (b.commands.length > 0 ? b : null);
-    if (finalBatch) {
-        app.history.undoStack.push(finalBatch);
-        app.history.redoStack = [];
-        app.history._notifyChanged();
-    }
+    pushBatchIfNonEmpty(app, batch || (b.commands.length > 0 ? b : null));
     app.renderShapes(true);
+    return true;
 }
 
+//  Segment drag revert 
+
 /**
- * Revert temporary wire mutations made at segment-drag start when no drag
- * movement actually occurred.
+ * Revert temporary wire mutations when no drag movement occurred.
  *
  * @param {object} app
- * @returns {boolean} True when revert path was evaluated.
+ * @param {Map} [wireStates] - Before-states to revert to
+ * @returns {boolean}
  */
-export function revertSegmentDragIfNoMove(app) {
-    if (!app.dragWireStates) return false;
-    for (const [wire, state] of app.dragWireStates) {
+export function revertSegmentDragIfNoMove(app, wireStates = null) {
+    wireStates = wireStates || app.dragWireStates;
+    if (!wireStates) return false;
+    for (const [wire, state] of wireStates) {
         app._applyShapeState(wire, state);
     }
     return true;
 }
 
+//  Move drag commit 
+
 /**
- * Commit an active move drag — records move undo, reconciles moved wires,
- * and merges NoConnect pin-connection updates into the same undo entry.
+ * Commit a move drag  records MoveShapesCommand, reconciles wires,
+ * and merges NoConnect updates into the undo entry.
  *
  * @param {object} app
- * @returns {boolean} True when commit path was evaluated.
+ * @param {number} [totalDx]
+ * @param {number} [totalDy]
+ * @returns {boolean}
  */
-export function commitMoveDrag(app) {
+export function commitMoveDrag(app, totalDx = undefined, totalDy = undefined) {
+    // Legacy call support
+    totalDx = totalDx !== undefined ? totalDx : app.dragTotalDx;
+    totalDy = totalDy !== undefined ? totalDy : app.dragTotalDy;
+
     const selectedShapes = app.selection.getSelection();
     const movedShapes = selectedShapes.filter(s => !s.locked);
 
-    if (movedShapes.length > 0 && (app.dragTotalDx !== 0 || app.dragTotalDy !== 0)) {
-        // Build set of moving component IDs to avoid double-reverting field texts
-        const movingCompIds = new Set();
-        for (const s of movedShapes) {
-            if (s.definition) movingCompIds.add(s.id);
-            if (s.type === 'wire') movingCompIds.add(s.id);
-        }
+    if (movedShapes.length === 0 || (totalDx === 0 && totalDy === 0)) return true;
 
-        const itemsForCommand = movedShapes.filter(s =>
-            !(s.parentComponent && movingCompIds.has(s.parentComponent.id)));
+    // Build moving component ID set
+    const movingCompIds = new Set();
+    for (const s of movedShapes) {
+        if (s.definition) movingCompIds.add(s.id);
+        if (s.type === 'wire') movingCompIds.add(s.id);
+    }
 
-        for (const shape of itemsForCommand) {
-            shape.move(-app.dragTotalDx, -app.dragTotalDy);
-        }
+    const itemsForCommand = movedShapes.filter(s =>
+        !(s.parentComponent && movingCompIds.has(s.parentComponent.id)));
 
-        const command = new MoveShapesCommand(app, itemsForCommand, app.dragTotalDx, app.dragTotalDy);
-        app.history.execute(command);
+    // Revert movement so execute() can re-apply it
+    for (const shape of itemsForCommand) {
+        shape.move(-totalDx, -totalDy);
+    }
 
-        // Post-move: reconcile wire overlaps, merges, and junctions
-        const movedWires = movedShapes.filter(s => s.type === 'wire' && app.shapes.includes(s));
-        if (movedWires.length > 0) {
-            const reconcileBatch = reconcileWiresWithUndo(app, movedWires);
-            if (reconcileBatch) {
-                // Combine MoveShapesCommand + reconcile into a single undo entry
-                app.history.undoStack.pop(); // pop reconcile batch
-                app.history.undoStack.pop(); // pop MoveShapesCommand
-                const combined = new BatchCommand('Move + wire cleanup');
-                combined.add(command);
-                for (const cmd of reconcileBatch.commands) combined.add(cmd);
-                app.history.undoStack.push(combined);
-                app.history.redoStack = [];
-                app.history._notifyChanged();
-            }
-        }
+    const command = new MoveShapesCommand(app, itemsForCommand, totalDx, totalDy);
+    app.history.execute(command);
 
-        // Post-move: refresh pin connections for moved noconnect shapes
-        // and record the pinConnection change as undo-able commands.
-        const movedNCs = movedShapes.filter(s => s.type === 'noconnect');
-        if (movedNCs.length > 0) {
-            const ncCmds = [];
-            for (const nc of movedNCs) {
-                const beforeNC = app._captureShapeState(nc);
-                refreshNoConnectConnection(app, nc);
-                const afterNC = app._captureShapeState(nc);
-                if (!areCapturedStatesEqual(beforeNC, afterNC)) {
-                    nc.applyState(beforeNC); // revert so execute() applies it
-                    ncCmds.push(new ModifyShapeCommand(app, nc, beforeNC, afterNC));
-                }
-            }
-
-            if (ncCmds.length > 0) {
-                // Merge into the top undo entry (MoveShapesCommand or combined batch)
-                const top = app.history.undoStack.pop();
-                const combined = top instanceof BatchCommand
-                    ? top
-                    : (() => { const b = new BatchCommand('Move + NC update'); b.add(top); return b; })();
-                for (const cmd of ncCmds) combined.add(cmd);
-                app.history.undoStack.push(combined);
-                // Re-execute the NC commands so the state is applied
-                for (const cmd of ncCmds) cmd.execute();
-                app.history.redoStack = [];
-                app.history._notifyChanged();
-            }
+    // Post-move: reconcile wire overlaps
+    const movedWires = movedShapes.filter(s => s.type === 'wire' && app.shapes.includes(s));
+    if (movedWires.length > 0) {
+        const reconcileBatch = reconcileWiresWithUndo(app, movedWires);
+        if (reconcileBatch) {
+            app.history.undoStack.pop();
+            app.history.undoStack.pop();
+            const combined = new BatchCommand('Move + wire cleanup');
+            combined.add(command);
+            for (const cmd of reconcileBatch.commands) combined.add(cmd);
+            app.history.undoStack.push(combined);
+            app.history.redoStack = [];
+            app.history._notifyChanged();
         }
     }
 
-    updateSnapHighlight(app, null);
+    // Post-move: refresh NoConnect connections
+    const movedNCs = movedShapes.filter(s => s.type === 'noconnect');
+    if (movedNCs.length > 0) {
+        const ncCmds = [];
+        for (const nc of movedNCs) {
+            const beforeNC = app._captureShapeState(nc);
+            refreshNoConnectConnection(app, nc);
+            const afterNC = app._captureShapeState(nc);
+            if (!areCapturedStatesEqual(beforeNC, afterNC)) {
+                nc.applyState(beforeNC);
+                ncCmds.push(new ModifyShapeCommand(app, nc, beforeNC, afterNC));
+            }
+        }
+        if (ncCmds.length > 0) {
+            const top = app.history.undoStack.pop();
+            const combined = top instanceof BatchCommand
+                ? top
+                : (() => { const b = new BatchCommand('Move + NC update'); b.add(top); return b; })();
+            for (const cmd of ncCmds) combined.add(cmd);
+            app.history.undoStack.push(combined);
+            for (const cmd of ncCmds) cmd.execute();
+            app.history.redoStack = [];
+            app.history._notifyChanged();
+        }
+    }
+
     return true;
 }
