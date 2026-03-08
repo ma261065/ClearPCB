@@ -3,6 +3,16 @@ import { commitAnchorDrag } from './drag.js';
 import { detectTJunction, showAnchorContextMenu, showSegmentContextMenu } from './context-menu.js';
 import { updateToolGhost } from './tool.js';
 import {
+    activateHomeTabIfFileTabOpen,
+    collectMovingComponentIds,
+    consumeRightClickAsClick,
+    getDraggedSegmentEndpointNodeIds,
+    getEventPositions,
+    getReusablePoint,
+    getReusableSet,
+    shouldSkipSelectClick
+} from './mouse-helpers.js';
+import {
     beginBoxSelectSession,
     beginMoveDragSession,
     beginWireSegmentDragSession,
@@ -29,21 +39,6 @@ const CLICK_TO_END_TOOLS = new Set(['rect', 'circle', 'arc']);
 
 /** Pixel threshold to promote a pending anchor click into a drag. */
 const DRAG_THRESHOLD_PX = 3;
-
-/**
- * Compute screen, world, and grid-snapped positions from a mouse event.
- */
-function getEventPositions(e, viewport) {
-    const rect = viewport._getCachedRect();
-    const screenPos = {
-        x: e.clientX - rect.left,
-        y: e.clientY - rect.top
-    };
-    const worldPos = viewport.screenToWorld(screenPos);
-    viewport.shiftHeld = e.shiftKey;
-    const snapped = viewport.getSnappedPosition(worldPos);
-    return { screenPos, worldPos, snapped };
-}
 
 /**
  * Select only the provided shape and render immediately.
@@ -139,23 +134,6 @@ function handleStartFinishToolMouseDown(app, snapped) {
     app._finishDrawing(snapped);
 }
 
-/**
- * Consume one-shot click suppression flags.
- * Returns true when click handling should stop.
- */
-function shouldSkipSelectClick(app) {
-    if (app.skipClickSelection) {
-        app.skipClickSelection = false;
-        return true;
-    }
-
-    if (app.didDrag) {
-        app.didDrag = false;
-        return true;
-    }
-
-    return false;
-}
 
 /**
  * True when midpoint-anchor drag should immediately insert an editable point.
@@ -502,19 +480,6 @@ function beginMoveDragFromHit(app, worldPos, snapped) {
     app.renderShapes(true);
 }
 
-/**
- * Consume right-click start state and determine whether it was a click (not drag).
- */
-function consumeRightClickAsClick(app, event, dragThresholdPx) {
-    const start = app._rightClickStart;
-    app._rightClickStart = null;
-    if (!start) {
-        return false;
-    }
-
-    const movedDist = Math.hypot(event.clientX - start.x, event.clientY - start.y);
-    return movedDist <= dragThresholdPx;
-}
 
 /**
  * Handle component debug tooltip behavior on context-menu invocation.
@@ -806,17 +771,6 @@ function handleSelectContextMenu(app, worldPos, clientX, clientY) {
     return handleSegmentContextMenu(app, worldPos, clientX, clientY);
 }
 
-/**
- * Collect selected component/wire IDs that own dependent geometry/text.
- */
-function collectMovingComponentIds(selection) {
-    const movingCompIds = new Set();
-    for (const shape of selection) {
-        if (shape.definition) movingCompIds.add(shape.id);
-        if (shape.type === 'wire') movingCompIds.add(shape.id);
-    }
-    return movingCompIds;
-}
 
 /**
  * Propagate moved wire node deltas to coincident nodes on non-selected wires.
@@ -997,31 +951,6 @@ function syncAnchorDragLinkedNodes(app, anchorPos) {
     }
 }
 
-/**
- * Get a reusable Set scratch buffer stored on app.
- */
-function getReusableSet(app, key) {
-    let scratch = app[key];
-    if (!scratch) {
-        scratch = new Set();
-        app[key] = scratch;
-    } else {
-        scratch.clear();
-    }
-    return scratch;
-}
-
-/**
- * Get a reusable point-like scratch object stored on app.
- */
-function getReusablePoint(app, key) {
-    let point = app[key];
-    if (!point) {
-        point = { x: 0, y: 0 };
-        app[key] = point;
-    }
-    return point;
-}
 
 /**
  * Build a Set of other wires linked by T-junction metadata during segment drag.
@@ -1036,22 +965,6 @@ function getDragTJunctionWireSet(app) {
     return wires;
 }
 
-/**
- * Return current endpoint node IDs for the active dragged wire segment.
- */
-function getDraggedSegmentEndpointNodeIds(wire, dragEdgeId, reuseSet) {
-    const movedNodes = reuseSet || new Set();
-    if (reuseSet) {
-        movedNodes.clear();
-    }
-
-    const edgeNow = wire.edges.get(dragEdgeId);
-    if (edgeNow) {
-        movedNodes.add(edgeNow.from);
-        movedNodes.add(edgeNow.to);
-    }
-    return movedNodes;
-}
 
 /**
  * Build segment-drag guide list using reusable storage to avoid concat churn.
@@ -1448,16 +1361,6 @@ function handleSvgDoubleClick(app, event) {
 
     const { screenPos, worldPos } = getEventPositions(event, app.viewport);
     handleSelectToolDoubleClick(app, worldPos, screenPos);
-}
-
-/**
- * Switch away from the file ribbon tab when interaction resumes on canvas.
- */
-function activateHomeTabIfFileTabOpen(app) {
-    const activeTab = document.querySelector('.ribbon-tab.active');
-    if (activeTab instanceof HTMLElement && activeTab.dataset?.tab === 'file') {
-        app._setActiveRibbonTab?.('home');
-    }
 }
 
 /**
