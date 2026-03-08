@@ -19,9 +19,7 @@ const RIGHT_CLICK_THRESHOLD = 3;
 
 function dispatch(app, eventName, event, positions) {
     if (!app.interactionState || !STATE_TABLE[app.interactionState]) {
-        const resolved = resolveState(app);
-        console.warn('[mouse] auto-resolved state to', resolved);
-        app.interactionState = resolved;
+        app.interactionState = resolveState(app);
     }
     const handler = STATE_TABLE[app.interactionState]?.[eventName];
     if (handler) handler(app, event, positions);
