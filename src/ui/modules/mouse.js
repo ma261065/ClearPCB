@@ -4,13 +4,22 @@ import { detectTJunction, showAnchorContextMenu, showSegmentContextMenu } from '
 import { updateToolGhost } from './tool.js';
 import {
     activateHomeTabIfFileTabOpen,
+    canQueueMidpointAnchorDrag,
     collectMovingComponentIds,
     consumeRightClickAsClick,
     getDraggedSegmentEndpointNodeIds,
     getEventPositions,
+    getNextCycleHitShape,
     getReusablePoint,
     getReusableSet,
-    shouldSkipSelectClick
+    handlePointAppendingToolMouseDown,
+    handleStartFinishToolMouseDown,
+    queuePendingAnchorDrag,
+    selectContextTargetShape,
+    selectOnlyShapeAndRender,
+    shouldSkipSelectClick,
+    updateDrawingPreviewOnMouseMove,
+    updatePlacementPreviewsOnMouseMove
 } from './mouse-helpers.js';
 import {
     beginBoxSelectSession,
@@ -26,8 +35,7 @@ import {
     handleRightClickDrawingMouseUp,
     isAdditiveSelectionModifier,
     isCycleSelectionModifier,
-    promotePendingAnchorDragSession,
-    setPendingAnchorDrag
+    promotePendingAnchorDragSession
 } from './interaction-state.js';
 
 // Re-export clearDragState so existing consumers (keyboard.js) don't break.
@@ -40,42 +48,6 @@ const CLICK_TO_END_TOOLS = new Set(['rect', 'circle', 'arc']);
 /** Pixel threshold to promote a pending anchor click into a drag. */
 const DRAG_THRESHOLD_PX = 3;
 
-/**
- * Select only the provided shape and render immediately.
- */
-function selectOnlyShapeAndRender(app, shape) {
-    app.selection.clearSelection();
-    app.selection.select(shape, false);
-    app.renderShapes(true);
-}
-
-/**
- * Ensure a context-menu target shape is selected and rendered.
- */
-function selectContextTargetShape(app, shape) {
-    if (!shape.selected) {
-        selectOnlyShapeAndRender(app, shape);
-    }
-    shape.selected = true;
-}
-
-/**
- * Return next shape in overlap cycle stack for a world position.
- */
-function getNextCycleHitShape(app, worldPos) {
-    const originalTolerance = app.selection.tolerance;
-    app.selection.tolerance = 2.0;
-    const hits = app.selection.hitTest(worldPos, true);
-    app.selection.tolerance = originalTolerance;
-
-    if (!hits || hits.length === 0) {
-        return null;
-    }
-
-    const selectedIndex = hits.findIndex(shape => shape.selected);
-    const nextIndex = (selectedIndex + 1) % hits.length;
-    return hits[nextIndex];
-}
 
 /**
  * Handle Shift-based overlap cycling selection.
@@ -110,59 +82,6 @@ function handleAdditiveSelectionMouseDown(app, event, hitShape) {
     return true;
 }
 
-/**
- * Click-to-add tools (line/polygon): start drawing on first click,
- * append a point on subsequent clicks.
- */
-function handlePointAppendingToolMouseDown(app, snapped, appendPoint) {
-    if (!app.isDrawing) {
-        app._startDrawing(snapped);
-        return;
-    }
-    appendPoint(snapped);
-}
-
-/**
- * Start/finish tools (rect/circle/default fallback): first click starts,
- * next click finishes at snapped position.
- */
-function handleStartFinishToolMouseDown(app, snapped) {
-    if (!app.isDrawing) {
-        app._startDrawing(snapped);
-        return;
-    }
-    app._finishDrawing(snapped);
-}
-
-
-/**
- * True when midpoint-anchor drag should immediately insert an editable point.
- */
-function canQueueMidpointAnchorDrag(shape, anchorId) {
-    if (!anchorId?.startsWith('mid')) {
-        return false;
-    }
-    return shape.type === 'line' || shape.type === 'polygon' || shape.type === 'wire';
-}
-
-/**
- * Queue deferred anchor drag metadata used by mousemove promotion.
- */
-function queuePendingAnchorDrag(app, params) {
-    const { shape, anchorId, screenPos, snapped, preInsertState } = params;
-    const pending = {
-        shape,
-        anchorId,
-        screenPos: { ...screenPos },
-        snapped: { ...snapped }
-    };
-
-    if (preInsertState) {
-        pending.preInsertState = preInsertState;
-    }
-
-    setPendingAnchorDrag(app, pending);
-}
 
 /**
  * Handle select-tool click behavior, including text-edit blur and selection.
@@ -515,36 +434,6 @@ function handleComponentTooltipMouseMove(app, worldPos, screenPos) {
 
     if (!app._componentCodeTooltipPinned) {
         app._updateComponentCodeTooltip?.(null, screenPos);
-    }
-}
-
-/**
- * Update paste/component placement previews during mouse move.
- */
-function updatePlacementPreviewsOnMouseMove(app, snapped) {
-    if (app.pastingClipboard) {
-        app._updatePastePreview(snapped);
-    }
-    if (app.placingComponent) {
-        app._updateComponentPreview(snapped);
-    }
-}
-
-/**
- * Update drawing preview while an active drawing session is in progress.
- */
-function updateDrawingPreviewOnMouseMove(app, worldPos, snapped) {
-    if (!app.isDrawing) {
-        return;
-    }
-
-    if (app.currentTool === 'arc') {
-        app._updateDrawing(app.arcEndpoint ? worldPos : snapped);
-        return;
-    }
-
-    if (DRAWING_TOOLS.has(app.currentTool)) {
-        app._updateDrawing(snapped);
     }
 }
 
@@ -1476,7 +1365,7 @@ export function bindMouseEvents(app) {
 
         handlePinSnapToolHover(app, worldPos);
         
-        updateDrawingPreviewOnMouseMove(app, worldPos, snapped);
+        updateDrawingPreviewOnMouseMove(app, worldPos, snapped, DRAWING_TOOLS);
 
         if (app.currentTool !== 'select') {
             updateToolCrosshair(app, snapped, screenPos);

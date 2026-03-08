@@ -1,3 +1,5 @@
+import { setPendingAnchorDrag } from './interaction-state.js';
+
 /**
  * Compute screen, world, and grid-snapped positions from a mouse event.
  */
@@ -107,5 +109,125 @@ export function activateHomeTabIfFileTabOpen(app) {
     const activeTab = document.querySelector('.ribbon-tab.active');
     if (activeTab instanceof HTMLElement && activeTab.dataset?.tab === 'file') {
         app._setActiveRibbonTab?.('home');
+    }
+}
+
+/**
+ * Select only the provided shape and render immediately.
+ */
+export function selectOnlyShapeAndRender(app, shape) {
+    app.selection.clearSelection();
+    app.selection.select(shape, false);
+    app.renderShapes(true);
+}
+
+/**
+ * Ensure a context-menu target shape is selected and rendered.
+ */
+export function selectContextTargetShape(app, shape) {
+    if (!shape.selected) {
+        selectOnlyShapeAndRender(app, shape);
+    }
+    shape.selected = true;
+}
+
+/**
+ * Return next shape in overlap cycle stack for a world position.
+ */
+export function getNextCycleHitShape(app, worldPos) {
+    const originalTolerance = app.selection.tolerance;
+    app.selection.tolerance = 2.0;
+    const hits = app.selection.hitTest(worldPos, true);
+    app.selection.tolerance = originalTolerance;
+
+    if (!hits || hits.length === 0) {
+        return null;
+    }
+
+    const selectedIndex = hits.findIndex(shape => shape.selected);
+    const nextIndex = (selectedIndex + 1) % hits.length;
+    return hits[nextIndex];
+}
+
+/**
+ * Click-to-add tools (line/polygon): start drawing on first click,
+ * append a point on subsequent clicks.
+ */
+export function handlePointAppendingToolMouseDown(app, snapped, appendPoint) {
+    if (!app.isDrawing) {
+        app._startDrawing(snapped);
+        return;
+    }
+    appendPoint(snapped);
+}
+
+/**
+ * Start/finish tools (rect/circle/default fallback): first click starts,
+ * next click finishes at snapped position.
+ */
+export function handleStartFinishToolMouseDown(app, snapped) {
+    if (!app.isDrawing) {
+        app._startDrawing(snapped);
+        return;
+    }
+    app._finishDrawing(snapped);
+}
+
+/**
+ * True when midpoint-anchor drag should immediately insert an editable point.
+ */
+export function canQueueMidpointAnchorDrag(shape, anchorId) {
+    if (!anchorId?.startsWith('mid')) {
+        return false;
+    }
+    return shape.type === 'line' || shape.type === 'polygon' || shape.type === 'wire';
+}
+
+/**
+ * Queue deferred anchor drag metadata used by mousemove promotion.
+ */
+export function queuePendingAnchorDrag(app, params) {
+    const { shape, anchorId, screenPos, snapped, preInsertState } = params;
+    const pending = {
+        shape,
+        anchorId,
+        screenPos: { ...screenPos },
+        snapped: { ...snapped }
+    };
+
+    if (preInsertState) {
+        pending.preInsertState = preInsertState;
+    }
+
+    setPendingAnchorDrag(app, pending);
+}
+
+/**
+ * Update paste/component placement previews during mouse move.
+ */
+export function updatePlacementPreviewsOnMouseMove(app, snapped) {
+    if (app.pastingClipboard) {
+        app._updatePastePreview(snapped);
+    }
+    if (app.placingComponent) {
+        app._updateComponentPreview(snapped);
+    }
+}
+
+/**
+ * Update drawing preview while an active drawing session is in progress.
+ */
+export function updateDrawingPreviewOnMouseMove(app, worldPos, snapped, drawingTools) {
+    if (!app.isDrawing) {
+        return;
+    }
+
+    if (app.currentTool === 'arc') {
+        app._updateDrawing(app.arcEndpoint ? worldPos : snapped);
+        return;
+    }
+
+    if (drawingTools.has(app.currentTool)) {
+        app._updateDrawing(snapped);
     }
 }
