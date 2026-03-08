@@ -121,37 +121,16 @@ class SchematicApp {
             toolIcon: document.getElementById('crosshairToolIcon')
         };
 
-        // ── Drag state (mutated by mouse.js / drag.js) ─────────────────
-        this.isDragging = false;
+        // ── Drag state (mutated by mouse-states.js / drag.js) ────────
+        this.drag = null;                  // { mode, shape, ... } — see mouse-states.js begin*Session
         this.didDrag = false;              // true once an actual drag occurred
-        this.dragMode = null;              // 'move' | 'anchor' | 'wire-segment' | 'box'
-        this.dragStart = null;
-        this.dragStartScreen = null;       // screen-space start for threshold check
-        this.dragStartWorldPos = null;     // world-space start for delta calculation
-        this.dragObjectStartPos = null;    // first selected shape's position at drag start
-        this.dragLastSnapped = null;       // last grid-snapped target position
-        this.dragAnchorId = null;
-        this.dragShape = null;
-        this.dragShapesBefore = null;      // state before drag for anchor modifications
-        this.dragWireAnchorOriginal = null;
-        this.dragEdgeId = null;            // wire-segment drag: which edge
-        this.dragSegAxis = null;           // wire-segment drag: axis lock ('horizontal'|'vertical')
-        this.dragWireStates = null;        // wire-segment drag: before-states of all affected wires
-        this.dragWireWorkingState = null;  // wire-segment drag: post-bridge-insertion state
-        this.dragTJunctionLinks = null;    // wire-segment drag: T-junction node links
-        this.dragAnchorTJLinks = null;     // anchor drag: T-junction links to other wires
-        this.dragAnchorWireStates = null;  // anchor drag: before-states of T-junction wires
         this.pendingAnchorDrag = null;     // deferred anchor drag (before threshold is met)
-        this.dragTotalDx = 0;
-        this.dragTotalDy = 0;
         this.skipClickSelection = false;
         this._collinearGuides = null;      // guide lines rendered during anchor drag
         this._rightClickStart = null;      // screen pos for right-click drag detection
 
         // ── Box selection ──────────────────────────────────────────────
         this.boxSelectElement = null;
-        this.boxSelectStart = null;
-        this.boxSelectAdditive = false;
 
         // ── Clipboard / paste state (set by clipboard.js) ─────────────
         this.pastePreviewGroup = null;

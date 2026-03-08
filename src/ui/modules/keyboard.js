@@ -18,12 +18,12 @@ export function handleEscape(app) {
     switch (app.interactionState) {
         case 'segmentDrag':
             // Revert bridge insertions from segment drag start
-            if (app.dragWireStates) {
-                for (const [wire, beforeState] of app.dragWireStates) {
+            if (app.drag?.wireStates) {
+                for (const [wire, beforeState] of app.drag.wireStates) {
                     app._applyShapeState(wire, beforeState);
                 }
             }
-            { const shape = app.dragShape;
+            { const shape = app.drag?.shape;
               clearDragState(app);
               app.didDrag = false;
               app.viewport.svg.style.cursor = '';
@@ -34,15 +34,15 @@ export function handleEscape(app) {
 
         case 'anchorDrag':
             // Revert shape and linked wires to pre-drag state
-            if (app.dragShapesBefore) {
-                app._applyShapeState(app.dragShape, app.dragShapesBefore);
+            if (app.drag?.beforeState) {
+                app._applyShapeState(app.drag.shape, app.drag.beforeState);
             }
-            if (app.dragAnchorWireStates) {
-                for (const [wire, beforeState] of app.dragAnchorWireStates) {
+            if (app.drag?.wireStates) {
+                for (const [wire, beforeState] of app.drag.wireStates) {
                     app._applyShapeState(wire, beforeState);
                 }
             }
-            { const shape = app.dragShape;
+            { const shape = app.drag?.shape;
               clearDragState(app);
               app.didDrag = false;
               app.viewport.svg.style.cursor = '';

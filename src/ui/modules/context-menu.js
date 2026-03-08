@@ -261,21 +261,23 @@ export function deleteJunction(app, junctionInfo) {
     app.selection.select(dragWire, false);
     dragWire.selected = true;
 
-    app.isDragging = true;
-    app.dragMode = 'anchor';
+    app.drag = {
+        mode: 'anchor',
+        shape: dragWire,
+        beforeState: dragBefore,
+        start: { ...pt },
+        startScreen: null,
+        anchorId: dragNewNodeId,
+        wireAnchorOriginal: { ...pt },
+        tjLinks: [],
+        wireStates: anchorWireStates,
+        excludePin: null,
+        ncLinks: [],
+        junctionBeforeWireStates: preSplitWireStates,
+        junctionBeforeLabelTextStates: preSplitLabelTextStates
+    };
     app.interactionState = 'anchorDrag';
-    app.dragAnchorId = dragNewNodeId;
-    app.dragShape = dragWire;
-    app.dragShapesBefore = dragBefore;
-    app.dragAnchorWireStates = anchorWireStates;
-    app.dragJunctionBeforeWireStates = preSplitWireStates;
-    app.dragJunctionBeforeLabelTextStates = preSplitLabelTextStates;
-    app.dragWireAnchorOriginal = { ...pt };
-    app.dragStart = { ...pt };
-    app.dragTotalDx = 0;
-    app.dragTotalDy = 0;
     app.didDrag = false;
-    app.dragAnchorTJLinks = [];
 
     app.renderShapes(true);
     app._showCrosshair();

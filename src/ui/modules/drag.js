@@ -26,34 +26,12 @@ export function areCapturedStatesEqual(a, b) {
 //  State reset 
 
 /**
- * Reset all drag-related fields on app to idle defaults.
- * Does NOT touch UI (cursor, crosshair, snap highlights, box select element).
- * Callers are responsible for UI cleanup.
+ * Reset all drag state. Callers handle UI cleanup.
  */
 export function clearDragState(app) {
-    app.isDragging = false;
-    app.dragMode = null;
-    app.dragStart = null;
-    app.dragAnchorId = null;
-    if (app.dragShape) app.dragShape.resetDragState();
-    app.dragShape = null;
-    app.dragShapesBefore = null;
-    app.dragWireAnchorOriginal = null;
-    app.dragEdgeId = null;
-    app.dragSegAxis = null;
-    app.dragWireStates = null;
-    app.dragWireWorkingState = null;
-    app.dragAnchorTJLinks = null;
-    app.dragAnchorWireStates = null;
-    app.dragAnchorExcludePin = null;
-    app.dragAnchorNCLinks = null;
-    app.dragJunctionBeforeWireStates = null;
-    app.dragJunctionBeforeLabelTextStates = null;
-    app.dragSegmentNCLinks = null;
-    app.dragSegmentLabelBefore = null;
+    if (app.drag?.shape) app.drag.shape.resetDragState();
+    app.drag = null;
     app.pendingAnchorDrag = null;
-    app.dragTotalDx = 0;
-    app.dragTotalDy = 0;
 }
 
 //  Shared helpers 

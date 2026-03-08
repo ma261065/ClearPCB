@@ -20,12 +20,12 @@ export function createBoxSelectElement(app) {
  * @param {{x: number, y: number}} currentPos - Current cursor position in world coordinates.
  */
 export function updateBoxSelectElement(app, currentPos) {
-    if (!app.boxSelectElement || !app.boxSelectStart) return;
+    if (!app.boxSelectElement || !app.drag.start) return;
 
-    const x = Math.min(app.boxSelectStart.x, currentPos.x);
-    const y = Math.min(app.boxSelectStart.y, currentPos.y);
-    const width = Math.abs(currentPos.x - app.boxSelectStart.x);
-    const height = Math.abs(currentPos.y - app.boxSelectStart.y);
+    const x = Math.min(app.drag.start.x, currentPos.x);
+    const y = Math.min(app.drag.start.y, currentPos.y);
+    const width = Math.abs(currentPos.x - app.drag.start.x);
+    const height = Math.abs(currentPos.y - app.drag.start.y);
 
     app.boxSelectElement.setAttribute('x', x);
     app.boxSelectElement.setAttribute('y', y);
@@ -52,9 +52,9 @@ export function removeBoxSelectElement(app) {
  */
 export function getBoxSelectBounds(app, currentPos) {
     return {
-        minX: Math.min(app.boxSelectStart.x, currentPos.x),
-        minY: Math.min(app.boxSelectStart.y, currentPos.y),
-        maxX: Math.max(app.boxSelectStart.x, currentPos.x),
-        maxY: Math.max(app.boxSelectStart.y, currentPos.y)
+        minX: Math.min(app.drag.start.x, currentPos.x),
+        minY: Math.min(app.drag.start.y, currentPos.y),
+        maxX: Math.max(app.drag.start.x, currentPos.x),
+        maxY: Math.max(app.drag.start.y, currentPos.y)
     };
 }

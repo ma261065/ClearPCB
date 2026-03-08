@@ -40,10 +40,10 @@ const DRAG_THRESHOLD_PX = 3;
 export function resolveState(app) {
     if (app.pastingClipboard) return 'placing';
     if (app.placingComponent) return 'placing';
-    if (app.isDragging) {
-        switch (app.dragMode) {
+    if (app.drag) {
+        switch (app.drag.mode) {
             case 'anchor': return 'anchorDrag';
-            case 'wire-segment': return 'segmentDrag';
+            case 'segment': return 'segmentDrag';
             case 'move': return 'moveDrag';
             case 'box': return 'boxSelect';
         }
@@ -154,7 +154,7 @@ function handleComponentTooltipContextMenu(app, worldPos, screenPos) {
 
 function handleComponentTooltipMouseMove(app, worldPos, screenPos) {
     const canShow = app.showComponentDebugTooltip !== false
-        && !app.isDragging && !app.viewport.isPanning
+        && !app.drag && !app.viewport.isPanning
         && !app.placingComponent && !app._componentCodeTooltipPinned;
     if (canShow) {
         const hit = app._findComponentAt?.(worldPos);
@@ -187,7 +187,6 @@ function finalizeDragInteraction(app, options = {}) {
     }
     app._hideCrosshair();
     app._removeBoxSelectElement();
-    app.boxSelectStart = null;
 
     clearDragState(app);
     app.renderShapes(true);
@@ -198,48 +197,63 @@ function finalizeDragInteraction(app, options = {}) {
 
 function beginAnchorDragSession(app, params) {
     const { shape, anchorId, startSnapped, screenPos, preInsertState } = params;
-    app.isDragging = true;
-    app.dragMode = 'anchor';
-    app.dragStart = { ...startSnapped };
-    app.dragStartScreen = { ...screenPos };
-    app.dragAnchorId = anchorId;
-    app.dragShape = shape;
-    app.dragWireAnchorOriginal = null;
-    app.dragShapesBefore = preInsertState || app._captureShapeState(shape);
+    app.drag = {
+        mode: 'anchor',
+        shape,
+        beforeState: preInsertState || app._captureShapeState(shape),
+        start: { ...startSnapped },
+        startScreen: { ...screenPos },
+        anchorId,
+        wireAnchorOriginal: null,
+        tjLinks: [],
+        wireStates: new Map(),
+        excludePin: null,
+        ncLinks: [],
+        junctionBeforeWireStates: null,
+        junctionBeforeLabelTextStates: null
+    };
     app.interactionState = 'anchorDrag';
 }
 
 function beginWireSegmentDragSession(app, params) {
     const { shape, dragEdgeId, worldPos, beforeState } = params;
-    app.isDragging = true;
-    app.dragMode = 'wire-segment';
-    app.dragShape = shape;
-    app.dragEdgeId = dragEdgeId;
-    app.dragStartWorldPos = { ...worldPos };
-    app.dragTotalDx = 0;
-    app.dragTotalDy = 0;
-    app.dragWireStates = new Map();
-    app.dragWireStates.set(shape, beforeState);
+    const wireStates = new Map();
+    wireStates.set(shape, beforeState);
+    app.drag = {
+        mode: 'segment',
+        shape,
+        edgeId: dragEdgeId,
+        axis: null,
+        wireStates,
+        workingState: null,
+        tjLinks: [],
+        ncLinks: [],
+        labelBefore: null,
+        startWorldPos: { ...worldPos },
+        totalDx: 0,
+        totalDy: 0
+    };
     app.interactionState = 'segmentDrag';
 }
 
 function beginMoveDragSession(app, worldPos, dragObjectStartPos) {
-    app.isDragging = true;
-    app.dragMode = 'move';
-    app.dragObjectStartPos = { ...dragObjectStartPos };
-    app.dragStart = { ...dragObjectStartPos };
-    app.dragLastSnapped = { ...dragObjectStartPos };
-    app.dragTotalDx = 0;
-    app.dragTotalDy = 0;
-    app.dragStartWorldPos = { ...worldPos };
+    app.drag = {
+        mode: 'move',
+        objectStartPos: { ...dragObjectStartPos },
+        lastSnapped: { ...dragObjectStartPos },
+        startWorldPos: { ...worldPos },
+        totalDx: 0,
+        totalDy: 0
+    };
     app.interactionState = 'moveDrag';
 }
 
 function beginBoxSelectSession(app, worldPos, additive) {
-    app.isDragging = true;
-    app.dragMode = 'box';
-    app.boxSelectStart = { ...worldPos };
-    app.boxSelectAdditive = !!additive;
+    app.drag = {
+        mode: 'box',
+        start: { ...worldPos },
+        additive: !!additive
+    };
     app.selection.captureBoxSelectBase();
     app._createBoxSelectElement();
     app.interactionState = 'boxSelect';
@@ -260,39 +274,39 @@ function promotePendingAnchorDragSession(app, screenPos) {
 
     if (shape.getAnchorSnapMode(anchorId) === 'axis') {
         const anchor = shape.getAnchors().find(a => a.id === anchorId);
-        if (anchor) app.dragWireAnchorOriginal = { x: anchor.x, y: anchor.y };
+        if (anchor) app.drag.wireAnchorOriginal = { x: anchor.x, y: anchor.y };
     }
 
-    app.dragAnchorTJLinks = [];
-    app.dragAnchorWireStates = new Map();
+    app.drag.tjLinks = [];
+    app.drag.wireStates = new Map();
     if (shape.type === 'wire' && shape.nodes.has(anchorId)) {
         const pos = shape.nodes.get(anchorId);
         for (const other of app.shapes) {
             if (other === shape || other.type !== 'wire') continue;
             const otherNid = other.nodeAt(pos, VERTEX_EPSILON);
             if (otherNid) {
-                app.dragAnchorTJLinks.push({ otherWire: other, otherNodeId: otherNid });
-                if (!app.dragAnchorWireStates.has(other))
-                    app.dragAnchorWireStates.set(other, app._captureShapeState(other));
+                app.drag.tjLinks.push({ otherWire: other, otherNodeId: otherNid });
+                if (!app.drag.wireStates.has(other))
+                    app.drag.wireStates.set(other, app._captureShapeState(other));
             }
         }
     }
 
-    app.dragAnchorNCLinks = [];
+    app.drag.ncLinks = [];
     if (shape.type === 'wire' && shape.nodes.has(anchorId)) {
         const nodePos = shape.nodes.get(anchorId);
         for (const s of app.shapes) {
             if (s.type !== 'noconnect') continue;
             if (Math.hypot(s.x - nodePos.x, s.y - nodePos.y) < VERTEX_EPSILON)
-                app.dragAnchorNCLinks.push({ nc: s, before: s.captureState() });
+                app.drag.ncLinks.push({ nc: s, before: s.captureState() });
         }
     }
 
-    app.dragAnchorExcludePin = null;
+    app.drag.excludePin = null;
     if (shape.type === 'wire' && shape.pinConnections.has(anchorId)) {
         const conn = shape.pinConnections.get(anchorId);
         const nodePos = shape.nodes.get(anchorId);
-        app.dragAnchorExcludePin = {
+        app.drag.excludePin = {
             component: { id: conn.componentId },
             pin: { number: conn.pinNumber },
             worldPos: nodePos ? { x: nodePos.x, y: nodePos.y } : null
@@ -321,15 +335,15 @@ function commitPendingMidpointAfterDrag(app) {
 }
 
 function handleDragEnd(app) {
-    if (!app.isDragging) return;
+    if (!app.drag) return;
 
-    if (app.didDrag && app.dragMode === 'move') {
-        commitMoveDrag(app, app.dragTotalDx, app.dragTotalDy);
-    } else if (app.dragMode === 'wire-segment' && app.dragWireStates) {
-        if (app.didDrag) commitSegmentDrag(app, app.dragShape, app.dragWireStates, app.dragSegmentNCLinks, app.dragSegmentLabelBefore);
-        else revertSegmentDragIfNoMove(app, app.dragWireStates);
-    } else if (app.dragShape) {
-        resolveAnchorDragOnMouseUp(app, app.dragShape, app.dragShapesBefore, app.didDrag, app.dragAnchorWireStates, app.dragAnchorNCLinks, app.dragJunctionBeforeWireStates, app.dragJunctionBeforeLabelTextStates);
+    if (app.didDrag && app.drag.mode === 'move') {
+        commitMoveDrag(app, app.drag.totalDx, app.drag.totalDy);
+    } else if (app.drag.mode === 'segment' && app.drag.wireStates) {
+        if (app.didDrag) commitSegmentDrag(app, app.drag.shape, app.drag.wireStates, app.drag.ncLinks, app.drag.labelBefore);
+        else revertSegmentDragIfNoMove(app, app.drag.wireStates);
+    } else if (app.drag.shape) {
+        resolveAnchorDragOnMouseUp(app, app.drag.shape, app.drag.beforeState, app.didDrag, app.drag.wireStates, app.drag.ncLinks, app.drag.junctionBeforeWireStates, app.drag.junctionBeforeLabelTextStates);
     }
 
     commitPendingMidpointAfterDrag(app);
@@ -429,36 +443,36 @@ function tryBeginWireSegmentDrag(app, hitShape, worldPos) {
         if (preBridgeEdgeCount > 1 && edgeLock) {
             const pA = hitShape.nodes.get(edgeLock.from), pB = hitShape.nodes.get(edgeLock.to);
             const sDx = Math.abs(pB.x - pA.x), sDy = Math.abs(pB.y - pA.y);
-            if (sDy < COLLINEAR_EPSILON && sDx > COLLINEAR_EPSILON) app.dragSegAxis = 'vertical';
-            else if (sDx < COLLINEAR_EPSILON && sDy > COLLINEAR_EPSILON) app.dragSegAxis = 'horizontal';
-            else app.dragSegAxis = null;
+            if (sDy < COLLINEAR_EPSILON && sDx > COLLINEAR_EPSILON) app.drag.axis = 'vertical';
+            else if (sDx < COLLINEAR_EPSILON && sDy > COLLINEAR_EPSILON) app.drag.axis = 'horizontal';
+            else app.drag.axis = null;
         } else {
-            app.dragSegAxis = null;
+            app.drag.axis = null;
         }
     }
 
-    app.dragWireWorkingState = app._captureShapeState(hitShape);
-    app.dragTJunctionLinks = [];
+    app.drag.workingState = app._captureShapeState(hitShape);
+    app.drag.tjLinks = [];
     for (const [nid, pos] of hitShape.nodes) {
         for (const other of app.shapes) {
             if (other === hitShape || other.type !== 'wire') continue;
             const otherNid = other.nodeAt(pos, VERTEX_EPSILON);
             if (otherNid) {
-                app.dragTJunctionLinks.push({ wireNodeId: nid, otherWire: other, otherNodeId: otherNid });
-                if (!app.dragWireStates.has(other))
-                    app.dragWireStates.set(other, app._captureShapeState(other));
+                app.drag.tjLinks.push({ wireNodeId: nid, otherWire: other, otherNodeId: otherNid });
+                if (!app.drag.wireStates.has(other))
+                    app.drag.wireStates.set(other, app._captureShapeState(other));
             }
         }
     }
-    app.dragSegmentNCLinks = [];
+    app.drag.ncLinks = [];
     for (const [nid, pos] of hitShape.nodes) {
         for (const shape of app.shapes) {
             if (shape.type !== 'noconnect') continue;
             if (Math.hypot(shape.x - pos.x, shape.y - pos.y) < VERTEX_EPSILON)
-                app.dragSegmentNCLinks.push({ wireNodeId: nid, nc: shape, before: shape.captureState() });
+                app.drag.ncLinks.push({ wireNodeId: nid, nc: shape, before: shape.captureState() });
         }
     }
-    app.dragSegmentLabelBefore = hitShape.labelText
+    app.drag.labelBefore = hitShape.labelText
         ? app._captureShapeState(hitShape.labelText) : null;
     app.viewport.svg.style.cursor = 'move';
     return true;
@@ -508,8 +522,8 @@ function resolveMoveDragTarget(app, targetPos, selection, movingCompIds, snapped
 
     let stickyGuides;
     if (movingCompIds.size > 0) {
-        const proposedDx = snappedTargetOut.x - app.dragLastSnapped.x;
-        const proposedDy = snappedTargetOut.y - app.dragLastSnapped.y;
+        const proposedDx = snappedTargetOut.x - app.drag.lastSnapped.x;
+        const proposedDy = snappedTargetOut.y - app.drag.lastSnapped.y;
         const stickySnap = computeStickyWireSnaps(app, movingCompIds, proposedDx, proposedDy);
         snappedTargetOut.x += stickySnap.adjustX;
         snappedTargetOut.y += stickySnap.adjustY;
@@ -521,9 +535,9 @@ function resolveMoveDragTarget(app, targetPos, selection, movingCompIds, snapped
 // ─── Per-state anchor-drag helpers ─────────────────────────────────
 
 function mergeAnchorTJunctionGuides(app, anchorPos, anchorGuides) {
-    if (!(app.dragAnchorTJLinks && app.dragAnchorTJLinks.length > 0)) return anchorPos;
+    if (!(app.drag.tjLinks && app.drag.tjLinks.length > 0)) return anchorPos;
     let mergedAnchorPos = anchorPos;
-    for (const link of app.dragAnchorTJLinks) {
+    for (const link of app.drag.tjLinks) {
         const tjResult = computeAnchorCollinearSnap(app, link.otherWire, link.otherNodeId, mergedAnchorPos);
         if (tjResult.anchorPos.x !== mergedAnchorPos.x || tjResult.anchorPos.y !== mergedAnchorPos.y)
             mergedAnchorPos = tjResult.anchorPos;
@@ -533,14 +547,14 @@ function mergeAnchorTJunctionGuides(app, anchorPos, anchorGuides) {
 }
 
 function syncAnchorDragLinkedNodes(app, anchorPos) {
-    if (app.dragAnchorTJLinks) {
-        for (const link of app.dragAnchorTJLinks) {
+    if (app.drag.tjLinks) {
+        for (const link of app.drag.tjLinks) {
             const p = link.otherWire.nodes.get(link.otherNodeId);
             if (p) { p.x = anchorPos.x; p.y = anchorPos.y; link.otherWire.invalidate(); }
         }
     }
-    if (app.dragAnchorNCLinks) {
-        for (const link of app.dragAnchorNCLinks) {
+    if (app.drag.ncLinks) {
+        for (const link of app.drag.ncLinks) {
             link.nc.x = anchorPos.x; link.nc.y = anchorPos.y; link.nc.invalidate();
         }
     }
@@ -550,8 +564,8 @@ function syncAnchorDragLinkedNodes(app, anchorPos) {
 
 function getDragTJunctionWireSet(app) {
     const wires = getReusableSet(app, '_dragTJunctionWireSetScratch');
-    if (app.dragTJunctionLinks) {
-        for (const link of app.dragTJunctionLinks) wires.add(link.otherWire);
+    if (app.drag.tjLinks) {
+        for (const link of app.drag.tjLinks) wires.add(link.otherWire);
     }
     return wires;
 }
@@ -560,12 +574,12 @@ function collectWireSegmentDragGuides(app, wire, dragEdgeId, snappedTarget, base
     const allGuides = app._segmentDragGuidesScratch || (app._segmentDragGuidesScratch = []);
     allGuides.length = 0;
     if (baseGuides && baseGuides.length > 0) allGuides.push(...baseGuides);
-    if (!app.dragTJunctionLinks) return allGuides;
+    if (!app.drag.tjLinks) return allGuides;
     const edge = wire.edges.get(dragEdgeId);
     if (!edge) return allGuides;
     const fromPos = wire.nodes.get(edge.from);
     if (!fromPos) return allGuides;
-    for (const link of app.dragTJunctionLinks) {
+    for (const link of app.drag.tjLinks) {
         if (link.wireNodeId !== edge.from && link.wireNodeId !== edge.to) continue;
         const ow = link.otherWire;
         const otherPos = ow.nodes.get(link.otherNodeId);
@@ -592,15 +606,15 @@ function applyWireSegmentNodeMovement(app, wire, dragEdgeId, origState, dx, dy) 
 
 function propagateWireSegmentLinkedMovement(app, movedNodes, dx, dy) {
     if (!movedNodes) return;
-    if (app.dragTJunctionLinks) {
-        for (const link of app.dragTJunctionLinks) {
+    if (app.drag.tjLinks) {
+        for (const link of app.drag.tjLinks) {
             if (!movedNodes.has(link.wireNodeId)) continue;
             const sp = link.otherWire.nodes.get(link.otherNodeId);
             if (sp) { sp.x += dx; sp.y += dy; link.otherWire.invalidate(); }
         }
     }
-    if (app.dragSegmentNCLinks) {
-        for (const link of app.dragSegmentNCLinks) {
+    if (app.drag.ncLinks) {
+        for (const link of app.drag.ncLinks) {
             if (!movedNodes.has(link.wireNodeId)) continue;
             link.nc.x += dx; link.nc.y += dy; link.nc.invalidate();
         }
@@ -626,9 +640,9 @@ export const idleState = {
         activateHomeTabIfFileTabOpen(app);
 
         // Commit lingering anchor drag from a previous interaction
-        if (app.isDragging && app.dragMode === 'anchor' && app.dragShapesBefore
-            && (app.didDrag || (app.dragAnchorWireStates && app.dragAnchorWireStates.size > 0))) {
-            commitAnchorDrag(app, app.dragShape, app.dragShapesBefore, app.dragAnchorWireStates, app.dragAnchorNCLinks, app.dragJunctionBeforeWireStates, app.dragJunctionBeforeLabelTextStates);
+        if (app.drag && app.drag.mode === 'anchor' && app.drag.beforeState
+            && (app.didDrag || (app.drag.wireStates && app.drag.wireStates.size > 0))) {
+            commitAnchorDrag(app, app.drag.shape, app.drag.beforeState, app.drag.wireStates, app.drag.ncLinks, app.drag.junctionBeforeWireStates, app.drag.junctionBeforeLabelTextStates);
             finalizeDragInteraction(app);
             app.didDrag = true;
             event.preventDefault();
@@ -636,7 +650,7 @@ export const idleState = {
         }
 
         app.didDrag = false;
-        if (app.pendingAnchorDrag && !app.isDragging) app.pendingAnchorDrag = null;
+        if (app.pendingAnchorDrag && !app.drag) app.pendingAnchorDrag = null;
 
         // Anchor drag on selected shapes
         const selectedShapes = app.selection.getSelection();
@@ -728,7 +742,7 @@ export const idleState = {
         handleComponentTooltipMouseMove(app, worldPos, screenPos);
 
         // Try to promote pending anchor drag
-        if (app.pendingAnchorDrag && !app.isDragging) {
+        if (app.pendingAnchorDrag && !app.drag) {
             if (promotePendingAnchorDragSession(app, screenPos)) return;
         }
     },
@@ -1065,20 +1079,20 @@ export const moveDragState = {
     mousemove(app, event, { worldPos }) {
         if (app.viewport.isPanning) return;
 
-        const mouseDelta = { x: worldPos.x - app.dragStartWorldPos.x, y: worldPos.y - app.dragStartWorldPos.y };
-        const targetPos = { x: app.dragObjectStartPos.x + mouseDelta.x, y: app.dragObjectStartPos.y + mouseDelta.y };
+        const mouseDelta = { x: worldPos.x - app.drag.startWorldPos.x, y: worldPos.y - app.drag.startWorldPos.y };
+        const targetPos = { x: app.drag.objectStartPos.x + mouseDelta.x, y: app.drag.objectStartPos.y + mouseDelta.y };
         const sel = app.selection.getSelection();
         const movingCompIds = collectMovingComponentIds(sel);
         const snappedTarget = app._moveDragSnappedTarget || (app._moveDragSnappedTarget = { x: 0, y: 0 });
         const stickyGuides = resolveMoveDragTarget(app, targetPos, sel, movingCompIds, snappedTarget);
 
-        const dx = snappedTarget.x - app.dragLastSnapped.x;
-        const dy = snappedTarget.y - app.dragLastSnapped.y;
+        const dx = snappedTarget.x - app.drag.lastSnapped.x;
+        const dy = snappedTarget.y - app.drag.lastSnapped.y;
 
         if (dx !== 0 || dy !== 0) {
             app.didDrag = true;
-            app.dragTotalDx += dx;
-            app.dragTotalDy += dy;
+            app.drag.totalDx += dx;
+            app.drag.totalDy += dy;
 
             for (const shape of sel) {
                 if (shape.locked) continue;
@@ -1090,8 +1104,8 @@ export const moveDragState = {
                 renderGuideLines(app, stickyGuides);
             }
             propagateMovedWireJunctions(app, sel, dx, dy);
-            app.dragLastSnapped.x = snappedTarget.x;
-            app.dragLastSnapped.y = snappedTarget.y;
+            app.drag.lastSnapped.x = snappedTarget.x;
+            app.drag.lastSnapped.y = snappedTarget.y;
             app.renderShapes(false);
             if (app.textEdit) app._updateTextEditOverlay?.();
             app.fileManager.setDirty(true);
@@ -1112,32 +1126,32 @@ export const anchorDragState = {
         if (app.viewport.isPanning) return;
 
         app.didDrag = true;
-        app.dragShape.selected = true;
+        app.drag.shape.selected = true;
 
-        const snapMode = app.dragShape.getAnchorSnapMode(app.dragAnchorId);
+        const snapMode = app.drag.shape.getAnchorSnapMode(app.drag.anchorId);
         let anchorPos = snapMode === 'none' ? worldPos : snapped;
 
-        if (app.dragShape.type === 'noconnect') {
+        if (app.drag.shape.type === 'noconnect') {
             const snap = resolveWireSnapPosition(app, worldPos, { pinTolerance: PIN_SNAP_TOL });
             updateSnapHighlight(app, snap);
             anchorPos = { x: snap.x, y: snap.y };
         }
 
         let anchorGuides = [];
-        if (app.dragShape.type === 'wire') {
-            const isLeaf = app.dragShape.nodes.has(app.dragAnchorId) && app.dragShape.degree(app.dragAnchorId) <= 1;
+        if (app.drag.shape.type === 'wire') {
+            const isLeaf = app.drag.shape.nodes.has(app.drag.anchorId) && app.drag.shape.degree(app.drag.anchorId) <= 1;
 
-            if (app.dragAnchorExcludePin?.worldPos) {
-                const excludedPin = app.dragAnchorExcludePin.worldPos;
+            if (app.drag.excludePin?.worldPos) {
+                const excludedPin = app.drag.excludePin.worldPos;
                 if (Math.hypot(worldPos.x - excludedPin.x, worldPos.y - excludedPin.y) > PIN_SNAP_TOL)
-                    app.dragAnchorExcludePin = null;
+                    app.drag.excludePin = null;
             }
 
             let snappedToTarget = false;
             if (isLeaf) {
                 const snap = resolveWireSnapPosition(app, worldPos, {
-                    excludeNode: { wire: app.dragShape, nodeId: app.dragAnchorId },
-                    excludePin: app.dragAnchorExcludePin || null,
+                    excludeNode: { wire: app.drag.shape, nodeId: app.drag.anchorId },
+                    excludePin: app.drag.excludePin || null,
                     pinTolerance: PIN_SNAP_TOL
                 });
                 anchorPos = { x: snap.x, y: snap.y };
@@ -1147,10 +1161,10 @@ export const anchorDragState = {
 
             if (!snappedToTarget) {
                 updateSnapHighlight(app, null);
-                const neighbors = app.dragShape.neighborNodes(app.dragAnchorId)
-                    .map(nid => app.dragShape.nodes.get(nid)).filter(Boolean);
+                const neighbors = app.drag.shape.neighborNodes(app.drag.anchorId)
+                    .map(nid => app.drag.shape.nodes.get(nid)).filter(Boolean);
                 applyOffGridNeighborSnap(worldPos, anchorPos, neighbors, app.viewport.gridSize || 1.0);
-                const collinearSnap = computeAnchorCollinearSnap(app, app.dragShape, app.dragAnchorId, anchorPos);
+                const collinearSnap = computeAnchorCollinearSnap(app, app.drag.shape, app.drag.anchorId, anchorPos);
                 anchorPos = collinearSnap.anchorPos;
                 anchorGuides = collinearSnap.guides;
             }
@@ -1160,8 +1174,8 @@ export const anchorDragState = {
         anchorPos = mergeAnchorTJunctionGuides(app, anchorPos, anchorGuides);
         renderGuideLines(app, anchorGuides);
 
-        const newAnchorId = app.dragShape.moveAnchor(app.dragAnchorId, anchorPos.x, anchorPos.y);
-        if (newAnchorId && newAnchorId !== app.dragAnchorId) app.dragAnchorId = newAnchorId;
+        const newAnchorId = app.drag.shape.moveAnchor(app.drag.anchorId, anchorPos.x, anchorPos.y);
+        if (newAnchorId && newAnchorId !== app.drag.anchorId) app.drag.anchorId = newAnchorId;
         syncAnchorDragLinkedNodes(app, anchorPos);
         app.renderShapes(false);
         if (app.textEdit) app._updateTextEditOverlay?.();
@@ -1181,16 +1195,16 @@ export const segmentDragState = {
     mousemove(app, event, { worldPos }) {
         if (app.viewport.isPanning) return;
 
-        const wire = app.dragShape;
-        const dragEdgeId = app.dragEdgeId;
+        const wire = app.drag.shape;
+        const dragEdgeId = app.drag.edgeId;
 
         const mouseDelta = getReusablePoint(app, '_dragSegmentMouseDeltaScratch');
-        mouseDelta.x = worldPos.x - app.dragStartWorldPos.x;
-        mouseDelta.y = worldPos.y - app.dragStartWorldPos.y;
-        if (app.dragSegAxis === 'vertical') mouseDelta.x = 0;
-        else if (app.dragSegAxis === 'horizontal') mouseDelta.y = 0;
+        mouseDelta.x = worldPos.x - app.drag.startWorldPos.x;
+        mouseDelta.y = worldPos.y - app.drag.startWorldPos.y;
+        if (app.drag.axis === 'vertical') mouseDelta.x = 0;
+        else if (app.drag.axis === 'horizontal') mouseDelta.y = 0;
 
-        const origState = app.dragWireWorkingState || app.dragWireStates.get(wire);
+        const origState = app.drag.workingState || app.drag.wireStates.get(wire);
         const origEdge = origState.edges[dragEdgeId];
         const refPt = origEdge ? origState.nodes[origEdge.from] : null;
         if (!refPt) return;
@@ -1201,7 +1215,7 @@ export const segmentDragState = {
 
         const tJunctionWires = getDragTJunctionWireSet(app);
         const { snappedTarget, guides: segGuides, highlight: segHighlight } =
-            computeSegmentDragSnap(app, wire, dragEdgeId, origState, target, app.dragSegAxis, tJunctionWires);
+            computeSegmentDragSnap(app, wire, dragEdgeId, origState, target, app.drag.axis, tJunctionWires);
         updateSnapHighlight(app, segHighlight);
 
         const allSegGuides = collectWireSegmentDragGuides(app, wire, dragEdgeId, snappedTarget, segGuides);
@@ -1213,8 +1227,8 @@ export const segmentDragState = {
 
         if (dx !== 0 || dy !== 0) {
             app.didDrag = true;
-            app.dragTotalDx += dx;
-            app.dragTotalDy += dy;
+            app.drag.totalDx += dx;
+            app.drag.totalDy += dy;
             const movedNodes = applyWireSegmentNodeMovement(app, wire, dragEdgeId, origState, dx, dy);
             propagateWireSegmentLinkedMovement(app, movedNodes, dx, dy);
             applyWireSegmentLabelMovement(wire, dx, dy);
@@ -1238,7 +1252,7 @@ export const boxSelectState = {
         app.didDrag = true;
         app._updateBoxSelectElement(worldPos);
         const bounds = app._getBoxSelectBounds(worldPos);
-        app.selection.syncBoxSelection(bounds, !!app.boxSelectAdditive, 'contain');
+        app.selection.syncBoxSelection(bounds, !!app.drag.additive, 'contain');
         app.renderShapes(false);
     },
 
@@ -1248,15 +1262,15 @@ export const boxSelectState = {
         const bounds = app._getBoxSelectBounds(worldPos);
         app._removeBoxSelectElement();
         if (app.didDrag) {
-            app.selection.syncBoxSelection(bounds, !!app.boxSelectAdditive, 'contain');
+            app.selection.syncBoxSelection(bounds, !!app.drag.additive, 'contain');
             app.selection._notifySelectionChanged();
             app.renderShapes(true);
         }
 
-        app.isDragging = false;
-        app.dragMode = null;
-        app.boxSelectStart = null;
-        app.boxSelectAdditive = false;
+        app.drag = false;
+        app.drag.mode = null;
+        app.drag.start = null;
+        app.drag.additive = false;
         app.interactionState = 'idle';
     }
 };
