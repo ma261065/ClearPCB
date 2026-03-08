@@ -11,7 +11,7 @@
  *   contextmenu         -> just preventDefault (suppress browser menu)
  */
 
-import { STATE_TABLE, getEventPositions, resolveState } from './mouse-states.js';
+import { STATE_TABLE, getEventPositions, resolveState } from './draw-states.js';
 
 export { clearDragState } from './drag.js';
 

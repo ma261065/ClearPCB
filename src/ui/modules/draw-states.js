@@ -1262,15 +1262,12 @@ export const boxSelectState = {
         const bounds = app._getBoxSelectBounds(worldPos);
         app._removeBoxSelectElement();
         if (app.didDrag) {
-            app.selection.syncBoxSelection(bounds, !!app.drag.additive, 'contain');
+            app.selection.syncBoxSelection(bounds, !!app.drag?.additive, 'contain');
             app.selection._notifySelectionChanged();
             app.renderShapes(true);
         }
 
-        app.drag = false;
-        app.drag.mode = null;
-        app.drag.start = null;
-        app.drag.additive = false;
+        app.drag = null;
         app.interactionState = 'idle';
     }
 };
