@@ -1,4 +1,9 @@
-import { setPendingAnchorDrag } from './interaction-state.js';
+import {
+    clearPendingAnchorDrag,
+    isAdditiveSelectionModifier,
+    isCycleSelectionModifier,
+    setPendingAnchorDrag
+} from './interaction-state.js';
 
 /**
  * Compute screen, world, and grid-snapped positions from a mouse event.
@@ -230,4 +235,77 @@ export function updateDrawingPreviewOnMouseMove(app, worldPos, snapped, drawingT
     if (drawingTools.has(app.currentTool)) {
         app._updateDrawing(snapped);
     }
+}
+
+/**
+ * Handle Shift-based overlap cycling selection.
+ * Returns true when the event was handled and should stop further processing.
+ */
+export function handleCycleSelectionMouseDown(app, event, worldPos) {
+    if (!isCycleSelectionModifier(event)) {
+        return false;
+    }
+
+    const nextShape = getNextCycleHitShape(app, worldPos);
+    if (nextShape) {
+        selectOnlyShapeAndRender(app, nextShape);
+    }
+
+    app.skipClickSelection = true;
+    return true;
+}
+
+/**
+ * Handle Ctrl/Cmd additive selection toggling.
+ * Returns true when a hit-shape toggle was applied.
+ */
+export function handleAdditiveSelectionMouseDown(app, event, hitShape) {
+    if (!hitShape || !isAdditiveSelectionModifier(event)) {
+        return false;
+    }
+
+    app.selection.toggle(hitShape);
+    app.renderShapes(true);
+    app.skipClickSelection = true;
+    return true;
+}
+
+/**
+ * Handle select-tool click behavior, including text-edit blur and selection.
+ */
+export function handleSelectToolClick(app, worldPos, event) {
+    const hit = app.selection.hitTest(worldPos);
+
+    if (app.textEdit) {
+        if (!hit || hit !== app.textEdit.shape) {
+            app._endTextEdit(true);
+        }
+    }
+
+    app.selection.handleClick(worldPos, isAdditiveSelectionModifier(event));
+    app.renderShapes(true);
+}
+
+/**
+ * Handle select-tool double-click behavior.
+ * Returns true when the event was handled.
+ */
+export function handleSelectToolDoubleClick(app, worldPos, screenPos) {
+    const hit = app.selection.hitTest(worldPos);
+
+    if (hit && hit.supportsInlineEdit) {
+        app.selection.select(hit, false);
+        app.renderShapes(true);
+        clearPendingAnchorDrag(app);
+        app._startTextEdit(hit);
+        app._setTextEditCaretFromScreen(screenPos);
+        return true;
+    }
+
+    if (!hit) {
+        app.viewport._onTitleBlockDblClick(worldPos);
+        return true;
+    }
+
+    return false;
 }

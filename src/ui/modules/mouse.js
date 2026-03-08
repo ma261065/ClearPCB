@@ -7,16 +7,18 @@ import {
     canQueueMidpointAnchorDrag,
     collectMovingComponentIds,
     consumeRightClickAsClick,
+    handleAdditiveSelectionMouseDown,
+    handleCycleSelectionMouseDown,
     getDraggedSegmentEndpointNodeIds,
     getEventPositions,
-    getNextCycleHitShape,
     getReusablePoint,
     getReusableSet,
     handlePointAppendingToolMouseDown,
     handleStartFinishToolMouseDown,
     queuePendingAnchorDrag,
+    handleSelectToolClick,
+    handleSelectToolDoubleClick,
     selectContextTargetShape,
-    selectOnlyShapeAndRender,
     shouldSkipSelectClick,
     updateDrawingPreviewOnMouseMove,
     updatePlacementPreviewsOnMouseMove
@@ -25,7 +27,6 @@ import {
     beginBoxSelectSession,
     beginMoveDragSession,
     beginWireSegmentDragSession,
-    clearPendingAnchorDrag,
     clearPendingAnchorDragIfIdle,
     finalizeDragInteraction,
     handleActiveDragMouseUp,
@@ -34,7 +35,6 @@ import {
     handleBoxSelectMouseUp,
     handleRightClickDrawingMouseUp,
     isAdditiveSelectionModifier,
-    isCycleSelectionModifier,
     promotePendingAnchorDragSession
 } from './interaction-state.js';
 
@@ -48,85 +48,6 @@ const CLICK_TO_END_TOOLS = new Set(['rect', 'circle', 'arc']);
 /** Pixel threshold to promote a pending anchor click into a drag. */
 const DRAG_THRESHOLD_PX = 3;
 
-
-/**
- * Handle Shift-based overlap cycling selection.
- * Returns true when the event was handled and should stop further processing.
- */
-function handleCycleSelectionMouseDown(app, event, worldPos) {
-    if (!isCycleSelectionModifier(event)) {
-        return false;
-    }
-
-    const nextShape = getNextCycleHitShape(app, worldPos);
-    if (nextShape) {
-        selectOnlyShapeAndRender(app, nextShape);
-    }
-
-    app.skipClickSelection = true;
-    return true;
-}
-
-/**
- * Handle Ctrl/Cmd additive selection toggling.
- * Returns true when a hit-shape toggle was applied.
- */
-function handleAdditiveSelectionMouseDown(app, event, hitShape) {
-    if (!hitShape || !isAdditiveSelectionModifier(event)) {
-        return false;
-    }
-
-    app.selection.toggle(hitShape);
-    app.renderShapes(true);
-    app.skipClickSelection = true;
-    return true;
-}
-
-
-/**
- * Handle select-tool click behavior, including text-edit blur and selection.
- */
-function handleSelectToolClick(app, worldPos, event) {
-    const hit = app.selection.hitTest(worldPos);
-
-    if (app.textEdit) {
-        if (!hit || hit !== app.textEdit.shape) {
-            app._endTextEdit(true);
-        }
-    }
-
-    app.selection.handleClick(worldPos, isAdditiveSelectionModifier(event));
-    app.renderShapes(true);
-}
-
-/**
- * Handle select-tool double-click behavior.
- * Returns true when the event was handled.
- */
-function handleSelectToolDoubleClick(app, worldPos, screenPos) {
-    const hit = app.selection.hitTest(worldPos);
-
-    // Priority 1: shape inline edit (text shapes)
-    if (hit && hit.supportsInlineEdit) {
-        app.selection.select(hit, false);
-        app.renderShapes(true);
-        // Clear any pending anchor drag left over from the second mousedown
-        // of the dblclick — otherwise the stale state causes the text label
-        // to follow the mouse after the value dialog closes.
-        clearPendingAnchorDrag(app);
-        app._startTextEdit(hit);
-        app._setTextEditCaretFromScreen(screenPos);
-        return true;
-    }
-
-    // Priority 2: title block cell in-place edit
-    if (!hit) {
-        app.viewport._onTitleBlockDblClick(worldPos);
-        return true;
-    }
-
-    return false;
-}
 
 /**
  * Show and update tool crosshair at snapped position.
