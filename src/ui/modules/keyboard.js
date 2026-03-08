@@ -1,5 +1,8 @@
 import { clearDragState } from './mouse.js';
 import { ModifyPropertyCommand } from '../../core/CommandHistory.js';
+import { rotateNetLabelOrientation } from '../../shapes/netlabel.js';
+import { resolveWireSnapPosition, PIN_SNAP_TOL } from './wire.js';
+import { updateToolGhost } from './tool.js';
 
 /**
  * Central Escape key handler. Cascades through text edit, active/pending
@@ -8,10 +11,6 @@ import { ModifyPropertyCommand } from '../../core/CommandHistory.js';
  * @param {object} app - Application state.
  */
 export function handleEscape(app) {
-    if (app._suppressNextEscape) {
-        app._suppressNextEscape = false;
-        return;
-    }
     if (app.textEdit) {
         app._endTextEdit(false);
         return;
@@ -101,14 +100,14 @@ export function bindKeyboardShortcuts(app) {
         // Only block when user is actively typing in a text field
         if (e.target) {
             const tag = e.target.tagName;
-            if (tag === 'TEXTAREA' || tag === 'SELECT') return;
+            if ((tag === 'TEXTAREA' || tag === 'SELECT') && e.key !== 'Escape' && e.key !== 'Enter') return;
             if (tag === 'INPUT') {
                 const inputType = (e.target.type || 'text').toLowerCase();
                 // Block shortcuts only for text-entry inputs
-                if (inputType !== 'checkbox' && inputType !== 'radio' && inputType !== 'button') return;
+                if (inputType !== 'checkbox' && inputType !== 'radio' && inputType !== 'button' && e.key !== 'Escape' && e.key !== 'Enter') return;
             }
         }
-        if (e.defaultPrevented) return;
+        if (e.defaultPrevented && e.key !== 'Escape' && e.key !== 'Enter') return;
 
         // Text edit has absolute priority for Escape and Enter
         if (app.textEdit) {
@@ -183,14 +182,13 @@ export function bindKeyboardShortcuts(app) {
         } else {
             switch (e.key) {
                 case 'Escape':
-                    if (app._suppressNextEscape) {
-                        app._suppressNextEscape = false;
-                        e.preventDefault();
-                        e.stopPropagation();
-                        e.stopImmediatePropagation();
-                        break;
-                    }
                     app._handleEscape();
+                    if (!app.textEdit && !app.isDrawing && !app.pastingClipboard && !app.placingComponent && !app.componentPicker?.isOpen && app.currentTool !== 'select') {
+                        app._onToolSelected('select');
+                    }
+                    e.preventDefault();
+                    e.stopPropagation();
+                    e.stopImmediatePropagation();
                     break;
                 case 'Enter':
                     if (app.isDrawing) {
@@ -247,6 +245,22 @@ export function bindKeyboardShortcuts(app) {
                     app._onToolSelected('noconnect');
                     break;
                 case ' ':
+                    // Spacebar: rotate netlabel orientation while placing
+                    if (!app.textEdit && app.currentTool === 'netlabel') {
+                        const current = app.toolOptions?.netLabelOrientation || 'E';
+                        const next = rotateNetLabelOrientation(current);
+                        app._onOptionsChanged?.({ netLabelOrientation: next });
+
+                        const world = app.viewport.currentMouseWorld;
+                        if (world) {
+                            const resolved = resolveWireSnapPosition(app, world, { pinTolerance: PIN_SNAP_TOL });
+                            updateToolGhost(app, { x: resolved.x, y: resolved.y });
+                        }
+
+                        e.preventDefault();
+                        break;
+                    }
+
                     // Spacebar: toggle H/V rotation on any selected text shape
                     if (!app.textEdit && !app.isDrawing && app.currentTool === 'select') {
                         const sel = app.selection.getSelection();

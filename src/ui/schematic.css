@@ -146,6 +146,8 @@ body {
 .ribbon {
     background: var(--bg-secondary);
     border-bottom: 1px solid var(--border-color);
+    position: relative;
+    z-index: 1200;
 }
 
 .ribbon-tabs {
@@ -193,8 +195,7 @@ body {
     padding: 4px 8px 0;
     border-top: none;
     height: 56px;
-    overflow-x: visible;
-    overflow-y: hidden;
+    overflow: visible;
 }
 
 .ribbon-panel {
@@ -482,6 +483,28 @@ body {
 
 .dropdown-item:hover {
     background: var(--accent-color);
+}
+
+.dropdown-item.active {
+    background: var(--bg-tertiary);
+    border: 1px solid var(--accent-color);
+}
+
+.ribbon-netlabel-dropdown {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+}
+
+.ribbon-netlabel-style-btn {
+    min-width: 26px;
+    width: 26px;
+    padding: 0;
+}
+
+.ribbon-netlabel-dropdown .dropdown-menu {
+    min-width: 132px;
 }
 
 #undoBtn, #redoBtn {

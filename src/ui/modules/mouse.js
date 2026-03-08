@@ -451,6 +451,11 @@ function handleSelectToolMouseDown(app, event, worldPos, snapped, screenPos) {
     }
 
     if (hitShape) {
+        if (hitShape.type === 'netlabel') {
+            const clickedAnchor = hitShape.hitTestAnchor(worldPos, app.viewport.scale);
+            hitShape._selectedSubPart = clickedAnchor === 'text' ? 'text' : 'symbol';
+        }
+
         if (handleAdditiveSelectionMouseDown(app, event, hitShape)) {
             event.preventDefault();
             return true;

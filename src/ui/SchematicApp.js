@@ -162,7 +162,10 @@ class SchematicApp {
             lineWidth: 0.25,
             fill: false,
             color: '#00cc66',  // Default wire color - matches --sch-wire
-            fontSize: 2.0
+            fontSize: 2.0,
+            netLabelFontSize: 1.4,
+            netLabelStyle: 't',
+            netLabelOrientation: 'N'
         };
 
         // Text edit state

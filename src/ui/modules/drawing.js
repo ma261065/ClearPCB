@@ -1,5 +1,6 @@
 import { Line, Circle, Rect, Arc, Polygon, Text, NetLabel, NoConnect } from '../../shapes/index.js';
 import { circumcircle, projectOntoChordBisector, clampBulgePoint } from '../../core/geometry.js';
+import { normalizeNetLabelOrientation, normalizeNetLabelStyle } from '../../shapes/netlabel.js';
 
 /**
  * Allocate the lowest unused default net name in the current document.
@@ -17,6 +18,12 @@ function nextNetLabelName(app) {
     let i = 1;
     while (used.has(i)) i += 1;
     return `NET${i}`;
+}
+
+function defaultNetLabelText(app, style) {
+    if (style === 'gnd') return 'Gnd';
+    if (style === 'arrow') return 'VCC';
+    return nextNetLabelName(app);
 }
 
 /**
@@ -436,11 +443,14 @@ export function createShapeFromDrawing(app) {
         }
 
         case 'netlabel': {
+            const style = normalizeNetLabelStyle(app.toolOptions.netLabelStyle || 't');
             return new NetLabel({
                 x: start.x,
                 y: start.y,
-                net: nextNetLabelName(app),
-                fontSize: app.toolOptions.fontSize || 1.8
+                net: defaultNetLabelText(app, style),
+                fontSize: app.toolOptions.netLabelFontSize || 1.4,
+                style,
+                orientation: normalizeNetLabelOrientation(app.toolOptions.netLabelOrientation || 'N')
             });
         }
 

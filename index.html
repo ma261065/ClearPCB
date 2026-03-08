@@ -53,7 +53,16 @@
                             <button class="ribbon-tool-btn" data-tool="line" title="Line (L)">╱ Line</button>
                             <button class="ribbon-tool-btn" data-tool="polygon" title="Polygon (P)">⬠ Polygon</button>
                             <button class="ribbon-tool-btn" data-tool="text" title="Text (T)">T Text</button>
-                            <button class="ribbon-tool-btn" data-tool="netlabel" title="Net Label (N)">⚑ Net Label</button>
+                            <div class="dropdown ribbon-netlabel-dropdown" id="ribbonNetLabelDropdown">
+                                <button class="ribbon-tool-btn" id="ribbonNetLabelTool" data-tool="netlabel" title="Net Label (N)">┤ Net Label</button>
+                                <button class="ribbon-tool-btn ribbon-netlabel-style-btn" id="ribbonNetLabelStyleBtn" title="Net Label style">▾</button>
+                                <div class="dropdown-menu" id="ribbonNetLabelStyleMenu" aria-label="Net label style">
+                                    <button class="dropdown-item" data-netlabel-style="t" type="button">┤ T</button>
+                                    <button class="dropdown-item" data-netlabel-style="gnd" type="button">⏚ GND</button>
+                                    <button class="dropdown-item" data-netlabel-style="arrow" type="button">➤ Arrow</button>
+                                    <button class="dropdown-item" data-netlabel-style="chevron" type="button">❯ Chevron</button>
+                                </div>
+                            </div>
                             <button class="ribbon-tool-btn" data-tool="noconnect" title="No Connect (X)">✕ No Connect</button>
                             <button class="ribbon-tool-btn" data-tool="component" title="Component (I)">⊞ Component</button>
                         </div>
