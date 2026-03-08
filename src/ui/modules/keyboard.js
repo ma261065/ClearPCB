@@ -5,9 +5,8 @@ import { resolveWireSnapPosition, PIN_SNAP_TOL } from './wire.js';
 import { updateToolGhost } from './tool.js';
 
 /**
- * Central Escape key handler. Cascades through text edit, active/pending
- * anchor drag, active drawing, paste, component placement, component picker,
- * box select, tool reset, or clears selection.
+ * Central Escape key handler. Uses app.interactionState to determine
+ * what to cancel, then transitions back to idle.
  * @param {object} app - Application state.
  */
 export function handleEscape(app) {
@@ -15,86 +14,97 @@ export function handleEscape(app) {
         app._endTextEdit(false);
         return;
     }
-    // Cancel active segment drag — revert bridge insertions
-    if (app.isDragging && app.dragMode === 'wire-segment' && app.dragWireStates) {
-        for (const [wire, beforeState] of app.dragWireStates) {
-            app._applyShapeState(wire, beforeState);
-        }
-        const shape = app.dragShape;
-        clearDragState(app);
-        app.didDrag = false;
-        app.viewport.svg.style.cursor = '';
-        app.interactionState = 'idle';
-        if (shape) shape.selected = true;
-        app.renderShapes(true);
-        return;
-    }
-    // Cancel active anchor drag — revert shape to pre-drag state
-    if (app.isDragging && app.dragMode === 'anchor' && app.dragShape) {
-        if (app.dragShapesBefore) {
-            app._applyShapeState(app.dragShape, app.dragShapesBefore);
-        }
-        // Also revert any linked wire states (e.g. junction removal)
-        if (app.dragAnchorWireStates) {
-            for (const [wire, beforeState] of app.dragAnchorWireStates) {
-                app._applyShapeState(wire, beforeState);
+
+    switch (app.interactionState) {
+        case 'segmentDrag':
+            // Revert bridge insertions from segment drag start
+            if (app.dragWireStates) {
+                for (const [wire, beforeState] of app.dragWireStates) {
+                    app._applyShapeState(wire, beforeState);
+                }
             }
-        }
-        const shape = app.dragShape;
-        clearDragState(app);
-        app.didDrag = false;
-        app.viewport.svg.style.cursor = '';
-        app.interactionState = 'idle';
-        shape.selected = true;
-        app.renderShapes(true);
-        return;
-    }
-    // Cancel pending anchor drag (click-and-release, waiting for movement threshold)
-    if (app.pendingAnchorDrag) {
-        const { shape, preInsertState } = app.pendingAnchorDrag;
-        if (preInsertState) {
-            app._applyShapeState(shape, preInsertState);
-        }
-        shape.selected = true;
-        app.pendingAnchorDrag = null;
-        app.viewport.svg.style.cursor = '';
-        app.interactionState = 'idle';
-        app.renderShapes(true);
-        return;
-    }
-    if (app.isDrawing) {
-        if (app.currentTool === 'wire') {
-            app._cancelWireDrawing();
-        } else {
-            app._cancelDrawing();
-        }
-        app._onToolSelected('select');
-        return;
-    }
-    if (app.pastingClipboard) {
-        app._cancelPaste();
-        return;
-    }
-    if (app.placingComponent) {
-        app._cancelComponentPlacement();
-        return;
-    }
-    if (app.componentPicker.isOpen) {
-        app.componentPicker.close();
-        return;
-    }
-    if (app.dragMode === 'box') {
-        clearDragState(app);
-        app.didDrag = false;
-        app._removeBoxSelectElement();
-        app.interactionState = 'idle';
-        return;
-    }
-    if (app.currentTool !== 'select') {
-        app._onToolSelected('select');
-    } else {
-        app.selection.clearSelection();
-        app.renderShapes(true);
+            { const shape = app.dragShape;
+              clearDragState(app);
+              app.didDrag = false;
+              app.viewport.svg.style.cursor = '';
+              app.interactionState = 'idle';
+              if (shape) shape.selected = true;
+              app.renderShapes(true); }
+            return;
+
+        case 'anchorDrag':
+            // Revert shape and linked wires to pre-drag state
+            if (app.dragShapesBefore) {
+                app._applyShapeState(app.dragShape, app.dragShapesBefore);
+            }
+            if (app.dragAnchorWireStates) {
+                for (const [wire, beforeState] of app.dragAnchorWireStates) {
+                    app._applyShapeState(wire, beforeState);
+                }
+            }
+            { const shape = app.dragShape;
+              clearDragState(app);
+              app.didDrag = false;
+              app.viewport.svg.style.cursor = '';
+              app.interactionState = 'idle';
+              if (shape) shape.selected = true;
+              app.renderShapes(true); }
+            return;
+
+        case 'moveDrag':
+        case 'boxSelect':
+            clearDragState(app);
+            app.didDrag = false;
+            app._removeBoxSelectElement();
+            app.viewport.svg.style.cursor = '';
+            app.interactionState = 'idle';
+            app.renderShapes(true);
+            return;
+
+        case 'drawing':
+            if (app.currentTool === 'wire') {
+                app._cancelWireDrawing();
+            } else {
+                app._cancelDrawing();
+            }
+            app._onToolSelected('select');
+            return;
+
+        case 'placing':
+            if (app.pastingClipboard) {
+                app._cancelPaste();
+            } else if (app.placingComponent) {
+                app._cancelComponentPlacement();
+            }
+            return;
+
+        case 'toolActive':
+            app._onToolSelected('select');
+            return;
+
+        case 'idle':
+        default:
+            // Cancel pending anchor drag if present
+            if (app.pendingAnchorDrag) {
+                const { shape, preInsertState } = app.pendingAnchorDrag;
+                if (preInsertState) {
+                    app._applyShapeState(shape, preInsertState);
+                }
+                if (shape) shape.selected = true;
+                app.pendingAnchorDrag = null;
+                app.viewport.svg.style.cursor = '';
+                app.renderShapes(true);
+                return;
+            }
+            // Close component picker if open
+            if (app.componentPicker.isOpen) {
+                app.componentPicker.close();
+                return;
+            }
+            // Clear selection
+            app.selection.clearSelection();
+            app.renderShapes(true);
+            return;
     }
 }
 
