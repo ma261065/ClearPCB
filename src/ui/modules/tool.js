@@ -91,6 +91,7 @@ export function onToolSelected(app, tool) {
     // Update current tool first so that listeners (like ribbon) 
     // see the new tool state when selection is cleared
     app.currentTool = tool;
+    app.interactionState = tool === 'select' ? 'idle' : 'toolActive';
     
     // Clear selection when switching tools so that property panel inputs 
     // control default tool options (new shapes) rather than editing existing selection.

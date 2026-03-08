@@ -361,6 +361,7 @@ export function startWireDrawing(app, snappedData) {
     app.wireStartPin = snapPin;
     app._wireAxisLock = null;
     app.isDrawing = true;
+    app.interactionState = 'drawing';
     app._createPreview();
     app._showCrosshair();
     app._updateCrosshair(snappedData);
@@ -557,6 +558,7 @@ export function cancelWireDrawing(app) {
     app.wireSnapPin = null;
     app.wireStartPin = null;
     app.isDrawing = false;
+    app.interactionState = app.currentTool === 'select' ? 'idle' : 'toolActive';
 
     if (app.previewElement) {
         app.previewElement.remove();

@@ -186,6 +186,7 @@ export function beginPastePreview(app) {
     app.viewport.contentLayer.appendChild(ghost);
     app.pastePreviewGroup = ghost;
     app.pastingClipboard = true;
+    app.interactionState = 'placing';
     app.viewport.svg.style.cursor = 'crosshair';
 
     // Position at current mouse so it doesn't flash at the origin
@@ -301,6 +302,7 @@ export function cancelPaste(app) {
         app.pastePreviewGroup = null;
     }
     app.pastingClipboard = false;
+    app.interactionState = app.currentTool === 'select' ? 'idle' : 'toolActive';
     app.viewport.svg.style.cursor = '';
 }
 

@@ -77,6 +77,7 @@ class SchematicApp {
 
         this.container = document.getElementById('canvasContainer');
         this.viewport = new Viewport(this.container);
+        this.viewport._app = this; // back-reference for state-aware pan suppression
         this.eventBus = globalEventBus;
         this.history = new CommandHistory({
             onChanged: () => {

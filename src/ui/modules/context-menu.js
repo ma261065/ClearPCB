@@ -263,6 +263,7 @@ export function deleteJunction(app, junctionInfo) {
 
     app.isDragging = true;
     app.dragMode = 'anchor';
+    app.interactionState = 'anchorDrag';
     app.dragAnchorId = dragNewNodeId;
     app.dragShape = dragWire;
     app.dragShapesBefore = dragBefore;

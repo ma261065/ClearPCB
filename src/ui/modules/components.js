@@ -54,6 +54,7 @@ export function onComponentDefinitionSelected(app, definition) {
 
     app.placingComponent = definition;
     app.currentTool = 'component';
+    app.interactionState = 'placing';
 
     app._setActiveToolButton?.('component');
     app._updateShapePanelOptions(app.selection.getSelection(), 'component');
@@ -245,6 +246,7 @@ export function cancelComponentPlacement(app) {
 
     if (app.currentTool === 'component') {
         app.currentTool = 'select';
+        app.interactionState = 'idle';
         app.viewport.svg.style.cursor = 'default';
         app._setActiveToolButton?.('select');
         app._updateShapePanelOptions(app.selection.getSelection(), 'select');

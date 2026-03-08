@@ -121,6 +121,7 @@ export class Viewport {
         this.panStart = { x: 0, y: 0 };
         this.panStartViewBox = null;
         this.currentMouseWorld = { x: 0, y: 0 };
+        this.shiftHeld = false;
         
         // Cache for getBoundingClientRect (expensive operation)
         this.cachedRect = null;
@@ -517,6 +518,67 @@ export class Viewport {
         };
     }
     
+    // ─── Pan API (called by state machine in mouse-states.js) ────────
+
+    /**
+     * Begin a pan operation from the given screen position.
+     * @param {number} clientX
+     * @param {number} clientY
+     */
+    startPan(clientX, clientY) {
+        this.isPanning = true;
+        this.panStart = { x: clientX, y: clientY };
+        this.panStartViewBox = { ...this.viewBox };
+        this.svg.style.cursor = 'grabbing';
+    }
+
+    /**
+     * Continue panning to a new screen position.
+     * @param {number} clientX
+     * @param {number} clientY
+     */
+    updatePan(clientX, clientY) {
+        if (!this.isPanning) return;
+        const dx = (clientX - this.panStart.x) / this.scale;
+        const dy = (clientY - this.panStart.y) / this.scale;
+        this.viewBox.x = this.panStartViewBox.x - dx;
+        this.viewBox.y = this.panStartViewBox.y - dy;
+        this._updateViewBox();
+        if (!this._panUpdatePending) {
+            this._panUpdatePending = true;
+            requestAnimationFrame(() => {
+                this._panUpdatePending = false;
+                this._createRulers();
+                if (this.onViewportCull) this.onViewportCull();
+            });
+        }
+    }
+
+    /**
+     * End current pan operation and notify view change.
+     */
+    endPan() {
+        if (!this.isPanning) return;
+        this.isPanning = false;
+        this.svg.style.cursor = '';
+        this._notifyViewChanged();
+    }
+
+    /**
+     * Update mouse tracking state (called on every mousemove by dispatcher).
+     * @param {MouseEvent} e
+     */
+    trackMouse(e) {
+        const rect = this._getCachedRect();
+        const mouseScreen = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+        this.currentMouseWorld = this.screenToWorld(mouseScreen);
+        this.shiftHeld = e.shiftKey;
+        this._updateRulerCursor();
+        if (this.onMouseMove) {
+            this.onMouseMove(this.currentMouseWorld, this.getSnappedPosition(this.currentMouseWorld));
+        }
+    }
+
     /**
      * Schedule a debounced view-change update on the next animation frame.
      * Redraws grid, rulers, and paper outline only when bounds or scale change,
@@ -1423,60 +1485,11 @@ export class Viewport {
         };
         
         // Pan start
-        this.boundHandlers.mousedown = (e) => {
-            if (e.button === 2) {
-                this.isPanning = true;
-                this.panStart = { x: e.clientX, y: e.clientY };
-                this.panStartViewBox = { ...this.viewBox };
-                this.svg.style.cursor = 'grabbing';
-                e.preventDefault();
-            }
-        };
+        // NOTE: pan mousedown/mousemove/mouseup are handled by the state machine
+        // in mouse.js / mouse-states.js. Viewport exposes startPan / updatePan / endPan
+        // methods instead. Only wheel, contextmenu, resize, and keyboard stay here.
         
-        // Pan move
-        this.boundHandlers.mousemove = (e) => {
-            const rect = this._getCachedRect();
-            const mouseScreen = {
-                x: e.clientX - rect.left,
-                y: e.clientY - rect.top
-            };
-            
-            if (this.isPanning) {
-                const dx = (e.clientX - this.panStart.x) / this.scale;
-                const dy = (e.clientY - this.panStart.y) / this.scale;
-                this.viewBox.x = this.panStartViewBox.x - dx;
-                this.viewBox.y = this.panStartViewBox.y - dy;
-                this._updateViewBox();
-                // Throttle ruler + cull updates during pan via rAF
-                if (!this._panUpdatePending) {
-                    this._panUpdatePending = true;
-                    requestAnimationFrame(() => {
-                        this._panUpdatePending = false;
-                        this._createRulers();
-                        if (this.onViewportCull) this.onViewportCull();
-                    });
-                }
-            }
-            
-            this.currentMouseWorld = this.screenToWorld(mouseScreen);
-            this.shiftHeld = e.shiftKey;
-            this._updateRulerCursor();
-            
-            if (this.onMouseMove) {
-                this.onMouseMove(this.currentMouseWorld, this.getSnappedPosition(this.currentMouseWorld));
-            }
-        };
-        
-        // Pan end
-        this.boundHandlers.mouseup = (e) => {
-            if (this.isPanning) {
-                this.isPanning = false;
-                this.svg.style.cursor = 'default';
-                this._notifyViewChanged();
-            }
-        };
-        
-        // Prevent context menu
+        // Prevent context menu (state machine handles right-click logic)
         this.boundHandlers.contextmenu = (e) => {
             e.preventDefault();
         };
@@ -1486,11 +1499,8 @@ export class Viewport {
             this._onResize();
         };
         
-        // Attach all handlers
+        // Attach handlers (no mousedown/mousemove/mouseup — those are in mouse.js)
         this.svg.addEventListener('wheel', this.boundHandlers.wheel, { passive: false });
-        this.svg.addEventListener('mousedown', this.boundHandlers.mousedown);
-        this.svg.addEventListener('mousemove', this.boundHandlers.mousemove);
-        window.addEventListener('mouseup', this.boundHandlers.mouseup);
         this.svg.addEventListener('contextmenu', this.boundHandlers.contextmenu);
         window.addEventListener('resize', this.boundHandlers.resize);
         
@@ -1517,9 +1527,6 @@ export class Viewport {
             this.viewChangeTimer = null;
         }
         if (this.boundHandlers.wheel) this.svg.removeEventListener('wheel', this.boundHandlers.wheel);
-        if (this.boundHandlers.mousedown) this.svg.removeEventListener('mousedown', this.boundHandlers.mousedown);
-        if (this.boundHandlers.mousemove) this.svg.removeEventListener('mousemove', this.boundHandlers.mousemove);
-        if (this.boundHandlers.mouseup) window.removeEventListener('mouseup', this.boundHandlers.mouseup);
         if (this.boundHandlers.contextmenu) this.svg.removeEventListener('contextmenu', this.boundHandlers.contextmenu);
         if (this.boundHandlers.resize) window.removeEventListener('resize', this.boundHandlers.resize);
         if (this.boundHandlers.keydown) window.removeEventListener('keydown', this.boundHandlers.keydown);

@@ -38,6 +38,7 @@ export function startDrawing(app, worldPos) {
     app.isDrawing = true;
     app.drawStart = { ...worldPos };
     app.drawCurrent = { ...worldPos };
+    app.interactionState = 'drawing';
 
     if (app.currentTool === 'polygon') {
         app.polygonPoints = [{ ...worldPos }];
@@ -177,6 +178,7 @@ export function finishLine(app) {
  */
 export function cancelDrawing(app) {
     app.isDrawing = false;
+    app.interactionState = app.currentTool === 'select' ? 'idle' : 'toolActive';
     app.drawStart = null;
     app.drawCurrent = null;
     app.polygonPoints = [];
