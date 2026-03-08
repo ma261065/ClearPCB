@@ -33,7 +33,7 @@ export function setupCallbacks(app) {
         if (now - lastHoverUpdate > HOVER_THROTTLE) {
             lastHoverUpdate = now;
 
-            if (!app.viewport.isPanning && !app.isDragging && app.currentTool === 'select') {
+            if (!app.viewport.isPanning && app.interactionState === 'idle') {
                 const hit = app.selection.hitTest(world);
                 const hoveredChanged = app.selection.setHovered(hit);
                 let hoverPartChanged = false;
