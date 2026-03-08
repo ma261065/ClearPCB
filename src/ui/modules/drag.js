@@ -154,15 +154,7 @@ function pushBatchIfNonEmpty(app, batch) {
  * @param {Map} [junctionBeforeLabelTextStates] - Pre-junction-split label states
  * @returns {boolean}
  */
-export function commitAnchorDrag(app, dragShape = null, beforeState = null, anchorWireStates = null, ncLinks = null, junctionBeforeWireStates = null, junctionBeforeLabelTextStates = null) {
-    // Legacy call support: read from app flags if params not provided
-    dragShape = dragShape || app.dragShape;
-    beforeState = beforeState || app.dragShapesBefore;
-    anchorWireStates = anchorWireStates || app.dragAnchorWireStates;
-    ncLinks = ncLinks || app.dragAnchorNCLinks;
-    junctionBeforeWireStates = junctionBeforeWireStates || app.dragJunctionBeforeWireStates;
-    junctionBeforeLabelTextStates = junctionBeforeLabelTextStates || app.dragJunctionBeforeLabelTextStates;
-
+export function commitAnchorDrag(app, dragShape, beforeState, anchorWireStates = null, ncLinks = null, junctionBeforeWireStates = null, junctionBeforeLabelTextStates = null) {
     if (!dragShape || !beforeState) return false;
 
     if (dragShape.type === 'wire') {
@@ -258,13 +250,7 @@ export function commitAnchorDrag(app, dragShape = null, beforeState = null, anch
  * @param {Map} [junctionBeforeLabelTextStates]
  * @returns {boolean}
  */
-export function resolveAnchorDragOnMouseUp(app, dragShape = null, beforeState = null, didDrag = undefined, anchorWireStates = null, ncLinks = null, junctionBeforeWireStates = null, junctionBeforeLabelTextStates = null) {
-    // Legacy call support
-    dragShape = dragShape || app.dragShape;
-    beforeState = beforeState || app.dragShapesBefore;
-    didDrag = didDrag !== undefined ? didDrag : app.didDrag;
-    anchorWireStates = anchorWireStates || app.dragAnchorWireStates;
-
+export function resolveAnchorDragOnMouseUp(app, dragShape, beforeState, didDrag, anchorWireStates = null, ncLinks = null, junctionBeforeWireStates = null, junctionBeforeLabelTextStates = null) {
     if (!beforeState) return false;
 
     const hasLinkedWireChanges = !!(anchorWireStates && anchorWireStates.size > 0);
@@ -289,13 +275,7 @@ export function resolveAnchorDragOnMouseUp(app, dragShape = null, beforeState = 
  * @param {object} [labelBefore] - Label text before-state
  * @returns {boolean}
  */
-export function commitSegmentDrag(app, dragShape = null, wireStates = null, ncLinks = null, labelBefore = null) {
-    // Legacy call support
-    wireStates = wireStates || app.dragWireStates;
-    dragShape = dragShape || app.dragShape;
-    ncLinks = ncLinks || app.dragSegmentNCLinks;
-    labelBefore = labelBefore || app.dragSegmentLabelBefore;
-
+export function commitSegmentDrag(app, dragShape, wireStates, ncLinks = null, labelBefore = null) {
     if (!wireStates) return false;
 
     // Collapse redundant points
@@ -335,8 +315,7 @@ export function commitSegmentDrag(app, dragShape = null, wireStates = null, ncLi
  * @param {Map} [wireStates] - Before-states to revert to
  * @returns {boolean}
  */
-export function revertSegmentDragIfNoMove(app, wireStates = null) {
-    wireStates = wireStates || app.dragWireStates;
+export function revertSegmentDragIfNoMove(app, wireStates) {
     if (!wireStates) return false;
     for (const [wire, state] of wireStates) {
         app._applyShapeState(wire, state);
@@ -355,11 +334,7 @@ export function revertSegmentDragIfNoMove(app, wireStates = null) {
  * @param {number} [totalDy]
  * @returns {boolean}
  */
-export function commitMoveDrag(app, totalDx = undefined, totalDy = undefined) {
-    // Legacy call support
-    totalDx = totalDx !== undefined ? totalDx : app.dragTotalDx;
-    totalDy = totalDy !== undefined ? totalDy : app.dragTotalDy;
-
+export function commitMoveDrag(app, totalDx, totalDy) {
     const selectedShapes = app.selection.getSelection();
     const movedShapes = selectedShapes.filter(s => !s.locked);
 

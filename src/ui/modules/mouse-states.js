@@ -324,12 +324,12 @@ function handleDragEnd(app) {
     if (!app.isDragging) return;
 
     if (app.didDrag && app.dragMode === 'move') {
-        commitMoveDrag(app);
+        commitMoveDrag(app, app.dragTotalDx, app.dragTotalDy);
     } else if (app.dragMode === 'wire-segment' && app.dragWireStates) {
-        if (app.didDrag) commitSegmentDrag(app);
-        else revertSegmentDragIfNoMove(app);
+        if (app.didDrag) commitSegmentDrag(app, app.dragShape, app.dragWireStates, app.dragSegmentNCLinks, app.dragSegmentLabelBefore);
+        else revertSegmentDragIfNoMove(app, app.dragWireStates);
     } else if (app.dragShape) {
-        resolveAnchorDragOnMouseUp(app);
+        resolveAnchorDragOnMouseUp(app, app.dragShape, app.dragShapesBefore, app.didDrag, app.dragAnchorWireStates, app.dragAnchorNCLinks, app.dragJunctionBeforeWireStates, app.dragJunctionBeforeLabelTextStates);
     }
 
     commitPendingMidpointAfterDrag(app);
@@ -628,7 +628,7 @@ export const idleState = {
         // Commit lingering anchor drag from a previous interaction
         if (app.isDragging && app.dragMode === 'anchor' && app.dragShapesBefore
             && (app.didDrag || (app.dragAnchorWireStates && app.dragAnchorWireStates.size > 0))) {
-            commitAnchorDrag(app);
+            commitAnchorDrag(app, app.dragShape, app.dragShapesBefore, app.dragAnchorWireStates, app.dragAnchorNCLinks, app.dragJunctionBeforeWireStates, app.dragJunctionBeforeLabelTextStates);
             finalizeDragInteraction(app);
             app.didDrag = true;
             event.preventDefault();
