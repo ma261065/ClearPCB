@@ -126,6 +126,48 @@ export class CommandHistory {
             });
         }
     }
+
+    /**
+     * Push a pre-applied command onto the undo stack without executing it.
+     * Use when the command's effects have already been applied manually.
+     * Clears the redo stack.
+     * @param {Object} command - Command to record
+     */
+    record(command) {
+        this.undoStack.push(command);
+        this.redoStack = [];
+        if (this.undoStack.length > this.maxSize) {
+            this.undoStack.shift();
+        }
+        this._notifyChanged();
+    }
+
+    /**
+     * Pop the top N entries from the undo stack.
+     * @param {number} [count=1] - Number of entries to remove
+     * @returns {Object[]} The popped commands (most recent first)
+     */
+    popUndo(count = 1) {
+        const popped = [];
+        for (let i = 0; i < count && this.undoStack.length > 0; i++) {
+            popped.push(this.undoStack.pop());
+        }
+        return popped;
+    }
+
+    /**
+     * Replace the top undo entry with a new command.
+     * Useful for merging a just-pushed command with additional follow-up work.
+     * @param {Object} command - Replacement command
+     */
+    replaceTop(command) {
+        if (this.undoStack.length > 0) {
+            this.undoStack.pop();
+        }
+        this.undoStack.push(command);
+        this.redoStack = [];
+        this._notifyChanged();
+    }
 }
 
 /**

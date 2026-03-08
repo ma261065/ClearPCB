@@ -538,10 +538,8 @@ export function finishWireDrawing(app, worldPos) {
     // Build undo batch (pure snapshot, no revert/replay)
     const batch = buildWireDiffBatch(app, beforeStates, 'Draw wire', [wire], labelTextBefore);
     if (batch) {
-        // Push to undo stack without executing — state is already correct
-        app.history.undoStack.push(batch);
-        app.history.redoStack = [];
-        app.history._notifyChanged();
+        // Record to undo stack without executing — state is already correct
+        app.history.record(batch);
     }
     cancelWireDrawing(app);
     app.renderShapes(true);
@@ -1464,10 +1462,8 @@ export function reconcileWiresWithUndo(app, changedWires, skipSet = null) {
     const batch = buildWireDiffBatch(app, beforeStates, 'Wire reconciliation', [], labelTextBefore);
     if (!batch) return null;
 
-    // Push to undo stack without executing — state is already correct
-    app.history.undoStack.push(batch);
-    app.history.redoStack = [];
-    app.history._notifyChanged();
+    // Record to undo stack without executing — state is already correct
+    app.history.record(batch);
     return batch;
 }
 

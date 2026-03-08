@@ -1012,6 +1012,9 @@ export const drawingState = {
             app._addPolygonPoint(snapped);
             app._finishPolygon();
             handled = true;
+        } else if (tool === 'rect' || tool === 'circle') {
+            app._finishDrawing(snapped);
+            handled = true;
         }
         if (handled) {
             app._setToolCursor(app.currentTool, app.viewport.svg);

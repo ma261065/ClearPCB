@@ -134,9 +134,7 @@ function addNoConnectCommands(app, batch, ncLinks) {
  */
 function pushBatchIfNonEmpty(app, batch) {
     if (batch && batch.commands.length > 0) {
-        app.history.undoStack.push(batch);
-        app.history.redoStack = [];
-        app.history._notifyChanged();
+        app.history.record(batch);
     }
 }
 
@@ -363,14 +361,12 @@ export function commitMoveDrag(app, totalDx, totalDy) {
     if (movedWires.length > 0) {
         const reconcileBatch = reconcileWiresWithUndo(app, movedWires);
         if (reconcileBatch) {
-            app.history.undoStack.pop();
-            app.history.undoStack.pop();
+            // Pop reconcile batch + MoveShapesCommand, combine into one
+            app.history.popUndo(2);
             const combined = new BatchCommand('Move + wire cleanup');
             combined.add(command);
             for (const cmd of reconcileBatch.commands) combined.add(cmd);
-            app.history.undoStack.push(combined);
-            app.history.redoStack = [];
-            app.history._notifyChanged();
+            app.history.record(combined);
         }
     }
 
@@ -388,15 +384,13 @@ export function commitMoveDrag(app, totalDx, totalDy) {
             }
         }
         if (ncCmds.length > 0) {
-            const top = app.history.undoStack.pop();
+            const [top] = app.history.popUndo(1);
             const combined = top instanceof BatchCommand
                 ? top
                 : (() => { const b = new BatchCommand('Move + NC update'); b.add(top); return b; })();
             for (const cmd of ncCmds) combined.add(cmd);
-            app.history.undoStack.push(combined);
             for (const cmd of ncCmds) cmd.execute();
-            app.history.redoStack = [];
-            app.history._notifyChanged();
+            app.history.record(combined);
         }
     }
 
