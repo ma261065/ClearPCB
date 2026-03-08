@@ -4,39 +4,37 @@ import { detectTJunction, showAnchorContextMenu, showSegmentContextMenu } from '
 import { updateToolGhost } from './tool.js';
 import {
     activateHomeTabIfFileTabOpen,
+    beginBoxSelectSession,
+    beginMoveDragSession,
+    beginWireSegmentDragSession,
     canQueueMidpointAnchorDrag,
+    clearPendingAnchorDragIfIdle,
     collectMovingComponentIds,
     consumeRightClickAsClick,
-    handleAdditiveSelectionMouseDown,
-    handleCycleSelectionMouseDown,
+    finalizeDragInteraction,
     getDraggedSegmentEndpointNodeIds,
     getEventPositions,
     getReusablePoint,
     getReusableSet,
+    handleActiveDragMouseUp,
+    handleAdditiveSelectionMouseDown,
+    handleBoxSelectMouseUp,
+    handleCycleSelectionMouseDown,
+    handleDoubleClickDrawing,
+    handleDrawingToolMouseUp,
     handlePointAppendingToolMouseDown,
-    handleStartFinishToolMouseDown,
-    queuePendingAnchorDrag,
+    handleRightClickDrawingMouseUp,
     handleSelectToolClick,
     handleSelectToolDoubleClick,
+    handleStartFinishToolMouseDown,
+    isAdditiveSelectionModifier,
+    promotePendingAnchorDragSession,
+    queuePendingAnchorDrag,
     selectContextTargetShape,
     shouldSkipSelectClick,
     updateDrawingPreviewOnMouseMove,
     updatePlacementPreviewsOnMouseMove
-} from './mouse-helpers.js';
-import {
-    beginBoxSelectSession,
-    beginMoveDragSession,
-    beginWireSegmentDragSession,
-    clearPendingAnchorDragIfIdle,
-    finalizeDragInteraction,
-    handleActiveDragMouseUp,
-    handleDrawingToolMouseUp,
-    handleDoubleClickDrawing,
-    handleBoxSelectMouseUp,
-    handleRightClickDrawingMouseUp,
-    isAdditiveSelectionModifier,
-    promotePendingAnchorDragSession
-} from './interaction-state.js';
+} from './mouse-interaction.js';
 
 // Re-export clearDragState so existing consumers (keyboard.js) don't break.
 export { clearDragState } from './drag.js';

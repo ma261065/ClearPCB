@@ -9,7 +9,16 @@
 
 import { MoveShapesCommand, ModifyShapeCommand, DeleteShapesCommand, BatchCommand } from '../../core/CommandHistory.js';
 import { updateSnapHighlight, reconcileWires, reconcileWiresWithUndo, refreshWireConnections, refreshNoConnectConnection, collapseRedundantWirePoints, buildWireDiffBatch } from './wire.js';
-import { areCapturedStatesEqual } from './state-compare.js';
+
+/**
+ * Compare two captured states for semantic equality.
+ * @param {any} beforeState
+ * @param {any} afterState
+ * @returns {boolean}
+ */
+export function areCapturedStatesEqual(beforeState, afterState) {
+    return JSON.stringify(beforeState) === JSON.stringify(afterState);
+}
 
 /**
  * Reset all drag-related state on the app.
