@@ -262,9 +262,58 @@ export function bindKeyboardShortcuts(app) {
                     break;
                 case 'x':
                 case 'X':
+                    // X: flip component horizontally while placing or selected
+                    if (!app.textEdit && app.placingComponent) {
+                        app._flipComponentH();
+                        e.preventDefault();
+                        break;
+                    }
+                    if (!app.textEdit && !app.isDrawing && !app.pastingClipboard && app.currentTool === 'select') {
+                        const sel = app.selection.getSelection();
+                        const components = sel.filter(s => s.definition);
+                        if (components.length > 0) {
+                            app._flipComponentH();
+                            e.preventDefault();
+                            break;
+                        }
+                    }
                     app._onToolSelected('noconnect');
                     break;
+                case 'y':
+                case 'Y':
+                    // Y: flip component vertically while placing or selected
+                    if (!app.textEdit && app.placingComponent) {
+                        app._flipComponentV();
+                        e.preventDefault();
+                        break;
+                    }
+                    if (!app.textEdit && !app.isDrawing && !app.pastingClipboard && app.currentTool === 'select') {
+                        const sel = app.selection.getSelection();
+                        const components = sel.filter(s => s.definition);
+                        if (components.length > 0) {
+                            app._flipComponentV();
+                            e.preventDefault();
+                            break;
+                        }
+                    }
+                    break;
                 case ' ':
+                    // Spacebar: rotate component while placing or selected
+                    if (!app.textEdit && app.placingComponent) {
+                        app._rotateComponentRight();
+                        e.preventDefault();
+                        break;
+                    }
+                    if (!app.textEdit && !app.isDrawing && !app.pastingClipboard && app.currentTool === 'select') {
+                        const sel = app.selection.getSelection();
+                        const components = sel.filter(s => s.definition);
+                        if (components.length > 0) {
+                            app._rotateComponentRight();
+                            e.preventDefault();
+                            break;
+                        }
+                    }
+
                     // Spacebar: rotate netlabel orientation while placing
                     if (!app.textEdit && app.currentTool === 'netlabel') {
                         const current = app.toolOptions?.netLabelOrientation || 'E';
@@ -305,19 +354,10 @@ export function bindKeyboardShortcuts(app) {
                     break;
                 case 'r':
                 case 'R':
-                    if (app.placingComponent) {
-                        app._rotateComponentRight();
-                        e.preventDefault();
-                    } else {
-                        app._onToolSelected('rect');
-                    }
+                    app._onToolSelected('rect');
                     break;
                 case 'm':
                 case 'M':
-                    if (app.placingComponent) {
-                        app._flipComponentH();
-                        e.preventDefault();
-                    }
                     break;
             }
         }

@@ -92,7 +92,7 @@ export class ComponentPicker {
                     <button class="cp-place-btn" disabled>Place Component</button>
                 </div>
                 <div class="cp-hint">
-                    <kbd>R</kbd> Rotate &nbsp; <kbd>M</kbd> Mirror
+                    <kbd>Space</kbd> Rotate &nbsp; <kbd>X</kbd> Flip H &nbsp; <kbd>Y</kbd> Flip V
                 </div>
             </div>
         `;
