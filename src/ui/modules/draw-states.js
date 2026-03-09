@@ -1295,6 +1295,7 @@ export const placingState = {
     mousemove(app, event, { screenPos, worldPos, snapped }) {
         if (app.pastingClipboard) app._updatePastePreview(snapped);
         if (app.placingComponent) app._updateComponentPreview(snapped);
+        updateToolCrosshair(app, snapped, screenPos);
     }
 };
 

@@ -221,7 +221,14 @@ export function flipComponentH(app) {
  * @param {object} app - Application state.
  */
 export function flipComponentV(app) {
-    if (!app.placingComponent) {
+    if (app.placingComponent) {
+        app.componentRotation = (app.componentRotation + 180) % 360;
+        app.componentMirror = !app.componentMirror;
+        createComponentPreview(app, app.placingComponent);
+        if (app.lastCrosshairWorld) {
+            updateComponentPreview(app, app.lastCrosshairWorld);
+        }
+    } else {
         const selected = app._getSelectedComponents();
         if (selected.length > 0) {
             const command = new TransformComponentCommand(app, selected, 'FlipV');
