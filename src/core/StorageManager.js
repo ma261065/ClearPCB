@@ -1,99 +1,196 @@
-/**
- * StorageManager - Centralized localStorage access with TTL support
- * 
- * Provides:
- * - Automatic expiration based on TTL
- * - Consistent error handling
- * - Easy to test/mock
+﻿/**
+ * StorageManager - Centralized cache with TTL support.
+ *
+ * Uses IndexedDB for persistence (much higher quota than localStorage)
+ * with an in-memory Map for synchronous reads.
+ *
+ * API is synchronous for reads (served from memory) and fire-and-forget
+ * for writes (async IndexedDB persistence in background).
+ *
+ * Call await storageManager.ready before first use (done in SchematicApp init).
  */
+
+const DB_NAME = 'clearpcb_cache';
+const DB_VERSION = 1;
+const STORE_NAME = 'cache';
 
 export class StorageManager {
     /**
-     * Create a new StorageManager.
-     * @param {number} [ttlMs=86400000] - Default time-to-live for cached entries (ms)
+     * @param {number} [ttlMs=86400000] - Default TTL (24 hours)
      */
     constructor(ttlMs = 24 * 60 * 60 * 1000) {
-        this.ttlMs = ttlMs; // Default 24 hours
+        this.ttlMs = ttlMs;
+        /** @type {Map<string, {data: any, expires: number}>} */
+        this._mem = new Map();
+        /** @type {IDBDatabase|null} */
+        this._db = null;
+        this._dbReady = this._openDB();
     }
 
+    /** Resolves when IndexedDB is loaded into memory. */
+    get ready() { return this._dbReady; }
+
+    //  Internal: IndexedDB 
+
+    async _openDB() {
+        try {
+            this._db = await new Promise((resolve, reject) => {
+                const req = indexedDB.open(DB_NAME, DB_VERSION);
+                req.onupgradeneeded = () => {
+                    const db = req.result;
+                    if (!db.objectStoreNames.contains(STORE_NAME)) {
+                        db.createObjectStore(STORE_NAME);
+                    }
+                };
+                req.onsuccess = () => resolve(req.result);
+                req.onerror = () => reject(req.error);
+            });
+            // Hydrate in-memory cache from IndexedDB
+            await this._hydrate();
+        } catch (e) {
+            console.warn('StorageManager: IndexedDB unavailable, using memory only', e);
+            this._db = null;
+            // Also try to migrate any existing localStorage data
+            this._migrateFromLocalStorage();
+        }
+    }
+
+    async _hydrate() {
+        if (!this._db) return;
+        const tx = this._db.transaction(STORE_NAME, 'readonly');
+        const store = tx.objectStore(STORE_NAME);
+        const entries = await new Promise((resolve, reject) => {
+            const req = store.getAll();
+            const keyReq = store.getAllKeys();
+            const results = { keys: /** @type {string[]} */ ([]), values: /** @type {any[]} */ ([]) };
+            keyReq.onsuccess = () => { results.keys = /** @type {string[]} */ (keyReq.result); };
+            req.onsuccess = () => {
+                results.values = req.result;
+                resolve(results);
+            };
+            req.onerror = () => reject(req.error);
+        });
+        const now = Date.now();
+        for (let i = 0; i < entries.keys.length; i++) {
+            const key = entries.keys[i];
+            const val = entries.values[i];
+            if (val && typeof val === 'object' && 'data' in val && 'expires' in val) {
+                if (now <= val.expires) {
+                    this._mem.set(key, val);
+                }
+                // Expired entries are skipped (lazy cleanup)
+            }
+        }
+    }
+
+    _migrateFromLocalStorage() {
+        // One-time migration: move cache entries from localStorage to memory
+        try {
+            const keysToRemove = [];
+            for (let i = 0; i < localStorage.length; i++) {
+                const key = localStorage.key(i);
+                if (!key) continue;
+                // Only migrate cache-like keys (kicad_, easyeda_, clearpcb-theme, etc.)
+                // Skip autosave keys
+                if (key.startsWith('clearpcb_autosave_') || key === 'clearpcb_tool_options') continue;
+                try {
+                    const raw = localStorage.getItem(key);
+                    if (!raw) continue;
+                    const parsed = JSON.parse(raw);
+                    if (parsed && typeof parsed === 'object' && 'data' in parsed && 'expires' in parsed) {
+                        if (Date.now() <= parsed.expires) {
+                            this._mem.set(key, parsed);
+                        }
+                        keysToRemove.push(key);
+                    }
+                } catch {}
+            }
+            // Remove migrated entries from localStorage to free space
+            for (const key of keysToRemove) {
+                localStorage.removeItem(key);
+            }
+            // Persist migrated data to IndexedDB
+            if (keysToRemove.length > 0) {
+                this._persistAll();
+                console.log('StorageManager: migrated', keysToRemove.length, 'entries from localStorage to IndexedDB');
+            }
+        } catch {}
+    }
+
+    _persistToIDB(key, value) {
+        if (!this._db) return;
+        try {
+            const tx = this._db.transaction(STORE_NAME, 'readwrite');
+            tx.objectStore(STORE_NAME).put(value, key);
+        } catch {}
+    }
+
+    _removeFromIDB(key) {
+        if (!this._db) return;
+        try {
+            const tx = this._db.transaction(STORE_NAME, 'readwrite');
+            tx.objectStore(STORE_NAME).delete(key);
+        } catch {}
+    }
+
+    _persistAll() {
+        if (!this._db) return;
+        try {
+            const tx = this._db.transaction(STORE_NAME, 'readwrite');
+            const store = tx.objectStore(STORE_NAME);
+            for (const [key, val] of this._mem) {
+                store.put(val, key);
+            }
+        } catch {}
+    }
+
+    //  Public API (sync reads, async writes) 
+
     /**
-     * Set a value with automatic expiration
-     * @param {string} key - Storage key
-     * @param {any} value - Value to store (will be JSON serialized)
-     * @param {number} [ttlMs] - Optional custom TTL in milliseconds
+     * Store a value with TTL.
+     * @param {string} key
+     * @param {any} value
+     * @param {number} [ttlMs]
+     * @returns {boolean}
      */
     set(key, value, ttlMs = null) {
-        try {
-            const ttl = ttlMs !== null ? ttlMs : this.ttlMs;
-            const payload = {
-                data: value,
-                expires: Date.now() + ttl
-            };
-            localStorage.setItem(key, JSON.stringify(payload));
-            return true;
-        } catch (error) {
-            console.warn(`StorageManager.set failed for key "${key}":`, error);
-            return false;
-        }
+        const ttl = ttlMs !== null ? ttlMs : this.ttlMs;
+        const payload = { data: value, expires: Date.now() + ttl };
+        this._mem.set(key, payload);
+        this._persistToIDB(key, payload);
+        return true;
     }
 
     /**
-     * Get a value, automatically checking expiration
-     * Handles both new StorageManager format and legacy raw values
-     * @param {string} key - Storage key
-     * @returns {any|null} The stored value, or null if expired/missing
+     * Get a value (sync, from memory).
+     * @param {string} key
+     * @returns {any|null}
      */
     get(key) {
-        try {
-            const item = localStorage.getItem(key);
-            if (!item) return null;
-
-            // Try parsing as StorageManager format (with TTL)
-            try {
-                const parsed = JSON.parse(item);
-                if (parsed && typeof parsed === 'object' && 'data' in parsed && 'expires' in parsed) {
-                    // Check if expired
-                    if (Date.now() > parsed.expires) {
-                        localStorage.removeItem(key);
-                        return null;
-                    }
-                    return parsed.data;
-                }
-            } catch (e) {
-                // Not StorageManager format, fall through to legacy handling
-            }
-
-            // Handle legacy format (raw value, possibly JSON string)
-            // Try to parse as JSON first
-            try {
-                return JSON.parse(item);
-            } catch (e) {
-                // Return as plain string
-                return item;
-            }
-        } catch (error) {
-            console.warn(`StorageManager.get failed for key "${key}":`, error);
+        const entry = this._mem.get(key);
+        if (!entry) return null;
+        if (Date.now() > entry.expires) {
+            this._mem.delete(key);
+            this._removeFromIDB(key);
             return null;
         }
+        return entry.data;
     }
 
     /**
-     * Remove a key
-     * @param {string} key - Storage key
+     * Remove a key.
+     * @param {string} key
+     * @returns {boolean}
      */
     remove(key) {
-        try {
-            localStorage.removeItem(key);
-            return true;
-        } catch (error) {
-            console.warn(`StorageManager.remove failed for key "${key}":`, error);
-            return false;
-        }
+        this._mem.delete(key);
+        this._removeFromIDB(key);
+        return true;
     }
 
     /**
-     * Check if a key exists and is not expired
-     * @param {string} key - Storage key
+     * Check if key exists and is not expired.
+     * @param {string} key
      * @returns {boolean}
      */
     has(key) {
@@ -101,65 +198,42 @@ export class StorageManager {
     }
 
     /**
-     * Get a value with its expiry status, WITHOUT deleting expired entries.
-     * Useful for stale-while-revalidate patterns.
-     * @param {string} key - Storage key
-     * @returns {{ data: any, expired: boolean } | null} null if key doesn't exist
+     * Get value with expiry status without deleting expired entries.
+     * @param {string} key
+     * @returns {{ data: any, expired: boolean } | null}
      */
     getRaw(key) {
-        try {
-            const item = localStorage.getItem(key);
-            if (!item) return null;
-
-            try {
-                const parsed = JSON.parse(item);
-                if (parsed && typeof parsed === 'object' && 'data' in parsed && 'expires' in parsed) {
-                    return {
-                        data: parsed.data,
-                        expired: Date.now() > parsed.expires
-                    };
-                }
-            } catch (e) {
-                // Not StorageManager format
-            }
-
-            // Legacy format — treat as not expired
-            try {
-                return { data: JSON.parse(item), expired: false };
-            } catch (e) {
-                return { data: item, expired: false };
-            }
-        } catch (error) {
-            console.warn(`StorageManager.getRaw failed for key "${key}":`, error);
-            return null;
-        }
+        const entry = this._mem.get(key);
+        if (!entry) return null;
+        return { data: entry.data, expired: Date.now() > entry.expires };
     }
 
     /**
-     * Clear all storage
+     * Clear all cache entries.
+     * @returns {boolean}
      */
     clear() {
-        try {
-            localStorage.clear();
-            return true;
-        } catch (error) {
-            console.warn('StorageManager.clear failed:', error);
-            return false;
+        this._mem.clear();
+        if (this._db) {
+            try {
+                const tx = this._db.transaction(STORE_NAME, 'readwrite');
+                tx.objectStore(STORE_NAME).clear();
+            } catch {}
         }
+        return true;
     }
 
     /**
-     * Get all non-expired keys
+     * Get all non-expired keys.
      * @returns {string[]}
      */
     keys() {
-        // Collect all keys first, then filter — has() may remove expired
-        // entries which shifts indices during iteration
-        const allKeys = [];
-        for (let i = 0; i < localStorage.length; i++) {
-            allKeys.push(localStorage.key(i));
+        const result = [];
+        const now = Date.now();
+        for (const [key, val] of this._mem) {
+            if (now <= val.expires) result.push(key);
         }
-        return allKeys.filter(key => this.has(key));
+        return result;
     }
 }
 
