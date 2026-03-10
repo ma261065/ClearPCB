@@ -1,11 +1,11 @@
 {
-  "name": "ClearPCB Schematic Editor",
+  "name": "ClearPCB",
   "short_name": "ClearPCB",
   "description": "A browser-based schematic capture tool",
   "start_url": ".",
   "display": "standalone",
   "background_color": "#1e1e2e",
-  "theme_color": "#3399ff",
+  "theme_color": "#002b00",
   "orientation": "landscape",
   "icons": [
     {

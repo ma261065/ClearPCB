@@ -122,7 +122,7 @@ export class FileManager {
                 suggestedName: this.fileName,
                 types: [{
                     description: 'ClearPCB Schematic',
-                    accept: { 'application/json': ['.pcbs', '.json'] }
+                    accept: { 'application/x-clearpcb': ['.pcbs'] }
                 }]
             };
 
@@ -209,7 +209,7 @@ export class FileManager {
             const options = {
                 types: [{
                     description: 'ClearPCB Schematic',
-                    accept: { 'application/json': ['.pcbs', '.json'] }
+                    accept: { 'application/x-clearpcb': ['.pcbs'] }
                 }]
             };
 
@@ -242,7 +242,7 @@ export class FileManager {
         return new Promise((resolve) => {
             const input = document.createElement('input');
             input.type = 'file';
-            input.accept = '.json';
+            input.accept = '.pcbs';
             
             input.onchange = async (e) => {
                 const target = /** @type {HTMLInputElement|null} */ (e.target);

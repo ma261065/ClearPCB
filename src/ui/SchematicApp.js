@@ -73,7 +73,10 @@ class SchematicApp {
      */
     constructor() {
         this.fileManager = new FileManager();
-        if (!this._recoverAutoSave()) return; // reload triggered
+        // Skip auto-save recovery when opening a file via OS file association
+        if (!/** @type {any} */ (window)._launchFile) {
+            if (!this._recoverAutoSave()) return; // reload triggered
+        }
 
         this.container = document.getElementById('canvasContainer');
         this.viewport = new Viewport(this.container);
