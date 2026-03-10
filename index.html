@@ -213,5 +213,39 @@
     </div>
 
     <script type="module" src="./src/ui/SchematicApp.js"></script>
+    <script>
+        // Register service worker for PWA install + file handlers
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('./sw.js').catch(() => {});
+        }
+
+        // Handle files opened via OS file association (PWA file_handlers)
+        if ('launchQueue' in window) {
+            window.launchQueue.setConsumer(async (launchParams) => {
+                if (!launchParams.files?.length) return;
+                const fileHandle = launchParams.files[0];
+                const file = await fileHandle.getFile();
+                const text = await file.text();
+                try {
+                    const data = JSON.parse(text);
+                    // Wait for app to initialize, then load the file
+                    const waitForApp = () => {
+                        if (window.app && window.app.fileManager) {
+                            window.app.fileManager.fileHandle = fileHandle;
+                            window.app.fileManager.setFileName(fileHandle.name);
+                            window.app.fileManager.setFilePath(fileHandle.name);
+                            window.app._loadDocument(data);
+                            window.app.fileManager.setDirty(false);
+                        } else {
+                            setTimeout(waitForApp, 100);
+                        }
+                    };
+                    waitForApp();
+                } catch (e) {
+                    console.error('Failed to open file:', e);
+                }
+            });
+        }
+    </script>
 </body>
 </html>

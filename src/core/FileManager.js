@@ -9,7 +9,7 @@ export class FileManager {
     constructor() {
         // Current file handle (for "Save" without prompting)
         this.fileHandle = null;
-        this.fileName = 'untitled.json';
+        this.fileName = 'untitled.pcbs';
         this.filePath = null;
         this.isDirty = false;
         
@@ -86,9 +86,9 @@ export class FileManager {
         if (result && result.success) {
             this.autoSaveToStorage(data);
         }
-        // If the file name changed from untitled.json, delete the old autosave
-        if (oldFileName && oldFileName !== this.fileName && oldFileName === 'untitled.json') {
-            this.clearAutoSave('untitled.json');
+        // If the file name changed from untitled.pcbs, delete the old autosave
+        if (oldFileName && oldFileName !== this.fileName && oldFileName === 'untitled.pcbs') {
+            this.clearAutoSave('untitled.pcbs');
         }
         return result;
     }
@@ -99,15 +99,15 @@ export class FileManager {
     async saveAs(data) {
         if (this.hasFileSystemAccess()) {
             const result = await this.saveWithFilePicker(data);
-            // If the file name changed from untitled.json, delete the old autosave
-            if (this.fileName !== 'untitled.json') {
-                this.clearAutoSave('untitled.json');
+            // If the file name changed from untitled.pcbs, delete the old autosave
+            if (this.fileName !== 'untitled.pcbs') {
+                this.clearAutoSave('untitled.pcbs');
             }
             return result;
         } else {
             const result = await this.saveWithDownload(data);
-            if (this.fileName !== 'untitled.json') {
-                this.clearAutoSave('untitled.json');
+            if (this.fileName !== 'untitled.pcbs') {
+                this.clearAutoSave('untitled.pcbs');
             }
             return result;
         }
@@ -122,7 +122,7 @@ export class FileManager {
                 suggestedName: this.fileName,
                 types: [{
                     description: 'ClearPCB Schematic',
-                    accept: { 'application/json': ['.json'] }
+                    accept: { 'application/json': ['.pcbs', '.json'] }
                 }]
             };
 
@@ -209,7 +209,7 @@ export class FileManager {
             const options = {
                 types: [{
                     description: 'ClearPCB Schematic',
-                    accept: { 'application/json': ['.json'] }
+                    accept: { 'application/json': ['.pcbs', '.json'] }
                 }]
             };
 
@@ -404,7 +404,7 @@ export class FileManager {
      */
     newDocument() {
         this.fileHandle = null;
-        this.setFileName('untitled.json');
+        this.setFileName('untitled.pcbs');
         this.setFilePath(null);
         this.setDirty(false);
         // Immediately autosave the new document
