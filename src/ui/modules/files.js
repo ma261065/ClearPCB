@@ -1,6 +1,7 @@
-import { updateIdCounter, resetWireLabelCounter } from '../../shapes/index.js';
+import { updateIdCounter, resetWireLabelCounter, resetNetNameCounter } from '../../shapes/index.js';
 import { Component, updateComponentIdCounter } from '../../components/index.js';
-import { createWireLabelText } from './shape-management.js';
+import { createNetText } from './shape-management.js';
+import { attachLabelToTarget } from './label-attachment.js';
 
 /**
  * Serializes the entire document (shapes, components, settings, paper size,
@@ -10,6 +11,12 @@ import { createWireLabelText } from './shape-management.js';
  */
 export function serializeDocument(app) {
     const components = app.components.map(c => c.toJSON());
+
+    // Keep Net text as derived data (recreated/relinked on load)
+    // so net name/font/offset are persisted only on the Net shape.
+    const serializedShapes = app.shapes
+        .filter(s => !(s.type === 'text' && s.fieldKey === 'net' && s.parentComponent?.type === 'net'))
+        .map(s => s.toJSON());
 
     // Deduplicate definitions: extract into a top-level map so each
     // unique definition is stored only once instead of per-instance.
@@ -38,7 +45,7 @@ export function serializeDocument(app) {
             titleBlockInfo: app.viewport.showTitleBlockInfo || false,
             titleBlockData: app.viewport.titleBlockData || {}
         },
-        shapes: app.shapes.map(s => s.toJSON()),
+        shapes: serializedShapes,
         components
     };
 
@@ -61,9 +68,18 @@ export async function loadDocument(app, data) {
     app._clearAllShapes();
     app._clearAllComponents();
     resetWireLabelCounter();
+    resetNetNameCounter();
 
     if (data.shapes && Array.isArray(data.shapes)) {
         for (const shapeData of data.shapes) {
+            const compId = shapeData.cid || shapeData.componentId;
+            const fieldKey = shapeData.fk || shapeData.fieldKey;
+
+            // Net field text is derived and not part of persisted schema.
+            if (fieldKey === 'net') {
+                continue;
+            }
+
             if (shapeData.id) {
                 updateIdCounter(shapeData.id);
             }
@@ -71,8 +87,6 @@ export async function loadDocument(app, data) {
             const shape = app._createShapeFromData(shapeData);
             if (shape) {
                 // Preserve component field linkage for re-linking after components load
-                const compId = shapeData.cid || shapeData.componentId;
-                const fieldKey = shapeData.fk || shapeData.fieldKey;
                 if (compId && fieldKey) {
                     shape._pendingComponentId = compId;
                     shape.fieldKey = fieldKey;
@@ -110,14 +124,24 @@ export async function loadDocument(app, data) {
         }
     }
 
-    // Re-link wire label texts and create them for wires that don't have one
+    // Re-link only derived Net text (wire names are handled as generic labels)
     for (const shape of app.shapes) {
-        if (shape.type === 'wire') {
-            shape.linkLabelText(app.shapes);
-            if (!shape.labelText) {
-                createWireLabelText(app, shape);
-            }
+        if (shape.type === 'net') {
+            createNetText(app, shape);
         }
+    }
+
+    const linkTargets = new Map();
+    for (const shape of app.shapes) linkTargets.set(shape.id, shape);
+    for (const component of app.components) linkTargets.set(component.id, component);
+    for (const shape of app.shapes) {
+        if (shape.type !== 'text' || !shape._pendingComponentId) continue;
+        if (shape.fieldKey !== 'label') continue;
+        const target = linkTargets.get(shape._pendingComponentId);
+        if (!target) continue;
+        attachLabelToTarget(shape, target, { x: shape.x, y: shape.y });
+
+        delete shape._pendingComponentId;
     }
 
     if (data.settings) {
@@ -331,6 +355,7 @@ export async function newFile(app) {
     app._clearAllShapes();
     app._clearAllComponents();
     resetWireLabelCounter();
+    resetNetNameCounter();
     app.fileManager.newDocument();
     app.viewport.resetView();
 

@@ -6,8 +6,9 @@
  * junction / segment deletion logic are co-located and easy to find.
  */
 
-import { ModifyShapeCommand, BatchCommand, AddShapeCommand, DeleteShapesCommand } from '../../core/CommandHistory.js';
-import { VERTEX_EPSILON, applySplitLabelRules } from './wire.js';
+import { ModifyShapeCommand, ModifyPropertyCommand, BatchCommand, AddShapeCommand, DeleteShapesCommand } from '../../core/CommandHistory.js';
+import { VERTEX_EPSILON, applySplitLabelRules, applySplitNetRules } from './wire.js';
+import { detachLabel } from './label-attachment.js';
 
 /**
  * @typedef {HTMLDivElement & {
@@ -39,16 +40,30 @@ function attachDismissHandlers(menu) {
 }
 
 function getWireSplitLabelMeta(wire) {
-    const preSplitVisible = wire.labelText?.visible ?? wire._pendingLabelVisible ?? false;
-    const preSplitLabelPosition = wire.labelText
-        ? { x: wire.labelText.x, y: wire.labelText.y, rotation: wire.labelText.rotation }
-        : (wire._pendingLabelPosition
-            ? {
-                x: wire._pendingLabelPosition.x,
-                y: wire._pendingLabelPosition.y,
-                rotation: wire._pendingLabelPosition.rotation ?? 0
-            }
-            : null);
+    const attached = wire.attachedLabels instanceof Set
+        ? Array.from(wire.attachedLabels).filter(label =>
+            label?.type === 'text'
+            && label.fieldKey === 'label'
+            && label.parentComponent === wire
+        )
+        : [];
+    const primary = attached.find(label => label?.attachment?.wireName === true)
+        || attached.find(label => String(label?.text || '').toLowerCase() === String(wire.wireLabel || '').toLowerCase())
+        || attached[0]
+        || null;
+
+    const preSplitVisible = primary?.visible ?? wire.labelText?.visible ?? wire._pendingLabelVisible ?? false;
+    const preSplitLabelPosition = primary
+        ? { x: primary.x, y: primary.y, rotation: primary.rotation || 0 }
+        : (wire.labelText
+            ? { x: wire.labelText.x, y: wire.labelText.y, rotation: wire.labelText.rotation }
+            : (wire._pendingLabelPosition
+                ? {
+                    x: wire._pendingLabelPosition.x,
+                    y: wire._pendingLabelPosition.y,
+                    rotation: wire._pendingLabelPosition.rotation ?? 0
+                }
+                : null));
     return { preSplitVisible, preSplitLabelPosition };
 }
 
@@ -215,6 +230,7 @@ export function deleteJunction(app, junctionInfo) {
     let dragWire = wire;
     const newFragments = [];
     const preSplitLabel = wire.wireLabel;
+    const preSplitNet = wire.net;
     const { preSplitVisible, preSplitLabelPosition } = getWireSplitLabelMeta(wire);
     if (comps.length > 1) {
         comps.sort((a, b) => b.size - a.size);
@@ -238,7 +254,8 @@ export function deleteJunction(app, junctionInfo) {
         // ── Split label rules ──
         // Winner = post-split wire with most segments, keeps original label.
         // All post-split wires inherit pre-split visibility.
-        applySplitLabelRules(wire, newFragments, preSplitLabel, preSplitVisible, preSplitLabelPosition);
+        applySplitLabelRules(wire, newFragments, preSplitLabel, preSplitVisible, preSplitLabelPosition, app);
+        applySplitNetRules(wire, newFragments, preSplitNet);
     }
     wire.invalidate();
 
@@ -488,5 +505,81 @@ export function showSegmentContextMenu(app, wire, edgeId, clientX, clientY) {
 
     document.body.appendChild(menu);
 
+    attachDismissHandlers(menu);
+}
+
+/**
+ * Show a context menu for attached labels.
+ */
+export function showLabelContextMenu(app, labelShape, clientX, clientY) {
+    dismissAnchorContextMenu();
+
+    const menu = /** @type {AnchorContextMenuEl} */ (document.createElement('div'));
+    menu.className = 'anchor-context-menu';
+    menu.style.cssText = `
+        position: fixed; left: ${clientX}px; top: ${clientY}px; z-index: 10000;
+        background: #2b2b2b; border: 1px solid #555; border-radius: 4px;
+        padding: 2px 0; box-shadow: 0 2px 8px rgba(0,0,0,0.4); min-width: 120px;
+    `;
+
+    const canToggleFollowRotation = !!(labelShape?.parentComponent && labelShape.parentComponent.type !== 'wire');
+    if (canToggleFollowRotation) {
+        const followItem = document.createElement('div');
+        const checked = !!labelShape.followRotation;
+        followItem.textContent = `${checked ? '✓ ' : ''}Follow Rotation`;
+        followItem.style.cssText = `
+            padding: 6px 16px; color: #eee; cursor: pointer; font: 13px/1.4 system-ui, sans-serif;
+            white-space: nowrap;
+        `;
+        followItem.addEventListener('mouseenter', () => followItem.style.background = '#3a3a3a');
+        followItem.addEventListener('mouseleave', () => followItem.style.background = '');
+        followItem.addEventListener('click', () => {
+            dismissAnchorContextMenu();
+            const command = new ModifyPropertyCommand(app, [labelShape], 'followRotation', !checked);
+            app.history.execute(command);
+            app.selection.select(labelShape, false);
+            app.fileManager.setDirty(true);
+        });
+        menu.appendChild(followItem);
+    }
+
+    const item = document.createElement('div');
+    item.textContent = 'Detach Label';
+    item.style.cssText = `
+        padding: 6px 16px; color: #eee; cursor: pointer; font: 13px/1.4 system-ui, sans-serif;
+        white-space: nowrap;
+    `;
+    item.addEventListener('mouseenter', () => item.style.background = '#3a3a3a');
+    item.addEventListener('mouseleave', () => item.style.background = '');
+    item.addEventListener('click', () => {
+        dismissAnchorContextMenu();
+        detachLabel(labelShape);
+        app.selection.select(labelShape, false);
+
+        const rect = app.viewport._getCachedRect();
+        const screenPos = {
+            x: clientX - rect.left,
+            y: clientY - rect.top
+        };
+        const worldPos = app.viewport.screenToWorld(screenPos);
+
+        app.drag = {
+            mode: 'move',
+            objectStartPos: { x: labelShape.x, y: labelShape.y },
+            lastSnapped: { x: labelShape.x, y: labelShape.y },
+            startWorldPos: { x: worldPos.x, y: worldPos.y },
+            totalDx: 0,
+            totalDy: 0
+        };
+        app.interactionState = 'moveDrag';
+        app.didDrag = false;
+        if (app.viewport?.svg) app.viewport.svg.style.cursor = 'move';
+
+        app.renderShapes(true);
+        app.fileManager.setDirty(true);
+    });
+    menu.appendChild(item);
+
+    document.body.appendChild(menu);
     attachDismissHandlers(menu);
 }

@@ -1,8 +1,8 @@
 /**
- * NetLabel - Named net connection point
+ * Net - Named net connection point
  * 
  * A small flag shape placed on a wire to assign a net name.
- * Two net labels with the same name imply electrical connection
+ * Two Nets with the same name imply electrical connection
  * without a physical wire between them.
  * 
  * Visual: a text label with a pointed flag outline, connection
@@ -15,7 +15,7 @@ import { ShapeValidator } from '../core/ShapeValidator.js';
 /** Round to 4 decimal places for compact serialisation. */
 const _r4 = v => Math.round(v * 10000) / 10000;
 
-/** NetLabel symbol geometry constants (mm, local space; connection anchor at 0,0). */
+/** Net symbol geometry constants (mm, local space; connection anchor at 0,0). */
 const SYMBOL_STEM = 1.0;
 const SYMBOL_HALF = 0.8;
 const SYMBOL_TIP = 1.7;
@@ -26,29 +26,29 @@ const DEFAULT_FONT_SIZE = 1.4;
 const DEFAULT_TEXT_OFFSET = { x: 0, y: 0 };
 
 /** @type {Array<'t'|'gnd'|'arrow'|'chevron'>} */
-export const NETLABEL_STYLES = ['t', 'gnd', 'arrow', 'chevron'];
+export const NET_STYLES = ['t', 'gnd', 'arrow', 'chevron'];
 /** @type {Array<'N'|'E'|'S'|'W'>} */
-export const NETLABEL_ORIENTATIONS = ['N', 'E', 'S', 'W'];
+export const NET_ORIENTATIONS = ['N', 'E', 'S', 'W'];
 
 /**
- * Normalize netlabel style to supported values.
+ * Normalize Net style to supported values.
  * @param {string} style
  * @returns {'t'|'gnd'|'arrow'|'chevron'}
  */
-export function normalizeNetLabelStyle(style) {
-    if (NETLABEL_STYLES.includes(/** @type {any} */ (style))) {
+export function normalizeNetStyle(style) {
+    if (NET_STYLES.includes(/** @type {any} */ (style))) {
         return /** @type {any} */ (style);
     }
     return 't';
 }
 
 /**
- * Normalize netlabel orientation to supported values.
+ * Normalize Net orientation to supported values.
  * @param {string} orientation
  * @returns {'N'|'E'|'S'|'W'}
  */
-export function normalizeNetLabelOrientation(orientation) {
-    if (NETLABEL_ORIENTATIONS.includes(/** @type {any} */ (orientation))) {
+export function normalizeNetOrientation(orientation) {
+    if (NET_ORIENTATIONS.includes(/** @type {any} */ (orientation))) {
         return /** @type {any} */ (orientation);
     }
     return 'E';
@@ -82,7 +82,7 @@ function _worldFromST(origin, orientation, s, t) {
  * @param {'N'|'E'|'S'|'W'} orientation
  * @returns {number}
  */
-export function netLabelOrientationToRotation(orientation) {
+export function netOrientationToRotation(orientation) {
     switch (orientation) {
         case 'N': return 270;
         case 'S': return 90;
@@ -96,7 +96,7 @@ export function netLabelOrientationToRotation(orientation) {
  * @param {number} rotation
  * @returns {'N'|'E'|'S'|'W'}
  */
-export function netLabelRotationToOrientation(rotation) {
+export function netRotationToOrientation(rotation) {
     const norm = ((Math.round(rotation / 90) * 90) % 360 + 360) % 360;
     if (norm === 90) return 'S';
     if (norm === 180) return 'W';
@@ -109,9 +109,9 @@ export function netLabelRotationToOrientation(rotation) {
  * @param {'N'|'E'|'S'|'W'} orientation
  * @returns {'N'|'E'|'S'|'W'}
  */
-export function rotateNetLabelOrientation(orientation) {
-    const list = NETLABEL_ORIENTATIONS;
-    const idx = list.indexOf(normalizeNetLabelOrientation(orientation));
+export function rotateNetOrientation(orientation) {
+    const list = NET_ORIENTATIONS;
+    const idx = list.indexOf(normalizeNetOrientation(orientation));
     return list[(idx + 1) % list.length];
 }
 
@@ -120,7 +120,7 @@ export function rotateNetLabelOrientation(orientation) {
  * @param {'t'|'gnd'|'arrow'|'chevron'} style
  * @returns {number}
  */
-export function estimateNetLabelSymbolWidth(style) {
+export function estimateNetSymbolWidth(style) {
     switch (style) {
         case 'gnd': return SYMBOL_STEM + 0.75;
         case 'arrow': return SYMBOL_TIP;
@@ -135,8 +135,8 @@ export function estimateNetLabelSymbolWidth(style) {
  * @param {'t'|'gnd'|'arrow'|'chevron'} style
  * @returns {number}
  */
-export function getNetLabelTextBaseOffsetS(style) {
-    return getNetLabelTextBaseLocal(style).s;
+export function getNetTextBaseOffsetS(style) {
+    return getNetTextBaseLocal(style).s;
 }
 
 /**
@@ -144,11 +144,11 @@ export function getNetLabelTextBaseOffsetS(style) {
  * @param {'t'|'gnd'|'arrow'|'chevron'} style
  * @returns {{s:number,t:number}}
  */
-export function getNetLabelTextBaseLocal(style) {
+export function getNetTextBaseLocal(style) {
     if (style === 'gnd') {
         return { s: -2.6, t: -1.5 };
     }
-    return { s: estimateNetLabelSymbolWidth(style) + SYMBOL_GAP, t: 0 };
+    return { s: estimateNetSymbolWidth(style) + SYMBOL_GAP, t: 0 };
 }
 
 function _buildOrientedSymbolPath(style, origin, orientation) {
@@ -210,8 +210,8 @@ function _buildGroundBarsPath(origin, orientation) {
  * @param {{x:number,y:number}} [origin={x:0,y:0}]
  * @returns {string}
  */
-export function buildNetLabelGroundBarsPath(orientation = 'E', origin = { x: 0, y: 0 }) {
-    return _buildGroundBarsPath(origin, normalizeNetLabelOrientation(orientation));
+export function buildNetGroundBarsPath(orientation = 'E', origin = { x: 0, y: 0 }) {
+    return _buildGroundBarsPath(origin, normalizeNetOrientation(orientation));
 }
 
 /**
@@ -221,11 +221,49 @@ export function buildNetLabelGroundBarsPath(orientation = 'E', origin = { x: 0, 
  * @param {{x:number,y:number}} [origin={x:0,y:0}]
  * @returns {string}
  */
-export function buildNetLabelSymbolPath(style, orientation = 'E', origin = { x: 0, y: 0 }) {
-    return _buildOrientedSymbolPath(style, origin, normalizeNetLabelOrientation(orientation));
+export function buildNetSymbolPath(style, orientation = 'E', origin = { x: 0, y: 0 }) {
+    return _buildOrientedSymbolPath(style, origin, normalizeNetOrientation(orientation));
 }
 
-export class NetLabel extends Shape {
+/**
+ * Local-space bounds of the visible Net symbol geometry.
+ * @param {'t'|'gnd'|'arrow'|'chevron'} style
+ * @returns {{minS:number,maxS:number,minT:number,maxT:number}}
+ */
+function _getSymbolLocalBounds(style) {
+    switch (style) {
+        case 'gnd':
+            return {
+                minS: -(SYMBOL_STEM + 0.53),
+                maxS: 0,
+                minT: -0.58,
+                maxT: 0.58
+            };
+        case 'arrow':
+            return {
+                minS: 0,
+                maxS: SYMBOL_TIP,
+                minT: -0.65,
+                maxT: 0.65
+            };
+        case 'chevron':
+            return {
+                minS: 0,
+                maxS: SYMBOL_TIP + 0.32,
+                minT: -0.55,
+                maxT: 0.55
+            };
+        default:
+            return {
+                minS: 0,
+                maxS: SYMBOL_STEM,
+                minT: -SYMBOL_HALF,
+                maxT: SYMBOL_HALF
+            };
+    }
+}
+
+export class Net extends Shape {
     /**
      * @param {Object} [options]
         * @param {string} [options.id]
@@ -248,7 +286,7 @@ export class NetLabel extends Shape {
         // Default colour to the net-label theme variable
         if (!options.color) options.color = 'var(--sch-net-label, #00cccc)';
         super(options);
-        this.type = 'netlabel';
+        this.type = 'net';
 
         this.x = ShapeValidator.validateCoordinate(options.x || 0, { name: 'x' });
         this.y = ShapeValidator.validateCoordinate(options.y || 0, { name: 'y' });
@@ -256,11 +294,11 @@ export class NetLabel extends Shape {
         this.fontSize = ShapeValidator.validateNumber(options.fontSize || DEFAULT_FONT_SIZE, {
             min: 0.5, max: 20, default: DEFAULT_FONT_SIZE, name: 'fontSize'
         });
-        this.style = normalizeNetLabelStyle(options.style || 't');
+        this.style = normalizeNetStyle(options.style || 't');
         const orientation = options.orientation
-            ? normalizeNetLabelOrientation(options.orientation)
+            ? normalizeNetOrientation(options.orientation)
             : (Number.isFinite(options.rotation)
-                ? netLabelRotationToOrientation(options.rotation || 0)
+                ? netRotationToOrientation(options.rotation || 0)
                 : 'N');
         this.orientation = orientation;
 
@@ -272,76 +310,42 @@ export class NetLabel extends Shape {
             y: ShapeValidator.validateCoordinate(offset.y || 0, { name: 'textOffset.y' })
         };
 
-        /** @type {'symbol'|'text'|null} */
-        this._hoverPart = null;
-        /** @type {'symbol'|'text'} */
-        this._selectedSubPart = 'symbol';
+        /** @type {import('./text.js').Text|null} */
+        this.labelText = null;
     }
 
     get rotation() {
-        return netLabelOrientationToRotation(this.orientation);
+        return netOrientationToRotation(this.orientation);
     }
 
     set rotation(v) {
-        this.orientation = netLabelRotationToOrientation(Number(v) || 0);
+        this.orientation = netRotationToOrientation(Number(v) || 0);
         this.invalidate();
     }
 
     // ─── Geometry helpers ──────────────────────────────────────────
 
     /**
-     * Measure approximate text width without relying on DOM.
-     * @returns {number} Estimated text width in mm.
-     */
-    _estimateTextWidth() {
-        return this.net.length * this.fontSize * 0.6;
-    }
-
-    /**
-     * Compute geometry used for rendering, bounds, and hit-testing.
+     * Compute symbol geometry used for rendering and hit-testing.
      * @returns {{
      *   symbolPath: string,
-     *   textX: number,
-     *   textY: number,
-     *   textWidth: number,
-     *   textHeight: number,
-     *   corners: Array<{x:number,y:number}>,
-     *   textLocal: {x:number,y:number}
+     *   corners: Array<{x:number,y:number}>
      * }}
      */
     _getGeometry() {
-        const symbolWidth = estimateNetLabelSymbolWidth(this.style);
-        const textBase = getNetLabelTextBaseLocal(this.style);
-        const textLocal = {
-            x: textBase.s + this.textOffset.x,
-            y: textBase.t + this.textOffset.y
-        };
-        const textWorld = _worldFromST({ x: this.x, y: this.y }, this.orientation, textLocal.x, textLocal.y);
-        const textWidth = this._estimateTextWidth();
-        const halfH = this.fontSize / 2;
         const symbolPath = _buildOrientedSymbolPath(this.style, { x: this.x, y: this.y }, this.orientation);
+        const ext = _getSymbolLocalBounds(this.style);
 
         const symbolCorners = [
-            _worldFromST({ x: this.x, y: this.y }, this.orientation, 0, 0),
-            _worldFromST({ x: this.x, y: this.y }, this.orientation, symbolWidth, 0),
-            _worldFromST({ x: this.x, y: this.y }, this.orientation, symbolWidth, -SYMBOL_HALF),
-            _worldFromST({ x: this.x, y: this.y }, this.orientation, symbolWidth, SYMBOL_HALF)
+            _worldFromST({ x: this.x, y: this.y }, this.orientation, ext.minS, ext.minT),
+            _worldFromST({ x: this.x, y: this.y }, this.orientation, ext.minS, ext.maxT),
+            _worldFromST({ x: this.x, y: this.y }, this.orientation, ext.maxS, ext.minT),
+            _worldFromST({ x: this.x, y: this.y }, this.orientation, ext.maxS, ext.maxT)
         ];
 
         return {
             symbolPath,
-            textX: textWorld.x,
-            textY: textWorld.y,
-            textWidth,
-            textHeight: this.fontSize,
-            corners: [
-                ...symbolCorners,
-                { x: textWorld.x, y: textWorld.y - halfH },
-                { x: textWorld.x + textWidth, y: textWorld.y - halfH },
-                { x: textWorld.x + textWidth, y: textWorld.y + halfH },
-                { x: textWorld.x, y: textWorld.y + halfH }
-            ],
-            textLocal
+            corners: symbolCorners
         };
     }
 
@@ -349,7 +353,7 @@ export class NetLabel extends Shape {
      * Apply rotation transform to a point around origin.
      */
     _rotatePoint(px, py) {
-        const rad = (netLabelOrientationToRotation(this.orientation) * Math.PI) / 180;
+        const rad = (netOrientationToRotation(this.orientation) * Math.PI) / 180;
         const cos = Math.cos(rad);
         const sin = Math.sin(rad);
         return {
@@ -406,43 +410,61 @@ export class NetLabel extends Shape {
         if (dist <= tol) {
             return 'pos';
         }
-
-        const geo = this._getGeometry();
-        const minX = geo.textX - tol;
-        const maxX = geo.textX + geo.textWidth + tol;
-        const minY = geo.textY - geo.textHeight / 2 - tol;
-        const maxY = geo.textY + geo.textHeight / 2 + tol;
-        if (point.x >= minX && point.x <= maxX && point.y >= minY && point.y <= maxY) {
-            return 'text';
-        }
         return null;
     }
 
     /** @override */
     getAnchors() {
-        const textWorld = this._localToWorld(this._getTextOriginLocal());
         return [
-            { id: 'pos', x: this.x, y: this.y, cursor: 'move', hidden: true },
-            { id: 'text', x: textWorld.x, y: textWorld.y, cursor: 'move', hidden: true }
+            { id: 'pos', x: this.x, y: this.y, cursor: 'move', hidden: true }
         ];
     }
 
     _getTextOriginLocal() {
-        const geo = this._getGeometry();
-        return { ...geo.textLocal };
+        const base = getNetTextBaseLocal(this.style);
+        return {
+            x: base.s + this.textOffset.x,
+            y: base.t + this.textOffset.y
+        };
+    }
+
+    getTextPosition() {
+        const local = this._getTextOriginLocal();
+        return this._localToWorld(local);
+    }
+
+    syncTextOffsetFromLabelText() {
+        if (!this.labelText) return;
+        const local = this._worldToLocal({ x: this.labelText.x, y: this.labelText.y });
+        const base = getNetTextBaseLocal(this.style);
+        this.textOffset.x = ShapeValidator.validateCoordinate(local.x - base.s, { name: 'textOffset.x' });
+        this.textOffset.y = ShapeValidator.validateCoordinate(local.y - base.t, { name: 'textOffset.y' });
+        this.invalidate();
+    }
+
+    syncLabelText() {
+        if (!this.labelText) return;
+        this.labelText.text = this.net;
+        this.labelText.fontSize = this.fontSize;
+        this.labelText.rotation = 0;
+        const pos = this.getTextPosition();
+        this.labelText.x = pos.x;
+        this.labelText.y = pos.y;
+        this.labelText.invalidate();
     }
 
     /** @override */
     moveAnchor(anchorId, x, y) {
         if (anchorId === 'pos') {
+            const dx = x - this.x;
+            const dy = y - this.y;
             this.x = x;
             this.y = y;
-            this.invalidate();
-        } else if (anchorId === 'text') {
-            const local = this._worldToLocal({ x, y });
-            const base = getNetLabelTextBaseLocal(this.style);
-            this.textOffset.x = local.x - base.s;
-            this.textOffset.y = local.y - base.t;
+            if (this.labelText) {
+                this.labelText.x += dx;
+                this.labelText.y += dy;
+                this.labelText.invalidate();
+            }
             this.invalidate();
         }
         return undefined;
@@ -458,44 +480,25 @@ export class NetLabel extends Shape {
         const geo = this._getGeometry();
 
         // Ensure children exist
-        if (!el.children.length || el.children.length < 3) {
+        if (!el.children.length || el.children.length < 2) {
             while (el.firstChild) el.removeChild(el.firstChild);
             const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
             const detailPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-            const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
             el.appendChild(path);
             el.appendChild(detailPath);
-            el.appendChild(text);
         }
 
         const path = el.children[0];
         const detailPath = el.children[1];
-        const text = el.children[2];
         const baseStrokeWidth = Math.max(this.lineWidth, 1 / scale);
-        const normalStroke = this._colorToCSS(this.color);
-        const normalText = this._colorToCSS(this.fillColor ?? this.color);
         const selectionColor = 'var(--sch-selection, #3399ff)';
-        const hoverPart = this._hoverPart === 'text' ? 'text' : 'symbol';
-        const selectedPart = this._selectedSubPart === 'text' ? 'text' : 'symbol';
-
         let symbolStroke = strokeColor;
-        let textFill = fillColor;
 
-        if (this.hovered && !this.selected) {
-            if (hoverPart === 'text') {
-                symbolStroke = normalStroke;
-            } else {
-                textFill = normalText;
-            }
-        }
-
-        if (this.selected) {
-            if (selectedPart === 'symbol') {
-                textFill = selectionColor;
-            }
-            if (selectedPart === 'text') {
-                symbolStroke = selectionColor;
-            }
+        const attachedLabels = /** @type {any} */ (this).attachedLabels;
+        const attachedActive = attachedLabels instanceof Set
+            && Array.from(attachedLabels).some(label => label?.selected || label?.hovered);
+        if (!this.selected && !this.hovered && (this.labelText?.selected || this.labelText?.hovered || attachedActive)) {
+            symbolStroke = selectionColor;
         }
 
         path.setAttribute('d', geo.symbolPath);
@@ -518,17 +521,6 @@ export class NetLabel extends Shape {
             detailPath.setAttribute('display', 'none');
         }
 
-        text.setAttribute('x', geo.textX);
-        text.setAttribute('y', geo.textY);
-        text.setAttribute('fill', textFill);
-        text.setAttribute('font-size', this.fontSize);
-        text.setAttribute('font-family', 'Arial');
-        text.setAttribute('dominant-baseline', 'middle');
-        text.setAttribute('alignment-baseline', 'middle');
-        text.setAttribute('text-anchor', 'start');
-        text.setAttribute('text-rendering', 'geometricPrecision');
-        text.textContent = this.net;
-
         // Keep text horizontal by avoiding group rotation.
         el.removeAttribute('transform');
     }
@@ -538,6 +530,11 @@ export class NetLabel extends Shape {
         if (!Number.isFinite(dx) || !Number.isFinite(dy)) return;
         this.x += dx;
         this.y += dy;
+        if (this.labelText) {
+            this.labelText.x += dx;
+            this.labelText.y += dy;
+            this.labelText.invalidate();
+        }
         this.invalidate();
     }
 
@@ -548,7 +545,8 @@ export class NetLabel extends Shape {
 
     /** @override */
     clone() {
-        return new NetLabel({
+        this.syncTextOffsetFromLabelText();
+        return new Net({
             ...this.toJSON(),
             x: this.x,
             y: this.y,
@@ -562,6 +560,7 @@ export class NetLabel extends Shape {
 
     /** @override */
     captureState() {
+        this.syncTextOffsetFromLabelText();
         return {
             x: this.x,
             y: this.y,
@@ -596,34 +595,17 @@ export class NetLabel extends Shape {
 
     /** @override */
     get supportsInlineEdit() {
-        return true;
+        return false;
     }
 
-    /** 
-     * Get/set the text content for inline editing.
-     * Maps to `net` property so double-click editing works.
-     */
-    get text() { return this.net; }
-    set text(v) { this.net = v; this.invalidate(); }
-
-    /**
-     * Returns the SVG `<text>` child element for inline text editing.
-     * Used by text-edit.js for caret positioning and bbox measurement.
-     */
-    getTextElement() {
-        return this.element?.children?.[1] || null;
-    }
-
-    /**
-     * Returns the world-space origin for the text-edit overlay.
-     * Accounts for rotation by computing the text element's position in world coords.
-     */
-    getTextEditOrigin() {
-        return this._localToWorld(this._getTextOriginLocal());
+    applyState(state) {
+        super.applyState(state);
+        this.syncLabelText();
     }
 
     /** @override */
     toJSON() {
+        this.syncTextOffsetFromLabelText();
         const json = {
             ...super.toJSON(),
             x: _r4(this.x),

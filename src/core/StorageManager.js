@@ -59,28 +59,20 @@ export class StorageManager {
         if (!this._db) return;
         const tx = this._db.transaction(STORE_NAME, 'readonly');
         const store = tx.objectStore(STORE_NAME);
-        const entries = await new Promise((resolve, reject) => {
-            const req = store.getAll();
-            const keyReq = store.getAllKeys();
-            const results = { keys: /** @type {string[]} */ ([]), values: /** @type {any[]} */ ([]) };
-            keyReq.onsuccess = () => { results.keys = /** @type {string[]} */ (keyReq.result); };
+        await new Promise((resolve, reject) => {
+            const req = store.openCursor();
             req.onsuccess = () => {
-                results.values = req.result;
-                resolve(results);
+                const cursor = req.result;
+                if (!cursor) { resolve(undefined); return; }
+                const key = /** @type {string} */ (cursor.key);
+                const val = cursor.value;
+                if (val && typeof val === 'object' && 'data' in val && 'expires' in val) {
+                    this._mem.set(key, val);
+                }
+                cursor.continue();
             };
             req.onerror = () => reject(req.error);
         });
-        const now = Date.now();
-        for (let i = 0; i < entries.keys.length; i++) {
-            const key = entries.keys[i];
-            const val = entries.values[i];
-            if (val && typeof val === 'object' && 'data' in val && 'expires' in val) {
-                if (now <= val.expires) {
-                    this._mem.set(key, val);
-                }
-                // Expired entries are skipped (lazy cleanup)
-            }
-        }
     }
 
     _migrateFromLocalStorage() {
@@ -122,7 +114,11 @@ export class StorageManager {
         try {
             const tx = this._db.transaction(STORE_NAME, 'readwrite');
             tx.objectStore(STORE_NAME).put(value, key);
-        } catch {}
+            tx.oncomplete = () => {};
+            tx.onerror = (e) => console.warn('StorageManager: IDB write error for', key, e);
+        } catch (e) {
+            console.warn('StorageManager: IDB persist failed for', key, e);
+        }
     }
 
     _removeFromIDB(key) {

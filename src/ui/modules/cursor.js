@@ -43,8 +43,8 @@ export function getToolIconPath(tool) {
         case 'polygon':
             return 'M 4 0 L 8 3 L 6 8 L 2 8 L 0 3 Z';
         case 'text':
-            return 'M 1 1 H 7 M 4 1 V 7';
-        case 'netlabel':
+            return 'M 1 2.5 Q 1 1 2.5 1 H 5.5 L 8 4 L 5.5 7 H 2.5 Q 1 7 1 5.5 Z M 2.5 4 A 0.6 0.6 0 1 1 2.499 4';
+        case 'net':
             return 'M 0 4 L 2 1 H 8 V 7 H 2 Z';
         case 'noconnect':
             return 'M 1 1 L 7 7 M 7 1 L 1 7';

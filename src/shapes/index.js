@@ -4,13 +4,13 @@
 
 export { Shape, updateIdCounter, resetIdCounter } from './shape.js';
 export { Line } from './line.js';
-export { Wire, bumpWireLabelCounter, resetWireLabelCounter, COLLINEAR_EPSILON } from './wire.js';
+export { Wire, bumpWireLabelCounter, resetWireLabelCounter, resetNetNameCounter, COLLINEAR_EPSILON } from './wire.js';
 export { Circle } from './circle.js';
 export { Rect } from './rect.js';
 export { Arc } from './arc.js';
 export { Polygon } from './polygon.js';
 export { Text } from './text.js';
-export { NetLabel } from './netlabel.js';
+export { Net } from './net.js';
 export { NoConnect } from './noconnect.js';
 
 import { Line } from './line.js';
@@ -20,7 +20,7 @@ import { Rect } from './rect.js';
 import { Arc } from './arc.js';
 import { Polygon } from './polygon.js';
 import { Text } from './text.js';
-import { NetLabel } from './netlabel.js';
+import { Net } from './net.js';
 import { NoConnect } from './noconnect.js';
 
 const shapeRegistry = {
@@ -31,7 +31,7 @@ const shapeRegistry = {
     arc: Arc,
     polygon: Polygon,
     text: Text,
-    netlabel: NetLabel,
+    Net: Net,
     noconnect: NoConnect
 };
 
@@ -45,6 +45,7 @@ const SHORT_KEYS = {
     sp: 'startPoint', ep: 'endPoint', bp: 'bulgePoint',
     t: 'text', fs: 'fontSize', ff: 'fontFamily', ta: 'textAnchor',
     cid: 'componentId', fk: 'fieldKey', rot: 'rotation',
+    att: 'attachment',
     pn: 'pinConnection', lo: 'labelOffset',
     nst: 'style', no: 'orientation', nto: 'textOffset',
 };

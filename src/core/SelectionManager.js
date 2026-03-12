@@ -3,7 +3,7 @@
  * 
  * Handles:
  * - Single selection
- * - Multi-selection (shift+click, box select)
+ * - Multi-selection (Ctrl+click, box select)
  * - Hit testing against shapes
  * - Selection change events
  */
@@ -55,6 +55,37 @@ export class SelectionManager {
         this._shapeMap = new Map(shapes.map(s => [s.id, s]));
         this._selectionCache = null;
         this._invalidateHitTestCache();
+    }
+
+    /**
+     * Invalidate linked selection visuals for parent/child shape pairs.
+     * Keeps ownership tint in sync for component fields, wire labels,
+     * and Net text.
+     * @param {Shape|null|undefined} shape
+     */
+    _invalidateLinkedSelectionVisuals(shape) {
+        if (!shape) return;
+        if (shape.type === 'text' && shape.parentComponent) {
+            let parent = shape.parentComponent;
+            if (typeof parent === 'string') {
+                parent = this._shapeMap.get(parent) || null;
+            } else if (parent && typeof parent === 'object' && parent.id && typeof parent.invalidate !== 'function') {
+                parent = this._shapeMap.get(parent.id) || parent;
+            }
+            if (parent && typeof parent.invalidate === 'function') {
+                parent.invalidate();
+            }
+        }
+        if (shape.attachedLabels instanceof Set) {
+            for (const label of shape.attachedLabels) {
+                if (label && typeof label.invalidate === 'function') {
+                    label.invalidate();
+                }
+            }
+        }
+        if (shape.labelText && typeof shape.labelText.invalidate === 'function') {
+            shape.labelText.invalidate();
+        }
     }
     
     /**
@@ -184,11 +215,7 @@ export class SelectionManager {
             shapeObj.invalidate();
         }
 
-        // When selecting a field text, invalidate its parent so it
-        // re-renders with the ownership highlight.
-        if (shapeObj.type === 'text' && shapeObj.parentComponent) {
-            shapeObj.parentComponent.invalidate();
-        }
+        this._invalidateLinkedSelectionVisuals(shapeObj);
         
         this._notifySelectionChanged();
     }
@@ -207,6 +234,7 @@ export class SelectionManager {
             if (shapeObj) {
                 shapeObj.selected = false;
                 shapeObj.invalidate();
+                this._invalidateLinkedSelectionVisuals(shapeObj);
             }
             this._notifySelectionChanged();
         }
@@ -245,6 +273,7 @@ export class SelectionManager {
                 this._selectionCache = null;
                 shapeObj.selected = true;
                 shapeObj.invalidate();
+                this._invalidateLinkedSelectionVisuals(shapeObj);
             }
         }
         
@@ -277,10 +306,7 @@ export class SelectionManager {
             if (shape) {
                 shape.selected = false;
                 shape.invalidate();
-                // Invalidate parent so its ownership highlight is removed
-                if (shape.type === 'text' && shape.parentComponent) {
-                    shape.parentComponent.invalidate();
-                }
+                this._invalidateLinkedSelectionVisuals(shape);
             }
         }
         this.selected.clear();

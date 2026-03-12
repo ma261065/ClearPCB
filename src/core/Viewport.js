@@ -1420,9 +1420,6 @@ export class Viewport {
     
     /** Prevent Ctrl+Plus/Minus/0 from triggering the browser's native zoom. */
     _disableBrowserZoom() {
-        // Prevent Ctrl+wheel browser zoom
-        // (handled in wheel event below)
-        
         // Prevent Ctrl+Plus/Minus/0 browser zoom
         this.boundHandlers.browserZoom = (e) => {
             if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA') return;
@@ -1431,6 +1428,14 @@ export class Viewport {
             }
         };
         window.addEventListener('keydown', this.boundHandlers.browserZoom);
+
+        // Prevent Ctrl+wheel browser zoom anywhere in the app (not just SVG)
+        this.boundHandlers.browserWheelZoom = (e) => {
+            if ((e.ctrlKey || e.metaKey) && e.deltaY !== 0) {
+                e.preventDefault();
+            }
+        };
+        window.addEventListener('wheel', this.boundHandlers.browserWheelZoom, { passive: false });
     }
     
     // ==================== Events ====================
@@ -1531,6 +1536,7 @@ export class Viewport {
         if (this.boundHandlers.resize) window.removeEventListener('resize', this.boundHandlers.resize);
         if (this.boundHandlers.keydown) window.removeEventListener('keydown', this.boundHandlers.keydown);
         if (this.boundHandlers.browserZoom) window.removeEventListener('keydown', this.boundHandlers.browserZoom);
+        if (this.boundHandlers.browserWheelZoom) window.removeEventListener('wheel', this.boundHandlers.browserWheelZoom);
         
         // Remove SVG element
         if (this.svg.parentNode) {

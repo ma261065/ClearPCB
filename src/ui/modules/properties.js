@@ -35,7 +35,7 @@ function mergeDescriptors(selection) {
 
 function headerLabel(selection) {
     if (selection.length === 0) return 'Properties';
-    const displayNames = { rect: 'Rectangle', netlabel: 'Net Label', noconnect: 'No Connect' };
+    const displayNames = { rect: 'Rectangle', text: 'Label', Net: 'Net', noconnect: 'No Connect' };
     const types = selection.map(s => s.definition ? 'Component' : (s.type || 'object'));
     const first = types[0];
     if (types.every(t => t === first)) {
@@ -268,57 +268,33 @@ export function updatePropertiesPanel(app, selection) {
 
     const allLocked = selection.every(s => s.locked);
 
-    // ── Wire Label section (only for single wire selection) ──
+    // ── Wire Net section (only for single wire selection) ──
     const singleWire = selection.length === 1 && selection[0].type === 'wire' ? selection[0] : null;
     if (singleWire) {
-        const sec = _createSection('Label');
+        const sec = _createSection('Net');
         const wire = singleWire;
         const disabled = allLocked;
 
-        // Row 1: Name text input
-        const nameRow = document.createElement('div');
-        nameRow.className = 'prop-row';
-        const nameLbl = document.createElement('label');
-        nameLbl.setAttribute('for', 'prop_wireLabel');
-        nameLbl.textContent = 'Name';
-        nameRow.appendChild(nameLbl);
-        const nameInput = document.createElement('input');
-        nameInput.type = 'text';
-        nameInput.id = 'prop_wireLabel';
-        nameInput.value = wire.wireLabel;
+        const netRow = document.createElement('div');
+        netRow.className = 'prop-row';
+        const netLbl = document.createElement('label');
+        netLbl.setAttribute('for', 'prop_net');
+        netLbl.textContent = 'Net';
+        netRow.appendChild(netLbl);
+        const netInput = document.createElement('input');
+        netInput.type = 'text';
+        netInput.id = 'prop_net';
+        netInput.value = wire.net || '';
         if (disabled) {
-            nameInput.readOnly = true;
-            nameInput.style.opacity = '0.7';
+            netInput.readOnly = true;
+            netInput.style.opacity = '0.7';
         } else {
-            nameInput.addEventListener('change', () => {
-                applyCommonProperty(app, 'wireLabel', nameInput.value);
+            netInput.addEventListener('change', () => {
+                applyCommonProperty(app, 'net', netInput.value);
             });
         }
-        nameRow.appendChild(nameInput);
-        sec.content.appendChild(nameRow);
-
-        // Row 2: Show checkbox
-        const optRow = document.createElement('div');
-        optRow.className = 'prop-row';
-        const showLbl = document.createElement('label');
-        showLbl.style.display = 'flex';
-        showLbl.style.alignItems = 'center';
-        showLbl.style.gap = '4px';
-        const showChk = document.createElement('input');
-        showChk.type = 'checkbox';
-        showChk.checked = wire.labelText?.visible ?? false;
-        showChk.addEventListener('change', () => {
-            if (wire.labelText) {
-                const cmd = new ModifyPropertyCommand(app, [wire.labelText], 'visible', showChk.checked);
-                app.history.execute(cmd);
-                app.renderShapes(true);
-                app._updatePropertiesPanel(selection);
-            }
-        });
-        showLbl.appendChild(showChk);
-        showLbl.append('Show');
-        optRow.appendChild(showLbl);
-        sec.content.appendChild(optRow);
+        netRow.appendChild(netInput);
+        sec.content.appendChild(netRow);
 
         panel.appendChild(sec.group);
     }
@@ -493,7 +469,7 @@ export function applyCommonProperty(app, prop, value) {
             }
         }
         // Check if any affected item is a wire label field text
-        const wireLabelFields = changing.filter(s => s.parentComponent?.type === 'wire' && s.fieldKey === 'wireLabel');
+        const wireLabelFields = changing.filter(s => s.parentComponent?.type === 'wire' && (s.fieldKey === 'wireLabel' || s.fieldKey === 'label'));
         if (wireLabelFields.length > 0 && value) {
             const parentWireIds = new Set(wireLabelFields.map(f => f.parentComponent.id));
             const dup = app.shapes.find(s =>

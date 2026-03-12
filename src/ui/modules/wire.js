@@ -22,10 +22,12 @@
  */
 
 import { Wire, COLLINEAR_EPSILON as _SHAPE_COLLINEAR_EPSILON } from '../../shapes/index.js';
-import { freeWireLabel, nextWireLabel, bumpWireLabelCounter } from '../../shapes/wire.js';
+import { Text } from '../../shapes/text.js';
+import { freeWireLabel, nextWireLabel, bumpWireLabelCounter, freeNetName, bumpNetNameCounter, nextNetName } from '../../shapes/wire.js';
 import { BatchCommand, AddShapeCommand, ModifyShapeCommand, DeleteShapesCommand } from '../../core/CommandHistory.js';
 import { distanceToSegment, pointsMatch, pointsCollinear, segmentsCollinear, collinearSnap } from '../../core/geometry.js';
 import { applyStickyConnections } from './sticky-wires.js';
+import { attachLabelToTarget, getLabelDropHotspot } from './label-attachment.js';
 
 // --- Constants ---
 
@@ -766,7 +768,7 @@ export function findNearbyWirePoint(app, worldPos, tolerance, excludeWires = nul
             const d = Math.hypot(worldPos.x - pos.x, worldPos.y - pos.y);
             if (d < bestNodeDist) {
                 bestNodeDist = d;
-                bestNode = { x: pos.x, y: pos.y, type: 'endpoint' };
+                bestNode = { x: pos.x, y: pos.y, type: 'endpoint', wire: shape };
             }
         }
 
@@ -791,7 +793,8 @@ export function findNearbyWirePoint(app, worldPos, tolerance, excludeWires = nul
                     bestEdge = {
                         x: px, y: py,
                         type: 'segment',
-                        wireDir: _classifyDir(dx, dy)
+                        wireDir: _classifyDir(dx, dy),
+                        wire: shape
                     };
                 }
             }
@@ -813,7 +816,8 @@ export function findNearbyWirePoint(app, worldPos, tolerance, excludeWires = nul
                 bestEdge = {
                     x: px, y: py,
                     type: 'segment',
-                    wireDir: _classifyDir(dx, dy)
+                    wireDir: _classifyDir(dx, dy),
+                    wire: null
                 };
             }
         }
@@ -907,6 +911,8 @@ function _tryMergeGraphs(app, wireA, wireB, affected, changed) {
     // Capture pre-merge segment counts for label winner determination
     const segsA = wireA.edges.size;
     const segsB = wireB.edges.size;
+    const keeperWasChanged = changed.has(wireA);
+    const removedWasChanged = changed.has(wireB);
 
     // Forward: A's nodes → B's nodes/edges
     for (const [nodeId, pos] of wireA.nodes) {
@@ -914,7 +920,7 @@ function _tryMergeGraphs(app, wireA, wireB, affected, changed) {
         if (match) {
             const remap = wireA.absorb(wireB);
             wireA.mergeNodes(nodeId, remap.get(match));
-            _removeMerged(app, wireB, affected, changed, wireA, segsA, segsB);
+            _removeMerged(app, wireB, affected, changed, wireA, segsA, segsB, keeperWasChanged, removedWasChanged);
             return true;
         }
         const onEdge = wireB.closestEdge(pos);
@@ -922,7 +928,7 @@ function _tryMergeGraphs(app, wireA, wireB, affected, changed) {
             const split = wireB.splitEdge(onEdge.edgeId, pos);
             const remap = wireA.absorb(wireB);
             wireA.mergeNodes(nodeId, remap.get(split.newNodeId));
-            _removeMerged(app, wireB, affected, changed, wireA, segsA, segsB);
+            _removeMerged(app, wireB, affected, changed, wireA, segsA, segsB, keeperWasChanged, removedWasChanged);
             return true;
         }
     }
@@ -934,7 +940,7 @@ function _tryMergeGraphs(app, wireA, wireB, affected, changed) {
             const split = wireA.splitEdge(onEdge.edgeId, pos);
             const remap = wireA.absorb(wireB);
             wireA.mergeNodes(split.newNodeId, remap.get(nodeId));
-            _removeMerged(app, wireB, affected, changed, wireA, segsA, segsB);
+            _removeMerged(app, wireB, affected, changed, wireA, segsA, segsB, keeperWasChanged, removedWasChanged);
             return true;
         }
     }
@@ -942,21 +948,100 @@ function _tryMergeGraphs(app, wireA, wireB, affected, changed) {
 }
 
 function _syncWireLabelText(wire) {
-    if (!wire?.labelText) return;
-    wire.labelText.text = wire.wireLabel;
-    wire.labelText.invalidate();
+    const primary = _getPrimaryWireNameLabel(wire);
+    if (!primary) return;
+    _setPrimaryWireNameLabel(wire, primary);
+    primary.text = wire.wireLabel;
+    primary.invalidate();
+}
+
+function _setPrimaryWireNameLabel(wire, label) {
+    if (!wire || !label) return;
+    const attached = wire.attachedLabels;
+    if (attached instanceof Set) {
+        for (const candidate of attached) {
+            if (!candidate?.attachment || typeof candidate.attachment !== 'object') continue;
+            if (candidate === label) {
+                candidate.attachment.wireName = true;
+            } else if (candidate.attachment.wireName) {
+                delete candidate.attachment.wireName;
+            }
+        }
+    }
+    if (!label.attachment || typeof label.attachment !== 'object') {
+        label.attachment = {};
+    }
+    label.attachment.wireName = true;
+}
+
+function _getPrimaryWireNameLabel(wire) {
+    if (!wire) return null;
+    const attached = wire.attachedLabels;
+    if (!(attached instanceof Set) || attached.size === 0) return wire.labelText || null;
+
+    const labels = Array.from(attached).filter(l =>
+        l?.type === 'text'
+        && l.fieldKey === 'label'
+        && l.parentComponent === wire
+    );
+    if (labels.length === 0) return wire.labelText || null;
+
+    const marked = labels.find(l => l?.attachment?.wireName === true) || null;
+    if (marked) return marked;
+
+    const matching = labels.find(l => String(l.text || '').toLowerCase() === String(wire.wireLabel || '').toLowerCase()) || null;
+    if (matching) {
+        _setPrimaryWireNameLabel(wire, matching);
+        return matching;
+    }
+
+    _setPrimaryWireNameLabel(wire, labels[0]);
+    return labels[0] || null;
+}
+
+function _ensureWireNameLabel(app, wire, visible = false) {
+    let label = _getPrimaryWireNameLabel(wire);
+    if (!label && app) {
+        const pos = _getWireLabelPosition(wire) || wire.getLabelPosition();
+        label = new Text(/** @type {any} */ ({
+            x: pos.x,
+            y: pos.y,
+            text: wire.wireLabel,
+            fontSize: 1.4,
+            fontFamily: 'Arial',
+            textAnchor: 'middle',
+            color: 'var(--sch-wire-label, #669966)'
+        }));
+        app._addShapeInternal(label);
+        attachLabelToTarget(label, wire, { x: label.x, y: label.y }, { isNewLabel: true });
+    }
+    if (label) {
+        _setPrimaryWireNameLabel(wire, label);
+        label.text = wire.wireLabel;
+        label.visible = visible;
+        label.invalidate?.();
+    }
+    return label;
 }
 
 function _setWireLabelVisibility(wire, visible) {
+    const primary = _getPrimaryWireNameLabel(wire);
+    if (primary) {
+        primary.visible = visible;
+        primary.invalidate();
+        return;
+    }
     if (wire.labelText) {
         wire.labelText.visible = visible;
         wire.labelText.invalidate();
-    } else {
-        wire._pendingLabelVisible = visible;
+        return;
     }
+    wire._pendingLabelVisible = visible;
 }
 
 function _getWireLabelVisibility(wire) {
+    const primary = _getPrimaryWireNameLabel(wire);
+    if (primary) return !!primary.visible;
     if (wire.labelText) return wire.labelText.visible;
     if (wire._pendingLabelVisible !== undefined) return wire._pendingLabelVisible;
     return false;
@@ -965,41 +1050,62 @@ function _getWireLabelVisibility(wire) {
 function _setWireLabelPosition(wire, position) {
     if (!position) return;
     const rotation = position.rotation
+        ?? _getPrimaryWireNameLabel(wire)?.rotation
         ?? wire.labelText?.rotation
         ?? wire._pendingLabelPosition?.rotation
         ?? 0;
+    const primary = _getPrimaryWireNameLabel(wire);
+    if (primary) {
+        primary.x = position.x;
+        primary.y = position.y;
+        primary.rotation = rotation;
+        primary.invalidate();
+        return;
+    }
     if (wire.labelText) {
         wire.labelText.x = position.x;
         wire.labelText.y = position.y;
         wire.labelText.rotation = rotation;
         wire.labelText.invalidate();
-    } else {
-        wire._pendingLabelPosition = {
-            x: position.x,
-            y: position.y,
-            rotation
-        };
+        return;
     }
+    wire._pendingLabelPosition = {
+        x: position.x,
+        y: position.y,
+        rotation
+    };
 }
 
 function _resetWireLabelPositionToDefault(wire) {
     const pos = wire.getLabelPosition();
-    const rotation = wire.labelText?.rotation ?? wire._pendingLabelPosition?.rotation ?? 0;
+    const primary = _getPrimaryWireNameLabel(wire);
+    const rotation = primary?.rotation ?? wire.labelText?.rotation ?? wire._pendingLabelPosition?.rotation ?? 0;
+    if (primary) {
+        primary.x = pos.x;
+        primary.y = pos.y;
+        primary.rotation = rotation;
+        primary.invalidate();
+        return;
+    }
     if (wire.labelText) {
         wire.labelText.x = pos.x;
         wire.labelText.y = pos.y;
         wire.labelText.rotation = rotation;
         wire.labelText.invalidate();
-    } else {
-        wire._pendingLabelPosition = {
-            x: pos.x,
-            y: pos.y,
-            rotation
-        };
+        return;
     }
+    wire._pendingLabelPosition = {
+        x: pos.x,
+        y: pos.y,
+        rotation
+    };
 }
 
 function _getWireLabelPosition(wire) {
+    const primary = _getPrimaryWireNameLabel(wire);
+    if (primary) {
+        return { x: primary.x, y: primary.y, rotation: primary.rotation || 0 };
+    }
     if (wire.labelText) {
         return { x: wire.labelText.x, y: wire.labelText.y, rotation: wire.labelText.rotation || 0 };
     }
@@ -1144,6 +1250,67 @@ function _normalizeSnapshot(snapshotOrState) {
     };
 }
 
+function _rehomeAttachedWireLabelsAfterSplit(originalWire, postSplitWires) {
+    const attached = originalWire?.attachedLabels;
+    if (!(attached instanceof Set) || attached.size === 0) return;
+
+    const protectedNameLabel = _getPrimaryWireNameLabel(originalWire);
+
+    const candidates = (postSplitWires || []).filter(w => w?.type === 'wire' && w.edges?.size > 0);
+    if (candidates.length === 0) return;
+
+    const labels = Array.from(attached).filter(label =>
+        label?.type === 'text'
+        && label.fieldKey === 'label'
+        && label.parentComponent === originalWire
+        && label !== protectedNameLabel
+    );
+
+    for (const label of labels) {
+        const probe = getLabelDropHotspot(label);
+        let best = null;
+        for (const wire of candidates) {
+            const nearest = typeof wire.closestEdge === 'function' ? wire.closestEdge(probe) : null;
+            if (!nearest?.point) continue;
+            if (!best || nearest.distance < best.distance) {
+                best = { wire, nearest, distance: nearest.distance };
+            }
+        }
+        if (!best) continue;
+
+        const targetWire = best.wire;
+        if (targetWire !== originalWire) {
+            attached.delete(label);
+            if (attached.size === 0) delete originalWire.attachedLabels;
+            if (!(targetWire.attachedLabels instanceof Set)) {
+                targetWire.attachedLabels = new Set();
+            }
+            targetWire.attachedLabels.add(label);
+            if (label.parentComponent?.labelText === label) {
+                label.parentComponent.labelText = null;
+            }
+            label.parentComponent = targetWire;
+        }
+
+        const nearest = best.nearest;
+        const anchor = nearest.point || probe;
+        if (!label.attachment || typeof label.attachment !== 'object') {
+            label.attachment = {};
+        }
+        label.attachment.kind = 'wire';
+        label.attachment.edgeId = nearest.edgeId || null;
+        label.attachment.t = Number.isFinite(nearest.t) ? nearest.t : 0.5;
+        label.attachment.anchorX = anchor.x;
+        label.attachment.anchorY = anchor.y;
+        label.attachment.offsetX = label.x - anchor.x;
+        label.attachment.offsetY = label.y - anchor.y;
+        if (label.attachment.followRotation == null) label.attachment.followRotation = false;
+
+        label.invalidate?.();
+        targetWire.invalidate?.();
+    }
+}
+
 // Wire label rules (implemented behavior):
 // 1) Joining:
 //    - If only one pre-join wire is visible, that wire's label wins.
@@ -1166,10 +1333,24 @@ function _normalizeSnapshot(snapshotOrState) {
 //    - Positioning logic is shared for visible labelText and pending hidden-label
 //      position state so behavior matches in both modes.
 
-function _applyMergeLabelRules(keeper, removed, keeperPreSegs, removedPreSegs, removedLabelMeta) {
+function _applyMergeLabelRules(keeper, removed, keeperPreSegs, removedPreSegs, removedLabelMeta, keeperWasChanged = false, removedWasChanged = false) {
     const keeperVis = _getWireLabelVisibility(keeper);
     const removedVis = removedLabelMeta.visible;
     const postVisible = keeperVis || removedVis;
+
+    // Join behavior: when a newly drawn wire merges into an existing wire,
+    // preserve the existing wire's label identity.
+    if (keeperWasChanged && !removedWasChanged) {
+        if (removed.wireLabel && removed.wireLabel !== keeper.wireLabel) {
+            freeWireLabel(keeper.wireLabel);
+            keeper.wireLabel = removed.wireLabel;
+            bumpWireLabelCounter(removed.wireLabel);
+            _syncWireLabelText(keeper);
+            _setWireLabelPosition(keeper, removedLabelMeta.position);
+        }
+        _setWireLabelVisibility(keeper, postVisible);
+        return;
+    }
 
     const useRemovedLabel = _shouldUseRemovedLabel(
         keeperPreSegs,
@@ -1194,8 +1375,9 @@ function _applyMergeLabelRules(keeper, removed, keeperPreSegs, removedPreSegs, r
     _setWireLabelVisibility(keeper, postVisible);
 }
 
-export function applySplitLabelRules(originalWire, newFragments, preSplitLabel, preSplitVisible, preSplitLabelPosition = null) {
+export function applySplitLabelRules(originalWire, newFragments, preSplitLabel, preSplitVisible, preSplitLabelPosition = null, app = null) {
     const allPostWires = [originalWire, ...newFragments];
+    const originalPrimaryLabel = _getPrimaryWireNameLabel(originalWire);
     const currentOwner = allPostWires.find(w => w.wireLabel === preSplitLabel) || null;
     const winner = _selectSplitWinner(allPostWires, currentOwner);
     if (!winner) return;
@@ -1208,7 +1390,6 @@ export function applySplitLabelRules(originalWire, newFragments, preSplitLabel, 
         _setWireLabelPosition(winner, preSplitLabelPosition);
 
         if (currentOwner) {
-            freeWireLabel(currentOwner.wireLabel);
             currentOwner.wireLabel = nextWireLabel();
             _syncWireLabelText(currentOwner);
             _resetWireLabelPositionToDefault(currentOwner);
@@ -1217,6 +1398,22 @@ export function applySplitLabelRules(originalWire, newFragments, preSplitLabel, 
 
     for (const wire of allPostWires) {
         _setWireLabelVisibility(wire, preSplitVisible);
+    }
+
+    if (preSplitVisible && app) {
+        if (originalPrimaryLabel) {
+            if (originalPrimaryLabel.parentComponent !== originalWire) {
+                attachLabelToTarget(originalPrimaryLabel, originalWire, { x: originalPrimaryLabel.x, y: originalPrimaryLabel.y });
+            }
+            _setPrimaryWireNameLabel(originalWire, originalPrimaryLabel);
+            originalPrimaryLabel.text = originalWire.wireLabel;
+            originalPrimaryLabel.visible = true;
+            originalPrimaryLabel.invalidate?.();
+        }
+        for (const wire of allPostWires) {
+            if (wire === originalWire && originalPrimaryLabel) continue;
+            _ensureWireNameLabel(app, wire, true);
+        }
     }
 
     for (const wire of allPostWires) {
@@ -1237,11 +1434,141 @@ export function applySplitLabelRules(originalWire, newFragments, preSplitLabel, 
     }
 }
 
-function _removeMerged(app, removed, affected, changed, keeper, keeperPreSegs, removedPreSegs) {
+export function applySplitNetRules(originalWire, newFragments, preSplitNet = '') {
+    const allPostWires = [originalWire, ...newFragments].filter(w => w?.type === 'wire');
+    if (allPostWires.length <= 1) return;
+
+    // Keep the original net on the largest post-split wire; tie-break prefers originalWire.
+    let winner = originalWire;
+    for (const wire of allPostWires) {
+        if (!winner || wire.edges.size > winner.edges.size) {
+            winner = wire;
+            continue;
+        }
+        if (wire.edges.size === winner.edges.size && winner !== originalWire && wire === originalWire) {
+            winner = wire;
+        }
+    }
+    if (!winner) return;
+
+    const winnerNet = preSplitNet || winner.net || nextNetName();
+    if (winner.net !== winnerNet) {
+        if (winner.net && winner.net !== preSplitNet) freeNetName(winner.net);
+        winner.net = winnerNet;
+    }
+    if (winner.net) bumpNetNameCounter(winner.net);
+
+    for (const wire of allPostWires) {
+        if (wire === winner) continue;
+        const oldNet = wire.net;
+        wire.net = nextNetName();
+        if (oldNet && oldNet !== preSplitNet && oldNet !== winnerNet && oldNet !== wire.net) {
+            freeNetName(oldNet);
+        }
+        wire.invalidate?.();
+    }
+
+    winner.invalidate?.();
+}
+
+/**
+ * Transfer all generic attached labels (fieldKey === 'label') from the
+ * absorbed wire to the keeper after a graph merge.  Each label's hotspot
+ * (bottom-left bounds corner) is probed against the keeper to compute fresh
+ * attachment metadata so the label follows the keeper correctly.
+ */
+function _transferAttachedLabelsOnMerge(keeper, removed) {
+    const set = removed?.attachedLabels;
+    if (!(set instanceof Set) || set.size === 0) return;
+
+    for (const label of Array.from(set)) {
+        if (!label || label.type !== 'text' || label.fieldKey !== 'label') continue;
+        if (label.parentComponent !== removed) continue;
+
+        // Move label from removed → keeper sets
+        set.delete(label);
+        if (!(keeper.attachedLabels instanceof Set)) {
+            keeper.attachedLabels = new Set();
+        }
+        keeper.attachedLabels.add(label);
+
+        // Update ownership
+        label.parentComponent = keeper;
+
+        // Compute fresh attachment metadata on the keeper
+        const probe = getLabelDropHotspot(label);
+        const nearest = typeof keeper.closestEdge === 'function' ? keeper.closestEdge(probe) : null;
+        const anchor = nearest?.point ?? probe;
+        if (!label.attachment || typeof label.attachment !== 'object') {
+            label.attachment = {};
+        }
+        label.attachment.kind   = 'wire';
+        label.attachment.edgeId = nearest?.edgeId ?? null;
+        label.attachment.t      = Number.isFinite(nearest?.t) ? nearest.t : 0.5;
+        label.attachment.anchorX  = anchor.x;
+        label.attachment.anchorY  = anchor.y;
+        label.attachment.offsetX  = label.x - anchor.x;
+        label.attachment.offsetY  = label.y - anchor.y;
+        if (label.attachment.followRotation == null) label.attachment.followRotation = false;
+
+        label.invalidate?.();
+    }
+
+    // Invalidate the keeper so ownership tint refreshes
+    keeper.invalidate?.();
+
+    // Clean up empty set on removed
+    if (set.size === 0) delete removed.attachedLabels;
+}
+
+/**
+ * Merge net names when two wires are combined. If the keeper has a default
+ * net (Net0001, Net0002, etc.) and the removed wire has a custom net name,
+ * adopt the custom one. Otherwise keep the keeper's net and free the removed one.
+ */
+function _mergeNetNames(keeper, removed, keeperWasChanged = false, removedWasChanged = false) {
+    if (!removed.net) return;
+
+    // Join behavior: when a newly drawn wire merges into an existing wire,
+    // preserve the existing wire's net identity.
+    const preferRemovedNet = keeperWasChanged && !removedWasChanged;
+    if (preferRemovedNet && removed.net) {
+        if (keeper.net && keeper.net !== removed.net) {
+            freeNetName(keeper.net);
+        }
+        keeper.net = removed.net;
+        bumpNetNameCounter(keeper.net);
+        return;
+    }
+
+    const keeperIsDefault = keeper.net?.startsWith('Net');
+    const removedIsDefault = removed.net?.startsWith('Net');
+
+    if (!keeperIsDefault && removedIsDefault) {
+        // Keeper has custom net, removed is default → keep keeper's net, free the default
+        freeNetName(removed.net);
+    } else if (keeperIsDefault && !removedIsDefault) {
+        // Keeper has default, removed has custom → adopt the custom, free the default
+        freeNetName(keeper.net);
+        keeper.net = removed.net;
+        bumpNetNameCounter(removed.net);
+    } else {
+        // Both custom or both default → free the removed one (keeper keeps its net)
+        freeNetName(removed.net);
+    }
+}
+
+function _removeMerged(app, removed, affected, changed, keeper, keeperPreSegs, removedPreSegs, keeperWasChanged = false, removedWasChanged = false) {
     const removedLabelMeta = {
         visible: _getWireLabelVisibility(removed),
         position: _getWireLabelPosition(removed)
     };
+
+    // Transfer generic attached labels to the keeper before the wire is removed
+    _transferAttachedLabelsOnMerge(keeper, removed);
+
+    // Merge net names before removing the wire
+    _mergeNetNames(keeper, removed, keeperWasChanged, removedWasChanged);
 
     // Remove the absorbed wire first (this frees its wireLabel from the tracking set)
     app._removeShapeInternal(removed, { preserveWireLabelRef: true });
@@ -1250,7 +1577,7 @@ function _removeMerged(app, removed, affected, changed, keeper, keeperPreSegs, r
     if (!changed.has(keeper)) changed.add(keeper);
 
     // Now apply label rules on the keeper
-    _applyMergeLabelRules(keeper, removed, keeperPreSegs, removedPreSegs, removedLabelMeta);
+    _applyMergeLabelRules(keeper, removed, keeperPreSegs, removedPreSegs, removedLabelMeta, keeperWasChanged, removedWasChanged);
 }
 
 /**
@@ -1335,6 +1662,7 @@ export function reconcileWires(app, changedWires, skipSet = null) {
         const preSplitLabel = w.wireLabel;
         const preSplitVisible = _getWireLabelVisibility(w);
         const preSplitLabelPosition = _getWireLabelPosition(w);
+        const preSplitNet = w.net;
 
         // Keep the largest component in the original wire
         comps.sort((a, b) => b.size - a.size);
@@ -1357,7 +1685,13 @@ export function reconcileWires(app, changedWires, skipSet = null) {
         if (w.edges.size === 0) { app._removeShapeInternal(w, { preserveWireLabelRef: true }); continue; }
 
         // ── Split label rules ──
-        applySplitLabelRules(w, newFragments, preSplitLabel, preSplitVisible, preSplitLabelPosition);
+        applySplitLabelRules(w, newFragments, preSplitLabel, preSplitVisible, preSplitLabelPosition, app);
+
+        // ── Split net rules ──
+        applySplitNetRules(w, newFragments, preSplitNet);
+
+        // Re-home generic attached labels to the nearest post-split fragment
+        _rehomeAttachedWireLabelsAfterSplit(w, [w, ...newFragments]);
     }
 }
 

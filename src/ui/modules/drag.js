@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Drag commit and state cleanup.
  *
  * Called by mouse-states.js (handleDragEnd) and keyboard.js (Escape cancel)
@@ -12,6 +12,7 @@
 
 import { MoveShapesCommand, ModifyShapeCommand, DeleteShapesCommand, BatchCommand } from '../../core/CommandHistory.js';
 import { reconcileWires, reconcileWiresWithUndo, refreshWireConnections, refreshNoConnectConnection, collapseRedundantWirePoints, buildWireDiffBatch } from './wire.js';
+import { validateNetNameAtPoint } from './net-validation.js';
 
 /**
  * Compare two captured shape states for equality.
@@ -132,6 +133,20 @@ function pushBatchIfNonEmpty(app, batch) {
  */
 export function commitAnchorDrag(app, dragShape, beforeState, anchorWireStates = null, ncLinks = null, junctionBeforeWireStates = null, junctionBeforeLabelTextStates = null) {
     if (!dragShape || !beforeState) return false;
+
+    if (dragShape.type === 'net') {
+        const check = validateNetNameAtPoint(
+            app,
+            { x: dragShape.x, y: dragShape.y },
+            dragShape.net,
+            dragShape.id
+        );
+        if (!check.ok) {
+            alert(`Net conflict: this connected wire is already labeled "${check.conflictWith || ''}".`);
+            dragShape.applyState(beforeState);
+            return false;
+        }
+    }
 
     if (dragShape.type === 'wire') {
         // Collapse redundant midpoints

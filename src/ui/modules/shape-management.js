@@ -1,6 +1,7 @@
 import { AddShapeCommand } from '../../core/CommandHistory.js';
-import { freeWireLabel, bumpWireLabelCounter } from '../../shapes/wire.js';
+import { freeWireLabel, bumpWireLabelCounter, freeNetName, bumpNetNameCounter } from '../../shapes/wire.js';
 import { Text } from '../../shapes/text.js';
+import { syncAttachedLabels } from './label-attachment.js';
 
 /**
  * Adds a shape to the canvas via an undoable `AddShapeCommand`.
@@ -14,7 +15,7 @@ export function addShape(app, shape) {
     return shape;
 }
 /** Shape types that render above wires (re-appended at end of each render cycle). */
-const OVERLAY_TYPES = new Set(['noconnect', 'netlabel']);
+const OVERLAY_TYPES = new Set(['noconnect', 'net']);
 
 /**
  * Directly adds a shape (no undo) — pushes to `app.shapes`, renders,
@@ -28,10 +29,12 @@ export function addShapeInternal(app, shape) {
     shape.render(app.viewport.scale);
     app.viewport.addContent(shape.element);
     const wireShape = shape.type === 'wire' ? /** @type {import('../../shapes/wire.js').Wire} */ (shape) : null;
+    const netShape = shape.type === 'net' ? /** @type {import('../../shapes/net.js').Net} */ (shape) : null;
     if (wireShape?.wireLabel) bumpWireLabelCounter(wireShape.wireLabel);
-    // Auto-create label Text shape for new wires (like Component.createFieldTexts)
-    if (wireShape && !wireShape.labelText) {
-        _createWireLabelText(app, wireShape);
+    // Wire names are no longer materialized as dedicated wireLabel Text shapes.
+    // Generic attached labels (fieldKey === 'label') are used instead.
+    if (netShape && !netShape.labelText) {
+        _createNetText(app, netShape);
     }
     app._updateSelectableItems();
     app.selection._invalidateHitTestCache();
@@ -47,20 +50,30 @@ export function addShapeInternal(app, shape) {
  * @param {import('../../shapes/text.js').Text|null} [linkedWireLabelText]
  * @returns {import('../../shapes/text.js').Text|null}
  */
-export function commandAddShapeInternal(app, shape, linkedWireLabelText = null) {
+export function commandAddShapeInternal(app, shape, linkedLabelText = null) {
     const wireShape = shape.type === 'wire' ? /** @type {import('../../shapes/wire.js').Wire} */ (shape) : null;
-    if (wireShape && linkedWireLabelText && !wireShape.labelText) {
-        wireShape.labelText = linkedWireLabelText;
+    const netShape = shape.type === 'net' ? /** @type {import('../../shapes/net.js').Net} */ (shape) : null;
+
+    if (wireShape && linkedLabelText && !wireShape.labelText) {
+        wireShape.labelText = linkedLabelText;
+    }
+    if (netShape && linkedLabelText && !netShape.labelText) {
+        netShape.labelText = linkedLabelText;
     }
 
     addShapeInternal(app, shape);
 
-    if (!wireShape) return null;
-    const labelText = wireShape.labelText || linkedWireLabelText;
+    const parentShape = wireShape || netShape;
+    if (!parentShape) return null;
+
+    const labelText = parentShape.labelText || linkedLabelText;
     if (!labelText) return null;
 
-    wireShape.labelText = labelText;
-    labelText.parentComponent = wireShape;
+    parentShape.labelText = labelText;
+    labelText.parentComponent = parentShape;
+    if (!labelText.fieldKey) {
+        labelText.fieldKey = parentShape.type === 'wire' ? 'wireLabel' : 'net';
+    }
 
     if (!app.shapes.includes(labelText)) {
         app.shapes.push(labelText);
@@ -107,17 +120,36 @@ export function addShapeInternalAt(app, shape, index) {
  * @param {{ preserveWireLabelRef?: boolean }} [options] - Optional remove behavior.
  */
 export function removeShapeInternal(app, shape, options = {}) {
-    const { preserveWireLabelRef = false } = options;
+    const { preserveWireLabelRef = false, preserveLinkedLabelRef = preserveWireLabelRef } = options;
     const idx = app.shapes.indexOf(shape);
     if (idx !== -1) {
         app.shapes.splice(idx, 1);
         const wireShape = shape.type === 'wire' ? /** @type {import('../../shapes/wire.js').Wire} */ (shape) : null;
+        const netShape = shape.type === 'net' ? /** @type {import('../../shapes/net.js').Net} */ (shape) : null;
         if (wireShape?.wireLabel) freeWireLabel(wireShape.wireLabel);
+        if (wireShape?.net) freeNetName(wireShape.net);
+
+        // Remove generic attached label Text shapes owned by this wire
+        const attachedLabels = wireShape?.attachedLabels instanceof Set
+            ? Array.from(wireShape.attachedLabels).filter(label =>
+                label?.type === 'text'
+                && label.fieldKey === 'label'
+                && label.parentComponent === wireShape
+            )
+            : [];
+        for (const label of attachedLabels) {
+            removeShapeInternal(app, label, options);
+        }
+        if (wireShape && attachedLabels.length > 0) {
+            delete wireShape.attachedLabels;
+        }
+
         // Also remove the linked label Text shape
-        if (wireShape?.labelText) {
-            const linkedLabel = wireShape.labelText;
+        const linkedLabel = wireShape?.labelText || netShape?.labelText || null;
+        if (linkedLabel) {
             removeShapeInternal(app, linkedLabel, options);
-            wireShape.labelText = preserveWireLabelRef ? linkedLabel : null;
+            if (wireShape) wireShape.labelText = preserveLinkedLabelRef ? linkedLabel : null;
+            if (netShape) netShape.labelText = preserveLinkedLabelRef ? linkedLabel : null;
         }
         if (shape.element && shape.element.parentNode) {
             shape.element.parentNode.removeChild(shape.element);
@@ -141,11 +173,13 @@ export function removeShapeInternal(app, shape, options = {}) {
  */
 export function commandRemoveShapeInternal(app, shape, options = {}) {
     const wireShape = shape.type === 'wire' ? /** @type {import('../../shapes/wire.js').Wire} */ (shape) : null;
-    const linkedLabel = wireShape?.labelText || null;
+    const netShape = shape.type === 'net' ? /** @type {import('../../shapes/net.js').Net} */ (shape) : null;
+    const linkedLabel = wireShape?.labelText || netShape?.labelText || null;
     removeShapeInternal(app, shape, options);
-    if (wireShape && linkedLabel) {
-        wireShape.labelText = linkedLabel;
-        linkedLabel.parentComponent = wireShape;
+    if ((wireShape || netShape) && linkedLabel) {
+        if (wireShape) wireShape.labelText = linkedLabel;
+        if (netShape) netShape.labelText = linkedLabel;
+        linkedLabel.parentComponent = wireShape || netShape;
     }
     return linkedLabel;
 }
@@ -172,6 +206,7 @@ export function commandDeleteShapesInternal(app, shapesData, linkedLabelData) {
         const shape = data.shape;
         const wireShape = shape.type === 'wire' ? /** @type {import('../../shapes/wire.js').Wire} */ (shape) : null;
         if (wireShape?.wireLabel) freeWireLabel(wireShape.wireLabel);
+        if (wireShape?.net) freeNetName(wireShape.net);
     }
 
     const layer = app.viewport.contentLayer;
@@ -227,10 +262,13 @@ export function commandRestoreShapesInternal(app, shapesData, linkedLabelData) {
         app.shapes.splice(idx, 0, data.shape);
         const wireShape = data.shape.type === 'wire' ? /** @type {import('../../shapes/wire.js').Wire} */ (data.shape) : null;
         if (wireShape?.wireLabel) bumpWireLabelCounter(wireShape.wireLabel);
+        if (wireShape?.net) bumpNetNameCounter(wireShape.net);
     }
 
     for (const linked of linkedLabelData) {
-        if (linked.parentWire && linked.parentWire.labelText !== linked.shape) {
+        if ((linked.shape?.fieldKey === 'wireLabel' || linked.shape?.fieldKey === 'net')
+            && linked.parentWire
+            && linked.parentWire.labelText !== linked.shape) {
             linked.parentWire.labelText = linked.shape;
         }
     }
@@ -247,6 +285,8 @@ export function commandRestoreShapesInternal(app, shapesData, linkedLabelData) {
  * @param {boolean} [force=false] - Force full re-render regardless of dirty state.
  */
 export function renderShapes(app, force = false) {
+    syncAttachedLabels(app);
+
     if (force && app.selection) {
         app.selection._invalidateHitTestCache();
     }
@@ -271,7 +311,7 @@ export function renderShapes(app, force = false) {
         }
     }
 
-    // Ensure overlay-type shapes (noconnect, netlabel) render above wires.
+    // Ensure overlay-type shapes (noconnect, Net) render above wires.
     // Selected-shape rendering calls appendChild() which can move wire SVG
     // elements past overlay shapes. Re-append overlay shape elements (and
     // their anchor groups) as the last children of contentLayer so they
@@ -344,47 +384,31 @@ export function updateViewportCulling(app) {
     }
 }
 
-// ─── Wire label Text helper ──────────────────────────────────────
-
-/** Wire label font size (mm) — matches WIRE_LABEL_FONT_SIZE in wire.js. */
-const WIRE_LABEL_FONT_SIZE = 1.4;
-
 /**
- * Creates a Text shape for a wire's label, adds it to app.shapes and
- * the viewport, and links it to the wire via parentComponent/fieldKey.
- * Follows the same pattern as Component.createFieldTexts.
+ * Creates a Text shape for a Net's text, adds it to app.shapes and
+ * viewport, and links it via parentComponent/fieldKey.
  * @param {object} app
- * @param {import('../../shapes/wire.js').Wire} wire
+ * @param {import('../../shapes/net.js').Net} Net
  */
-function _createWireLabelText(app, wire) {
-    const wireExt = /** @type {import('../../shapes/wire.js').Wire & {_pendingLabelVisible?: boolean, _pendingLabelPosition?: {x:number,y:number,rotation?: number}}} */ (wire);
-    const pos = wireExt._pendingLabelPosition || wire.getLabelPosition();
+function _createNetText(app, Net) {
+    const pos = Net.getTextPosition();
     const text = new Text(/** @type {any} */ ({
         x: pos.x,
         y: pos.y,
-        text: wire.wireLabel,
-        fontSize: WIRE_LABEL_FONT_SIZE,
+        text: Net.net,
+        fontSize: Net.fontSize,
         fontFamily: 'Arial',
-        textAnchor: 'middle',
-        color: 'var(--sch-wire-label, #669966)'
+        textAnchor: 'start',
+        color: 'var(--sch-net-label, #00cccc)'
     }));
-    text.parentComponent = wire;
-    text.fieldKey = 'wireLabel';
-    text.visible = wireExt._pendingLabelVisible ?? false;  // hidden by default unless split rules set pending visibility
-    if (wireExt._pendingLabelPosition && wireExt._pendingLabelPosition.rotation !== undefined) {
-        text.rotation = wireExt._pendingLabelPosition.rotation;
-    }
-    wire.labelText = text;
-    delete wireExt._pendingLabelVisible;
-    delete wireExt._pendingLabelPosition;
+    text.parentComponent = Net;
+    text.fieldKey = 'net';
+    text.visible = Net.visible;
+    Net.labelText = text;
 
     app.shapes.push(text);
     text.render(app.viewport.scale);
     app.viewport.addContent(text.element);
 }
 
-/**
- * Exported helper so files.js can create label texts for wires loaded
- * from file that don't already have one.
- */
-export { _createWireLabelText as createWireLabelText };
+export { _createNetText as createNetText };

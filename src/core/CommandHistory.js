@@ -4,7 +4,7 @@
  * Uses the Command pattern to track reversible operations.
  */
 
-import { freeWireLabel, bumpWireLabelCounter } from '../shapes/wire.js';
+import { freeWireLabel, bumpWireLabelCounter, freeNetName, bumpNetNameCounter } from '../shapes/wire.js';
 import { applyStickyConnections } from '../ui/modules/sticky-wires.js';
 
 /** @typedef {any} SchematicApp */
@@ -204,17 +204,19 @@ export class AddShapeCommand extends Command {
         super(`Add ${shape.type}`);
         this.app = app;
         this.shape = shape;
-        this.linkedWireLabelText = shape.type === 'wire' ? (shape.labelText || null) : null;
+        this.linkedLabelText = (shape.type === 'wire' || shape.type === 'net')
+            ? (shape.labelText || null)
+            : null;
     }
     
     /** Add the shape to the canvas. */
     execute() {
-        this.linkedWireLabelText = this.app._commandAddShape(this.shape, this.linkedWireLabelText) || this.linkedWireLabelText;
+        this.linkedLabelText = this.app._commandAddShape(this.shape, this.linkedLabelText) || this.linkedLabelText;
     }
     
     /** Remove the shape from the canvas. */
     undo() {
-        this.linkedWireLabelText = this.app._commandRemoveShape(this.shape, { preserveWireLabelRef: true }) || this.linkedWireLabelText;
+        this.linkedLabelText = this.app._commandRemoveShape(this.shape, { preserveLinkedLabelRef: true }) || this.linkedLabelText;
     }
 }
 
@@ -240,15 +242,30 @@ export class DeleteShapesCommand extends Command {
         }));
 
         const explicitShapes = new Set(shapes);
+        const linkedShapeSet = new Set();
         this.linkedLabelData = [];
+
+        const pushLinked = (labelShape, parentShape) => {
+            if (!labelShape || explicitShapes.has(labelShape) || linkedShapeSet.has(labelShape)) return;
+            linkedShapeSet.add(labelShape);
+            this.linkedLabelData.push({
+                shape: labelShape,
+                index: indexMap.get(labelShape) ?? -1,
+                parentWire: parentShape
+            });
+        };
+
         for (const data of this.shapesData) {
             const shape = data.shape;
-            if (shape.type === 'wire' && shape.labelText && !explicitShapes.has(shape.labelText)) {
-                this.linkedLabelData.push({
-                    shape: shape.labelText,
-                    index: indexMap.get(shape.labelText) ?? -1,
-                    parentWire: shape
-                });
+            if ((shape.type === 'wire' || shape.type === 'net') && shape.labelText) {
+                pushLinked(shape.labelText, shape);
+            }
+            if (shape.type === 'wire' && shape.attachedLabels instanceof Set) {
+                for (const label of shape.attachedLabels) {
+                    if (!label || label.type !== 'text' || label.fieldKey !== 'label') continue;
+                    if (label.parentComponent !== shape) continue;
+                    pushLinked(label, shape);
+                }
             }
         }
     }
@@ -389,6 +406,10 @@ export class ModifyShapeCommand extends Command {
                 shape.parentComponent.wireLabel = shape.text;
                 bumpWireLabelCounter(shape.text);
                 shape.parentComponent.invalidate();
+            } else if (shape.fieldKey === 'net' && shape.parentComponent.type === 'net') {
+                shape.parentComponent.net = shape.text;
+                shape.parentComponent.syncTextOffsetFromLabelText?.();
+                shape.parentComponent.invalidate();
             } else {
                 shape.parentComponent[shape.fieldKey] = shape.text;
             }
@@ -457,7 +478,19 @@ export class ModifyPropertyCommand extends Command {
             if (typeof item.invalidate === 'function') item.invalidate();
             // Sync field text changes back to parent component
             if (this.prop === 'text' && item.parentComponent && item.fieldKey) {
-                item.parentComponent[item.fieldKey] = val;
+                if (item.fieldKey === 'net' && item.parentComponent.type === 'net') {
+                    item.parentComponent.net = val;
+                    item.parentComponent.syncTextOffsetFromLabelText?.();
+                    item.parentComponent.invalidate();
+                } else if ((item.fieldKey === 'wireLabel' || item.fieldKey === 'label') && item.parentComponent.type === 'wire') {
+                    const prev = useNew ? entry.oldValue : entry.newValue;
+                    freeWireLabel(prev);
+                    item.parentComponent.wireLabel = val;
+                    bumpWireLabelCounter(val);
+                    item.parentComponent.invalidate();
+                } else {
+                    item.parentComponent[item.fieldKey] = val;
+                }
             }
             // Sync wireLabel property edits through the label tracking system
             if (this.prop === 'wireLabel' && item.type === 'wire') {
@@ -468,6 +501,21 @@ export class ModifyPropertyCommand extends Command {
                 if (item.labelText) {
                     item.labelText.text = val;
                     item.labelText.invalidate();
+                }
+            }
+            // Sync net property edits through the net allocation system
+            if (this.prop === 'net' && item.type === 'wire') {
+                const oldNet = useNew ? entry.oldValue : entry.newValue;
+                const newNet = useNew ? entry.newValue : entry.oldValue;
+                if (oldNet) freeNetName(oldNet);
+                if (newNet) bumpNetNameCounter(newNet);
+            }
+            if (item.type === 'net' && (this.prop === 'net' || this.prop === 'fontSize' || this.prop === 'style' || this.prop === 'orientation')) {
+                if (typeof item.syncTextOffsetFromLabelText === 'function') {
+                    item.syncTextOffsetFromLabelText();
+                }
+                if (typeof item.syncLabelText === 'function') {
+                    item.syncLabelText();
                 }
             }
             // Sync component reference/value to field text content

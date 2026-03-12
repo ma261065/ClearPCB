@@ -38,6 +38,23 @@ export class Text extends Shape {
         // Component field linkage (set externally, not via constructor)
         this.parentComponent = null;
         this.fieldKey = null;  // 'reference', 'value', or 'wireLabel'
+        this.attachment = options.attachment || null;
+    }
+
+    get followRotation() {
+        return !!this.attachment?.followRotation;
+    }
+
+    set followRotation(value) {
+        if (!this.attachment) this.attachment = { kind: 'shape', offsetX: 0, offsetY: 0 };
+        this.attachment.followRotation = !!value;
+        this.invalidate();
+    }
+
+    _syncLinkedParentAfterGeometryChange() {
+        if (this.parentComponent?.type === 'net' && this.fieldKey === 'net') {
+            this.parentComponent.syncTextOffsetFromLabelText?.();
+        }
     }
 
     /** @override — uses SVG `getBBox()` when rendered, else estimates from text length. */
@@ -151,6 +168,7 @@ export class Text extends Shape {
             this.x = x;
             this.y = y;
             this.invalidate();
+            this._syncLinkedParentAfterGeometryChange();
         }
     }
 
@@ -193,6 +211,7 @@ export class Text extends Shape {
         this.x += dx;
         this.y += dy;
         this.invalidate();
+        this._syncLinkedParentAfterGeometryChange();
     }
 
     /** @override — text shapes have no visible stroke. */
@@ -216,9 +235,19 @@ export class Text extends Shape {
     /** @override */
     captureState() {
         const state = { x: this.x, y: this.y, text: this.text, fontSize: this.fontSize, fontFamily: this.fontFamily, textAnchor: this.textAnchor, rotation: this.rotation };
+        if (this.attachment) state.attachment = { ...this.attachment };
         // Include visibility for field texts so merge/split undo restores it
         if (this.fieldKey) state.visible = this.visible;
         return state;
+    }
+
+    /** @override */
+    applyState(state) {
+        super.applyState(state);
+        if ('attachment' in state) {
+            this.attachment = state.attachment ? { ...state.attachment } : null;
+        }
+        this._syncLinkedParentAfterGeometryChange();
     }
     /** @override */
     getPropertyDescriptors() {
@@ -226,16 +255,21 @@ export class Text extends Shape {
             // Component/wire field text — show text content as editable, plus size
             const label = this.fieldKey === 'reference' ? 'Reference'
                         : this.fieldKey === 'wireLabel' ? 'Name'
+                        : this.fieldKey === 'label' ? 'Label'
                         : 'Value';
-            return [
+            const descriptors = [
                 { key: 'locked',   label: 'Locked',    type: 'checkbox' },
                 { key: 'text',     label,               type: 'text' },
                 { key: 'fontSize', label: 'Text size',  type: 'number', min: 0.5, max: 50, step: 0.5 },
             ];
+            if (this.fieldKey === 'label' && this.parentComponent && this.parentComponent.type !== 'wire') {
+                descriptors.push({ key: 'followRotation', label: 'Follow Rotation', type: 'checkbox' });
+            }
+            return descriptors;
         }
         return [
             { key: 'locked',   label: 'Locked',    type: 'checkbox' },
-            { key: 'text',     label: 'Text',       type: 'text' },
+            { key: 'text',     label: 'Label',      type: 'text' },
             { key: 'fontSize', label: 'Text size',  type: 'number', min: 0.5, max: 50, step: 0.5 },
         ];
     }
@@ -259,6 +293,9 @@ export class Text extends Shape {
         if (this.parentComponent) {
             json.cid = this.parentComponent.id;
             json.fk = this.fieldKey;
+        }
+        if (this.attachment) {
+            json.att = { ...this.attachment };
         }
         return json;
     }

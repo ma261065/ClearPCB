@@ -80,7 +80,11 @@ export class ComponentPicker {
                     <div class="cp-preview-image"></div>
                     <div class="cp-preview-title">Symbol</div>
                     <div class="cp-preview-svg"></div>
-                    <div class="cp-preview-info"></div>
+                    <div class="cp-preview-loading-overlay" style="display:none">
+                        <span class="cp-spinner"></span>
+                        <span class="cp-preview-loading-text">Loading...</span>
+                    </div>
+                    <div class="cp-preview-info"></div></div>
                     <div class="cp-preview-title">Footprint</div>
                     <div class="cp-preview-footprint"></div>
                     <div class="cp-preview-footprint-info"></div>
@@ -104,6 +108,8 @@ export class ComponentPicker {
         this.body = /** @type {HTMLElement} */ (this.element.querySelector('.cp-body'));
         this.listEl = /** @type {HTMLElement} */ (this.element.querySelector('.cp-list'));
         this.previewSvg = /** @type {HTMLElement} */ (this.element.querySelector('.cp-preview-svg'));
+        this.previewLoadingOverlay = /** @type {HTMLElement} */ (this.element.querySelector('.cp-preview-loading-overlay'));
+        this.previewLoadingText = /** @type {HTMLElement} */ (this.element.querySelector('.cp-preview-loading-text'));
         this.previewInfo = /** @type {HTMLElement} */ (this.element.querySelector('.cp-preview-info'));
         this.previewImage = /** @type {HTMLElement} */ (this.element.querySelector('.cp-preview-image'));
         this.previewFootprint = /** @type {HTMLElement} */ (this.element.querySelector('.cp-preview-footprint'));
@@ -237,6 +243,35 @@ export class ComponentPicker {
                 Searching online...
             </div>
         `;
+    }
+
+    /**
+     * Set the Place button into a loading state with a spinner, or back to ready.
+     * @param {string} text - Button label text
+     * @param {boolean} loading - If true, show spinner and disable; if false, just set text
+     * @param {boolean} [disabled] - Explicit disabled state (default: true when loading)
+     */
+    _setPlaceBtnLoading(text, loading, disabled = loading) {
+        this.placeBtn.disabled = disabled;
+        if (loading) {
+            this.placeBtn.innerHTML = `<span class="cp-spinner"></span>${text}`;
+        } else {
+            this.placeBtn.textContent = text;
+        }
+    }
+
+    /**
+     * Show/hide the large loading overlay below the symbol preview.
+     * @param {string|null} message - Message to show, or null to hide
+     */
+    _setPreviewLoading(message) {
+        if (!this.previewLoadingOverlay) return;
+        if (message) {
+            if (this.previewLoadingText) this.previewLoadingText.textContent = message;
+            this.previewLoadingOverlay.style.display = '';
+        } else {
+            this.previewLoadingOverlay.style.display = 'none';
+        }
     }
 
     /**
@@ -476,7 +511,8 @@ export class ComponentPicker {
         this._set3dPreviewStatus('Checking 3D model...', false);
 
         this.placeBtn.disabled = true;
-        this.placeBtn.textContent = 'Checking footprint...';
+        this._setPlaceBtnLoading('Checking footprint...', true);
+        this._setPreviewLoading('Loading component...');
         this.placeBtn.onclick = null;
 
                 this._loadKiCadFootprintStatus(/** @type {Object} */ (result));
@@ -595,10 +631,12 @@ export class ComponentPicker {
             this.placeBtn.onclick = ready
                 ? () => this._beginPlacement(placeDefinition, { skipFootprint3d: true })
                 : null;
+            this._setPreviewLoading(null);
         } catch (error) {
             console.error('Failed to verify KiCad footprint:', error);
             this._setFootprintPreviewStatus('Footprint check failed', false);
             this._set3dPreviewStatus('3D check failed', false);
+            this._setPreviewLoading(null);
             // Still allow placement if we have symbol data
             if (this.selectedKiCadResult) {
                 this.placeBtn.disabled = false;
@@ -619,7 +657,7 @@ export class ComponentPicker {
      */
     async _fetchAndPlaceKiCad(result) {
         this.placeBtn.disabled = true;
-        this.placeBtn.textContent = 'Fetching...';
+        this._setPlaceBtnLoading('Fetching...', true);
         
         try {
             // Use SearchManager to fetch from KiCad
@@ -926,7 +964,8 @@ export class ComponentPicker {
         this._set3dPreviewStatus('Loading 3D data...', false);
 
         this.placeBtn.disabled = true;
-        this.placeBtn.textContent = 'Preparing...';
+        this._setPlaceBtnLoading('Preparing...', true);
+        this._setPreviewLoading('Loading component...');
         this.placeBtn.onclick = null;
 
         await this._loadEasyEDADetailForPreview(result);
@@ -1004,10 +1043,12 @@ export class ComponentPicker {
             this.placeBtn.disabled = false;
             this.placeBtn.textContent = 'Place Component';
             this.placeBtn.onclick = () => this._placePrefetchedLCSC(result);
+            this._setPreviewLoading(null);
         } catch (error) {
             console.error('Failed to load EasyEDA detail:', error);
             this._setFootprintPreviewStatus('Footprint load failed', false);
             this._set3dPreviewStatus('3D load failed', false);
+            this._setPreviewLoading(null);
             this.placeBtn.disabled = true;
             this.placeBtn.textContent = 'Missing footprint/3D';
             this.placeBtn.onclick = null;
@@ -1021,7 +1062,7 @@ export class ComponentPicker {
      */
     async _fetchAndPlace(result) {
         this.placeBtn.disabled = true;
-        this.placeBtn.textContent = 'Placing...';
+        this._setPlaceBtnLoading('Placing...', true);
 
         let fetchedDefinition = null;
         
@@ -1077,7 +1118,7 @@ export class ComponentPicker {
      */
     async _placePrefetchedLCSC(result) {
         this.placeBtn.disabled = true;
-        this.placeBtn.textContent = 'Placing...';
+        this._setPlaceBtnLoading('Placing...', true);
 
         try {
             if (result?._detailPromise) {
@@ -1279,6 +1320,9 @@ export class ComponentPicker {
         if (!definition) return;
         this.selectedComponent = this._normalizeDefinition(definition);
         this._updatePreview(this.selectedComponent, { skipFootprint3d: !!options.skipFootprint3d });
+
+        this._setPlaceBtnLoading('Place Component', false, true);
+        this._setPreviewLoading(null);
 
         this.eventBus.emit('component:selected', this.selectedComponent);
     }

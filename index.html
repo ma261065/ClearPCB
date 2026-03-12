@@ -50,21 +50,21 @@
                             <button class="ribbon-tool-btn" data-tool="rect" title="Rectangle (R)">▢ Rectangle</button>
                             <button class="ribbon-tool-btn" data-tool="circle" title="Circle (C)">○ Circle</button>
                             <button class="ribbon-tool-btn" data-tool="arc" title="Arc (A)">◠ Arc</button>
-                            <button class="ribbon-tool-btn" data-tool="line" title="Line (L)">╱ Line</button>
+                            <button class="ribbon-tool-btn" data-tool="line" title="Line (I)">╱ Line</button>
                             <button class="ribbon-tool-btn" data-tool="polygon" title="Polygon (P)">⬠ Polygon</button>
-                            <button class="ribbon-tool-btn" data-tool="text" title="Text (T)">T Text</button>
-                            <div class="dropdown ribbon-netlabel-dropdown" id="ribbonNetLabelDropdown">
-                                <button class="ribbon-tool-btn" id="ribbonNetLabelTool" data-tool="netlabel" title="Net Label (N)">┤ Net Label</button>
-                                <button class="ribbon-tool-btn ribbon-netlabel-style-btn" id="ribbonNetLabelStyleBtn" title="Net Label style">▾</button>
-                                <div class="dropdown-menu" id="ribbonNetLabelStyleMenu" aria-label="Net label style">
-                                    <button class="dropdown-item" data-netlabel-style="t" type="button">┤ T</button>
-                                    <button class="dropdown-item" data-netlabel-style="gnd" type="button">⏚ GND</button>
-                                    <button class="dropdown-item" data-netlabel-style="arrow" type="button">➤ Arrow</button>
-                                    <button class="dropdown-item" data-netlabel-style="chevron" type="button">❯ Chevron</button>
+                            <button class="ribbon-tool-btn" data-tool="text" title="Label (L)"><svg width="11" height="8" viewBox="0 0 11 8" style="vertical-align:middle;margin-right:2px"><path d="M0.5 1.5 Q0.5 0.5 1.5 0.5 H6.5 L10.5 4 L6.5 7.5 H1.5 Q0.5 7.5 0.5 6.5 Z" fill="none" stroke="currentColor" stroke-width="1"/><circle cx="3" cy="4" r="0.8" fill="currentColor"/></svg>Label</button>
+                            <div class="dropdown ribbon-net-dropdown" id="ribbonNetDropdown">
+                                <button class="ribbon-tool-btn" id="ribbonNetTool" data-tool="net" title="Net (N)">┤ Net</button>
+                                <button class="ribbon-tool-btn ribbon-net-style-btn" id="ribbonNetStyleBtn" title="Net style">▾</button>
+                                <div class="dropdown-menu" id="ribbonNetStyleMenu" aria-label="Net style">
+                                    <button class="dropdown-item" data-net-style="t" type="button">┤ T</button>
+                                    <button class="dropdown-item" data-net-style="gnd" type="button">⏚ GND</button>
+                                    <button class="dropdown-item" data-net-style="arrow" type="button">➤ Arrow</button>
+                                    <button class="dropdown-item" data-net-style="chevron" type="button">❯ Chevron</button>
                                 </div>
                             </div>
                             <button class="ribbon-tool-btn" data-tool="noconnect" title="No Connect (X)">✕ No Connect</button>
-                            <button class="ribbon-tool-btn" data-tool="component" title="Component (I)">⊞ Component</button>
+                            <button class="ribbon-tool-btn" data-tool="component" title="Component (O)">⊞ Component</button>
                         </div>
                         <div class="ribbon-shape-options" id="ribbonShapeOptions"></div>
                     </div>
@@ -155,14 +155,14 @@
                         <div class="help-row"><span><kbd>Ctrl+Z</kbd> Undo</span></div>
                         <div class="help-row"><span><kbd>Ctrl+Y</kbd> Redo</span></div>
                         <div class="help-row"><span><kbd>V</kbd> Select</span></div>
-                        <div class="help-row"><span><kbd>L</kbd> Line</span></div>
+                        <div class="help-row"><span><kbd>I</kbd> Line</span></div>
                         <div class="help-row"><span><kbd>W</kbd> Wire</span></div>
                         <div class="help-row"><span><kbd>R</kbd> Rectangle</span></div>
                         <div class="help-row"><span><kbd>C</kbd> Circle</span></div>
                         <div class="help-row"><span><kbd>A</kbd> Arc</span></div>
                         <div class="help-row"><span><kbd>P</kbd> Polygon</span></div>
-                        <div class="help-row"><span><kbd>T</kbd> Text</span></div>
-                        <div class="help-row"><span><kbd>N</kbd> Net Label</span></div>
+                        <div class="help-row"><span><kbd>L</kbd> Label</span></div>
+                        <div class="help-row"><span><kbd>N</kbd> Net</span></div>
                         <div class="help-row"><span><kbd>X</kbd> No Connect</span></div>
                         <div class="help-row"><span><kbd>Space</kbd> Rotate component</span></div>
                         <div class="help-row"><span><kbd>X</kbd> Flip H (component)</span></div>
@@ -173,7 +173,8 @@
                         <div class="help-row"><span><kbd>Drag shape</kbd> Move</span></div>
                         <div class="help-row"><span><kbd>Drag anchor</kbd> Resize/Edit</span></div>
                         <div class="help-row"><span><kbd>Drag empty</kbd> Box select</span></div>
-                        <div class="help-row"><span><kbd>Ctrl+Click</kbd> Multi-select</span></div>
+                        <div class="help-row"><span><kbd>Ctrl+Click</kbd> Multi-select / Cycle stacked</span></div>
+                        <div class="help-row"><span><kbd>Shift+Drag</kbd> Relax grid snap</span></div>
                         <div class="help-row"><span><kbd>Right-drag</kbd> Pan</span></div>
                         <div class="help-row"><span><kbd>Scroll</kbd> Zoom</span></div>
                         <div class="help-row"><span id="version-display" class="help-version"></span></div>

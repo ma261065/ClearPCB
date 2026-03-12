@@ -173,6 +173,13 @@ export class Component {
         const fields = [];
         if (this.refText) fields.push(this.refText);
         if (this.valueText) fields.push(this.valueText);
+        if (this.attachedLabels instanceof Set) {
+            for (const label of this.attachedLabels) {
+                if (label?.type === 'text' && label.fieldKey === 'label') {
+                    fields.push(label);
+                }
+            }
+        }
         return fields;
     }
 

@@ -1,6 +1,7 @@
-import { Line, Circle, Rect, Arc, Polygon, Text, NetLabel, NoConnect } from '../../shapes/index.js';
+import { Line, Circle, Rect, Arc, Polygon, Text, Net, NoConnect } from '../../shapes/index.js';
 import { circumcircle, projectOntoChordBisector, clampBulgePoint } from '../../core/geometry.js';
-import { normalizeNetLabelOrientation, normalizeNetLabelStyle } from '../../shapes/netlabel.js';
+import { normalizeNetOrientation, normalizeNetStyle } from '../../shapes/net.js';
+import { validateNetNameAtPoint } from './net-validation.js';
 
 /**
  * Allocate the lowest unused default net name in the current document.
@@ -8,10 +9,10 @@ import { normalizeNetLabelOrientation, normalizeNetLabelStyle } from '../../shap
  * @param {object} app - Application state.
  * @returns {string}
  */
-function nextNetLabelName(app) {
+function nextNetName_(app) {
     const used = new Set();
     for (const shape of app.shapes) {
-        if (shape?.type !== 'netlabel' || typeof shape.net !== 'string') continue;
+        if (shape?.type !== 'net' || typeof shape.net !== 'string') continue;
         const m = shape.net.trim().match(/^NET(\d+)$/i);
         if (m) used.add(Number(m[1]));
     }
@@ -20,10 +21,10 @@ function nextNetLabelName(app) {
     return `NET${i}`;
 }
 
-function defaultNetLabelText(app, style) {
+function defaultNetText(app, style) {
     if (style === 'gnd') return 'Gnd';
     if (style === 'arrow') return 'VCC';
-    return nextNetLabelName(app);
+    return nextNetName_(app);
 }
 
 /**
@@ -84,7 +85,7 @@ export function finishDrawing(app, worldPos) {
     const shape = createShapeFromDrawing(app);
     if (shape) {
         app.addShape(shape);
-        if (shape.type === 'text' || shape.type === 'netlabel') {
+        if (shape.type === 'text') {
             app._startTextEdit?.(shape);
         }
     }
@@ -444,15 +445,22 @@ export function createShapeFromDrawing(app) {
             });
         }
 
-        case 'netlabel': {
-            const style = normalizeNetLabelStyle(app.toolOptions.netLabelStyle || 't');
-            return new NetLabel({
+        case 'net': {
+            const style = normalizeNetStyle(app.toolOptions.netStyle || 't');
+            const net = defaultNetText(app, style);
+            const validation = validateNetNameAtPoint(app, { x: start.x, y: start.y }, net);
+            if (!validation.ok) {
+                const conflict = validation.conflictWith || 'an existing net';
+                alert(`Cannot place net "${net}" on this connected wire. Net is already labeled "${conflict}".`);
+                return null;
+            }
+            return new Net({
                 x: start.x,
                 y: start.y,
-                net: defaultNetLabelText(app, style),
-                fontSize: app.toolOptions.netLabelFontSize || 1.4,
+                net,
+                fontSize: app.toolOptions.netFontSize || 1.4,
                 style,
-                orientation: normalizeNetLabelOrientation(app.toolOptions.netLabelOrientation || 'N')
+                orientation: normalizeNetOrientation(app.toolOptions.netOrientation || 'N')
             });
         }
 

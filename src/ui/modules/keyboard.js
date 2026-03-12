@@ -1,8 +1,9 @@
 import { clearDragState } from './mouse.js';
 import { ModifyPropertyCommand } from '../../core/CommandHistory.js';
-import { rotateNetLabelOrientation } from '../../shapes/netlabel.js';
+import { rotateNetOrientation } from '../../shapes/net.js';
 import { resolveWireSnapPosition, PIN_SNAP_TOL } from './wire.js';
 import { updateToolGhost } from './tool.js';
+import { updateLabelDragGuide } from './draw-states.js';
 
 /**
  * Central Escape key handler. Uses app.interactionState to determine
@@ -234,7 +235,7 @@ export function bindKeyboardShortcuts(app) {
                     break;
                 case 'l':
                 case 'L':
-                    app._onToolSelected('line');
+                    app._onToolSelected('text');
                     break;
                 case 'w':
                 case 'W':
@@ -252,13 +253,13 @@ export function bindKeyboardShortcuts(app) {
                 case 'P':
                     app._onToolSelected('polygon');
                     break;
-                case 't':
-                case 'T':
-                    app._onToolSelected('text');
+                case 'i':
+                case 'I':
+                    app._onToolSelected('line');
                     break;
                 case 'n':
                 case 'N':
-                    app._onToolSelected('netlabel');
+                    app._onToolSelected('net');
                     break;
                 case 'x':
                 case 'X':
@@ -314,11 +315,11 @@ export function bindKeyboardShortcuts(app) {
                         }
                     }
 
-                    // Spacebar: rotate netlabel orientation while placing
-                    if (!app.textEdit && app.currentTool === 'netlabel') {
-                        const current = app.toolOptions?.netLabelOrientation || 'E';
-                        const next = rotateNetLabelOrientation(current);
-                        app._onOptionsChanged?.({ netLabelOrientation: next });
+                    // Spacebar: rotate Net orientation while placing
+                    if (!app.textEdit && app.currentTool === 'net') {
+                        const current = app.toolOptions?.netOrientation || 'E';
+                        const next = rotateNetOrientation(current);
+                        app._onOptionsChanged?.({ netOrientation: next });
 
                         const world = app.viewport.currentMouseWorld;
                         if (world) {
@@ -340,12 +341,16 @@ export function bindKeyboardShortcuts(app) {
                             app.history.execute(cmd);
                             app.renderShapes(true);
                             app._updatePropertiesPanel(sel);
+                            if (sel.length === 1 && sel[0].parentComponent) {
+                                updateLabelDragGuide(app, sel[0]);
+                            }
                             e.preventDefault();
                         }
                     }
                     break;
-                case 'i':
-                case 'I':
+                case 'o':
+                case 'O':
+                    e.preventDefault();
                     app._onToolSelected('component');
                     break;
                 case 'f':

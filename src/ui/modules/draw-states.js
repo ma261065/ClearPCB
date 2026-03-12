@@ -18,10 +18,12 @@
 
 import { updateStickyWires, updateSnapHighlight, resolveWireSnapPosition, renderGuideLines, computeAnchorCollinearSnap, computeSegmentDragSnap, computeStickyWireSnaps, applyOffGridNeighborSnap, buildCollinearChain, SNAP_SCREEN_PX, COLLINEAR_EPSILON, VERTEX_EPSILON, PIN_SNAP_TOL } from './wire.js';
 import { commitAnchorDrag, clearDragState, commitMoveDrag, commitSegmentDrag, resolveAnchorDragOnMouseUp, revertSegmentDragIfNoMove, areCapturedStatesEqual } from './drag.js';
-import { detectTJunction, showAnchorContextMenu, showSegmentContextMenu } from './context-menu.js';
+import { detectTJunction, showAnchorContextMenu, showSegmentContextMenu, showLabelContextMenu } from './context-menu.js';
 import { updateToolGhost } from './tool.js';
 import { ModifyShapeCommand } from '../../core/CommandHistory.js';
 import { collapseRedundantWirePoints } from './wire.js';
+import { Text } from '../../shapes/text.js';
+import { attachLabelToTarget, refreshLabelAttachmentOffset, getLabelAttachmentAnchorPoint, getLabelDropHotspot } from './label-attachment.js';
 
 // ─── Constants ─────────────────────────────────────────────────────
 
@@ -69,10 +71,6 @@ export function getEventPositions(e, viewport) {
 
 function isAdditiveSelectionModifier(event) {
     return !!(event?.ctrlKey || event?.metaKey);
-}
-
-function isCycleSelectionModifier(event) {
-    return !!(event?.shiftKey && !event?.ctrlKey && !event?.metaKey);
 }
 
 function activateHomeTabIfFileTabOpen(app) {
@@ -187,10 +185,77 @@ function finalizeDragInteraction(app, options = {}) {
     }
     app._hideCrosshair();
     app._removeBoxSelectElement();
+    if (app._labelDragGuide) {
+        app._labelDragGuide.remove();
+        app._labelDragGuide = null;
+    }
+    app._labelDragHoverTarget = null;
 
     clearDragState(app);
     app.renderShapes(true);
     if (options.refreshTextEdit && app.textEdit) app._updateTextEditOverlay?.();
+}
+
+export function updateLabelDragGuide(app, labelShape) {
+    if (!labelShape || labelShape.type !== 'text' || !labelShape.parentComponent) {
+        if (app._labelDragGuide) {
+            app._labelDragGuide.remove();
+            app._labelDragGuide = null;
+        }
+        return;
+    }
+
+    const hotspot = getLabelDropHotspot(labelShape, { x: labelShape.x, y: labelShape.y });
+    const anchor = getLabelAttachmentAnchorPoint(labelShape, hotspot);
+    if (!anchor) {
+        if (app._labelDragGuide) {
+            app._labelDragGuide.remove();
+            app._labelDragGuide = null;
+        }
+        return;
+    }
+
+    // Guide line endpoint: center of text at baseline, rotated to world space
+    let guideEndX, guideEndY;
+    {
+        const approxWidth = (labelShape.text?.length || 1) * (labelShape.fontSize || 2) * 0.6;
+        let localMinX = labelShape.x;
+        if (labelShape.textAnchor === 'middle') {
+            localMinX = labelShape.x - approxWidth / 2;
+        } else if (labelShape.textAnchor === 'end') {
+            localMinX = labelShape.x - approxWidth;
+        }
+        const localCX = localMinX + approxWidth / 2;
+        const localBY = labelShape.y;
+
+        if (labelShape.rotation) {
+            const rad = (labelShape.rotation * Math.PI) / 180;
+            const cos = Math.cos(rad), sin = Math.sin(rad);
+            const dx = localCX - labelShape.x, dy = localBY - labelShape.y;
+            guideEndX = labelShape.x + dx * cos - dy * sin;
+            guideEndY = labelShape.y + dx * sin + dy * cos;
+        } else {
+            guideEndX = localCX;
+            guideEndY = localBY;
+        }
+    }
+
+    let guide = app._labelDragGuide;
+    if (!guide) {
+        guide = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+        guide.setAttribute('stroke', 'var(--sch-selection, #3399ff)');
+        guide.setAttribute('stroke-width', String(Math.max(0.15, 1.2 / app.viewport.scale)));
+        guide.setAttribute('stroke-dasharray', `${Math.max(0.6, 3 / app.viewport.scale)} ${Math.max(0.4, 2 / app.viewport.scale)}`);
+        guide.setAttribute('opacity', '0.45');
+        guide.setAttribute('pointer-events', 'none');
+        app.viewport.contentLayer.appendChild(guide);
+        app._labelDragGuide = guide;
+    }
+
+    guide.setAttribute('x1', String(anchor.x));
+    guide.setAttribute('y1', String(anchor.y));
+    guide.setAttribute('x2', String(guideEndX));
+    guide.setAttribute('y2', String(guideEndY));
 }
 
 // ─── Drag session setup ────────────────────────────────────────────
@@ -405,8 +470,58 @@ function handleSegmentContextMenu(app, worldPos, clientX, clientY) {
 }
 
 function handleSelectContextMenu(app, worldPos, clientX, clientY) {
+    const hit = app.selection.hitTest(worldPos);
+    if (hit?.type === 'text' && hit.parentComponent && hit.fieldKey === 'label') {
+        selectContextTargetShape(app, hit);
+        showLabelContextMenu(app, hit, clientX, clientY);
+        return true;
+    }
     if (handleAnchorContextMenu(app, worldPos, clientX, clientY)) return true;
     return handleSegmentContextMenu(app, worldPos, clientX, clientY);
+}
+
+function resolveLabelAttachTarget(app, probePos, excludeShape = null) {
+    const hitComponent = app._findComponentAt?.(probePos);
+    if (hitComponent && hitComponent !== excludeShape) {
+        return {
+            target: hitComponent,
+            snapPos: { x: probePos.x, y: probePos.y }
+        };
+    }
+
+    const wireTolerance = SNAP_SCREEN_PX / app.viewport.scale;
+    for (let i = app.shapes.length - 1; i >= 0; i--) {
+        const shape = app.shapes[i];
+        if (!shape || shape === excludeShape || shape.type !== 'wire' || shape._culled || !shape.visible) continue;
+        const edgeId = shape.hitTestEdge?.(probePos, wireTolerance);
+        if (!edgeId) continue;
+        const nearest = shape.closestEdge?.(probePos);
+        return {
+            target: shape,
+            snapPos: nearest?.point ? { x: nearest.point.x, y: nearest.point.y } : { x: probePos.x, y: probePos.y }
+        };
+    }
+
+    const hits = app.selection.hitTest(probePos, true);
+    const hit = Array.isArray(hits)
+        ? hits.find(s => s && s !== excludeShape && s.type !== 'text')
+        : null;
+    if (!hit) return null;
+
+    if (hit.type === 'wire' && typeof hit.closestEdge === 'function') {
+        const nearest = hit.closestEdge(probePos);
+        if (nearest?.point) {
+            return {
+                target: hit,
+                snapPos: { x: nearest.point.x, y: nearest.point.y }
+            };
+        }
+    }
+
+    return {
+        target: hit,
+        snapPos: { x: probePos.x, y: probePos.y }
+    };
 }
 
 // ─── Wire segment drag helpers ─────────────────────────────────────
@@ -685,26 +800,16 @@ export const idleState = {
         // Hit test for shape selection/drag
         let hitShape = app.selection.hitTest(worldPos);
 
-        // Shift-click cycle
-        if (isCycleSelectionModifier(event)) {
-            const nextShape = getNextCycleHitShape(app, worldPos);
-            if (nextShape) selectOnlyShapeAndRender(app, nextShape);
-            app.skipClickSelection = true;
-            event.preventDefault();
-            return;
-        }
-
         if (hitShape) {
-            // Netlabel sub-part tracking
-            if (hitShape.type === 'netlabel') {
-                const clickedAnchor = hitShape.hitTestAnchor(worldPos, app.viewport.scale);
-                hitShape._selectedSubPart = clickedAnchor === 'text' ? 'text' : 'symbol';
-            }
-
-            // Ctrl/Cmd additive toggle
+            // Ctrl/Cmd: add to selection if unselected, cycle stacked if already selected
             if (isAdditiveSelectionModifier(event)) {
-                app.selection.toggle(hitShape);
-                app.renderShapes(true);
+                if (hitShape.selected) {
+                    const nextShape = getNextCycleHitShape(app, worldPos);
+                    if (nextShape) selectOnlyShapeAndRender(app, nextShape);
+                } else {
+                    app.selection.toggle(hitShape);
+                    app.renderShapes(true);
+                }
                 app.skipClickSelection = true;
                 event.preventDefault();
                 return;
@@ -857,12 +962,30 @@ export const toolActiveState = {
             return;
         }
 
-        if (tool === 'noconnect' || tool === 'netlabel') {
+        if (tool === 'noconnect' || tool === 'net') {
             const { resolved, pos } = resolvePinSnapPlacement(app, worldPos);
             app._drawSnapResult = resolved;
             if (!app.isDrawing) { app._startDrawing(pos); }
             else { app._finishDrawing(pos); }
             updateToolGhost(app, pos);
+            return;
+        }
+
+        if (tool === 'text') {
+            const attach = resolveLabelAttachTarget(app, worldPos);
+            const placePos = attach ? attach.snapPos : snapped;
+            const shape = new Text({
+                x: placePos.x,
+                y: placePos.y,
+                text: '',
+                fontSize: app.toolOptions.fontSize || 2.0
+            });
+            attachLabelToTarget(shape, attach?.target || null, attach?.snapPos || null, { isNewLabel: true });
+            app.addShape(shape);
+            app._startTextEdit?.(shape);
+            app.interactionState = 'toolActive';
+            app.renderShapes(true);
+            event.preventDefault();
             return;
         }
 
@@ -888,10 +1011,15 @@ export const toolActiveState = {
         }
 
         // Pin-snap tool hover
-        if (tool === 'noconnect' || tool === 'netlabel') {
+        if (tool === 'noconnect' || tool === 'net') {
             const { resolved, pos } = resolvePinSnapPlacement(app, worldPos);
             updateSnapHighlight(app, resolved);
             updateToolGhost(app, pos);
+        }
+
+        if (tool === 'text') {
+            const attach = resolveLabelAttachTarget(app, worldPos);
+            updateSnapHighlight(app, attach ? { x: attach.snapPos.x, y: attach.snapPos.y, type: 'attach' } : null);
         }
 
         updateToolCrosshair(app, snapped, screenPos);
@@ -960,7 +1088,7 @@ export const drawingState = {
             return;
         }
 
-        if (tool === 'noconnect' || tool === 'netlabel') {
+        if (tool === 'noconnect' || tool === 'net') {
             const { resolved, pos } = resolvePinSnapPlacement(app, worldPos);
             app._drawSnapResult = resolved;
             app._finishDrawing(pos);
@@ -989,7 +1117,7 @@ export const drawingState = {
             return;
         }
 
-        if (tool === 'noconnect' || tool === 'netlabel') {
+        if (tool === 'noconnect' || tool === 'net') {
             const { resolved, pos } = resolvePinSnapPlacement(app, worldPos);
             updateSnapHighlight(app, resolved);
             updateToolGhost(app, pos);
@@ -1079,6 +1207,28 @@ export const moveDragState = {
     mousemove(app, event, { worldPos }) {
         if (app.viewport.isPanning) return;
 
+        const selNow = app.selection.getSelection();
+        if (selNow.length === 1 && selNow[0]?.type === 'text') {
+            const labelShape = selNow[0];
+            const hotspot = getLabelDropHotspot(labelShape, worldPos);
+            const attach = resolveLabelAttachTarget(app, hotspot, labelShape);
+            updateSnapHighlight(app, attach ? { x: attach.snapPos.x, y: attach.snapPos.y, type: 'attach' } : null);
+            updateLabelDragGuide(app, labelShape);
+
+            // Invalidate old and new parents when hover target changes
+            const newTarget = attach?.target || null;
+            const oldTarget = app._labelDragHoverTarget || null;
+            if (newTarget !== oldTarget) {
+                if (oldTarget) oldTarget.invalidate?.();
+                if (labelShape.parentComponent) labelShape.parentComponent.invalidate?.();
+                if (newTarget) newTarget.invalidate?.();
+                app._labelDragHoverTarget = newTarget;
+            }
+        } else {
+            updateLabelDragGuide(app, null);
+            app._labelDragHoverTarget = null;
+        }
+
         const mouseDelta = { x: worldPos.x - app.drag.startWorldPos.x, y: worldPos.y - app.drag.startWorldPos.y };
         const targetPos = { x: app.drag.objectStartPos.x + mouseDelta.x, y: app.drag.objectStartPos.y + mouseDelta.y };
         const sel = app.selection.getSelection();
@@ -1098,6 +1248,12 @@ export const moveDragState = {
                 if (shape.locked) continue;
                 if (shape.parentComponent && movingCompIds.has(shape.parentComponent.id)) continue;
                 shape.move(dx, dy);
+
+                for (const maybeLabel of app.shapes) {
+                    if (maybeLabel?.type !== 'text') continue;
+                    if (maybeLabel.parentComponent !== shape || maybeLabel.fieldKey !== 'label') continue;
+                    maybeLabel.move(dx, dy);
+                }
             }
             if (movingCompIds.size > 0) {
                 updateStickyWires(app);
@@ -1114,6 +1270,24 @@ export const moveDragState = {
 
     mouseup(app, event, { worldPos }) {
         if (event.button !== 0) return;
+
+        const sel = app.selection.getSelection();
+        if (sel.length === 1 && sel[0]?.type === 'text') {
+            const labelShape = sel[0];
+            const oldParent = labelShape.parentComponent;
+            const hotspot = getLabelDropHotspot(labelShape, worldPos);
+            const attach = resolveLabelAttachTarget(app, hotspot, labelShape);
+            if (attach?.target) {
+                attachLabelToTarget(labelShape, attach.target, attach.snapPos || null, { isNewLabel: false });
+            } else if (labelShape.parentComponent && labelShape.fieldKey === 'label') {
+                refreshLabelAttachmentOffset(labelShape);
+            }
+            // Clear blue tint on old owner if ownership changed
+            if (oldParent && oldParent !== labelShape.parentComponent) {
+                oldParent.invalidate?.();
+            }
+        }
+
         handleDragEnd(app);
     }
 };

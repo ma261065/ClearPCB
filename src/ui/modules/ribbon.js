@@ -7,14 +7,14 @@ import { hasClipboard } from './clipboard.js';
  * @param {object} app - Application state.
  */
 export function bindRibbon(app) {
-    const NETLABEL_STYLE_META = {
+    const net_STYLE_META = {
         t: { icon: '┤', title: 'T' },
         gnd: { icon: '⏚', title: 'GND' },
         arrow: { icon: '➤', title: 'Arrow' },
         chevron: { icon: '❯', title: 'Chevron' }
     };
 
-    const normalizeNetLabelStyle = (style) => {
+    const normalizenetStyle = (style) => {
         if (style === 'gnd' || style === 'arrow' || style === 'chevron') return style;
         return 't';
     };
@@ -26,22 +26,22 @@ export function bindRibbon(app) {
         chevron: 'N'
     };
 
-    const updateNetLabelToolButton = () => {
-        const button = /** @type {HTMLButtonElement|null} */ (document.getElementById('ribbonNetLabelTool'));
+    const updateNetToolButton = () => {
+        const button = /** @type {HTMLButtonElement|null} */ (document.getElementById('ribbonNetTool'));
         if (!button) return;
-        const style = normalizeNetLabelStyle(app.toolOptions?.netLabelStyle || 't');
-        const meta = NETLABEL_STYLE_META[style] || NETLABEL_STYLE_META.t;
-        button.textContent = `${meta.icon} Net Label`;
-        button.title = `Net Label (${meta.title}) (N)`;
+        const style = normalizenetStyle(app.toolOptions?.netStyle || 't');
+        const meta = net_STYLE_META[style] || net_STYLE_META.t;
+        button.textContent = `${meta.icon} Net`;
+        button.title = `Net (${meta.title}) (N)`;
     };
 
-    const updateNetLabelStyleMenuState = () => {
-        const menu = /** @type {HTMLElement|null} */ (document.getElementById('ribbonNetLabelStyleMenu'));
+    const updatenetStyleMenuState = () => {
+        const menu = /** @type {HTMLElement|null} */ (document.getElementById('ribbonNetStyleMenu'));
         if (!menu) return;
-        const style = normalizeNetLabelStyle(app.toolOptions?.netLabelStyle || 't');
-        menu.querySelectorAll('[data-netlabel-style]').forEach(item => {
+        const style = normalizenetStyle(app.toolOptions?.netStyle || 't');
+        menu.querySelectorAll('[data-net-style]').forEach(item => {
             const el = /** @type {HTMLElement} */ (item);
-            el.classList.toggle('active', (el.dataset.netlabelStyle || 't') === style);
+            el.classList.toggle('active', (el.dataset.netStyle || 't') === style);
         });
     };
 
@@ -169,39 +169,39 @@ export function bindRibbon(app) {
         });
     });
 
-    updateNetLabelToolButton();
-    updateNetLabelStyleMenuState();
-    const netLabelDropdown = /** @type {HTMLElement|null} */ (document.getElementById('ribbonNetLabelDropdown'));
-    const netLabelStyleBtn = /** @type {HTMLButtonElement|null} */ (document.getElementById('ribbonNetLabelStyleBtn'));
-    const netLabelStyleMenu = /** @type {HTMLElement|null} */ (document.getElementById('ribbonNetLabelStyleMenu'));
-    if (netLabelDropdown && netLabelStyleBtn && netLabelStyleMenu) {
-        const closeNetLabelStyleMenu = () => netLabelStyleMenu.classList.remove('open');
-        netLabelStyleBtn.addEventListener('click', (e) => {
+    updateNetToolButton();
+    updatenetStyleMenuState();
+    const netDropdown = /** @type {HTMLElement|null} */ (document.getElementById('ribbonNetDropdown'));
+    const netStyleBtn = /** @type {HTMLButtonElement|null} */ (document.getElementById('ribbonNetStyleBtn'));
+    const netStyleMenu = /** @type {HTMLElement|null} */ (document.getElementById('ribbonNetStyleMenu'));
+    if (netDropdown && netStyleBtn && netStyleMenu) {
+        const closenetStyleMenu = () => netStyleMenu.classList.remove('open');
+        netStyleBtn.addEventListener('click', (e) => {
             e.preventDefault();
             e.stopPropagation();
-            updateNetLabelStyleMenuState();
-            netLabelStyleMenu.classList.toggle('open');
+            updatenetStyleMenuState();
+            netStyleMenu.classList.toggle('open');
         });
 
-        netLabelStyleMenu.querySelectorAll('[data-netlabel-style]').forEach(item => {
+        netStyleMenu.querySelectorAll('[data-net-style]').forEach(item => {
             item.addEventListener('click', (e) => {
                 e.preventDefault();
                 e.stopPropagation();
                 const target = /** @type {HTMLElement} */ (item);
-                const style = normalizeNetLabelStyle(target.dataset.netlabelStyle || 't');
+                const style = normalizenetStyle(target.dataset.netStyle || 't');
                 const orientation = defaultOrientationByStyle[style] || 'E';
-                app._onOptionsChanged?.({ netLabelStyle: style, netLabelOrientation: orientation });
-                updateNetLabelToolButton();
-                updateNetLabelStyleMenuState();
-                closeNetLabelStyleMenu();
-                app._onToolSelected('netlabel');
+                app._onOptionsChanged?.({ netStyle: style, netOrientation: orientation });
+                updateNetToolButton();
+                updatenetStyleMenuState();
+                closenetStyleMenu();
+                app._onToolSelected('net');
             });
         });
 
         document.addEventListener('click', (e) => {
             const target = /** @type {Node|null} */ (e.target);
-            if (!target || !netLabelDropdown.contains(target)) {
-                closeNetLabelStyleMenu();
+            if (!target || !netDropdown.contains(target)) {
+                closenetStyleMenu();
             }
         });
     }
@@ -226,8 +226,8 @@ export function bindRibbon(app) {
     // Update ribbon when tool changes (e.g. enable Fill/Line Width for shapes)
     app.eventBus.on('toolChanged', (toolId) => {
         updateShapePanelOptions(app, app.selection.getSelection(), toolId);
-        updateNetLabelToolButton();
-        updateNetLabelStyleMenuState();
+        updateNetToolButton();
+        updatenetStyleMenuState();
     });
 }
 
@@ -254,7 +254,7 @@ export function updateShapePanelOptions(app, selection, toolIdArg) {
 
     const toolSupportsLineWidth = ['line', 'rect', 'circle', 'arc', 'polygon'].includes(toolId);
     const toolSupportsFill = ['rect', 'circle', 'polygon'].includes(toolId);
-    const toolSupportsFontSize = ['text', 'netlabel'].includes(toolId);
+    const toolSupportsFontSize = ['text', 'net'].includes(toolId);
 
     if (!toolSupportsLineWidth && !toolSupportsFill && !toolSupportsFontSize) {
         container.innerHTML = '';
@@ -297,22 +297,22 @@ export function updateShapePanelOptions(app, selection, toolIdArg) {
 
     if (toolSupportsFontSize) {
         const label = document.createElement('label');
-        label.textContent = 'Text size ';
+        label.textContent = toolId === 'text' ? 'Label size ' : 'Text size ';
         const input = document.createElement('input');
         input.type = 'number';
         input.id = 'ribbonShapeFontSize';
         input.step = '0.5';
         input.min = '0.5';
         input.max = '50';
-        if (toolId === 'netlabel') {
-            input.value = app.toolOptions?.netLabelFontSize ?? 1.4;
+        if (toolId === 'net') {
+            input.value = app.toolOptions?.netFontSize ?? 1.4;
         } else {
             input.value = app.toolOptions?.fontSize ?? 2.0;
         }
         input.addEventListener('change', () => {
             const v = parseFloat(input.value);
             if (Number.isNaN(v)) return;
-            if (toolId === 'netlabel') app.toolOptions.netLabelFontSize = v;
+            if (toolId === 'net') app.toolOptions.netFontSize = v;
             else app.toolOptions.fontSize = v;
         });
         label.appendChild(input);

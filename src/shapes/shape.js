@@ -208,6 +208,9 @@ export class Shape {
         let strokeColor = this._colorToCSS(this.color);
         const shapeWithFill = /** @type {{fillColor?: string|number|null}} */ (this);
         let fillColor = this._colorToCSS(shapeWithFill.fillColor ?? this.color);
+        const attachedLabels = /** @type {any} */ (this).attachedLabels;
+        const attachedActive = attachedLabels instanceof Set
+            && Array.from(attachedLabels).some(label => label?.selected || label?.hovered);
         
         if (this.selected) {
             strokeColor = '#e94560';
@@ -221,6 +224,9 @@ export class Shape {
         } else if (this.hovered) {
             strokeColor = '#ffeaa7';
             fillColor = '#ffeaa7';
+        } else if (attachedActive) {
+            strokeColor = 'var(--sch-selection, #3399ff)';
+            fillColor = 'var(--sch-selection, #3399ff)';
         }
         
         // Update element

@@ -949,6 +949,13 @@ export class KiCadFetcher {
             this._onProgress = onProgress;
         }
 
+        // Wait for StorageManager to finish loading from IndexedDB
+        // before checking the cache, otherwise we'd miss cached data.
+        await storageManager.ready;
+
+        // Re-check — hydration may have populated the index via another path
+        if (this.libraryIndex) return;
+
         // Stale-while-revalidate: serve expired cache immediately,
         // then refresh in the background so the user can search right away.
         const cacheKey = KICAD_FULL_SYMBOL_INDEX_CACHE_KEY;

@@ -146,9 +146,9 @@ class SchematicApp {
             fill: false,
             color: '#00cc66',  // Default wire color - matches --sch-wire
             fontSize: 2.0,
-            netLabelFontSize: 1.4,
-            netLabelStyle: 't',
-            netLabelOrientation: 'N'
+            netFontSize: 1.4,
+            netStyle: 't',
+            netOrientation: 'N'
         };
 
         // Text edit state

@@ -1,23 +1,23 @@
 import { updateSnapHighlight } from './wire.js';
 import {
-    buildNetLabelGroundBarsPath,
-    buildNetLabelSymbolPath,
-    getNetLabelTextBaseLocal,
-    normalizeNetLabelOrientation,
-    normalizeNetLabelStyle
-} from '../../shapes/netlabel.js';
+    buildNetGroundBarsPath,
+    buildNetSymbolPath,
+    getNetTextBaseLocal,
+    normalizeNetOrientation,
+    normalizeNetStyle
+} from '../../shapes/net.js';
 
 const STORAGE_KEY = 'clearpcb_tool_options';
 
 /** Half-size of the NoConnect X mark in mm (mirrors noconnect.js NC_HALF). */
 const NC_HALF = 0.8;
-/** NetLabel ghost text defaults. */
+/** Net ghost text defaults. */
 const NL_FONT_SIZE = 1.4;
 
-function _nextNetLabelName(app) {
+function _nextnetName(app) {
     const used = new Set();
     for (const shape of app.shapes) {
-        if (shape?.type !== 'netlabel' || typeof shape.net !== 'string') continue;
+        if (shape?.type !== 'net' || typeof shape.net !== 'string') continue;
         const m = shape.net.trim().match(/^NET(\d+)$/i);
         if (m) used.add(Number(m[1]));
     }
@@ -26,19 +26,19 @@ function _nextNetLabelName(app) {
     return `NET${i}`;
 }
 
-function _defaultNetLabelText(app, style) {
+function _defaultnetText(app, style) {
     if (style === 'gnd') return 'Gnd';
     if (style === 'arrow') return 'VCC';
-    return _nextNetLabelName(app);
+    return _nextnetName(app);
 }
 
-function _getNetLabelToolOptionState(app) {
-    const style = normalizeNetLabelStyle(app.toolOptions?.netLabelStyle || 't');
-    const orientation = normalizeNetLabelOrientation(app.toolOptions?.netLabelOrientation || 'N');
+function _getnetToolOptionState(app) {
+    const style = normalizeNetStyle(app.toolOptions?.netStyle || 't');
+    const orientation = normalizeNetOrientation(app.toolOptions?.netOrientation || 'N');
     return { style, orientation };
 }
 
-function _orientNetLabelLocal(orientation, s, t) {
+function _orientnetLocal(orientation, s, t) {
     switch (orientation) {
         case 'N': return { x: t, y: -s };
         case 'S': return { x: -t, y: s };
@@ -121,18 +121,18 @@ export function onToolSelected(app, tool) {
     const svg = app.viewport.svg;
     app._setToolCursor(tool, svg);
 
-    // Keep netlabel placement preferences initialized
-    if (tool === 'netlabel') {
-        const { style, orientation } = _getNetLabelToolOptionState(app);
-        app._onOptionsChanged?.({ netLabelStyle: style, netLabelOrientation: orientation });
+    // Keep Net placement preferences initialized
+    if (tool === 'net') {
+        const { style, orientation } = _getnetToolOptionState(app);
+        app._onOptionsChanged?.({ netStyle: style, netOrientation: orientation });
     }
 
     // Manage placement ghost for single-click tools
     _removeToolGhost(app);
     if (tool === 'noconnect') {
         _createNCGhost(app);
-    } else if (tool === 'netlabel') {
-        _createNetLabelGhost(app);
+    } else if (tool === 'net') {
+        _createnetGhost(app);
     }
 
     app._setActiveToolButton?.(tool);
@@ -184,22 +184,22 @@ function _createNCGhost(app) {
 }
 
 /**
- * Creates a semi-transparent NetLabel ghost (flag + text) that follows
+ * Creates a semi-transparent Net ghost (flag + text) that follows
  * the cursor before click placement.
  * @param {object} app - Application state.
  */
-function _createNetLabelGhost(app) {
+function _createnetGhost(app) {
     const ns = 'http://www.w3.org/2000/svg';
     const g = document.createElementNS(ns, 'g');
     g.style.opacity = '0.55';
     g.style.pointerEvents = 'none';
 
-    const { style, orientation } = _getNetLabelToolOptionState(app);
-    const net = _defaultNetLabelText(app, style);
-    const textBase = getNetLabelTextBaseLocal(style);
+    const { style, orientation } = _getnetToolOptionState(app);
+    const net = _defaultnetText(app, style);
+    const textBase = getNetTextBaseLocal(style);
 
     const path = document.createElementNS(ns, 'path');
-    path.setAttribute('d', buildNetLabelSymbolPath(style, orientation));
+    path.setAttribute('d', buildNetSymbolPath(style, orientation));
     path.setAttribute('fill', 'none');
     path.setAttribute('stroke', 'var(--sch-net-label, #00cccc)');
     path.setAttribute('stroke-width', '0.25');
@@ -212,18 +212,18 @@ function _createNetLabelGhost(app) {
     detailPath.setAttribute('stroke-linejoin', 'round');
     detailPath.setAttribute('stroke-linecap', 'round');
     if (style === 'gnd') {
-        detailPath.setAttribute('d', buildNetLabelGroundBarsPath(orientation));
+        detailPath.setAttribute('d', buildNetGroundBarsPath(orientation));
         detailPath.setAttribute('stroke-width', '0.08');
     } else {
         detailPath.setAttribute('display', 'none');
     }
 
     const text = document.createElementNS(ns, 'text');
-    const textLocal = _orientNetLabelLocal(orientation, textBase.s, textBase.t);
+    const textLocal = _orientnetLocal(orientation, textBase.s, textBase.t);
     text.setAttribute('x', String(textLocal.x));
     text.setAttribute('y', String(textLocal.y));
     text.setAttribute('fill', 'var(--sch-net-label, #00cccc)');
-    text.setAttribute('font-size', String(app.toolOptions?.netLabelFontSize || NL_FONT_SIZE));
+    text.setAttribute('font-size', String(app.toolOptions?.netFontSize || NL_FONT_SIZE));
     text.setAttribute('font-family', 'Arial');
     text.setAttribute('dominant-baseline', 'middle');
     text.setAttribute('alignment-baseline', 'middle');
@@ -236,7 +236,7 @@ function _createNetLabelGhost(app) {
     g.setAttribute('data-nl-style', style);
     g.setAttribute('data-nl-orientation', orientation);
     app.viewport.contentLayer.appendChild(g);
-    /** @type {any} */ (g).__ghostType = 'netlabel';
+    /** @type {any} */ (g).__ghostType = 'net';
     /** @type {any} */ (g).__ghostTextEl = text;
     /** @type {any} */ (g).__ghostPathEl = path;
     /** @type {any} */ (g).__ghostDetailPathEl = detailPath;
@@ -261,17 +261,17 @@ function _removeToolGhost(app) {
  */
 export function updateToolGhost(app, pos) {
     if (app._toolGhost) {
-        if (app._toolGhost.__ghostType === 'netlabel' && app._toolGhost.__ghostTextEl) {
-            const { style, orientation } = _getNetLabelToolOptionState(app);
+        if (app._toolGhost.__ghostType === 'net' && app._toolGhost.__ghostTextEl) {
+            const { style, orientation } = _getnetToolOptionState(app);
             const path = app._toolGhost.__ghostPathEl;
             if (path) {
-                path.setAttribute('d', buildNetLabelSymbolPath(style, orientation));
+                path.setAttribute('d', buildNetSymbolPath(style, orientation));
                 app._toolGhost.setAttribute('data-nl-style', style);
             }
             const detailPath = app._toolGhost.__ghostDetailPathEl;
             if (detailPath) {
                 if (style === 'gnd') {
-                    detailPath.setAttribute('d', buildNetLabelGroundBarsPath(orientation));
+                    detailPath.setAttribute('d', buildNetGroundBarsPath(orientation));
                     detailPath.setAttribute('stroke-width', '0.08');
                     detailPath.removeAttribute('display');
                 } else {
@@ -279,13 +279,13 @@ export function updateToolGhost(app, pos) {
                     detailPath.setAttribute('display', 'none');
                 }
             }
-            const base = getNetLabelTextBaseLocal(style);
-            const textLocal = _orientNetLabelLocal(orientation, base.s, base.t);
+            const base = getNetTextBaseLocal(style);
+            const textLocal = _orientnetLocal(orientation, base.s, base.t);
             app._toolGhost.__ghostTextEl.setAttribute('x', String(textLocal.x));
             app._toolGhost.__ghostTextEl.setAttribute('y', String(textLocal.y));
-            app._toolGhost.__ghostTextEl.setAttribute('font-size', String(app.toolOptions?.netLabelFontSize || NL_FONT_SIZE));
+            app._toolGhost.__ghostTextEl.setAttribute('font-size', String(app.toolOptions?.netFontSize || NL_FONT_SIZE));
             app._toolGhost.setAttribute('data-nl-orientation', orientation);
-            app._toolGhost.__ghostTextEl.textContent = _defaultNetLabelText(app, style);
+            app._toolGhost.__ghostTextEl.textContent = _defaultnetText(app, style);
             app._toolGhost.setAttribute('transform', `translate(${pos.x},${pos.y})`);
             return;
         }
@@ -294,13 +294,13 @@ export function updateToolGhost(app, pos) {
 }
 
 /**
- * Update and persist the default netlabel style option.
+ * Update and persist the default Net style option.
  * @param {object} app
  * @param {string} style
  */
-export function setNetLabelStyleOption(app, style) {
-    const normalized = normalizeNetLabelStyle(style);
-    app._onOptionsChanged?.({ netLabelStyle: normalized });
+export function setnetStyleOption(app, style) {
+    const normalized = normalizeNetStyle(style);
+    app._onOptionsChanged?.({ netStyle: normalized });
 }
 
 /**

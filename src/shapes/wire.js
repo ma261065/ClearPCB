@@ -73,6 +73,42 @@ export function resetWireLabelCounter() {
     _usedWireLabels.clear();
 }
 
+// ── Net name tracking (Net0001, Net0002, …, auto-assigned if not explicitly set) ──
+const _usedNetNames = new Set();
+
+function _normalizeAutoNetName(name) {
+    if (typeof name !== 'string') return null;
+    const m = name.trim().match(/^net(\d+)$/i);
+    if (!m) return null;
+    return `Net${String(Number(m[1])).padStart(4, '0')}`;
+}
+
+/** Allocate the lowest unused net name (Net0001, Net0002, …). */
+export function nextNetName() {
+    let i = 1;
+    while (_usedNetNames.has(`Net${String(i).padStart(4, '0')}`)) i++;
+    const name = `Net${String(i).padStart(4, '0')}`;
+    _usedNetNames.add(name);
+    return name;
+}
+
+/** Register a loaded net name so it won't be reused. */
+export function bumpNetNameCounter(name) {
+    const normalized = _normalizeAutoNetName(name);
+    if (normalized) _usedNetNames.add(normalized);
+}
+
+/** Free a net name so it can be reused (call when a wire is deleted). */
+export function freeNetName(name) {
+    const normalized = _normalizeAutoNetName(name);
+    if (normalized) _usedNetNames.delete(normalized);
+}
+
+/** Reset the net name pool (for testing / new-document). */
+export function resetNetNameCounter() {
+    _usedNetNames.clear();
+}
+
 export class Wire extends Shape {
 
     /* ──────────────────────── constructor ──────────────────────── */
@@ -101,7 +137,13 @@ export class Wire extends Shape {
         this.edges = new Map();           // edgeId → {from: nodeId, to: nodeId}
         this.pinConnections = new Map();  // nodeId → {componentId, pinNumber}
 
-        this.net = options.net || '';
+        // Net name (auto-assigned if not provided, e.g. Net0001, Net0002, …)
+        if (options.net) {
+            this.net = options.net;
+            bumpNetNameCounter(options.net);
+        } else {
+            this.net = nextNetName();
+        }
 
         // Human-readable wire label (Wnnnn)
         if (options.wireLabel) {
@@ -842,9 +884,11 @@ export class Wire extends Shape {
     _updateElement(el, strokeColor, _fillColor, scale) {
         el.textContent = '';                               // clear children
 
-        // When the label text is selected but the wire isn't, tint blue
+        // When any attached label text is selected but the wire isn't, tint blue
         // to show ownership (mirrors the component field text pattern).
-        if (!this.selected && !this.hovered && this.labelText?.selected) {
+        const attachedSelected = this.attachedLabels instanceof Set
+            && Array.from(this.attachedLabels).some(label => label?.selected);
+        if (!this.selected && !this.hovered && (this.labelText?.selected || attachedSelected)) {
             strokeColor = 'var(--sch-selection, #3399ff)';
         }
 

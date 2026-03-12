@@ -90,6 +90,10 @@ export function createComponentPreview(app, definition) {
     app.componentPreview.style.pointerEvents = 'none';
     app.componentPreview.classList.add('component-preview');
 
+    // Hide until mouse enters the canvas so it doesn't flash at 0,0
+    app.componentPreview.style.display = 'none';
+    app._componentPreviewHidden = true;
+
     app.viewport.componentLayer.appendChild(app.componentPreview);
 }
 
@@ -101,6 +105,12 @@ export function createComponentPreview(app, definition) {
  */
 export function updateComponentPreview(app, worldPos) {
     if (!app.componentPreview || !app.placingComponent) return;
+
+    // Show preview on first mouse move over canvas (hidden initially to avoid flash at 0,0)
+    if (app._componentPreviewHidden) {
+        app.componentPreview.style.display = '';
+        app._componentPreviewHidden = false;
+    }
 
     if (app.componentRotation === undefined) app.componentRotation = 0;
     if (app.componentMirror === undefined) app.componentMirror = false;

@@ -25,9 +25,7 @@ export function setupCallbacks(app) {
             app._updatePastePreview(snapped);
         }
 
-        if (app.placingComponent && app.componentPreview) {
-            app._updateComponentPreview(snapped);
-        }
+        // Component preview is handled by placingState.mousemove to avoid double-update
 
         let now = performance.now();
         if (now - lastHoverUpdate > HOVER_THROTTLE) {
@@ -36,27 +34,6 @@ export function setupCallbacks(app) {
             if (!app.viewport.isPanning && app.interactionState === 'idle') {
                 const hit = app.selection.hitTest(world);
                 const hoveredChanged = app.selection.setHovered(hit);
-                let hoverPartChanged = false;
-
-                if (app._hoverNetLabel && app._hoverNetLabel !== hit) {
-                    if (app._hoverNetLabel._hoverPart) {
-                        app._hoverNetLabel._hoverPart = null;
-                        app._hoverNetLabel.invalidate();
-                        hoverPartChanged = true;
-                    }
-                    app._hoverNetLabel = null;
-                }
-
-                if (hit?.type === 'netlabel') {
-                    const hoverAnchor = hit.hitTestAnchor(world, app.viewport.scale);
-                    const part = hoverAnchor === 'text' ? 'text' : 'symbol';
-                    if (hit._hoverPart !== part) {
-                        hit._hoverPart = part;
-                        hit.invalidate();
-                        hoverPartChanged = true;
-                    }
-                    app._hoverNetLabel = hit;
-                }
 
                 let cursor = 'default';
                 const selectedShapes = app.selection.getSelection();
@@ -78,7 +55,7 @@ export function setupCallbacks(app) {
 
                 app.viewport.svg.style.cursor = cursor;
 
-                if (hoveredChanged || hoverPartChanged) {
+                if (hoveredChanged) {
                     app.renderShapes();
                 }
             }

@@ -1,6 +1,7 @@
 import { ModalManager } from '../../core/ModalManager.js';
 import { ModifyShapeCommand } from '../../core/CommandHistory.js';
-import { freeWireLabel, bumpWireLabelCounter } from '../../shapes/wire.js';
+import { freeWireLabel, bumpWireLabelCounter, freeNetName, bumpNetNameCounter } from '../../shapes/wire.js';
+import { validateNetNameAtPoint } from './net-validation.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
@@ -115,6 +116,24 @@ export function endTextEdit(app, commit = true) {
                 s.wireLabel.toUpperCase() === state.shape.text.toUpperCase());
             if (dup) {
                 alert(`Wire name "${state.shape.text}" is already used by another wire.`);
+                state.shape.text = state.originalText;
+                if (typeof state.shape.invalidate === 'function') state.shape.invalidate();
+                app.renderShapes(true);
+                _cleanupTextEditState(state, app, shape);
+                return;
+            }
+        }
+
+        if (state.shape.parentComponent?.type === 'net' && state.shape.fieldKey === 'net') {
+            const parentnet = state.shape.parentComponent;
+            const check = validateNetNameAtPoint(
+                app,
+                { x: parentnet.x, y: parentnet.y },
+                state.shape.text,
+                parentnet.id
+            );
+            if (!check.ok) {
+                alert(`Net conflict: this connected wire is already labeled "${check.conflictWith || ''}".`);
                 state.shape.text = state.originalText;
                 if (typeof state.shape.invalidate === 'function') state.shape.invalidate();
                 app.renderShapes(true);
@@ -291,7 +310,7 @@ export function updateTextEditOverlay(app) {
 
     const usesNestedTextCoords = !!textEl && textEl !== shape.element;
 
-    // For shapes with a text element inside a group (e.g. NetLabel),
+    // For shapes with a text element inside a group (e.g. Net),
     // use the shape's textEditOrigin if available, otherwise shape.x/y.
     const editOrigin = shape.getTextEditOrigin?.() || { x: shape.x, y: shape.y };
     const originX = Number.isFinite(editOrigin.x) ? editOrigin.x : 0;
@@ -629,6 +648,16 @@ function measureCaretWithClone(app, el, textValue, caretIndex) {
 /** Sync a field Text shape's content back to its parent component or wire. */
 function _syncFieldToComponent(textShape) {
     if (!textShape.parentComponent || !textShape.fieldKey) return;
+    if (textShape.fieldKey === 'label') {
+        if (textShape.parentComponent.type === 'wire') {
+            const wire = textShape.parentComponent;
+            freeWireLabel(wire.wireLabel);
+            wire.wireLabel = textShape.text;
+            bumpWireLabelCounter(textShape.text);
+            wire.invalidate();
+        }
+        return;
+    }
     // Wire label: track label counter
     if (textShape.fieldKey === 'wireLabel' && textShape.parentComponent.type === 'wire') {
         const wire = textShape.parentComponent;
@@ -636,6 +665,13 @@ function _syncFieldToComponent(textShape) {
         wire.wireLabel = textShape.text;
         bumpWireLabelCounter(textShape.text);
         wire.invalidate();
+        return;
+    }
+    if (textShape.fieldKey === 'net' && textShape.parentComponent.type === 'net') {
+        const Net = textShape.parentComponent;
+        Net.net = textShape.text;
+        Net.syncTextOffsetFromLabelText?.();
+        Net.invalidate();
         return;
     }
     textShape.parentComponent[textShape.fieldKey] = textShape.text;
