@@ -1223,12 +1223,12 @@ export const moveDragState = {
             updateSnapHighlight(app, attach ? { x: attach.snapPos.x, y: attach.snapPos.y, type: 'attach' } : null);
             updateLabelDragGuide(app, labelShape);
 
-            // Invalidate old and new parents when hover target changes
+            // Track hover target for invalidation
             const newTarget = attach?.target || null;
             const oldTarget = app._labelDragHoverTarget || null;
             if (newTarget !== oldTarget) {
                 if (oldTarget) oldTarget.invalidate?.();
-                if (labelShape.parentComponent) labelShape.parentComponent.invalidate?.();
+                if (labelShape.parentComponent && labelShape.parentComponent !== oldTarget) labelShape.parentComponent.invalidate?.();
                 if (newTarget) newTarget.invalidate?.();
                 app._labelDragHoverTarget = newTarget;
             }
@@ -1293,6 +1293,10 @@ export const moveDragState = {
             // Clear blue tint on old owner if ownership changed
             if (oldParent && oldParent !== labelShape.parentComponent) {
                 oldParent.invalidate?.();
+            }
+            // Ensure new owner picks up blue tint
+            if (labelShape.parentComponent) {
+                labelShape.parentComponent.invalidate?.();
             }
         }
 
