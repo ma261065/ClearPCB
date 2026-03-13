@@ -48,15 +48,11 @@ function serialiseItem(item, origin) {
     } else {
         // Shape
         const json = item.toJSON();
-        // Compute offset relative to centroid
-        const b = item.getBounds?.();
-        if (b) {
-            json._clipX = (b.minX + b.maxX) / 2 - origin.x;
-            json._clipY = (b.minY + b.maxY) / 2 - origin.y;
-        } else {
-            json._clipX = 0;
-            json._clipY = 0;
-        }
+        // Compute offset using the same centroid that offsetShapeData uses,
+        // so the ghost position matches the placed position exactly.
+        const shapeCentroid = _getShapeDataCentroid(json);
+        json._clipX = shapeCentroid.x - origin.x;
+        json._clipY = shapeCentroid.y - origin.y;
         json._clipType = 'shape';
         return json;
     }
@@ -114,8 +110,8 @@ export function cutSelection(app) {
 
     for (const item of cuttable) {
         if (app.shapes.includes(item)) {
-            // Skip component field texts — don't cut those independently
-            if (item.parentComponent && item.fieldKey) continue;
+            // Skip component ref/value field texts — those can't be cut independently
+            if (item.parentComponent && (item.fieldKey === 'reference' || item.fieldKey === 'value')) continue;
             shapes.push(item);
         } else if (app.components.includes(item)) {
             components.push(item);
@@ -270,7 +266,7 @@ export function confirmPaste(app, worldPos) {
         } else {
             // structuredClone is faster than JSON round-trip and handles all types
             const clone = structuredClone(data);
-            const { id, _clipX, _clipY, _clipType, ...shapeData } = clone;
+            const { id, _clipX, _clipY, _clipType, cid, fk, att, ...shapeData } = clone;
             offsetShapeData(shapeData, snapped.x + _clipX, snapped.y + _clipY);
 
             const shape = createShape(shapeData);
@@ -304,6 +300,35 @@ export function cancelPaste(app) {
     app.pastingClipboard = false;
     app.interactionState = app.currentTool === 'select' ? 'idle' : 'toolActive';
     app.viewport.svg.style.cursor = '';
+}
+
+/**
+ * Compute the centroid of serialized shape data, matching offsetShapeData logic.
+ */
+function _getShapeDataCentroid(data) {
+    const type = data.type;
+    if (type === 'wire' && data.nd) {
+        const nodeIds = Object.keys(data.nd);
+        if (nodeIds.length > 0) {
+            let sx = 0, sy = 0;
+            for (const nid of nodeIds) { sx += data.nd[nid][0]; sy += data.nd[nid][1]; }
+            return { x: sx / nodeIds.length, y: sy / nodeIds.length };
+        }
+    } else if ((type === 'line' || type === 'polygon' || (type === 'wire' && data.pts)) && data.pts && data.pts.length >= 2) {
+        let sx = 0, sy = 0;
+        const n = data.pts.length / 2;
+        for (let i = 0; i < data.pts.length; i += 2) { sx += data.pts[i]; sy += data.pts[i + 1]; }
+        return { x: sx / n, y: sy / n };
+    } else if (type === 'arc' && data.sp && data.ep && data.bp) {
+        return {
+            x: (data.sp.x + data.ep.x + data.bp.x) / 3,
+            y: (data.sp.y + data.ep.y + data.bp.y) / 3
+        };
+    } else if (type === 'rect') {
+        return { x: data.x + (data.w || 0) / 2, y: data.y + (data.h || 0) / 2 };
+    }
+    // text, circle, noconnect, net — x,y is the anchor
+    return { x: data.x || 0, y: data.y || 0 };
 }
 
 /**

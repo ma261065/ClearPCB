@@ -1216,7 +1216,8 @@ export const moveDragState = {
         if (app.viewport.isPanning) return;
 
         const selNow = app.selection.getSelection();
-        if (selNow.length === 1 && selNow[0]?.type === 'text') {
+        const isGenericLabel = selNow.length === 1 && selNow[0]?.type === 'text' && selNow[0].fieldKey === 'label';
+        if (isGenericLabel) {
             const labelShape = selNow[0];
             const hotspot = getLabelDropHotspot(labelShape, worldPos);
             const attach = resolveLabelAttachTarget(app, hotspot, labelShape);
@@ -1280,7 +1281,8 @@ export const moveDragState = {
         if (event.button !== 0) return;
 
         const sel = app.selection.getSelection();
-        if (sel.length === 1 && sel[0]?.type === 'text') {
+        const isGenericLabel = sel.length === 1 && sel[0]?.type === 'text' && sel[0].fieldKey === 'label';
+        if (isGenericLabel) {
             const labelShape = sel[0];
             const oldParent = labelShape.parentComponent;
             const hotspot = getLabelDropHotspot(labelShape, worldPos);
