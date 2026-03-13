@@ -153,8 +153,7 @@ export function attachLabelToTarget(labelShape, target, snapPos = null, { isNewL
             anchorX: anchor.x,
             anchorY: anchor.y,
             offsetX: labelShape.x - anchor.x,
-            offsetY: labelShape.y - anchor.y,
-            followRotation: false
+            offsetY: labelShape.y - anchor.y
         };
 
         if (isNewLabel) {
@@ -169,8 +168,7 @@ export function attachLabelToTarget(labelShape, target, snapPos = null, { isNewL
         labelShape.attachment = {
             kind: 'shape',
             offsetX: labelShape.x - anchor.x,
-            offsetY: labelShape.y - anchor.y,
-            followRotation: true
+            offsetY: labelShape.y - anchor.y
         };
     }
 
@@ -205,7 +203,6 @@ export function refreshLabelAttachmentOffset(labelShape) {
         att.anchorY = closest.point.y;
         att.offsetX = labelShape.x - closest.point.x;
         att.offsetY = labelShape.y - closest.point.y;
-        if (att.followRotation == null) att.followRotation = false;
         return;
     }
 
@@ -213,7 +210,6 @@ export function refreshLabelAttachmentOffset(labelShape) {
     att.kind = 'shape';
     att.offsetX = labelShape.x - anchor.x;
     att.offsetY = labelShape.y - anchor.y;
-    if (att.followRotation == null) att.followRotation = true;
 }
 
 /**

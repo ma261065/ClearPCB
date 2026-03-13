@@ -175,6 +175,7 @@ export function showValueDialog(definition, screenX, screenY, opts = {}) {
         dialog.appendChild(buttons);
 
         overlay.appendChild(dialog);
+        overlay.addEventListener('contextmenu', (e) => e.preventDefault());
         document.body.appendChild(overlay);
 
         // ── Auto-detect units as user types ───────────────────

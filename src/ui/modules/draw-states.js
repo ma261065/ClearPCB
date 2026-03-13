@@ -481,8 +481,11 @@ function handleSelectContextMenu(app, worldPos, clientX, clientY) {
 }
 
 function resolveLabelAttachTarget(app, probePos, excludeShape = null) {
+    // Also exclude the label's current parent so the snap dot doesn't show for it
+    const excludeParent = excludeShape?.parentComponent || null;
+
     const hitComponent = app._findComponentAt?.(probePos);
-    if (hitComponent && hitComponent !== excludeShape) {
+    if (hitComponent && hitComponent !== excludeShape && hitComponent !== excludeParent) {
         return {
             target: hitComponent,
             snapPos: { x: probePos.x, y: probePos.y }
@@ -492,7 +495,7 @@ function resolveLabelAttachTarget(app, probePos, excludeShape = null) {
     const wireTolerance = SNAP_SCREEN_PX / app.viewport.scale;
     for (let i = app.shapes.length - 1; i >= 0; i--) {
         const shape = app.shapes[i];
-        if (!shape || shape === excludeShape || shape.type !== 'wire' || shape._culled || !shape.visible) continue;
+        if (!shape || shape === excludeShape || shape === excludeParent || shape.type !== 'wire' || shape._culled || !shape.visible) continue;
         const edgeId = shape.hitTestEdge?.(probePos, wireTolerance);
         if (!edgeId) continue;
         const nearest = shape.closestEdge?.(probePos);
@@ -504,7 +507,7 @@ function resolveLabelAttachTarget(app, probePos, excludeShape = null) {
 
     const hits = app.selection.hitTest(probePos, true);
     const hit = Array.isArray(hits)
-        ? hits.find(s => s && s !== excludeShape && s.type !== 'text')
+        ? hits.find(s => s && s !== excludeShape && s !== excludeParent && s.type !== 'text')
         : null;
     if (!hit) return null;
 
@@ -860,6 +863,12 @@ export const idleState = {
         if (app.viewport.isPanning) return;
         if (app.skipClickSelection) { app.skipClickSelection = false; return; }
         if (app.didDrag) { app.didDrag = false; return; }
+
+        // If a non-Home ribbon tab is showing, switch back to Home
+        const activeTab = document.querySelector('.ribbon-tab.active');
+        if (activeTab && activeTab.dataset.tab !== 'home') {
+            app._setActiveRibbonTab('home');
+        }
 
         const hit = app.selection.hitTest(worldPos);
         if (app.textEdit) {

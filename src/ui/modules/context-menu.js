@@ -378,70 +378,79 @@ export function deleteWire(app, wire) {
 
 // ─── Context menu UI ───────────────────────────────────────────────
 
+// ─── Shared context menu builder ───────────────────────────────────
+
+const MENU_STYLE = `position:fixed;z-index:10000;background:#2b2b2b;border:1px solid #555;border-radius:4px;padding:2px 0;box-shadow:0 2px 8px rgba(0,0,0,0.4);min-width:120px;`;
+const ITEM_STYLE = `padding:6px 16px;color:#eee;cursor:pointer;font:13px/1.4 system-ui,sans-serif;white-space:nowrap;`;
+
 /**
- * Show a lightweight context menu for anchor point operations.
+ * Create and show a context menu at the given screen position.
+ * @param {Array<{text: string, onClick: () => void}>} items
+ * @param {number} clientX
+ * @param {number} clientY
  */
-export function showAnchorContextMenu(app, shape, anchorId, clientX, clientY, canDeletePoint = true, junctionInfo = null) {
-    // Remove any existing anchor context menu
+function createContextMenu(items, clientX, clientY) {
     dismissAnchorContextMenu();
 
     const menu = /** @type {AnchorContextMenuEl} */ (document.createElement('div'));
     menu.className = 'anchor-context-menu';
-    menu.style.cssText = `
-        position: fixed; left: ${clientX}px; top: ${clientY}px; z-index: 10000;
-        background: #2b2b2b; border: 1px solid #555; border-radius: 4px;
-        padding: 2px 0; box-shadow: 0 2px 8px rgba(0,0,0,0.4); min-width: 120px;
-    `;
+    menu.style.cssText = `${MENU_STYLE}left:${clientX}px;top:${clientY}px;`;
+
+    for (const item of items) {
+        const el = document.createElement('div');
+        el.textContent = item.text;
+        el.style.cssText = ITEM_STYLE;
+        el.addEventListener('mouseenter', () => el.style.background = '#3a3a3a');
+        el.addEventListener('mouseleave', () => el.style.background = '');
+        el.addEventListener('click', () => {
+            dismissAnchorContextMenu();
+            item.onClick();
+        });
+        menu.appendChild(el);
+    }
+
+    menu.addEventListener('contextmenu', e => e.preventDefault());
+    document.body.appendChild(menu);
+    attachDismissHandlers(menu);
+    return menu;
+}
+
+/**
+ * Show a lightweight context menu for anchor point operations.
+ */
+export function showAnchorContextMenu(app, shape, anchorId, clientX, clientY, canDeletePoint = true, junctionInfo = null) {
+    const items = [];
 
     if (canDeletePoint) {
-        const item = document.createElement('div');
-        item.textContent = 'Delete point';
-        item.style.cssText = `
-            padding: 6px 16px; color: #eee; cursor: pointer; font: 13px/1.4 system-ui, sans-serif;
-            white-space: nowrap;
-        `;
-        item.addEventListener('mouseenter', () => item.style.background = '#3a3a3a');
-        item.addEventListener('mouseleave', () => item.style.background = '');
-        item.addEventListener('click', () => {
-            dismissAnchorContextMenu();
-            const beforeState = app._captureShapeState(shape);
-            const anchorPos = getWireAnchorPosition(shape, anchorId);
-            const attachedNCs = findNoConnectsAtPosition(app, anchorPos);
-            if (shape.deleteAnchor(anchorId)) {
-                const afterState = app._captureShapeState(shape);
-                app._applyShapeState(shape, beforeState);
-                const batch = new BatchCommand('Delete point');
-                batch.add(new ModifyShapeCommand(app, shape, beforeState, afterState));
-                if (attachedNCs.length > 0) {
-                    batch.add(new DeleteShapesCommand(app, attachedNCs));
+        items.push({
+            text: 'Delete point',
+            onClick: () => {
+                const beforeState = app._captureShapeState(shape);
+                const anchorPos = getWireAnchorPosition(shape, anchorId);
+                const attachedNCs = findNoConnectsAtPosition(app, anchorPos);
+                if (shape.deleteAnchor(anchorId)) {
+                    const afterState = app._captureShapeState(shape);
+                    app._applyShapeState(shape, beforeState);
+                    const batch = new BatchCommand('Delete point');
+                    batch.add(new ModifyShapeCommand(app, shape, beforeState, afterState));
+                    if (attachedNCs.length > 0) {
+                        batch.add(new DeleteShapesCommand(app, attachedNCs));
+                    }
+                    app.history.execute(batch);
+                    shape.selected = true;
                 }
-                app.history.execute(batch);
-                shape.selected = true;
-                // Command's execute() already calls renderShapes(true)
             }
         });
-        menu.appendChild(item);
     }
 
     if (junctionInfo) {
-        const jItem = document.createElement('div');
-        jItem.textContent = 'Split junction';
-        jItem.style.cssText = `
-            padding: 6px 16px; color: #eee; cursor: pointer; font: 13px/1.4 system-ui, sans-serif;
-            white-space: nowrap;
-        `;
-        jItem.addEventListener('mouseenter', () => jItem.style.background = '#3a3a3a');
-        jItem.addEventListener('mouseleave', () => jItem.style.background = '');
-        jItem.addEventListener('click', () => {
-            dismissAnchorContextMenu();
-            deleteJunction(app, junctionInfo);
+        items.push({
+            text: 'Split junction',
+            onClick: () => deleteJunction(app, junctionInfo)
         });
-        menu.appendChild(jItem);
     }
 
-    document.body.appendChild(menu);
-
-    attachDismissHandlers(menu);
+    createContextMenu(items, clientX, clientY);
 }
 
 /**
@@ -463,123 +472,58 @@ export function dismissAnchorContextMenu() {
  * Show a context menu for wire segment operations (delete segment).
  */
 export function showSegmentContextMenu(app, wire, edgeId, clientX, clientY) {
-    dismissAnchorContextMenu();
+    const items = [];
 
-    const menu = /** @type {AnchorContextMenuEl} */ (document.createElement('div'));
-    menu.className = 'anchor-context-menu';
-    menu.style.cssText = `
-        position: fixed; left: ${clientX}px; top: ${clientY}px; z-index: 10000;
-        background: #2b2b2b; border: 1px solid #555; border-radius: 4px;
-        padding: 2px 0; box-shadow: 0 2px 8px rgba(0,0,0,0.4); min-width: 120px;
-    `;
-
-    const itemStyle = `
-        padding: 6px 16px; color: #eee; cursor: pointer; font: 13px/1.4 system-ui, sans-serif;
-        white-space: nowrap;
-    `;
-
-    // Only show Delete Segment for multi-edge wires
     if (wire.edges.size > 1) {
-        const segItem = document.createElement('div');
-        segItem.textContent = 'Delete Segment';
-        segItem.style.cssText = itemStyle;
-        segItem.addEventListener('mouseenter', () => segItem.style.background = '#3a3a3a');
-        segItem.addEventListener('mouseleave', () => segItem.style.background = '');
-        segItem.addEventListener('click', () => {
-            dismissAnchorContextMenu();
-            deleteWireSegment(app, wire, edgeId);
+        items.push({
+            text: 'Delete Segment',
+            onClick: () => deleteWireSegment(app, wire, edgeId)
         });
-        menu.appendChild(segItem);
     }
 
-    const wireItem = document.createElement('div');
-    wireItem.textContent = 'Delete Wire';
-    wireItem.style.cssText = itemStyle;
-    wireItem.addEventListener('mouseenter', () => wireItem.style.background = '#3a3a3a');
-    wireItem.addEventListener('mouseleave', () => wireItem.style.background = '');
-    wireItem.addEventListener('click', () => {
-        dismissAnchorContextMenu();
-        deleteWire(app, wire);
+    items.push({
+        text: 'Delete Wire',
+        onClick: () => deleteWire(app, wire)
     });
-    menu.appendChild(wireItem);
 
-    document.body.appendChild(menu);
-
-    attachDismissHandlers(menu);
+    createContextMenu(items, clientX, clientY);
 }
 
 /**
  * Show a context menu for attached labels.
  */
 export function showLabelContextMenu(app, labelShape, clientX, clientY) {
-    dismissAnchorContextMenu();
+    const items = [];
 
-    const menu = /** @type {AnchorContextMenuEl} */ (document.createElement('div'));
-    menu.className = 'anchor-context-menu';
-    menu.style.cssText = `
-        position: fixed; left: ${clientX}px; top: ${clientY}px; z-index: 10000;
-        background: #2b2b2b; border: 1px solid #555; border-radius: 4px;
-        padding: 2px 0; box-shadow: 0 2px 8px rgba(0,0,0,0.4); min-width: 120px;
-    `;
-
-    const canToggleFollowRotation = !!(labelShape?.parentComponent && labelShape.parentComponent.type !== 'wire');
-    if (canToggleFollowRotation) {
-        const followItem = document.createElement('div');
-        const checked = !!labelShape.followRotation;
-        followItem.textContent = `${checked ? '✓ ' : ''}Follow Rotation`;
-        followItem.style.cssText = `
-            padding: 6px 16px; color: #eee; cursor: pointer; font: 13px/1.4 system-ui, sans-serif;
-            white-space: nowrap;
-        `;
-        followItem.addEventListener('mouseenter', () => followItem.style.background = '#3a3a3a');
-        followItem.addEventListener('mouseleave', () => followItem.style.background = '');
-        followItem.addEventListener('click', () => {
-            dismissAnchorContextMenu();
-            const command = new ModifyPropertyCommand(app, [labelShape], 'followRotation', !checked);
-            app.history.execute(command);
+    items.push({
+        text: 'Detach Label',
+        onClick: () => {
+            detachLabel(labelShape);
             app.selection.select(labelShape, false);
+
+            const rect = app.viewport._getCachedRect();
+            const screenPos = {
+                x: clientX - rect.left,
+                y: clientY - rect.top
+            };
+            const worldPos = app.viewport.screenToWorld(screenPos);
+
+            app.drag = {
+                mode: 'move',
+                objectStartPos: { x: labelShape.x, y: labelShape.y },
+                lastSnapped: { x: labelShape.x, y: labelShape.y },
+                startWorldPos: { x: worldPos.x, y: worldPos.y },
+                totalDx: 0,
+                totalDy: 0
+            };
+            app.interactionState = 'moveDrag';
+            app.didDrag = false;
+            if (app.viewport?.svg) app.viewport.svg.style.cursor = 'move';
+
+            app.renderShapes(true);
             app.fileManager.setDirty(true);
-        });
-        menu.appendChild(followItem);
-    }
-
-    const item = document.createElement('div');
-    item.textContent = 'Detach Label';
-    item.style.cssText = `
-        padding: 6px 16px; color: #eee; cursor: pointer; font: 13px/1.4 system-ui, sans-serif;
-        white-space: nowrap;
-    `;
-    item.addEventListener('mouseenter', () => item.style.background = '#3a3a3a');
-    item.addEventListener('mouseleave', () => item.style.background = '');
-    item.addEventListener('click', () => {
-        dismissAnchorContextMenu();
-        detachLabel(labelShape);
-        app.selection.select(labelShape, false);
-
-        const rect = app.viewport._getCachedRect();
-        const screenPos = {
-            x: clientX - rect.left,
-            y: clientY - rect.top
-        };
-        const worldPos = app.viewport.screenToWorld(screenPos);
-
-        app.drag = {
-            mode: 'move',
-            objectStartPos: { x: labelShape.x, y: labelShape.y },
-            lastSnapped: { x: labelShape.x, y: labelShape.y },
-            startWorldPos: { x: worldPos.x, y: worldPos.y },
-            totalDx: 0,
-            totalDy: 0
-        };
-        app.interactionState = 'moveDrag';
-        app.didDrag = false;
-        if (app.viewport?.svg) app.viewport.svg.style.cursor = 'move';
-
-        app.renderShapes(true);
-        app.fileManager.setDirty(true);
+        }
     });
-    menu.appendChild(item);
 
-    document.body.appendChild(menu);
-    attachDismissHandlers(menu);
+    createContextMenu(items, clientX, clientY);
 }

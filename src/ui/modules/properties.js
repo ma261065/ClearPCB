@@ -110,6 +110,11 @@ export function updatePropertiesPanel(app, selection) {
                     input.type = 'checkbox';
                     const values = selection.map(s => s[desc.key]);
                     setCheckboxState(input, values);
+                    if (disabled) {
+                        input.disabled = true;
+                        lbl.style.opacity = '0.4';
+                        lbl.style.pointerEvents = 'none';
+                    }
                     input.addEventListener('change', () => {
                         applyCommonProperty(app, desc.key, input.checked);
                     });
@@ -243,6 +248,7 @@ export function updatePropertiesPanel(app, selection) {
                 hBtn.title = 'Horizontal';
                 hBtn.style.cssText = 'padding:1px 6px;font-size:11px;min-width:0;';
                 if (allSameRot && curRot === 0) hBtn.classList.add('active');
+                if (allLocked) hBtn.disabled = true;
                 hBtn.addEventListener('click', () => {
                     applyCommonProperty(app, 'rotation', 0);
                 });
@@ -251,6 +257,7 @@ export function updatePropertiesPanel(app, selection) {
                 vBtn.title = 'Vertical (bottom to top)';
                 vBtn.style.cssText = 'padding:1px 6px;font-size:11px;min-width:0;';
                 if (allSameRot && curRot === 270) vBtn.classList.add('active');
+                if (allLocked) vBtn.disabled = true;
                 vBtn.addEventListener('click', () => {
                     applyCommonProperty(app, 'rotation', 270);
                 });
@@ -508,8 +515,6 @@ export function applyCommonProperty(app, prop, value) {
     if (prop === 'locked') {
         if (value) {
             app._endTextEdit?.(true);
-        } else if (selection.length === 1 && selection[0]?.supportsInlineEdit) {
-            app._startTextEdit?.(selection[0]);
         }
     }
 }

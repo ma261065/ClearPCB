@@ -27,7 +27,7 @@ export function toggleTheme(app) {
     const newTheme = currentTheme === 'light' ? 'dark' : 'light';
 
     html.setAttribute('data-theme', newTheme);
-    storageManager.set('clearpcb-theme', newTheme);
+    localStorage.setItem('clearpcb-theme', newTheme);
 
     const themeToggle = document.getElementById('themeToggle');
     if (themeToggle) {
@@ -45,7 +45,7 @@ export function toggleTheme(app) {
  * @param {object} app - Application state.
  */
 export function loadTheme(app) {
-    const savedTheme = storageManager.get('clearpcb-theme') || 'dark';
+    const savedTheme = localStorage.getItem('clearpcb-theme') || 'dark';
     const html = document.documentElement;
 
     if (savedTheme === 'light') {

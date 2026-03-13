@@ -93,14 +93,14 @@
                             <!-- Options populated by JavaScript based on units -->
                             <option value="1">1 mm</option>
                         </select>
-                        <select id="gridStyle" title="Grid style">
-                            <option value="lines" selected>Lines</option>
-                            <option value="dots">Dots</option>
-                        </select>
                         <select id="units" title="Units">
                             <option value="mm" selected>mm</option>
                             <option value="mil">mil</option>
                             <option value="inch">inch</option>
+                        </select>
+                        <select id="gridStyle" title="Grid style">
+                            <option value="lines" selected>Lines</option>
+                            <option value="dots">Dots</option>
                         </select>
                     </div>
                 </div>
@@ -163,6 +163,7 @@
                         <div class="help-row"><span><kbd>P</kbd> Polygon</span></div>
                         <div class="help-row"><span><kbd>L</kbd> Label</span></div>
                         <div class="help-row"><span><kbd>N</kbd> Net</span></div>
+                        <div class="help-row"><span><kbd>O</kbd> Component</span></div>
                         <div class="help-row"><span><kbd>X</kbd> No Connect</span></div>
                         <div class="help-row"><span><kbd>Space</kbd> Rotate component</span></div>
                         <div class="help-row"><span><kbd>X</kbd> Flip H (component)</span></div>
@@ -185,7 +186,7 @@
     </div>
 
     <div class="main-container">
-        <div class="canvas-container" id="canvasContainer">
+        <div class="canvas-container" id="canvasContainer" oncontextmenu="event.preventDefault()">
             <svg class="drawing-crosshair" id="drawingCrosshair">
                 <line id="crosshairX" stroke="var(--accent-color)" stroke-width="1" stroke-dasharray="4,4"/>
                 <line id="crosshairY" stroke="var(--accent-color)" stroke-width="1" stroke-dasharray="4,4"/>

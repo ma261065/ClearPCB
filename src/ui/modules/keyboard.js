@@ -1,5 +1,5 @@
 import { clearDragState } from './mouse.js';
-import { ModifyPropertyCommand } from '../../core/CommandHistory.js';
+import { ModifyPropertyCommand, MoveShapesCommand } from '../../core/CommandHistory.js';
 import { rotateNetOrientation } from '../../shapes/net.js';
 import { resolveWireSnapPosition, PIN_SNAP_TOL } from './wire.js';
 import { updateToolGhost } from './tool.js';
@@ -202,7 +202,14 @@ export function bindKeyboardShortcuts(app) {
             }
         } else {
             switch (e.key) {
-                case 'Escape':
+                case 'Escape': {
+                    // If a non-Home ribbon tab is showing, switch back to Home
+                    const activeTab = document.querySelector('.ribbon-tab.active');
+                    if (activeTab && activeTab.dataset.tab !== 'home') {
+                        app._setActiveRibbonTab('home');
+                        e.preventDefault();
+                        break;
+                    }
                     app._handleEscape();
                     if (!app.textEdit && !app.isDrawing && !app.pastingClipboard && !app.placingComponent && !app.componentPicker?.isOpen && app.currentTool !== 'select') {
                         app._onToolSelected('select');
@@ -211,6 +218,7 @@ export function bindKeyboardShortcuts(app) {
                     e.stopPropagation();
                     e.stopImmediatePropagation();
                     break;
+                }
                 case 'Enter':
                     if (app.isDrawing) {
                         if (app.currentTool === 'wire' && app.wirePoints.length >= 1) {
@@ -334,7 +342,7 @@ export function bindKeyboardShortcuts(app) {
                     // Spacebar: toggle H/V rotation on any selected text shape
                     if (!app.textEdit && !app.isDrawing && app.currentTool === 'select') {
                         const sel = app.selection.getSelection();
-                        const textShapes = sel.filter(s => s.type === 'text');
+                        const textShapes = sel.filter(s => s.type === 'text' && !s.locked);
                         if (textShapes.length > 0) {
                             const newRot = textShapes[0].rotation === 270 ? 0 : 270;
                             const cmd = new ModifyPropertyCommand(app, textShapes, 'rotation', newRot);
@@ -364,6 +372,33 @@ export function bindKeyboardShortcuts(app) {
                 case 'm':
                 case 'M':
                     break;
+                case 'ArrowUp':
+                case 'ArrowDown':
+                case 'ArrowLeft':
+                case 'ArrowRight': {
+                    if (app.textEdit) break;
+                    e.preventDefault();
+                    const step = app.viewport.snapToGrid ? app.viewport.gridSize : 1;
+                    let dx = 0, dy = 0;
+                    if (e.key === 'ArrowUp') dy = -step;
+                    else if (e.key === 'ArrowDown') dy = step;
+                    else if (e.key === 'ArrowLeft') dx = -step;
+                    else if (e.key === 'ArrowRight') dx = step;
+
+                    const sel = app.selection.getSelection();
+                    if (sel.length > 0) {
+                        const cmd = new MoveShapesCommand(app, sel, dx, dy);
+                        app.history.execute(cmd);
+                        app._updatePropertiesPanel(sel);
+                    } else {
+                        const panAmount = 20 / app.viewport.scale;
+                        app.viewport.viewBox.x += dx > 0 ? panAmount : dx < 0 ? -panAmount : 0;
+                        app.viewport.viewBox.y += dy > 0 ? panAmount : dy < 0 ? -panAmount : 0;
+                        app.viewport._updateViewBox();
+                        app.viewport._notifyViewChanged();
+                    }
+                    break;
+                }
             }
         }
     };

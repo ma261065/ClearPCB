@@ -67,10 +67,10 @@ export function setupCallbacks(app) {
             const v = app.viewport;
             const unitLabel = v.units === 'inch' ? '"' : ` ${v.units}`;
             if (app.ui.cursorPos) {
-                app.ui.cursorPos.textContent = `${v.formatValue(world.x)}, ${v.formatValue(world.y)}${unitLabel}`;
+                app.ui.cursorPos.textContent = `${v.formatValue(world.x)}, ${v.formatValue(-world.y)}${unitLabel}`;
             }
             if (app.ui.gridSnap) {
-                app.ui.gridSnap.textContent = `${v.formatValue(snapped.x)}, ${v.formatValue(snapped.y)}${unitLabel}`;
+                app.ui.gridSnap.textContent = `${v.formatValue(snapped.x)}, ${v.formatValue(-snapped.y)}${unitLabel}`;
             }
         }
     };

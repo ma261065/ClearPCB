@@ -41,16 +41,6 @@ export class Text extends Shape {
         this.attachment = options.attachment || null;
     }
 
-    get followRotation() {
-        return !!this.attachment?.followRotation;
-    }
-
-    set followRotation(value) {
-        if (!this.attachment) this.attachment = { kind: 'shape', offsetX: 0, offsetY: 0 };
-        this.attachment.followRotation = !!value;
-        this.invalidate();
-    }
-
     _syncLinkedParentAfterGeometryChange() {
         if (this.parentComponent?.type === 'net' && this.fieldKey === 'net') {
             this.parentComponent.syncTextOffsetFromLabelText?.();
@@ -262,9 +252,6 @@ export class Text extends Shape {
                 { key: 'text',     label,               type: 'text' },
                 { key: 'fontSize', label: 'Text size',  type: 'number', min: 0.5, max: 50, step: 0.5 },
             ];
-            if (this.fieldKey === 'label' && this.parentComponent && this.parentComponent.type !== 'wire') {
-                descriptors.push({ key: 'followRotation', label: 'Follow Rotation', type: 'checkbox' });
-            }
             return descriptors;
         }
         return [

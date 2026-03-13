@@ -34,6 +34,22 @@ export function bindPaperEvents(app) {
     const titleBlockCheckbox = document.getElementById('showTitleBlock');
     
     if (!paperSelect) return;
+
+    function updatePaperCheckboxState(paperSizeKey) {
+        const hasPaper = !!(paperSizeKey && PAPER_SIZES[paperSizeKey]);
+        if (titleBlockCheckbox) {
+            titleBlockCheckbox.disabled = !hasPaper;
+            titleBlockCheckbox.closest('.ribbon-checkbox')?.classList.toggle('disabled', !hasPaper);
+        }
+        const tbInfo = document.getElementById('showTitleBlockInfo');
+        if (tbInfo) {
+            tbInfo.disabled = !hasPaper;
+            tbInfo.closest('.ribbon-checkbox')?.classList.toggle('disabled', !hasPaper);
+        }
+        if (orientationSelect) {
+            orientationSelect.disabled = !hasPaper;
+        }
+    }
     
     // Restore saved orientation
     const savedOrientation = localStorage.getItem(ORIENTATION_KEY) || 'landscape';
@@ -63,6 +79,8 @@ export function bindPaperEvents(app) {
         paperSelect.value = savedPaperSize;
         updatePaperDisplay(app, savedPaperSize, savedOrientation);
     }
+
+    updatePaperCheckboxState(paperSelect.value);
     
     paperSelect.addEventListener('change', (e) => {
         const paperSizeKey = e.target.value;
@@ -75,6 +93,7 @@ export function bindPaperEvents(app) {
             updatePaperDisplay(app, paperSizeKey, orientation);
             localStorage.setItem(STORAGE_KEY, paperSizeKey);
         }
+        updatePaperCheckboxState(paperSizeKey);
     });
     
     if (orientationSelect) {

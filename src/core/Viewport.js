@@ -210,7 +210,7 @@ export class Viewport {
     _getThemeColors() {
         const style = getComputedStyle(document.documentElement);
         return {
-            canvasBg: style.getPropertyValue('--sch-background').trim() || '#1a1a2e',
+            canvasBg: style.getPropertyValue('--sch-background').trim() || '#1e1e1e',
             gridMinor: style.getPropertyValue('--sch-grid').trim() || 'rgba(255, 255, 255, 0.08)',
             gridMajor: style.getPropertyValue('--sch-grid-major').trim() || 'rgba(255, 255, 255, 0.15)',
             axis: style.getPropertyValue('--sch-axis').trim() || 'rgba(255, 255, 255, 0.25)',
@@ -1256,11 +1256,6 @@ export class Viewport {
         svg += `<rect x="0" y="${rs}" width="${rs}" height="${h - rs}" fill="${colors.rulerBg}"/>`;
         svg += `<rect x="0" y="0" width="${rs}" height="${rs}" fill="${colors.rulerBg}"/>`;
         
-        // Debug info - show view width in current units
-        const viewWidthDisplay = Math.round((bounds.maxX - bounds.minX) * unitConversion * 10) / 10;
-        const unitLabel = this.units === 'inch' ? '"' : this.units;
-        svg += `<text x="3" y="15" fill="${colors.rulerText}" font-size="9" font-family="monospace">${viewWidthDisplay}${unitLabel}</text>`;
-        
         // Top ruler ticks and labels
         const startX = Math.floor(bounds.minX / tickSpacingMm) * tickSpacingMm;
         const endX = Math.ceil(bounds.maxX / tickSpacingMm) * tickSpacingMm;
@@ -1293,7 +1288,7 @@ export class Viewport {
             if (screenY < rs || screenY > h) continue;
             
             svg += `<line x1="${rs}" y1="${screenY}" x2="${rs - 8}" y2="${screenY}" stroke="${colors.rulerLine}"/>`;
-            svg += `<text x="3" y="${screenY + 3}" fill="${colors.rulerText}" font-size="10" font-family="monospace">${formatLabel(worldY)}</text>`;
+            svg += `<text x="3" y="${screenY + 3}" fill="${colors.rulerText}" font-size="10" font-family="monospace">${formatLabel(-worldY)}</text>`;
             
             // Minor ticks
             for (let i = 1; i < 5; i++) {
@@ -1495,18 +1490,13 @@ export class Viewport {
         // methods instead. Only wheel, contextmenu, resize, and keyboard stay here.
         
         // Prevent context menu (state machine handles right-click logic)
-        this.boundHandlers.contextmenu = (e) => {
-            e.preventDefault();
-        };
-        
         // Handle resize
         this.boundHandlers.resize = () => {
             this._onResize();
         };
         
-        // Attach handlers (no mousedown/mousemove/mouseup — those are in mouse.js)
+        // Attach handlers (no mousedown/mousemove/mouseup/contextmenu — those are in mouse.js)
         this.svg.addEventListener('wheel', this.boundHandlers.wheel, { passive: false });
-        this.svg.addEventListener('contextmenu', this.boundHandlers.contextmenu);
         window.addEventListener('resize', this.boundHandlers.resize);
         
         // Keyboard
@@ -1532,7 +1522,6 @@ export class Viewport {
             this.viewChangeTimer = null;
         }
         if (this.boundHandlers.wheel) this.svg.removeEventListener('wheel', this.boundHandlers.wheel);
-        if (this.boundHandlers.contextmenu) this.svg.removeEventListener('contextmenu', this.boundHandlers.contextmenu);
         if (this.boundHandlers.resize) window.removeEventListener('resize', this.boundHandlers.resize);
         if (this.boundHandlers.keydown) window.removeEventListener('keydown', this.boundHandlers.keydown);
         if (this.boundHandlers.browserZoom) window.removeEventListener('keydown', this.boundHandlers.browserZoom);

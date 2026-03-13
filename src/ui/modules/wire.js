@@ -1304,7 +1304,6 @@ function _rehomeAttachedWireLabelsAfterSplit(originalWire, postSplitWires) {
         label.attachment.anchorY = anchor.y;
         label.attachment.offsetX = label.x - anchor.x;
         label.attachment.offsetY = label.y - anchor.y;
-        if (label.attachment.followRotation == null) label.attachment.followRotation = false;
 
         label.invalidate?.();
         targetWire.invalidate?.();
@@ -1509,7 +1508,6 @@ function _transferAttachedLabelsOnMerge(keeper, removed) {
         label.attachment.anchorY  = anchor.y;
         label.attachment.offsetX  = label.x - anchor.x;
         label.attachment.offsetY  = label.y - anchor.y;
-        if (label.attachment.followRotation == null) label.attachment.followRotation = false;
 
         label.invalidate?.();
     }

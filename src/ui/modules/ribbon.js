@@ -7,6 +7,11 @@ import { hasClipboard } from './clipboard.js';
  * @param {object} app - Application state.
  */
 export function bindRibbon(app) {
+    // Auto-blur ribbon selects after change so focus border doesn't stick
+    document.querySelector('.ribbon')?.addEventListener('change', (e) => {
+        if (e.target instanceof HTMLSelectElement) e.target.blur();
+    });
+
     const net_STYLE_META = {
         t: { icon: '┤', title: 'T' },
         gnd: { icon: '⏚', title: 'GND' },
