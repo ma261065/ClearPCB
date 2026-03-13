@@ -205,16 +205,6 @@ export function updateLabelDragGuide(app, labelShape) {
         return;
     }
 
-    const hotspot = getLabelDropHotspot(labelShape, { x: labelShape.x, y: labelShape.y });
-    const anchor = getLabelAttachmentAnchorPoint(labelShape, hotspot);
-    if (!anchor) {
-        if (app._labelDragGuide) {
-            app._labelDragGuide.remove();
-            app._labelDragGuide = null;
-        }
-        return;
-    }
-
     // Guide line endpoint: center of text at baseline, rotated to world space
     let guideEndX, guideEndY;
     {
@@ -238,6 +228,15 @@ export function updateLabelDragGuide(app, labelShape) {
             guideEndX = localCX;
             guideEndY = localBY;
         }
+    }
+
+    const anchor = getLabelAttachmentAnchorPoint(labelShape, { x: guideEndX, y: guideEndY });
+    if (!anchor) {
+        if (app._labelDragGuide) {
+            app._labelDragGuide.remove();
+            app._labelDragGuide = null;
+        }
+        return;
     }
 
     let guide = app._labelDragGuide;

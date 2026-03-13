@@ -2,6 +2,8 @@
  * Generic label attachment helpers.
  */
 
+import { closestPointOnSegment, distance } from '../../core/geometry.js';
+
 const WIRE_ATTACHED_LABEL_FONT_SIZE = 1.4;
 
 function getShapeCenter(shape) {
@@ -36,7 +38,76 @@ function removeAttachedLabel(target, labelShape) {
     }
 }
 
-function getNonWireAnchor(target) {
+function closestPointOnShapeGeometry(target, pt) {
+    const type = target?.type;
+
+    if (type === 'line' || type === 'polygon') {
+        const pts = target.points;
+        if (!pts || pts.length < 2) return null;
+        const edgeCount = (type === 'polygon' && target.closed) ? pts.length : pts.length - 1;
+        let best = null, bestDist = Infinity;
+        for (let i = 0; i < edgeCount; i++) {
+            const j = (i + 1) % pts.length;
+            const cp = closestPointOnSegment(pt, pts[i], pts[j]);
+            const d = distance(pt, cp);
+            if (d < bestDist) { bestDist = d; best = cp; }
+        }
+        return best;
+    }
+
+    if (type === 'rect') {
+        const corners = [
+            { x: target.x, y: target.y },
+            { x: target.x + target.width, y: target.y },
+            { x: target.x + target.width, y: target.y + target.height },
+            { x: target.x, y: target.y + target.height }
+        ];
+        let best = null, bestDist = Infinity;
+        for (let i = 0; i < 4; i++) {
+            const cp = closestPointOnSegment(pt, corners[i], corners[(i + 1) % 4]);
+            const d = distance(pt, cp);
+            if (d < bestDist) { bestDist = d; best = cp; }
+        }
+        return best;
+    }
+
+    if (type === 'circle') {
+        const dx = pt.x - target.x, dy = pt.y - target.y;
+        const dist = Math.hypot(dx, dy);
+        if (dist === 0) return { x: target.x + target.radius, y: target.y };
+        return { x: target.x + dx / dist * target.radius, y: target.y + dy / dist * target.radius };
+    }
+
+    if (type === 'arc') {
+        const dx = pt.x - target.x, dy = pt.y - target.y;
+        const angle = Math.atan2(dy, dx);
+        if (target._isAngleInRange?.(angle)) {
+            const dist = Math.hypot(dx, dy);
+            if (dist === 0) return target.getStartPoint?.() || null;
+            return { x: target.x + dx / dist * target.radius, y: target.y + dy / dist * target.radius };
+        }
+        const sp = target.getStartPoint?.();
+        const ep = target.getEndPoint?.();
+        if (sp && ep) {
+            const ds = distance(pt, sp), de = distance(pt, ep);
+            return ds <= de ? sp : ep;
+        }
+        return sp || ep || null;
+    }
+
+    return null;
+}
+
+function getNonWireAnchor(target, referencePoint) {
+    // For components (have definition), use center
+    if (target?.definition) {
+        return getShapeCenter(target);
+    }
+    // For primitive shapes, find closest point on actual geometry
+    if (referencePoint) {
+        const cp = closestPointOnShapeGeometry(target, referencePoint);
+        if (cp) return cp;
+    }
     if (typeof target?.getPosition === 'function') return target.getPosition();
     return getShapeCenter(target);
 }
@@ -98,17 +169,7 @@ export function getLabelAttachmentAnchorPoint(labelShape, referencePoint = null)
         return getWireAnchorFromAttachment(target, att);
     }
 
-    if (target.type === 'circle' && typeof target.getAnchors === 'function') {
-        const anchors = target.getAnchors();
-        const radiusAnchor = anchors.find(a => a.id === 'radius')
-            || anchors.find(a => a.id !== 'center')
-            || null;
-        if (radiusAnchor && Number.isFinite(radiusAnchor.x) && Number.isFinite(radiusAnchor.y)) {
-            return { x: radiusAnchor.x, y: radiusAnchor.y };
-        }
-    }
-
-    return getNonWireAnchor(target);
+    return getNonWireAnchor(target, referencePoint);
 }
 
 /**
