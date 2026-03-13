@@ -82,9 +82,9 @@ export class FileManager {
         } else {
             result = await this.saveAs(data);
         }
-        // Persist a clean-state autosave after successful save
+        // Clear autosave after successful save — no recovery needed
         if (result && result.success) {
-            this.autoSaveToStorage(data);
+            this.clearAutoSave(this.fileName);
         }
         // If the file name changed from untitled.pcbs, delete the old autosave
         if (oldFileName && oldFileName !== this.fileName && oldFileName === 'untitled.pcbs') {

@@ -865,7 +865,7 @@ export const idleState = {
 
         // If a non-Home ribbon tab is showing, switch back to Home
         const activeTab = document.querySelector('.ribbon-tab.active');
-        if (activeTab && activeTab.dataset.tab !== 'home') {
+        if (activeTab instanceof HTMLElement && activeTab.dataset.tab !== 'home') {
             app._setActiveRibbonTab('home');
         }
 
