@@ -386,8 +386,8 @@ body {
 
 /* Custom checkbox (hide native, draw our own) */
 .ribbon-checkbox input[type="checkbox"] {
-    appearance: none;
     -webkit-appearance: none;
+    appearance: none;
     width: 13px;
     height: 13px;
     border: 1px solid var(--text-muted);

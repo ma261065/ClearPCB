@@ -1216,7 +1216,8 @@ export const moveDragState = {
         if (app.viewport.isPanning) return;
 
         const selNow = app.selection.getSelection();
-        const isGenericLabel = selNow.length === 1 && selNow[0]?.type === 'text' && selNow[0].fieldKey === 'label';
+        const isDraggingText = selNow.length === 1 && selNow[0]?.type === 'text';
+        const isGenericLabel = isDraggingText && selNow[0].fieldKey === 'label';
         if (isGenericLabel) {
             const labelShape = selNow[0];
             const hotspot = getLabelDropHotspot(labelShape, worldPos);
@@ -1233,6 +1234,9 @@ export const moveDragState = {
                 if (newTarget) newTarget.invalidate?.();
                 app._labelDragHoverTarget = newTarget;
             }
+        } else if (isDraggingText && selNow[0].parentComponent) {
+            // Ref/value fields: show guide line but no attachment re-targeting
+            updateLabelDragGuide(app, selNow[0]);
         } else {
             updateLabelDragGuide(app, null);
             app._labelDragHoverTarget = null;
