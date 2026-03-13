@@ -1884,6 +1884,44 @@ export function buildCollinearChain(wire, dragEdgeId, origState) {
 }
 
 /**
+ * Insert bridge nodes at pin-connected endpoints reachable through a
+ * collinear chain.  For each chain-boundary node whose neighbor is
+ * pin-connected and collinear, a bridge is inserted so the pin stays
+ * fixed while the chain (including the bridge) can move.
+ *
+ * @param {Wire} wire       The wire to modify
+ * @param {Set}  chain      The collinear moving-node set (from buildCollinearChain).
+ *                          Bridge node IDs are added to this set so they move with the chain.
+ */
+export function bridgeCollinearPinEndpoints(wire, chain) {
+    for (const nid of [...chain]) {
+        for (const { edge: e, otherNode } of wire.incidentEdges(nid)) {
+            if (chain.has(otherNode)) continue;
+            if (!wire.pinConnections.has(otherNode)) continue;
+            // Skip if pin already has a bridge (non-pin neighbor at same position)
+            const pinPos = wire.nodes.get(otherNode);
+            let alreadyBridged = false;
+            for (const { otherNode: adj } of wire.incidentEdges(otherNode)) {
+                if (adj === nid) continue;
+                if (wire.pinConnections.has(adj)) continue;
+                const adjPos = wire.nodes.get(adj);
+                if (adjPos && Math.abs(adjPos.x - pinPos.x) < 0.01 && Math.abs(adjPos.y - pinPos.y) < 0.01) {
+                    alreadyBridged = true;
+                    break;
+                }
+            }
+            if (alreadyBridged) continue;
+            const bridgeId = wire.addNode(pinPos.x, pinPos.y);
+            if (e.from === otherNode) e.from = bridgeId;
+            else e.to = bridgeId;
+            wire.addEdge(otherNode, bridgeId);
+            chain.add(bridgeId);
+            wire.invalidate();
+        }
+    }
+}
+
+/**
  * Override a grid-snapped position with off-grid neighbor coordinates
  * when the raw (un-snapped) position is within half a grid cell of a
  * neighbor's X or Y.  This creates invisible snap lines at every

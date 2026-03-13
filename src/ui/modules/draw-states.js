@@ -16,7 +16,7 @@
  * event and routes to the current state's handler.
  */
 
-import { updateStickyWires, updateSnapHighlight, resolveWireSnapPosition, renderGuideLines, computeAnchorCollinearSnap, computeSegmentDragSnap, computeStickyWireSnaps, applyOffGridNeighborSnap, buildCollinearChain, SNAP_SCREEN_PX, COLLINEAR_EPSILON, VERTEX_EPSILON, PIN_SNAP_TOL } from './wire.js';
+import { updateStickyWires, updateSnapHighlight, resolveWireSnapPosition, renderGuideLines, computeAnchorCollinearSnap, computeSegmentDragSnap, computeStickyWireSnaps, applyOffGridNeighborSnap, buildCollinearChain, bridgeCollinearPinEndpoints, SNAP_SCREEN_PX, COLLINEAR_EPSILON, VERTEX_EPSILON, PIN_SNAP_TOL } from './wire.js';
 import { commitAnchorDrag, clearDragState, commitMoveDrag, commitSegmentDrag, resolveAnchorDragOnMouseUp, revertSegmentDragIfNoMove, areCapturedStatesEqual } from './drag.js';
 import { detectTJunction, showAnchorContextMenu, showSegmentContextMenu, showLabelContextMenu } from './context-menu.js';
 import { updateToolGhost } from './tool.js';
@@ -300,6 +300,30 @@ function beginWireSegmentDragSession(app, params) {
     app.interactionState = 'segmentDrag';
 }
 
+function bridgeStickyPinNodes(app, movingCompIds) {
+    if (movingCompIds.size === 0) return;
+    for (const wire of app.shapes) {
+        if (wire.type !== 'wire') continue;
+        for (const [nodeId, conn] of wire.pinConnections) {
+            if (!movingCompIds.has(conn.componentId)) continue;
+            // Bridge each non-pin incident edge so the pin can move freely
+            for (const { edge: e, otherNode } of [...wire.incidentEdges(nodeId)]) {
+                if (wire.pinConnections.has(otherNode)) continue;
+                const otherPos = wire.nodes.get(otherNode);
+                const pinPos = wire.nodes.get(nodeId);
+                if (!otherPos || !pinPos) continue;
+                // Skip if other node is already at pin position (existing bridge)
+                if (Math.abs(otherPos.x - pinPos.x) < 0.01 && Math.abs(otherPos.y - pinPos.y) < 0.01) continue;
+                const bridgeId = wire.addNode(pinPos.x, pinPos.y);
+                if (e.from === nodeId) e.from = bridgeId;
+                else e.to = bridgeId;
+                wire.addEdge(nodeId, bridgeId);
+            }
+            wire.invalidate();
+        }
+    }
+}
+
 function beginMoveDragSession(app, worldPos, dragObjectStartPos) {
     app.drag = {
         mode: 'move',
@@ -403,6 +427,10 @@ function handleDragEnd(app) {
 
     if (app.didDrag && app.drag.mode === 'move') {
         commitMoveDrag(app, app.drag.totalDx, app.drag.totalDy);
+        // Clean up redundant collinear nodes left by bridge insertion
+        for (const wire of app.shapes) {
+            if (wire.type === 'wire') collapseRedundantWirePoints(app, wire);
+        }
     } else if (app.drag.mode === 'segment' && app.drag.wireStates) {
         if (app.didDrag) commitSegmentDrag(app, app.drag.shape, app.drag.wireStates, app.drag.ncLinks, app.drag.labelBefore);
         else revertSegmentDragIfNoMove(app, app.drag.wireStates);
@@ -566,6 +594,13 @@ function tryBeginWireSegmentDrag(app, hitShape, worldPos) {
         } else {
             app.drag.axis = null;
         }
+    }
+
+    // Bridge pin-connected nodes reachable through the collinear chain
+    {
+        const chainState = app._captureShapeState(hitShape);
+        const chain = buildCollinearChain(hitShape, dragEdgeId, chainState);
+        bridgeCollinearPinEndpoints(hitShape, chain);
     }
 
     app.drag.workingState = app._captureShapeState(hitShape);
@@ -834,6 +869,8 @@ export const idleState = {
             const firstShape = app.selection.getSelection()[0];
             const dragObjectStartPos = firstShape ? firstShape.getPosition() : { ...snapped };
             beginMoveDragSession(app, worldPos, dragObjectStartPos);
+            // Bridge pin-connected wire nodes ONCE so pins can move freely
+            bridgeStickyPinNodes(app, collectMovingComponentIds(app.selection.getSelection()));
             app.viewport.svg.style.cursor = 'move';
             app.renderShapes(true);
             event.preventDefault();
