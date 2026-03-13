@@ -459,133 +459,208 @@ export const BuiltInComponents = [
         footprint: null
     },
     
-    // ============ POWER SYMBOLS ============
+    // ============ SWITCHES ============
     
     {
-        name: 'GND',
-        description: 'Ground symbol',
-        category: 'Power Symbols',
-        keywords: ['GND', 'ground', 'earth', 'power'],
-        defaultReference: '#GND',
-        defaultValue: 'GND',
+        name: 'SW_Push',
+        description: 'Push button (normally open)',
+        category: 'Switches',
+        keywords: ['SW', 'switch', 'push', 'button', 'tactile'],
+        defaultReference: 'SW?',
+        defaultValue: '',
         symbol: {
-            width: 2.54,
-            height: 2.54,
-            origin: { x: 1.27, y: 0 },
+            width: 5.08,
+            height: 5.08,
+            origin: { x: 2.54, y: 2.54 },
             graphics: [
-                // Vertical line
-                { type: 'line', x1: 0, y1: 0, x2: 0, y2: 1.27, stroke: '#000000', strokeWidth: 0.254 },
-                // Three horizontal lines
-                { type: 'line', x1: -1.27, y1: 1.27, x2: 1.27, y2: 1.27, stroke: '#000000', strokeWidth: 0.254 },
-                { type: 'line', x1: -0.762, y1: 1.778, x2: 0.762, y2: 1.778, stroke: '#000000', strokeWidth: 0.254 },
-                { type: 'line', x1: -0.254, y1: 2.286, x2: 0.254, y2: 2.286, stroke: '#000000', strokeWidth: 0.254 }
+                // Lead lines
+                { type: 'line', x1: -2.54, y1: 0, x2: -1.27, y2: 0, stroke: '#000000', strokeWidth: 0.254 },
+                { type: 'line', x1: 2.54, y1: 0, x2: 1.27, y2: 0, stroke: '#000000', strokeWidth: 0.254 },
+                // Contact stubs
+                { type: 'line', x1: -1.27, y1: 0.762, x2: -1.27, y2: -0.762, stroke: '#000000', strokeWidth: 0.254 },
+                { type: 'line', x1: 1.27, y1: 0.762, x2: 1.27, y2: -0.762, stroke: '#000000', strokeWidth: 0.254 },
+                // Push bar (normally open, above contacts)
+                { type: 'line', x1: -1.27, y1: -1.27, x2: 1.27, y2: -1.27, stroke: '#000000', strokeWidth: 0.254 },
+                // Push indicator
+                { type: 'line', x1: 0, y1: -2.54, x2: 0, y2: -1.27, stroke: '#000000', strokeWidth: 0.254 },
+                // Reference
+                { type: 'text', x: 0, y: 2.5, text: '${REF}', fontSize: 1.27, anchor: 'middle', baseline: 'middle' }
             ],
             pins: [
-                { number: '1', name: 'GND', x: 0, y: 0, orientation: 'up', length: 0, type: 'power_in', shape: 'line', showName: false }
+                { number: '1', name: '1', x: -2.54, y: 0, orientation: 'left', length: 0, type: 'passive', shape: 'line' },
+                { number: '2', name: '2', x: 2.54, y: 0, orientation: 'right', length: 0, type: 'passive', shape: 'line' }
+            ]
+        },
+        footprint: null
+    },
+    
+    // ============ TRANSISTORS ============
+    
+    {
+        name: 'NPN',
+        description: 'NPN bipolar transistor',
+        category: 'Transistors',
+        keywords: ['Q', 'NPN', 'BJT', 'transistor'],
+        defaultReference: 'Q?',
+        defaultValue: '2N2222',
+        symbol: {
+            width: 5.08,
+            height: 6.35,
+            origin: { x: 2.54, y: 3.175 },
+            graphics: [
+                // Vertical bar (base region)
+                { type: 'line', x1: 0, y1: -1.524, x2: 0, y2: 1.524, stroke: '#000000', strokeWidth: 0.381 },
+                // Base lead
+                { type: 'line', x1: -2.54, y1: 0, x2: 0, y2: 0, stroke: '#000000', strokeWidth: 0.254 },
+                // Collector line
+                { type: 'line', x1: 0, y1: -1.016, x2: 1.524, y2: -2.54, stroke: '#000000', strokeWidth: 0.254 },
+                // Collector lead
+                { type: 'line', x1: 1.524, y1: -2.54, x2: 1.524, y2: -3.175, stroke: '#000000', strokeWidth: 0.254 },
+                // Emitter line
+                { type: 'line', x1: 0, y1: 1.016, x2: 1.524, y2: 2.54, stroke: '#000000', strokeWidth: 0.254 },
+                // Emitter lead
+                { type: 'line', x1: 1.524, y1: 2.54, x2: 1.524, y2: 3.175, stroke: '#000000', strokeWidth: 0.254 },
+                // Emitter arrow
+                { type: 'polyline', points: [[0.762, 2.286], [1.524, 2.54], [1.27, 1.778]], stroke: '#000000', strokeWidth: 0.254, fill: '#000000' },
+                // Reference
+                { type: 'text', x: 3, y: -1.5, text: '${REF}', fontSize: 1.27, anchor: 'start', baseline: 'middle' },
+                // Value
+                { type: 'text', x: 3, y: 1.5, text: '${VALUE}', fontSize: 1.27, anchor: 'start', baseline: 'middle' }
+            ],
+            pins: [
+                { number: '1', name: 'B', x: -2.54, y: 0, orientation: 'left', length: 0, type: 'input', shape: 'line' },
+                { number: '2', name: 'C', x: 1.524, y: -3.175, orientation: 'up', length: 0, type: 'passive', shape: 'line' },
+                { number: '3', name: 'E', x: 1.524, y: 3.175, orientation: 'down', length: 0, type: 'passive', shape: 'line' }
             ]
         },
         footprint: null
     },
     
     {
-        name: 'VCC',
-        description: 'VCC power symbol',
-        category: 'Power Symbols',
-        keywords: ['VCC', 'power', '+V', 'supply'],
-        defaultReference: '#VCC',
-        defaultValue: 'VCC',
+        name: 'PNP',
+        description: 'PNP bipolar transistor',
+        category: 'Transistors',
+        keywords: ['Q', 'PNP', 'BJT', 'transistor'],
+        defaultReference: 'Q?',
+        defaultValue: '2N2907',
         symbol: {
-            width: 2.54,
-            height: 2.54,
-            origin: { x: 1.27, y: 2.54 },
+            width: 5.08,
+            height: 6.35,
+            origin: { x: 2.54, y: 3.175 },
             graphics: [
-                // Vertical line
-                { type: 'line', x1: 0, y1: 0, x2: 0, y2: -1.27, stroke: '#000000', strokeWidth: 0.254 },
-                // Circle or bar at top
-                { type: 'circle', cx: 0, cy: -1.778, r: 0.508, stroke: '#000000', strokeWidth: 0.254, fill: 'none' },
-                // Label
-                { type: 'text', x: 0, y: -3, text: 'VCC', fontSize: 1.27, anchor: 'middle', baseline: 'middle' }
+                // Vertical bar (base region)
+                { type: 'line', x1: 0, y1: -1.524, x2: 0, y2: 1.524, stroke: '#000000', strokeWidth: 0.381 },
+                // Base lead
+                { type: 'line', x1: -2.54, y1: 0, x2: 0, y2: 0, stroke: '#000000', strokeWidth: 0.254 },
+                // Collector line
+                { type: 'line', x1: 0, y1: 1.016, x2: 1.524, y2: 2.54, stroke: '#000000', strokeWidth: 0.254 },
+                // Collector lead
+                { type: 'line', x1: 1.524, y1: 2.54, x2: 1.524, y2: 3.175, stroke: '#000000', strokeWidth: 0.254 },
+                // Emitter line
+                { type: 'line', x1: 0, y1: -1.016, x2: 1.524, y2: -2.54, stroke: '#000000', strokeWidth: 0.254 },
+                // Emitter lead
+                { type: 'line', x1: 1.524, y1: -2.54, x2: 1.524, y2: -3.175, stroke: '#000000', strokeWidth: 0.254 },
+                // Emitter arrow (pointing inward for PNP)
+                { type: 'polyline', points: [[0.254, -0.762], [0, -1.016], [0.762, -1.27]], stroke: '#000000', strokeWidth: 0.254, fill: '#000000' },
+                // Reference
+                { type: 'text', x: 3, y: -1.5, text: '${REF}', fontSize: 1.27, anchor: 'start', baseline: 'middle' },
+                // Value
+                { type: 'text', x: 3, y: 1.5, text: '${VALUE}', fontSize: 1.27, anchor: 'start', baseline: 'middle' }
             ],
             pins: [
-                { number: '1', name: 'VCC', x: 0, y: 0, orientation: 'down', length: 0, type: 'power_in', shape: 'line', showName: false }
+                { number: '1', name: 'B', x: -2.54, y: 0, orientation: 'left', length: 0, type: 'input', shape: 'line' },
+                { number: '2', name: 'E', x: 1.524, y: -3.175, orientation: 'up', length: 0, type: 'passive', shape: 'line' },
+                { number: '3', name: 'C', x: 1.524, y: 3.175, orientation: 'down', length: 0, type: 'passive', shape: 'line' }
             ]
         },
         footprint: null
     },
     
     {
-        name: 'VDD',
-        description: 'VDD power symbol',
-        category: 'Power Symbols',
-        keywords: ['VDD', 'power', '+V', 'supply'],
-        defaultReference: '#VDD',
-        defaultValue: 'VDD',
+        name: 'NMOS',
+        description: 'N-channel MOSFET',
+        category: 'Transistors',
+        keywords: ['Q', 'NMOS', 'NFET', 'MOSFET', 'FET', 'transistor'],
+        defaultReference: 'Q?',
+        defaultValue: '2N7000',
         symbol: {
-            width: 2.54,
-            height: 2.54,
-            origin: { x: 1.27, y: 2.54 },
+            width: 5.08,
+            height: 6.35,
+            origin: { x: 2.54, y: 3.175 },
             graphics: [
-                // Vertical line
-                { type: 'line', x1: 0, y1: 0, x2: 0, y2: -1.27, stroke: '#000000', strokeWidth: 0.254 },
-                // Bar at top
-                { type: 'line', x1: -1.016, y1: -1.27, x2: 1.016, y2: -1.27, stroke: '#000000', strokeWidth: 0.254 },
-                // Label
-                { type: 'text', x: 0, y: -2.5, text: 'VDD', fontSize: 1.27, anchor: 'middle', baseline: 'middle' }
+                // Gate vertical bar
+                { type: 'line', x1: -0.254, y1: -1.524, x2: -0.254, y2: 1.524, stroke: '#000000', strokeWidth: 0.254 },
+                // Channel segments (broken for enhancement mode)
+                { type: 'line', x1: 0.508, y1: -1.524, x2: 0.508, y2: -0.508, stroke: '#000000', strokeWidth: 0.381 },
+                { type: 'line', x1: 0.508, y1: -0.254, x2: 0.508, y2: 0.254, stroke: '#000000', strokeWidth: 0.381 },
+                { type: 'line', x1: 0.508, y1: 0.508, x2: 0.508, y2: 1.524, stroke: '#000000', strokeWidth: 0.381 },
+                // Gate lead
+                { type: 'line', x1: -2.54, y1: 0, x2: -0.254, y2: 0, stroke: '#000000', strokeWidth: 0.254 },
+                // Drain line
+                { type: 'line', x1: 0.508, y1: -1.016, x2: 1.524, y2: -1.016, stroke: '#000000', strokeWidth: 0.254 },
+                { type: 'line', x1: 1.524, y1: -1.016, x2: 1.524, y2: -3.175, stroke: '#000000', strokeWidth: 0.254 },
+                // Source line
+                { type: 'line', x1: 0.508, y1: 1.016, x2: 1.524, y2: 1.016, stroke: '#000000', strokeWidth: 0.254 },
+                { type: 'line', x1: 1.524, y1: 1.016, x2: 1.524, y2: 3.175, stroke: '#000000', strokeWidth: 0.254 },
+                // Arrow on source (pointing in for N-channel)
+                { type: 'polyline', points: [[0.254, 1.016], [0.508, 1.016], [0.508, 0.762]], stroke: '#000000', strokeWidth: 0.254, fill: '#000000' },
+                // Body diode connection
+                { type: 'line', x1: 1.524, y1: 1.016, x2: 1.524, y2: -1.016, stroke: '#000000', strokeWidth: 0.127, },
+                // Reference
+                { type: 'text', x: 3, y: -1.5, text: '${REF}', fontSize: 1.27, anchor: 'start', baseline: 'middle' },
+                // Value
+                { type: 'text', x: 3, y: 1.5, text: '${VALUE}', fontSize: 1.27, anchor: 'start', baseline: 'middle' }
             ],
             pins: [
-                { number: '1', name: 'VDD', x: 0, y: 0, orientation: 'down', length: 0, type: 'power_in', shape: 'line', showName: false }
+                { number: '1', name: 'G', x: -2.54, y: 0, orientation: 'left', length: 0, type: 'input', shape: 'line' },
+                { number: '2', name: 'D', x: 1.524, y: -3.175, orientation: 'up', length: 0, type: 'passive', shape: 'line' },
+                { number: '3', name: 'S', x: 1.524, y: 3.175, orientation: 'down', length: 0, type: 'passive', shape: 'line' }
             ]
         },
         footprint: null
     },
     
     {
-        name: '+3V3',
-        description: '3.3V power symbol',
-        category: 'Power Symbols',
-        keywords: ['3V3', '3.3V', 'power', 'supply'],
-        defaultReference: '#+3V3',
-        defaultValue: '+3V3',
+        name: 'PMOS',
+        description: 'P-channel MOSFET',
+        category: 'Transistors',
+        keywords: ['Q', 'PMOS', 'PFET', 'MOSFET', 'FET', 'transistor'],
+        defaultReference: 'Q?',
+        defaultValue: 'BSS84',
         symbol: {
-            width: 2.54,
-            height: 2.54,
-            origin: { x: 1.27, y: 2.54 },
+            width: 5.08,
+            height: 6.35,
+            origin: { x: 2.54, y: 3.175 },
             graphics: [
-                // Vertical line
-                { type: 'line', x1: 0, y1: 0, x2: 0, y2: -1.27, stroke: '#000000', strokeWidth: 0.254 },
-                // Bar at top
-                { type: 'line', x1: -1.016, y1: -1.27, x2: 1.016, y2: -1.27, stroke: '#000000', strokeWidth: 0.254 },
-                // Label
-                { type: 'text', x: 0, y: -2.5, text: '+3V3', fontSize: 1.27, anchor: 'middle', baseline: 'middle' }
+                // Gate vertical bar
+                { type: 'line', x1: -0.254, y1: -1.524, x2: -0.254, y2: 1.524, stroke: '#000000', strokeWidth: 0.254 },
+                // Channel segments (broken for enhancement mode)
+                { type: 'line', x1: 0.508, y1: -1.524, x2: 0.508, y2: -0.508, stroke: '#000000', strokeWidth: 0.381 },
+                { type: 'line', x1: 0.508, y1: -0.254, x2: 0.508, y2: 0.254, stroke: '#000000', strokeWidth: 0.381 },
+                { type: 'line', x1: 0.508, y1: 0.508, x2: 0.508, y2: 1.524, stroke: '#000000', strokeWidth: 0.381 },
+                // Gate lead
+                { type: 'line', x1: -2.54, y1: 0, x2: -0.254, y2: 0, stroke: '#000000', strokeWidth: 0.254 },
+                // Source line (top for PMOS)
+                { type: 'line', x1: 0.508, y1: -1.016, x2: 1.524, y2: -1.016, stroke: '#000000', strokeWidth: 0.254 },
+                { type: 'line', x1: 1.524, y1: -1.016, x2: 1.524, y2: -3.175, stroke: '#000000', strokeWidth: 0.254 },
+                // Drain line (bottom for PMOS)
+                { type: 'line', x1: 0.508, y1: 1.016, x2: 1.524, y2: 1.016, stroke: '#000000', strokeWidth: 0.254 },
+                { type: 'line', x1: 1.524, y1: 1.016, x2: 1.524, y2: 3.175, stroke: '#000000', strokeWidth: 0.254 },
+                // Arrow on source (pointing out for P-channel)
+                { type: 'polyline', points: [[0.762, -1.016], [0.508, -1.016], [0.508, -1.27]], stroke: '#000000', strokeWidth: 0.254, fill: '#000000' },
+                // Body diode connection
+                { type: 'line', x1: 1.524, y1: 1.016, x2: 1.524, y2: -1.016, stroke: '#000000', strokeWidth: 0.127 },
+                // Gate bubble (inversion)
+                { type: 'circle', cx: -0.635, cy: 0, r: 0.381, stroke: '#000000', strokeWidth: 0.254, fill: 'none' },
+                // Reference
+                { type: 'text', x: 3, y: -1.5, text: '${REF}', fontSize: 1.27, anchor: 'start', baseline: 'middle' },
+                // Value
+                { type: 'text', x: 3, y: 1.5, text: '${VALUE}', fontSize: 1.27, anchor: 'start', baseline: 'middle' }
             ],
             pins: [
-                { number: '1', name: '+3V3', x: 0, y: 0, orientation: 'down', length: 0, type: 'power_in', shape: 'line', showName: false }
-            ]
-        },
-        footprint: null
-    },
-    
-    {
-        name: '+5V',
-        description: '5V power symbol',
-        category: 'Power Symbols',
-        keywords: ['5V', 'power', 'supply'],
-        defaultReference: '#+5V',
-        defaultValue: '+5V',
-        symbol: {
-            width: 2.54,
-            height: 2.54,
-            origin: { x: 1.27, y: 2.54 },
-            graphics: [
-                // Vertical line
-                { type: 'line', x1: 0, y1: 0, x2: 0, y2: -1.27, stroke: '#000000', strokeWidth: 0.254 },
-                // Bar at top
-                { type: 'line', x1: -1.016, y1: -1.27, x2: 1.016, y2: -1.27, stroke: '#000000', strokeWidth: 0.254 },
-                // Label
-                { type: 'text', x: 0, y: -2.5, text: '+5V', fontSize: 1.27, anchor: 'middle', baseline: 'middle' }
-            ],
-            pins: [
-                { number: '1', name: '+5V', x: 0, y: 0, orientation: 'down', length: 0, type: 'power_in', shape: 'line', showName: false }
+                { number: '1', name: 'G', x: -2.54, y: 0, orientation: 'left', length: 0, type: 'input', shape: 'line' },
+                { number: '2', name: 'S', x: 1.524, y: -3.175, orientation: 'up', length: 0, type: 'passive', shape: 'line' },
+                { number: '3', name: 'D', x: 1.524, y: 3.175, orientation: 'down', length: 0, type: 'passive', shape: 'line' }
             ]
         },
         footprint: null
