@@ -42,7 +42,7 @@ export function deleteSelected(app) {
 
     for (const item of toDelete) {
         if (shapeSet.has(item)) {
-            if (item.parentComponent && item.fieldKey) {
+            if (item.parentComponent && item.fieldKey && item.fieldKey !== 'label') {
                 // Skip show-flag toggle if parent is also being deleted
                 if (!deleteSet.has(item.parentComponent)) {
                     if (item.fieldKey === 'wireLabel' && item.parentComponent.type === 'wire') {

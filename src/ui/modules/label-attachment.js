@@ -221,10 +221,7 @@ export function attachLabelToTarget(labelShape, target, snapPos = null, { isNewL
             offsetY: labelShape.y - anchor.y
         };
 
-        if (isNewLabel) {
-            labelShape.text = target.wireLabel || '';
-        }
-        if (target.wireLabel && labelShape.text !== target.wireLabel) {
+        if (labelShape.text && labelShape.text !== target.wireLabel) {
             target.wireLabel = labelShape.text;
             target.invalidate?.();
         }

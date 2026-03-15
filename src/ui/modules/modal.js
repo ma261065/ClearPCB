@@ -36,8 +36,9 @@ function buildModal({ title, message, contentEl = null, okText, cancelText, show
     const actions = document.createElement('div');
     actions.className = 'app-modal-actions';
 
+    let cancelBtn = null;
     if (showCancel) {
-        const cancelBtn = document.createElement('button');
+        cancelBtn = document.createElement('button');
         cancelBtn.type = 'button';
         cancelBtn.className = 'app-modal-btn app-modal-cancel';
         cancelBtn.textContent = cancelText || 'Cancel';
@@ -130,12 +131,22 @@ function buildModal({ title, message, contentEl = null, okText, cancelText, show
         }
 
         if (e.key === 'Enter') {
+            const active = document.activeElement;
+            if (active instanceof HTMLButtonElement && modal.contains(active)) {
+                active.click();
+                return;
+            }
             close(true);
             return;
         }
 
         if (e.key === ' ') {
             if (!hasInput) {
+                const active = document.activeElement;
+                if (active instanceof HTMLButtonElement && modal.contains(active)) {
+                    active.click();
+                    return;
+                }
                 close(true);
             }
         }
@@ -165,6 +176,7 @@ function buildModal({ title, message, contentEl = null, okText, cancelText, show
         overlay,
         modal,
         okBtn,
+        cancelBtn,
         close,
         setResolver(resolver) { resolvePromise = resolver; },
         modalId
@@ -183,13 +195,16 @@ export function showAlert(message, options = {}) {
 }
 
 export function showConfirm(message, options = {}) {
-    const { title = 'Confirm', okText = 'OK', cancelText = 'Cancel' } = options;
+    const { title = 'Confirm', okText = 'OK', cancelText = 'Cancel', defaultCancel = false } = options;
     return new Promise((resolve) => {
         const modal = buildModal({ title, message, okText, cancelText, showCancel: true });
         modal.setResolver(resolve);
         document.body.appendChild(modal.overlay);
         ModalManager.push(modal.modalId, () => modal.close(false));
-        setTimeout(() => modal.okBtn.focus(), 0);
+        setTimeout(() => {
+            const target = defaultCancel && modal.cancelBtn ? modal.cancelBtn : modal.okBtn;
+            target?.focus();
+        }, 0);
     });
 }
 

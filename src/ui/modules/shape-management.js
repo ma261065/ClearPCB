@@ -1,7 +1,7 @@
 import { AddShapeCommand } from '../../core/CommandHistory.js';
 import { freeWireLabel, bumpWireLabelCounter, freeNetName, bumpNetNameCounter } from '../../shapes/wire.js';
 import { Text } from '../../shapes/text.js';
-import { syncAttachedLabels } from './label-attachment.js';
+import { detachLabel, syncAttachedLabels } from './label-attachment.js';
 
 /**
  * Adds a shape to the canvas via an undoable `AddShapeCommand`.
@@ -121,6 +121,9 @@ export function addShapeInternalAt(app, shape, index) {
  */
 export function removeShapeInternal(app, shape, options = {}) {
     const { preserveWireLabelRef = false, preserveLinkedLabelRef = preserveWireLabelRef } = options;
+    if (shape?.type === 'text' && shape.fieldKey === 'label' && shape.parentComponent) {
+        detachLabel(shape);
+    }
     const idx = app.shapes.indexOf(shape);
     if (idx !== -1) {
         app.shapes.splice(idx, 1);

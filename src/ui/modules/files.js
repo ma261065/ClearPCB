@@ -345,7 +345,7 @@ export async function loadVersion(app) {
  */
 export async function newFile(app) {
     if (app.fileManager.isDirty) {
-        if (!await app._confirm('You have unsaved changes. Create new document anyway?', { title: 'Unsaved Changes', okText: 'Yes', cancelText: 'No' })) {
+        if (!await app._confirm('You have unsaved changes. Create new document anyway?', { title: 'Unsaved Changes', okText: 'Yes', cancelText: 'No', defaultCancel: true })) {
             return;
         }
     }
@@ -421,7 +421,7 @@ export async function saveFileAs(app) {
  */
 export async function openFile(app) {
     if (app.fileManager.isDirty) {
-        if (!await app._confirm('You have unsaved changes. Open another file anyway?', { title: 'Unsaved Changes', okText: 'Yes', cancelText: 'No' })) {
+        if (!await app._confirm('You have unsaved changes. Open another file anyway?', { title: 'Unsaved Changes', okText: 'Yes', cancelText: 'No', defaultCancel: true })) {
             return;
         }
     }
