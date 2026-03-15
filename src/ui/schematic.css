@@ -214,7 +214,7 @@ body {
     background: var(--bg-secondary);
     padding: 4px 8px 0;
     border-top: none;
-    height: 56px;
+    min-height: 56px;
     overflow: visible;
 }
 
@@ -222,7 +222,6 @@ body {
     display: none;
     gap: 2px;
     align-items: stretch;
-    height: 100%;
     overflow: visible;
 }
 .ribbon-panel.active {
@@ -695,7 +694,6 @@ body {
     gap: 4px 8px;
     align-items: center;
     align-content: flex-start;
-    min-width: 130px;
     padding-left: 8px;
     border-left: 1px solid var(--border-color);
 }
@@ -1422,6 +1420,22 @@ body {
     max-height: 200px;
     border-top: 1px solid var(--border-color);
     border-bottom: 1px solid var(--border-color);
+    scrollbar-width: thin;
+    scrollbar-color: var(--text-muted) var(--bg-secondary);
+}
+
+.cp-list::-webkit-scrollbar {
+    width: 8px;
+}
+.cp-list::-webkit-scrollbar-track {
+    background: var(--bg-secondary);
+}
+.cp-list::-webkit-scrollbar-thumb {
+    background: var(--text-muted);
+    border-radius: 4px;
+}
+.cp-list::-webkit-scrollbar-thumb:hover {
+    background: var(--text-secondary);
 }
 
 .cp-results-grid {
