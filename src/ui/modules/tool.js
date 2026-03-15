@@ -116,6 +116,8 @@ export function onToolSelected(app, tool) {
         if (searchInput) {
             searchInput.focus();
         }
+        // Don't show placement guides until the user clicks Place Component.
+        app._hideCrosshair();
     }
 
     const svg = app.viewport.svg;

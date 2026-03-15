@@ -1131,6 +1131,11 @@ export const toolActiveState = {
             updateToolGhost(app, pos);
         }
 
+        if (tool === 'component' && !app.placingComponent) {
+            app._hideCrosshair();
+            return;
+        }
+
         if (tool === 'text') {
             const attach = resolveLabelAttachTarget(app, worldPos);
             updateSnapHighlight(app, attach ? { x: attach.snapPos.x, y: attach.snapPos.y, type: 'attach' } : null);
