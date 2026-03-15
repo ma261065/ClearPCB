@@ -164,31 +164,48 @@ body {
 .mode-bar {
     display: flex;
     gap: 0;
-    background: var(--bg-primary);
+    background: var(--bg-secondary);
     border-bottom: 1px solid var(--border-color);
-    padding: 0 8px;
     flex-shrink: 0;
+    padding: 6px 8px 0;
 }
 
 .mode-tab {
-    padding: 6px 18px;
-    font-size: 12px;
-    font-weight: 500;
+    flex: 1;
+    padding: 8px 0;
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
     cursor: pointer;
-    background: none;
-    border: none;
-    border-bottom: 2px solid transparent;
-    color: var(--text-secondary);
-    transition: color 0.15s, border-color 0.15s;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-bottom: none;
+    border-radius: 8px 8px 0 0;
+    color: var(--text-muted);
+    transition: color 0.15s, background 0.15s;
+    text-align: center;
+    margin: 0 2px;
+    position: relative;
+}
+
+.mode-icon {
+    vertical-align: middle;
+    margin-right: 6px;
 }
 
 .mode-tab:hover {
     color: var(--text-primary);
+    background: var(--bg-tertiary);
 }
 
 .mode-tab.active {
     color: var(--text-primary);
-    border-bottom-color: var(--accent-color);
+    background: var(--bg-secondary);
+    border-color: var(--border-color);
+    border-bottom: 1px solid var(--bg-secondary);
+    margin-bottom: -1px;
+    z-index: 1;
 }
 
 /* ── App slider (side-by-side panels) ── */
@@ -1035,6 +1052,23 @@ body {
     color: var(--accent-color);
     font-family: 'Monaco', 'Consolas', monospace;
     min-width: 120px;
+}
+
+.status-filename {
+    margin-left: auto;
+    padding-right: 2px;
+    min-width: 0;
+}
+
+.status-filename .value {
+    color: var(--accent-color);
+    font-weight: 500;
+    min-width: auto;
+    text-align: right;
+}
+
+.status-spacer {
+    flex: 1;
 }
 
 /* Floating Toolbox */
