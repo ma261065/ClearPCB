@@ -4,6 +4,7 @@ import { rotateNetOrientation } from '../../shapes/net.js';
 import { resolveWireSnapPosition, PIN_SNAP_TOL } from './wire.js';
 import { updateToolGhost } from './tool.js';
 import { updateLabelDragGuide } from './draw-states.js';
+import { ModalManager } from '../../core/ModalManager.js';
 
 /**
  * Central Escape key handler. Uses app.interactionState to determine
@@ -117,6 +118,10 @@ export function handleEscape(app) {
  */
 export function bindKeyboardShortcuts(app) {
     const onKeyDown = (e) => {
+        const topModal = ModalManager.top();
+        if (topModal && topModal.id !== 'text-edit') {
+            return;
+        }
         // Allow shortcuts through for non-text inputs (checkboxes, buttons, etc.)
         // Only block when user is actively typing in a text field
         if (e.target) {
@@ -404,6 +409,8 @@ export function bindKeyboardShortcuts(app) {
     };
 
     const onGlobalEscape = () => {
+        const topModal = ModalManager.top();
+        if (topModal && topModal.id !== 'text-edit') return;
         if (app._suppressNextEscape) {
             app._suppressNextEscape = false;
             return;

@@ -2,6 +2,7 @@ import { Line, Circle, Rect, Arc, Polygon, Text, Net, NoConnect } from '../../sh
 import { circumcircle, projectOntoChordBisector, clampBulgePoint } from '../../core/geometry.js';
 import { normalizeNetOrientation, normalizeNetStyle } from '../../shapes/net.js';
 import { validateNetNameAtPoint } from './net-validation.js';
+import { showAlert } from './modal.js';
 
 /**
  * Allocate the lowest unused default net name in the current document.
@@ -451,7 +452,7 @@ export function createShapeFromDrawing(app) {
             const validation = validateNetNameAtPoint(app, { x: start.x, y: start.y }, net);
             if (!validation.ok) {
                 const conflict = validation.conflictWith || 'an existing net';
-                alert(`Cannot place net "${net}" on this connected wire. Net is already labeled "${conflict}".`);
+                showAlert(`Cannot place net "${net}" on this connected wire. Net is already labeled "${conflict}".`, { title: 'Net Conflict' });
                 return null;
             }
             return new Net({

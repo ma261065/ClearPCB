@@ -1,6 +1,7 @@
 import { setCheckboxState } from './ui-utils.js';
 import { ModifyPropertyCommand } from '../../core/CommandHistory.js';
 import { adaptShortcutText } from './platform-keys.js';
+import { showAlert } from './modal.js';
 
 /**
  * Initializes the properties panel and subscribes to `selectionChanged`
@@ -457,7 +458,7 @@ export function applyCommonProperty(app, prop, value) {
         const duplicate = app.components.find(c =>
             c.reference.toUpperCase() === value.toUpperCase() && !changing.includes(c));
         if (duplicate) {
-            alert(`Reference "${value}" is already used by another component.`);
+            showAlert(`Reference "${value}" is already used by another component.`, { title: 'Duplicate Reference' });
             app._updatePropertiesPanel(selection);
             return;
         }
@@ -470,7 +471,7 @@ export function applyCommonProperty(app, prop, value) {
             const duplicate = app.components.find(c =>
                 c.reference.toUpperCase() === value.toUpperCase() && !parentIds.has(c.id));
             if (duplicate) {
-                alert(`Reference "${value}" is already used by another component.`);
+                showAlert(`Reference "${value}" is already used by another component.`, { title: 'Duplicate Reference' });
                 app._updatePropertiesPanel(selection);
                 return;
             }
@@ -483,7 +484,7 @@ export function applyCommonProperty(app, prop, value) {
                 s.type === 'wire' && !parentWireIds.has(s.id) &&
                 s.wireLabel.toUpperCase() === value.toUpperCase());
             if (dup) {
-                alert(`Wire name "${value}" is already used by another wire.`);
+                showAlert(`Wire name "${value}" is already used by another wire.`, { title: 'Duplicate Wire Name' });
                 app._updatePropertiesPanel(selection);
                 return;
             }
@@ -497,7 +498,7 @@ export function applyCommonProperty(app, prop, value) {
             s.type === 'wire' && !changingIds.has(s.id) &&
             s.wireLabel.toUpperCase() === value.toUpperCase());
         if (dup) {
-            alert(`Wire name "${value}" is already used by another wire.`);
+            showAlert(`Wire name "${value}" is already used by another wire.`, { title: 'Duplicate Wire Name' });
             app._updatePropertiesPanel(selection);
             return;
         }

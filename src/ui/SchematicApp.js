@@ -33,6 +33,7 @@ import { adaptShortcutsInDOM } from './modules/platform-keys.js';
 import { setupCallbacks } from './modules/callbacks.js';
 import { updateUndoRedoButtons, makeHelpPanelDraggable } from './modules/ui-utils.js';
 import { needsValueDialog, showValueDialog } from './modules/value-dialog.js';
+import { showAlert, showConfirm, showPrompt } from './modules/modal.js';
 import {
     startTextEdit,
     endTextEdit,
@@ -73,10 +74,8 @@ class SchematicApp {
      */
     constructor() {
         this.fileManager = new FileManager();
-        // Skip auto-save recovery when opening a file via OS file association
-        if (!/** @type {any} */ (window)._launchFile) {
-            if (!this._recoverAutoSave()) return; // reload triggered
-        }
+        // Auto-save recovery now runs after initialization.
+        this._skipAutoSaveRecovery = !!/** @type {any} */ (window)._launchFile;
 
         this.container = document.getElementById('canvasContainer');
         this.viewport = new Viewport(this.container);
@@ -270,6 +269,7 @@ class SchematicApp {
         // Rewrite shortcut labels for macOS (⌘/⌥/⇧ instead of Ctrl/Alt/Shift)
         adaptShortcutsInDOM();
 
+        this._initComplete = true;
         console.log('Schematic Editor initialized');
     }
 
@@ -277,7 +277,8 @@ class SchematicApp {
      * Check for auto-saved content and offer recovery.
      * Returns true to continue initialization, false if a reload was triggered.
      */
-    _recoverAutoSave() {
+    async _recoverAutoSave() {
+        if (this._skipAutoSaveRecovery) return true;
         let index = [];
         try {
             index = JSON.parse(localStorage.getItem(this.fileManager.autoSavePrefix + 'index')) || [];
@@ -304,8 +305,8 @@ class SchematicApp {
         if (index.length === 1) {
             const entry = index[0];
             const time = new Date(entry.timestamp).toLocaleString();
-            if (confirm(`Recover autosaved file "${entry.fileName}" from ${time}?`)) {
-                this._applyAutoSave(entry);
+            if (await showConfirm(`Recover autosaved file "${entry.fileName}" from ${time}?`, { title: 'Recover Autosave', okText: 'Yes', cancelText: 'No' })) {
+                await this._applyAutoSave(entry);
             } else {
                 this.fileManager.clearAutoSave(entry.fileName);
             }
@@ -317,20 +318,20 @@ class SchematicApp {
                 listMsg += `${i + 1}. ${entry.fileName} (saved ${time})\n`;
             });
             listMsg += '\nEnter the number to recover, or D<number> to delete:';
-            let choice = prompt(listMsg);
+            let choice = await showPrompt(listMsg, { title: 'Recover Autosave' });
             if (choice) {
                 choice = choice.trim();
                 if (/^d\d+$/i.test(choice)) {
                     const idx = parseInt(choice.slice(1)) - 1;
                     if (index[idx]) {
                         this.fileManager.clearAutoSave(index[idx].fileName);
-                        alert(`Deleted autosave for ${index[idx].fileName}`);
+                        await showAlert(`Deleted autosave for ${index[idx].fileName}`, { title: 'Autosave Deleted' });
                         location.reload();
                         return false;
                     }
                 } else {
                     const idx = parseInt(choice) - 1;
-                    if (index[idx]) this._applyAutoSave(index[idx]);
+                    if (index[idx]) await this._applyAutoSave(index[idx]);
                 }
             }
         }
@@ -341,13 +342,17 @@ class SchematicApp {
      * Restores auto-saved document data and marks the document as dirty.
      * @param {Object} entry - The auto-save index entry to restore.
      */
-    _applyAutoSave(entry) {
+    async _applyAutoSave(entry) {
         const saved = this.fileManager.loadAutoSave(entry.fileName);
         if (saved && saved.data) {
-            this.shapes = [];
-            this.components = [];
-            this.ui = /** @type {any} */ ({});
-            this._pendingAutoLoad = saved.data;
+            if (this._initComplete) {
+                await this._loadDocument(saved.data);
+            } else {
+                this.shapes = [];
+                this.components = [];
+                this.ui = /** @type {any} */ ({});
+                this._pendingAutoLoad = saved.data;
+            }
             if (saved.fileName) this.fileManager.setFileName(saved.fileName);
             this.fileManager.setDirty(true);
             console.log('Recovered auto-saved content');
@@ -1062,8 +1067,8 @@ class SchematicApp {
     /**
      * Clears cached component data from localStorage.
      */
-    _clearComponentCaches() {
-        if (!confirm('Clear cached components and search results?')) {
+    async _clearComponentCaches() {
+        if (!await showConfirm('Clear cached components and search results?', { title: 'Clear Cache', okText: 'Yes', cancelText: 'No' })) {
             return;
         }
 
@@ -1340,8 +1345,8 @@ class SchematicApp {
     /**
      * Checks for auto-saved content on startup.
      */
-    _checkAutoSave() {
-        FileTools.checkAutoSave(this);
+    async _checkAutoSave() {
+        await FileTools.checkAutoSave(this);
     }
     
     /**
@@ -1456,6 +1461,7 @@ class SchematicApp {
 }
 
 // Initialize when DOM is ready
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
     /** @type {any} */ (window).app = new SchematicApp();
+    await window.app._recoverAutoSave?.();
 });
