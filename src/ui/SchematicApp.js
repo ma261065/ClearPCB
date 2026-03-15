@@ -140,16 +140,18 @@ class SchematicApp {
 
         // Tool options
         const savedOptions = loadToolOptions();
+        const defaultShapeColor = 'var(--sch-symbol-outline, #ffffff)';
         this.toolOptions = savedOptions || {
             lineWidth: 0.25,
             fill: false,
-            color: '#00cc66',  // Default wire color - matches --sch-wire
+            color: defaultShapeColor,
             textColor: 'var(--sch-text-label, #00b894)',
             fontSize: 2.0,
             netFontSize: 1.4,
             netStyle: 't',
             netOrientation: 'N'
         };
+        this.toolOptions.color = defaultShapeColor;
 
         // Text edit state
         this.textEdit = null;

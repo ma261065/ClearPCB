@@ -207,7 +207,8 @@ export class Shape {
         // Determine colors based on state
         let strokeColor = this._colorToCSS(this.color);
         const shapeWithFill = /** @type {{fillColor?: string|number|null}} */ (this);
-        let fillColor = this._colorToCSS(shapeWithFill.fillColor ?? this.color);
+        const baseFillColor = this._colorToCSS(shapeWithFill.fillColor ?? this.color);
+        let fillColor = baseFillColor;
         const attachedLabels = /** @type {any} */ (this).attachedLabels;
         const attachedActive = attachedLabels instanceof Set
             && Array.from(attachedLabels).some(label => label?.selected || label?.hovered);
@@ -222,8 +223,10 @@ export class Shape {
                 this.element.parentNode.appendChild(this.element);
             }
         } else if (this.hovered) {
-            strokeColor = '#ffeaa7';
-            fillColor = '#ffeaa7';
+            strokeColor = 'var(--sch-selection, #3399ff)';
+            fillColor = this.type === 'text'
+                ? 'var(--sch-selection, #3399ff)'
+                : baseFillColor;
         } else if (attachedActive) {
             strokeColor = 'var(--sch-selection, #3399ff)';
             fillColor = 'var(--sch-selection, #3399ff)';
@@ -231,6 +234,17 @@ export class Shape {
         
         // Update element
         this._updateElement(this.element, strokeColor, fillColor, scale);
+        if (this.hovered && !this.selected) {
+            this.element.setAttribute('stroke-opacity', '0.35');
+            if (this.type === 'text') {
+                this.element.setAttribute('fill-opacity', '0.35');
+            } else {
+                this.element.removeAttribute('fill-opacity');
+            }
+        } else {
+            this.element.removeAttribute('stroke-opacity');
+            this.element.removeAttribute('fill-opacity');
+        }
         
         // Update anchor handles
         this._updateAnchors(scale);

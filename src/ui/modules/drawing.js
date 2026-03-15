@@ -132,8 +132,8 @@ export function finishPolygon(app) {
             points: app.polygonPoints.map(p => ({ ...p })),
             color: app.toolOptions.color,
             lineWidth: app.toolOptions.lineWidth,
-            fill: app.toolOptions.fill,
-            fillColor: app.toolOptions.color,
+                fill: app.toolOptions.fill,
+                fillColor: 'var(--sch-shape-fill, #777777)',
             fillAlpha: 0.3,
             closed: true
         });
@@ -292,12 +292,12 @@ export function updatePreview(app) {
                 el.setAttribute('height', h);
                 el.setAttribute('stroke', opts.color);
                 el.setAttribute('stroke-width', strokeWidth);
-                el.setAttribute('fill', opts.fill ? opts.color : 'none');
+                el.setAttribute('fill', opts.fill ? 'var(--sch-shape-fill, #777777)' : 'none');
                 return;
             }
-            app.previewElement.innerHTML = `<rect x="${x}" y="${y}" width="${w}" height="${h}" 
+                app.previewElement.innerHTML = `<rect x="${x}" y="${y}" width="${w}" height="${h}" 
                     stroke="${opts.color}" stroke-width="${strokeWidth}" 
-                    fill="${opts.fill ? opts.color : 'none'}" fill-opacity="0.3"/>`;
+                    fill="${opts.fill ? 'var(--sch-shape-fill, #777777)' : 'none'}" fill-opacity="0.3"/>`;
             break;
         }
 
@@ -310,12 +310,12 @@ export function updatePreview(app) {
                 el.setAttribute('r', radius);
                 el.setAttribute('stroke', opts.color);
                 el.setAttribute('stroke-width', strokeWidth);
-                el.setAttribute('fill', opts.fill ? opts.color : 'none');
+                el.setAttribute('fill', opts.fill ? 'var(--sch-shape-fill, #777777)' : 'none');
                 return;
             }
-            app.previewElement.innerHTML = `<circle cx="${start.x}" cy="${start.y}" r="${radius}" 
+                app.previewElement.innerHTML = `<circle cx="${start.x}" cy="${start.y}" r="${radius}" 
                     stroke="${opts.color}" stroke-width="${strokeWidth}" 
-                    fill="${opts.fill ? opts.color : 'none'}" fill-opacity="0.3"/>`;
+                    fill="${opts.fill ? 'var(--sch-shape-fill, #777777)' : 'none'}" fill-opacity="0.3"/>`;
             break;
         }
 
@@ -355,9 +355,9 @@ export function updatePreview(app) {
                 // Use <polygon> (closed) once we have 3+ points so the closing edge is visible
                 const tag = points.length >= 3 ? 'polygon' : 'polyline';
                 let svg = `<${tag} points="${pointsStr}" 
-                        stroke="${opts.color}" stroke-width="${strokeWidth}" 
-                        fill="${opts.fill ? opts.color : 'none'}" fill-opacity="0.3"
-                        stroke-linecap="round" stroke-linejoin="round"/>`;
+                    stroke="${opts.color}" stroke-width="${strokeWidth}" 
+                    fill="${opts.fill ? 'var(--sch-shape-fill, #777777)' : 'none'}" fill-opacity="0.3"
+                    stroke-linecap="round" stroke-linejoin="round"/>`;
                 for (const p of app.polygonPoints) {
                     svg += `<circle cx="${p.x}" cy="${p.y}" r="${2 / app.viewport.scale}" fill="${opts.color}"/>`;
                 }
@@ -395,7 +395,7 @@ export function createShapeFromDrawing(app) {
                 color: opts.color,
                 lineWidth: opts.lineWidth,
                 fill: opts.fill,
-                fillColor: opts.color,
+                fillColor: 'var(--sch-shape-fill, #777777)',
                 fillAlpha: 0.3
             });
         }
@@ -410,7 +410,7 @@ export function createShapeFromDrawing(app) {
                 color: opts.color,
                 lineWidth: opts.lineWidth,
                 fill: opts.fill,
-                fillColor: opts.color,
+                fillColor: 'var(--sch-shape-fill, #777777)',
                 fillAlpha: 0.3
             });
         }

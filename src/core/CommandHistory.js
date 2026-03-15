@@ -267,6 +267,13 @@ export class DeleteShapesCommand extends Command {
                     pushLinked(label, shape);
                 }
             }
+            if (shape.type !== 'wire' && shape.attachedLabels instanceof Set) {
+                for (const label of shape.attachedLabels) {
+                    if (!label || label.type !== 'text' || label.fieldKey !== 'label') continue;
+                    if (label.parentComponent !== shape) continue;
+                    pushLinked(label, null);
+                }
+            }
         }
     }
     
@@ -568,6 +575,26 @@ export class DeleteComponentsCommand extends Command {
             component: c,
             index: indexMap.get(c) ?? -1
         }));
+        const shapeIndexMap = new Map();
+        for (let i = 0; i < app.shapes.length; i++) {
+            shapeIndexMap.set(app.shapes[i], i);
+        }
+        const attachedSet = new Set();
+        this.attachedLabelData = [];
+        for (const data of this.componentsData) {
+            const comp = data.component;
+            if (!(comp?.attachedLabels instanceof Set)) continue;
+            for (const label of comp.attachedLabels) {
+                if (!label || label.type !== 'text' || label.fieldKey !== 'label') continue;
+                if (label.parentComponent !== comp) continue;
+                if (attachedSet.has(label)) continue;
+                attachedSet.add(label);
+                this.attachedLabelData.push({
+                    shape: label,
+                    index: shapeIndexMap.get(label) ?? -1
+                });
+            }
+        }
     }
 
     /** Remove the components and their field texts from the canvas. */
@@ -576,6 +603,7 @@ export class DeleteComponentsCommand extends Command {
         // Collect all items to remove
         const compsToRemove = new Set(this.componentsData.map(d => d.component));
         const ftsToRemove = new Set();
+        const attachedToRemove = new Set(this.attachedLabelData.map(d => d.shape));
         // Detach content layer to batch DOM removals
         const layer = app.viewport.contentLayer;
         const parent = layer.parentNode;
@@ -597,6 +625,14 @@ export class DeleteComponentsCommand extends Command {
                 if (ft.element?.parentNode) ft.element.parentNode.removeChild(ft.element);
             }
         }
+        for (const label of attachedToRemove) {
+            if (label.hovered) {
+                label.hovered = false;
+                if (app.selection.hovered === label.id) app.selection.hovered = null;
+            }
+            if (label.element?.parentNode) label.element.parentNode.removeChild(label.element);
+            if (label.anchorsGroup?.parentNode) label.anchorsGroup.parentNode.removeChild(label.anchorsGroup);
+        }
         // Reattach content layer
         if (parent) parent.insertBefore(layer, nextSib);
         // In-place filter components: O(N) instead of O(N²)
@@ -608,10 +644,10 @@ export class DeleteComponentsCommand extends Command {
         }
         app.components.length = writeIdx;
         // In-place filter field texts from shapes: O(N)
-        if (ftsToRemove.size > 0) {
+        if (ftsToRemove.size > 0 || attachedToRemove.size > 0) {
             writeIdx = 0;
             for (let i = 0; i < app.shapes.length; i++) {
-                if (!ftsToRemove.has(app.shapes[i])) {
+                if (!ftsToRemove.has(app.shapes[i]) && !attachedToRemove.has(app.shapes[i])) {
                     app.shapes[writeIdx++] = app.shapes[i];
                 }
             }
@@ -641,6 +677,16 @@ export class DeleteComponentsCommand extends Command {
                     app.viewport.addContent(ft.element);
                 }
             }
+        }
+        const labelSorted = [...this.attachedLabelData].sort((a, b) => a.index - b.index);
+        for (const data of labelSorted) {
+            const label = data.shape;
+            if (shapeSet.has(label)) continue;
+            const idx = data.index >= 0 ? Math.min(data.index, app.shapes.length) : app.shapes.length;
+            app.shapes.splice(idx, 0, label);
+            shapeSet.add(label);
+            label.render(app.viewport.scale);
+            app.viewport.addContent(label.element);
         }
         app._updateSelectableItems();
         app.fileManager.setDirty(true);
