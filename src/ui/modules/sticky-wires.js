@@ -63,6 +63,28 @@ export function applyStickyConnections(app, options = {}) {
                                         }
                                     }
                                 }
+                                if (bp._staggerBendId) {
+                                    const bend = shape.nodes.get(bp._staggerBendId);
+                                    const jogId = bend?._staggerWireNeighbor;
+                                    if (bend && jogId) {
+                                        const jogPos = shape.nodes.get(jogId);
+                                        if (jogPos) {
+                                            let jogOtherId = null;
+                                            for (const { otherNode } of shape.incidentEdges(jogId)) {
+                                                if (otherNode !== bp._staggerBendId) { jogOtherId = otherNode; break; }
+                                            }
+                                            if (jogOtherId) {
+                                                const jogOtherPos = shape.nodes.get(jogOtherId);
+                                                if (jogOtherPos && Math.abs(jogPos.x - jogOtherPos.x) < 0.001) {
+                                                    const minY = Math.min(pos.y, jogOtherPos.y);
+                                                    const maxY = Math.max(pos.y, jogOtherPos.y);
+                                                    jogPos.y = Math.min(maxY, Math.max(minY, pos.y));
+                                                    bend.y = jogPos.y;
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
                             } else if (bp._staggerAxis === 'y') {
                                 const desiredDelta = (neighborPos?.y ?? bp.y) - pos.y;
                                 const offsetMag = Math.abs(bp._staggerOffset || 0);
@@ -77,6 +99,28 @@ export function applyStickyConnections(app, options = {}) {
                                         if (bend._staggerWireNeighbor) {
                                             const wpos = shape.nodes.get(bend._staggerWireNeighbor);
                                             if (wpos) bend.x = wpos.x;
+                                        }
+                                    }
+                                }
+                                if (bp._staggerBendId) {
+                                    const bend = shape.nodes.get(bp._staggerBendId);
+                                    const jogId = bend?._staggerWireNeighbor;
+                                    if (bend && jogId) {
+                                        const jogPos = shape.nodes.get(jogId);
+                                        if (jogPos) {
+                                            let jogOtherId = null;
+                                            for (const { otherNode } of shape.incidentEdges(jogId)) {
+                                                if (otherNode !== bp._staggerBendId) { jogOtherId = otherNode; break; }
+                                            }
+                                            if (jogOtherId) {
+                                                const jogOtherPos = shape.nodes.get(jogOtherId);
+                                                if (jogOtherPos && Math.abs(jogPos.y - jogOtherPos.y) < 0.001) {
+                                                    const minX = Math.min(pos.x, jogOtherPos.x);
+                                                    const maxX = Math.max(pos.x, jogOtherPos.x);
+                                                    jogPos.x = Math.min(maxX, Math.max(minX, pos.x));
+                                                    bend.x = jogPos.x;
+                                                }
+                                            }
                                         }
                                     }
                                 }
