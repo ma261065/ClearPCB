@@ -38,8 +38,53 @@ export function applyStickyConnections(app, options = {}) {
                             if (!wp) continue;
                             const edx = Math.abs(wp.x - bp.x);
                             const edy = Math.abs(wp.y - bp.y);
-                            if (edx > edy) bp.x = pos.x;   // horizontal wire → track pin X
-                            else            bp.y = pos.y;   // vertical wire  → track pin Y
+                            let neighborPos = wp;
+                            if (bp._staggerBendId) {
+                                const bend = shape.nodes.get(bp._staggerBendId);
+                                if (bend?. _staggerWireNeighbor) {
+                                    const wpos = shape.nodes.get(bend._staggerWireNeighbor);
+                                    if (wpos) neighborPos = wpos;
+                                }
+                            }
+                            if (bp._staggerAxis === 'x') {
+                                const desiredDelta = (neighborPos?.x ?? bp.x) - pos.x;
+                                const offsetMag = Math.abs(bp._staggerOffset || 0);
+                                const clamped = Math.min(offsetMag, Math.abs(desiredDelta));
+                                const sign = desiredDelta === 0 ? 0 : Math.sign(desiredDelta);
+                                bp.x = pos.x + sign * clamped;
+                                bp.y = pos.y;
+                                if (bp._staggerBendId) {
+                                    const bend = shape.nodes.get(bp._staggerBendId);
+                                    if (bend) {
+                                        bend.x = bp.x;
+                                        if (bend._staggerWireNeighbor) {
+                                            const wpos = shape.nodes.get(bend._staggerWireNeighbor);
+                                            if (wpos) bend.y = wpos.y;
+                                        }
+                                    }
+                                }
+                            } else if (bp._staggerAxis === 'y') {
+                                const desiredDelta = (neighborPos?.y ?? bp.y) - pos.y;
+                                const offsetMag = Math.abs(bp._staggerOffset || 0);
+                                const clamped = Math.min(offsetMag, Math.abs(desiredDelta));
+                                const sign = desiredDelta === 0 ? 0 : Math.sign(desiredDelta);
+                                bp.y = pos.y + sign * clamped;
+                                bp.x = pos.x;
+                                if (bp._staggerBendId) {
+                                    const bend = shape.nodes.get(bp._staggerBendId);
+                                    if (bend) {
+                                        bend.y = bp.y;
+                                        if (bend._staggerWireNeighbor) {
+                                            const wpos = shape.nodes.get(bend._staggerWireNeighbor);
+                                            if (wpos) bend.x = wpos.x;
+                                        }
+                                    }
+                                }
+                            } else if (edx > edy) {
+                                bp.x = pos.x;   // horizontal wire → track pin X
+                            } else {
+                                bp.y = pos.y;   // vertical wire  → track pin Y
+                            }
                         }
                     }
                     shape.invalidate();

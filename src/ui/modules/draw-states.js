@@ -302,6 +302,15 @@ function beginWireSegmentDragSession(app, params) {
 
 function bridgeStickyPinNodes(app, movingCompIds) {
     if (movingCompIds.size === 0) return;
+    const staggerStep = app.viewport?.gridVisible ? (app.viewport.gridSize || 2.54) : 2.54;
+    const staggerGroups = new Map();
+
+    const addGroupEntry = (key, entry) => {
+        const group = staggerGroups.get(key);
+        if (group) group.push(entry);
+        else staggerGroups.set(key, [entry]);
+    };
+
     for (const wire of app.shapes) {
         if (wire.type !== 'wire') continue;
         for (const [nodeId, conn] of wire.pinConnections) {
@@ -314,13 +323,63 @@ function bridgeStickyPinNodes(app, movingCompIds) {
                 if (!otherPos || !pinPos) continue;
                 // Skip if other node is already at pin position (existing bridge)
                 if (Math.abs(otherPos.x - pinPos.x) < 0.01 && Math.abs(otherPos.y - pinPos.y) < 0.01) continue;
-                const bridgeId = wire.addNode(pinPos.x, pinPos.y);
-                if (e.from === nodeId) e.from = bridgeId;
-                else e.to = bridgeId;
-                wire.addEdge(nodeId, bridgeId);
+                const dx = otherPos.x - pinPos.x;
+                const dy = otherPos.y - pinPos.y;
+                const axis = Math.abs(dx) >= Math.abs(dy) ? 'x' : 'y';
+                let sign = axis === 'x' ? Math.sign(dx) : Math.sign(dy);
+                if (sign === 0) sign = 1;
+                const groupKey = `${conn.componentId}|${axis}|${sign}`;
+                addGroupEntry(groupKey, {
+                    wire,
+                    nodeId,
+                    edge: e,
+                    pinPos,
+                    axis,
+                    sign
+                });
             }
             wire.invalidate();
         }
+    }
+
+    for (const group of staggerGroups.values()) {
+        if (group.length === 0) continue;
+        group.sort((a, b) => {
+            return a.axis === 'x'
+                ? (a.pinPos.y - b.pinPos.y)
+                : (a.pinPos.x - b.pinPos.x);
+        });
+        group.forEach((entry, index) => {
+            const offset = entry.sign * staggerStep * (index + 1);
+            const bridgeId = entry.wire.addNode(entry.pinPos.x, entry.pinPos.y);
+            const bridgePos = entry.wire.nodes.get(bridgeId);
+            if (bridgePos) {
+                if (entry.axis === 'x') bridgePos.x += offset;
+                else bridgePos.y += offset;
+                bridgePos._staggerAxis = entry.axis;
+                bridgePos._staggerOffset = offset;
+            }
+
+            const wireNeighborId = entry.edge.from === entry.nodeId ? entry.edge.to : entry.edge.from;
+            const otherPos = entry.wire.nodes.get(wireNeighborId);
+            const bendId = entry.wire.addNode(
+                entry.axis === 'x' ? (bridgePos?.x ?? entry.pinPos.x) : (otherPos?.x ?? entry.pinPos.x),
+                entry.axis === 'x' ? (otherPos?.y ?? entry.pinPos.y) : (bridgePos?.y ?? entry.pinPos.y)
+            );
+            const bendPos = entry.wire.nodes.get(bendId);
+            if (bendPos) {
+                bendPos._staggerBend = true;
+                bendPos._staggerAxis = entry.axis;
+                bendPos._staggerWireNeighbor = wireNeighborId;
+            }
+            if (bridgePos) bridgePos._staggerBendId = bendId;
+            if (entry.edge.from === entry.nodeId) entry.edge.from = bendId;
+            else entry.edge.to = bendId;
+            entry.wire.addEdge(bridgeId, bendId);
+
+            entry.wire.addEdge(entry.nodeId, bridgeId);
+            entry.wire.invalidate();
+        });
     }
 }
 
