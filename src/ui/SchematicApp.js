@@ -171,6 +171,13 @@ class SchematicApp {
             propertiesPanel: document.getElementById('propertiesPanel'),
         };
 
+        document.querySelector('.ribbon')?.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+        });
+        document.querySelector('.status-bar')?.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+        });
+
         // Component code tooltip (copyable)
         this._componentCodeTooltip = document.createElement('div');
         this._componentCodeTooltip.className = 'component-code-tooltip';

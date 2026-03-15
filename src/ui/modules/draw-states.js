@@ -317,7 +317,12 @@ function bridgeStickyPinNodes(app, movingCompIds) {
             if (!movingCompIds.has(conn.componentId)) continue;
             // Bridge each non-pin incident edge so the pin can move freely
             for (const { edge: e, otherNode } of [...wire.incidentEdges(nodeId)]) {
-                if (wire.pinConnections.has(otherNode)) continue;
+                let otherIsPin = false;
+                if (wire.pinConnections.has(otherNode)) {
+                    const otherConn = wire.pinConnections.get(otherNode);
+                    if (otherConn && movingCompIds.has(otherConn.componentId)) continue;
+                    otherIsPin = true;
+                }
                 const otherPos = wire.nodes.get(otherNode);
                 const pinPos = wire.nodes.get(nodeId);
                 if (!otherPos || !pinPos) continue;
@@ -335,7 +340,8 @@ function bridgeStickyPinNodes(app, movingCompIds) {
                     edge: e,
                     pinPos,
                     axis,
-                    sign
+                    sign,
+                    isPinToPin: otherIsPin
                 });
             }
             wire.invalidate();
@@ -349,8 +355,10 @@ function bridgeStickyPinNodes(app, movingCompIds) {
                 ? (a.pinPos.y - b.pinPos.y)
                 : (a.pinPos.x - b.pinPos.x);
         });
+        const useZeroOffset = group.length === 1 && group[0]?.isPinToPin;
         group.forEach((entry, index) => {
-            const offset = entry.sign * staggerStep * (index + 1);
+            const stepIndex = useZeroOffset ? 0 : (index + 1);
+            const offset = entry.sign * staggerStep * stepIndex;
             const bridgeId = entry.wire.addNode(entry.pinPos.x, entry.pinPos.y);
             const bridgePos = entry.wire.nodes.get(bridgeId);
             if (bridgePos) {

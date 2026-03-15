@@ -704,6 +704,7 @@ body {
     justify-content: space-between;
     gap: 8px;
     font-size: 12px;
+    min-height: 24px;
 }
 
 .prop-row label {
