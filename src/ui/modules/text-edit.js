@@ -2,7 +2,6 @@ import { ModalManager } from '../../core/ModalManager.js';
 import { ModifyShapeCommand } from '../../core/CommandHistory.js';
 import { freeWireLabel, bumpWireLabelCounter, freeNetName, bumpNetNameCounter } from '../../shapes/wire.js';
 import { validateNetNameAtPoint } from './net-validation.js';
-import { showAlert } from './modal.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
@@ -99,7 +98,7 @@ export function endTextEdit(app, commit = true) {
                 c.reference.toUpperCase() === state.shape.text.toUpperCase() &&
                 c !== state.shape.parentComponent);
             if (dup) {
-                    showAlert(`Reference "${state.shape.text}" is already used by another component.`, { title: 'Duplicate Reference' });
+                    app._alert(`Reference "${state.shape.text}" is already used by another component.`, { title: 'Duplicate Reference' });
                 state.shape.text = state.originalText;
                 if (typeof state.shape.invalidate === 'function') state.shape.invalidate();
                 app.renderShapes(true);
@@ -116,7 +115,7 @@ export function endTextEdit(app, commit = true) {
                 s.type === 'wire' && s !== parentWire &&
                 s.wireLabel.toUpperCase() === state.shape.text.toUpperCase());
             if (dup) {
-                    showAlert(`Wire name "${state.shape.text}" is already used by another wire.`, { title: 'Duplicate Wire Name' });
+                    app._alert(`Wire name "${state.shape.text}" is already used by another wire.`, { title: 'Duplicate Wire Name' });
                 state.shape.text = state.originalText;
                 if (typeof state.shape.invalidate === 'function') state.shape.invalidate();
                 app.renderShapes(true);
@@ -134,7 +133,7 @@ export function endTextEdit(app, commit = true) {
                 parentnet.id
             );
             if (!check.ok) {
-                    showAlert(`Net conflict: this connected wire is already labeled "${check.conflictWith || ''}".`, { title: 'Net Conflict' });
+                    app._alert(`Net conflict: this connected wire is already labeled "${check.conflictWith || ''}".`, { title: 'Net Conflict' });
                 state.shape.text = state.originalText;
                 if (typeof state.shape.invalidate === 'function') state.shape.invalidate();
                 app.renderShapes(true);

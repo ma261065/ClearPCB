@@ -11,6 +11,8 @@ const _r4 = v => Math.round(v * 10000) / 10000;
 export class Circle extends Shape {
     /**
      * @param {Object} [options]
+        * @param {string|number} [options.color] - Stroke colour.
+        * @param {number} [options.lineWidth] - Stroke width in mm.
      * @param {number} [options.x=0]      - Centre X in mm.
      * @param {number} [options.y=0]      - Centre Y in mm.
      * @param {number} [options.radius=5] - Radius in mm.

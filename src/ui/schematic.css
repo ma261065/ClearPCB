@@ -16,6 +16,9 @@
     --ribbon-group-label: #888888;
     --ribbon-divider: rgba(255, 255, 255, 0.12);
     --panel-bg: #2d2d2d;
+    --bg-canvas: #1e1e1e;
+    --schematic-component: #6fd39a;
+    --component-icon-bg: #2a2a2a;
     
     /* === Schematic Canvas === */
     --sch-background: #1e1e1e;
@@ -36,6 +39,7 @@
     --sch-net-label: #00cccc;
     --sch-net-flag: #ffcc00;
     --sch-text: #cccccc;
+    --sch-text-label: #00b894;
     
     /* === Symbols === */
     --sch-symbol-outline: #ffffff;
@@ -82,6 +86,9 @@
     --ribbon-group-label: #444444;
     --ribbon-divider: rgba(68, 68, 68, 0.4);
     --panel-bg: #f0f0f0;
+    --bg-canvas: #ffffff;
+    --schematic-component: #444444;
+    --component-icon-bg: #f3f3f3;
     --select-bg: rgba(0, 0, 0, 0.04);
     --select-border: rgba(0, 0, 0, 0.15);
     --select-border-hover: rgba(0, 0, 0, 0.3);
@@ -90,8 +97,8 @@
     
     /* === Schematic Canvas === */
     --sch-background: #ffffff;
-    --sch-grid: rgba(0, 0, 0, 0.15);
-    --sch-grid-major: rgba(0, 0, 0, 0.22);
+    --sch-grid: rgba(0, 0, 0, 0.1);
+    --sch-grid-major: rgba(0, 0, 0, 0.16);
     --sch-selection: #0066cc;
     --sch-selection-fill: rgba(0, 102, 204, 0.2);
     
@@ -107,9 +114,10 @@
     --sch-net-label: #008080;
     --sch-net-flag: #996600;
     --sch-text: #000000;
+    --sch-text-label: #00b894;
     
     /* === Symbols === */
-    --sch-symbol-outline: #000000;
+    --sch-symbol-outline: #222222;
     --sch-symbol-fill: #ffffcc;
     --sch-symbol-name: #008080;
     --sch-symbol-value: #008080;
@@ -255,6 +263,11 @@ body {
     gap: 3px;
     align-items: center;
     align-content: flex-start;
+}
+
+.ribbon-label-icon {
+    vertical-align: middle;
+    margin-right: 2px;
 }
 
 .ribbon-group-items button {
@@ -830,10 +843,16 @@ body {
     border-color: var(--accent-color, #3399ff);
 }
 
-.app-modal-ok {
+.app-modal-btn:focus {
+    outline: 2px solid var(--accent-color, #3399ff);
+    outline-offset: 2px;
     background: var(--accent-color, #3399ff);
     border-color: var(--accent-color, #3399ff);
     color: #ffffff;
+}
+
+.app-modal-ok {
+    font-weight: 600;
 }
 
 .prop-actions {
@@ -1314,7 +1333,7 @@ body {
 }
 
 .cp-lcsc-item .cp-item-icon {
-    background: var(--bg-tertiary);
+    background: var(--component-icon-bg, var(--bg-tertiary));
 }
 
 .cp-lcsc-icon img {
@@ -1480,7 +1499,7 @@ body {
     align-items: center;
     justify-content: center;
     margin-right: 8px;
-    background: var(--bg-secondary);
+    background: var(--component-icon-bg, var(--bg-secondary));
     border-radius: 4px;
 }
 

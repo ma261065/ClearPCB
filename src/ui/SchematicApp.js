@@ -79,7 +79,7 @@ class SchematicApp {
 
         this.container = document.getElementById('canvasContainer');
         this.viewport = new Viewport(this.container);
-        this.viewport._app = this; // back-reference for state-aware pan suppression
+        /** @type {any} */ (this.viewport)._app = this; // back-reference for state-aware pan suppression
         this.eventBus = globalEventBus;
         this.history = new CommandHistory({
             onChanged: () => {
@@ -144,6 +144,7 @@ class SchematicApp {
             lineWidth: 0.25,
             fill: false,
             color: '#00cc66',  // Default wire color - matches --sch-wire
+            textColor: 'var(--sch-text-label, #00b894)',
             fontSize: 2.0,
             netFontSize: 1.4,
             netStyle: 't',
@@ -305,7 +306,7 @@ class SchematicApp {
         if (index.length === 1) {
             const entry = index[0];
             const time = new Date(entry.timestamp).toLocaleString();
-            if (await showConfirm(`Recover autosaved file "${entry.fileName}" from ${time}?`, { title: 'Recover Autosave', okText: 'Yes', cancelText: 'No' })) {
+            if (await this._confirm(`Recover autosaved file "${entry.fileName}" from ${time}?`, { title: 'Recover Autosave', okText: 'Yes', cancelText: 'No' })) {
                 await this._applyAutoSave(entry);
             } else {
                 this.fileManager.clearAutoSave(entry.fileName);
@@ -318,14 +319,14 @@ class SchematicApp {
                 listMsg += `${i + 1}. ${entry.fileName} (saved ${time})\n`;
             });
             listMsg += '\nEnter the number to recover, or D<number> to delete:';
-            let choice = await showPrompt(listMsg, { title: 'Recover Autosave' });
+            let choice = await this._prompt(listMsg, { title: 'Recover Autosave' });
             if (choice) {
                 choice = choice.trim();
                 if (/^d\d+$/i.test(choice)) {
                     const idx = parseInt(choice.slice(1)) - 1;
                     if (index[idx]) {
                         this.fileManager.clearAutoSave(index[idx].fileName);
-                        await showAlert(`Deleted autosave for ${index[idx].fileName}`, { title: 'Autosave Deleted' });
+                        await this._alert(`Deleted autosave for ${index[idx].fileName}`, { title: 'Autosave Deleted' });
                         location.reload();
                         return false;
                     }
@@ -1068,7 +1069,7 @@ class SchematicApp {
      * Clears cached component data from localStorage.
      */
     async _clearComponentCaches() {
-        if (!await showConfirm('Clear cached components and search results?', { title: 'Clear Cache', okText: 'Yes', cancelText: 'No' })) {
+        if (!await this._confirm('Clear cached components and search results?', { title: 'Clear Cache', okText: 'Yes', cancelText: 'No' })) {
             return;
         }
 
@@ -1103,6 +1104,20 @@ class SchematicApp {
         if (typeof this._showSaveToast === 'function') {
             this._showSaveToast('Cache cleared');
         }
+    }
+
+    // ==================== Modal helpers ====================
+
+    async _alert(message, options = {}) {
+        await showAlert(message, options);
+    }
+
+    async _confirm(message, options = {}) {
+        return await showConfirm(message, options);
+    }
+
+    async _prompt(message, options = {}) {
+        return await showPrompt(message, options);
     }
     
     /**
@@ -1463,5 +1478,6 @@ class SchematicApp {
 // Initialize when DOM is ready
 document.addEventListener('DOMContentLoaded', async () => {
     /** @type {any} */ (window).app = new SchematicApp();
-    await window.app._recoverAutoSave?.();
+    const app = /** @type {any} */ (window).app;
+    await app._recoverAutoSave?.();
 });

@@ -13,6 +13,8 @@ const _r4 = v => Math.round(v * 10000) / 10000;
 export class Polygon extends Shape {
     /**
      * @param {Object} [options]
+        * @param {string|number} [options.color] - Stroke colour.
+    * @param {number} [options.lineWidth] - Stroke width in mm.
      * @param {Array<{x:number,y:number}>} [options.points] - Ordered vertices.
      * @param {boolean} [options.fill=true]    - Whether the polygon is filled.
      * @param {boolean} [options.closed=true]  - Closed polygon vs open polyline.

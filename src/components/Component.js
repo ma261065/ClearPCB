@@ -133,7 +133,8 @@ export class Component {
                 fontSize,
                 fontFamily: 'Arial',
                 textAnchor: 'middle',
-                color: '#cccccc'
+                color: app.toolOptions.textColor,
+                fillColor: app.toolOptions.textColor
             }));
             text.parentComponent = this;
             text.fieldKey = f.key;
@@ -393,10 +394,11 @@ export class Component {
         highlight.setAttribute('y', minY - 0.5);
         highlight.setAttribute('width', maxX - minX + 1);
         highlight.setAttribute('height', maxY - minY + 1);
-        highlight.setAttribute('fill', this.selected ? 'var(--sch-selection-fill, rgba(51,153,255,0.2))' : 'rgba(255,255,255,0.1)');
-        highlight.setAttribute('stroke', this.selected ? 'var(--sch-selection, #3399ff)' : 'var(--sch-selection, #3399ff)');
-        highlight.setAttribute('stroke-width', 0.2);
-        highlight.setAttribute('stroke-dasharray', this.selected ? 'none' : '0.5 0.5');
+        highlight.setAttribute('fill', this.selected ? 'var(--sch-selection-fill, rgba(51,153,255,0.2))' : 'none');
+        highlight.setAttribute('stroke', 'var(--sch-selection, #3399ff)');
+        highlight.setAttribute('stroke-width', 0.15);
+        highlight.setAttribute('stroke-opacity', this.selected ? '0.6' : '0.35');
+        highlight.setAttribute('stroke-dasharray', 'none');
         
         // Insert at beginning so it's behind component graphics
         if (!highlight.parentNode || highlight.parentNode !== this.element) {
@@ -1264,15 +1266,18 @@ export class Component {
     }
 
     /**
-     * Flip horizontally (mirror) around the visual center.
+     * Flip across the world vertical axis through the visual center.
      */
     flipHorizontal() {
-        // Find world-space visual center before mirror
+        // Find world-space visual center before flip
         const lc = this._getLocalCenter();
         const beforeCenter = this.localToWorld(lc.x, lc.y);
 
+        const rot = this.rotation || 0;
+        this.rotation = (360 - rot) % 360;
         this.mirror = !this.mirror;
-        // Recreate SVG since mirror is baked into element creation
+
+        // Recreate SVG since mirror/rotation are baked into element creation
         this._recreateElement();
 
         // Adjust position so the visual center stays in place
@@ -1289,19 +1294,40 @@ export class Component {
                 this.element.removeAttribute('transform');
             }
         }
-
     }
 
     /** Backward-compatible alias */
     toggleMirror() { this.flipHorizontal(); }
 
     /**
-     * Flip vertically around the visual center.
-     * Equivalent to horizontal flip + 180° rotation.
+     * Flip across the world horizontal axis through the visual center.
      */
     flipVertical() {
-        this.flipHorizontal();
-        this.rotate(180);
+        // Find world-space visual center before flip
+        const lc = this._getLocalCenter();
+        const beforeCenter = this.localToWorld(lc.x, lc.y);
+
+        const rot = this.rotation || 0;
+        this.rotation = (180 - rot + 360) % 360;
+        this.mirror = !this.mirror;
+
+        // Recreate SVG since mirror/rotation are baked into element creation
+        this._recreateElement();
+
+        // Adjust position so the visual center stays in place
+        const lc2 = this._getLocalCenter();
+        const afterCenter = this.localToWorld(lc2.x, lc2.y);
+        this.x += beforeCenter.x - afterCenter.x;
+        this.y += beforeCenter.y - afterCenter.y;
+
+        if (this.element) {
+            const transform = this._buildTransform();
+            if (transform) {
+                this.element.setAttribute('transform', transform);
+            } else {
+                this.element.removeAttribute('transform');
+            }
+        }
     }
 
     /**

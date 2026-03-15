@@ -1,4 +1,3 @@
-import { showAlert } from './modal.js';
 
 /**
  * Exports the schematic to a vector PDF using jsPDF + svg2pdf,
@@ -60,7 +59,7 @@ export async function savePdf(app) {
         app.selection.selectMultiple(previousSelection, false);
         app.renderShapes(true);
     } catch (err) {
-            showAlert('Failed to save PDF: ' + (err?.message || 'Unknown error'), { title: 'Export Failed' });
+            app._alert('Failed to save PDF: ' + (err?.message || 'Unknown error'), { title: 'Export Failed' });
         // Restore selection in case of error
         app.selection.selectMultiple(previousSelection, false);
         app.renderShapes(true);
@@ -166,7 +165,7 @@ export async function printSchematic(app) {
             }, 500);
         }, 250);
     } catch (err) {
-            showAlert('Failed to print: ' + (err?.message || 'Unknown error'), { title: 'Print Failed' });
+            app._alert('Failed to print: ' + (err?.message || 'Unknown error'), { title: 'Print Failed' });
         // Restore selection in case of error
         app.selection.selectMultiple(previousSelection, false);
         app.renderShapes(true);

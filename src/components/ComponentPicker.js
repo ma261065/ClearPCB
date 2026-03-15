@@ -1213,7 +1213,7 @@ export class ComponentPicker {
             
             // Placeholder content (light weight)
             item.innerHTML = `
-                <div class="cp-item-icon" style="background:#333;min-width:40px;min-height:40px"></div>
+                <div class="cp-item-icon"></div>
                 <div class="cp-item-info">
                     <div class="cp-item-name">${comp.name}</div>
                     <div class="cp-item-desc">${comp.description || ''}</div>
@@ -1264,7 +1264,7 @@ export class ComponentPicker {
                 // Optionally unrender to save memory
                 const iconEl = element.querySelector('.cp-item-icon');
                 if (iconEl) {
-                    iconEl.innerHTML = '<div style="background:#333;width:100%;height:100%"></div>';
+                    iconEl.innerHTML = '';
                 }
             }
         });
@@ -1402,7 +1402,11 @@ export class ComponentPicker {
             if (symbol.pins && Array.isArray(symbol.pins)) {
                 for (const pin of symbol.pins) {
                     const pinGroup = tempComponent._createPinElement(pin, ns);
-                    if (pinGroup) svg.appendChild(pinGroup);
+                    if (pinGroup) {
+                        // Keep the pin line only; drop dots/labels for small previews.
+                        pinGroup.querySelectorAll('text, circle').forEach(el => el.remove());
+                        svg.appendChild(pinGroup);
+                    }
                 }
             }
             

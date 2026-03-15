@@ -1090,7 +1090,9 @@ export const toolActiveState = {
                 x: placePos.x,
                 y: placePos.y,
                 text: '',
-                fontSize: app.toolOptions.fontSize || 2.0
+                fontSize: app.toolOptions.fontSize || 2.0,
+                color: app.toolOptions.textColor,
+                fillColor: app.toolOptions.textColor
             });
             attachLabelToTarget(shape, attach?.target || null, attach?.snapPos || null, { isNewLabel: true });
             app.addShape(shape);

@@ -11,6 +11,8 @@ const _r4 = v => Math.round(v * 10000) / 10000;
 export class Text extends Shape {
     /**
      * @param {Object} [options]
+        * @param {string|number} [options.color] - Text colour.
+        * @param {string|number|null} [options.fillColor] - Fill colour override.
      * @param {number} [options.x=0]            - Anchor X in mm.
      * @param {number} [options.y=0]            - Anchor Y in mm.
      * @param {string} [options.text='']        - Display text.
@@ -160,6 +162,7 @@ export class Text extends Shape {
             this.invalidate();
             this._syncLinkedParentAfterGeometryChange();
         }
+        return undefined;
     }
 
     /** @override */

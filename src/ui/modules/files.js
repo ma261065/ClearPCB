@@ -2,7 +2,6 @@ import { updateIdCounter, resetWireLabelCounter, resetNetNameCounter } from '../
 import { Component, updateComponentIdCounter } from '../../components/index.js';
 import { createNetText } from './shape-management.js';
 import { attachLabelToTarget } from './label-attachment.js';
-import { showAlert, showConfirm } from './modal.js';
 
 /**
  * Serializes the entire document (shapes, components, settings, paper size,
@@ -291,7 +290,7 @@ export async function checkAutoSave(app) {
                                (saved.data.components && saved.data.components.length > 0);
             if (hasContent) {
                 const time = new Date(saved.timestamp).toLocaleString();
-                if (await showConfirm(`Found auto-saved content from ${time}.\n\nRecover it?`, { title: 'Recover Autosave', okText: 'Yes', cancelText: 'No' })) {
+                if (await app._confirm(`Found auto-saved content from ${time}.\n\nRecover it?`, { title: 'Recover Autosave', okText: 'Yes', cancelText: 'No' })) {
                     await app._loadDocument(saved.data);
                     app.fileManager.setDirty(true);
                     console.log('Recovered auto-saved content');
@@ -346,7 +345,7 @@ export async function loadVersion(app) {
  */
 export async function newFile(app) {
     if (app.fileManager.isDirty) {
-        if (!await showConfirm('You have unsaved changes. Create new document anyway?', { title: 'Unsaved Changes', okText: 'Yes', cancelText: 'No' })) {
+        if (!await app._confirm('You have unsaved changes. Create new document anyway?', { title: 'Unsaved Changes', okText: 'Yes', cancelText: 'No' })) {
             return;
         }
     }
@@ -389,7 +388,7 @@ export async function saveFile(app) {
         app._showSaveToast?.('Saved');
         console.log('Saved:', result.fileName);
     } else if (!result.cancelled) {
-        showAlert('Failed to save: ' + (result.error || 'Unknown error'), { title: 'Save Failed' });
+        app._alert('Failed to save: ' + (result.error || 'Unknown error'), { title: 'Save Failed' });
     }
 
     return result;
@@ -409,7 +408,7 @@ export async function saveFileAs(app) {
         app._showSaveToast?.('Saved');
         console.log('Saved as:', result.fileName);
     } else if (!result.cancelled) {
-        showAlert('Failed to save: ' + (result.error || 'Unknown error'), { title: 'Save Failed' });
+        app._alert('Failed to save: ' + (result.error || 'Unknown error'), { title: 'Save Failed' });
     }
 
     return result;
@@ -422,7 +421,7 @@ export async function saveFileAs(app) {
  */
 export async function openFile(app) {
     if (app.fileManager.isDirty) {
-        if (!await showConfirm('You have unsaved changes. Open another file anyway?', { title: 'Unsaved Changes', okText: 'Yes', cancelText: 'No' })) {
+        if (!await app._confirm('You have unsaved changes. Open another file anyway?', { title: 'Unsaved Changes', okText: 'Yes', cancelText: 'No' })) {
             return;
         }
     }
@@ -436,9 +435,9 @@ export async function openFile(app) {
             app.fileManager.clearAutoSave();
             console.log('Opened:', result.fileName);
         } else if (result.error) {
-            showAlert('Failed to open: ' + result.error, { title: 'Open Failed' });
+            app._alert('Failed to open: ' + result.error, { title: 'Open Failed' });
         }
     } catch (err) {
-        showAlert('Failed to open file: ' + err.message, { title: 'Open Failed' });
+        app._alert('Failed to open file: ' + err.message, { title: 'Open Failed' });
     }
 }

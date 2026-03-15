@@ -52,6 +52,11 @@ export function getSelectedComponents(app) {
 export function onComponentDefinitionSelected(app, definition) {
     app._cancelDrawing();
 
+    const activeEl = document.activeElement;
+    if (activeEl instanceof HTMLElement && activeEl.classList.contains('cp-search-input')) {
+        activeEl.blur();
+    }
+
     app.placingComponent = definition;
     app.currentTool = 'component';
     app.interactionState = 'placing';
@@ -211,6 +216,8 @@ export function rotateComponentLeft(app) {
  */
 export function flipComponentH(app) {
     if (app.placingComponent) {
+        // Flip across the world vertical axis regardless of current rotation.
+        app.componentRotation = (360 - (app.componentRotation || 0)) % 360;
         app.componentMirror = !app.componentMirror;
         createComponentPreview(app, app.placingComponent);
         if (app.lastCrosshairWorld) {
@@ -232,7 +239,8 @@ export function flipComponentH(app) {
  */
 export function flipComponentV(app) {
     if (app.placingComponent) {
-        app.componentRotation = (app.componentRotation + 180) % 360;
+        // Flip across the world horizontal axis regardless of current rotation.
+        app.componentRotation = (180 - (app.componentRotation || 0) + 360) % 360;
         app.componentMirror = !app.componentMirror;
         createComponentPreview(app, app.placingComponent);
         if (app.lastCrosshairWorld) {

@@ -2,7 +2,10 @@ import { ModalManager } from '../../core/ModalManager.js';
 
 let modalCounter = 0;
 
-function buildModal({ title, message, contentEl, okText, cancelText, showCancel }) {
+/**
+ * @param {{ title?: string, message?: string, contentEl?: HTMLElement|null, okText?: string, cancelText?: string, showCancel?: boolean }} options
+ */
+function buildModal({ title, message, contentEl = null, okText, cancelText, showCancel = false }) {
     const overlay = document.createElement('div');
     overlay.className = 'app-modal-overlay';
     overlay.tabIndex = 0;
@@ -55,13 +58,17 @@ function buildModal({ title, message, contentEl, okText, cancelText, showCancel 
     let resolvePromise = null;
     const modalId = `modal_${++modalCounter}`;
 
+    /** @returns {HTMLElement[]} */
     const focusables = () => {
-        return modal.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
+        return Array.from(modal.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'))
+            .filter(el => el instanceof HTMLElement);
     };
 
     const close = (result) => {
         ModalManager.pop(modalId);
-        window.removeEventListener('keydown', handleKeyDown, true);
+        document.removeEventListener('keydown', handleKeyDown, true);
+        document.removeEventListener('keypress', swallowKeyEvent, true);
+        document.removeEventListener('keyup', swallowKeyEvent, true);
         overlay.remove();
         if (resolvePromise) resolvePromise(result);
     };
@@ -98,6 +105,20 @@ function buildModal({ title, message, contentEl, okText, cancelText, showCancel 
             e.preventDefault();
         }
 
+        if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+            const buttons = Array.from(modal.querySelectorAll('.app-modal-btn'))
+                .filter(el => el instanceof HTMLElement);
+            if (buttons.length > 0) {
+                const list = buttons;
+                const current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+                const idx = Math.max(0, list.indexOf(current || list[0]));
+                const dir = e.key === 'ArrowRight' ? 1 : -1;
+                const next = (idx + dir + list.length) % list.length;
+                list[next].focus();
+            }
+            return;
+        }
+
         if (e.key === 'Escape') {
             close(false);
             return;
@@ -120,10 +141,21 @@ function buildModal({ title, message, contentEl, okText, cancelText, showCancel 
         }
     };
 
-    window.addEventListener('keydown', handleKeyDown, true);
+    const swallowKeyEvent = (e) => {
+        e.stopImmediatePropagation();
+        const target = e.target;
+        const isTypingTarget = target instanceof HTMLInputElement
+            || target instanceof HTMLTextAreaElement
+            || target instanceof HTMLSelectElement;
+        if (!isTypingTarget) e.preventDefault();
+    };
+
+    document.addEventListener('keydown', handleKeyDown, true);
+    document.addEventListener('keypress', swallowKeyEvent, true);
+    document.addEventListener('keyup', swallowKeyEvent, true);
     overlay.addEventListener('keydown', handleKeyDown);
     overlay.addEventListener('focusin', (e) => {
-        if (!modal.contains(e.target)) {
+        if (e.target instanceof Node && !modal.contains(e.target)) {
             const items = focusables();
             if (items.length) items[0].focus();
         }

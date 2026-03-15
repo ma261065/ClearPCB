@@ -13,7 +13,6 @@
 import { MoveShapesCommand, ModifyShapeCommand, DeleteShapesCommand, BatchCommand } from '../../core/CommandHistory.js';
 import { reconcileWires, reconcileWiresWithUndo, refreshWireConnections, refreshNoConnectConnection, collapseRedundantWirePoints, buildWireDiffBatch } from './wire.js';
 import { validateNetNameAtPoint } from './net-validation.js';
-import { showAlert } from './modal.js';
 
 /**
  * Compare two captured shape states for equality.
@@ -143,7 +142,7 @@ export function commitAnchorDrag(app, dragShape, beforeState, anchorWireStates =
             dragShape.id
         );
         if (!check.ok) {
-                showAlert(`Net conflict: this connected wire is already labeled "${check.conflictWith || ''}".`, { title: 'Net Conflict' });
+                app._alert(`Net conflict: this connected wire is already labeled "${check.conflictWith || ''}".`, { title: 'Net Conflict' });
             dragShape.applyState(beforeState);
             return false;
         }

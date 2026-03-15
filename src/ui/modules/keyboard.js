@@ -119,7 +119,7 @@ export function handleEscape(app) {
 export function bindKeyboardShortcuts(app) {
     const onKeyDown = (e) => {
         const topModal = ModalManager.top();
-        if (topModal && topModal.id !== 'text-edit') {
+        if (topModal && topModal.id !== 'text-edit' && topModal.id !== 'componentPicker') {
             return;
         }
         // Allow shortcuts through for non-text inputs (checkboxes, buttons, etc.)
