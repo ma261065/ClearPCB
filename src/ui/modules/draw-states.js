@@ -74,7 +74,8 @@ function isAdditiveSelectionModifier(event) {
 }
 
 function activateHomeTabIfFileTabOpen(app) {
-    const activeTab = document.querySelector('.ribbon-tab.active');
+    const ribbonEl = document.getElementById('ribbonSchematic');
+    const activeTab = ribbonEl?.querySelector('.ribbon-tab.active') || document.querySelector('.ribbon-tab.active');
     if (activeTab instanceof HTMLElement && activeTab.dataset?.tab === 'file') {
         app._setActiveRibbonTab?.('home');
     }
@@ -968,7 +969,7 @@ export const idleState = {
         if (app.didDrag) { app.didDrag = false; return; }
 
         // If a non-Home ribbon tab is showing, switch back to Home
-        const activeTab = document.querySelector('.ribbon-tab.active');
+        const activeTab = (document.getElementById('ribbonSchematic') || document).querySelector('.ribbon-tab.active');
         if (activeTab instanceof HTMLElement && activeTab.dataset.tab !== 'home') {
             app._setActiveRibbonTab('home');
         }

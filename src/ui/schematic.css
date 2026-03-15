@@ -160,6 +160,89 @@ body {
     flex-direction: column;
 }
 
+/* ── Mode bar (Schematic / PCB tabs) ── */
+.mode-bar {
+    display: flex;
+    gap: 0;
+    background: var(--bg-primary);
+    border-bottom: 1px solid var(--border-color);
+    padding: 0 8px;
+    flex-shrink: 0;
+}
+
+.mode-tab {
+    padding: 6px 18px;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: var(--text-secondary);
+    transition: color 0.15s, border-color 0.15s;
+}
+
+.mode-tab:hover {
+    color: var(--text-primary);
+}
+
+.mode-tab.active {
+    color: var(--text-primary);
+    border-bottom-color: var(--accent-color);
+}
+
+/* ── App slider (side-by-side panels) ── */
+.app-slider {
+    flex: 1;
+    display: flex;
+    overflow: hidden;
+    position: relative;
+}
+
+.app-slide {
+    min-width: 100%;
+    max-width: 100%;
+    display: flex;
+    flex-direction: column;
+    transition: transform 0.35s ease;
+    overflow: hidden;
+}
+
+.app-slide[data-slide="schematic"] { transform: translateX(0); }
+.app-slide[data-slide="pcb"] { transform: translateX(0); }
+
+.app-slider.show-pcb .app-slide { transform: translateX(-100%); }
+
+/* ── PCB placeholder ── */
+.pcb-placeholder {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg-canvas, var(--bg-primary));
+    gap: 16px;
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+.pcb-placeholder-icon {
+    font-size: 64px;
+    opacity: 0.5;
+}
+
+.pcb-placeholder-title {
+    font-size: 24px;
+    font-weight: 600;
+    color: var(--text-primary);
+    opacity: 0.7;
+}
+
+.pcb-placeholder-text {
+    font-size: 16px;
+    color: var(--text-muted);
+}
+
 .ribbon {
     background: var(--bg-secondary);
     border-bottom: 1px solid var(--border-color);

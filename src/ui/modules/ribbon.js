@@ -81,8 +81,9 @@ export function bindRibbon(app) {
         showSaveToast(anchor, text);
     };
 
-    const tabs = document.querySelectorAll('.ribbon-tab');
-    const panels = document.querySelectorAll('.ribbon-panel');
+    const ribbonEl = document.getElementById('ribbonSchematic') || document.querySelector('.ribbon');
+    const tabs = ribbonEl.querySelectorAll('.ribbon-tab');
+    const panels = ribbonEl.querySelectorAll('.ribbon-panel');
     if (tabs.length === 0 || panels.length === 0) return;
 
     app._setActiveRibbonTab = (tabId) => {

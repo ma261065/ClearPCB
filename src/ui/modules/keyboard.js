@@ -209,7 +209,7 @@ export function bindKeyboardShortcuts(app) {
             switch (e.key) {
                 case 'Escape': {
                     // If a non-Home ribbon tab is showing, switch back to Home
-                    const activeTab = document.querySelector('.ribbon-tab.active');
+                    const activeTab = (document.getElementById('ribbonSchematic') || document).querySelector('.ribbon-tab.active');
                     if (activeTab && activeTab.dataset.tab !== 'home') {
                         app._setActiveRibbonTab('home');
                         e.preventDefault();

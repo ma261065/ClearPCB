@@ -3,14 +3,20 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ClearPCB - Schematic Editor</title>
+    <title>ClearPCB</title>
     <link rel="icon" href="assets/icons/favicon.ico">
     <link rel="apple-touch-icon" href="assets/icons/favicon.ico">
     <link rel="stylesheet" href="src/ui/schematic.css">
     <link rel="manifest" href="manifest.json">
 </head>
 <body>
-    <div class="ribbon">
+    <div class="mode-bar">
+        <button class="mode-tab active" data-mode="schematic">Schematic</button>
+        <button class="mode-tab" data-mode="pcb">PCB Layout</button>
+    </div>
+
+    <!-- ═══ Schematic Ribbon ═══ -->
+    <div class="ribbon" id="ribbonSchematic">
         <div class="ribbon-tabs">
             <div class="ribbon-tab active" data-tab="file">File</div>
             <div class="ribbon-tab" data-tab="home">Home</div>
@@ -90,7 +96,6 @@
                         <label class="ribbon-checkbox"><input type="checkbox" id="showGrid" checked> Grid</label>
                         <label class="ribbon-checkbox"><input type="checkbox" id="snapToGrid" checked> Snap</label>
                         <select id="gridSize" title="Grid size">
-                            <!-- Options populated by JavaScript based on units -->
                             <option value="1">1 mm</option>
                         </select>
                         <select id="units" title="Units">
@@ -185,17 +190,76 @@
         </div>
     </div>
 
-    <div class="main-container">
-        <div class="canvas-container" id="canvasContainer" oncontextmenu="event.preventDefault()">
-            <svg class="drawing-crosshair" id="drawingCrosshair">
-                <line id="crosshairX" stroke="var(--accent-color)" stroke-width="1" stroke-dasharray="4,4"/>
-                <line id="crosshairY" stroke="var(--accent-color)" stroke-width="1" stroke-dasharray="4,4"/>
-                <path id="crosshairToolIcon" d="" />
-            </svg>
+    <!-- ═══ PCB Ribbon ═══ -->
+    <div class="ribbon" id="ribbonPCB" style="display:none">
+        <div class="ribbon-tabs">
+            <div class="ribbon-tab active" data-tab="pcb-file">File</div>
+            <div class="ribbon-tab" data-tab="pcb-home">Home</div>
+            <div class="ribbon-tab" data-tab="pcb-help">Help</div>
+            <div class="ribbon-spacer"></div>
+            <span class="ribbon-title">PCB Layout</span>
+        </div>
+        <div class="ribbon-panels">
+            <div class="ribbon-panel active" data-panel="pcb-file">
+                <div class="ribbon-group">
+                    <div class="ribbon-group-title">File</div>
+                    <div class="ribbon-group-items">
+                        <button disabled title="New">📄 New</button>
+                        <button disabled title="Open">📂 Open</button>
+                        <button disabled title="Save">💾 Save</button>
+                        <button disabled title="Export">🧾 Export</button>
+                    </div>
+                </div>
+            </div>
+            <div class="ribbon-panel" data-panel="pcb-home">
+                <div class="ribbon-group">
+                    <div class="ribbon-group-title">Tools</div>
+                    <div class="ribbon-group-items">
+                        <button disabled>⊹ Select</button>
+                        <button disabled>Route</button>
+                        <button disabled>Via</button>
+                        <button disabled>Zone</button>
+                    </div>
+                </div>
+                <div class="ribbon-group">
+                    <div class="ribbon-group-title">Layers</div>
+                    <div class="ribbon-group-items">
+                        <span style="font-size:11px;color:var(--text-muted)">Coming soon</span>
+                    </div>
+                </div>
+                <div class="ribbon-group">
+                    <div class="ribbon-group-title">View</div>
+                    <div class="ribbon-group-items">
+                        <button disabled>−</button>
+                        <button disabled>+</button>
+                        <button disabled>Fit</button>
+                        <button id="pcbThemeToggle" class="theme-toggle" title="Toggle Dark/Light Mode">🌙</button>
+                    </div>
+                </div>
+            </div>
+            <div class="ribbon-panel" data-panel="pcb-help">
+                <div class="ribbon-group ribbon-help">
+                    <div class="ribbon-group-title">PCB Layout Help</div>
+                    <div class="ribbon-group-items ribbon-help-items">
+                        <div class="help-row"><span style="color:var(--text-muted)">PCB layout tools coming soon.</span></div>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 
-    <div class="status-bar">
+    <div class="app-slider">
+        <div class="app-slide active" data-slide="schematic">
+            <div class="main-container">
+                <div class="canvas-container" id="canvasContainer" oncontextmenu="event.preventDefault()">
+                    <svg class="drawing-crosshair" id="drawingCrosshair">
+                        <line id="crosshairX" stroke="var(--accent-color)" stroke-width="1" stroke-dasharray="4,4"/>
+                        <line id="crosshairY" stroke="var(--accent-color)" stroke-width="1" stroke-dasharray="4,4"/>
+                        <path id="crosshairToolIcon" d="" />
+                    </svg>
+                </div>
+            </div>
+            <div class="status-bar" id="schematicStatusBar">
         <div class="status-item">
             <span class="label">Cursor:</span>
             <span class="value" id="cursorPos">0.00, 0.00 mm</span>
@@ -212,10 +276,63 @@
             <span class="label">Zoom:</span>
             <span class="value" id="zoomPercent">100%</span>
         </div>
+            </div>
+        </div>
+
+        <div class="app-slide" data-slide="pcb">
+            <div class="pcb-placeholder">
+                <div class="pcb-placeholder-icon">🔲</div>
+                <div class="pcb-placeholder-title">PCB Layout Designer</div>
+                <div class="pcb-placeholder-text">Coming Soon</div>
+            </div>
+        </div>
     </div>
 
     <script type="module" src="./src/ui/SchematicApp.js"></script>
     <script>
+        // ── Mode slider ──
+        const ribbonSch = document.getElementById('ribbonSchematic');
+        const ribbonPcb = document.getElementById('ribbonPCB');
+        document.querySelectorAll('.mode-tab').forEach(tab => {
+            tab.addEventListener('click', () => {
+                document.querySelectorAll('.mode-tab').forEach(t => t.classList.remove('active'));
+                tab.classList.add('active');
+                const slider = document.querySelector('.app-slider');
+                const isPcb = tab.dataset.mode === 'pcb';
+                if (isPcb) {
+                    slider.classList.add('show-pcb');
+                    ribbonSch.style.display = 'none';
+                    ribbonPcb.style.display = '';
+                } else {
+                    slider.classList.remove('show-pcb');
+                    ribbonSch.style.display = '';
+                    ribbonPcb.style.display = 'none';
+                }
+            });
+        });
+
+        // ── PCB ribbon tab switching ──
+        ribbonPcb.querySelectorAll('.ribbon-tab').forEach(tab => {
+            tab.addEventListener('click', () => {
+                ribbonPcb.querySelectorAll('.ribbon-tab').forEach(t => t.classList.remove('active'));
+                tab.classList.add('active');
+                ribbonPcb.querySelectorAll('.ribbon-panel').forEach(p => p.classList.remove('active'));
+                const panel = ribbonPcb.querySelector(`.ribbon-panel[data-panel="${tab.dataset.tab}"]`);
+                if (panel) panel.classList.add('active');
+            });
+        });
+
+        // ── Schematic ribbon tab switching (re-bind so it scopes to its own ribbon) ──
+        ribbonSch.querySelectorAll('.ribbon-tab').forEach(tab => {
+            tab.addEventListener('click', () => {
+                ribbonSch.querySelectorAll('.ribbon-tab').forEach(t => t.classList.remove('active'));
+                tab.classList.add('active');
+                ribbonSch.querySelectorAll('.ribbon-panel').forEach(p => p.classList.remove('active'));
+                const panel = ribbonSch.querySelector(`.ribbon-panel[data-panel="${tab.dataset.tab}"]`);
+                if (panel) panel.classList.add('active');
+            });
+        });
+
         // Register service worker for PWA install + file handlers
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.register('./sw.js').catch(() => {});
