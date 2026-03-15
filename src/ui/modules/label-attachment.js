@@ -165,6 +165,10 @@ export function getLabelAttachmentAnchorPoint(labelShape, referencePoint = null)
     const att = labelShape.attachment;
 
     if (target.type === 'wire') {
+        if (referencePoint) {
+            const closest = target.closestEdge?.(referencePoint);
+            if (closest?.point) return { x: closest.point.x, y: closest.point.y };
+        }
         if (!att) return null;
         return getWireAnchorFromAttachment(target, att);
     }
