@@ -13,6 +13,7 @@
 import { MoveShapesCommand, ModifyShapeCommand, DeleteShapesCommand, BatchCommand } from '../../core/CommandHistory.js';
 import { reconcileWires, reconcileWiresWithUndo, refreshWireConnections, refreshNoConnectConnection, collapseRedundantWirePoints, buildWireDiffBatch } from './wire.js';
 import { validateNetNameAtPoint } from './net-validation.js';
+import { connectNetToWires, disconnectNetFromWires } from './shape-management.js';
 
 /**
  * Compare two captured shape states for equality.
@@ -247,6 +248,12 @@ export function commitAnchorDrag(app, dragShape, beforeState, anchorWireStates =
         const afterState = app._captureShapeState(dragShape);
         app._applyShapeState(dragShape, beforeState);
         app.history.execute(new ModifyShapeCommand(app, dragShape, beforeState, afterState));
+        if (dragShape.type === 'net') {
+            // After the command has placed the net at its new position,
+            // disconnect from old wire and reconnect at new position
+            disconnectNetFromWires(app, dragShape);
+            connectNetToWires(app, dragShape);
+        }
         dragShape.selected = true;
     }
     return true;
@@ -437,6 +444,13 @@ export function commitMoveDrag(app, totalDx, totalDy) {
             for (const cmd of ncCmds) cmd.execute();
             app.history.record(combined);
         }
+    }
+
+    // Post-move: reconnect moved Net shapes to wires at new positions
+    const movedNets = movedShapes.filter(s => s.type === 'net');
+    for (const netShape of movedNets) {
+        disconnectNetFromWires(app, netShape);
+        connectNetToWires(app, netShape);
     }
 
     // Post-move: check for net conflicts

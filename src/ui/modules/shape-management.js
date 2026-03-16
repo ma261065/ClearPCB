@@ -425,6 +425,8 @@ function _createNetText(app, Net) {
 }
 
 export { _createNetText as createNetText };
+export { _connectNetToWires as connectNetToWires };
+export { _disconnectNetFromWires as disconnectNetFromWires };
 
 /**
  * When a Net shape is placed on a wire, record the connection
@@ -435,6 +437,7 @@ function _connectNetToWires(app, netShape) {
     const pos = { x: netShape.x, y: netShape.y };
     for (const shape of app.shapes) {
         if (shape.type !== 'wire') continue;
+        // Check existing nodes first
         for (const [nodeId, nodePos] of shape.nodes) {
             if (Math.hypot(pos.x - nodePos.x, pos.y - nodePos.y) < VERTEX_EPSILON) {
                 shape.pinConnections.set(nodeId, {
@@ -443,14 +446,32 @@ function _connectNetToWires(app, netShape) {
                 });
                 const netName = netShape.net;
                 if (netName && shape.net !== netName) {
-                    const isDefault = shape.net?.startsWith('Net');
-                    if (isDefault) {
+                    freeNetName(shape.net);
+                    shape.net = netName;
+                    bumpNetNameCounter(netName);
+                }
+                return;
+            }
+        }
+        // Check if the net is on a wire edge (mid-segment) — split to create a node
+        if (typeof shape.closestEdge === 'function') {
+            const edge = shape.closestEdge(pos);
+            if (edge && edge.distance < VERTEX_EPSILON) {
+                const split = shape.splitEdge(edge.edgeId, pos);
+                if (split?.newNodeId) {
+                    shape.pinConnections.set(split.newNodeId, {
+                        componentId: netShape.id,
+                        pinNumber: 'conn'
+                    });
+                    const netName = netShape.net;
+                    if (netName && shape.net !== netName) {
                         freeNetName(shape.net);
                         shape.net = netName;
                         bumpNetNameCounter(netName);
                     }
+                    shape.invalidate();
+                    return;
                 }
-                return;
             }
         }
     }

@@ -1356,12 +1356,28 @@ export const moveDragState = {
             app._labelDragHoverTarget = null;
         }
 
+        // Net shape drag: show snap highlight when over a wire
+        const isDraggingNet = selNow.length === 1 && selNow[0]?.type === 'net';
+        if (isDraggingNet) {
+            const { resolved } = resolvePinSnapPlacement(app, worldPos);
+            updateSnapHighlight(app, resolved);
+        }
+
         const mouseDelta = { x: worldPos.x - app.drag.startWorldPos.x, y: worldPos.y - app.drag.startWorldPos.y };
         const targetPos = { x: app.drag.objectStartPos.x + mouseDelta.x, y: app.drag.objectStartPos.y + mouseDelta.y };
         const sel = app.selection.getSelection();
         const movingCompIds = collectMovingComponentIds(sel);
         const snappedTarget = app._moveDragSnappedTarget || (app._moveDragSnappedTarget = { x: 0, y: 0 });
         const stickyGuides = resolveMoveDragTarget(app, targetPos, sel, movingCompIds, snappedTarget);
+
+        // When dragging a net shape, snap to nearby wire nodes/edges
+        if (isDraggingNet) {
+            const { resolved } = resolvePinSnapPlacement(app, { x: snappedTarget.x, y: snappedTarget.y });
+            if (resolved.snapType === 'pin' || resolved.snapType === 'wire') {
+                snappedTarget.x = resolved.x;
+                snappedTarget.y = resolved.y;
+            }
+        }
 
         const dx = snappedTarget.x - app.drag.lastSnapped.x;
         const dy = snappedTarget.y - app.drag.lastSnapped.y;

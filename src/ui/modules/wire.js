@@ -464,7 +464,6 @@ export function addWireWaypoint(app, waypointData) {
  * @param {{x: number, y: number, snapPin?: object}} worldPos - Final endpoint
  */
 export function finishWireDrawing(app, worldPos) {
-    console.log('[NET-CONFLICT-DEBUG] finishWireDrawing ENTERED');
     // Add final point if different from last waypoint
     if (app.drawCurrent) {
         const last = app.wirePoints[app.wirePoints.length - 1];
@@ -586,18 +585,12 @@ export function finishWireDrawing(app, worldPos) {
 
     // Post-commit check: does any surviving wire now have two or more
     // connected Net shapes with different names?  If so, warn and undo.
-    console.log('[NET-CONFLICT-DEBUG] Checking all wires for net conflicts...');
     for (const w of app.shapes) {
         if (w.type !== 'wire') continue;
         const netNames = new Set();
-        const debugConns = [];
-        for (const [nodeId, conn] of w.pinConnections) {
+        for (const [, conn] of w.pinConnections) {
             const ns = app.shapes.find(s => s.id === conn.componentId && s.type === 'net');
-            debugConns.push({ nodeId, componentId: conn.componentId, pinNumber: conn.pinNumber, foundNet: ns?.net || null, shapeType: app.shapes.find(s => s.id === conn.componentId)?.type || 'NOT_FOUND' });
             if (ns?.net) netNames.add(ns.net);
-        }
-        if (w.pinConnections.size > 0) {
-            console.log(`[NET-CONFLICT-DEBUG] Wire ${w.wireLabel} (${w.id}): ${w.pinConnections.size} pinConnections, netNames=[${[...netNames]}]`, debugConns);
         }
         if (netNames.size > 1) {
             const sorted = [...netNames].sort();
