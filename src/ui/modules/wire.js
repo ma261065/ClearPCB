@@ -464,6 +464,7 @@ export function addWireWaypoint(app, waypointData) {
  * @param {{x: number, y: number, snapPin?: object}} worldPos - Final endpoint
  */
 export function finishWireDrawing(app, worldPos) {
+    console.log('[NET-CONFLICT-DEBUG] finishWireDrawing ENTERED');
     // Add final point if different from last waypoint
     if (app.drawCurrent) {
         const last = app.wirePoints[app.wirePoints.length - 1];
@@ -551,8 +552,11 @@ export function finishWireDrawing(app, worldPos) {
     // Unified reconciliation: overlap trim, merge, collapse, junctions
     reconcileWires(app, [wire]);
 
-    // Update pin connections
-    if (app.shapes.includes(wire)) refreshWireConnections(app, wire);
+    // Refresh pin connections on ALL surviving wires so pinConnections
+    // are up to date after merges/absorbs
+    for (const w of app.shapes) {
+        if (w.type === 'wire') refreshWireConnections(app, w);
+    }
 
     // If the wire was fully absorbed (e.g. redundant), revert and cancel
     if (!app.shapes.includes(wire) && wire.edges.size === 0) {
@@ -579,6 +583,38 @@ export function finishWireDrawing(app, worldPos) {
         // Record to undo stack without executing — state is already correct
         app.history.record(batch);
     }
+
+    // Post-commit check: does any surviving wire now have two or more
+    // connected Net shapes with different names?  If so, warn and undo.
+    console.log('[NET-CONFLICT-DEBUG] Checking all wires for net conflicts...');
+    for (const w of app.shapes) {
+        if (w.type !== 'wire') continue;
+        const netNames = new Set();
+        const debugConns = [];
+        for (const [nodeId, conn] of w.pinConnections) {
+            const ns = app.shapes.find(s => s.id === conn.componentId && s.type === 'net');
+            debugConns.push({ nodeId, componentId: conn.componentId, pinNumber: conn.pinNumber, foundNet: ns?.net || null, shapeType: app.shapes.find(s => s.id === conn.componentId)?.type || 'NOT_FOUND' });
+            if (ns?.net) netNames.add(ns.net);
+        }
+        if (w.pinConnections.size > 0) {
+            console.log(`[NET-CONFLICT-DEBUG] Wire ${w.wireLabel} (${w.id}): ${w.pinConnections.size} pinConnections, netNames=[${[...netNames]}]`, debugConns);
+        }
+        if (netNames.size > 1) {
+            const sorted = [...netNames].sort();
+            app._alert?.(
+                `Cannot merge wire segments with different net names: "${sorted[0]}" and "${sorted[1]}".`,
+                { title: 'Net Conflict' }
+            );
+            app.history.undo();
+            app.history.redoStack.pop();
+            app.history._notifyChanged();
+            cancelWireDrawing(app);
+            app.renderShapes(true);
+            app._updatePropertiesPanel?.(app.selection?.getSelection?.() || []);
+            return;
+        }
+    }
+
     cancelWireDrawing(app);
     app.renderShapes(true);
     app._updatePropertiesPanel?.(app.selection?.getSelection?.() || []);

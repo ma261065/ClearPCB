@@ -192,6 +192,32 @@ export function commitAnchorDrag(app, dragShape, beforeState, anchorWireStates =
         addNoConnectCommands(app, b, ncLinks);
         pushBatchIfNonEmpty(app, batch || (b.commands.length > 0 ? b : null));
 
+        // Post-commit check: refresh all wire connections, then check if
+        // any wire now has two or more Net shapes with different names.
+        for (const w of app.shapes) {
+            if (w.type === 'wire') refreshWireConnections(app, w);
+        }
+        for (const w of app.shapes) {
+            if (w.type !== 'wire') continue;
+            const netNames = new Set();
+            for (const [, conn] of w.pinConnections) {
+                const ns = app.shapes.find(s => s.id === conn.componentId && s.type === 'net');
+                if (ns?.net) netNames.add(ns.net);
+            }
+            if (netNames.size > 1) {
+                const sorted = [...netNames].sort();
+                app._alert?.(
+                    `Cannot merge wire segments with different net names: "${sorted[0]}" and "${sorted[1]}".`,
+                    { title: 'Net Conflict' }
+                );
+                app.history.undo();
+                app.history.redoStack.pop();
+                app.history._notifyChanged();
+                app.renderShapes(true);
+                return false;
+            }
+        }
+
         // Select surviving dragged wire
         if (app.shapes.includes(dragShape)) {
             if (dragShape.edges.size > 0) dragShape.selected = true;
@@ -293,6 +319,32 @@ export function commitSegmentDrag(app, dragShape, wireStates, ncLinks = null, la
     }
 
     pushBatchIfNonEmpty(app, batch || (b.commands.length > 0 ? b : null));
+
+    // Post-commit check: net conflict
+    for (const w of app.shapes) {
+        if (w.type === 'wire') refreshWireConnections(app, w);
+    }
+    for (const w of app.shapes) {
+        if (w.type !== 'wire') continue;
+        const netNames = new Set();
+        for (const [, conn] of w.pinConnections) {
+            const ns = app.shapes.find(s => s.id === conn.componentId && s.type === 'net');
+            if (ns?.net) netNames.add(ns.net);
+        }
+        if (netNames.size > 1) {
+            const sorted = [...netNames].sort();
+            app._alert?.(
+                `Cannot merge wire segments with different net names: "${sorted[0]}" and "${sorted[1]}".`,
+                { title: 'Net Conflict' }
+            );
+            app.history.undo();
+            app.history.redoStack.pop();
+            app.history._notifyChanged();
+            app.renderShapes(true);
+            return false;
+        }
+    }
+
     app.renderShapes(true);
     return true;
 }
@@ -384,6 +436,31 @@ export function commitMoveDrag(app, totalDx, totalDy) {
             for (const cmd of ncCmds) combined.add(cmd);
             for (const cmd of ncCmds) cmd.execute();
             app.history.record(combined);
+        }
+    }
+
+    // Post-move: check for net conflicts
+    for (const w of app.shapes) {
+        if (w.type === 'wire') refreshWireConnections(app, w);
+    }
+    for (const w of app.shapes) {
+        if (w.type !== 'wire') continue;
+        const netNames = new Set();
+        for (const [, conn] of w.pinConnections) {
+            const ns = app.shapes.find(s => s.id === conn.componentId && s.type === 'net');
+            if (ns?.net) netNames.add(ns.net);
+        }
+        if (netNames.size > 1) {
+            const sorted = [...netNames].sort();
+            app._alert?.(
+                `Cannot merge wire segments with different net names: "${sorted[0]}" and "${sorted[1]}".`,
+                { title: 'Net Conflict' }
+            );
+            app.history.undo();
+            app.history.redoStack.pop();
+            app.history._notifyChanged();
+            app.renderShapes(true);
+            return false;
         }
     }
 
