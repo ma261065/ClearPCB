@@ -170,6 +170,12 @@ body {
     padding: 6px 8px 0;
 }
 
+.mode-bar,
+.mode-tab {
+    -webkit-user-select: none;
+    user-select: none;
+}
+
 .mode-tab {
     flex: 1;
     padding: 8px 0;
@@ -239,8 +245,8 @@ body {
     justify-content: center;
     background: var(--bg-canvas, var(--bg-primary));
     gap: 16px;
-    user-select: none;
     -webkit-user-select: none;
+    user-select: none;
 }
 
 .pcb-placeholder-icon {
@@ -258,6 +264,15 @@ body {
 .pcb-placeholder-text {
     font-size: 16px;
     color: var(--text-muted);
+}
+
+.pcb-coming-soon {
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
+.ribbon-hidden {
+    display: none;
 }
 
 .ribbon {
@@ -686,13 +701,43 @@ body {
     position: relative;
     display: inline-flex;
     align-items: center;
-    gap: 2px;
 }
 
-.ribbon-net-style-btn {
-    min-width: 26px;
-    width: 26px;
-    padding: 0;
+.ribbon-split-btn {
+    display: inline-flex;
+    align-items: stretch;
+    border-radius: 3px;
+}
+
+.ribbon-split-btn .ribbon-split-main {
+    border-radius: 3px 0 0 3px !important;
+    border-right: none !important;
+    margin: 0 !important;
+}
+
+.ribbon-split-btn .ribbon-split-arrow {
+    border-radius: 0 3px 3px 0 !important;
+    border-left: 1px solid rgba(128,128,128,0.25) !important;
+    padding: 3px 4px !important;
+    font-size: 8px !important;
+    min-width: 0 !important;
+    margin: 0 !important;
+    opacity: 0.7;
+}
+
+.ribbon-split-btn .ribbon-split-arrow:hover {
+    opacity: 1;
+}
+
+.ribbon-split-btn.active .ribbon-split-main,
+.ribbon-split-btn.active .ribbon-split-arrow {
+    background: var(--accent-color) !important;
+    color: #ffffff !important;
+    border-color: var(--accent-color) !important;
+}
+
+.ribbon-split-btn.active .ribbon-split-arrow {
+    border-left-color: rgba(255,255,255,0.3) !important;
 }
 
 .ribbon-net-dropdown .dropdown-menu {
@@ -1537,8 +1582,8 @@ body {
     max-height: 200px;
     border-top: 1px solid var(--border-color);
     border-bottom: 1px solid var(--border-color);
-    scrollbar-width: thin;
-    scrollbar-color: var(--text-muted) var(--bg-secondary);
+    scrollbar-width: thin; /* stylelint-disable-line */
+    scrollbar-color: var(--text-muted) var(--bg-secondary); /* stylelint-disable-line */
 }
 
 .cp-list::-webkit-scrollbar {

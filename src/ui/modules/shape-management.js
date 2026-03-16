@@ -1,7 +1,8 @@
 import { AddShapeCommand } from '../../core/CommandHistory.js';
-import { freeWireLabel, bumpWireLabelCounter, freeNetName, bumpNetNameCounter } from '../../shapes/wire.js';
+import { freeWireLabel, bumpWireLabelCounter, freeNetName, bumpNetNameCounter, nextNetName } from '../../shapes/wire.js';
 import { Text } from '../../shapes/text.js';
 import { detachLabel, syncAttachedLabels } from './label-attachment.js';
+import { VERTEX_EPSILON } from './wire.js';
 
 /**
  * Adds a shape to the canvas via an undoable `AddShapeCommand`.
@@ -35,6 +36,10 @@ export function addShapeInternal(app, shape) {
     // Generic attached labels (fieldKey === 'label') are used instead.
     if (netShape && !netShape.labelText) {
         _createNetText(app, netShape);
+    }
+    // When a Net label is placed on a wire, record the connection and propagate the net name
+    if (netShape) {
+        _connectNetToWires(app, netShape);
     }
     app._updateSelectableItems();
     app.selection._invalidateHitTestCache();
@@ -153,6 +158,10 @@ export function removeShapeInternal(app, shape, options = {}) {
             removeShapeInternal(app, linkedLabel, options);
             if (wireShape) wireShape.labelText = preserveLinkedLabelRef ? linkedLabel : null;
             if (netShape) netShape.labelText = preserveLinkedLabelRef ? linkedLabel : null;
+        }
+        // When a Net label is removed, clean up wire pinConnections and revert net names
+        if (netShape) {
+            _disconnectNetFromWires(app, netShape);
         }
         if (shape.element && shape.element.parentNode) {
             shape.element.parentNode.removeChild(shape.element);
@@ -395,13 +404,14 @@ export function updateViewportCulling(app) {
  */
 function _createNetText(app, Net) {
     const pos = Net.getTextPosition();
+    const anchor = (Net.style === 'chevron') ? 'start' : 'middle';
     const text = new Text(/** @type {any} */ ({
         x: pos.x,
         y: pos.y,
         text: Net.net,
         fontSize: Net.fontSize,
         fontFamily: 'Arial',
-        textAnchor: 'start',
+        textAnchor: anchor,
         color: 'var(--sch-net-label, #00cccc)'
     }));
     text.parentComponent = Net;
@@ -415,3 +425,67 @@ function _createNetText(app, Net) {
 }
 
 export { _createNetText as createNetText };
+
+/**
+ * When a Net shape is placed on a wire, record the connection
+ * via the wire's pinConnections (reusing the component pin system)
+ * and propagate the net name.
+ */
+function _connectNetToWires(app, netShape) {
+    const pos = { x: netShape.x, y: netShape.y };
+    for (const shape of app.shapes) {
+        if (shape.type !== 'wire') continue;
+        for (const [nodeId, nodePos] of shape.nodes) {
+            if (Math.hypot(pos.x - nodePos.x, pos.y - nodePos.y) < VERTEX_EPSILON) {
+                shape.pinConnections.set(nodeId, {
+                    componentId: netShape.id,
+                    pinNumber: 'conn'
+                });
+                const netName = netShape.net;
+                if (netName && shape.net !== netName) {
+                    const isDefault = shape.net?.startsWith('Net');
+                    if (isDefault) {
+                        freeNetName(shape.net);
+                        shape.net = netName;
+                        bumpNetNameCounter(netName);
+                    }
+                }
+                return;
+            }
+        }
+    }
+    app._updatePropertiesPanel?.(app.selection?.getSelection?.() || []);
+}
+
+/**
+ * When a Net shape is deleted, remove its entries from wire pinConnections
+ * and revert wire net names if no other same-named Net is still connected.
+ */
+function _disconnectNetFromWires(app, netShape) {
+    const removedName = netShape.net;
+    for (const wire of app.shapes) {
+        if (wire.type !== 'wire') continue;
+        let found = false;
+        for (const [nodeId, conn] of wire.pinConnections) {
+            if (conn.componentId === netShape.id) {
+                wire.pinConnections.delete(nodeId);
+                found = true;
+                break;
+            }
+        }
+        if (found && removedName && wire.net === removedName) {
+            // Check if any other Net with the same name is still on this wire
+            let otherSameNet = false;
+            for (const [, conn] of wire.pinConnections) {
+                const other = app.shapes.find(s => s.id === conn.componentId && s.type === 'net');
+                if (other && other.net === removedName) { otherSameNet = true; break; }
+            }
+            if (!otherSameNet) {
+                freeNetName(wire.net);
+                wire.net = nextNetName();
+                wire.invalidate();
+            }
+        }
+    }
+    app._updatePropertiesPanel?.(app.selection?.getSelection?.() || []);
+}

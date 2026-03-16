@@ -366,7 +366,7 @@ class SchematicApp {
      * Handles Escape key, cascading through active operations (text edit, drawing, placement, etc.).
      */
     _handleEscape() {
-        handleEscape(this);
+        return handleEscape(this);
     }
 
     /**

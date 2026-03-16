@@ -27,6 +27,7 @@ function _nextnetName(app) {
 }
 
 function _defaultnetText(app, style) {
+    if (app.toolOptions?.netPresetText) return app.toolOptions.netPresetText;
     if (style === 'gnd') return 'Gnd';
     if (style === 'arrow') return 'VCC';
     return _nextnetName(app);
@@ -227,9 +228,9 @@ function _createnetGhost(app) {
     text.setAttribute('fill', 'var(--sch-net-label, #00cccc)');
     text.setAttribute('font-size', String(app.toolOptions?.netFontSize || NL_FONT_SIZE));
     text.setAttribute('font-family', 'Arial');
-    text.setAttribute('dominant-baseline', 'middle');
-    text.setAttribute('alignment-baseline', 'middle');
-    text.setAttribute('text-anchor', 'start');
+    text.setAttribute('dominant-baseline', 'alphabetic');
+    text.setAttribute('alignment-baseline', 'alphabetic');
+    text.setAttribute('text-anchor', (style === 'chevron') ? 'start' : 'middle');
     text.textContent = net;
 
     g.appendChild(path);
@@ -286,6 +287,7 @@ export function updateToolGhost(app, pos) {
             app._toolGhost.__ghostTextEl.setAttribute('x', String(textLocal.x));
             app._toolGhost.__ghostTextEl.setAttribute('y', String(textLocal.y));
             app._toolGhost.__ghostTextEl.setAttribute('font-size', String(app.toolOptions?.netFontSize || NL_FONT_SIZE));
+            app._toolGhost.__ghostTextEl.setAttribute('text-anchor', (style === 'chevron') ? 'start' : 'middle');
             app._toolGhost.setAttribute('data-nl-orientation', orientation);
             app._toolGhost.__ghostTextEl.textContent = _defaultnetText(app, style);
             app._toolGhost.setAttribute('transform', `translate(${pos.x},${pos.y})`);

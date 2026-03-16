@@ -135,6 +135,19 @@ export function bindKeyboardShortcuts(app) {
         }
         if (e.defaultPrevented && e.key !== 'Escape' && e.key !== 'Enter') return;
 
+        // Ctrl+Tab: toggle Schematic / PCB mode (works even during text edit)
+        if ((e.ctrlKey || e.metaKey) && e.key === 'Tab') {
+            e.preventDefault();
+            e.stopPropagation();
+            const tabs = document.querySelectorAll('.mode-tab');
+            if (tabs.length >= 2) {
+                const active = document.querySelector('.mode-tab.active');
+                const target = active?.dataset.mode === 'pcb' ? tabs[0] : tabs[1];
+                target.click();
+            }
+            return;
+        }
+
         // Text edit has absolute priority for Escape and Enter
         if (app.textEdit) {
             if (e.key === 'Escape' || e.key === 'Enter') {
@@ -208,6 +221,13 @@ export function bindKeyboardShortcuts(app) {
         } else {
             switch (e.key) {
                 case 'Escape': {
+                    // Close Net dropdown if open (highest priority)
+                    const netMenu = document.getElementById('ribbonNetStyleMenu');
+                    if (netMenu && netMenu.classList.contains('open')) {
+                        netMenu.classList.remove('open');
+                        e.preventDefault();
+                        break;
+                    }
                     // If a non-Home ribbon tab is showing, switch back to Home
                     const activeTab = (document.getElementById('ribbonSchematic') || document).querySelector('.ribbon-tab.active');
                     if (activeTab && activeTab.dataset.tab !== 'home') {
@@ -347,6 +367,19 @@ export function bindKeyboardShortcuts(app) {
                     // Spacebar: toggle H/V rotation on any selected text shape
                     if (!app.textEdit && !app.isDrawing && app.currentTool === 'select') {
                         const sel = app.selection.getSelection();
+
+                        // Rotate selected Net shapes
+                        const netShapes = sel.filter(s => s.type === 'net' && !s.locked);
+                        if (netShapes.length > 0) {
+                            const newOrientation = rotateNetOrientation(netShapes[0].orientation || 'E');
+                            const cmd = new ModifyPropertyCommand(app, netShapes, 'orientation', newOrientation);
+                            app.history.execute(cmd);
+                            app.renderShapes(true);
+                            app._updatePropertiesPanel(sel);
+                            e.preventDefault();
+                            break;
+                        }
+
                         const textShapes = sel.filter(s => s.type === 'text' && !s.locked);
                         if (textShapes.length > 0) {
                             const newRot = textShapes[0].rotation === 270 ? 0 : 270;
@@ -408,24 +441,10 @@ export function bindKeyboardShortcuts(app) {
         }
     };
 
-    const onGlobalEscape = () => {
-        const topModal = ModalManager.top();
-        if (topModal && topModal.id !== 'text-edit') return;
-        if (app._suppressNextEscape) {
-            app._suppressNextEscape = false;
-            return;
-        }
-        // Don't handle global escape if we just exited text edit or still in text edit
-        if (app.textEdit) return;
-        app._handleEscape();
-    };
-
     window.addEventListener('keydown', onKeyDown, { capture: true });
-    window.addEventListener('global-escape', onGlobalEscape);
 
     // Return cleanup function
     return function destroyKeyboardShortcuts() {
         window.removeEventListener('keydown', onKeyDown, { capture: true });
-        window.removeEventListener('global-escape', onGlobalEscape);
     };
 }

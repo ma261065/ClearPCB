@@ -145,10 +145,18 @@ export function getNetTextBaseOffsetS(style) {
  * @returns {{s:number,t:number}}
  */
 export function getNetTextBaseLocal(style) {
-    if (style === 'gnd') {
-        return { s: -2.6, t: -1.5 };
+    const width = estimateNetSymbolWidth(style);
+    switch (style) {
+        case 'gnd':
+            // Text past the symbol tip (below when oriented S/down)
+            return { s: width + SYMBOL_GAP + 1.2, t: 0 };
+        case 'chevron':
+            // To the right of the symbol end
+            return { s: width + SYMBOL_GAP + 0.3, t: 0.5 };
+        default:
+            // T & Arrow: text past the symbol tip (above when oriented N/up)
+            return { s: width + SYMBOL_GAP + 0.4, t: 0 };
     }
-    return { s: estimateNetSymbolWidth(style) + SYMBOL_GAP, t: 0 };
 }
 
 function _buildOrientedSymbolPath(style, origin, orientation) {
@@ -160,7 +168,7 @@ function _buildOrientedSymbolPath(style, origin, orientation) {
 
     if (style === 'gnd') {
         return [
-            line(0, 0, -SYMBOL_STEM, 0)
+            line(0, 0, SYMBOL_STEM, 0)
         ].join(' ');
     }
 
@@ -173,13 +181,17 @@ function _buildOrientedSymbolPath(style, origin, orientation) {
     }
 
     if (style === 'chevron') {
+        const cw = 0.55;  // chevron half-height
+        const c1 = SYMBOL_STEM;        // first chevron tip position
+        const c1b = SYMBOL_STEM + 0.5; // first chevron back
+        const c2 = SYMBOL_STEM + 0.35; // second chevron tip
+        const c2b = SYMBOL_STEM + 0.85;// second chevron back
         return [
-            line(0, 0, SYMBOL_STEM, -0.55),
-            line(SYMBOL_STEM, -0.55, SYMBOL_TIP, 0),
-            line(SYMBOL_STEM, 0.55, SYMBOL_TIP, 0),
-            line(0, 0, SYMBOL_STEM, 0.55),
-            line(SYMBOL_STEM + 0.32, -0.55, SYMBOL_TIP + 0.32, 0),
-            line(SYMBOL_STEM + 0.32, 0.55, SYMBOL_TIP + 0.32, 0)
+            line(0, 0, SYMBOL_STEM, 0),             // wire stub
+            line(c1, 0, c1b, -cw),                   // first < top
+            line(c1, 0, c1b, cw),                    // first < bottom
+            line(c2, 0, c2b, -cw),                   // second < top
+            line(c2, 0, c2b, cw)                     // second < bottom
         ].join(' ');
     }
 
@@ -197,10 +209,10 @@ function _buildGroundBarsPath(origin, orientation) {
     };
 
     return [
-        line(-(SYMBOL_STEM + 0.07), -0.58, -(SYMBOL_STEM + 0.07), 0.58),
-        line(-(SYMBOL_STEM + 0.21), -0.42, -(SYMBOL_STEM + 0.21), 0.42),
-        line(-(SYMBOL_STEM + 0.37), -0.26, -(SYMBOL_STEM + 0.37), 0.26),
-        line(-(SYMBOL_STEM + 0.53), -0.16, -(SYMBOL_STEM + 0.53), 0.16)
+        line((SYMBOL_STEM + 0.07), -0.58, (SYMBOL_STEM + 0.07), 0.58),
+        line((SYMBOL_STEM + 0.21), -0.42, (SYMBOL_STEM + 0.21), 0.42),
+        line((SYMBOL_STEM + 0.37), -0.26, (SYMBOL_STEM + 0.37), 0.26),
+        line((SYMBOL_STEM + 0.53), -0.16, (SYMBOL_STEM + 0.53), 0.16)
     ].join(' ');
 }
 
@@ -234,8 +246,8 @@ function _getSymbolLocalBounds(style) {
     switch (style) {
         case 'gnd':
             return {
-                minS: -(SYMBOL_STEM + 0.53),
-                maxS: 0,
+                minS: 0,
+                maxS: SYMBOL_STEM + 0.53,
                 minT: -0.58,
                 maxT: 0.58
             };
@@ -249,7 +261,7 @@ function _getSymbolLocalBounds(style) {
         case 'chevron':
             return {
                 minS: 0,
-                maxS: SYMBOL_TIP + 0.32,
+                maxS: SYMBOL_STEM + 0.85,
                 minT: -0.55,
                 maxT: 0.55
             };
@@ -322,6 +334,18 @@ export class Net extends Shape {
         this.orientation = netRotationToOrientation(Number(v) || 0);
         this.invalidate();
     }
+
+    // ─── Pin interface (reuse component wire-attachment system) ────
+
+    /** Expose a single virtual pin at the connection point so Net labels
+     *  work identically to component pins for wire snapping, sticky
+     *  wires, bridge nodes, etc. */
+    get symbol() {
+        return { pins: [{ number: 'conn', x: 0, y: 0 }] };
+    }
+
+    /** Return the world position of the connection point. */
+    getPinPosition() { return { x: this.x, y: this.y }; }
 
     // ─── Geometry helpers ──────────────────────────────────────────
 
@@ -447,6 +471,7 @@ export class Net extends Shape {
         this.labelText.text = this.net;
         this.labelText.fontSize = this.fontSize;
         this.labelText.rotation = 0;
+        this.labelText.textAnchor = (this.style === 'chevron') ? 'start' : 'middle';
         const pos = this.getTextPosition();
         this.labelText.x = pos.x;
         this.labelText.y = pos.y;
@@ -583,12 +608,6 @@ export class Net extends Shape {
                 { value: 'gnd', label: 'GND' },
                 { value: 'arrow', label: 'Arrow' },
                 { value: 'chevron', label: 'Chevron' }
-            ]},
-            { key: 'orientation', label: 'Orientation', type: 'select', options: [
-                { value: 'N', label: 'North' },
-                { value: 'E', label: 'East' },
-                { value: 'S', label: 'South' },
-                { value: 'W', label: 'West' }
             ]},
         ];
     }

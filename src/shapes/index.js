@@ -32,6 +32,7 @@ const shapeRegistry = {
     polygon: Polygon,
     text: Text,
     Net: Net,
+    net: Net,
     noconnect: NoConnect
 };
 

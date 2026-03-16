@@ -16,7 +16,8 @@ export function applyStickyConnections(app, options = {}) {
     for (const shape of app.shapes) {
         if (shape.type === 'wire') {
             for (const [nodeId, conn] of shape.pinConnections) {
-                const comp = app.components.find(c => c.id === conn.componentId);
+                const comp = app.components.find(c => c.id === conn.componentId)
+                    || app.shapes.find(s => s.id === conn.componentId && s.getPinPosition);
                 if (!comp) continue;
                 const pos = comp.getPinPosition(conn.pinNumber);
                 if (!pos) continue;

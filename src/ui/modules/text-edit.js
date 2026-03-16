@@ -6,6 +6,27 @@ import { validateNetNameAtPoint } from './net-validation.js';
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
 /**
+ * Update wires connected to a Net label to use its current net name.
+ */
+function _propagateNetNameToWires(app, netShape) {
+    for (const wire of app.shapes) {
+        if (wire.type !== 'wire') continue;
+        for (const [, conn] of wire.pinConnections) {
+            if (conn.componentId === netShape.id) {
+                if (wire.net !== netShape.net) {
+                    freeNetName(wire.net);
+                    wire.net = netShape.net;
+                    bumpNetNameCounter(netShape.net);
+                    wire.invalidate();
+                }
+                break;
+            }
+        }
+    }
+    app._updatePropertiesPanel?.(app.selection?.getSelection?.() || []);
+}
+
+/**
  * Begins inline text editing on a text shape: initializes caret, creates
  * the overlay (box + blinking caret), and pushes a ModalManager entry.
  * @param {object} app - Application state.
@@ -125,6 +146,14 @@ export function endTextEdit(app, commit = true) {
         }
 
         if (state.shape.parentComponent?.type === 'net' && state.shape.fieldKey === 'net') {
+            if (!state.shape.text || !state.shape.text.trim()) {
+                app._alert('Net name cannot be empty.', { title: 'Invalid Net Name' });
+                state.shape.text = state.originalText;
+                if (typeof state.shape.invalidate === 'function') state.shape.invalidate();
+                app.renderShapes(true);
+                _cleanupTextEditState(state, app, shape);
+                return;
+            }
             const parentnet = state.shape.parentComponent;
             const check = validateNetNameAtPoint(
                 app,
@@ -284,6 +313,10 @@ export function handleTextEditKey(app, e) {
         return true;
     }
 
+    // Consume all other keys (e.g. Ctrl+A) so they don't trigger
+    // browser defaults or app shortcuts while editing text.
+    e.preventDefault();
+    e.stopPropagation();
     return true;
 }
 
@@ -563,7 +596,10 @@ function measurePlaceholderBBox(app, el) {
         if (temp.parentNode) {
             temp.parentNode.removeChild(temp);
         }
-        return bbox;
+        // Use the original element's x/y for position so the cursor
+        // stays at the text anchor when text is empty
+        const origX = parseFloat(el.getAttribute('x')) || 0;
+        return { x: origX, y: bbox.y, width: 0, height: bbox.height };
     } catch (e) {
         return null;
     }
@@ -669,9 +705,14 @@ function _syncFieldToComponent(textShape) {
     }
     if (textShape.fieldKey === 'net' && textShape.parentComponent.type === 'net') {
         const Net = textShape.parentComponent;
+        const oldName = Net.net;
         Net.net = textShape.text;
         Net.syncTextOffsetFromLabelText?.();
         Net.invalidate();
+        // Propagate renamed net to all attached wires
+        if (oldName !== Net.net) {
+            _propagateNetNameToWires(app, Net);
+        }
         return;
     }
     textShape.parentComponent[textShape.fieldKey] = textShape.text;

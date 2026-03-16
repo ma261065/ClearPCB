@@ -1,5 +1,6 @@
 import { setCheckboxState } from './ui-utils.js';
 import { ModifyPropertyCommand } from '../../core/CommandHistory.js';
+import { rotateNetOrientation } from '../../shapes/net.js';
 import { adaptShortcutText } from './platform-keys.js';
 
 /**
@@ -297,6 +298,10 @@ export function updatePropertiesPanel(app, selection) {
             netInput.style.opacity = '0.7';
         } else {
             netInput.addEventListener('change', () => {
+                if (!netInput.value.trim()) {
+                    netInput.value = wire.net || 'NET1';
+                    return;
+                }
                 applyCommonProperty(app, 'net', netInput.value);
             });
         }
@@ -335,36 +340,65 @@ export function updatePropertiesPanel(app, selection) {
         panel.appendChild(sec.group);
     }
 
-    // ── Transform section (only for components) ──
+    // ── Transform section (for components or net shapes) ──
     const hasComponent = selection.some(s => s.definition);
-    if (hasComponent) {
+    const hasNet = selection.every(s => s.type === 'net') && selection.length > 0;
+    if (hasComponent || hasNet) {
         const sec = _createSection('Transform');
         const div = document.createElement('div');
         div.className = 'prop-actions';
 
-        const rotLeftBtn = document.createElement('button');
-        rotLeftBtn.title = 'Rotate Left';
-        rotLeftBtn.id = 'propRotateLeft';
-        rotLeftBtn.textContent = '↶ Rotate L';
-        div.appendChild(rotLeftBtn);
+        if (hasNet) {
+            const rotLeftBtn = document.createElement('button');
+            rotLeftBtn.title = 'Rotate Left';
+            rotLeftBtn.id = 'propNetRotateLeft';
+            rotLeftBtn.textContent = '↶ Rotate L';
+            if (allLocked) rotLeftBtn.disabled = true;
+            rotLeftBtn.addEventListener('click', () => {
+                const cur = selection[0].orientation || 'E';
+                const next = rotateNetOrientation(rotateNetOrientation(rotateNetOrientation(cur)));
+                applyCommonProperty(app, 'orientation', next);
+            });
+            div.appendChild(rotLeftBtn);
 
-        const rotRightBtn = document.createElement('button');
-        rotRightBtn.title = 'Rotate Right';
-        rotRightBtn.id = 'propRotateRight';
-        rotRightBtn.textContent = '↷ Rotate R';
-        div.appendChild(rotRightBtn);
+            const rotRightBtn = document.createElement('button');
+            rotRightBtn.title = 'Rotate Right';
+            rotRightBtn.id = 'propNetRotateRight';
+            rotRightBtn.textContent = '↷ Rotate R';
+            if (allLocked) rotRightBtn.disabled = true;
+            rotRightBtn.addEventListener('click', () => {
+                const cur = selection[0].orientation || 'E';
+                const next = rotateNetOrientation(cur);
+                applyCommonProperty(app, 'orientation', next);
+            });
+            div.appendChild(rotRightBtn);
+        }
 
-        const flipHBtn = document.createElement('button');
-        flipHBtn.title = 'Flip Horizontal';
-        flipHBtn.id = 'propFlipH';
-        flipHBtn.textContent = '⇔ Flip H';
-        div.appendChild(flipHBtn);
+        if (hasComponent) {
+            const rotLeftBtn = document.createElement('button');
+            rotLeftBtn.title = 'Rotate Left';
+            rotLeftBtn.id = 'propRotateLeft';
+            rotLeftBtn.textContent = '↶ Rotate L';
+            div.appendChild(rotLeftBtn);
 
-        const flipVBtn = document.createElement('button');
-        flipVBtn.title = 'Flip Vertical';
-        flipVBtn.id = 'propFlipV';
-        flipVBtn.textContent = '⇕ Flip V';
-        div.appendChild(flipVBtn);
+            const rotRightBtn = document.createElement('button');
+            rotRightBtn.title = 'Rotate Right';
+            rotRightBtn.id = 'propRotateRight';
+            rotRightBtn.textContent = '↷ Rotate R';
+            div.appendChild(rotRightBtn);
+
+            const flipHBtn = document.createElement('button');
+            flipHBtn.title = 'Flip Horizontal';
+            flipHBtn.id = 'propFlipH';
+            flipHBtn.textContent = '⇔ Flip H';
+            div.appendChild(flipHBtn);
+
+            const flipVBtn = document.createElement('button');
+            flipVBtn.title = 'Flip Vertical';
+            flipVBtn.id = 'propFlipV';
+            flipVBtn.textContent = '⇕ Flip V';
+            div.appendChild(flipVBtn);
+        }
 
         sec.content.appendChild(div);
         panel.appendChild(sec.group);

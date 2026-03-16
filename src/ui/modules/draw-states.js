@@ -109,6 +109,7 @@ function collectMovingComponentIds(selection) {
     for (const shape of selection) {
         if (shape.definition) movingCompIds.add(shape.id);
         if (shape.type === 'wire') movingCompIds.add(shape.id);
+        if (shape.type === 'net') movingCompIds.add(shape.id);
     }
     return movingCompIds;
 }
@@ -314,6 +315,7 @@ function bridgeStickyPinNodes(app, movingCompIds) {
 
     for (const wire of app.shapes) {
         if (wire.type !== 'wire') continue;
+        // Bridge component pin connections
         for (const [nodeId, conn] of wire.pinConnections) {
             if (!movingCompIds.has(conn.componentId)) continue;
             // Bridge each non-pin incident edge so the pin can move freely

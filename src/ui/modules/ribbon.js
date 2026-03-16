@@ -13,10 +13,10 @@ export function bindRibbon(app) {
     });
 
     const net_STYLE_META = {
-        t: { icon: '┤', title: 'T' },
+        t: { icon: '⊤', title: 'T' },
         gnd: { icon: '⏚', title: 'GND' },
-        arrow: { icon: '➤', title: 'Arrow' },
-        chevron: { icon: '❯', title: 'Chevron' }
+        arrow: { icon: '↑', title: 'Arrow' },
+        chevron: { icon: '«', title: 'Chevron' }
     };
 
     const normalizenetStyle = (style) => {
@@ -26,9 +26,9 @@ export function bindRibbon(app) {
 
     const defaultOrientationByStyle = {
         t: 'N',
-        gnd: 'N',
+        gnd: 'S',
         arrow: 'N',
-        chevron: 'N'
+        chevron: 'E'
     };
 
     const updateNetToolButton = () => {
@@ -44,9 +44,13 @@ export function bindRibbon(app) {
         const menu = /** @type {HTMLElement|null} */ (document.getElementById('ribbonNetStyleMenu'));
         if (!menu) return;
         const style = normalizenetStyle(app.toolOptions?.netStyle || 't');
+        const presetText = app.toolOptions?.netPresetText || null;
         menu.querySelectorAll('[data-net-style]').forEach(item => {
             const el = /** @type {HTMLElement} */ (item);
-            el.classList.toggle('active', (el.dataset.netStyle || 't') === style);
+            const itemStyle = el.dataset.netStyle || 't';
+            const itemText = el.dataset.netText || null;
+            const match = itemStyle === style && itemText === presetText;
+            el.classList.toggle('active', match);
         });
     };
 
@@ -174,11 +178,18 @@ export function bindRibbon(app) {
     app._cleanupRibbonEsc = () => document.removeEventListener('keydown', ribbonEscHandler);
 
     const ribbonToolButtons = Array.from(document.querySelectorAll('.ribbon-tool-btn'));
+    const netSplitContainer = document.querySelector('.ribbon-split-btn');
     const setActiveToolButton = (toolId) => {
         ribbonToolButtons.forEach(btn => {
             const button = /** @type {HTMLElement} */ (btn);
+            // Skip split button children — container handles their active state
+            if (button.closest('.ribbon-split-btn')) return;
             button.classList.toggle('active', button.dataset.tool === toolId);
         });
+        // Handle split button container active state
+        if (netSplitContainer) {
+            netSplitContainer.classList.toggle('active', toolId === 'net');
+        }
     };
     app._setActiveToolButton = setActiveToolButton;
     ribbonToolButtons.forEach(btn => {
@@ -193,11 +204,22 @@ export function bindRibbon(app) {
     updateNetToolButton();
     updatenetStyleMenuState();
     const netDropdown = /** @type {HTMLElement|null} */ (document.getElementById('ribbonNetDropdown'));
-    const netStyleBtn = /** @type {HTMLButtonElement|null} */ (document.getElementById('ribbonNetStyleBtn'));
+    const netToolBtn = /** @type {HTMLButtonElement|null} */ (document.getElementById('ribbonNetTool'));
+    const netArrowBtn = /** @type {HTMLButtonElement|null} */ (document.getElementById('ribbonNetStyleBtn'));
     const netStyleMenu = /** @type {HTMLElement|null} */ (document.getElementById('ribbonNetStyleMenu'));
-    if (netDropdown && netStyleBtn && netStyleMenu) {
+    if (netDropdown && netToolBtn && netArrowBtn && netStyleMenu) {
         const closenetStyleMenu = () => netStyleMenu.classList.remove('open');
-        netStyleBtn.addEventListener('click', (e) => {
+
+        // Arrow button always toggles dropdown
+        netArrowBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            updatenetStyleMenuState();
+            netStyleMenu.classList.toggle('open');
+        });
+
+        // Right-click on main button also opens dropdown
+        netToolBtn.addEventListener('contextmenu', (e) => {
             e.preventDefault();
             e.stopPropagation();
             updatenetStyleMenuState();
@@ -211,7 +233,9 @@ export function bindRibbon(app) {
                 const target = /** @type {HTMLElement} */ (item);
                 const style = normalizenetStyle(target.dataset.netStyle || 't');
                 const orientation = defaultOrientationByStyle[style] || 'E';
+                const presetText = target.dataset.netText || null;
                 app._onOptionsChanged?.({ netStyle: style, netOrientation: orientation });
+                app.toolOptions.netPresetText = presetText;
                 updateNetToolButton();
                 updatenetStyleMenuState();
                 closenetStyleMenu();

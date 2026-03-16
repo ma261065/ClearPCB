@@ -7,6 +7,27 @@
 import { freeWireLabel, bumpWireLabelCounter, freeNetName, bumpNetNameCounter } from '../shapes/wire.js';
 import { applyStickyConnections } from '../ui/modules/sticky-wires.js';
 
+/**
+ * Update wires connected to a Net label to use its current net name.
+ */
+function _propagateNetNameToWires(app, netShape) {
+    for (const wire of app.shapes) {
+        if (wire.type !== 'wire') continue;
+        for (const [, conn] of wire.pinConnections) {
+            if (conn.componentId === netShape.id) {
+                if (wire.net !== netShape.net) {
+                    freeNetName(wire.net);
+                    wire.net = netShape.net;
+                    bumpNetNameCounter(netShape.net);
+                    wire.invalidate();
+                }
+                break;
+            }
+        }
+    }
+    app._updatePropertiesPanel?.(app.selection?.getSelection?.() || []);
+}
+
 /** @typedef {any} SchematicApp */
 /** @typedef {any} Shape */
 /** @typedef {any} Component */
@@ -414,9 +435,14 @@ export class ModifyShapeCommand extends Command {
                 bumpWireLabelCounter(shape.text);
                 shape.parentComponent.invalidate();
             } else if (shape.fieldKey === 'net' && shape.parentComponent.type === 'net') {
+                const oldName = shape.parentComponent.net;
                 shape.parentComponent.net = shape.text;
                 shape.parentComponent.syncTextOffsetFromLabelText?.();
                 shape.parentComponent.invalidate();
+                // Propagate renamed net to all attached wires
+                if (oldName !== shape.parentComponent.net) {
+                    _propagateNetNameToWires(this.app, shape.parentComponent);
+                }
             } else {
                 shape.parentComponent[shape.fieldKey] = shape.text;
             }

@@ -61,10 +61,10 @@ const MAX_MERGE_ITERATIONS = 50;
 // --- Pin helpers ---
 
 /**
- * Find the nearest component pin within tolerance.
+ * Find the nearest component pin (or Net label connection point) within tolerance.
  * Returns { component, pin, pinKey, distance, worldPos } or null.
  */
-export function findNearbyPin(components, worldPos, tolerance = 0.5) {
+export function findNearbyPin(components, worldPos, tolerance = 0.5, shapes = null) {
     let nearest = null;
     let minDist = tolerance;
 
@@ -80,6 +80,18 @@ export function findNearbyPin(components, worldPos, tolerance = 0.5) {
                 const pinKey = pin._key || pin._id || pin.number || `${pin.x},${pin.y}`;
                 minDist = dist;
                 nearest = { component, pin, pinKey, distance: dist, worldPos: { x: pinWorld.x, y: pinWorld.y } };
+            }
+        }
+    }
+    // Also check Net labels (they expose the same pin interface)
+    if (shapes) {
+        for (const shape of shapes) {
+            if (shape.type !== 'net') continue;
+            const dist = Math.hypot(worldPos.x - shape.x, worldPos.y - shape.y);
+            if (dist < minDist) {
+                const pin = shape.symbol.pins[0];
+                minDist = dist;
+                nearest = { component: shape, pin, pinKey: pin.number, distance: dist, worldPos: { x: shape.x, y: shape.y } };
             }
         }
     }
@@ -149,8 +161,8 @@ export function resolveWireSnapPosition(app, worldPos, options = {}) {
         wireTolerance = WIRE_SNAP_TOL
     } = options;
 
-    // 1. Pin snap (highest priority)
-    const nearPin = findNearbyPin(app.components, worldPos, pinTolerance);
+    // 1. Pin snap (highest priority) — includes component pins AND Net labels
+    const nearPin = findNearbyPin(app.components, worldPos, pinTolerance, app.shapes);
     if (nearPin && !(excludePin && isSamePin(excludePin, nearPin))) {
         return {
             x: nearPin.worldPos.x,
@@ -491,10 +503,34 @@ export function finishWireDrawing(app, worldPos) {
     if (lastPt.pin)
         pinConns[`n${nc - 1}`] = { componentId: lastPt.pin.component.id, pinNumber: lastPt.pin.pin.number };
 
-    const wire = new Wire({
+    // Determine wire net name from connected Net labels (via pin snap)
+    let wireNetName = null;
+    let netConflict = false;
+    for (const pt of pts) {
+        if (pt.pin?.component?.type === 'net') {
+            const proposedNet = pt.pin.component.net;
+            if (wireNetName && wireNetName !== proposedNet) {
+                netConflict = true;
+                break;
+            }
+            wireNetName = proposedNet;
+        }
+    }
+
+    if (netConflict) {
+        if (app._alert) {
+            app._alert('Cannot connect wires with different net names.\nThe nets on each end of this wire are different.', { title: 'Net Conflict' });
+        }
+        cancelWireDrawing(app);
+        return;
+    }
+
+    const wireOpts = {
         graphNodes, graphEdges, pinConnections: pinConns,
         color: WIRE_COLOR, lineWidth: WIRE_WIDTH,
-    });
+    };
+    if (wireNetName) wireOpts.net = wireNetName;
+    const wire = new Wire(wireOpts);
 
     // Snapshot all existing wires before any mutations
     const existingWires = app.shapes.filter(s => s.type === 'wire');
@@ -545,6 +581,7 @@ export function finishWireDrawing(app, worldPos) {
     }
     cancelWireDrawing(app);
     app.renderShapes(true);
+    app._updatePropertiesPanel?.(app.selection?.getSelection?.() || []);
 }
 
 /**
@@ -625,6 +662,10 @@ function _showPinDot(app, snapPin) {
             dot.setAttribute('fill', '#ffff00');
             dot.setAttribute('display', '');
         }
+    } else {
+        // Fallback for sources without pinElements (e.g. Net labels):
+        // show a temporary yellow circle at the connection point.
+        _showWireJunctionDot(app, { x: snapPin.worldPos.x, y: snapPin.worldPos.y, type: 'pin' });
     }
 }
 
@@ -675,8 +716,9 @@ function _hideWireJunctionDot(app) {
 }
 
 /**
- * Unified snap highlight: show a yellow dot for a pin or wire junction,
- * automatically cleaning up any previous highlight of either type.
+ * Unified snap highlight: show a yellow dot for a pin, wire junction,
+ * or Net label connection point, automatically cleaning up any previous
+ * highlight of either type.
  *
  * Accepts three input forms:
  *   - A snap result (has .snapType): automatically converted
@@ -856,21 +898,78 @@ export function isTJunctionPoint(app, pt, ...excludeWires) {
 
 /**
  * Refresh a wire's pin connections by checking which nodes coincide
- * with component pins.  Call after anchor or segment drags.
+ * with component pins or Net label connection points.
+ * Call after anchor or segment drags, or wire reconciliation.
  */
 export function refreshWireConnections(app, wire) {
     if (!wire || wire.type !== 'wire' || wire.edges.size === 0) return;
     const tolerance = 0.1;
+    const oldNet = wire.net;
     wire.pinConnections.clear();
+    let hasNetLabel = false;
     for (const [nodeId, pos] of wire.nodes) {
-        const nearPin = findNearbyPin(app.components, pos, tolerance);
+        const nearPin = findNearbyPin(app.components, pos, tolerance, app.shapes);
         if (nearPin) {
             wire.pinConnections.set(nodeId, {
                 componentId: nearPin.component.id,
                 pinNumber: nearPin.pin.number
             });
+            // If connected to a Net label, propagate its name
+            if (nearPin.component.type === 'net') {
+                hasNetLabel = true;
+                const netName = nearPin.component.net;
+                if (netName && wire.net !== netName) {
+                    const isDefault = wire.net?.startsWith('Net');
+                    if (isDefault) {
+                        freeNetName(wire.net);
+                        wire.net = netName;
+                        bumpNetNameCounter(netName);
+                        app._updatePropertiesPanel?.(app.selection?.getSelection?.() || []);
+                    }
+                }
+            }
         }
     }
+    // If wire had a non-default net name but no Net label is connected anymore,
+    // revert to a fresh generic name — unless another Net with the same name
+    // is still connected via a shared wire network.
+    if (!hasNetLabel && oldNet && !oldNet.startsWith('Net')) {
+        if (!_isNetNameStillConnected(app, wire, oldNet)) {
+            freeNetName(wire.net);
+            wire.net = nextNetName();
+            app._updatePropertiesPanel?.(app.selection?.getSelection?.() || []);
+        }
+    }
+}
+
+/**
+ * Check whether any Net label with the given name is still connected
+ * to the wire's network (via shared nodes with other wires).
+ */
+function _isNetNameStillConnected(app, wire, netName) {
+    // BFS to find all wires in the same connected network
+    const visited = new Set([wire]);
+    const queue = [wire];
+    while (queue.length > 0) {
+        const w = queue.shift();
+        for (const pos of w.nodes.values()) {
+            for (const other of app.shapes) {
+                if (other.type !== 'wire' || visited.has(other)) continue;
+                if (other.nodeAt(pos, VERTEX_EPSILON)) {
+                    visited.add(other);
+                    queue.push(other);
+                }
+            }
+        }
+    }
+    // Check if any Net label with this name touches any wire in the network
+    for (const shape of app.shapes) {
+        if (shape.type !== 'net' || shape.net !== netName) continue;
+        for (const w of visited) {
+            if (w.nodeAt({ x: shape.x, y: shape.y }, VERTEX_EPSILON)) return true;
+        }
+    }
+    return false;
 }
 
 /**
