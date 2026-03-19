@@ -346,6 +346,18 @@ export function commitSegmentDrag(app, dragShape, wireStates, ncLinks = null, la
             );
             app.history.undo();
             app.history.redoStack.pop();
+
+            // Net reconnects are applied outside command history during move.
+            // After undo restores positions, rebuild net->wire attachments so
+            // connectivity matches the restored geometry.
+            for (const netShape of movedNets) {
+                disconnectNetFromWires(app, netShape);
+                connectNetToWires(app, netShape);
+            }
+            for (const rw of app.shapes) {
+                if (rw.type === 'wire') refreshWireConnections(app, rw);
+            }
+
             app.history._notifyChanged();
             app.renderShapes(true);
             return false;
@@ -446,6 +458,13 @@ export function commitMoveDrag(app, totalDx, totalDy) {
         }
     }
 
+    // Capture wire states before net reconnect side-effects so undo can
+    // restore any split-edge/pinConnection mutations from reconnect logic.
+    const wireStatesBefore = new Map();
+    for (const w of app.shapes) {
+        if (w.type === 'wire') wireStatesBefore.set(w.id, w.captureState());
+    }
+
     // Post-move: reconnect moved Net shapes to wires at new positions
     const movedNets = movedShapes.filter(s => s.type === 'net');
     for (const netShape of movedNets) {
@@ -454,10 +473,6 @@ export function commitMoveDrag(app, totalDx, totalDy) {
     }
 
     // Post-move: refresh wire connections and capture state changes for undo
-    const wireStatesBefore = new Map();
-    for (const w of app.shapes) {
-        if (w.type === 'wire') wireStatesBefore.set(w.id, w.captureState());
-    }
     for (const w of app.shapes) {
         if (w.type === 'wire') refreshWireConnections(app, w);
     }

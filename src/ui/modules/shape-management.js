@@ -491,7 +491,6 @@ function _disconnectNetFromWires(app, netShape) {
             if (conn.componentId === netShape.id) {
                 wire.pinConnections.delete(nodeId);
                 found = true;
-                break;
             }
         }
         if (found && removedName && wire.net === removedName) {
