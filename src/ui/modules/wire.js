@@ -1028,8 +1028,8 @@ export function refreshNoConnectConnection(app, nc) {
  * Call this after moving components. For every wire node that has a pin
  * connection, update that node to the pin's current world position.
  */
-export function updateStickyWires(app) {
-    applyStickyConnections(app);
+export function updateStickyWires(app, options = undefined) {
+    applyStickyConnections(app, options);
 }
 
 // --- Unified wire reconciliation (graph model) ---

@@ -16,6 +16,7 @@ export function applyStickyConnections(app, options = {}) {
     for (const shape of app.shapes) {
         if (shape.type === 'wire') {
             for (const [nodeId, conn] of shape.pinConnections) {
+                if (movedIds && !movedIds.has(conn.componentId)) continue;
                 const comp = app.components.find(c => c.id === conn.componentId)
                     || app.shapes.find(s => s.id === conn.componentId && s.getPinPosition);
                 if (!comp) continue;
@@ -34,6 +35,10 @@ export function applyStickyConnections(app, options = {}) {
                         const bp = shape.nodes.get(bridgeId);
                         if (!bp) continue;
                         if (bp._pinDetachJunction) continue;
+                        // Only move explicit sticky bridge nodes created for this pin's owner.
+                        const isStickyBridge = !!(bp._stickyBridge || bp._staggerAxis || bp._staggerBendId);
+                        if (!isStickyBridge) continue;
+                        if (bp._stickyOwnerCompId && bp._stickyOwnerCompId !== conn.componentId) continue;
                         for (const { otherNode: wireNbr } of shape.incidentEdges(bridgeId)) {
                             if (wireNbr === nodeId) continue;
                             const wp = shape.nodes.get(wireNbr);

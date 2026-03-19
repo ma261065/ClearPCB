@@ -564,6 +564,8 @@ function bridgeStickyPinNodes(app, movingCompIds) {
             if (bridgePos) {
                 if (entry.axis === 'x') bridgePos.x += offset;
                 else bridgePos.y += offset;
+                bridgePos._stickyBridge = true;
+                bridgePos._stickyOwnerCompId = entry.wire.pinConnections.get(entry.nodeId)?.componentId || null;
                 bridgePos._staggerAxis = entry.axis;
                 bridgePos._staggerOffset = offset;
             }
@@ -576,6 +578,8 @@ function bridgeStickyPinNodes(app, movingCompIds) {
             );
             const bendPos = entry.wire.nodes.get(bendId);
             if (bendPos) {
+                bendPos._stickyBridgeBend = true;
+                bendPos._stickyOwnerCompId = bridgePos?._stickyOwnerCompId || null;
                 bendPos._staggerBend = true;
                 bendPos._staggerAxis = entry.axis;
                 bendPos._staggerWireNeighbor = wireNeighborId;
@@ -1631,7 +1635,7 @@ export const moveDragState = {
                 }
             }
             if (movingCompIds.size > 0) {
-                updateStickyWires(app);
+                updateStickyWires(app, { movedIds: movingCompIds });
                 renderGuideLines(app, stickyGuides);
             }
             propagateMovedWireJunctions(app, sel, dx, dy);
