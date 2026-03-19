@@ -32,8 +32,8 @@ export const BuiltInComponents = [
                 { type: 'text', x: 0, y: 2.5, text: '${VALUE}', fontSize: 1.27, anchor: 'middle', baseline: 'middle' }
             ],
             pins: [
-                { number: '1', name: '1', x: -3.81, y: 0, orientation: 'left', length: 0, type: 'passive', shape: 'line' },
-                { number: '2', name: '2', x: 3.81, y: 0, orientation: 'right', length: 0, type: 'passive', shape: 'line' }
+                { number: '', name: '1', x: -3.81, y: 0, orientation: 'left', length: 0, type: 'passive', shape: 'line', namePos: { x: -3.81, y: -0.9, anchor: 'middle' } },
+                { number: '', name: '2', x: 3.81, y: 0, orientation: 'right', length: 0, type: 'passive', shape: 'line', namePos: { x: 3.81, y: -0.9, anchor: 'middle' } }
             ]
         },
         footprint: null  // Generic, user selects
@@ -62,8 +62,8 @@ export const BuiltInComponents = [
                 { type: 'text', x: 0, y: 2.5, text: '${VALUE}', fontSize: 1.27, anchor: 'middle', baseline: 'middle' }
             ],
             pins: [
-                { number: '1', name: '1', x: -3.81, y: 0, orientation: 'left', length: 0, type: 'passive', shape: 'line' },
-                { number: '2', name: '2', x: 3.81, y: 0, orientation: 'right', length: 0, type: 'passive', shape: 'line' }
+                { number: '', name: '1', x: -3.81, y: 0, orientation: 'left', length: 0, type: 'passive', shape: 'line', namePos: { x: -3.81, y: -0.9, anchor: 'middle' } },
+                { number: '', name: '2', x: 3.81, y: 0, orientation: 'right', length: 0, type: 'passive', shape: 'line', namePos: { x: 3.81, y: -0.9, anchor: 'middle' } }
             ]
         },
         footprint: null
@@ -93,8 +93,8 @@ export const BuiltInComponents = [
                 { type: 'text', x: 0, y: 2.5, text: '${VALUE}', fontSize: 1.27, anchor: 'middle', baseline: 'middle' }
             ],
             pins: [
-                { number: '1', name: '1', x: -2.54, y: 0, orientation: 'left', length: 0, type: 'passive', shape: 'line' },
-                { number: '2', name: '2', x: 2.54, y: 0, orientation: 'right', length: 0, type: 'passive', shape: 'line' }
+                { number: '', name: '1', x: -2.54, y: 0, orientation: 'left', length: 0, type: 'passive', shape: 'line', namePos: { x: -2.54, y: -0.9, anchor: 'middle' } },
+                { number: '', name: '2', x: 2.54, y: 0, orientation: 'right', length: 0, type: 'passive', shape: 'line', namePos: { x: 2.54, y: -0.9, anchor: 'middle' } }
             ]
         },
         footprint: null
@@ -128,8 +128,8 @@ export const BuiltInComponents = [
                 { type: 'text', x: 0, y: 2.5, text: '${VALUE}', fontSize: 1.27, anchor: 'middle', baseline: 'middle' }
             ],
             pins: [
-                { number: '1', name: '+', x: -2.54, y: 0, orientation: 'left', length: 0, type: 'passive', shape: 'line' },
-                { number: '2', name: '-', x: 2.54, y: 0, orientation: 'right', length: 0, type: 'passive', shape: 'line' }
+                { number: '', name: '+', x: -2.54, y: 0, orientation: 'left', length: 0, type: 'passive', shape: 'line', namePos: { x: -2.54, y: -0.9, anchor: 'middle' } },
+                { number: '', name: '-', x: 2.54, y: 0, orientation: 'right', length: 0, type: 'passive', shape: 'line', namePos: { x: 2.54, y: -0.9, anchor: 'middle' } }
             ]
         },
         footprint: null
@@ -155,8 +155,8 @@ export const BuiltInComponents = [
                 { type: 'text', x: 0, y: 2, text: '${VALUE}', fontSize: 1.27, anchor: 'middle', baseline: 'middle' }
             ],
             pins: [
-                { number: '1', name: '1', x: -3.81, y: 0, orientation: 'left', length: 0, type: 'passive', shape: 'line' },
-                { number: '2', name: '2', x: 3.81, y: 0, orientation: 'right', length: 0, type: 'passive', shape: 'line' }
+                { number: '', name: '1', x: -3.81, y: 0, orientation: 'left', length: 0, type: 'passive', shape: 'line', namePos: { x: -3.81, y: -0.9, anchor: 'middle' } },
+                { number: '', name: '2', x: 3.81, y: 0, orientation: 'right', length: 0, type: 'passive', shape: 'line', namePos: { x: 3.81, y: -0.9, anchor: 'middle' } }
             ]
         },
         footprint: null
@@ -189,8 +189,8 @@ export const BuiltInComponents = [
                 { type: 'text', x: 0, y: 2.5, text: '${VALUE}', fontSize: 1.27, anchor: 'middle', baseline: 'middle' }
             ],
             pins: [
-                { number: '1', name: 'A', x: -2.54, y: 0, orientation: 'left', length: 0, type: 'passive', shape: 'line' },
-                { number: '2', name: 'K', x: 2.54, y: 0, orientation: 'right', length: 0, type: 'passive', shape: 'line' }
+                { number: '', name: 'A', x: -2.54, y: 0, orientation: 'left', length: 0, type: 'passive', shape: 'line', namePos: { x: -2.54, y: -0.9, anchor: 'middle' } },
+                { number: '', name: 'K', x: 2.54, y: 0, orientation: 'right', length: 0, type: 'passive', shape: 'line', namePos: { x: 2.54, y: -0.9, anchor: 'middle' } }
             ]
         },
         footprint: null
@@ -226,8 +226,8 @@ export const BuiltInComponents = [
                 { type: 'text', x: 0, y: 2.5, text: '${VALUE}', fontSize: 1.27, anchor: 'middle', baseline: 'middle' }
             ],
             pins: [
-                { number: '1', name: 'A', x: -2.54, y: 0, orientation: 'left', length: 0, type: 'passive', shape: 'line' },
-                { number: '2', name: 'K', x: 2.54, y: 0, orientation: 'right', length: 0, type: 'passive', shape: 'line' }
+                { number: '', name: 'A', x: -2.54, y: 0, orientation: 'left', length: 0, type: 'passive', shape: 'line', namePos: { x: -2.54, y: -0.9, anchor: 'middle' } },
+                { number: '', name: 'K', x: 2.54, y: 0, orientation: 'right', length: 0, type: 'passive', shape: 'line', namePos: { x: 2.54, y: -0.9, anchor: 'middle' } }
             ]
         },
         footprint: null
@@ -264,9 +264,9 @@ export const BuiltInComponents = [
                 { type: 'text', x: 3.5, y: 0, text: '${REF}', fontSize: 1.27, anchor: 'start', baseline: 'middle' }
             ],
             pins: [
-                { number: '1', name: 'B', x: -2.54, y: 0, orientation: 'left', length: 0, type: 'input', shape: 'line' },
-                { number: '2', name: 'C', x: 2.54, y: -2.54, orientation: 'right', length: 0, type: 'passive', shape: 'line' },
-                { number: '3', name: 'E', x: 2.54, y: 2.54, orientation: 'right', length: 0, type: 'passive', shape: 'line' }
+                { number: '', name: 'B', x: -2.54, y: 0, orientation: 'left', length: 0, type: 'input', shape: 'line', namePos: { x: -2.54, y: -0.9, anchor: 'middle' } },
+                { number: '', name: 'C', x: 2.54, y: -2.54, orientation: 'right', length: 0, type: 'passive', shape: 'line', namePos: { x: 3.44, y: -3.44, anchor: 'start' } },
+                { number: '', name: 'E', x: 2.54, y: 2.54, orientation: 'right', length: 0, type: 'passive', shape: 'line', namePos: { x: 3.44, y: 3.44, anchor: 'start' } }
             ]
         },
         footprint: null
@@ -303,9 +303,9 @@ export const BuiltInComponents = [
                 { type: 'text', x: 3.5, y: 0, text: '${REF}', fontSize: 1.27, anchor: 'start', baseline: 'middle' }
             ],
             pins: [
-                { number: '1', name: 'B', x: -2.54, y: 0, orientation: 'left', length: 0, type: 'input', shape: 'line' },
-                { number: '2', name: 'C', x: 2.54, y: -2.54, orientation: 'right', length: 0, type: 'passive', shape: 'line' },
-                { number: '3', name: 'E', x: 2.54, y: 2.54, orientation: 'right', length: 0, type: 'passive', shape: 'line' }
+                { number: '', name: 'B', x: -2.54, y: 0, orientation: 'left', length: 0, type: 'input', shape: 'line', namePos: { x: -2.54, y: -0.9, anchor: 'middle' } },
+                { number: '', name: 'C', x: 2.54, y: -2.54, orientation: 'right', length: 0, type: 'passive', shape: 'line', namePos: { x: 3.44, y: -3.44, anchor: 'start' } },
+                { number: '', name: 'E', x: 2.54, y: 2.54, orientation: 'right', length: 0, type: 'passive', shape: 'line', namePos: { x: 3.44, y: 3.44, anchor: 'start' } }
             ]
         },
         footprint: null
@@ -346,9 +346,9 @@ export const BuiltInComponents = [
                 { type: 'text', x: 3.5, y: 0, text: '${REF}', fontSize: 1.27, anchor: 'start', baseline: 'middle' }
             ],
             pins: [
-                { number: '1', name: 'G', x: -2.54, y: 0, orientation: 'left', length: 0, type: 'input', shape: 'line' },
-                { number: '2', name: 'D', x: 2.54, y: -2.54, orientation: 'right', length: 0, type: 'passive', shape: 'line' },
-                { number: '3', name: 'S', x: 2.54, y: 2.54, orientation: 'right', length: 0, type: 'passive', shape: 'line' }
+                { number: '', name: 'G', x: -2.54, y: 0, orientation: 'left', length: 0, type: 'input', shape: 'line', namePos: { x: -2.54, y: -0.9, anchor: 'middle' } },
+                { number: '', name: 'D', x: 2.54, y: -2.54, orientation: 'right', length: 0, type: 'passive', shape: 'line', namePos: { x: 3.44, y: -3.44, anchor: 'start' } },
+                { number: '', name: 'S', x: 2.54, y: 2.54, orientation: 'right', length: 0, type: 'passive', shape: 'line', namePos: { x: 3.44, y: 3.44, anchor: 'start' } }
             ]
         },
         footprint: null
@@ -384,9 +384,9 @@ export const BuiltInComponents = [
                 { type: 'text', x: 0, y: -3.5, text: '${REF}', fontSize: 1.27, anchor: 'middle', baseline: 'middle' }
             ],
             pins: [
-                { number: '2', name: '+', x: -3.81, y: 1.27, orientation: 'left', length: 0, type: 'input', shape: 'line' },
-                { number: '3', name: '-', x: -3.81, y: -1.27, orientation: 'left', length: 0, type: 'input', shape: 'line' },
-                { number: '1', name: 'OUT', x: 3.81, y: 0, orientation: 'right', length: 0, type: 'output', shape: 'line' }
+                { number: '', name: '+', x: -3.81, y: 1.27, orientation: 'left', length: 0, type: 'input', shape: 'line', namePos: { x: -3.81, y: 0.37, anchor: 'middle' } },
+                { number: '', name: '-', x: -3.81, y: -1.27, orientation: 'left', length: 0, type: 'input', shape: 'line', namePos: { x: -3.81, y: -2.17, anchor: 'middle' } },
+                { number: '', name: 'OUT', x: 3.81, y: 0, orientation: 'right', length: 0, type: 'output', shape: 'line', namePos: { x: 3.81, y: -0.9, anchor: 'middle' } }
             ]
         },
         footprint: null
@@ -452,8 +452,8 @@ export const BuiltInComponents = [
                 { type: 'text', x: 0, y: -4, text: '${REF}', fontSize: 1.27, anchor: 'middle', baseline: 'middle' }
             ],
             pins: [
-                { number: '1', name: '1', x: -3.81, y: -1.524, orientation: 'right', length: 2.54, type: 'passive', shape: 'line' },
-                { number: '2', name: '2', x: -3.81, y: 1.524, orientation: 'right', length: 2.54, type: 'passive', shape: 'line' }
+                { number: '', name: '1', x: -3.81, y: -1.524, orientation: 'right', length: 2.54, type: 'passive', shape: 'line', namePos: { x: -3.81, y: -2.424, anchor: 'middle' } },
+                { number: '', name: '2', x: -3.81, y: 1.524, orientation: 'right', length: 2.54, type: 'passive', shape: 'line', namePos: { x: -3.81, y: 0.624, anchor: 'middle' } }
             ]
         },
         footprint: null
@@ -487,8 +487,8 @@ export const BuiltInComponents = [
                 { type: 'text', x: 0, y: 2.5, text: '${REF}', fontSize: 1.27, anchor: 'middle', baseline: 'middle' }
             ],
             pins: [
-                { number: '1', name: '1', x: -2.54, y: 0, orientation: 'left', length: 0, type: 'passive', shape: 'line' },
-                { number: '2', name: '2', x: 2.54, y: 0, orientation: 'right', length: 0, type: 'passive', shape: 'line' }
+                { number: '', name: '1', x: -2.54, y: 0, orientation: 'left', length: 0, type: 'passive', shape: 'line', namePos: { x: -2.54, y: -0.9, anchor: 'middle' } },
+                { number: '', name: '2', x: 2.54, y: 0, orientation: 'right', length: 0, type: 'passive', shape: 'line', namePos: { x: 2.54, y: -0.9, anchor: 'middle' } }
             ]
         },
         footprint: null
@@ -528,9 +528,9 @@ export const BuiltInComponents = [
                 { type: 'text', x: 3, y: 1.5, text: '${VALUE}', fontSize: 1.27, anchor: 'start', baseline: 'middle' }
             ],
             pins: [
-                { number: '1', name: 'B', x: -2.54, y: 0, orientation: 'left', length: 0, type: 'input', shape: 'line' },
-                { number: '2', name: 'C', x: 1.524, y: -3.175, orientation: 'up', length: 0, type: 'passive', shape: 'line' },
-                { number: '3', name: 'E', x: 1.524, y: 3.175, orientation: 'down', length: 0, type: 'passive', shape: 'line' }
+                { number: '', name: 'B', x: -2.54, y: 0, orientation: 'left', length: 0, type: 'input', shape: 'line', namePos: { x: -2.54, y: -0.9, anchor: 'middle' } },
+                { number: '', name: 'C', x: 1.524, y: -3.175, orientation: 'up', length: 0, type: 'passive', shape: 'line', namePos: { x: 2.424, y: -4.075, anchor: 'start' } },
+                { number: '', name: 'E', x: 1.524, y: 3.175, orientation: 'down', length: 0, type: 'passive', shape: 'line', namePos: { x: 2.424, y: 4.075, anchor: 'start' } }
             ]
         },
         footprint: null
@@ -568,9 +568,9 @@ export const BuiltInComponents = [
                 { type: 'text', x: 3, y: 1.5, text: '${VALUE}', fontSize: 1.27, anchor: 'start', baseline: 'middle' }
             ],
             pins: [
-                { number: '1', name: 'B', x: -2.54, y: 0, orientation: 'left', length: 0, type: 'input', shape: 'line' },
-                { number: '2', name: 'E', x: 1.524, y: -3.175, orientation: 'up', length: 0, type: 'passive', shape: 'line' },
-                { number: '3', name: 'C', x: 1.524, y: 3.175, orientation: 'down', length: 0, type: 'passive', shape: 'line' }
+                { number: '', name: 'B', x: -2.54, y: 0, orientation: 'left', length: 0, type: 'input', shape: 'line', namePos: { x: -2.54, y: -0.9, anchor: 'middle' } },
+                { number: '', name: 'E', x: 1.524, y: -3.175, orientation: 'up', length: 0, type: 'passive', shape: 'line', namePos: { x: 2.424, y: -4.075, anchor: 'start' } },
+                { number: '', name: 'C', x: 1.524, y: 3.175, orientation: 'down', length: 0, type: 'passive', shape: 'line', namePos: { x: 2.424, y: 4.075, anchor: 'start' } }
             ]
         },
         footprint: null
@@ -612,9 +612,9 @@ export const BuiltInComponents = [
                 { type: 'text', x: 3, y: 1.5, text: '${VALUE}', fontSize: 1.27, anchor: 'start', baseline: 'middle' }
             ],
             pins: [
-                { number: '1', name: 'G', x: -2.54, y: 0, orientation: 'left', length: 0, type: 'input', shape: 'line' },
-                { number: '2', name: 'D', x: 1.524, y: -3.175, orientation: 'up', length: 0, type: 'passive', shape: 'line' },
-                { number: '3', name: 'S', x: 1.524, y: 3.175, orientation: 'down', length: 0, type: 'passive', shape: 'line' }
+                { number: '', name: 'G', x: -2.54, y: 0, orientation: 'left', length: 0, type: 'input', shape: 'line', namePos: { x: -2.54, y: -0.9, anchor: 'middle' } },
+                { number: '', name: 'D', x: 1.524, y: -3.175, orientation: 'up', length: 0, type: 'passive', shape: 'line', namePos: { x: 2.424, y: -4.075, anchor: 'start' } },
+                { number: '', name: 'S', x: 1.524, y: 3.175, orientation: 'down', length: 0, type: 'passive', shape: 'line', namePos: { x: 2.424, y: 4.075, anchor: 'start' } }
             ]
         },
         footprint: null
@@ -658,9 +658,9 @@ export const BuiltInComponents = [
                 { type: 'text', x: 3, y: 1.5, text: '${VALUE}', fontSize: 1.27, anchor: 'start', baseline: 'middle' }
             ],
             pins: [
-                { number: '1', name: 'G', x: -2.54, y: 0, orientation: 'left', length: 0, type: 'input', shape: 'line' },
-                { number: '2', name: 'S', x: 1.524, y: -3.175, orientation: 'up', length: 0, type: 'passive', shape: 'line' },
-                { number: '3', name: 'D', x: 1.524, y: 3.175, orientation: 'down', length: 0, type: 'passive', shape: 'line' }
+                { number: '', name: 'G', x: -2.54, y: 0, orientation: 'left', length: 0, type: 'input', shape: 'line', namePos: { x: -2.54, y: -0.9, anchor: 'middle' } },
+                { number: '', name: 'S', x: 1.524, y: -3.175, orientation: 'up', length: 0, type: 'passive', shape: 'line', namePos: { x: 2.424, y: -4.075, anchor: 'start' } },
+                { number: '', name: 'D', x: 1.524, y: 3.175, orientation: 'down', length: 0, type: 'passive', shape: 'line', namePos: { x: 2.424, y: 4.075, anchor: 'start' } }
             ]
         },
         footprint: null
@@ -668,3 +668,4 @@ export const BuiltInComponents = [
 ];
 
 export default BuiltInComponents;
+

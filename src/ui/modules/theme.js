@@ -1,4 +1,5 @@
 import { storageManager } from '../../core/StorageManager.js';
+import { loadAndApplyTheme, toggleTheme as toggleSharedTheme, syncThemeToggleButtons } from '../../shared/ui/theme.js';
 
 /**
  * Binds the theme toggle button click to `toggleTheme` and loads
@@ -22,17 +23,8 @@ export function bindThemeToggle(app) {
  * @param {object} app - Application state.
  */
 export function toggleTheme(app) {
-    const html = document.documentElement;
-    const currentTheme = html.getAttribute('data-theme');
-    const newTheme = currentTheme === 'light' ? 'dark' : 'light';
-
-    html.setAttribute('data-theme', newTheme);
-    localStorage.setItem('clearpcb-theme', newTheme);
-
-    const themeToggle = document.getElementById('themeToggle');
-    if (themeToggle) {
-        themeToggle.textContent = newTheme === 'light' ? '☀️' : '🌙';
-    }
+    const newTheme = toggleSharedTheme();
+    syncThemeToggleButtons(['themeToggle', 'pcbThemeToggle'], newTheme);
 
     app.viewport.updateTheme();
 
@@ -45,17 +37,8 @@ export function toggleTheme(app) {
  * @param {object} app - Application state.
  */
 export function loadTheme(app) {
-    const savedTheme = localStorage.getItem('clearpcb-theme') || 'dark';
-    const html = document.documentElement;
-
-    if (savedTheme === 'light') {
-        html.setAttribute('data-theme', 'light');
-    }
-
-    const themeToggle = document.getElementById('themeToggle');
-    if (themeToggle) {
-        themeToggle.textContent = savedTheme === 'light' ? '☀️' : '🌙';
-    }
+    loadAndApplyTheme();
+    syncThemeToggleButtons(['themeToggle', 'pcbThemeToggle']);
 
     if (app.viewport) {
         app.viewport.updateTheme();

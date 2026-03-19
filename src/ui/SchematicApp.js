@@ -23,10 +23,10 @@ import { toggleSelectionLock, deleteSelected, captureShapeState, applyShapeState
 import { copySelection, cutSelection, beginPastePreview, updatePastePreview, confirmPaste, cancelPaste } from './modules/clipboard.js';
 import { createBoxSelectElement, updateBoxSelectElement, removeBoxSelectElement, getBoxSelectBounds } from './modules/box-selection.js';
 import { bindPaperEvents } from './modules/paper.js';
-import * as WireTools from './modules/wire.js';
+import * as WireTools from '../schematic/modules/wire.js';
 import * as DrawingTools from './modules/drawing.js';
 import * as ComponentTools from './modules/components.js';
-import * as FileTools from './modules/files.js';
+import * as FileTools from '../schematic/modules/files.js';
 import * as ExportTools from './modules/export.js';
 import { onToolSelected, onComponentPickerClosed, onOptionsChanged, loadToolOptions } from './modules/tool.js';
 import { adaptShortcutsInDOM } from './modules/platform-keys.js';
@@ -52,7 +52,7 @@ import {
     commandRestoreShapesInternal,
     removeShapeInternal,
     renderShapes
-} from './modules/shape-management.js';
+} from '../schematic/modules/shape-management.js';
 
 // Shape construction uses createShape() from shapes/index.js.
 
@@ -67,7 +67,7 @@ import {
  * The constructor is the single source of truth for application state — every
  * property that modules read or write on `app` is initialised here.
  */
-class SchematicApp {
+export default class SchematicApp {
 
     /**
      * Initializes the schematic editor app: viewport, event bus, history, selection, UI elements, component picker, and binds all event handlers.
@@ -1477,9 +1477,3 @@ class SchematicApp {
     }
 }
 
-// Initialize when DOM is ready
-document.addEventListener('DOMContentLoaded', async () => {
-    /** @type {any} */ (window).app = new SchematicApp();
-    const app = /** @type {any} */ (window).app;
-    await app._recoverAutoSave?.();
-});

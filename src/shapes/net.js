@@ -295,8 +295,8 @@ export class Net extends Shape {
     * @param {number} [options.rotation=0] - Legacy orientation rotation (kept for backward compatibility).
      */
     constructor(options = {}) {
-        // Default colour to the net-label theme variable
-        if (!options.color) options.color = 'var(--sch-net-label, #00cccc)';
+        // Default color matches standard text labels for visual consistency.
+        if (!options.color) options.color = 'var(--sch-text-label, #00b894)';
         super(options);
         this.type = 'net';
 

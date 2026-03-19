@@ -72,9 +72,11 @@ clearpcb/
 │   │   └── VRMLPreview.js      # VRML model preview (lazy-loaded)
 │   │
 │   └── ui/                     # Application layer
-│       ├── SchematicApp.js     # Central facade — delegates to modules
+│       ├── AppBootstrap.js     # Shared startup + schematic/pcb mode switching
+│       ├── SchematicApp.js     # Schematic facade — delegates to modules
+│       ├── PCBApp.js           # PCB facade scaffold (mode-owned logic)
 │       ├── schematic.css       # All styles
-│       └── modules/            # Feature modules (functional, not classes)
+│       └── modules/            # Schematic feature modules (functional, not classes)
 │           ├── mouse.js        # Mouse event binding (click, drag, box-select)
 │           ├── drag.js         # Drag commit + cleanup helpers
 │           ├── context-menu.js # Right-click menus, junction/segment deletion

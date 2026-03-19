@@ -216,16 +216,17 @@
                 <div class="ribbon-group">
                     <div class="ribbon-group-title">Tools</div>
                     <div class="ribbon-group-items">
-                        <button disabled>⊹ Select</button>
+                        <button id="pcbToolSelect" class="active">⊹ Select</button>
+                        <button id="pcbToolPan">✥ Pan</button>
                         <button disabled>Route</button>
                         <button disabled>Via</button>
-                        <button disabled>Zone</button>
                     </div>
                 </div>
                 <div class="ribbon-group">
                     <div class="ribbon-group-title">Layers</div>
                     <div class="ribbon-group-items">
-                        <span class="pcb-coming-soon">Coming soon</span>
+                        <button id="pcbLayerTop" class="active">Top</button>
+                        <button id="pcbLayerBottom">Bottom</button>
                     </div>
                 </div>
                 <div class="ribbon-group">
@@ -293,86 +294,6 @@
         </div>
     </div>
 
-    <script type="module" src="./src/ui/SchematicApp.js"></script>
-    <script>
-        // ── Mode slider ──
-        const ribbonSch = document.getElementById('ribbonSchematic');
-        const ribbonPcb = document.getElementById('ribbonPCB');
-        document.querySelectorAll('.mode-tab').forEach(tab => {
-            tab.addEventListener('click', () => {
-                document.querySelectorAll('.mode-tab').forEach(t => t.classList.remove('active'));
-                tab.classList.add('active');
-                const slider = document.querySelector('.app-slider');
-                const isPcb = tab.dataset.mode === 'pcb';
-                if (isPcb) {
-                    slider.classList.add('show-pcb');
-                    ribbonSch.classList.add('ribbon-hidden');
-                    ribbonPcb.classList.remove('ribbon-hidden');
-                } else {
-                    slider.classList.remove('show-pcb');
-                    ribbonSch.classList.remove('ribbon-hidden');
-                    ribbonPcb.classList.add('ribbon-hidden');
-                }
-            });
-        });
-
-        // ── PCB ribbon tab switching ──
-        ribbonPcb.querySelectorAll('.ribbon-tab').forEach(tab => {
-            tab.addEventListener('click', () => {
-                ribbonPcb.querySelectorAll('.ribbon-tab').forEach(t => t.classList.remove('active'));
-                tab.classList.add('active');
-                ribbonPcb.querySelectorAll('.ribbon-panel').forEach(p => p.classList.remove('active'));
-                const panel = ribbonPcb.querySelector(`.ribbon-panel[data-panel="${tab.dataset.tab}"]`);
-                if (panel) panel.classList.add('active');
-            });
-        });
-
-        // ── Schematic ribbon tab switching (re-bind so it scopes to its own ribbon) ──
-        ribbonSch.querySelectorAll('.ribbon-tab').forEach(tab => {
-            tab.addEventListener('click', () => {
-                ribbonSch.querySelectorAll('.ribbon-tab').forEach(t => t.classList.remove('active'));
-                tab.classList.add('active');
-                ribbonSch.querySelectorAll('.ribbon-panel').forEach(p => p.classList.remove('active'));
-                const panel = ribbonSch.querySelector(`.ribbon-panel[data-panel="${tab.dataset.tab}"]`);
-                if (panel) panel.classList.add('active');
-            });
-        });
-
-        // Register service worker for PWA install + file handlers
-        if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('./sw.js').catch(() => {});
-        }
-
-        // Handle files opened via OS file association (PWA file_handlers)
-        if ('launchQueue' in window) {
-            window.launchQueue.setConsumer(async (launchParams) => {
-                if (!launchParams.files?.length) return;
-                // Signal to SchematicApp to skip auto-save recovery
-                window._launchFile = true;
-                const fileHandle = launchParams.files[0];
-                const file = await fileHandle.getFile();
-                const text = await file.text();
-                try {
-                    const data = JSON.parse(text);
-                    // Wait for app to initialize, then load the file
-                    const waitForApp = async () => {
-                        if (window.app && window.app.fileManager) {
-                            window.app.fileManager.fileHandle = fileHandle;
-                            window.app.fileManager.setFileName(fileHandle.name);
-                            window.app.fileManager.setFilePath(fileHandle.name);
-                            await window.app._loadDocument(data);
-                            window.app._fitToContent?.();
-                            window.app.fileManager.setDirty(false);
-                        } else {
-                            setTimeout(waitForApp, 100);
-                        }
-                    };
-                    waitForApp();
-                } catch (e) {
-                    console.error('Failed to open file:', e);
-                }
-            });
-        }
-    </script>
+    <script type="module" src="./src/ui/AppBootstrap.js"></script>
 </body>
 </html>
