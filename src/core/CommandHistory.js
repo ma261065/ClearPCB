@@ -735,6 +735,29 @@ export class AddComponentCommand extends Command {
 
     /** Add the component and its field texts to the canvas. */
     execute() {
+        // On first execute, snapshot wire states before placement so undo can restore them
+        if (!this._wireStatesBeforePlace) {
+            this._wireStatesBeforePlace = new Map();
+            const comp = this.component;
+            if (comp.symbol?.pins) {
+                for (const wire of this.app.shapes) {
+                    if (wire.type !== 'wire') continue;
+                    for (const pin of comp.symbol.pins) {
+                        const pinPos = comp.getPinPosition?.(pin.number);
+                        if (!pinPos) continue;
+                        for (const [, nodePos] of wire.nodes) {
+                            if (Math.abs(nodePos.x - pinPos.x) < 0.15 && Math.abs(nodePos.y - pinPos.y) < 0.15) {
+                                if (!this._wireStatesBeforePlace.has(wire.id)) {
+                                    this._wireStatesBeforePlace.set(wire.id, wire.captureState());
+                                }
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         this.app.components.push(this.component);
         if (!this.component.element) {
             this.component.createSymbolElement();
@@ -759,6 +782,23 @@ export class AddComponentCommand extends Command {
 
     /** Remove the component and its field texts from the canvas. */
     undo() {
+        // Save wire states before removal so we can detect which wires
+        // had pinConnections to this component and restore their geometry
+        const compId = this.component.id;
+        const affectedWireStates = new Map();
+        for (const shape of this.app.shapes) {
+            if (shape.type !== 'wire') continue;
+            for (const [, conn] of shape.pinConnections) {
+                if (conn.componentId === compId) {
+                    // This wire is connected - save its state if we haven't already
+                    if (!affectedWireStates.has(shape.id) && !this._wireStatesBeforePlace) {
+                        affectedWireStates.set(shape.id, shape.captureState());
+                    }
+                    break;
+                }
+            }
+        }
+
         const idx = this.app.components.indexOf(this.component);
         if (idx !== -1) {
             this.app.components.splice(idx, 1);
@@ -780,6 +820,25 @@ export class AddComponentCommand extends Command {
                 }
             }
             this.app.shapes.length = writeIdx;
+        }
+        // Clean up wire pinConnections referencing this removed component
+        // and restore wire geometry to pre-placement state if saved
+        for (const shape of this.app.shapes) {
+            if (shape.type !== 'wire') continue;
+            for (const [nodeId, conn] of shape.pinConnections) {
+                if (conn.componentId === compId) {
+                    shape.pinConnections.delete(nodeId);
+                }
+            }
+        }
+        // Restore wire states from before the component was ever placed
+        if (this._wireStatesBeforePlace) {
+            for (const [wireId, state] of this._wireStatesBeforePlace) {
+                const wire = this.app.shapes.find(s => s.id === wireId);
+                if (wire?.type === 'wire') {
+                    wire.applyState(state);
+                }
+            }
         }
         this.app._updateSelectableItems();
         this.app.fileManager.setDirty(true);

@@ -453,10 +453,37 @@ export function commitMoveDrag(app, totalDx, totalDy) {
         connectNetToWires(app, netShape);
     }
 
-    // Post-move: check for net conflicts
+    // Post-move: refresh wire connections and capture state changes for undo
+    const wireStatesBefore = new Map();
+    for (const w of app.shapes) {
+        if (w.type === 'wire') wireStatesBefore.set(w.id, w.captureState());
+    }
     for (const w of app.shapes) {
         if (w.type === 'wire') refreshWireConnections(app, w);
     }
+    // Add wire state changes to the undo batch
+    const wireModCmds = [];
+    for (const w of app.shapes) {
+        if (w.type !== 'wire') continue;
+        const before = wireStatesBefore.get(w.id);
+        if (!before) continue;
+        const after = w.captureState();
+        if (!areCapturedStatesEqual(before, after)) {
+            w.applyState(before);
+            wireModCmds.push(new ModifyShapeCommand(app, w, before, after));
+        }
+    }
+    if (wireModCmds.length > 0) {
+        const [top] = app.history.popUndo(1);
+        const combined = top instanceof BatchCommand
+            ? top
+            : (() => { const b = new BatchCommand('Move + wire connections'); b.add(top); return b; })();
+        for (const cmd of wireModCmds) combined.add(cmd);
+        for (const cmd of wireModCmds) cmd.execute();
+        app.history.record(combined);
+    }
+
+    // Post-move: check for net conflicts
     for (const w of app.shapes) {
         if (w.type !== 'wire') continue;
         const netNames = new Set();
