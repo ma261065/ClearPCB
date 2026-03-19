@@ -691,11 +691,11 @@ function _showPinDot(app, snapPin) {
             dot.setAttribute('fill', '#ffff00');
             dot.setAttribute('display', '');
         }
-    } else {
-        // Fallback for sources without pinElements (e.g. Net labels):
-        // show a temporary yellow circle at the connection point.
-        _showWireJunctionDot(app, { x: snapPin.worldPos.x, y: snapPin.worldPos.y, type: 'pin' });
     }
+
+    // Always render an overlay dot at the snap point so visibility is
+    // consistent even when pin circles are tiny or covered by anchors.
+    _showWireJunctionDot(app, { x: snapPin.worldPos.x, y: snapPin.worldPos.y, type: 'pin' });
 }
 
 /**
@@ -722,9 +722,13 @@ function _showWireJunctionDot(app, pos) {
     _hideWireJunctionDot(app);
     app._wireJunctionData = { x: pos.x, y: pos.y, type: pos.type };
     const dot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+    // Keep the snap dot clearly visible over anchor handles at low zoom,
+    // but let it scale up naturally when zoomed in.
+    const minScreenRadiusPx = 6.5;
+    const minWorldRadius = 0.36;
     dot.setAttribute('cx', pos.x);
     dot.setAttribute('cy', pos.y);
-    dot.setAttribute('r', String(Math.max(0.4, 3 / app.viewport.scale)));
+    dot.setAttribute('r', String(Math.max(minWorldRadius, minScreenRadiusPx / app.viewport.scale)));
     dot.setAttribute('fill', '#ffff00');
     dot.setAttribute('stroke', 'none');
     dot.setAttribute('pointer-events', 'none');
