@@ -430,7 +430,8 @@ export async function openFile(app) {
         const result = await app.fileManager.open();
 
         if (result.success) {
-            app._loadDocument(result.data);
+            await app._loadDocument(result.data);
+            app._fitToContent?.();
             app._updateTitle();
             app.fileManager.clearAutoSave();
             console.log('Opened:', result.fileName);

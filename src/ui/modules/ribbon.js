@@ -36,7 +36,7 @@ export function bindRibbon(app) {
         if (!button) return;
         const style = normalizenetStyle(app.toolOptions?.netStyle || 't');
         const meta = net_STYLE_META[style] || net_STYLE_META.t;
-        button.textContent = `${meta.icon} Net`;
+        button.innerHTML = `<span class="ribbon-net-icon" aria-hidden="true">${meta.icon}</span> Net`;
         button.title = `Net (${meta.title}) (N)`;
     };
 

@@ -514,6 +514,8 @@ function bridgeStickyPinNodes(app, movingCompIds) {
             // middle of an existing segment.
             if (incidentEntries.length >= 2 && hasStraightThroughIncidentPair(pinPos, incidentEntries)) {
                 const junctionId = wire.addNode(pinPos.x, pinPos.y);
+                const junctionPos = wire.nodes.get(junctionId);
+                if (junctionPos) junctionPos._pinDetachJunction = true;
                 for (const entry of incidentEntries) {
                     if (entry.edge.from === nodeId) entry.edge.from = junctionId;
                     else if (entry.edge.to === nodeId) entry.edge.to = junctionId;

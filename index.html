@@ -56,9 +56,9 @@
                             <button class="ribbon-tool-btn" data-tool="arc" title="Arc (A)">◠ Arc</button>
                             <button class="ribbon-tool-btn" data-tool="line" title="Line (I)">╱ Line</button>
                             <button class="ribbon-tool-btn" data-tool="polygon" title="Polygon (P)">⬠ Polygon</button>
-                            <button class="ribbon-tool-btn" data-tool="text" title="Label (L)"><svg class="ribbon-label-icon" width="11" height="8" viewBox="0 0 11 8"><path d="M0.5 1.5 Q0.5 0.5 1.5 0.5 H6.5 L10.5 4 L6.5 7.5 H1.5 Q0.5 7.5 0.5 6.5 Z" fill="none" stroke="currentColor" stroke-width="1"/><circle cx="3" cy="4" r="0.8" fill="currentColor"/></svg>Label</button>
+                            <button class="ribbon-tool-btn" data-tool="text" title="Label (L)"><svg class="ribbon-label-icon" width="11" height="8" viewBox="0 0 11 9"><path d="M0.5 1.5 Q0.5 0.5 1.5 0.5 H6.5 L10.5 4 L6.5 7.5 H1.5 Q0.5 7.5 0.5 6.5 Z" fill="none" stroke="currentColor" stroke-width="1"/><circle cx="3" cy="4" r="0.8" fill="currentColor"/></svg>Label</button>
                             <div class="dropdown ribbon-net-dropdown ribbon-split-btn" id="ribbonNetDropdown">
-                                <button class="ribbon-tool-btn ribbon-split-main" id="ribbonNetTool" data-tool="net" title="Net (N)">⊤ Net</button><button class="ribbon-tool-btn ribbon-split-arrow" id="ribbonNetStyleBtn" title="Net style">▼</button>
+                                <button class="ribbon-tool-btn ribbon-split-main" id="ribbonNetTool" data-tool="net" title="Net (N)"><span class="ribbon-net-icon" aria-hidden="true">⊤</span> Net</button><button class="ribbon-tool-btn ribbon-split-arrow" id="ribbonNetStyleBtn" title="Net style">▼</button>
                                 <div class="dropdown-menu" id="ribbonNetStyleMenu" aria-label="Net style">
                                     <button class="dropdown-item" data-net-style="arrow" data-net-text="VCC" type="button">↑ VCC</button>
                                     <button class="dropdown-item" data-net-style="arrow" data-net-text="3.3V" type="button">↑ 3.3V</button>
@@ -355,12 +355,13 @@
                 try {
                     const data = JSON.parse(text);
                     // Wait for app to initialize, then load the file
-                    const waitForApp = () => {
+                    const waitForApp = async () => {
                         if (window.app && window.app.fileManager) {
                             window.app.fileManager.fileHandle = fileHandle;
                             window.app.fileManager.setFileName(fileHandle.name);
                             window.app.fileManager.setFilePath(fileHandle.name);
-                            window.app._loadDocument(data);
+                            await window.app._loadDocument(data);
+                            window.app._fitToContent?.();
                             window.app.fileManager.setDirty(false);
                         } else {
                             setTimeout(waitForApp, 100);

@@ -306,9 +306,9 @@ export function renderShapes(app, force = false) {
     const scale = app.viewport.scale;
     for (const shape of app.shapes) {
         if (shape._culled) continue; // skip off-screen
-        if (shape._dirty || shape.selected || shape.hovered) {
+        if (force || shape._dirty || shape.selected || shape.hovered) {
             shape.render(scale);
-        } else if (force || (shape._lastScale !== scale && shape.element)) {
+        } else if (shape._lastScale !== scale && shape.element) {
             // Only stroke-width changed on zoom or force — fast-path update
             const sw = shape._getEffectiveStrokeWidth(scale);
             if (sw > 0) shape.element.setAttribute('stroke-width', sw);

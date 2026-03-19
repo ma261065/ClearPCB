@@ -33,6 +33,7 @@ export function applyStickyConnections(app, options = {}) {
                         if (shape.pinConnections.has(bridgeId)) continue;
                         const bp = shape.nodes.get(bridgeId);
                         if (!bp) continue;
+                        if (bp._pinDetachJunction) continue;
                         for (const { otherNode: wireNbr } of shape.incidentEdges(bridgeId)) {
                             if (wireNbr === nodeId) continue;
                             const wp = shape.nodes.get(wireNbr);
