@@ -437,6 +437,34 @@ function beginWireSegmentDragSession(app, params) {
     app.interactionState = 'segmentDrag';
 }
 
+function hasStraightThroughIncidentPair(pinPos, incidentEntries) {
+    for (let i = 0; i < incidentEntries.length; i++) {
+        const aPos = incidentEntries[i]?.otherPos;
+        if (!aPos) continue;
+        const ax = aPos.x - pinPos.x;
+        const ay = aPos.y - pinPos.y;
+        const aLen = Math.hypot(ax, ay);
+        if (aLen < COLLINEAR_EPSILON) continue;
+
+        for (let j = i + 1; j < incidentEntries.length; j++) {
+            const bPos = incidentEntries[j]?.otherPos;
+            if (!bPos) continue;
+            const bx = bPos.x - pinPos.x;
+            const by = bPos.y - pinPos.y;
+            const bLen = Math.hypot(bx, by);
+            if (bLen < COLLINEAR_EPSILON) continue;
+
+            const cross = Math.abs(ax * by - ay * bx);
+            const parallelTol = Math.max(COLLINEAR_EPSILON, 0.01 * aLen * bLen);
+            if (cross > parallelTol) continue;
+
+            const dot = ax * bx + ay * by;
+            if (dot < 0) return true;
+        }
+    }
+    return false;
+}
+
 function bridgeStickyPinNodes(app, movingCompIds) {
     if (movingCompIds.size === 0) return;
     const staggerStep = app.viewport?.gridVisible ? (app.viewport.gridSize || 2.54) : 2.54;
@@ -453,7 +481,10 @@ function bridgeStickyPinNodes(app, movingCompIds) {
         // Bridge component pin connections
         for (const [nodeId, conn] of wire.pinConnections) {
             if (!movingCompIds.has(conn.componentId)) continue;
-            // Bridge each non-pin incident edge so the pin can move freely
+            const pinPos = wire.nodes.get(nodeId);
+            if (!pinPos) continue;
+
+            const incidentEntries = [];
             for (const { edge: e, otherNode } of [...wire.incidentEdges(nodeId)]) {
                 let otherIsPin = false;
                 if (wire.pinConnections.has(otherNode)) {
@@ -461,11 +492,40 @@ function bridgeStickyPinNodes(app, movingCompIds) {
                     if (otherConn && movingCompIds.has(otherConn.componentId)) continue;
                     otherIsPin = true;
                 }
+
                 const otherPos = wire.nodes.get(otherNode);
-                const pinPos = wire.nodes.get(nodeId);
-                if (!otherPos || !pinPos) continue;
-                // Skip if other node is already at pin position (existing bridge)
+                if (!otherPos) continue;
                 if (Math.abs(otherPos.x - pinPos.x) < 0.01 && Math.abs(otherPos.y - pinPos.y) < 0.01) continue;
+
+                incidentEntries.push({
+                    wire,
+                    nodeId,
+                    edge: e,
+                    pinPos,
+                    otherNode,
+                    otherPos,
+                    isPinToPin: otherIsPin
+                });
+            }
+
+            // Mid-segment pin detach: keep the through-wire on a fixed
+            // junction node and add a single spur to the moving pin node.
+            // This avoids creating a U-bridge when pulling away from the
+            // middle of an existing segment.
+            if (incidentEntries.length >= 2 && hasStraightThroughIncidentPair(pinPos, incidentEntries)) {
+                const junctionId = wire.addNode(pinPos.x, pinPos.y);
+                for (const entry of incidentEntries) {
+                    if (entry.edge.from === nodeId) entry.edge.from = junctionId;
+                    else if (entry.edge.to === nodeId) entry.edge.to = junctionId;
+                }
+                wire.addEdge(nodeId, junctionId);
+                wire.invalidate();
+                continue;
+            }
+
+            // Bridge each non-pin incident edge so the pin can move freely
+            for (const entry of incidentEntries) {
+                const { edge: e, otherPos, pinPos } = entry;
                 const dx = otherPos.x - pinPos.x;
                 const dy = otherPos.y - pinPos.y;
                 const axis = Math.abs(dx) >= Math.abs(dy) ? 'x' : 'y';
@@ -474,12 +534,12 @@ function bridgeStickyPinNodes(app, movingCompIds) {
                 const groupKey = `${conn.componentId}|${axis}|${sign}`;
                 addGroupEntry(groupKey, {
                     wire,
-                    nodeId,
+                    nodeId: entry.nodeId,
                     edge: e,
                     pinPos,
                     axis,
                     sign,
-                    isPinToPin: otherIsPin
+                    isPinToPin: entry.isPinToPin
                 });
             }
             wire.invalidate();
