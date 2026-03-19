@@ -621,15 +621,20 @@ function handleAnchorContextMenu(app, worldPos, clientX, clientY) {
         }
     }
 
-    const junctionTol = Math.max(0.5, 3 / app.viewport.scale);
+    const anchorTol = Math.max(0.5, 3 / app.viewport.scale);
     for (const wire of app.shapes) {
         if (wire.type !== 'wire' || wire.locked) continue;
-        const nid = wire.nodeAt(worldPos, junctionTol);
+        const nid = wire.nodeAt(worldPos, anchorTol);
         if (!nid) continue;
+
         const junctionInfo = detectTJunction(app, wire, nid);
-        if (junctionInfo) {
+        let canDeletePoint = wire.nodes.has(nid) && wire.edges.size > 1;
+        const canDisconnectPin = wire.pinConnections.has(nid);
+        if (junctionInfo) canDeletePoint = false;
+
+        if (canDeletePoint || junctionInfo || canDisconnectPin) {
             selectContextTargetShape(app, wire);
-            showAnchorContextMenu(app, wire, nid, clientX, clientY, false, junctionInfo);
+            showAnchorContextMenu(app, wire, nid, clientX, clientY, canDeletePoint, junctionInfo);
             return true;
         }
     }
