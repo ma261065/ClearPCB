@@ -1356,11 +1356,17 @@ export const moveDragState = {
             app._labelDragHoverTarget = null;
         }
 
-        // Net shape drag: show snap highlight when over a wire
+        // Net shape drag: show snap highlight only when not already connected to a wire
         const isDraggingNet = selNow.length === 1 && selNow[0]?.type === 'net';
         if (isDraggingNet) {
-            const { resolved } = resolvePinSnapPlacement(app, worldPos);
-            updateSnapHighlight(app, resolved);
+            const netShape = selNow[0];
+            const alreadyConnected = netShape.id && app.shapes.some(s =>
+                s.type === 'wire' && [...s.pinConnections.values()].some(c => c.componentId === netShape.id)
+            );
+            if (!alreadyConnected) {
+                const { resolved } = resolvePinSnapPlacement(app, worldPos);
+                updateSnapHighlight(app, resolved);
+            }
         }
 
         const mouseDelta = { x: worldPos.x - app.drag.startWorldPos.x, y: worldPos.y - app.drag.startWorldPos.y };
@@ -1369,15 +1375,6 @@ export const moveDragState = {
         const movingCompIds = collectMovingComponentIds(sel);
         const snappedTarget = app._moveDragSnappedTarget || (app._moveDragSnappedTarget = { x: 0, y: 0 });
         const stickyGuides = resolveMoveDragTarget(app, targetPos, sel, movingCompIds, snappedTarget);
-
-        // When dragging a net shape, snap to nearby wire nodes/edges
-        if (isDraggingNet) {
-            const { resolved } = resolvePinSnapPlacement(app, { x: snappedTarget.x, y: snappedTarget.y });
-            if (resolved.snapType === 'pin' || resolved.snapType === 'wire') {
-                snappedTarget.x = resolved.x;
-                snappedTarget.y = resolved.y;
-            }
-        }
 
         const dx = snappedTarget.x - app.drag.lastSnapped.x;
         const dy = snappedTarget.y - app.drag.lastSnapped.y;
