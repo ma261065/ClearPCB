@@ -148,6 +148,10 @@ function resolvePinSnapPlacement(app, worldPos, options = {}) {
     return { resolved, pos: { x: resolved.x, y: resolved.y } };
 }
 
+function getPinIdentityKey(pin) {
+    return pin?._key || pin?._id || pin?.number || null;
+}
+
 function getPinWorldWithTransform(pin, baseX, baseY, rotationDeg, mirror) {
     const lx = Number(pin?.x) || 0;
     const ly = Number(pin?.y) || 0;
@@ -194,37 +198,86 @@ function resolveDraggingComponentSnap(app, comp, snappedTarget, lastSnapped) {
     const pins = comp.symbol?.pins || [];
     if (pins.length === 0) return { targetPos: snappedTarget, pinSnap: null };
 
+    const SNAP_LOCK_ENGAGE_DISTANCE = 0.55;
+    const SNAP_LOCK_RELEASE_DISTANCE = 0.9;
+
     const previewDx = snappedTarget.x - lastSnapped.x;
     const previewDy = snappedTarget.y - lastSnapped.y;
     const projectedX = comp.x + previewDx;
     const projectedY = comp.y + previewDy;
 
-    let best = null;
-    for (const pin of pins) {
+    if (!app.drag._componentSnapState || app.drag._componentSnapState.componentId !== comp.id) {
+        app.drag._componentSnapState = {
+            componentId: comp.id,
+            lockedPinKey: null,
+            lastResult: null
+        };
+    }
+    const snapState = app.drag._componentSnapState;
+
+    const evaluatePin = (pin) => {
         const pinWorld = getPinWorldWithTransform(pin, projectedX, projectedY, comp.rotation || 0, !!comp.mirror);
         const { resolved } = resolvePinSnapPlacement(app, pinWorld, {
             excludePin: {
                 component: comp,
                 pin,
-                pinKey: pin._key || pin._id || pin.number
+                pinKey: getPinIdentityKey(pin)
             }
         });
-        if (!resolved || resolved.snapType === 'grid') continue;
-        const d = Math.hypot(resolved.x - pinWorld.x, resolved.y - pinWorld.y);
-        if (!best || d < best.distance) {
-            best = { pinWorld, resolved, distance: d };
+        if (!resolved || resolved.snapType === 'grid') return null;
+        const distance = Math.hypot(resolved.x - pinWorld.x, resolved.y - pinWorld.y);
+        return { pin, pinWorld, resolved, distance };
+    };
+
+    const makeResult = (candidate) => {
+        if (!candidate) return { targetPos: snappedTarget, pinSnap: null };
+        return {
+            targetPos: {
+                x: snappedTarget.x + (candidate.resolved.x - candidate.pinWorld.x),
+                y: snappedTarget.y + (candidate.resolved.y - candidate.pinWorld.y)
+            },
+            pinSnap: candidate.resolved
+        };
+    };
+
+    // Keep a stable snap owner while it remains valid to prevent yellow-dot flicker.
+    if (snapState.lockedPinKey) {
+        const lockedPin = pins.find(pin => getPinIdentityKey(pin) === snapState.lockedPinKey) || null;
+        if (lockedPin) {
+            const lockedCandidate = evaluatePin(lockedPin);
+            if (lockedCandidate && lockedCandidate.distance <= SNAP_LOCK_RELEASE_DISTANCE) {
+                const lockedResult = makeResult(lockedCandidate);
+                snapState.lastResult = lockedResult;
+                return lockedResult;
+            }
         }
+        snapState.lockedPinKey = null;
     }
 
-    if (!best) return { targetPos: snappedTarget, pinSnap: null };
+    let best = null;
+    for (const pin of pins) {
+        const candidate = evaluatePin(pin);
+        if (!candidate) continue;
+        if (!best || candidate.distance < best.distance) best = candidate;
+    }
 
-    return {
-        targetPos: {
-            x: snappedTarget.x + (best.resolved.x - best.pinWorld.x),
-            y: snappedTarget.y + (best.resolved.y - best.pinWorld.y)
-        },
-        pinSnap: best.resolved
-    };
+    if (!best) {
+        const empty = { targetPos: snappedTarget, pinSnap: null };
+        snapState.lastResult = empty;
+        return empty;
+    }
+
+    // Avoid snap/no-snap chatter at boundary distances while dragging slowly.
+    if (best.distance > SNAP_LOCK_ENGAGE_DISTANCE) {
+        const empty = { targetPos: snappedTarget, pinSnap: null };
+        snapState.lastResult = empty;
+        return empty;
+    }
+
+    snapState.lockedPinKey = getPinIdentityKey(best.pin);
+    const result = makeResult(best);
+    snapState.lastResult = result;
+    return result;
 }
 
 function handleComponentTooltipContextMenu(app, worldPos, screenPos) {
