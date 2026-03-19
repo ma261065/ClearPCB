@@ -44,7 +44,14 @@ export class SearchManager {
      */
     clearCache() {
         this.searchCache.clear();
-        // Also clear localStorage caches
+        // Clear IndexedDB-backed search cache entries managed via StorageManager.
+        for (const key of storageManager.keys()) {
+            if (key.startsWith(SEARCH_STORAGE_PREFIX)) {
+                storageManager.remove(key);
+            }
+        }
+
+        // Also clear legacy localStorage caches from older builds.
         for (const key of Object.keys(localStorage)) {
             if (key.startsWith(SEARCH_STORAGE_PREFIX)) {
                 localStorage.removeItem(key);

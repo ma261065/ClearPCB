@@ -209,9 +209,64 @@ export class ComponentPicker {
                 this._searchLCSC();
             } else {
                 this._showLCSCPrompt();
+                // If first-time KiCad indexing started in background, surface
+                // progress immediately even before the user types a query.
+                this._watchKiCadIndexProgressIfLoading();
             }
         } else {
             this._populateComponents();
+        }
+    }
+
+    /**
+     * If KiCad index loading is already in-flight and no usable index exists,
+     * display the indexing progress while the user is in Online mode.
+     */
+    async _watchKiCadIndexProgressIfLoading() {
+        const fetcher = this.library?.kicadFetcher;
+        if (!fetcher || fetcher.libraryIndex) {
+            return;
+        }
+
+        const watchId = this.searchRequestGate.next();
+        const initial = fetcher._indexProgress || {
+            loaded: 0,
+            total: 0,
+            message: 'Loading KiCad library index...'
+        };
+        let sawProgress = false;
+        this._showIndexingProgress(initial.message, initial.loaded, initial.total);
+
+        try {
+            await fetcher.ensureIndexLoaded((progress) => {
+                if (this.searchMode === 'lcsc'
+                    && this.searchQuery.trim().length < 2
+                    && this.searchRequestGate.isCurrent(watchId)) {
+                    sawProgress = true;
+                    this._showIndexingProgress(progress.message, progress.loaded, progress.total);
+                }
+            });
+        } catch (error) {
+            if (this.searchMode === 'lcsc'
+                && this.searchQuery.trim().length < 2
+                && this.searchRequestGate.isCurrent(watchId)) {
+                this.listEl.innerHTML = `
+                    <div class="cp-error">
+                        Failed to load KiCad index. You can still search EasyEDA results.
+                    </div>
+                `;
+            }
+            return;
+        }
+
+        if (this.searchMode === 'lcsc'
+            && this.searchQuery.trim().length < 2
+            && this.searchRequestGate.isCurrent(watchId)) {
+            // If we never got progress updates, index likely came from cache immediately.
+            // Return to prompt in that case.
+            if (!sawProgress) {
+                this._showLCSCPrompt();
+            }
         }
     }
     

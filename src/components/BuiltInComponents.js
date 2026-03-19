@@ -36,7 +36,9 @@ export const BuiltInComponents = [
                 { number: '', name: '2', x: 3.81, y: 0, orientation: 'right', length: 0, type: 'passive', shape: 'line', namePos: { x: 3.81, y: -0.9, anchor: 'middle' } }
             ]
         },
-        footprint: null  // Generic, user selects
+        footprint: 'Resistor_THT:R_Axial_DIN0207_L6.3mm_D2.5mm_P7.62mm_Horizontal',
+        footprintName: 'Resistor_THT:R_Axial_DIN0207_L6.3mm_D2.5mm_P7.62mm_Horizontal',
+        hasFootprint: true
     },
     
     {
@@ -66,7 +68,9 @@ export const BuiltInComponents = [
                 { number: '', name: '2', x: 3.81, y: 0, orientation: 'right', length: 0, type: 'passive', shape: 'line', namePos: { x: 3.81, y: -0.9, anchor: 'middle' } }
             ]
         },
-        footprint: null
+        footprint: 'Resistor_THT:R_Axial_DIN0207_L6.3mm_D2.5mm_P7.62mm_Horizontal',
+        footprintName: 'Resistor_THT:R_Axial_DIN0207_L6.3mm_D2.5mm_P7.62mm_Horizontal',
+        hasFootprint: true
     },
     
     {
@@ -97,7 +101,9 @@ export const BuiltInComponents = [
                 { number: '', name: '2', x: 2.54, y: 0, orientation: 'right', length: 0, type: 'passive', shape: 'line', namePos: { x: 2.54, y: -0.9, anchor: 'middle' } }
             ]
         },
-        footprint: null
+        footprint: 'Capacitor_THT:C_Disc_D5.0mm_W2.5mm_P5.00mm',
+        footprintName: 'Capacitor_THT:C_Disc_D5.0mm_W2.5mm_P5.00mm',
+        hasFootprint: true
     },
     
     {
@@ -132,7 +138,9 @@ export const BuiltInComponents = [
                 { number: '', name: '-', x: 2.54, y: 0, orientation: 'right', length: 0, type: 'passive', shape: 'line', namePos: { x: 2.54, y: -0.9, anchor: 'middle' } }
             ]
         },
-        footprint: null
+        footprint: 'Capacitor_THT:CP_Radial_D5.0mm_P2.50mm',
+        footprintName: 'Capacitor_THT:CP_Radial_D5.0mm_P2.50mm',
+        hasFootprint: true
     },
     
     {
@@ -159,7 +167,9 @@ export const BuiltInComponents = [
                 { number: '', name: '2', x: 3.81, y: 0, orientation: 'right', length: 0, type: 'passive', shape: 'line', namePos: { x: 3.81, y: -0.9, anchor: 'middle' } }
             ]
         },
-        footprint: null
+        footprint: 'Inductor_THT:L_Axial_L6.8mm_D2.4mm_P7.62mm_Horizontal_Vertical',
+        footprintName: 'Inductor_THT:L_Axial_L6.8mm_D2.4mm_P7.62mm_Horizontal_Vertical',
+        hasFootprint: true
     },
     
     // ============ DISCRETE SEMICONDUCTORS ============
@@ -193,7 +203,9 @@ export const BuiltInComponents = [
                 { number: '', name: 'K', x: 2.54, y: 0, orientation: 'right', length: 0, type: 'passive', shape: 'line', namePos: { x: 2.54, y: -0.9, anchor: 'middle' } }
             ]
         },
-        footprint: null
+        footprint: 'Diode_THT:D_DO-35_SOD27_P7.62mm_Horizontal',
+        footprintName: 'Diode_THT:D_DO-35_SOD27_P7.62mm_Horizontal',
+        hasFootprint: true
     },
     
     {
@@ -230,7 +242,9 @@ export const BuiltInComponents = [
                 { number: '', name: 'K', x: 2.54, y: 0, orientation: 'right', length: 0, type: 'passive', shape: 'line', namePos: { x: 2.54, y: -0.9, anchor: 'middle' } }
             ]
         },
-        footprint: null
+        footprint: 'LED_THT:LED_D5.0mm',
+        footprintName: 'LED_THT:LED_D5.0mm',
+        hasFootprint: true
     },
     
     {
@@ -269,7 +283,9 @@ export const BuiltInComponents = [
                 { number: '', name: 'E', x: 2.54, y: 2.54, orientation: 'right', length: 0, type: 'passive', shape: 'line', namePos: { x: 3.44, y: 3.44, anchor: 'start' } }
             ]
         },
-        footprint: null
+        footprint: 'Package_TO_SOT_THT:TO-92_Inline',
+        footprintName: 'Package_TO_SOT_THT:TO-92_Inline',
+        hasFootprint: true
     },
     
     {
@@ -308,7 +324,9 @@ export const BuiltInComponents = [
                 { number: '', name: 'E', x: 2.54, y: 2.54, orientation: 'right', length: 0, type: 'passive', shape: 'line', namePos: { x: 3.44, y: 3.44, anchor: 'start' } }
             ]
         },
-        footprint: null
+        footprint: 'Package_TO_SOT_THT:TO-92_Inline',
+        footprintName: 'Package_TO_SOT_THT:TO-92_Inline',
+        hasFootprint: true
     },
     
     {
@@ -351,7 +369,9 @@ export const BuiltInComponents = [
                 { number: '', name: 'S', x: 2.54, y: 2.54, orientation: 'right', length: 0, type: 'passive', shape: 'line', namePos: { x: 3.44, y: 3.44, anchor: 'start' } }
             ]
         },
-        footprint: null
+        footprint: 'Package_TO_SOT_THT:TO-92_Inline',
+        footprintName: 'Package_TO_SOT_THT:TO-92_Inline',
+        hasFootprint: true
     },
     
     // ============ INTEGRATED CIRCUITS ============
@@ -389,7 +409,9 @@ export const BuiltInComponents = [
                 { number: '', name: 'OUT', x: 3.81, y: 0, orientation: 'right', length: 0, type: 'output', shape: 'line', namePos: { x: 3.81, y: -0.9, anchor: 'middle' } }
             ]
         },
-        footprint: null
+        footprint: 'Package_DIP:DIP-8_W7.62mm',
+        footprintName: 'Package_DIP:DIP-8_W7.62mm',
+        hasFootprint: true
     },
     
     {
@@ -426,7 +448,9 @@ export const BuiltInComponents = [
                 { number: '8', name: '8', x: 5.08, y: -3.81, orientation: 'left', length: 2.54, type: 'passive', shape: 'line' }
             ]
         },
-        footprint: null
+        footprint: 'Package_DIP:DIP-8_W7.62mm',
+        footprintName: 'Package_DIP:DIP-8_W7.62mm',
+        hasFootprint: true
     },
     
     // ============ CONNECTORS ============
@@ -456,7 +480,9 @@ export const BuiltInComponents = [
                 { number: '', name: '2', x: -3.81, y: 1.524, orientation: 'right', length: 2.54, type: 'passive', shape: 'line', namePos: { x: -3.81, y: 0.624, anchor: 'middle' } }
             ]
         },
-        footprint: null
+        footprint: 'Connector_PinHeader_2.54mm:PinHeader_1x02_P2.54mm_Vertical',
+        footprintName: 'Connector_PinHeader_2.54mm:PinHeader_1x02_P2.54mm_Vertical',
+        hasFootprint: true
     },
     
     // ============ SWITCHES ============
@@ -491,7 +517,9 @@ export const BuiltInComponents = [
                 { number: '', name: '2', x: 2.54, y: 0, orientation: 'right', length: 0, type: 'passive', shape: 'line', namePos: { x: 2.54, y: -0.9, anchor: 'middle' } }
             ]
         },
-        footprint: null
+        footprint: 'Button_Switch_THT:SW_PUSH_6mm',
+        footprintName: 'Button_Switch_THT:SW_PUSH_6mm',
+        hasFootprint: true
     },
     
     // ============ TRANSISTORS ============
@@ -533,7 +561,9 @@ export const BuiltInComponents = [
                 { number: '', name: 'E', x: 1.524, y: 3.175, orientation: 'down', length: 0, type: 'passive', shape: 'line', namePos: { x: 2.424, y: 4.075, anchor: 'start' } }
             ]
         },
-        footprint: null
+        footprint: 'Package_TO_SOT_THT:TO-92_Inline',
+        footprintName: 'Package_TO_SOT_THT:TO-92_Inline',
+        hasFootprint: true
     },
     
     {
@@ -573,7 +603,9 @@ export const BuiltInComponents = [
                 { number: '', name: 'C', x: 1.524, y: 3.175, orientation: 'down', length: 0, type: 'passive', shape: 'line', namePos: { x: 2.424, y: 4.075, anchor: 'start' } }
             ]
         },
-        footprint: null
+        footprint: 'Package_TO_SOT_THT:TO-92_Inline',
+        footprintName: 'Package_TO_SOT_THT:TO-92_Inline',
+        hasFootprint: true
     },
     
     {
@@ -617,7 +649,9 @@ export const BuiltInComponents = [
                 { number: '', name: 'S', x: 1.524, y: 3.175, orientation: 'down', length: 0, type: 'passive', shape: 'line', namePos: { x: 2.424, y: 4.075, anchor: 'start' } }
             ]
         },
-        footprint: null
+        footprint: 'Package_TO_SOT_THT:TO-92_Inline',
+        footprintName: 'Package_TO_SOT_THT:TO-92_Inline',
+        hasFootprint: true
     },
     
     {
@@ -663,9 +697,13 @@ export const BuiltInComponents = [
                 { number: '', name: 'D', x: 1.524, y: 3.175, orientation: 'down', length: 0, type: 'passive', shape: 'line', namePos: { x: 2.424, y: 4.075, anchor: 'start' } }
             ]
         },
-        footprint: null
+        footprint: 'Package_TO_SOT_SMD:SOT-23',
+        footprintName: 'Package_TO_SOT_SMD:SOT-23',
+        hasFootprint: true
     }
 ];
 
 export default BuiltInComponents;
+
+
 

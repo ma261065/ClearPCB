@@ -5,6 +5,7 @@ import { globalEventBus } from '../core/EventBus.js';
 import { CommandHistory } from '../core/CommandHistory.js';
 import { SelectionManager } from '../core/SelectionManager.js';
 import { FileManager } from '../core/FileManager.js';
+import { storageManager } from '../core/StorageManager.js';
 import { pointsMatch } from '../core/geometry.js';
 import { ComponentPicker } from '../components/ComponentPicker.js';
 import { createShape } from '../shapes/index.js';
@@ -239,9 +240,11 @@ export default class SchematicApp {
         // Start auto-save
         this.fileManager.startAutoSave(() => this._serializeDocument());
 
-        // Eagerly warm the KiCad index cache in the background.
-        // If the cache is fresh this is a no-op; if expired it silently
-        // refreshes so the index is ready when the user opens the picker.
+        // Start KiCad index loading/refresh in the background immediately.
+        // - If no cache exists: downloads index now.
+        // - If stale cache exists: serves cached index and refreshes silently.
+        // The picker attaches a progress callback if opened while a first-time
+        // download is still in flight.
         this.componentLibrary.kicadFetcher?.ensureIndexLoaded()
             ?.catch(err => console.warn('KiCad background index warm-up failed:', err));
 
@@ -1068,7 +1071,7 @@ export default class SchematicApp {
     }
 
     /**
-     * Clears cached component data from localStorage.
+     * Clears cached component/search data from IndexedDB storage and legacy localStorage.
      */
     async _clearComponentCaches() {
         if (!await this._confirm('Clear cached components and search results?', { title: 'Clear Cache', okText: 'Yes', cancelText: 'No' })) {
@@ -1086,6 +1089,22 @@ export default class SchematicApp {
         ];
 
         let removed = 0;
+
+        // Remove exact critical keys explicitly (works even if expired entries
+        // are omitted from storageManager.keys()).
+        for (const key of exactKeys) {
+            storageManager.remove(key);
+        }
+
+        // Clear IndexedDB-backed cache entries first (current storage backend).
+        for (const key of storageManager.keys()) {
+            if (prefixes.some(prefix => key.startsWith(prefix)) || exactKeys.includes(key)) {
+                storageManager.remove(key);
+                removed += 1;
+            }
+        }
+
+        // Also clear legacy localStorage entries for compatibility with older builds.
         Object.keys(localStorage).forEach((key) => {
             if (prefixes.some(prefix => key.startsWith(prefix)) || exactKeys.includes(key)) {
                 localStorage.removeItem(key);

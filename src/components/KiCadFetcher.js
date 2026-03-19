@@ -20,6 +20,8 @@ const KICAD_GIT_REFS = ['master', 'main'];
 const KICAD_SYMBOLS_PROJECT_PATH = 'kicad%2Flibraries%2Fkicad-symbols';
 const KICAD_LIBRARY_INDEX_CACHE_KEY = 'kicad_library_index';
 const KICAD_FULL_SYMBOL_INDEX_CACHE_KEY = 'kicad_full_symbol_index';
+const MIN_EXPECTED_LIBRARY_COUNT = 100;
+const REQUIRED_LIBRARY_NAMES = ['Device', 'Timer'];
 
 export class KiCadFetcher {
     /** Initialise GitLab base URLs, CORS proxies and in-memory caches. */
@@ -43,6 +45,7 @@ export class KiCadFetcher {
         this._symdirCache = new Map();
         this.libraryIndex = null;
         this._indexLoadPromise = null;
+        this._indexProgress = null;
         this.libraryPathIndex = null;
         this.fetchFailed = false;
     }
@@ -409,12 +412,12 @@ export class KiCadFetcher {
      * Fetch the first valid text payload from URL candidates.
      * @param {string[]} targetUrls
      * @param {Object} options
-     * @param {(content: unknown) => boolean} options.validator
+    * @param {(content: unknown) => boolean} [options.validator]
      * @param {string} [options.errorContext='KiCad fetch error']
      * @param {string} [options.logPrefix]
      * @returns {Promise<string|null>}
      */
-    async _fetchFirstValidContentFromUrls(targetUrls, { validator, errorContext = 'KiCad fetch error', logPrefix } = {}) {
+    async _fetchFirstValidContentFromUrls(targetUrls, { validator = () => true, errorContext = 'KiCad fetch error', logPrefix } = {}) {
         for (const targetUrl of targetUrls) {
             if (logPrefix) {
                 console.log(logPrefix);
@@ -947,6 +950,13 @@ export class KiCadFetcher {
         // (e.g. debounced keystrokes) still show the progress bar.
         if (onProgress) {
             this._onProgress = onProgress;
+            if (!this.libraryIndex && this._indexLoadPromise) {
+                this._emitIndexProgress(this._indexProgress || {
+                    loaded: 0,
+                    total: 0,
+                    message: 'Loading KiCad library index...'
+                });
+            }
         }
 
         // Wait for StorageManager to finish loading from IndexedDB
@@ -963,23 +973,28 @@ export class KiCadFetcher {
 
         if (cached && cached.data && typeof cached.data === 'object'
             && Object.keys(cached.data).length > 0) {
-            this.libraryIndex = { symbols: cached.data };
-            for (const [lib, symbols] of Object.entries(cached.data)) {
-                if (!this._symdirCache.has(lib)) {
-                    this._symdirCache.set(lib, symbols);
+            if (this._isLikelyValidSymbolIndex(cached.data)) {
+                this.libraryIndex = { symbols: cached.data };
+                for (const [lib, symbols] of Object.entries(cached.data)) {
+                    if (!this._symdirCache.has(lib)) {
+                        this._symdirCache.set(lib, symbols);
+                    }
                 }
+
+                if (cached.expired) {
+                    // Serve stale data now — refresh silently in the background
+                    console.log('KiCadFetcher: Serving stale index, refreshing in background...');
+                    this._refreshIndexInBackground();
+                }
+                return;
             }
 
-            if (cached.expired) {
-                // Serve stale data now — refresh silently in the background
-                console.log('KiCadFetcher: Serving stale index, refreshing in background...');
-                this._refreshIndexInBackground();
-            }
-            return;
+            console.warn('KiCadFetcher: Cached symbol index appears incomplete; rebuilding from GitLab.');
         }
 
         // No cached data at all (first visit) — fetch with progress bar
         if (!this._indexLoadPromise) {
+            this._emitIndexProgress({ loaded: 0, total: 0, message: 'Loading KiCad library index...' });
             this._indexLoadPromise = this._fetchFullSymbolIndex()
                 .finally(() => {
                     this._indexLoadPromise = null;
@@ -987,6 +1002,26 @@ export class KiCadFetcher {
                 });
         }
         return this._indexLoadPromise;
+    }
+
+    /**
+     * Heuristic guard against partial cached indexes (e.g. interrupted downloads).
+     * @param {Object.<string, string[]>} indexData
+     * @returns {boolean}
+     */
+    _isLikelyValidSymbolIndex(indexData) {
+        if (!indexData || typeof indexData !== 'object') {
+            return false;
+        }
+
+        const libNames = Object.keys(indexData);
+        if (libNames.length < MIN_EXPECTED_LIBRARY_COUNT) {
+            return false;
+        }
+
+        return REQUIRED_LIBRARY_NAMES.every(name =>
+            Array.isArray(indexData[name]) && indexData[name].length > 0
+        );
     }
 
     /**
@@ -1002,87 +1037,152 @@ export class KiCadFetcher {
     }
 
     /**
+     * Persist latest index progress and notify active UI callback (if any).
+     * @param {{loaded:number,total:number,message:string}} progress
+     */
+    _emitIndexProgress(progress) {
+        this._indexProgress = progress;
+        if (this._onProgress) {
+            this._onProgress(progress);
+        }
+    }
+
+    /**
      * Fetch the complete symbol index from GitLab using the recursive tree API.
      * Parses paths like "Timer.kicad_symdir/NE555D.kicad_sym" to build
      * { Timer: ['NE555D', ...], ... }.  Caches the result for 7 days.
      */
     async _fetchFullSymbolIndex() {
         const refs = KICAD_GIT_REFS;
+        const pageSize = 100;
+        const parallelPages = 8;
+        const minCompletionRatio = 0.9;
+
+        const processEntries = (entries, index) => {
+            if (!Array.isArray(entries)) {
+                return 0;
+            }
+
+            for (const entry of entries) {
+                if (entry.type !== 'blob') continue;
+                const p = entry.path;
+                if (!p || !p.endsWith('.kicad_sym')) continue;
+
+                const parts = p.split('/');
+                if (parts.length !== 2) continue;
+
+                const dir = parts[0];
+                if (!dir.endsWith('.kicad_symdir')) continue;
+
+                const libName = dir.replace(/\.kicad_symdir$/, '');
+                const symName = parts[1].replace(/\.kicad_sym$/, '');
+                if (!index[libName]) index[libName] = [];
+                index[libName].push(symName);
+            }
+
+            return entries.length;
+        };
 
         for (const ref of refs) {
             const index = {};
-            let page = 1;
-            let hasMore = true;
             let totalEntries = 0;
             let totalExpected = 0;
+            let failedPages = 0;
 
-            if (this._onProgress) {
-                this._onProgress({ loaded: 0, total: 0, message: 'Connecting to KiCad library...' });
+            this._emitIndexProgress({ loaded: 0, total: 0, message: 'Connecting to KiCad library...' });
+
+            const firstPage = await this._fetchGitLabTreePage({
+                projectPath: KICAD_SYMBOLS_PROJECT_PATH,
+                recursive: true,
+                ref,
+                perPage: pageSize,
+                page: 1
+            }, true);
+
+            if (!firstPage || !Array.isArray(firstPage.json) || firstPage.json.length === 0) {
+                continue;
             }
 
-            while (hasMore) {
-                // On the first page, read the x-total header for progress
-                let data;
-                if (page === 1) {
-                    const result = await this._fetchGitLabTreePage({
+            const xt = firstPage.headers?.get('x-total');
+            if (xt) {
+                totalExpected = parseInt(xt, 10) || 0;
+            }
+
+            totalEntries += processEntries(firstPage.json, index);
+
+            let totalPages = 1;
+            const totalPagesHeader = firstPage.headers?.get('x-total-pages');
+            if (totalPagesHeader) {
+                totalPages = Math.max(1, parseInt(totalPagesHeader, 10) || 1);
+            } else if (totalExpected > 0) {
+                totalPages = Math.max(1, Math.ceil(totalExpected / pageSize));
+            }
+
+            {
+                const libCount = Object.keys(index).length;
+                const symCount = Object.values(index).reduce((n, a) => n + a.length, 0);
+                const pct = totalExpected > 0
+                    ? ` (${Math.round(totalEntries / totalExpected * 100)}%)`
+                    : '';
+                this._emitIndexProgress({
+                    loaded: totalEntries,
+                    total: totalExpected,
+                    message: `Indexing KiCad library${pct}... ${libCount} libraries, ${symCount} symbols`
+                });
+            }
+
+            for (let startPage = 2; startPage <= totalPages; startPage += parallelPages) {
+                const pages = [];
+                for (let page = startPage; page < startPage + parallelPages && page <= totalPages; page++) {
+                    pages.push(page);
+                }
+
+                const pageResults = await Promise.all(
+                    pages.map(page => this._fetchGitLabTreePage({
                         projectPath: KICAD_SYMBOLS_PROJECT_PATH,
                         recursive: true,
                         ref,
-                        perPage: 100,
+                        perPage: pageSize,
                         page
-                    }, true);
-                    if (!result) { hasMore = false; break; }
-                    data = result.json;
-                    const xt = result.headers?.get('x-total');
-                    if (xt) totalExpected = parseInt(xt, 10) || 0;
-                } else {
-                    data = await this._fetchGitLabTreePage({
-                        projectPath: KICAD_SYMBOLS_PROJECT_PATH,
-                        recursive: true,
-                        ref,
-                        perPage: 100,
-                        page
-                    });
+                    }))
+                );
+
+                for (const data of pageResults) {
+                    if (!Array.isArray(data)) {
+                        failedPages++;
+                        continue;
+                    }
+                    totalEntries += processEntries(data, index);
                 }
 
-                if (!Array.isArray(data) || data.length === 0) {
-                    hasMore = false;
-                    break;
-                }
-
-                for (const entry of data) {
-                    if (entry.type !== 'blob') continue;
-                    const p = entry.path;
-                    if (!p || !p.endsWith('.kicad_sym')) continue;
-
-                    const parts = p.split('/');
-                    if (parts.length !== 2) continue;
-
-                    const dir = parts[0];
-                    if (!dir.endsWith('.kicad_symdir')) continue;
-
-                    const libName = dir.replace(/\.kicad_symdir$/, '');
-                    const symName = parts[1].replace(/\.kicad_sym$/, '');
-                    if (!index[libName]) index[libName] = [];
-                    index[libName].push(symName);
-                }
-
-                totalEntries += data.length;
-                if (this._onProgress) {
+                {
                     const libCount = Object.keys(index).length;
                     const symCount = Object.values(index).reduce((n, a) => n + a.length, 0);
                     const pct = totalExpected > 0
                         ? ` (${Math.round(totalEntries / totalExpected * 100)}%)`
                         : '';
-                    this._onProgress({
+                    this._emitIndexProgress({
                         loaded: totalEntries,
                         total: totalExpected,
                         message: `Indexing KiCad library${pct}... ${libCount} libraries, ${symCount} symbols`
                     });
                 }
+            }
 
-                hasMore = data.length >= 100;
-                page++;
+            const completionRatio = totalExpected > 0
+                ? (totalEntries / totalExpected)
+                : 1;
+            const hasRequiredLibraries = REQUIRED_LIBRARY_NAMES.every(name =>
+                Array.isArray(index[name]) && index[name].length > 0
+            );
+
+            if (failedPages > 0 || completionRatio < minCompletionRatio || !hasRequiredLibraries) {
+                console.warn(
+                    `KiCadFetcher: Incomplete index fetch (ref=${ref}, failedPages=${failedPages}, ` +
+                    `completion=${(completionRatio * 100).toFixed(1)}%, hasRequired=${hasRequiredLibraries}); ` +
+                    'discarding partial index.'
+                );
+                continue;
             }
 
             if (Object.keys(index).length > 0) {
@@ -1100,6 +1200,11 @@ export class KiCadFetcher {
 
                 console.log(`KiCadFetcher: Full index loaded — ${Object.keys(index).length} libraries, ` +
                     `${Object.values(index).reduce((n, a) => n + a.length, 0)} symbols`);
+                this._emitIndexProgress({
+                    loaded: totalExpected || totalEntries,
+                    total: totalExpected || totalEntries,
+                    message: 'KiCad library index ready'
+                });
                 return;
             }
         }
