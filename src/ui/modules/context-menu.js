@@ -376,6 +376,69 @@ export function deleteWire(app, wire) {
     app.renderShapes(true);
 }
 
+/**
+ * Disconnect a wire endpoint from a pin and immediately enter anchor-drag,
+ * mirroring the user flow of "Split junction".
+ */
+function disconnectPinAndDrag(app, wire, anchorId) {
+    if (!wire || wire.type !== 'wire' || !wire.nodes?.has(anchorId)) return;
+    const conn = wire.pinConnections?.get(anchorId);
+    const pos = wire.nodes.get(anchorId);
+    if (!conn || !pos) return;
+
+    const beforeState = app._captureShapeState(wire);
+
+    const tjLinks = [];
+    const wireStates = new Map();
+    for (const other of app.shapes) {
+        if (other === wire || other.type !== 'wire') continue;
+        const otherNid = other.nodeAt(pos, VERTEX_EPSILON);
+        if (otherNid) {
+            tjLinks.push({ otherWire: other, otherNodeId: otherNid });
+            if (!wireStates.has(other)) wireStates.set(other, app._captureShapeState(other));
+        }
+    }
+
+    const ncLinks = [];
+    for (const s of app.shapes) {
+        if (s.type !== 'noconnect') continue;
+        if (Math.hypot(s.x - pos.x, s.y - pos.y) < VERTEX_EPSILON) {
+            ncLinks.push({ nc: s, before: s.captureState() });
+        }
+    }
+
+    app.selection.clearSelection();
+    app.selection.select(wire, false);
+    wire.selected = true;
+
+    app.drag = {
+        mode: 'anchor',
+        shape: wire,
+        beforeState,
+        start: { x: pos.x, y: pos.y },
+        startScreen: null,
+        anchorId,
+        wireAnchorOriginal: { x: pos.x, y: pos.y },
+        tjLinks,
+        wireStates,
+        excludePin: {
+            component: { id: conn.componentId },
+            pin: { number: conn.pinNumber },
+            worldPos: { x: pos.x, y: pos.y }
+        },
+        ncLinks,
+        junctionBeforeWireStates: null,
+        junctionBeforeLabelTextStates: null
+    };
+    app.interactionState = 'anchorDrag';
+    app.didDrag = false;
+
+    app.renderShapes(true);
+    app._showCrosshair();
+    app._updateCrosshair(pos);
+    app.viewport.svg.style.cursor = 'move';
+}
+
 // ─── Context menu UI ───────────────────────────────────────────────
 
 // ─── Shared context menu builder ───────────────────────────────────
@@ -420,6 +483,7 @@ function createContextMenu(items, clientX, clientY) {
  */
 export function showAnchorContextMenu(app, shape, anchorId, clientX, clientY, canDeletePoint = true, junctionInfo = null) {
     const items = [];
+    const canDisconnectPin = shape?.type === 'wire' && shape.pinConnections?.has(anchorId);
 
     if (canDeletePoint) {
         items.push({
@@ -447,6 +511,13 @@ export function showAnchorContextMenu(app, shape, anchorId, clientX, clientY, ca
         items.push({
             text: 'Split junction',
             onClick: () => deleteJunction(app, junctionInfo)
+        });
+    }
+
+    if (canDisconnectPin) {
+        items.push({
+            text: 'Disconnect pin',
+            onClick: () => disconnectPinAndDrag(app, shape, anchorId)
         });
     }
 

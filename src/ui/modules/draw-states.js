@@ -530,8 +530,9 @@ function handleAnchorContextMenu(app, worldPos, clientX, clientY) {
                     shape.points && shape.points.length >= minPoints;
             }
             const junctionInfo = detectTJunction(app, shape, anchorId);
+            const canDisconnectPin = shape.type === 'wire' && shape.pinConnections.has(anchorId);
             if (junctionInfo && shape.type === 'wire') canDeletePoint = false;
-            if (canDeletePoint || junctionInfo) {
+            if (canDeletePoint || junctionInfo || canDisconnectPin) {
                 showAnchorContextMenu(app, shape, anchorId, clientX, clientY, canDeletePoint, junctionInfo);
                 return true;
             }
