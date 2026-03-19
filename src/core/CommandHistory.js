@@ -6,6 +6,7 @@
 
 import { freeWireLabel, bumpWireLabelCounter, freeNetName, bumpNetNameCounter } from '../shapes/wire.js';
 import { applyStickyConnections } from '../ui/modules/sticky-wires.js';
+import { connectComponentPinsToWires, PIN_ATTACH_TOL } from '../ui/modules/pin-wire-connect.js';
 
 /**
  * Update wires connected to a Net label to use its current net name.
@@ -745,13 +746,19 @@ export class AddComponentCommand extends Command {
                     for (const pin of comp.symbol.pins) {
                         const pinPos = comp.getPinPosition?.(pin.number);
                         if (!pinPos) continue;
+                        let touchesWire = false;
                         for (const [, nodePos] of wire.nodes) {
-                            if (Math.abs(nodePos.x - pinPos.x) < 0.15 && Math.abs(nodePos.y - pinPos.y) < 0.15) {
-                                if (!this._wireStatesBeforePlace.has(wire.id)) {
-                                    this._wireStatesBeforePlace.set(wire.id, wire.captureState());
-                                }
+                            if (Math.hypot(nodePos.x - pinPos.x, nodePos.y - pinPos.y) < PIN_ATTACH_TOL) {
+                                touchesWire = true;
                                 break;
                             }
+                        }
+                        if (!touchesWire && typeof wire.closestEdge === 'function') {
+                            const edge = wire.closestEdge(pinPos);
+                            if (edge && edge.distance < PIN_ATTACH_TOL) touchesWire = true;
+                        }
+                        if (touchesWire && !this._wireStatesBeforePlace.has(wire.id)) {
+                            this._wireStatesBeforePlace.set(wire.id, wire.captureState());
                         }
                     }
                 }
@@ -776,6 +783,14 @@ export class AddComponentCommand extends Command {
                 }
             }
         }
+
+        // Symmetric with drag/drop behavior: if a pin lands on a wire segment,
+        // split that segment to create an anchor and connect immediately.
+        connectComponentPinsToWires(this.app, this.component, {
+            connectPinConnections: true,
+            tolerance: PIN_ATTACH_TOL
+        });
+
         this.app._updateSelectableItems();
         this.app.fileManager.setDirty(true);
     }

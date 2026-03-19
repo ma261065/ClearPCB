@@ -13,7 +13,7 @@
 import { MoveShapesCommand, ModifyShapeCommand, DeleteShapesCommand, BatchCommand } from '../../core/CommandHistory.js';
 import { reconcileWires, reconcileWiresWithUndo, refreshWireConnections, refreshNoConnectConnection, collapseRedundantWirePoints, buildWireDiffBatch } from './wire.js';
 import { validateNetNameAtPoint } from './net-validation.js';
-import { connectNetToWires, disconnectNetFromWires } from './shape-management.js';
+import { connectNetToWires, disconnectNetFromWires, connectComponentPinsToWires } from './shape-management.js';
 
 /**
  * Compare two captured shape states for equality.
@@ -470,6 +470,13 @@ export function commitMoveDrag(app, totalDx, totalDy) {
     for (const netShape of movedNets) {
         disconnectNetFromWires(app, netShape);
         connectNetToWires(app, netShape);
+    }
+
+    // Post-move: like Net labels, if a moved component pin lands on a wire
+    // segment interior, split the edge so the pin can connect at that point.
+    const movedComponents = movedShapes.filter(s => s.definition && s.symbol?.pins);
+    for (const comp of movedComponents) {
+        connectComponentPinsToWires(app, comp);
     }
 
     // Post-move: refresh wire connections and capture state changes for undo

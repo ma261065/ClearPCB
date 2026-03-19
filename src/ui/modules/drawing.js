@@ -24,7 +24,6 @@ function nextNetName_(app) {
 function defaultNetText(app, style) {
     if (app.toolOptions.netPresetText) return app.toolOptions.netPresetText;
     if (style === 'gnd') return 'Gnd';
-    if (style === 'arrow') return 'VCC';
     return nextNetName_(app);
 }
 

@@ -3,6 +3,7 @@ import { freeWireLabel, bumpWireLabelCounter, freeNetName, bumpNetNameCounter, n
 import { Text } from '../../shapes/text.js';
 import { detachLabel, syncAttachedLabels } from './label-attachment.js';
 import { VERTEX_EPSILON } from './wire.js';
+import { connectComponentPinsToWires as _connectComponentPinsToWires, connectPinsToWires } from './pin-wire-connect.js';
 
 /**
  * Adds a shape to the canvas via an undoable `AddShapeCommand`.
@@ -429,52 +430,39 @@ export { _connectNetToWires as connectNetToWires };
 export { _disconnectNetFromWires as disconnectNetFromWires };
 
 /**
+ * Ensure each component pin that lands on a wire segment creates a node
+ * (split edge) so connectivity can be established by refreshWireConnections.
+ * Mirrors the Net label mid-segment split behavior.
+ *
+ * @param {object} app
+ * @param {object} component
+ */
+export function connectComponentPinsToWires(app, component) {
+    _connectComponentPinsToWires(app, component, {
+        connectPinConnections: false,
+        tolerance: VERTEX_EPSILON
+    });
+}
+
+/**
  * When a Net shape is placed on a wire, record the connection
  * via the wire's pinConnections (reusing the component pin system)
  * and propagate the net name.
  */
 function _connectNetToWires(app, netShape) {
-    const pos = { x: netShape.x, y: netShape.y };
-    for (const shape of app.shapes) {
-        if (shape.type !== 'wire') continue;
-        // Check existing nodes first
-        for (const [nodeId, nodePos] of shape.nodes) {
-            if (Math.hypot(pos.x - nodePos.x, pos.y - nodePos.y) < VERTEX_EPSILON) {
-                shape.pinConnections.set(nodeId, {
-                    componentId: netShape.id,
-                    pinNumber: 'conn'
-                });
-                const netName = netShape.net;
-                if (netName && shape.net !== netName) {
-                    freeNetName(shape.net);
-                    shape.net = netName;
-                    bumpNetNameCounter(netName);
-                }
-                return;
+    connectPinsToWires(app, [{ x: netShape.x, y: netShape.y, pinNumber: 'conn' }], {
+        ownerId: netShape.id,
+        connectPinConnections: true,
+        tolerance: VERTEX_EPSILON,
+        onConnectedWire: (wire) => {
+            const netName = netShape.net;
+            if (netName && wire.net !== netName) {
+                freeNetName(wire.net);
+                wire.net = netName;
+                bumpNetNameCounter(netName);
             }
         }
-        // Check if the net is on a wire edge (mid-segment) — split to create a node
-        if (typeof shape.closestEdge === 'function') {
-            const edge = shape.closestEdge(pos);
-            if (edge && edge.distance < VERTEX_EPSILON) {
-                const split = shape.splitEdge(edge.edgeId, pos);
-                if (split?.newNodeId) {
-                    shape.pinConnections.set(split.newNodeId, {
-                        componentId: netShape.id,
-                        pinNumber: 'conn'
-                    });
-                    const netName = netShape.net;
-                    if (netName && shape.net !== netName) {
-                        freeNetName(shape.net);
-                        shape.net = netName;
-                        bumpNetNameCounter(netName);
-                    }
-                    shape.invalidate();
-                    return;
-                }
-            }
-        }
-    }
+    });
     app._updatePropertiesPanel?.(app.selection?.getSelection?.() || []);
 }
 

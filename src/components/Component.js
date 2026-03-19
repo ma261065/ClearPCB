@@ -1213,7 +1213,10 @@ export class Component {
      * @param {string|number} num - Pin number
      * @returns {Object|undefined}
      */
-    getPin(num) { return this.symbol?.pins?.find(p => p.number === String(num)); }
+    getPin(num) {
+        const key = String(num);
+        return this.symbol?.pins?.find(p => String(p.number) === key);
+    }
 
     /**
      * Move component by delta

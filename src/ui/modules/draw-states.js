@@ -140,9 +140,91 @@ function updateToolCrosshair(app, snapped, screenPos) {
     app._updateCrosshair(snapped, screenPos);
 }
 
-function resolvePinSnapPlacement(app, worldPos) {
-    const resolved = resolveWireSnapPosition(app, worldPos, { pinTolerance: PIN_SNAP_TOL });
+function resolvePinSnapPlacement(app, worldPos, options = {}) {
+    const resolved = resolveWireSnapPosition(app, worldPos, {
+        pinTolerance: PIN_SNAP_TOL,
+        ...options
+    });
     return { resolved, pos: { x: resolved.x, y: resolved.y } };
+}
+
+function getPinWorldWithTransform(pin, baseX, baseY, rotationDeg, mirror) {
+    const lx = Number(pin?.x) || 0;
+    const ly = Number(pin?.y) || 0;
+    const mx = mirror ? -lx : lx;
+    const rad = (rotationDeg || 0) * Math.PI / 180;
+    const cos = Math.cos(rad);
+    const sin = Math.sin(rad);
+    return {
+        x: baseX + (mx * cos - ly * sin),
+        y: baseY + (mx * sin + ly * cos)
+    };
+}
+
+function resolvePlacingComponentSnap(app, placePos) {
+    const def = app.placingComponent;
+    if (!def?.symbol?.pins?.length) return { placePos, pinSnap: null };
+
+    const rotation = app.componentRotation || 0;
+    const mirror = !!app.componentMirror;
+    let best = null;
+
+    for (const pin of def.symbol.pins) {
+        const pinWorld = getPinWorldWithTransform(pin, placePos.x, placePos.y, rotation, mirror);
+        const { resolved } = resolvePinSnapPlacement(app, pinWorld);
+        if (!resolved || resolved.snapType === 'grid') continue;
+        const d = Math.hypot(resolved.x - pinWorld.x, resolved.y - pinWorld.y);
+        if (!best || d < best.distance) {
+            best = { pinWorld, resolved, distance: d };
+        }
+    }
+
+    if (!best) return { placePos, pinSnap: null };
+
+    return {
+        placePos: {
+            x: placePos.x + (best.resolved.x - best.pinWorld.x),
+            y: placePos.y + (best.resolved.y - best.pinWorld.y)
+        },
+        pinSnap: best.resolved
+    };
+}
+
+function resolveDraggingComponentSnap(app, comp, snappedTarget, lastSnapped) {
+    const pins = comp.symbol?.pins || [];
+    if (pins.length === 0) return { targetPos: snappedTarget, pinSnap: null };
+
+    const previewDx = snappedTarget.x - lastSnapped.x;
+    const previewDy = snappedTarget.y - lastSnapped.y;
+    const projectedX = comp.x + previewDx;
+    const projectedY = comp.y + previewDy;
+
+    let best = null;
+    for (const pin of pins) {
+        const pinWorld = getPinWorldWithTransform(pin, projectedX, projectedY, comp.rotation || 0, !!comp.mirror);
+        const { resolved } = resolvePinSnapPlacement(app, pinWorld, {
+            excludePin: {
+                component: comp,
+                pin,
+                pinKey: pin._key || pin._id || pin.number
+            }
+        });
+        if (!resolved || resolved.snapType === 'grid') continue;
+        const d = Math.hypot(resolved.x - pinWorld.x, resolved.y - pinWorld.y);
+        if (!best || d < best.distance) {
+            best = { pinWorld, resolved, distance: d };
+        }
+    }
+
+    if (!best) return { targetPos: snappedTarget, pinSnap: null };
+
+    return {
+        targetPos: {
+            x: snappedTarget.x + (best.resolved.x - best.pinWorld.x),
+            y: snappedTarget.y + (best.resolved.y - best.pinWorld.y)
+        },
+        pinSnap: best.resolved
+    };
 }
 
 function handleComponentTooltipContextMenu(app, worldPos, screenPos) {
@@ -1023,7 +1105,8 @@ export const toolActiveState = {
             return;
         }
         if (app.placingComponent) {
-            app._placeComponent(snapped);
+            const placement = resolvePlacingComponentSnap(app, snapped);
+            app._placeComponent(placement.placePos);
             event.preventDefault();
             return;
         }
@@ -1117,7 +1200,11 @@ export const toolActiveState = {
 
         // Placement previews
         if (app.pastingClipboard) app._updatePastePreview(snapped);
-        if (app.placingComponent) app._updateComponentPreview(snapped);
+        if (app.placingComponent) {
+            const placement = resolvePlacingComponentSnap(app, snapped);
+            app._updateComponentPreview(placement.placePos);
+            updateSnapHighlight(app, placement.pinSnap);
+        }
 
         const tool = app.currentTool;
 
@@ -1230,7 +1317,11 @@ export const drawingState = {
         handleComponentTooltipMouseMove(app, worldPos, screenPos);
 
         if (app.pastingClipboard) app._updatePastePreview(snapped);
-        if (app.placingComponent) app._updateComponentPreview(snapped);
+        if (app.placingComponent) {
+            const placement = resolvePlacingComponentSnap(app, snapped);
+            app._updateComponentPreview(placement.placePos);
+            updateSnapHighlight(app, placement.pinSnap);
+        }
 
         const tool = app.currentTool;
 
@@ -1357,25 +1448,48 @@ export const moveDragState = {
             app._labelDragHoverTarget = null;
         }
 
-        // Net shape drag: show snap highlight only when not already connected to a wire
-        const isDraggingNet = selNow.length === 1 && selNow[0]?.type === 'net';
-        if (isDraggingNet) {
-            const netShape = selNow[0];
-            const alreadyConnected = netShape.id && app.shapes.some(s =>
-                s.type === 'wire' && [...s.pinConnections.values()].some(c => c.componentId === netShape.id)
-            );
-            if (!alreadyConnected) {
-                const { resolved } = resolvePinSnapPlacement(app, worldPos);
-                updateSnapHighlight(app, resolved);
-            }
-        }
-
         const mouseDelta = { x: worldPos.x - app.drag.startWorldPos.x, y: worldPos.y - app.drag.startWorldPos.y };
         const targetPos = { x: app.drag.objectStartPos.x + mouseDelta.x, y: app.drag.objectStartPos.y + mouseDelta.y };
         const sel = app.selection.getSelection();
         const movingCompIds = collectMovingComponentIds(sel);
         const snappedTarget = app._moveDragSnappedTarget || (app._moveDragSnappedTarget = { x: 0, y: 0 });
         const stickyGuides = resolveMoveDragTarget(app, targetPos, sel, movingCompIds, snappedTarget);
+
+        // Net drag highlight should follow projected snapped shape position,
+        // not raw mouse movement, to avoid flicker when shape is stationary.
+        const dragNet = selNow.length === 1 && selNow[0]?.type === 'net' ? selNow[0] : null;
+        let deferredNetSnap = null;
+        if (dragNet) {
+            const alreadyConnected = dragNet.id && app.shapes.some(s =>
+                s.type === 'wire' && [...s.pinConnections.values()].some(c => c.componentId === dragNet.id)
+            );
+            if (!alreadyConnected) {
+                const previewDx = snappedTarget.x - app.drag.lastSnapped.x;
+                const previewDy = snappedTarget.y - app.drag.lastSnapped.y;
+                const pinProbe = {
+                    x: dragNet.x + previewDx,
+                    y: dragNet.y + previewDy
+                };
+                const netPin = dragNet.symbol?.pins?.[0] || null;
+                const { resolved } = resolvePinSnapPlacement(app, pinProbe, {
+                    excludePin: netPin
+                        ? { component: dragNet, pin: netPin, pinKey: netPin._key || netPin._id || netPin.number }
+                        : null
+                });
+                deferredNetSnap = resolved;
+            }
+        }
+
+        // Component drag: show snap highlight when an unconnected pin would
+        // land on a wire node after this frame's snapped movement.
+        const dragComp = selNow.find(s => s.definition && s.symbol?.pins);
+        let deferredComponentSnap = null;
+        if (dragComp) {
+            const compSnap = resolveDraggingComponentSnap(app, dragComp, snappedTarget, app.drag.lastSnapped);
+            snappedTarget.x = compSnap.targetPos.x;
+            snappedTarget.y = compSnap.targetPos.y;
+            deferredComponentSnap = compSnap.pinSnap;
+        }
 
         const dx = snappedTarget.x - app.drag.lastSnapped.x;
         const dy = snappedTarget.y - app.drag.lastSnapped.y;
@@ -1406,6 +1520,12 @@ export const moveDragState = {
             app.renderShapes(false);
             if (app.textEdit) app._updateTextEditOverlay?.();
             app.fileManager.setDirty(true);
+        }
+
+        if (dragComp) {
+            updateSnapHighlight(app, deferredComponentSnap);
+        } else if (dragNet) {
+            updateSnapHighlight(app, deferredNetSnap);
         }
     },
 
@@ -1606,7 +1726,8 @@ export const placingState = {
             return;
         }
         if (app.placingComponent) {
-            app._placeComponent(snapped);
+            const placement = resolvePlacingComponentSnap(app, snapped);
+            app._placeComponent(placement.placePos);
             event.preventDefault();
             return;
         }
@@ -1614,7 +1735,12 @@ export const placingState = {
 
     mousemove(app, event, { screenPos, worldPos, snapped }) {
         if (app.pastingClipboard) app._updatePastePreview(snapped);
-        if (app.placingComponent) app._updateComponentPreview(snapped);
+        if (app.placingComponent) {
+            const placement = resolvePlacingComponentSnap(app, snapped);
+            app._updateComponentPreview(placement.placePos);
+            updateSnapHighlight(app, placement.pinSnap);
+        }
+
         updateToolCrosshair(app, snapped, screenPos);
     }
 };

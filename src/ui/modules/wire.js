@@ -733,7 +733,8 @@ function _showWireJunctionDot(app, pos) {
     dot.setAttribute('stroke', 'none');
     dot.setAttribute('pointer-events', 'none');
     dot.classList.add('wire-junction-highlight');
-    app.viewport.contentLayer.appendChild(dot);
+    // Attach to root SVG so the highlight always paints above content/component layers.
+    app.viewport.svg.appendChild(dot);
     app._wireJunctionDot = dot;
 }
 
