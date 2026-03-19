@@ -376,6 +376,9 @@ export function updateTextEditOverlay(app) {
         bbox = null;
     }
 
+    const normalized = normalizeTextBBox(shape, el, bbox, usesNestedTextCoords);
+    bbox = normalized || bbox;
+
     const pad = 0.4;
     const minHeight = Math.max(shape.fontSize || 2.5, 1);
     const minWidth = Math.max((shape.fontSize || 2.5) * 0.6, 1);
@@ -414,6 +417,35 @@ export function updateTextEditOverlay(app) {
     state.overlayCaret.setAttribute('x2', caretX);
     state.overlayCaret.setAttribute('y1', caretTop);
     state.overlayCaret.setAttribute('y2', caretBottom);
+}
+
+function normalizeTextBBox(shape, el, bbox, usesNestedTextCoords) {
+    if (!bbox) return null;
+
+    const metrics = measureOverlayVerticalMetrics(shape);
+    if (!metrics) return null;
+
+    const yAttr = parseFloat(el?.getAttribute?.('y') || '0');
+    const baselineY = Number.isFinite(yAttr)
+        ? yAttr
+        : (Number.isFinite(bbox.y) ? (bbox.y + metrics.ascent) : (usesNestedTextCoords ? 0 : Number(shape?.y) || 0));
+
+    return {
+        x: bbox.x,
+        y: baselineY - metrics.ascent,
+        width: bbox.width,
+        height: metrics.height
+    };
+}
+
+function measureOverlayVerticalMetrics(shape) {
+    const fontSize = Math.max(Number(shape?.fontSize) || 0, 1);
+    // Keep edit-box sizing behavior identical across wire/component/net labels.
+    // Ratios are intentionally conservative: enough room for descenders
+    // without the oversized lower gap from raw SVG bbox measurements.
+    const ascent = fontSize * 0.78;
+    const descent = fontSize * 0.18;
+    return { ascent, descent, height: ascent + descent };
 }
 
 /**

@@ -5,6 +5,7 @@
 import { closestPointOnSegment, distance } from '../../core/geometry.js';
 
 const WIRE_ATTACHED_LABEL_FONT_SIZE = 1.4;
+const DEFAULT_WIRE_LABEL_OFFSET = 1.0;
 
 function getShapeCenter(shape) {
     if (!shape?.getBounds) return { x: shape?.x || 0, y: shape?.y || 0 };
@@ -135,6 +136,37 @@ function getWireAnchorFromAttachment(wire, attachment) {
     return { x: fallback.point.x, y: fallback.point.y };
 }
 
+function getDefaultWireLabelOffset(wire, closest) {
+    const edge = closest?.edgeId ? wire?.edges?.get(closest.edgeId) : null;
+    const from = edge ? wire.nodes.get(edge.from) : null;
+    const to = edge ? wire.nodes.get(edge.to) : null;
+
+    if (!from || !to) {
+        return { x: 0, y: -DEFAULT_WIRE_LABEL_OFFSET };
+    }
+
+    const dx = to.x - from.x;
+    const dy = to.y - from.y;
+    const len = Math.hypot(dx, dy);
+    if (len < 1e-6) {
+        return { x: 0, y: -DEFAULT_WIRE_LABEL_OFFSET };
+    }
+
+    let nx = -dy / len;
+    let ny = dx / len;
+
+    // Prefer a stable, mostly-upward side when ambiguous.
+    if (ny > 0 || (Math.abs(ny) < 1e-6 && nx < 0)) {
+        nx = -nx;
+        ny = -ny;
+    }
+
+    return {
+        x: nx * DEFAULT_WIRE_LABEL_OFFSET,
+        y: ny * DEFAULT_WIRE_LABEL_OFFSET
+    };
+}
+
 /**
  * Compute the canonical probe point for label attachment targeting.
  *
@@ -211,14 +243,24 @@ export function attachLabelToTarget(labelShape, target, snapPos = null, { isNewL
         const anchor = closest?.point || probe;
         const t = Number.isFinite(closest?.t) ? closest.t : 0.5;
 
+        let offsetX = labelShape.x - anchor.x;
+        let offsetY = labelShape.y - anchor.y;
+        if (isNewLabel && Math.hypot(offsetX, offsetY) < 0.01) {
+            const defaultOffset = getDefaultWireLabelOffset(target, closest);
+            offsetX = defaultOffset.x;
+            offsetY = defaultOffset.y;
+            labelShape.x = anchor.x + offsetX;
+            labelShape.y = anchor.y + offsetY;
+        }
+
         labelShape.attachment = {
             kind: 'wire',
             edgeId: closest?.edgeId || null,
             t,
             anchorX: anchor.x,
             anchorY: anchor.y,
-            offsetX: labelShape.x - anchor.x,
-            offsetY: labelShape.y - anchor.y
+            offsetX,
+            offsetY
         };
 
         if (labelShape.text && labelShape.text !== target.wireLabel) {
