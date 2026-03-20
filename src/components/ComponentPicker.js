@@ -29,6 +29,7 @@ export class ComponentPicker {
         this.selectedComponent = null;
         this.selectedLCSCResult = null;
         this.selectedKiCadResult = null;
+        this.selectedKiCadFootprint = '';
         this.selectedCategory = 'All';
         this.searchQuery = '';
         this.isOpen = false;
@@ -84,7 +85,7 @@ export class ComponentPicker {
                         <span class="cp-spinner"></span>
                         <span class="cp-preview-loading-text">Loading...</span>
                     </div>
-                    <div class="cp-preview-info"></div></div>
+                    <div class="cp-preview-info"></div>
                     <div class="cp-preview-title">Footprint</div>
                     <div class="cp-preview-footprint"></div>
                     <div class="cp-preview-footprint-info"></div>
@@ -285,7 +286,7 @@ export class ComponentPicker {
             </div>
         `;
     }
-    
+
     /**
      * Displays a loading spinner in the component list area.
      */
@@ -539,6 +540,7 @@ export class ComponentPicker {
         itemEl.classList.add('selected');
         
         this.selectedKiCadResult = result;
+        this.selectedKiCadFootprint = '';
         this.selectedKiCadItem = itemEl;
         this.selectedComponent = null;
         this.selectedLCSCResult = null;
@@ -584,6 +586,7 @@ export class ComponentPicker {
             const kicadSymbol = kicadDefinition?.symbol || kicadDefinition;
             const kicadProperties = kicadDefinition?.properties || kicadDefinition?.symbol?.properties || kicadSymbol?.properties;
             const footprintName = this._getPropertyValue(kicadProperties, 'Footprint');
+            const footprintFilters = this._getFootprintFilters(kicadProperties);
 
             if (kicadSymbol) {
                 const previewDef = kicadDefinition?.symbol
@@ -614,7 +617,85 @@ export class ComponentPicker {
             }
 
             if (!footprintName) {
-                this._setFootprintPreviewStatus('Footprint not specified', false);
+                if (footprintFilters.length > 0) {
+                    this._setFootprintPreviewStatus('Searching footprint options...', false);
+                    let candidates = await this.library.kicadFetcher.findFootprintCandidatesByFilters(footprintFilters, { limit: 500 });
+                    if (candidates.length === 0) {
+                        candidates = this._heuristicFootprintCandidates(footprintFilters);
+                    }
+                    const symbolPinCount = this._getSymbolPinCount(kicadSymbol);
+                    candidates = await this._filterPreviewablePinCompatibleCandidates(candidates, symbolPinCount, selId, 20);
+                    if (candidates.length === 0) {
+                        // Last resort to avoid blank chooser.
+                        candidates = this._rankFootprintCandidatesByPinCount(
+                            await this.library.kicadFetcher.findFootprintCandidatesByFilters(footprintFilters, { limit: 120 }),
+                            symbolPinCount,
+                            10
+                        );
+                    }
+                    if (!this.selectionRequestGate.isCurrent(selId)) return;
+
+                    const hasRenderable = (kicadSymbol?.pins?.length || 0) > 0 || (kicadSymbol?.graphics?.length || 0) > 0;
+                    const placeDefNoFp = this._buildKiCadDefinition(kicadDefinition, result);
+
+                    if (candidates.length > 0) {
+                        this._renderKiCadFootprintChoices({
+                            candidates,
+                            selected: this.selectedKiCadFootprint || candidates[0],
+                            selId,
+                            onPick: (picked) => {
+                                this.selectedKiCadFootprint = picked;
+                                this._setPlaceBtnLoading('Place Component', false);
+                                if (!picked) {
+                                    this.placeBtn.disabled = true;
+                                    this.placeBtn.textContent = 'Place Component';
+                                    this.placeBtn.onclick = null;
+                                    this._set3dPreviewStatus('Select a footprint first', false);
+                                } else {
+                                    this.placeBtn.disabled = !hasRenderable;
+                                    this.placeBtn.textContent = 'Place Component';
+                                    if (hasRenderable) {
+                                        this.placeBtn.onclick = () => {
+                                            const def = this._buildKiCadDefinition(kicadDefinition, result);
+                                            def.footprint = picked;
+                                            def.footprintName = picked;
+                                            def.hasFootprint = true;
+                                            this._beginPlacement(def, { skipFootprint3d: true });
+                                        };
+                                    } else {
+                                        this.placeBtn.onclick = null;
+                                    }
+                                    this._check3dModelForFootprint(picked, selId);
+                                }
+                            }
+                        });
+
+                        if (this.previewFootprintInfo) {
+                            this.previewFootprintInfo.innerHTML = '';
+                        }
+                        this._set3dPreviewStatus('Select a footprint first', false);
+                        this._setPreviewLoading(null);
+                        return;
+                    }
+
+                    const filterLabel = footprintFilters.slice(0, 3).join(', ');
+                    const suffix = footprintFilters.length > 3 ? ' ...' : '';
+                    this._setFootprintPreviewStatus(`Footprint filters: ${filterLabel}${suffix}`, true);
+                    if (this.previewFootprintInfo) {
+                        this.previewFootprintInfo.innerHTML = '<span class="cp-preview-ok">No concrete match found automatically</span>';
+                    }
+
+                    this._set3dPreviewStatus('3D model not verified', false);
+                    this.placeBtn.disabled = !hasRenderable;
+                    this.placeBtn.textContent = hasRenderable ? 'Place Symbol Only' : 'No symbol data';
+                    this.placeBtn.onclick = hasRenderable
+                        ? () => this._beginPlacement(placeDefNoFp, { skipFootprint3d: true })
+                        : null;
+                    this._setPreviewLoading(null);
+                    return;
+                } else {
+                    this._setFootprintPreviewStatus('Footprint not specified', false);
+                }
                 this._set3dPreviewStatus('3D model not verified', false);
                 // Allow placement even without a footprint — it's a schematic symbol
                 const placeDefNoFp = this._buildKiCadDefinition(kicadDefinition, result);
@@ -624,7 +705,6 @@ export class ComponentPicker {
                 if (hasRenderable) {
                     this.placeBtn.onclick = () => this._beginPlacement(placeDefNoFp, { skipFootprint3d: true });
                 }
-                console.log('KiCad footprint not specified for', result.library, result.name, kicadSymbol?.properties);
                 return;
             }
 
@@ -1785,6 +1865,11 @@ export class ComponentPicker {
      */
     _setFootprintPreviewStatus(message, available) {
         if (!this.previewFootprint) return;
+        this.previewFootprint.style.height = '80px';
+        this.previewFootprint.style.maxHeight = '';
+        this.previewFootprint.style.overflowY = '';
+        this.previewFootprint.style.alignItems = 'center';
+        this.previewFootprint.style.justifyContent = 'center';
         this.previewFootprint.innerHTML = `<div class="cp-preview-placeholder">${message}</div>`;
         if (this.previewFootprintInfo) {
             this.previewFootprintInfo.innerHTML = available
@@ -1809,6 +1894,357 @@ export class ComponentPicker {
     }
 
     /**
+     * Check 3D model availability for a selected footprint and render preview.
+     * @param {string} footprintName
+     * @param {number} selId
+     */
+    async _check3dModelForFootprint(footprintName, selId) {
+        if (!footprintName) {
+            this._set3dPreviewStatus('Select a footprint first', false);
+            return;
+        }
+        this._set3dPreviewStatus('Checking 3D model...', false);
+        try {
+            const availability = await this.library.kicadFetcher.checkFootprintAvailability(footprintName);
+            if (!this.selectionRequestGate.isCurrent(selId)) return;
+            if (availability.has3d) {
+                this.preview3d.innerHTML = '<div class="cp-preview-placeholder">Loading 3D model...</div>';
+                this.preview3dInfo.innerHTML = '<span style="color:var(--text-muted)">Rendering...</span>';
+                try {
+                    const { STEPPreview } = await import('./STEPPreview.js');
+                    const svgPreview = await STEPPreview.fetchAndRender(availability.modelUrl, {
+                        lineColor: '#444444',
+                        fillColor: '#666666',
+                        lineWidth: 0.8,
+                        strokeOpacity: 0.9,
+                        fillOpacity: 0.7,
+                        proxyUrl: this.library?.kicadFetcher?.corsProxy
+                    });
+                    if (!this.selectionRequestGate.isCurrent(selId)) return;
+                    this.preview3d.innerHTML = '';
+                    const parser = new DOMParser();
+                    const svgDoc = parser.parseFromString(svgPreview, 'image/svg+xml');
+                    this.preview3d.appendChild(svgDoc.documentElement);
+                    this.preview3dInfo.innerHTML = '<span class="cp-preview-ok">3D model available</span>';
+                } catch (e) {
+                    if (!this.selectionRequestGate.isCurrent(selId)) return;
+                    console.error('3D STEP preview error:', e);
+                    this.preview3d.innerHTML = '<div class="cp-preview-placeholder">3D model available (STEP)</div>';
+                    this.preview3dInfo.innerHTML = '<span class="cp-preview-ok">3D model available</span>';
+                }
+            } else {
+                this._set3dPreviewStatus('3D model not found', false);
+            }
+        } catch {
+            if (!this.selectionRequestGate.isCurrent(selId)) return;
+            this._set3dPreviewStatus('3D model check failed', false);
+        }
+    }
+
+    /**
+     * Render candidate footprints (with previews) to help users choose package.
+     * @param {{candidates:string[], selected:string, selId:number, onPick:(picked:string)=>void}} params
+     */
+    _renderKiCadFootprintChoices({ candidates, selected, selId, onPick }) {
+        if (!this.previewFootprint) return;
+
+        this.previewFootprint.innerHTML = '';
+        this.previewFootprint.style.height = '120px';
+        this.previewFootprint.style.maxHeight = '';
+        this.previewFootprint.style.overflowY = '';
+        this.previewFootprint.style.alignItems = 'stretch';
+        this.previewFootprint.style.justifyContent = 'stretch';
+
+        const wrapper = document.createElement('div');
+        wrapper.style.display = 'grid';
+        wrapper.style.gridTemplateRows = 'auto auto 1fr';
+        wrapper.style.gap = '6px';
+        wrapper.style.height = '100%';
+
+        const label = document.createElement('div');
+        label.style.fontSize = '10px';
+        label.style.color = 'var(--text-secondary)';
+        label.textContent = 'Choose a footprint from the dropdown';
+
+        const select = document.createElement('select');
+        select.style.width = '100%';
+        select.style.fontSize = '10px';
+        select.style.padding = '4px';
+        select.style.background = 'var(--bg-secondary)';
+        select.style.color = 'var(--text-primary)';
+        select.style.border = '1px solid var(--border-color)';
+        select.style.borderRadius = '3px';
+
+        const noDefaultOption = document.createElement('option');
+        noDefaultOption.value = '';
+        noDefaultOption.textContent = 'No default footprint';
+        select.appendChild(noDefaultOption);
+
+        for (const fpName of candidates) {
+            const option = document.createElement('option');
+            option.value = fpName;
+            option.textContent = this._formatFootprintOptionLabel(fpName);
+            select.appendChild(option);
+        }
+
+        const previewHost = document.createElement('div');
+        previewHost.style.height = '80px';
+        previewHost.style.borderRadius = '4px';
+        previewHost.style.background = 'var(--bg-canvas)';
+        previewHost.style.display = 'flex';
+        previewHost.style.alignItems = 'center';
+        previewHost.style.justifyContent = 'center';
+        previewHost.style.fontSize = '10px';
+        previewHost.style.color = 'var(--text-muted)';
+        previewHost.textContent = 'Loading...';
+
+        const previewCache = new Map();
+        const renderSelected = async (fpName) => {
+            onPick(fpName || '');
+            if (!fpName) {
+                previewHost.textContent = 'Select a footprint to preview';
+                return;
+            }
+            previewHost.textContent = 'Loading...';
+
+            if (previewCache.has(fpName)) {
+                const cachedSvg = previewCache.get(fpName);
+                previewHost.innerHTML = cachedSvg;
+                return;
+            }
+
+            try {
+                const preview = await this.library.kicadFetcher.fetchFootprintPreview(fpName);
+                if (!this.selectionRequestGate.isCurrent(selId)) return;
+                let svg = '<span>Preview unavailable</span>';
+                if (preview?.shapes?.length) {
+                    svg = this._renderFootprintSVG(preview.shapes, preview.bbox) || '<span>Preview unavailable</span>';
+                }
+                previewCache.set(fpName, svg);
+                if (select.value === fpName) {
+                    previewHost.innerHTML = svg;
+                }
+            } catch {
+                if (!this.selectionRequestGate.isCurrent(selId)) return;
+                if (select.value === fpName) {
+                    previewHost.textContent = 'Preview error';
+                }
+            }
+        };
+
+        select.value = (selected && candidates.includes(selected)) ? selected : '';
+        select.addEventListener('change', () => {
+            renderSelected(select.value);
+        });
+
+        wrapper.appendChild(label);
+        wrapper.appendChild(select);
+        wrapper.appendChild(previewHost);
+        this.previewFootprint.appendChild(wrapper);
+        renderSelected(select.value);
+    }
+
+    /**
+     * Format a user-facing dropdown label while preserving canonical value separately.
+     * @param {string} fpName
+     * @returns {string}
+     */
+    _formatFootprintOptionLabel(fpName) {
+        const [libRaw = '', nameRaw = ''] = String(fpName).split(':');
+        const lib = libRaw.trim();
+        const name = nameRaw.trim();
+        if (!lib || !name) return String(fpName);
+
+        // KiCad-style: show footprint name first, library nickname second.
+        return `${name} (${lib})`;
+    }
+
+    /**
+     * Provide stable fallback footprints for common KiCad fp-filter patterns.
+     * @param {string[]} filters
+     * @returns {string[]}
+     */
+    _heuristicFootprintCandidates(filters) {
+        const normalized = (filters || []).join(' ').toUpperCase().replace(/[^A-Z0-9]/g, '');
+        const out = [];
+        const add = (name) => {
+            if (!out.includes(name)) out.push(name);
+        };
+
+        if (normalized.includes('SOT23')) {
+            add('Package_TO_SOT_SMD:SOT-23');
+            add('Package_TO_SOT_SMD:SOT-23-5');
+            add('Package_TO_SOT_SMD:SOT-23-6');
+        }
+        if (normalized.includes('SC70')) {
+            add('Package_TO_SOT_SMD:SC-70-5');
+            add('Package_TO_SOT_SMD:SC-70-6');
+        }
+        if (normalized.includes('SOIC8') || normalized.includes('SO8')) {
+            add('Package_SO:SOIC-8_3.9x4.9mm_P1.27mm');
+        }
+        if (normalized.includes('TSSOP8')) {
+            add('Package_SO:TSSOP-8_3x3mm_P0.65mm');
+        }
+        if (normalized.includes('MSOP8')) {
+            add('Package_SO:MSOP-8_3x3mm_P0.65mm');
+        }
+        if (normalized.includes('QFN16')) {
+            add('Package_DFN_QFN:QFN-16-1EP_3x3mm_P0.5mm_EP1.7x1.7mm');
+        }
+        if (normalized.includes('DIP8')) {
+            add('Package_DIP:DIP-8_W7.62mm');
+        }
+
+        return out.slice(0, 10);
+    }
+
+    /**
+     * Get symbol pin count for candidate ranking.
+     * @param {Object} kicadSymbol
+     * @returns {number}
+     */
+    _getSymbolPinCount(kicadSymbol) {
+        if (!kicadSymbol || !Array.isArray(kicadSymbol.pins)) return 0;
+        // Use unique pin numbers when present to avoid duplicate-unit inflation.
+        const numbers = new Set(
+            kicadSymbol.pins
+                .map(p => String(p?.number || '').trim())
+                .filter(Boolean)
+        );
+        if (numbers.size > 0) return numbers.size;
+        return kicadSymbol.pins.length;
+    }
+
+    /**
+     * Estimate pin count from footprint name (e.g. SOT-23-6, SOIC-8_*).
+     * @param {string} fpName
+     * @returns {number}
+     */
+    _estimateFootprintPinCount(fpName) {
+        const text = String(fpName || '');
+        if (!text) return 0;
+        const namePart = text.includes(':') ? text.split(':').slice(1).join(':') : text;
+        const upper = namePart.toUpperCase();
+
+        // SOT-23-N family: SOT-23-5 → 5, SOT-23-6 → 6, SOT-23-8 → 8
+        const sot23n = upper.match(/\bSOT-23-?(\d+)/);
+        if (sot23n) {
+            const n = parseInt(sot23n[1], 10);
+            if (n >= 2 && n <= 64) return n;
+        }
+        // Bare SOT-23 / SOT-23W = 3 pads
+        if (/\bSOT-23(?:W)?(?:_|$)/i.test(upper)) return 3;
+
+        // SOT-3X3 family: SOT-323→2, SOT-343→4, SOT-353→5, SOT-363→6
+        const sot3x3 = upper.match(/\bSOT-3(\d)3(?:\D|$)/);
+        if (sot3x3) return parseInt(sot3x3[1], 10);
+
+        // SC-70-N: SC-70-4→4, SC-70-5→5, SC-70-6→6, SC-70-8→8
+        const sc70n = upper.match(/\bSC-?70-?(\d+)/);
+        if (sc70n) {
+            const n = parseInt(sc70n[1], 10);
+            if (n >= 2 && n <= 64) return n;
+        }
+        // Bare SC-70 = SOT-323 = 2 pads
+        if (/\bSC-?70(?:_|$)/.test(upper)) return 2;
+
+        // Generic -N patterns: SOIC-8, TSSOP-14, QFN-16, DIP-8, etc.
+        const genericN = upper.match(/(?:SOIC|TSSOP|MSOP|QFN|DFN|DIP|SOP|SSOP|LQFP|TQFP|BGA)-?(\d+)/);
+        if (genericN) {
+            const n = parseInt(genericN[1], 10);
+            if (n >= 2 && n <= 512) return n;
+        }
+
+        // Fallback: scan underscore segments for small numbers
+        const segments = namePart.split('_').map(s => s.trim()).filter(Boolean);
+        for (const seg of segments) {
+            const nums = Array.from(seg.matchAll(/(\d+)/g))
+                .map(m => parseInt(m[1], 10))
+                .filter(n => Number.isFinite(n) && n >= 2 && n <= 64);
+            if (nums.length > 0) return Math.min(...nums);
+        }
+        return 0;
+    }
+
+    /**
+     * Rank candidates so pin-count-compatible packages appear first.
+     * If exact matches exist, keep only exact matches.
+     * @param {string[]} candidates
+     * @param {number} symbolPinCount
+     * @returns {string[]}
+     */
+    _rankFootprintCandidatesByPinCount(candidates, symbolPinCount, maxCount = 10) {
+        const list = Array.from(new Set((candidates || []).filter(Boolean)));
+        if (!symbolPinCount || list.length <= 1) return list;
+
+        const scored = list.map((name) => {
+            const pins = this._estimateFootprintPinCount(name);
+            const delta = pins > 0 ? Math.abs(pins - symbolPinCount) : 999;
+            return { name, pins, delta };
+        });
+
+        const exact = scored.filter(s => s.pins === symbolPinCount);
+        const others = scored.filter(s => s.pins !== symbolPinCount);
+        const base = exact.length > 0 ? [...exact, ...others] : scored;
+
+        // Keep all filter-matching candidates, but prioritize exact pin-count
+        // matches and cap to a practical list length for follow-up validation.
+        return base
+            .sort((a, b) => a.delta - b.delta || a.name.localeCompare(b.name))
+            .map(s => s.name)
+            .slice(0, Math.max(1, maxCount));
+    }
+
+    /**
+     * Keep deterministic pin-compatible candidates for the dropdown.
+     * Preview availability is checked lazily in the single preview pane
+     * so transient fetch errors don't remove otherwise valid options.
+     * @param {string[]} candidates
+     * @param {number} symbolPinCount
+     * @param {number} selId
+     * @param {number} [maxKeep=12]
+     * @returns {Promise<string[]>}
+     */
+    async _filterPreviewablePinCompatibleCandidates(candidates, symbolPinCount, selId, maxKeep = 20) {
+        if (symbolPinCount <= 0) return (candidates || []).slice(0, maxKeep);
+
+        const kept = [];
+        for (const fpName of candidates || []) {
+            if (!this.selectionRequestGate.isCurrent(selId)) return kept;
+
+            // Quick name-based pre-filter to skip obvious mismatches
+            const estPins = this._estimateFootprintPinCount(fpName);
+            if (estPins > 0 && estPins !== symbolPinCount) continue;
+
+            // Verify with actual pad count from footprint preview
+            try {
+                const preview = await this.library.kicadFetcher.fetchFootprintPreview(fpName);
+                const shapes = Array.isArray(preview?.shapes) ? preview.shapes : [];
+                const numberedPads = new Set();
+                let totalPads = 0;
+                for (const shape of shapes) {
+                    if (typeof shape !== 'string' || !shape.startsWith('PAD~')) continue;
+                    totalPads += 1;
+                    const parts = shape.split('~');
+                    const padNumber = (parts[6] || '').trim();
+                    if (padNumber) numberedPads.add(padNumber);
+                }
+                const padCount = numberedPads.size > 0 ? numberedPads.size : totalPads;
+                // Strict equality like KiCad: unique pad count must equal symbol pin count
+                if (padCount > 0 && padCount !== symbolPinCount) continue;
+                // padCount === 0 means no pad data — name estimation already passed
+            } catch {
+                // Preview fetch failed — name estimation already passed, keep candidate
+            }
+
+            kept.push(fpName);
+            if (kept.length >= maxKeep) break;
+        }
+        return kept;
+    }
+
+    /**
      * Updates the footprint preview panel with rendered SVG from component metadata.
      * @param {Object} metadata - Component metadata containing footprint shapes and bounding box.
      */
@@ -1817,6 +2253,12 @@ export class ComponentPicker {
             this._setFootprintPreviewStatus('No footprint data', false);
             return;
         }
+
+        this.previewFootprint.style.height = '80px';
+        this.previewFootprint.style.maxHeight = '';
+        this.previewFootprint.style.overflowY = '';
+        this.previewFootprint.style.alignItems = 'center';
+        this.previewFootprint.style.justifyContent = 'center';
 
         const name = metadata.footprintName || metadata.package || 'Footprint';
         const svg = this._renderFootprintSVG(metadata.footprintShapes, metadata.footprintBBox);
@@ -1961,6 +2403,8 @@ export class ComponentPicker {
     _buildKiCadDefinition(kicadData, result) {
         const kicadSymbol = kicadData?.symbol || kicadData;
         const kicadProperties = kicadData?.properties || kicadData?.symbol?.properties || kicadSymbol?.properties;
+        const footprintName = this._getPropertyValue(kicadProperties, 'Footprint');
+        const footprintFilters = this._getFootprintFilters(kicadProperties);
         const def = kicadData?.symbol
             ? { ...kicadData, _source: 'KiCad' }
             : {
@@ -1971,6 +2415,17 @@ export class ComponentPicker {
                 _source: 'KiCad'
             };
         def.defaultValue = this._getPropertyValue(kicadProperties, 'Value') || result.name;
+        if (footprintName) {
+            def.footprint = footprintName;
+            def.footprintName = footprintName;
+        }
+        if (footprintFilters.length > 0) {
+            def.footprintFilters = footprintFilters;
+            if (!def.footprintName) {
+                def.footprintName = footprintFilters[0];
+            }
+        }
+        def.hasFootprint = !!(footprintName || footprintFilters.length > 0);
         if (kicadSymbol?._kicadRaw) def._kicadRaw = kicadSymbol._kicadRaw;
         return def;
     }
@@ -1988,6 +2443,18 @@ export class ComponentPicker {
         const lowerKey = key.toLowerCase();
         const match = Object.keys(properties).find(propKey => propKey.toLowerCase() === lowerKey);
         return match ? properties[match] : '';
+    }
+
+    /**
+     * Returns normalized KiCad footprint filter tokens (ki_fp_filters).
+     * @param {Object} properties
+     * @returns {string[]}
+     */
+    _getFootprintFilters(properties) {
+        const raw = this._getPropertyValue(properties, 'ki_fp_filters');
+        if (!raw) return [];
+        const tokens = String(raw).split(/\s+/).map(s => s.trim()).filter(Boolean);
+        return Array.from(new Set(tokens));
     }
     
     /**

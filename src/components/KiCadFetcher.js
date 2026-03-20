@@ -16,12 +16,18 @@ const CONTENT_CACHE_TTL_MS = 7 * DAY_MS;
 const SYMBOL_LIBRARY_MARKER = 'kicad_symbol_lib';
 const FOOTPRINT_MARKER = 'footprint';
 const CONTENT_PREVIEW_LENGTH = 200;
-const KICAD_GIT_REFS = ['master', 'main'];
+const KICAD_FALLBACK_RELEASE = '9.0.2';
+const KICAD_GIT_REFS_BRANCHES = ['master', 'main'];
+const KICAD_LATEST_TAG_CACHE_KEY = 'kicad_latest_release_tag';
 const KICAD_SYMBOLS_PROJECT_PATH = 'kicad%2Flibraries%2Fkicad-symbols';
+const KICAD_FOOTPRINTS_PROJECT_PATH = 'kicad%2Flibraries%2Fkicad-footprints';
 const KICAD_LIBRARY_INDEX_CACHE_KEY = 'kicad_library_index';
 const KICAD_FULL_SYMBOL_INDEX_CACHE_KEY = 'kicad_full_symbol_index';
+const KICAD_FULL_FOOTPRINT_INDEX_CACHE_KEY = 'kicad_full_footprint_index';
 const MIN_EXPECTED_LIBRARY_COUNT = 100;
 const REQUIRED_LIBRARY_NAMES = ['Device', 'Timer'];
+const MIN_EXPECTED_FOOTPRINT_COUNT = 5000;
+const REQUIRED_FOOTPRINT_LIB_PREFIXES = ['Package_TO_SOT_SMD:', 'Package_SO:', 'Resistor_SMD:'];
 
 export class KiCadFetcher {
     /** Initialise GitLab base URLs, CORS proxies and in-memory caches. */
@@ -42,17 +48,90 @@ export class KiCadFetcher {
         this.footprintExistsCache = new Map();
         this.model3dExistsCache = new Map();
         this.footprintPreviewCache = new Map();
+        this.footprintFilterSearchCache = new Map();
+        this.footprintLibraryNamesCache = new Map();
         this._symdirCache = new Map();
         this.libraryIndex = null;
+        this.footprintNameIndex = null;
         this._indexLoadPromise = null;
+        this._footprintIndexLoadPromise = null;
         this._indexProgress = null;
         this.libraryPathIndex = null;
         this.fetchFailed = false;
+        this._latestRelease = null;
+        this._latestReleasePromise = null;
     }
     
     /** @returns {string} The primary CORS proxy URL. */
     get corsProxy() {
         return this.corsProxies[0];
+    }
+
+    /**
+     * Get ordered git refs to try: [latest-release, master, main].
+     * Before the release tag is detected, falls back to the hardcoded default.
+     * @returns {string[]}
+     */
+    _getGitRefs() {
+        const tag = this._latestRelease || KICAD_FALLBACK_RELEASE;
+        return [tag, ...KICAD_GIT_REFS_BRANCHES];
+    }
+
+    /**
+     * Detect the latest stable KiCad library release tag from GitLab.
+     * Result is cached in localStorage for 7 days.
+     * @returns {Promise<string>}
+     */
+    async _detectLatestRelease() {
+        if (this._latestRelease) return this._latestRelease;
+        if (this._latestReleasePromise) return this._latestReleasePromise;
+
+        this._latestReleasePromise = this._fetchLatestRelease();
+        try {
+            const tag = await this._latestReleasePromise;
+            this._latestRelease = tag;
+            return tag;
+        } finally {
+            this._latestReleasePromise = null;
+        }
+    }
+
+    /**
+     * Fetch latest stable release tag from GitLab tags API.
+     * @returns {Promise<string>}
+     */
+    async _fetchLatestRelease() {
+        const cached = storageManager.get(KICAD_LATEST_TAG_CACHE_KEY);
+        if (typeof cached === 'string' && cached.length > 0) {
+            return cached;
+        }
+
+        try {
+            const apiUrl = `https://gitlab.com/api/v4/projects/${KICAD_FOOTPRINTS_PROJECT_PATH}/repository/tags?per_page=10&order_by=version`;
+            const data = await this._fetchJsonWithProxy(apiUrl);
+            if (Array.isArray(data)) {
+                const stable = data
+                    .map(t => typeof t?.name === 'string' ? t.name : '')
+                    .filter(name => name && !/rc|alpha|beta|backport|^v/i.test(name))
+                    .sort((a, b) => b.localeCompare(a, undefined, { numeric: true }));
+                if (stable.length > 0) {
+                    storageManager.set(KICAD_LATEST_TAG_CACHE_KEY, stable[0], CONTENT_CACHE_TTL_MS);
+                    console.log(`KiCad latest release tag: ${stable[0]}`);
+                    return stable[0];
+                }
+            }
+        } catch (err) {
+            console.warn('Failed to detect KiCad release tag, using fallback:', err);
+        }
+
+        // If API failed, try expired cache before hardcoded fallback
+        const expired = storageManager.getRaw(KICAD_LATEST_TAG_CACHE_KEY);
+        if (typeof expired?.value === 'string' && expired.value.length > 0) {
+            console.log(`KiCad using expired cached tag: ${expired.value}`);
+            return expired.value;
+        }
+
+        return KICAD_FALLBACK_RELEASE;
     }
 
     /**
@@ -334,6 +413,237 @@ export class KiCadFetcher {
 
         return preview;
     }
+
+    /**
+     * Find likely concrete footprints from KiCad fp-filter patterns.
+     * @param {string[]} filters
+     * @param {{limit?: number}} [options]
+     * @returns {Promise<string[]>}
+     */
+    async findFootprintCandidatesByFilters(filters, options = {}) {
+        const limit = Math.max(1, Math.min(500, options.limit || 50));
+        const normalized = Array.from(new Set((filters || [])
+            .map(f => (typeof f === 'string' ? f.trim() : ''))
+            .filter(Boolean)));
+        if (normalized.length === 0) return [];
+
+        const cacheKey = `fp_filters:${normalized.join('|').toLowerCase()}:${limit}`;
+        if (this.footprintFilterSearchCache.has(cacheKey)) {
+            return this.footprintFilterSearchCache.get(cacheKey);
+        }
+
+        await this._ensureFootprintIndexLoaded();
+        const footprintNames = Array.isArray(this.footprintNameIndex) ? this.footprintNameIndex : [];
+        if (footprintNames.length === 0) {
+            this.footprintFilterSearchCache.set(cacheKey, []);
+            return [];
+        }
+
+        const regexes = normalized.map(f => this._fpFilterToRegex(f));
+        const matched = footprintNames.filter((fpName) => {
+            const [lib, name] = fpName.split(':');
+            const full = `${lib}:${name}`;
+            return regexes.some(rx => rx.test(name) || rx.test(full));
+        });
+
+        // KiCad wildcards (e.g. *SC*70*, SOT?23*) already match suffix variants
+        // like _Handsoldering, so no sibling expansion is needed here.
+
+        const sorted = Array.from(new Set(matched))
+            .sort((a, b) => a.localeCompare(b))
+            .slice(0, limit);
+
+        this.footprintFilterSearchCache.set(cacheKey, sorted);
+        return sorted;
+    }
+
+    /**
+     * Load all footprint names inside a specific KiCad footprint library.
+     * @param {string} libName
+     * @returns {Promise<string[]>}
+     */
+    async _getFootprintNamesForLibrary(libName) {
+        const key = String(libName || '').trim();
+        if (!key) return [];
+        if (this.footprintLibraryNamesCache.has(key)) {
+            return this.footprintLibraryNamesCache.get(key);
+        }
+
+        const names = new Set();
+        const perPage = 100;
+
+        for (const ref of this._getGitRefs()) {
+            let page = 1;
+            let hasMore = true;
+
+            while (hasMore) {
+                const result = await this._fetchGitLabTreePage({
+                    projectPath: KICAD_FOOTPRINTS_PROJECT_PATH,
+                    ref,
+                    perPage,
+                    page,
+                    path: `${key}.pretty`
+                }, true);
+
+                const data = result?.json;
+                if (!Array.isArray(data) || data.length === 0) {
+                    break;
+                }
+
+                for (const entry of data) {
+                    const path = typeof entry?.path === 'string' ? entry.path : '';
+                    const match = path.match(/\.pretty\/(.+?)\.kicad_mod$/i);
+                    if (!match) continue;
+                    names.add(match[1]);
+                }
+
+                // Prefer header-based pagination when available, but fall back
+                // to page-size progression because some proxies strip headers.
+                const nextPage = Number(result?.headers?.get?.('x-next-page') || 0);
+                if (Number.isFinite(nextPage) && nextPage > 0) {
+                    page = nextPage;
+                    continue;
+                }
+                if (data.length >= perPage) {
+                    page += 1;
+                    continue;
+                }
+
+                hasMore = false;
+            }
+
+            if (names.size > 0) {
+                break;
+            }
+        }
+
+        const out = Array.from(names).sort((a, b) => a.localeCompare(b));
+        this.footprintLibraryNamesCache.set(key, out);
+        return out;
+    }
+
+    /**
+     * Find suffix sibling variants for a concrete footprint in the same library.
+     * Example: Lib:Base -> Lib:Base_Handsoldering
+     * @param {string} footprintName
+     * @returns {Promise<string[]>}
+     */
+    async findFootprintSiblingVariants(footprintName) {
+        const [libRaw, nameRaw] = String(footprintName || '').split(':');
+        const lib = (libRaw || '').trim();
+        const base = (nameRaw || '').trim();
+        if (!lib || !base) return [];
+
+        const libNames = await this._getFootprintNamesForLibrary(lib);
+        if (!Array.isArray(libNames) || libNames.length === 0) return [];
+
+        const prefix = `${base}_`;
+        return libNames
+            .filter(name => typeof name === 'string' && name.startsWith(prefix))
+            .map(name => `${lib}:${name}`)
+            .sort((a, b) => a.localeCompare(b));
+    }
+
+    /**
+     * Ensure full footprint-name index is loaded for deterministic filter matching.
+     * @returns {Promise<void>}
+     */
+    async _ensureFootprintIndexLoaded() {
+        if (Array.isArray(this.footprintNameIndex) && this.footprintNameIndex.length > 0) return;
+        if (this._footprintIndexLoadPromise) {
+            await this._footprintIndexLoadPromise;
+            return;
+        }
+
+        this._footprintIndexLoadPromise = this._loadFootprintNameIndex();
+        try {
+            await this._footprintIndexLoadPromise;
+        } finally {
+            this._footprintIndexLoadPromise = null;
+        }
+    }
+
+    /**
+     * Load complete footprint name index from cache or GitLab tree API.
+     * @returns {Promise<void>}
+     */
+    async _loadFootprintNameIndex() {
+        // Ensure we know the latest release tag before fetching
+        await this._detectLatestRelease();
+
+        const cacheKey = KICAD_FULL_FOOTPRINT_INDEX_CACHE_KEY;
+        const cached = storageManager.get(cacheKey);
+        if (Array.isArray(cached)
+            && cached.length >= MIN_EXPECTED_FOOTPRINT_COUNT
+            && this._isLikelyValidFootprintIndex(cached)) {
+            this.footprintNameIndex = cached;
+            return;
+        }
+
+        const perPage = 100;
+        for (const ref of this._getGitRefs()) {
+            const names = new Set();
+            let page = 1;
+            let hasMore = true;
+            let failedPages = 0;
+
+            while (hasMore) {
+                const data = await this._fetchGitLabTreePage({
+                    projectPath: KICAD_FOOTPRINTS_PROJECT_PATH,
+                    ref,
+                    perPage,
+                    page,
+                    recursive: true
+                });
+
+                if (!Array.isArray(data)) {
+                    failedPages += 1;
+                    break;
+                }
+                if (data.length === 0) {
+                    hasMore = false;
+                    break;
+                }
+
+                for (const entry of data) {
+                    const path = typeof entry?.path === 'string' ? entry.path : '';
+                    const match = path.match(/^(.+?)\.pretty\/(.+?)\.kicad_mod$/i);
+                    if (!match) continue;
+                    names.add(`${match[1]}:${match[2]}`);
+                }
+
+                page += 1;
+            }
+
+            if (failedPages === 0 && names.size >= MIN_EXPECTED_FOOTPRINT_COUNT) {
+                const list = Array.from(names).sort((a, b) => a.localeCompare(b));
+                if (this._isLikelyValidFootprintIndex(list)) {
+                    this.footprintNameIndex = list;
+                    this._setContentCache(cacheKey, list);
+                    return;
+                }
+            }
+        }
+
+        // If live refresh fails, keep whatever valid cache exists; otherwise empty.
+        if (Array.isArray(cached) && this._isLikelyValidFootprintIndex(cached)) {
+            this.footprintNameIndex = cached;
+        } else {
+            this.footprintNameIndex = [];
+        }
+    }
+
+    /**
+     * Basic sanity checks to reject obviously partial footprint indexes.
+     * @param {string[]} list
+     * @returns {boolean}
+     */
+    _isLikelyValidFootprintIndex(list) {
+        if (!Array.isArray(list) || list.length < MIN_EXPECTED_FOOTPRINT_COUNT) return false;
+        return REQUIRED_FOOTPRINT_LIB_PREFIXES.every(prefix =>
+            list.some(name => typeof name === 'string' && name.startsWith(prefix))
+        );
+    }
     
     /**
      * Fetch a library file from GitLab (with caching)
@@ -447,7 +757,7 @@ export class KiCadFetcher {
         }
 
         const symDirPath = `${library}.kicad_symdir`;
-        const refs = KICAD_GIT_REFS;
+        const refs = this._getGitRefs();
 
         for (const ref of refs) {
             const data = await this._fetchGitLabTreePage({
@@ -600,6 +910,22 @@ export class KiCadFetcher {
     }
 
     /**
+     * Build a GitLab search API URL.
+     * @param {{projectPath: string, scope: string, search: string, perPage?: number, page?: number, ref?: string}} params
+     * @returns {string}
+     */
+    _buildGitLabSearchApiUrl({ projectPath, scope, search, perPage = 50, page = 1, ref }) {
+        const params = new URLSearchParams({
+            scope,
+            search,
+            per_page: String(perPage),
+            page: String(page)
+        });
+        if (ref) params.set('ref', ref);
+        return `https://gitlab.com/api/v4/projects/${projectPath}/search?${params.toString()}`;
+    }
+
+    /**
      * Fetch a GitLab repository/tree page through the configured proxy chain.
      * @param {Object} params
      * @param {string} params.projectPath
@@ -614,6 +940,29 @@ export class KiCadFetcher {
     _fetchGitLabTreePage(params, returnHeaders = false) {
         const apiUrl = this._buildGitLabTreeApiUrl(params);
         return this._fetchJsonWithProxy(apiUrl, returnHeaders);
+    }
+
+    /**
+     * Search blobs in a GitLab project.
+     * @param {{projectPath: string, scope: string, search: string, perPage?: number, page?: number, ref?: string}} params
+     * @returns {Promise<Object|null>}
+     */
+    _fetchGitLabSearchPage(params) {
+        const apiUrl = this._buildGitLabSearchApiUrl(params);
+        return this._fetchJsonWithProxy(apiUrl);
+    }
+
+    /**
+     * Convert wildcard fp-filter to a case-insensitive regex.
+     * @param {string} filter
+     * @returns {RegExp}
+     */
+    _fpFilterToRegex(filter) {
+        const escaped = filter
+            .replace(/[.+^${}()|[\]\\]/g, '\\$&')
+            .replace(/\*/g, '.*')
+            .replace(/\?/g, '.');
+        return new RegExp(`^${escaped}$`, 'i');
     }
 
     /**
@@ -676,7 +1025,7 @@ export class KiCadFetcher {
         }
 
         const perPage = 100;
-        const refs = KICAD_GIT_REFS;
+        const refs = this._getGitRefs();
 
         for (const ref of refs) {
             const index = {};
@@ -768,10 +1117,15 @@ export class KiCadFetcher {
      * @returns {string[]}
      */
     _getRawBaseCandidates(base) {
+        const tag = this._latestRelease || KICAD_FALLBACK_RELEASE;
         const candidates = [base];
+        // Try the latest stable release tag first, then master/main fallbacks.
+        // Release tags match what users have installed; master may diverge.
         if (base.includes('/-/raw/master')) {
+            candidates.unshift(base.replace('/-/raw/master', `/-/raw/${tag}`));
             candidates.push(base.replace('/-/raw/master', '/-/raw/main'));
         } else if (base.includes('/-/raw/main')) {
+            candidates.unshift(base.replace('/-/raw/main', `/-/raw/${tag}`));
             candidates.push(base.replace('/-/raw/main', '/-/raw/master'));
         }
 
@@ -867,6 +1221,7 @@ export class KiCadFetcher {
         for (const item of sexp) {
             if (!Array.isArray(item) || item[0] !== 'pad') continue;
 
+            const padNumber = item.length > 1 && item[1] != null ? String(item[1]).replace(/^"|"$/g, '') : '';
             const shape = typeof item[3] === 'string' ? item[3] : '';
             let atX = 0;
             let atY = 0;
@@ -897,7 +1252,7 @@ export class KiCadFetcher {
 
             const isEllipse = shape === 'circle' || shape === 'oval';
             const padType = isEllipse ? 'ELLIPSE' : 'RECT';
-            shapes.push(`PAD~${padType}~${atX}~${atY}~${w}~${h}`);
+            shapes.push(`PAD~${padType}~${atX}~${atY}~${w}~${h}~${padNumber}`);
             includeRect(atX, atY, w, h);
         }
 
@@ -962,6 +1317,9 @@ export class KiCadFetcher {
         // Wait for StorageManager to finish loading from IndexedDB
         // before checking the cache, otherwise we'd miss cached data.
         await storageManager.ready;
+
+        // Detect latest KiCad release tag (cached, non-blocking after first call)
+        await this._detectLatestRelease();
 
         // Re-check — hydration may have populated the index via another path
         if (this.libraryIndex) return;
@@ -1053,7 +1411,7 @@ export class KiCadFetcher {
      * { Timer: ['NE555D', ...], ... }.  Caches the result for 7 days.
      */
     async _fetchFullSymbolIndex() {
-        const refs = KICAD_GIT_REFS;
+        const refs = this._getGitRefs();
         const pageSize = 100;
         const parallelPages = 8;
         const minCompletionRatio = 0.9;
