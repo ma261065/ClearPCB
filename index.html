@@ -142,7 +142,7 @@
                         <button id="zoomOut" title="Zoom Out">−</button>
                         <button id="zoomIn" title="Zoom In">+</button>
                         <button id="zoomFit" title="Fit to Content">Fit</button>
-                        <button id="resetView" title="Default View">Default</button>
+                        <button id="resetView" title="Default View (Home)">Default</button>
                         <button id="themeToggle" class="theme-toggle" title="Toggle Dark/Light Mode">🌙</button>
                     </div>
                 </div>
@@ -174,6 +174,7 @@
                         <div class="help-row"><span><kbd>Space</kbd> Rotate component</span></div>
                         <div class="help-row"><span><kbd>X</kbd> Flip H (component)</span></div>
                         <div class="help-row"><span><kbd>Y</kbd> Flip V (component)</span></div>
+                        <div class="help-row"><span><kbd>Home</kbd> Default view</span></div>
                         <div class="help-row"><span><kbd>Esc</kbd> Cancel / Select mode</span></div>
                         <div class="help-row"><span><kbd>Del</kbd> Delete selected</span></div>
                         <div class="help-row"><span><kbd>Ctrl+A</kbd> Select all</span></div>
@@ -232,9 +233,13 @@
                 <div class="ribbon-group">
                     <div class="ribbon-group-title">View</div>
                     <div class="ribbon-group-items">
-                        <button disabled>−</button>
-                        <button disabled>+</button>
-                        <button disabled>Fit</button>
+                        <button id="pcbZoomOut" title="Zoom Out">−</button>
+                        <button id="pcbZoomIn" title="Zoom In">+</button>
+                        <button id="pcbZoomFit" title="Fit to Board Area">Fit</button>
+                        <button id="pcbResetView" title="Default View">Default</button>
+                        <label class="ribbon-checkbox"><input type="checkbox" id="pcbShowGrid" checked> Grid</label>
+                        <label class="ribbon-checkbox"><input type="checkbox" id="pcbSnapToGrid" checked> Snap</label>
+                        <label class="ribbon-checkbox"><input type="checkbox" id="pcbShowRulers" checked> Rulers</label>
                         <button id="pcbThemeToggle" class="theme-toggle" title="Toggle Dark/Light Mode">🌙</button>
                     </div>
                 </div>
@@ -286,10 +291,30 @@
         </div>
 
         <div class="app-slide" data-slide="pcb">
-            <div class="pcb-placeholder">
-                <div class="pcb-placeholder-icon">🔲</div>
-                <div class="pcb-placeholder-title">PCB Layout Designer</div>
-                <div class="pcb-placeholder-text">Coming Soon</div>
+            <div class="main-container">
+                <div class="canvas-container" id="pcbCanvasContainer" oncontextmenu="event.preventDefault()"></div>
+            </div>
+            <div class="status-bar" id="pcbStatusBar">
+                <div class="status-item">
+                    <span class="label">Cursor:</span>
+                    <span class="value" id="pcbCursorPos">0.00, 0.00 mm</span>
+                </div>
+                <div class="status-item">
+                    <span class="label">Snap:</span>
+                    <span class="value" id="pcbGridSnap">0.00, 0.00 mm</span>
+                </div>
+                <div class="status-item">
+                    <span class="label">View:</span>
+                    <span class="value" id="pcbViewportInfo">500 × 300 mm</span>
+                </div>
+                <div class="status-item">
+                    <span class="label">Zoom:</span>
+                    <span class="value" id="pcbZoomPercent">100%</span>
+                </div>
+                <div class="status-spacer"></div>
+                <div class="status-item status-filename">
+                    <span class="value" id="pcbModeStatus">Active: Select | Top Layer</span>
+                </div>
             </div>
         </div>
     </div>

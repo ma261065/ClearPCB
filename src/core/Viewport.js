@@ -11,6 +11,7 @@ export class Viewport {
      */
     constructor(container) {
         this.container = container;
+        this.gridPatternId = `gridPattern-${Math.random().toString(36).slice(2, 10)}`;
         
         // Create SVG element
         this.svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -699,23 +700,23 @@ export class Viewport {
             const dotSize = strokeWidth * 2.5;
             const svg = `
                 <defs>
-                    <pattern id="gridPattern" x="0" y="0" width="${gridSpacing}" height="${gridSpacing}" patternUnits="userSpaceOnUse">
+                    <pattern id="${this.gridPatternId}" x="0" y="0" width="${gridSpacing}" height="${gridSpacing}" patternUnits="userSpaceOnUse">
                         <circle cx="0" cy="0" r="${dotSize}" fill="${colors.gridMajor}"/>
                     </pattern>
                 </defs>
-                <rect x="${startX}" y="${startY}" width="${w}" height="${h}" fill="url(#gridPattern)"/>
+                <rect x="${startX}" y="${startY}" width="${w}" height="${h}" fill="url(#${this.gridPatternId})"/>
             `;
             this.gridLayer.innerHTML = svg;
         } else {
             // SVG pattern for line grid — 2 lines per cell instead of hundreds of <line> elements
             const svg = `
                 <defs>
-                    <pattern id="gridPattern" x="0" y="0" width="${gridSpacing}" height="${gridSpacing}" patternUnits="userSpaceOnUse">
+                    <pattern id="${this.gridPatternId}" x="0" y="0" width="${gridSpacing}" height="${gridSpacing}" patternUnits="userSpaceOnUse">
                         <line x1="0" y1="0" x2="0" y2="${gridSpacing}" stroke="${colors.gridMinor}" stroke-width="${strokeWidth}"/>
                         <line x1="0" y1="0" x2="${gridSpacing}" y2="0" stroke="${colors.gridMinor}" stroke-width="${strokeWidth}"/>
                     </pattern>
                 </defs>
-                <rect x="${startX}" y="${startY}" width="${w}" height="${h}" fill="url(#gridPattern)"/>
+                <rect x="${startX}" y="${startY}" width="${w}" height="${h}" fill="url(#${this.gridPatternId})"/>
             `;
             this.gridLayer.innerHTML = svg;
         }

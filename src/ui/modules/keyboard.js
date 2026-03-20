@@ -403,6 +403,10 @@ export function bindKeyboardShortcuts(app) {
                 case 'F':
                     app._fitToContent();
                     break;
+                case 'Home':
+                    e.preventDefault();
+                    app.viewport.resetView();
+                    break;
                 case 'r':
                 case 'R':
                     app._onToolSelected('rect');

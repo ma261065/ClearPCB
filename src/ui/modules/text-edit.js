@@ -36,9 +36,11 @@ export function startTextEdit(app, shape) {
     if (!shape || !shape.supportsInlineEdit) return;
     if (shape.locked) return;
 
-    // Keep edited shape selected so render z-order logic does not move
-    // overlay-type shapes above the text-edit overlay while typing.
-    if (app.selection && !app.selection.isSelected(shape)) {
+    // When editing from Select mode, keep the shape selected so render
+    // ordering stays stable while typing. During placement-mode text entry,
+    // avoid forcing selection so the properties panel doesn't jump in.
+    const editingFromSelectMode = app.currentTool === 'select';
+    if (editingFromSelectMode && app.selection && !app.selection.isSelected(shape)) {
         app.selection.select(shape, false);
         app.renderShapes(true);
     }
@@ -201,7 +203,7 @@ export function endTextEdit(app, commit = true) {
 
     app.textEdit = null;
 
-    if (shape && app.selection && !app.selection.isSelected(shape)) {
+    if (shape && app.currentTool === 'select' && app.selection && !app.selection.isSelected(shape)) {
         app.selection.select(shape, false);
     }
 }

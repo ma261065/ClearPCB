@@ -282,8 +282,6 @@ export class ComponentPicker {
                 <br>• C46749 (LCSC part number)
                 <br>• NE555 (part name)
                 <br>• STM32F103
-                <br><br>
-                <small style="color:var(--text-muted)">⚠️ Online search may be unavailable due to CORS restrictions. Use Local library for reliable access.</small>
             </div>
         `;
     }
