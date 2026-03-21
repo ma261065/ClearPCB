@@ -23,7 +23,7 @@ import { updateToolGhost } from '../../ui/modules/tool.js';
 import { ModifyShapeCommand } from '../../core/CommandHistory.js';
 import { collapseRedundantWirePoints } from './wire.js';
 import { Text } from '../../shapes/text.js';
-import { attachLabelToTarget, refreshLabelAttachmentOffset, getLabelAttachmentAnchorPoint, getLabelDropHotspot } from '../../ui/modules/label-attachment.js';
+import { attachLabelToTarget, detachLabel, refreshLabelAttachmentOffset, getLabelAttachmentAnchorPoint, getLabelDropHotspot } from '../../ui/modules/label-attachment.js';
 
 // ─── Constants ─────────────────────────────────────────────────────
 
@@ -775,7 +775,7 @@ function handleSegmentContextMenu(app, worldPos, clientX, clientY) {
 
 function handleSelectContextMenu(app, worldPos, clientX, clientY) {
     const hit = app.selection.hitTest(worldPos);
-    if (hit?.type === 'text' && hit.parentComponent && hit.fieldKey === 'label') {
+    if (hit?.type === 'text' && hit.fieldKey === 'label') {
         selectContextTargetShape(app, hit);
         showLabelContextMenu(app, hit, clientX, clientY);
         return true;
@@ -1665,7 +1665,8 @@ export const moveDragState = {
             const attach = resolveLabelAttachTarget(app, hotspot, labelShape);
             if (attach?.target) {
                 attachLabelToTarget(labelShape, attach.target, attach.snapPos || null, { isNewLabel: false });
-            } else if (labelShape.parentComponent && labelShape.fieldKey === 'label') {
+            } else if (labelShape.parentComponent) {
+                // Dropped in empty space — keep attached, update offset
                 refreshLabelAttachmentOffset(labelShape);
             }
             // Clear blue tint on old owner if ownership changed

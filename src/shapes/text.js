@@ -229,6 +229,9 @@ export class Text extends Shape {
     captureState() {
         const state = { x: this.x, y: this.y, text: this.text, fontSize: this.fontSize, fontFamily: this.fontFamily, textAnchor: this.textAnchor, rotation: this.rotation };
         if (this.attachment) state.attachment = { ...this.attachment };
+        else state.attachment = null;
+        state.parentComponentId = this.parentComponent?.id || null;
+        state.fieldKey = this.fieldKey || null;
         // Include visibility for field texts so merge/split undo restores it
         if (this.fieldKey) state.visible = this.visible;
         return state;
@@ -239,6 +242,9 @@ export class Text extends Shape {
         super.applyState(state);
         if ('attachment' in state) {
             this.attachment = state.attachment ? { ...state.attachment } : null;
+        }
+        if ('fieldKey' in state) {
+            this.fieldKey = state.fieldKey;
         }
         this._syncLinkedParentAfterGeometryChange();
     }

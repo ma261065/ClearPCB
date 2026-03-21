@@ -286,7 +286,8 @@ export function detachLabel(labelShape) {
         labelShape.parentComponent.labelText = null;
     }
     labelShape.parentComponent = null;
-    labelShape.fieldKey = null;
+    // Keep fieldKey='label' so the shape remains identifiable as a label
+    // and can be reattached via context menu or drag-drop.
     labelShape.attachment = null;
     labelShape.invalidate?.();
 }

@@ -565,32 +565,44 @@ export function showSegmentContextMenu(app, wire, edgeId, clientX, clientY) {
  */
 export function showLabelContextMenu(app, labelShape, clientX, clientY) {
     const items = [];
+    const isAttached = !!labelShape.parentComponent;
+
+    if (isAttached) {
+        items.push({
+            text: 'Detach Label',
+            onClick: () => {
+                detachLabel(labelShape);
+                app.selection.select(labelShape, false);
+
+                const rect = app.viewport._getCachedRect();
+                const screenPos = {
+                    x: clientX - rect.left,
+                    y: clientY - rect.top
+                };
+                const worldPos = app.viewport.screenToWorld(screenPos);
+
+                app.drag = {
+                    mode: 'move',
+                    objectStartPos: { x: labelShape.x, y: labelShape.y },
+                    lastSnapped: { x: labelShape.x, y: labelShape.y },
+                    startWorldPos: { x: worldPos.x, y: worldPos.y },
+                    totalDx: 0,
+                    totalDy: 0
+                };
+                app.interactionState = 'moveDrag';
+                app.didDrag = false;
+                if (app.viewport?.svg) app.viewport.svg.style.cursor = 'move';
+
+                app.renderShapes(true);
+                app.fileManager.setDirty(true);
+            }
+        });
+    }
 
     items.push({
-        text: 'Detach Label',
+        text: 'Delete Label',
         onClick: () => {
-            detachLabel(labelShape);
-            app.selection.select(labelShape, false);
-
-            const rect = app.viewport._getCachedRect();
-            const screenPos = {
-                x: clientX - rect.left,
-                y: clientY - rect.top
-            };
-            const worldPos = app.viewport.screenToWorld(screenPos);
-
-            app.drag = {
-                mode: 'move',
-                objectStartPos: { x: labelShape.x, y: labelShape.y },
-                lastSnapped: { x: labelShape.x, y: labelShape.y },
-                startWorldPos: { x: worldPos.x, y: worldPos.y },
-                totalDx: 0,
-                totalDy: 0
-            };
-            app.interactionState = 'moveDrag';
-            app.didDrag = false;
-            if (app.viewport?.svg) app.viewport.svg.style.cursor = 'move';
-
+            app.history.execute(new DeleteShapesCommand(app, [labelShape]));
             app.renderShapes(true);
             app.fileManager.setDirty(true);
         }
