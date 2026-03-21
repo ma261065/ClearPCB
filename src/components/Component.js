@@ -1010,7 +1010,7 @@ export class Component {
             group.appendChild(labelGroup);
         }
 
-        if (pin.number && (hasNumberPos || allowInfer)) {
+        if (pin.number && pin.showNumber !== false && (hasNumberPos || allowInfer)) {
             const numLabelGroup = document.createElementNS(ns, 'g');
             const numTxt = document.createElementNS(ns, 'text');
             const numFontSizeBase = (pin.numberPos && Number.isFinite(pin.numberPos.fontSize))

@@ -2636,6 +2636,10 @@ export class ComponentPicker {
         this.isOpen = !this.isOpen;
         if (this.isOpen) {
             this.element.classList.remove('collapsed');
+            // Re-initialize lazy loading now that the element is visible
+            if (!this.lazyLoader && this.componentItems.size > 0) {
+                this._setupLazyLoading();
+            }
             // Register with ModalManager so ESC will close the picker
             ModalManager.push('componentPicker', () => {
                 this.close();

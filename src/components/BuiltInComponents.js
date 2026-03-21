@@ -32,8 +32,8 @@ export const BuiltInComponents = [
                 { type: 'text', x: 0, y: 2.5, text: '${VALUE}', fontSize: 1.27, anchor: 'middle', baseline: 'middle' }
             ],
             pins: [
-                { number: '', name: '1', x: -3.81, y: 0, orientation: 'left', length: 0, type: 'passive', shape: 'line', namePos: { x: -3.81, y: -0.9, anchor: 'middle' } },
-                { number: '', name: '2', x: 3.81, y: 0, orientation: 'right', length: 0, type: 'passive', shape: 'line', namePos: { x: 3.81, y: -0.9, anchor: 'middle' } }
+                { number: '1', name: '1', showNumber: false, x: -3.81, y: 0, orientation: 'left', length: 0, type: 'passive', shape: 'line', namePos: { x: -3.81, y: -0.9, anchor: 'middle' } },
+                { number: '2', name: '2', showNumber: false, x: 3.81, y: 0, orientation: 'right', length: 0, type: 'passive', shape: 'line', namePos: { x: 3.81, y: -0.9, anchor: 'middle' } }
             ]
         },
         footprint: 'Resistor_THT:R_Axial_DIN0207_L6.3mm_D2.5mm_P7.62mm_Horizontal',
@@ -64,8 +64,8 @@ export const BuiltInComponents = [
                 { type: 'text', x: 0, y: 2.5, text: '${VALUE}', fontSize: 1.27, anchor: 'middle', baseline: 'middle' }
             ],
             pins: [
-                { number: '', name: '1', x: -3.81, y: 0, orientation: 'left', length: 0, type: 'passive', shape: 'line', namePos: { x: -3.81, y: -0.9, anchor: 'middle' } },
-                { number: '', name: '2', x: 3.81, y: 0, orientation: 'right', length: 0, type: 'passive', shape: 'line', namePos: { x: 3.81, y: -0.9, anchor: 'middle' } }
+                { number: '1', name: '1', showNumber: false, x: -3.81, y: 0, orientation: 'left', length: 0, type: 'passive', shape: 'line', namePos: { x: -3.81, y: -0.9, anchor: 'middle' } },
+                { number: '2', name: '2', showNumber: false, x: 3.81, y: 0, orientation: 'right', length: 0, type: 'passive', shape: 'line', namePos: { x: 3.81, y: -0.9, anchor: 'middle' } }
             ]
         },
         footprint: 'Resistor_THT:R_Axial_DIN0207_L6.3mm_D2.5mm_P7.62mm_Horizontal',
@@ -97,8 +97,8 @@ export const BuiltInComponents = [
                 { type: 'text', x: 0, y: 2.5, text: '${VALUE}', fontSize: 1.27, anchor: 'middle', baseline: 'middle' }
             ],
             pins: [
-                { number: '', name: '1', x: -2.54, y: 0, orientation: 'left', length: 0, type: 'passive', shape: 'line', namePos: { x: -2.54, y: -0.9, anchor: 'middle' } },
-                { number: '', name: '2', x: 2.54, y: 0, orientation: 'right', length: 0, type: 'passive', shape: 'line', namePos: { x: 2.54, y: -0.9, anchor: 'middle' } }
+                { number: '1', name: '1', showNumber: false, x: -2.54, y: 0, orientation: 'left', length: 0, type: 'passive', shape: 'line', namePos: { x: -2.54, y: -0.9, anchor: 'middle' } },
+                { number: '2', name: '2', showNumber: false, x: 2.54, y: 0, orientation: 'right', length: 0, type: 'passive', shape: 'line', namePos: { x: 2.54, y: -0.9, anchor: 'middle' } }
             ]
         },
         footprint: 'Capacitor_THT:C_Disc_D5.0mm_W2.5mm_P5.00mm',
@@ -134,8 +134,8 @@ export const BuiltInComponents = [
                 { type: 'text', x: 0, y: 2.5, text: '${VALUE}', fontSize: 1.27, anchor: 'middle', baseline: 'middle' }
             ],
             pins: [
-                { number: '', name: '+', x: -2.54, y: 0, orientation: 'left', length: 0, type: 'passive', shape: 'line', namePos: { x: -2.54, y: -0.9, anchor: 'middle' } },
-                { number: '', name: '-', x: 2.54, y: 0, orientation: 'right', length: 0, type: 'passive', shape: 'line', namePos: { x: 2.54, y: -0.9, anchor: 'middle' } }
+                { number: '+', name: '+', showNumber: false, x: -2.54, y: 0, orientation: 'left', length: 0, type: 'passive', shape: 'line', namePos: { x: -2.54, y: -0.9, anchor: 'middle' } },
+                { number: '-', name: '-', showNumber: false, x: 2.54, y: 0, orientation: 'right', length: 0, type: 'passive', shape: 'line', namePos: { x: 2.54, y: -0.9, anchor: 'middle' } }
             ]
         },
         footprint: 'Capacitor_THT:CP_Radial_D5.0mm_P2.50mm',
@@ -163,8 +163,8 @@ export const BuiltInComponents = [
                 { type: 'text', x: 0, y: 2, text: '${VALUE}', fontSize: 1.27, anchor: 'middle', baseline: 'middle' }
             ],
             pins: [
-                { number: '', name: '1', x: -3.81, y: 0, orientation: 'left', length: 0, type: 'passive', shape: 'line', namePos: { x: -3.81, y: -0.9, anchor: 'middle' } },
-                { number: '', name: '2', x: 3.81, y: 0, orientation: 'right', length: 0, type: 'passive', shape: 'line', namePos: { x: 3.81, y: -0.9, anchor: 'middle' } }
+                { number: '1', name: '1', showNumber: false, x: -3.81, y: 0, orientation: 'left', length: 0, type: 'passive', shape: 'line', namePos: { x: -3.81, y: -0.9, anchor: 'middle' } },
+                { number: '2', name: '2', showNumber: false, x: 3.81, y: 0, orientation: 'right', length: 0, type: 'passive', shape: 'line', namePos: { x: 3.81, y: -0.9, anchor: 'middle' } }
             ]
         },
         footprint: 'Inductor_THT:L_Axial_L6.8mm_D2.4mm_P7.62mm_Horizontal_Vertical',
@@ -199,8 +199,8 @@ export const BuiltInComponents = [
                 { type: 'text', x: 0, y: 2.5, text: '${VALUE}', fontSize: 1.27, anchor: 'middle', baseline: 'middle' }
             ],
             pins: [
-                { number: '', name: 'A', x: -2.54, y: 0, orientation: 'left', length: 0, type: 'passive', shape: 'line', namePos: { x: -2.54, y: -0.9, anchor: 'middle' } },
-                { number: '', name: 'K', x: 2.54, y: 0, orientation: 'right', length: 0, type: 'passive', shape: 'line', namePos: { x: 2.54, y: -0.9, anchor: 'middle' } }
+                { number: 'A', name: 'A', showNumber: false, x: -2.54, y: 0, orientation: 'left', length: 0, type: 'passive', shape: 'line', namePos: { x: -2.54, y: -0.9, anchor: 'middle' } },
+                { number: 'K', name: 'K', showNumber: false, x: 2.54, y: 0, orientation: 'right', length: 0, type: 'passive', shape: 'line', namePos: { x: 2.54, y: -0.9, anchor: 'middle' } }
             ]
         },
         footprint: 'Diode_THT:D_DO-35_SOD27_P7.62mm_Horizontal',
@@ -238,8 +238,8 @@ export const BuiltInComponents = [
                 { type: 'text', x: 0, y: 2.5, text: '${VALUE}', fontSize: 1.27, anchor: 'middle', baseline: 'middle' }
             ],
             pins: [
-                { number: '', name: 'A', x: -2.54, y: 0, orientation: 'left', length: 0, type: 'passive', shape: 'line', namePos: { x: -2.54, y: -0.9, anchor: 'middle' } },
-                { number: '', name: 'K', x: 2.54, y: 0, orientation: 'right', length: 0, type: 'passive', shape: 'line', namePos: { x: 2.54, y: -0.9, anchor: 'middle' } }
+                { number: 'A', name: 'A', showNumber: false, x: -2.54, y: 0, orientation: 'left', length: 0, type: 'passive', shape: 'line', namePos: { x: -2.54, y: -0.9, anchor: 'middle' } },
+                { number: 'K', name: 'K', showNumber: false, x: 2.54, y: 0, orientation: 'right', length: 0, type: 'passive', shape: 'line', namePos: { x: 2.54, y: -0.9, anchor: 'middle' } }
             ]
         },
         footprint: 'LED_THT:LED_D5.0mm',
@@ -278,9 +278,9 @@ export const BuiltInComponents = [
                 { type: 'text', x: 3.5, y: 0, text: '${REF}', fontSize: 1.27, anchor: 'start', baseline: 'middle' }
             ],
             pins: [
-                { number: '', name: 'B', x: -2.54, y: 0, orientation: 'left', length: 0, type: 'input', shape: 'line', namePos: { x: -2.54, y: -0.9, anchor: 'middle' } },
-                { number: '', name: 'C', x: 2.54, y: -2.54, orientation: 'right', length: 0, type: 'passive', shape: 'line', namePos: { x: 3.44, y: -3.44, anchor: 'start' } },
-                { number: '', name: 'E', x: 2.54, y: 2.54, orientation: 'right', length: 0, type: 'passive', shape: 'line', namePos: { x: 3.44, y: 3.44, anchor: 'start' } }
+                { number: 'B', name: 'B', showNumber: false, x: -2.54, y: 0, orientation: 'left', length: 0, type: 'input', shape: 'line', namePos: { x: -2.54, y: -0.9, anchor: 'middle' } },
+                { number: 'C', name: 'C', showNumber: false, x: 2.54, y: -2.54, orientation: 'right', length: 0, type: 'passive', shape: 'line', namePos: { x: 3.44, y: -3.44, anchor: 'start' } },
+                { number: 'E', name: 'E', showNumber: false, x: 2.54, y: 2.54, orientation: 'right', length: 0, type: 'passive', shape: 'line', namePos: { x: 3.44, y: 3.44, anchor: 'start' } }
             ]
         },
         footprint: 'Package_TO_SOT_THT:TO-92_Inline',
@@ -319,9 +319,9 @@ export const BuiltInComponents = [
                 { type: 'text', x: 3.5, y: 0, text: '${REF}', fontSize: 1.27, anchor: 'start', baseline: 'middle' }
             ],
             pins: [
-                { number: '', name: 'B', x: -2.54, y: 0, orientation: 'left', length: 0, type: 'input', shape: 'line', namePos: { x: -2.54, y: -0.9, anchor: 'middle' } },
-                { number: '', name: 'C', x: 2.54, y: -2.54, orientation: 'right', length: 0, type: 'passive', shape: 'line', namePos: { x: 3.44, y: -3.44, anchor: 'start' } },
-                { number: '', name: 'E', x: 2.54, y: 2.54, orientation: 'right', length: 0, type: 'passive', shape: 'line', namePos: { x: 3.44, y: 3.44, anchor: 'start' } }
+                { number: 'B', name: 'B', showNumber: false, x: -2.54, y: 0, orientation: 'left', length: 0, type: 'input', shape: 'line', namePos: { x: -2.54, y: -0.9, anchor: 'middle' } },
+                { number: 'C', name: 'C', showNumber: false, x: 2.54, y: -2.54, orientation: 'right', length: 0, type: 'passive', shape: 'line', namePos: { x: 3.44, y: -3.44, anchor: 'start' } },
+                { number: 'E', name: 'E', showNumber: false, x: 2.54, y: 2.54, orientation: 'right', length: 0, type: 'passive', shape: 'line', namePos: { x: 3.44, y: 3.44, anchor: 'start' } }
             ]
         },
         footprint: 'Package_TO_SOT_THT:TO-92_Inline',
@@ -364,9 +364,9 @@ export const BuiltInComponents = [
                 { type: 'text', x: 3.5, y: 0, text: '${REF}', fontSize: 1.27, anchor: 'start', baseline: 'middle' }
             ],
             pins: [
-                { number: '', name: 'G', x: -2.54, y: 0, orientation: 'left', length: 0, type: 'input', shape: 'line', namePos: { x: -2.54, y: -0.9, anchor: 'middle' } },
-                { number: '', name: 'D', x: 2.54, y: -2.54, orientation: 'right', length: 0, type: 'passive', shape: 'line', namePos: { x: 3.44, y: -3.44, anchor: 'start' } },
-                { number: '', name: 'S', x: 2.54, y: 2.54, orientation: 'right', length: 0, type: 'passive', shape: 'line', namePos: { x: 3.44, y: 3.44, anchor: 'start' } }
+                { number: 'G', name: 'G', showNumber: false, x: -2.54, y: 0, orientation: 'left', length: 0, type: 'input', shape: 'line', namePos: { x: -2.54, y: -0.9, anchor: 'middle' } },
+                { number: 'D', name: 'D', showNumber: false, x: 2.54, y: -2.54, orientation: 'right', length: 0, type: 'passive', shape: 'line', namePos: { x: 3.44, y: -3.44, anchor: 'start' } },
+                { number: 'S', name: 'S', showNumber: false, x: 2.54, y: 2.54, orientation: 'right', length: 0, type: 'passive', shape: 'line', namePos: { x: 3.44, y: 3.44, anchor: 'start' } }
             ]
         },
         footprint: 'Package_TO_SOT_THT:TO-92_Inline',
@@ -404,9 +404,9 @@ export const BuiltInComponents = [
                 { type: 'text', x: 0, y: -3.5, text: '${REF}', fontSize: 1.27, anchor: 'middle', baseline: 'middle' }
             ],
             pins: [
-                { number: '', name: '+', x: -3.81, y: 1.27, orientation: 'left', length: 0, type: 'input', shape: 'line', namePos: { x: -3.81, y: 0.37, anchor: 'middle' } },
-                { number: '', name: '-', x: -3.81, y: -1.27, orientation: 'left', length: 0, type: 'input', shape: 'line', namePos: { x: -3.81, y: -2.17, anchor: 'middle' } },
-                { number: '', name: 'OUT', x: 3.81, y: 0, orientation: 'right', length: 0, type: 'output', shape: 'line', namePos: { x: 3.81, y: -0.9, anchor: 'middle' } }
+                { number: '+', name: '+', showNumber: false, x: -3.81, y: 1.27, orientation: 'left', length: 0, type: 'input', shape: 'line', namePos: { x: -3.81, y: 0.37, anchor: 'middle' } },
+                { number: '-', name: '-', showNumber: false, x: -3.81, y: -1.27, orientation: 'left', length: 0, type: 'input', shape: 'line', namePos: { x: -3.81, y: -2.17, anchor: 'middle' } },
+                { number: 'OUT', name: 'OUT', showNumber: false, x: 3.81, y: 0, orientation: 'right', length: 0, type: 'output', shape: 'line', namePos: { x: 3.81, y: -0.9, anchor: 'middle' } }
             ]
         },
         footprint: 'Package_DIP:DIP-8_W7.62mm',
@@ -476,8 +476,8 @@ export const BuiltInComponents = [
                 { type: 'text', x: 0, y: -4, text: '${REF}', fontSize: 1.27, anchor: 'middle', baseline: 'middle' }
             ],
             pins: [
-                { number: '', name: '1', x: -3.81, y: -1.524, orientation: 'right', length: 2.54, type: 'passive', shape: 'line', namePos: { x: -3.81, y: -2.424, anchor: 'middle' } },
-                { number: '', name: '2', x: -3.81, y: 1.524, orientation: 'right', length: 2.54, type: 'passive', shape: 'line', namePos: { x: -3.81, y: 0.624, anchor: 'middle' } }
+                { number: '1', name: '1', showNumber: false, x: -3.81, y: -1.524, orientation: 'right', length: 2.54, type: 'passive', shape: 'line', namePos: { x: -3.81, y: -2.424, anchor: 'middle' } },
+                { number: '2', name: '2', showNumber: false, x: -3.81, y: 1.524, orientation: 'right', length: 2.54, type: 'passive', shape: 'line', namePos: { x: -3.81, y: 0.624, anchor: 'middle' } }
             ]
         },
         footprint: 'Connector_PinHeader_2.54mm:PinHeader_1x02_P2.54mm_Vertical',
@@ -513,8 +513,8 @@ export const BuiltInComponents = [
                 { type: 'text', x: 0, y: 2.5, text: '${REF}', fontSize: 1.27, anchor: 'middle', baseline: 'middle' }
             ],
             pins: [
-                { number: '', name: '1', x: -2.54, y: 0, orientation: 'left', length: 0, type: 'passive', shape: 'line', namePos: { x: -2.54, y: -0.9, anchor: 'middle' } },
-                { number: '', name: '2', x: 2.54, y: 0, orientation: 'right', length: 0, type: 'passive', shape: 'line', namePos: { x: 2.54, y: -0.9, anchor: 'middle' } }
+                { number: '1', name: '1', showNumber: false, x: -2.54, y: 0, orientation: 'left', length: 0, type: 'passive', shape: 'line', namePos: { x: -2.54, y: -0.9, anchor: 'middle' } },
+                { number: '2', name: '2', showNumber: false, x: 2.54, y: 0, orientation: 'right', length: 0, type: 'passive', shape: 'line', namePos: { x: 2.54, y: -0.9, anchor: 'middle' } }
             ]
         },
         footprint: 'Button_Switch_THT:SW_PUSH_6mm',
@@ -556,9 +556,9 @@ export const BuiltInComponents = [
                 { type: 'text', x: 3, y: 1.5, text: '${VALUE}', fontSize: 1.27, anchor: 'start', baseline: 'middle' }
             ],
             pins: [
-                { number: '', name: 'B', x: -2.54, y: 0, orientation: 'left', length: 0, type: 'input', shape: 'line', namePos: { x: -2.54, y: -0.9, anchor: 'middle' } },
-                { number: '', name: 'C', x: 1.524, y: -3.175, orientation: 'up', length: 0, type: 'passive', shape: 'line', namePos: { x: 2.424, y: -4.075, anchor: 'start' } },
-                { number: '', name: 'E', x: 1.524, y: 3.175, orientation: 'down', length: 0, type: 'passive', shape: 'line', namePos: { x: 2.424, y: 4.075, anchor: 'start' } }
+                { number: 'B', name: 'B', showNumber: false, x: -2.54, y: 0, orientation: 'left', length: 0, type: 'input', shape: 'line', namePos: { x: -2.54, y: -0.9, anchor: 'middle' } },
+                { number: 'C', name: 'C', showNumber: false, x: 1.524, y: -3.175, orientation: 'up', length: 0, type: 'passive', shape: 'line', namePos: { x: 2.424, y: -4.075, anchor: 'start' } },
+                { number: 'E', name: 'E', showNumber: false, x: 1.524, y: 3.175, orientation: 'down', length: 0, type: 'passive', shape: 'line', namePos: { x: 2.424, y: 4.075, anchor: 'start' } }
             ]
         },
         footprint: 'Package_TO_SOT_THT:TO-92_Inline',
@@ -598,9 +598,9 @@ export const BuiltInComponents = [
                 { type: 'text', x: 3, y: 1.5, text: '${VALUE}', fontSize: 1.27, anchor: 'start', baseline: 'middle' }
             ],
             pins: [
-                { number: '', name: 'B', x: -2.54, y: 0, orientation: 'left', length: 0, type: 'input', shape: 'line', namePos: { x: -2.54, y: -0.9, anchor: 'middle' } },
-                { number: '', name: 'E', x: 1.524, y: -3.175, orientation: 'up', length: 0, type: 'passive', shape: 'line', namePos: { x: 2.424, y: -4.075, anchor: 'start' } },
-                { number: '', name: 'C', x: 1.524, y: 3.175, orientation: 'down', length: 0, type: 'passive', shape: 'line', namePos: { x: 2.424, y: 4.075, anchor: 'start' } }
+                { number: 'B', name: 'B', showNumber: false, x: -2.54, y: 0, orientation: 'left', length: 0, type: 'input', shape: 'line', namePos: { x: -2.54, y: -0.9, anchor: 'middle' } },
+                { number: 'E', name: 'E', showNumber: false, x: 1.524, y: -3.175, orientation: 'up', length: 0, type: 'passive', shape: 'line', namePos: { x: 2.424, y: -4.075, anchor: 'start' } },
+                { number: 'C', name: 'C', showNumber: false, x: 1.524, y: 3.175, orientation: 'down', length: 0, type: 'passive', shape: 'line', namePos: { x: 2.424, y: 4.075, anchor: 'start' } }
             ]
         },
         footprint: 'Package_TO_SOT_THT:TO-92_Inline',
@@ -644,9 +644,9 @@ export const BuiltInComponents = [
                 { type: 'text', x: 3, y: 1.5, text: '${VALUE}', fontSize: 1.27, anchor: 'start', baseline: 'middle' }
             ],
             pins: [
-                { number: '', name: 'G', x: -2.54, y: 0, orientation: 'left', length: 0, type: 'input', shape: 'line', namePos: { x: -2.54, y: -0.9, anchor: 'middle' } },
-                { number: '', name: 'D', x: 1.524, y: -3.175, orientation: 'up', length: 0, type: 'passive', shape: 'line', namePos: { x: 2.424, y: -4.075, anchor: 'start' } },
-                { number: '', name: 'S', x: 1.524, y: 3.175, orientation: 'down', length: 0, type: 'passive', shape: 'line', namePos: { x: 2.424, y: 4.075, anchor: 'start' } }
+                { number: 'G', name: 'G', showNumber: false, x: -2.54, y: 0, orientation: 'left', length: 0, type: 'input', shape: 'line', namePos: { x: -2.54, y: -0.9, anchor: 'middle' } },
+                { number: 'D', name: 'D', showNumber: false, x: 1.524, y: -3.175, orientation: 'up', length: 0, type: 'passive', shape: 'line', namePos: { x: 2.424, y: -4.075, anchor: 'start' } },
+                { number: 'S', name: 'S', showNumber: false, x: 1.524, y: 3.175, orientation: 'down', length: 0, type: 'passive', shape: 'line', namePos: { x: 2.424, y: 4.075, anchor: 'start' } }
             ]
         },
         footprint: 'Package_TO_SOT_THT:TO-92_Inline',
@@ -692,9 +692,9 @@ export const BuiltInComponents = [
                 { type: 'text', x: 3, y: 1.5, text: '${VALUE}', fontSize: 1.27, anchor: 'start', baseline: 'middle' }
             ],
             pins: [
-                { number: '', name: 'G', x: -2.54, y: 0, orientation: 'left', length: 0, type: 'input', shape: 'line', namePos: { x: -2.54, y: -0.9, anchor: 'middle' } },
-                { number: '', name: 'S', x: 1.524, y: -3.175, orientation: 'up', length: 0, type: 'passive', shape: 'line', namePos: { x: 2.424, y: -4.075, anchor: 'start' } },
-                { number: '', name: 'D', x: 1.524, y: 3.175, orientation: 'down', length: 0, type: 'passive', shape: 'line', namePos: { x: 2.424, y: 4.075, anchor: 'start' } }
+                { number: 'G', name: 'G', showNumber: false, x: -2.54, y: 0, orientation: 'left', length: 0, type: 'input', shape: 'line', namePos: { x: -2.54, y: -0.9, anchor: 'middle' } },
+                { number: 'S', name: 'S', showNumber: false, x: 1.524, y: -3.175, orientation: 'up', length: 0, type: 'passive', shape: 'line', namePos: { x: 2.424, y: -4.075, anchor: 'start' } },
+                { number: 'D', name: 'D', showNumber: false, x: 1.524, y: 3.175, orientation: 'down', length: 0, type: 'passive', shape: 'line', namePos: { x: 2.424, y: 4.075, anchor: 'start' } }
             ]
         },
         footprint: 'Package_TO_SOT_SMD:SOT-23',
