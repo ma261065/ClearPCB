@@ -1,4 +1,4 @@
-import { Line, Circle, Rect, Arc, Polygon, Text, Net, NoConnect } from '../../shapes/index.js';
+import { Line, Circle, Rect, Arc, Polygon, Text, Net, NoConnect, createRect } from '../../shapes/index.js';
 import { circumcircle, projectOntoChordBisector, clampBulgePoint } from '../../core/geometry.js';
 import { normalizeNetOrientation, normalizeNetStyle } from '../../shapes/net.js';
 import { validateNetNameAtPoint } from './net-validation.js';
@@ -137,6 +137,10 @@ export function finishPolygon(app) {
             fillAlpha: 0.3,
             closed: true
         });
+        // Check if the polygon forms a rectangle
+        if (shape.isAxisAlignedRect()) {
+            shape.isRect = true;
+        }
         app.addShape(shape);
     }
     cancelDrawing(app);
@@ -162,12 +166,37 @@ export function addLinePoint(app, worldPos) {
 export function finishLine(app) {
     if (app.currentTool === 'line' && app.isDrawing && app.linePoints.length >= 2) {
         stripDuplicateTrailingPoints(app.linePoints, 2);
-        const shape = new Line({
-            points: app.linePoints.map(p => ({ ...p })),
-            color: app.toolOptions.color,
-            lineWidth: app.toolOptions.lineWidth
-        });
-        app.addShape(shape);
+        const pts = app.linePoints.map(p => ({ ...p }));
+
+        // Check if the line closes on itself → create polygon instead
+        const first = pts[0];
+        const last = pts[pts.length - 1];
+        const closes = pts.length >= 3 && Math.hypot(first.x - last.x, first.y - last.y) < 0.15;
+
+        if (closes) {
+            // Remove the duplicate closing point
+            pts.pop();
+            const shape = new Line({
+                points: pts,
+                color: app.toolOptions.color,
+                lineWidth: app.toolOptions.lineWidth,
+                closed: true,
+                fill: false,
+                fillAlpha: 0.5,
+            });
+            // Check if it forms a rectangle
+            if (shape.isAxisAlignedRect()) {
+                shape.isRect = true;
+            }
+            app.addShape(shape);
+        } else {
+            const shape = new Line({
+                points: pts,
+                color: app.toolOptions.color,
+                lineWidth: app.toolOptions.lineWidth
+            });
+            app.addShape(shape);
+        }
     }
     cancelDrawing(app);
 }
@@ -387,7 +416,7 @@ export function createShapeFromDrawing(app) {
             const w = Math.abs(end.x - start.x);
             const h = Math.abs(end.y - start.y);
             if (w < minSize || h < minSize) return null;
-            return new Rect({
+            return createRect({
                 x: Math.min(start.x, end.x),
                 y: Math.min(start.y, end.y),
                 width: w,

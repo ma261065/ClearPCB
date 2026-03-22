@@ -3,33 +3,36 @@
  */
 
 export { Shape, updateIdCounter, resetIdCounter } from './shape.js';
-export { Line } from './line.js';
+export { PolylineGraph } from './polyline-graph.js';
+export { Polyline, createLine, createPolygon, createRect } from './polyline.js';
+// Backward-compatible aliases
+export { Polyline as Line } from './polyline.js';
+export { Polyline as Polygon } from './polyline.js';
 export { Wire, bumpWireLabelCounter, resetWireLabelCounter, resetNetNameCounter, COLLINEAR_EPSILON } from './wire.js';
 export { Circle } from './circle.js';
 export { Rect } from './rect.js';
 export { Arc } from './arc.js';
-export { Polygon } from './polygon.js';
 export { Text } from './text.js';
 export { Net } from './net.js';
 export { NoConnect } from './noconnect.js';
 
-import { Line } from './line.js';
+import { Polyline } from './polyline.js';
 import { Wire } from './wire.js';
 import { Circle } from './circle.js';
 import { Rect } from './rect.js';
 import { Arc } from './arc.js';
-import { Polygon } from './polygon.js';
 import { Text } from './text.js';
 import { Net } from './net.js';
 import { NoConnect } from './noconnect.js';
 
 const shapeRegistry = {
-    line: Line,
+    polyline: Polyline,
+    line: Polyline,
+    polygon: Polyline,
+    rect: Rect,
     wire: Wire,
     circle: Circle,
-    rect: Rect,
     arc: Arc,
-    polygon: Polygon,
     text: Text,
     Net: Net,
     net: Net,
@@ -42,7 +45,7 @@ const SHORT_KEYS = {
     pts: 'points', n: 'net',
     nd: 'graphNodes', ed: 'graphEdges', pc: 'pinConnections', wl: 'wireLabel',
     r: 'radius', w: 'width', h: 'height', cr: 'cornerRadius',
-    f: 'fill', fc: 'fillColor', fa: 'fillAlpha', cl: 'closed',
+    f: 'fill', fc: 'fillColor', fa: 'fillAlpha', cl: 'closed', ir: 'isRect',
     sp: 'startPoint', ep: 'endPoint', bp: 'bulgePoint',
     t: 'text', fs: 'fontSize', ff: 'fontFamily', ta: 'textAnchor',
     cid: 'componentId', fk: 'fieldKey', rot: 'rotation',

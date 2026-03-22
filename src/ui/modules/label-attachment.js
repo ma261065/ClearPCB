@@ -42,34 +42,10 @@ function removeAttachedLabel(target, labelShape) {
 function closestPointOnShapeGeometry(target, pt) {
     const type = target?.type;
 
-    if (type === 'line' || type === 'polygon') {
-        const pts = target.points;
-        if (!pts || pts.length < 2) return null;
-        const edgeCount = (type === 'polygon' && target.closed) ? pts.length : pts.length - 1;
-        let best = null, bestDist = Infinity;
-        for (let i = 0; i < edgeCount; i++) {
-            const j = (i + 1) % pts.length;
-            const cp = closestPointOnSegment(pt, pts[i], pts[j]);
-            const d = distance(pt, cp);
-            if (d < bestDist) { bestDist = d; best = cp; }
-        }
-        return best;
-    }
-
-    if (type === 'rect') {
-        const corners = [
-            { x: target.x, y: target.y },
-            { x: target.x + target.width, y: target.y },
-            { x: target.x + target.width, y: target.y + target.height },
-            { x: target.x, y: target.y + target.height }
-        ];
-        let best = null, bestDist = Infinity;
-        for (let i = 0; i < 4; i++) {
-            const cp = closestPointOnSegment(pt, corners[i], corners[(i + 1) % 4]);
-            const d = distance(pt, cp);
-            if (d < bestDist) { bestDist = d; best = cp; }
-        }
-        return best;
+    // Graph-based shapes (polyline, line, polygon, wire) — use closestEdge API
+    if (typeof target?.closestEdge === 'function') {
+        const result = target.closestEdge(pt);
+        return result?.point || null;
     }
 
     if (type === 'circle') {

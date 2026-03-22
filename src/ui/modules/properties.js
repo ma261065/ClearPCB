@@ -36,8 +36,13 @@ function mergeDescriptors(selection) {
 
 function headerLabel(selection) {
     if (selection.length === 0) return 'Properties';
-    const displayNames = { rect: 'Rectangle', text: 'Label', Net: 'Net', noconnect: 'No Connect' };
-    const types = selection.map(s => s.definition ? 'Component' : (s.type || 'object'));
+    const displayNames = { rect: 'Rectangle', text: 'Label', Net: 'Net', noconnect: 'No Connect', polyline: 'Line' };
+    const types = selection.map(s => {
+        if (s.definition) return 'Component';
+        if (s.type === 'polyline' && s.isRect) return 'rect';
+        if (s.type === 'polyline' && s.closed) return 'polygon';
+        return s.type || 'object';
+    });
     const first = types[0];
     if (types.every(t => t === first)) {
         if (first === 'Component') {

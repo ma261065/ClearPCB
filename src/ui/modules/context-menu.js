@@ -68,7 +68,7 @@ function getWireSplitLabelMeta(wire) {
 }
 
 function getWireAnchorPosition(shape, anchorId) {
-    if (shape?.type !== 'wire' || !shape.nodes?.has(anchorId)) return null;
+    if (!shape?.nodes?.has(anchorId)) return null;
     const pos = shape.nodes.get(anchorId);
     return pos ? { x: pos.x, y: pos.y } : null;
 }
@@ -377,6 +377,67 @@ export function deleteWire(app, wire) {
 }
 
 /**
+ * Split a degree-2 anchor into two co-located nodes (one for each edge),
+ * then enter anchor-drag mode on the new node. Works for any graph-based shape.
+ */
+function splitAnchorAndDrag(app, shape, anchorId, clientX, clientY) {
+    if (!shape?.nodes?.has(anchorId)) return;
+    const pos = shape.nodes.get(anchorId);
+    if (!pos) return;
+
+    const beforeState = app._captureShapeState(shape);
+
+    // Pick one of the two edges to detach to the new node
+    const edges = shape.incidentEdges(anchorId);
+    if (edges.length < 2) return;
+    const edgeToDetach = [edges[0].edgeId];
+
+    const newNodeId = shape.splitNode(anchorId, edgeToDetach);
+    if (!newNodeId) return;
+
+    // For wires, capture T-junction links at this position
+    const tjLinks = [];
+    const wireStates = new Map();
+    if (shape.type === 'wire') {
+        for (const other of app.shapes) {
+            if (other === shape || other.type !== 'wire') continue;
+            const otherNid = other.nodeAt(pos, VERTEX_EPSILON);
+            if (otherNid) {
+                tjLinks.push({ otherWire: other, otherNodeId: otherNid });
+                if (!wireStates.has(other)) wireStates.set(other, app._captureShapeState(other));
+            }
+        }
+    }
+
+    app.selection.clearSelection();
+    app.selection.select(shape, false);
+    shape.selected = true;
+
+    app.drag = {
+        mode: 'anchor',
+        shape,
+        beforeState,
+        start: { x: pos.x, y: pos.y },
+        startScreen: null,
+        anchorId: newNodeId,
+        wireAnchorOriginal: { x: pos.x, y: pos.y },
+        tjLinks,
+        wireStates: wireStates.size > 0 ? wireStates : null,
+        excludePin: null,
+        ncLinks: [],
+        junctionBeforeWireStates: null,
+        junctionBeforeLabelTextStates: null
+    };
+    app.interactionState = 'anchorDrag';
+    app.didDrag = false;
+
+    app.renderShapes(true);
+    app._showCrosshair();
+    app._updateCrosshair(pos);
+    app.viewport.svg.style.cursor = 'move';
+}
+
+/**
  * Disconnect a wire endpoint from a pin and immediately enter anchor-drag,
  * mirroring the user flow of "Split junction".
  */
@@ -484,6 +545,14 @@ function createContextMenu(items, clientX, clientY) {
 export function showAnchorContextMenu(app, shape, anchorId, clientX, clientY, canDeletePoint = true, junctionInfo = null) {
     const items = [];
     const canDisconnectPin = shape?.type === 'wire' && shape.pinConnections?.has(anchorId);
+    const canSplit = shape?.nodes?.has(anchorId) && shape.degree(anchorId) === 2;
+
+    if (canSplit) {
+        items.push({
+            text: 'Split',
+            onClick: () => splitAnchorAndDrag(app, shape, anchorId, clientX, clientY)
+        });
+    }
 
     if (canDeletePoint) {
         items.push({

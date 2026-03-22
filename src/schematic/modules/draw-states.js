@@ -723,15 +723,12 @@ function handleAnchorContextMenu(app, worldPos, clientX, clientY) {
         const anchorId = shape.hitTestAnchor(worldPos, app.viewport.scale);
         if (anchorId && !anchorId.startsWith('mid')) {
             let canDeletePoint = false;
-            if (shape.type === 'wire') {
+            if (shape.nodes && shape.edges) {
+                // Graph-based shape (wire, line, polygon, rect)
                 canDeletePoint = shape.nodes.has(anchorId) && shape.edges.size > 1;
-            } else {
-                const minPoints = shape.type === 'polygon' ? 4 : 3;
-                canDeletePoint = typeof shape.deleteAnchor === 'function' &&
-                    shape.points && shape.points.length >= minPoints;
             }
-            const junctionInfo = detectTJunction(app, shape, anchorId);
-            const canDisconnectPin = shape.type === 'wire' && shape.pinConnections.has(anchorId);
+            const junctionInfo = shape.type === 'wire' ? detectTJunction(app, shape, anchorId) : null;
+            const canDisconnectPin = shape.type === 'wire' && shape.pinConnections?.has(anchorId);
             if (junctionInfo && shape.type === 'wire') canDeletePoint = false;
             if (canDeletePoint || junctionInfo || canDisconnectPin) {
                 showAnchorContextMenu(app, shape, anchorId, clientX, clientY, canDeletePoint, junctionInfo);
@@ -740,6 +737,7 @@ function handleAnchorContextMenu(app, worldPos, clientX, clientY) {
         }
     }
 
+    // Also check unselected wires for anchor context menus
     const anchorTol = Math.max(0.5, 3 / app.viewport.scale);
     for (const wire of app.shapes) {
         if (wire.type !== 'wire' || wire.locked) continue;
@@ -763,7 +761,7 @@ function handleAnchorContextMenu(app, worldPos, clientX, clientY) {
 function handleSegmentContextMenu(app, worldPos, clientX, clientY) {
     const segTolerance = SNAP_SCREEN_PX / app.viewport.scale;
     for (const shape of app.shapes) {
-        if (shape.locked || shape.type !== 'wire') continue;
+        if (shape.locked || !shape.hitTestEdge) continue;
         const edgeId = shape.hitTestEdge(worldPos, segTolerance);
         if (!edgeId) continue;
         selectContextTargetShape(app, shape);
@@ -1467,6 +1465,26 @@ export const drawingState = {
             app._updateDrawing(snapped);
         }
 
+        // Square indicator during rect drawing
+        if (tool === 'rect' && app.drawStart) {
+            const w = Math.abs(snapped.x - app.drawStart.x);
+            const h = Math.abs(snapped.y - app.drawStart.y);
+            if (w > 0.01 && h > 0.01 && Math.abs(w - h) < 0.05) {
+                const x1 = Math.min(app.drawStart.x, snapped.x);
+                const y1 = Math.min(app.drawStart.y, snapped.y);
+                const x2 = x1 + w;
+                const y2 = y1 + h;
+                renderGuideLines(app, [
+                    [{ x: x1, y: y1 }, { x: x2, y: y1 }],
+                    [{ x: x2, y: y1 }, { x: x2, y: y2 }],
+                    [{ x: x2, y: y2 }, { x: x1, y: y2 }],
+                    [{ x: x1, y: y2 }, { x: x1, y: y1 }],
+                ]);
+            } else {
+                renderGuideLines(app, []);
+            }
+        }
+
         updateToolCrosshair(app, snapped, screenPos);
     },
 
@@ -1703,7 +1721,8 @@ export const anchorDragState = {
         }
 
         let anchorGuides = [];
-        if (app.drag.shape.type === 'wire') {
+        const isGraphShape = !!(app.drag.shape.nodes && app.drag.shape.edges);
+        if (isGraphShape) {
             const isLeaf = app.drag.shape.nodes.has(app.drag.anchorId) && app.drag.shape.degree(app.drag.anchorId) <= 1;
 
             if (app.drag.excludePin?.worldPos) {
@@ -1713,7 +1732,7 @@ export const anchorDragState = {
             }
 
             let snappedToTarget = false;
-            if (isLeaf) {
+            if (isLeaf && app.drag.shape.type === 'wire') {
                 const snap = resolveWireSnapPosition(app, worldPos, {
                     excludeNode: { wire: app.drag.shape, nodeId: app.drag.anchorId },
                     excludePin: app.drag.excludePin || null,
@@ -1726,12 +1745,14 @@ export const anchorDragState = {
 
             if (!snappedToTarget) {
                 updateSnapHighlight(app, null);
-                const neighbors = app.drag.shape.neighborNodes(app.drag.anchorId)
-                    .map(nid => app.drag.shape.nodes.get(nid)).filter(Boolean);
-                applyOffGridNeighborSnap(worldPos, anchorPos, neighbors, app.viewport.gridSize || 1.0);
-                const collinearSnap = computeAnchorCollinearSnap(app, app.drag.shape, app.drag.anchorId, anchorPos);
-                anchorPos = collinearSnap.anchorPos;
-                anchorGuides = collinearSnap.guides;
+                if (!app.drag.shape.isRect) {
+                    const neighbors = app.drag.shape.neighborNodes(app.drag.anchorId)
+                        .map(nid => app.drag.shape.nodes.get(nid)).filter(Boolean);
+                    applyOffGridNeighborSnap(worldPos, anchorPos, neighbors, app.viewport.gridSize || 1.0);
+                    const collinearSnap = computeAnchorCollinearSnap(app, app.drag.shape, app.drag.anchorId, anchorPos);
+                    anchorPos = collinearSnap.anchorPos;
+                    anchorGuides = collinearSnap.guides;
+                }
             }
         }
 
@@ -1741,6 +1762,24 @@ export const anchorDragState = {
 
         const newAnchorId = app.drag.shape.moveAnchor(app.drag.anchorId, anchorPos.x, anchorPos.y);
         if (newAnchorId && newAnchorId !== app.drag.anchorId) app.drag.anchorId = newAnchorId;
+
+        // Square indicator: highlight full square outline when width ≈ height
+        if (app.drag.shape.isRect && app.drag.shape.nodes.size === 4) {
+            const bounds = app.drag.shape._calculateBounds();
+            const w = bounds.maxX - bounds.minX;
+            const h = bounds.maxY - bounds.minY;
+            if (w > 0.01 && h > 0.01 && Math.abs(w - h) < 0.05) {
+                const { minX, minY, maxX, maxY } = bounds;
+                anchorGuides = [
+                    [{ x: minX, y: minY }, { x: maxX, y: minY }],
+                    [{ x: maxX, y: minY }, { x: maxX, y: maxY }],
+                    [{ x: maxX, y: maxY }, { x: minX, y: maxY }],
+                    [{ x: minX, y: maxY }, { x: minX, y: minY }],
+                ];
+                renderGuideLines(app, anchorGuides);
+            }
+        }
+
         syncAnchorDragLinkedNodes(app, anchorPos);
         app.renderShapes(false);
         if (app.textEdit) app._updateTextEditOverlay?.();

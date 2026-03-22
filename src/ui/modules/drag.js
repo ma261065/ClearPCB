@@ -228,14 +228,52 @@ export function commitAnchorDrag(app, dragShape, beforeState, anchorWireStates =
 
     // Non-wire shape
     const wasRemoved = !app.shapes.includes(dragShape);
-    const pts = dragShape.points;
     let degenerate = false;
-    if (!wasRemoved && pts) {
-        if (pts.length >= 2) {
-            degenerate = pts.every(p =>
-                Math.abs(p.x - pts[0].x) < 1e-6 && Math.abs(p.y - pts[0].y) < 1e-6);
-        } else if (pts.length < 2) {
-            degenerate = true;
+    if (!wasRemoved) {
+        if (dragShape.nodes && dragShape.edges) {
+            // Check if an open polyline's endpoints now coincide → close it
+            // (must check BEFORE cleanGraph, which would merge the co-located nodes)
+            if (!dragShape.closed && !dragShape.type?.startsWith('wire')) {
+                const leaves = dragShape.getLeafNodes();
+                if (leaves.length === 2) {
+                    const p1 = dragShape.nodes.get(leaves[0]);
+                    const p2 = dragShape.nodes.get(leaves[1]);
+                    if (p1 && p2 && Math.hypot(p1.x - p2.x, p1.y - p2.y) < 0.15) {
+                        dragShape.addEdge(leaves[0], leaves[1]);
+                        dragShape.closed = true;
+                        if (dragShape.fillAlpha === 0) dragShape.fillAlpha = 0.5;
+                    }
+                }
+            }
+
+            // Graph-based shape: clean up collinear/zero-length edges
+            dragShape.cleanGraph();
+            degenerate = dragShape.edges.size === 0;
+
+            if (!degenerate) {
+                // Check if a closed shape collapsed to an open line
+                if (dragShape.closed) {
+                    const hasClosingLoop = dragShape.getLeafNodes().length === 0;
+                    if (!hasClosingLoop) {
+                        dragShape.closed = false;
+                        dragShape.isRect = false;
+                        dragShape.fill = false;
+                    }
+                }
+
+                // Polygon→Rect promotion
+                if (!dragShape.isRect && typeof dragShape.isAxisAlignedRect === 'function' && dragShape.isAxisAlignedRect()) {
+                    dragShape.isRect = true;
+                }
+            }
+        } else if (dragShape.points) {
+            const pts = dragShape.points;
+            if (pts.length >= 2) {
+                degenerate = pts.every(p =>
+                    Math.abs(p.x - pts[0].x) < 1e-6 && Math.abs(p.y - pts[0].y) < 1e-6);
+            } else if (pts.length < 2) {
+                degenerate = true;
+            }
         }
     }
 
@@ -256,6 +294,7 @@ export function commitAnchorDrag(app, dragShape, beforeState, anchorWireStates =
         }
         dragShape.selected = true;
     }
+    app._updatePropertiesPanel?.(app.selection?.getSelection?.() || []);
     return true;
 }
 

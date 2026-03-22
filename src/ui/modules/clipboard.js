@@ -314,7 +314,7 @@ function _getShapeDataCentroid(data) {
             for (const nid of nodeIds) { sx += data.nd[nid][0]; sy += data.nd[nid][1]; }
             return { x: sx / nodeIds.length, y: sy / nodeIds.length };
         }
-    } else if ((type === 'line' || type === 'polygon' || (type === 'wire' && data.pts)) && data.pts && data.pts.length >= 2) {
+    } else if ((type === 'line' || type === 'polygon' || type === 'polyline' || (type === 'wire' && data.pts)) && data.pts && data.pts.length >= 2) {
         let sx = 0, sy = 0;
         const n = data.pts.length / 2;
         for (let i = 0; i < data.pts.length; i += 2) { sx += data.pts[i]; sy += data.pts[i + 1]; }
@@ -348,7 +348,7 @@ function offsetShapeData(data, tx, ty) {
             const dy = ty - sy / nodeIds.length;
             for (const nid of nodeIds) { data.nd[nid][0] += dx; data.nd[nid][1] += dy; }
         }
-    } else if (type === 'line' || type === 'polygon' || (type === 'wire' && data.pts)) {
+    } else if (type === 'line' || type === 'polygon' || type === 'polyline' || (type === 'wire' && data.pts)) {
         // pts is a flat array [x0,y0,x1,y1,...]
         if (data.pts && data.pts.length >= 2) {
             let sx = 0, sy = 0, n = data.pts.length / 2;
