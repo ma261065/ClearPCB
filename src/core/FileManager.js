@@ -9,7 +9,7 @@ export class FileManager {
     constructor() {
         // Current file handle (for "Save" without prompting)
         this.fileHandle = null;
-        this.fileName = 'untitled.pcbs';
+        this.fileName = 'untitled.cpcb';
         this.filePath = null;
         this.isDirty = false;
         
@@ -86,9 +86,9 @@ export class FileManager {
         if (result && result.success) {
             this.clearAutoSave(this.fileName);
         }
-        // If the file name changed from untitled.pcbs, delete the old autosave
-        if (oldFileName && oldFileName !== this.fileName && oldFileName === 'untitled.pcbs') {
-            this.clearAutoSave('untitled.pcbs');
+        // If the file name changed from untitled.cpcb, delete the old autosave
+        if (oldFileName && oldFileName !== this.fileName && oldFileName === 'untitled.cpcb') {
+            this.clearAutoSave('untitled.cpcb');
         }
         return result;
     }
@@ -99,15 +99,15 @@ export class FileManager {
     async saveAs(data) {
         if (this.hasFileSystemAccess()) {
             const result = await this.saveWithFilePicker(data);
-            // If the file name changed from untitled.pcbs, delete the old autosave
-            if (this.fileName !== 'untitled.pcbs') {
-                this.clearAutoSave('untitled.pcbs');
+            // If the file name changed from untitled.cpcb, delete the old autosave
+            if (this.fileName !== 'untitled.cpcb') {
+                this.clearAutoSave('untitled.cpcb');
             }
             return result;
         } else {
             const result = await this.saveWithDownload(data);
-            if (this.fileName !== 'untitled.pcbs') {
-                this.clearAutoSave('untitled.pcbs');
+            if (this.fileName !== 'untitled.cpcb') {
+                this.clearAutoSave('untitled.cpcb');
             }
             return result;
         }
@@ -121,8 +121,8 @@ export class FileManager {
             const options = {
                 suggestedName: this.fileName,
                 types: [{
-                    description: 'ClearPCB Schematic',
-                    accept: { 'application/x-clearpcb': ['.pcbs'] }
+                    description: 'ClearPCB Project',
+                    accept: { 'application/x-clearpcb': ['.cpcb'] }
                 }]
             };
 
@@ -208,8 +208,8 @@ export class FileManager {
         try {
             const options = {
                 types: [{
-                    description: 'ClearPCB Schematic',
-                    accept: { 'application/x-clearpcb': ['.pcbs'] }
+                    description: 'ClearPCB Project',
+                    accept: { 'application/x-clearpcb': ['.cpcb'] }
                 }]
             };
 
@@ -242,7 +242,7 @@ export class FileManager {
         return new Promise((resolve) => {
             const input = document.createElement('input');
             input.type = 'file';
-            input.accept = '.pcbs';
+            input.accept = '.cpcb';
             
             input.onchange = async (e) => {
                 const target = /** @type {HTMLInputElement|null} */ (e.target);
@@ -404,11 +404,11 @@ export class FileManager {
      */
     newDocument() {
         this.fileHandle = null;
-        this.setFileName('untitled.pcbs');
+        this.setFileName('untitled.cpcb');
         this.setFilePath(null);
         this.setDirty(false);
         // Immediately autosave the new document
-        this.autoSaveToStorage({ shapes: [], version: 1 });
-        return { shapes: [], version: 1 };
+        this.autoSaveToStorage({ version: '2.0', type: 'clearpcb-project', schematic: { shapes: [], components: [] } });
+        return { version: '2.0', type: 'clearpcb-project', schematic: { shapes: [], components: [] } };
     }
 }

@@ -1,7 +1,7 @@
 {
   "name": "ClearPCB",
   "short_name": "ClearPCB",
-  "description": "A browser-based schematic capture tool",
+  "description": "A browser-based schematic and PCB design tool",
   "start_url": ".",
   "display": "standalone",
   "background_color": "#2d2d2d",
@@ -23,7 +23,7 @@
     {
       "action": "./index.html",
       "accept": {
-        "application/json": [".pcbs"]
+        "application/x-clearpcb": [".cpcb"]
       }
     }
   ]

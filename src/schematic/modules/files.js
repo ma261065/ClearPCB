@@ -31,26 +31,28 @@ export function serializeDocument(app) {
     }
 
     const doc = {
-        version: '1.2',
-        type: 'clearpcb-schematic',
+        version: '2.0',
+        type: 'clearpcb-project',
         created: new Date().toISOString(),
-        settings: {
-            gridSize: app.viewport.gridSize,
-            units: app.viewport.units,
-            paperSize: app.viewport.paperSizeKey || null,
-            paperOrientation: app.viewport.paperSize
-                ? (app.viewport.paperSize.width >= app.viewport.paperSize.height ? 'landscape' : 'portrait')
-                : null,
-            titleBlock: app.viewport.showTitleBlock || false,
-            titleBlockInfo: app.viewport.showTitleBlockInfo || false,
-            titleBlockData: app.viewport.titleBlockData || {}
-        },
-        shapes: serializedShapes,
-        components
+        schematic: {
+            settings: {
+                gridSize: app.viewport.gridSize,
+                units: app.viewport.units,
+                paperSize: app.viewport.paperSizeKey || null,
+                paperOrientation: app.viewport.paperSize
+                    ? (app.viewport.paperSize.width >= app.viewport.paperSize.height ? 'landscape' : 'portrait')
+                    : null,
+                titleBlock: app.viewport.showTitleBlock || false,
+                titleBlockInfo: app.viewport.showTitleBlockInfo || false,
+                titleBlockData: app.viewport.titleBlockData || {}
+            },
+            shapes: serializedShapes,
+            components
+        }
     };
 
     if (Object.keys(defs).length > 0) {
-        doc.defs = defs;
+        doc.schematic.defs = defs;
     }
 
     return doc;
@@ -70,8 +72,15 @@ export async function loadDocument(app, data) {
     resetWireLabelCounter();
     resetNetNameCounter();
 
-    if (data.shapes && Array.isArray(data.shapes)) {
-        for (const shapeData of data.shapes) {
+    // Unified project format (v2.0)
+    const sch = data.schematic || {};
+    const shapes = sch.shapes;
+    const components = sch.components;
+    const settings = sch.settings;
+    const defs = sch.defs;
+
+    if (shapes && Array.isArray(shapes)) {
+        for (const shapeData of shapes) {
             const compId = shapeData.cid || shapeData.componentId;
             const fieldKey = shapeData.fk || shapeData.fieldKey;
 
@@ -99,18 +108,17 @@ export async function loadDocument(app, data) {
     }
 
     // Resolve deduplicated definitions from top-level map
-    const defsMap = data.defs || data.definitions;
-    if (defsMap && data.components) {
-        for (const compData of data.components) {
+    if (defs && components) {
+        for (const compData of components) {
             const dn = compData.dn || compData.definitionName;
-            if (!compData.def && !compData.definition && dn && defsMap[dn]) {
-                compData.def = defsMap[dn];
+            if (!compData.def && !compData.definition && dn && defs[dn]) {
+                compData.def = defs[dn];
             }
         }
     }
 
-    if (data.components && Array.isArray(data.components)) {
-        for (const compData of data.components) {
+    if (components && Array.isArray(components)) {
+        for (const compData of components) {
             if (compData.id) updateComponentIdCounter(compData.id);
             const component = app._createComponentFromData(compData);
             if (component) {
@@ -144,56 +152,56 @@ export async function loadDocument(app, data) {
         delete shape._pendingComponentId;
     }
 
-    if (data.settings) {
-        if (data.settings.gridSize) {
-            app.viewport.setGridSize(data.settings.gridSize);
+    if (settings) {
+        if (settings.gridSize) {
+            app.viewport.setGridSize(settings.gridSize);
             if (app.ui.gridSize) {
-                app.ui.gridSize.value = data.settings.gridSize;
+                app.ui.gridSize.value = settings.gridSize;
             }
         }
-        if (data.settings.units) {
-            app.viewport.setUnits(data.settings.units);
+        if (settings.units) {
+            app.viewport.setUnits(settings.units);
             if (app.ui.units) {
-                app.ui.units.value = data.settings.units;
+                app.ui.units.value = settings.units;
             }
             if (typeof app._updateGridDropdown === 'function') {
                 app._updateGridDropdown();
             }
         }
         // Restore paper size, orientation, and title block from file
-        if (data.settings.paperSize) {
+        if (settings.paperSize) {
             const paperSelect = /** @type {HTMLSelectElement|null} */ (document.getElementById('paperSize'));
             const orientationSelect = /** @type {HTMLSelectElement|null} */ (document.getElementById('paperOrientation'));
             const titleBlockCheckbox = /** @type {HTMLInputElement|null} */ (document.getElementById('showTitleBlock'));
-            const orientation = data.settings.paperOrientation || 'landscape';
-            if (paperSelect) paperSelect.value = data.settings.paperSize;
+            const orientation = settings.paperOrientation || 'landscape';
+            if (paperSelect) paperSelect.value = settings.paperSize;
             if (orientationSelect) orientationSelect.value = orientation;
             // Trigger paper display update via the same path as UI
             const { PAPER_SIZES } = await import('../../ui/modules/paper.js');
-            if (PAPER_SIZES[data.settings.paperSize]) {
-                let size = { ...PAPER_SIZES[data.settings.paperSize] };
+            if (PAPER_SIZES[settings.paperSize]) {
+                let size = { ...PAPER_SIZES[settings.paperSize] };
                 if (orientation === 'portrait') {
                     if (size.width > size.height) [size.width, size.height] = [size.height, size.width];
                 } else {
                     if (size.width < size.height) [size.width, size.height] = [size.height, size.width];
                 }
-                app.viewport.setPaperSize(size, data.settings.paperSize);
-                localStorage.setItem('clearpcb_paper_size', data.settings.paperSize);
+                app.viewport.setPaperSize(size, settings.paperSize);
+                localStorage.setItem('clearpcb_paper_size', settings.paperSize);
                 localStorage.setItem('clearpcb_paper_orientation', orientation);
             }
-            const showTitleBlock = data.settings.titleBlock || false;
+            const showTitleBlock = settings.titleBlock || false;
             app.viewport.setTitleBlock(showTitleBlock);
             if (titleBlockCheckbox) titleBlockCheckbox.checked = showTitleBlock;
             localStorage.setItem('clearpcb_title_block', String(showTitleBlock));
             // Restore title block info box state
-            const showTitleBlockInfo = data.settings.titleBlockInfo || false;
+            const showTitleBlockInfo = settings.titleBlockInfo || false;
             const titleBlockInfoCheckbox = /** @type {HTMLInputElement|null} */ (document.getElementById('showTitleBlockInfo'));
             app.viewport.setTitleBlockInfo(showTitleBlockInfo);
             if (titleBlockInfoCheckbox) titleBlockInfoCheckbox.checked = showTitleBlockInfo;
             localStorage.setItem('clearpcb_title_block_info', String(showTitleBlockInfo));
             // Restore title block info data
-            if (data.settings.titleBlockData) {
-                app.viewport.setTitleBlockData(data.settings.titleBlockData);
+            if (settings.titleBlockData) {
+                app.viewport.setTitleBlockData(settings.titleBlockData);
             }
         }
     }
