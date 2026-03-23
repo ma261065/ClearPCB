@@ -90,6 +90,8 @@ export default class PCBApp {
             this._updateViewportStatus();
         };
 
+        // Apply current theme to the viewport
+        this.viewport.updateTheme();
         this._updateViewportStatus();
     }
 
