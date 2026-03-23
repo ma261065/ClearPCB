@@ -241,7 +241,7 @@ export function commitAnchorDrag(app, dragShape, beforeState, anchorWireStates =
                     if (p1 && p2 && Math.hypot(p1.x - p2.x, p1.y - p2.y) < 0.15) {
                         dragShape.addEdge(leaves[0], leaves[1]);
                         dragShape.closed = true;
-                        if (dragShape.fillAlpha === 0) dragShape.fillAlpha = 0.5;
+                        if (dragShape.fillAlpha === 0) dragShape.fillAlpha = 0.3;
                     }
                 }
             }

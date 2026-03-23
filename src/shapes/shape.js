@@ -59,7 +59,7 @@ export class Shape {
         // Validate and apply common properties
         this.layer = ShapeValidator.validateLayer(options.layer || 'top');
         this.color = ShapeValidator.validateColor(options.color || '#00b894');
-        this.fillColor = options.fillColor ?? null;
+        this.fillColor = options.fillColor ?? 'var(--sch-shape-fill, #777777)';
         this.lineWidth = ShapeValidator.validateLineWidth(options.lineWidth || 0.2);
         
         // State
@@ -226,7 +226,7 @@ export class Shape {
             strokeColor = 'var(--sch-selection, #3399ff)';
             fillColor = this.type === 'text'
                 ? 'var(--sch-selection, #3399ff)'
-                : baseFillColor;
+                : 'var(--sch-hover-fill, #9999aa)';
         } else if (attachedActive) {
             strokeColor = 'var(--sch-selection, #3399ff)';
             fillColor = 'var(--sch-selection, #3399ff)';

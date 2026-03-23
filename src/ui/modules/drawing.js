@@ -181,8 +181,7 @@ export function finishLine(app) {
                 color: app.toolOptions.color,
                 lineWidth: app.toolOptions.lineWidth,
                 closed: true,
-                fill: false,
-                fillAlpha: 0.5,
+                fill: app.toolOptions.fill,
             });
             // Check if it forms a rectangle
             if (shape.isAxisAlignedRect()) {
@@ -193,7 +192,8 @@ export function finishLine(app) {
             const shape = new Line({
                 points: pts,
                 color: app.toolOptions.color,
-                lineWidth: app.toolOptions.lineWidth
+                lineWidth: app.toolOptions.lineWidth,
+                fill: app.toolOptions.fill,
             });
             app.addShape(shape);
         }
@@ -280,9 +280,10 @@ export function updatePreview(app) {
             if (app.linePoints && app.linePoints.length > 0) {
                 const points = [...app.linePoints, end];
                 const pointsStr = points.map(p => `${p.x},${p.y}`).join(' ');
+                const fillAttr = opts.fill && points.length >= 3 ? 'var(--sch-shape-fill, #777777)' : 'none';
                 let svg = `<polyline points="${pointsStr}" 
                         stroke="${opts.color}" stroke-width="${strokeWidth}" 
-                        fill="none"
+                        fill="${fillAttr}" fill-opacity="0.3"
                         stroke-linecap="round" stroke-linejoin="round"/>`;
                 for (const p of app.linePoints) {
                     svg += `<circle cx="${p.x}" cy="${p.y}" r="${2 / app.viewport.scale}" fill="${opts.color}"/>`;
@@ -370,7 +371,9 @@ export function updatePreview(app) {
                     app.arcDirection = ccw;
                     app.arcSweepFlag = sweepFlag;
                     
-                    app.previewElement.innerHTML = `<path d="M ${p1.x} ${p1.y} A ${radius} ${radius} 0 0 ${sweepFlag} ${p2.x} ${p2.y}" 
+                    const arcFill = opts.fill ? `<path d="M ${p1.x} ${p1.y} A ${radius} ${radius} 0 0 ${sweepFlag} ${p2.x} ${p2.y} Z" 
+                            fill="var(--sch-shape-fill, #777777)" fill-opacity="0.3" stroke="none"/>` : '';
+                    app.previewElement.innerHTML = `${arcFill}<path d="M ${p1.x} ${p1.y} A ${radius} ${radius} 0 0 ${sweepFlag} ${p2.x} ${p2.y}" 
                             stroke="${opts.color}" stroke-width="${strokeWidth}" fill="none" stroke-linecap="round"/>`;
                 }
             }
@@ -460,7 +463,8 @@ export function createShapeFromDrawing(app) {
                 startPoint: { x: p1.x, y: p1.y },
                 endPoint: { x: p2.x, y: p2.y },
                 color: opts.color,
-                lineWidth: opts.lineWidth
+                lineWidth: opts.lineWidth,
+                fill: opts.fill,
             });
         }
         case 'text': {

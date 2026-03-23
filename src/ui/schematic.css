@@ -57,6 +57,7 @@
     --sch-fill: #ffffcc;
     --sch-arrow: #aa0000;
     --sch-shape-fill: #6f6f6f;
+    --sch-hover-fill: #8a8a8a;
     
     /* === Sheets === */
     --sch-sheet: #aa00aa;
@@ -133,6 +134,7 @@
     --sch-fill: #ffffcc;
     --sch-arrow: #aa0000;
     --sch-shape-fill: #888888;
+    --sch-hover-fill: #9a9a9a;
     
     /* === Sheets === */
     --sch-sheet: #aa00aa;

@@ -102,10 +102,24 @@ export function updatePropertiesPanel(app, selection) {
         sec.content.appendChild(countEl);
 
         if (selection.length > 0) {
+            // Spacing after selection count
+            const spacer = document.createElement('div');
+            spacer.style.height = '6px';
+            sec.content.appendChild(spacer);
+
             const descriptors = mergeDescriptors(selection);
             const allLocked = selection.every(s => s.locked);
 
             for (const desc of descriptors) {
+                // Add divider after locked checkbox
+                if (desc.key === 'lineWidth' || (desc.key !== 'locked' && descriptors[0]?.key === 'locked')) {
+                    if (desc.key === 'lineWidth') {
+                        const divider = document.createElement('hr');
+                        divider.style.cssText = 'border:none;border-top:1px solid var(--border-color);margin:4px 0;';
+                        sec.content.appendChild(divider);
+                    }
+                }
+
                 const row = document.createElement('div');
                 row.className = 'prop-row';
                 const disabled = allLocked && desc.key !== 'locked';
@@ -159,6 +173,20 @@ export function updatePropertiesPanel(app, selection) {
                         if (desc.max != null && v > desc.max) v = desc.max;
                         if (parseFloat(input.value) !== v) input.value = v;
                         applyCommonProperty(app, desc.key, v);
+                    });
+                    // Real-time preview while dragging spinner
+                    input.addEventListener('input', () => {
+                        let v = parseFloat(input.value);
+                        if (Number.isNaN(v)) return;
+                        if (desc.min != null && v < desc.min) v = desc.min;
+                        if (desc.max != null && v > desc.max) v = desc.max;
+                        for (const item of selection) {
+                            if (desc.key in item) {
+                                item[desc.key] = v;
+                                item.invalidate?.();
+                            }
+                        }
+                        app.renderShapes(false);
                     });
                     if (disabled) {
                         input.readOnly = true;

@@ -611,22 +611,26 @@ export function dismissAnchorContextMenu() {
 /**
  * Show a context menu for wire segment operations (delete segment).
  */
-export function showSegmentContextMenu(app, wire, edgeId, clientX, clientY) {
+export function showSegmentContextMenu(app, shape, edgeId, clientX, clientY) {
     const items = [];
 
-    if (wire.edges.size > 1) {
+    if (shape.edges.size > 1) {
         items.push({
             text: 'Delete Segment',
-            onClick: () => deleteWireSegment(app, wire, edgeId)
+            onClick: () => deleteWireSegment(app, shape, edgeId)
         });
     }
 
-    items.push({
-        text: 'Delete Wire',
-        onClick: () => deleteWire(app, wire)
-    });
+    if (shape.type === 'wire') {
+        items.push({
+            text: 'Delete Wire',
+            onClick: () => deleteWire(app, shape)
+        });
+    }
 
-    createContextMenu(items, clientX, clientY);
+    if (items.length > 0) {
+        createContextMenu(items, clientX, clientY);
+    }
 }
 
 /**

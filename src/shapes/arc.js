@@ -23,6 +23,7 @@ export class Arc extends Shape {
      * @param {{x:number,y:number}} [options.startPoint] - Arc start.
      * @param {{x:number,y:number}} [options.endPoint]   - Arc end.
      * @param {{x:number,y:number}} [options.bulgePoint]  - Arc midpoint (curvature control).
+     * @param {boolean} [options.fill] - Whether to fill the chord area.
      */
     constructor(options = {}) {
         super(options);
@@ -33,6 +34,10 @@ export class Arc extends Shape {
         this._endPoint = options.endPoint || { x: 10, y: 0 };
         this._bulgePoint = options.bulgePoint || { x: 5, y: 5 };
         this._cachedGeometry = null;
+
+        // Fill properties
+        this.fill = options.fill || false;
+        this.fillAlpha = options.fillAlpha ?? 0.3;
     }
     
     /** @returns {{x:number,y:number}} Arc start control point. */
@@ -184,13 +189,46 @@ export class Arc extends Shape {
     /** @override */
     hitTest(point, tolerance = 0.5) {
         const dist = Math.hypot(point.x - this.x, point.y - this.y);
-        
+
+        // Filled arc: check if point is inside the chord area
+        if (this.fill) {
+            // Inside the circle and within the arc angle range
+            if (dist <= this.radius) {
+                const angle = Math.atan2(point.y - this.y, point.x - this.x);
+                if (this._isAngleInRange(angle)) return true;
+            }
+            // Also check if point is inside the chord triangle
+            // (between the straight line connecting start/end and the arc)
+            const start = this.getStartPoint();
+            const end = this.getEndPoint();
+            if (start && end && this._pointInChord(point, start, end)) return true;
+        }
+
+        // Stroke hit test
         if (Math.abs(dist - this.radius) > tolerance + this.lineWidth / 2) {
             return false;
         }
         
-        let angle = Math.atan2(point.y - this.y, point.x - this.x);
+        const angle = Math.atan2(point.y - this.y, point.x - this.x);
         return this._isAngleInRange(angle);
+    }
+
+    /**
+     * Check if a point is inside the chord area (triangle between arc endpoints and center-ish).
+     */
+    _pointInChord(point, start, end) {
+        // Simple approach: check if point is on the same side of the chord line as the bulge point
+        const cx = (start.x + end.x) / 2;
+        const cy = (start.y + end.y) / 2;
+        const dx = end.x - start.x;
+        const dy = end.y - start.y;
+        // Cross product to determine side of chord line
+        const bulge = this._bulgePoint;
+        const bulgeSide = dx * (bulge.y - start.y) - dy * (bulge.x - start.x);
+        const pointSide = dx * (point.y - start.y) - dy * (point.x - start.x);
+        // Same side as bulge and within the radius
+        const dist = Math.hypot(point.x - this.x, point.y - this.y);
+        return (bulgeSide * pointSide >= 0) && dist <= this.radius + 0.5;
     }
     
     /**
@@ -313,19 +351,35 @@ export class Arc extends Shape {
 
     /** @override */
     _createElement() {
-        return document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        return document.createElementNS('http://www.w3.org/2000/svg', 'g');
     }
     /** @override */
     _updateElement(el, strokeColor, fillColor, scale) {
+        el.textContent = '';
+
         const start = this.getStartPoint();
         const end = this.getEndPoint();
-        const d = `M ${start.x} ${start.y} A ${this.radius} ${this.radius} 0 0 ${this.sweepFlag} ${end.x} ${end.y}`;
-        
-        el.setAttribute('d', d);
-        el.setAttribute('stroke', strokeColor);
-        el.setAttribute('stroke-width', this._getEffectiveStrokeWidth(scale));
-        el.setAttribute('fill', 'none');
-        el.setAttribute('stroke-linecap', 'round');
+        const arcPath = `M ${start.x} ${start.y} A ${this.radius} ${this.radius} 0 0 ${this.sweepFlag} ${end.x} ${end.y}`;
+        const sw = this._getEffectiveStrokeWidth(scale);
+
+        // Fill: chord area (arc + close)
+        if (this.fill) {
+            const fillEl = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+            fillEl.setAttribute('d', `${arcPath} Z`);
+            fillEl.setAttribute('fill', fillColor);
+            fillEl.setAttribute('fill-opacity', String(this.fillAlpha));
+            fillEl.setAttribute('stroke', 'none');
+            el.appendChild(fillEl);
+        }
+
+        // Stroke: arc only (no chord line)
+        const strokeEl = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        strokeEl.setAttribute('d', arcPath);
+        strokeEl.setAttribute('stroke', strokeColor);
+        strokeEl.setAttribute('stroke-width', String(sw));
+        strokeEl.setAttribute('stroke-linecap', 'round');
+        strokeEl.setAttribute('fill', 'none');
+        el.appendChild(strokeEl);
     }
     
     /** @override */
@@ -347,7 +401,8 @@ export class Arc extends Shape {
         return {
             startPoint: { x: this._startPoint.x, y: this._startPoint.y },
             endPoint: { x: this._endPoint.x, y: this._endPoint.y },
-            bulgePoint: { x: this._bulgePoint.x, y: this._bulgePoint.y }
+            bulgePoint: { x: this._bulgePoint.x, y: this._bulgePoint.y },
+            fill: this.fill,
         };
     }
 
@@ -356,6 +411,7 @@ export class Arc extends Shape {
         return [
             { key: 'locked',    label: 'Locked',    type: 'checkbox' },
             { key: 'lineWidth', label: 'Line width', type: 'number', min: 0.05, max: 5, step: 0.05 },
+            { key: 'fill',      label: 'Fill',       type: 'checkbox' },
         ];
     }
     /** @override */
@@ -363,6 +419,7 @@ export class Arc extends Shape {
         if (state.startPoint) this.startPoint = { x: state.startPoint.x, y: state.startPoint.y };
         if (state.endPoint) this.endPoint = { x: state.endPoint.x, y: state.endPoint.y };
         if (state.bulgePoint) this.bulgePoint = { x: state.bulgePoint.x, y: state.bulgePoint.y };
+        if ('fill' in state) this.fill = state.fill;
         this.invalidate();
     }
     
@@ -380,11 +437,13 @@ export class Arc extends Shape {
     }
     /** @override */
     toJSON() {
-        return {
+        const json = {
             ...super.toJSON(),
             sp: { x: _r4(this._startPoint.x), y: _r4(this._startPoint.y) },
             ep: { x: _r4(this._endPoint.x), y: _r4(this._endPoint.y) },
             bp: { x: _r4(this._bulgePoint.x), y: _r4(this._bulgePoint.y) }
         };
+        if (this.fill) json.f = true;
+        return json;
     }
 }

@@ -22,20 +22,18 @@ export class Polyline extends PolylineGraph {
     constructor(options = {}) {
         const closed = options.closed !== undefined ? options.closed : false;
         const fill = options.fill !== undefined ? options.fill : (closed ? true : false);
-        const fillColor = ShapeValidator.validateColor(options.fillColor || options.color || '#000000');
-        const fillAlpha = options.fillAlpha ?? (closed ? 0.5 : 0);
+        const fillAlpha = options.fillAlpha ?? 0.3;
 
         let points;
         if (options.points && options.points.length >= 2 && !options.graphNodes) {
             points = options.points.map(p => ({ x: p.x, y: p.y }));
         }
 
-        super({ ...options, points, closed, fill, fillColor, fillAlpha });
+        super({ ...options, points, closed, fill, fillAlpha });
         this.type = 'polyline';
 
         // Rectangle mode: constrained corner dragging
         this.isRect = options.isRect || false;
-        this.cornerRadius = ShapeValidator.validateNumber(options.cornerRadius || 0, { min: 0, name: 'cornerRadius' });
     }
 
     /**
@@ -108,7 +106,6 @@ export class Polyline extends PolylineGraph {
     captureState() {
         const s = super.captureState();
         s.isRect = this.isRect;
-        s.cornerRadius = this.cornerRadius;
         return s;
     }
 
@@ -116,7 +113,6 @@ export class Polyline extends PolylineGraph {
     applyState(state) {
         super.applyState(state);
         if ('isRect' in state) this.isRect = state.isRect;
-        if ('cornerRadius' in state) this.cornerRadius = state.cornerRadius;
         this._rectAxisCache = null;
     }
 
@@ -135,7 +131,7 @@ export class Polyline extends PolylineGraph {
     toJSON() {
         const json = { ...super.toJSON(), type: 'polyline' };
         if (this.isRect) json.ir = true;
-        if (this.cornerRadius) json.cr = this.cornerRadius;
+        return json;
         return json;
     }
 }

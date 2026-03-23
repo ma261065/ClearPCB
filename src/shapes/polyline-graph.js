@@ -67,6 +67,7 @@ export class PolylineGraph extends Shape {
      * @param {object} [options.graphNodes] - Node map {id: {x,y} | [x,y]}
      * @param {object} [options.graphEdges] - Edge map {id: {from,to} | [from,to]}
      * @param {Array<{x:number,y:number}>} [options.points] - Simple point array (auto-converted to graph)
+     * @param {number} [options.cornerRadius=0] - Corner rounding radius
      */
     constructor(options = {}) {
         super(options);
@@ -79,8 +80,8 @@ export class PolylineGraph extends Shape {
         // Closed/fill properties
         this.closed = options.closed || false;
         this.fill = options.fill !== undefined ? options.fill : false;
-        this.fillColor = options.fillColor || this.color;
-        this.fillAlpha = options.fillAlpha ?? 0.5;
+        this.fillAlpha = options.fillAlpha ?? 0.3;
+        this.cornerRadius = options.cornerRadius || 0;
 
         // Initialise from graph format
         if (options.graphNodes && options.graphEdges) {
@@ -631,8 +632,8 @@ export class PolylineGraph extends Shape {
 
     /** @override */
     hitTest(point, tolerance = HIT_TEST_TOLERANCE) {
-        // Filled closed shapes: check point-in-polygon
-        if (this.fill && this.closed) {
+        // Filled shapes: check point-in-polygon
+        if (this.fill) {
             const pts = this.getOrderedPoints();
             if (pts && pts.length >= 3 && pointInPolygon(point, pts)) {
                 return true;
@@ -744,7 +745,7 @@ export class PolylineGraph extends Shape {
      * @returns {object}
      */
     captureState() {
-        const s = { nodes: {}, edges: {}, closed: this.closed, type: this.type, fill: this.fill };
+        const s = { nodes: {}, edges: {}, closed: this.closed, type: this.type, fill: this.fill, cornerRadius: this.cornerRadius };
         for (const [id, p] of this.nodes) s.nodes[id] = { x: p.x, y: p.y };
         for (const [id, e] of this.edges) s.edges[id] = { from: e.from, to: e.to };
         return s;
@@ -765,6 +766,7 @@ export class PolylineGraph extends Shape {
         if ('closed' in state) this.closed = state.closed;
         if ('type' in state) this.type = state.type;
         if ('fill' in state) this.fill = state.fill;
+        if ('cornerRadius' in state) this.cornerRadius = state.cornerRadius;
         this.invalidate();
     }
 
@@ -801,7 +803,8 @@ export class PolylineGraph extends Shape {
             { key: 'locked',    label: 'Locked',     type: 'checkbox' },
             { key: 'lineWidth', label: 'Line width',  type: 'number', min: 0.05, max: 5, step: 0.05 },
         ];
-        if (this.closed) {
+        if (this.nodes && this.nodes.size >= 3) {
+            props.push({ key: 'cornerRadius', label: 'Corner radius', type: 'number', min: 0, max: 25, step: 0.5 });
             props.push({ key: 'fill', label: 'Fill', type: 'checkbox' });
         }
         return props;
@@ -822,9 +825,56 @@ export class PolylineGraph extends Shape {
         el.textContent = '';
 
         const sw = this._getEffectiveStrokeWidth(scale);
+        const r = this.cornerRadius || 0;
 
-        // For closed filled shapes, render fill polygon underneath edges
-        if (this.fill && this.closed) {
+        // Rounded-corner path rendering for shapes with cornerRadius
+        // Only use path rendering for simple chains (no branching)
+        if (r > 0) {
+            const pts = this.getOrderedPoints();
+            const hasBranches = this.getJunctionNodes().length > 0;
+            if (pts && pts.length >= 3 && pts.length === this.nodes.size && !hasBranches) {
+                const pathData = this.closed
+                    ? this._buildRoundedPath(pts, r)
+                    : this._buildRoundedOpenPath(pts, r);
+
+                // Fill path
+                if (this.fill) {
+                    const fillPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                    fillPath.setAttribute('d', pathData);
+                    fillPath.setAttribute('fill', fillColor);
+                    fillPath.setAttribute('fill-opacity', String(this.fillAlpha));
+                    fillPath.setAttribute('stroke', 'none');
+                    el.appendChild(fillPath);
+                }
+
+                // Stroke path
+                const strokePath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                strokePath.setAttribute('d', pathData);
+                strokePath.setAttribute('stroke', strokeColor);
+                strokePath.setAttribute('stroke-width', String(sw));
+                strokePath.setAttribute('stroke-linejoin', 'round');
+                strokePath.setAttribute('fill', 'none');
+                el.appendChild(strokePath);
+
+                // Junction dots still needed
+                const jr = Math.max(MIN_JUNCTION_RADIUS, JUNCTION_SCREEN_PX / scale);
+                for (const [nid, pos] of this.nodes) {
+                    if (this.degree(nid) >= 3) {
+                        const c = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                        c.setAttribute('cx', pos.x); c.setAttribute('cy', pos.y);
+                        c.setAttribute('r', String(jr));
+                        c.setAttribute('fill', strokeColor);
+                        c.setAttribute('stroke', 'none');
+                        c.classList.add('junction-dot');
+                        el.appendChild(c);
+                    }
+                }
+                return;
+            }
+        }
+
+        // For filled shapes without radius, render fill polygon underneath edges
+        if (this.fill) {
             const pts = this.getOrderedPoints();
             if (pts && pts.length >= 3) {
                 const poly = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
@@ -850,19 +900,114 @@ export class PolylineGraph extends Shape {
             el.appendChild(ln);
         }
 
-        // Junction dots at degree ≥ 3 nodes
-        const jr = Math.max(MIN_JUNCTION_RADIUS, JUNCTION_SCREEN_PX / scale);
-        for (const [nid, pos] of this.nodes) {
-            if (this.degree(nid) >= 3) {
-                const c = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-                c.setAttribute('cx', pos.x); c.setAttribute('cy', pos.y);
-                c.setAttribute('r', String(jr));
-                c.setAttribute('fill', strokeColor);
-                c.setAttribute('stroke', 'none');
-                c.classList.add('junction-dot');
-                el.appendChild(c);
+        // Junction dots at degree ≥ 3 nodes (wires only)
+        if (this.type === 'wire') {
+            const jr = Math.max(MIN_JUNCTION_RADIUS, JUNCTION_SCREEN_PX / scale);
+            for (const [nid, pos] of this.nodes) {
+                if (this.degree(nid) >= 3) {
+                    const c = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                    c.setAttribute('cx', pos.x); c.setAttribute('cy', pos.y);
+                    c.setAttribute('r', String(jr));
+                    c.setAttribute('fill', strokeColor);
+                    c.setAttribute('stroke', 'none');
+                    c.classList.add('junction-dot');
+                    el.appendChild(c);
+                }
             }
         }
+    }
+
+    /**
+     * Build an SVG path string with rounded corners for a closed polygon.
+     * Each corner is replaced with a quadratic bezier arc.
+     * @param {Array<{x:number,y:number}>} pts - Ordered vertices
+     * @param {number} r - Corner radius
+     * @returns {string} SVG path data
+     */
+    _buildRoundedPath(pts, r) {
+        const n = pts.length;
+        if (n < 3) return '';
+
+        const parts = [];
+        for (let i = 0; i < n; i++) {
+            const prev = pts[(i - 1 + n) % n];
+            const curr = pts[i];
+            const next = pts[(i + 1) % n];
+
+            // Vector from curr to prev and curr to next
+            const dx1 = prev.x - curr.x, dy1 = prev.y - curr.y;
+            const dx2 = next.x - curr.x, dy2 = next.y - curr.y;
+            const len1 = Math.hypot(dx1, dy1);
+            const len2 = Math.hypot(dx2, dy2);
+
+            // Clamp radius to half of shortest adjacent edge
+            const maxR = Math.min(len1, len2) / 2;
+            const cr = Math.min(r, maxR);
+
+            if (cr < 0.01 || len1 < 0.01 || len2 < 0.01) {
+                // No rounding possible at this corner
+                if (i === 0) parts.push(`M ${curr.x} ${curr.y}`);
+                else parts.push(`L ${curr.x} ${curr.y}`);
+            } else {
+                // Start point of arc (on edge from prev)
+                const sx = curr.x + (dx1 / len1) * cr;
+                const sy = curr.y + (dy1 / len1) * cr;
+                // End point of arc (on edge to next)
+                const ex = curr.x + (dx2 / len2) * cr;
+                const ey = curr.y + (dy2 / len2) * cr;
+
+                if (i === 0) parts.push(`M ${sx} ${sy}`);
+                else parts.push(`L ${sx} ${sy}`);
+                // Quadratic bezier through the corner point
+                parts.push(`Q ${curr.x} ${curr.y} ${ex} ${ey}`);
+            }
+        }
+        parts.push('Z');
+        return parts.join(' ');
+    }
+
+    /**
+     * Build an SVG path string with rounded corners for an open polyline.
+     * First and last points are not rounded.
+     * @param {Array<{x:number,y:number}>} pts
+     * @param {number} r
+     * @returns {string}
+     */
+    _buildRoundedOpenPath(pts, r) {
+        const n = pts.length;
+        if (n < 3) return `M ${pts[0].x} ${pts[0].y} L ${pts[1].x} ${pts[1].y}`;
+
+        const parts = [`M ${pts[0].x} ${pts[0].y}`];
+
+        for (let i = 1; i < n - 1; i++) {
+            const prev = pts[i - 1];
+            const curr = pts[i];
+            const next = pts[i + 1];
+
+            const dx1 = prev.x - curr.x, dy1 = prev.y - curr.y;
+            const dx2 = next.x - curr.x, dy2 = next.y - curr.y;
+            const len1 = Math.hypot(dx1, dy1);
+            const len2 = Math.hypot(dx2, dy2);
+
+            const maxR = Math.min(len1, len2) / 2;
+            const cr = Math.min(r, maxR);
+
+            if (cr < 0.01 || len1 < 0.01 || len2 < 0.01) {
+                parts.push(`L ${curr.x} ${curr.y}`);
+            } else {
+                const sx = curr.x + (dx1 / len1) * cr;
+                const sy = curr.y + (dy1 / len1) * cr;
+                const ex = curr.x + (dx2 / len2) * cr;
+                const ey = curr.y + (dy2 / len2) * cr;
+
+                parts.push(`L ${sx} ${sy}`);
+                parts.push(`Q ${curr.x} ${curr.y} ${ex} ${ey}`);
+            }
+        }
+
+        // Last point
+        parts.push(`L ${pts[n - 1].x} ${pts[n - 1].y}`);
+        return parts.join(' ');
     }
 
     /**
@@ -894,6 +1039,7 @@ export class PolylineGraph extends Shape {
         else json.f = false;
         if (this.fillColor !== this.color) json.fc = this.fillColor;
         if (this.fillAlpha !== 0.5) json.fa = this.fillAlpha;
+        if (this.cornerRadius) json.cr = this.cornerRadius;
         return json;
     }
 }
