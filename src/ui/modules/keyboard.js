@@ -407,6 +407,16 @@ export function bindKeyboardShortcuts(app) {
                     e.preventDefault();
                     app.viewport.resetView();
                     break;
+                case '+':
+                case '=':
+                    e.preventDefault();
+                    app.viewport.zoomIn();
+                    break;
+                case '-':
+                case '_':
+                    e.preventDefault();
+                    app.viewport.zoomOut();
+                    break;
                 case 'r':
                 case 'R':
                     app._onToolSelected('rect');
