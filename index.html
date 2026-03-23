@@ -196,14 +196,14 @@
     <!-- ═══ PCB Ribbon ═══ -->
     <div class="ribbon ribbon-hidden" id="ribbonPCB">
         <div class="ribbon-tabs">
-            <div class="ribbon-tab active" data-tab="pcb-file">File</div>
-            <div class="ribbon-tab" data-tab="pcb-home">Home</div>
+            <div class="ribbon-tab" data-tab="pcb-file">File</div>
+            <div class="ribbon-tab active" data-tab="pcb-home">Home</div>
             <div class="ribbon-tab" data-tab="pcb-help">Help</div>
             <div class="ribbon-spacer"></div>
             <span class="ribbon-title">PCB Layout</span>
         </div>
         <div class="ribbon-panels">
-            <div class="ribbon-panel active" data-panel="pcb-file">
+            <div class="ribbon-panel" data-panel="pcb-file">
                 <div class="ribbon-group">
                     <div class="ribbon-group-title">File</div>
                     <div class="ribbon-group-items">
@@ -214,7 +214,7 @@
                     </div>
                 </div>
             </div>
-            <div class="ribbon-panel" data-panel="pcb-home">
+            <div class="ribbon-panel active" data-panel="pcb-home">
                 <div class="ribbon-group">
                     <div class="ribbon-group-title">Tools</div>
                     <div class="ribbon-group-items">
@@ -227,8 +227,14 @@
                 <div class="ribbon-group">
                     <div class="ribbon-group-title">Layers</div>
                     <div class="ribbon-group-items">
-                        <button id="pcbLayerTop" class="active">Top</button>
-                        <button id="pcbLayerBottom">Bottom</button>
+                        <div class="pcb-layer-control" id="pcbLayerControl">
+                            <div class="pcb-layer-trigger" id="pcbLayerTrigger">
+                                <span class="pcb-layer-swatch" id="pcbLayerSwatch"></span>
+                                <span id="pcbLayerLabel">Top Copper</span>
+                                <span class="pcb-layer-arrow">▾</span>
+                            </div>
+                            <div class="pcb-layer-panel" id="pcbLayerPanel"></div>
+                        </div>
                     </div>
                 </div>
                 <div class="ribbon-group">
@@ -241,6 +247,16 @@
                         <label class="ribbon-checkbox"><input type="checkbox" id="pcbShowGrid" checked> Grid</label>
                         <label class="ribbon-checkbox"><input type="checkbox" id="pcbSnapToGrid" checked> Snap</label>
                         <label class="ribbon-checkbox"><input type="checkbox" id="pcbShowRulers" checked> Rulers</label>
+                        <select id="pcbGridSize" title="Grid size"><option value="1.27">1.27 mm</option></select>
+                        <select id="pcbUnits" title="Units">
+                            <option value="mm" selected>mm</option>
+                            <option value="mil">mil</option>
+                            <option value="inch">inch</option>
+                        </select>
+                        <select id="pcbGridStyle" title="Grid style">
+                            <option value="lines" selected>Lines</option>
+                            <option value="dots">Dots</option>
+                        </select>
                         <button id="pcbThemeToggle" class="theme-toggle" title="Toggle Dark/Light Mode">🌙</button>
                     </div>
                 </div>
@@ -250,6 +266,7 @@
                     <div class="ribbon-group-title">PCB Layout Help</div>
                     <div class="ribbon-group-items ribbon-help-items">
                         <div class="help-row"><span class="pcb-coming-soon">PCB layout tools coming soon.</span></div>
+                        <div class="help-row"><label class="ribbon-checkbox"><input type="checkbox" id="pcbDebugTooltip"> Show footprint shape data</label></div>
                     </div>
                 </div>
             </div>

@@ -1,3 +1,6 @@
+import { updateGridDropdown } from '../../ui/modules/viewport.js';
+import { PCB_LAYERS, buildLayerPanel } from './layers.js';
+
 /**
  * Binds PCB-specific UI controls for tools and layers.
  * @param {object} app
@@ -5,8 +8,6 @@
 export function bindPcbControls(app) {
     const selectBtn = document.getElementById('pcbToolSelect');
     const panBtn = document.getElementById('pcbToolPan');
-    const layerTopBtn = document.getElementById('pcbLayerTop');
-    const layerBottomBtn = document.getElementById('pcbLayerBottom');
     const zoomOutBtn = document.getElementById('pcbZoomOut');
     const zoomInBtn = document.getElementById('pcbZoomIn');
     const zoomFitBtn = document.getElementById('pcbZoomFit');
@@ -14,6 +15,9 @@ export function bindPcbControls(app) {
     const showGridInput = document.getElementById('pcbShowGrid');
     const snapToGridInput = document.getElementById('pcbSnapToGrid');
     const showRulersInput = document.getElementById('pcbShowRulers');
+    const gridSizeSelect = document.getElementById('pcbGridSize');
+    const unitsSelect = document.getElementById('pcbUnits');
+    const gridStyleSelect = document.getElementById('pcbGridStyle');
 
     const setTool = (tool) => {
         app.currentTool = tool;
@@ -23,17 +27,11 @@ export function bindPcbControls(app) {
         app._setPcbStatus?.();
     };
 
-    const setLayer = (layer) => {
-        app.activeLayer = layer;
-        if (layerTopBtn) layerTopBtn.classList.toggle('active', layer === 'top');
-        if (layerBottomBtn) layerBottomBtn.classList.toggle('active', layer === 'bottom');
-        app._setPcbStatus?.();
-    };
-
     selectBtn?.addEventListener('click', () => setTool('select'));
     panBtn?.addEventListener('click', () => setTool('pan'));
-    layerTopBtn?.addEventListener('click', () => setLayer('top'));
-    layerBottomBtn?.addEventListener('click', () => setLayer('bottom'));
+
+    // Layer panel
+    buildLayerPanel(app);
 
     const syncViewToggles = () => {
         if (!app.viewport) return;
@@ -104,8 +102,35 @@ export function bindPcbControls(app) {
     });
 
     setTool(app.currentTool || 'select');
-    setLayer(app.activeLayer || 'top');
     syncViewToggles();
+
+    // Grid size, style, units dropdowns — reuse shared updateGridDropdown
+    app.ui = {
+        gridSize: gridSizeSelect,
+        gridStyle: gridStyleSelect,
+        units: unitsSelect,
+        showGrid: showGridInput,
+        snapToGrid: snapToGridInput,
+    };
+
+    gridSizeSelect?.addEventListener('change', (e) => {
+        const vp = ensureViewport();
+        if (!vp) return;
+        vp.setGridSize(parseFloat(/** @type {HTMLSelectElement} */ (e.target).value));
+    });
+
+    gridStyleSelect?.addEventListener('change', (e) => {
+        const vp = ensureViewport();
+        if (!vp) return;
+        vp.setGridStyle(/** @type {HTMLSelectElement} */ (e.target).value);
+    });
+
+    unitsSelect?.addEventListener('change', (e) => {
+        const vp = ensureViewport();
+        if (!vp) return;
+        vp.setUnits(/** @type {HTMLSelectElement} */ (e.target).value);
+        app._updateGridDropdown?.();
+    });
 
     app.syncPcbViewToggles = syncViewToggles;
 }

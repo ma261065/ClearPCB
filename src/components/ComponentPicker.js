@@ -710,9 +710,13 @@ export class ComponentPicker {
 
             const availability = await this.library.kicadFetcher.checkFootprintAvailability(footprintName);
             if (!this.selectionRequestGate.isCurrent(selId)) return;
+            let fetchedFpShapes = null;
+            let fetchedFpBBox = null;
             if (availability.hasFootprint) {
                 const preview = await this.library.kicadFetcher.fetchFootprintPreview(footprintName);
                 if (preview?.shapes && preview.shapes.length > 0) {
+                    fetchedFpShapes = preview.shapes;
+                    fetchedFpBBox = preview.bbox;
                     const svg = this._renderFootprintSVG(preview.shapes, preview.bbox);
                     if (svg) {
                         this.previewFootprint.innerHTML = svg;
@@ -759,6 +763,10 @@ export class ComponentPicker {
 
             const ready = availability.hasFootprint;
             const placeDefinition = this._buildKiCadDefinition(kicadDefinition, result);
+            if (fetchedFpShapes) {
+                placeDefinition.footprintShapes = fetchedFpShapes;
+                placeDefinition.footprintBBox = fetchedFpBBox;
+            }
             this.placeBtn.disabled = !ready;
             this.placeBtn.textContent = ready ? 'Place Component' : 'Missing footprint';
             this.placeBtn.onclick = ready
@@ -809,6 +817,17 @@ export class ComponentPicker {
 
                 // Create a component definition from KiCad data
                 const definition = this._buildKiCadDefinition(kicadData, result);
+
+                // Fetch real footprint pad geometry so the PCB editor can render it
+                if (footprintName && !definition.footprintShapes) {
+                    try {
+                        const fpPreview = await this.library.kicadFetcher.fetchFootprintPreview(footprintName);
+                        if (fpPreview?.shapes?.length) {
+                            definition.footprintShapes = fpPreview.shapes;
+                            definition.footprintBBox = fpPreview.bbox;
+                        }
+                    } catch (_) { /* non-fatal */ }
+                }
                 
                 this.library.addDefinition(definition, 'KiCad');
                 this._beginPlacement(definition, { skipFootprint3d: true });

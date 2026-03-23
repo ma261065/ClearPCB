@@ -37,8 +37,13 @@ export const BuiltInComponents = [
             ]
         },
         footprint: 'Resistor_THT:R_Axial_DIN0207_L6.3mm_D2.5mm_P7.62mm_Horizontal',
-        footprintName: 'Resistor_THT:R_Axial_DIN0207_L6.3mm_D2.5mm_P7.62mm_Horizontal',
-        hasFootprint: true
+        footprintName: 'R_Axial_DIN0207_L6.3mm_D2.5mm_P7.62mm_Horizontal',
+        hasFootprint: true,
+        footprintShapes: [
+            'PAD~ELLIPSE~0~0~1.6~1.6~1',
+            'PAD~ELLIPSE~7.62~0~1.6~1.6~2'
+        ],
+        footprintBBox: { x: -0.8, y: -1.25, width: 9.22, height: 2.5 }
     },
     
     {
@@ -69,8 +74,13 @@ export const BuiltInComponents = [
             ]
         },
         footprint: 'Resistor_THT:R_Axial_DIN0207_L6.3mm_D2.5mm_P7.62mm_Horizontal',
-        footprintName: 'Resistor_THT:R_Axial_DIN0207_L6.3mm_D2.5mm_P7.62mm_Horizontal',
-        hasFootprint: true
+        footprintName: 'R_Axial_DIN0207_L6.3mm_D2.5mm_P7.62mm_Horizontal',
+        hasFootprint: true,
+        footprintShapes: [
+            'PAD~ELLIPSE~0~0~1.6~1.6~1',
+            'PAD~ELLIPSE~7.62~0~1.6~1.6~2'
+        ],
+        footprintBBox: { x: -0.8, y: -1.25, width: 9.22, height: 2.5 }
     },
     
     {
@@ -102,8 +112,13 @@ export const BuiltInComponents = [
             ]
         },
         footprint: 'Capacitor_THT:C_Disc_D5.0mm_W2.5mm_P5.00mm',
-        footprintName: 'Capacitor_THT:C_Disc_D5.0mm_W2.5mm_P5.00mm',
-        hasFootprint: true
+        footprintName: 'C_Disc_D5.0mm_W2.5mm_P5.00mm',
+        hasFootprint: true,
+        footprintShapes: [
+            'PAD~ELLIPSE~0~0~1.6~1.6~1',
+            'PAD~ELLIPSE~5.0~0~1.6~1.6~2'
+        ],
+        footprintBBox: { x: -0.8, y: -2.5, width: 6.6, height: 5.0 }
     },
     
     {
@@ -139,8 +154,13 @@ export const BuiltInComponents = [
             ]
         },
         footprint: 'Capacitor_THT:CP_Radial_D5.0mm_P2.50mm',
-        footprintName: 'Capacitor_THT:CP_Radial_D5.0mm_P2.50mm',
-        hasFootprint: true
+        footprintName: 'CP_Radial_D5.0mm_P2.50mm',
+        hasFootprint: true,
+        footprintShapes: [
+            'PAD~RECT~0~0~1.6~1.6~+',
+            'PAD~ELLIPSE~2.5~0~1.6~1.6~-'
+        ],
+        footprintBBox: { x: -0.8, y: -2.5, width: 4.1, height: 5.0 }
     },
     
     {
@@ -168,8 +188,13 @@ export const BuiltInComponents = [
             ]
         },
         footprint: 'Inductor_THT:L_Axial_L6.8mm_D2.4mm_P7.62mm_Horizontal_Vertical',
-        footprintName: 'Inductor_THT:L_Axial_L6.8mm_D2.4mm_P7.62mm_Horizontal_Vertical',
-        hasFootprint: true
+        footprintName: 'L_Axial_L6.8mm_D2.4mm_P7.62mm',
+        hasFootprint: true,
+        footprintShapes: [
+            'PAD~ELLIPSE~0~0~1.6~1.6~1',
+            'PAD~ELLIPSE~7.62~0~1.6~1.6~2'
+        ],
+        footprintBBox: { x: -0.8, y: -1.2, width: 9.22, height: 2.4 }
     },
     
     // ============ DISCRETE SEMICONDUCTORS ============
@@ -204,8 +229,13 @@ export const BuiltInComponents = [
             ]
         },
         footprint: 'Diode_THT:D_DO-35_SOD27_P7.62mm_Horizontal',
-        footprintName: 'Diode_THT:D_DO-35_SOD27_P7.62mm_Horizontal',
-        hasFootprint: true
+        footprintName: 'D_DO-35_SOD27_P7.62mm_Horizontal',
+        hasFootprint: true,
+        footprintShapes: [
+            'PAD~ELLIPSE~0~0~1.6~1.6~A',
+            'PAD~ELLIPSE~7.62~0~1.6~1.6~K'
+        ],
+        footprintBBox: { x: -0.8, y: -0.9, width: 9.22, height: 1.8 }
     },
     
     {
@@ -243,8 +273,13 @@ export const BuiltInComponents = [
             ]
         },
         footprint: 'LED_THT:LED_D5.0mm',
-        footprintName: 'LED_THT:LED_D5.0mm',
-        hasFootprint: true
+        footprintName: 'LED_D5.0mm',
+        hasFootprint: true,
+        footprintShapes: [
+            'PAD~RECT~0~0~1.8~1.8~A',
+            'PAD~ELLIPSE~2.54~0~1.8~1.8~K'
+        ],
+        footprintBBox: { x: -0.9, y: -2.5, width: 4.34, height: 5.0 }
     },
     
     {
@@ -284,8 +319,14 @@ export const BuiltInComponents = [
             ]
         },
         footprint: 'Package_TO_SOT_THT:TO-92_Inline',
-        footprintName: 'Package_TO_SOT_THT:TO-92_Inline',
-        hasFootprint: true
+        footprintName: 'TO-92_Inline',
+        hasFootprint: true,
+        footprintShapes: [
+            'PAD~ELLIPSE~-1.27~0~1.4~1.4~B',
+            'PAD~ELLIPSE~0~0~1.4~1.4~C',
+            'PAD~ELLIPSE~1.27~0~1.4~1.4~E'
+        ],
+        footprintBBox: { x: -1.97, y: -2.5, width: 3.94, height: 3.2 }
     },
     
     {
@@ -325,8 +366,14 @@ export const BuiltInComponents = [
             ]
         },
         footprint: 'Package_TO_SOT_THT:TO-92_Inline',
-        footprintName: 'Package_TO_SOT_THT:TO-92_Inline',
-        hasFootprint: true
+        footprintName: 'TO-92_Inline',
+        hasFootprint: true,
+        footprintShapes: [
+            'PAD~ELLIPSE~-1.27~0~1.4~1.4~B',
+            'PAD~ELLIPSE~0~0~1.4~1.4~C',
+            'PAD~ELLIPSE~1.27~0~1.4~1.4~E'
+        ],
+        footprintBBox: { x: -1.97, y: -2.5, width: 3.94, height: 3.2 }
     },
     
     {
@@ -370,8 +417,14 @@ export const BuiltInComponents = [
             ]
         },
         footprint: 'Package_TO_SOT_THT:TO-92_Inline',
-        footprintName: 'Package_TO_SOT_THT:TO-92_Inline',
-        hasFootprint: true
+        footprintName: 'TO-92_Inline',
+        hasFootprint: true,
+        footprintShapes: [
+            'PAD~ELLIPSE~-1.27~0~1.4~1.4~G',
+            'PAD~ELLIPSE~0~0~1.4~1.4~D',
+            'PAD~ELLIPSE~1.27~0~1.4~1.4~S'
+        ],
+        footprintBBox: { x: -1.97, y: -2.5, width: 3.94, height: 3.2 }
     },
     
     // ============ INTEGRATED CIRCUITS ============
@@ -410,8 +463,19 @@ export const BuiltInComponents = [
             ]
         },
         footprint: 'Package_DIP:DIP-8_W7.62mm',
-        footprintName: 'Package_DIP:DIP-8_W7.62mm',
-        hasFootprint: true
+        footprintName: 'DIP-8_W7.62mm',
+        hasFootprint: true,
+        footprintShapes: [
+            'PAD~RECT~0~0~1.6~1.6~+',
+            'PAD~ELLIPSE~0~2.54~1.6~1.6~-',
+            'PAD~ELLIPSE~0~5.08~1.6~1.6~OUT',
+            'PAD~ELLIPSE~0~7.62~1.6~1.6~4',
+            'PAD~ELLIPSE~7.62~7.62~1.6~1.6~5',
+            'PAD~ELLIPSE~7.62~5.08~1.6~1.6~6',
+            'PAD~ELLIPSE~7.62~2.54~1.6~1.6~7',
+            'PAD~ELLIPSE~7.62~0~1.6~1.6~8'
+        ],
+        footprintBBox: { x: -0.8, y: -0.8, width: 9.22, height: 9.22 }
     },
     
     {
@@ -449,8 +513,19 @@ export const BuiltInComponents = [
             ]
         },
         footprint: 'Package_DIP:DIP-8_W7.62mm',
-        footprintName: 'Package_DIP:DIP-8_W7.62mm',
-        hasFootprint: true
+        footprintName: 'DIP-8_W7.62mm',
+        hasFootprint: true,
+        footprintShapes: [
+            'PAD~RECT~0~0~1.6~1.6~1',
+            'PAD~ELLIPSE~0~2.54~1.6~1.6~2',
+            'PAD~ELLIPSE~0~5.08~1.6~1.6~3',
+            'PAD~ELLIPSE~0~7.62~1.6~1.6~4',
+            'PAD~ELLIPSE~7.62~7.62~1.6~1.6~5',
+            'PAD~ELLIPSE~7.62~5.08~1.6~1.6~6',
+            'PAD~ELLIPSE~7.62~2.54~1.6~1.6~7',
+            'PAD~ELLIPSE~7.62~0~1.6~1.6~8'
+        ],
+        footprintBBox: { x: -0.8, y: -0.8, width: 9.22, height: 9.22 }
     },
     
     // ============ CONNECTORS ============
@@ -481,8 +556,13 @@ export const BuiltInComponents = [
             ]
         },
         footprint: 'Connector_PinHeader_2.54mm:PinHeader_1x02_P2.54mm_Vertical',
-        footprintName: 'Connector_PinHeader_2.54mm:PinHeader_1x02_P2.54mm_Vertical',
-        hasFootprint: true
+        footprintName: 'PinHeader_1x02_P2.54mm_Vertical',
+        hasFootprint: true,
+        footprintShapes: [
+            'PAD~RECT~0~0~1.7~1.7~1',
+            'PAD~ELLIPSE~0~2.54~1.7~1.7~2'
+        ],
+        footprintBBox: { x: -1.27, y: -1.27, width: 2.54, height: 5.08 }
     },
     
     // ============ SWITCHES ============
@@ -518,8 +598,15 @@ export const BuiltInComponents = [
             ]
         },
         footprint: 'Button_Switch_THT:SW_PUSH_6mm',
-        footprintName: 'Button_Switch_THT:SW_PUSH_6mm',
-        hasFootprint: true
+        footprintName: 'SW_PUSH_6mm',
+        hasFootprint: true,
+        footprintShapes: [
+            'PAD~ELLIPSE~0~0~1.6~1.6~1',
+            'PAD~ELLIPSE~6.5~0~1.6~1.6~2',
+            'PAD~ELLIPSE~0~4.5~1.6~1.6~1',
+            'PAD~ELLIPSE~6.5~4.5~1.6~1.6~2'
+        ],
+        footprintBBox: { x: -0.8, y: -0.8, width: 8.1, height: 6.1 }
     },
     
     // ============ TRANSISTORS ============
@@ -562,8 +649,14 @@ export const BuiltInComponents = [
             ]
         },
         footprint: 'Package_TO_SOT_THT:TO-92_Inline',
-        footprintName: 'Package_TO_SOT_THT:TO-92_Inline',
-        hasFootprint: true
+        footprintName: 'TO-92_Inline',
+        hasFootprint: true,
+        footprintShapes: [
+            'PAD~ELLIPSE~-1.27~0~1.4~1.4~B',
+            'PAD~ELLIPSE~0~0~1.4~1.4~C',
+            'PAD~ELLIPSE~1.27~0~1.4~1.4~E'
+        ],
+        footprintBBox: { x: -1.97, y: -2.5, width: 3.94, height: 3.2 }
     },
     
     {
@@ -604,8 +697,14 @@ export const BuiltInComponents = [
             ]
         },
         footprint: 'Package_TO_SOT_THT:TO-92_Inline',
-        footprintName: 'Package_TO_SOT_THT:TO-92_Inline',
-        hasFootprint: true
+        footprintName: 'TO-92_Inline',
+        hasFootprint: true,
+        footprintShapes: [
+            'PAD~ELLIPSE~-1.27~0~1.4~1.4~B',
+            'PAD~ELLIPSE~0~0~1.4~1.4~E',
+            'PAD~ELLIPSE~1.27~0~1.4~1.4~C'
+        ],
+        footprintBBox: { x: -1.97, y: -2.5, width: 3.94, height: 3.2 }
     },
     
     {
@@ -650,8 +749,14 @@ export const BuiltInComponents = [
             ]
         },
         footprint: 'Package_TO_SOT_THT:TO-92_Inline',
-        footprintName: 'Package_TO_SOT_THT:TO-92_Inline',
-        hasFootprint: true
+        footprintName: 'TO-92_Inline',
+        hasFootprint: true,
+        footprintShapes: [
+            'PAD~ELLIPSE~-1.27~0~1.4~1.4~G',
+            'PAD~ELLIPSE~0~0~1.4~1.4~D',
+            'PAD~ELLIPSE~1.27~0~1.4~1.4~S'
+        ],
+        footprintBBox: { x: -1.97, y: -2.5, width: 3.94, height: 3.2 }
     },
     
     {
@@ -698,8 +803,14 @@ export const BuiltInComponents = [
             ]
         },
         footprint: 'Package_TO_SOT_SMD:SOT-23',
-        footprintName: 'Package_TO_SOT_SMD:SOT-23',
-        hasFootprint: true
+        footprintName: 'SOT-23',
+        hasFootprint: true,
+        footprintShapes: [
+            'PAD~RECT~-0.95~1.1~1.0~0.6~G',
+            'PAD~RECT~0.95~1.1~1.0~0.6~S',
+            'PAD~RECT~0~-1.1~1.0~0.6~D'
+        ],
+        footprintBBox: { x: -1.45, y: -1.4, width: 2.9, height: 2.8 }
     }
 ];
 

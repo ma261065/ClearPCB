@@ -258,7 +258,7 @@ export class Component {
      * @returns {Array<{key: string, label: string, type: string}>}
      */
     getPropertyDescriptors() {
-        return [
+        const descriptors = [
             { key: 'locked',        label: 'Locked',          type: 'checkbox' },
             { key: 'reference',     label: 'Reference',       type: 'text' },
             { key: 'showReference', label: 'Show Reference',  type: 'checkbox' },
@@ -266,6 +266,10 @@ export class Component {
             { key: 'showValue',     label: 'Show Value',      type: 'checkbox' },
             /** @type {{key:string,label:string,type:string}} */ ({ key: 'source', label: 'Source', type: 'text', readonly: true }),
         ];
+        if (this.supplierPartNumber) {
+            descriptors.push(/** @type {{key:string,label:string,type:string}} */ ({ key: 'supplierPartNumber', label: 'LCSC Part #', type: 'text', readonly: true }));
+        }
+        return descriptors;
     }
 
     /** @returns {string} Display name for the component's origin library. */
@@ -274,6 +278,11 @@ export class Component {
         if (!raw) return 'Built-in';
         if (raw === 'EasyEDA') return 'LCSC';
         return raw;
+    }
+
+    /** @returns {string} LCSC supplier part number, or empty string if not an LCSC component. */
+    get supplierPartNumber() {
+        return this.definition?.supplier_part_numbers?.LCSC || '';
     }
     /** @returns {false} Components do not support in-place text editing. */
     get supportsInlineEdit() { return false; }
@@ -1396,6 +1405,14 @@ export class Component {
                 defaultProperties: this.definition.defaultProperties,
                 _source: this.definition._source
             };
+            // Persist footprint pad geometry so the PCB editor can render
+            // accurate footprints after save/reload.
+            if (Array.isArray(this.definition.footprintShapes) && this.definition.footprintShapes.length) {
+                json.def.footprintShapes = this.definition.footprintShapes;
+            }
+            if (this.definition.footprintBBox) {
+                json.def.footprintBBox = this.definition.footprintBBox;
+            }
         }
         
         return json;

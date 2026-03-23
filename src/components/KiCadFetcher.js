@@ -1219,7 +1219,149 @@ export class KiCadFetcher {
         };
 
         for (const item of sexp) {
-            if (!Array.isArray(item) || item[0] !== 'pad') continue;
+            if (!Array.isArray(item)) continue;
+
+            // ── Silk lines (fp_line on F.SilkS / B.SilkS) ────────
+            if (item[0] === 'fp_line') {
+                let sx = 0, sy = 0, ex = 0, ey = 0, layer = '', sw = 0.12;
+                for (const sub of item) {
+                    if (!Array.isArray(sub)) continue;
+                    if (sub[0] === 'start') { sx = parseFloat(sub[1]) || 0; sy = -(parseFloat(sub[2]) || 0); }
+                    else if (sub[0] === 'end') { ex = parseFloat(sub[1]) || 0; ey = -(parseFloat(sub[2]) || 0); }
+                    else if (sub[0] === 'layer') { layer = typeof sub[1] === 'string' ? sub[1].replace(/"/g, '') : ''; }
+                    else if (sub[0] === 'stroke') {
+                        for (const ssub of sub) {
+                            if (Array.isArray(ssub) && ssub[0] === 'width') sw = parseFloat(ssub[1]) || 0.12;
+                        }
+                    }
+                    else if (sub[0] === 'width') { sw = parseFloat(sub[1]) || 0.12; }
+                }
+                if (layer === 'F.SilkS' || layer === 'B.SilkS') {
+                    const side = layer === 'F.SilkS' ? 'top' : 'bottom';
+                    shapes.push(`SILK~LINE~${sx}~${sy}~${ex}~${ey}~${sw}~${side}`);
+                    minX = Math.min(minX, sx, ex); minY = Math.min(minY, sy, ey);
+                    maxX = Math.max(maxX, sx, ex); maxY = Math.max(maxY, sy, ey);
+                }
+                continue;
+            }
+
+            // ── Silk circles (fp_circle on F.SilkS / B.SilkS) ────
+            if (item[0] === 'fp_circle') {
+                let cx2 = 0, cy2 = 0, endx = 0, endy = 0, layer = '', sw = 0.12;
+                for (const sub of item) {
+                    if (!Array.isArray(sub)) continue;
+                    if (sub[0] === 'center') { cx2 = parseFloat(sub[1]) || 0; cy2 = -(parseFloat(sub[2]) || 0); }
+                    else if (sub[0] === 'end') { endx = parseFloat(sub[1]) || 0; endy = -(parseFloat(sub[2]) || 0); }
+                    else if (sub[0] === 'layer') { layer = typeof sub[1] === 'string' ? sub[1].replace(/"/g, '') : ''; }
+                    else if (sub[0] === 'stroke') {
+                        for (const ssub of sub) {
+                            if (Array.isArray(ssub) && ssub[0] === 'width') sw = parseFloat(ssub[1]) || 0.12;
+                        }
+                    }
+                    else if (sub[0] === 'width') { sw = parseFloat(sub[1]) || 0.12; }
+                }
+                if (layer === 'F.SilkS' || layer === 'B.SilkS') {
+                    const r = Math.hypot(endx - cx2, endy - cy2);
+                    const side = layer === 'F.SilkS' ? 'top' : 'bottom';
+                    shapes.push(`SILK~CIRCLE~${cx2}~${cy2}~${r}~${sw}~${side}`);
+                    minX = Math.min(minX, cx2 - r); minY = Math.min(minY, cy2 - r);
+                    maxX = Math.max(maxX, cx2 + r); maxY = Math.max(maxY, cy2 + r);
+                }
+                continue;
+            }
+
+            // ── Silk arcs (fp_arc on F.SilkS / B.SilkS) ──────────
+            if (item[0] === 'fp_arc') {
+                let sx = 0, sy = 0, mx = 0, my = 0, ex = 0, ey = 0, layer = '', sw = 0.12;
+                for (const sub of item) {
+                    if (!Array.isArray(sub)) continue;
+                    if (sub[0] === 'start') { sx = parseFloat(sub[1]) || 0; sy = -(parseFloat(sub[2]) || 0); }
+                    else if (sub[0] === 'mid') { mx = parseFloat(sub[1]) || 0; my = -(parseFloat(sub[2]) || 0); }
+                    else if (sub[0] === 'end') { ex = parseFloat(sub[1]) || 0; ey = -(parseFloat(sub[2]) || 0); }
+                    else if (sub[0] === 'layer') { layer = typeof sub[1] === 'string' ? sub[1].replace(/"/g, '') : ''; }
+                    else if (sub[0] === 'stroke') {
+                        for (const ssub of sub) {
+                            if (Array.isArray(ssub) && ssub[0] === 'width') sw = parseFloat(ssub[1]) || 0.12;
+                        }
+                    }
+                    else if (sub[0] === 'width') { sw = parseFloat(sub[1]) || 0.12; }
+                }
+                if (layer === 'F.SilkS' || layer === 'B.SilkS') {
+                    const side = layer === 'F.SilkS' ? 'top' : 'bottom';
+                    // Approximate arc with a quadratic bezier through midpoint
+                    const d = `M ${sx} ${sy} Q ${mx * 2 - (sx + ex) / 2} ${my * 2 - (sy + ey) / 2} ${ex} ${ey}`;
+                    shapes.push(`SILK~PATH~${d}~${sw}~${side}`);
+                    minX = Math.min(minX, sx, mx, ex); minY = Math.min(minY, sy, my, ey);
+                    maxX = Math.max(maxX, sx, mx, ex); maxY = Math.max(maxY, sy, my, ey);
+                }
+                continue;
+            }
+
+            // ── Silk rects (fp_rect on F.SilkS / B.SilkS) ────────
+            if (item[0] === 'fp_rect') {
+                let sx = 0, sy = 0, ex = 0, ey = 0, layer = '', sw = 0.12;
+                for (const sub of item) {
+                    if (!Array.isArray(sub)) continue;
+                    if (sub[0] === 'start') { sx = parseFloat(sub[1]) || 0; sy = -(parseFloat(sub[2]) || 0); }
+                    else if (sub[0] === 'end') { ex = parseFloat(sub[1]) || 0; ey = -(parseFloat(sub[2]) || 0); }
+                    else if (sub[0] === 'layer') { layer = typeof sub[1] === 'string' ? sub[1].replace(/"/g, '') : ''; }
+                    else if (sub[0] === 'stroke') {
+                        for (const ssub of sub) {
+                            if (Array.isArray(ssub) && ssub[0] === 'width') sw = parseFloat(ssub[1]) || 0.12;
+                        }
+                    }
+                    else if (sub[0] === 'width') { sw = parseFloat(sub[1]) || 0.12; }
+                }
+                if (layer === 'F.SilkS' || layer === 'B.SilkS') {
+                    const side = layer === 'F.SilkS' ? 'top' : 'bottom';
+                    // Emit 4 lines for the rectangle
+                    shapes.push(`SILK~LINE~${sx}~${sy}~${ex}~${sy}~${sw}~${side}`);
+                    shapes.push(`SILK~LINE~${ex}~${sy}~${ex}~${ey}~${sw}~${side}`);
+                    shapes.push(`SILK~LINE~${ex}~${ey}~${sx}~${ey}~${sw}~${side}`);
+                    shapes.push(`SILK~LINE~${sx}~${ey}~${sx}~${sy}~${sw}~${side}`);
+                    minX = Math.min(minX, sx, ex); minY = Math.min(minY, sy, ey);
+                    maxX = Math.max(maxX, sx, ex); maxY = Math.max(maxY, sy, ey);
+                }
+                continue;
+            }
+
+            // ── Silk polygons (fp_poly on F.SilkS / B.SilkS) ─────
+            if (item[0] === 'fp_poly') {
+                let layer = '', sw = 0.12;
+                /** @type {number[][]} */
+                const pts = [];
+                for (const sub of item) {
+                    if (!Array.isArray(sub)) continue;
+                    if (sub[0] === 'layer') { layer = typeof sub[1] === 'string' ? sub[1].replace(/"/g, '') : ''; }
+                    else if (sub[0] === 'pts') {
+                        for (const xy of sub) {
+                            if (Array.isArray(xy) && xy[0] === 'xy') {
+                                pts.push([parseFloat(xy[1]) || 0, -(parseFloat(xy[2]) || 0)]);
+                            }
+                        }
+                    }
+                    else if (sub[0] === 'stroke') {
+                        for (const ssub of sub) {
+                            if (Array.isArray(ssub) && ssub[0] === 'width') sw = parseFloat(ssub[1]) || 0.12;
+                        }
+                    }
+                    else if (sub[0] === 'width') { sw = parseFloat(sub[1]) || 0.12; }
+                }
+                if ((layer === 'F.SilkS' || layer === 'B.SilkS') && pts.length >= 2) {
+                    const side = layer === 'F.SilkS' ? 'top' : 'bottom';
+                    for (let i = 0; i < pts.length; i++) {
+                        const [x1, y1] = pts[i];
+                        const [x2, y2] = pts[(i + 1) % pts.length];
+                        shapes.push(`SILK~LINE~${x1}~${y1}~${x2}~${y2}~${sw}~${side}`);
+                        minX = Math.min(minX, x1); minY = Math.min(minY, y1);
+                        maxX = Math.max(maxX, x1); maxY = Math.max(maxY, y1);
+                    }
+                }
+                continue;
+            }
+
+            // ── Pads ──────────────────────────────────────────────
+            if (item[0] !== 'pad') continue;
 
             const padNumber = item.length > 1 && item[1] != null ? String(item[1]).replace(/^"|"$/g, '') : '';
             const shape = typeof item[3] === 'string' ? item[3] : '';
