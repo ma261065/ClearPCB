@@ -395,6 +395,12 @@ function splitAnchorAndDrag(app, shape, anchorId, clientX, clientY) {
     const newNodeId = shape.splitNode(anchorId, edgeToDetach);
     if (!newNodeId) return;
 
+    // Splitting a closed shape opens it
+    if (shape.closed) {
+        shape.closed = false;
+        shape.isRect = false;
+    }
+
     // For wires, capture T-junction links at this position
     const tjLinks = [];
     const wireStates = new Map();
