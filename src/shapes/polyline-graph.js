@@ -745,7 +745,7 @@ export class PolylineGraph extends Shape {
      * @returns {object}
      */
     captureState() {
-        const s = { nodes: {}, edges: {}, closed: this.closed, type: this.type, fill: this.fill, cornerRadius: this.cornerRadius };
+        const s = { nodes: {}, edges: {}, closed: this.closed, type: this.type, fill: this.fill, fillAlpha: this.fillAlpha, cornerRadius: this.cornerRadius };
         for (const [id, p] of this.nodes) s.nodes[id] = { x: p.x, y: p.y };
         for (const [id, e] of this.edges) s.edges[id] = { from: e.from, to: e.to };
         return s;
@@ -766,6 +766,7 @@ export class PolylineGraph extends Shape {
         if ('closed' in state) this.closed = state.closed;
         if ('type' in state) this.type = state.type;
         if ('fill' in state) this.fill = state.fill;
+        if ('fillAlpha' in state) this.fillAlpha = state.fillAlpha;
         if ('cornerRadius' in state) this.cornerRadius = state.cornerRadius;
         this.invalidate();
     }
@@ -1037,8 +1038,7 @@ export class PolylineGraph extends Shape {
         if (this.closed) json.cl = true;
         if (this.fill) json.f = true;
         else json.f = false;
-        if (this.fillColor !== this.color) json.fc = this.fillColor;
-        if (this.fillAlpha !== 0.5) json.fa = this.fillAlpha;
+        if (this.fillAlpha !== 0.3) json.fa = this.fillAlpha;
         if (this.cornerRadius) json.cr = this.cornerRadius;
         return json;
     }

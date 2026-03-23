@@ -31,7 +31,6 @@ export class Circle extends Shape {
         
         // Fill properties
         this.fill = options.fill !== undefined ? options.fill : false;
-        this.fillColor = ShapeValidator.validateColor(options.fillColor || this.color);
         this.fillAlpha = ShapeValidator.validateNumber(options.fillAlpha ?? 0.3, {
             min: 0, max: 1, default: 0.3, name: 'fillAlpha'
         });
@@ -108,9 +107,10 @@ export class Circle extends Shape {
         
         if (this.fill) {
             el.setAttribute('fill', fillColor);
-            el.setAttribute('fill-opacity', this.fillAlpha);
+            el.setAttribute('fill-opacity', String(this.fillAlpha));
         } else {
             el.setAttribute('fill', 'none');
+            el.removeAttribute('fill-opacity');
         }
     }
     
@@ -128,7 +128,15 @@ export class Circle extends Shape {
     }
     /** @override */
     captureState() {
-        return { x: this.x, y: this.y, radius: this.radius };
+        return { x: this.x, y: this.y, radius: this.radius, fill: this.fill };
+    }
+    /** @override */
+    applyState(state) {
+        if ('x' in state) this.x = state.x;
+        if ('y' in state) this.y = state.y;
+        if ('radius' in state) this.radius = state.radius;
+        if ('fill' in state) this.fill = state.fill;
+        this.invalidate();
     }
     /** @override */
     getPropertyDescriptors() {
@@ -143,7 +151,6 @@ export class Circle extends Shape {
     toJSON() {
         const json = { ...super.toJSON(), x: _r4(this.x), y: _r4(this.y), r: _r4(this.radius) };
         if (this.fill) json.f = true;
-        if (this.fillColor !== this.color) json.fc = this.fillColor;
         if (this.fillAlpha !== 0.3) json.fa = this.fillAlpha;
         return json;
     }

@@ -93,7 +93,27 @@ export class Polyline extends PolylineGraph {
 
     /** @override */
     deleteAnchor(anchorId) {
-        if (this.isRect && this.nodes.size <= 4) return false;
+        // Open shapes need at least 2 vertices (1 edge)
+        if (!this.closed && this.edges.size <= 1) return false;
+        // Closed shape with 3 nodes: deleting opens it into a line
+        if (this.closed && this.nodes.size <= 3) {
+            // Remove the node and break the closure
+            if (!this.nodes.has(anchorId)) return false;
+            const edges = this.incidentEdges(anchorId);
+            if (edges.length < 2) return false;
+            // Remove edges and node
+            for (const e of edges) this.edges.delete(e.edgeId);
+            this.nodes.delete(anchorId);
+            // Remaining 2 nodes: ensure they're connected
+            const remaining = [...this.nodes.keys()];
+            if (remaining.length === 2 && !this.hasEdgeBetween(remaining[0], remaining[1])) {
+                this.addEdge(remaining[0], remaining[1]);
+            }
+            this.closed = false;
+            this.isRect = false;
+            this.invalidate();
+            return true;
+        }
         const result = super.deleteAnchor(anchorId);
         if (result) this.isRect = false;
         return result;

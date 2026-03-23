@@ -403,6 +403,7 @@ export class Arc extends Shape {
             endPoint: { x: this._endPoint.x, y: this._endPoint.y },
             bulgePoint: { x: this._bulgePoint.x, y: this._bulgePoint.y },
             fill: this.fill,
+            fillAlpha: this.fillAlpha,
         };
     }
 
@@ -420,6 +421,7 @@ export class Arc extends Shape {
         if (state.endPoint) this.endPoint = { x: state.endPoint.x, y: state.endPoint.y };
         if (state.bulgePoint) this.bulgePoint = { x: state.bulgePoint.x, y: state.bulgePoint.y };
         if ('fill' in state) this.fill = state.fill;
+        if ('fillAlpha' in state) this.fillAlpha = state.fillAlpha;
         this.invalidate();
     }
     

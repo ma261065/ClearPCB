@@ -571,6 +571,7 @@ export function showAnchorContextMenu(app, shape, anchorId, clientX, clientY, ca
                     }
                     app.history.execute(batch);
                     shape.selected = true;
+                    app._updatePropertiesPanel?.(app.selection?.getSelection?.() || []);
                 }
             }
         });

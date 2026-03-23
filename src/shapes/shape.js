@@ -238,12 +238,12 @@ export class Shape {
             this.element.setAttribute('stroke-opacity', '0.35');
             if (this.type === 'text') {
                 this.element.setAttribute('fill-opacity', '0.35');
-            } else {
-                this.element.removeAttribute('fill-opacity');
             }
         } else {
             this.element.removeAttribute('stroke-opacity');
-            this.element.removeAttribute('fill-opacity');
+            if (this.type === 'text') {
+                this.element.removeAttribute('fill-opacity');
+            }
         }
         
         // Update anchor handles
