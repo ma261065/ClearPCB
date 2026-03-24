@@ -54,7 +54,8 @@ class SpatialHash {
      */
     removeNet(net) {
         for (const [key, objs] of this.cells) {
-            const filtered = objs.filter(o => o.net !== net || o.isPad);
+            // Keep component pads, but remove net-owned via obstacles on rip-up.
+            const filtered = objs.filter(o => o.net !== net || (o.isPad && !o.isVia));
             if (filtered.length === 0) this.cells.delete(key);
             else this.cells.set(key, filtered);
         }
@@ -65,9 +66,9 @@ class SpatialHash {
      * @param {number} cx @param {number} cy @param {number} w @param {number} h
      * @param {string} net
      */
-    insertPad(cx, cy, w, h, net, padLayer = 'both') {
+    insertPad(cx, cy, w, h, net, padLayer = 'both', options = {}) {
         const hw = w / 2, hh = h / 2;
-        const obj = { cx, cy, hw, hh, net, isPad: true, layer: padLayer };
+        const obj = { cx, cy, hw, hh, net, isPad: true, layer: padLayer, isVia: !!options.isVia };
         // Register in all cells the pad overlaps
         const minCX = Math.floor((cx - hw) / this.cellSize);
         const maxCX = Math.floor((cx + hw) / this.cellSize);
@@ -331,9 +332,19 @@ function segmentToSegmentDist(ax1, ay1, ax2, ay2, bx1, by1, bx2, by2) {
  * @param {number} clearance - min clearance from obstacles (mm)
  * @param {number} [greedyWeight=3.0] - A* greedy multiplier
  * @param {boolean} [allowVias=true] - allow layer transitions
- * @returns {{path: Array<{x: number, y: number, layer: string}>, vias: Array<{x: number, y: number}>}|null}
+ * @returns {Promise<{path: Array<{x: number, y: number, layer: string}>, vias: Array<{x: number, y: number}>}|null>}
  */
-function astarRoute(sx, sy, ex, ey, obstacles, skipIds, gridStep, traceWidth, clearance, greedyWeight = 2.5, allowVias = true, startLayer = 'top', endPadLayer = 'both', maxIter = 800000) {
+async function astarRoute(sx, sy, ex, ey, obstacles, skipIds, gridStep, traceWidth, clearance, greedyWeight = 2.5, allowVias = true, startLayer = 'top', endPadLayer = 'both', options = {}) {
+    const {
+        maxIter = 800000,
+        cancelToken = null,
+        yieldEvery = 3000,
+        minYieldIntervalMs = 45,
+        yieldToUI = null,
+        onTick = null,
+        maxDetourFactor = 3.0,
+        corridorMargin = null,
+    } = options;
     const halfTrace = traceWidth / 2;
     const totalClear = halfTrace + clearance;
     const VIA_COST = gridStep * 30;
@@ -347,6 +358,16 @@ function astarRoute(sx, sy, ex, ey, obstacles, skipIds, gridStep, traceWidth, cl
     const snap = (v) => Math.round(v / effectiveStep) * effectiveStep;
     const startX = snap(sx), startY = snap(sy);
     const endX = snap(ex), endY = snap(ey);
+    const effectiveRouteDist = Math.max(routeDist, effectiveStep);
+
+    // Restrict search to a conservative corridor around start/end to avoid
+    // exploring unbounded space on difficult nets.
+    const detourCap = effectiveRouteDist * maxDetourFactor + effectiveStep * 8;
+    const margin = corridorMargin ?? Math.max(effectiveRouteDist * 0.6, effectiveStep * 30);
+    const minX = Math.min(startX, endX) - margin;
+    const maxX = Math.max(startX, endX) + margin;
+    const minY = Math.min(startY, endY) - margin;
+    const maxY = Math.max(startY, endY) + margin;
     // Goal tolerance: at least effectiveStep but also the snap error from start/end
     const goalTol = effectiveStep * 0.6 + Math.max(
         Math.hypot(sx - startX, sy - startY),
@@ -406,9 +427,26 @@ function astarRoute(sx, sy, ex, ey, obstacles, skipIds, gridStep, traceWidth, cl
 
     const maxIterations = maxIter;
     let iterations = 0;
+    let lastYieldAt = (typeof performance !== 'undefined' && performance.now)
+        ? performance.now()
+        : Date.now();
 
     while (heap.length > 0 && iterations < maxIterations) {
+        if (cancelToken?.cancelled) return null;
         iterations++;
+        if (yieldToUI && iterations % yieldEvery === 0) {
+            const now = (typeof performance !== 'undefined' && performance.now)
+                ? performance.now()
+                : Date.now();
+            if (now - lastYieldAt >= minYieldIntervalMs) {
+                onTick?.();
+                await yieldToUI();
+                if (cancelToken?.cancelled) return null;
+                lastYieldAt = (typeof performance !== 'undefined' && performance.now)
+                    ? performance.now()
+                    : Date.now();
+            }
+        }
         const current = popHeap();
         const curKey = nodeKey(current.x, current.y, current.layer);
 
@@ -453,6 +491,14 @@ function astarRoute(sx, sy, ex, ey, obstacles, skipIds, gridStep, traceWidth, cl
             const nKey = nodeKey(nx, ny, current.layer);
 
             if (closed.has(nKey)) continue;
+
+            // Generic pruning: keep expansion within a reasonable corridor.
+            if (nx < minX || nx > maxX || ny < minY || ny > maxY) continue;
+
+            // Generic pruning: skip nodes whose best possible route is already
+            // too long relative to the direct route.
+            const detourEstimate = Math.hypot(nx - startX, ny - startY) + Math.hypot(nx - endX, ny - endY);
+            if (detourEstimate > detourCap) continue;
 
             const nStartKey = nodeKey(startX, startY, current.layer);
             const nEndKeyTop = nodeKey(endX, endY, 'top');
@@ -865,12 +911,41 @@ export async function routeAll(input, options = {}) {
     }
 
     // Build net → pad ID mapping
+    const layersCompatible = (a, b) => {
+        const la = a || 'both';
+        const lb = b || 'both';
+        return la === 'both' || lb === 'both' || la === lb;
+    };
+
+    const findMatchingPad = (cpad, usedIds) => {
+        let best = null;
+        let bestScore = Infinity;
+        for (const pad of allPads) {
+            if (usedIds?.has(pad.id)) continue;
+            if (Math.abs(pad.x - cpad.x) >= 0.01 || Math.abs(pad.y - cpad.y) >= 0.01) continue;
+
+            const wDiff = Math.abs((pad.width ?? 0) - (cpad.width ?? pad.width ?? 0));
+            const hDiff = Math.abs((pad.height ?? 0) - (cpad.height ?? pad.height ?? 0));
+            const layerPenalty = layersCompatible(pad.layer, cpad.layer) ? 0 : 10;
+            const score = layerPenalty + wDiff + hDiff;
+            if (score < bestScore) {
+                bestScore = score;
+                best = pad;
+            }
+        }
+        return best;
+    };
+
     const netPadIds = new Map();
     for (const conn of input.connections) {
         const ids = new Set();
+        const used = new Set();
         for (const cpad of conn.pads) {
-            const found = allPads.find(p => Math.abs(p.x - cpad.x) < 0.01 && Math.abs(p.y - cpad.y) < 0.01);
-            if (found) ids.add(found.id);
+            const found = findMatchingPad(cpad, used);
+            if (found) {
+                ids.add(found.id);
+                used.add(found.id);
+            }
         }
         netPadIds.set(conn.net, ids);
     }
@@ -964,10 +1039,28 @@ export async function routeAll(input, options = {}) {
                 await yieldToUI();
 
                 // Try 1: normal grid — fail fast (100K)
-                result = astarRoute(
+                let lastTryingTick = 0;
+                const throttledTryingTick = () => {
+                    const now = (typeof performance !== 'undefined' && performance.now)
+                        ? performance.now()
+                        : Date.now();
+                    if (now - lastTryingTick >= 400) {
+                        onTrying?.(from, to);
+                        lastTryingTick = now;
+                    }
+                };
+
+                result = await astarRoute(
                     from.x, from.y, to.x, to.y,
                     obstacles, skipIds, gridStep, traceWidth, clearance,
-                    1.4, true, startLayer, endLayer, 100000
+                    1.4, true, startLayer, endLayer,
+                    {
+                        maxIter: 100000,
+                        cancelToken,
+                        yieldToUI,
+                        onTick: throttledTryingTick,
+                        maxDetourFactor: 2.0,
+                    }
                 );
                 if (result) break;
 
@@ -975,10 +1068,17 @@ export async function routeAll(input, options = {}) {
                 await yieldToUI();
 
                 // Try 2: finer grid (300K)
-                result = astarRoute(
+                result = await astarRoute(
                     from.x, from.y, to.x, to.y,
                     obstacles, skipIds, gridStep * 0.5, traceWidth, clearance,
-                    1.2, true, startLayer, endLayer, 300000
+                    1.2, true, startLayer, endLayer,
+                    {
+                        maxIter: 300000,
+                        cancelToken,
+                        yieldToUI,
+                        onTick: throttledTryingTick,
+                        maxDetourFactor: 3.0,
+                    }
                 );
                 if (result) break;
 
@@ -986,10 +1086,17 @@ export async function routeAll(input, options = {}) {
                 await yieldToUI();
 
                 // Try 3: finest grid, thorough search (600K)
-                result = astarRoute(
+                result = await astarRoute(
                     from.x, from.y, to.x, to.y,
                     obstacles, skipIds, gridStep * 0.25, traceWidth, clearance,
-                    1.0, true, startLayer, endLayer, 600000
+                    1.0, true, startLayer, endLayer,
+                    {
+                        maxIter: 600000,
+                        cancelToken,
+                        yieldToUI,
+                        onTick: throttledTryingTick,
+                        maxDetourFactor: 5.0,
+                    }
                 );
                 if (result) break;
             }
@@ -1007,24 +1114,27 @@ export async function routeAll(input, options = {}) {
                     }
                 }
 
-                // Split path into per-layer segments
-                let segStart = 0;
+                // Split path into strictly single-layer segments.
+                let runStart = 0;
+                const flushRun = (runEnd) => {
+                    const segPts = simplified.slice(runStart, runEnd + 1);
+                    const layer = simplified[runStart].layer || 'top';
+                    if (segPts.length < 2) return;
+                    const cleanPts = sanitizeAngles(segPts);
+                    traces.push({ net: conn.net, points: cleanPts, layer, vias: [] });
+                    for (let k = 0; k < cleanPts.length - 1; k++) {
+                        obstacles.insert(cleanPts[k].x, cleanPts[k].y, cleanPts[k+1].x, cleanPts[k+1].y,
+                            halfTrace, conn.net, layer);
+                    }
+                };
+
                 for (let s = 1; s < simplified.length; s++) {
-                    if (simplified[s].layer !== simplified[segStart].layer || s === simplified.length - 1) {
-                        const end = (s === simplified.length - 1) ? s : s - 1;
-                        const segPts = simplified.slice(segStart, end + 1);
-                        const layer = simplified[segStart].layer || 'top';
-                        if (segPts.length >= 2) {
-                            const cleanPts = sanitizeAngles(segPts);
-                            traces.push({ net: conn.net, points: cleanPts, layer, vias: [] });
-                            for (let k = 0; k < cleanPts.length - 1; k++) {
-                                obstacles.insert(cleanPts[k].x, cleanPts[k].y, cleanPts[k+1].x, cleanPts[k+1].y,
-                                    halfTrace, conn.net, layer);
-                            }
-                        }
-                        segStart = s === simplified.length - 1 ? s : s;
+                    if (simplified[s].layer !== simplified[s - 1].layer) {
+                        flushRun(s - 1);
+                        runStart = s;
                     }
                 }
+                flushRun(simplified.length - 1);
                 // Attach detected vias to the last trace segment
                 if (detectedVias.length > 0 && traces.length > 0) {
                     traces[traces.length - 1].vias = detectedVias;
@@ -1033,7 +1143,7 @@ export async function routeAll(input, options = {}) {
                 // Register vias as obstacles so future nets avoid them
                 const viaDia = totalClear * 2;  // via occupies space on both layers
                 for (const v of detectedVias) {
-                    obstacles.insertPad(v.x, v.y, viaDia, viaDia, conn.net, 'both');
+                    obstacles.insertPad(v.x, v.y, viaDia, viaDia, conn.net, 'both', { isVia: true });
                 }
             } else {
                 return null; // failed
