@@ -225,6 +225,33 @@ class SpatialHash {
         }
         return blocking;
     }
+
+    /**
+     * Estimate local obstacle density near a point.
+     * Returns the count of nearby obstacle objects (excluding skipped IDs).
+     */
+    localDensity(x, y, skipIds = null, layer = null, radiusCells = 1) {
+        const cx = Math.floor(x / this.cellSize);
+        const cy = Math.floor(y / this.cellSize);
+        const isSet = skipIds instanceof Set;
+        let count = 0;
+        for (let dx = -radiusCells; dx <= radiusCells; dx++) {
+            for (let dy = -radiusCells; dy <= radiusCells; dy++) {
+                const objs = this.cells.get(this._key(cx + dx, cy + dy));
+                if (!objs) continue;
+                for (const obj of objs) {
+                    const objId = obj.net || obj.id;
+                    if (skipIds && (isSet ? skipIds.has(objId) : objId === skipIds)) continue;
+                    if (layer) {
+                        const objLayer = obj.layer || 'both';
+                        if (objLayer !== 'both' && objLayer !== layer) continue;
+                    }
+                    count++;
+                }
+            }
+        }
+        return count;
+    }
 }
 
 // ── Geometry Helpers ──────────────────────────────────────────────
@@ -337,6 +364,7 @@ function segmentToSegmentDist(ax1, ay1, ax2, ay2, bx1, by1, bx2, by2) {
 async function astarRoute(sx, sy, ex, ey, obstacles, skipIds, gridStep, traceWidth, clearance, greedyWeight = 2.5, allowVias = true, startLayer = 'top', endPadLayer = 'both', options = {}) {
     const {
         maxIter = 800000,
+        stagnationIters = 80000,
         cancelToken = null,
         yieldEvery = 3000,
         minYieldIntervalMs = 45,
@@ -344,6 +372,7 @@ async function astarRoute(sx, sy, ex, ey, obstacles, skipIds, gridStep, traceWid
         onTick = null,
         maxDetourFactor = 3.0,
         corridorMargin = null,
+        bounds = null,
     } = options;
     const halfTrace = traceWidth / 2;
     const totalClear = halfTrace + clearance;
@@ -368,6 +397,12 @@ async function astarRoute(sx, sy, ex, ey, obstacles, skipIds, gridStep, traceWid
     const maxX = Math.max(startX, endX) + margin;
     const minY = Math.min(startY, endY) - margin;
     const maxY = Math.max(startY, endY) + margin;
+
+    const boundsMargin = effectiveStep * 3;
+    const boundedMinX = bounds ? Math.max(minX, bounds.minX - boundsMargin) : minX;
+    const boundedMaxX = bounds ? Math.min(maxX, bounds.maxX + boundsMargin) : maxX;
+    const boundedMinY = bounds ? Math.max(minY, bounds.minY - boundsMargin) : minY;
+    const boundedMaxY = bounds ? Math.min(maxY, bounds.maxY + boundsMargin) : maxY;
     // Goal tolerance: at least effectiveStep but also the snap error from start/end
     const goalTol = effectiveStep * 0.6 + Math.max(
         Math.hypot(sx - startX, sy - startY),
@@ -427,6 +462,8 @@ async function astarRoute(sx, sy, ex, ey, obstacles, skipIds, gridStep, traceWid
 
     const maxIterations = maxIter;
     let iterations = 0;
+    let stagnantIterations = 0;
+    let bestHSeen = Math.hypot(startX - endX, startY - endY);
     let lastYieldAt = (typeof performance !== 'undefined' && performance.now)
         ? performance.now()
         : Date.now();
@@ -452,6 +489,15 @@ async function astarRoute(sx, sy, ex, ey, obstacles, skipIds, gridStep, traceWid
 
         if (closed.has(curKey)) continue;
         closed.add(curKey);
+
+        const currentH = Math.hypot(current.x - endX, current.y - endY);
+        if (currentH + effectiveStep * 0.25 < bestHSeen) {
+            bestHSeen = currentH;
+            stagnantIterations = 0;
+        } else {
+            stagnantIterations++;
+            if (stagnantIterations > stagnationIters) return null;
+        }
 
         // Goal check — only accept on a layer the destination pad supports
         if (Math.abs(current.x - endX) < goalTol &&
@@ -493,7 +539,7 @@ async function astarRoute(sx, sy, ex, ey, obstacles, skipIds, gridStep, traceWid
             if (closed.has(nKey)) continue;
 
             // Generic pruning: keep expansion within a reasonable corridor.
-            if (nx < minX || nx > maxX || ny < minY || ny > maxY) continue;
+            if (nx < boundedMinX || nx > boundedMaxX || ny < boundedMinY || ny > boundedMaxY) continue;
 
             // Generic pruning: skip nodes whose best possible route is already
             // too long relative to the direct route.
@@ -535,7 +581,12 @@ async function astarRoute(sx, sy, ex, ey, obstacles, skipIds, gridStep, traceWid
                 const nearPad = obstacles.isOnPad(current.x, current.y, effectiveStep * 2);
                 if (nearPad) padDiagPenalty = PAD_DIAG_COST;
             }
-            const tentG = curG + stepCost + bendPenalty + dirPenalty + padDiagPenalty;
+
+            // In congested neighborhoods, slightly bias against expansion.
+            const localDensity = obstacles.localDensity(nx, ny, skipIds, current.layer, 1);
+            const congestionPenalty = Math.min(localDensity, 120) * gridStep * 0.01;
+
+            const tentG = curG + stepCost + bendPenalty + dirPenalty + padDiagPenalty + congestionPenalty;
 
             if (tentG < (gScore.has(nKey) ? gScore.get(nKey) : Infinity)) {
                 gScore.set(nKey, tentG);
@@ -565,7 +616,9 @@ async function astarRoute(sx, sy, ex, ey, obstacles, skipIds, gridStep, traceWid
                 const onPad = obstacles.isOnPad(current.x, current.y, viaPadClear);
 
                 if (clearOnOther && clearOnCurrent && !onPad) {
-                    const tentG = curG + VIA_COST;
+                    const viaDensity = obstacles.localDensity(current.x, current.y, skipIds, otherLayer, 1);
+                    const viaCongestionPenalty = Math.min(viaDensity, 120) * gridStep * 0.04;
+                    const tentG = curG + VIA_COST + viaCongestionPenalty;
                     if (tentG < (gScore.has(viaKey) ? gScore.get(viaKey) : Infinity)) {
                         gScore.set(viaKey, tentG);
                         cameFrom.set(viaKey, { x: current.x, y: current.y, layer: current.layer, dx: 0, dy: 0 });
@@ -893,6 +946,14 @@ export async function routeAll(input, options = {}) {
     const totalClear = halfTrace + clearance;
     const MAX_PASSES = 4;
 
+    const routeBounds = input.bounds &&
+        Number.isFinite(input.bounds.minX) &&
+        Number.isFinite(input.bounds.minY) &&
+        Number.isFinite(input.bounds.maxX) &&
+        Number.isFinite(input.bounds.maxY)
+        ? input.bounds
+        : null;
+
     const cellSize = Math.max(gridStep * 4, 2.0);
 
     // Build pad list
@@ -956,6 +1017,10 @@ export async function routeAll(input, options = {}) {
         if (conn.pads.length >= 2) connMap.set(conn.net, conn);
     }
 
+    /** Optional route cache reused across rip-up passes. */
+    const routeAttemptCache = new Map();
+    let obstacleVersion = 0;
+
     /**
      * Build a fresh obstacle hash and insert all pads.
      */
@@ -964,7 +1029,60 @@ export async function routeAll(input, options = {}) {
         for (const pad of allPads) {
             obs.insertPad(pad.x, pad.y, pad.width, pad.height, pad.id, pad.layer || 'both');
         }
+        obstacleVersion = 1;
         return obs;
+    }
+
+    function cloneAstarResult(result) {
+        return {
+            path: result.path.map(p => ({ x: p.x, y: p.y, layer: p.layer })),
+            vias: result.vias.map(v => ({ x: v.x, y: v.y })),
+        };
+    }
+
+    function isCachedPathStillClear(path, skipIds, totalClear) {
+        for (let i = 1; i < path.length; i++) {
+            const a = path[i - 1];
+            const b = path[i];
+            if (a.layer === b.layer) {
+                if (obstacles.isSegmentBlocked(a.x, a.y, b.x, b.y, totalClear, skipIds, a.layer)) return false;
+            } else {
+                if (obstacles.isBlocked(a.x, a.y, totalClear, skipIds, 'top')) return false;
+                if (obstacles.isBlocked(a.x, a.y, totalClear, skipIds, 'bottom')) return false;
+            }
+        }
+        return true;
+    }
+
+    function makeAttemptKey(from, to, startLayer, endLayer, step, weight) {
+        return [
+            from.x.toFixed(3), from.y.toFixed(3), from.layer || 'both',
+            to.x.toFixed(3), to.y.toFixed(3), to.layer || 'both',
+            startLayer, endLayer,
+            step.toFixed(3), weight.toFixed(2),
+            traceWidth.toFixed(3), clearance.toFixed(3),
+        ].join('|');
+    }
+
+    function getCachedAttemptResult(key, skipIds) {
+        const entry = routeAttemptCache.get(key);
+        if (!entry) return undefined;
+        if (entry.successResult && isCachedPathStillClear(entry.successResult.path, skipIds, totalClear)) {
+            return cloneAstarResult(entry.successResult);
+        }
+        if (entry.lastFailVersion === obstacleVersion) return null;
+        return undefined;
+    }
+
+    function setCachedAttemptResult(key, result) {
+        const entry = routeAttemptCache.get(key) || {};
+        if (result) {
+            entry.successResult = cloneAstarResult(result);
+            entry.lastFailVersion = null;
+        } else {
+            entry.lastFailVersion = obstacleVersion;
+        }
+        routeAttemptCache.set(key, entry);
     }
 
     /**
@@ -997,6 +1115,7 @@ export async function routeAll(input, options = {}) {
                         { x: to.x, y: to.y, layer }
                     ], layer, vias: [] });
                     obstacles.insert(from.x, from.y, to.x, to.y, halfTrace, conn.net, layer);
+                    obstacleVersion++;
                     routed = true;
                     break;
                 }
@@ -1019,6 +1138,7 @@ export async function routeAll(input, options = {}) {
                         for (let k = 0; k < cleanPts.length - 1; k++) {
                             obstacles.insert(cleanPts[k].x, cleanPts[k].y, cleanPts[k+1].x, cleanPts[k+1].y, halfTrace, conn.net, layer);
                         }
+                        obstacleVersion++;
                         routed = true;
                         break;
                     }
@@ -1050,54 +1170,81 @@ export async function routeAll(input, options = {}) {
                     }
                 };
 
-                result = await astarRoute(
+                const attempt1Key = makeAttemptKey(from, to, startLayer, endLayer, gridStep, 1.4);
+                const cached1 = getCachedAttemptResult(attempt1Key, skipIds);
+                if (cached1 !== undefined) {
+                    result = cached1;
+                } else {
+                    result = await astarRoute(
                     from.x, from.y, to.x, to.y,
                     obstacles, skipIds, gridStep, traceWidth, clearance,
                     1.4, true, startLayer, endLayer,
                     {
                         maxIter: 100000,
+                        stagnationIters: 25000,
                         cancelToken,
                         yieldToUI,
                         onTick: throttledTryingTick,
                         maxDetourFactor: 2.0,
+                        bounds: routeBounds,
                     }
-                );
+                    );
+                    setCachedAttemptResult(attempt1Key, result);
+                }
                 if (result) break;
 
                 onTrying?.(from, to);
                 await yieldToUI();
 
                 // Try 2: finer grid (300K)
-                result = await astarRoute(
+                const attempt2Key = makeAttemptKey(from, to, startLayer, endLayer, gridStep * 0.5, 1.2);
+                const cached2 = getCachedAttemptResult(attempt2Key, skipIds);
+                if (cached2 !== undefined) {
+                    result = cached2;
+                } else {
+                    result = await astarRoute(
                     from.x, from.y, to.x, to.y,
                     obstacles, skipIds, gridStep * 0.5, traceWidth, clearance,
                     1.2, true, startLayer, endLayer,
                     {
                         maxIter: 300000,
+                        stagnationIters: 60000,
                         cancelToken,
                         yieldToUI,
                         onTick: throttledTryingTick,
                         maxDetourFactor: 3.0,
+                        bounds: routeBounds,
                     }
-                );
+                    );
+                    setCachedAttemptResult(attempt2Key, result);
+                }
                 if (result) break;
 
                 onTrying?.(from, to);
                 await yieldToUI();
 
                 // Try 3: finest grid, thorough search (600K)
-                result = await astarRoute(
+                const attempt3Key = makeAttemptKey(from, to, startLayer, endLayer, gridStep * 0.25, 1.0);
+                const cached3 = getCachedAttemptResult(attempt3Key, skipIds);
+                if (cached3 !== undefined) {
+                    result = cached3;
+                } else {
+                    result = await astarRoute(
                     from.x, from.y, to.x, to.y,
                     obstacles, skipIds, gridStep * 0.25, traceWidth, clearance,
                     1.0, true, startLayer, endLayer,
                     {
                         maxIter: 600000,
+                        stagnationIters: 120000,
                         cancelToken,
                         yieldToUI,
                         onTick: throttledTryingTick,
                         maxDetourFactor: 5.0,
+                        bounds: routeBounds,
                     }
-                );
+                    );
+                    setCachedAttemptResult(attempt3Key, result);
+                }
                 if (result) break;
             }
 
@@ -1126,6 +1273,7 @@ export async function routeAll(input, options = {}) {
                         obstacles.insert(cleanPts[k].x, cleanPts[k].y, cleanPts[k+1].x, cleanPts[k+1].y,
                             halfTrace, conn.net, layer);
                     }
+                    obstacleVersion++;
                 };
 
                 for (let s = 1; s < simplified.length; s++) {
@@ -1145,6 +1293,7 @@ export async function routeAll(input, options = {}) {
                 for (const v of detectedVias) {
                     obstacles.insertPad(v.x, v.y, viaDia, viaDia, conn.net, 'both', { isVia: true });
                 }
+                if (detectedVias.length > 0) obstacleVersion++;
             } else {
                 return null; // failed
             }
@@ -1154,7 +1303,22 @@ export async function routeAll(input, options = {}) {
 
     // ── Pass 1: Initial routing (shortest nets first) ────────────
 
-    const sorted = [...connMap.values()].sort((a, b) => netManhattan(a) - netManhattan(b));
+    const baseObstacles = buildObstacles();
+
+    function netDifficultyScore(conn) {
+        const manhattan = netManhattan(conn);
+        const pads = conn.pads || [];
+        if (!pads.length) return manhattan;
+        let localCrowd = 0;
+        for (const p of pads) {
+            localCrowd += baseObstacles.localDensity(p.x, p.y, null, p.layer || null, 1);
+        }
+        localCrowd /= pads.length;
+        const pinCountPenalty = pads.length * 5;
+        return manhattan + pinCountPenalty + localCrowd * Math.max(gridStep, 0.5);
+    }
+
+    const sorted = [...connMap.values()].sort((a, b) => netDifficultyScore(a) - netDifficultyScore(b));
     const totalNets = sorted.length;
     let completedNets = 0;
 
@@ -1221,6 +1385,7 @@ export async function routeAll(input, options = {}) {
             for (const bn of blockingNets) {
                 if (routedTraces.has(bn)) {
                     obstacles.removeNet(bn);
+                    obstacleVersion++;
                     rippedNets.push(bn);
                     routedTraces.delete(bn);
                 }
