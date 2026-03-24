@@ -928,15 +928,17 @@ function sanitizeAngles(pts) {
  *
  * @param {RouteInput} input
  * @param {object} [options]
- * @param {function(number, number, string): void} [options.onProgress] - (completed, total, netName)
+ * @param {function(number, number, string, object=): void} [options.onProgress] - (completed, total, netName, meta)
  * @param {function(Array): void} [options.onNetRouted] - called with trace segments after each net is routed
  * @param {function(object): void} [options.onNetFailed] - called with the connection object when a net fails
+ * @param {function(string): void} [options.onNetRipped] - called with net name when an already-routed net is ripped up
  * @param {function(object, object): void} [options.onTrying] - called with (fromPad, toPad) before each routing attempt
+ * @param {function(string, number): void} [options.onNetPendingChanged] - called with (netName, pendingConnections)
  * @param {{cancelled: boolean}} [options.cancelToken] - set .cancelled = true to abort
  * @returns {Promise<RouteResult>}
  */
 export async function routeAll(input, options = {}) {
-    const { onProgress, onNetRouted, onNetFailed, onTrying, cancelToken } = options;
+     const { onProgress, onNetRouted, onNetFailed, onNetRipped, onTrying, onNetPendingChanged, cancelToken } = options;
     /** Yield to browser so UI can repaint & cancel clicks can fire */
     const yieldToUI = () => new Promise(r => setTimeout(r, 0));
     const traceWidth = input.traceWidth || 0.254;
@@ -1017,6 +1019,42 @@ export async function routeAll(input, options = {}) {
         if (conn.pads.length >= 2) connMap.set(conn.net, conn);
     }
 
+    /** @type {Map<string, number>} net -> unresolved connection count */
+    const netPendingConnections = new Map();
+    for (const [netName, conn] of connMap.entries()) {
+        netPendingConnections.set(netName, Math.max(0, (conn.pads?.length || 0) - 1));
+    }
+
+    const pendingConnectionsTotal = () => {
+        let total = 0;
+        for (const v of netPendingConnections.values()) total += Math.max(0, v);
+        return total;
+    };
+
+    const pendingNetsTotal = () => {
+        let total = 0;
+        for (const v of netPendingConnections.values()) {
+            if (v > 0) total++;
+        }
+        return total;
+    };
+
+    const setNetPendingConnections = (netName, pending) => {
+        const safe = Math.max(0, pending | 0);
+        if (!netPendingConnections.has(netName)) return;
+        if (netPendingConnections.get(netName) === safe) return;
+        netPendingConnections.set(netName, safe);
+        onNetPendingChanged?.(netName, safe);
+    };
+
+    const emitProgress = (done, total, netName, meta = {}) => {
+        onProgress?.(done, total, netName, {
+            pendingConnections: pendingConnectionsTotal(),
+            pendingNets: pendingNetsTotal(),
+            ...meta,
+        });
+    };
+
     /** Optional route cache reused across rip-up passes. */
     const routeAttemptCache = new Map();
     let obstacleVersion = 0;
@@ -1054,15 +1092,52 @@ export async function routeAll(input, options = {}) {
         return true;
     }
 
-    function makeAttemptKey(from, to, startLayer, endLayer, step, weight) {
+    function makeAttemptKey(from, to, startLayer, endLayer, step, weight, effortTag = '') {
         return [
             from.x.toFixed(3), from.y.toFixed(3), from.layer || 'both',
             to.x.toFixed(3), to.y.toFixed(3), to.layer || 'both',
             startLayer, endLayer,
             step.toFixed(3), weight.toFixed(2),
+            effortTag,
             traceWidth.toFixed(3), clearance.toFixed(3),
         ].join('|');
     }
+
+    const DEFAULT_PHASE_PROFILE = {
+        id: 'initial',
+        attempt1: { stepScale: 1.0, weight: 1.4, maxIter: 100000, stagnationIters: 25000, maxDetourFactor: 2.0, enabled: true, effortTag: 'i-a1' },
+        attempt2: { stepScale: 0.5, weight: 1.2, maxIter: 300000, stagnationIters: 60000, maxDetourFactor: 3.0, enabled: true, effortTag: 'i-a2' },
+        attempt3: { stepScale: 0.25, weight: 1.0, maxIter: 600000, stagnationIters: 120000, maxDetourFactor: 5.0, enabled: true, effortTag: 'i-a3' },
+    };
+
+    const RIPUP_PHASE_PROFILES = {
+        1: {
+            id: 'ripup-1',
+            attempt1: { stepScale: 1.0, weight: 1.5, maxIter: 80000, stagnationIters: 18000, maxDetourFactor: 1.8, enabled: true, effortTag: 'r1-a1' },
+            attempt2: { stepScale: 0.5, weight: 1.3, maxIter: 180000, stagnationIters: 35000, maxDetourFactor: 2.3, enabled: true, effortTag: 'r1-a2' },
+            attempt3: { stepScale: 0.25, weight: 1.0, maxIter: 0, stagnationIters: 0, maxDetourFactor: 0, enabled: false, effortTag: 'r1-a3' },
+        },
+        2: {
+            id: 'ripup-2',
+            attempt1: { stepScale: 1.0, weight: 1.4, maxIter: 110000, stagnationIters: 25000, maxDetourFactor: 2.1, enabled: true, effortTag: 'r2-a1' },
+            attempt2: { stepScale: 0.5, weight: 1.2, maxIter: 320000, stagnationIters: 65000, maxDetourFactor: 3.2, enabled: true, effortTag: 'r2-a2' },
+            attempt3: { stepScale: 0.25, weight: 1.0, maxIter: 620000, stagnationIters: 125000, maxDetourFactor: 5.2, enabled: true, effortTag: 'r2-a3' },
+        },
+        3: {
+            id: 'ripup-3',
+            attempt1: { stepScale: 1.0, weight: 1.35, maxIter: 140000, stagnationIters: 32000, maxDetourFactor: 2.5, enabled: true, effortTag: 'r3-a1' },
+            attempt2: { stepScale: 0.5, weight: 1.15, maxIter: 420000, stagnationIters: 85000, maxDetourFactor: 3.8, enabled: true, effortTag: 'r3-a2' },
+            attempt3: { stepScale: 0.25, weight: 1.0, maxIter: 850000, stagnationIters: 170000, maxDetourFactor: 6.5, enabled: true, effortTag: 'r3-a3' },
+        },
+        4: {
+            id: 'ripup-4',
+            attempt1: { stepScale: 1.0, weight: 1.3, maxIter: 180000, stagnationIters: 45000, maxDetourFactor: 3.0, enabled: true, effortTag: 'r4-a1' },
+            attempt2: { stepScale: 0.5, weight: 1.1, maxIter: 560000, stagnationIters: 120000, maxDetourFactor: 4.8, enabled: true, effortTag: 'r4-a2' },
+            attempt3: { stepScale: 0.25, weight: 1.0, maxIter: 1100000, stagnationIters: 240000, maxDetourFactor: 8.0, enabled: true, effortTag: 'r4-a3' },
+        },
+    };
+
+    const getRipupProfile = (pass) => RIPUP_PHASE_PROFILES[pass] || RIPUP_PHASE_PROFILES[4];
 
     function getCachedAttemptResult(key, skipIds) {
         const entry = routeAttemptCache.get(key);
@@ -1088,8 +1163,11 @@ export async function routeAll(input, options = {}) {
     /**
      * Route a single net. Returns traces array or null.
      */
-    async function routeNet(conn, obstacles, skipIds) {
+    async function routeNet(conn, obstacles, skipIds, phaseProfile = DEFAULT_PHASE_PROFILE) {
         const traces = [];
+        const a1 = phaseProfile.attempt1 || DEFAULT_PHASE_PROFILE.attempt1;
+        const a2 = phaseProfile.attempt2 || DEFAULT_PHASE_PROFILE.attempt2;
+        const a3 = phaseProfile.attempt3 || DEFAULT_PHASE_PROFILE.attempt3;
         for (let i = 0; i < conn.pads.length - 1; i++) {
             const from = conn.pads[i];
             const to = conn.pads[i + 1];
@@ -1170,22 +1248,22 @@ export async function routeAll(input, options = {}) {
                     }
                 };
 
-                const attempt1Key = makeAttemptKey(from, to, startLayer, endLayer, gridStep, 1.4);
+                const attempt1Key = makeAttemptKey(from, to, startLayer, endLayer, gridStep * a1.stepScale, a1.weight, a1.effortTag || `${phaseProfile.id}:a1`);
                 const cached1 = getCachedAttemptResult(attempt1Key, skipIds);
                 if (cached1 !== undefined) {
                     result = cached1;
                 } else {
                     result = await astarRoute(
                     from.x, from.y, to.x, to.y,
-                    obstacles, skipIds, gridStep, traceWidth, clearance,
-                    1.4, true, startLayer, endLayer,
+                    obstacles, skipIds, gridStep * a1.stepScale, traceWidth, clearance,
+                    a1.weight, true, startLayer, endLayer,
                     {
-                        maxIter: 100000,
-                        stagnationIters: 25000,
+                        maxIter: a1.maxIter,
+                        stagnationIters: a1.stagnationIters,
                         cancelToken,
                         yieldToUI,
                         onTick: throttledTryingTick,
-                        maxDetourFactor: 2.0,
+                        maxDetourFactor: a1.maxDetourFactor,
                         bounds: routeBounds,
                     }
                     );
@@ -1197,22 +1275,22 @@ export async function routeAll(input, options = {}) {
                 await yieldToUI();
 
                 // Try 2: finer grid (300K)
-                const attempt2Key = makeAttemptKey(from, to, startLayer, endLayer, gridStep * 0.5, 1.2);
+                const attempt2Key = makeAttemptKey(from, to, startLayer, endLayer, gridStep * a2.stepScale, a2.weight, a2.effortTag || `${phaseProfile.id}:a2`);
                 const cached2 = getCachedAttemptResult(attempt2Key, skipIds);
                 if (cached2 !== undefined) {
                     result = cached2;
                 } else {
                     result = await astarRoute(
                     from.x, from.y, to.x, to.y,
-                    obstacles, skipIds, gridStep * 0.5, traceWidth, clearance,
-                    1.2, true, startLayer, endLayer,
+                    obstacles, skipIds, gridStep * a2.stepScale, traceWidth, clearance,
+                    a2.weight, true, startLayer, endLayer,
                     {
-                        maxIter: 300000,
-                        stagnationIters: 60000,
+                        maxIter: a2.maxIter,
+                        stagnationIters: a2.stagnationIters,
                         cancelToken,
                         yieldToUI,
                         onTick: throttledTryingTick,
-                        maxDetourFactor: 3.0,
+                        maxDetourFactor: a2.maxDetourFactor,
                         bounds: routeBounds,
                     }
                     );
@@ -1220,26 +1298,28 @@ export async function routeAll(input, options = {}) {
                 }
                 if (result) break;
 
+                if (!a3.enabled) continue;
+
                 onTrying?.(from, to);
                 await yieldToUI();
 
                 // Try 3: finest grid, thorough search (600K)
-                const attempt3Key = makeAttemptKey(from, to, startLayer, endLayer, gridStep * 0.25, 1.0);
+                const attempt3Key = makeAttemptKey(from, to, startLayer, endLayer, gridStep * a3.stepScale, a3.weight, a3.effortTag || `${phaseProfile.id}:a3`);
                 const cached3 = getCachedAttemptResult(attempt3Key, skipIds);
                 if (cached3 !== undefined) {
                     result = cached3;
                 } else {
                     result = await astarRoute(
                     from.x, from.y, to.x, to.y,
-                    obstacles, skipIds, gridStep * 0.25, traceWidth, clearance,
-                    1.0, true, startLayer, endLayer,
+                    obstacles, skipIds, gridStep * a3.stepScale, traceWidth, clearance,
+                    a3.weight, true, startLayer, endLayer,
                     {
-                        maxIter: 600000,
-                        stagnationIters: 120000,
+                        maxIter: a3.maxIter,
+                        stagnationIters: a3.stagnationIters,
                         cancelToken,
                         yieldToUI,
                         onTick: throttledTryingTick,
-                        maxDetourFactor: 5.0,
+                        maxDetourFactor: a3.maxDetourFactor,
                         bounds: routeBounds,
                     }
                     );
@@ -1327,20 +1407,43 @@ export async function routeAll(input, options = {}) {
     const routedTraces = new Map();
     const failedNets = [];
 
+    const cloneNetTraces = (netTraces) => netTraces.map(t => ({
+        ...t,
+        points: (t.points || []).map(p => ({ x: p.x, y: p.y, layer: p.layer })),
+        vias: (t.vias || []).map(v => ({ x: v.x, y: v.y })),
+    }));
+
+    /** @type {Map<string, Array>} best net → traces snapshot */
+    let bestRoutedTraces = new Map();
+    let bestRoutedCount = 0;
+
+    const captureBestIfImproved = () => {
+        const routedCount = routedTraces.size;
+        if (routedCount <= bestRoutedCount) return;
+        bestRoutedCount = routedCount;
+        bestRoutedTraces = new Map();
+        for (const [netName, netTraces] of routedTraces.entries()) {
+            bestRoutedTraces.set(netName, cloneNetTraces(netTraces));
+        }
+    };
+
     for (const conn of sorted) {
         if (cancelToken?.cancelled) break;
-        onProgress?.(completedNets, totalNets, conn.net);
+        emitProgress(completedNets, totalNets, conn.net, { phase: 'initial' });
         await yieldToUI();
 
         const skipIds = netPadIds.get(conn.net) || new Set();
         skipIds.add(conn.net);
 
-        const result = await routeNet(conn, obstacles, skipIds);
+        const result = await routeNet(conn, obstacles, skipIds, DEFAULT_PHASE_PROFILE);
         if (result) {
             routedTraces.set(conn.net, result);
+            setNetPendingConnections(conn.net, 0);
+            captureBestIfImproved();
             onNetRouted?.(result);
         } else {
             failedNets.push(conn.net);
+            setNetPendingConnections(conn.net, Math.max(0, (conn.pads?.length || 0) - 1));
             onNetFailed?.(conn);
         }
         completedNets++;
@@ -1350,7 +1453,16 @@ export async function routeAll(input, options = {}) {
 
     for (let pass = 1; pass <= MAX_PASSES && failedNets.length > 0; pass++) {
         if (cancelToken?.cancelled) break;
-        onProgress?.(completedNets, totalNets, `Rip-up pass ${pass}`);
+        const passProfile = getRipupProfile(pass);
+        const passTotal = Math.max(1, failedNets.length);
+        let passDone = 0;
+        emitProgress(passDone, passTotal, `Rip-up pass ${pass}`, {
+            phase: 'ripup',
+            ripupDone: passDone,
+            ripupTotal: passTotal,
+            ripupPass: pass,
+            ripupMaxPasses: MAX_PASSES,
+        });
         await yieldToUI();
         const stillFailed = [];
 
@@ -1359,7 +1471,13 @@ export async function routeAll(input, options = {}) {
             const conn = connMap.get(failedNet);
             if (!conn) continue;
 
-            onProgress?.(completedNets, totalNets, `Rip-up: ${failedNet}`);
+            emitProgress(passDone, passTotal, `Rip-up ${pass}: ${failedNet}`, {
+                phase: 'ripup',
+                ripupDone: passDone,
+                ripupTotal: passTotal,
+                ripupPass: pass,
+                ripupMaxPasses: MAX_PASSES,
+            });
             await yieldToUI();
 
             // Find which nets block the direct path
@@ -1376,7 +1494,16 @@ export async function routeAll(input, options = {}) {
             if (blockingNets.size === 0) {
                 // No trace obstacles — just pads in the way, can't help
                 stillFailed.push(failedNet);
+                setNetPendingConnections(failedNet, Math.max(0, (conn.pads?.length || 0) - 1));
                 onNetFailed?.(conn);
+                passDone++;
+                emitProgress(passDone, passTotal, `Rip-up ${pass}: ${failedNet}`, {
+                    phase: 'ripup',
+                    ripupDone: passDone,
+                    ripupTotal: passTotal,
+                    ripupPass: pass,
+                    ripupMaxPasses: MAX_PASSES,
+                });
                 continue;
             }
 
@@ -1388,16 +1515,22 @@ export async function routeAll(input, options = {}) {
                     obstacleVersion++;
                     rippedNets.push(bn);
                     routedTraces.delete(bn);
+                    onNetRipped?.(bn);
+                    const bnConn = connMap.get(bn);
+                    if (bnConn) setNetPendingConnections(bn, Math.max(0, (bnConn.pads?.length || 0) - 1));
                 }
             }
 
             // Try routing the failed net now
-            const result = await routeNet(conn, obstacles, skipIds);
+            const result = await routeNet(conn, obstacles, skipIds, passProfile);
             if (result) {
                 routedTraces.set(failedNet, result);
+                setNetPendingConnections(failedNet, 0);
+                captureBestIfImproved();
                 onNetRouted?.(result);
             } else {
                 stillFailed.push(failedNet);
+                setNetPendingConnections(failedNet, Math.max(0, (conn.pads?.length || 0) - 1));
                 onNetFailed?.(conn);
             }
 
@@ -1407,16 +1540,29 @@ export async function routeAll(input, options = {}) {
                 if (!rc) continue;
                 const rSkip = netPadIds.get(rn) || new Set();
                 rSkip.add(rn);
-                const rResult = await routeNet(rc, obstacles, rSkip);
+                const rResult = await routeNet(rc, obstacles, rSkip, passProfile);
                 if (rResult) {
                     routedTraces.set(rn, rResult);
+                    setNetPendingConnections(rn, 0);
+                    captureBestIfImproved();
                     onNetRouted?.(rResult);
                 } else {
                     // Ripped net can't reroute — it becomes failed
                     if (!stillFailed.includes(rn)) stillFailed.push(rn);
+                    setNetPendingConnections(rn, Math.max(0, (rc.pads?.length || 0) - 1));
                     onNetFailed?.(rc);
                 }
             }
+
+            passDone++;
+            emitProgress(passDone, passTotal, `Rip-up ${pass}: ${failedNet}`, {
+                phase: 'ripup',
+                ripupDone: passDone,
+                ripupTotal: passTotal,
+                ripupPass: pass,
+                ripupMaxPasses: MAX_PASSES,
+            });
+            await yieldToUI();
         }
 
         failedNets.length = 0;
@@ -1429,7 +1575,8 @@ export async function routeAll(input, options = {}) {
 
     const allTraces = [];
     const allVias = [];
-    for (const [, netTraces] of routedTraces) {
+    const finalRouted = bestRoutedTraces.size > 0 ? bestRoutedTraces : routedTraces;
+    for (const [, netTraces] of finalRouted) {
         for (const t of netTraces) {
             allTraces.push({
                 net: t.net,
@@ -1442,7 +1589,8 @@ export async function routeAll(input, options = {}) {
         }
     }
 
-    return { traces: allTraces, failed: failedNets, vias: allVias };
+    const bestFailedNets = [...connMap.keys()].filter(net => !finalRouted.has(net));
+    return { traces: allTraces, failed: bestFailedNets, vias: allVias };
 }
 
 /**

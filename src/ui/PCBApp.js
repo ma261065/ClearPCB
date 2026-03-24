@@ -88,6 +88,26 @@ export default class PCBApp {
         this._debugTooltipVisible = false;
         this._debugTooltipPinned = false;
         this._showDebugTooltip = false;
+
+        /** Autoroute progress/cancel runtime state */
+        this._routeCancelToken = null;
+        this._routeProgressStartMs = 0;
+        this._routeProgressTimer = null;
+        /** @type {Map<string, boolean>|null} net -> is unrouted */
+        this._routeNetUnrouted = null;
+        this._routeLastBoundaryKey = '';
+        this._routeProgressState = {
+            done: 0,
+            total: 1,
+            netName: 'Starting...',
+            phase: 'initial',
+            pendingConnections: 0,
+            pendingNets: 0,
+            ripupDone: 0,
+            ripupTotal: 0,
+            ripupPass: 0,
+            ripupMaxPasses: 4,
+        };
     }
 
     initialize() {
@@ -1020,28 +1040,56 @@ export default class PCBApp {
             return;
         }
 
+        this.clearRoutes();
+
         // Show progress UI in status bar
         const cancelToken = { cancelled: false };
         this._routeCancelToken = cancelToken;
-        this._showRouteProgress(0, 1, 'Starting...');
+        this._routeProgressStartMs = performance.now();
+        this._showRouteProgress(0, 1, 'Starting...', {
+            phase: 'initial',
+            pendingConnections: 0,
+            pendingNets: 0,
+            ripupDone: 0,
+            ripupTotal: 0,
+            ripupPass: 0,
+            ripupMaxPasses: 4,
+        });
 
         // Build route input from placements + netlist
         const routeInput = this._buildRouteInput();
+        this._routeNetUnrouted = new Map(routeInput.connections.map(c => [c.net, true]));
+        this._routeLastBoundaryKey = '';
+        this._reconcileRatsnestFromRouteState();
 
         try {
             const startTime = performance.now();
 
             const result = await routeAll(routeInput, {
-                onProgress: (done, total, net) => {
-                    this._showRouteProgress(done, total, net);
+                onProgress: (done, total, net, meta = {}) => {
+                    this._showRouteProgress(done, total, net, meta);
+                    this._maybeReconcileAtPhaseBoundary(done, total, meta);
                 },
                 onNetRouted: (netTraces) => {
                     this._clearTryingLines();
+                    const netName = netTraces?.[0]?.net;
+                    if (netName) {
+                        this._clearIncrementalNet(netName);
+                        this._setRouteNetUnrouted(netName, false);
+                    }
                     this._renderNetTraces(netTraces);
                 },
                 onNetFailed: (conn) => {
                     this._clearTryingLines();
                     this._flashFailedNet(conn);
+                },
+                onNetRipped: (netName) => {
+                    this._clearIncrementalNet(netName);
+                    this._setRouteNetUnrouted(netName, true);
+                },
+                onNetPendingChanged: (netName, pendingConnections) => {
+                    this._setRouteNetUnrouted(netName, pendingConnections > 0);
+                    this._setRatsnestVisibilityForNet(netName, pendingConnections > 0);
                 },
                 onTrying: (from, to) => {
                     // Show the connection being attempted
@@ -1051,12 +1099,26 @@ export default class PCBApp {
             });
 
             if (cancelToken.cancelled) {
+                // Keep and finalize partial routes so users can continue from this point.
+                this._clearIncrementalTraces();
+                this._renderRouteResult(result);
+                if (result.vias?.length) {
+                    this._renderVias(result.vias);
+                }
+                const routedNets = new Set(result.traces.map(t => t.net)).size;
+                const totalNets = routeInput.connections.length;
                 this._hideRouteProgress();
-                this._setStatus('Routing cancelled');
+                this._setStatus(`${routedNets} of ${totalNets} nets routed`);
+                this._routeNetUnrouted = null;
                 return;
             }
 
-            const elapsed = ((performance.now() - startTime) / 1000).toFixed(2);
+            await this._playRemainingRipupPhases();
+
+            const elapsedSec = Math.max(0, Math.floor((performance.now() - startTime) / 1000));
+            const elapsedMin = Math.floor(elapsedSec / 60);
+            const elapsedRemSec = elapsedSec % 60;
+            const elapsed = `${String(elapsedMin).padStart(2, '0')} min ${String(elapsedRemSec).padStart(2, '0')} sec`;
 
             // Clear incremental traces and do final clean render
             this._clearIncrementalTraces();
@@ -1067,31 +1129,117 @@ export default class PCBApp {
                 this._renderVias(result.vias);
             }
 
-            const failMsg = result.failed.length
-                ? ` (${result.failed.length} failed)`
-                : '';
-            const viaMsg = result.vias?.length ? `, ${result.vias.length} via(s)` : '';
+            const totalNets = routeInput.connections.length;
+            const failedCount = result.failed.length;
+            const viaCount = result.vias?.length || 0;
+            const routedNets = new Set(result.traces.map(t => t.net)).size;
             this._hideRouteProgress();
-            this._setStatus(`Routed ${result.traces.length} trace(s)${viaMsg} in ${elapsed}s${failMsg}`);
+            this._setStatus(`Routed ${routedNets} nets of ${totalNets}, ${result.traces.length} segments, ${viaCount} vias in ${elapsed} (${failedCount} failed)`);
+            this._routeNetUnrouted = null;
 
         } catch (e) {
             console.error('Autorouter error:', e);
             this._hideRouteProgress();
             this._setStatus(`Route error: ${e.message}`);
+            this._routeNetUnrouted = null;
         }
         this._routeCancelToken = null;
+    }
+
+    _setRouteNetUnrouted(netName, isUnrouted) {
+        if (!this._routeNetUnrouted || !netName) return;
+        this._routeNetUnrouted.set(netName, !!isUnrouted);
+    }
+
+    _reconcileRatsnestFromRouteState() {
+        if (!this._routeNetUnrouted) return;
+        for (const [netName, isUnrouted] of this._routeNetUnrouted.entries()) {
+            this._setRatsnestVisibilityForNet(netName, !!isUnrouted);
+        }
+    }
+
+    _maybeReconcileAtPhaseBoundary(done, total, meta = {}) {
+        const phase = meta?.phase || 'initial';
+        if (phase === 'initial' && total > 0 && done === total) {
+            const key = 'initial:end';
+            if (this._routeLastBoundaryKey === key) return;
+            this._routeLastBoundaryKey = key;
+            this._reconcileRatsnestFromRouteState();
+            return;
+        }
+
+        if (phase === 'ripup') {
+            const pass = Number.isFinite(meta?.ripupPass) ? meta.ripupPass : 0;
+            const ripDone = Number.isFinite(meta?.ripupDone) ? meta.ripupDone : -1;
+            const ripTotal = Number.isFinite(meta?.ripupTotal) ? meta.ripupTotal : -2;
+            if (pass > 0 && ripTotal >= 0 && ripDone === ripTotal) {
+                const key = `ripup:${pass}:end`;
+                if (this._routeLastBoundaryKey === key) return;
+                this._routeLastBoundaryKey = key;
+                this._reconcileRatsnestFromRouteState();
+            }
+        }
+    }
+
+    async _playRemainingRipupPhases() {
+        const state = this._routeProgressState;
+        if (!state) return;
+        const isRipup = state.phase === 'ripup' || String(state.netName || '').startsWith('Rip-up');
+        if (!isRipup) return;
+
+        const currentPass = Math.max(0, state.ripupPass || 0);
+        const maxPasses = Math.max(0, state.ripupMaxPasses || 0);
+        if (currentPass <= 0 || maxPasses <= currentPass) return;
+
+        for (let p = currentPass + 1; p <= maxPasses; p++) {
+            this._showRouteProgress(1, 1, `Rip-up pass ${p}`, {
+                phase: 'ripup',
+                pendingConnections: state.pendingConnections,
+                pendingNets: state.pendingNets,
+                ripupDone: 1,
+                ripupTotal: 1,
+                ripupPass: p,
+                ripupMaxPasses: maxPasses,
+            });
+            await new Promise(resolve => setTimeout(resolve, 1000));
+        }
     }
 
     /**
      * Show routing progress in the status bar.
      */
-    _showRouteProgress(done, total, netName) {
+    _showRouteProgress(done, total, netName, meta = {}) {
         if (!this.status.modeStatus) return;
-        const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+        const prev = this._routeProgressState || {
+            done: 0,
+            total: 1,
+            netName: 'Starting...',
+            phase: 'initial',
+            pendingConnections: 0,
+            pendingNets: 0,
+            ripupDone: 0,
+            ripupTotal: 0,
+            ripupPass: 0,
+            ripupMaxPasses: 4,
+        };
+        const m = /** @type {any} */ (meta || {});
+        this._routeProgressState = {
+            done,
+            total,
+            netName,
+            phase: m.phase || prev.phase || 'initial',
+            pendingConnections: Number.isFinite(m.pendingConnections) ? m.pendingConnections : (prev.pendingConnections || 0),
+            pendingNets: Number.isFinite(m.pendingNets) ? m.pendingNets : (prev.pendingNets || 0),
+            ripupDone: Number.isFinite(m.ripupDone) ? m.ripupDone : (prev.ripupDone || 0),
+            ripupTotal: Number.isFinite(m.ripupTotal) ? m.ripupTotal : (prev.ripupTotal || 0),
+            ripupPass: Number.isFinite(m.ripupPass) ? m.ripupPass : (prev.ripupPass || 0),
+            ripupMaxPasses: Number.isFinite(m.ripupMaxPasses) ? m.ripupMaxPasses : (prev.ripupMaxPasses || 4),
+        };
 
         // Only build the DOM structure once; update text/width on subsequent calls
         let bar = this.status.modeStatus.querySelector('.route-progress-bar-fill');
         let label = this.status.modeStatus.querySelector('.route-progress-label');
+        let elapsed = this.status.modeStatus.querySelector('.route-progress-elapsed');
         if (!bar) {
             this.status.modeStatus.innerHTML = `
                 <span style="display:inline-flex;align-items:center;gap:8px">
@@ -1099,35 +1247,96 @@ export default class PCBApp {
                     <span style="display:inline-block;width:80px;height:6px;background:var(--border-color);border-radius:3px;overflow:hidden;vertical-align:middle">
                         <span class="route-progress-bar-fill" style="display:block;height:100%;width:0%;background:var(--accent-color);border-radius:3px;transition:width 0.15s"></span>
                     </span>
+                    <span class="route-progress-elapsed" style="font-size:10px;color:var(--text-muted)">00:00</span>
                     <button id="pcbRouteCancelBtn" style="
                         background:none;border:1px solid var(--text-muted);color:var(--text-primary);
                         padding:1px 8px;border-radius:3px;font-size:10px;cursor:pointer;line-height:1.4;
                         transition: background 0.1s, color 0.1s;
-                    ">Cancel</button>
+                    ">Stop</button>
                 </span>`;
             bar = this.status.modeStatus.querySelector('.route-progress-bar-fill');
             label = this.status.modeStatus.querySelector('.route-progress-label');
+            elapsed = this.status.modeStatus.querySelector('.route-progress-elapsed');
 
-            const cancelBtn = this.status.modeStatus.querySelector('#pcbRouteCancelBtn');
+            const cancelBtn = /** @type {HTMLButtonElement|null} */ (this.status.modeStatus.querySelector('#pcbRouteCancelBtn'));
             cancelBtn?.addEventListener('mousedown', (e) => {
                 e.stopPropagation();
                 if (this._routeCancelToken) this._routeCancelToken.cancelled = true;
                 cancelBtn.style.background = '#d9534f';
                 cancelBtn.style.borderColor = '#d9534f';
                 cancelBtn.style.color = '#fff';
-                cancelBtn.textContent = 'Cancelling...';
+                cancelBtn.textContent = 'Stopping...';
                 cancelBtn.disabled = true;
             });
+
+            if (this._routeProgressTimer) clearInterval(this._routeProgressTimer);
+            this._routeProgressTimer = setInterval(() => {
+                this._refreshRouteProgress();
+            }, 250);
         }
 
-        if (label) label.textContent = `Routing: ${done}/${total} nets (${pct}%) — ${netName}`;
+        this._refreshRouteProgress(label, bar, elapsed);
+    }
+
+    _refreshRouteProgress(labelEl = null, barEl = null, elapsedEl = null) {
+        if (!this.status.modeStatus) return;
+        const state = this._routeProgressState || {
+            done: 0,
+            total: 1,
+            netName: 'Routing...',
+            phase: 'initial',
+            pendingConnections: 0,
+            pendingNets: 0,
+            ripupDone: 0,
+            ripupTotal: 0,
+            ripupPass: 0,
+            ripupMaxPasses: 4,
+        };
+        const label = labelEl || this.status.modeStatus.querySelector('.route-progress-label');
+        const bar = barEl || this.status.modeStatus.querySelector('.route-progress-bar-fill');
+        const elapsed = elapsedEl || this.status.modeStatus.querySelector('.route-progress-elapsed');
+
+        const pct = state.total > 0 ? Math.round((state.done / state.total) * 100) : 0;
+        const isRipup = state.phase === 'ripup' || String(state.netName || '').startsWith('Rip-up');
+        const phaseLabel = isRipup
+            ? `Phase: Rip-up ${Math.max(1, state.ripupPass || 1)} of ${Math.max(1, state.ripupMaxPasses || 4)}`
+            : 'Phase: Route placement';
+        const remainingNets = Math.max(0, Number.isFinite(state.pendingNets) ? state.pendingNets : (state.total - state.done));
+        const progressLabel = isRipup
+            ? `${state.done}/${state.total} (${pct}%)`
+            : `${state.done}/${state.total} (${pct}%)`;
+        if (label) {
+            label.textContent = `${phaseLabel} - ${progressLabel} - ${remainingNets} nets unrouted`;
+        }
         if (bar) bar.style.width = `${pct}%`;
+        if (elapsed) {
+            const t = Math.max(0, (performance.now() - this._routeProgressStartMs) / 1000);
+            const mins = Math.floor(t / 60);
+            const secs = Math.floor(t % 60);
+            elapsed.textContent = `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+        }
     }
 
     /**
      * Remove routing progress from the status bar.
      */
     _hideRouteProgress() {
+        if (this._routeProgressTimer) {
+            clearInterval(this._routeProgressTimer);
+            this._routeProgressTimer = null;
+        }
+        this._routeProgressState = {
+            done: 0,
+            total: 1,
+            netName: 'Starting...',
+            phase: 'initial',
+            pendingConnections: 0,
+            pendingNets: 0,
+            ripupDone: 0,
+            ripupTotal: 0,
+            ripupPass: 0,
+            ripupMaxPasses: 4,
+        };
         if (this.status.modeStatus) {
             this.status.modeStatus.textContent = '';
         }
@@ -1210,12 +1419,12 @@ export default class PCBApp {
      * Read routing parameters from the ribbon inputs, converting to mm.
      */
     _getRoutingParams() {
-        const unitsEl = document.getElementById('pcbRouteUnits');
+        const unitsEl = /** @type {HTMLSelectElement|null} */ (document.getElementById('pcbRouteUnits'));
         const units = unitsEl?.value || 'mm';
         const toMM = units === 'inch' ? 25.4 : 1;
 
         const readVal = (id, fallback) => {
-            const el = document.getElementById(id);
+            const el = /** @type {HTMLInputElement|null} */ (document.getElementById(id));
             const v = parseFloat(el?.value);
             return (isNaN(v) || v <= 0) ? fallback : v * toMM;
         };
@@ -1252,6 +1461,7 @@ export default class PCBApp {
             polyline.setAttribute('stroke-linecap', 'round');
             polyline.setAttribute('stroke-linejoin', 'round');
             polyline.setAttribute('opacity', '0.6');
+            if (trace.net) polyline.dataset.net = trace.net;
             parent.appendChild(polyline);
 
             // Render vias for this trace
@@ -1267,6 +1477,7 @@ export default class PCBApp {
                     ring.setAttribute('r', String(viaRadius));
                     ring.setAttribute('fill', '#b8860b');
                     ring.setAttribute('opacity', '0.6');
+                    if (trace.net) ring.dataset.net = trace.net;
                     holeLayer.appendChild(ring);
 
                     const drill = document.createElementNS(NS, 'circle');
@@ -1276,9 +1487,17 @@ export default class PCBApp {
                     drill.setAttribute('r', String(drillRadius));
                     drill.setAttribute('fill', '#1a1a2e');
                     drill.setAttribute('opacity', '0.6');
+                    if (trace.net) drill.dataset.net = trace.net;
                     holeLayer.appendChild(drill);
                 }
             }
+        }
+    }
+
+    _clearIncrementalNet(netName) {
+        if (!netName || !this.viewport?.svg) return;
+        for (const el of this.viewport.svg.querySelectorAll(`.pcb-route-anim[data-net="${netName}"]`)) {
+            el.remove();
         }
     }
 
@@ -1332,25 +1551,39 @@ export default class PCBApp {
         const NS = 'http://www.w3.org/2000/svg';
         const layer = this._getLayerGroup('ratlines');
 
+        // Keep failed overlays bounded and replace previous overlays for this net.
+        const netName = conn.net || '';
+        if (netName) {
+            for (const old of layer.querySelectorAll(`.pcb-failed-line[data-net="${netName}"]`)) {
+                old.remove();
+            }
+        }
+        const allFailed = layer.querySelectorAll('.pcb-failed-line');
+        if (allFailed.length > 24) {
+            const toRemove = allFailed.length - 24;
+            for (let i = 0; i < toRemove; i++) allFailed[i]?.remove();
+        }
+
         for (let i = 0; i < conn.pads.length - 1; i++) {
             const from = conn.pads[i];
             const to = conn.pads[i + 1];
 
             const line = document.createElementNS(NS, 'line');
-            line.setAttribute('class', 'pcb-route-anim');
+            line.setAttribute('class', 'pcb-route-anim pcb-failed-line');
+            if (netName) line.dataset.net = netName;
             line.setAttribute('x1', String(from.x));
             line.setAttribute('y1', String(from.y));
             line.setAttribute('x2', String(to.x));
             line.setAttribute('y2', String(to.y));
             line.setAttribute('stroke', '#ffcc00');
             line.setAttribute('stroke-width', '0.3');
-            line.setAttribute('opacity', '1');
+            line.setAttribute('opacity', '0.9');
             layer.appendChild(line);
 
             // Fade out and remove
-            let opacity = 1.0;
+            let opacity = 0.9;
             const fade = () => {
-                opacity -= 0.05;
+                opacity -= 0.08;
                 if (opacity <= 0) {
                     line.remove();
                     return;
@@ -1359,6 +1592,25 @@ export default class PCBApp {
                 requestAnimationFrame(fade);
             };
             requestAnimationFrame(fade);
+        }
+    }
+
+    _hideRatsnestForNet(netName) {
+        this._setRatsnestVisibilityForNet(netName, false);
+    }
+
+    _setRatsnestVisibilityForNet(netName, visible) {
+        if (!netName) return;
+        const ratLayer = this._getLayerGroup('ratlines');
+        for (const line of ratLayer.querySelectorAll('.ratsnest-line')) {
+            if (/** @type {HTMLElement} */ (line).dataset.net === netName) {
+                /** @type {HTMLElement} */ (line).style.display = visible ? '' : 'none';
+            }
+        }
+        for (const el of ratLayer.children) {
+            if (el.tagName === 'text' && (el.textContent || '').trim() === netName) {
+                /** @type {HTMLElement} */ (el).style.display = visible ? '' : 'none';
+            }
         }
     }
 
@@ -1399,17 +1651,25 @@ export default class PCBApp {
             }
         }
 
-        // Hide ratlines for routed nets
+        // Reconcile final ratsnest visibility from final result when possible.
+        // If result.failed is present, show only failed nets and hide all others.
+        // This prevents drift from incremental hide/show events during rip-up.
         const ratLayer = this._getLayerGroup('ratlines');
+        const hasFailedList = Array.isArray(result.failed);
+        const failedNets = new Set(hasFailedList ? result.failed : []);
+
         for (const el of ratLayer.querySelectorAll('.ratsnest-line')) {
-            if (routedNets.has(/** @type {HTMLElement} */ (el).dataset.net)) {
-                /** @type {HTMLElement} */ (el).style.display = 'none';
-            }
+            const net = /** @type {HTMLElement} */ (el).dataset.net || '';
+            /** @type {HTMLElement} */ (el).style.display = hasFailedList
+                ? (failedNets.has(net) ? '' : 'none')
+                : (routedNets.has(net) ? 'none' : '');
         }
         for (const el of ratLayer.children) {
-            if (el.tagName === 'text' && routedNets.has(el.textContent || '')) {
-                /** @type {HTMLElement} */ (el).style.display = 'none';
-            }
+            if (el.tagName !== 'text') continue;
+            const net = (el.textContent || '').trim();
+            /** @type {HTMLElement} */ (el).style.display = hasFailedList
+                ? (failedNets.has(net) ? '' : 'none')
+                : (routedNets.has(net) ? 'none' : '');
         }
     }
 
