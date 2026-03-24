@@ -1096,6 +1096,10 @@ body {
     display: flex;
     gap: 24px;
     border-top: 1px solid var(--border-color);
+    height: 24px;
+    align-items: center;
+    flex-shrink: 0;
+    overflow: hidden;
 }
 
 .status-item {
@@ -2152,4 +2156,200 @@ body {
 
 .pcb-layer-btn.vis-btn.active {
     opacity: 0.9;
+}
+
+/* ========================================
+   Specctra Help Flyout
+   ======================================== */
+.specctra-help-btn {
+    width: 18px !important;
+    height: 18px !important;
+    min-width: 18px !important;
+    max-width: 18px !important;
+    border-radius: 50% !important;
+    padding: 0 !important;
+    font-size: 11px !important;
+    line-height: 18px !important;
+    text-align: center;
+    background: var(--accent-color) !important;
+    color: #ffffff !important;
+    border-color: var(--accent-color) !important;
+    opacity: 0.85;
+    transition: opacity 0.15s;
+    flex-shrink: 0;
+}
+
+.specctra-help-btn:hover {
+    opacity: 1 !important;
+}
+
+.specctra-help-flyout-wrap {
+    position: relative;
+}
+
+.specctra-help-flyout {
+    display: none;
+    position: absolute;
+    top: calc(100% + 4px);
+    right: 0;
+    z-index: 1500;
+    width: 360px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+
+.specctra-help-flyout.open {
+    display: block;
+}
+
+.specctra-help-flyout-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-primary);
+    border-bottom: 1px solid var(--border-color);
+}
+
+.specctra-help-flyout-close {
+    width: 26px !important;
+    height: 26px !important;
+    min-width: 26px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    background: var(--bg-tertiary) !important;
+    border: 1px solid var(--border-color) !important;
+    border-radius: 50% !important;
+    color: var(--text-primary) !important;
+    font-size: 18px !important;
+    font-weight: 700;
+    cursor: pointer;
+    padding: 0 !important;
+    line-height: 1 !important;
+    transition: background 0.15s, color 0.15s;
+}
+
+.specctra-help-flyout-close:hover {
+    background: #d9534f !important;
+    border-color: #d9534f !important;
+    color: #ffffff !important;
+}
+
+.specctra-help-flyout-body {
+    padding: 10px 14px 14px;
+    font-size: 11px;
+    color: var(--text-secondary);
+    line-height: 1.6;
+}
+
+.specctra-help-flyout-body p {
+    margin-bottom: 8px;
+}
+
+.specctra-help-flyout-body ol {
+    margin: 0 0 10px 18px;
+    padding: 0;
+}
+
+.specctra-help-flyout-body li {
+    margin-bottom: 5px;
+}
+
+.specctra-help-flyout-body a {
+    color: var(--accent-color);
+    text-decoration: none;
+}
+
+.specctra-help-flyout-body a:hover {
+    text-decoration: underline;
+}
+
+.specctra-help-flyout-body code {
+    background: var(--bg-tertiary);
+    padding: 1px 4px;
+    border-radius: 3px;
+    font-size: 10px;
+}
+
+.specctra-help-tip {
+    background: var(--bg-secondary);
+    border-radius: 4px;
+    padding: 6px 8px;
+    margin-bottom: 0 !important;
+    font-size: 10px;
+    color: var(--text-muted);
+}
+
+/* ========================================
+   Routing Parameters
+   ======================================== */
+.routing-params {
+    flex-direction: row !important;
+    gap: 3px !important;
+    align-items: center !important;
+}
+
+.routing-param-row {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    font-size: 11px;
+    white-space: nowrap;
+}
+
+.routing-param-row label {
+    color: var(--text-secondary);
+    min-width: 0;
+    text-align: right;
+    font-size: 10px;
+}
+
+.routing-param-row input[type="number"] {
+    width: 68px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+    padding: 2px 4px;
+    border-radius: 3px;
+    font-size: 11px;
+}
+
+.routing-param-row select {
+    width: 68px;
+}
+
+/* ========================================
+   PCB Properties Panel
+   ======================================== */
+[data-panel="pcb-properties"] .ribbon-group-items {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 12px;
+}
+
+[data-panel="pcb-properties"] .prop-row {
+    gap: 6px;
+    min-height: 20px;
+}
+
+[data-panel="pcb-properties"] .prop-row label {
+    font-size: 10px;
+    color: var(--text-secondary);
+    min-width: 0;
+}
+
+[data-panel="pcb-properties"] .prop-row input[type="number"] {
+    width: 70px;
+    font-size: 11px;
+    padding: 2px 4px;
+}
+
+[data-panel="pcb-properties"] .prop-row span {
+    font-size: 11px;
 }

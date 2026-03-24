@@ -92,25 +92,6 @@
                     </div>
                 </div>
                 <div class="ribbon-group">
-                    <div class="ribbon-group-title">Grid</div>
-                    <div class="ribbon-group-items">
-                        <label class="ribbon-checkbox"><input type="checkbox" id="showGrid" checked> Grid</label>
-                        <label class="ribbon-checkbox"><input type="checkbox" id="snapToGrid" checked> Snap</label>
-                        <select id="gridSize" title="Grid size">
-                            <option value="1">1 mm</option>
-                        </select>
-                        <select id="units" title="Units">
-                            <option value="mm" selected>mm</option>
-                            <option value="mil">mil</option>
-                            <option value="inch">inch</option>
-                        </select>
-                        <select id="gridStyle" title="Grid style">
-                            <option value="lines" selected>Lines</option>
-                            <option value="dots">Dots</option>
-                        </select>
-                    </div>
-                </div>
-                <div class="ribbon-group">
                     <div class="ribbon-group-title">Paper</div>
                     <div class="ribbon-group-items">
                         <select id="paperSize" title="Paper size">
@@ -134,6 +115,25 @@
                         </select>
                         <label class="ribbon-checkbox"><input type="checkbox" id="showTitleBlock"> Border</label>
                         <label class="ribbon-checkbox"><input type="checkbox" id="showTitleBlockInfo"> Title Block</label>
+                    </div>
+                </div>
+                <div class="ribbon-group">
+                    <div class="ribbon-group-title">Grid</div>
+                    <div class="ribbon-group-items">
+                        <label class="ribbon-checkbox"><input type="checkbox" id="showGrid" checked> Grid</label>
+                        <label class="ribbon-checkbox"><input type="checkbox" id="snapToGrid" checked> Snap</label>
+                        <select id="gridSize" title="Grid size">
+                            <option value="1">1 mm</option>
+                        </select>
+                        <select id="units" title="Units">
+                            <option value="mm" selected>mm</option>
+                            <option value="mil">mil</option>
+                            <option value="inch">inch</option>
+                        </select>
+                        <select id="gridStyle" title="Grid style">
+                            <option value="lines" selected>Lines</option>
+                            <option value="dots">Dots</option>
+                        </select>
                     </div>
                 </div>
                 <div class="ribbon-group">
@@ -198,6 +198,8 @@
         <div class="ribbon-tabs">
             <div class="ribbon-tab" data-tab="pcb-file">File</div>
             <div class="ribbon-tab active" data-tab="pcb-home">Home</div>
+            <div class="ribbon-tab" data-tab="pcb-routing">Routing</div>
+            <div class="ribbon-tab" data-tab="pcb-properties">Properties</div>
             <div class="ribbon-tab" data-tab="pcb-help">Help</div>
             <div class="ribbon-spacer"></div>
             <span class="ribbon-title">PCB Layout</span>
@@ -218,10 +220,10 @@
                 <div class="ribbon-group">
                     <div class="ribbon-group-title">Tools</div>
                     <div class="ribbon-group-items">
-                        <button id="pcbToolSelect" class="active">⊹ Select</button>
-                        <button id="pcbToolPan">✥ Pan</button>
-                        <button disabled>Route</button>
-                        <button disabled>Via</button>
+                        <button id="pcbToolSelect" class="ribbon-tool-btn active" title="Select (V)">⊹ Select</button>
+                        <button id="pcbToolTrack" class="ribbon-tool-btn" title="Route Track">⏤ Track</button>
+                        <button id="pcbToolPad" class="ribbon-tool-btn" title="Place Pad">◼ Pad</button>
+                        <button id="pcbToolVia" class="ribbon-tool-btn" title="Place Via">◉ Via</button>
                     </div>
                 </div>
                 <div class="ribbon-group">
@@ -238,15 +240,10 @@
                     </div>
                 </div>
                 <div class="ribbon-group">
-                    <div class="ribbon-group-title">View</div>
+                    <div class="ribbon-group-title">Grid</div>
                     <div class="ribbon-group-items">
-                        <button id="pcbZoomOut" title="Zoom Out">−</button>
-                        <button id="pcbZoomIn" title="Zoom In">+</button>
-                        <button id="pcbZoomFit" title="Fit to Board Area">Fit</button>
-                        <button id="pcbResetView" title="Default View">Default</button>
                         <label class="ribbon-checkbox"><input type="checkbox" id="pcbShowGrid" checked> Grid</label>
                         <label class="ribbon-checkbox"><input type="checkbox" id="pcbSnapToGrid" checked> Snap</label>
-                        <label class="ribbon-checkbox"><input type="checkbox" id="pcbShowRulers" checked> Rulers</label>
                         <select id="pcbGridSize" title="Grid size"><option value="1.27">1.27 mm</option></select>
                         <select id="pcbUnits" title="Units">
                             <option value="mm" selected>mm</option>
@@ -257,7 +254,88 @@
                             <option value="lines" selected>Lines</option>
                             <option value="dots">Dots</option>
                         </select>
+                    </div>
+                </div>
+                <div class="ribbon-group">
+                    <div class="ribbon-group-title">View</div>
+                    <div class="ribbon-group-items">
+                        <button id="pcbZoomOut" title="Zoom Out">−</button>
+                        <button id="pcbZoomIn" title="Zoom In">+</button>
+                        <button id="pcbZoomFit" title="Fit to Board Area">Fit</button>
+                        <button id="pcbResetView" title="Default View">Default</button>
                         <button id="pcbThemeToggle" class="theme-toggle" title="Toggle Dark/Light Mode">🌙</button>
+                    </div>
+                </div>
+            </div>
+            <div class="ribbon-panel" data-panel="pcb-properties" id="pcbPropertiesPanel">
+                <div class="ribbon-group" id="pcbPropsContent">
+                    <div class="ribbon-group-title">Properties</div>
+                    <div class="ribbon-group-items" id="pcbPropsItems">
+                        <span style="font-size:11px;color:var(--text-muted)">Click an object to see its properties</span>
+                    </div>
+                </div>
+            </div>
+            <div class="ribbon-panel" data-panel="pcb-routing">
+                <div class="ribbon-group">
+                    <div class="ribbon-group-title">Parameters</div>
+                    <div class="ribbon-group-items routing-params">
+                        <div class="routing-param-row">
+                            <label for="pcbTrackWidth">Track Width</label>
+                            <input type="number" id="pcbTrackWidth" value="0.254" min="0.05" step="0.01">
+                        </div>
+                        <div class="routing-param-row">
+                            <label for="pcbClearance">Clearance</label>
+                            <input type="number" id="pcbClearance" value="0.2" min="0.05" step="0.01">
+                        </div>
+                        <div class="routing-param-row">
+                            <label for="pcbViaDiameter">Via Dia</label>
+                            <input type="number" id="pcbViaDiameter" value="0.6" min="0.1" step="0.05">
+                        </div>
+                        <div class="routing-param-row">
+                            <label for="pcbViaDrill">Via Drill</label>
+                            <input type="number" id="pcbViaDrill" value="0.3" min="0.05" step="0.05">
+                        </div>
+                        <div class="routing-param-row">
+                            <label for="pcbRouteUnits">Units</label>
+                            <select id="pcbRouteUnits">
+                                <option value="mm" selected>mm</option>
+                                <option value="inch">inch</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+                <div class="ribbon-group">
+                    <div class="ribbon-group-title">Auto Router</div>
+                    <div class="ribbon-group-items">
+                        <button id="pcbAutoRoute" title="Auto-route all connections">⚡ Auto Route</button>
+                        <button id="pcbClearRoutes" title="Clear all traces and restore ratlines">✕ Clear Routes</button>
+                    </div>
+                </div>
+                <div class="ribbon-group">
+                    <div class="ribbon-group-title">External Routing</div>
+                    <div class="ribbon-group-items">
+                        <button id="pcbExportDSN" title="Export Specctra DSN for external router">📤 Export DSN</button>
+                        <button id="pcbImportSES" title="Import Specctra SES routed session">📥 Import SES</button>
+                        <div class="specctra-help-flyout-wrap">
+                            <button id="pcbSpecctraHelp" class="specctra-help-btn" title="How to use external routing">&#9432;</button>
+                            <div class="specctra-help-flyout" id="specctraHelpFlyout">
+                            <div class="specctra-help-flyout-header">
+                                <span>External Routing with Freerouting</span>
+                                <button class="specctra-help-flyout-close" id="specctraHelpClose">&times;</button>
+                            </div>
+                            <div class="specctra-help-flyout-body">
+                                <p><strong>Specctra DSN/SES</strong> lets you use a powerful external autorouter like <a href="https://github.com/freerouting/freerouting" target="_blank" rel="noopener">Freerouting</a> to route your board.</p>
+                                <ol>
+                                    <li><strong>Export DSN</strong> &mdash; Click <em>Export DSN</em> to save your board as a Specctra Design file.</li>
+                                    <li><strong>Open in Freerouting</strong> &mdash; Launch <a href="https://github.com/freerouting/freerouting/releases" target="_blank" rel="noopener">Freerouting</a> and open the <code>.dsn</code> file.</li>
+                                    <li><strong>Route</strong> &mdash; Click the Autorouter button in Freerouting and wait for it to finish.</li>
+                                    <li><strong>Export Session</strong> &mdash; In Freerouting, go to <em>File → Export Specctra Session File</em> to save a <code>.ses</code> file.</li>
+                                    <li><strong>Import SES</strong> &mdash; Back in ClearPCB, click <em>Import SES</em> and select the <code>.ses</code> file. Traces and vias will appear on your board.</li>
+                                </ol>
+                                <p class="specctra-help-tip">💡 Freerouting often produces higher-quality results than the built-in router for complex boards.</p>
+                            </div>
+                        </div>
+                        </div>
                     </div>
                 </div>
             </div>

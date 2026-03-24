@@ -8,6 +8,8 @@ import { generateFootprint, renderFootprint } from '../pcb/modules/footprint.js'
 import { buildRatsnest } from '../pcb/modules/ratsnest.js';
 import { updateGridDropdown } from './modules/viewport.js';
 import { PCB_LAYERS } from '../pcb/modules/layers.js';
+import { routeAll } from '../pcb/modules/autorouter.js';
+import { exportDSN, importSES } from '../pcb/modules/dsn.js';
 
 /**
  * PCB editor application.
@@ -64,6 +66,14 @@ export default class PCBApp {
         this._listening = false;
         /** True after the first sync (governs fitToBounds) */
         this._hasContent = false;
+        /** Whether the board outline has been drawn */
+        this._boardOutlineDrawn = false;
+        /** Whether the board outline is currently selected */
+        this._boardOutlineSelected = false;
+        /** Board dimensions in mm */
+        this._boardWidth = 100;
+        this._boardHeight = 80;
+        this._boardRadius = 0;
         /** UI element refs (set by controls.js) */
         this.ui = null;
 
@@ -111,6 +121,15 @@ export default class PCBApp {
         this._setPcbStatus();
         if (this.viewport) {
             this.viewport._notifyViewChanged?.();
+        }
+
+        // First-time board outline setup
+        if (!this._boardOutlineDrawn) {
+            if (this._loadBoardOutline()) {
+                this._drawBoardOutline();
+            } else {
+                this._showBoardDimensionsDialog();
+            }
         }
     }
 
@@ -166,6 +185,11 @@ export default class PCBApp {
 
         svg.addEventListener('mousedown', (e) => {
             if (!this._active) return;
+            // Switch ribbon back to Home tab on canvas click
+            const activeTab = this.ribbon?.querySelector('.ribbon-tab.active');
+            if (activeTab instanceof HTMLElement && activeTab.dataset?.tab !== 'pcb-home') {
+                this._setActiveRibbonTab?.('pcb-home');
+            }
             // Right-click: pin/unpin debug tooltip
             if (e.button === 2 && this._showDebugTooltip && this._debugTooltipVisible) {
                 if (this._debugTooltipPinned) {
@@ -191,6 +215,8 @@ export default class PCBApp {
                 const hit = this._hitTestComponent(worldPos);
                 if (hit) {
                     this._selectComponent(hit);
+                    this._selectBoardOutline(false);
+                    this._showComponentProperties(hit);
                     const pl = this.placements.get(hit);
                     if (pl) {
                         this._drag = {
@@ -200,8 +226,14 @@ export default class PCBApp {
                         };
                         svg.style.cursor = 'grabbing';
                     }
+                } else if (this._hitTestBoardOutline(worldPos)) {
+                    this._selectComponent(null);
+                    this._selectBoardOutline(true);
+                    this._showBoardOutlineProperties();
                 } else {
                     this._selectComponent(null);
+                    this._selectBoardOutline(false);
+                    this._clearProperties();
                 }
             }
         });
@@ -212,6 +244,9 @@ export default class PCBApp {
                 this.viewport.updatePan(e.clientX, e.clientY);
             } else if (this._drag) {
                 this._handleDrag(e);
+            } else if (this.currentTool === 'select') {
+                const worldPos = this._screenToWorld(e);
+                this._hoverBoardOutline(this._hitTestBoardOutline(worldPos));
             }
             this.viewport.trackMouse(e);
             this._updateDebugTooltip(e);
@@ -346,6 +381,8 @@ export default class PCBApp {
             });
         };
 
+        this._setActiveRibbonTab = setActive;
+
         tabs.forEach(tab => {
             tab.addEventListener('click', () => {
                 const tabEl = /** @type {HTMLElement} */ (tab);
@@ -353,6 +390,259 @@ export default class PCBApp {
                 setActive(tabEl.dataset.tab);
             });
         });
+    }
+
+    // ── Board Outline ─────────────────────────────────────────────
+
+    /**
+     * Show a dialog asking for board dimensions on first entry.
+     */
+    _showBoardDimensionsDialog() {
+        const overlay = document.createElement('div');
+        overlay.className = 'app-modal-overlay';
+        overlay.innerHTML = `
+            <div class="app-modal" style="min-width:300px">
+                <div class="app-modal-title">Board Dimensions</div>
+                <div class="app-modal-message">Enter the board size in millimetres.</div>
+                <div style="display:flex;gap:10px;margin-top:10px">
+                    <div style="flex:1">
+                        <label style="font-size:11px;color:var(--text-secondary)">Width (mm)</label>
+                        <input class="app-modal-input" id="boardDlgWidth" type="number" value="${this._boardWidth}" min="5" step="1" style="margin-top:2px">
+                    </div>
+                    <div style="flex:1">
+                        <label style="font-size:11px;color:var(--text-secondary)">Height (mm)</label>
+                        <input class="app-modal-input" id="boardDlgHeight" type="number" value="${this._boardHeight}" min="5" step="1" style="margin-top:2px">
+                    </div>
+                    <div style="flex:1">
+                        <label style="font-size:11px;color:var(--text-secondary)">Corner R (mm)</label>
+                        <input class="app-modal-input" id="boardDlgRadius" type="number" value="${this._boardRadius}" min="0" step="0.5" style="margin-top:2px">
+                    </div>
+                </div>
+                <div class="app-modal-actions">
+                    <button class="app-modal-btn app-modal-ok" id="boardDlgOk">OK</button>
+                </div>
+            </div>`;
+        document.body.appendChild(overlay);
+
+        const widthInput = /** @type {HTMLInputElement} */ (overlay.querySelector('#boardDlgWidth'));
+        const heightInput = /** @type {HTMLInputElement} */ (overlay.querySelector('#boardDlgHeight'));
+        const radiusInput = /** @type {HTMLInputElement} */ (overlay.querySelector('#boardDlgRadius'));
+        const okBtn = overlay.querySelector('#boardDlgOk');
+
+        setTimeout(() => widthInput?.focus(), 50);
+
+        const accept = () => {
+            const w = parseFloat(widthInput?.value) || 100;
+            const h = parseFloat(heightInput?.value) || 80;
+            const r = parseFloat(radiusInput?.value) || 0;
+            this._boardWidth = Math.max(5, w);
+            this._boardHeight = Math.max(5, h);
+            this._boardRadius = Math.max(0, r);
+            this._drawBoardOutline();
+            this._saveBoardOutline();
+            overlay.remove();
+        };
+
+        okBtn?.addEventListener('click', accept);
+        overlay.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') accept();
+        });
+    }
+
+    /**
+     * Save board outline dimensions to localStorage.
+     */
+    _saveBoardOutline() {
+        try {
+            localStorage.setItem('clearpcb_board_outline', JSON.stringify({
+                width: this._boardWidth,
+                height: this._boardHeight,
+                radius: this._boardRadius,
+            }));
+        } catch { /* quota exceeded — ignore */ }
+    }
+
+    /**
+     * Load board outline dimensions from localStorage.
+     * @returns {boolean} true if data was found and loaded
+     */
+    _loadBoardOutline() {
+        try {
+            const raw = localStorage.getItem('clearpcb_board_outline');
+            if (!raw) return false;
+            const data = JSON.parse(raw);
+            if (data.width > 0 && data.height > 0) {
+                this._boardWidth = data.width;
+                this._boardHeight = data.height;
+                this._boardRadius = data.radius || 0;
+                return true;
+            }
+        } catch { /* corrupt data — ignore */ }
+        return false;
+    }
+
+    /**
+     * Draw (or redraw) the board outline on the board-outline layer.
+     */
+    _drawBoardOutline() {
+        const NS = 'http://www.w3.org/2000/svg';
+        const layer = this._getLayerGroup('board-outline');
+
+        // Remove existing outline
+        const old = layer.querySelector('.pcb-board-outline');
+        if (old) old.remove();
+
+        const w = this._boardWidth;
+        const h = this._boardHeight;
+        const r = Math.min(this._boardRadius, w / 2, h / 2);
+
+        // Bottom-left corner at origin (0,0) in user coords (Y-up)
+        // In SVG coords (Y-down), rect goes from (0, -h) to (w, 0)
+        const x = 0;
+        const y = -h;
+
+        const rect = document.createElementNS(NS, 'rect');
+        rect.setAttribute('class', 'pcb-board-outline');
+        rect.setAttribute('x', String(x));
+        rect.setAttribute('y', String(y));
+        rect.setAttribute('width', String(w));
+        rect.setAttribute('height', String(h));
+        if (r > 0) {
+            rect.setAttribute('rx', String(r));
+            rect.setAttribute('ry', String(r));
+        }
+        rect.setAttribute('fill', 'none');
+        rect.setAttribute('stroke', '#f1c40f');
+        rect.setAttribute('stroke-width', '0.2');
+        layer.appendChild(rect);
+
+        const wasDrawn = this._boardOutlineDrawn;
+        this._boardOutlineDrawn = true;
+
+        // Fit view to board only on first draw
+        if (!wasDrawn && this.viewport) {
+            this.viewport.fitToBounds(x - 5, y - 5, w + 10, h + 10);
+        }
+    }
+
+    // ── Properties Panel ──────────────────────────────────────────
+
+    /**
+     * Test if a world point is near the board outline edge.
+     */
+    _hitTestBoardOutline(pos) {
+        if (!this._boardOutlineDrawn) return false;
+        const w = this._boardWidth, h = this._boardHeight;
+        // In SVG coords (Y-down), board goes from (0, -h) to (w, 0)
+        const x1 = 0, y1 = -h;
+        const x2 = w, y2 = 0;
+        const tol = 1.5; // mm hit tolerance
+
+        // Near any edge?
+        const nearLeft = Math.abs(pos.x - x1) < tol && pos.y >= y1 - tol && pos.y <= y2 + tol;
+        const nearRight = Math.abs(pos.x - x2) < tol && pos.y >= y1 - tol && pos.y <= y2 + tol;
+        const nearTop = Math.abs(pos.y - y1) < tol && pos.x >= x1 - tol && pos.x <= x2 + tol;
+        const nearBottom = Math.abs(pos.y - y2) < tol && pos.x >= x1 - tol && pos.x <= x2 + tol;
+        return nearLeft || nearRight || nearTop || nearBottom;
+    }
+
+    /**
+     * Set board outline hover state.
+     */
+    _hoverBoardOutline(hovered) {
+        const outline = this._getLayerGroup('board-outline').querySelector('.pcb-board-outline');
+        if (!outline) return;
+        if (this._boardOutlineSelected) return; // don't override selection highlight
+        if (hovered) {
+            outline.setAttribute('stroke', '#ffe066');
+            outline.setAttribute('stroke-width', '0.35');
+        } else {
+            outline.setAttribute('stroke', '#f1c40f');
+            outline.setAttribute('stroke-width', '0.2');
+        }
+    }
+
+    /**
+     * Set board outline selection state.
+     */
+    _selectBoardOutline(selected) {
+        this._boardOutlineSelected = selected;
+        const outline = this._getLayerGroup('board-outline').querySelector('.pcb-board-outline');
+        if (!outline) return;
+        if (selected) {
+            outline.setAttribute('stroke', '#ffffff');
+            outline.setAttribute('stroke-width', '0.4');
+            outline.setAttribute('stroke-dasharray', '1.5,0.8');
+        } else {
+            outline.setAttribute('stroke', '#f1c40f');
+            outline.setAttribute('stroke-width', '0.2');
+            outline.removeAttribute('stroke-dasharray');
+        }
+    }
+
+    /**
+     * Clear the properties panel to its default state.
+     */
+    _clearProperties() {
+        const items = document.getElementById('pcbPropsItems');
+        if (items) {
+            items.innerHTML = '<span style="font-size:11px;color:var(--text-muted)">Click an object to see its properties</span>';
+        }
+    }
+
+    /**
+     * Show board outline properties and switch to Properties tab.
+     */
+    _showBoardOutlineProperties() {
+        const items = document.getElementById('pcbPropsItems');
+        if (!items) return;
+
+        items.innerHTML = `
+            <div class="prop-row"><label>Type</label><span style="font-size:11px;color:var(--text-primary)">Board Outline</span></div>
+            <div class="prop-row"><label>Width (mm)</label><input type="number" id="pcbPropBoardW" value="${this._boardWidth}" min="5" step="1"></div>
+            <div class="prop-row"><label>Height (mm)</label><input type="number" id="pcbPropBoardH" value="${this._boardHeight}" min="5" step="1"></div>
+            <div class="prop-row"><label>Corner R (mm)</label><input type="number" id="pcbPropBoardR" value="${this._boardRadius}" min="0" step="0.5"></div>
+        `;
+
+        // Wire up live editing
+        const onChange = () => {
+            const wEl = /** @type {HTMLInputElement} */ (document.getElementById('pcbPropBoardW'));
+            const hEl = /** @type {HTMLInputElement} */ (document.getElementById('pcbPropBoardH'));
+            const rEl = /** @type {HTMLInputElement} */ (document.getElementById('pcbPropBoardR'));
+            this._boardWidth = Math.max(5, parseFloat(wEl?.value) || 100);
+            this._boardHeight = Math.max(5, parseFloat(hEl?.value) || 80);
+            this._boardRadius = Math.max(0, parseFloat(rEl?.value) || 0);
+            this._drawBoardOutline();
+            this._saveBoardOutline();
+        };
+        items.querySelector('#pcbPropBoardW')?.addEventListener('input', onChange);
+        items.querySelector('#pcbPropBoardH')?.addEventListener('input', onChange);
+        items.querySelector('#pcbPropBoardR')?.addEventListener('input', onChange);
+
+        // Switch to Properties tab
+        this._setActiveRibbonTab?.('pcb-properties');
+    }
+
+    /**
+     * Show component properties (placeholder for now).
+     */
+    _showComponentProperties(compId) {
+        const items = document.getElementById('pcbPropsItems');
+        if (!items) return;
+
+        const pl = this.placements.get(compId);
+        const name = pl?.name || compId;
+        const x = pl?.x?.toFixed(2) || '0';
+        const y = pl?.y?.toFixed(2) || '0';
+
+        items.innerHTML = `
+            <div class="prop-row"><label>Type</label><span style="font-size:11px;color:var(--text-primary)">Component</span></div>
+            <div class="prop-row"><label>Name</label><span style="font-size:11px;color:var(--text-primary)">${name}</span></div>
+            <div class="prop-row"><label>X (mm)</label><span style="font-size:11px;color:var(--text-primary)">${x}</span></div>
+            <div class="prop-row"><label>Y (mm)</label><span style="font-size:11px;color:var(--text-primary)">${y}</span></div>
+        `;
+
+        this._setActiveRibbonTab?.('pcb-properties');
     }
 
     _bindThemeToggle() {
@@ -477,13 +767,18 @@ export default class PCBApp {
         const SPACING_X = 20;  // mm between component centres (horizontal)
         const SPACING_Y = 20;  // mm between component centres (vertical)
         const COLS = Math.max(1, Math.ceil(Math.sqrt(components.length)));
+        // Offset to place components inside the board outline
+        // Y is flipped: positive user-Y = negative SVG-Y
+        const MARGIN = 10;  // mm from board edge
+        const offsetX = MARGIN;
+        const offsetY = -(MARGIN);  // start near top of board in SVG coords
 
         for (let i = 0; i < components.length; i++) {
             const comp = components[i];
             const col = i % COLS;
             const row = Math.floor(i / COLS);
-            const cx = col * SPACING_X;
-            const cy = row * SPACING_Y;
+            const cx = offsetX + col * SPACING_X;
+            const cy = offsetY - row * SPACING_Y;  // go downward in user view = more negative in SVG
 
             // Generate footprint geometry (use real pad data when available)
             const fpGeom = generateFootprint(
@@ -505,11 +800,11 @@ export default class PCBApp {
 
             // Build pad world-position map for ratsnest
             const padMap = new Map();
-            /** @type {Array<{number: string, dx: number, dy: number}>} */
+            /** @type {Array<{number: string, dx: number, dy: number, width: number, height: number, layer: string}>} */
             const padOffsets = [];
             for (const pad of fpGeom.pads) {
                 padMap.set(pad.number, { x: cx + pad.x, y: cy + pad.y });
-                padOffsets.push({ number: pad.number, dx: pad.x, dy: pad.y });
+                padOffsets.push({ number: pad.number, dx: pad.x, dy: pad.y, width: pad.width, height: pad.height, layer: pad.layer });
             }
 
             this.placements.set(comp.id, {
@@ -712,6 +1007,539 @@ export default class PCBApp {
         this._drag = null;
         this.viewport.svg.style.cursor = this._selectedComp ? 'grab' : 'default';
         this._updateRatsnest();
+    }
+
+    // ── Auto Router ───────────────────────────────────────────────
+
+    /**
+     * Run the built-in A* maze autorouter on the current board layout.
+     */
+    async runAutoRoute() {
+        if (!this.placements.size || !this.netlist.length) {
+            this._setStatus('Nothing to route');
+            return;
+        }
+
+        // Show progress UI in status bar
+        const cancelToken = { cancelled: false };
+        this._routeCancelToken = cancelToken;
+        this._showRouteProgress(0, 1, 'Starting...');
+
+        // Build route input from placements + netlist
+        const routeInput = this._buildRouteInput();
+
+        try {
+            const startTime = performance.now();
+
+            const result = await routeAll(routeInput, {
+                onProgress: (done, total, net) => {
+                    this._showRouteProgress(done, total, net);
+                },
+                onNetRouted: (netTraces) => {
+                    this._clearTryingLines();
+                    this._renderNetTraces(netTraces);
+                },
+                onNetFailed: (conn) => {
+                    this._clearTryingLines();
+                    this._flashFailedNet(conn);
+                },
+                onTrying: (from, to) => {
+                    // Show the connection being attempted
+                    this._flashTryingLine(from, to);
+                },
+                cancelToken,
+            });
+
+            if (cancelToken.cancelled) {
+                this._hideRouteProgress();
+                this._setStatus('Routing cancelled');
+                return;
+            }
+
+            const elapsed = ((performance.now() - startTime) / 1000).toFixed(2);
+
+            // Clear incremental traces and do final clean render
+            this._clearIncrementalTraces();
+            this._renderRouteResult(result);
+
+            // Render vias from built-in router
+            if (result.vias?.length) {
+                this._renderVias(result.vias);
+            }
+
+            const failMsg = result.failed.length
+                ? ` (${result.failed.length} failed)`
+                : '';
+            const viaMsg = result.vias?.length ? `, ${result.vias.length} via(s)` : '';
+            this._hideRouteProgress();
+            this._setStatus(`Routed ${result.traces.length} trace(s)${viaMsg} in ${elapsed}s${failMsg}`);
+
+        } catch (e) {
+            console.error('Autorouter error:', e);
+            this._hideRouteProgress();
+            this._setStatus(`Route error: ${e.message}`);
+        }
+        this._routeCancelToken = null;
+    }
+
+    /**
+     * Show routing progress in the status bar.
+     */
+    _showRouteProgress(done, total, netName) {
+        if (!this.status.modeStatus) return;
+        const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+
+        // Only build the DOM structure once; update text/width on subsequent calls
+        let bar = this.status.modeStatus.querySelector('.route-progress-bar-fill');
+        let label = this.status.modeStatus.querySelector('.route-progress-label');
+        if (!bar) {
+            this.status.modeStatus.innerHTML = `
+                <span style="display:inline-flex;align-items:center;gap:8px">
+                    <span class="route-progress-label"></span>
+                    <span style="display:inline-block;width:80px;height:6px;background:var(--border-color);border-radius:3px;overflow:hidden;vertical-align:middle">
+                        <span class="route-progress-bar-fill" style="display:block;height:100%;width:0%;background:var(--accent-color);border-radius:3px;transition:width 0.15s"></span>
+                    </span>
+                    <button id="pcbRouteCancelBtn" style="
+                        background:none;border:1px solid var(--text-muted);color:var(--text-primary);
+                        padding:1px 8px;border-radius:3px;font-size:10px;cursor:pointer;line-height:1.4;
+                        transition: background 0.1s, color 0.1s;
+                    ">Cancel</button>
+                </span>`;
+            bar = this.status.modeStatus.querySelector('.route-progress-bar-fill');
+            label = this.status.modeStatus.querySelector('.route-progress-label');
+
+            const cancelBtn = this.status.modeStatus.querySelector('#pcbRouteCancelBtn');
+            cancelBtn?.addEventListener('mousedown', (e) => {
+                e.stopPropagation();
+                if (this._routeCancelToken) this._routeCancelToken.cancelled = true;
+                cancelBtn.style.background = '#d9534f';
+                cancelBtn.style.borderColor = '#d9534f';
+                cancelBtn.style.color = '#fff';
+                cancelBtn.textContent = 'Cancelling...';
+                cancelBtn.disabled = true;
+            });
+        }
+
+        if (label) label.textContent = `Routing: ${done}/${total} nets (${pct}%) — ${netName}`;
+        if (bar) bar.style.width = `${pct}%`;
+    }
+
+    /**
+     * Remove routing progress from the status bar.
+     */
+    _hideRouteProgress() {
+        if (this.status.modeStatus) {
+            this.status.modeStatus.textContent = '';
+        }
+    }
+
+    /**
+     * Convert placements + netlist into the input format for our A* router.
+     * @returns {import('../pcb/modules/autorouter.js').RouteInput}
+     */
+    _buildRouteInput() {
+        // Build connections with pad positions and sizes
+        const connections = [];
+        for (const entry of this.netlist) {
+            const pads = [];
+            for (const pin of entry.pins) {
+                const pl = this.placements.get(pin.componentId);
+                if (!pl) continue;
+                const padPos = pl.pads.get(pin.pinNumber);
+                if (!padPos) continue;
+                // Find pad dimensions from offsets
+                const off = (pl.padOffsets || []).find(o => o.number === pin.pinNumber);
+                // Map footprint layer to router layer
+                const fpLayer = off?.layer || 'top-copper';
+                const routerLayer = fpLayer === 'bottom-copper' ? 'bottom'
+                    : fpLayer === 'both' ? 'both' : 'top';
+                pads.push({
+                    x: padPos.x,
+                    y: padPos.y,
+                    width: off?.width || 1.0,
+                    height: off?.height || 1.0,
+                    layer: routerLayer,
+                });
+            }
+            if (pads.length >= 2) {
+                connections.push({ net: entry.net, pads });
+            }
+        }
+
+        // Collect ALL pads from every component as obstacles
+        // (not just the ones in the netlist — unconnected pads must block too)
+        const allObstaclePads = [];
+        for (const [, pl] of this.placements) {
+            for (const off of (pl.padOffsets || [])) {
+                const fpLayer = off.layer || 'top-copper';
+                const routerLayer = fpLayer === 'bottom-copper' ? 'bottom'
+                    : fpLayer === 'both' ? 'both' : 'top';
+                allObstaclePads.push({
+                    x: pl.x + off.dx,
+                    y: pl.y + off.dy,
+                    width: off.width || 1.0,
+                    height: off.height || 1.0,
+                    layer: routerLayer,
+                });
+            }
+        }
+
+        // Compute bounds
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        for (const [, pl] of this.placements) {
+            for (const [, pad] of pl.pads) {
+                minX = Math.min(minX, pad.x - 5);
+                minY = Math.min(minY, pad.y - 5);
+                maxX = Math.max(maxX, pad.x + 5);
+                maxY = Math.max(maxY, pad.y + 5);
+            }
+        }
+
+        const params = this._getRoutingParams();
+        return {
+            connections,
+            allObstaclePads,
+            traceWidth: params.trackWidth,
+            clearance: params.clearance,
+            gridStep: 0.5,
+            bounds: { minX, maxX, minY, maxY },
+        };
+    }
+
+    /**
+     * Read routing parameters from the ribbon inputs, converting to mm.
+     */
+    _getRoutingParams() {
+        const unitsEl = document.getElementById('pcbRouteUnits');
+        const units = unitsEl?.value || 'mm';
+        const toMM = units === 'inch' ? 25.4 : 1;
+
+        const readVal = (id, fallback) => {
+            const el = document.getElementById(id);
+            const v = parseFloat(el?.value);
+            return (isNaN(v) || v <= 0) ? fallback : v * toMM;
+        };
+
+        return {
+            trackWidth: readVal('pcbTrackWidth', 0.254),
+            clearance: readVal('pcbClearance', 0.2),
+            viaDiameter: readVal('pcbViaDiameter', 0.6),
+            viaDrill: readVal('pcbViaDrill', 0.3),
+        };
+    }
+
+    /**
+     * Render a single net's traces incrementally during routing animation.
+     */
+    _renderNetTraces(netTraces) {
+        const NS = 'http://www.w3.org/2000/svg';
+        const topCopper = this._getLayerGroup('top-copper');
+        const bottomCopper = this._getLayerGroup('bottom-copper');
+        const params = this._getRoutingParams();
+
+        for (const trace of netTraces) {
+            if (trace.points.length < 2) continue;
+            const parent = trace.layer === 'bottom' ? bottomCopper : topCopper;
+            const color = trace.layer === 'bottom' ? '#0066ff' : '#ff3333';
+
+            const polyline = document.createElementNS(NS, 'polyline');
+            polyline.setAttribute('class', 'pcb-routed-trace pcb-route-anim');
+            const ptsStr = trace.points.map(p => `${p.x},${p.y}`).join(' ');
+            polyline.setAttribute('points', ptsStr);
+            polyline.setAttribute('fill', 'none');
+            polyline.setAttribute('stroke', color);
+            polyline.setAttribute('stroke-width', String(params.trackWidth));
+            polyline.setAttribute('stroke-linecap', 'round');
+            polyline.setAttribute('stroke-linejoin', 'round');
+            polyline.setAttribute('opacity', '0.6');
+            parent.appendChild(polyline);
+
+            // Render vias for this trace
+            if (trace.vias?.length) {
+                const holeLayer = this._getLayerGroup('hole');
+                const viaRadius = params.viaDiameter / 2;
+                const drillRadius = params.viaDrill / 2;
+                for (const v of trace.vias) {
+                    const ring = document.createElementNS(NS, 'circle');
+                    ring.setAttribute('class', 'pcb-routed-via pcb-route-anim');
+                    ring.setAttribute('cx', String(v.x));
+                    ring.setAttribute('cy', String(v.y));
+                    ring.setAttribute('r', String(viaRadius));
+                    ring.setAttribute('fill', '#b8860b');
+                    ring.setAttribute('opacity', '0.6');
+                    holeLayer.appendChild(ring);
+
+                    const drill = document.createElementNS(NS, 'circle');
+                    drill.setAttribute('class', 'pcb-routed-via pcb-route-anim');
+                    drill.setAttribute('cx', String(v.x));
+                    drill.setAttribute('cy', String(v.y));
+                    drill.setAttribute('r', String(drillRadius));
+                    drill.setAttribute('fill', '#1a1a2e');
+                    drill.setAttribute('opacity', '0.6');
+                    holeLayer.appendChild(drill);
+                }
+            }
+        }
+    }
+
+    /**
+     * Remove incremental animation traces (replaced by final clean render).
+     */
+    _clearIncrementalTraces() {
+        const anims = this.viewport?.svg?.querySelectorAll('.pcb-route-anim');
+        if (anims) {
+            for (const el of anims) el.remove();
+        }
+    }
+
+    /**
+     * Show a brief "trying" line for a connection being attempted.
+     */
+    _flashTryingLine(from, to) {
+        const NS = 'http://www.w3.org/2000/svg';
+        const layer = this._getLayerGroup('ratlines');
+
+        // Remove all previous trying lines
+        for (const el of layer.querySelectorAll('.pcb-trying-line')) el.remove();
+
+        const line = document.createElementNS(NS, 'line');
+        line.setAttribute('class', 'pcb-route-anim pcb-trying-line');
+        line.setAttribute('x1', String(from.x));
+        line.setAttribute('y1', String(from.y));
+        line.setAttribute('x2', String(to.x));
+        line.setAttribute('y2', String(to.y));
+        line.setAttribute('stroke', '#ffcc00');
+        line.setAttribute('stroke-width', '0.2');
+        line.setAttribute('opacity', '0.8');
+        layer.appendChild(line);
+    }
+
+    /**
+     * Remove all trying lines.
+     */
+    _clearTryingLines() {
+        const layer = this._layerGroups.get('ratlines');
+        if (layer) {
+            for (const el of layer.querySelectorAll('.pcb-trying-line')) el.remove();
+        }
+    }
+
+    /**
+     * Flash a failed net's ratline(s) in yellow.
+     */
+    _flashFailedNet(conn) {
+        if (!conn.pads || conn.pads.length < 2) return;
+        const NS = 'http://www.w3.org/2000/svg';
+        const layer = this._getLayerGroup('ratlines');
+
+        for (let i = 0; i < conn.pads.length - 1; i++) {
+            const from = conn.pads[i];
+            const to = conn.pads[i + 1];
+
+            const line = document.createElementNS(NS, 'line');
+            line.setAttribute('class', 'pcb-route-anim');
+            line.setAttribute('x1', String(from.x));
+            line.setAttribute('y1', String(from.y));
+            line.setAttribute('x2', String(to.x));
+            line.setAttribute('y2', String(to.y));
+            line.setAttribute('stroke', '#ffcc00');
+            line.setAttribute('stroke-width', '0.3');
+            line.setAttribute('opacity', '1');
+            layer.appendChild(line);
+
+            // Fade out and remove
+            let opacity = 1.0;
+            const fade = () => {
+                opacity -= 0.05;
+                if (opacity <= 0) {
+                    line.remove();
+                    return;
+                }
+                line.setAttribute('opacity', String(opacity));
+                requestAnimationFrame(fade);
+            };
+            requestAnimationFrame(fade);
+        }
+    }
+
+    /**
+     * Render routing result onto copper layers and hide routed ratlines.
+     * @param {import('../pcb/modules/autorouter.js').RouteResult} result
+     */
+    _renderRouteResult(result) {
+        const NS = 'http://www.w3.org/2000/svg';
+        const topCopper = this._getLayerGroup('top-copper');
+        const bottomCopper = this._getLayerGroup('bottom-copper');
+
+        // Clear previous traces
+        topCopper.querySelectorAll('.pcb-routed-trace').forEach(el => el.remove());
+        bottomCopper.querySelectorAll('.pcb-routed-trace').forEach(el => el.remove());
+
+        const routedNets = new Set();
+
+        for (const trace of result.traces) {
+            routedNets.add(trace.net);
+            const target = trace.layer === 'bottom' ? bottomCopper : topCopper;
+            const color = trace.layer === 'bottom' ? '#3498db' : '#e74c3c';
+
+            for (let i = 0; i < trace.points.length - 1; i++) {
+                const p1 = trace.points[i];
+                const p2 = trace.points[i + 1];
+                const line = document.createElementNS(NS, 'line');
+                line.setAttribute('class', 'pcb-routed-trace');
+                line.setAttribute('x1', String(p1.x));
+                line.setAttribute('y1', String(p1.y));
+                line.setAttribute('x2', String(p2.x));
+                line.setAttribute('y2', String(p2.y));
+                line.setAttribute('stroke', color);
+                line.setAttribute('stroke-width', '0.254');
+                line.setAttribute('stroke-linecap', 'round');
+                line.setAttribute('stroke-opacity', '0.9');
+                target.appendChild(line);
+            }
+        }
+
+        // Hide ratlines for routed nets
+        const ratLayer = this._getLayerGroup('ratlines');
+        for (const el of ratLayer.querySelectorAll('.ratsnest-line')) {
+            if (routedNets.has(/** @type {HTMLElement} */ (el).dataset.net)) {
+                /** @type {HTMLElement} */ (el).style.display = 'none';
+            }
+        }
+        for (const el of ratLayer.children) {
+            if (el.tagName === 'text' && routedNets.has(el.textContent || '')) {
+                /** @type {HTMLElement} */ (el).style.display = 'none';
+            }
+        }
+    }
+
+    /**
+     * Clear all routed traces/vias and restore all ratlines.
+     */
+    clearRoutes() {
+        // Remove all routed trace elements and vias
+        for (const [, g] of this._layerGroups) {
+            g.querySelectorAll('.pcb-routed-trace, .pcb-routed-via').forEach(el => el.remove());
+        }
+
+        // Restore all ratlines
+        const ratLayer = this._getLayerGroup('ratlines');
+        for (const el of ratLayer.children) {
+            /** @type {HTMLElement} */ (el).style.display = '';
+        }
+
+        this._setStatus('Routes cleared');
+    }
+
+    /**
+     * Render via markers on the hole layer (visible on both copper layers).
+     * @param {Array<{net: string, x: number, y: number}>} vias
+     */
+    _renderVias(vias) {
+        const NS = 'http://www.w3.org/2000/svg';
+        const holeLayer = this._getLayerGroup('hole');
+        const params = this._getRoutingParams();
+        const viaRadius = params.viaDiameter / 2;
+        const drillRadius = params.viaDrill / 2;
+
+        for (const via of vias) {
+            // Outer copper ring
+            const ring = document.createElementNS(NS, 'circle');
+            ring.setAttribute('class', 'pcb-routed-via');
+            ring.setAttribute('cx', String(via.x));
+            ring.setAttribute('cy', String(via.y));
+            ring.setAttribute('r', String(viaRadius));
+            ring.setAttribute('fill', '#b8860b');
+            ring.setAttribute('stroke', '#daa520');
+            ring.setAttribute('stroke-width', '0.05');
+            ring.setAttribute('fill-opacity', '0.9');
+            holeLayer.appendChild(ring);
+
+            // Inner drill hole
+            const drill = document.createElementNS(NS, 'circle');
+            drill.setAttribute('class', 'pcb-routed-via');
+            drill.setAttribute('cx', String(via.x));
+            drill.setAttribute('cy', String(via.y));
+            drill.setAttribute('r', String(drillRadius));
+            drill.setAttribute('fill', '#1a1a2e');
+            holeLayer.appendChild(drill);
+        }
+    }
+
+    // ── Specctra DSN / SES ────────────────────────────────────────
+
+    /**
+     * Export the current board as a Specctra DSN file and trigger download.
+     */
+    exportDSN() {
+        if (!this.placements.size || !this.netlist.length) {
+            this._setStatus('Nothing to export');
+            return;
+        }
+
+        const params = this._getRoutingParams();
+        const dsn = exportDSN({
+            placements: this.placements,
+            netlist: this.netlist,
+            traceWidth: params.trackWidth,
+            clearance: params.clearance,
+        });
+
+        const blob = new Blob([dsn], { type: 'text/plain' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'board.dsn';
+        a.click();
+        URL.revokeObjectURL(url);
+
+        this._setStatus('DSN exported — open in Freerouting, then Import SES');
+    }
+
+    /**
+     * Prompt user to select an SES file and import routed traces.
+     */
+    importSES() {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = '.ses';
+        input.addEventListener('change', () => {
+            const file = input.files?.[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = () => {
+                const text = /** @type {string} */ (reader.result);
+                const result = importSES(text);
+                if (!result.traces.length) {
+                    this._setStatus('No routes found in SES file');
+                    return;
+                }
+                // Clear existing routes first
+                this.clearRoutes();
+                // Log first trace for debugging coordinates
+                if (result.traces.length) {
+                    const t = result.traces[0];
+                    console.log(`[SES] First trace: net=${t.net} layer=${t.layer} pts=${t.points.length}`, t.points);
+                    // Log placement coords for comparison
+                    for (const [, pl] of this.placements) {
+                        for (const [num, pos] of pl.pads) {
+                            console.log(`[SES] Pad ${pl.reference}-${num} at (${pos.x.toFixed(2)}, ${pos.y.toFixed(2)})`);
+                            break;
+                        }
+                        break;
+                    }
+                }
+                // Render imported traces
+                this._renderRouteResult({ traces: result.traces, failed: [] });
+                // Render vias
+                if (result.vias?.length) {
+                    this._renderVias(result.vias);
+                }
+                this._setStatus(`Imported ${result.traces.length} trace(s), ${result.vias?.length || 0} via(s) from SES`);
+            };
+            reader.readAsText(file);
+        });
+        input.click();
     }
 
     // ── Debug tooltip ─────────────────────────────────────────────

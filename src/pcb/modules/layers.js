@@ -61,8 +61,15 @@ export function buildLayerPanel(app) {
 
     // Empty swatch column
     toggleRow.appendChild(document.createElement('span'));
-    // Empty name column
-    toggleRow.appendChild(document.createElement('span'));
+    // Heading
+    const heading = document.createElement('span');
+    heading.className = 'pcb-layer-name';
+    heading.textContent = 'Layers';
+    heading.style.fontWeight = '600';
+    heading.style.fontSize = '11px';
+    heading.style.textTransform = 'uppercase';
+    heading.style.letterSpacing = '0.5px';
+    toggleRow.appendChild(heading);
     // Empty pencil column
     toggleRow.appendChild(document.createElement('span'));
 

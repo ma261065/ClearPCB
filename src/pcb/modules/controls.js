@@ -7,28 +7,89 @@ import { PCB_LAYERS, buildLayerPanel } from './layers.js';
  */
 export function bindPcbControls(app) {
     const selectBtn = document.getElementById('pcbToolSelect');
-    const panBtn = document.getElementById('pcbToolPan');
+    const trackBtn = document.getElementById('pcbToolTrack');
+    const padBtn = document.getElementById('pcbToolPad');
+    const viaBtn = document.getElementById('pcbToolVia');
     const zoomOutBtn = document.getElementById('pcbZoomOut');
     const zoomInBtn = document.getElementById('pcbZoomIn');
     const zoomFitBtn = document.getElementById('pcbZoomFit');
     const resetViewBtn = document.getElementById('pcbResetView');
     const showGridInput = document.getElementById('pcbShowGrid');
     const snapToGridInput = document.getElementById('pcbSnapToGrid');
-    const showRulersInput = document.getElementById('pcbShowRulers');
     const gridSizeSelect = document.getElementById('pcbGridSize');
     const unitsSelect = document.getElementById('pcbUnits');
     const gridStyleSelect = document.getElementById('pcbGridStyle');
 
+    const toolBtns = [selectBtn, trackBtn, padBtn, viaBtn];
     const setTool = (tool) => {
         app.currentTool = tool;
-        if (selectBtn) selectBtn.classList.toggle('active', tool === 'select');
-        if (panBtn) panBtn.classList.toggle('active', tool === 'pan');
+        for (const btn of toolBtns) {
+            if (btn) btn.classList.toggle('active', btn.id === `pcbTool${tool.charAt(0).toUpperCase() + tool.slice(1)}`);
+        }
         app._updateCursorForTool?.();
         app._setPcbStatus?.();
     };
 
     selectBtn?.addEventListener('click', () => setTool('select'));
-    panBtn?.addEventListener('click', () => setTool('pan'));
+    trackBtn?.addEventListener('click', () => setTool('track'));
+    padBtn?.addEventListener('click', () => setTool('pad'));
+    viaBtn?.addEventListener('click', () => setTool('via'));
+
+    // Auto Route button
+    const autoRouteBtn = document.getElementById('pcbAutoRoute');
+    autoRouteBtn?.addEventListener('click', () => app.runAutoRoute?.());
+
+    // Clear Routes button
+    const clearRoutesBtn = document.getElementById('pcbClearRoutes');
+    clearRoutesBtn?.addEventListener('click', () => app.clearRoutes?.());
+
+    // Export DSN button
+    const exportDsnBtn = document.getElementById('pcbExportDSN');
+    exportDsnBtn?.addEventListener('click', () => app.exportDSN?.());
+
+    // Import SES button
+    const importSesBtn = document.getElementById('pcbImportSES');
+    importSesBtn?.addEventListener('click', () => app.importSES?.());
+
+    // Routing parameter units conversion
+    const routeUnitsSelect = document.getElementById('pcbRouteUnits');
+    const routeParamIds = ['pcbTrackWidth', 'pcbClearance', 'pcbViaDiameter', 'pcbViaDrill'];
+    let routeParamUnit = 'mm';
+    routeUnitsSelect?.addEventListener('change', () => {
+        const newUnit = routeUnitsSelect.value;
+        if (newUnit === routeParamUnit) return;
+        const factor = (routeParamUnit === 'mm' && newUnit === 'inch') ? 1 / 25.4
+                     : (routeParamUnit === 'inch' && newUnit === 'mm') ? 25.4 : 1;
+        for (const id of routeParamIds) {
+            const el = document.getElementById(id);
+            if (el) {
+                const v = parseFloat(el.value);
+                if (!isNaN(v)) el.value = (v * factor).toFixed(newUnit === 'inch' ? 4 : 3);
+                el.step = newUnit === 'inch' ? '0.001' : '0.01';
+            }
+        }
+        routeParamUnit = newUnit;
+    });
+
+    // Specctra help flyout
+    const specctraHelpBtn = document.getElementById('pcbSpecctraHelp');
+    const specctraFlyout = document.getElementById('specctraHelpFlyout');
+    const specctraClose = document.getElementById('specctraHelpClose');
+    specctraHelpBtn?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        specctraFlyout?.classList.toggle('open');
+    });
+    specctraClose?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        specctraFlyout?.classList.remove('open');
+    });
+    document.addEventListener('click', (e) => {
+        if (specctraFlyout?.classList.contains('open') &&
+            !specctraFlyout.contains(e.target) &&
+            e.target !== specctraHelpBtn) {
+            specctraFlyout.classList.remove('open');
+        }
+    });
 
     // Layer panel
     buildLayerPanel(app);
@@ -37,9 +98,6 @@ export function bindPcbControls(app) {
         if (!app.viewport) return;
         if (showGridInput) {
             showGridInput.checked = !!app.viewport.gridVisible;
-        }
-        if (showRulersInput) {
-            showRulersInput.checked = !!app.viewport.showRulers;
         }
         if (snapToGridInput) {
             snapToGridInput.checked = !!app.viewport.snapToGrid && !!app.viewport.gridVisible;
@@ -90,14 +148,6 @@ export function bindPcbControls(app) {
         const vp = ensureViewport();
         if (!vp || !vp.gridVisible) return;
         vp.snapToGrid = !!e.target.checked;
-        syncViewToggles();
-    });
-
-    showRulersInput?.addEventListener('change', (e) => {
-        const vp = ensureViewport();
-        if (!vp) return;
-        vp.showRulers = !!e.target.checked;
-        vp._createRulers();
         syncViewToggles();
     });
 
