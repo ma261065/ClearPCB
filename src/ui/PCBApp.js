@@ -8,7 +8,6 @@ import { generateFootprint, renderFootprint } from '../pcb/modules/footprint.js'
 import { buildRatsnest } from '../pcb/modules/ratsnest.js';
 import { updateGridDropdown } from './modules/viewport.js';
 import { PCB_LAYERS } from '../pcb/modules/layers.js';
-import { routeAll } from '../pcb/modules/autorouter.js';
 import { exportDSN, importSES } from '../pcb/modules/dsn.js';
 
 /**
@@ -91,6 +90,7 @@ export default class PCBApp {
 
         /** Autoroute progress/cancel runtime state */
         this._routeCancelToken = null;
+        this._routeWorker = null;
         this._routeProgressStartMs = 0;
         this._routeProgressTimer = null;
         /** @type {Map<string, boolean>} pending net visibility updates */
@@ -162,7 +162,8 @@ export default class PCBApp {
 
     _setPcbStatus() {
         if (!this.status.modeStatus) return;
-        const toolLabel = this.currentTool === 'pan' ? 'Pan' : 'Select';
+        const rawTool = this.currentTool || 'select';
+        const toolLabel = rawTool.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
         const layerLabel = this.activeLayer?.replace(/-/g, ' ')?.replace(/\b\w/g, c => c.toUpperCase()) || 'Top Copper';
         this.status.modeStatus.textContent = `${toolLabel} | ${layerLabel}`;
     }
@@ -402,6 +403,10 @@ export default class PCBApp {
                 const panelEl = /** @type {HTMLElement} */ (panel);
                 panelEl.classList.toggle('active', panelEl.dataset.panel === tabId);
             });
+
+            if (tabId === 'pcb-home') {
+                this._syncPcbHomeToolHighlight?.();
+            }
         };
 
         this._setActiveRibbonTab = setActive;
@@ -1068,38 +1073,7 @@ export default class PCBApp {
         try {
             const startTime = performance.now();
 
-            const result = await routeAll(routeInput, {
-                onProgress: (done, total, net, meta = {}) => {
-                    this._showRouteProgress(done, total, net, meta);
-                    this._maybeReconcileAtPhaseBoundary(done, total, meta);
-                },
-                onNetRouted: (netTraces) => {
-                    this._clearTryingLines();
-                    const netName = netTraces?.[0]?.net;
-                    if (netName) {
-                        this._clearIncrementalNet(netName);
-                        this._setRouteNetUnrouted(netName, false);
-                    }
-                    this._renderNetTraces(netTraces);
-                },
-                onNetFailed: (conn) => {
-                    this._clearTryingLines();
-                    this._flashFailedNet(conn);
-                },
-                onNetRipped: (netName) => {
-                    this._clearIncrementalNet(netName);
-                    this._setRouteNetUnrouted(netName, true);
-                },
-                onNetPendingChanged: (netName, pendingConnections) => {
-                    this._setRouteNetUnrouted(netName, pendingConnections > 0);
-                    this._setRatsnestVisibilityForNet(netName, pendingConnections > 0);
-                },
-                onTrying: (from, to) => {
-                    // Show the connection being attempted
-                    this._flashTryingLine(from, to);
-                },
-                cancelToken,
-            });
+            const result = await this._runAutoRouteInWorker(routeInput, cancelToken);
 
             if (cancelToken.cancelled) {
                 // Keep and finalize partial routes so users can continue from this point.
@@ -1121,7 +1095,7 @@ export default class PCBApp {
             const elapsedSec = Math.max(0, Math.floor((performance.now() - startTime) / 1000));
             const elapsedMin = Math.floor(elapsedSec / 60);
             const elapsedRemSec = elapsedSec % 60;
-            const elapsed = `${String(elapsedMin).padStart(2, '0')} min ${String(elapsedRemSec).padStart(2, '0')} sec`;
+            const elapsed = `${elapsedMin} min ${String(elapsedRemSec).padStart(2, '0')} sec`;
 
             // Clear incremental traces and do final clean render
             this._clearIncrementalTraces();
@@ -1137,7 +1111,7 @@ export default class PCBApp {
             const viaCount = result.vias?.length || 0;
             const routedNets = new Set(result.traces.map(t => t.net)).size;
             this._hideRouteProgress();
-            this._setStatus(`Routed ${routedNets} nets of ${totalNets}, ${result.traces.length} segments, ${viaCount} vias in ${elapsed} (${failedCount} failed)`);
+            this._setStatus(`Routed ${routedNets} nets of ${totalNets} (${failedCount} failed), ${result.traces.length} segments, ${viaCount} vias in ${elapsed}`);
             this._routeNetUnrouted = null;
 
         } catch (e) {
@@ -1145,8 +1119,109 @@ export default class PCBApp {
             this._hideRouteProgress();
             this._setStatus(`Route error: ${e.message}`);
             this._routeNetUnrouted = null;
+        } finally {
+            if (this._routeWorker) {
+                this._routeWorker.terminate();
+                this._routeWorker = null;
+            }
         }
         this._routeCancelToken = null;
+    }
+
+    /**
+     * Run routing in a dedicated worker and relay progress/events back to UI.
+     * @param {import('../pcb/modules/autorouter.js').RouteInput} routeInput
+     * @param {{cancelled: boolean}} cancelToken
+     * @returns {Promise<import('../pcb/modules/autorouter.js').RouteResult>}
+     */
+    _runAutoRouteInWorker(routeInput, cancelToken) {
+        return new Promise((resolve, reject) => {
+            const workerUrl = new URL('../pcb/modules/autorouter-worker.js', import.meta.url);
+            const worker = new Worker(workerUrl, { type: 'module' });
+            this._routeWorker = worker;
+            let cancelPoll = null;
+
+            const cleanup = () => {
+                if (cancelPoll) {
+                    clearInterval(cancelPoll);
+                    cancelPoll = null;
+                }
+                worker.removeEventListener('message', onMessage);
+                worker.removeEventListener('error', onError);
+            };
+
+            const onError = (err) => {
+                cleanup();
+                reject(err?.error || new Error(err?.message || 'Autorouter worker failed'));
+            };
+
+            const onMessage = (evt) => {
+                const msg = evt.data || {};
+                switch (msg.type) {
+                    case 'progress': {
+                        const { done, total, net, meta } = msg;
+                        this._showRouteProgress(done, total, net, meta || {});
+                        this._maybeReconcileAtPhaseBoundary(done, total, meta || {});
+                        break;
+                    }
+                    case 'netRouted': {
+                        const netTraces = msg.netTraces || [];
+                        this._clearTryingLines();
+                        const netName = netTraces?.[0]?.net;
+                        if (netName) {
+                            this._clearIncrementalNet(netName);
+                            this._setRouteNetUnrouted(netName, false);
+                        }
+                        this._renderNetTraces(netTraces);
+                        break;
+                    }
+                    case 'netFailed': {
+                        this._clearTryingLines();
+                        this._flashFailedNet(msg.conn);
+                        break;
+                    }
+                    case 'netRipped': {
+                        const netName = msg.netName;
+                        this._clearIncrementalNet(netName);
+                        this._setRouteNetUnrouted(netName, true);
+                        break;
+                    }
+                    case 'netPendingChanged': {
+                        const { netName, pendingConnections } = msg;
+                        this._setRouteNetUnrouted(netName, pendingConnections > 0);
+                        this._setRatsnestVisibilityForNet(netName, pendingConnections > 0);
+                        break;
+                    }
+                    case 'trying': {
+                        this._flashTryingLine(msg.from, msg.to);
+                        break;
+                    }
+                    case 'done': {
+                        cleanup();
+                        resolve(msg.result);
+                        break;
+                    }
+                    case 'error': {
+                        cleanup();
+                        reject(new Error(msg.error || 'Autorouter worker error'));
+                        break;
+                    }
+                    default:
+                        break;
+                }
+            };
+
+            worker.addEventListener('message', onMessage);
+            worker.addEventListener('error', onError);
+            worker.postMessage({ type: 'start', routeInput });
+
+            cancelPoll = setInterval(() => {
+                if (!cancelToken?.cancelled) return;
+                if (this._routeWorker === worker) {
+                    worker.postMessage({ type: 'cancel' });
+                }
+            }, 50);
+        });
     }
 
     _setRouteNetUnrouted(netName, isUnrouted) {
@@ -1252,7 +1327,7 @@ export default class PCBApp {
                     <span style="display:inline-block;width:80px;height:6px;background:var(--border-color);border-radius:3px;overflow:hidden;vertical-align:middle">
                         <span class="route-progress-bar-fill" style="display:block;height:100%;width:0%;background:var(--accent-color);border-radius:3px;transition:width 0.15s"></span>
                     </span>
-                    <span class="route-progress-elapsed" style="font-size:10px;color:var(--text-muted)">00:00</span>
+                    <span class="route-progress-elapsed" style="font-size:10px;color:var(--text-muted)">0:00</span>
                     <button id="pcbRouteCancelBtn" style="
                         background:none;border:1px solid var(--text-muted);color:var(--text-primary);
                         padding:1px 8px;border-radius:3px;font-size:10px;cursor:pointer;line-height:1.4;
@@ -1267,6 +1342,7 @@ export default class PCBApp {
             cancelBtn?.addEventListener('mousedown', (e) => {
                 e.stopPropagation();
                 if (this._routeCancelToken) this._routeCancelToken.cancelled = true;
+                if (this._routeWorker) this._routeWorker.postMessage({ type: 'cancel' });
                 cancelBtn.style.background = '#d9534f';
                 cancelBtn.style.borderColor = '#d9534f';
                 cancelBtn.style.color = '#fff';
@@ -1318,7 +1394,7 @@ export default class PCBApp {
             const t = Math.max(0, (performance.now() - this._routeProgressStartMs) / 1000);
             const mins = Math.floor(t / 60);
             const secs = Math.floor(t % 60);
-            elapsed.textContent = `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+            elapsed.textContent = `${mins}:${String(secs).padStart(2, '0')}`;
         }
     }
 

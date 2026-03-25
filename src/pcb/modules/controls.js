@@ -10,6 +10,7 @@ export function bindPcbControls(app) {
     const trackBtn = document.getElementById('pcbToolTrack');
     const padBtn = document.getElementById('pcbToolPad');
     const viaBtn = document.getElementById('pcbToolVia');
+    const holeBtn = document.getElementById('pcbToolHole');
     const zoomOutBtn = document.getElementById('pcbZoomOut');
     const zoomInBtn = document.getElementById('pcbZoomIn');
     const zoomFitBtn = document.getElementById('pcbZoomFit');
@@ -20,20 +21,37 @@ export function bindPcbControls(app) {
     const unitsSelect = document.getElementById('pcbUnits');
     const gridStyleSelect = document.getElementById('pcbGridStyle');
 
-    const toolBtns = [selectBtn, trackBtn, padBtn, viaBtn];
-    const setTool = (tool) => {
-        app.currentTool = tool;
+    const toolBtns = [selectBtn, trackBtn, padBtn, viaBtn, holeBtn];
+    const validTools = new Set(['select', 'track', 'pad', 'via', 'hole']);
+
+    const setToolButtonActive = (tool) => {
         for (const btn of toolBtns) {
             if (btn) btn.classList.toggle('active', btn.id === `pcbTool${tool.charAt(0).toUpperCase() + tool.slice(1)}`);
         }
+    };
+
+    const syncHomeToolHighlight = () => {
+        const tool = typeof app.currentTool === 'string' && validTools.has(app.currentTool)
+            ? app.currentTool
+            : 'select';
+        setToolButtonActive(tool);
+    };
+
+    const setTool = (tool) => {
+        const nextTool = validTools.has(tool) ? tool : 'select';
+        app.currentTool = nextTool;
+        setToolButtonActive(nextTool);
         app._updateCursorForTool?.();
         app._setPcbStatus?.();
     };
+
+    app._syncPcbHomeToolHighlight = syncHomeToolHighlight;
 
     selectBtn?.addEventListener('click', () => setTool('select'));
     trackBtn?.addEventListener('click', () => setTool('track'));
     padBtn?.addEventListener('click', () => setTool('pad'));
     viaBtn?.addEventListener('click', () => setTool('via'));
+    holeBtn?.addEventListener('click', () => setTool('hole'));
 
     // Auto Route button
     const autoRouteBtn = document.getElementById('pcbAutoRoute');

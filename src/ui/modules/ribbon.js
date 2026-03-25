@@ -7,6 +7,9 @@ import { hasClipboard } from './clipboard.js';
  * @param {object} app - Application state.
  */
 export function bindRibbon(app) {
+    const HOME_TAB_ID = 'home';
+    const SELECT_TOOL_ID = 'select';
+
     // Auto-blur ribbon selects after change so focus border doesn't stick
     document.querySelector('.ribbon')?.addEventListener('change', (e) => {
         if (e.target instanceof HTMLSelectElement) e.target.blur();
@@ -105,6 +108,19 @@ export function bindRibbon(app) {
     const panels = ribbonEl.querySelectorAll('.ribbon-panel');
     if (tabs.length === 0 || panels.length === 0) return;
 
+    /** @type {(toolId: string|undefined|null) => void} */
+    let setActiveToolButton = () => {};
+    const validToolIds = new Set();
+
+    const syncHomeToolHighlight = () => {
+        const toolId = typeof app.currentTool === 'string' ? app.currentTool : '';
+        if (toolId && validToolIds.has(toolId)) {
+            setActiveToolButton(toolId);
+            return;
+        }
+        setActiveToolButton(SELECT_TOOL_ID);
+    };
+
     app._setActiveRibbonTab = (tabId) => {
         tabs.forEach(tab => {
             const t = /** @type {HTMLElement} */ (tab);
@@ -114,13 +130,17 @@ export function bindRibbon(app) {
             const p = /** @type {HTMLElement} */ (panel);
             p.classList.toggle('active', p.dataset.panel === tabId);
         });
+
+        if (tabId === HOME_TAB_ID) {
+            syncHomeToolHighlight();
+        }
     };
 
     tabs.forEach(tab => {
         const t = /** @type {HTMLElement} */ (tab);
         tab.addEventListener('click', () => app._setActiveRibbonTab(t.dataset.tab));
     });
-    app._setActiveRibbonTab('home');
+    app._setActiveRibbonTab(HOME_TAB_ID);
 
     const get = (id) => document.getElementById(id);
 
@@ -178,8 +198,12 @@ export function bindRibbon(app) {
     app._cleanupRibbonEsc = () => document.removeEventListener('keydown', ribbonEscHandler);
 
     const ribbonToolButtons = Array.from(document.querySelectorAll('.ribbon-tool-btn'));
+    ribbonToolButtons.forEach(btn => {
+        const toolId = /** @type {HTMLElement} */ (btn).dataset.tool;
+        if (toolId) validToolIds.add(toolId);
+    });
     const netSplitContainer = document.querySelector('.ribbon-split-btn');
-    const setActiveToolButton = (toolId) => {
+    setActiveToolButton = (toolId) => {
         ribbonToolButtons.forEach(btn => {
             const button = /** @type {HTMLElement} */ (btn);
             // Skip split button children — container handles their active state

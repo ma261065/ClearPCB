@@ -962,8 +962,29 @@ export async function routeAll(input, options = {}) {
         maxPasses = 4,
         profileOverrides = null,
     } = options;
-    /** Yield to browser so UI can repaint & cancel clicks can fire */
-    const yieldToUI = () => new Promise(r => setTimeout(r, 0));
+    /**
+     * Yield strategy:
+     * - Visible tab: macrotask yield lets the UI repaint and process clicks.
+     * - Hidden/unfocused tab: avoid timer-based yields that can be aggressively throttled.
+     */
+    const yieldToUI = (() => {
+        if (typeof document !== 'undefined') {
+            return () => {
+                // Main-thread browser path: avoid hidden-tab timer throttling stalls.
+                if (document.visibilityState === 'visible') {
+                    return new Promise(r => setTimeout(r, 0));
+                }
+                return Promise.resolve();
+            };
+        }
+
+        // Worker / non-DOM environments: keep classic timer-yield pacing.
+        if (typeof setTimeout === 'function') {
+            return () => new Promise(r => setTimeout(r, 0));
+        }
+
+        return () => Promise.resolve();
+    })();
     const traceWidth = input.traceWidth || 0.254;
     const clearance = input.clearance || 0.2;
     const gridStep = input.gridStep || 0.5;
@@ -1492,7 +1513,15 @@ export async function routeAll(input, options = {}) {
         return manhattan + pinCountPenalty + localCrowd * Math.max(gridStep, 0.5);
     }
 
-    const sorted = [...connMap.values()].sort((a, b) => netDifficultyScore(a) - netDifficultyScore(b));
+    const scoredNets = [...connMap.values()].map(conn => ({
+        conn,
+        score: netDifficultyScore(conn),
+    }));
+    scoredNets.sort((a, b) => {
+        if (a.score !== b.score) return a.score - b.score;
+        return String(a.conn.net || '').localeCompare(String(b.conn.net || ''));
+    });
+    const sorted = scoredNets.map(item => item.conn);
     const totalNets = sorted.length;
     let completedNets = 0;
 
@@ -1601,7 +1630,8 @@ export async function routeAll(input, options = {}) {
 
             // Rip up blocking nets
             const rippedNets = [];
-            for (const bn of blockingNets) {
+            const blockingNetsSorted = [...blockingNets].sort((a, b) => String(a).localeCompare(String(b)));
+            for (const bn of blockingNetsSorted) {
                 if (routedTraces.has(bn)) {
                     obstacles.removeNet(bn);
                     obstacleVersion++;
