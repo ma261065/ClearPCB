@@ -71,30 +71,6 @@ Run with: `node test.mjs`
 
 Delete the test file after.
 
-## Example: capacity-autorouter
-
-The `@tscircuit/capacity-autorouter` package (MIT-licensed PCB autorouter) was vendored as follows:
-
-```powershell
-# Install
-Push-Location $env:TEMP
-npm init -y
-npm install @tscircuit/capacity-autorouter esbuild
-
-# Bundle (entry point: dist/index.js)
-npx esbuild node_modules/@tscircuit/capacity-autorouter/dist/index.js --bundle --format=esm --outfile="C:\path\to\ClearPCB\assets\vendor\capacity-autorouter.esm.js" --minify
-
-# Clean up
-Pop-Location
-```
-
-Result: `capacity-autorouter.esm.js` — 1.1MB minified, self-contained ESM module.
-
-Usage in ClearPCB:
-```javascript
-const { CapacityMeshSolver } = await import('../assets/vendor/capacity-autorouter.esm.js');
-```
-
 ## Updating a vendored package
 
 Re-run the same install + bundle steps with a newer version:
@@ -113,7 +89,6 @@ Pop-Location
 |------|---------|--------|---------|------|---------|
 | `jspdf.umd.min.js` | jspdf | [MrRio/jsPDF](https://github.com/MrRio/jsPDF) | — | ~500KB | MIT |
 | `svg2pdf.umd.min.js` | svg2pdf.js | [yWorks/svg2pdf.js](https://github.com/yWorks/svg2pdf.js) | — | ~100KB | MIT |
-| `capacity-autorouter.esm.js` | @tscircuit/capacity-autorouter | [tscircuit/tscircuit-autorouter](https://github.com/tscircuit/tscircuit-autorouter) | 0.0.354 | 1.1MB | MIT |
 
 ## Notes
 

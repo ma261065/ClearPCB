@@ -373,12 +373,18 @@ async function astarRoute(sx, sy, ex, ey, obstacles, skipIds, gridStep, traceWid
         maxDetourFactor = 3.0,
         corridorMargin = null,
         bounds = null,
+        viaCostScale = 1.0,
+        bendCostScale = 1.0,
+        padDiagCostScale = 1.0,
+        dirPenaltyScale = 1.0,
+        congestionPenaltyScale = 1.0,
+        viaCongestionScale = 1.0,
     } = options;
     const halfTrace = traceWidth / 2;
     const totalClear = halfTrace + clearance;
-    const VIA_COST = gridStep * 30;
-    const BEND_COST = gridStep * 0.5;
-    const PAD_DIAG_COST = gridStep * 5;
+    const VIA_COST = gridStep * 30 * viaCostScale;
+    const BEND_COST = gridStep * 0.5 * bendCostScale;
+    const PAD_DIAG_COST = gridStep * 5 * padDiagCostScale;
 
     const routeDist = Math.hypot(ex - sx, ey - sy);
     // Cap the effective step — never coarser than 2mm, gives enough resolution
@@ -414,6 +420,10 @@ async function astarRoute(sx, sy, ex, ey, obstacles, skipIds, gridStep, traceWid
 
     // startLayer is passed as parameter
     const startKey = nodeKey(startX, startY, startLayer);
+    const startKeyTop = nodeKey(startX, startY, 'top');
+    const startKeyBottom = nodeKey(startX, startY, 'bottom');
+    const endKeyTop = nodeKey(endX, endY, 'top');
+    const endKeyBottom = nodeKey(endX, endY, 'bottom');
 
     // Binary min-heap for priority queue
     const heap = [];
@@ -423,7 +433,9 @@ async function astarRoute(sx, sy, ex, ey, obstacles, skipIds, gridStep, traceWid
         while (i > 0) {
             const parent = (i - 1) >> 1;
             if (heap[parent].f <= heap[i].f) break;
-            [heap[parent], heap[i]] = [heap[i], heap[parent]];
+            const tmp = heap[parent];
+            heap[parent] = heap[i];
+            heap[i] = tmp;
             i = parent;
         }
     };
@@ -439,7 +451,9 @@ async function astarRoute(sx, sy, ex, ey, obstacles, skipIds, gridStep, traceWid
                 if (l < heap.length && heap[l].f < heap[smallest].f) smallest = l;
                 if (r < heap.length && heap[r].f < heap[smallest].f) smallest = r;
                 if (smallest === i) break;
-                [heap[i], heap[smallest]] = [heap[smallest], heap[i]];
+                const tmp = heap[i];
+                heap[i] = heap[smallest];
+                heap[smallest] = tmp;
                 i = smallest;
             }
         }
@@ -546,10 +560,8 @@ async function astarRoute(sx, sy, ex, ey, obstacles, skipIds, gridStep, traceWid
             const detourEstimate = Math.hypot(nx - startX, ny - startY) + Math.hypot(nx - endX, ny - endY);
             if (detourEstimate > detourCap) continue;
 
-            const nStartKey = nodeKey(startX, startY, current.layer);
-            const nEndKeyTop = nodeKey(endX, endY, 'top');
-            const nEndKeyBot = nodeKey(endX, endY, 'bottom');
-            if (nKey !== nStartKey && nKey !== nEndKeyTop && nKey !== nEndKeyBot) {
+            const nStartKey = current.layer === 'top' ? startKeyTop : startKeyBottom;
+            if (nKey !== nStartKey && nKey !== endKeyTop && nKey !== endKeyBottom) {
                 if (obstacles.isBlocked(nx, ny, totalClear, skipIds, current.layer)) continue;
                 if (obstacles.isSegmentBlocked(current.x, current.y, nx, ny, totalClear, skipIds, current.layer)) continue;
             }
@@ -574,6 +586,7 @@ async function astarRoute(sx, sy, ex, ey, obstacles, skipIds, gridStep, traceWid
                 else if (isHoriz) dirPenalty = gridStep * 2.0;
                 // isVert = 0 (preferred)
             }
+            dirPenalty *= dirPenaltyScale;
 
             // Pad exit/entry penalty: strongly prefer orthogonal traces near pads
             let padDiagPenalty = 0;
@@ -584,7 +597,7 @@ async function astarRoute(sx, sy, ex, ey, obstacles, skipIds, gridStep, traceWid
 
             // In congested neighborhoods, slightly bias against expansion.
             const localDensity = obstacles.localDensity(nx, ny, skipIds, current.layer, 1);
-            const congestionPenalty = Math.min(localDensity, 120) * gridStep * 0.01;
+            const congestionPenalty = Math.min(localDensity, 120) * gridStep * 0.01 * congestionPenaltyScale;
 
             const tentG = curG + stepCost + bendPenalty + dirPenalty + padDiagPenalty + congestionPenalty;
 
@@ -602,10 +615,8 @@ async function astarRoute(sx, sy, ex, ey, obstacles, skipIds, gridStep, traceWid
             const viaKey = nodeKey(current.x, current.y, otherLayer);
             if (!closed.has(viaKey)) {
                 // Don't place vias at start/end pad positions
-                const nStartKey = nodeKey(startX, startY, otherLayer);
-                const nEndKeyTop = nodeKey(endX, endY, 'top');
-                const nEndKeyBot = nodeKey(endX, endY, 'bottom');
-                const isEndpoint = viaKey === nStartKey || viaKey === nEndKeyTop || viaKey === nEndKeyBot;
+                const nStartKey = otherLayer === 'top' ? startKeyTop : startKeyBottom;
+                const isEndpoint = viaKey === nStartKey || viaKey === endKeyTop || viaKey === endKeyBottom;
 
                 // Check the via position is clear on BOTH layers
                 const clearOnOther = isEndpoint || !obstacles.isBlocked(current.x, current.y, totalClear, skipIds, otherLayer);
@@ -617,7 +628,7 @@ async function astarRoute(sx, sy, ex, ey, obstacles, skipIds, gridStep, traceWid
 
                 if (clearOnOther && clearOnCurrent && !onPad) {
                     const viaDensity = obstacles.localDensity(current.x, current.y, skipIds, otherLayer, 1);
-                    const viaCongestionPenalty = Math.min(viaDensity, 120) * gridStep * 0.04;
+                    const viaCongestionPenalty = Math.min(viaDensity, 120) * gridStep * 0.04 * viaCongestionScale;
                     const tentG = curG + VIA_COST + viaCongestionPenalty;
                     if (tentG < (gScore.has(viaKey) ? gScore.get(viaKey) : Infinity)) {
                         gScore.set(viaKey, tentG);
@@ -935,10 +946,22 @@ function sanitizeAngles(pts) {
  * @param {function(object, object): void} [options.onTrying] - called with (fromPad, toPad) before each routing attempt
  * @param {function(string, number): void} [options.onNetPendingChanged] - called with (netName, pendingConnections)
  * @param {{cancelled: boolean}} [options.cancelToken] - set .cancelled = true to abort
+ * @param {number} [options.maxPasses=4] - max rip-up passes for routing
+ * @param {object|null} [options.profileOverrides=null] - optional per-phase attempt tuning overrides
  * @returns {Promise<RouteResult>}
  */
 export async function routeAll(input, options = {}) {
-     const { onProgress, onNetRouted, onNetFailed, onNetRipped, onTrying, onNetPendingChanged, cancelToken } = options;
+     const {
+        onProgress,
+        onNetRouted,
+        onNetFailed,
+        onNetRipped,
+        onTrying,
+        onNetPendingChanged,
+        cancelToken,
+        maxPasses = 4,
+        profileOverrides = null,
+    } = options;
     /** Yield to browser so UI can repaint & cancel clicks can fire */
     const yieldToUI = () => new Promise(r => setTimeout(r, 0));
     const traceWidth = input.traceWidth || 0.254;
@@ -946,7 +969,7 @@ export async function routeAll(input, options = {}) {
     const gridStep = input.gridStep || 0.5;
     const halfTrace = traceWidth / 2;
     const totalClear = halfTrace + clearance;
-    const MAX_PASSES = 4;
+    const MAX_PASSES = Math.max(1, maxPasses | 0);
 
     const routeBounds = input.bounds &&
         Number.isFinite(input.bounds.minX) &&
@@ -1092,52 +1115,105 @@ export async function routeAll(input, options = {}) {
         return true;
     }
 
-    function makeAttemptKey(from, to, startLayer, endLayer, step, weight, effortTag = '') {
+    function arePathSegmentsClear(pathPoints, layer, skipIds) {
+        if (!Array.isArray(pathPoints) || pathPoints.length < 2) return false;
+        for (let i = 1; i < pathPoints.length; i++) {
+            const a = pathPoints[i - 1];
+            const b = pathPoints[i];
+            if (!isValidAngle(a.x, a.y, b.x, b.y)) return false;
+            if (obstacles.isSegmentBlocked(a.x, a.y, b.x, b.y, totalClear, skipIds, layer)) return false;
+        }
+        return true;
+    }
+
+    function makeAttemptKey(from, to, startLayer, endLayer, step, weight, effortTag = '', costSig = '') {
         return [
             from.x.toFixed(3), from.y.toFixed(3), from.layer || 'both',
             to.x.toFixed(3), to.y.toFixed(3), to.layer || 'both',
             startLayer, endLayer,
             step.toFixed(3), weight.toFixed(2),
             effortTag,
+            costSig,
             traceWidth.toFixed(3), clearance.toFixed(3),
         ].join('|');
     }
 
     const DEFAULT_PHASE_PROFILE = {
         id: 'initial',
-        attempt1: { stepScale: 1.0, weight: 1.4, maxIter: 100000, stagnationIters: 25000, maxDetourFactor: 2.0, enabled: true, effortTag: 'i-a1' },
-        attempt2: { stepScale: 0.5, weight: 1.2, maxIter: 300000, stagnationIters: 60000, maxDetourFactor: 3.0, enabled: true, effortTag: 'i-a2' },
-        attempt3: { stepScale: 0.25, weight: 1.0, maxIter: 600000, stagnationIters: 120000, maxDetourFactor: 5.0, enabled: true, effortTag: 'i-a3' },
+        attempt1: { stepScale: 1.0, weight: 1.4, maxIter: 100000, stagnationIters: 25000, maxDetourFactor: 2.0, enabled: true, effortTag: 'i-a1', viaCostScale: 1.0, bendCostScale: 1.0, padDiagCostScale: 1.0, dirPenaltyScale: 1.0, congestionPenaltyScale: 1.0, viaCongestionScale: 1.0 },
+        attempt2: { stepScale: 0.5, weight: 1.2, maxIter: 300000, stagnationIters: 60000, maxDetourFactor: 3.0, enabled: true, effortTag: 'i-a2', viaCostScale: 1.0, bendCostScale: 1.0, padDiagCostScale: 1.0, dirPenaltyScale: 1.0, congestionPenaltyScale: 1.0, viaCongestionScale: 1.0 },
+        attempt3: { stepScale: 0.25, weight: 1.0, maxIter: 600000, stagnationIters: 120000, maxDetourFactor: 5.0, enabled: true, effortTag: 'i-a3', viaCostScale: 1.0, bendCostScale: 1.0, padDiagCostScale: 1.0, dirPenaltyScale: 1.0, congestionPenaltyScale: 1.0, viaCongestionScale: 1.0 },
     };
 
     const RIPUP_PHASE_PROFILES = {
         1: {
             id: 'ripup-1',
-            attempt1: { stepScale: 1.0, weight: 1.5, maxIter: 80000, stagnationIters: 18000, maxDetourFactor: 1.8, enabled: true, effortTag: 'r1-a1' },
-            attempt2: { stepScale: 0.5, weight: 1.3, maxIter: 180000, stagnationIters: 35000, maxDetourFactor: 2.3, enabled: true, effortTag: 'r1-a2' },
-            attempt3: { stepScale: 0.25, weight: 1.0, maxIter: 0, stagnationIters: 0, maxDetourFactor: 0, enabled: false, effortTag: 'r1-a3' },
+            attempt1: { stepScale: 1.0, weight: 1.5, maxIter: 80000, stagnationIters: 18000, maxDetourFactor: 1.8, enabled: true, effortTag: 'r1-a1', viaCostScale: 1.0, bendCostScale: 1.0, padDiagCostScale: 1.0, dirPenaltyScale: 1.0, congestionPenaltyScale: 1.0, viaCongestionScale: 1.0 },
+            attempt2: { stepScale: 0.5, weight: 1.3, maxIter: 180000, stagnationIters: 35000, maxDetourFactor: 2.3, enabled: true, effortTag: 'r1-a2', viaCostScale: 1.0, bendCostScale: 1.0, padDiagCostScale: 1.0, dirPenaltyScale: 1.0, congestionPenaltyScale: 1.0, viaCongestionScale: 1.0 },
+            attempt3: { stepScale: 0.25, weight: 1.0, maxIter: 0, stagnationIters: 0, maxDetourFactor: 0, enabled: false, effortTag: 'r1-a3', viaCostScale: 1.0, bendCostScale: 1.0, padDiagCostScale: 1.0, dirPenaltyScale: 1.0, congestionPenaltyScale: 1.0, viaCongestionScale: 1.0 },
         },
         2: {
             id: 'ripup-2',
-            attempt1: { stepScale: 1.0, weight: 1.4, maxIter: 110000, stagnationIters: 25000, maxDetourFactor: 2.1, enabled: true, effortTag: 'r2-a1' },
-            attempt2: { stepScale: 0.5, weight: 1.2, maxIter: 320000, stagnationIters: 65000, maxDetourFactor: 3.2, enabled: true, effortTag: 'r2-a2' },
-            attempt3: { stepScale: 0.25, weight: 1.0, maxIter: 620000, stagnationIters: 125000, maxDetourFactor: 5.2, enabled: true, effortTag: 'r2-a3' },
+            attempt1: { stepScale: 1.0, weight: 1.4, maxIter: 110000, stagnationIters: 25000, maxDetourFactor: 2.1, enabled: true, effortTag: 'r2-a1', viaCostScale: 1.0, bendCostScale: 1.0, padDiagCostScale: 1.0, dirPenaltyScale: 1.0, congestionPenaltyScale: 1.0, viaCongestionScale: 1.0 },
+            attempt2: { stepScale: 0.5, weight: 1.2, maxIter: 320000, stagnationIters: 65000, maxDetourFactor: 3.2, enabled: true, effortTag: 'r2-a2', viaCostScale: 1.0, bendCostScale: 1.0, padDiagCostScale: 1.0, dirPenaltyScale: 1.0, congestionPenaltyScale: 1.0, viaCongestionScale: 1.0 },
+            attempt3: { stepScale: 0.25, weight: 1.0, maxIter: 620000, stagnationIters: 125000, maxDetourFactor: 5.2, enabled: true, effortTag: 'r2-a3', viaCostScale: 1.0, bendCostScale: 1.0, padDiagCostScale: 1.0, dirPenaltyScale: 1.0, congestionPenaltyScale: 1.0, viaCongestionScale: 1.0 },
         },
         3: {
             id: 'ripup-3',
-            attempt1: { stepScale: 1.0, weight: 1.35, maxIter: 140000, stagnationIters: 32000, maxDetourFactor: 2.5, enabled: true, effortTag: 'r3-a1' },
-            attempt2: { stepScale: 0.5, weight: 1.15, maxIter: 420000, stagnationIters: 85000, maxDetourFactor: 3.8, enabled: true, effortTag: 'r3-a2' },
-            attempt3: { stepScale: 0.25, weight: 1.0, maxIter: 850000, stagnationIters: 170000, maxDetourFactor: 6.5, enabled: true, effortTag: 'r3-a3' },
+            attempt1: { stepScale: 1.0, weight: 1.35, maxIter: 140000, stagnationIters: 32000, maxDetourFactor: 2.5, enabled: true, effortTag: 'r3-a1', viaCostScale: 1.0, bendCostScale: 1.0, padDiagCostScale: 1.0, dirPenaltyScale: 1.0, congestionPenaltyScale: 1.0, viaCongestionScale: 1.0 },
+            attempt2: { stepScale: 0.5, weight: 1.15, maxIter: 420000, stagnationIters: 85000, maxDetourFactor: 3.8, enabled: true, effortTag: 'r3-a2', viaCostScale: 1.0, bendCostScale: 1.0, padDiagCostScale: 1.0, dirPenaltyScale: 1.0, congestionPenaltyScale: 1.0, viaCongestionScale: 1.0 },
+            attempt3: { stepScale: 0.25, weight: 1.0, maxIter: 850000, stagnationIters: 170000, maxDetourFactor: 6.5, enabled: true, effortTag: 'r3-a3', viaCostScale: 1.0, bendCostScale: 1.0, padDiagCostScale: 1.0, dirPenaltyScale: 1.0, congestionPenaltyScale: 1.0, viaCongestionScale: 1.0 },
         },
         4: {
             id: 'ripup-4',
-            attempt1: { stepScale: 1.0, weight: 1.3, maxIter: 180000, stagnationIters: 45000, maxDetourFactor: 3.0, enabled: true, effortTag: 'r4-a1' },
-            attempt2: { stepScale: 0.5, weight: 1.1, maxIter: 560000, stagnationIters: 120000, maxDetourFactor: 4.8, enabled: true, effortTag: 'r4-a2' },
-            attempt3: { stepScale: 0.25, weight: 1.0, maxIter: 1100000, stagnationIters: 240000, maxDetourFactor: 8.0, enabled: true, effortTag: 'r4-a3' },
+            attempt1: { stepScale: 1.0, weight: 1.3, maxIter: 180000, stagnationIters: 45000, maxDetourFactor: 3.0, enabled: true, effortTag: 'r4-a1', viaCostScale: 1.0, bendCostScale: 1.0, padDiagCostScale: 1.0, dirPenaltyScale: 1.0, congestionPenaltyScale: 1.0, viaCongestionScale: 1.0 },
+            attempt2: { stepScale: 0.5, weight: 1.1, maxIter: 560000, stagnationIters: 120000, maxDetourFactor: 4.8, enabled: true, effortTag: 'r4-a2', viaCostScale: 1.0, bendCostScale: 1.0, padDiagCostScale: 1.0, dirPenaltyScale: 1.0, congestionPenaltyScale: 1.0, viaCongestionScale: 1.0 },
+            attempt3: { stepScale: 0.25, weight: 1.0, maxIter: 1100000, stagnationIters: 240000, maxDetourFactor: 8.0, enabled: true, effortTag: 'r4-a3', viaCostScale: 1.0, bendCostScale: 1.0, padDiagCostScale: 1.0, dirPenaltyScale: 1.0, congestionPenaltyScale: 1.0, viaCongestionScale: 1.0 },
         },
     };
 
-    const getRipupProfile = (pass) => RIPUP_PHASE_PROFILES[pass] || RIPUP_PHASE_PROFILES[4];
+    const mergeAttempt = (base, override = null) => {
+        if (!override) return { ...base };
+        return {
+            stepScale: Number.isFinite(override.stepScale) ? override.stepScale : base.stepScale,
+            weight: Number.isFinite(override.weight) ? override.weight : base.weight,
+            maxIter: Number.isFinite(override.maxIter) ? override.maxIter : base.maxIter,
+            stagnationIters: Number.isFinite(override.stagnationIters) ? override.stagnationIters : base.stagnationIters,
+            maxDetourFactor: Number.isFinite(override.maxDetourFactor) ? override.maxDetourFactor : base.maxDetourFactor,
+            viaCostScale: Number.isFinite(override.viaCostScale) ? override.viaCostScale : base.viaCostScale,
+            bendCostScale: Number.isFinite(override.bendCostScale) ? override.bendCostScale : base.bendCostScale,
+            padDiagCostScale: Number.isFinite(override.padDiagCostScale) ? override.padDiagCostScale : base.padDiagCostScale,
+            dirPenaltyScale: Number.isFinite(override.dirPenaltyScale) ? override.dirPenaltyScale : base.dirPenaltyScale,
+            congestionPenaltyScale: Number.isFinite(override.congestionPenaltyScale) ? override.congestionPenaltyScale : base.congestionPenaltyScale,
+            viaCongestionScale: Number.isFinite(override.viaCongestionScale) ? override.viaCongestionScale : base.viaCongestionScale,
+            enabled: typeof override.enabled === 'boolean' ? override.enabled : base.enabled,
+            effortTag: override.effortTag || base.effortTag,
+        };
+    };
+
+    const mergeProfile = (base, override = null) => {
+        if (!override) {
+            return {
+                id: base.id,
+                attempt1: { ...base.attempt1 },
+                attempt2: { ...base.attempt2 },
+                attempt3: { ...base.attempt3 },
+            };
+        }
+        return {
+            id: override.id || base.id,
+            attempt1: mergeAttempt(base.attempt1, override.attempt1),
+            attempt2: mergeAttempt(base.attempt2, override.attempt2),
+            attempt3: mergeAttempt(base.attempt3, override.attempt3),
+        };
+    };
+
+    const tunedInitialProfile = mergeProfile(DEFAULT_PHASE_PROFILE, profileOverrides?.initial || null);
+    const getRipupProfile = (pass) => {
+        const base = RIPUP_PHASE_PROFILES[pass] || RIPUP_PHASE_PROFILES[4];
+        const override = profileOverrides?.ripup?.[pass] || profileOverrides?.[`ripup${pass}`] || null;
+        return mergeProfile(base, override);
+    };
 
     function getCachedAttemptResult(key, skipIds) {
         const entry = routeAttemptCache.get(key);
@@ -1203,15 +1279,7 @@ export async function routeAll(input, options = {}) {
                         { x: from.x, y: from.y, layer },
                         { x: to.x, y: to.y, layer }
                     ]);
-                    // Check all segments are clear
-                    let allClear = true;
-                    for (let k = 0; k < cleanPts.length - 1; k++) {
-                        if (obstacles.isSegmentBlocked(cleanPts[k].x, cleanPts[k].y, cleanPts[k+1].x, cleanPts[k+1].y, totalClear, skipIds, layer)) {
-                            allClear = false;
-                            break;
-                        }
-                    }
-                    if (allClear) {
+                    if (arePathSegmentsClear(cleanPts, layer, skipIds)) {
                         traces.push({ net: conn.net, points: cleanPts, layer, vias: [] });
                         for (let k = 0; k < cleanPts.length - 1; k++) {
                             obstacles.insert(cleanPts[k].x, cleanPts[k].y, cleanPts[k+1].x, cleanPts[k+1].y, halfTrace, conn.net, layer);
@@ -1248,7 +1316,8 @@ export async function routeAll(input, options = {}) {
                     }
                 };
 
-                const attempt1Key = makeAttemptKey(from, to, startLayer, endLayer, gridStep * a1.stepScale, a1.weight, a1.effortTag || `${phaseProfile.id}:a1`);
+                const a1CostSig = [a1.viaCostScale, a1.bendCostScale, a1.padDiagCostScale, a1.dirPenaltyScale, a1.congestionPenaltyScale, a1.viaCongestionScale].map(v => Number(v ?? 1).toFixed(2)).join(':');
+                const attempt1Key = makeAttemptKey(from, to, startLayer, endLayer, gridStep * a1.stepScale, a1.weight, a1.effortTag || `${phaseProfile.id}:a1`, a1CostSig);
                 const cached1 = getCachedAttemptResult(attempt1Key, skipIds);
                 if (cached1 !== undefined) {
                     result = cached1;
@@ -1265,6 +1334,12 @@ export async function routeAll(input, options = {}) {
                         onTick: throttledTryingTick,
                         maxDetourFactor: a1.maxDetourFactor,
                         bounds: routeBounds,
+                        viaCostScale: a1.viaCostScale,
+                        bendCostScale: a1.bendCostScale,
+                        padDiagCostScale: a1.padDiagCostScale,
+                        dirPenaltyScale: a1.dirPenaltyScale,
+                        congestionPenaltyScale: a1.congestionPenaltyScale,
+                        viaCongestionScale: a1.viaCongestionScale,
                     }
                     );
                     setCachedAttemptResult(attempt1Key, result);
@@ -1275,7 +1350,8 @@ export async function routeAll(input, options = {}) {
                 await yieldToUI();
 
                 // Try 2: finer grid (300K)
-                const attempt2Key = makeAttemptKey(from, to, startLayer, endLayer, gridStep * a2.stepScale, a2.weight, a2.effortTag || `${phaseProfile.id}:a2`);
+                const a2CostSig = [a2.viaCostScale, a2.bendCostScale, a2.padDiagCostScale, a2.dirPenaltyScale, a2.congestionPenaltyScale, a2.viaCongestionScale].map(v => Number(v ?? 1).toFixed(2)).join(':');
+                const attempt2Key = makeAttemptKey(from, to, startLayer, endLayer, gridStep * a2.stepScale, a2.weight, a2.effortTag || `${phaseProfile.id}:a2`, a2CostSig);
                 const cached2 = getCachedAttemptResult(attempt2Key, skipIds);
                 if (cached2 !== undefined) {
                     result = cached2;
@@ -1292,6 +1368,12 @@ export async function routeAll(input, options = {}) {
                         onTick: throttledTryingTick,
                         maxDetourFactor: a2.maxDetourFactor,
                         bounds: routeBounds,
+                        viaCostScale: a2.viaCostScale,
+                        bendCostScale: a2.bendCostScale,
+                        padDiagCostScale: a2.padDiagCostScale,
+                        dirPenaltyScale: a2.dirPenaltyScale,
+                        congestionPenaltyScale: a2.congestionPenaltyScale,
+                        viaCongestionScale: a2.viaCongestionScale,
                     }
                     );
                     setCachedAttemptResult(attempt2Key, result);
@@ -1304,7 +1386,8 @@ export async function routeAll(input, options = {}) {
                 await yieldToUI();
 
                 // Try 3: finest grid, thorough search (600K)
-                const attempt3Key = makeAttemptKey(from, to, startLayer, endLayer, gridStep * a3.stepScale, a3.weight, a3.effortTag || `${phaseProfile.id}:a3`);
+                const a3CostSig = [a3.viaCostScale, a3.bendCostScale, a3.padDiagCostScale, a3.dirPenaltyScale, a3.congestionPenaltyScale, a3.viaCongestionScale].map(v => Number(v ?? 1).toFixed(2)).join(':');
+                const attempt3Key = makeAttemptKey(from, to, startLayer, endLayer, gridStep * a3.stepScale, a3.weight, a3.effortTag || `${phaseProfile.id}:a3`, a3CostSig);
                 const cached3 = getCachedAttemptResult(attempt3Key, skipIds);
                 if (cached3 !== undefined) {
                     result = cached3;
@@ -1321,6 +1404,12 @@ export async function routeAll(input, options = {}) {
                         onTick: throttledTryingTick,
                         maxDetourFactor: a3.maxDetourFactor,
                         bounds: routeBounds,
+                        viaCostScale: a3.viaCostScale,
+                        bendCostScale: a3.bendCostScale,
+                        padDiagCostScale: a3.padDiagCostScale,
+                        dirPenaltyScale: a3.dirPenaltyScale,
+                        congestionPenaltyScale: a3.congestionPenaltyScale,
+                        viaCongestionScale: a3.viaCongestionScale,
                     }
                     );
                     setCachedAttemptResult(attempt3Key, result);
@@ -1347,7 +1436,12 @@ export async function routeAll(input, options = {}) {
                     const segPts = simplified.slice(runStart, runEnd + 1);
                     const layer = simplified[runStart].layer || 'top';
                     if (segPts.length < 2) return;
-                    const cleanPts = sanitizeAngles(segPts);
+                    // Sanitize only if the transformed geometry still passes clearance checks.
+                    const sanitizedPts = sanitizeAngles(segPts);
+                    const cleanPts = arePathSegmentsClear(sanitizedPts, layer, skipIds)
+                        ? sanitizedPts
+                        : segPts;
+                    if (!arePathSegmentsClear(cleanPts, layer, skipIds)) return;
                     traces.push({ net: conn.net, points: cleanPts, layer, vias: [] });
                     for (let k = 0; k < cleanPts.length - 1; k++) {
                         obstacles.insert(cleanPts[k].x, cleanPts[k].y, cleanPts[k+1].x, cleanPts[k+1].y,
@@ -1433,9 +1527,8 @@ export async function routeAll(input, options = {}) {
         await yieldToUI();
 
         const skipIds = netPadIds.get(conn.net) || new Set();
-        skipIds.add(conn.net);
 
-        const result = await routeNet(conn, obstacles, skipIds, DEFAULT_PHASE_PROFILE);
+        const result = await routeNet(conn, obstacles, skipIds, tunedInitialProfile);
         if (result) {
             routedTraces.set(conn.net, result);
             setNetPendingConnections(conn.net, 0);
@@ -1482,7 +1575,6 @@ export async function routeAll(input, options = {}) {
 
             // Find which nets block the direct path
             const skipIds = netPadIds.get(failedNet) || new Set();
-            skipIds.add(failedNet);
             const blockingNets = new Set();
             for (let i = 0; i < conn.pads.length - 1; i++) {
                 const from = conn.pads[i];
@@ -1539,7 +1631,6 @@ export async function routeAll(input, options = {}) {
                 const rc = connMap.get(rn);
                 if (!rc) continue;
                 const rSkip = netPadIds.get(rn) || new Set();
-                rSkip.add(rn);
                 const rResult = await routeNet(rc, obstacles, rSkip, passProfile);
                 if (rResult) {
                     routedTraces.set(rn, rResult);

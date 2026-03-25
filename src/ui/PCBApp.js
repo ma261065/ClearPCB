@@ -93,6 +93,9 @@ export default class PCBApp {
         this._routeCancelToken = null;
         this._routeProgressStartMs = 0;
         this._routeProgressTimer = null;
+        /** @type {Map<string, boolean>} pending net visibility updates */
+        this._ratsnestVisibilityQueue = new Map();
+        this._ratsnestVisibilityRaf = 0;
         /** @type {Map<string, boolean>|null} net -> is unrouted */
         this._routeNetUnrouted = null;
         this._routeLastBoundaryKey = '';
@@ -1153,9 +1156,11 @@ export default class PCBApp {
 
     _reconcileRatsnestFromRouteState() {
         if (!this._routeNetUnrouted) return;
+        const visibility = new Map();
         for (const [netName, isUnrouted] of this._routeNetUnrouted.entries()) {
-            this._setRatsnestVisibilityForNet(netName, !!isUnrouted);
+            visibility.set(netName, !!isUnrouted);
         }
+        this._applyRatsnestVisibilityMap(visibility);
     }
 
     _maybeReconcileAtPhaseBoundary(done, total, meta = {}) {
@@ -1601,16 +1606,34 @@ export default class PCBApp {
 
     _setRatsnestVisibilityForNet(netName, visible) {
         if (!netName) return;
+        this._ratsnestVisibilityQueue.set(netName, !!visible);
+        if (this._ratsnestVisibilityRaf) return;
+        this._ratsnestVisibilityRaf = requestAnimationFrame(() => {
+            this._ratsnestVisibilityRaf = 0;
+            this._flushRatsnestVisibilityQueue();
+        });
+    }
+
+    _flushRatsnestVisibilityQueue() {
+        if (!this._ratsnestVisibilityQueue.size) return;
+        const updates = new Map(this._ratsnestVisibilityQueue);
+        this._ratsnestVisibilityQueue.clear();
+        this._applyRatsnestVisibilityMap(updates);
+    }
+
+    _applyRatsnestVisibilityMap(visibilityByNet) {
+        if (!visibilityByNet || !visibilityByNet.size) return;
         const ratLayer = this._getLayerGroup('ratlines');
         for (const line of ratLayer.querySelectorAll('.ratsnest-line')) {
-            if (/** @type {HTMLElement} */ (line).dataset.net === netName) {
-                /** @type {HTMLElement} */ (line).style.display = visible ? '' : 'none';
-            }
+            const net = /** @type {HTMLElement} */ (line).dataset.net || '';
+            if (!visibilityByNet.has(net)) continue;
+            /** @type {HTMLElement} */ (line).style.display = visibilityByNet.get(net) ? '' : 'none';
         }
         for (const el of ratLayer.children) {
-            if (el.tagName === 'text' && (el.textContent || '').trim() === netName) {
-                /** @type {HTMLElement} */ (el).style.display = visible ? '' : 'none';
-            }
+            if (el.tagName !== 'text') continue;
+            const net = (el.textContent || '').trim();
+            if (!visibilityByNet.has(net)) continue;
+            /** @type {HTMLElement} */ (el).style.display = visibilityByNet.get(net) ? '' : 'none';
         }
     }
 
@@ -1619,6 +1642,7 @@ export default class PCBApp {
      * @param {import('../pcb/modules/autorouter.js').RouteResult} result
      */
     _renderRouteResult(result) {
+        this._flushRatsnestVisibilityQueue();
         const NS = 'http://www.w3.org/2000/svg';
         const topCopper = this._getLayerGroup('top-copper');
         const bottomCopper = this._getLayerGroup('bottom-copper');
@@ -1677,6 +1701,11 @@ export default class PCBApp {
      * Clear all routed traces/vias and restore all ratlines.
      */
     clearRoutes() {
+        if (this._ratsnestVisibilityRaf) {
+            cancelAnimationFrame(this._ratsnestVisibilityRaf);
+            this._ratsnestVisibilityRaf = 0;
+        }
+        this._ratsnestVisibilityQueue.clear();
         // Remove all routed trace elements and vias
         for (const [, g] of this._layerGroups) {
             g.querySelectorAll('.pcb-routed-trace, .pcb-routed-via').forEach(el => el.remove());

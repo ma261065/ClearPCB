@@ -169,6 +169,210 @@ ${classDef}
 }
 
 /**
+ * Parse a Specctra DSN and convert it into ClearPCB RouteInput.
+ * Designed primarily for DSN files produced by exportDSN().
+ *
+ * @param {string} dsnText
+ * @returns {{
+ *   routeInput: import('./autorouter.js').RouteInput,
+ *   meta: {
+ *     resolution: number,
+ *     unit: string,
+ *     nets: number,
+ *     pads: number,
+ *   }
+ * }}
+ */
+export function importDSN(dsnText) {
+    const tree = _parseSExp(dsnText);
+    if (!tree || !Array.isArray(tree)) {
+        throw new Error('Invalid DSN: failed to parse S-expression');
+    }
+
+    const pcb = Array.isArray(tree) && tree[0] === 'pcb' ? tree : _findNode(tree, 'pcb');
+    if (!pcb) throw new Error('Invalid DSN: missing (pcb ...) root');
+
+    const resNode = _findNode(pcb, 'resolution');
+    const resUnit = resNode?.[1] || 'mm';
+    const resolution = parseFloat(resNode?.[2]) || 1000;
+    const toMM = (v) => {
+        const n = parseFloat(v);
+        if (!Number.isFinite(n)) return 0;
+        if (resUnit === 'mil') return (n / resolution) * 0.0254;
+        if (resUnit === 'um') return (n / resolution) / 1000;
+        return n / resolution;
+    };
+
+    const structure = _findNode(pcb, 'structure');
+    const network = _findNode(pcb, 'network');
+    const placement = _findNode(pcb, 'placement');
+    const library = _findNode(pcb, 'library');
+    if (!structure || !network || !placement || !library) {
+        throw new Error('Invalid DSN: missing one or more required sections (structure/network/placement/library)');
+    }
+
+    // Extract rules (if present)
+    const structureRule = _findDirectNode(structure, 'rule');
+    const traceWidth = toMM(_findDirectNode(structureRule, 'width')?.[1] ?? 254);
+    const clearance = toMM(_findDirectNode(structureRule, 'clearance')?.[1] ?? 200);
+
+    // Parse board bounds from boundary path
+    let bounds = null;
+    const boundaryNode = _findDirectNode(structure, 'boundary');
+    const pathNode = _findDirectNode(boundaryNode, 'path');
+    if (pathNode && pathNode.length >= 7) {
+        const coords = pathNode.slice(3);
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        for (let i = 0; i < coords.length - 1; i += 2) {
+            const x = toMM(coords[i]);
+            const y = -toMM(coords[i + 1]);
+            minX = Math.min(minX, x);
+            minY = Math.min(minY, y);
+            maxX = Math.max(maxX, x);
+            maxY = Math.max(maxY, y);
+        }
+        if (Number.isFinite(minX) && Number.isFinite(minY) && Number.isFinite(maxX) && Number.isFinite(maxY)) {
+            bounds = { minX, minY, maxX, maxY };
+        }
+    }
+
+    // Parse padstacks from library
+    const padstacks = new Map();
+    for (const child of library) {
+        if (!Array.isArray(child) || child[0] !== 'padstack') continue;
+        const name = child[1];
+        let width = 1.0;
+        let height = 1.0;
+        let layer = 'both';
+        for (const n of child) {
+            if (!Array.isArray(n) || n[0] !== 'shape') continue;
+            // (shape (rect F.Cu x1 y1 x2 y2)) or (shape (circle F.Cu dia))
+            const shape = n[1];
+            if (!Array.isArray(shape)) continue;
+            if (shape[0] === 'rect' && shape.length >= 6) {
+                const sx1 = toMM(shape[2]);
+                const sy1 = toMM(shape[3]);
+                const sx2 = toMM(shape[4]);
+                const sy2 = toMM(shape[5]);
+                width = Math.abs(sx2 - sx1);
+                height = Math.abs(sy2 - sy1);
+                layer = shape[1] === 'B.Cu' ? 'bottom' : shape[1] === 'F.Cu' ? 'top' : 'both';
+                break;
+            }
+            if (shape[0] === 'circle' && shape.length >= 3) {
+                const dia = toMM(shape[2]);
+                width = dia;
+                height = dia;
+                layer = shape[1] === 'B.Cu' ? 'bottom' : shape[1] === 'F.Cu' ? 'top' : 'both';
+            }
+        }
+        padstacks.set(name, { width, height, layer });
+    }
+
+    // Parse images -> pin offsets and padstack refs
+    const images = new Map();
+    for (const child of library) {
+        if (!Array.isArray(child) || child[0] !== 'image') continue;
+        const imageName = child[1];
+        const pins = new Map();
+        for (const n of child) {
+            if (!Array.isArray(n) || n[0] !== 'pin' || n.length < 5) continue;
+            const padstackName = n[1];
+            const pinNumber = String(n[2]);
+            const dx = toMM(n[3]);
+            const dy = toMM(n[4]);
+            pins.set(pinNumber, { padstackName, dx, dy });
+        }
+        images.set(imageName, pins);
+    }
+
+    // Parse placements -> component reference world location + image mapping
+    const components = new Map();
+    for (const compNode of placement) {
+        if (!Array.isArray(compNode) || compNode[0] !== 'component') continue;
+        const imageName = compNode[1];
+        for (const placeNode of compNode) {
+            if (!Array.isArray(placeNode) || placeNode[0] !== 'place' || placeNode.length < 5) continue;
+            const ref = String(placeNode[1]);
+            const x = toMM(placeNode[2]);
+            const y = -toMM(placeNode[3]);
+            components.set(ref, { imageName, x, y });
+        }
+    }
+
+    const padByRefPin = new Map();
+    const allObstaclePads = [];
+    for (const [ref, comp] of components.entries()) {
+        const imgPins = images.get(comp.imageName);
+        if (!imgPins) continue;
+        for (const [pinNumber, pinDef] of imgPins.entries()) {
+            const ps = padstacks.get(pinDef.padstackName) || { width: 1.0, height: 1.0, layer: 'both' };
+            const padX = comp.x + pinDef.dx;
+            const padY = comp.y - pinDef.dy;
+            const pad = {
+                x: padX,
+                y: padY,
+                width: ps.width,
+                height: ps.height,
+                layer: ps.layer,
+            };
+            padByRefPin.set(`${ref}:${pinNumber}`, pad);
+            allObstaclePads.push(pad);
+        }
+    }
+
+    // Parse nets -> pins list to RouteInput connections
+    const connections = [];
+    for (const netNode of network) {
+        if (!Array.isArray(netNode) || netNode[0] !== 'net' || netNode.length < 2) continue;
+        const netName = _unquote(String(netNode[1]));
+        const pinsNode = _findDirectNode(netNode, 'pins');
+        if (!pinsNode || pinsNode.length < 3) continue;
+
+        const pads = [];
+        const pinTokens = pinsNode.slice(1).map(String);
+        for (const tok of pinTokens) {
+            const splitIdx = tok.lastIndexOf('-');
+            if (splitIdx <= 0 || splitIdx >= tok.length - 1) continue;
+            const ref = tok.slice(0, splitIdx);
+            const pinNumber = tok.slice(splitIdx + 1);
+            const pad = padByRefPin.get(`${ref}:${pinNumber}`);
+            if (pad) pads.push({ ...pad });
+        }
+        if (pads.length >= 2) connections.push({ net: netName, pads });
+    }
+
+    if (!bounds) {
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        for (const p of allObstaclePads) {
+            minX = Math.min(minX, p.x - p.width);
+            minY = Math.min(minY, p.y - p.height);
+            maxX = Math.max(maxX, p.x + p.width);
+            maxY = Math.max(maxY, p.y + p.height);
+        }
+        if (Number.isFinite(minX) && Number.isFinite(minY)) bounds = { minX, minY, maxX, maxY };
+        else bounds = { minX: -100, minY: -100, maxX: 100, maxY: 100 };
+    }
+
+    return {
+        routeInput: {
+            connections,
+            allObstaclePads,
+            traceWidth: traceWidth || 0.254,
+            clearance: clearance || 0.2,
+            gridStep: 0.5,
+            bounds,
+        },
+        meta: {
+            resolution,
+            unit: resUnit,
+            nets: connections.length,
+            pads: allObstaclePads.length,
+        },
+    };
+}
+
+/**
  * Quote a net name for DSN if it contains special characters.
  */
 function _q(name) {
@@ -312,6 +516,14 @@ function _parseSExp(text) {
             tokens.push(ch);
             i++;
         } else if (ch === '"') {
+            // DSN can encode string_quote as a bare quote token: (string_quote ")
+            // Handle that form before parsing regular quoted strings.
+            if (i + 1 >= text.length || /[\s)]/.test(text[i + 1])) {
+                tokens.push('"');
+                i++;
+                continue;
+            }
+
             // Quoted string — "" is escaped quote
             let str = '';
             i++;
@@ -362,6 +574,14 @@ function _findNode(tree, name) {
             const found = _findNode(child, name);
             if (found) return found;
         }
+    }
+    return null;
+}
+
+function _findDirectNode(tree, name) {
+    if (!Array.isArray(tree)) return null;
+    for (const child of tree) {
+        if (Array.isArray(child) && child[0] === name) return child;
     }
     return null;
 }
