@@ -252,6 +252,68 @@ class SpatialHash {
         }
         return count;
     }
+
+    /**
+     * Find which foreign nets' traces a point overlaps (for cost-based rip-up).
+     * Returns the set of net names whose traces are within clearance of (x,y).
+     * Pads are ignored (can't rip up pads).
+     */
+    crossingNetsAtPoint(x, y, clearance, skipIds, layer = null) {
+        const crossed = new Set();
+        const cx = Math.floor(x / this.cellSize);
+        const cy = Math.floor(y / this.cellSize);
+        const isSet = skipIds instanceof Set;
+        for (let dx = -1; dx <= 1; dx++) {
+            for (let dy = -1; dy <= 1; dy++) {
+                const objs = this.cells.get(this._key(cx + dx, cy + dy));
+                if (!objs) continue;
+                for (const obj of objs) {
+                    if (obj.isPad) continue;
+                    const objId = obj.net || obj.id;
+                    if (isSet ? skipIds.has(objId) : objId === skipIds) continue;
+                    if (layer) {
+                        const objLayer = obj.layer || 'both';
+                        if (objLayer !== 'both' && objLayer !== layer) continue;
+                    }
+                    const dist = pointToSegmentDist(x, y, obj.x1, obj.y1, obj.x2, obj.y2);
+                    if (dist < obj.hw + clearance && obj.net) crossed.add(obj.net);
+                }
+            }
+        }
+        return crossed;
+    }
+
+    /**
+     * Find which foreign nets' traces a segment crosses.
+     */
+    crossingNetsForSegment(ax1, ay1, ax2, ay2, clearance, skipIds, layer = null) {
+        const crossed = new Set();
+        const minSX = Math.min(ax1, ax2), maxSX = Math.max(ax1, ax2);
+        const minSY = Math.min(ay1, ay2), maxSY = Math.max(ay1, ay2);
+        const cxMin = Math.floor((minSX - clearance) / this.cellSize) - 1;
+        const cxMax = Math.floor((maxSX + clearance) / this.cellSize) + 1;
+        const cyMin = Math.floor((minSY - clearance) / this.cellSize) - 1;
+        const cyMax = Math.floor((maxSY + clearance) / this.cellSize) + 1;
+        const isSet = skipIds instanceof Set;
+        for (let cx = cxMin; cx <= cxMax; cx++) {
+            for (let cy = cyMin; cy <= cyMax; cy++) {
+                const objs = this.cells.get(this._key(cx, cy));
+                if (!objs) continue;
+                for (const obj of objs) {
+                    if (obj.isPad) continue;
+                    const objId = obj.net || obj.id;
+                    if (isSet ? skipIds.has(objId) : objId === skipIds) continue;
+                    if (layer) {
+                        const objLayer = obj.layer || 'both';
+                        if (objLayer !== 'both' && objLayer !== layer) continue;
+                    }
+                    const d = segmentToSegmentDist(ax1, ay1, ax2, ay2, obj.x1, obj.y1, obj.x2, obj.y2);
+                    if (d < obj.hw + clearance && obj.net) crossed.add(obj.net);
+                }
+            }
+        }
+        return crossed;
+    }
 }
 
 // ── Geometry Helpers ──────────────────────────────────────────────
@@ -642,6 +704,177 @@ async function astarRoute(sx, sy, ex, ey, obstacles, skipIds, gridStep, traceWid
     }
 
     return null;
+}
+
+// ── Cost-based Rip-up Probe ───────────────────────────────────────
+
+/**
+ * Lightweight A* probe that treats existing traces as crossable (with a high
+ * penalty) instead of impassable.  Returns the set of foreign net names whose
+ * traces the cheapest path actually crossed, or null if no path was found at
+ * all (e.g. pads in the way).
+ *
+ * This is used during rip-up to surgically identify which nets to rip
+ * instead of blasting every net along the direct bounding-box path.
+ */
+async function astarProbe(sx, sy, ex, ey, obstacles, skipIds, gridStep, traceWidth, clearance, startLayer = 'top', endPadLayer = 'both', options = {}) {
+    const {
+        maxIter = 120000,
+        cancelToken = null,
+        yieldEvery = 5000,
+        yieldToUI = null,
+        bounds = null,
+    } = options;
+    const halfTrace = traceWidth / 2;
+    const totalClear = halfTrace + clearance;
+    const CROSS_PENALTY = gridStep * 60;  // heavy but not infinite
+    const VIA_COST = gridStep * 30;
+    const routeDist = Math.hypot(ex - sx, ey - sy);
+    const effectiveStep = Math.min(Math.max(gridStep, routeDist / 150), 2.0);
+    const snap = (v) => Math.round(v / effectiveStep) * effectiveStep;
+    const startX = snap(sx), startY = snap(sy);
+    const endX = snap(ex), endY = snap(ey);
+    const goalTol = effectiveStep * 0.6 + Math.max(
+        Math.hypot(sx - startX, sy - startY),
+        Math.hypot(ex - endX, ey - endY)
+    );
+    const margin = Math.max(routeDist * 0.8, effectiveStep * 40);
+    const minX = Math.min(startX, endX) - margin;
+    const maxX = Math.max(startX, endX) + margin;
+    const minY = Math.min(startY, endY) - margin;
+    const maxY = Math.max(startY, endY) + margin;
+    const boundsMargin = effectiveStep * 3;
+    const boundedMinX = bounds ? Math.max(minX, bounds.minX - boundsMargin) : minX;
+    const boundedMaxX = bounds ? Math.min(maxX, bounds.maxX + boundsMargin) : maxX;
+    const boundedMinY = bounds ? Math.max(minY, bounds.minY - boundsMargin) : minY;
+    const boundedMaxY = bounds ? Math.min(maxY, bounds.maxY + boundsMargin) : maxY;
+
+    function nodeKey(x, y, layer) { return `${Math.round(x * 1000)},${Math.round(y * 1000)},${layer}`; }
+
+    const startKey = nodeKey(startX, startY, startLayer);
+    const heap = [];
+    const pushHeap = (node) => {
+        heap.push(node);
+        let i = heap.length - 1;
+        while (i > 0) {
+            const parent = (i - 1) >> 1;
+            if (heap[parent].f <= heap[i].f) break;
+            [heap[parent], heap[i]] = [heap[i], heap[parent]];
+            i = parent;
+        }
+    };
+    const popHeap = () => {
+        const top = heap[0];
+        const last = heap.pop();
+        if (heap.length > 0) {
+            heap[0] = last;
+            let i = 0;
+            while (true) {
+                let s = i;
+                const l = 2 * i + 1, r = 2 * i + 2;
+                if (l < heap.length && heap[l].f < heap[s].f) s = l;
+                if (r < heap.length && heap[r].f < heap[s].f) s = r;
+                if (s === i) break;
+                [heap[i], heap[s]] = [heap[s], heap[i]];
+                i = s;
+            }
+        }
+        return top;
+    };
+
+    const gScore = new Map();
+    const cameFrom = new Map();
+    /** @type {Map<string, Set<string>>} nodeKey → accumulated crossed nets */
+    const crossedAtNode = new Map();
+    const closed = new Set();
+
+    gScore.set(startKey, 0);
+    crossedAtNode.set(startKey, new Set());
+    pushHeap({ x: startX, y: startY, layer: startLayer, f: 0 });
+
+    const dirs = [[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]];
+    let iterations = 0;
+
+    while (heap.length > 0 && iterations < maxIter) {
+        if (cancelToken?.cancelled) return null;
+        iterations++;
+        if (yieldToUI && iterations % yieldEvery === 0) await yieldToUI();
+
+        const current = popHeap();
+        const curKey = nodeKey(current.x, current.y, current.layer);
+        if (closed.has(curKey)) continue;
+        closed.add(curKey);
+
+        // Goal check
+        if (Math.abs(current.x - endX) < goalTol && Math.abs(current.y - endY) < goalTol) {
+            const validEnd = endPadLayer === 'both' || endPadLayer === current.layer;
+            if (validEnd) {
+                return crossedAtNode.get(curKey) || new Set();
+            }
+        }
+
+        const curG = gScore.get(curKey);
+        const curCrossed = crossedAtNode.get(curKey) || new Set();
+
+        for (const [dx, dy] of dirs) {
+            const nx = current.x + dx * effectiveStep;
+            const ny = current.y + dy * effectiveStep;
+            const nKey = nodeKey(nx, ny, current.layer);
+            if (closed.has(nKey)) continue;
+            if (nx < boundedMinX || nx > boundedMaxX || ny < boundedMinY || ny > boundedMaxY) continue;
+
+            // Pads from other nets still hard-block (can't rip up pads)
+            const padBlocked = obstacles.isBlocked(nx, ny, totalClear, skipIds, current.layer);
+            // But check if the blocker is a pad vs a trace
+            let isPadBlock = false;
+            if (padBlocked) {
+                // If there are no trace crossings at this point, it must be a pad blocking
+                const traceNets = obstacles.crossingNetsAtPoint(nx, ny, totalClear, skipIds, current.layer);
+                isPadBlock = traceNets.size === 0;
+            }
+            if (isPadBlock) continue;  // hard-blocked by pad, skip
+
+            const stepCost = Math.hypot(dx, dy) * effectiveStep;
+
+            // crossing penalty: add cost for each foreign net trace we cross
+            const segCrossed = obstacles.crossingNetsForSegment(
+                current.x, current.y, nx, ny, totalClear, skipIds, current.layer
+            );
+            const crossPenalty = segCrossed.size * CROSS_PENALTY;
+
+            const tentG = curG + stepCost + crossPenalty;
+            if (tentG < (gScore.has(nKey) ? gScore.get(nKey) : Infinity)) {
+                gScore.set(nKey, tentG);
+                cameFrom.set(nKey, curKey);
+                // Accumulate crossed nets along this path
+                const newCrossed = new Set(curCrossed);
+                for (const cn of segCrossed) newCrossed.add(cn);
+                crossedAtNode.set(nKey, newCrossed);
+                const h = Math.hypot(nx - endX, ny - endY);
+                pushHeap({ x: nx, y: ny, layer: current.layer, f: tentG + 1.5 * h });
+            }
+        }
+
+        // Via
+        const otherLayer = current.layer === 'top' ? 'bottom' : 'top';
+        const viaKey = nodeKey(current.x, current.y, otherLayer);
+        if (!closed.has(viaKey)) {
+            const viaPadClear = totalClear * 2;
+            const onPad = obstacles.isOnPad(current.x, current.y, viaPadClear);
+            if (!onPad) {
+                const tentG = curG + VIA_COST;
+                if (tentG < (gScore.has(viaKey) ? gScore.get(viaKey) : Infinity)) {
+                    gScore.set(viaKey, tentG);
+                    cameFrom.set(viaKey, curKey);
+                    crossedAtNode.set(viaKey, new Set(curCrossed));
+                    const h = Math.hypot(current.x - endX, current.y - endY);
+                    pushHeap({ x: current.x, y: current.y, layer: otherLayer, f: tentG + 1.5 * h });
+                }
+            }
+        }
+    }
+
+    return null; // couldn't find any path even with crossings
 }
 
 // ── Path Simplification ───────────────────────────────────────────
@@ -1602,14 +1835,40 @@ export async function routeAll(input, options = {}) {
             });
             await yieldToUI();
 
-            // Find which nets block the direct path
+            // Cost-based rip-up: probe a path that treats traces as crossable
+            // (expensive but not impassable) to find exactly which nets to rip.
             const skipIds = netPadIds.get(failedNet) || new Set();
             const blockingNets = new Set();
+
             for (let i = 0; i < conn.pads.length - 1; i++) {
                 const from = conn.pads[i];
                 const to = conn.pads[i + 1];
-                const blockers = obstacles.findBlockingNets(from.x, from.y, to.x, to.y, totalClear, skipIds);
-                for (const b of blockers) blockingNets.add(b);
+                const fromLayer = from.layer || 'top';
+                const startLayers = fromLayer === 'both' ? ['top', 'bottom'] : [fromLayer];
+                const endLayer = to.layer || 'top';
+
+                let bestCrossed = null;
+                for (const sl of startLayers) {
+                    const crossed = await astarProbe(
+                        from.x, from.y, to.x, to.y,
+                        obstacles, skipIds, gridStep, traceWidth, clearance,
+                        sl, endLayer,
+                        { cancelToken, yieldToUI, bounds: routeBounds }
+                    );
+                    if (crossed !== null) {
+                        if (bestCrossed === null || crossed.size < bestCrossed.size) {
+                            bestCrossed = crossed;
+                        }
+                    }
+                }
+
+                if (bestCrossed) {
+                    for (const b of bestCrossed) blockingNets.add(b);
+                } else {
+                    // Probe failed entirely — fall back to direct-path blockers
+                    const directBlockers = obstacles.findBlockingNets(from.x, from.y, to.x, to.y, totalClear, skipIds);
+                    for (const b of directBlockers) blockingNets.add(b);
+                }
             }
 
             if (blockingNets.size === 0) {
