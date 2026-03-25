@@ -1085,7 +1085,7 @@ export default class PCBApp {
                 const routedNets = new Set(result.traces.map(t => t.net)).size;
                 const totalNets = routeInput.connections.length;
                 this._hideRouteProgress();
-                this._setStatus(`${routedNets} of ${totalNets} nets routed`);
+                this._setStatus(`Routed ${routedNets} of ${totalNets} nets (cancelled)`);
                 this._routeNetUnrouted = null;
                 return;
             }
@@ -1109,9 +1109,9 @@ export default class PCBApp {
             const totalNets = routeInput.connections.length;
             const failedCount = result.failed.length;
             const viaCount = result.vias?.length || 0;
-            const routedNets = new Set(result.traces.map(t => t.net)).size;
+            const routedNets = totalNets - failedCount;
             this._hideRouteProgress();
-            this._setStatus(`Routed ${routedNets} nets of ${totalNets} (${failedCount} failed), ${result.traces.length} segments, ${viaCount} vias in ${elapsed}`);
+            this._setStatus(`Routed ${routedNets} of ${totalNets} nets (${failedCount} failed), ${result.traces.length} segments, ${viaCount} vias in ${elapsed}`);
             this._routeNetUnrouted = null;
 
         } catch (e) {

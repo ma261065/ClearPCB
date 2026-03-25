@@ -33,8 +33,8 @@ class SpatialHash {
      * @param {number} hw - half-width (trace radius + clearance)
      * @param {string} net - which net this belongs to (same-net doesn't block)
      */
-    insert(x1, y1, x2, y2, hw, net, layer = 'top') {
-        const obj = { x1, y1, x2, y2, hw, net, layer };
+    insert(x1, y1, x2, y2, hw, net, layer = 'top', connId = null) {
+        const obj = { x1, y1, x2, y2, hw, net, layer, connId };
         const minCX = Math.floor((Math.min(x1, x2) - hw) / this.cellSize);
         const maxCX = Math.floor((Math.max(x1, x2) + hw) / this.cellSize);
         const minCY = Math.floor((Math.min(y1, y2) - hw) / this.cellSize);
@@ -62,13 +62,24 @@ class SpatialHash {
     }
 
     /**
+     * Remove all segments/vias belonging to a specific connection.
+     */
+    removeConnection(connId) {
+        for (const [key, objs] of this.cells) {
+            const filtered = objs.filter(o => o.connId !== connId || (o.isPad && !o.isVia));
+            if (filtered.length === 0) this.cells.delete(key);
+            else this.cells.set(key, filtered);
+        }
+    }
+
+    /**
      * Insert a rectangular pad obstacle.
      * @param {number} cx @param {number} cy @param {number} w @param {number} h
      * @param {string} net
      */
     insertPad(cx, cy, w, h, net, padLayer = 'both', options = {}) {
         const hw = w / 2, hh = h / 2;
-        const obj = { cx, cy, hw, hh, net, isPad: true, layer: padLayer, isVia: !!options.isVia };
+        const obj = { cx, cy, hw, hh, net, isPad: true, layer: padLayer, isVia: !!options.isVia, connId: options.connId || null };
         // Register in all cells the pad overlaps
         const minCX = Math.floor((cx - hw) / this.cellSize);
         const maxCX = Math.floor((cx + hw) / this.cellSize);
@@ -284,6 +295,34 @@ class SpatialHash {
     }
 
     /**
+     * Find which connection IDs' traces a point overlaps.
+     */
+    crossingConnIdsAtPoint(x, y, clearance, skipIds, layer = null) {
+        const crossed = new Set();
+        const cx = Math.floor(x / this.cellSize);
+        const cy = Math.floor(y / this.cellSize);
+        const isSet = skipIds instanceof Set;
+        for (let dx = -1; dx <= 1; dx++) {
+            for (let dy = -1; dy <= 1; dy++) {
+                const objs = this.cells.get(this._key(cx + dx, cy + dy));
+                if (!objs) continue;
+                for (const obj of objs) {
+                    if (obj.isPad || !obj.connId) continue;
+                    const objId = obj.net || obj.id;
+                    if (isSet ? skipIds.has(objId) : objId === skipIds) continue;
+                    if (layer) {
+                        const objLayer = obj.layer || 'both';
+                        if (objLayer !== 'both' && objLayer !== layer) continue;
+                    }
+                    const dist = pointToSegmentDist(x, y, obj.x1, obj.y1, obj.x2, obj.y2);
+                    if (dist < obj.hw + clearance) crossed.add(obj.connId);
+                }
+            }
+        }
+        return crossed;
+    }
+
+    /**
      * Find which foreign nets' traces a segment crosses.
      */
     crossingNetsForSegment(ax1, ay1, ax2, ay2, clearance, skipIds, layer = null) {
@@ -313,6 +352,67 @@ class SpatialHash {
             }
         }
         return crossed;
+    }
+
+    /**
+     * Find which connection IDs' traces a segment crosses.
+     */
+    crossingConnIdsForSegment(ax1, ay1, ax2, ay2, clearance, skipIds, layer = null) {
+        const crossed = new Set();
+        const minSX = Math.min(ax1, ax2), maxSX = Math.max(ax1, ax2);
+        const minSY = Math.min(ay1, ay2), maxSY = Math.max(ay1, ay2);
+        const cxMin = Math.floor((minSX - clearance) / this.cellSize) - 1;
+        const cxMax = Math.floor((maxSX + clearance) / this.cellSize) + 1;
+        const cyMin = Math.floor((minSY - clearance) / this.cellSize) - 1;
+        const cyMax = Math.floor((maxSY + clearance) / this.cellSize) + 1;
+        const isSet = skipIds instanceof Set;
+        for (let cx = cxMin; cx <= cxMax; cx++) {
+            for (let cy = cyMin; cy <= cyMax; cy++) {
+                const objs = this.cells.get(this._key(cx, cy));
+                if (!objs) continue;
+                for (const obj of objs) {
+                    if (obj.isPad || !obj.connId) continue;
+                    const objId = obj.net || obj.id;
+                    if (isSet ? skipIds.has(objId) : objId === skipIds) continue;
+                    if (layer) {
+                        const objLayer = obj.layer || 'both';
+                        if (objLayer !== 'both' && objLayer !== layer) continue;
+                    }
+                    const d = segmentToSegmentDist(ax1, ay1, ax2, ay2, obj.x1, obj.y1, obj.x2, obj.y2);
+                    if (d < obj.hw + clearance) crossed.add(obj.connId);
+                }
+            }
+        }
+        return crossed;
+    }
+
+    /**
+     * Find which connection IDs block a segment (for rip-up fallback).
+     */
+    findBlockingConnIds(ax1, ay1, ax2, ay2, clearance, skipIds, layer = null) {
+        const blocking = new Set();
+        const minSX = Math.min(ax1, ax2), maxSX = Math.max(ax1, ax2);
+        const minSY = Math.min(ay1, ay2), maxSY = Math.max(ay1, ay2);
+        const cxMin = Math.floor((minSX - clearance) / this.cellSize) - 1;
+        const cxMax = Math.floor((maxSX + clearance) / this.cellSize) + 1;
+        const cyMin = Math.floor((minSY - clearance) / this.cellSize) - 1;
+        const cyMax = Math.floor((maxSY + clearance) / this.cellSize) + 1;
+        const isSet = skipIds instanceof Set;
+        for (let cx = cxMin; cx <= cxMax; cx++) {
+            for (let cy = cyMin; cy <= cyMax; cy++) {
+                const objs = this.cells.get(this._key(cx, cy));
+                if (!objs) continue;
+                for (const obj of objs) {
+                    if (obj.isPad || !obj.connId) continue;
+                    const objId = obj.net || obj.id;
+                    if (isSet ? skipIds.has(objId) : objId === skipIds) continue;
+                    if (layer && obj.layer && obj.layer !== layer) continue;
+                    const d = segmentToSegmentDist(ax1, ay1, ax2, ay2, obj.x1, obj.y1, obj.x2, obj.y2);
+                    if (d < obj.hw + clearance) blocking.add(obj.connId);
+                }
+            }
+        }
+        return blocking;
     }
 }
 
@@ -540,25 +640,14 @@ async function astarRoute(sx, sy, ex, ey, obstacles, skipIds, gridStep, traceWid
     let iterations = 0;
     let stagnantIterations = 0;
     let bestHSeen = Math.hypot(startX - endX, startY - endY);
-    let lastYieldAt = (typeof performance !== 'undefined' && performance.now)
-        ? performance.now()
-        : Date.now();
 
     while (heap.length > 0 && iterations < maxIterations) {
         if (cancelToken?.cancelled) return null;
         iterations++;
         if (yieldToUI && iterations % yieldEvery === 0) {
-            const now = (typeof performance !== 'undefined' && performance.now)
-                ? performance.now()
-                : Date.now();
-            if (now - lastYieldAt >= minYieldIntervalMs) {
-                onTick?.();
-                await yieldToUI();
-                if (cancelToken?.cancelled) return null;
-                lastYieldAt = (typeof performance !== 'undefined' && performance.now)
-                    ? performance.now()
-                    : Date.now();
-            }
+            onTick?.();
+            await yieldToUI();
+            if (cancelToken?.cancelled) return null;
         }
         const current = popHeap();
         const curKey = nodeKey(current.x, current.y, current.layer);
@@ -784,7 +873,7 @@ async function astarProbe(sx, sy, ex, ey, obstacles, skipIds, gridStep, traceWid
 
     const gScore = new Map();
     const cameFrom = new Map();
-    /** @type {Map<string, Set<string>>} nodeKey → accumulated crossed nets */
+    /** @type {Map<string, Set<string>>} nodeKey → accumulated crossed connIds */
     const crossedAtNode = new Map();
     const closed = new Set();
 
@@ -825,19 +914,17 @@ async function astarProbe(sx, sy, ex, ey, obstacles, skipIds, gridStep, traceWid
 
             // Pads from other nets still hard-block (can't rip up pads)
             const padBlocked = obstacles.isBlocked(nx, ny, totalClear, skipIds, current.layer);
-            // But check if the blocker is a pad vs a trace
             let isPadBlock = false;
             if (padBlocked) {
-                // If there are no trace crossings at this point, it must be a pad blocking
-                const traceNets = obstacles.crossingNetsAtPoint(nx, ny, totalClear, skipIds, current.layer);
-                isPadBlock = traceNets.size === 0;
+                const traceConns = obstacles.crossingConnIdsAtPoint(nx, ny, totalClear, skipIds, current.layer);
+                isPadBlock = traceConns.size === 0;
             }
             if (isPadBlock) continue;  // hard-blocked by pad, skip
 
             const stepCost = Math.hypot(dx, dy) * effectiveStep;
 
-            // crossing penalty: add cost for each foreign net trace we cross
-            const segCrossed = obstacles.crossingNetsForSegment(
+            // crossing penalty: cost per connection crossed (not per net)
+            const segCrossed = obstacles.crossingConnIdsForSegment(
                 current.x, current.y, nx, ny, totalClear, skipIds, current.layer
             );
             const crossPenalty = segCrossed.size * CROSS_PENALTY;
@@ -846,7 +933,7 @@ async function astarProbe(sx, sy, ex, ey, obstacles, skipIds, gridStep, traceWid
             if (tentG < (gScore.has(nKey) ? gScore.get(nKey) : Infinity)) {
                 gScore.set(nKey, tentG);
                 cameFrom.set(nKey, curKey);
-                // Accumulate crossed nets along this path
+                // Accumulate crossed connIds along this path
                 const newCrossed = new Set(curCrossed);
                 for (const cn of segCrossed) newCrossed.add(cn);
                 crossedAtNode.set(nKey, newCrossed);
@@ -1408,21 +1495,21 @@ export async function routeAll(input, options = {}) {
         },
         2: {
             id: 'ripup-2',
-            attempt1: { stepScale: 1.0, weight: 1.4, maxIter: 110000, stagnationIters: 25000, maxDetourFactor: 2.1, enabled: true, effortTag: 'r2-a1', viaCostScale: 1.0, bendCostScale: 1.0, padDiagCostScale: 1.0, dirPenaltyScale: 1.0, congestionPenaltyScale: 1.0, viaCongestionScale: 1.0 },
-            attempt2: { stepScale: 0.5, weight: 1.2, maxIter: 320000, stagnationIters: 65000, maxDetourFactor: 3.2, enabled: true, effortTag: 'r2-a2', viaCostScale: 1.0, bendCostScale: 1.0, padDiagCostScale: 1.0, dirPenaltyScale: 1.0, congestionPenaltyScale: 1.0, viaCongestionScale: 1.0 },
-            attempt3: { stepScale: 0.25, weight: 1.0, maxIter: 620000, stagnationIters: 125000, maxDetourFactor: 5.2, enabled: true, effortTag: 'r2-a3', viaCostScale: 1.0, bendCostScale: 1.0, padDiagCostScale: 1.0, dirPenaltyScale: 1.0, congestionPenaltyScale: 1.0, viaCongestionScale: 1.0 },
+            attempt1: { stepScale: 1.0, weight: 1.4, maxIter: 110000, stagnationIters: 25000, maxDetourFactor: 2.1, enabled: true, effortTag: 'r2-a1', viaCostScale: 0.9, bendCostScale: 1.0, padDiagCostScale: 1.0, dirPenaltyScale: 1.0, congestionPenaltyScale: 1.0, viaCongestionScale: 0.9 },
+            attempt2: { stepScale: 0.5, weight: 1.2, maxIter: 320000, stagnationIters: 65000, maxDetourFactor: 3.2, enabled: true, effortTag: 'r2-a2', viaCostScale: 0.9, bendCostScale: 1.0, padDiagCostScale: 1.0, dirPenaltyScale: 1.0, congestionPenaltyScale: 1.0, viaCongestionScale: 0.9 },
+            attempt3: { stepScale: 0.25, weight: 1.0, maxIter: 620000, stagnationIters: 125000, maxDetourFactor: 5.2, enabled: true, effortTag: 'r2-a3', viaCostScale: 0.9, bendCostScale: 1.0, padDiagCostScale: 1.0, dirPenaltyScale: 1.0, congestionPenaltyScale: 1.0, viaCongestionScale: 0.9 },
         },
         3: {
             id: 'ripup-3',
-            attempt1: { stepScale: 1.0, weight: 1.35, maxIter: 140000, stagnationIters: 32000, maxDetourFactor: 2.5, enabled: true, effortTag: 'r3-a1', viaCostScale: 1.0, bendCostScale: 1.0, padDiagCostScale: 1.0, dirPenaltyScale: 1.0, congestionPenaltyScale: 1.0, viaCongestionScale: 1.0 },
-            attempt2: { stepScale: 0.5, weight: 1.15, maxIter: 420000, stagnationIters: 85000, maxDetourFactor: 3.8, enabled: true, effortTag: 'r3-a2', viaCostScale: 1.0, bendCostScale: 1.0, padDiagCostScale: 1.0, dirPenaltyScale: 1.0, congestionPenaltyScale: 1.0, viaCongestionScale: 1.0 },
-            attempt3: { stepScale: 0.25, weight: 1.0, maxIter: 850000, stagnationIters: 170000, maxDetourFactor: 6.5, enabled: true, effortTag: 'r3-a3', viaCostScale: 1.0, bendCostScale: 1.0, padDiagCostScale: 1.0, dirPenaltyScale: 1.0, congestionPenaltyScale: 1.0, viaCongestionScale: 1.0 },
+            attempt1: { stepScale: 1.0, weight: 1.35, maxIter: 140000, stagnationIters: 32000, maxDetourFactor: 2.5, enabled: true, effortTag: 'r3-a1', viaCostScale: 0.75, bendCostScale: 1.0, padDiagCostScale: 1.0, dirPenaltyScale: 0.9, congestionPenaltyScale: 1.0, viaCongestionScale: 0.8 },
+            attempt2: { stepScale: 0.5, weight: 1.15, maxIter: 420000, stagnationIters: 85000, maxDetourFactor: 3.8, enabled: true, effortTag: 'r3-a2', viaCostScale: 0.75, bendCostScale: 1.0, padDiagCostScale: 1.0, dirPenaltyScale: 0.9, congestionPenaltyScale: 1.0, viaCongestionScale: 0.8 },
+            attempt3: { stepScale: 0.25, weight: 1.0, maxIter: 850000, stagnationIters: 170000, maxDetourFactor: 6.5, enabled: true, effortTag: 'r3-a3', viaCostScale: 0.75, bendCostScale: 1.0, padDiagCostScale: 1.0, dirPenaltyScale: 0.9, congestionPenaltyScale: 1.0, viaCongestionScale: 0.8 },
         },
         4: {
             id: 'ripup-4',
-            attempt1: { stepScale: 1.0, weight: 1.3, maxIter: 180000, stagnationIters: 45000, maxDetourFactor: 3.0, enabled: true, effortTag: 'r4-a1', viaCostScale: 1.0, bendCostScale: 1.0, padDiagCostScale: 1.0, dirPenaltyScale: 1.0, congestionPenaltyScale: 1.0, viaCongestionScale: 1.0 },
-            attempt2: { stepScale: 0.5, weight: 1.1, maxIter: 560000, stagnationIters: 120000, maxDetourFactor: 4.8, enabled: true, effortTag: 'r4-a2', viaCostScale: 1.0, bendCostScale: 1.0, padDiagCostScale: 1.0, dirPenaltyScale: 1.0, congestionPenaltyScale: 1.0, viaCongestionScale: 1.0 },
-            attempt3: { stepScale: 0.25, weight: 1.0, maxIter: 1100000, stagnationIters: 240000, maxDetourFactor: 8.0, enabled: true, effortTag: 'r4-a3', viaCostScale: 1.0, bendCostScale: 1.0, padDiagCostScale: 1.0, dirPenaltyScale: 1.0, congestionPenaltyScale: 1.0, viaCongestionScale: 1.0 },
+            attempt1: { stepScale: 1.0, weight: 1.3, maxIter: 180000, stagnationIters: 45000, maxDetourFactor: 3.0, enabled: true, effortTag: 'r4-a1', viaCostScale: 0.6, bendCostScale: 0.9, padDiagCostScale: 0.9, dirPenaltyScale: 0.8, congestionPenaltyScale: 1.0, viaCongestionScale: 0.7 },
+            attempt2: { stepScale: 0.5, weight: 1.1, maxIter: 560000, stagnationIters: 120000, maxDetourFactor: 4.8, enabled: true, effortTag: 'r4-a2', viaCostScale: 0.6, bendCostScale: 0.9, padDiagCostScale: 0.9, dirPenaltyScale: 0.8, congestionPenaltyScale: 1.0, viaCongestionScale: 0.7 },
+            attempt3: { stepScale: 0.25, weight: 1.0, maxIter: 1100000, stagnationIters: 240000, maxDetourFactor: 8.0, enabled: true, effortTag: 'r4-a3', viaCostScale: 0.6, bendCostScale: 0.9, padDiagCostScale: 0.9, dirPenaltyScale: 0.8, congestionPenaltyScale: 1.0, viaCongestionScale: 0.7 },
         },
     };
 
@@ -1491,285 +1578,306 @@ export async function routeAll(input, options = {}) {
     }
 
     /**
-     * Route a single net. Returns traces array or null.
+     * Route a single connection (one pad pair). Returns traces array or null.
+     * @param {{ id: string, net: string, from: object, to: object }} connInfo
      */
-    async function routeNet(conn, obstacles, skipIds, phaseProfile = DEFAULT_PHASE_PROFILE) {
+    async function routeConnection(connInfo, obstacles, phaseProfile = DEFAULT_PHASE_PROFILE) {
         const traces = [];
+        const skipIds = netPadIds.get(connInfo.net) || new Set();
+        const from = connInfo.from;
+        const to = connInfo.to;
         const a1 = phaseProfile.attempt1 || DEFAULT_PHASE_PROFILE.attempt1;
         const a2 = phaseProfile.attempt2 || DEFAULT_PHASE_PROFILE.attempt2;
         const a3 = phaseProfile.attempt3 || DEFAULT_PHASE_PROFILE.attempt3;
-        for (let i = 0; i < conn.pads.length - 1; i++) {
-            const from = conn.pads[i];
-            const to = conn.pads[i + 1];
 
-            // Determine which layers each pad is on
-            const fromLayer = from.layer || 'top';  // 'top', 'bottom', or 'both'
-            const toLayer = to.layer || 'top';
+        // Determine which layers each pad is on
+        const fromLayer = from.layer || 'top';
+        const toLayer = to.layer || 'top';
 
-            // Find a common layer for direct routing
-            const commonLayers = [];
-            if ((fromLayer === 'top' || fromLayer === 'both') &&
-                (toLayer === 'top' || toLayer === 'both')) commonLayers.push('top');
-            if ((fromLayer === 'bottom' || fromLayer === 'both') &&
-                (toLayer === 'bottom' || toLayer === 'both')) commonLayers.push('bottom');
+        // Find a common layer for direct routing
+        const commonLayers = [];
+        if ((fromLayer === 'top' || fromLayer === 'both') &&
+            (toLayer === 'top' || toLayer === 'both')) commonLayers.push('top');
+        if ((fromLayer === 'bottom' || fromLayer === 'both') &&
+            (toLayer === 'bottom' || toLayer === 'both')) commonLayers.push('bottom');
 
-            // Try direct line on each common layer
-            let routed = false;
-            for (const layer of commonLayers) {
-                if (isValidAngle(from.x, from.y, to.x, to.y) &&
-                    !obstacles.isSegmentBlocked(from.x, from.y, to.x, to.y, totalClear, skipIds, layer)) {
-                    traces.push({ net: conn.net, points: [
-                        { x: from.x, y: from.y, layer },
-                        { x: to.x, y: to.y, layer }
-                    ], layer, vias: [] });
-                    obstacles.insert(from.x, from.y, to.x, to.y, halfTrace, conn.net, layer);
+        // Try direct line on each common layer
+        let routed = false;
+        for (const layer of commonLayers) {
+            if (isValidAngle(from.x, from.y, to.x, to.y) &&
+                !obstacles.isSegmentBlocked(from.x, from.y, to.x, to.y, totalClear, skipIds, layer)) {
+                traces.push({ net: connInfo.net, points: [
+                    { x: from.x, y: from.y, layer },
+                    { x: to.x, y: to.y, layer }
+                ], layer, vias: [] });
+                obstacles.insert(from.x, from.y, to.x, to.y, halfTrace, connInfo.net, layer, connInfo.id);
+                obstacleVersion++;
+                routed = true;
+                break;
+            }
+            if (!isValidAngle(from.x, from.y, to.x, to.y)) {
+                const cleanPts = sanitizeAngles([
+                    { x: from.x, y: from.y, layer },
+                    { x: to.x, y: to.y, layer }
+                ]);
+                if (arePathSegmentsClear(cleanPts, layer, skipIds)) {
+                    traces.push({ net: connInfo.net, points: cleanPts, layer, vias: [] });
+                    for (let k = 0; k < cleanPts.length - 1; k++) {
+                        obstacles.insert(cleanPts[k].x, cleanPts[k].y, cleanPts[k+1].x, cleanPts[k+1].y, halfTrace, connInfo.net, layer, connInfo.id);
+                    }
                     obstacleVersion++;
                     routed = true;
                     break;
                 }
-                // Try sanitized 2-segment path (45°+H/V) if direct angle is invalid
-                if (!isValidAngle(from.x, from.y, to.x, to.y)) {
-                    const cleanPts = sanitizeAngles([
-                        { x: from.x, y: from.y, layer },
-                        { x: to.x, y: to.y, layer }
-                    ]);
-                    if (arePathSegmentsClear(cleanPts, layer, skipIds)) {
-                        traces.push({ net: conn.net, points: cleanPts, layer, vias: [] });
-                        for (let k = 0; k < cleanPts.length - 1; k++) {
-                            obstacles.insert(cleanPts[k].x, cleanPts[k].y, cleanPts[k+1].x, cleanPts[k+1].y, halfTrace, conn.net, layer);
-                        }
-                        obstacleVersion++;
-                        routed = true;
-                        break;
-                    }
-                }
-            }
-            if (routed) continue;
-
-            // A* with via support — try starting on each viable layer
-            const startLayers = fromLayer === 'both' ? ['top', 'bottom']
-                : [fromLayer];
-            const endLayer = toLayer;  // pass dest pad layer so A* only accepts valid arrival
-            let result = null;
-
-            for (const startLayer of startLayers) {
-                if (cancelToken?.cancelled) break;
-                // Show the connection being attempted
-                onTrying?.(from, to);
-                await yieldToUI();
-
-                // Try 1: normal grid — fail fast (100K)
-                let lastTryingTick = 0;
-                const throttledTryingTick = () => {
-                    const now = (typeof performance !== 'undefined' && performance.now)
-                        ? performance.now()
-                        : Date.now();
-                    if (now - lastTryingTick >= 400) {
-                        onTrying?.(from, to);
-                        lastTryingTick = now;
-                    }
-                };
-
-                const a1CostSig = [a1.viaCostScale, a1.bendCostScale, a1.padDiagCostScale, a1.dirPenaltyScale, a1.congestionPenaltyScale, a1.viaCongestionScale].map(v => Number(v ?? 1).toFixed(2)).join(':');
-                const attempt1Key = makeAttemptKey(from, to, startLayer, endLayer, gridStep * a1.stepScale, a1.weight, a1.effortTag || `${phaseProfile.id}:a1`, a1CostSig);
-                const cached1 = getCachedAttemptResult(attempt1Key, skipIds);
-                if (cached1 !== undefined) {
-                    result = cached1;
-                } else {
-                    result = await astarRoute(
-                    from.x, from.y, to.x, to.y,
-                    obstacles, skipIds, gridStep * a1.stepScale, traceWidth, clearance,
-                    a1.weight, true, startLayer, endLayer,
-                    {
-                        maxIter: a1.maxIter,
-                        stagnationIters: a1.stagnationIters,
-                        cancelToken,
-                        yieldToUI,
-                        onTick: throttledTryingTick,
-                        maxDetourFactor: a1.maxDetourFactor,
-                        bounds: routeBounds,
-                        viaCostScale: a1.viaCostScale,
-                        bendCostScale: a1.bendCostScale,
-                        padDiagCostScale: a1.padDiagCostScale,
-                        dirPenaltyScale: a1.dirPenaltyScale,
-                        congestionPenaltyScale: a1.congestionPenaltyScale,
-                        viaCongestionScale: a1.viaCongestionScale,
-                    }
-                    );
-                    setCachedAttemptResult(attempt1Key, result);
-                }
-                if (result) break;
-
-                onTrying?.(from, to);
-                await yieldToUI();
-
-                // Try 2: finer grid (300K)
-                const a2CostSig = [a2.viaCostScale, a2.bendCostScale, a2.padDiagCostScale, a2.dirPenaltyScale, a2.congestionPenaltyScale, a2.viaCongestionScale].map(v => Number(v ?? 1).toFixed(2)).join(':');
-                const attempt2Key = makeAttemptKey(from, to, startLayer, endLayer, gridStep * a2.stepScale, a2.weight, a2.effortTag || `${phaseProfile.id}:a2`, a2CostSig);
-                const cached2 = getCachedAttemptResult(attempt2Key, skipIds);
-                if (cached2 !== undefined) {
-                    result = cached2;
-                } else {
-                    result = await astarRoute(
-                    from.x, from.y, to.x, to.y,
-                    obstacles, skipIds, gridStep * a2.stepScale, traceWidth, clearance,
-                    a2.weight, true, startLayer, endLayer,
-                    {
-                        maxIter: a2.maxIter,
-                        stagnationIters: a2.stagnationIters,
-                        cancelToken,
-                        yieldToUI,
-                        onTick: throttledTryingTick,
-                        maxDetourFactor: a2.maxDetourFactor,
-                        bounds: routeBounds,
-                        viaCostScale: a2.viaCostScale,
-                        bendCostScale: a2.bendCostScale,
-                        padDiagCostScale: a2.padDiagCostScale,
-                        dirPenaltyScale: a2.dirPenaltyScale,
-                        congestionPenaltyScale: a2.congestionPenaltyScale,
-                        viaCongestionScale: a2.viaCongestionScale,
-                    }
-                    );
-                    setCachedAttemptResult(attempt2Key, result);
-                }
-                if (result) break;
-
-                if (!a3.enabled) continue;
-
-                onTrying?.(from, to);
-                await yieldToUI();
-
-                // Try 3: finest grid, thorough search (600K)
-                const a3CostSig = [a3.viaCostScale, a3.bendCostScale, a3.padDiagCostScale, a3.dirPenaltyScale, a3.congestionPenaltyScale, a3.viaCongestionScale].map(v => Number(v ?? 1).toFixed(2)).join(':');
-                const attempt3Key = makeAttemptKey(from, to, startLayer, endLayer, gridStep * a3.stepScale, a3.weight, a3.effortTag || `${phaseProfile.id}:a3`, a3CostSig);
-                const cached3 = getCachedAttemptResult(attempt3Key, skipIds);
-                if (cached3 !== undefined) {
-                    result = cached3;
-                } else {
-                    result = await astarRoute(
-                    from.x, from.y, to.x, to.y,
-                    obstacles, skipIds, gridStep * a3.stepScale, traceWidth, clearance,
-                    a3.weight, true, startLayer, endLayer,
-                    {
-                        maxIter: a3.maxIter,
-                        stagnationIters: a3.stagnationIters,
-                        cancelToken,
-                        yieldToUI,
-                        onTick: throttledTryingTick,
-                        maxDetourFactor: a3.maxDetourFactor,
-                        bounds: routeBounds,
-                        viaCostScale: a3.viaCostScale,
-                        bendCostScale: a3.bendCostScale,
-                        padDiagCostScale: a3.padDiagCostScale,
-                        dirPenaltyScale: a3.dirPenaltyScale,
-                        congestionPenaltyScale: a3.congestionPenaltyScale,
-                        viaCongestionScale: a3.viaCongestionScale,
-                    }
-                    );
-                    setCachedAttemptResult(attempt3Key, result);
-                }
-                if (result) break;
-            }
-
-            if (result) {
-                const rawSimplified = simplifyPath(result.path, obstacles, skipIds, totalClear);
-                const fixed = fixAngles(rawSimplified);
-                const simplified = fixAngles(optimizePath(fixed, obstacles, skipIds, totalClear));
-                // Detect vias directly from the simplified path — wherever
-                // the layer changes between consecutive points, place a via
-                const detectedVias = [];
-                for (let s = 1; s < simplified.length; s++) {
-                    if (simplified[s].layer !== simplified[s-1].layer) {
-                        detectedVias.push({ x: simplified[s].x, y: simplified[s].y });
-                    }
-                }
-
-                // Split path into strictly single-layer segments.
-                let runStart = 0;
-                const flushRun = (runEnd) => {
-                    const segPts = simplified.slice(runStart, runEnd + 1);
-                    const layer = simplified[runStart].layer || 'top';
-                    if (segPts.length < 2) return;
-                    // Sanitize only if the transformed geometry still passes clearance checks.
-                    const sanitizedPts = sanitizeAngles(segPts);
-                    const cleanPts = arePathSegmentsClear(sanitizedPts, layer, skipIds)
-                        ? sanitizedPts
-                        : segPts;
-                    if (!arePathSegmentsClear(cleanPts, layer, skipIds)) return;
-                    traces.push({ net: conn.net, points: cleanPts, layer, vias: [] });
-                    for (let k = 0; k < cleanPts.length - 1; k++) {
-                        obstacles.insert(cleanPts[k].x, cleanPts[k].y, cleanPts[k+1].x, cleanPts[k+1].y,
-                            halfTrace, conn.net, layer);
-                    }
-                    obstacleVersion++;
-                };
-
-                for (let s = 1; s < simplified.length; s++) {
-                    if (simplified[s].layer !== simplified[s - 1].layer) {
-                        flushRun(s - 1);
-                        runStart = s;
-                    }
-                }
-                flushRun(simplified.length - 1);
-                // Attach detected vias to the last trace segment
-                if (detectedVias.length > 0 && traces.length > 0) {
-                    traces[traces.length - 1].vias = detectedVias;
-                }
-
-                // Register vias as obstacles so future nets avoid them
-                const viaDia = totalClear * 2;  // via occupies space on both layers
-                for (const v of detectedVias) {
-                    obstacles.insertPad(v.x, v.y, viaDia, viaDia, conn.net, 'both', { isVia: true });
-                }
-                if (detectedVias.length > 0) obstacleVersion++;
-            } else {
-                return null; // failed
             }
         }
-        return traces;
+        if (routed) return traces;
+
+        // A* with via support — try starting on each viable layer
+        const startLayers = fromLayer === 'both' ? ['top', 'bottom'] : [fromLayer];
+        const endLayer = toLayer;
+        let result = null;
+
+        for (const startLayer of startLayers) {
+            if (cancelToken?.cancelled) break;
+            onTrying?.(from, to);
+            await yieldToUI();
+
+            let lastTryingTick = 0;
+            const throttledTryingTick = () => {
+                const now = (typeof performance !== 'undefined' && performance.now)
+                    ? performance.now()
+                    : Date.now();
+                if (now - lastTryingTick >= 400) {
+                    onTrying?.(from, to);
+                    lastTryingTick = now;
+                }
+            };
+
+            const a1CostSig = [a1.viaCostScale, a1.bendCostScale, a1.padDiagCostScale, a1.dirPenaltyScale, a1.congestionPenaltyScale, a1.viaCongestionScale].map(v => Number(v ?? 1).toFixed(2)).join(':');
+            const attempt1Key = makeAttemptKey(from, to, startLayer, endLayer, gridStep * a1.stepScale, a1.weight, a1.effortTag || `${phaseProfile.id}:a1`, a1CostSig);
+            const cached1 = getCachedAttemptResult(attempt1Key, skipIds);
+            if (cached1 !== undefined) {
+                result = cached1;
+            } else {
+                result = await astarRoute(
+                from.x, from.y, to.x, to.y,
+                obstacles, skipIds, gridStep * a1.stepScale, traceWidth, clearance,
+                a1.weight, true, startLayer, endLayer,
+                {
+                    maxIter: a1.maxIter, stagnationIters: a1.stagnationIters, cancelToken, yieldToUI,
+                    onTick: throttledTryingTick, maxDetourFactor: a1.maxDetourFactor, bounds: routeBounds,
+                    viaCostScale: a1.viaCostScale, bendCostScale: a1.bendCostScale,
+                    padDiagCostScale: a1.padDiagCostScale, dirPenaltyScale: a1.dirPenaltyScale,
+                    congestionPenaltyScale: a1.congestionPenaltyScale, viaCongestionScale: a1.viaCongestionScale,
+                });
+                setCachedAttemptResult(attempt1Key, result);
+            }
+            if (result) break;
+
+            onTrying?.(from, to);
+            await yieldToUI();
+
+            const a2CostSig = [a2.viaCostScale, a2.bendCostScale, a2.padDiagCostScale, a2.dirPenaltyScale, a2.congestionPenaltyScale, a2.viaCongestionScale].map(v => Number(v ?? 1).toFixed(2)).join(':');
+            const attempt2Key = makeAttemptKey(from, to, startLayer, endLayer, gridStep * a2.stepScale, a2.weight, a2.effortTag || `${phaseProfile.id}:a2`, a2CostSig);
+            const cached2 = getCachedAttemptResult(attempt2Key, skipIds);
+            if (cached2 !== undefined) {
+                result = cached2;
+            } else {
+                result = await astarRoute(
+                from.x, from.y, to.x, to.y,
+                obstacles, skipIds, gridStep * a2.stepScale, traceWidth, clearance,
+                a2.weight, true, startLayer, endLayer,
+                {
+                    maxIter: a2.maxIter, stagnationIters: a2.stagnationIters, cancelToken, yieldToUI,
+                    onTick: throttledTryingTick, maxDetourFactor: a2.maxDetourFactor, bounds: routeBounds,
+                    viaCostScale: a2.viaCostScale, bendCostScale: a2.bendCostScale,
+                    padDiagCostScale: a2.padDiagCostScale, dirPenaltyScale: a2.dirPenaltyScale,
+                    congestionPenaltyScale: a2.congestionPenaltyScale, viaCongestionScale: a2.viaCongestionScale,
+                });
+                setCachedAttemptResult(attempt2Key, result);
+            }
+            if (result) break;
+
+            if (!a3.enabled) continue;
+
+            onTrying?.(from, to);
+            await yieldToUI();
+
+            const a3CostSig = [a3.viaCostScale, a3.bendCostScale, a3.padDiagCostScale, a3.dirPenaltyScale, a3.congestionPenaltyScale, a3.viaCongestionScale].map(v => Number(v ?? 1).toFixed(2)).join(':');
+            const attempt3Key = makeAttemptKey(from, to, startLayer, endLayer, gridStep * a3.stepScale, a3.weight, a3.effortTag || `${phaseProfile.id}:a3`, a3CostSig);
+            const cached3 = getCachedAttemptResult(attempt3Key, skipIds);
+            if (cached3 !== undefined) {
+                result = cached3;
+            } else {
+                result = await astarRoute(
+                from.x, from.y, to.x, to.y,
+                obstacles, skipIds, gridStep * a3.stepScale, traceWidth, clearance,
+                a3.weight, true, startLayer, endLayer,
+                {
+                    maxIter: a3.maxIter, stagnationIters: a3.stagnationIters, cancelToken, yieldToUI,
+                    onTick: throttledTryingTick, maxDetourFactor: a3.maxDetourFactor, bounds: routeBounds,
+                    viaCostScale: a3.viaCostScale, bendCostScale: a3.bendCostScale,
+                    padDiagCostScale: a3.padDiagCostScale, dirPenaltyScale: a3.dirPenaltyScale,
+                    congestionPenaltyScale: a3.congestionPenaltyScale, viaCongestionScale: a3.viaCongestionScale,
+                });
+                setCachedAttemptResult(attempt3Key, result);
+            }
+            if (result) break;
+        }
+
+        if (result) {
+            const rawSimplified = simplifyPath(result.path, obstacles, skipIds, totalClear);
+            const fixed = fixAngles(rawSimplified);
+            const simplified = fixAngles(optimizePath(fixed, obstacles, skipIds, totalClear));
+            const detectedVias = [];
+            for (let s = 1; s < simplified.length; s++) {
+                if (simplified[s].layer !== simplified[s-1].layer) {
+                    detectedVias.push({ x: simplified[s].x, y: simplified[s].y });
+                }
+            }
+
+            let runStart = 0;
+            const flushRun = (runEnd) => {
+                const segPts = simplified.slice(runStart, runEnd + 1);
+                const layer = simplified[runStart].layer || 'top';
+                if (segPts.length < 2) return;
+                const sanitizedPts = sanitizeAngles(segPts);
+                const cleanPts = arePathSegmentsClear(sanitizedPts, layer, skipIds)
+                    ? sanitizedPts
+                    : segPts;
+                if (!arePathSegmentsClear(cleanPts, layer, skipIds)) return;
+                traces.push({ net: connInfo.net, points: cleanPts, layer, vias: [] });
+                for (let k = 0; k < cleanPts.length - 1; k++) {
+                    obstacles.insert(cleanPts[k].x, cleanPts[k].y, cleanPts[k+1].x, cleanPts[k+1].y,
+                        halfTrace, connInfo.net, layer, connInfo.id);
+                }
+                obstacleVersion++;
+            };
+
+            for (let s = 1; s < simplified.length; s++) {
+                if (simplified[s].layer !== simplified[s - 1].layer) {
+                    flushRun(s - 1);
+                    runStart = s;
+                }
+            }
+            flushRun(simplified.length - 1);
+            if (detectedVias.length > 0 && traces.length > 0) {
+                traces[traces.length - 1].vias = detectedVias;
+            }
+            const viaDia = totalClear * 2;
+            for (const v of detectedVias) {
+                obstacles.insertPad(v.x, v.y, viaDia, viaDia, connInfo.net, 'both', { isVia: true, connId: connInfo.id });
+            }
+            if (detectedVias.length > 0) obstacleVersion++;
+            return traces;
+        }
+        return null;
     }
 
-    // ── Pass 1: Initial routing (shortest nets first) ────────────
+    // ── Flatten nets into individual connections ──────────────────
 
     const baseObstacles = buildObstacles();
 
-    function netDifficultyScore(conn) {
-        const manhattan = netManhattan(conn);
+    /** @type {Array<{id: string, net: string, from: object, to: object}>} */
+    const allConnections = [];
+    /** @type {Map<string, Array>} net → its connection objects */
+    const connectionsByNet = new Map();
+    for (const conn of connMap.values()) {
+        const pads = conn.pads;
+        /** @type {Array<{from: object, to: object}>} */
+        let edges;
+        if (pads.length <= 2) {
+            // 2-pad net: single connection, no MST needed
+            edges = pads.length === 2 ? [{ from: pads[0], to: pads[1] }] : [];
+        } else {
+            // Multi-pad net: Prim's MST to find shortest spanning tree
+            const inTree = new Set([0]);
+            edges = [];
+            while (inTree.size < pads.length) {
+                let bestDist = Infinity, bestFrom = -1, bestTo = -1;
+                for (const fi of inTree) {
+                    for (let ti = 0; ti < pads.length; ti++) {
+                        if (inTree.has(ti)) continue;
+                        const d = Math.abs(pads[fi].x - pads[ti].x) + Math.abs(pads[fi].y - pads[ti].y);
+                        if (d < bestDist) { bestDist = d; bestFrom = fi; bestTo = ti; }
+                    }
+                }
+                if (bestTo === -1) break;
+                inTree.add(bestTo);
+                edges.push({ from: pads[bestFrom], to: pads[bestTo] });
+            }
+        }
+        if (!connectionsByNet.has(conn.net)) connectionsByNet.set(conn.net, []);
+        for (let i = 0; i < edges.length; i++) {
+            const ci = { id: `${conn.net}:${i}`, net: conn.net, from: edges[i].from, to: edges[i].to };
+            allConnections.push(ci);
+            connectionsByNet.get(conn.net).push(ci);
+        }
+    }
+
+    function connectionDifficultyScore(ci) {
+        const manhattan = Math.abs(ci.from.x - ci.to.x) + Math.abs(ci.from.y - ci.to.y);
+        let localCrowd = 0;
+        localCrowd += baseObstacles.localDensity(ci.from.x, ci.from.y, null, ci.from.layer || null, 1);
+        localCrowd += baseObstacles.localDensity(ci.to.x, ci.to.y, null, ci.to.layer || null, 1);
+        localCrowd /= 2;
+        const pinCountPenalty = 10;
+        return manhattan + pinCountPenalty + localCrowd * Math.max(gridStep, 0.5);
+    }
+
+    // Sort nets by difficulty — replicate the exact old net-level scoring
+    // so initial routing order matches the proven 17-fail baseline.
+    function netDifficultyScore(netName) {
+        const conn = connMap.get(netName);
+        if (!conn) return Infinity;
         const pads = conn.pads || [];
-        if (!pads.length) return manhattan;
+        if (pads.length < 2) return Infinity;
+        // Manhattan of shortest consecutive pad pair
+        let minManhattan = Infinity;
+        for (let i = 0; i < pads.length - 1; i++) {
+            const d = Math.abs(pads[i].x - pads[i + 1].x) + Math.abs(pads[i].y - pads[i + 1].y);
+            minManhattan = Math.min(minManhattan, d);
+        }
         let localCrowd = 0;
         for (const p of pads) {
             localCrowd += baseObstacles.localDensity(p.x, p.y, null, p.layer || null, 1);
         }
         localCrowd /= pads.length;
         const pinCountPenalty = pads.length * 5;
-        return manhattan + pinCountPenalty + localCrowd * Math.max(gridStep, 0.5);
+        return minManhattan + pinCountPenalty + localCrowd * Math.max(gridStep, 0.5);
     }
 
-    const scoredNets = [...connMap.values()].map(conn => ({
-        conn,
-        score: netDifficultyScore(conn),
+    const netOrder = [...connectionsByNet.keys()].map(netName => ({
+        netName,
+        score: netDifficultyScore(netName),
     }));
-    scoredNets.sort((a, b) => {
+    netOrder.sort((a, b) => {
         if (a.score !== b.score) return a.score - b.score;
-        return String(a.conn.net || '').localeCompare(String(b.conn.net || ''));
+        return a.netName.localeCompare(b.netName);
     });
-    const sorted = scoredNets.map(item => item.conn);
-    const totalNets = sorted.length;
-    let completedNets = 0;
+
+    /** @type {Array<{id: string, net: string, from: object, to: object}>} */
+    const sorted = [];
+    for (const { netName } of netOrder) {
+        const netConns = connectionsByNet.get(netName) || [];
+        for (const ci of netConns) sorted.push(ci);
+    }
+    const totalConnections = sorted.length;
+    let completedConnections = 0;
 
     let obstacles = buildObstacles();
-    /** @type {Map<string, Array>} net → traces */
+    /** @type {Map<string, Array>} connId → traces */
     const routedTraces = new Map();
-    const failedNets = [];
+    const failedConnections = [];
 
-    const cloneNetTraces = (netTraces) => netTraces.map(t => ({
+    const cloneTraces = (traces) => traces.map(t => ({
         ...t,
         points: (t.points || []).map(p => ({ x: p.x, y: p.y, layer: p.layer })),
         vias: (t.vias || []).map(v => ({ x: v.x, y: v.y })),
     }));
 
-    /** @type {Map<string, Array>} best net → traces snapshot */
+    /** @type {Map<string, Array>} best connId → traces snapshot */
     let bestRoutedTraces = new Map();
     let bestRoutedCount = 0;
 
@@ -1778,38 +1886,49 @@ export async function routeAll(input, options = {}) {
         if (routedCount <= bestRoutedCount) return;
         bestRoutedCount = routedCount;
         bestRoutedTraces = new Map();
-        for (const [netName, netTraces] of routedTraces.entries()) {
-            bestRoutedTraces.set(netName, cloneNetTraces(netTraces));
+        for (const [connId, traces] of routedTraces.entries()) {
+            bestRoutedTraces.set(connId, cloneTraces(traces));
         }
     };
 
-    for (const conn of sorted) {
+    /** Recompute pending connections for a net based on routed state */
+    const updateNetPending = (netName) => {
+        const netConns = connectionsByNet.get(netName) || [];
+        const pending = netConns.filter(c => !routedTraces.has(c.id)).length;
+        setNetPendingConnections(netName, pending);
+    };
+
+    /** Lookup from connId → connection object */
+    const connById = new Map();
+    for (const ci of allConnections) connById.set(ci.id, ci);
+
+    // ── Pass 1: Route connections (easiest first) ────────────────
+
+    for (const ci of sorted) {
         if (cancelToken?.cancelled) break;
-        emitProgress(completedNets, totalNets, conn.net, { phase: 'initial' });
+        emitProgress(completedConnections, totalConnections, ci.net, { phase: 'initial' });
         await yieldToUI();
 
-        const skipIds = netPadIds.get(conn.net) || new Set();
-
-        const result = await routeNet(conn, obstacles, skipIds, tunedInitialProfile);
+        const result = await routeConnection(ci, obstacles, tunedInitialProfile);
         if (result) {
-            routedTraces.set(conn.net, result);
-            setNetPendingConnections(conn.net, 0);
+            routedTraces.set(ci.id, result);
+            updateNetPending(ci.net);
             captureBestIfImproved();
             onNetRouted?.(result);
         } else {
-            failedNets.push(conn.net);
-            setNetPendingConnections(conn.net, Math.max(0, (conn.pads?.length || 0) - 1));
-            onNetFailed?.(conn);
+            failedConnections.push(ci);
+            updateNetPending(ci.net);
+            onNetFailed?.({ net: ci.net, pads: [ci.from, ci.to] });
         }
-        completedNets++;
+        completedConnections++;
     }
 
     // ── Passes 2+: Rip-up-and-reroute ────────────────────────────
 
-    for (let pass = 1; pass <= MAX_PASSES && failedNets.length > 0; pass++) {
+    for (let pass = 1; pass <= MAX_PASSES && failedConnections.length > 0; pass++) {
         if (cancelToken?.cancelled) break;
         const passProfile = getRipupProfile(pass);
-        const passTotal = Math.max(1, failedNets.length);
+        const passTotal = Math.max(1, failedConnections.length);
         let passDone = 0;
         emitProgress(passDone, passTotal, `Rip-up pass ${pass}`, {
             phase: 'ripup',
@@ -1821,12 +1940,10 @@ export async function routeAll(input, options = {}) {
         await yieldToUI();
         const stillFailed = [];
 
-        for (const failedNet of failedNets) {
+        for (const failedCI of failedConnections) {
             if (cancelToken?.cancelled) break;
-            const conn = connMap.get(failedNet);
-            if (!conn) continue;
 
-            emitProgress(passDone, passTotal, `Rip-up ${pass}: ${failedNet}`, {
+            emitProgress(passDone, passTotal, `Rip-up ${pass}: ${failedCI.net}`, {
                 phase: 'ripup',
                 ripupDone: passDone,
                 ripupTotal: passTotal,
@@ -1835,49 +1952,47 @@ export async function routeAll(input, options = {}) {
             });
             await yieldToUI();
 
-            // Cost-based rip-up: probe a path that treats traces as crossable
-            // (expensive but not impassable) to find exactly which nets to rip.
-            const skipIds = netPadIds.get(failedNet) || new Set();
-            const blockingNets = new Set();
+            // Cost-based rip-up probe — find which nets to rip
+            const skipIds = netPadIds.get(failedCI.net) || new Set();
+            const fromLayer = failedCI.from.layer || 'top';
+            const startLayers = fromLayer === 'both' ? ['top', 'bottom'] : [fromLayer];
+            const endLayer = failedCI.to.layer || 'top';
 
-            for (let i = 0; i < conn.pads.length - 1; i++) {
-                const from = conn.pads[i];
-                const to = conn.pads[i + 1];
-                const fromLayer = from.layer || 'top';
-                const startLayers = fromLayer === 'both' ? ['top', 'bottom'] : [fromLayer];
-                const endLayer = to.layer || 'top';
-
-                let bestCrossed = null;
-                for (const sl of startLayers) {
-                    const crossed = await astarProbe(
-                        from.x, from.y, to.x, to.y,
-                        obstacles, skipIds, gridStep, traceWidth, clearance,
-                        sl, endLayer,
-                        { cancelToken, yieldToUI, bounds: routeBounds }
-                    );
-                    if (crossed !== null) {
-                        if (bestCrossed === null || crossed.size < bestCrossed.size) {
-                            bestCrossed = crossed;
-                        }
+            let bestCrossed = null;
+            for (const sl of startLayers) {
+                const crossed = await astarProbe(
+                    failedCI.from.x, failedCI.from.y, failedCI.to.x, failedCI.to.y,
+                    obstacles, skipIds, gridStep, traceWidth, clearance,
+                    sl, endLayer,
+                    { cancelToken, yieldToUI, bounds: routeBounds }
+                );
+                if (crossed !== null) {
+                    if (bestCrossed === null || crossed.size < bestCrossed.size) {
+                        bestCrossed = crossed;
                     }
-                }
-
-                if (bestCrossed) {
-                    for (const b of bestCrossed) blockingNets.add(b);
-                } else {
-                    // Probe failed entirely — fall back to direct-path blockers
-                    const directBlockers = obstacles.findBlockingNets(from.x, from.y, to.x, to.y, totalClear, skipIds);
-                    for (const b of directBlockers) blockingNets.add(b);
                 }
             }
 
+            // Collect blocking nets
+            const blockingNets = new Set();
+            if (bestCrossed) {
+                // Probe returns connIds — expand to net names
+                for (const bcId of bestCrossed) {
+                    const bc = connById.get(bcId);
+                    if (bc) blockingNets.add(bc.net);
+                }
+            } else {
+                // Fallback: direct-path blocker detection by net
+                const directBlockers = obstacles.findBlockingNets(
+                    failedCI.from.x, failedCI.from.y, failedCI.to.x, failedCI.to.y, totalClear, skipIds);
+                for (const b of directBlockers) blockingNets.add(b);
+            }
+
             if (blockingNets.size === 0) {
-                // No trace obstacles — just pads in the way, can't help
-                stillFailed.push(failedNet);
-                setNetPendingConnections(failedNet, Math.max(0, (conn.pads?.length || 0) - 1));
-                onNetFailed?.(conn);
+                stillFailed.push(failedCI);
+                onNetFailed?.({ net: failedCI.net, pads: [failedCI.from, failedCI.to] });
                 passDone++;
-                emitProgress(passDone, passTotal, `Rip-up ${pass}: ${failedNet}`, {
+                emitProgress(passDone, passTotal, `Rip-up ${pass}: ${failedCI.net}`, {
                     phase: 'ripup',
                     ripupDone: passDone,
                     ripupTotal: passTotal,
@@ -1887,55 +2002,66 @@ export async function routeAll(input, options = {}) {
                 continue;
             }
 
-            // Rip up blocking nets
-            const rippedNets = [];
+            const rippedConnections = [];
+            const affectedNets = new Set();
             const blockingNetsSorted = [...blockingNets].sort((a, b) => String(a).localeCompare(String(b)));
             for (const bn of blockingNetsSorted) {
-                if (routedTraces.has(bn)) {
-                    obstacles.removeNet(bn);
-                    obstacleVersion++;
-                    rippedNets.push(bn);
-                    routedTraces.delete(bn);
-                    onNetRipped?.(bn);
-                    const bnConn = connMap.get(bn);
-                    if (bnConn) setNetPendingConnections(bn, Math.max(0, (bnConn.pads?.length || 0) - 1));
+                // Remove all traces for this net at once (matching old removeNet behavior)
+                obstacles.removeNet(bn);
+                obstacleVersion++;
+                affectedNets.add(bn);
+                const bnConns = connectionsByNet.get(bn) || [];
+                for (const bc of bnConns) {
+                    if (routedTraces.has(bc.id)) {
+                        rippedConnections.push(bc);
+                        routedTraces.delete(bc.id);
+                    }
                 }
             }
+            // Notify UI for each affected net
+            for (const an of affectedNets) {
+                onNetRipped?.(an);
+                updateNetPending(an);
+            }
 
-            // Try routing the failed net now
-            const result = await routeNet(conn, obstacles, skipIds, passProfile);
+            // Route the failed connection
+            const result = await routeConnection(failedCI, obstacles, passProfile);
             if (result) {
-                routedTraces.set(failedNet, result);
-                setNetPendingConnections(failedNet, 0);
+                routedTraces.set(failedCI.id, result);
+                updateNetPending(failedCI.net);
                 captureBestIfImproved();
                 onNetRouted?.(result);
             } else {
-                stillFailed.push(failedNet);
-                setNetPendingConnections(failedNet, Math.max(0, (conn.pads?.length || 0) - 1));
-                onNetFailed?.(conn);
+                stillFailed.push(failedCI);
+                updateNetPending(failedCI.net);
+                onNetFailed?.({ net: failedCI.net, pads: [failedCI.from, failedCI.to] });
             }
 
-            // Re-route ripped nets
-            for (const rn of rippedNets) {
-                const rc = connMap.get(rn);
-                if (!rc) continue;
-                const rSkip = netPadIds.get(rn) || new Set();
-                const rResult = await routeNet(rc, obstacles, rSkip, passProfile);
+            // Re-route ripped connections with full initial profile
+            for (const rc of rippedConnections) {
+                const rResult = await routeConnection(rc, obstacles, tunedInitialProfile);
                 if (rResult) {
-                    routedTraces.set(rn, rResult);
-                    setNetPendingConnections(rn, 0);
+                    routedTraces.set(rc.id, rResult);
+                    updateNetPending(rc.net);
                     captureBestIfImproved();
                     onNetRouted?.(rResult);
                 } else {
-                    // Ripped net can't reroute — it becomes failed
-                    if (!stillFailed.includes(rn)) stillFailed.push(rn);
-                    setNetPendingConnections(rn, Math.max(0, (rc.pads?.length || 0) - 1));
-                    onNetFailed?.(rc);
+                    if (!stillFailed.find(f => f.id === rc.id)) stillFailed.push(rc);
+                    updateNetPending(rc.net);
+                    onNetFailed?.({ net: rc.net, pads: [rc.from, rc.to] });
+                }
+            }
+            // Re-render surviving connections for affected nets
+            for (const an of affectedNets) {
+                const anConns = connectionsByNet.get(an) || [];
+                for (const ac of anConns) {
+                    const acTraces = routedTraces.get(ac.id);
+                    if (acTraces) onNetRouted?.(acTraces);
                 }
             }
 
             passDone++;
-            emitProgress(passDone, passTotal, `Rip-up ${pass}: ${failedNet}`, {
+            emitProgress(passDone, passTotal, `Rip-up ${pass}: ${failedCI.net}`, {
                 phase: 'ripup',
                 ripupDone: passDone,
                 ripupTotal: passTotal,
@@ -1945,10 +2071,10 @@ export async function routeAll(input, options = {}) {
             await yieldToUI();
         }
 
-        failedNets.length = 0;
-        failedNets.push(...stillFailed);
+        failedConnections.length = 0;
+        failedConnections.push(...stillFailed);
 
-        if (failedNets.length === 0) break;
+        if (failedConnections.length === 0) break;
     }
 
     // ── Collect results ──────────────────────────────────────────
@@ -1956,8 +2082,8 @@ export async function routeAll(input, options = {}) {
     const allTraces = [];
     const allVias = [];
     const finalRouted = bestRoutedTraces.size > 0 ? bestRoutedTraces : routedTraces;
-    for (const [, netTraces] of finalRouted) {
-        for (const t of netTraces) {
+    for (const [, connTraces] of finalRouted) {
+        for (const t of connTraces) {
             allTraces.push({
                 net: t.net,
                 points: t.points.map(p => ({ x: p.x, y: p.y })),
@@ -1969,21 +2095,13 @@ export async function routeAll(input, options = {}) {
         }
     }
 
-    const bestFailedNets = [...connMap.keys()].filter(net => !finalRouted.has(net));
+    // Failed = nets where at least one connection is unrouted
+    const routedConnIds = new Set(finalRouted.keys());
+    const bestFailedNets = [...connMap.keys()].filter(netName => {
+        const netConns = connectionsByNet.get(netName) || [];
+        return netConns.some(c => !routedConnIds.has(c.id));
+    });
     return { traces: allTraces, failed: bestFailedNets, vias: allVias };
 }
 
-/**
- * Manhattan distance for the shortest pair in a net.
- */
-function netManhattan(conn) {
-    if (conn.pads.length < 2) return Infinity;
-    let min = Infinity;
-    for (let i = 0; i < conn.pads.length - 1; i++) {
-        const d = Math.abs(conn.pads[i].x - conn.pads[i + 1].x) +
-                  Math.abs(conn.pads[i].y - conn.pads[i + 1].y);
-        min = Math.min(min, d);
-    }
-    return min;
-}
 
