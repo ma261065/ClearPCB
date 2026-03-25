@@ -540,25 +540,14 @@ async function astarRoute(sx, sy, ex, ey, obstacles, skipIds, gridStep, traceWid
     let iterations = 0;
     let stagnantIterations = 0;
     let bestHSeen = Math.hypot(startX - endX, startY - endY);
-    let lastYieldAt = (typeof performance !== 'undefined' && performance.now)
-        ? performance.now()
-        : Date.now();
 
     while (heap.length > 0 && iterations < maxIterations) {
         if (cancelToken?.cancelled) return null;
         iterations++;
         if (yieldToUI && iterations % yieldEvery === 0) {
-            const now = (typeof performance !== 'undefined' && performance.now)
-                ? performance.now()
-                : Date.now();
-            if (now - lastYieldAt >= minYieldIntervalMs) {
-                onTick?.();
-                await yieldToUI();
-                if (cancelToken?.cancelled) return null;
-                lastYieldAt = (typeof performance !== 'undefined' && performance.now)
-                    ? performance.now()
-                    : Date.now();
-            }
+            onTick?.();
+            await yieldToUI();
+            if (cancelToken?.cancelled) return null;
         }
         const current = popHeap();
         const curKey = nodeKey(current.x, current.y, current.layer);
@@ -1156,6 +1145,8 @@ function sanitizeAngles(pts) {
  * @typedef {Object} RouteResult
  * @property {Array<{net: string, points: Array<{x: number, y: number}>, layer: string}>} traces
  * @property {string[]} failed - net names that couldn't be routed
+ * @property {number} [failedConnectionCount] - number of unrouted connections
+ * @property {number} [totalConnectionCount] - total connections
  * @property {Array<{net: string, x: number, y: number}>} [vias] - via locations
  */
 
@@ -1491,10 +1482,12 @@ export async function routeAll(input, options = {}) {
     }
 
     /**
-     * Route a single net. Returns traces array or null.
+     * Route a single net. Returns {traces, failedCount}.
+     * Bails on first failed connection (ghost traces remain as reservations).
      */
     async function routeNet(conn, obstacles, skipIds, phaseProfile = DEFAULT_PHASE_PROFILE) {
         const traces = [];
+        const totalConns = Math.max(0, conn.pads.length - 1);
         const a1 = phaseProfile.attempt1 || DEFAULT_PHASE_PROFILE.attempt1;
         const a2 = phaseProfile.attempt2 || DEFAULT_PHASE_PROFILE.attempt2;
         const a3 = phaseProfile.attempt3 || DEFAULT_PHASE_PROFILE.attempt3;
@@ -1723,10 +1716,13 @@ export async function routeAll(input, options = {}) {
                 }
                 if (detectedVias.length > 0) obstacleVersion++;
             } else {
-                return null; // failed
+                // Failed — earlier connections remain as ghost obstacles (reservation).
+                // Count this + all remaining connections as failed.
+                const failedCount = totalConns - i;
+                return { traces, failedCount };
             }
         }
-        return traces;
+        return { traces, failedCount: 0 };
     }
 
     // ── Pass 1: Initial routing (shortest nets first) ────────────
@@ -1772,6 +1768,8 @@ export async function routeAll(input, options = {}) {
     /** @type {Map<string, Array>} best net → traces snapshot */
     let bestRoutedTraces = new Map();
     let bestRoutedCount = 0;
+    /** @type {Map<string, number>} snapshot of pending connections at best state */
+    let bestPendingConnections = new Map();
 
     const captureBestIfImproved = () => {
         const routedCount = routedTraces.size;
@@ -1781,6 +1779,7 @@ export async function routeAll(input, options = {}) {
         for (const [netName, netTraces] of routedTraces.entries()) {
             bestRoutedTraces.set(netName, cloneNetTraces(netTraces));
         }
+        bestPendingConnections = new Map(netPendingConnections);
     };
 
     for (const conn of sorted) {
@@ -1791,14 +1790,16 @@ export async function routeAll(input, options = {}) {
         const skipIds = netPadIds.get(conn.net) || new Set();
 
         const result = await routeNet(conn, obstacles, skipIds, tunedInitialProfile);
-        if (result) {
-            routedTraces.set(conn.net, result);
-            setNetPendingConnections(conn.net, 0);
+        if (result.traces.length > 0) {
+            routedTraces.set(conn.net, result.traces);
+            setNetPendingConnections(conn.net, result.failedCount);
             captureBestIfImproved();
-            onNetRouted?.(result);
+            onNetRouted?.(result.traces);
         } else {
+            setNetPendingConnections(conn.net, result.failedCount);
+        }
+        if (result.failedCount > 0) {
             failedNets.push(conn.net);
-            setNetPendingConnections(conn.net, Math.max(0, (conn.pads?.length || 0) - 1));
             onNetFailed?.(conn);
         }
         completedNets++;
@@ -1904,14 +1905,16 @@ export async function routeAll(input, options = {}) {
 
             // Try routing the failed net now
             const result = await routeNet(conn, obstacles, skipIds, passProfile);
-            if (result) {
-                routedTraces.set(failedNet, result);
-                setNetPendingConnections(failedNet, 0);
+            if (result.traces.length > 0) {
+                routedTraces.set(failedNet, result.traces);
+                setNetPendingConnections(failedNet, result.failedCount);
                 captureBestIfImproved();
-                onNetRouted?.(result);
+                onNetRouted?.(result.traces);
             } else {
+                setNetPendingConnections(failedNet, result.failedCount);
+            }
+            if (result.failedCount > 0) {
                 stillFailed.push(failedNet);
-                setNetPendingConnections(failedNet, Math.max(0, (conn.pads?.length || 0) - 1));
                 onNetFailed?.(conn);
             }
 
@@ -1922,15 +1925,16 @@ export async function routeAll(input, options = {}) {
                 if (!rc) continue;
                 const rSkip = netPadIds.get(rn) || new Set();
                 const rResult = await routeNet(rc, obstacles, rSkip, tunedInitialProfile);
-                if (rResult) {
-                    routedTraces.set(rn, rResult);
-                    setNetPendingConnections(rn, 0);
+                if (rResult.traces.length > 0) {
+                    routedTraces.set(rn, rResult.traces);
+                    setNetPendingConnections(rn, rResult.failedCount);
                     captureBestIfImproved();
-                    onNetRouted?.(rResult);
+                    onNetRouted?.(rResult.traces);
                 } else {
-                    // Ripped net can't reroute — it becomes failed
+                    setNetPendingConnections(rn, rResult.failedCount);
+                }
+                if (rResult.failedCount > 0) {
                     if (!stillFailed.includes(rn)) stillFailed.push(rn);
-                    setNetPendingConnections(rn, Math.max(0, (rc.pads?.length || 0) - 1));
                     onNetFailed?.(rc);
                 }
             }
@@ -1971,7 +1975,15 @@ export async function routeAll(input, options = {}) {
     }
 
     const bestFailedNets = [...connMap.keys()].filter(net => !finalRouted.has(net));
-    return { traces: allTraces, failed: bestFailedNets, vias: allVias };
+
+    // Count failed connections from live state (matches what ratsnest shows)
+    let totalConnectionCount = 0;
+    for (const conn of connMap.values()) {
+        totalConnectionCount += Math.max(0, conn.pads.length - 1);
+    }
+    const failedConnectionCount = pendingConnectionsTotal();
+
+    return { traces: allTraces, failed: bestFailedNets, failedConnectionCount, totalConnectionCount, vias: allVias };
 }
 
 /**

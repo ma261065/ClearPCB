@@ -1106,12 +1106,19 @@ export default class PCBApp {
                 this._renderVias(result.vias);
             }
 
-            const totalNets = routeInput.connections.length;
-            const failedCount = result.failed.length;
+            const totalConns = result.totalConnectionCount || routeInput.connections.length;
             const viaCount = result.vias?.length || 0;
-            const routedNets = new Set(result.traces.map(t => t.net)).size;
             this._hideRouteProgress();
-            this._setStatus(`Routed ${routedNets} nets of ${totalNets} (${failedCount} failed), ${result.traces.length} segments, ${viaCount} vias in ${elapsed}`);
+
+            // Count visible ratlines — this is the authoritative unrouted count
+            const ratLayer = this._getLayerGroup('ratlines');
+            let unroutedConns = 0;
+            for (const el of ratLayer.querySelectorAll('.ratsnest-line')) {
+                if (/** @type {HTMLElement} */ (el).style.display !== 'none') unroutedConns++;
+            }
+            const routedConns = totalConns - unroutedConns;
+
+            this._setStatus(`Routed ${routedConns} of ${totalConns} connections (${unroutedConns} unrouted), ${result.traces.length} segments, ${viaCount} vias in ${elapsed}`);
             this._routeNetUnrouted = null;
 
         } catch (e) {
