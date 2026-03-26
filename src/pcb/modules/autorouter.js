@@ -2121,7 +2121,6 @@ export async function routeAll(input, options = {}) {
                 if (!rc) continue;
                 const rSkip = netPadIds.get(rn) || new Set();
                 const existing = routedTraces.get(rn) || [];
-
                 const rippedIndexes = [...blockingConnIds]
                     .map(cid => parseConnectionId(cid))
                     .filter(parsed => parsed && parsed.netName === rn)
