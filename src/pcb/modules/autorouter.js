@@ -239,6 +239,36 @@ class SpatialHash {
     }
 
     /**
+     * Find which foreign connection IDs' traces block a segment (for rip-up).
+     */
+    findBlockingConnIds(ax1, ay1, ax2, ay2, clearance, skipIds, layer = null) {
+        const blocking = new Set();
+        const minSX = Math.min(ax1, ax2), maxSX = Math.max(ax1, ax2);
+        const minSY = Math.min(ay1, ay2), maxSY = Math.max(ay1, ay2);
+        const cxMin = Math.floor((minSX - clearance) / this.cellSize) - 1;
+        const cxMax = Math.floor((maxSX + clearance) / this.cellSize) + 1;
+        const cyMin = Math.floor((minSY - clearance) / this.cellSize) - 1;
+        const cyMax = Math.floor((maxSY + clearance) / this.cellSize) + 1;
+        const isSet = skipIds instanceof Set;
+
+        for (let cx = cxMin; cx <= cxMax; cx++) {
+            for (let cy = cyMin; cy <= cyMax; cy++) {
+                const objs = this.cells.get(this._key(cx, cy));
+                if (!objs) continue;
+                for (const obj of objs) {
+                    if (obj.isPad || !obj.connId) continue;
+                    const objId = obj.net || obj.id;
+                    if (isSet ? skipIds.has(objId) : objId === skipIds) continue;
+                    if (layer && obj.layer && obj.layer !== layer) continue;
+                    const d = segmentToSegmentDist(ax1, ay1, ax2, ay2, obj.x1, obj.y1, obj.x2, obj.y2);
+                    if (d < obj.hw + clearance) blocking.add(obj.connId);
+                }
+            }
+        }
+        return blocking;
+    }
+
+    /**
      * Estimate local obstacle density near a point.
      * Returns the count of nearby obstacle objects (excluding skipped IDs).
      */
@@ -1217,6 +1247,7 @@ function sanitizeAngles(pts) {
  * @property {number} [failedConnectionCount] - number of unrouted connections
  * @property {number} [totalConnectionCount] - total connections
  * @property {Array<{net: string, x: number, y: number}>} [vias] - via locations
+ * @property {number} [ripupCompatibilityFallbackCount] - how often net-level fallback was used in rip-up
  */
 
 /**
@@ -1854,6 +1885,7 @@ export async function routeAll(input, options = {}) {
     /** @type {Map<string, Array>} net → traces */
     const routedTraces = new Map();
     const failedNets = [];
+    let ripupCompatibilityFallbackCount = 0;
 
     const cloneNetTraces = (netTraces) => netTraces.map(t => ({
         ...t,
@@ -1961,11 +1993,18 @@ export async function routeAll(input, options = {}) {
                 if (bestCrossed) {
                     for (const cid of bestCrossed) blockingConnIds.add(cid);
                 } else {
-                    // Probe failed — fall back to direct-path blockers (net level)
-                    const directBlockers = obstacles.findBlockingNets(from.x, from.y, to.x, to.y, totalClear, skipIds);
-                    for (const b of directBlockers) {
-                        for (const blockerConnId of getConnectionIdsForNet(b)) {
-                            blockingConnIds.add(blockerConnId);
+                    // Probe failed — fall back to direct-path blockers (connection level).
+                    const directConnBlockers = obstacles.findBlockingConnIds(from.x, from.y, to.x, to.y, totalClear, skipIds);
+                    if (directConnBlockers.size > 0) {
+                        for (const blockerConnId of directConnBlockers) blockingConnIds.add(blockerConnId);
+                    } else {
+                        // Compatibility fallback when legacy obstacles have no connId.
+                        ripupCompatibilityFallbackCount++;
+                        const directBlockers = obstacles.findBlockingNets(from.x, from.y, to.x, to.y, totalClear, skipIds);
+                        for (const b of directBlockers) {
+                            for (const blockerConnId of getConnectionIdsForNet(b)) {
+                                blockingConnIds.add(blockerConnId);
+                            }
                         }
                     }
                 }
@@ -2093,7 +2132,18 @@ export async function routeAll(input, options = {}) {
     }
     const failedConnectionCount = pendingConnectionsTotal();
 
-    return { traces: allTraces, failed: bestFailedNets, failedConnectionCount, totalConnectionCount, vias: allVias };
+    console.info(
+        `[autorouter] ripup compatibility fallback used ${ripupCompatibilityFallbackCount} time(s)`
+    );
+
+    return {
+        traces: allTraces,
+        failed: bestFailedNets,
+        failedConnectionCount,
+        totalConnectionCount,
+        vias: allVias,
+        ripupCompatibilityFallbackCount,
+    };
 }
 
 /**
