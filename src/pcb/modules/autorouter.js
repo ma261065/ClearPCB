@@ -1443,7 +1443,7 @@ export async function routeAll(input, options = {}) {
         return true;
     }
 
-    function makeAttemptKey(from, to, startLayer, endLayer, step, weight, effortTag = '', costSig = '') {
+    function makeAttemptKey(from, to, startLayer, endLayer, step, weight, effortTag = '', costSig = '', skipSig = '') {
         return [
             from.x.toFixed(3), from.y.toFixed(3), from.layer || 'both',
             to.x.toFixed(3), to.y.toFixed(3), to.layer || 'both',
@@ -1451,6 +1451,7 @@ export async function routeAll(input, options = {}) {
             step.toFixed(3), weight.toFixed(2),
             effortTag,
             costSig,
+            skipSig,
             traceWidth.toFixed(3), clearance.toFixed(3),
         ].join('|');
     }
@@ -1637,7 +1638,7 @@ export async function routeAll(input, options = {}) {
                 };
 
                 const a1CostSig = [a1.viaCostScale, a1.bendCostScale, a1.padDiagCostScale, a1.dirPenaltyScale, a1.congestionPenaltyScale, a1.viaCongestionScale].map(v => Number(v ?? 1).toFixed(2)).join(':');
-                const attempt1Key = makeAttemptKey(from, to, startLayer, endLayer, gridStep * a1.stepScale, a1.weight, a1.effortTag || `${phaseProfile.id}:a1`, a1CostSig);
+                const attempt1Key = makeAttemptKey(from, to, startLayer, endLayer, gridStep * a1.stepScale, a1.weight, a1.effortTag || `${phaseProfile.id}:a1`, a1CostSig, connId);
                 const cached1 = getCachedAttemptResult(attempt1Key, skipIds);
                 if (cached1 !== undefined) {
                     result = cached1;
@@ -1671,7 +1672,7 @@ export async function routeAll(input, options = {}) {
 
                 // Try 2: finer grid (300K)
                 const a2CostSig = [a2.viaCostScale, a2.bendCostScale, a2.padDiagCostScale, a2.dirPenaltyScale, a2.congestionPenaltyScale, a2.viaCongestionScale].map(v => Number(v ?? 1).toFixed(2)).join(':');
-                const attempt2Key = makeAttemptKey(from, to, startLayer, endLayer, gridStep * a2.stepScale, a2.weight, a2.effortTag || `${phaseProfile.id}:a2`, a2CostSig);
+                const attempt2Key = makeAttemptKey(from, to, startLayer, endLayer, gridStep * a2.stepScale, a2.weight, a2.effortTag || `${phaseProfile.id}:a2`, a2CostSig, connId);
                 const cached2 = getCachedAttemptResult(attempt2Key, skipIds);
                 if (cached2 !== undefined) {
                     result = cached2;
@@ -1707,7 +1708,7 @@ export async function routeAll(input, options = {}) {
 
                 // Try 3: finest grid, thorough search (600K)
                 const a3CostSig = [a3.viaCostScale, a3.bendCostScale, a3.padDiagCostScale, a3.dirPenaltyScale, a3.congestionPenaltyScale, a3.viaCongestionScale].map(v => Number(v ?? 1).toFixed(2)).join(':');
-                const attempt3Key = makeAttemptKey(from, to, startLayer, endLayer, gridStep * a3.stepScale, a3.weight, a3.effortTag || `${phaseProfile.id}:a3`, a3CostSig);
+                const attempt3Key = makeAttemptKey(from, to, startLayer, endLayer, gridStep * a3.stepScale, a3.weight, a3.effortTag || `${phaseProfile.id}:a3`, a3CostSig, connId);
                 const cached3 = getCachedAttemptResult(attempt3Key, skipIds);
                 if (cached3 !== undefined) {
                     result = cached3;
