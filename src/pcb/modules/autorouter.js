@@ -1253,6 +1253,8 @@ function sanitizeAngles(pts) {
  * @property {number} [ripupBlockersFromProbeCount] - unique blocker IDs contributed by probe results
  * @property {number} [ripupBlockersFromConnFallbackCount] - unique blocker IDs contributed by conn-level fallback
  * @property {number} [ripupBlockersFromCompatibilityFallbackCount] - unique blocker IDs contributed by net-level compatibility fallback
+ * @property {number} [connectionOnlyRerouteAttempts] - number of ripped connections attempted via connection-only reroute
+ * @property {number} [connectionOnlyRerouteFallbacksToNet] - number of nets that fell back to full-net reroute after connection-only attempt
  */
 
 /**
@@ -1438,6 +1440,16 @@ export async function routeAll(input, options = {}) {
         return `${netName}:${connectionIndex}`;
     }
 
+    function parseConnectionId(connId) {
+        if (typeof connId !== 'string') return null;
+        const cut = connId.lastIndexOf(':');
+        if (cut <= 0 || cut >= connId.length - 1) return null;
+        const netName = connId.slice(0, cut);
+        const index = Number(connId.slice(cut + 1));
+        if (!Number.isInteger(index) || index < 0) return null;
+        return { netName, index };
+    }
+
     function registerConnectionId(connId, netName) {
         if (!connId) return;
         if (!netName) return;
@@ -1615,14 +1627,14 @@ export async function routeAll(input, options = {}) {
      * Route a single net. Returns {traces, failedCount}.
      * Bails on first failed connection (ghost traces remain as reservations).
      */
-    async function routeNet(conn, obstacles, skipIds, phaseProfile = DEFAULT_PHASE_PROFILE) {
+    async function routeNet(conn, obstacles, skipIds, phaseProfile = DEFAULT_PHASE_PROFILE, connIndexBase = 0) {
         const traces = [];
         const totalConns = Math.max(0, conn.pads.length - 1);
         const a1 = phaseProfile.attempt1 || DEFAULT_PHASE_PROFILE.attempt1;
         const a2 = phaseProfile.attempt2 || DEFAULT_PHASE_PROFILE.attempt2;
         const a3 = phaseProfile.attempt3 || DEFAULT_PHASE_PROFILE.attempt3;
         for (let i = 0; i < conn.pads.length - 1; i++) {
-            const connId = makeConnectionId(conn.net, i);
+            const connId = makeConnectionId(conn.net, connIndexBase + i);
             registerConnectionId(connId, conn.net);
             const from = conn.pads[i];
             const to = conn.pads[i + 1];
@@ -1646,7 +1658,7 @@ export async function routeAll(input, options = {}) {
                     traces.push({ net: conn.net, points: [
                         { x: from.x, y: from.y, layer },
                         { x: to.x, y: to.y, layer }
-                    ], layer, vias: [] });
+                    ], layer, vias: [], connId });
                     obstacles.insert(from.x, from.y, to.x, to.y, halfTrace, conn.net, layer, connId);
                     obstacleVersion++;
                     routed = true;
@@ -1659,7 +1671,7 @@ export async function routeAll(input, options = {}) {
                         { x: to.x, y: to.y, layer }
                     ]);
                     if (arePathSegmentsClear(cleanPts, layer, skipIds)) {
-                        traces.push({ net: conn.net, points: cleanPts, layer, vias: [] });
+                        traces.push({ net: conn.net, points: cleanPts, layer, vias: [], connId });
                         for (let k = 0; k < cleanPts.length - 1; k++) {
                             obstacles.insert(cleanPts[k].x, cleanPts[k].y, cleanPts[k+1].x, cleanPts[k+1].y, halfTrace, conn.net, layer, connId);
                         }
@@ -1821,7 +1833,7 @@ export async function routeAll(input, options = {}) {
                         ? sanitizedPts
                         : segPts;
                     if (!arePathSegmentsClear(cleanPts, layer, skipIds)) return;
-                    traces.push({ net: conn.net, points: cleanPts, layer, vias: [] });
+                    traces.push({ net: conn.net, points: cleanPts, layer, vias: [], connId });
                     for (let k = 0; k < cleanPts.length - 1; k++) {
                         obstacles.insert(cleanPts[k].x, cleanPts[k].y, cleanPts[k+1].x, cleanPts[k+1].y,
                             halfTrace, conn.net, layer, connId);
@@ -1896,6 +1908,8 @@ export async function routeAll(input, options = {}) {
     let ripupBlockersFromProbeCount = 0;
     let ripupBlockersFromConnFallbackCount = 0;
     let ripupBlockersFromCompatibilityFallbackCount = 0;
+    let connectionOnlyRerouteAttempts = 0;
+    let connectionOnlyRerouteFallbacksToNet = 0;
 
     const addBlockingConnIds = (targetSet, connIds) => {
         let added = 0;
@@ -2066,13 +2080,18 @@ export async function routeAll(input, options = {}) {
             for (const cid of [...blockingConnIds].sort()) {
                 obstacles.removeConnection(cid);
                 obstacleVersion++;
+                const ownerNet = connIdToNet.get(cid) || parseConnectionId(cid)?.netName || null;
+                if (ownerNet && routedTraces.has(ownerNet)) {
+                    const existing = routedTraces.get(ownerNet) || [];
+                    const filtered = existing.filter(t => t.connId !== cid);
+                    routedTraces.set(ownerNet, filtered);
+                }
             }
             // Mark affected nets for re-routing
             const affectedNetsSorted = [...affectedNets].sort();
             for (const an of affectedNetsSorted) {
                 if (routedTraces.has(an)) {
                     rippedNets.push(an);
-                    routedTraces.delete(an);
                     onNetRipped?.(an);
                     const anConn = connMap.get(an);
                     if (anConn) setNetPendingConnections(an, Math.max(0, (anConn.pads?.length || 0) - 1));
@@ -2096,10 +2115,51 @@ export async function routeAll(input, options = {}) {
 
             // Re-route ripped nets with the full initial profile — they
             // were already routable once, so they deserve adequate budget.
+            // Try connection-only reroute first for ripped connection IDs.
             for (const rn of rippedNets) {
                 const rc = connMap.get(rn);
                 if (!rc) continue;
                 const rSkip = netPadIds.get(rn) || new Set();
+                const existing = routedTraces.get(rn) || [];
+
+                const rippedIndexes = [...blockingConnIds]
+                    .map(cid => parseConnectionId(cid))
+                    .filter(parsed => parsed && parsed.netName === rn)
+                    .map(parsed => parsed.index)
+                    .filter(idx => idx >= 0 && idx < (rc.pads.length - 1));
+
+                const uniqueSortedIndexes = [...new Set(rippedIndexes)].sort((a, b) => a - b);
+
+                let connectionOnlyFailed = false;
+                const appended = [];
+                for (const connIdx of uniqueSortedIndexes) {
+                    connectionOnlyRerouteAttempts++;
+                    const miniConn = {
+                        net: rc.net,
+                        pads: [rc.pads[connIdx], rc.pads[connIdx + 1]],
+                    };
+                    const cResult = await routeNet(miniConn, obstacles, rSkip, tunedInitialProfile, connIdx);
+                    if (cResult.failedCount > 0 || cResult.traces.length === 0) {
+                        connectionOnlyFailed = true;
+                        break;
+                    }
+                    appended.push(...cResult.traces);
+                }
+
+                if (!connectionOnlyFailed) {
+                    routedTraces.set(rn, existing.concat(appended));
+                    setNetPendingConnections(rn, 0);
+                    captureBestIfImproved();
+                    if (appended.length > 0) onNetRouted?.(appended);
+                    continue;
+                }
+
+                // Connection-only reroute failed for this net; rebuild the net with full reroute.
+                connectionOnlyRerouteFallbacksToNet++;
+                obstacles.removeNet(rn);
+                obstacleVersion++;
+                routedTraces.delete(rn);
+
                 const rResult = await routeNet(rc, obstacles, rSkip, tunedInitialProfile);
                 if (rResult.traces.length > 0) {
                     routedTraces.set(rn, rResult.traces);
@@ -2160,7 +2220,7 @@ export async function routeAll(input, options = {}) {
     const failedConnectionCount = pendingConnectionsTotal();
 
     console.info(
-        `[autorouter] ripup probe misses=${ripupProbeMissCount}, conn-fallbacks=${ripupConnFallbackCount}, net-fallbacks=${ripupCompatibilityFallbackCount}, blockers(probe/conn/net)=${ripupBlockersFromProbeCount}/${ripupBlockersFromConnFallbackCount}/${ripupBlockersFromCompatibilityFallbackCount}`
+        `[autorouter] ripup probe misses=${ripupProbeMissCount}, conn-fallbacks=${ripupConnFallbackCount}, net-fallbacks=${ripupCompatibilityFallbackCount}, blockers(probe/conn/net)=${ripupBlockersFromProbeCount}/${ripupBlockersFromConnFallbackCount}/${ripupBlockersFromCompatibilityFallbackCount}, conn-only attempts=${connectionOnlyRerouteAttempts}, conn-only->net-fallbacks=${connectionOnlyRerouteFallbacksToNet}`
     );
 
     return {
@@ -2175,6 +2235,8 @@ export async function routeAll(input, options = {}) {
         ripupBlockersFromProbeCount,
         ripupBlockersFromConnFallbackCount,
         ripupBlockersFromCompatibilityFallbackCount,
+        connectionOnlyRerouteAttempts,
+        connectionOnlyRerouteFallbacksToNet,
     };
 }
 
