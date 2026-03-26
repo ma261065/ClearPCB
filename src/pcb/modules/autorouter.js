@@ -1820,7 +1820,7 @@ export async function routeAll(input, options = {}) {
         score: netDifficultyScore(conn),
     }));
     scoredNets.sort((a, b) => {
-        if (a.score !== b.score) return a.score - b.score;
+        if (a.score !== b.score) return b.score - a.score;  // longest/hardest first
         return String(a.conn.net || '').localeCompare(String(b.conn.net || ''));
     });
     const sorted = scoredNets.map(item => item.conn);
