@@ -1247,7 +1247,12 @@ function sanitizeAngles(pts) {
  * @property {number} [failedConnectionCount] - number of unrouted connections
  * @property {number} [totalConnectionCount] - total connections
  * @property {Array<{net: string, x: number, y: number}>} [vias] - via locations
+ * @property {number} [ripupProbeMissCount] - number of probe attempts that found no path
+ * @property {number} [ripupConnFallbackCount] - number of probe misses recovered by connId direct blockers
  * @property {number} [ripupCompatibilityFallbackCount] - how often net-level fallback was used in rip-up
+ * @property {number} [ripupBlockersFromProbeCount] - unique blocker IDs contributed by probe results
+ * @property {number} [ripupBlockersFromConnFallbackCount] - unique blocker IDs contributed by conn-level fallback
+ * @property {number} [ripupBlockersFromCompatibilityFallbackCount] - unique blocker IDs contributed by net-level compatibility fallback
  */
 
 /**
@@ -1885,7 +1890,23 @@ export async function routeAll(input, options = {}) {
     /** @type {Map<string, Array>} net → traces */
     const routedTraces = new Map();
     const failedNets = [];
+    let ripupProbeMissCount = 0;
+    let ripupConnFallbackCount = 0;
     let ripupCompatibilityFallbackCount = 0;
+    let ripupBlockersFromProbeCount = 0;
+    let ripupBlockersFromConnFallbackCount = 0;
+    let ripupBlockersFromCompatibilityFallbackCount = 0;
+
+    const addBlockingConnIds = (targetSet, connIds) => {
+        let added = 0;
+        for (const cid of connIds) {
+            if (!targetSet.has(cid)) {
+                targetSet.add(cid);
+                added++;
+            }
+        }
+        return added;
+    };
 
     const cloneNetTraces = (netTraces) => netTraces.map(t => ({
         ...t,
@@ -1991,21 +2012,27 @@ export async function routeAll(input, options = {}) {
                 }
 
                 if (bestCrossed) {
-                    for (const cid of bestCrossed) blockingConnIds.add(cid);
+                    ripupBlockersFromProbeCount += addBlockingConnIds(blockingConnIds, bestCrossed);
                 } else {
+                    ripupProbeMissCount++;
                     // Probe failed — fall back to direct-path blockers (connection level).
                     const directConnBlockers = obstacles.findBlockingConnIds(from.x, from.y, to.x, to.y, totalClear, skipIds);
                     if (directConnBlockers.size > 0) {
-                        for (const blockerConnId of directConnBlockers) blockingConnIds.add(blockerConnId);
+                        ripupConnFallbackCount++;
+                        ripupBlockersFromConnFallbackCount += addBlockingConnIds(blockingConnIds, directConnBlockers);
                     } else {
+                        // TODO(connection-ripup): Remove this net-level fallback once board-suite
+                        // validation repeatedly shows net-fallbacks=0.
                         // Compatibility fallback when legacy obstacles have no connId.
                         ripupCompatibilityFallbackCount++;
                         const directBlockers = obstacles.findBlockingNets(from.x, from.y, to.x, to.y, totalClear, skipIds);
+                        const compatibilityConnIds = new Set();
                         for (const b of directBlockers) {
                             for (const blockerConnId of getConnectionIdsForNet(b)) {
-                                blockingConnIds.add(blockerConnId);
+                                compatibilityConnIds.add(blockerConnId);
                             }
                         }
+                        ripupBlockersFromCompatibilityFallbackCount += addBlockingConnIds(blockingConnIds, compatibilityConnIds);
                     }
                 }
             }
@@ -2133,7 +2160,7 @@ export async function routeAll(input, options = {}) {
     const failedConnectionCount = pendingConnectionsTotal();
 
     console.info(
-        `[autorouter] ripup compatibility fallback used ${ripupCompatibilityFallbackCount} time(s)`
+        `[autorouter] ripup probe misses=${ripupProbeMissCount}, conn-fallbacks=${ripupConnFallbackCount}, net-fallbacks=${ripupCompatibilityFallbackCount}, blockers(probe/conn/net)=${ripupBlockersFromProbeCount}/${ripupBlockersFromConnFallbackCount}/${ripupBlockersFromCompatibilityFallbackCount}`
     );
 
     return {
@@ -2142,7 +2169,12 @@ export async function routeAll(input, options = {}) {
         failedConnectionCount,
         totalConnectionCount,
         vias: allVias,
+        ripupProbeMissCount,
+        ripupConnFallbackCount,
         ripupCompatibilityFallbackCount,
+        ripupBlockersFromProbeCount,
+        ripupBlockersFromConnFallbackCount,
+        ripupBlockersFromCompatibilityFallbackCount,
     };
 }
 
