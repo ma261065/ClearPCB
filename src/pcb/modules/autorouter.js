@@ -772,11 +772,11 @@ async function astarRoute(sx, sy, ex, ey, obstacles, skipIds, gridStep, traceWid
 
 /**
  * Lightweight A* probe that treats existing traces as crossable (with a high
- * penalty) instead of impassable.  Returns the set of foreign net names whose
- * traces the cheapest path actually crossed, or null if no path was found at
+ * penalty) instead of impassable. Returns the set of foreign connection IDs
+ * whose traces the cheapest path actually crossed, or null if no path was found at
  * all (e.g. pads in the way).
  *
- * This is used during rip-up to surgically identify which nets to rip
+ * This is used during rip-up to surgically identify which connections to rip
  * instead of blasting every net along the direct bounding-box path.
  */
 async function astarProbe(sx, sy, ex, ey, obstacles, skipIds, gridStep, traceWidth, clearance, startLayer = 'top', endPadLayer = 'both', options = {}) {
@@ -845,8 +845,7 @@ async function astarProbe(sx, sy, ex, ey, obstacles, skipIds, gridStep, traceWid
     };
 
     const gScore = new Map();
-    const cameFrom = new Map();
-    /** @type {Map<string, Set<string>>} nodeKey → accumulated crossed nets */
+    /** @type {Map<string, Set<string>>} nodeKey -> accumulated crossed connection IDs */
     const crossedAtNode = new Map();
     const closed = new Set();
 
@@ -906,7 +905,6 @@ async function astarProbe(sx, sy, ex, ey, obstacles, skipIds, gridStep, traceWid
             const tentG = curG + stepCost + crossPenalty;
             if (tentG < (gScore.has(nKey) ? gScore.get(nKey) : Infinity)) {
                 gScore.set(nKey, tentG);
-                cameFrom.set(nKey, curKey);
                 // Accumulate crossed connIds along this path
                 const newCrossed = new Set(curCrossed);
                 for (const cn of segCrossed) newCrossed.add(cn);
@@ -926,7 +924,6 @@ async function astarProbe(sx, sy, ex, ey, obstacles, skipIds, gridStep, traceWid
                 const tentG = curG + VIA_COST;
                 if (tentG < (gScore.has(viaKey) ? gScore.get(viaKey) : Infinity)) {
                     gScore.set(viaKey, tentG);
-                    cameFrom.set(viaKey, curKey);
                     crossedAtNode.set(viaKey, new Set(curCrossed));
                     const h = Math.hypot(current.x - endX, current.y - endY);
                     pushHeap({ x: current.x, y: current.y, layer: otherLayer, f: tentG + 1.5 * h });
@@ -1398,6 +1395,30 @@ export async function routeAll(input, options = {}) {
     /** Optional route cache reused across rip-up passes. */
     const routeAttemptCache = new Map();
     let obstacleVersion = 0;
+    /** Map connection ID -> owning net name (scoped to this routeAll run). */
+    const connIdToNet = new Map();
+
+    function makeConnectionId(netName, connectionIndex) {
+        return `${netName}:${connectionIndex}`;
+    }
+
+    function registerConnectionId(connId, netName) {
+        if (!connId) return;
+        if (!netName) return;
+        connIdToNet.set(connId, netName);
+    }
+
+    function getConnectionIdsForNet(netName) {
+        const netConn = connMap.get(netName);
+        if (!netConn || !Array.isArray(netConn.pads) || netConn.pads.length < 2) return [];
+        const ids = [];
+        for (let i = 0; i < netConn.pads.length - 1; i++) {
+            const cid = makeConnectionId(netName, i);
+            registerConnectionId(cid, netName);
+            ids.push(cid);
+        }
+        return ids;
+    }
 
     /**
      * Build a fresh obstacle hash and insert all pads.
@@ -1565,7 +1586,8 @@ export async function routeAll(input, options = {}) {
         const a2 = phaseProfile.attempt2 || DEFAULT_PHASE_PROFILE.attempt2;
         const a3 = phaseProfile.attempt3 || DEFAULT_PHASE_PROFILE.attempt3;
         for (let i = 0; i < conn.pads.length - 1; i++) {
-            const connId = `${conn.net}:${i}`;
+            const connId = makeConnectionId(conn.net, i);
+            registerConnectionId(connId, conn.net);
             const from = conn.pads[i];
             const to = conn.pads[i + 1];
 
@@ -1942,10 +1964,8 @@ export async function routeAll(input, options = {}) {
                     // Probe failed — fall back to direct-path blockers (net level)
                     const directBlockers = obstacles.findBlockingNets(from.x, from.y, to.x, to.y, totalClear, skipIds);
                     for (const b of directBlockers) {
-                        // Add all connIds of blocking nets
-                        const bConn = connMap.get(b);
-                        if (bConn) {
-                            for (let ci = 0; ci < bConn.pads.length - 1; ci++) blockingConnIds.add(`${b}:${ci}`);
+                        for (const blockerConnId of getConnectionIdsForNet(b)) {
+                            blockingConnIds.add(blockerConnId);
                         }
                     }
                 }
@@ -1954,7 +1974,7 @@ export async function routeAll(input, options = {}) {
             // Expand connIds to affected nets for re-routing
             const affectedNets = new Set();
             for (const cid of blockingConnIds) {
-                const net = cid.substring(0, cid.lastIndexOf(':'));
+                const net = connIdToNet.get(cid);
                 if (net) affectedNets.add(net);
             }
 
