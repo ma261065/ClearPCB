@@ -33,8 +33,8 @@ class SpatialHash {
      * @param {number} hw - half-width (trace radius + clearance)
      * @param {string} net - which net this belongs to (same-net doesn't block)
      */
-    insert(x1, y1, x2, y2, hw, net, layer = 'top') {
-        const obj = { x1, y1, x2, y2, hw, net, layer };
+    insert(x1, y1, x2, y2, hw, net, layer = 'top', connId = null) {
+        const obj = { x1, y1, x2, y2, hw, net, layer, connId };
         const minCX = Math.floor((Math.min(x1, x2) - hw) / this.cellSize);
         const maxCX = Math.floor((Math.max(x1, x2) + hw) / this.cellSize);
         const minCY = Math.floor((Math.min(y1, y2) - hw) / this.cellSize);
@@ -62,13 +62,25 @@ class SpatialHash {
     }
 
     /**
+     * Remove all segments/vias belonging to a specific connection.
+     */
+    removeConnection(connId) {
+        if (!connId) return;
+        for (const [key, objs] of this.cells) {
+            const filtered = objs.filter(o => o.connId !== connId || (o.isPad && !o.isVia));
+            if (filtered.length === 0) this.cells.delete(key);
+            else this.cells.set(key, filtered);
+        }
+    }
+
+    /**
      * Insert a rectangular pad obstacle.
      * @param {number} cx @param {number} cy @param {number} w @param {number} h
      * @param {string} net
      */
     insertPad(cx, cy, w, h, net, padLayer = 'both', options = {}) {
         const hw = w / 2, hh = h / 2;
-        const obj = { cx, cy, hw, hh, net, isPad: true, layer: padLayer, isVia: !!options.isVia };
+        const obj = { cx, cy, hw, hh, net, isPad: true, layer: padLayer, isVia: !!options.isVia, connId: options.connId || null };
         // Register in all cells the pad overlaps
         const minCX = Math.floor((cx - hw) / this.cellSize);
         const maxCX = Math.floor((cx + hw) / this.cellSize);
@@ -309,6 +321,67 @@ class SpatialHash {
                     }
                     const d = segmentToSegmentDist(ax1, ay1, ax2, ay2, obj.x1, obj.y1, obj.x2, obj.y2);
                     if (d < obj.hw + clearance && obj.net) crossed.add(obj.net);
+                }
+            }
+        }
+        return crossed;
+    }
+
+    /**
+     * Find which connection IDs' traces a point overlaps.
+     * Returns set of connId strings. Pads are ignored.
+     */
+    crossingConnIdsAtPoint(x, y, clearance, skipIds, layer = null) {
+        const crossed = new Set();
+        const cx = Math.floor(x / this.cellSize);
+        const cy = Math.floor(y / this.cellSize);
+        const isSet = skipIds instanceof Set;
+        for (let dx = -1; dx <= 1; dx++) {
+            for (let dy = -1; dy <= 1; dy++) {
+                const objs = this.cells.get(this._key(cx + dx, cy + dy));
+                if (!objs) continue;
+                for (const obj of objs) {
+                    if (obj.isPad || !obj.connId) continue;
+                    const objId = obj.net || obj.id;
+                    if (isSet ? skipIds.has(objId) : objId === skipIds) continue;
+                    if (layer) {
+                        const objLayer = obj.layer || 'both';
+                        if (objLayer !== 'both' && objLayer !== layer) continue;
+                    }
+                    const dist = pointToSegmentDist(x, y, obj.x1, obj.y1, obj.x2, obj.y2);
+                    if (dist < obj.hw + clearance) crossed.add(obj.connId);
+                }
+            }
+        }
+        return crossed;
+    }
+
+    /**
+     * Find which connection IDs' traces a segment crosses.
+     */
+    crossingConnIdsForSegment(ax1, ay1, ax2, ay2, clearance, skipIds, layer = null) {
+        const crossed = new Set();
+        const minSX = Math.min(ax1, ax2), maxSX = Math.max(ax1, ax2);
+        const minSY = Math.min(ay1, ay2), maxSY = Math.max(ay1, ay2);
+        const cxMin = Math.floor((minSX - clearance) / this.cellSize) - 1;
+        const cxMax = Math.floor((maxSX + clearance) / this.cellSize) + 1;
+        const cyMin = Math.floor((minSY - clearance) / this.cellSize) - 1;
+        const cyMax = Math.floor((maxSY + clearance) / this.cellSize) + 1;
+        const isSet = skipIds instanceof Set;
+        for (let cx = cxMin; cx <= cxMax; cx++) {
+            for (let cy = cyMin; cy <= cyMax; cy++) {
+                const objs = this.cells.get(this._key(cx, cy));
+                if (!objs) continue;
+                for (const obj of objs) {
+                    if (obj.isPad || !obj.connId) continue;
+                    const objId = obj.net || obj.id;
+                    if (isSet ? skipIds.has(objId) : objId === skipIds) continue;
+                    if (layer) {
+                        const objLayer = obj.layer || 'both';
+                        if (objLayer !== 'both' && objLayer !== layer) continue;
+                    }
+                    const d = segmentToSegmentDist(ax1, ay1, ax2, ay2, obj.x1, obj.y1, obj.x2, obj.y2);
+                    if (d < obj.hw + clearance) crossed.add(obj.connId);
                 }
             }
         }
@@ -814,19 +887,18 @@ async function astarProbe(sx, sy, ex, ey, obstacles, skipIds, gridStep, traceWid
 
             // Pads from other nets still hard-block (can't rip up pads)
             const padBlocked = obstacles.isBlocked(nx, ny, totalClear, skipIds, current.layer);
-            // But check if the blocker is a pad vs a trace
             let isPadBlock = false;
             if (padBlocked) {
                 // If there are no trace crossings at this point, it must be a pad blocking
-                const traceNets = obstacles.crossingNetsAtPoint(nx, ny, totalClear, skipIds, current.layer);
-                isPadBlock = traceNets.size === 0;
+                const traceConns = obstacles.crossingConnIdsAtPoint(nx, ny, totalClear, skipIds, current.layer);
+                isPadBlock = traceConns.size === 0;
             }
             if (isPadBlock) continue;  // hard-blocked by pad, skip
 
             const stepCost = Math.hypot(dx, dy) * effectiveStep;
 
-            // crossing penalty: add cost for each foreign net trace we cross
-            const segCrossed = obstacles.crossingNetsForSegment(
+            // crossing penalty: cost per connection crossed
+            const segCrossed = obstacles.crossingConnIdsForSegment(
                 current.x, current.y, nx, ny, totalClear, skipIds, current.layer
             );
             const crossPenalty = segCrossed.size * CROSS_PENALTY;
@@ -835,7 +907,7 @@ async function astarProbe(sx, sy, ex, ey, obstacles, skipIds, gridStep, traceWid
             if (tentG < (gScore.has(nKey) ? gScore.get(nKey) : Infinity)) {
                 gScore.set(nKey, tentG);
                 cameFrom.set(nKey, curKey);
-                // Accumulate crossed nets along this path
+                // Accumulate crossed connIds along this path
                 const newCrossed = new Set(curCrossed);
                 for (const cn of segCrossed) newCrossed.add(cn);
                 crossedAtNode.set(nKey, newCrossed);
@@ -1492,6 +1564,7 @@ export async function routeAll(input, options = {}) {
         const a2 = phaseProfile.attempt2 || DEFAULT_PHASE_PROFILE.attempt2;
         const a3 = phaseProfile.attempt3 || DEFAULT_PHASE_PROFILE.attempt3;
         for (let i = 0; i < conn.pads.length - 1; i++) {
+            const connId = `${conn.net}:${i}`;
             const from = conn.pads[i];
             const to = conn.pads[i + 1];
 
@@ -1515,7 +1588,7 @@ export async function routeAll(input, options = {}) {
                         { x: from.x, y: from.y, layer },
                         { x: to.x, y: to.y, layer }
                     ], layer, vias: [] });
-                    obstacles.insert(from.x, from.y, to.x, to.y, halfTrace, conn.net, layer);
+                    obstacles.insert(from.x, from.y, to.x, to.y, halfTrace, conn.net, layer, connId);
                     obstacleVersion++;
                     routed = true;
                     break;
@@ -1529,7 +1602,7 @@ export async function routeAll(input, options = {}) {
                     if (arePathSegmentsClear(cleanPts, layer, skipIds)) {
                         traces.push({ net: conn.net, points: cleanPts, layer, vias: [] });
                         for (let k = 0; k < cleanPts.length - 1; k++) {
-                            obstacles.insert(cleanPts[k].x, cleanPts[k].y, cleanPts[k+1].x, cleanPts[k+1].y, halfTrace, conn.net, layer);
+                            obstacles.insert(cleanPts[k].x, cleanPts[k].y, cleanPts[k+1].x, cleanPts[k+1].y, halfTrace, conn.net, layer, connId);
                         }
                         obstacleVersion++;
                         routed = true;
@@ -1692,7 +1765,7 @@ export async function routeAll(input, options = {}) {
                     traces.push({ net: conn.net, points: cleanPts, layer, vias: [] });
                     for (let k = 0; k < cleanPts.length - 1; k++) {
                         obstacles.insert(cleanPts[k].x, cleanPts[k].y, cleanPts[k+1].x, cleanPts[k+1].y,
-                            halfTrace, conn.net, layer);
+                            halfTrace, conn.net, layer, connId);
                     }
                     obstacleVersion++;
                 };
@@ -1712,7 +1785,7 @@ export async function routeAll(input, options = {}) {
                 // Register vias as obstacles so future nets avoid them
                 const viaDia = totalClear * 2;  // via occupies space on both layers
                 for (const v of detectedVias) {
-                    obstacles.insertPad(v.x, v.y, viaDia, viaDia, conn.net, 'both', { isVia: true });
+                    obstacles.insertPad(v.x, v.y, viaDia, viaDia, conn.net, 'both', { isVia: true, connId });
                 }
                 if (detectedVias.length > 0) obstacleVersion++;
             } else {
@@ -1836,8 +1909,8 @@ export async function routeAll(input, options = {}) {
             });
             await yieldToUI();
 
-            // Cost-based rip-up: probe a path that treats traces as crossable
-            // (expensive but not impassable) to find exactly which nets to rip.
+            // Cost-based rip-up: probe returns connIds of crossed connections.
+            // Expand to net names for rip-up (still rips whole nets for now).
             const skipIds = netPadIds.get(failedNet) || new Set();
             const blockingNets = new Set();
 
@@ -1864,7 +1937,11 @@ export async function routeAll(input, options = {}) {
                 }
 
                 if (bestCrossed) {
-                    for (const b of bestCrossed) blockingNets.add(b);
+                    // connIds are "NetName:index" — extract net name
+                    for (const cid of bestCrossed) {
+                        const net = cid.split(':')[0];
+                        if (net) blockingNets.add(net);
+                    }
                 } else {
                     // Probe failed entirely — fall back to direct-path blockers
                     const directBlockers = obstacles.findBlockingNets(from.x, from.y, to.x, to.y, totalClear, skipIds);
