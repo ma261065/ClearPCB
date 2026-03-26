@@ -1910,9 +1910,8 @@ export async function routeAll(input, options = {}) {
             await yieldToUI();
 
             // Cost-based rip-up: probe returns connIds of crossed connections.
-            // Expand to net names for rip-up (still rips whole nets for now).
             const skipIds = netPadIds.get(failedNet) || new Set();
-            const blockingNets = new Set();
+            const blockingConnIds = new Set();
 
             for (let i = 0; i < conn.pads.length - 1; i++) {
                 const from = conn.pads[i];
@@ -1937,19 +1936,28 @@ export async function routeAll(input, options = {}) {
                 }
 
                 if (bestCrossed) {
-                    // connIds are "NetName:index" — extract net name
-                    for (const cid of bestCrossed) {
-                        const net = cid.split(':')[0];
-                        if (net) blockingNets.add(net);
-                    }
+                    for (const cid of bestCrossed) blockingConnIds.add(cid);
                 } else {
-                    // Probe failed entirely — fall back to direct-path blockers
+                    // Probe failed — fall back to direct-path blockers (net level)
                     const directBlockers = obstacles.findBlockingNets(from.x, from.y, to.x, to.y, totalClear, skipIds);
-                    for (const b of directBlockers) blockingNets.add(b);
+                    for (const b of directBlockers) {
+                        // Add all connIds of blocking nets
+                        const bConn = connMap.get(b);
+                        if (bConn) {
+                            for (let ci = 0; ci < bConn.pads.length - 1; ci++) blockingConnIds.add(`${b}:${ci}`);
+                        }
+                    }
                 }
             }
 
-            if (blockingNets.size === 0) {
+            // Expand connIds to affected nets for re-routing
+            const affectedNets = new Set();
+            for (const cid of blockingConnIds) {
+                const net = cid.substring(0, cid.lastIndexOf(':'));
+                if (net) affectedNets.add(net);
+            }
+
+            if (affectedNets.size === 0) {
                 // No trace obstacles — just pads in the way, can't help
                 stillFailed.push(failedNet);
                 setNetPendingConnections(failedNet, Math.max(0, (conn.pads?.length || 0) - 1));
@@ -1965,18 +1973,22 @@ export async function routeAll(input, options = {}) {
                 continue;
             }
 
-            // Rip up blocking nets
+            // Rip only the specific blocking connections, then re-route affected nets
             const rippedNets = [];
-            const blockingNetsSorted = [...blockingNets].sort((a, b) => String(a).localeCompare(String(b)));
-            for (const bn of blockingNetsSorted) {
-                if (routedTraces.has(bn)) {
-                    obstacles.removeNet(bn);
-                    obstacleVersion++;
-                    rippedNets.push(bn);
-                    routedTraces.delete(bn);
-                    onNetRipped?.(bn);
-                    const bnConn = connMap.get(bn);
-                    if (bnConn) setNetPendingConnections(bn, Math.max(0, (bnConn.pads?.length || 0) - 1));
+            // Remove only the specific blocking connection obstacles (surgical)
+            for (const cid of [...blockingConnIds].sort()) {
+                obstacles.removeConnection(cid);
+                obstacleVersion++;
+            }
+            // Mark affected nets for re-routing
+            const affectedNetsSorted = [...affectedNets].sort();
+            for (const an of affectedNetsSorted) {
+                if (routedTraces.has(an)) {
+                    rippedNets.push(an);
+                    routedTraces.delete(an);
+                    onNetRipped?.(an);
+                    const anConn = connMap.get(an);
+                    if (anConn) setNetPendingConnections(an, Math.max(0, (anConn.pads?.length || 0) - 1));
                 }
             }
 
