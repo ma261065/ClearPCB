@@ -1258,8 +1258,8 @@ function sanitizeAngles(pts) {
  * @property {number} [connectionOnlyFailAstarNoPathCount] - connection-only failures where A* could not produce a route
  * @property {number} [connectionOnlyFailPostProcessCount] - connection-only failures where routing returned no trace after post-processing
  * @property {number} [connectionOnlyFailOtherCount] - connection-only failures that did not match known buckets
- * @property {number} [connectionOnlyNoPathRetryAttempts] - retries attempted for index-0 connection-only no-path failures using reversed pad order
- * @property {number} [connectionOnlyNoPathRetrySuccesses] - retries that converted index-0 connection-only no-path into success
+ * @property {number} [connectionOnlyNoPathRetryAttempts] - reverse retries attempted for index-0 connection-only no-path failures
+ * @property {number} [connectionOnlyNoPathRetrySuccesses] - reverse retries that converted index-0 connection-only no-path into success
  * @property {Array<{connId: string, count: number}>} [connectionOnlyTopNoPathConnIds] - top connIds by connection-only no-path failures
  */
 
