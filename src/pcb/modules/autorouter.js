@@ -269,6 +269,71 @@ class SpatialHash {
     }
 
     /**
+     * Return the nearest blocking obstacle for a segment, if any.
+     * This is diagnostic-only and does not affect routing behavior.
+     */
+    firstBlockingObstacleForSegment(ax1, ay1, ax2, ay2, clearance, skipIds, layer = null) {
+        const minSX = Math.min(ax1, ax2), maxSX = Math.max(ax1, ax2);
+        const minSY = Math.min(ay1, ay2), maxSY = Math.max(ay1, ay2);
+        const cxMin = Math.floor((minSX - clearance) / this.cellSize) - 1;
+        const cxMax = Math.floor((maxSX + clearance) / this.cellSize) + 1;
+        const cyMin = Math.floor((minSY - clearance) / this.cellSize) - 1;
+        const cyMax = Math.floor((maxSY + clearance) / this.cellSize) + 1;
+        const isSet = skipIds instanceof Set;
+
+        let best = null;
+        let bestDist = Infinity;
+
+        for (let cx = cxMin; cx <= cxMax; cx++) {
+            for (let cy = cyMin; cy <= cyMax; cy++) {
+                const objs = this.cells.get(this._key(cx, cy));
+                if (!objs) continue;
+                for (const obj of objs) {
+                    const objId = obj.net || obj.id;
+                    if (isSet ? skipIds.has(objId) : objId === skipIds) continue;
+                    if (layer) {
+                        const objLayer = obj.layer || 'both';
+                        if (objLayer !== 'both' && objLayer !== layer) continue;
+                    }
+
+                    if (obj.isPad) {
+                        const rx1 = obj.cx - obj.hw - clearance;
+                        const ry1 = obj.cy - obj.hh - clearance;
+                        const rx2 = obj.cx + obj.hw + clearance;
+                        const ry2 = obj.cy + obj.hh + clearance;
+                        if (!segmentIntersectsAABB(ax1, ay1, ax2, ay2, rx1, ry1, rx2, ry2)) continue;
+
+                        const d = pointToSegmentDist(obj.cx, obj.cy, ax1, ay1, ax2, ay2);
+                        if (d < bestDist) {
+                            bestDist = d;
+                            best = {
+                                kind: obj.isVia ? 'via' : 'pad',
+                                net: obj.net || null,
+                                connId: obj.connId || null,
+                                obstacleId: objId || null,
+                            };
+                        }
+                    } else {
+                        const d = segmentToSegmentDist(ax1, ay1, ax2, ay2, obj.x1, obj.y1, obj.x2, obj.y2);
+                        if (d >= obj.hw + clearance) continue;
+                        if (d < bestDist) {
+                            bestDist = d;
+                            best = {
+                                kind: 'trace',
+                                net: obj.net || null,
+                                connId: obj.connId || null,
+                                obstacleId: objId || null,
+                            };
+                        }
+                    }
+                }
+            }
+        }
+
+        return best;
+    }
+
+    /**
      * Estimate local obstacle density near a point.
      * Returns the count of nearby obstacle objects (excluding skipped IDs).
      */
@@ -1260,7 +1325,10 @@ function sanitizeAngles(pts) {
  * @property {number} [connectionOnlyFailOtherCount] - connection-only failures that did not match known buckets
  * @property {number} [connectionOnlyNoPathRetryAttempts] - reverse retries attempted for index-0 connection-only no-path failures
  * @property {number} [connectionOnlyNoPathRetrySuccesses] - reverse retries that converted index-0 connection-only no-path into success
+ * @property {number} [connectionOnlyNoPathMergeRetryAttempts] - merge-aware retries attempted for index-0 connection-only no-path failures
+ * @property {number} [connectionOnlyNoPathMergeRetrySuccesses] - merge-aware retries that converted index-0 connection-only no-path into success
  * @property {Array<{connId: string, count: number}>} [connectionOnlyTopNoPathConnIds] - top connIds by connection-only no-path failures
+ * @property {Array<{connId: string, count: number, blockerClass: string, blockerNet: string|null, blockerConnId: string|null, blockerId: string|null}>} [connectionOnlyTopNoPathBlockers] - blocker summary for top connection-only no-path connIds
  */
 
 /**
@@ -1921,8 +1989,34 @@ export async function routeAll(input, options = {}) {
     let connectionOnlyFailOtherCount = 0;
     let connectionOnlyNoPathRetryAttempts = 0;
     let connectionOnlyNoPathRetrySuccesses = 0;
+    let connectionOnlyNoPathMergeRetryAttempts = 0;
+    let connectionOnlyNoPathMergeRetrySuccesses = 0;
     /** @type {Map<string, number>} */
     const connectionOnlyNoPathByConnId = new Map();
+    /** @type {Map<string, Map<string, {count: number, kind: string, net: string|null, connId: string|null, obstacleId: string|null}>>} */
+    const connectionOnlyNoPathBlockerByConnId = new Map();
+
+    const recordNoPathBlocker = (failedConnId, blocker) => {
+        const b = blocker || { kind: 'unknown', net: null, connId: null, obstacleId: null };
+        const sig = `${b.kind}|${b.net || ''}|${b.connId || ''}|${b.obstacleId || ''}`;
+        let bucket = connectionOnlyNoPathBlockerByConnId.get(failedConnId);
+        if (!bucket) {
+            bucket = new Map();
+            connectionOnlyNoPathBlockerByConnId.set(failedConnId, bucket);
+        }
+        const prev = bucket.get(sig);
+        if (prev) {
+            prev.count++;
+        } else {
+            bucket.set(sig, {
+                count: 1,
+                kind: b.kind,
+                net: b.net || null,
+                connId: b.connId || null,
+                obstacleId: b.obstacleId || null,
+            });
+        }
+    };
 
     const addBlockingConnIds = (targetSet, connIds) => {
         let added = 0;
@@ -2169,6 +2263,18 @@ export async function routeAll(input, options = {}) {
                                     appended.push(...retryResult.traces);
                                     continue;
                                 }
+
+                                // Merge-aware retry: allow same-net geometry as compatible.
+                                // This targets no-path cases dominated by self-net trace blockers.
+                                connectionOnlyNoPathMergeRetryAttempts++;
+                                const mergeSkip = new Set(rSkip);
+                                mergeSkip.add(rn);
+                                const mergeRetryResult = await routeNet(reverseMiniConn, obstacles, mergeSkip, passProfile, connIdx);
+                                if (mergeRetryResult.failedCount === 0 && mergeRetryResult.traces.length > 0) {
+                                    connectionOnlyNoPathMergeRetrySuccesses++;
+                                    appended.push(...mergeRetryResult.traces);
+                                    continue;
+                                }
                             }
 
                             connectionOnlyFailAstarNoPathCount++;
@@ -2177,6 +2283,13 @@ export async function routeAll(input, options = {}) {
                                 failedConnId,
                                 (connectionOnlyNoPathByConnId.get(failedConnId) || 0) + 1
                             );
+                            const fromPad = rc.pads[connIdx];
+                            const toPad = rc.pads[connIdx + 1];
+                            const probeLayer = fromPad?.layer || 'top';
+                            const blocker = (fromPad && toPad)
+                                ? obstacles.firstBlockingObstacleForSegment(fromPad.x, fromPad.y, toPad.x, toPad.y, totalClear, rSkip, probeLayer)
+                                : null;
+                            recordNoPathBlocker(failedConnId, blocker);
                         } else if (cResult.traces.length === 0) {
                             connectionOnlyFailPostProcessCount++;
                             connectionOnlyFailReason = 'post';
@@ -2269,12 +2382,44 @@ export async function routeAll(input, options = {}) {
         })
         .slice(0, 5)
         .map(([connId, count]) => ({ connId, count }));
+    const connectionOnlyTopNoPathBlockers = connectionOnlyTopNoPathConnIds.map(item => {
+        const bucket = connectionOnlyNoPathBlockerByConnId.get(item.connId);
+        if (!bucket || bucket.size === 0) {
+            return {
+                connId: item.connId,
+                count: item.count,
+                blockerClass: 'unknown',
+                blockerNet: null,
+                blockerConnId: null,
+                blockerId: null,
+            };
+        }
+        const top = [...bucket.values()].sort((a, b) => {
+            if (a.count !== b.count) return b.count - a.count;
+            const aKey = `${a.kind}|${a.net || ''}|${a.connId || ''}|${a.obstacleId || ''}`;
+            const bKey = `${b.kind}|${b.net || ''}|${b.connId || ''}|${b.obstacleId || ''}`;
+            return aKey.localeCompare(bKey);
+        })[0];
+        return {
+            connId: item.connId,
+            count: item.count,
+            blockerClass: top.kind,
+            blockerNet: top.net,
+            blockerConnId: top.connId,
+            blockerId: top.obstacleId,
+        };
+    });
     const connectionOnlyTopNoPathLog = connectionOnlyTopNoPathConnIds.length > 0
         ? connectionOnlyTopNoPathConnIds.map(item => `${item.connId}:${item.count}`).join(',')
         : 'none';
+    const connectionOnlyTopNoPathBlockerLog = connectionOnlyTopNoPathBlockers.length > 0
+        ? connectionOnlyTopNoPathBlockers
+            .map(item => `${item.connId}:${item.blockerClass}:${item.blockerNet || '-'}:${item.blockerConnId || '-'}:${item.blockerId || '-'}`)
+            .join(',')
+        : 'none';
 
     console.info(
-        `[autorouter] ripup probe misses=${ripupProbeMissCount}, conn-fallbacks=${ripupConnFallbackCount}, net-fallbacks=${ripupCompatibilityFallbackCount}, blockers(probe/conn/net)=${ripupBlockersFromProbeCount}/${ripupBlockersFromConnFallbackCount}/${ripupBlockersFromCompatibilityFallbackCount}, conn-only attempts=${connectionOnlyRerouteAttempts}, conn-only fail reasons(noPath/post/other)=${connectionOnlyFailAstarNoPathCount}/${connectionOnlyFailPostProcessCount}/${connectionOnlyFailOtherCount}, conn-only noPath retry=${connectionOnlyNoPathRetryAttempts}/${connectionOnlyNoPathRetrySuccesses}, conn-only top-noPath=${connectionOnlyTopNoPathLog}, conn-only->net-fallbacks=${connectionOnlyRerouteFallbacksToNet}`
+        `[autorouter] ripup probe misses=${ripupProbeMissCount}, conn-fallbacks=${ripupConnFallbackCount}, net-fallbacks=${ripupCompatibilityFallbackCount}, blockers(probe/conn/net)=${ripupBlockersFromProbeCount}/${ripupBlockersFromConnFallbackCount}/${ripupBlockersFromCompatibilityFallbackCount}, conn-only attempts=${connectionOnlyRerouteAttempts}, conn-only fail reasons(noPath/post/other)=${connectionOnlyFailAstarNoPathCount}/${connectionOnlyFailPostProcessCount}/${connectionOnlyFailOtherCount}, conn-only noPath retry=${connectionOnlyNoPathRetryAttempts}/${connectionOnlyNoPathRetrySuccesses}, conn-only merge-retry=${connectionOnlyNoPathMergeRetryAttempts}/${connectionOnlyNoPathMergeRetrySuccesses}, conn-only top-noPath=${connectionOnlyTopNoPathLog}, conn-only top-noPath-blockers=${connectionOnlyTopNoPathBlockerLog}, conn-only->net-fallbacks=${connectionOnlyRerouteFallbacksToNet}`
     );
 
     return {
@@ -2296,7 +2441,10 @@ export async function routeAll(input, options = {}) {
         connectionOnlyFailOtherCount,
         connectionOnlyNoPathRetryAttempts,
         connectionOnlyNoPathRetrySuccesses,
+        connectionOnlyNoPathMergeRetryAttempts,
+        connectionOnlyNoPathMergeRetrySuccesses,
         connectionOnlyTopNoPathConnIds,
+        connectionOnlyTopNoPathBlockers,
     };
 }
 
