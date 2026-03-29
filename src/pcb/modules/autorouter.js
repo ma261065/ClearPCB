@@ -1327,6 +1327,9 @@ function sanitizeAngles(pts) {
  * @property {number} [connectionOnlyNoPathRetrySuccesses] - reverse retries that converted index-0 connection-only no-path into success
  * @property {number} [connectionOnlyNoPathMergeRetryAttempts] - merge-aware retries attempted for index-0 connection-only no-path failures
  * @property {number} [connectionOnlyNoPathMergeRetrySuccesses] - merge-aware retries that converted index-0 connection-only no-path into success
+ * @property {number} [connectionOnlyNoPathMergeRetrySelfTraceSuccesses] - merge-retry successes where blocker class was same-net trace
+ * @property {number} [connectionOnlyNoPathMergeRetryCrossTraceSuccesses] - merge-retry successes where blocker class was cross-net trace
+ * @property {number} [connectionOnlyNoPathMergeRetryOtherSuccesses] - merge-retry successes where blocker class was not trace or unknown
  * @property {Array<{connId: string, count: number}>} [connectionOnlyTopNoPathConnIds] - top connIds by connection-only no-path failures
  * @property {Array<{connId: string, count: number, blockerClass: string, blockerNet: string|null, blockerConnId: string|null, blockerId: string|null}>} [connectionOnlyTopNoPathBlockers] - blocker summary for top connection-only no-path connIds
  */
@@ -1991,6 +1994,9 @@ export async function routeAll(input, options = {}) {
     let connectionOnlyNoPathRetrySuccesses = 0;
     let connectionOnlyNoPathMergeRetryAttempts = 0;
     let connectionOnlyNoPathMergeRetrySuccesses = 0;
+    let connectionOnlyNoPathMergeRetrySelfTraceSuccesses = 0;
+    let connectionOnlyNoPathMergeRetryCrossTraceSuccesses = 0;
+    let connectionOnlyNoPathMergeRetryOtherSuccesses = 0;
     /** @type {Map<string, number>} */
     const connectionOnlyNoPathByConnId = new Map();
     /** @type {Map<string, Map<string, {count: number, kind: string, net: string|null, connId: string|null, obstacleId: string|null}>>} */
@@ -2249,6 +2255,12 @@ export async function routeAll(input, options = {}) {
                     if (cResult.failedCount > 0 || cResult.traces.length === 0) {
                         if (cResult.failedCount > 0) {
                             const failedConnId = makeConnectionId(rn, connIdx);
+                            const fromPad = rc.pads[connIdx];
+                            const toPad = rc.pads[connIdx + 1];
+                            const probeLayer = fromPad?.layer || 'top';
+                            const blocker = (fromPad && toPad)
+                                ? obstacles.firstBlockingObstacleForSegment(fromPad.x, fromPad.y, toPad.x, toPad.y, totalClear, rSkip, probeLayer)
+                                : null;
                             // Hotspot-targeted retry: for first segment failures, retry in reverse
                             // direction because directional costs can bias one-way dead-ends.
                             if (connIdx === 0) {
@@ -2266,14 +2278,24 @@ export async function routeAll(input, options = {}) {
 
                                 // Merge-aware retry: allow same-net geometry as compatible.
                                 // This targets no-path cases dominated by self-net trace blockers.
-                                connectionOnlyNoPathMergeRetryAttempts++;
-                                const mergeSkip = new Set(rSkip);
-                                mergeSkip.add(rn);
-                                const mergeRetryResult = await routeNet(reverseMiniConn, obstacles, mergeSkip, passProfile, connIdx);
-                                if (mergeRetryResult.failedCount === 0 && mergeRetryResult.traces.length > 0) {
-                                    connectionOnlyNoPathMergeRetrySuccesses++;
-                                    appended.push(...mergeRetryResult.traces);
-                                    continue;
+                                const isSelfTraceBlocker = blocker?.kind === 'trace' && blocker?.net === rn;
+                                if (isSelfTraceBlocker) {
+                                    connectionOnlyNoPathMergeRetryAttempts++;
+                                    const mergeSkip = new Set(rSkip);
+                                    mergeSkip.add(rn);
+                                    const mergeRetryResult = await routeNet(reverseMiniConn, obstacles, mergeSkip, passProfile, connIdx);
+                                    if (mergeRetryResult.failedCount === 0 && mergeRetryResult.traces.length > 0) {
+                                        connectionOnlyNoPathMergeRetrySuccesses++;
+                                        if (blocker?.kind === 'trace' && blocker?.net === rn) {
+                                            connectionOnlyNoPathMergeRetrySelfTraceSuccesses++;
+                                        } else if (blocker?.kind === 'trace') {
+                                            connectionOnlyNoPathMergeRetryCrossTraceSuccesses++;
+                                        } else {
+                                            connectionOnlyNoPathMergeRetryOtherSuccesses++;
+                                        }
+                                        appended.push(...mergeRetryResult.traces);
+                                        continue;
+                                    }
                                 }
                             }
 
@@ -2283,12 +2305,6 @@ export async function routeAll(input, options = {}) {
                                 failedConnId,
                                 (connectionOnlyNoPathByConnId.get(failedConnId) || 0) + 1
                             );
-                            const fromPad = rc.pads[connIdx];
-                            const toPad = rc.pads[connIdx + 1];
-                            const probeLayer = fromPad?.layer || 'top';
-                            const blocker = (fromPad && toPad)
-                                ? obstacles.firstBlockingObstacleForSegment(fromPad.x, fromPad.y, toPad.x, toPad.y, totalClear, rSkip, probeLayer)
-                                : null;
                             recordNoPathBlocker(failedConnId, blocker);
                         } else if (cResult.traces.length === 0) {
                             connectionOnlyFailPostProcessCount++;
@@ -2419,7 +2435,7 @@ export async function routeAll(input, options = {}) {
         : 'none';
 
     console.info(
-        `[autorouter] ripup probe misses=${ripupProbeMissCount}, conn-fallbacks=${ripupConnFallbackCount}, net-fallbacks=${ripupCompatibilityFallbackCount}, blockers(probe/conn/net)=${ripupBlockersFromProbeCount}/${ripupBlockersFromConnFallbackCount}/${ripupBlockersFromCompatibilityFallbackCount}, conn-only attempts=${connectionOnlyRerouteAttempts}, conn-only fail reasons(noPath/post/other)=${connectionOnlyFailAstarNoPathCount}/${connectionOnlyFailPostProcessCount}/${connectionOnlyFailOtherCount}, conn-only noPath retry=${connectionOnlyNoPathRetryAttempts}/${connectionOnlyNoPathRetrySuccesses}, conn-only merge-retry=${connectionOnlyNoPathMergeRetryAttempts}/${connectionOnlyNoPathMergeRetrySuccesses}, conn-only top-noPath=${connectionOnlyTopNoPathLog}, conn-only top-noPath-blockers=${connectionOnlyTopNoPathBlockerLog}, conn-only->net-fallbacks=${connectionOnlyRerouteFallbacksToNet}`
+        `[autorouter] ripup probe misses=${ripupProbeMissCount}, conn-fallbacks=${ripupConnFallbackCount}, net-fallbacks=${ripupCompatibilityFallbackCount}, blockers(probe/conn/net)=${ripupBlockersFromProbeCount}/${ripupBlockersFromConnFallbackCount}/${ripupBlockersFromCompatibilityFallbackCount}, conn-only attempts=${connectionOnlyRerouteAttempts}, conn-only fail reasons(noPath/post/other)=${connectionOnlyFailAstarNoPathCount}/${connectionOnlyFailPostProcessCount}/${connectionOnlyFailOtherCount}, conn-only noPath retry=${connectionOnlyNoPathRetryAttempts}/${connectionOnlyNoPathRetrySuccesses}, conn-only merge-retry=${connectionOnlyNoPathMergeRetryAttempts}/${connectionOnlyNoPathMergeRetrySuccesses}, conn-only merge-retry split(self/cross/other)=${connectionOnlyNoPathMergeRetrySelfTraceSuccesses}/${connectionOnlyNoPathMergeRetryCrossTraceSuccesses}/${connectionOnlyNoPathMergeRetryOtherSuccesses}, conn-only top-noPath=${connectionOnlyTopNoPathLog}, conn-only top-noPath-blockers=${connectionOnlyTopNoPathBlockerLog}, conn-only->net-fallbacks=${connectionOnlyRerouteFallbacksToNet}`
     );
 
     return {
@@ -2443,6 +2459,9 @@ export async function routeAll(input, options = {}) {
         connectionOnlyNoPathRetrySuccesses,
         connectionOnlyNoPathMergeRetryAttempts,
         connectionOnlyNoPathMergeRetrySuccesses,
+        connectionOnlyNoPathMergeRetrySelfTraceSuccesses,
+        connectionOnlyNoPathMergeRetryCrossTraceSuccesses,
+        connectionOnlyNoPathMergeRetryOtherSuccesses,
         connectionOnlyTopNoPathConnIds,
         connectionOnlyTopNoPathBlockers,
     };
