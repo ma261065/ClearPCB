@@ -1255,6 +1255,12 @@ function sanitizeAngles(pts) {
  * @property {number} [ripupBlockersFromCompatibilityFallbackCount] - unique blocker IDs contributed by net-level compatibility fallback
  * @property {number} [connectionOnlyRerouteAttempts] - number of ripped connections attempted via connection-only reroute
  * @property {number} [connectionOnlyRerouteFallbacksToNet] - number of nets that fell back to full-net reroute after connection-only attempt
+ * @property {number} [connectionOnlyFailAstarNoPathCount] - connection-only failures where A* could not produce a route
+ * @property {number} [connectionOnlyFailPostProcessCount] - connection-only failures where routing returned no trace after post-processing
+ * @property {number} [connectionOnlyFailOtherCount] - connection-only failures that did not match known buckets
+ * @property {number} [connectionOnlyNoPathRetryAttempts] - retries attempted for index-0 connection-only no-path failures using reversed pad order
+ * @property {number} [connectionOnlyNoPathRetrySuccesses] - retries that converted index-0 connection-only no-path into success
+ * @property {Array<{connId: string, count: number}>} [connectionOnlyTopNoPathConnIds] - top connIds by connection-only no-path failures
  */
 
 /**
@@ -1910,6 +1916,13 @@ export async function routeAll(input, options = {}) {
     let ripupBlockersFromCompatibilityFallbackCount = 0;
     let connectionOnlyRerouteAttempts = 0;
     let connectionOnlyRerouteFallbacksToNet = 0;
+    let connectionOnlyFailAstarNoPathCount = 0;
+    let connectionOnlyFailPostProcessCount = 0;
+    let connectionOnlyFailOtherCount = 0;
+    let connectionOnlyNoPathRetryAttempts = 0;
+    let connectionOnlyNoPathRetrySuccesses = 0;
+    /** @type {Map<string, number>} */
+    const connectionOnlyNoPathByConnId = new Map();
 
     const addBlockingConnIds = (targetSet, connIds) => {
         let added = 0;
@@ -2130,6 +2143,7 @@ export async function routeAll(input, options = {}) {
                 const uniqueSortedIndexes = [...new Set(rippedIndexes)].sort((a, b) => a - b);
 
                 let connectionOnlyFailed = false;
+                let connectionOnlyFailReason = 'other';
                 const appended = [];
                 for (const connIdx of uniqueSortedIndexes) {
                     connectionOnlyRerouteAttempts++;
@@ -2139,6 +2153,37 @@ export async function routeAll(input, options = {}) {
                     };
                     const cResult = await routeNet(miniConn, obstacles, rSkip, tunedInitialProfile, connIdx);
                     if (cResult.failedCount > 0 || cResult.traces.length === 0) {
+                        if (cResult.failedCount > 0) {
+                            const failedConnId = makeConnectionId(rn, connIdx);
+                            // Hotspot-targeted retry: for first segment failures, retry in reverse
+                            // direction because directional costs can bias one-way dead-ends.
+                            if (connIdx === 0) {
+                                connectionOnlyNoPathRetryAttempts++;
+                                const reverseMiniConn = {
+                                    net: rc.net,
+                                    pads: [rc.pads[connIdx + 1], rc.pads[connIdx]],
+                                };
+                                const retryResult = await routeNet(reverseMiniConn, obstacles, rSkip, passProfile, connIdx);
+                                if (retryResult.failedCount === 0 && retryResult.traces.length > 0) {
+                                    connectionOnlyNoPathRetrySuccesses++;
+                                    appended.push(...retryResult.traces);
+                                    continue;
+                                }
+                            }
+
+                            connectionOnlyFailAstarNoPathCount++;
+                            connectionOnlyFailReason = 'noPath';
+                            connectionOnlyNoPathByConnId.set(
+                                failedConnId,
+                                (connectionOnlyNoPathByConnId.get(failedConnId) || 0) + 1
+                            );
+                        } else if (cResult.traces.length === 0) {
+                            connectionOnlyFailPostProcessCount++;
+                            connectionOnlyFailReason = 'post';
+                        } else {
+                            connectionOnlyFailOtherCount++;
+                            connectionOnlyFailReason = 'other';
+                        }
                         connectionOnlyFailed = true;
                         break;
                     }
@@ -2217,9 +2262,19 @@ export async function routeAll(input, options = {}) {
         totalConnectionCount += Math.max(0, conn.pads.length - 1);
     }
     const failedConnectionCount = pendingConnectionsTotal();
+    const connectionOnlyTopNoPathConnIds = [...connectionOnlyNoPathByConnId.entries()]
+        .sort((a, b) => {
+            if (a[1] !== b[1]) return b[1] - a[1];
+            return a[0].localeCompare(b[0]);
+        })
+        .slice(0, 5)
+        .map(([connId, count]) => ({ connId, count }));
+    const connectionOnlyTopNoPathLog = connectionOnlyTopNoPathConnIds.length > 0
+        ? connectionOnlyTopNoPathConnIds.map(item => `${item.connId}:${item.count}`).join(',')
+        : 'none';
 
     console.info(
-        `[autorouter] ripup probe misses=${ripupProbeMissCount}, conn-fallbacks=${ripupConnFallbackCount}, net-fallbacks=${ripupCompatibilityFallbackCount}, blockers(probe/conn/net)=${ripupBlockersFromProbeCount}/${ripupBlockersFromConnFallbackCount}/${ripupBlockersFromCompatibilityFallbackCount}, conn-only attempts=${connectionOnlyRerouteAttempts}, conn-only->net-fallbacks=${connectionOnlyRerouteFallbacksToNet}`
+        `[autorouter] ripup probe misses=${ripupProbeMissCount}, conn-fallbacks=${ripupConnFallbackCount}, net-fallbacks=${ripupCompatibilityFallbackCount}, blockers(probe/conn/net)=${ripupBlockersFromProbeCount}/${ripupBlockersFromConnFallbackCount}/${ripupBlockersFromCompatibilityFallbackCount}, conn-only attempts=${connectionOnlyRerouteAttempts}, conn-only fail reasons(noPath/post/other)=${connectionOnlyFailAstarNoPathCount}/${connectionOnlyFailPostProcessCount}/${connectionOnlyFailOtherCount}, conn-only noPath retry=${connectionOnlyNoPathRetryAttempts}/${connectionOnlyNoPathRetrySuccesses}, conn-only top-noPath=${connectionOnlyTopNoPathLog}, conn-only->net-fallbacks=${connectionOnlyRerouteFallbacksToNet}`
     );
 
     return {
@@ -2236,6 +2291,12 @@ export async function routeAll(input, options = {}) {
         ripupBlockersFromCompatibilityFallbackCount,
         connectionOnlyRerouteAttempts,
         connectionOnlyRerouteFallbacksToNet,
+        connectionOnlyFailAstarNoPathCount,
+        connectionOnlyFailPostProcessCount,
+        connectionOnlyFailOtherCount,
+        connectionOnlyNoPathRetryAttempts,
+        connectionOnlyNoPathRetrySuccesses,
+        connectionOnlyTopNoPathConnIds,
     };
 }
 
