@@ -1,3 +1,6 @@
 # Generated benchmark outputs
 benchmark-*.json
 benchmark-results-*.json
+
+# Router test boards
+test-board*.json
