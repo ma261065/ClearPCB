@@ -574,6 +574,67 @@ function segmentToSegmentDist(ax1, ay1, ax2, ay2, bx1, by1, bx2, by2) {
     );
 }
 
+// ── Congestion Grid ───────────────────────────────────────────────
+
+/**
+ * Tracks historical routing demand per spatial cell.
+ * Used by negotiated-congestion routing: areas where many nets compete
+ * get higher costs, encouraging routes to spread out.
+ */
+class CongestionGrid {
+    constructor(cellSize = 1.0) {
+        this.cellSize = cellSize;
+        this.cells = new Map(); // "cx,cy" -> Set<netName>
+    }
+
+    _key(x, y) {
+        return `${Math.floor(x / this.cellSize)},${Math.floor(y / this.cellSize)}`;
+    }
+
+    /** Record that a net uses this cell. */
+    recordUsage(x, y, net) {
+        const key = this._key(x, y);
+        let s = this.cells.get(key);
+        if (!s) { s = new Set(); this.cells.set(key, s); }
+        s.add(net);
+    }
+
+    /** Record usage along a trace segment. */
+    recordSegment(x1, y1, x2, y2, net) {
+        const dist = Math.hypot(x2 - x1, y2 - y1);
+        const steps = Math.max(1, Math.ceil(dist / this.cellSize));
+        for (let s = 0; s <= steps; s++) {
+            const t = s / steps;
+            this.recordUsage(x1 + (x2 - x1) * t, y1 + (y2 - y1) * t, net);
+        }
+    }
+
+    /** Get congestion at a point (number of different nets using this cell). */
+    getCongestion(x, y) {
+        const s = this.cells.get(this._key(x, y));
+        return s ? s.size : 0;
+    }
+
+    /** Build from an iterable of trace objects [{net, points: [{x,y},...]}]. */
+    buildFromTraces(traces) {
+        this.cells.clear();
+        for (const t of traces) {
+            const pts = t.points;
+            if (!pts || pts.length < 2) continue;
+            for (let i = 0; i < pts.length - 1; i++) {
+                this.recordSegment(pts[i].x, pts[i].y, pts[i + 1].x, pts[i + 1].y, t.net);
+            }
+        }
+    }
+
+    /** Also record demand from connections that WANT to route (even if they failed). */
+    recordDemandLine(x1, y1, x2, y2, net) {
+        this.recordSegment(x1, y1, x2, y2, net);
+    }
+
+    clear() { this.cells.clear(); }
+}
+
 // ── A* Pathfinder ─────────────────────────────────────────────────
 
 /**
@@ -609,6 +670,8 @@ async function astarRoute(sx, sy, ex, ey, obstacles, skipIds, gridStep, traceWid
         dirPenaltyScale = 1.0,
         congestionPenaltyScale = 1.0,
         viaCongestionScale = 1.0,
+        congestionGrid = null,
+        historyWeight = 0,
     } = options;
     const halfTrace = traceWidth / 2;
     const totalClear = halfTrace + clearance;
@@ -617,6 +680,8 @@ async function astarRoute(sx, sy, ex, ey, obstacles, skipIds, gridStep, traceWid
     const PAD_DIAG_COST = gridStep * 5 * padDiagCostScale;
 
     const routeDist = Math.hypot(ex - sx, ey - sy);
+    // Long routes scale up congestion avoidance — they have room to detour.
+    const distCongScale = Math.min(8, Math.max(1, routeDist / 20));
     // Cap the effective step — never coarser than 2mm, gives enough resolution
     const effectiveStep = Math.min(Math.max(gridStep, routeDist / 200), 2.0);
 
@@ -815,10 +880,19 @@ async function astarRoute(sx, sy, ex, ey, obstacles, skipIds, gridStep, traceWid
             }
 
             // In congested neighborhoods, slightly bias against expansion.
+            // Scale congestion avoidance by route distance: long routes can afford
+            // detours to avoid congestion; short routes in dense areas cannot.
             const localDensity = obstacles.localDensity(nx, ny, skipIds, current.layer, 1);
-            const congestionPenalty = Math.min(localDensity, 120) * gridStep * 0.01 * congestionPenaltyScale;
+            const congestionPenalty = Math.min(localDensity, 120) * gridStep * 0.01 * congestionPenaltyScale * distCongScale;
 
-            const tentG = curG + stepCost + bendPenalty + dirPenalty + padDiagPenalty + congestionPenalty;
+            // Historical congestion: penalize cells where many nets compete.
+            let histPenalty = 0;
+            if (congestionGrid && historyWeight > 0) {
+                const cong = congestionGrid.getCongestion(nx, ny);
+                if (cong > 1) histPenalty = (cong - 1) * gridStep * historyWeight * distCongScale;
+            }
+
+            const tentG = curG + stepCost + bendPenalty + dirPenalty + padDiagPenalty + congestionPenalty + histPenalty;
 
             if (tentG < (gScore.has(nKey) ? gScore.get(nKey) : Infinity)) {
                 gScore.set(nKey, tentG);
@@ -1808,6 +1882,8 @@ export async function routeAll(input, options = {}) {
                         dirPenaltyScale: a1.dirPenaltyScale,
                         congestionPenaltyScale: a1.congestionPenaltyScale,
                         viaCongestionScale: a1.viaCongestionScale,
+                        congestionGrid: activeCongestionGrid,
+                        historyWeight: activeHistoryWeight,
                     }
                     );
                     setCachedAttemptResult(attempt1Key, result);
@@ -1842,6 +1918,8 @@ export async function routeAll(input, options = {}) {
                         dirPenaltyScale: a2.dirPenaltyScale,
                         congestionPenaltyScale: a2.congestionPenaltyScale,
                         viaCongestionScale: a2.viaCongestionScale,
+                        congestionGrid: activeCongestionGrid,
+                        historyWeight: activeHistoryWeight,
                     }
                     );
                     setCachedAttemptResult(attempt2Key, result);
@@ -1878,6 +1956,8 @@ export async function routeAll(input, options = {}) {
                         dirPenaltyScale: a3.dirPenaltyScale,
                         congestionPenaltyScale: a3.congestionPenaltyScale,
                         viaCongestionScale: a3.viaCongestionScale,
+                        congestionGrid: activeCongestionGrid,
+                        historyWeight: activeHistoryWeight,
                     }
                     );
                     setCachedAttemptResult(attempt3Key, result);
@@ -1979,6 +2059,9 @@ export async function routeAll(input, options = {}) {
     /** @type {Map<string, Array>} net → traces */
     const routedTraces = new Map();
     const failedNets = [];
+    /** Negotiated congestion state — accessed by routeNet closure */
+    let activeCongestionGrid = null;
+    let activeHistoryWeight = 0;
     let ripupProbeMissCount = 0;
     let ripupConnFallbackCount = 0;
     let ripupCompatibilityFallbackCount = 0;
@@ -2058,6 +2141,7 @@ export async function routeAll(input, options = {}) {
         bestPendingConnections = new Map(netPendingConnections);
     };
 
+    // ── Pass 1: Initial routing (hardest nets first) ────────────
     for (const conn of sorted) {
         if (cancelToken?.cancelled) break;
         emitProgress(completedNets, totalNets, conn.net, { phase: 'initial' });
@@ -2086,6 +2170,8 @@ export async function routeAll(input, options = {}) {
     for (let pass = 1; pass <= MAX_PASSES && failedNets.length > 0; pass++) {
         if (cancelToken?.cancelled) break;
         const passProfile = getRipupProfile(pass);
+        routeAttemptCache.clear();
+
         const passTotal = Math.max(1, failedNets.length);
         let passDone = 0;
         emitProgress(passDone, passTotal, `Rip-up pass ${pass}`, {
