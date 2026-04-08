@@ -2221,13 +2221,14 @@ export async function routeAll(input, options = {}) {
             });
             await yieldToUI();
 
-            // Cost-based rip-up: probe the FIRST failed connection to find blockers
+            // Cost-based rip-up: probe all failed connections in this net
+            // (from failedConnIdx onward) to gather comprehensive blockers
             const skipIds = netPadIds.get(failedNet) || new Set();
             const blockingConnIds = new Set();
 
-            {
-                const from = conn.pads[failedConnIdx];
-                const to = conn.pads[failedConnIdx + 1];
+            for (let ci = failedConnIdx; ci < conn.pads.length - 1; ci++) {
+                const from = conn.pads[ci];
+                const to = conn.pads[ci + 1];
                 const fromLayer = from.layer || 'top';
                 const startLayers = fromLayer === 'both' ? ['top', 'bottom'] : [fromLayer];
                 const endLayer = to.layer || 'top';
