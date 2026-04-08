@@ -2030,10 +2030,10 @@ export async function routeAll(input, options = {}) {
                 // Failed — earlier connections remain as ghost obstacles (reservation).
                 // Count this + all remaining connections as failed.
                 const failedCount = totalConns - i;
-                return { traces, failedCount };
+                return { traces, failedCount, firstFailedIndex: i };
             }
         }
-        return { traces, failedCount: 0 };
+        return { traces, failedCount: 0, firstFailedIndex: -1 };
     }
 
     // ── Pass 1: Initial routing (shortest nets first) ────────────
@@ -2068,7 +2068,8 @@ export async function routeAll(input, options = {}) {
     let obstacles = buildObstacles();
     /** @type {Map<string, Array>} net → traces */
     const routedTraces = new Map();
-    const failedNets = [];
+    /** @type {Array<string>} failed connection IDs (e.g. "Net0005:0") */
+    const failedConnIds = [];
     /** Negotiated congestion state — accessed by routeNet closure */
     let activeCongestionGrid = null;
     let activeHistoryWeight = 0;
@@ -2169,7 +2170,11 @@ export async function routeAll(input, options = {}) {
             setNetPendingConnections(conn.net, result.failedCount);
         }
         if (result.failedCount > 0) {
-            failedNets.push(conn.net);
+            // Record each failed connection ID individually
+            const firstFailed = result.firstFailedIndex >= 0 ? result.firstFailedIndex : (conn.pads.length - 1 - result.failedCount);
+            for (let ci = firstFailed; ci < conn.pads.length - 1; ci++) {
+                failedConnIds.push(makeConnectionId(conn.net, ci));
+            }
             onNetFailed?.(conn);
         }
         completedNets++;
@@ -2177,12 +2182,12 @@ export async function routeAll(input, options = {}) {
 
     // ── Passes 2+: Rip-up-and-reroute ────────────────────────────
 
-    for (let pass = 1; pass <= MAX_PASSES && failedNets.length > 0; pass++) {
+    for (let pass = 1; pass <= MAX_PASSES && failedConnIds.length > 0; pass++) {
         if (cancelToken?.cancelled) break;
         const passProfile = getRipupProfile(pass);
         routeAttemptCache.clear();
 
-        const passTotal = Math.max(1, failedNets.length);
+        const passTotal = Math.max(1, failedConnIds.length);
         let passDone = 0;
         emitProgress(passDone, passTotal, `Rip-up pass ${pass}`, {
             phase: 'ripup',
@@ -2193,13 +2198,21 @@ export async function routeAll(input, options = {}) {
         });
         await yieldToUI();
         const stillFailed = [];
+        /** Track nets already handled this pass (via tail routing) to avoid redundant probes */
+        const handledNetsThisPass = new Set();
 
-        for (const failedNet of failedNets) {
+        for (const failedCid of failedConnIds) {
             if (cancelToken?.cancelled) break;
+            const parsed = parseConnectionId(failedCid);
+            if (!parsed) continue;
+            const { netName: failedNet, index: failedConnIdx } = parsed;
             const conn = connMap.get(failedNet);
-            if (!conn) continue;
+            if (!conn || failedConnIdx >= conn.pads.length - 1) continue;
 
-            emitProgress(passDone, passTotal, `Rip-up ${pass}: ${failedNet}`, {
+            // Skip if a previous iteration already tail-routed this net's connections
+            if (handledNetsThisPass.has(failedNet)) continue;
+
+            emitProgress(passDone, passTotal, `Rip-up ${pass}: ${failedCid}`, {
                 phase: 'ripup',
                 ripupDone: passDone,
                 ripupTotal: passTotal,
@@ -2208,13 +2221,13 @@ export async function routeAll(input, options = {}) {
             });
             await yieldToUI();
 
-            // Cost-based rip-up: probe returns connIds of crossed connections.
+            // Cost-based rip-up: probe the FIRST failed connection to find blockers
             const skipIds = netPadIds.get(failedNet) || new Set();
             const blockingConnIds = new Set();
 
-            for (let i = 0; i < conn.pads.length - 1; i++) {
-                const from = conn.pads[i];
-                const to = conn.pads[i + 1];
+            {
+                const from = conn.pads[failedConnIdx];
+                const to = conn.pads[failedConnIdx + 1];
                 const fromLayer = from.layer || 'top';
                 const startLayers = fromLayer === 'both' ? ['top', 'bottom'] : [fromLayer];
                 const endLayer = to.layer || 'top';
@@ -2238,15 +2251,11 @@ export async function routeAll(input, options = {}) {
                     ripupBlockersFromProbeCount += addBlockingConnIds(blockingConnIds, bestCrossed);
                 } else {
                     ripupProbeMissCount++;
-                    // Probe failed — fall back to direct-path blockers (connection level).
                     const directConnBlockers = obstacles.findBlockingConnIds(from.x, from.y, to.x, to.y, totalClear, skipIds);
                     if (directConnBlockers.size > 0) {
                         ripupConnFallbackCount++;
                         ripupBlockersFromConnFallbackCount += addBlockingConnIds(blockingConnIds, directConnBlockers);
                     } else {
-                        // TODO(connection-ripup): Remove this net-level fallback once board-suite
-                        // validation repeatedly shows net-fallbacks=0.
-                        // Compatibility fallback when legacy obstacles have no connId.
                         ripupCompatibilityFallbackCount++;
                         const directBlockers = obstacles.findBlockingNets(from.x, from.y, to.x, to.y, totalClear, skipIds);
                         const compatibilityConnIds = new Set();
@@ -2269,11 +2278,11 @@ export async function routeAll(input, options = {}) {
 
             if (affectedNets.size === 0) {
                 // No trace obstacles — just pads in the way, can't help
-                stillFailed.push(failedNet);
+                stillFailed.push(failedCid);
                 setNetPendingConnections(failedNet, Math.max(0, (conn.pads?.length || 0) - 1));
                 onNetFailed?.(conn);
                 passDone++;
-                emitProgress(passDone, passTotal, `Rip-up ${pass}: ${failedNet}`, {
+                emitProgress(passDone, passTotal, `Rip-up ${pass}: ${failedCid}`, {
                     phase: 'ripup',
                     ripupDone: passDone,
                     ripupTotal: passTotal,
@@ -2307,7 +2316,13 @@ export async function routeAll(input, options = {}) {
                 }
             }
 
-            // Try routing the failed net now
+            // Try routing the FULL net now (not just the failed connection).
+            // Previously-routed connections in this net were ripped if they
+            // were blocking, so we re-route the entire net for consistency.
+            obstacles.removeNet(failedNet);
+            obstacleVersion++;
+            routedTraces.delete(failedNet);
+
             const result = await routeNet(conn, obstacles, skipIds, passProfile);
             if (result.traces.length > 0) {
                 routedTraces.set(failedNet, result.traces);
@@ -2318,9 +2333,17 @@ export async function routeAll(input, options = {}) {
                 setNetPendingConnections(failedNet, result.failedCount);
             }
             if (result.failedCount > 0) {
-                stillFailed.push(failedNet);
+                const firstFailed = result.firstFailedIndex >= 0 ? result.firstFailedIndex : (conn.pads.length - 1 - result.failedCount);
+                for (let ci = firstFailed; ci < conn.pads.length - 1; ci++) {
+                    const cid = makeConnectionId(conn.net, ci);
+                    if (!stillFailed.includes(cid)) stillFailed.push(cid);
+                }
                 onNetFailed?.(conn);
             }
+            // Remove any now-routed connIds from the remaining failedConnIds to avoid re-probing
+            // (they might appear later in the list if they were added during initial routing)
+            // This is handled naturally since stillFailed only gets pushed for actual failures.
+            handledNetsThisPass.add(failedNet);
 
             // Re-route ripped nets with the full initial profile — they
             // were already routable once, so they deserve adequate budget.
@@ -2439,13 +2462,18 @@ export async function routeAll(input, options = {}) {
                     setNetPendingConnections(rn, rResult.failedCount);
                 }
                 if (rResult.failedCount > 0) {
-                    if (!stillFailed.includes(rn)) stillFailed.push(rn);
+                    // Add failed connections from re-routed net as connIds
+                    const rnFirstFailed = rResult.firstFailedIndex >= 0 ? rResult.firstFailedIndex : (rc.pads.length - 1 - rResult.failedCount);
+                    for (let ci = rnFirstFailed; ci < rc.pads.length - 1; ci++) {
+                        const cid = makeConnectionId(rn, ci);
+                        if (!stillFailed.includes(cid)) stillFailed.push(cid);
+                    }
                     onNetFailed?.(rc);
                 }
             }
 
             passDone++;
-            emitProgress(passDone, passTotal, `Rip-up ${pass}: ${failedNet}`, {
+            emitProgress(passDone, passTotal, `Rip-up ${pass}: ${failedCid}`, {
                 phase: 'ripup',
                 ripupDone: passDone,
                 ripupTotal: passTotal,
@@ -2455,10 +2483,10 @@ export async function routeAll(input, options = {}) {
             await yieldToUI();
         }
 
-        failedNets.length = 0;
-        failedNets.push(...stillFailed);
+        failedConnIds.length = 0;
+        failedConnIds.push(...stillFailed);
 
-        if (failedNets.length === 0) break;
+        if (failedConnIds.length === 0) break;
     }
 
     // ── Collect results ──────────────────────────────────────────
