@@ -100,7 +100,7 @@ class SpatialHash {
      * Used to prevent vias from being placed on top of pads.
      * Does NOT skip any pads — vias must never land on ANY pad.
      */
-    isOnPad(x, y, clearance) {
+    isOnPad(x, y, clearance, skipNet = null) {
         const cx = Math.floor(x / this.cellSize);
         const cy = Math.floor(y / this.cellSize);
         for (let dx = -1; dx <= 1; dx++) {
@@ -109,6 +109,7 @@ class SpatialHash {
                 if (!objs) continue;
                 for (const obj of objs) {
                     if (!obj.isPad) continue;
+                    if (skipNet && obj.net === skipNet) continue;
                     if (x >= obj.cx - obj.hw - clearance &&
                         x <= obj.cx + obj.hw + clearance &&
                         y >= obj.cy - obj.hh - clearance &&
@@ -672,6 +673,7 @@ async function astarRoute(sx, sy, ex, ey, obstacles, skipIds, gridStep, traceWid
         viaCongestionScale = 1.0,
         congestionGrid = null,
         historyWeight = 0,
+        routingNet = null,
     } = options;
     const halfTrace = traceWidth / 2;
     const totalClear = halfTrace + clearance;
@@ -915,9 +917,10 @@ async function astarRoute(sx, sy, ex, ey, obstacles, skipIds, gridStep, traceWid
                 const clearOnOther = isEndpoint || !obstacles.isBlocked(current.x, current.y, totalClear, skipIds, otherLayer);
                 const clearOnCurrent = isEndpoint || !obstacles.isBlocked(current.x, current.y, totalClear, skipIds, current.layer);
 
-                // NEVER place a via on or near ANY pad — use generous clearance
+                // NEVER place a via on or near ANY pad — use generous clearance.
+                // Exception: own-net pads are OK (via at start/end pad for layer change).
                 const viaPadClear = totalClear * 2;
-                const onPad = obstacles.isOnPad(current.x, current.y, viaPadClear);
+                const onPad = obstacles.isOnPad(current.x, current.y, viaPadClear, routingNet);
 
                 if (clearOnOther && clearOnCurrent && !onPad) {
                     const viaDensity = obstacles.localDensity(current.x, current.y, skipIds, otherLayer, 1);
@@ -1834,9 +1837,13 @@ export async function routeAll(input, options = {}) {
             }
             if (routed) continue;
 
-            // A* with via support — try starting on each viable layer
-            const startLayers = fromLayer === 'both' ? ['top', 'bottom']
-                : [fromLayer];
+            // A* with via support — try starting on each viable layer.
+            // For long routes (>40mm), also try the opposite layer so A* can
+            // route via→bottom→via paths through uncongested space.
+            const routeLen = Math.hypot(to.x - from.x, to.y - from.y);
+            const nativeLayers = fromLayer === 'both' ? ['top', 'bottom'] : [fromLayer];
+            const oppositeLayers = routeLen > 40 ? (fromLayer === 'top' ? ['bottom'] : fromLayer === 'bottom' ? ['top'] : []) : [];
+            const startLayers = [...nativeLayers, ...oppositeLayers];
             const endLayer = toLayer;  // pass dest pad layer so A* only accepts valid arrival
             let result = null;
 
@@ -1884,6 +1891,7 @@ export async function routeAll(input, options = {}) {
                         viaCongestionScale: a1.viaCongestionScale,
                         congestionGrid: activeCongestionGrid,
                         historyWeight: activeHistoryWeight,
+                        routingNet: conn.net,
                     }
                     );
                     setCachedAttemptResult(attempt1Key, result);
@@ -1920,6 +1928,7 @@ export async function routeAll(input, options = {}) {
                         viaCongestionScale: a2.viaCongestionScale,
                         congestionGrid: activeCongestionGrid,
                         historyWeight: activeHistoryWeight,
+                        routingNet: conn.net,
                     }
                     );
                     setCachedAttemptResult(attempt2Key, result);
@@ -1958,6 +1967,7 @@ export async function routeAll(input, options = {}) {
                         viaCongestionScale: a3.viaCongestionScale,
                         congestionGrid: activeCongestionGrid,
                         historyWeight: activeHistoryWeight,
+                        routingNet: conn.net,
                     }
                     );
                     setCachedAttemptResult(attempt3Key, result);
