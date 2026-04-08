@@ -1559,6 +1559,8 @@ export async function routeAll(input, options = {}) {
         for (const v of netPendingConnections.values()) total += Math.max(0, v);
         return total;
     };
+    /** Total connection count (computed once, never changes) */
+    const totalConnectionCount = pendingConnectionsTotal();
 
     const pendingNetsTotal = () => {
         let total = 0;
@@ -2137,14 +2139,15 @@ export async function routeAll(input, options = {}) {
 
     /** @type {Map<string, Array>} best net → traces snapshot */
     let bestRoutedTraces = new Map();
-    let bestRoutedCount = 0;
+    let bestRoutedConnCount = 0;
     /** @type {Map<string, number>} snapshot of pending connections at best state */
     let bestPendingConnections = new Map();
 
     const captureBestIfImproved = () => {
-        const routedCount = routedTraces.size;
-        if (routedCount <= bestRoutedCount) return;
-        bestRoutedCount = routedCount;
+        // Count routed connections (total minus pending), not just net count
+        const routedConnCount = totalConnectionCount - pendingConnectionsTotal();
+        if (routedConnCount <= bestRoutedConnCount) return;
+        bestRoutedConnCount = routedConnCount;
         bestRoutedTraces = new Map();
         for (const [netName, netTraces] of routedTraces.entries()) {
             bestRoutedTraces.set(netName, cloneNetTraces(netTraces));
@@ -2511,10 +2514,6 @@ export async function routeAll(input, options = {}) {
     const bestFailedNets = [...connMap.keys()].filter(net => !finalRouted.has(net));
 
     // Count failed connections from live state (matches what ratsnest shows)
-    let totalConnectionCount = 0;
-    for (const conn of connMap.values()) {
-        totalConnectionCount += Math.max(0, conn.pads.length - 1);
-    }
     const failedConnectionCount = pendingConnectionsTotal();
     const connectionOnlyTopNoPathConnIds = [...connectionOnlyNoPathByConnId.entries()]
         .sort((a, b) => {
