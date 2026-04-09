@@ -1190,12 +1190,6 @@ export default class PCBApp {
                         this._flashFailedNet(msg.conn);
                         break;
                     }
-                    case 'netRipped': {
-                        const netName = msg.netName;
-                        this._clearIncrementalNet(netName);
-                        this._setRouteNetUnrouted(netName, true);
-                        break;
-                    }
                     case 'connRipped': {
                         const connId = msg.connId;
                         if (connId) this._clearIncrementalConnection(connId);

@@ -28,9 +28,6 @@ self.addEventListener('message', async (event) => {
             onNetFailed: (conn) => {
                 self.postMessage({ type: 'netFailed', conn });
             },
-            onNetRipped: (netName) => {
-                self.postMessage({ type: 'netRipped', netName });
-            },
             onConnRipped: (connId) => {
                 self.postMessage({ type: 'connRipped', connId });
             },
