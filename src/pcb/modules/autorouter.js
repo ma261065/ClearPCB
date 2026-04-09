@@ -2246,10 +2246,39 @@ export async function routeAll(input, options = {}) {
 
     // ── Passes 2+: Rip-up-and-reroute ────────────────────────────
 
+    // Build congestion grid from routed traces + failed connection demand
+    const rebuildCongestionGrid = () => {
+        const cg = new CongestionGrid(gridStep * 4);
+        for (const [, netTraces] of routedTraces) {
+            for (const t of netTraces) {
+                const pts = t.points;
+                if (!pts || pts.length < 2) continue;
+                for (let i = 0; i < pts.length - 1; i++) {
+                    cg.recordSegment(pts[i].x, pts[i].y, pts[i + 1].x, pts[i + 1].y, t.net);
+                }
+            }
+        }
+        // Record demand from failed connections so A* avoids their corridors
+        for (const cid of failedConnIds) {
+            const parsed = parseConnectionId(cid);
+            if (!parsed) continue;
+            const conn = connMap.get(parsed.netName);
+            if (!conn || parsed.index >= conn.pads.length - 1) continue;
+            const from = conn.pads[parsed.index];
+            const to = conn.pads[parsed.index + 1];
+            cg.recordDemandLine(from.x, from.y, to.x, to.y, parsed.netName);
+        }
+        return cg;
+    };
+
     for (let pass = 1; pass <= MAX_PASSES && failedConnIds.length > 0; pass++) {
         if (cancelToken?.cancelled) break;
         const passProfile = getRipupProfile(pass);
         routeAttemptCache.clear();
+
+        // Activate negotiated congestion: increase weight each pass
+        activeCongestionGrid = rebuildCongestionGrid();
+        activeHistoryWeight = 0.3 * pass;
 
         const passTotal = Math.max(1, failedConnIds.length);
         let passDone = 0;
