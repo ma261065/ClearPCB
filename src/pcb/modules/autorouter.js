@@ -2396,16 +2396,11 @@ export async function routeAll(input, options = {}) {
             }
 
             // Rip only the specific blocking connections
-            // Save ripped traces so they can be restored if re-routing fails
-            /** @type {Map<string, Array>} connId → saved trace segments */
-            const savedRippedTraces = new Map();
             // Remove only the specific blocking connection obstacles (surgical)
             for (const cid of [...blockingConnIds].sort()) {
                 const ownerNet = connIdToNet.get(cid) || parseConnectionId(cid)?.netName || null;
                 if (ownerNet && routedTraces.has(ownerNet)) {
                     const existing = routedTraces.get(ownerNet) || [];
-                    const ripped = existing.filter(t => t.connId === cid);
-                    if (ripped.length > 0) savedRippedTraces.set(cid, ripped);
                     routedTraces.set(ownerNet, existing.filter(t => t.connId !== cid));
                 }
                 obstacles.removeConnection(cid);
@@ -2455,24 +2450,8 @@ export async function routeAll(input, options = {}) {
                     setNetPendingConnections(rn, Math.max(0, prev - 1));
                     onNetRouted?.(cResult.traces);
                 } else {
-                    // Re-routing failed — restore original traces and obstacles
-                    const saved = savedRippedTraces.get(cid);
-                    if (saved && saved.length > 0) {
-                        const existing = routedTraces.get(rn) || [];
-                        routedTraces.set(rn, existing.concat(saved));
-                        for (const t of saved) {
-                            const pts = t.points || [];
-                            const layer = t.layer || 'top';
-                            for (let k = 0; k < pts.length - 1; k++) {
-                                obstacles.insert(pts[k].x, pts[k].y, pts[k + 1].x, pts[k + 1].y,
-                                    halfTrace, rn, layer, cid);
-                            }
-                        }
-                        obstacleVersion++;
-                    } else {
-                        if (!stillFailed.includes(cid)) stillFailed.push(cid);
-                    }
                     connectionOnlyRerouteFallbacksToNet++;
+                    if (!stillFailed.includes(cid)) stillFailed.push(cid);
                     const fromPad = rc.pads[connIdx];
                     const toPad = rc.pads[connIdx + 1];
                     const probeLayer = fromPad?.layer || 'top';
@@ -2485,7 +2464,10 @@ export async function routeAll(input, options = {}) {
                 }
             }
 
+            // Capture at end of iteration — routedTraces is consistent here
+            // (all re-routes done, no pending rips)
             captureBestIfImproved();
+
             passDone++;
             emitProgress(passDone, passTotal, `Rip-up ${pass}: ${failedCid}`, {
                 phase: 'ripup',
@@ -2515,10 +2497,10 @@ export async function routeAll(input, options = {}) {
         }
         return ids.size;
     };
-    const bestCount = bestRoutedTraces.size > 0 ? countConnIds(bestRoutedTraces) : 0;
-    const liveCount = countConnIds(routedTraces);
-    const finalRouted = bestCount >= liveCount && bestRoutedTraces.size > 0
-        ? bestRoutedTraces : routedTraces;
+    // Always use live routedTraces — it's the authoritative state that
+    // matches the obstacle hash. bestRoutedTraces snapshots can contain
+    // stale traces that conflict with traces routed during later rip-up.
+    const finalRouted = routedTraces;
     for (const [, netTraces] of finalRouted) {
         for (const t of netTraces) {
             allTraces.push({
