@@ -2202,8 +2202,15 @@ export async function routeAll(input, options = {}) {
     let bestPendingConnections = new Map();
 
     const captureBestIfImproved = () => {
-        // Count routed connections (total minus pending), not just net count
-        const routedConnCount = totalConnectionCount - pendingConnectionsTotal();
+        // Count actual routed connections by counting unique connIds in routedTraces
+        let routedConnCount = 0;
+        for (const [, netTraces] of routedTraces) {
+            const connIds = new Set();
+            for (const t of netTraces) {
+                if (t.connId) connIds.add(t.connId);
+            }
+            routedConnCount += connIds.size;
+        }
         if (routedConnCount <= bestRoutedConnCount) return;
         bestRoutedConnCount = routedConnCount;
         bestRoutedTraces = new Map();
@@ -2389,17 +2396,21 @@ export async function routeAll(input, options = {}) {
             }
 
             // Rip only the specific blocking connections
+            // Save ripped traces so they can be restored if re-routing fails
+            /** @type {Map<string, Array>} connId → saved trace segments */
+            const savedRippedTraces = new Map();
             // Remove only the specific blocking connection obstacles (surgical)
             for (const cid of [...blockingConnIds].sort()) {
-                obstacles.removeConnection(cid);
-                obstacleVersion++;
-                onConnRipped?.(cid);
                 const ownerNet = connIdToNet.get(cid) || parseConnectionId(cid)?.netName || null;
                 if (ownerNet && routedTraces.has(ownerNet)) {
                     const existing = routedTraces.get(ownerNet) || [];
-                    const filtered = existing.filter(t => t.connId !== cid);
-                    routedTraces.set(ownerNet, filtered);
+                    const ripped = existing.filter(t => t.connId === cid);
+                    if (ripped.length > 0) savedRippedTraces.set(cid, ripped);
+                    routedTraces.set(ownerNet, existing.filter(t => t.connId !== cid));
                 }
+                obstacles.removeConnection(cid);
+                obstacleVersion++;
+                onConnRipped?.(cid);
             }
 
             // Route only the specific failed connection (not the full net)
@@ -2419,7 +2430,6 @@ export async function routeAll(input, options = {}) {
                 routedTraces.set(failedNet, existing.concat(result.traces));
                 const prev = netPendingConnections.get(failedNet) || 0;
                 setNetPendingConnections(failedNet, Math.max(0, prev - 1));
-                captureBestIfImproved();
                 onNetRouted?.(result.traces);
             } else {
                 if (!stillFailed.includes(failedCid)) stillFailed.push(failedCid);
@@ -2443,11 +2453,26 @@ export async function routeAll(input, options = {}) {
                     routedTraces.set(rn, existing.concat(cResult.traces));
                     const prev = netPendingConnections.get(rn) || 0;
                     setNetPendingConnections(rn, Math.max(0, prev - 1));
-                    captureBestIfImproved();
                     onNetRouted?.(cResult.traces);
                 } else {
+                    // Re-routing failed — restore original traces and obstacles
+                    const saved = savedRippedTraces.get(cid);
+                    if (saved && saved.length > 0) {
+                        const existing = routedTraces.get(rn) || [];
+                        routedTraces.set(rn, existing.concat(saved));
+                        for (const t of saved) {
+                            const pts = t.points || [];
+                            const layer = t.layer || 'top';
+                            for (let k = 0; k < pts.length - 1; k++) {
+                                obstacles.insert(pts[k].x, pts[k].y, pts[k + 1].x, pts[k + 1].y,
+                                    halfTrace, rn, layer, cid);
+                            }
+                        }
+                        obstacleVersion++;
+                    } else {
+                        if (!stillFailed.includes(cid)) stillFailed.push(cid);
+                    }
                     connectionOnlyRerouteFallbacksToNet++;
-                    if (!stillFailed.includes(cid)) stillFailed.push(cid);
                     const fromPad = rc.pads[connIdx];
                     const toPad = rc.pads[connIdx + 1];
                     const probeLayer = fromPad?.layer || 'top';
@@ -2460,6 +2485,7 @@ export async function routeAll(input, options = {}) {
                 }
             }
 
+            captureBestIfImproved();
             passDone++;
             emitProgress(passDone, passTotal, `Rip-up ${pass}: ${failedCid}`, {
                 phase: 'ripup',
@@ -2481,7 +2507,18 @@ export async function routeAll(input, options = {}) {
 
     const allTraces = [];
     const allVias = [];
-    const finalRouted = bestRoutedTraces.size > 0 ? bestRoutedTraces : routedTraces;
+    // Pick the state with more routed connections: best snapshot or live state
+    const countConnIds = (traceMap) => {
+        const ids = new Set();
+        for (const [, traces] of traceMap) {
+            for (const t of traces) { if (t.connId) ids.add(t.connId); }
+        }
+        return ids.size;
+    };
+    const bestCount = bestRoutedTraces.size > 0 ? countConnIds(bestRoutedTraces) : 0;
+    const liveCount = countConnIds(routedTraces);
+    const finalRouted = bestCount >= liveCount && bestRoutedTraces.size > 0
+        ? bestRoutedTraces : routedTraces;
     for (const [, netTraces] of finalRouted) {
         for (const t of netTraces) {
             allTraces.push({
