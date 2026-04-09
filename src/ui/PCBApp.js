@@ -1174,9 +1174,12 @@ export default class PCBApp {
                     case 'netRouted': {
                         const netTraces = msg.netTraces || [];
                         this._clearTryingLines();
+                        // Clear old visuals for specific connections before rendering new paths
+                        for (const trace of netTraces) {
+                            if (trace.connId) this._clearIncrementalConnection(trace.connId);
+                        }
                         const netName = netTraces?.[0]?.net;
                         if (netName) {
-                            this._clearIncrementalNet(netName);
                             this._setRouteNetUnrouted(netName, false);
                         }
                         this._renderNetTraces(netTraces);
@@ -1191,6 +1194,11 @@ export default class PCBApp {
                         const netName = msg.netName;
                         this._clearIncrementalNet(netName);
                         this._setRouteNetUnrouted(netName, true);
+                        break;
+                    }
+                    case 'connRipped': {
+                        const connId = msg.connId;
+                        if (connId) this._clearIncrementalConnection(connId);
                         break;
                     }
                     case 'netPendingChanged': {
@@ -1550,6 +1558,7 @@ export default class PCBApp {
             polyline.setAttribute('stroke-linejoin', 'round');
             polyline.setAttribute('opacity', '0.6');
             if (trace.net) polyline.dataset.net = trace.net;
+            if (trace.connId) polyline.dataset.connid = trace.connId;
             parent.appendChild(polyline);
 
             // Render vias for this trace
@@ -1566,6 +1575,7 @@ export default class PCBApp {
                     ring.setAttribute('fill', '#b8860b');
                     ring.setAttribute('opacity', '0.6');
                     if (trace.net) ring.dataset.net = trace.net;
+                    if (trace.connId) ring.dataset.connid = trace.connId;
                     holeLayer.appendChild(ring);
 
                     const drill = document.createElementNS(NS, 'circle');
@@ -1576,6 +1586,7 @@ export default class PCBApp {
                     drill.setAttribute('fill', '#1a1a2e');
                     drill.setAttribute('opacity', '0.6');
                     if (trace.net) drill.dataset.net = trace.net;
+                    if (trace.connId) drill.dataset.connid = trace.connId;
                     holeLayer.appendChild(drill);
                 }
             }
@@ -1585,6 +1596,13 @@ export default class PCBApp {
     _clearIncrementalNet(netName) {
         if (!netName || !this.viewport?.svg) return;
         for (const el of this.viewport.svg.querySelectorAll(`.pcb-route-anim[data-net="${netName}"]`)) {
+            el.remove();
+        }
+    }
+
+    _clearIncrementalConnection(connId) {
+        if (!connId || !this.viewport?.svg) return;
+        for (const el of this.viewport.svg.querySelectorAll(`.pcb-route-anim[data-connid="${connId}"]`)) {
             el.remove();
         }
     }

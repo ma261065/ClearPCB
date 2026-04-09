@@ -132,7 +132,7 @@ class SpatialHash {
      * @param {string|Set<string>} skipIds - obstacle IDs to skip (source/dest pads)
      * @returns {boolean}
      */
-    isBlocked(x, y, clearance, skipIds, layer = null) {
+    isBlocked(x, y, clearance, skipIds, layer = null, skipNet = null) {
         const cx = Math.floor(x / this.cellSize);
         const cy = Math.floor(y / this.cellSize);
         const isSet = skipIds instanceof Set;
@@ -143,6 +143,8 @@ class SpatialHash {
                 for (const obj of objs) {
                     const objId = obj.net || obj.id;
                     if (isSet ? skipIds.has(objId) : objId === skipIds) continue;
+                    // Skip same-net traces (not pads) when routing another connection of the same net
+                    if (skipNet && !obj.isPad && obj.net === skipNet) continue;
                     // Layer check: obstacles only block on the same layer.
                     // Pads with layer='both' block all layers; single-layer pads
                     // only block their own layer. Traces only block same layer.
@@ -171,7 +173,7 @@ class SpatialHash {
      * @param {number} clearance @param {string|Set<string>} skipIds
      * @returns {boolean}
      */
-    isSegmentBlocked(ax1, ay1, ax2, ay2, clearance, skipIds, layer = null) {
+    isSegmentBlocked(ax1, ay1, ax2, ay2, clearance, skipIds, layer = null, skipNet = null) {
         const minSX = Math.min(ax1, ax2), maxSX = Math.max(ax1, ax2);
         const minSY = Math.min(ay1, ay2), maxSY = Math.max(ay1, ay2);
         const cxMin = Math.floor((minSX - clearance) / this.cellSize) - 1;
@@ -187,6 +189,8 @@ class SpatialHash {
                 for (const obj of objs) {
                     const objId = obj.net || obj.id;
                     if (isSet ? skipIds.has(objId) : objId === skipIds) continue;
+                    // Skip same-net traces when routing another connection of the same net
+                    if (skipNet && !obj.isPad && obj.net === skipNet) continue;
                     if (layer) {
                         const objLayer = obj.layer || 'both';
                         if (objLayer !== 'both' && objLayer !== layer) continue;
@@ -848,8 +852,8 @@ async function astarRoute(sx, sy, ex, ey, obstacles, skipIds, gridStep, traceWid
 
             const nStartKey = current.layer === 'top' ? startKeyTop : startKeyBottom;
             if (nKey !== nStartKey && nKey !== endKeyTop && nKey !== endKeyBottom) {
-                if (obstacles.isBlocked(nx, ny, totalClear, skipIds, current.layer)) continue;
-                if (obstacles.isSegmentBlocked(current.x, current.y, nx, ny, totalClear, skipIds, current.layer)) continue;
+                if (obstacles.isBlocked(nx, ny, totalClear, skipIds, current.layer, routingNet)) continue;
+                if (obstacles.isSegmentBlocked(current.x, current.y, nx, ny, totalClear, skipIds, current.layer, routingNet)) continue;
             }
 
             const stepCost = Math.hypot(dx, dy) * effectiveStep;
@@ -914,8 +918,8 @@ async function astarRoute(sx, sy, ex, ey, obstacles, skipIds, gridStep, traceWid
                 const isEndpoint = viaKey === nStartKey || viaKey === endKeyTop || viaKey === endKeyBottom;
 
                 // Check the via position is clear on BOTH layers
-                const clearOnOther = isEndpoint || !obstacles.isBlocked(current.x, current.y, totalClear, skipIds, otherLayer);
-                const clearOnCurrent = isEndpoint || !obstacles.isBlocked(current.x, current.y, totalClear, skipIds, current.layer);
+                const clearOnOther = isEndpoint || !obstacles.isBlocked(current.x, current.y, totalClear, skipIds, otherLayer, routingNet);
+                const clearOnCurrent = isEndpoint || !obstacles.isBlocked(current.x, current.y, totalClear, skipIds, current.layer, routingNet);
 
                 // NEVER place a via on or near ANY pad — use generous clearance.
                 // Exception: own-net pads are OK (via at start/end pad for layer change).
@@ -1237,7 +1241,7 @@ function buildCandidateRoutes(si, sj) {
  * or 45°+straight routes.  Runs after simplifyPath + fixAngles so it
  * can collapse dog-leg staircases into 1–3 segment routes.
  */
-function optimizePath(path, obstacles, skipIds, totalClear) {
+function optimizePath(path, obstacles, skipIds, totalClear, skipNet = null) {
     if (path.length <= 3) return path;
 
     const result = [path[0]];
@@ -1272,7 +1276,7 @@ function optimizePath(path, obstacles, skipIds, totalClear) {
                         if (obstacles.isOnPad(a.x, a.y, totalClear) ||
                             obstacles.isOnPad(b.x, b.y, totalClear)) { valid = false; break; }
                     }
-                    if (obstacles.isSegmentBlocked(a.x, a.y, b.x, b.y, totalClear, skipIds, layer)) { valid = false; break; }
+                    if (obstacles.isSegmentBlocked(a.x, a.y, b.x, b.y, totalClear, skipIds, layer, skipNet)) { valid = false; break; }
                 }
                 if (valid) {
                     for (let s = 1; s < candidate.length; s++) {
@@ -1295,7 +1299,7 @@ function optimizePath(path, obstacles, skipIds, totalClear) {
     return result;
 }
 
-function simplifyPath(path, obstacles, skipIds, totalClear) {
+function simplifyPath(path, obstacles, skipIds, totalClear, skipNet = null) {
     if (path.length <= 2) return path;
 
     const result = [path[0]];
@@ -1327,7 +1331,7 @@ function simplifyPath(path, obstacles, skipIds, totalClear) {
             if (!obstacles.isSegmentBlocked(
                 path[i].x, path[i].y,
                 path[j].x, path[j].y,
-                totalClear, skipIds, path[i].layer
+                totalClear, skipIds, path[i].layer, skipNet
             )) {
                 farthest = j;
                 break;
@@ -1441,6 +1445,7 @@ export async function routeAll(input, options = {}) {
         onNetRouted,
         onNetFailed,
         onNetRipped,
+        onConnRipped,
         onTrying,
         onNetPendingChanged,
         cancelToken,
@@ -1643,27 +1648,27 @@ export async function routeAll(input, options = {}) {
         };
     }
 
-    function isCachedPathStillClear(path, skipIds, totalClear) {
+    function isCachedPathStillClear(path, skipIds, totalClear, skipNet = null) {
         for (let i = 1; i < path.length; i++) {
             const a = path[i - 1];
             const b = path[i];
             if (a.layer === b.layer) {
-                if (obstacles.isSegmentBlocked(a.x, a.y, b.x, b.y, totalClear, skipIds, a.layer)) return false;
+                if (obstacles.isSegmentBlocked(a.x, a.y, b.x, b.y, totalClear, skipIds, a.layer, skipNet)) return false;
             } else {
-                if (obstacles.isBlocked(a.x, a.y, totalClear, skipIds, 'top')) return false;
-                if (obstacles.isBlocked(a.x, a.y, totalClear, skipIds, 'bottom')) return false;
+                if (obstacles.isBlocked(a.x, a.y, totalClear, skipIds, 'top', skipNet)) return false;
+                if (obstacles.isBlocked(a.x, a.y, totalClear, skipIds, 'bottom', skipNet)) return false;
             }
         }
         return true;
     }
 
-    function arePathSegmentsClear(pathPoints, layer, skipIds) {
+    function arePathSegmentsClear(pathPoints, layer, skipIds, skipNet = null) {
         if (!Array.isArray(pathPoints) || pathPoints.length < 2) return false;
         for (let i = 1; i < pathPoints.length; i++) {
             const a = pathPoints[i - 1];
             const b = pathPoints[i];
             if (!isValidAngle(a.x, a.y, b.x, b.y)) return false;
-            if (obstacles.isSegmentBlocked(a.x, a.y, b.x, b.y, totalClear, skipIds, layer)) return false;
+            if (obstacles.isSegmentBlocked(a.x, a.y, b.x, b.y, totalClear, skipIds, layer, skipNet)) return false;
         }
         return true;
     }
@@ -1810,7 +1815,7 @@ export async function routeAll(input, options = {}) {
             let routed = false;
             for (const layer of commonLayers) {
                 if (isValidAngle(from.x, from.y, to.x, to.y) &&
-                    !obstacles.isSegmentBlocked(from.x, from.y, to.x, to.y, totalClear, skipIds, layer)) {
+                    !obstacles.isSegmentBlocked(from.x, from.y, to.x, to.y, totalClear, skipIds, layer, conn.net)) {
                     traces.push({ net: conn.net, points: [
                         { x: from.x, y: from.y, layer },
                         { x: to.x, y: to.y, layer }
@@ -1826,7 +1831,7 @@ export async function routeAll(input, options = {}) {
                         { x: from.x, y: from.y, layer },
                         { x: to.x, y: to.y, layer }
                     ]);
-                    if (arePathSegmentsClear(cleanPts, layer, skipIds)) {
+                    if (arePathSegmentsClear(cleanPts, layer, skipIds, conn.net)) {
                         traces.push({ net: conn.net, points: cleanPts, layer, vias: [], connId });
                         for (let k = 0; k < cleanPts.length - 1; k++) {
                             obstacles.insert(cleanPts[k].x, cleanPts[k].y, cleanPts[k+1].x, cleanPts[k+1].y, halfTrace, conn.net, layer, connId);
@@ -1978,9 +1983,9 @@ export async function routeAll(input, options = {}) {
             }
 
             if (result) {
-                const rawSimplified = simplifyPath(result.path, obstacles, skipIds, totalClear);
+                const rawSimplified = simplifyPath(result.path, obstacles, skipIds, totalClear, conn.net);
                 const fixed = fixAngles(rawSimplified);
-                const simplified = fixAngles(optimizePath(fixed, obstacles, skipIds, totalClear));
+                const simplified = fixAngles(optimizePath(fixed, obstacles, skipIds, totalClear, conn.net));
                 // Detect vias directly from the simplified path — wherever
                 // the layer changes between consecutive points, place a via
                 const detectedVias = [];
@@ -1998,10 +2003,10 @@ export async function routeAll(input, options = {}) {
                     if (segPts.length < 2) return;
                     // Sanitize only if the transformed geometry still passes clearance checks.
                     const sanitizedPts = sanitizeAngles(segPts);
-                    const cleanPts = arePathSegmentsClear(sanitizedPts, layer, skipIds)
+                    const cleanPts = arePathSegmentsClear(sanitizedPts, layer, skipIds, conn.net)
                         ? sanitizedPts
                         : segPts;
-                    if (!arePathSegmentsClear(cleanPts, layer, skipIds)) return;
+                    if (!arePathSegmentsClear(cleanPts, layer, skipIds, conn.net)) return;
                     traces.push({ net: conn.net, points: cleanPts, layer, vias: [], connId });
                     for (let k = 0; k < cleanPts.length - 1; k++) {
                         obstacles.insert(cleanPts[k].x, cleanPts[k].y, cleanPts[k+1].x, cleanPts[k+1].y,
@@ -2064,8 +2069,6 @@ export async function routeAll(input, options = {}) {
         return String(a.conn.net || '').localeCompare(String(b.conn.net || ''));
     });
     const sorted = scoredNets.map(item => item.conn);
-    const totalNets = sorted.length;
-    let completedNets = 0;
 
     let obstacles = buildObstacles();
     /** @type {Map<string, Array>} net → traces */
@@ -2155,32 +2158,52 @@ export async function routeAll(input, options = {}) {
         bestPendingConnections = new Map(netPendingConnections);
     };
 
-    // ── Pass 1: Initial routing (hardest nets first) ────────────
+    // ── Pass 1: Initial routing (per-connection, hardest first) ──
+    // Flatten all nets into individual connections and score each one.
+    const allConnections = [];
     for (const conn of sorted) {
+        for (let ci = 0; ci < conn.pads.length - 1; ci++) {
+            const from = conn.pads[ci];
+            const to = conn.pads[ci + 1];
+            const manhattan = Math.abs(to.x - from.x) + Math.abs(to.y - from.y);
+            const localCrowd = (baseObstacles.localDensity(from.x, from.y, null, from.layer || null, 1)
+                              + baseObstacles.localDensity(to.x, to.y, null, to.layer || null, 1)) / 2;
+            const score = manhattan + localCrowd * Math.max(gridStep, 0.5);
+            allConnections.push({ conn, connIdx: ci, from, to, score });
+        }
+    }
+    allConnections.sort((a, b) => {
+        if (a.score !== b.score) return b.score - a.score;  // hardest first
+        const cmp = String(a.conn.net || '').localeCompare(String(b.conn.net || ''));
+        if (cmp !== 0) return cmp;
+        return a.connIdx - b.connIdx;
+    });
+    const totalConns = allConnections.length;
+    let completedConns = 0;
+
+    for (const item of allConnections) {
         if (cancelToken?.cancelled) break;
-        emitProgress(completedNets, totalNets, conn.net, { phase: 'initial' });
+        const { conn, connIdx } = item;
+        emitProgress(completedConns, totalConns, conn.net, { phase: 'initial' });
         await yieldToUI();
 
         const skipIds = netPadIds.get(conn.net) || new Set();
+        const miniConn = { net: conn.net, pads: [conn.pads[connIdx], conn.pads[connIdx + 1]] };
+        const result = await routeNet(miniConn, obstacles, skipIds, tunedInitialProfile, connIdx);
 
-        const result = await routeNet(conn, obstacles, skipIds, tunedInitialProfile);
         if (result.traces.length > 0) {
-            routedTraces.set(conn.net, result.traces);
-            setNetPendingConnections(conn.net, result.failedCount);
+            const existing = routedTraces.get(conn.net) || [];
+            routedTraces.set(conn.net, existing.concat(result.traces));
+            // Decrement pending by 1 for this successful connection
+            const prev = netPendingConnections.get(conn.net) || 0;
+            setNetPendingConnections(conn.net, Math.max(0, prev - 1));
             captureBestIfImproved();
             onNetRouted?.(result.traces);
         } else {
-            setNetPendingConnections(conn.net, result.failedCount);
-        }
-        if (result.failedCount > 0) {
-            // Record each failed connection ID individually
-            const firstFailed = result.firstFailedIndex >= 0 ? result.firstFailedIndex : (conn.pads.length - 1 - result.failedCount);
-            for (let ci = firstFailed; ci < conn.pads.length - 1; ci++) {
-                failedConnIds.push(makeConnectionId(conn.net, ci));
-            }
+            failedConnIds.push(makeConnectionId(conn.net, connIdx));
             onNetFailed?.(conn);
         }
-        completedNets++;
+        completedConns++;
     }
 
     // ── Passes 2+: Rip-up-and-reroute ────────────────────────────
@@ -2201,8 +2224,6 @@ export async function routeAll(input, options = {}) {
         });
         await yieldToUI();
         const stillFailed = [];
-        /** Track nets already handled this pass (via tail routing) to avoid redundant probes */
-        const handledNetsThisPass = new Set();
 
         for (const failedCid of failedConnIds) {
             if (cancelToken?.cancelled) break;
@@ -2211,9 +2232,6 @@ export async function routeAll(input, options = {}) {
             const { netName: failedNet, index: failedConnIdx } = parsed;
             const conn = connMap.get(failedNet);
             if (!conn || failedConnIdx >= conn.pads.length - 1) continue;
-
-            // Skip if a previous iteration already tail-routed this net's connections
-            if (handledNetsThisPass.has(failedNet)) continue;
 
             emitProgress(passDone, passTotal, `Rip-up ${pass}: ${failedCid}`, {
                 phase: 'ripup',
@@ -2224,14 +2242,13 @@ export async function routeAll(input, options = {}) {
             });
             await yieldToUI();
 
-            // Cost-based rip-up: probe all failed connections in this net
-            // (from failedConnIdx onward) to gather comprehensive blockers
+            // Cost-based rip-up: probe only the specific failed connection
             const skipIds = netPadIds.get(failedNet) || new Set();
             const blockingConnIds = new Set();
 
-            for (let ci = failedConnIdx; ci < conn.pads.length - 1; ci++) {
-                const from = conn.pads[ci];
-                const to = conn.pads[ci + 1];
+            {
+                const from = conn.pads[failedConnIdx];
+                const to = conn.pads[failedConnIdx + 1];
                 const fromLayer = from.layer || 'top';
                 const startLayers = fromLayer === 'both' ? ['top', 'bottom'] : [fromLayer];
                 const endLayer = to.layer || 'top';
@@ -2273,18 +2290,9 @@ export async function routeAll(input, options = {}) {
                 }
             }
 
-            // Expand connIds to affected nets for re-routing
-            const affectedNets = new Set();
-            for (const cid of blockingConnIds) {
-                const net = connIdToNet.get(cid);
-                if (net) affectedNets.add(net);
-            }
-
-            if (affectedNets.size === 0) {
+            if (blockingConnIds.size === 0) {
                 // No trace obstacles — just pads in the way, can't help
                 stillFailed.push(failedCid);
-                setNetPendingConnections(failedNet, Math.max(0, (conn.pads?.length || 0) - 1));
-                onNetFailed?.(conn);
                 passDone++;
                 emitProgress(passDone, passTotal, `Rip-up ${pass}: ${failedCid}`, {
                     phase: 'ripup',
@@ -2296,12 +2304,12 @@ export async function routeAll(input, options = {}) {
                 continue;
             }
 
-            // Rip only the specific blocking connections, then re-route affected nets
-            const rippedNets = [];
+            // Rip only the specific blocking connections
             // Remove only the specific blocking connection obstacles (surgical)
             for (const cid of [...blockingConnIds].sort()) {
                 obstacles.removeConnection(cid);
                 obstacleVersion++;
+                onConnRipped?.(cid);
                 const ownerNet = connIdToNet.get(cid) || parseConnectionId(cid)?.netName || null;
                 if (ownerNet && routedTraces.has(ownerNet)) {
                     const existing = routedTraces.get(ownerNet) || [];
@@ -2309,170 +2317,62 @@ export async function routeAll(input, options = {}) {
                     routedTraces.set(ownerNet, filtered);
                 }
             }
-            // Mark affected nets for re-routing
-            const affectedNetsSorted = [...affectedNets].sort();
-            for (const an of affectedNetsSorted) {
-                if (routedTraces.has(an)) {
-                    rippedNets.push(an);
-                    onNetRipped?.(an);
-                    const anConn = connMap.get(an);
-                    if (anConn) setNetPendingConnections(an, Math.max(0, (anConn.pads?.length || 0) - 1));
-                }
+
+            // Route only the specific failed connection (not the full net)
+            obstacles.removeConnection(failedCid);
+            obstacleVersion++;
+            onConnRipped?.(failedCid);
+            if (routedTraces.has(failedNet)) {
+                const existing = routedTraces.get(failedNet) || [];
+                const filtered = existing.filter(t => t.connId !== failedCid);
+                routedTraces.set(failedNet, filtered);
             }
 
-            // Try routing the FULL net now (not just the failed connection).
-            // Previously-routed connections in this net were ripped if they
-            // were blocking, so we re-route the entire net for consistency.
-            obstacles.removeNet(failedNet);
-            obstacleVersion++;
-            routedTraces.delete(failedNet);
-
-            const result = await routeNet(conn, obstacles, skipIds, passProfile);
+            const miniConn = { net: failedNet, pads: [conn.pads[failedConnIdx], conn.pads[failedConnIdx + 1]] };
+            const result = await routeNet(miniConn, obstacles, skipIds, passProfile, failedConnIdx);
             if (result.traces.length > 0) {
-                routedTraces.set(failedNet, result.traces);
-                setNetPendingConnections(failedNet, result.failedCount);
+                const existing = routedTraces.get(failedNet) || [];
+                routedTraces.set(failedNet, existing.concat(result.traces));
+                const prev = netPendingConnections.get(failedNet) || 0;
+                setNetPendingConnections(failedNet, Math.max(0, prev - 1));
                 captureBestIfImproved();
                 onNetRouted?.(result.traces);
             } else {
-                setNetPendingConnections(failedNet, result.failedCount);
-            }
-            if (result.failedCount > 0) {
-                const firstFailed = result.firstFailedIndex >= 0 ? result.firstFailedIndex : (conn.pads.length - 1 - result.failedCount);
-                for (let ci = firstFailed; ci < conn.pads.length - 1; ci++) {
-                    const cid = makeConnectionId(conn.net, ci);
-                    if (!stillFailed.includes(cid)) stillFailed.push(cid);
-                }
+                if (!stillFailed.includes(failedCid)) stillFailed.push(failedCid);
                 onNetFailed?.(conn);
             }
-            // Remove any now-routed connIds from the remaining failedConnIds to avoid re-probing
-            // (they might appear later in the list if they were added during initial routing)
-            // This is handled naturally since stillFailed only gets pushed for actual failures.
-            handledNetsThisPass.add(failedNet);
 
-            // Re-route ripped nets with the full initial profile — they
-            // were already routable once, so they deserve adequate budget.
-            // Try connection-only reroute first for ripped connection IDs.
-            for (const rn of rippedNets) {
+            // Re-route ripped connections individually
+            for (const cid of [...blockingConnIds].sort()) {
+                const cidParsed = parseConnectionId(cid);
+                if (!cidParsed) continue;
+                const { netName: rn, index: connIdx } = cidParsed;
                 const rc = connMap.get(rn);
-                if (!rc) continue;
+                if (!rc || connIdx >= rc.pads.length - 1) continue;
                 const rSkip = netPadIds.get(rn) || new Set();
-                const existing = routedTraces.get(rn) || [];
-                const rippedIndexes = [...blockingConnIds]
-                    .map(cid => parseConnectionId(cid))
-                    .filter(parsed => parsed && parsed.netName === rn)
-                    .map(parsed => parsed.index)
-                    .filter(idx => idx >= 0 && idx < (rc.pads.length - 1));
 
-                const uniqueSortedIndexes = [...new Set(rippedIndexes)].sort((a, b) => a - b);
-
-                let connectionOnlyFailed = false;
-                let connectionOnlyFailReason = 'other';
-                const appended = [];
-                for (const connIdx of uniqueSortedIndexes) {
-                    connectionOnlyRerouteAttempts++;
-                    const miniConn = {
-                        net: rc.net,
-                        pads: [rc.pads[connIdx], rc.pads[connIdx + 1]],
-                    };
-                    const cResult = await routeNet(miniConn, obstacles, rSkip, tunedInitialProfile, connIdx);
-                    if (cResult.failedCount > 0 || cResult.traces.length === 0) {
-                        if (cResult.failedCount > 0) {
-                            const failedConnId = makeConnectionId(rn, connIdx);
-                            const fromPad = rc.pads[connIdx];
-                            const toPad = rc.pads[connIdx + 1];
-                            const probeLayer = fromPad?.layer || 'top';
-                            const blocker = (fromPad && toPad)
-                                ? obstacles.firstBlockingObstacleForSegment(fromPad.x, fromPad.y, toPad.x, toPad.y, totalClear, rSkip, probeLayer)
-                                : null;
-                            // Hotspot-targeted retry: for first segment failures, retry in reverse
-                            // direction because directional costs can bias one-way dead-ends.
-                            if (connIdx === 0) {
-                                connectionOnlyNoPathRetryAttempts++;
-                                const reverseMiniConn = {
-                                    net: rc.net,
-                                    pads: [rc.pads[connIdx + 1], rc.pads[connIdx]],
-                                };
-                                const retryResult = await routeNet(reverseMiniConn, obstacles, rSkip, passProfile, connIdx);
-                                if (retryResult.failedCount === 0 && retryResult.traces.length > 0) {
-                                    connectionOnlyNoPathRetrySuccesses++;
-                                    appended.push(...retryResult.traces);
-                                    continue;
-                                }
-
-                                // Merge-aware retry: allow same-net geometry as compatible.
-                                // This targets no-path cases dominated by self-net trace blockers.
-                                const isSelfTraceBlocker = blocker?.kind === 'trace' && blocker?.net === rn;
-                                if (isSelfTraceBlocker) {
-                                    connectionOnlyNoPathMergeRetryAttempts++;
-                                    const mergeSkip = new Set(rSkip);
-                                    mergeSkip.add(rn);
-                                    const mergeRetryResult = await routeNet(reverseMiniConn, obstacles, mergeSkip, passProfile, connIdx);
-                                    if (mergeRetryResult.failedCount === 0 && mergeRetryResult.traces.length > 0) {
-                                        connectionOnlyNoPathMergeRetrySuccesses++;
-                                        if (blocker?.kind === 'trace' && blocker?.net === rn) {
-                                            connectionOnlyNoPathMergeRetrySelfTraceSuccesses++;
-                                        } else if (blocker?.kind === 'trace') {
-                                            connectionOnlyNoPathMergeRetryCrossTraceSuccesses++;
-                                        } else {
-                                            connectionOnlyNoPathMergeRetryOtherSuccesses++;
-                                        }
-                                        appended.push(...mergeRetryResult.traces);
-                                        continue;
-                                    }
-                                }
-                            }
-
-                            connectionOnlyFailAstarNoPathCount++;
-                            connectionOnlyFailReason = 'noPath';
-                            connectionOnlyNoPathByConnId.set(
-                                failedConnId,
-                                (connectionOnlyNoPathByConnId.get(failedConnId) || 0) + 1
-                            );
-                            recordNoPathBlocker(failedConnId, blocker);
-                        } else if (cResult.traces.length === 0) {
-                            connectionOnlyFailPostProcessCount++;
-                            connectionOnlyFailReason = 'post';
-                        } else {
-                            connectionOnlyFailOtherCount++;
-                            connectionOnlyFailReason = 'other';
-                        }
-                        connectionOnlyFailed = true;
-                        break;
-                    }
-                    appended.push(...cResult.traces);
-                }
-
-                if (!connectionOnlyFailed) {
-                    routedTraces.set(rn, existing.concat(appended));
-                    setNetPendingConnections(rn, 0);
+                connectionOnlyRerouteAttempts++;
+                const rMiniConn = { net: rn, pads: [rc.pads[connIdx], rc.pads[connIdx + 1]] };
+                const cResult = await routeNet(rMiniConn, obstacles, rSkip, tunedInitialProfile, connIdx);
+                if (cResult.traces.length > 0 && cResult.failedCount === 0) {
+                    const existing = routedTraces.get(rn) || [];
+                    routedTraces.set(rn, existing.concat(cResult.traces));
+                    const prev = netPendingConnections.get(rn) || 0;
+                    setNetPendingConnections(rn, Math.max(0, prev - 1));
                     captureBestIfImproved();
-                    if (appended.length > 0) onNetRouted?.(appended);
-                    continue;
-                }
-
-                // Connection-only reroute failed for this net; rebuild the net with full reroute.
-                connectionOnlyRerouteFallbacksToNet++;
-                obstacles.removeNet(rn);
-                obstacleVersion++;
-                routedTraces.delete(rn);
-
-                const rResult = await routeNet(rc, obstacles, rSkip, tunedInitialProfile);
-                if (rResult.traces.length > 0) {
-                    routedTraces.set(rn, rResult.traces);
-                    setNetPendingConnections(rn, rResult.failedCount);
-                    captureBestIfImproved();
-                    onNetRouted?.(rResult.traces);
+                    onNetRouted?.(cResult.traces);
                 } else {
-                    setNetPendingConnections(rn, rResult.failedCount);
-                }
-                if (rResult.failedCount > 0) {
-                    // Add failed connections from re-routed net as connIds
-                    const rnFirstFailed = rResult.firstFailedIndex >= 0 ? rResult.firstFailedIndex : (rc.pads.length - 1 - rResult.failedCount);
-                    for (let ci = rnFirstFailed; ci < rc.pads.length - 1; ci++) {
-                        const cid = makeConnectionId(rn, ci);
-                        if (!stillFailed.includes(cid)) stillFailed.push(cid);
-                    }
-                    onNetFailed?.(rc);
+                    connectionOnlyRerouteFallbacksToNet++;
+                    if (!stillFailed.includes(cid)) stillFailed.push(cid);
+                    const fromPad = rc.pads[connIdx];
+                    const toPad = rc.pads[connIdx + 1];
+                    const probeLayer = fromPad?.layer || 'top';
+                    const blocker = (fromPad && toPad)
+                        ? obstacles.firstBlockingObstacleForSegment(fromPad.x, fromPad.y, toPad.x, toPad.y, totalClear, rSkip, probeLayer)
+                        : null;
+                    connectionOnlyFailAstarNoPathCount++;
+                    connectionOnlyNoPathByConnId.set(cid, (connectionOnlyNoPathByConnId.get(cid) || 0) + 1);
+                    recordNoPathBlocker(cid, blocker);
                 }
             }
 

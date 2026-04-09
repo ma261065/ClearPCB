@@ -31,6 +31,9 @@ self.addEventListener('message', async (event) => {
             onNetRipped: (netName) => {
                 self.postMessage({ type: 'netRipped', netName });
             },
+            onConnRipped: (connId) => {
+                self.postMessage({ type: 'connRipped', connId });
+            },
             onNetPendingChanged: (netName, pendingConnections) => {
                 self.postMessage({ type: 'netPendingChanged', netName, pendingConnections });
             },
