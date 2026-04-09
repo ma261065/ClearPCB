@@ -2066,7 +2066,6 @@ body {
 }
 
 .pcb-layer-panel {
-    display: none;
     position: absolute;
     top: 100%;
     right: 0;
@@ -2077,11 +2076,31 @@ body {
     border-radius: 4px;
     box-shadow: 0 4px 16px rgba(0,0,0,0.4);
     padding: 4px 0;
+    /* Hover-forgiving: use opacity+visibility instead of display:none
+       so we can add a transition delay on close */
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition: opacity 0.15s ease, visibility 0s linear 0.4s;
 }
 
 .pcb-layer-control:hover .pcb-layer-panel,
 .pcb-layer-panel:hover {
-    display: block;
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+    transition: opacity 0.1s ease, visibility 0s linear 0s;
+}
+
+/* Invisible buffer zone around panel so small mouse drifts don't close it */
+.pcb-layer-panel::before {
+    content: '';
+    position: absolute;
+    top: -12px;
+    left: -12px;
+    right: -12px;
+    bottom: -12px;
+    z-index: -1;
 }
 
 .pcb-layer-row {
