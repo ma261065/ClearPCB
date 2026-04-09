@@ -1041,6 +1041,130 @@ export default class PCBApp {
     // ── Auto Router ───────────────────────────────────────────────
 
     /**
+     * Load a test board JSON file and auto-route it.
+     * Bypasses the normal placement/netlist pipeline — feeds RouteInput
+     * directly to the autorouter and renders the results.
+     * @param {string} filename - test board filename (e.g. 'test-board.json')
+     */
+    async loadTestBoard(filename) {
+        try {
+            const resp = await fetch(filename);
+            if (!resp.ok) throw new Error(`Failed to fetch ${filename}: ${resp.status}`);
+            const routeInput = await resp.json();
+
+            // Clear existing board state
+            this.clearRoutes();
+            this._clearAllPlacements();
+
+            // Render pads as visual indicators
+            this._renderTestBoardPads(routeInput);
+
+            // Set up netlist/placements so ratsnest works
+            this._setupTestBoardState(routeInput);
+
+            // Rebuild ratsnest
+            if (!this._ratsnestGroup) {
+                this._ratsnestGroup = this._getLayerGroup('ratlines');
+            }
+            this._updateRatsnest();
+
+            // Fit viewport to board bounds
+            if (routeInput.bounds && this.viewport) {
+                const b = routeInput.bounds;
+                const margin = 5;
+                this.viewport.fitToBounds(
+                    b.minX - margin, b.minY - margin,
+                    b.maxX + margin, b.maxY + margin
+                );
+            }
+
+            this._setStatus(`Loaded ${filename} — ${routeInput.connections.length} nets, click Auto Route to route`);
+
+        } catch (err) {
+            this._setStatus(`Error loading test board: ${err.message}`);
+            console.error(err);
+        }
+    }
+
+    /**
+     * Render test board pads as SVG rectangles for visual reference.
+     */
+    _renderTestBoardPads(routeInput) {
+        const NS = 'http://www.w3.org/2000/svg';
+        const topCopper = this._getLayerGroup('top-copper');
+        const bottomCopper = this._getLayerGroup('bottom-copper');
+        const pads = routeInput.allObstaclePads || [];
+        for (const pad of pads) {
+            const rect = document.createElementNS(NS, 'rect');
+            rect.setAttribute('class', 'pcb-test-pad');
+            rect.setAttribute('x', String(pad.x - pad.width / 2));
+            rect.setAttribute('y', String(pad.y - pad.height / 2));
+            rect.setAttribute('width', String(pad.width));
+            rect.setAttribute('height', String(pad.height));
+            rect.setAttribute('fill', pad.layer === 'bottom' ? '#0066ff' : '#ff6633');
+            rect.setAttribute('stroke', '#ffcc00');
+            rect.setAttribute('stroke-width', '0.05');
+            rect.setAttribute('opacity', '0.8');
+            const parent = pad.layer === 'bottom' ? bottomCopper : topCopper;
+            parent.appendChild(rect);
+        }
+    }
+
+    /**
+     * Set up internal state (placements, netlist) from a RouteInput
+     * so that ratsnest and auto-route work correctly.
+     */
+    _setupTestBoardState(routeInput) {
+        this.placements = new Map();
+        this.netlist = [];
+
+        // Build minimal placements from allObstaclePads
+        // Group pads into a single virtual component
+        const padOffsets = (routeInput.allObstaclePads || []).map((p, i) => ({
+            number: String(i),
+            dx: p.x,
+            dy: p.y,
+            width: p.width,
+            height: p.height,
+            layer: p.layer === 'bottom' ? 'bottom-copper' : p.layer === 'both' ? 'both' : 'top-copper',
+        }));
+        const padMap = new Map();
+        for (const off of padOffsets) {
+            padMap.set(off.number, { x: off.dx, y: off.dy });
+        }
+        this.placements.set('TestBoard', {
+            x: 0, y: 0, name: 'TestBoard',
+            pads: padMap,
+            padOffsets,
+            elements: [],
+            bounds: routeInput.bounds || { minX: 0, minY: 0, maxX: 100, maxY: 100 },
+        });
+
+        // Build netlist from connections
+        for (const conn of routeInput.connections) {
+            const pins = conn.pads.map(p => {
+                // Find matching pad index
+                const allPads = routeInput.allObstaclePads || [];
+                const idx = allPads.findIndex(op =>
+                    Math.abs(op.x - p.x) < 0.01 && Math.abs(op.y - p.y) < 0.01
+                );
+                return { componentId: 'TestBoard', pinNumber: String(idx >= 0 ? idx : 0) };
+            });
+            this.netlist.push({ net: conn.net, pins });
+        }
+    }
+
+    /**
+     * Remove all placement SVG elements.
+     */
+    _clearAllPlacements() {
+        if (!this.viewport?.svg) return;
+        for (const el of this.viewport.svg.querySelectorAll('.pcb-test-pad')) {
+            el.remove();
+        }
+    }
+
+    /**
      * Run the built-in A* maze autorouter on the current board layout.
      */
     async runAutoRoute() {

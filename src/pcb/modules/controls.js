@@ -61,6 +61,10 @@ export function bindPcbControls(app) {
     const clearRoutesBtn = document.getElementById('pcbClearRoutes');
     clearRoutesBtn?.addEventListener('click', () => app.clearRoutes?.());
 
+    // Test board buttons
+    document.getElementById('pcbTestDense')?.addEventListener('click', () => app.loadTestBoard?.('test-board.json'));
+    document.getElementById('pcbTestSpread')?.addEventListener('click', () => app.loadTestBoard?.('test-board-spread.json'));
+
     // Export DSN button
     const exportDsnBtn = document.getElementById('pcbExportDSN');
     exportDsnBtn?.addEventListener('click', () => app.exportDSN?.());
