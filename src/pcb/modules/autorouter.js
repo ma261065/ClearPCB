@@ -678,9 +678,11 @@ async function astarRoute(sx, sy, ex, ey, obstacles, skipIds, gridStep, traceWid
         congestionGrid = null,
         historyWeight = 0,
         routingNet = null,
+        viaRadius: optViaRadius = null,
     } = options;
     const halfTrace = traceWidth / 2;
     const totalClear = halfTrace + clearance;
+    const viaRadius = optViaRadius || (clearance + halfTrace);
     const VIA_COST = gridStep * 30 * viaCostScale;
     const BEND_COST = gridStep * 0.5 * bendCostScale;
     const PAD_DIAG_COST = gridStep * 5 * padDiagCostScale;
@@ -923,7 +925,7 @@ async function astarRoute(sx, sy, ex, ey, obstacles, skipIds, gridStep, traceWid
 
                 // NEVER place a via on or near ANY pad — use generous clearance.
                 // Exception: own-net pads are OK (via at start/end pad for layer change).
-                const viaPadClear = totalClear * 2;
+                const viaPadClear = viaRadius + clearance;
                 const onPad = obstacles.isOnPad(current.x, current.y, viaPadClear, routingNet);
 
                 if (clearOnOther && clearOnCurrent && !onPad) {
@@ -965,6 +967,7 @@ async function astarProbe(sx, sy, ex, ey, obstacles, skipIds, gridStep, traceWid
     } = options;
     const halfTrace = traceWidth / 2;
     const totalClear = halfTrace + clearance;
+    const viaRadius = clearance + halfTrace;  // conservative estimate for probing
     const CROSS_PENALTY = gridStep * 60;  // heavy but not infinite
     const VIA_COST = gridStep * 30;
     const routeDist = Math.hypot(ex - sx, ey - sy);
@@ -1094,7 +1097,7 @@ async function astarProbe(sx, sy, ex, ey, obstacles, skipIds, gridStep, traceWid
         const otherLayer = current.layer === 'top' ? 'bottom' : 'top';
         const viaKey = nodeKey(current.x, current.y, otherLayer);
         if (!closed.has(viaKey)) {
-            const viaPadClear = totalClear * 2;
+            const viaPadClear = viaRadius + clearance;
             const onPad = obstacles.isOnPad(current.x, current.y, viaPadClear);
             if (!onPad) {
                 const tentG = curG + VIA_COST;
@@ -1477,6 +1480,8 @@ export async function routeAll(input, options = {}) {
     })();
     const traceWidth = input.traceWidth || 0.254;
     const clearance = input.clearance || 0.2;
+    const viaDiameter = input.viaDiameter || 0.6;
+    const viaRadius = viaDiameter / 2;
     const gridStep = input.gridStep || 0.5;
     const halfTrace = traceWidth / 2;
     const totalClear = halfTrace + clearance;
@@ -1899,6 +1904,7 @@ export async function routeAll(input, options = {}) {
                         congestionGrid: activeCongestionGrid,
                         historyWeight: activeHistoryWeight,
                         routingNet: conn.net,
+                        viaRadius,
                     }
                     );
                     setCachedAttemptResult(attempt1Key, result);
@@ -1936,6 +1942,7 @@ export async function routeAll(input, options = {}) {
                         congestionGrid: activeCongestionGrid,
                         historyWeight: activeHistoryWeight,
                         routingNet: conn.net,
+                        viaRadius,
                     }
                     );
                     setCachedAttemptResult(attempt2Key, result);
@@ -1975,6 +1982,7 @@ export async function routeAll(input, options = {}) {
                         congestionGrid: activeCongestionGrid,
                         historyWeight: activeHistoryWeight,
                         routingNet: conn.net,
+                        viaRadius,
                     }
                     );
                     setCachedAttemptResult(attempt3Key, result);
@@ -2028,7 +2036,7 @@ export async function routeAll(input, options = {}) {
                 }
 
                 // Register vias as obstacles so future nets avoid them
-                const viaDia = totalClear * 2;  // via occupies space on both layers
+                const viaDia = viaDiameter;
                 for (const v of detectedVias) {
                     obstacles.insertPad(v.x, v.y, viaDia, viaDia, conn.net, 'both', { isVia: true, connId });
                 }

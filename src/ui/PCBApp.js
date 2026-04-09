@@ -1506,6 +1506,7 @@ export default class PCBApp {
             allObstaclePads,
             traceWidth: params.trackWidth,
             clearance: params.clearance,
+            viaDiameter: params.viaDiameter,
             gridStep: 0.5,
             bounds: { minX, maxX, minY, maxY },
         };
