@@ -100,6 +100,8 @@ export default class PCBApp {
         /** @type {Map<string, boolean>|null} net -> is unrouted */
         this._routeNetUnrouted = null;
         this._routeLastBoundaryKey = '';
+        /** @type {object|null} Stored test board RouteInput for direct routing */
+        this._testBoardRouteInput = null;
         this._routeProgressState = {
             done: 0,
             total: 1,
@@ -1080,6 +1082,10 @@ export default class PCBApp {
 
             this._setStatus(`Loaded ${filename} — ${routeInput.connections.length} nets, click Auto Route to route`);
 
+            // Store the original route input so runAutoRoute uses it directly
+            // instead of rebuilding from placements/netlist
+            this._testBoardRouteInput = routeInput;
+
         } catch (err) {
             this._setStatus(`Error loading test board: ${err.message}`);
             console.error(err);
@@ -1189,8 +1195,9 @@ export default class PCBApp {
             ripupMaxPasses: 4,
         });
 
-        // Build route input from placements + netlist
-        const routeInput = this._buildRouteInput();
+        // Build route input from placements + netlist, or use stored test board input
+        const routeInput = this._testBoardRouteInput || this._buildRouteInput();
+        this._testBoardRouteInput = null;  // consume it — only used once
         this._routeNetUnrouted = new Map(routeInput.connections.map(c => [c.net, true]));
         this._routeLastBoundaryKey = '';
         this._reconcileRatsnestFromRouteState();
