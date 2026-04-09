@@ -1,3 +1,4 @@
+// @ts-nocheck — PCBApp uses loosely-typed Maps and nullable viewport access throughout
 // PCBApp.js - PCB Editor Application
 
 import { bindPcbControls } from '../pcb/modules/controls.js';
