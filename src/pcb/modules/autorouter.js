@@ -1553,9 +1553,39 @@ export async function routeAll(input, options = {}) {
     }
 
     // Connection map for quick lookup
+    // For multi-pad nets, reorder pads using nearest-neighbor chain
+    // to minimize total connection length and avoid parallel traces.
     const connMap = new Map();
     for (const conn of input.connections) {
-        if (conn.pads.length >= 2) connMap.set(conn.net, conn);
+        if (conn.pads.length < 2) continue;
+        if (conn.pads.length >= 3) {
+            // Nearest-neighbor chain: pick the pad farthest from centroid as start,
+            // then greedily connect to the closest unvisited pad.
+            const pads = conn.pads;
+            const cx = pads.reduce((s, p) => s + p.x, 0) / pads.length;
+            const cy = pads.reduce((s, p) => s + p.y, 0) / pads.length;
+            let startIdx = 0;
+            let maxDist = 0;
+            for (let i = 0; i < pads.length; i++) {
+                const d = Math.hypot(pads[i].x - cx, pads[i].y - cy);
+                if (d > maxDist) { maxDist = d; startIdx = i; }
+            }
+            const ordered = [pads[startIdx]];
+            const used = new Set([startIdx]);
+            while (ordered.length < pads.length) {
+                const last = ordered[ordered.length - 1];
+                let bestIdx = -1, bestDist = Infinity;
+                for (let i = 0; i < pads.length; i++) {
+                    if (used.has(i)) continue;
+                    const d = Math.hypot(pads[i].x - last.x, pads[i].y - last.y);
+                    if (d < bestDist) { bestDist = d; bestIdx = i; }
+                }
+                ordered.push(pads[bestIdx]);
+                used.add(bestIdx);
+            }
+            conn.pads = ordered;
+        }
+        connMap.set(conn.net, conn);
     }
 
     /** @type {Map<string, number>} net -> unresolved connection count */
