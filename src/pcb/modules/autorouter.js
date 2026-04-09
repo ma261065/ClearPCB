@@ -1,3 +1,4 @@
+// @ts-nocheck — SpatialHash uses runtime type narrowing (obj.isPad) that JSDoc cannot express
 /**
  * ClearPCB Maze Router with Rip-up-and-Reroute
  *
@@ -15,16 +16,39 @@
 
 // ── Spatial Hash Index ────────────────────────────────────────────
 
+/**
+ * Obstacle stored in the spatial hash. Either a pad (isPad=true) or a trace segment.
+ * @typedef {Object} SpatialObstacle
+ * @property {string} net - owning net name
+ * @property {string} [id] - pad identifier (pads only)
+ * @property {string} [connId] - connection identifier
+ * @property {string} layer - 'top', 'bottom', or 'both'
+ * @property {boolean} [isPad] - true for pads/vias
+ * @property {boolean} [isVia] - true for via obstacles
+ * @property {number} hw - half-width (pads) or half-trace-width (segments)
+ * @property {number} [cx] - pad center X (pads only)
+ * @property {number} [cy] - pad center Y (pads only)
+ * @property {number} [hh] - half-height (pads only)
+ * @property {number} [x1] - segment start X (segments only)
+ * @property {number} [y1] - segment start Y (segments only)
+ * @property {number} [x2] - segment end X (segments only)
+ * @property {number} [y2] - segment end Y (segments only)
+ */
+
 class SpatialHash {
     /**
      * @param {number} cellSize - Size of each hash cell in mm
      */
     constructor(cellSize) {
         this.cellSize = cellSize;
-        /** @type {Map<string, Array<object>>} */
+        /** @type {Map<string, Array<SpatialObstacle>>} */
         this.cells = new Map();
     }
 
+    /**
+     * @param {number} cx
+     * @param {number} cy
+     */
     _key(cx, cy) { return `${cx},${cy}`; }
 
     /**
@@ -32,8 +56,10 @@ class SpatialHash {
      * @param {number} x1 @param {number} y1 @param {number} x2 @param {number} y2
      * @param {number} hw - half-width (trace radius + clearance)
      * @param {string} net - which net this belongs to (same-net doesn't block)
+     * @param {string} [layer='top']
+     * @param {string} [connId]
      */
-    insert(x1, y1, x2, y2, hw, net, layer = 'top', connId = null) {
+    insert(x1, y1, x2, y2, hw, net, layer = 'top', connId = undefined) {
         const obj = { x1, y1, x2, y2, hw, net, layer, connId };
         const minCX = Math.floor((Math.min(x1, x2) - hw) / this.cellSize);
         const maxCX = Math.floor((Math.max(x1, x2) + hw) / this.cellSize);
@@ -50,6 +76,7 @@ class SpatialHash {
 
     /**
      * Remove all segments/vias belonging to a specific connection.
+     * @param {string} connId
      */
     removeConnection(connId) {
         if (!connId) return;
@@ -64,10 +91,12 @@ class SpatialHash {
      * Insert a rectangular pad obstacle.
      * @param {number} cx @param {number} cy @param {number} w @param {number} h
      * @param {string} net
+     * @param {string} [padLayer='both']
+     * @param {{isVia?: boolean, connId?: string|null}} [options={}]
      */
     insertPad(cx, cy, w, h, net, padLayer = 'both', options = {}) {
         const hw = w / 2, hh = h / 2;
-        const obj = { cx, cy, hw, hh, net, isPad: true, layer: padLayer, isVia: !!options.isVia, connId: options.connId || null };
+        const obj = { cx, cy, hw, hh, net, isPad: true, layer: padLayer, isVia: !!options.isVia, connId: options.connId || undefined };
         // Register in all cells the pad overlaps
         const minCX = Math.floor((cx - hw) / this.cellSize);
         const maxCX = Math.floor((cx + hw) / this.cellSize);
@@ -86,6 +115,12 @@ class SpatialHash {
      * Check if a point overlaps any pad (regardless of layer or net).
      * Used to prevent vias from being placed on top of pads.
      * Does NOT skip any pads — vias must never land on ANY pad.
+     */
+    /**
+     * Check if a point is on or near any pad.
+     * @param {number} x @param {number} y @param {number} clearance
+     * @param {string|null} [skipNet=null]
+     * @returns {boolean}
      */
     isOnPad(x, y, clearance, skipNet = null) {
         const cx = Math.floor(x / this.cellSize);
@@ -200,6 +235,10 @@ class SpatialHash {
 
     /**
      * Find which nets' traces block a segment (for rip-up).
+     * @param {number} ax1 @param {number} ay1 @param {number} ax2 @param {number} ay2
+     * @param {number} clearance @param {string|Set<string>} skipIds
+     * @param {string|null} [layer=null]
+     * @returns {Set<string>}
      */
     findBlockingNets(ax1, ay1, ax2, ay2, clearance, skipIds, layer = null) {
         const blocking = new Set();
@@ -232,6 +271,10 @@ class SpatialHash {
 
     /**
      * Find which foreign connection IDs' traces block a segment (for rip-up).
+     * @param {number} ax1 @param {number} ay1 @param {number} ax2 @param {number} ay2
+     * @param {number} clearance @param {string|Set<string>} skipIds
+     * @param {string|null} [layer=null]
+     * @returns {Set<string>}
      */
     findBlockingConnIds(ax1, ay1, ax2, ay2, clearance, skipIds, layer = null) {
         const blocking = new Set();
@@ -263,6 +306,9 @@ class SpatialHash {
     /**
      * Return the nearest blocking obstacle for a segment, if any.
      * This is diagnostic-only and does not affect routing behavior.
+     * @param {number} ax1 @param {number} ay1 @param {number} ax2 @param {number} ay2
+     * @param {number} clearance @param {string|Set<string>} skipIds
+     * @param {string|null} [layer=null]
      */
     firstBlockingObstacleForSegment(ax1, ay1, ax2, ay2, clearance, skipIds, layer = null) {
         const minSX = Math.min(ax1, ax2), maxSX = Math.max(ax1, ax2);
@@ -327,7 +373,11 @@ class SpatialHash {
 
     /**
      * Estimate local obstacle density near a point.
-     * Returns the count of nearby obstacle objects (excluding skipped IDs).
+     * @param {number} x @param {number} y
+     * @param {string|Set<string>|null} [skipIds=null]
+     * @param {string|null} [layer=null]
+     * @param {number} [radiusCells=1]
+     * @returns {number}
      */
     localDensity(x, y, skipIds = null, layer = null, radiusCells = 1) {
         const cx = Math.floor(x / this.cellSize);
