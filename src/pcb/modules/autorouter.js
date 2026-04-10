@@ -890,9 +890,15 @@ async function astarRoute(sx, sy, ex, ey, obstacles, skipIds, gridStep, traceWid
             if (detourEstimate > detourCap) continue;
 
             const nStartKey = current.layer === 'top' ? startKeyTop : startKeyBottom;
-            if (nKey !== nStartKey && nKey !== endKeyTop && nKey !== endKeyBottom) {
-                if (obstacles.isBlocked(nx, ny, totalClear, skipIds, current.layer, routingNet)) continue;
-                if (obstacles.isSegmentBlocked(current.x, current.y, nx, ny, totalClear, skipIds, current.layer, routingNet)) continue;
+            const isEndpoint = nKey === nStartKey || nKey === endKeyTop || nKey === endKeyBottom;
+            if (!isEndpoint) {
+                // Near start/end pads, use reduced clearance to allow squeezing
+                // through tight inter-trace gaps to reach the pad
+                const nearStart = Math.abs(nx - startX) <= effectiveStep * 3 && Math.abs(ny - startY) <= effectiveStep * 3;
+                const nearEnd = Math.abs(nx - endX) <= effectiveStep * 3 && Math.abs(ny - endY) <= effectiveStep * 3;
+                const approachClear = (nearStart || nearEnd) ? halfTrace : totalClear;
+                if (obstacles.isBlocked(nx, ny, approachClear, skipIds, current.layer, routingNet)) continue;
+                if (obstacles.isSegmentBlocked(current.x, current.y, nx, ny, approachClear, skipIds, current.layer, routingNet)) continue;
             }
 
             const stepCost = Math.hypot(dx, dy) * effectiveStep;
@@ -2070,7 +2076,13 @@ export async function routeAll(input, options = {}) {
                     const cleanPts = arePathSegmentsClear(sanitizedPts, layer, skipIds, conn.net)
                         ? sanitizedPts
                         : segPts;
-                    if (!arePathSegmentsClear(cleanPts, layer, skipIds, conn.net)) return;
+                    // Accept segments near start/end pads even with reduced clearance
+                    // (A* already validated these with halfTrace clearance in the approach zone)
+                    if (!arePathSegmentsClear(cleanPts, layer, skipIds, conn.net)) {
+                        const touchesStart = cleanPts.some(p => Math.hypot(p.x - from.x, p.y - from.y) < gridStep * 4);
+                        const touchesEnd = cleanPts.some(p => Math.hypot(p.x - to.x, p.y - to.y) < gridStep * 4);
+                        if (!touchesStart && !touchesEnd) return;
+                    }
                     traces.push({ net: conn.net, points: cleanPts, layer, vias: [], connId });
                     for (let k = 0; k < cleanPts.length - 1; k++) {
                         obstacles.insert(cleanPts[k].x, cleanPts[k].y, cleanPts[k+1].x, cleanPts[k+1].y,
@@ -2401,7 +2413,12 @@ export async function routeAll(input, options = {}) {
                 const ownerNet = connIdToNet.get(cid) || parseConnectionId(cid)?.netName || null;
                 if (ownerNet && routedTraces.has(ownerNet)) {
                     const existing = routedTraces.get(ownerNet) || [];
+                    const hadTrace = existing.some(t => t.connId === cid);
                     routedTraces.set(ownerNet, existing.filter(t => t.connId !== cid));
+                    if (hadTrace) {
+                        const prev = netPendingConnections.get(ownerNet) || 0;
+                        setNetPendingConnections(ownerNet, prev + 1);
+                    }
                 }
                 obstacles.removeConnection(cid);
                 obstacleVersion++;
@@ -2414,8 +2431,13 @@ export async function routeAll(input, options = {}) {
             onConnRipped?.(failedCid);
             if (routedTraces.has(failedNet)) {
                 const existing = routedTraces.get(failedNet) || [];
+                const hadTrace = existing.some(t => t.connId === failedCid);
                 const filtered = existing.filter(t => t.connId !== failedCid);
                 routedTraces.set(failedNet, filtered);
+                if (hadTrace) {
+                    const prev = netPendingConnections.get(failedNet) || 0;
+                    setNetPendingConnections(failedNet, prev + 1);
+                }
             }
 
             const miniConn = { net: failedNet, pads: [conn.pads[failedConnIdx], conn.pads[failedConnIdx + 1]] };
@@ -2448,6 +2470,7 @@ export async function routeAll(input, options = {}) {
                     routedTraces.set(rn, existing.concat(cResult.traces));
                     const prev = netPendingConnections.get(rn) || 0;
                     setNetPendingConnections(rn, Math.max(0, prev - 1));
+                    captureBestIfImproved();
                     onNetRouted?.(cResult.traces);
                 } else {
                     connectionOnlyRerouteFallbacksToNet++;
@@ -2497,10 +2520,10 @@ export async function routeAll(input, options = {}) {
         }
         return ids.size;
     };
-    // Always use live routedTraces — it's the authoritative state that
-    // matches the obstacle hash. bestRoutedTraces snapshots can contain
-    // stale traces that conflict with traces routed during later rip-up.
-    const finalRouted = routedTraces;
+    const bestCount = bestRoutedTraces.size > 0 ? countConnIds(bestRoutedTraces) : 0;
+    const liveCount = countConnIds(routedTraces);
+    console.info(`[autorouter] best-state connIds=${bestCount}, live connIds=${liveCount}, bestNets=${bestRoutedTraces.size}, liveNets=${routedTraces.size}`);
+    const finalRouted = (bestCount >= liveCount && bestRoutedTraces.size > 0) ? bestRoutedTraces : routedTraces;
     for (const [, netTraces] of finalRouted) {
         for (const t of netTraces) {
             allTraces.push({
@@ -2516,8 +2539,9 @@ export async function routeAll(input, options = {}) {
 
     const bestFailedNets = [...connMap.keys()].filter(net => !finalRouted.has(net));
 
-    // Count failed connections from live state (matches what ratsnest shows)
-    const failedConnectionCount = pendingConnectionsTotal();
+    // Count failed connections from actual trace data (not the stale pending counter)
+    const finalConnCount = countConnIds(finalRouted);
+    const failedConnectionCount = totalConnectionCount - finalConnCount;
     const connectionOnlyTopNoPathConnIds = [...connectionOnlyNoPathByConnId.entries()]
         .sort((a, b) => {
             if (a[1] !== b[1]) return b[1] - a[1];
