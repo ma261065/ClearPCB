@@ -2077,18 +2077,18 @@ body {
     box-shadow: 0 4px 16px rgba(0,0,0,0.4);
     padding: 4px 0;
     /* Hover-forgiving: use opacity+visibility instead of display:none
-       so we can add a transition delay on close */
+       so we can add a transition delay on close.
+       Do NOT use pointer-events:none here — it's not transitionable
+       and would snap instantly, preventing re-hover during the delay. */
     opacity: 0;
     visibility: hidden;
-    pointer-events: none;
-    transition: opacity 0.15s ease, visibility 0s linear 0.4s;
+    transition: opacity 0.15s ease 0.3s, visibility 0s linear 0.45s;
 }
 
 .pcb-layer-control:hover .pcb-layer-panel,
 .pcb-layer-panel:hover {
     opacity: 1;
     visibility: visible;
-    pointer-events: auto;
     transition: opacity 0.1s ease, visibility 0s linear 0s;
 }
 
