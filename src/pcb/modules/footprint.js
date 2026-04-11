@@ -183,7 +183,7 @@ function generateFromShapes(shapes, bbox, source) {
 
             pads.push({
                 number: num, x: cx, y: cy, width: w, height: h,
-                shape: padType === 'ELLIPSE' ? 'circle' : 'rect',
+                shape: padType === 'ELLIPSE' ? 'ellipse' : 'rect',
                 drill, layer: padLayer,
             });
 
@@ -434,7 +434,7 @@ function generateFromShapes(shapes, bbox, source) {
         for (const entry of layers) {
             const layerId = /** @type {string} */ (entry[0]);
             const exp = /** @type {number} */ (entry[1]);
-            if (pad.shape === 'circle') {
+            if (pad.shape === 'ellipse') {
                 silks.push({ type: 'circle', cx: pad.x, cy: pad.y,
                     r: pad.width / 2 + exp, strokeWidth: sw, layer: layerId, filled: true });
             } else {
@@ -670,7 +670,7 @@ export function renderFootprint(fp, ref, x, y, rotation = 0) {
                 ? '#3498db'
                 : pad.layer === 'both' ? '#b8860b' : '#e74c3c';
 
-            if (pad.shape === 'circle') {
+            if (pad.shape === 'ellipse') {
                 const c = document.createElementNS(NS, 'circle');
                 c.setAttribute('cx', String(pad.x));
                 c.setAttribute('cy', String(pad.y));

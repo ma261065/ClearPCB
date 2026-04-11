@@ -831,11 +831,11 @@ export default class PCBApp {
 
             // Build pad world-position map for ratsnest
             const padMap = new Map();
-            /** @type {Array<{number: string, dx: number, dy: number, width: number, height: number, layer: string}>} */
+            /** @type {Array<{number: string, dx: number, dy: number, width: number, height: number, layer: string, shape: string}>} */
             const padOffsets = [];
             for (const pad of fpGeom.pads) {
                 padMap.set(pad.number, { x: cx + pad.x, y: cy + pad.y });
-                padOffsets.push({ number: pad.number, dx: pad.x, dy: pad.y, width: pad.width, height: pad.height, layer: pad.layer });
+                padOffsets.push({ number: pad.number, dx: pad.x, dy: pad.y, width: pad.width, height: pad.height, layer: pad.layer, shape: pad.shape || 'rect' });
             }
 
             this.placements.set(comp.id, {
@@ -1214,10 +1214,10 @@ export default class PCBApp {
                 if (result.vias?.length) {
                     this._renderVias(result.vias);
                 }
-                const routedNets = new Set(result.traces.map(t => t.net)).size;
-                const totalNets = routeInput.connections.length;
+                const routedConns = result.totalConnectionCount - (result.failedConnectionCount || 0);
+                const totalConns2 = result.totalConnectionCount || routeInput.connections.length;
                 this._hideRouteProgress();
-                this._setStatus(`${routedNets} of ${totalNets} nets routed`);
+                this._setStatus(`${routedConns} of ${totalConns2} connections routed`);
                 this._routeNetUnrouted = null;
                 return;
             }
@@ -1242,12 +1242,8 @@ export default class PCBApp {
             const viaCount = result.vias?.length || 0;
             this._hideRouteProgress();
 
-            // Count visible ratlines — this is the authoritative unrouted count
-            const ratLayer = this._getLayerGroup('ratlines');
-            let unroutedConns = 0;
-            for (const el of ratLayer.querySelectorAll('.ratsnest-line')) {
-                if (/** @type {HTMLElement} */ (el).style.display !== 'none') unroutedConns++;
-            }
+            // Use the router's authoritative connection count
+            const unroutedConns = result.failedConnectionCount || 0;
             const routedConns = totalConns - unroutedConns;
 
             this._setStatus(`Routed ${routedConns} of ${totalConns} connections (${unroutedConns} unrouted), ${result.traces.length} segments, ${viaCount} vias in ${elapsed}`);
@@ -1523,12 +1519,12 @@ export default class PCBApp {
         const phaseLabel = isRipup
             ? `Phase: Rip-up ${Math.max(1, state.ripupPass || 1)} of ${Math.max(1, state.ripupMaxPasses || 4)}`
             : 'Phase: Route placement';
-        const remainingNets = Math.max(0, Number.isFinite(state.pendingNets) ? state.pendingNets : (state.total - state.done));
+        const remainingConns = Math.max(0, Number.isFinite(state.pendingConnections) ? state.pendingConnections : (state.total - state.done));
         const progressLabel = isRipup
             ? `${state.done}/${state.total} (${pct}%)`
             : `${state.done}/${state.total} (${pct}%)`;
         if (label) {
-            label.textContent = `${phaseLabel} - ${progressLabel} - ${remainingNets} nets unrouted`;
+            label.textContent = `${phaseLabel} - ${progressLabel} - ${remainingConns} connections unrouted`;
         }
         if (bar) bar.style.width = `${pct}%`;
         if (elapsed) {
@@ -1590,6 +1586,7 @@ export default class PCBApp {
                     width: off?.width || 1.0,
                     height: off?.height || 1.0,
                     layer: routerLayer,
+                    shape: off?.shape || 'rect',
                 });
             }
             if (pads.length >= 2) {
@@ -1611,6 +1608,7 @@ export default class PCBApp {
                     width: off.width || 1.0,
                     height: off.height || 1.0,
                     layer: routerLayer,
+                    shape: off.shape || 'rect',
                 });
             }
         }
@@ -1636,6 +1634,24 @@ export default class PCBApp {
             gridStep: 0.5,
             bounds: { minX, maxX, minY, maxY },
         };
+    }
+
+    /**
+     * Dump the current route input as JSON to clipboard (for test board generation).
+     * Usage:  bootstrap.pcbApp.dumpRouteInput()
+     * Then paste into a file.
+     */
+    async dumpRouteInput(filename = 'route-input.json') {
+        const input = this._testBoardRouteInput || this._buildRouteInput();
+        const json = JSON.stringify(input);
+        try {
+            await navigator.clipboard.writeText(json);
+            console.log(`Route input copied to clipboard (${input.connections.length} nets, ${input.allObstaclePads.length} pads). Paste into ${filename}`);
+        } catch (e) {
+            const w = window.open('', '_blank');
+            if (w) { w.document.write('<pre>' + json + '</pre>'); }
+            console.log(`Clipboard failed — opened in new tab. Save as ${filename}`);
+        }
     }
 
     /**
@@ -1903,25 +1919,30 @@ export default class PCBApp {
             }
         }
 
-        // Reconcile final ratsnest visibility from final result when possible.
-        // If result.failed is present, show only failed nets and hide all others.
-        // This prevents drift from incremental hide/show events during rip-up.
+        // Reconcile final ratsnest: hide all original ratlines, then draw
+        // per-connection ratlines for each failed connection.
         const ratLayer = this._getLayerGroup('ratlines');
-        const hasFailedList = Array.isArray(result.failed);
-        const failedNets = new Set(hasFailedList ? result.failed : []);
-
-        for (const el of ratLayer.querySelectorAll('.ratsnest-line')) {
-            const net = /** @type {HTMLElement} */ (el).dataset.net || '';
-            /** @type {HTMLElement} */ (el).style.display = hasFailedList
-                ? (failedNets.has(net) ? '' : 'none')
-                : (routedNets.has(net) ? 'none' : '');
+        for (const el of [...ratLayer.children]) {
+            /** @type {HTMLElement} */ (el).style.display = 'none';
         }
-        for (const el of ratLayer.children) {
-            if (el.tagName !== 'text') continue;
-            const net = (el.textContent || '').trim();
-            /** @type {HTMLElement} */ (el).style.display = hasFailedList
-                ? (failedNets.has(net) ? '' : 'none')
-                : (routedNets.has(net) ? 'none' : '');
+
+        // Draw ratlines for each individual failed connection
+        const NS2 = 'http://www.w3.org/2000/svg';
+        if (Array.isArray(result.failedConnections)) {
+            for (const fc of result.failedConnections) {
+                const line = document.createElementNS(NS2, 'line');
+                line.setAttribute('x1', String(fc.from.x));
+                line.setAttribute('y1', String(fc.from.y));
+                line.setAttribute('x2', String(fc.to.x));
+                line.setAttribute('y2', String(fc.to.y));
+                line.setAttribute('stroke', '#4488ff');
+                line.setAttribute('stroke-width', '1');
+                line.setAttribute('vector-effect', 'non-scaling-stroke');
+                line.setAttribute('pointer-events', 'none');
+                line.setAttribute('class', 'ratsnest-line ratsnest-failed');
+                line.dataset.net = fc.net;
+                ratLayer.appendChild(line);
+            }
         }
     }
 
@@ -1939,8 +1960,9 @@ export default class PCBApp {
             g.querySelectorAll('.pcb-routed-trace, .pcb-routed-via').forEach(el => el.remove());
         }
 
-        // Restore all ratlines
+        // Restore all original ratlines and remove failed-connection ratlines
         const ratLayer = this._getLayerGroup('ratlines');
+        ratLayer.querySelectorAll('.ratsnest-failed').forEach(el => el.remove());
         for (const el of ratLayer.children) {
             /** @type {HTMLElement} */ (el).style.display = '';
         }

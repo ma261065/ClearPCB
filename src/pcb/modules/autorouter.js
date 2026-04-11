@@ -529,6 +529,45 @@ class SpatialHash {
 // ── Geometry Helpers ──────────────────────────────────────────────
 
 /**
+ * Check whether a point (px,py) lies inside a pad's copper footprint.
+ * @param {number} px
+ * @param {number} py
+ * @param {{x: number, y: number, width: number, height: number, shape?: string}} pad
+ * @returns {boolean}
+ */
+function isInsidePad(px, py, pad) {
+    const dx = px - pad.x;
+    const dy = py - pad.y;
+    const hw = pad.width / 2;
+    const hh = pad.height / 2;
+    if (pad.shape === 'ellipse') {
+        return (dx * dx) / (hw * hw) + (dy * dy) / (hh * hh) <= 1;
+    }
+    // Default: rectangle
+    return Math.abs(dx) <= hw && Math.abs(dy) <= hh;
+}
+
+/**
+ * Check whether a point is inside a pad expanded by a margin.
+ * Used to identify the transition zone just beyond the pad edge.
+ * @param {number} px
+ * @param {number} py
+ * @param {{x: number, y: number, width: number, height: number, shape?: string}} pad
+ * @param {number} margin - expansion in mm beyond the pad boundary
+ * @returns {boolean}
+ */
+function isNearPad(px, py, pad, margin) {
+    const dx = px - pad.x;
+    const dy = py - pad.y;
+    const hw = pad.width / 2 + margin;
+    const hh = pad.height / 2 + margin;
+    if (pad.shape === 'ellipse') {
+        return (dx * dx) / (hw * hw) + (dy * dy) / (hh * hh) <= 1;
+    }
+    return Math.abs(dx) <= hw && Math.abs(dy) <= hh;
+}
+
+/**
  * Distance from point (px,py) to line segment (x1,y1)-(x2,y2).
  */
 function pointToSegmentDist(px, py, x1, y1, x2, y2) {
@@ -716,6 +755,8 @@ async function astarRoute(sx, sy, ex, ey, obstacles, skipIds, gridStep, traceWid
         historyWeight = 0,
         routingNet = null,
         viaRadius: optViaRadius = null,
+        startPad = null,
+        endPad = null,
     } = options;
     const halfTrace = traceWidth / 2;
     const totalClear = halfTrace + clearance;
@@ -892,13 +933,28 @@ async function astarRoute(sx, sy, ex, ey, obstacles, skipIds, gridStep, traceWid
             const nStartKey = current.layer === 'top' ? startKeyTop : startKeyBottom;
             const isEndpoint = nKey === nStartKey || nKey === endKeyTop || nKey === endKeyBottom;
             if (!isEndpoint) {
-                // Near start/end pads, use reduced clearance to allow squeezing
-                // through tight inter-trace gaps to reach the pad
-                const nearStart = Math.abs(nx - startX) <= effectiveStep * 3 && Math.abs(ny - startY) <= effectiveStep * 3;
-                const nearEnd = Math.abs(nx - endX) <= effectiveStep * 3 && Math.abs(ny - endY) <= effectiveStep * 3;
-                const approachClear = (nearStart || nearEnd) ? halfTrace : totalClear;
-                if (obstacles.isBlocked(nx, ny, approachClear, skipIds, current.layer, routingNet)) continue;
-                if (obstacles.isSegmentBlocked(current.x, current.y, nx, ny, approachClear, skipIds, current.layer, routingNet)) continue;
+                // Pad-geometry clearance model:
+                // Inside own pad: skip clearance entirely (pad absorbs the trace)
+                // Near own pad: skip only the radial point check (which falsely
+                //   blocks traces escaping between tight pads) but keep the full
+                //   perpendicular segment check with totalClear — this correctly
+                //   prevents traces from overlapping neighboring pads.
+                // Further out: full point + segment checks with totalClear.
+                const insideStart = startPad && isInsidePad(nx, ny, startPad);
+                const insideEnd = endPad && isInsidePad(nx, ny, endPad);
+                if (!insideStart && !insideEnd) {
+                    const nearStart = startPad && isNearPad(nx, ny, startPad, gridStep * 2);
+                    const nearEnd = endPad && isNearPad(nx, ny, endPad, gridStep * 2);
+                    if (nearStart || nearEnd) {
+                        // Near pad: skip radial point check, use clearance for segment check
+                        // (smaller than totalClear to allow escape, but prevents pad overlaps)
+                        if (obstacles.isSegmentBlocked(current.x, current.y, nx, ny, clearance, skipIds, current.layer, routingNet)) continue;
+                    } else {
+                        // Open field: full radial point check + segment check
+                        if (obstacles.isBlocked(nx, ny, totalClear, skipIds, current.layer, routingNet)) continue;
+                        if (obstacles.isSegmentBlocked(current.x, current.y, nx, ny, totalClear, skipIds, current.layer, routingNet)) continue;
+                    }
+                }
             }
 
             const stepCost = Math.hypot(dx, dy) * effectiveStep;
@@ -1967,6 +2023,8 @@ export async function routeAll(input, options = {}) {
                         historyWeight: activeHistoryWeight,
                         routingNet: conn.net,
                         viaRadius,
+                        startPad: from,
+                        endPad: to,
                     }
                     );
                     setCachedAttemptResult(attempt1Key, result);
@@ -1975,8 +2033,6 @@ export async function routeAll(input, options = {}) {
 
                 onTrying?.(from, to);
                 await yieldToUI();
-
-                // Try 2: finer grid (300K)
                 const a2CostSig = [a2.viaCostScale, a2.bendCostScale, a2.padDiagCostScale, a2.dirPenaltyScale, a2.congestionPenaltyScale, a2.viaCongestionScale].map(v => Number(v ?? 1).toFixed(2)).join(':');
                 const attempt2Key = makeAttemptKey(from, to, startLayer, endLayer, gridStep * a2.stepScale, a2.weight, a2.effortTag || `${phaseProfile.id}:a2`, a2CostSig, connId);
                 const cached2 = getCachedAttemptResult(attempt2Key, skipIds);
@@ -2005,6 +2061,8 @@ export async function routeAll(input, options = {}) {
                         historyWeight: activeHistoryWeight,
                         routingNet: conn.net,
                         viaRadius,
+                        startPad: from,
+                        endPad: to,
                     }
                     );
                     setCachedAttemptResult(attempt2Key, result);
@@ -2045,6 +2103,8 @@ export async function routeAll(input, options = {}) {
                         historyWeight: activeHistoryWeight,
                         routingNet: conn.net,
                         viaRadius,
+                        startPad: from,
+                        endPad: to,
                     }
                     );
                     setCachedAttemptResult(attempt3Key, result);
@@ -2076,11 +2136,11 @@ export async function routeAll(input, options = {}) {
                     const cleanPts = arePathSegmentsClear(sanitizedPts, layer, skipIds, conn.net)
                         ? sanitizedPts
                         : segPts;
-                    // Accept segments near start/end pads even with reduced clearance
-                    // (A* already validated these with halfTrace clearance in the approach zone)
+                    // Accept segments inside or near the start/end pad
+                    // (pad copper absorbs the trace, or trace just emerged)
                     if (!arePathSegmentsClear(cleanPts, layer, skipIds, conn.net)) {
-                        const touchesStart = cleanPts.some(p => Math.hypot(p.x - from.x, p.y - from.y) < gridStep * 4);
-                        const touchesEnd = cleanPts.some(p => Math.hypot(p.x - to.x, p.y - to.y) < gridStep * 4);
+                        const touchesStart = cleanPts.some(p => isNearPad(p.x, p.y, from, gridStep * 2));
+                        const touchesEnd = cleanPts.some(p => isNearPad(p.x, p.y, to, gridStep * 2));
                         if (!touchesStart && !touchesEnd) return;
                     }
                     traces.push({ net: conn.net, points: cleanPts, layer, vias: [], connId });
@@ -2235,6 +2295,8 @@ export async function routeAll(input, options = {}) {
     // ── Pass 1: Initial routing (per-connection, hardest first) ──
     // Flatten all nets into individual connections and score each one.
     const allConnections = [];
+    /** @type {Map<string, {net: string, from: {x:number,y:number}, to: {x:number,y:number}}>} */
+    const connIdToPads = new Map();
     for (const conn of sorted) {
         for (let ci = 0; ci < conn.pads.length - 1; ci++) {
             const from = conn.pads[ci];
@@ -2258,7 +2320,9 @@ export async function routeAll(input, options = {}) {
     for (const item of allConnections) {
         if (cancelToken?.cancelled) break;
         const { conn, connIdx } = item;
-        emitProgress(completedConns, totalConns, conn.net, { phase: 'initial' });
+        const connId = makeConnectionId(conn.net, connIdx);
+        connIdToPads.set(connId, { net: conn.net, from: conn.pads[connIdx], to: conn.pads[connIdx + 1] });
+        emitProgress(completedConns, totalConns, conn.net, { phase: 'initial', pendingConnections: pendingConnectionsTotal() });
         await yieldToUI();
 
         const skipIds = netPadIds.get(conn.net) || new Set();
@@ -2324,6 +2388,7 @@ export async function routeAll(input, options = {}) {
             ripupTotal: passTotal,
             ripupPass: pass,
             ripupMaxPasses: MAX_PASSES,
+            pendingConnections: pendingConnectionsTotal(),
         });
         await yieldToUI();
         const stillFailed = [];
@@ -2342,6 +2407,7 @@ export async function routeAll(input, options = {}) {
                 ripupTotal: passTotal,
                 ripupPass: pass,
                 ripupMaxPasses: MAX_PASSES,
+                pendingConnections: pendingConnectionsTotal(),
             });
             await yieldToUI();
 
@@ -2403,6 +2469,7 @@ export async function routeAll(input, options = {}) {
                     ripupTotal: passTotal,
                     ripupPass: pass,
                     ripupMaxPasses: MAX_PASSES,
+                    pendingConnections: pendingConnectionsTotal(),
                 });
                 continue;
             }
@@ -2498,6 +2565,7 @@ export async function routeAll(input, options = {}) {
                 ripupTotal: passTotal,
                 ripupPass: pass,
                 ripupMaxPasses: MAX_PASSES,
+                pendingConnections: pendingConnectionsTotal(),
             });
             await yieldToUI();
         }
@@ -2542,6 +2610,19 @@ export async function routeAll(input, options = {}) {
     // Count failed connections from actual trace data (not the stale pending counter)
     const finalConnCount = countConnIds(finalRouted);
     const failedConnectionCount = totalConnectionCount - finalConnCount;
+
+    // Build list of failed connection pad pairs for ratsnest display
+    const routedConnIds = new Set();
+    for (const [, netTraces] of finalRouted) {
+        for (const t of netTraces) { if (t.connId) routedConnIds.add(t.connId); }
+    }
+    const failedConnections = [];
+    for (const [cid, pads] of connIdToPads) {
+        if (!routedConnIds.has(cid)) {
+            failedConnections.push({ net: pads.net, from: { x: pads.from.x, y: pads.from.y }, to: { x: pads.to.x, y: pads.to.y } });
+        }
+    }
+
     const connectionOnlyTopNoPathConnIds = [...connectionOnlyNoPathByConnId.entries()]
         .sort((a, b) => {
             if (a[1] !== b[1]) return b[1] - a[1];
@@ -2592,6 +2673,7 @@ export async function routeAll(input, options = {}) {
     return {
         traces: allTraces,
         failed: bestFailedNets,
+        failedConnections,
         failedConnectionCount,
         totalConnectionCount,
         vias: allVias,
