@@ -1018,9 +1018,13 @@ async function astarRoute(sx, sy, ex, ey, obstacles, skipIds, gridStep, traceWid
                 const nStartKey = otherLayer === 'top' ? startKeyTop : startKeyBottom;
                 const isEndpoint = viaKey === nStartKey || viaKey === endKeyTop || viaKey === endKeyBottom;
 
-                // Check the via position is clear on BOTH layers
-                const clearOnOther = isEndpoint || !obstacles.isBlocked(current.x, current.y, totalClear, skipIds, otherLayer, routingNet);
-                const clearOnCurrent = isEndpoint || !obstacles.isBlocked(current.x, current.y, totalClear, skipIds, current.layer, routingNet);
+                // Check the via position is clear on BOTH layers.
+                // Use viaRadius + clearance (not totalClear) because the via copper
+                // footprint is larger than a trace — its edge must maintain design
+                // clearance from all other copper.
+                const viaClear = viaRadius + clearance;
+                const clearOnOther = isEndpoint || !obstacles.isBlocked(current.x, current.y, viaClear, skipIds, otherLayer, routingNet);
+                const clearOnCurrent = isEndpoint || !obstacles.isBlocked(current.x, current.y, viaClear, skipIds, current.layer, routingNet);
 
                 // NEVER place a via on or near ANY pad — use generous clearance.
                 // Exception: own-net pads are OK (via at start/end pad for layer change).

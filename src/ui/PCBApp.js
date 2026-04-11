@@ -1655,6 +1655,117 @@ export default class PCBApp {
     }
 
     /**
+     * Debug: draw thin clearance outlines around all pads.
+     * Usage:  bootstrap.pcbApp.showClearances()
+     *         bootstrap.pcbApp.showClearances(false)  // hide
+     */
+    showClearances(show = true) {
+        const NS = 'http://www.w3.org/2000/svg';
+        const topCopper = this._getLayerGroup('top-copper');
+        topCopper.querySelectorAll('.debug-clearance').forEach(el => el.remove());
+        if (!show) return;
+
+        const params = this._getRoutingParams();
+        const traceWidth = params.trackWidth || 0.254;
+        const clearance = params.clearance || 0.2;
+        const halfTrace = traceWidth / 2;
+        const totalClear = halfTrace + clearance;
+
+        for (const [, pl] of this.placements) {
+            for (const off of (pl.padOffsets || [])) {
+                const px = pl.x + off.dx;
+                const py = pl.y + off.dy;
+                const hw = off.width / 2;
+                const hh = off.height / 2;
+
+                // Pad outline (yellow)
+                const padRect = document.createElementNS(NS, 'rect');
+                padRect.setAttribute('x', String(px - hw));
+                padRect.setAttribute('y', String(py - hh));
+                padRect.setAttribute('width', String(off.width));
+                padRect.setAttribute('height', String(off.height));
+                padRect.setAttribute('fill', 'none');
+                padRect.setAttribute('stroke', 'yellow');
+                padRect.setAttribute('stroke-width', '0.02');
+                padRect.setAttribute('class', 'debug-clearance');
+                topCopper.appendChild(padRect);
+
+                // totalClear zone (white)
+                const clrRect = document.createElementNS(NS, 'rect');
+                clrRect.setAttribute('x', String(px - hw - totalClear));
+                clrRect.setAttribute('y', String(py - hh - totalClear));
+                clrRect.setAttribute('width', String(off.width + totalClear * 2));
+                clrRect.setAttribute('height', String(off.height + totalClear * 2));
+                clrRect.setAttribute('fill', 'none');
+                clrRect.setAttribute('stroke', 'white');
+                clrRect.setAttribute('stroke-width', '0.02');
+                clrRect.setAttribute('opacity', '0.5');
+                clrRect.setAttribute('class', 'debug-clearance');
+                topCopper.appendChild(clrRect);
+
+                // halfTrace zone (cyan)
+                const htRect = document.createElementNS(NS, 'rect');
+                htRect.setAttribute('x', String(px - hw - halfTrace));
+                htRect.setAttribute('y', String(py - hh - halfTrace));
+                htRect.setAttribute('width', String(off.width + halfTrace * 2));
+                htRect.setAttribute('height', String(off.height + halfTrace * 2));
+                htRect.setAttribute('fill', 'none');
+                htRect.setAttribute('stroke', 'cyan');
+                htRect.setAttribute('stroke-width', '0.02');
+                htRect.setAttribute('opacity', '0.4');
+                htRect.setAttribute('class', 'debug-clearance');
+                topCopper.appendChild(htRect);
+            }
+        }
+
+        // Draw clearance around routed traces and vias
+        for (const layer of ['top-copper', 'bottom-copper']) {
+            const group = this._getLayerGroup(layer);
+            for (const trace of group.querySelectorAll('.pcb-routed-trace')) {
+                const x1 = parseFloat(trace.getAttribute('x1'));
+                const y1 = parseFloat(trace.getAttribute('y1'));
+                const x2 = parseFloat(trace.getAttribute('x2'));
+                const y2 = parseFloat(trace.getAttribute('y2'));
+                if (isNaN(x1)) continue;
+
+                const clrLine = document.createElementNS(NS, 'line');
+                clrLine.setAttribute('x1', String(x1));
+                clrLine.setAttribute('y1', String(y1));
+                clrLine.setAttribute('x2', String(x2));
+                clrLine.setAttribute('y2', String(y2));
+                clrLine.setAttribute('stroke', 'white');
+                clrLine.setAttribute('stroke-width', String(totalClear * 2));
+                clrLine.setAttribute('stroke-linecap', 'round');
+                clrLine.setAttribute('stroke-opacity', '0.1');
+                clrLine.setAttribute('fill', 'none');
+                clrLine.setAttribute('class', 'debug-clearance');
+                group.insertBefore(clrLine, trace);
+            }
+
+            // Vias
+            for (const via of group.querySelectorAll('.pcb-routed-via')) {
+                const cx = parseFloat(via.getAttribute('cx'));
+                const cy = parseFloat(via.getAttribute('cy'));
+                if (isNaN(cx)) continue;
+                const viaR = parseFloat(via.getAttribute('r')) || 0.3;
+
+                const clrCirc = document.createElementNS(NS, 'circle');
+                clrCirc.setAttribute('cx', String(cx));
+                clrCirc.setAttribute('cy', String(cy));
+                clrCirc.setAttribute('r', String(viaR + clearance));
+                clrCirc.setAttribute('fill', 'none');
+                clrCirc.setAttribute('stroke', 'white');
+                clrCirc.setAttribute('stroke-width', '0.02');
+                clrCirc.setAttribute('opacity', '0.5');
+                clrCirc.setAttribute('class', 'debug-clearance');
+                group.insertBefore(clrCirc, via);
+            }
+        }
+
+        console.log(`Yellow=pad edge, White=totalClear(${totalClear.toFixed(3)}mm), Cyan=halfTrace(${halfTrace.toFixed(3)}mm)`);
+    }
+
+    /**
      * Read routing parameters from the ribbon inputs, converting to mm.
      */
     _getRoutingParams() {

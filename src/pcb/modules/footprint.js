@@ -158,8 +158,16 @@ function generateFromShapes(shapes, bbox, source) {
             const padType = parts[1];
             const cx = parseFloat(parts[2]) * S;
             const cy = parseFloat(parts[3]) * S;
-            const w  = parseFloat(parts[4]) * S;
-            const h  = parseFloat(parts[5]) * S;
+            let w  = parseFloat(parts[4]) * S;
+            let h  = parseFloat(parts[5]) * S;
+
+            // EasyEDA field [11] is pad rotation — swap w/h for 90°/270°
+            if (isEasyEDA && parts.length > 11) {
+                const rotation = parseFloat(parts[11]) || 0;
+                if (Math.abs(rotation) % 180 === 90) {
+                    const tmp = w; w = h; h = tmp;
+                }
+            }
 
             const num = isEasyEDA
                 ? (parts[8] || String(pads.length + 1))
