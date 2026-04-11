@@ -1405,6 +1405,9 @@ export class Component {
                 defaultProperties: this.definition.defaultProperties,
                 _source: this.definition._source
             };
+            if (this.definition.supplier_part_numbers) {
+                json.def.supplier_part_numbers = this.definition.supplier_part_numbers;
+            }
             // Persist footprint pad geometry so the PCB editor can render
             // accurate footprints after save/reload.
             if (Array.isArray(this.definition.footprintShapes) && this.definition.footprintShapes.length) {
