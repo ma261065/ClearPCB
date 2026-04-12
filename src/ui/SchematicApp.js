@@ -1494,5 +1494,13 @@ export default class SchematicApp {
     async openFile() {
         await FileTools.openFile(this);
     }
+
+    /**
+     * Import an EasyEDA schematic (.json) file.
+     * @returns {Promise<void>}
+     */
+    async _importEasyEDA() {
+        await FileTools.importEasyEDA(this);
+    }
 }
 

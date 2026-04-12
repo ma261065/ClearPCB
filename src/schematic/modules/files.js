@@ -2,6 +2,7 @@ import { updateIdCounter, resetWireLabelCounter, resetNetNameCounter } from '../
 import { Component, updateComponentIdCounter } from '../../components/index.js';
 import { createNetText } from './shape-management.js';
 import { attachLabelToTarget } from '../../ui/modules/label-attachment.js';
+import { importEasyEDASchematic } from '../../easyeda/schematic-importer.js';
 
 /**
  * Serializes the entire document (shapes, components, settings, paper size,
@@ -449,4 +450,75 @@ export async function openFile(app) {
     } catch (err) {
         app._alert('Failed to open file: ' + err.message, { title: 'Open Failed' });
     }
+}
+
+/**
+ * Import an EasyEDA schematic (.json) file.
+ * Opens a file picker for .json, detects EasyEDA format, converts, and loads.
+ * @param {object} app - Application state.
+ */
+export async function importEasyEDA(app) {
+    if (app.fileManager.isDirty) {
+        if (!await app._confirm('You have unsaved changes. Import anyway?', { title: 'Unsaved Changes', okText: 'Yes', cancelText: 'No', defaultCancel: true })) {
+            return;
+        }
+    }
+
+    try {
+        const data = await _pickAndReadJSON('.json', 'EasyEDA Schematic');
+        if (!data) return; // cancelled
+
+        if (!_isEasyEDASchematic(data)) {
+            app._alert('This does not appear to be an EasyEDA schematic file.\n\nExpected a JSON file with a "schematics" array.', { title: 'Import Failed' });
+            return;
+        }
+
+        console.log('Importing EasyEDA schematic…');
+        const doc = importEasyEDASchematic(data, app.componentLibrary);
+
+        await app._loadDocument(doc);
+        app._fitToContent?.();
+        app.fileManager.setFileName('imported.cpcb');
+        app.fileManager.setDirty(true);
+        app._updateTitle();
+        app.fileManager.clearAutoSave();
+        console.log('EasyEDA import complete');
+    } catch (err) {
+        app._alert('Import failed: ' + err.message, { title: 'Import Failed' });
+    }
+}
+
+/**
+ * Detect whether parsed JSON is an EasyEDA schematic file.
+ */
+function _isEasyEDASchematic(data) {
+    return data
+        && Array.isArray(data.schematics)
+        && data.schematics.length > 0
+        && (data.docType === 5 || data.docType === '5' || data.editorVersion);
+}
+
+/**
+ * Open a file picker restricted to a given extension and return parsed JSON.
+ * @param {string} ext - File extension (e.g. '.json')
+ * @param {string} description - Description for the picker dialog
+ * @returns {Promise<object|null>} Parsed JSON data, or null if cancelled
+ */
+function _pickAndReadJSON(ext, description) {
+    return new Promise((resolve) => {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = ext;
+        input.onchange = async (e) => {
+            const file = /** @type {HTMLInputElement} */ (e.target)?.files?.[0];
+            if (!file) { resolve(null); return; }
+            try {
+                const text = await file.text();
+                resolve(JSON.parse(text));
+            } catch (err) {
+                resolve(null);
+            }
+        };
+        input.click();
+    });
 }

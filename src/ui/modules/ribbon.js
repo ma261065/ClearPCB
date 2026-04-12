@@ -152,6 +152,33 @@ export function bindRibbon(app) {
         app.openFile();
         app._setActiveRibbonTab('home');
     });
+
+    // ── Import dropdown ──────────────────────────────────────────
+    const importBtn = get('ribbonImport');
+    const importMenu = get('ribbonImportMenu');
+    if (importBtn && importMenu) {
+        const closeImportMenu = () => importMenu.classList.remove('open');
+        importBtn.addEventListener('click', () => {
+            importMenu.classList.toggle('open');
+        });
+        // Close on outside click
+        document.addEventListener('click', (e) => {
+            if (!importBtn.contains(/** @type {Node} */ (e.target)) && !importMenu.contains(/** @type {Node} */ (e.target))) {
+                closeImportMenu();
+            }
+        });
+        // Handle menu items
+        importMenu.addEventListener('click', (e) => {
+            const item = /** @type {HTMLElement} */ (e.target).closest('.dropdown-item');
+            if (!item) return;
+            closeImportMenu();
+            const format = item.dataset.format;
+            if (format === 'easyeda-sch') {
+                app._importEasyEDA();
+            }
+        });
+    }
+
     const saveButton = get('ribbonSave');
     const saveAsButton = get('ribbonSaveAs');
 

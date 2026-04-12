@@ -1,10 +1,40 @@
 import { createLockIcon, LOCK_SIZE } from '../core/ui-helpers.js';
 import { Text } from '../shapes/text.js';
 
+/**
+ * @typedef {{
+ *   name: string,
+ *   symbol: any,
+ *   category?: string,
+ *   description?: string,
+ *   defaultReference?: string,
+ *   defaultValue?: string,
+ *   defaultProperties?: Object,
+ *   supplier_part_numbers?: { LCSC?: string },
+ *   _source?: string,
+ *   [key: string]: any
+ * }} ComponentDefinition
+ */
+
+/**
+ * @typedef {{
+ *   x: number,
+ *   y: number,
+ *   rotation?: number,
+ *   mirror?: boolean,
+ *   reference?: string,
+ *   value?: string,
+ *   showReference?: boolean,
+ *   showValue?: boolean,
+ *   [key: string]: any
+ * }} ComponentState
+ */
+
 let compIdCounter = 0;
 
 /**
  * Update the ID counter to avoid collisions with loaded components
+ * @param {string|number} id
  */
 export function updateComponentIdCounter(id) {
     if (typeof id === 'string') {
@@ -22,7 +52,7 @@ export function updateComponentIdCounter(id) {
 export class Component {
     /**
      * Create a component instance.
-     * @param {Object} definition - Component definition (symbol, name, defaults, etc.)
+     * @param {ComponentDefinition} definition - Component definition (symbol, name, defaults, etc.)
      * @param {Object} [options]
      * @param {string} [options.id] - Unique ID (auto-generated if omitted)
      * @param {number} [options.x=0] - World X position
@@ -61,16 +91,28 @@ export class Component {
         this.locked = options.locked !== undefined ? options.locked : false;
         this.selected = false;
         this.hovered = false;
+
+        /** @type {Set<any>|null} */
+        this.attachedLabels = null;
+
+        /** @type {SVGRectElement|null} */
+        this._highlightEl = null;
+
+        /** @type {SVGGElement|null} */
+        this._lockIconEl = null;
     }
 
-    /** @returns {Object} The symbol definition (graphics + pins). */
+    /** @returns {*} The symbol definition (graphics + pins). */
     get symbol() { return this.definition.symbol; }
     /** @returns {string} The component definition name. */
     get name() { return this.definition.name; }
 
     // ── Coordinate transforms ─────────────────────────────────────
 
-    /** Transform a point from component-local coords to world coords. */
+    /** Transform a point from component-local coords to world coords.
+     * @param {number} lx
+     * @param {number} ly
+     */
     localToWorld(lx, ly) {
         let sx = this.mirror ? -lx : lx;
         let sy = ly;
@@ -81,7 +123,10 @@ export class Component {
         };
     }
 
-    /** Transform a point from world coords to component-local coords. */
+    /** Transform a point from world coords to component-local coords.
+     * @param {number} wx
+     * @param {number} wy
+     */
     worldToLocal(wx, wy) {
         const dx = wx - this.x;
         const dy = wy - this.y;
@@ -99,6 +144,7 @@ export class Component {
      * Reference is placed centered above the symbol, Value centered below.
      * Both use 1.778mm font (≈7pt/70mil). Call once after the component
      * is placed. Adds them to app.shapes and the viewport.
+     * @param {any} app
      */
     createFieldTexts(app) {
         const symbol = this.symbol;
@@ -152,6 +198,7 @@ export class Component {
     /**
      * Re-link field Text shapes after deserialization.
      * Called from loadDocument after both shapes and components are loaded.
+     * @param {any[]} shapes
      */
     linkFieldTexts(shapes) {
         for (const s of shapes) {
@@ -186,6 +233,8 @@ export class Component {
 
     /**
      * Hit test - check if point is within component bounds
+     * @param {{x: number, y: number}} point
+     * @param {number} [tolerance=1]
      */
     hitTest(point, tolerance = 1) {
         const bounds = this.getBounds();
@@ -199,6 +248,8 @@ export class Component {
 
     /**
      * Hit test for anchors - components don't have resize anchors
+     * @param {{x: number, y: number}} point
+     * @param {number} scale
      */
     hitTestAnchor(point, scale) {
         return null;  // Components don't have anchors
@@ -234,7 +285,7 @@ export class Component {
     /**
      * Restore a previously captured state, recreating the SVG element if
      * the rotation or mirror has changed.
-     * @param {Object} state - State snapshot from captureState()
+     * @param {ComponentState} state - State snapshot from captureState()
      */
     applyState(state) {
         const mirChanged = state.mirror !== undefined && state.mirror !== this.mirror;
@@ -336,6 +387,7 @@ export class Component {
 
     /**
      * Set selection state and update visual
+     * @param {boolean} selected
      */
     setSelected(selected) {
         this.selected = selected;
@@ -399,13 +451,13 @@ export class Component {
             this._highlightEl = highlight;
         }
         
-        highlight.setAttribute('x', minX - 0.5);
-        highlight.setAttribute('y', minY - 0.5);
-        highlight.setAttribute('width', maxX - minX + 1);
-        highlight.setAttribute('height', maxY - minY + 1);
+        highlight.setAttribute('x', String(minX - 0.5));
+        highlight.setAttribute('y', String(minY - 0.5));
+        highlight.setAttribute('width', String(maxX - minX + 1));
+        highlight.setAttribute('height', String(maxY - minY + 1));
         highlight.setAttribute('fill', this.selected ? 'var(--sch-selection-fill, rgba(51,153,255,0.2))' : 'none');
         highlight.setAttribute('stroke', 'var(--sch-selection, #3399ff)');
-        highlight.setAttribute('stroke-width', 0.15);
+        highlight.setAttribute('stroke-width', '0.15');
         highlight.setAttribute('stroke-opacity', this.selected ? '0.6' : '0.35');
         highlight.setAttribute('stroke-dasharray', 'none');
         
@@ -425,6 +477,7 @@ export class Component {
 
     /**
      * Render the component with optional lock icon
+     * @param {number} scale
      */
     render(scale) {
         if (!this.element) return;
@@ -689,7 +742,7 @@ export class Component {
         if (this.element) this.element.remove();
         this.pinElements.clear();
         this.createSymbolElement();
-        if (parent) parent.appendChild(this.element);
+        if (parent && this.element) parent.appendChild(this.element);
     }
 
     /**
@@ -702,7 +755,7 @@ export class Component {
      *
      * @returns {{ rot: number, anchor: string, flipped: boolean }}
      */
-    _readablePinText(localRot, anchor) {
+    _readablePinText(/** @type {number} */ localRot, /** @type {string} */ anchor) {
         let visual = ((this.rotation + localRot) % 360 + 360) % 360;
         let flipped = false;
         if (visual > 90 && visual <= 270) {
@@ -717,7 +770,7 @@ export class Component {
     /**
      * Create the SVG elements for a single pin (line, connection dot,
      * optional bubble, name and number labels).
-     * @param {Object} pin - Pin descriptor from the symbol definition
+     * @param {*} pin - Pin descriptor from the symbol definition
      * @param {string} ns - SVG namespace
      * @returns {SVGGElement} Pin group element
      */
@@ -726,9 +779,9 @@ export class Component {
         const length = Number.isFinite(pin.length) ? pin.length : 0;
         const source = this.symbol?._source || this.definition?._source;
         const m = this.mirror;
-        const mx = x => m ? -x : x;
-        const flipAnchor = a => a === 'start' ? 'end' : a === 'end' ? 'start' : a;
-        const flipOrient = o => o === 'left' ? 'right' : o === 'right' ? 'left' : o;
+        const mx = (/** @type {number} */ x) => m ? -x : x;
+        const flipAnchor = (/** @type {string} */ a) => a === 'start' ? 'end' : a === 'end' ? 'start' : a;
+        const flipOrient = (/** @type {string} */ o) => o === 'left' ? 'right' : o === 'right' ? 'left' : o;
         const orient = m ? flipOrient(pin.orientation) : pin.orientation;
         
         // Pin connection point
@@ -904,7 +957,7 @@ export class Component {
         // We must also reflect the text position across the pin line
         // so it stays on the correct side visually.
         {
-            const _reflectPerp = (vis, tX, tY) => {
+            const _reflectPerp = (/** @type {number} */ vis, /** @type {number} */ tX, /** @type {number} */ tY) => {
                 if (vis > 90 && vis <= 270) {
                     if (orient === 'right' || orient === 'left')
                         return { x: tX, y: 2 * y1 - tY };
@@ -935,14 +988,14 @@ export class Component {
         }
 
         const line = document.createElementNS(ns, 'line');
-        line.setAttribute('x1', x1); line.setAttribute('y1', y1);
-        line.setAttribute('x2', lineX2); line.setAttribute('y2', lineY2);
+        line.setAttribute('x1', String(x1)); line.setAttribute('y1', String(y1));
+        line.setAttribute('x2', String(lineX2)); line.setAttribute('y2', String(lineY2));
         line.setAttribute('stroke', 'var(--sch-pin, #aa0000)');
         line.setAttribute('stroke-width', String(0.2));
         group.appendChild(line);
 
         const dot = document.createElementNS(ns, 'circle');
-        dot.setAttribute('cx', connectionX); dot.setAttribute('cy', connectionY);
+        dot.setAttribute('cx', String(connectionX)); dot.setAttribute('cy', String(connectionY));
         dot.setAttribute('r', String(dotRadius));
         dot.setAttribute('fill', 'var(--sch-pin, #aa0000)'); 
         dot.setAttribute('stroke', 'none');
@@ -956,7 +1009,7 @@ export class Component {
             else if (orient === 'left') bx += bubbleRadius;
             else if (orient === 'up') by += bubbleRadius;
             else if (orient === 'down') by -= bubbleRadius;
-            bubble.setAttribute('cx', bx); bubble.setAttribute('cy', by);
+            bubble.setAttribute('cx', String(bx)); bubble.setAttribute('cy', String(by));
             bubble.setAttribute('r', String(bubbleRadius));
             bubble.setAttribute('fill', 'none');
             bubble.setAttribute('stroke', 'var(--sch-pin, #aa0000)');
@@ -1050,7 +1103,7 @@ export class Component {
             if (effNumRot !== 0) {
                 numLabelGroup.setAttribute('transform', `translate(${numX},${numY}) rotate(${effNumRot})`);
             } else {
-                numTxt.setAttribute('x', numX); numTxt.setAttribute('y', numY);
+                numTxt.setAttribute('x', String(numX)); numTxt.setAttribute('y', String(numY));
             }
             numLabelGroup.appendChild(numTxt);
             group.appendChild(numLabelGroup);
@@ -1062,18 +1115,18 @@ export class Component {
      * Create an SVG element for a graphics primitive (rect, circle, line,
      * polyline, polygon, arc, path, or text). Colours are replaced with
      * CSS custom properties for theming; mirror is applied to X coordinates.
-     * @param {Object} g - Graphics descriptor from the symbol definition
+     * @param {*} g - Graphics descriptor from the symbol definition
      * @param {string} ns - SVG namespace
      * @returns {SVGElement|null} The created element, or null if skipped
      */
     _createGraphicElement(g, ns) {
         /** @type {SVGElement|null} */
-        let el;
+        let el = null;
         // Ignore colors from component data, use themed colors
         const stroke = 'var(--sch-symbol-outline, #000000)';
         const fill = 'none';
         const m = this.mirror;
-        const mx = x => m ? -x : x;
+        const mx = (/** @type {number} */ x) => m ? -x : x;
         switch (g.type) {
             case 'rect':
                 el = /** @type {SVGElement} */ (document.createElementNS(ns, 'rect'));
@@ -1084,21 +1137,21 @@ export class Component {
                 break;
             case 'circle':
                 el = /** @type {SVGElement} */ (document.createElementNS(ns, 'circle'));
-                el.setAttribute('cx', mx(g.cx)); el.setAttribute('cy', g.cy); el.setAttribute('r', g.r);
+                el.setAttribute('cx', String(mx(g.cx))); el.setAttribute('cy', String(g.cy)); el.setAttribute('r', String(g.r));
                 break;
             case 'line':
                 el = /** @type {SVGElement} */ (document.createElementNS(ns, 'line'));
-                el.setAttribute('x1', mx(g.x1)); el.setAttribute('y1', g.y1);
-                el.setAttribute('x2', mx(g.x2)); el.setAttribute('y2', g.y2);
+                el.setAttribute('x1', String(mx(g.x1))); el.setAttribute('y1', String(g.y1));
+                el.setAttribute('x2', String(mx(g.x2))); el.setAttribute('y2', String(g.y2));
                 break;
             case 'polyline':
                 el = /** @type {SVGElement} */ (document.createElementNS(ns, 'polyline'));
-                const pts = g.points.map(p => `${mx(p[0])},${p[1]}`).join(' ');
+                const pts = g.points.map((/** @type {any} */ p) => `${mx(p[0])},${p[1]}`).join(' ');
                 el.setAttribute('points', pts);
                 break;
             case 'polygon':
                 el = /** @type {SVGElement} */ (document.createElementNS(ns, 'polygon'));
-                const polPts = g.points.map(p => `${mx(p[0])},${p[1]}`).join(' ');
+                const polPts = g.points.map((/** @type {any} */ p) => `${mx(p[0])},${p[1]}`).join(' ');
                 el.setAttribute('points', polPts);
                 break;
             case 'arc': {
@@ -1154,7 +1207,7 @@ export class Component {
                 // Skip template text — these are rendered as independent field Text shapes
                 if (tmpl.includes('${REF}') || tmpl.includes('${VALUE}')) return null;
                 el = /** @type {SVGElement} */ (document.createElementNS(ns, 'text'));
-                el.setAttribute('x', mx(g.x)); el.setAttribute('y', g.y);
+                el.setAttribute('x', String(mx(g.x))); el.setAttribute('y', String(g.y));
                 const textSize = g.fontSize || 1.5;
                 const source = this.symbol?._source || this.definition?._source;
                 const textScale = source === 'KiCad' ? 1.6 : 1.0;
@@ -1220,15 +1273,17 @@ export class Component {
     /**
      * Look up a pin descriptor by its number.
      * @param {string|number} num - Pin number
-     * @returns {Object|undefined}
+     * @returns {*}
      */
     getPin(num) {
         const key = String(num);
-        return this.symbol?.pins?.find(p => String(p.number) === key);
+        return this.symbol?.pins?.find((/** @type {any} */ p) => String(p.number) === key);
     }
 
     /**
      * Move component by delta
+     * @param {number} dx
+     * @param {number} dy
      */
     move(dx, dy) {
         this.setPosition(this.x + dx, this.y + dy);
@@ -1258,6 +1313,7 @@ export class Component {
 
     /**
      * Rotate component by given degrees around its visual center.
+     * @param {number} degrees
      */
     rotate(degrees) {
         // Find world-space center before rotation
@@ -1374,7 +1430,8 @@ export class Component {
      * Serialize component to JSON
      */
     toJSON() {
-        const _r4 = v => Math.round(v * 10000) / 10000;
+        const _r4 = (/** @type {number} */ v) => Math.round(v * 10000) / 10000;
+        /** @type {Record<string,any>} */
         const json = {
             type: 'component',
             id: this.id,
@@ -1424,18 +1481,21 @@ export class Component {
     /**
      * Create a lean copy of a symbol for serialization, stripping
      * internal/transient fields and rounding coordinates.
+     * @param {*} sym
      */
     _cleanSymbol(sym) {
         if (!sym) return sym;
-        const _r4 = v => Math.round(v * 10000) / 10000;
+        const _r4 = (/** @type {number} */ v) => Math.round(v * 10000) / 10000;
 
         // Deep-round all numbers, strip keys starting with '_', and clean specific fields
         const STRIP_KEYS = new Set(['kicadName', '_boundsIncludePins', '_kicadRaw',
             '_easyedaRawShapes', '_coordKey', '_source',
             'pinType', 'shape',                  // pin metadata unused by renderer
             'stroke', 'fill']);                   // graphics always use theme colors
+        /** @type {Record<string,any>} */
         const OMIT_DEFAULTS = { strokeWidth: 0.254, kicadNameFontSize: null, kicadNumberFontSize: null };
 
+        /** @type {function(*): *} */
         const deepClean = (val) => {
             if (val == null) return val;
             if (typeof val === 'number') return _r4(val);
@@ -1445,6 +1505,7 @@ export class Component {
             }
             if (Array.isArray(val)) return val.map(deepClean);
             if (typeof val === 'object') {
+                /** @type {Record<string,any>} */
                 const out = {};
                 for (const [k, v] of Object.entries(val)) {
                     if (STRIP_KEYS.has(k)) continue;

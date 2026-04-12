@@ -30,6 +30,12 @@
                     <div class="ribbon-group-items">
                         <button id="ribbonNew" title="New (Ctrl+N)">📄 New</button>
                         <button id="ribbonOpen" title="Open (Ctrl+O)">📂 Open</button>
+                        <div class="dropdown" id="ribbonImportDropdown">
+                            <button id="ribbonImport" title="Import from other formats">📥 Import ▾</button>
+                            <div class="dropdown-menu" id="ribbonImportMenu">
+                                <button class="dropdown-item" data-format="easyeda-sch">EasyEDA Schematic (.json)</button>
+                            </div>
+                        </div>
                         <button id="ribbonSave" title="Save (Ctrl+S)">💾 Save</button>
                         <button id="ribbonSaveAs" title="Save As (Ctrl+Alt+S)">💾 Save As</button>
                         <button id="ribbonExportPdf" title="Export PDF (Ctrl+Shift+P)">🧾 Export PDF</button>
@@ -272,7 +278,7 @@
                 <div class="ribbon-group" id="pcbPropsContent">
                     <div class="ribbon-group-title">Properties</div>
                     <div class="ribbon-group-items" id="pcbPropsItems">
-                        <span style="font-size:11px;color:var(--text-muted)">Click an object to see its properties</span>
+                        <span class="props-placeholder">Click an object to see its properties</span>
                     </div>
                 </div>
             </div>

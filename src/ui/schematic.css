@@ -2352,6 +2352,11 @@ body {
     gap: 4px 12px;
 }
 
+.props-placeholder {
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
 [data-panel="pcb-properties"] .prop-row {
     gap: 6px;
     min-height: 20px;
