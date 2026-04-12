@@ -4,3 +4,6 @@ benchmark-results-*.json
 
 # Router test boards
 test-board*.json
+
+# EasyEDA test files
+EasyEDA*.json
