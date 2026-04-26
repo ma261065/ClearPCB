@@ -423,6 +423,12 @@ body {
     border-color: var(--btn-hover-border, rgba(255, 255, 255, 0.12));
 }
 
+.ribbon-group-items button#pcbToggleClearances.active {
+    background: var(--accent-color);
+    color: #ffffff;
+    border-color: var(--accent-color);
+}
+
 .ribbon-tool-btn.active {
     background: var(--accent-color);
     color: #ffffff;

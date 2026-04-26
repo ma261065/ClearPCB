@@ -1196,6 +1196,12 @@ export default class PCBApp {
         // Build route input from placements + netlist, or use stored test board input
         const routeInput = this._testBoardRouteInput || this._buildRouteInput();
         this._testBoardRouteInput = null;  // consume it — only used once
+        // Always honour the current UI design rules, even when the source is a
+        // test-board JSON that embedded its own values.
+        const uiParams = this._getRoutingParams();
+        routeInput.traceWidth = uiParams.trackWidth;
+        routeInput.clearance = uiParams.clearance;
+        routeInput.viaDiameter = uiParams.viaDiameter;
         this._routeNetUnrouted = new Map(routeInput.connections.map(c => [c.net, true]));
         this._routeLastBoundaryKey = '';
         this._reconcileRatsnestFromRouteState();
@@ -1885,6 +1891,7 @@ export default class PCBApp {
                 }
             }
         }
+        this._refreshClearanceHalos();
     }
 
     _clearIncrementalNet(netName) {
@@ -1892,6 +1899,7 @@ export default class PCBApp {
         for (const el of this.viewport.svg.querySelectorAll(`.pcb-route-anim[data-net="${netName}"]`)) {
             el.remove();
         }
+        this._refreshClearanceHalos();
     }
 
     _clearIncrementalConnection(connId) {
@@ -1899,6 +1907,7 @@ export default class PCBApp {
         for (const el of this.viewport.svg.querySelectorAll(`.pcb-route-anim[data-connid="${connId}"]`)) {
             el.remove();
         }
+        this._refreshClearanceHalos();
     }
 
     /**
@@ -1909,6 +1918,16 @@ export default class PCBApp {
         if (anims) {
             for (const el of anims) el.remove();
         }
+        this._refreshClearanceHalos();
+    }
+
+    /**
+     * If the clearance overlay is currently visible, redraw it. Call this
+     * after any operation that adds, removes, or relocates traces/vias so the
+     * halos stay in sync (rip-ups in particular leave orphaned halos otherwise).
+     */
+    _refreshClearanceHalos() {
+        if (this._clearancesVisible) this.showClearances(true);
     }
 
     /**
@@ -2096,6 +2115,8 @@ export default class PCBApp {
                 ratLayer.appendChild(line);
             }
         }
+
+        this._refreshClearanceHalos();
     }
 
     /**
@@ -2119,6 +2140,7 @@ export default class PCBApp {
             /** @type {HTMLElement} */ (el).style.display = '';
         }
 
+        this._refreshClearanceHalos();
         this._setStatus('Routes cleared');
     }
 
@@ -2153,6 +2175,7 @@ export default class PCBApp {
             drill.setAttribute('fill', '#1a1a2e');
             holeLayer.appendChild(drill);
         }
+        this._refreshClearanceHalos();
     }
 
     // ── Specctra DSN / SES ────────────────────────────────────────

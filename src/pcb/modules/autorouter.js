@@ -996,30 +996,35 @@ async function astarRoute(sx, sy, ex, ey, obstacles, skipIds, gridStep, traceWid
             const detourEstimate = Math.hypot(nx - startX, ny - startY) + Math.hypot(nx - endX, ny - endY);
             if (detourEstimate > detourCap) continue;
 
-            const nStartKey = current.layer === 'top' ? startKeyTop : startKeyBottom;
-            const isEndpoint = nKey === nStartKey || nKey === endKeyTop || nKey === endKeyBottom;
-            if (!isEndpoint) {
-                // Pad-geometry clearance model:
-                // Inside own pad: skip clearance entirely (pad absorbs the trace)
-                // Near own pad: skip only the radial point check (which falsely
-                //   blocks traces escaping between tight pads) but keep the full
-                //   perpendicular segment check with totalClear — this correctly
-                //   prevents traces from overlapping neighboring pads.
-                // Further out: full point + segment checks with totalClear.
-                const insideStart = startPad && isInsidePad(nx, ny, startPad);
-                const insideEnd = endPad && isInsidePad(nx, ny, endPad);
-                if (!insideStart && !insideEnd) {
-                    const nearStart = startPad && isNearPad(nx, ny, startPad, gridStep * 2);
-                    const nearEnd = endPad && isNearPad(nx, ny, endPad, gridStep * 2);
-                    if (nearStart || nearEnd) {
-                        // Near pad: skip radial point check, use clearance for segment check
-                        // (smaller than totalClear to allow escape, but prevents pad overlaps)
-                        if (obstacles.isSegmentBlocked(current.x, current.y, nx, ny, clearance, skipIds, current.layer, routingNet)) continue;
-                    } else {
-                        // Open field: full radial point check + segment check
-                        if (obstacles.isBlocked(nx, ny, totalClear, skipIds, current.layer, routingNet)) continue;
-                        if (obstacles.isSegmentBlocked(current.x, current.y, nx, ny, totalClear, skipIds, current.layer, routingNet)) continue;
-                    }
+            // Pad-geometry clearance model:
+            //   Inside own (start/end) pad: skip clearance entirely
+            //   Near own pad: skip only the radial point check (which falsely
+            //     blocks traces escaping between tight pads) but keep the full
+            //     perpendicular segment check with totalClear — this correctly
+            //     prevents traces from overlapping neighboring pads.
+            //   Further out: full point + segment checks with totalClear.
+            //
+            // Note: we DO run these checks even when nKey == endpoint key.
+            // Own pads are filtered via skipIds; foreign traces / pads are
+            // NOT skipped, so they correctly block landing on a destination
+            // cell that has been previously occupied by a foreign trace.
+            const insideStart = startPad && isInsidePad(nx, ny, startPad);
+            const insideEnd = endPad && isInsidePad(nx, ny, endPad);
+            if (!insideStart && !insideEnd) {
+                const nearStart = startPad && isNearPad(nx, ny, startPad, gridStep * 2);
+                const nearEnd = endPad && isNearPad(nx, ny, endPad, gridStep * 2);
+                if (nearStart || nearEnd) {
+                    // Near own pad: skip the radial point check (which falsely
+                    // blocks tight escapes between own and neighboring pads),
+                    // but keep the FULL totalClear segment check. Own-net
+                    // source/dest pads are already in skipIds so they cannot
+                    // block; foreign pads must still be respected at the full
+                    // halfTrace+clearance distance.
+                    if (obstacles.isSegmentBlocked(current.x, current.y, nx, ny, totalClear, skipIds, current.layer, routingNet)) continue;
+                } else {
+                    // Open field: full radial point check + segment check
+                    if (obstacles.isBlocked(nx, ny, totalClear, skipIds, current.layer, routingNet)) continue;
+                    if (obstacles.isSegmentBlocked(current.x, current.y, nx, ny, totalClear, skipIds, current.layer, routingNet)) continue;
                 }
             }
 
@@ -1088,16 +1093,20 @@ async function astarRoute(sx, sy, ex, ey, obstacles, skipIds, gridStep, traceWid
                 // Use viaRadius + clearance (not totalClear) because the via copper
                 // footprint is larger than a trace — its edge must maintain design
                 // clearance from all other copper.
+                // Foreign traces and other-net pads MUST be respected even at
+                // endpoints; only own-net pads (in skipIds) are skipped. Without
+                // this, a via could land on a previously-routed foreign trace
+                // that happens to pass through the source/dest pad position on
+                // the opposite layer.
                 const viaClear = viaRadius + clearance;
-                const clearOnOther = isEndpoint || !obstacles.isBlocked(current.x, current.y, viaClear, skipIds, otherLayer, routingNet);
-                const clearOnCurrent = isEndpoint || !obstacles.isBlocked(current.x, current.y, viaClear, skipIds, current.layer, routingNet);
+                const clearOnOther = !obstacles.isBlocked(current.x, current.y, viaClear, skipIds, otherLayer, routingNet);
+                const clearOnCurrent = !obstacles.isBlocked(current.x, current.y, viaClear, skipIds, current.layer, routingNet);
 
-                // NEVER place a via on or near ANY pad — use generous clearance.
-                // Exception: own-net pads are OK (via at start/end pad for layer change).
+                // NEVER place a via on or near ANY pad. `isOnPad` does not honour
+                // skipIds, so we still need the endpoint shortcut here so that
+                // a via CAN be placed at the source/dest pad for a layer change.
                 const viaPadClear = viaRadius + clearance;
-                // Vias must never land on ANY pad (including same-net pads).
-                // Do not pass routingNet here — that would skip own-net pads.
-                const onPad = obstacles.isOnPad(current.x, current.y, viaPadClear);
+                const onPad = !isEndpoint && obstacles.isOnPad(current.x, current.y, viaPadClear);
 
                 if (clearOnOther && clearOnCurrent && !onPad) {
                     const viaDensity = obstacles.localDensity(current.x, current.y, skipIds, otherLayer, 1);
@@ -1712,18 +1721,40 @@ export async function routeAll(input, options = {}) {
     };
 
     const netPadIds = new Map();
+    // Per-net ordered pad-id list, parallel to conn.pads. Used to compute
+    // skipIds for an individual sub-route: only the source and destination
+    // pad IDs of the current segment are skipped, NOT every pad on the net.
+    // (Otherwise an A→B route in a 3-pin net A,B,C would treat C as a
+    //  source/dest and route straight through it.)
+    const netPadIdList = new Map();
     for (const conn of input.connections) {
-        const ids = new Set();
+        const idList = [];
         const used = new Set();
         for (const cpad of conn.pads) {
             const found = findMatchingPad(cpad, used);
             if (found) {
-                ids.add(found.id);
+                idList.push(found.id);
                 used.add(found.id);
+            } else {
+                idList.push(null);
             }
         }
-        netPadIds.set(conn.net, ids);
+        netPadIdList.set(conn.net, idList);
     }
+
+    /**
+     * Build a skipIds Set containing only the source and destination pad IDs
+     * for a single sub-route (one segment of a multi-pin net).
+     */
+    const skipIdsForPair = (netName, fromIdx, toIdx) => {
+        const list = netPadIdList.get(netName);
+        const ids = new Set();
+        if (list) {
+            if (list[fromIdx] != null) ids.add(list[fromIdx]);
+            if (list[toIdx] != null) ids.add(list[toIdx]);
+        }
+        return ids;
+    };
 
     // Connection map for quick lookup
     // For multi-pad nets, reorder pads using nearest-neighbor chain
@@ -2210,39 +2241,63 @@ export async function routeAll(input, options = {}) {
                     }
                 }
 
-                // Split path into strictly single-layer segments.
-                let runStart = 0;
-                const flushRun = (runEnd) => {
-                    const segPts = simplified.slice(runStart, runEnd + 1);
-                    const layer = simplified[runStart].layer || 'top';
-                    if (segPts.length < 2) return;
-                    // Sanitize only if the transformed geometry still passes clearance checks.
-                    const sanitizedPts = sanitizeAngles(segPts);
-                    const cleanPts = arePathSegmentsClear(sanitizedPts, layer, skipIds, conn.net)
-                        ? sanitizedPts
-                        : segPts;
-                    // Accept segments inside or near the start/end pad
-                    // (pad copper absorbs the trace, or trace just emerged)
-                    if (!arePathSegmentsClear(cleanPts, layer, skipIds, conn.net)) {
-                        const touchesStart = cleanPts.some(p => isNearPad(p.x, p.y, from, gridStep * 2));
-                        const touchesEnd = cleanPts.some(p => isNearPad(p.x, p.y, to, gridStep * 2));
-                        if (!touchesStart && !touchesEnd) return;
+                // Split path into strictly single-layer runs and validate
+                // EVERY run before inserting anything. If any run would create
+                // a foreign-clearance violation, treat the entire connection
+                // as failed (atomic: no partial trace insertion).
+                const runs = [];
+                {
+                    let runStart = 0;
+                    const collectRun = (runEnd) => {
+                        const segPts = simplified.slice(runStart, runEnd + 1);
+                        const layer = simplified[runStart].layer || 'top';
+                        if (segPts.length < 2) return;
+                        const sanitizedPts = sanitizeAngles(segPts);
+                        const cleanPts = arePathSegmentsClear(sanitizedPts, layer, skipIds, conn.net)
+                            ? sanitizedPts
+                            : segPts;
+                        runs.push({ cleanPts, layer });
+                    };
+                    for (let s = 1; s < simplified.length; s++) {
+                        if (simplified[s].layer !== simplified[s - 1].layer) {
+                            collectRun(s - 1);
+                            runStart = s;
+                        }
                     }
+                    collectRun(simplified.length - 1);
+                }
+
+                // Per-segment clearance gate. The simplifier/sanitizer/optimizer
+                // can collapse a clear A* path into a long segment that crosses
+                // foreign copper. Own-net pads are filtered via skipIds inside
+                // isSegmentBlocked, so any failure here is a foreign-obstacle
+                // violation and cannot be exempted.
+                const allRunsClear = runs.every(({ cleanPts, layer }) => {
+                    if (cleanPts.length < 2) return false;
+                    for (let i = 1; i < cleanPts.length; i++) {
+                        const a = cleanPts[i - 1];
+                        const b = cleanPts[i];
+                        if (!isValidAngle(a.x, a.y, b.x, b.y)) return false;
+                        if (obstacles.isSegmentBlocked(a.x, a.y, b.x, b.y, totalClear, skipIds, layer, conn.net)) return false;
+                    }
+                    return true;
+                });
+
+                if (!allRunsClear) {
+                    // Drop this connection — the post-processed path is not
+                    // DRC-clean. Surface as a routing failure so rip-up can try.
+                    const failedCount = totalConns - i;
+                    return { traces, failedCount, firstFailedIndex: i };
+                }
+
+                for (const { cleanPts, layer } of runs) {
                     traces.push({ net: conn.net, points: cleanPts, layer, vias: [], connId });
                     for (let k = 0; k < cleanPts.length - 1; k++) {
                         obstacles.insert(cleanPts[k].x, cleanPts[k].y, cleanPts[k+1].x, cleanPts[k+1].y,
                             halfTrace, conn.net, layer, connId);
                     }
                     obstacleVersion++;
-                };
-
-                for (let s = 1; s < simplified.length; s++) {
-                    if (simplified[s].layer !== simplified[s - 1].layer) {
-                        flushRun(s - 1);
-                        runStart = s;
-                    }
                 }
-                flushRun(simplified.length - 1);
                 // Attach detected vias to the last trace segment
                 if (detectedVias.length > 0 && traces.length > 0) {
                     traces[traces.length - 1].vias = detectedVias;
@@ -2413,7 +2468,7 @@ export async function routeAll(input, options = {}) {
         emitProgress(completedConns, totalConns, conn.net, { phase: 'initial', pendingConnections: pendingConnectionsTotal() });
         await yieldToUI();
 
-        const skipIds = netPadIds.get(conn.net) || new Set();
+        const skipIds = skipIdsForPair(conn.net, connIdx, connIdx + 1);
         const miniConn = { net: conn.net, pads: [conn.pads[connIdx], conn.pads[connIdx + 1]] };
         const result = await routeNet(miniConn, obstacles, skipIds, tunedInitialProfile, connIdx);
 
@@ -2500,7 +2555,7 @@ export async function routeAll(input, options = {}) {
             await yieldToUI();
 
             // Cost-based rip-up: probe only the specific failed connection
-            const skipIds = netPadIds.get(failedNet) || new Set();
+            const skipIds = skipIdsForPair(failedNet, failedConnIdx, failedConnIdx + 1);
             const blockingConnIds = new Set();
 
             {
@@ -2615,7 +2670,7 @@ export async function routeAll(input, options = {}) {
                 const { netName: rn, index: connIdx } = cidParsed;
                 const rc = connMap.get(rn);
                 if (!rc || connIdx >= rc.pads.length - 1) continue;
-                const rSkip = netPadIds.get(rn) || new Set();
+                const rSkip = skipIdsForPair(rn, connIdx, connIdx + 1);
 
                 connectionOnlyRerouteAttempts++;
                 const rMiniConn = { net: rn, pads: [rc.pads[connIdx], rc.pads[connIdx + 1]] };
