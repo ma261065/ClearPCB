@@ -88,15 +88,17 @@ class SpatialHash {
     }
 
     /**
-     * Insert a rectangular pad obstacle.
+     * Insert a pad obstacle.
      * @param {number} cx @param {number} cy @param {number} w @param {number} h
      * @param {string} net
      * @param {string} [padLayer='both']
-     * @param {{isVia?: boolean, connId?: string|null}} [options={}]
+     * @param {{isVia?: boolean, connId?: string|null, shape?: string}} [options={}]
+     *   `shape` may be 'rect' (default) or 'ellipse'. Ellipse pads use elliptical
+     *   distance for blocking checks; rect pads use AABB.
      */
     insertPad(cx, cy, w, h, net, padLayer = 'both', options = {}) {
         const hw = w / 2, hh = h / 2;
-        const obj = { cx, cy, hw, hh, net, isPad: true, layer: padLayer, isVia: !!options.isVia, connId: options.connId || undefined };
+        const obj = { cx, cy, hw, hh, net, isPad: true, layer: padLayer, isVia: !!options.isVia, connId: options.connId || undefined, shape: options.shape || 'rect' };
         // Register in all cells the pad overlaps
         const minCX = Math.floor((cx - hw) / this.cellSize);
         const maxCX = Math.floor((cx + hw) / this.cellSize);
@@ -132,10 +134,7 @@ class SpatialHash {
                 for (const obj of objs) {
                     if (!obj.isPad) continue;
                     if (skipNet && obj.net === skipNet) continue;
-                    if (x >= obj.cx - obj.hw - clearance &&
-                        x <= obj.cx + obj.hw + clearance &&
-                        y >= obj.cy - obj.hh - clearance &&
-                        y <= obj.cy + obj.hh + clearance) return true;
+                    if (padPointBlocked(x, y, obj, clearance)) return true;
                 }
             }
         }
@@ -175,10 +174,7 @@ class SpatialHash {
                         if (objLayer !== 'both' && objLayer !== layer) continue;
                     }
                     if (obj.isPad) {
-                        if (x >= obj.cx - obj.hw - clearance &&
-                            x <= obj.cx + obj.hw + clearance &&
-                            y >= obj.cy - obj.hh - clearance &&
-                            y <= obj.cy + obj.hh + clearance) return true;
+                        if (padPointBlocked(x, y, obj, clearance)) return true;
                     } else {
                         const dist = pointToSegmentDist(x, y, obj.x1, obj.y1, obj.x2, obj.y2);
                         if (dist < obj.hw + clearance) return true;
@@ -218,11 +214,7 @@ class SpatialHash {
                         if (objLayer !== 'both' && objLayer !== layer) continue;
                     }
                     if (obj.isPad) {
-                        const rx1 = obj.cx - obj.hw - clearance;
-                        const ry1 = obj.cy - obj.hh - clearance;
-                        const rx2 = obj.cx + obj.hw + clearance;
-                        const ry2 = obj.cy + obj.hh + clearance;
-                        if (segmentIntersectsAABB(ax1, ay1, ax2, ay2, rx1, ry1, rx2, ry2)) return true;
+                        if (padSegmentBlocked(ax1, ay1, ax2, ay2, obj, clearance)) return true;
                     } else {
                         const d = segmentToSegmentDist(ax1, ay1, ax2, ay2, obj.x1, obj.y1, obj.x2, obj.y2);
                         if (d < obj.hw + clearance) return true;
@@ -335,11 +327,7 @@ class SpatialHash {
                     }
 
                     if (obj.isPad) {
-                        const rx1 = obj.cx - obj.hw - clearance;
-                        const ry1 = obj.cy - obj.hh - clearance;
-                        const rx2 = obj.cx + obj.hw + clearance;
-                        const ry2 = obj.cy + obj.hh + clearance;
-                        if (!segmentIntersectsAABB(ax1, ay1, ax2, ay2, rx1, ry1, rx2, ry2)) continue;
+                        if (!padSegmentBlocked(ax1, ay1, ax2, ay2, obj, clearance)) continue;
 
                         const d = pointToSegmentDist(obj.cx, obj.cy, ax1, ay1, ax2, ay2);
                         if (d < bestDist) {
@@ -400,68 +388,6 @@ class SpatialHash {
             }
         }
         return count;
-    }
-
-    /**
-     * Find which foreign nets' traces a point overlaps (for cost-based rip-up).
-     * Returns the set of net names whose traces are within clearance of (x,y).
-     * Pads are ignored (can't rip up pads).
-     */
-    crossingNetsAtPoint(x, y, clearance, skipIds, layer = null) {
-        const crossed = new Set();
-        const cx = Math.floor(x / this.cellSize);
-        const cy = Math.floor(y / this.cellSize);
-        const isSet = skipIds instanceof Set;
-        for (let dx = -1; dx <= 1; dx++) {
-            for (let dy = -1; dy <= 1; dy++) {
-                const objs = this.cells.get(this._key(cx + dx, cy + dy));
-                if (!objs) continue;
-                for (const obj of objs) {
-                    if (obj.isPad) continue;
-                    const objId = obj.net || obj.id;
-                    if (isSet ? skipIds.has(objId) : objId === skipIds) continue;
-                    if (layer) {
-                        const objLayer = obj.layer || 'both';
-                        if (objLayer !== 'both' && objLayer !== layer) continue;
-                    }
-                    const dist = pointToSegmentDist(x, y, obj.x1, obj.y1, obj.x2, obj.y2);
-                    if (dist < obj.hw + clearance && obj.net) crossed.add(obj.net);
-                }
-            }
-        }
-        return crossed;
-    }
-
-    /**
-     * Find which foreign nets' traces a segment crosses.
-     */
-    crossingNetsForSegment(ax1, ay1, ax2, ay2, clearance, skipIds, layer = null) {
-        const crossed = new Set();
-        const minSX = Math.min(ax1, ax2), maxSX = Math.max(ax1, ax2);
-        const minSY = Math.min(ay1, ay2), maxSY = Math.max(ay1, ay2);
-        const cxMin = Math.floor((minSX - clearance) / this.cellSize) - 1;
-        const cxMax = Math.floor((maxSX + clearance) / this.cellSize) + 1;
-        const cyMin = Math.floor((minSY - clearance) / this.cellSize) - 1;
-        const cyMax = Math.floor((maxSY + clearance) / this.cellSize) + 1;
-        const isSet = skipIds instanceof Set;
-        for (let cx = cxMin; cx <= cxMax; cx++) {
-            for (let cy = cyMin; cy <= cyMax; cy++) {
-                const objs = this.cells.get(this._key(cx, cy));
-                if (!objs) continue;
-                for (const obj of objs) {
-                    if (obj.isPad) continue;
-                    const objId = obj.net || obj.id;
-                    if (isSet ? skipIds.has(objId) : objId === skipIds) continue;
-                    if (layer) {
-                        const objLayer = obj.layer || 'both';
-                        if (objLayer !== 'both' && objLayer !== layer) continue;
-                    }
-                    const d = segmentToSegmentDist(ax1, ay1, ax2, ay2, obj.x1, obj.y1, obj.x2, obj.y2);
-                    if (d < obj.hw + clearance && obj.net) crossed.add(obj.net);
-                }
-            }
-        }
-        return crossed;
     }
 
     /**
@@ -543,6 +469,16 @@ function isInsidePad(px, py, pad) {
     if (pad.shape === 'ellipse') {
         return (dx * dx) / (hw * hw) + (dy * dy) / (hh * hh) <= 1;
     }
+    if (pad.shape === 'oval') {
+        const r = Math.min(hw, hh);
+        const horizontal = hw >= hh;
+        const halfLine = horizontal ? (hw - r) : (hh - r);
+        const x1 = horizontal ? pad.x - halfLine : pad.x;
+        const y1 = horizontal ? pad.y : pad.y - halfLine;
+        const x2 = horizontal ? pad.x + halfLine : pad.x;
+        const y2 = horizontal ? pad.y : pad.y + halfLine;
+        return pointToSegmentDist(px, py, x1, y1, x2, y2) <= r;
+    }
     // Default: rectangle
     return Math.abs(dx) <= hw && Math.abs(dy) <= hh;
 }
@@ -563,6 +499,16 @@ function isNearPad(px, py, pad, margin) {
     const hh = pad.height / 2 + margin;
     if (pad.shape === 'ellipse') {
         return (dx * dx) / (hw * hw) + (dy * dy) / (hh * hh) <= 1;
+    }
+    if (pad.shape === 'oval') {
+        const baseR = Math.min(pad.width, pad.height) / 2;
+        const horizontal = pad.width >= pad.height;
+        const halfLine = horizontal ? (pad.width / 2 - baseR) : (pad.height / 2 - baseR);
+        const x1 = horizontal ? pad.x - halfLine : pad.x;
+        const y1 = horizontal ? pad.y : pad.y - halfLine;
+        const x2 = horizontal ? pad.x + halfLine : pad.x;
+        const y2 = horizontal ? pad.y : pad.y + halfLine;
+        return pointToSegmentDist(px, py, x1, y1, x2, y2) <= baseR + margin;
     }
     return Math.abs(dx) <= hw && Math.abs(dy) <= hh;
 }
@@ -615,7 +561,6 @@ function segmentIntersectsAABB(x1, y1, x2, y2, rxMin, ryMin, rxMax, ryMax) {
  * Test if two line segments intersect (proper + collinear overlap).
  */
 function segmentsIntersect(ax1, ay1, ax2, ay2, bx1, by1, bx2, by2) {
-    const cross = (ox, oy, dx, dy, px, py) => dx * (py - oy) - dy * (px - oy ? py - oy : px - ox);
     const dax = ax2 - ax1, day = ay2 - ay1;
     const dbx = bx2 - bx1, dby = by2 - by1;
 
@@ -653,6 +598,127 @@ function segmentToSegmentDist(ax1, ay1, ax2, ay2, bx1, by1, bx2, by2) {
         pointToSegmentDist(bx1, by1, ax1, ay1, ax2, ay2),
         pointToSegmentDist(bx2, by2, ax1, ay1, ax2, ay2)
     );
+}
+
+// ── Pad clearance geometry ────────────────────────────────────────
+//
+// All pad-vs-something tests use true Minkowski-sum distance — i.e. the
+// trace center-line must stay strictly more than `clearance` away from the
+// pad's actual copper boundary. This is mathematically equivalent to (and
+// numerically identical to) putting the clearance envelope on the trace
+// instead of the pad; the per-shape distance function is intrinsic either
+// way. Earlier code used an AABB-inflation approximation which over-blocked
+// at corners (square corners on the inflated rect instead of the rounded
+// corners produced by a true Minkowski sum with a disk).
+//
+// Pad shape vocabulary (stored on SpatialHash obstacle records):
+//   - 'rect'    (default): axis-aligned rectangle, clearance applied as
+//                          rounded-corner Minkowski expansion.
+//   - 'ellipse'           : round / true-ellipse pad. When hw === hh this is
+//                          treated as an exact circle. Otherwise an
+//                          axis-aligned ellipse (clearance approximated as
+//                          anisotropic axis expansion — exact only for the
+//                          circular case).
+//   - 'oval'              : stadium / discorectangle. Two semicircular ends
+//                          with radius min(hw, hh); straight section spans
+//                          the longer axis.
+//   - anything else (e.g. 'polygon' for non-convex EasyEDA pads) falls
+//                          through to the rect path, conservatively treated
+//                          as the pad's bounding box.
+
+/**
+ * Returns true if point (x, y) is within `clearance` of the pad obstacle's copper.
+ * @param {number} x @param {number} y
+ * @param {{cx:number, cy:number, hw:number, hh:number, shape?:string}} obj
+ * @param {number} clearance
+ */
+function padPointBlocked(x, y, obj, clearance) {
+    const dx = x - obj.cx;
+    const dy = y - obj.cy;
+
+    if (obj.shape === 'ellipse') {
+        if (obj.hw === obj.hh) {
+            // Circle: exact
+            const r = obj.hw + clearance;
+            return dx * dx + dy * dy <= r * r;
+        }
+        // True ellipse: anisotropic approximation
+        const ex = dx / (obj.hw + clearance);
+        const ey = dy / (obj.hh + clearance);
+        return ex * ex + ey * ey <= 1;
+    }
+
+    if (obj.shape === 'oval') {
+        // Stadium: distance from point to center segment ≤ minor radius + clearance
+        const r = Math.min(obj.hw, obj.hh);
+        const horizontal = obj.hw >= obj.hh;
+        const halfLine = horizontal ? (obj.hw - r) : (obj.hh - r);
+        const x1 = horizontal ? obj.cx - halfLine : obj.cx;
+        const y1 = horizontal ? obj.cy : obj.cy - halfLine;
+        const x2 = horizontal ? obj.cx + halfLine : obj.cx;
+        const y2 = horizontal ? obj.cy : obj.cy + halfLine;
+        return pointToSegmentDist(x, y, x1, y1, x2, y2) <= r + clearance;
+    }
+
+    // Rect (default): true Minkowski distance — rounded corners.
+    const adx = Math.abs(dx) - obj.hw;
+    const ady = Math.abs(dy) - obj.hh;
+    if (adx <= 0 && ady <= 0) return true; // strictly inside the rect
+    const ox = adx > 0 ? adx : 0;
+    const oy = ady > 0 ? ady : 0;
+    return ox * ox + oy * oy <= clearance * clearance;
+}
+
+/**
+ * Returns true if segment (ax1,ay1)-(ax2,ay2) is within `clearance` of the pad.
+ */
+function padSegmentBlocked(ax1, ay1, ax2, ay2, obj, clearance) {
+    if (obj.shape === 'ellipse' && obj.hw === obj.hh) {
+        // Circle: distance from circle center to segment ≤ r + clearance
+        const r = obj.hw + clearance;
+        return pointToSegmentDist(obj.cx, obj.cy, ax1, ay1, ax2, ay2) <= r;
+    }
+    if (obj.shape === 'oval') {
+        const r = Math.min(obj.hw, obj.hh);
+        const horizontal = obj.hw >= obj.hh;
+        const halfLine = horizontal ? (obj.hw - r) : (obj.hh - r);
+        const bx1 = horizontal ? obj.cx - halfLine : obj.cx;
+        const by1 = horizontal ? obj.cy : obj.cy - halfLine;
+        const bx2 = horizontal ? obj.cx + halfLine : obj.cx;
+        const by2 = horizontal ? obj.cy : obj.cy + halfLine;
+        return segmentToSegmentDist(ax1, ay1, ax2, ay2, bx1, by1, bx2, by2) <= r + clearance;
+    }
+    if (obj.shape === 'ellipse') {
+        // True ellipse (hw !== hh): conservative AABB-inflation (over-blocks slightly).
+        const rx1 = obj.cx - obj.hw - clearance, ry1 = obj.cy - obj.hh - clearance;
+        const rx2 = obj.cx + obj.hw + clearance, ry2 = obj.cy + obj.hh + clearance;
+        return segmentIntersectsAABB(ax1, ay1, ax2, ay2, rx1, ry1, rx2, ry2);
+    }
+
+    // Rect (default): exact distance from segment to rect ≤ clearance.
+    // Fast cull with inflated-AABB; if it passes, do precise corner-rounded test.
+    const xMin = obj.cx - obj.hw, xMax = obj.cx + obj.hw;
+    const yMin = obj.cy - obj.hh, yMax = obj.cy + obj.hh;
+    if (!segmentIntersectsAABB(ax1, ay1, ax2, ay2,
+            xMin - clearance, yMin - clearance,
+            xMax + clearance, yMax + clearance)) return false;
+    // Inside un-inflated rect → blocked.
+    if (segmentIntersectsAABB(ax1, ay1, ax2, ay2, xMin, yMin, xMax, yMax)) return true;
+    // Either endpoint within Minkowski (point-to-rect distance ≤ clearance)?
+    const c2 = clearance * clearance;
+    const ptToRectSq = (px, py) => {
+        const dxr = px < xMin ? xMin - px : (px > xMax ? px - xMax : 0);
+        const dyr = py < yMin ? yMin - py : (py > yMax ? py - yMax : 0);
+        return dxr * dxr + dyr * dyr;
+    };
+    if (ptToRectSq(ax1, ay1) <= c2) return true;
+    if (ptToRectSq(ax2, ay2) <= c2) return true;
+    // Corner-grazing case: any rect corner within clearance of the segment?
+    if (pointToSegmentDist(xMin, yMin, ax1, ay1, ax2, ay2) <= clearance) return true;
+    if (pointToSegmentDist(xMax, yMin, ax1, ay1, ax2, ay2) <= clearance) return true;
+    if (pointToSegmentDist(xMin, yMax, ax1, ay1, ax2, ay2) <= clearance) return true;
+    if (pointToSegmentDist(xMax, yMax, ax1, ay1, ax2, ay2) <= clearance) return true;
+    return false;
 }
 
 // ── Congestion Grid ───────────────────────────────────────────────
@@ -1029,7 +1095,9 @@ async function astarRoute(sx, sy, ex, ey, obstacles, skipIds, gridStep, traceWid
                 // NEVER place a via on or near ANY pad — use generous clearance.
                 // Exception: own-net pads are OK (via at start/end pad for layer change).
                 const viaPadClear = viaRadius + clearance;
-                const onPad = obstacles.isOnPad(current.x, current.y, viaPadClear, routingNet);
+                // Vias must never land on ANY pad (including same-net pads).
+                // Do not pass routingNet here — that would skip own-net pads.
+                const onPad = obstacles.isOnPad(current.x, current.y, viaPadClear);
 
                 if (clearOnOther && clearOnCurrent && !onPad) {
                     const viaDensity = obstacles.localDensity(current.x, current.y, skipIds, otherLayer, 1);
@@ -1484,11 +1552,15 @@ function sanitizeAngles(pts) {
 
 /**
  * @typedef {Object} RouteInput
- * @property {Array<{net: string, pads: Array<{x: number, y: number, width: number, height: number}>}>} connections
- * @property {Array<{x: number, y: number, width: number, height: number}>} [allObstaclePads] - ALL component pads (including unconnected)
- * @property {number} [traceWidth=0.254] - trace width in mm
- * @property {number} [clearance=0.2] - clearance in mm
- * @property {number} [gridStep=0.254] - routing grid step in mm
+ * @property {Array<{net: string, pads: Array<{x: number, y: number, width: number, height: number, layer?: ('top'|'bottom'|'both'), shape?: ('rect'|'ellipse')}>}>} connections
+ *   Each pad may specify `layer` ('top'|'bottom'|'both', default 'top' at routing time)
+ *   and `shape` ('rect'|'ellipse', default 'rect'). Ellipse pads use elliptical
+ *   blocking; rect pads use AABB.
+ * @property {Array<{x: number, y: number, width: number, height: number, layer?: string, shape?: string}>} [allObstaclePads] - ALL component pads (including unconnected)
+ * @property {number} traceWidth - trace width in mm (required)
+ * @property {number} clearance - clearance in mm (required)
+ * @property {number} viaDiameter - via diameter in mm (required)
+ * @property {number} gridStep - routing grid step in mm (required)
  * @property {{minX: number, minY: number, maxX: number, maxY: number}} bounds
  */
 
@@ -1570,11 +1642,20 @@ export async function routeAll(input, options = {}) {
 
         return () => Promise.resolve();
     })();
-    const traceWidth = input.traceWidth || 0.254;
-    const clearance = input.clearance || 0.2;
-    const viaDiameter = input.viaDiameter || 0.6;
+    // Routing parameters are required — there is no sensible global default
+    // for clearance/traceWidth/viaDiameter/gridStep. Callers must supply them
+    // (UI provides values from #pcbClearance / #pcbTrackWidth / etc.).
+    const requirePositive = (name, value) => {
+        if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
+            throw new Error(`routeAll: input.${name} must be a positive number, got ${value}`);
+        }
+        return value;
+    };
+    const traceWidth = requirePositive('traceWidth', input.traceWidth);
+    const clearance = requirePositive('clearance', input.clearance);
+    const viaDiameter = requirePositive('viaDiameter', input.viaDiameter);
+    const gridStep = requirePositive('gridStep', input.gridStep);
     const viaRadius = viaDiameter / 2;
-    const gridStep = input.gridStep || 0.5;
     const halfTrace = traceWidth / 2;
     const totalClear = halfTrace + clearance;
     const MAX_PASSES = Math.max(1, maxPasses | 0);
@@ -1762,7 +1843,7 @@ export async function routeAll(input, options = {}) {
     function buildObstacles() {
         const obs = new SpatialHash(cellSize);
         for (const pad of allPads) {
-            obs.insertPad(pad.x, pad.y, pad.width, pad.height, pad.id, pad.layer || 'both');
+            obs.insertPad(pad.x, pad.y, pad.width, pad.height, pad.id, pad.layer || 'both', { shape: pad.shape });
         }
         obstacleVersion = 1;
         return obs;
@@ -2167,10 +2248,13 @@ export async function routeAll(input, options = {}) {
                     traces[traces.length - 1].vias = detectedVias;
                 }
 
-                // Register vias as obstacles so future nets avoid them
+                // Register vias as obstacles so future nets avoid them.
+                // Vias are circular copper, so insert as ellipse with hw==hh
+                // (router treats this as exact circle distance, not AABB).
                 const viaDia = viaDiameter;
                 for (const v of detectedVias) {
-                    obstacles.insertPad(v.x, v.y, viaDia, viaDia, conn.net, 'both', { isVia: true, connId });
+                    obstacles.insertPad(v.x, v.y, viaDia, viaDia, conn.net, 'both',
+                        { isVia: true, connId, shape: 'ellipse' });
                 }
                 if (detectedVias.length > 0) obstacleVersion++;
             } else {

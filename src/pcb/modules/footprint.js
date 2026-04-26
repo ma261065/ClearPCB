@@ -189,9 +189,22 @@ function generateFromShapes(shapes, bbox, source) {
             const drillRadius = isEasyEDA && parts.length > 9 ? (parseFloat(parts[9]) || 0) : 0;
             const drill = drillRadius * 2 * S;
 
+            // Map EasyEDA's PAD shape enum onto our internal vocabulary.
+            // POLYGON pads are fairly rare; we conservatively treat them as
+            // their bounding rectangle for both rendering and routing — the
+            // polygon outline (field [10]) is not yet consumed.
+            let canonicalShape;
+            switch (padType) {
+                case 'ELLIPSE': canonicalShape = 'ellipse'; break;
+                case 'OVAL':    canonicalShape = 'oval'; break;
+                case 'POLYGON': canonicalShape = 'rect'; break; // bbox fallback
+                case 'RECT':
+                default:        canonicalShape = 'rect'; break;
+            }
+
             pads.push({
                 number: num, x: cx, y: cy, width: w, height: h,
-                shape: padType === 'ELLIPSE' ? 'ellipse' : 'rect',
+                shape: canonicalShape,
                 drill, layer: padLayer,
             });
 
@@ -445,6 +458,18 @@ function generateFromShapes(shapes, bbox, source) {
             if (pad.shape === 'ellipse') {
                 silks.push({ type: 'circle', cx: pad.x, cy: pad.y,
                     r: pad.width / 2 + exp, strokeWidth: sw, layer: layerId, filled: true });
+            } else if (pad.shape === 'oval') {
+                // Stadium / discorectangle as SVG path (rounded rect with r = min(w,h)/2)
+                const r = Math.min(pad.width, pad.height) / 2 + exp;
+                const x1 = pad.x - pad.width / 2 - exp, y1 = pad.y - pad.height / 2 - exp;
+                const w = pad.width + 2 * exp, h = pad.height + 2 * exp;
+                let d;
+                if (w >= h) {
+                    d = `M ${x1 + r} ${y1} L ${x1 + w - r} ${y1} A ${r} ${r} 0 0 1 ${x1 + w - r} ${y1 + h} L ${x1 + r} ${y1 + h} A ${r} ${r} 0 0 1 ${x1 + r} ${y1} Z`;
+                } else {
+                    d = `M ${x1} ${y1 + r} L ${x1} ${y1 + h - r} A ${r} ${r} 0 0 0 ${x1 + w} ${y1 + h - r} L ${x1 + w} ${y1 + r} A ${r} ${r} 0 0 0 ${x1} ${y1 + r} Z`;
+                }
+                silks.push({ type: 'path', d, strokeWidth: sw, layer: layerId, filled: true });
             } else {
                 // Filled rectangle as path
                 const x1 = pad.x - pad.width / 2 - exp, y1 = pad.y - pad.height / 2 - exp;
@@ -684,9 +709,19 @@ export function renderFootprint(fp, ref, x, y, rotation = 0) {
                 c.setAttribute('cy', String(pad.y));
                 c.setAttribute('r', String(pad.width / 2));
                 c.setAttribute('fill', padFill);
-                c.setAttribute('stroke', 'var(--pcb-pad-outline, #daa520)');
-                c.setAttribute('stroke-width', '0.08');
                 padG.appendChild(c);
+            } else if (pad.shape === 'oval') {
+                // Stadium = SVG rect with rx = ry = min(w,h)/2
+                const r = Math.min(pad.width, pad.height) / 2;
+                const rect = document.createElementNS(NS, 'rect');
+                rect.setAttribute('x', String(pad.x - pad.width / 2));
+                rect.setAttribute('y', String(pad.y - pad.height / 2));
+                rect.setAttribute('width', String(pad.width));
+                rect.setAttribute('height', String(pad.height));
+                rect.setAttribute('rx', String(r));
+                rect.setAttribute('ry', String(r));
+                rect.setAttribute('fill', padFill);
+                padG.appendChild(rect);
             } else {
                 const r = document.createElementNS(NS, 'rect');
                 r.setAttribute('x', String(pad.x - pad.width / 2));
@@ -694,8 +729,6 @@ export function renderFootprint(fp, ref, x, y, rotation = 0) {
                 r.setAttribute('width', String(pad.width));
                 r.setAttribute('height', String(pad.height));
                 r.setAttribute('fill', padFill);
-                r.setAttribute('stroke', 'var(--pcb-pad-outline, #daa520)');
-                r.setAttribute('stroke-width', '0.08');
                 padG.appendChild(r);
             }
 

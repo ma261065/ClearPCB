@@ -61,6 +61,10 @@ export function bindPcbControls(app) {
     const clearRoutesBtn = document.getElementById('pcbClearRoutes');
     clearRoutesBtn?.addEventListener('click', () => app.clearRoutes?.());
 
+    // Toggle clearance halos
+    const toggleClearancesBtn = document.getElementById('pcbToggleClearances');
+    toggleClearancesBtn?.addEventListener('click', () => app.showClearances?.());
+
     // Test board buttons
     document.getElementById('pcbTestDense')?.addEventListener('click', () => app.loadTestBoard?.('test-board.json'));
     document.getElementById('pcbTestSpread')?.addEventListener('click', () => app.loadTestBoard?.('test-board-spread.json'));

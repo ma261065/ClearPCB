@@ -18,12 +18,22 @@
  * @param {Map<string, object>} opts.placements  - componentId → { x, y, reference, padOffsets }
  * @param {Array<{net: string, pins: Array<{componentId: string, pinNumber: string}>}>} opts.netlist
  * @param {{minX: number, minY: number, maxX: number, maxY: number}} [opts.bounds]
- * @param {number} [opts.traceWidth=0.254]
- * @param {number} [opts.clearance=0.2]
+ * @param {number} opts.traceWidth - required, mm
+ * @param {number} opts.clearance - required, mm
+ * @param {number} opts.viaDiameter - required, mm
  * @returns {string}
  */
 export function exportDSN(opts) {
-    const { placements, netlist, traceWidth = 0.254, clearance = 0.2 } = opts;
+    const { placements, netlist, traceWidth, clearance, viaDiameter } = opts;
+    if (typeof traceWidth !== 'number' || !Number.isFinite(traceWidth) || traceWidth <= 0) {
+        throw new Error(`exportDSN: opts.traceWidth must be a positive number, got ${traceWidth}`);
+    }
+    if (typeof clearance !== 'number' || !Number.isFinite(clearance) || clearance <= 0) {
+        throw new Error(`exportDSN: opts.clearance must be a positive number, got ${clearance}`);
+    }
+    if (typeof viaDiameter !== 'number' || !Number.isFinite(viaDiameter) || viaDiameter <= 0) {
+        throw new Error(`exportDSN: opts.viaDiameter must be a positive number, got ${viaDiameter}`);
+    }
     const resolution = 1000; // units per mm (microns)
 
     // Convert mm to DSN resolution units
@@ -152,8 +162,8 @@ ${placementDefs.join('\n')}
 ${padstackDefs.join('\n')}
 ${imageDefs.join('\n')}
     (padstack via_default
-      (shape (circle F.Cu ${u(0.6)}))
-      (shape (circle B.Cu ${u(0.6)}))
+      (shape (circle F.Cu ${u(viaDiameter)}))
+      (shape (circle B.Cu ${u(viaDiameter)}))
       (attach off)
     )
   )
@@ -211,10 +221,20 @@ export function importDSN(dsnText) {
         throw new Error('Invalid DSN: missing one or more required sections (structure/network/placement/library)');
     }
 
-    // Extract rules (if present)
+    // Extract rules. DSN format requires (rule (width ...) (clearance ...))
+    // inside (structure ...). Refuse to silently substitute defaults — bad
+    // input should fail loudly so the user can fix the source.
     const structureRule = _findDirectNode(structure, 'rule');
-    const traceWidth = toMM(_findDirectNode(structureRule, 'width')?.[1] ?? 254);
-    const clearance = toMM(_findDirectNode(structureRule, 'clearance')?.[1] ?? 200);
+    const widthNode = _findDirectNode(structureRule, 'width');
+    const clearanceNode = _findDirectNode(structureRule, 'clearance');
+    if (!widthNode || widthNode[1] == null) {
+        throw new Error('Invalid DSN: missing (rule (width ...)) inside (structure ...)');
+    }
+    if (!clearanceNode || clearanceNode[1] == null) {
+        throw new Error('Invalid DSN: missing (rule (clearance ...)) inside (structure ...)');
+    }
+    const traceWidth = toMM(widthNode[1]);
+    const clearance = toMM(clearanceNode[1]);
 
     // Parse board bounds from boundary path
     let bounds = null;
@@ -267,6 +287,20 @@ export function importDSN(dsnText) {
             }
         }
         padstacks.set(name, { width, height, layer });
+    }
+
+    // Resolve via diameter from the padstack referenced by (via NAME) in structure.
+    // DSN files written by ClearPCB use 'via_default'; foreign DSN may use any name.
+    const viaRefNode = _findDirectNode(structure, 'via');
+    const viaPadstackName = viaRefNode && viaRefNode[1] != null ? String(viaRefNode[1]) : null;
+    const viaPadstack = viaPadstackName ? padstacks.get(viaPadstackName) : null;
+    if (!viaPadstack) {
+        throw new Error(`Invalid DSN: missing or unresolved (via ${viaPadstackName ?? '?'}) padstack reference`);
+    }
+    // Vias are circular — width === height for a (circle ...) shape.
+    const viaDiameter = viaPadstack.width;
+    if (!Number.isFinite(viaDiameter) || viaDiameter <= 0) {
+        throw new Error(`Invalid DSN: via padstack '${viaPadstackName}' has invalid diameter ${viaDiameter}`);
     }
 
     // Parse images -> pin offsets and padstack refs
@@ -358,8 +392,9 @@ export function importDSN(dsnText) {
         routeInput: {
             connections,
             allObstaclePads,
-            traceWidth: traceWidth || 0.254,
-            clearance: clearance || 0.2,
+            traceWidth,
+            clearance,
+            viaDiameter,
             gridStep: 0.5,
             bounds,
         },

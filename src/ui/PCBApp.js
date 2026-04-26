@@ -1108,8 +1108,6 @@ export default class PCBApp {
             rect.setAttribute('width', String(pad.width));
             rect.setAttribute('height', String(pad.height));
             rect.setAttribute('fill', pad.layer === 'bottom' ? '#0066ff' : '#ff6633');
-            rect.setAttribute('stroke', '#ffcc00');
-            rect.setAttribute('stroke-width', '0.05');
             rect.setAttribute('opacity', '0.8');
             const parent = pad.layer === 'bottom' ? bottomCopper : topCopper;
             parent.appendChild(rect);
@@ -1655,114 +1653,156 @@ export default class PCBApp {
     }
 
     /**
-     * Debug: draw thin clearance outlines around all pads.
-     * Usage:  bootstrap.pcbApp.showClearances()
-     *         bootstrap.pcbApp.showClearances(false)  // hide
+     * Toggle a faint ghost halo showing the clearance band around every
+     * pad, via, and trace. The halo width equals the **Clearance** value
+     * from the routing tab — i.e. the minimum copper-to-copper gap any
+     * other net's copper must keep from this object's edge.
+     *
+     * Pad shapes (rect / ellipse / oval) are honored. Halos are drawn
+     * beneath copper so they don't obscure the board.
+     *
+     * Wired to the "Clearance" toggle button in the routing tab. Also
+     * callable from the console: `bootstrap.pcbApp.showClearances(true|false)`.
+     *
+     * @param {boolean} [show] - explicit on/off; omit to toggle.
      */
-    showClearances(show = true) {
+    showClearances(show) {
         const NS = 'http://www.w3.org/2000/svg';
-        const topCopper = this._getLayerGroup('top-copper');
-        topCopper.querySelectorAll('.debug-clearance').forEach(el => el.remove());
-        if (!show) return;
+        const HALO_CLASS = 'debug-clearance';
+
+        const layerIds = ['top-copper', 'bottom-copper'];
+        // Vias live on the 'hole' layer; include it for halo cleanup/scan.
+        const allLayerIds = [...layerIds, 'hole'];
+        // Always wipe existing halos first.
+        for (const layerId of allLayerIds) {
+            const g = this._getLayerGroup(layerId);
+            g.querySelectorAll(`.${HALO_CLASS}`).forEach(el => el.remove());
+        }
+
+        if (show === undefined) show = !this._clearancesVisible;
+        this._clearancesVisible = !!show;
+        const btn = document.getElementById('pcbToggleClearances');
+        btn?.classList.toggle('active', this._clearancesVisible);
+        if (!this._clearancesVisible) return;
 
         const params = this._getRoutingParams();
-        const traceWidth = params.trackWidth || 0.254;
-        const clearance = params.clearance || 0.2;
-        const halfTrace = traceWidth / 2;
-        const totalClear = halfTrace + clearance;
+        const halo = params.clearance;
 
+        const HALO_FILL = 'rgba(255, 255, 255, 0.08)';
+        const HALO_STROKE = 'rgba(255, 255, 255, 0.35)';
+
+        const styleHalo = (el) => {
+            el.setAttribute('class', HALO_CLASS);
+            el.setAttribute('fill', HALO_FILL);
+            el.setAttribute('stroke', HALO_STROKE);
+            el.setAttribute('stroke-width', '0.02');
+            el.setAttribute('pointer-events', 'none');
+        };
+
+        // Build a single SVG path representing the Minkowski expansion of a
+        // pad shape by `halo`. Returns null if shape unsupported.
+        const padHaloPath = (cx, cy, w, h, shape) => {
+            const hw = w / 2, hh = h / 2;
+            if (shape === 'ellipse') {
+                if (Math.abs(hw - hh) < 1e-9) {
+                    const r = hw + halo;
+                    const c = document.createElementNS(NS, 'circle');
+                    c.setAttribute('cx', String(cx));
+                    c.setAttribute('cy', String(cy));
+                    c.setAttribute('r', String(r));
+                    return c;
+                }
+                const e = document.createElementNS(NS, 'ellipse');
+                e.setAttribute('cx', String(cx));
+                e.setAttribute('cy', String(cy));
+                e.setAttribute('rx', String(hw + halo));
+                e.setAttribute('ry', String(hh + halo));
+                return e;
+            }
+            // 'oval' (stadium) and 'rect' both expand to a rounded rectangle:
+            //   oval: corner radius = min(hw, hh) + halo
+            //   rect: corner radius = halo (true Minkowski sum with a disk)
+            const cornerR = (shape === 'oval' ? Math.min(hw, hh) : 0) + halo;
+            const r = document.createElementNS(NS, 'rect');
+            r.setAttribute('x', String(cx - hw - halo));
+            r.setAttribute('y', String(cy - hh - halo));
+            r.setAttribute('width', String(w + halo * 2));
+            r.setAttribute('height', String(h + halo * 2));
+            r.setAttribute('rx', String(cornerR));
+            r.setAttribute('ry', String(cornerR));
+            return r;
+        };
+
+        // Halos for component pads
         for (const [, pl] of this.placements) {
             for (const off of (pl.padOffsets || [])) {
                 const px = pl.x + off.dx;
                 const py = pl.y + off.dy;
-                const hw = off.width / 2;
-                const hh = off.height / 2;
-
-                // Pad outline (yellow)
-                const padRect = document.createElementNS(NS, 'rect');
-                padRect.setAttribute('x', String(px - hw));
-                padRect.setAttribute('y', String(py - hh));
-                padRect.setAttribute('width', String(off.width));
-                padRect.setAttribute('height', String(off.height));
-                padRect.setAttribute('fill', 'none');
-                padRect.setAttribute('stroke', 'yellow');
-                padRect.setAttribute('stroke-width', '0.02');
-                padRect.setAttribute('class', 'debug-clearance');
-                topCopper.appendChild(padRect);
-
-                // totalClear zone (white)
-                const clrRect = document.createElementNS(NS, 'rect');
-                clrRect.setAttribute('x', String(px - hw - totalClear));
-                clrRect.setAttribute('y', String(py - hh - totalClear));
-                clrRect.setAttribute('width', String(off.width + totalClear * 2));
-                clrRect.setAttribute('height', String(off.height + totalClear * 2));
-                clrRect.setAttribute('fill', 'none');
-                clrRect.setAttribute('stroke', 'white');
-                clrRect.setAttribute('stroke-width', '0.02');
-                clrRect.setAttribute('opacity', '0.5');
-                clrRect.setAttribute('class', 'debug-clearance');
-                topCopper.appendChild(clrRect);
-
-                // halfTrace zone (cyan)
-                const htRect = document.createElementNS(NS, 'rect');
-                htRect.setAttribute('x', String(px - hw - halfTrace));
-                htRect.setAttribute('y', String(py - hh - halfTrace));
-                htRect.setAttribute('width', String(off.width + halfTrace * 2));
-                htRect.setAttribute('height', String(off.height + halfTrace * 2));
-                htRect.setAttribute('fill', 'none');
-                htRect.setAttribute('stroke', 'cyan');
-                htRect.setAttribute('stroke-width', '0.02');
-                htRect.setAttribute('opacity', '0.4');
-                htRect.setAttribute('class', 'debug-clearance');
-                topCopper.appendChild(htRect);
+                const padLayer = off.layer || 'top-copper';
+                const targets = padLayer === 'both'
+                    ? layerIds
+                    : [padLayer];
+                for (const layerId of targets) {
+                    const group = this._getLayerGroup(layerId);
+                    const el = padHaloPath(px, py, off.width || 0, off.height || 0, off.shape || 'rect');
+                    styleHalo(el);
+                    // Insert at the start so halos sit beneath copper.
+                    group.insertBefore(el, group.firstChild);
+                }
             }
         }
 
-        // Draw clearance around routed traces and vias
-        for (const layer of ['top-copper', 'bottom-copper']) {
-            const group = this._getLayerGroup(layer);
+        // Halos for routed traces (rendered as polylines) and ad-hoc segment lines.
+        // Stroke is centered on the trace centerline, so to get `halo` mm of
+        // clearance OUTSIDE the copper edge the stroke width must be
+        // trackWidth + 2*halo.
+        const traceHaloStroke = params.trackWidth + halo * 2;
+        for (const layerId of layerIds) {
+            const group = this._getLayerGroup(layerId);
+
             for (const trace of group.querySelectorAll('.pcb-routed-trace')) {
-                const x1 = parseFloat(trace.getAttribute('x1'));
-                const y1 = parseFloat(trace.getAttribute('y1'));
-                const x2 = parseFloat(trace.getAttribute('x2'));
-                const y2 = parseFloat(trace.getAttribute('y2'));
-                if (isNaN(x1)) continue;
-
-                const clrLine = document.createElementNS(NS, 'line');
-                clrLine.setAttribute('x1', String(x1));
-                clrLine.setAttribute('y1', String(y1));
-                clrLine.setAttribute('x2', String(x2));
-                clrLine.setAttribute('y2', String(y2));
-                clrLine.setAttribute('stroke', 'white');
-                clrLine.setAttribute('stroke-width', String(totalClear * 2));
-                clrLine.setAttribute('stroke-linecap', 'round');
-                clrLine.setAttribute('stroke-opacity', '0.1');
-                clrLine.setAttribute('fill', 'none');
-                clrLine.setAttribute('class', 'debug-clearance');
-                group.insertBefore(clrLine, trace);
-            }
-
-            // Vias
-            for (const via of group.querySelectorAll('.pcb-routed-via')) {
-                const cx = parseFloat(via.getAttribute('cx'));
-                const cy = parseFloat(via.getAttribute('cy'));
-                if (isNaN(cx)) continue;
-                const viaR = parseFloat(via.getAttribute('r')) || 0.3;
-
-                const clrCirc = document.createElementNS(NS, 'circle');
-                clrCirc.setAttribute('cx', String(cx));
-                clrCirc.setAttribute('cy', String(cy));
-                clrCirc.setAttribute('r', String(viaR + clearance));
-                clrCirc.setAttribute('fill', 'none');
-                clrCirc.setAttribute('stroke', 'white');
-                clrCirc.setAttribute('stroke-width', '0.02');
-                clrCirc.setAttribute('opacity', '0.5');
-                clrCirc.setAttribute('class', 'debug-clearance');
-                group.insertBefore(clrCirc, via);
+                let ghost = null;
+                if (trace.tagName === 'polyline') {
+                    ghost = document.createElementNS(NS, 'polyline');
+                    ghost.setAttribute('points', trace.getAttribute('points') || '');
+                } else if (trace.tagName === 'line') {
+                    ghost = document.createElementNS(NS, 'line');
+                    for (const a of ['x1', 'y1', 'x2', 'y2']) ghost.setAttribute(a, trace.getAttribute(a) || '0');
+                }
+                if (!ghost) continue;
+                ghost.setAttribute('fill', 'none');
+                ghost.setAttribute('stroke', HALO_STROKE);
+                ghost.setAttribute('stroke-width', String(traceHaloStroke));
+                ghost.setAttribute('stroke-linecap', 'round');
+                ghost.setAttribute('stroke-linejoin', 'round');
+                ghost.setAttribute('opacity', '0.18');
+                ghost.setAttribute('pointer-events', 'none');
+                ghost.setAttribute('class', HALO_CLASS);
+                group.insertBefore(ghost, trace);
             }
         }
 
-        console.log(`Yellow=pad edge, White=totalClear(${totalClear.toFixed(3)}mm), Cyan=halfTrace(${halfTrace.toFixed(3)}mm)`);
+        // Vias: drawn as circles with class 'pcb-routed-via' on the 'hole' layer.
+        // Two elements share the class (ring + drill); halo only the ring (the larger r).
+        const holeGroup = this._getLayerGroup('hole');
+        const viaRingByCenter = new Map();
+        for (const via of holeGroup.querySelectorAll('circle.pcb-routed-via')) {
+            const cx = parseFloat(via.getAttribute('cx'));
+            const cy = parseFloat(via.getAttribute('cy'));
+            const r = parseFloat(via.getAttribute('r'));
+            if (!Number.isFinite(cx) || !Number.isFinite(cy) || !Number.isFinite(r)) continue;
+            const key = `${cx.toFixed(4)},${cy.toFixed(4)}`;
+            const prev = viaRingByCenter.get(key);
+            if (!prev || r > prev.r) viaRingByCenter.set(key, { cx, cy, r });
+        }
+        for (const { cx, cy, r } of viaRingByCenter.values()) {
+            const ghost = document.createElementNS(NS, 'circle');
+            ghost.setAttribute('cx', String(cx));
+            ghost.setAttribute('cy', String(cy));
+            ghost.setAttribute('r', String(r + halo));
+            styleHalo(ghost);
+            holeGroup.insertBefore(ghost, holeGroup.firstChild);
+        }
     }
 
     /**
@@ -2100,8 +2140,6 @@ export default class PCBApp {
             ring.setAttribute('cy', String(via.y));
             ring.setAttribute('r', String(viaRadius));
             ring.setAttribute('fill', '#b8860b');
-            ring.setAttribute('stroke', '#daa520');
-            ring.setAttribute('stroke-width', '0.05');
             ring.setAttribute('fill-opacity', '0.9');
             holeLayer.appendChild(ring);
 
@@ -2133,6 +2171,7 @@ export default class PCBApp {
             netlist: this.netlist,
             traceWidth: params.trackWidth,
             clearance: params.clearance,
+            viaDiameter: params.viaDiameter,
         });
 
         const blob = new Blob([dsn], { type: 'text/plain' });

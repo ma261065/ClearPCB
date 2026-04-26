@@ -1392,8 +1392,16 @@ export class KiCadFetcher {
                 h = sizeX;
             }
 
-            const isEllipse = shape === 'circle' || shape === 'oval';
-            const padType = isEllipse ? 'ELLIPSE' : 'RECT';
+            // KiCad pad shape vocabulary: circle, oval, rect, roundrect,
+            // trapezoid, chamfered_rect, custom. We map to the EasyEDA-style
+            // PAD~ enum used internally by the footprint parser:
+            //   - circle → ELLIPSE (router treats hw==hh as exact circle)
+            //   - oval   → OVAL    (router uses stadium/discorectangle math)
+            //   - everything else → RECT (conservative bbox)
+            let padType;
+            if (shape === 'circle') padType = 'ELLIPSE';
+            else if (shape === 'oval') padType = 'OVAL';
+            else padType = 'RECT';
             shapes.push(`PAD~${padType}~${atX}~${atY}~${w}~${h}~${padNumber}`);
             includeRect(atX, atY, w, h);
         }
