@@ -2041,6 +2041,7 @@ export default class PCBApp {
         const NS = 'http://www.w3.org/2000/svg';
         const topCopper = this._getLayerGroup('top-copper');
         const bottomCopper = this._getLayerGroup('bottom-copper');
+        const params = this._getRoutingParams();
 
         // Clear previous traces
         topCopper.querySelectorAll('.pcb-routed-trace').forEach(el => el.remove());
@@ -2063,7 +2064,7 @@ export default class PCBApp {
                 line.setAttribute('x2', String(p2.x));
                 line.setAttribute('y2', String(p2.y));
                 line.setAttribute('stroke', color);
-                line.setAttribute('stroke-width', '0.254');
+                line.setAttribute('stroke-width', String(params.trackWidth));
                 line.setAttribute('stroke-linecap', 'round');
                 line.setAttribute('stroke-opacity', '0.9');
                 target.appendChild(line);
