@@ -131,16 +131,19 @@ for (let i = 0; i < result.traces.length; i++) {
     }
 }
 
-// ─── 3. Via ↔ Pad (different net) ──────────────────────────────────────
+// ─── 3. Via ↔ Pad (ANY pad, any net) ──────────────────────────────────
+// Vias must never overlap or sit too close to any pad — including the
+// route's own start/end pad. Via-in-pad shorts SMD pad copper through to
+// the wrong layer, and is redundant on through-hole pads.
 const vias = result.vias || [];
 for (const via of vias) {
     for (const pad of board.allObstaclePads) {
-        const padNetSet = padNets.get(keyOf(pad.x, pad.y));
-        if (padNetSet && padNetSet.has(via.net)) continue;  // own-net via at pad allowed? actually no — vias should never overlap any pad
         const d = padPointDist(via.x, via.y, pad);  // distance from via center to pad edge
         const required = viaRadius + clearance;
         if (d < required - EPS) {
-            addVio('via↔pad', `net=${via.net} d=${d.toFixed(4)} < ${required.toFixed(4)} pad@(${pad.x.toFixed(2)},${pad.y.toFixed(2)})`);
+            const padNetSet = padNets.get(keyOf(pad.x, pad.y));
+            const padNet = padNetSet ? [...padNetSet].join(',') : '<obstacle>';
+            addVio('via↔pad', `via.net=${via.net} pad.net=${padNet} d=${d.toFixed(4)} < ${required.toFixed(4)} via@(${via.x.toFixed(2)},${via.y.toFixed(2)}) pad@(${pad.x.toFixed(2)},${pad.y.toFixed(2)})`);
         }
     }
 }

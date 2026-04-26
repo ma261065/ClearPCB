@@ -867,10 +867,6 @@ async function astarRoute(sx, sy, ex, ey, obstacles, skipIds, gridStep, traceWid
 
     // startLayer is passed as parameter
     const startKey = nodeKey(startX, startY, startLayer);
-    const startKeyTop = nodeKey(startX, startY, 'top');
-    const startKeyBottom = nodeKey(startX, startY, 'bottom');
-    const endKeyTop = nodeKey(endX, endY, 'top');
-    const endKeyBottom = nodeKey(endX, endY, 'bottom');
 
     // Binary min-heap for priority queue
     const heap = [];
@@ -1085,10 +1081,6 @@ async function astarRoute(sx, sy, ex, ey, obstacles, skipIds, gridStep, traceWid
             const otherLayer = current.layer === 'top' ? 'bottom' : 'top';
             const viaKey = nodeKey(current.x, current.y, otherLayer);
             if (!closed.has(viaKey)) {
-                // Don't place vias at start/end pad positions
-                const nStartKey = otherLayer === 'top' ? startKeyTop : startKeyBottom;
-                const isEndpoint = viaKey === nStartKey || viaKey === endKeyTop || viaKey === endKeyBottom;
-
                 // Check the via position is clear on BOTH layers.
                 // Use viaRadius + clearance (not totalClear) because the via copper
                 // footprint is larger than a trace — its edge must maintain design
@@ -1102,11 +1094,15 @@ async function astarRoute(sx, sy, ex, ey, obstacles, skipIds, gridStep, traceWid
                 const clearOnOther = !obstacles.isBlocked(current.x, current.y, viaClear, skipIds, otherLayer, routingNet);
                 const clearOnCurrent = !obstacles.isBlocked(current.x, current.y, viaClear, skipIds, current.layer, routingNet);
 
-                // NEVER place a via on or near ANY pad. `isOnPad` does not honour
-                // skipIds, so we still need the endpoint shortcut here so that
-                // a via CAN be placed at the source/dest pad for a layer change.
+                // NEVER place a via on or near ANY pad — including the route's
+                // own start/end pads. For SMD pads this would be a real DRC
+                // violation (via-in-pad shorts the pad copper through the
+                // plated hole to the wrong layer). For through-hole pads the
+                // pad itself already conducts both layers, so a via on top is
+                // redundant and just wastes routing space. The route must
+                // escape the pad first, then place the via off-pad.
                 const viaPadClear = viaRadius + clearance;
-                const onPad = !isEndpoint && obstacles.isOnPad(current.x, current.y, viaPadClear);
+                const onPad = obstacles.isOnPad(current.x, current.y, viaPadClear);
 
                 if (clearOnOther && clearOnCurrent && !onPad) {
                     const viaDensity = obstacles.localDensity(current.x, current.y, skipIds, otherLayer, 1);
