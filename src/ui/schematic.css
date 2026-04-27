@@ -2124,6 +2124,33 @@ body {
     background: rgba(255,255,255,0.06);
 }
 
+/* Section headers ("LAYERS" / "OVERLAYS"): visually distinct from items. */
+.pcb-layer-row.pcb-layer-section-header {
+    background: rgba(255,255,255,0.05);
+    border-top: 1px solid rgba(255,255,255,0.12);
+    border-bottom: 1px solid rgba(255,255,255,0.12);
+    padding-top: 6px;
+    padding-bottom: 6px;
+    margin-bottom: 4px;
+    cursor: default;
+}
+.pcb-layer-row.pcb-layer-section-header:hover {
+    background: rgba(255,255,255,0.05);
+}
+.pcb-layer-row.pcb-layer-section-header .pcb-layer-name {
+    font-weight: 700;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: var(--text-secondary, #aaa);
+}
+
+/* Indent items under each section header. */
+.pcb-layer-row.section-layers,
+.pcb-layer-row.section-overlays {
+    padding-left: 18px;
+}
+
 .pcb-layer-swatch {
     width: 10px;
     height: 10px;

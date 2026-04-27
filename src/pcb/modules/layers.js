@@ -19,7 +19,6 @@ export const PCB_LAYERS = /** @type {LayerDef[]} */ ([
     { id: 'bottom-paste',     name: 'Bottom Paste Mask',   color: '#8d5e87', edit: false, visible: true },
     { id: 'top-mask',         name: 'Top Solder Mask',     color: '#9b59b6', edit: false, visible: true },
     { id: 'bottom-mask',      name: 'Bottom Solder Mask',  color: '#5b3a70', edit: false, visible: true },
-    { id: 'ratlines',         name: 'Ratlines',            color: '#4488ff', edit: false, visible: true },
     { id: 'board-outline',    name: 'Board Outline',       color: '#f1c40f', edit: false, visible: true },
     { id: 'document',         name: 'Document',            color: '#95a5a6', edit: false, visible: true },
     { id: 'hole',             name: 'Hole',                color: '#1abc9c', edit: false, visible: true },
@@ -32,6 +31,7 @@ export const PCB_LAYERS = /** @type {LayerDef[]} */ ([
  * @typedef {{id: string, name: string, color: string, visible: boolean}} OverlayDef
  */
 export const PCB_OVERLAYS = /** @type {OverlayDef[]} */ ([
+    { id: 'ratlines',  name: 'Ratlines',  color: '#4488ff', visible: true },
     { id: 'clearance', name: 'Clearance', color: '#ffffff', visible: false },
 ]);
 
@@ -74,16 +74,9 @@ export function buildLayerPanel(app) {
     const makeSectionHeader = (title, sectionClass) => {
         const row = document.createElement('div');
         row.className = 'pcb-layer-row pcb-layer-section-header';
-        row.style.borderBottom = '1px solid rgba(255,255,255,0.1)';
-        row.style.marginBottom = '2px';
-        row.style.paddingBottom = '5px';
         const heading = document.createElement('span');
         heading.className = 'pcb-layer-name';
         heading.textContent = title;
-        heading.style.fontWeight = '600';
-        heading.style.fontSize = '11px';
-        heading.style.textTransform = 'uppercase';
-        heading.style.letterSpacing = '0.5px';
         // Span the swatch + name columns so the heading sits flush-left,
         // making the items below appear indented under it.
         heading.style.gridColumn = '1 / span 2';
