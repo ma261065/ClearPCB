@@ -177,9 +177,9 @@ export default class SchematicApp {
         document.querySelector('.ribbon')?.addEventListener('contextmenu', (e) => {
             e.preventDefault();
         });
-        document.querySelector('.status-bar')?.addEventListener('contextmenu', (e) => {
+        document.querySelectorAll('.status-bar').forEach(el => el.addEventListener('contextmenu', (e) => {
             e.preventDefault();
-        });
+        }));
 
         // Component code tooltip (copyable)
         this._componentCodeTooltip = document.createElement('div');

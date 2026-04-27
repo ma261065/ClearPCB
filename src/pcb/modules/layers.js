@@ -25,6 +25,16 @@ export const PCB_LAYERS = /** @type {LayerDef[]} */ ([
     { id: 'hole',             name: 'Hole',                color: '#1abc9c', edit: false, visible: true },
 ]);
 
+/**
+ * Overlays — non-editable visual aids (clearance halos, etc.). Rendered in
+ * a separate section of the layer panel with its own master eye toggle.
+ * `visible` defaults to false so overlays are off until the user enables them.
+ * @typedef {{id: string, name: string, color: string, visible: boolean}} OverlayDef
+ */
+export const PCB_OVERLAYS = /** @type {OverlayDef[]} */ ([
+    { id: 'clearance', name: 'Clearance', color: '#ffffff', visible: false },
+]);
+
 // SVG icon paths (inline, no external deps)
 const PENCIL_SVG = `<svg width="20" height="20" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg">
   <path d="M8.5 1.5l2 2L4 10H2v-2L8.5 1.5z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/>
@@ -52,56 +62,69 @@ export function buildLayerPanel(app) {
 
     panel.innerHTML = '';
 
-    // Show all / Hide all toggle row
-    const toggleRow = document.createElement('div');
-    toggleRow.className = 'pcb-layer-row';
-    toggleRow.style.borderBottom = '1px solid rgba(255,255,255,0.1)';
-    toggleRow.style.marginBottom = '2px';
-    toggleRow.style.paddingBottom = '5px';
+    // ---- Helpers --------------------------------------------------------
+    /**
+     * Build a section header row with a heading label and a master eye that
+     * controls only the rows belonging to that section.
+     * @param {string} title
+     * @param {string} sectionClass - extra class so we can scope the master
+     *   eye's iteration to rows of this section.
+     * @returns {{row: HTMLElement, eyeBtn: HTMLButtonElement}}
+     */
+    const makeSectionHeader = (title, sectionClass) => {
+        const row = document.createElement('div');
+        row.className = 'pcb-layer-row pcb-layer-section-header';
+        row.style.borderBottom = '1px solid rgba(255,255,255,0.1)';
+        row.style.marginBottom = '2px';
+        row.style.paddingBottom = '5px';
+        const heading = document.createElement('span');
+        heading.className = 'pcb-layer-name';
+        heading.textContent = title;
+        heading.style.fontWeight = '600';
+        heading.style.fontSize = '11px';
+        heading.style.textTransform = 'uppercase';
+        heading.style.letterSpacing = '0.5px';
+        // Span the swatch + name columns so the heading sits flush-left,
+        // making the items below appear indented under it.
+        heading.style.gridColumn = '1 / span 2';
+        row.appendChild(heading);
+        // empty pencil col
+        row.appendChild(document.createElement('span'));
+        const eyeBtn = document.createElement('button');
+        eyeBtn.className = `pcb-layer-btn vis-btn section-master-vis ${sectionClass}-master active`;
+        eyeBtn.innerHTML = EYE_OPEN_SVG;
+        eyeBtn.title = `Show/Hide all ${title.toLowerCase()}`;
+        row.appendChild(eyeBtn);
+        return { row, eyeBtn };
+    };
 
-    // Empty swatch column
-    toggleRow.appendChild(document.createElement('span'));
-    // Heading
-    const heading = document.createElement('span');
-    heading.className = 'pcb-layer-name';
-    heading.textContent = 'Layers';
-    heading.style.fontWeight = '600';
-    heading.style.fontSize = '11px';
-    heading.style.textTransform = 'uppercase';
-    heading.style.letterSpacing = '0.5px';
-    toggleRow.appendChild(heading);
-    // Empty pencil column
-    toggleRow.appendChild(document.createElement('span'));
+    // ---- Layers section -------------------------------------------------
+    const { row: layersHeader, eyeBtn: layersMasterEye } = makeSectionHeader('Layers', 'layers');
+    panel.appendChild(layersHeader);
 
-    // Eye toggle in the eye column
-    const toggleEyeBtn = document.createElement('button');
-    toggleEyeBtn.className = 'pcb-layer-btn vis-btn active';
-    toggleEyeBtn.innerHTML = EYE_OPEN_SVG;
-    toggleEyeBtn.title = 'Show/Hide all layers';
-    toggleRow.appendChild(toggleEyeBtn);
-
-    let allVisible = true;
-    toggleEyeBtn.addEventListener('click', () => {
-        allVisible = !allVisible;
-        toggleEyeBtn.classList.toggle('active', allVisible);
-        toggleEyeBtn.innerHTML = allVisible ? EYE_OPEN_SVG : EYE_CLOSED_SVG;
+    let allLayersVisible = PCB_LAYERS.every(l => l.visible);
+    layersMasterEye.classList.toggle('active', allLayersVisible);
+    layersMasterEye.innerHTML = allLayersVisible ? EYE_OPEN_SVG : EYE_CLOSED_SVG;
+    layersMasterEye.addEventListener('click', () => {
+        allLayersVisible = !allLayersVisible;
+        layersMasterEye.classList.toggle('active', allLayersVisible);
+        layersMasterEye.innerHTML = allLayersVisible ? EYE_OPEN_SVG : EYE_CLOSED_SVG;
         for (const layer of PCB_LAYERS) {
-            layer.visible = allVisible;
-            app._onLayerVisibilityChanged?.(layer.id, allVisible);
+            layer.visible = allLayersVisible;
+            app._onLayerVisibilityChanged?.(layer.id, allLayersVisible);
         }
-        // Update all eye buttons
-        for (const row of panel.querySelectorAll('.pcb-layer-row')) {
+        // Update only LAYER row eyes (not overlay rows or the other master).
+        for (const row of panel.querySelectorAll('.pcb-layer-row.section-layers')) {
             const visBtn = row.querySelector('.vis-btn');
-            if (!visBtn || visBtn === toggleEyeBtn) continue;
-            visBtn.classList.toggle('active', allVisible);
-            visBtn.innerHTML = allVisible ? EYE_OPEN_SVG : EYE_CLOSED_SVG;
+            if (!visBtn) continue;
+            visBtn.classList.toggle('active', allLayersVisible);
+            visBtn.innerHTML = allLayersVisible ? EYE_OPEN_SVG : EYE_CLOSED_SVG;
         }
     });
-    panel.appendChild(toggleRow);
 
     for (const layer of PCB_LAYERS) {
         const row = document.createElement('div');
-        row.className = 'pcb-layer-row' + (layer.edit ? ' active-edit' : '');
+        row.className = 'pcb-layer-row section-layers' + (layer.edit ? ' active-edit' : '');
         row.dataset.layerId = layer.id;
 
         // Color swatch
@@ -146,6 +169,68 @@ export function buildLayerPanel(app) {
         row.addEventListener('click', () => _setEditLayer(app, layer.id));
 
         panel.appendChild(row);
+    }
+
+    // ---- Overlays section ----------------------------------------------
+    if (PCB_OVERLAYS.length > 0) {
+        const { row: ovHeader, eyeBtn: overlaysMasterEye } = makeSectionHeader('Overlays', 'overlays');
+        // Add a small top margin so the section is visually separated.
+        ovHeader.style.marginTop = '6px';
+        panel.appendChild(ovHeader);
+
+        let allOverlaysVisible = PCB_OVERLAYS.every(o => o.visible);
+        overlaysMasterEye.classList.toggle('active', allOverlaysVisible);
+        overlaysMasterEye.innerHTML = allOverlaysVisible ? EYE_OPEN_SVG : EYE_CLOSED_SVG;
+        overlaysMasterEye.addEventListener('click', () => {
+            allOverlaysVisible = !allOverlaysVisible;
+            overlaysMasterEye.classList.toggle('active', allOverlaysVisible);
+            overlaysMasterEye.innerHTML = allOverlaysVisible ? EYE_OPEN_SVG : EYE_CLOSED_SVG;
+            for (const ov of PCB_OVERLAYS) {
+                ov.visible = allOverlaysVisible;
+                app._onOverlayVisibilityChanged?.(ov.id, allOverlaysVisible);
+            }
+            for (const row of panel.querySelectorAll('.pcb-layer-row.section-overlays')) {
+                const visBtn = row.querySelector('.vis-btn');
+                if (!visBtn) continue;
+                visBtn.classList.toggle('active', allOverlaysVisible);
+                visBtn.innerHTML = allOverlaysVisible ? EYE_OPEN_SVG : EYE_CLOSED_SVG;
+            }
+        });
+
+        for (const ov of PCB_OVERLAYS) {
+            const row = document.createElement('div');
+            row.className = 'pcb-layer-row section-overlays';
+            row.dataset.overlayId = ov.id;
+
+            const swatch = document.createElement('span');
+            swatch.className = 'pcb-layer-swatch';
+            swatch.style.background = ov.color;
+            row.appendChild(swatch);
+
+            const name = document.createElement('span');
+            name.className = 'pcb-layer-name';
+            name.textContent = ov.name;
+            name.style.color = ov.color;
+            row.appendChild(name);
+
+            // Empty pencil column — overlays aren't editable layers.
+            row.appendChild(document.createElement('span'));
+
+            const visBtn = document.createElement('button');
+            visBtn.className = 'pcb-layer-btn vis-btn' + (ov.visible ? ' active' : '');
+            visBtn.innerHTML = ov.visible ? EYE_OPEN_SVG : EYE_CLOSED_SVG;
+            visBtn.title = 'Toggle overlay';
+            visBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                ov.visible = !ov.visible;
+                visBtn.classList.toggle('active', ov.visible);
+                visBtn.innerHTML = ov.visible ? EYE_OPEN_SVG : EYE_CLOSED_SVG;
+                app._onOverlayVisibilityChanged?.(ov.id, ov.visible);
+            });
+            row.appendChild(visBtn);
+
+            panel.appendChild(row);
+        }
     }
 
     // Set initial trigger display

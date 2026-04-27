@@ -345,6 +345,9 @@ export default class PCBApp {
             'hole',
             'ratlines',
             'document',
+            // Overlays — non-editable visual aids drawn on top of everything
+            // (clearance halos, etc.). Must be last in z-order.
+            'clearance-overlay',
         ];
 
         for (const id of zOrder) {
@@ -382,6 +385,23 @@ export default class PCBApp {
         const g = this._layerGroups.get(layerId);
         if (g) {
             g.style.display = visible ? '' : 'none';
+        }
+        // Clearance overlay tracks per-layer visibility — re-render so halos
+        // for hidden copper/hole layers disappear too.
+        if (this._clearancesVisible && (layerId === 'top-copper' || layerId === 'bottom-copper' || layerId === 'hole')) {
+            this.showClearances(true);
+        }
+    }
+
+    /**
+     * Overlay visibility callback (clearance halos, etc.). Wired from
+     * `buildLayerPanel` via the Overlays section in the layer dropdown.
+     * @param {string} overlayId
+     * @param {boolean} visible
+     */
+    _onOverlayVisibilityChanged(overlayId, visible) {
+        if (overlayId === 'clearance') {
+            this.showClearances(visible);
         }
     }
 
@@ -1675,35 +1695,39 @@ export default class PCBApp {
     showClearances(show) {
         const NS = 'http://www.w3.org/2000/svg';
         const HALO_CLASS = 'debug-clearance';
+        const OVERLAY_LAYER = 'clearance-overlay';
 
-        const layerIds = ['top-copper', 'bottom-copper'];
-        // Vias live on the 'hole' layer; include it for halo cleanup/scan.
-        const allLayerIds = [...layerIds, 'hole'];
-        // Always wipe existing halos first.
-        for (const layerId of allLayerIds) {
-            const g = this._getLayerGroup(layerId);
-            g.querySelectorAll(`.${HALO_CLASS}`).forEach(el => el.remove());
-        }
+        // All halos live in a single dedicated overlay layer that sits on
+        // top of every copper/silk/hole layer in the SVG z-order. Wipe and
+        // rebuild from scratch on each call.
+        const overlay = this._getLayerGroup(OVERLAY_LAYER);
+        while (overlay.firstChild) overlay.removeChild(overlay.firstChild);
 
         if (show === undefined) show = !this._clearancesVisible;
         this._clearancesVisible = !!show;
-        const btn = document.getElementById('pcbToggleClearances');
-        btn?.classList.toggle('active', this._clearancesVisible);
         if (!this._clearancesVisible) return;
 
         const params = this._getRoutingParams();
         const halo = params.clearance;
 
-        const HALO_FILL = 'rgba(255, 255, 255, 0.08)';
-        const HALO_STROKE = 'rgba(255, 255, 255, 0.35)';
+        const HALO_STROKE = 'rgba(255, 255, 255, 0.5)';
+        const OUTLINE_W = 0.04;
 
         const styleHalo = (el) => {
             el.setAttribute('class', HALO_CLASS);
-            el.setAttribute('fill', HALO_FILL);
+            el.setAttribute('fill', 'none');
             el.setAttribute('stroke', HALO_STROKE);
-            el.setAttribute('stroke-width', '0.02');
+            el.setAttribute('stroke-width', String(OUTLINE_W));
             el.setAttribute('pointer-events', 'none');
         };
+
+        const isLayerVisible = (layerId) => {
+            const g = this._layerGroups.get(layerId);
+            return !g || g.style.display !== 'none';
+        };
+        const topVisible = isLayerVisible('top-copper');
+        const bottomVisible = isLayerVisible('bottom-copper');
+        const holeVisible = isLayerVisible('hole');
 
         // Build a single SVG path representing the Minkowski expansion of a
         // pad shape by `halo`. Returns null if shape unsupported.
@@ -1739,58 +1763,130 @@ export default class PCBApp {
             return r;
         };
 
-        // Halos for component pads
+        // Halos for component pads — appended directly to the overlay layer.
         for (const [, pl] of this.placements) {
             for (const off of (pl.padOffsets || [])) {
+                const padLayer = off.layer || 'top-copper';
+                // Respect copper-layer visibility. 'both' (through-hole pads)
+                // are shown if either copper layer is visible.
+                if (padLayer === 'top-copper' && !topVisible) continue;
+                if (padLayer === 'bottom-copper' && !bottomVisible) continue;
+                if (padLayer === 'both' && !topVisible && !bottomVisible) continue;
                 const px = pl.x + off.dx;
                 const py = pl.y + off.dy;
-                const padLayer = off.layer || 'top-copper';
-                const targets = padLayer === 'both'
-                    ? layerIds
-                    : [padLayer];
-                for (const layerId of targets) {
-                    const group = this._getLayerGroup(layerId);
-                    const el = padHaloPath(px, py, off.width || 0, off.height || 0, off.shape || 'rect');
-                    styleHalo(el);
-                    // Insert at the start so halos sit beneath copper.
-                    group.insertBefore(el, group.firstChild);
-                }
+                const el = padHaloPath(px, py, off.width || 0, off.height || 0, off.shape || 'rect');
+                styleHalo(el);
+                overlay.appendChild(el);
             }
         }
 
-        // Halos for routed traces (rendered as polylines) and ad-hoc segment lines.
-        // Stroke is centered on the trace centerline, so to get `halo` mm of
-        // clearance OUTSIDE the copper edge the stroke width must be
-        // trackWidth + 2*halo.
-        const traceHaloStroke = params.trackWidth + halo * 2;
-        for (const layerId of layerIds) {
-            const group = this._getLayerGroup(layerId);
+        // Halos for routed traces. Mathematically: per trace, draw the
+        // (trace+clearance+OUTLINE_W) shape and SUBTRACT the
+        // (trace+clearance) shape — the difference is a 1px ring around
+        // the clearance band. Real traces and vias on layers below show
+        // through completely.
+        //
+        // Implemented per trace with a tightly-sized SVG <mask>: white
+        // wide stroke = visible, black narrow stroke = punched. The mask
+        // bbox is sized to the trace's own bounding box (plus outline
+        // padding) so each mask is small and cheap to rasterize — keeps
+        // zoom/pan responsive even with many traces.
+        const traceR = params.trackWidth / 2 + halo;
 
-            for (const trace of group.querySelectorAll('.pcb-routed-trace')) {
-                let ghost = null;
-                if (trace.tagName === 'polyline') {
-                    ghost = document.createElementNS(NS, 'polyline');
-                    ghost.setAttribute('points', trace.getAttribute('points') || '');
-                } else if (trace.tagName === 'line') {
-                    ghost = document.createElementNS(NS, 'line');
-                    for (const a of ['x1', 'y1', 'x2', 'y2']) ghost.setAttribute(a, trace.getAttribute(a) || '0');
-                }
-                if (!ghost) continue;
-                ghost.setAttribute('fill', 'none');
-                ghost.setAttribute('stroke', HALO_STROKE);
-                ghost.setAttribute('stroke-width', String(traceHaloStroke));
-                ghost.setAttribute('stroke-linecap', 'round');
-                ghost.setAttribute('stroke-linejoin', 'round');
-                ghost.setAttribute('opacity', '0.18');
-                ghost.setAttribute('pointer-events', 'none');
-                ghost.setAttribute('class', HALO_CLASS);
-                group.insertBefore(ghost, trace);
+        const traceToPointsString = (trace) => {
+            if (trace.tagName === 'polyline') return trace.getAttribute('points') || '';
+            if (trace.tagName === 'line') {
+                const x1 = trace.getAttribute('x1') || '0';
+                const y1 = trace.getAttribute('y1') || '0';
+                const x2 = trace.getAttribute('x2') || '0';
+                const y2 = trace.getAttribute('y2') || '0';
+                return `${x1},${y1} ${x2},${y2}`;
+            }
+            return '';
+        };
+
+        // Compute axis-aligned bbox of a points string ("x,y x,y ...").
+        const pointsBBox = (pts) => {
+            let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+            const tokens = pts.trim().split(/[\s,]+/);
+            for (let i = 0; i + 1 < tokens.length; i += 2) {
+                const x = parseFloat(tokens[i]);
+                const y = parseFloat(tokens[i + 1]);
+                if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+                if (x < minX) minX = x;
+                if (y < minY) minY = y;
+                if (x > maxX) maxX = x;
+                if (y > maxY) maxY = y;
+            }
+            if (!Number.isFinite(minX)) return null;
+            return { minX, minY, maxX, maxY };
+        };
+
+        const layerIds = ['top-copper', 'bottom-copper'];
+        let traceMaskCounter = 0;
+        for (const layerId of layerIds) {
+            if (layerId === 'top-copper' && !topVisible) continue;
+            if (layerId === 'bottom-copper' && !bottomVisible) continue;
+            const sourceGroup = this._getLayerGroup(layerId);
+            const traces = [...sourceGroup.querySelectorAll('.pcb-routed-trace')];
+            if (traces.length === 0) continue;
+
+            const defs = document.createElementNS(NS, 'defs');
+            overlay.appendChild(defs);
+            for (const trace of traces) {
+                const pts = traceToPointsString(trace);
+                if (!pts) continue;
+                const bb = pointsBBox(pts);
+                if (!bb) continue;
+                const pad = traceR + OUTLINE_W + 0.05;
+                const mx = bb.minX - pad;
+                const my = bb.minY - pad;
+                const mw = (bb.maxX - bb.minX) + 2 * pad;
+                const mh = (bb.maxY - bb.minY) + 2 * pad;
+
+                const maskId = `pcb-halo-mask-${traceMaskCounter++}`;
+                const mask = document.createElementNS(NS, 'mask');
+                mask.setAttribute('id', maskId);
+                mask.setAttribute('maskUnits', 'userSpaceOnUse');
+                mask.setAttribute('x', String(mx));
+                mask.setAttribute('y', String(my));
+                mask.setAttribute('width', String(mw));
+                mask.setAttribute('height', String(mh));
+                const maskOuter = document.createElementNS(NS, 'polyline');
+                maskOuter.setAttribute('points', pts);
+                maskOuter.setAttribute('fill', 'none');
+                maskOuter.setAttribute('stroke', 'white');
+                maskOuter.setAttribute('stroke-width', String(2 * traceR + 2 * OUTLINE_W));
+                maskOuter.setAttribute('stroke-linecap', 'round');
+                maskOuter.setAttribute('stroke-linejoin', 'round');
+                mask.appendChild(maskOuter);
+                const maskInner = document.createElementNS(NS, 'polyline');
+                maskInner.setAttribute('points', pts);
+                maskInner.setAttribute('fill', 'none');
+                maskInner.setAttribute('stroke', 'black');
+                maskInner.setAttribute('stroke-width', String(2 * traceR));
+                maskInner.setAttribute('stroke-linecap', 'round');
+                maskInner.setAttribute('stroke-linejoin', 'round');
+                mask.appendChild(maskInner);
+                defs.appendChild(mask);
+
+                const ring = document.createElementNS(NS, 'rect');
+                ring.setAttribute('class', HALO_CLASS);
+                ring.setAttribute('x', String(mx));
+                ring.setAttribute('y', String(my));
+                ring.setAttribute('width', String(mw));
+                ring.setAttribute('height', String(mh));
+                ring.setAttribute('fill', HALO_STROKE);
+                ring.setAttribute('mask', `url(#${maskId})`);
+                ring.setAttribute('pointer-events', 'none');
+                overlay.appendChild(ring);
             }
         }
 
         // Vias: drawn as circles with class 'pcb-routed-via' on the 'hole' layer.
         // Two elements share the class (ring + drill); halo only the ring (the larger r).
         const holeGroup = this._getLayerGroup('hole');
+        if (!holeVisible) return;
         const viaRingByCenter = new Map();
         for (const via of holeGroup.querySelectorAll('circle.pcb-routed-via')) {
             const cx = parseFloat(via.getAttribute('cx'));
@@ -1807,7 +1903,7 @@ export default class PCBApp {
             ghost.setAttribute('cy', String(cy));
             ghost.setAttribute('r', String(r + halo));
             styleHalo(ghost);
-            holeGroup.insertBefore(ghost, holeGroup.firstChild);
+            overlay.appendChild(ghost);
         }
     }
 
@@ -2073,21 +2169,23 @@ export default class PCBApp {
             const target = trace.layer === 'bottom' ? bottomCopper : topCopper;
             const color = trace.layer === 'bottom' ? '#3498db' : '#e74c3c';
 
-            for (let i = 0; i < trace.points.length - 1; i++) {
-                const p1 = trace.points[i];
-                const p2 = trace.points[i + 1];
-                const line = document.createElementNS(NS, 'line');
-                line.setAttribute('class', 'pcb-routed-trace');
-                line.setAttribute('x1', String(p1.x));
-                line.setAttribute('y1', String(p1.y));
-                line.setAttribute('x2', String(p2.x));
-                line.setAttribute('y2', String(p2.y));
-                line.setAttribute('stroke', color);
-                line.setAttribute('stroke-width', String(params.trackWidth));
-                line.setAttribute('stroke-linecap', 'round');
-                line.setAttribute('stroke-opacity', '0.9');
-                target.appendChild(line);
-            }
+            if (trace.points.length < 2) continue;
+            // Render the full trace as a single polyline so it gets exactly
+            // ONE halo when the clearance overlay is on. Splitting into
+            // per-segment <line> elements caused each segment to draw its own
+            // halo, and `stroke-linecap="round"` made the halos overlap at
+            // every corner — visibly doubling the halo alpha and making the
+            // body look much darker than the pad/via halos.
+            const polyline = document.createElementNS(NS, 'polyline');
+            polyline.setAttribute('class', 'pcb-routed-trace');
+            polyline.setAttribute('points', trace.points.map(p => `${p.x},${p.y}`).join(' '));
+            polyline.setAttribute('fill', 'none');
+            polyline.setAttribute('stroke', color);
+            polyline.setAttribute('stroke-width', String(params.trackWidth));
+            polyline.setAttribute('stroke-linecap', 'round');
+            polyline.setAttribute('stroke-linejoin', 'round');
+            polyline.setAttribute('stroke-opacity', '0.9');
+            target.appendChild(polyline);
         }
 
         // Reconcile final ratsnest: hide all original ratlines, then draw
