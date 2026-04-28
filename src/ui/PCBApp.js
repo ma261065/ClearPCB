@@ -1041,6 +1041,13 @@ export default class PCBApp {
             el.setAttribute('transform', `translate(${snapX}, ${snapY})`);
         }
 
+        // Move the matching pad-halo group too, so clearance outlines
+        // follow the component during drag (no full halo rebuild).
+        const haloGrp = this._padHaloGroups?.get(this._drag.compId);
+        if (haloGrp) {
+            haloGrp.setAttribute('transform', `translate(${snapX}, ${snapY})`);
+        }
+
         // Update placement position
         pl.x = snapX;
         pl.y = snapY;
@@ -1773,8 +1780,15 @@ export default class PCBApp {
             return r;
         };
 
-        // Halos for component pads — appended directly to the overlay layer.
-        for (const [, pl] of this.placements) {
+        // Halos for component pads — wrapped in a per-placement <g> with a
+        // translate() transform so they follow the component during drag
+        // (the drag handler updates the same transform).
+        this._padHaloGroups = new Map();
+        for (const [compId, pl] of this.placements) {
+            const grp = document.createElementNS(NS, 'g');
+            grp.setAttribute('class', 'halo-comp');
+            grp.setAttribute('data-comp-id', compId);
+            grp.setAttribute('transform', `translate(${pl.x}, ${pl.y})`);
             for (const off of (pl.padOffsets || [])) {
                 const padLayer = off.layer || 'top-copper';
                 // Respect copper-layer visibility. 'both' (through-hole pads)
@@ -1782,12 +1796,14 @@ export default class PCBApp {
                 if (padLayer === 'top-copper' && !topVisible) continue;
                 if (padLayer === 'bottom-copper' && !bottomVisible) continue;
                 if (padLayer === 'both' && !topVisible && !bottomVisible) continue;
-                const px = pl.x + off.dx;
-                const py = pl.y + off.dy;
-                const el = padHaloPath(px, py, off.width || 0, off.height || 0, off.shape || 'rect');
+                // Coords are pad offsets from the component origin; the
+                // wrapping <g> applies pl.x/pl.y as a translate.
+                const el = padHaloPath(off.dx, off.dy, off.width || 0, off.height || 0, off.shape || 'rect');
                 styleHalo(el);
-                overlay.appendChild(el);
+                grp.appendChild(el);
             }
+            overlay.appendChild(grp);
+            this._padHaloGroups.set(compId, grp);
         }
 
         // Halos for routed traces. Computed as the Minkowski-sum offset
