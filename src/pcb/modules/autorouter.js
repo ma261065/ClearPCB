@@ -90,15 +90,17 @@ class SpatialHash {
     /**
      * Insert a pad obstacle.
      * @param {number} cx @param {number} cy @param {number} w @param {number} h
-     * @param {string} net
+     * @param {string} net  Pad-instance ID (used for skipIds matching).
      * @param {string} [padLayer='both']
-     * @param {{isVia?: boolean, connId?: string|null, shape?: string}} [options={}]
+     * @param {{isVia?: boolean, connId?: string|null, shape?: string, netName?: string|null}} [options={}]
      *   `shape` may be 'rect' (default) or 'ellipse'. Ellipse pads use elliptical
      *   distance for blocking checks; rect pads use AABB.
+     *   `netName` is the actual electrical net name (separate from `net` which
+     *   carries the per-pad obstacle id used by skipIds).
      */
     insertPad(cx, cy, w, h, net, padLayer = 'both', options = {}) {
         const hw = w / 2, hh = h / 2;
-        const obj = { cx, cy, hw, hh, net, isPad: true, layer: padLayer, isVia: !!options.isVia, connId: options.connId || undefined, shape: options.shape || 'rect' };
+        const obj = { cx, cy, hw, hh, net, netName: options.netName || null, isPad: true, layer: padLayer, isVia: !!options.isVia, connId: options.connId || undefined, shape: options.shape || 'rect' };
         // Register in all cells the pad overlaps
         const minCX = Math.floor((cx - hw) / this.cellSize);
         const maxCX = Math.floor((cx + hw) / this.cellSize);
@@ -133,7 +135,7 @@ class SpatialHash {
                 if (!objs) continue;
                 for (const obj of objs) {
                     if (!obj.isPad) continue;
-                    if (skipNet && obj.net === skipNet) continue;
+                    if (skipNet && obj.netName === skipNet) continue;
                     if (padPointBlocked(x, y, obj, clearance)) return true;
                 }
             }
@@ -1094,15 +1096,14 @@ async function astarRoute(sx, sy, ex, ey, obstacles, skipIds, gridStep, traceWid
                 const clearOnOther = !obstacles.isBlocked(current.x, current.y, viaClear, skipIds, otherLayer, routingNet);
                 const clearOnCurrent = !obstacles.isBlocked(current.x, current.y, viaClear, skipIds, current.layer, routingNet);
 
-                // NEVER place a via on or near ANY pad — including the route's
-                // own start/end pads. For SMD pads this would be a real DRC
-                // violation (via-in-pad shorts the pad copper through the
-                // plated hole to the wrong layer). For through-hole pads the
-                // pad itself already conducts both layers, so a via on top is
-                // redundant and just wastes routing space. The route must
-                // escape the pad first, then place the via off-pad.
+                // Foreign pads hard-block via placement (clearance + electrical).
+                // Same-net pads are allowed (skipNet=routingNet): this is the
+                // standard "via in pad" technique used to bring an SMD pad's
+                // copper to the opposite layer (e.g. thermal pads, BGA fanout).
+                // It is electrically and DRC valid — only a manufacturing
+                // concern (solder wicking), handled by via fill at fab.
                 const viaPadClear = viaRadius + clearance;
-                const onPad = obstacles.isOnPad(current.x, current.y, viaPadClear);
+                const onPad = obstacles.isOnPad(current.x, current.y, viaPadClear, routingNet);
 
                 if (clearOnOther && clearOnCurrent && !onPad) {
                     const viaDensity = obstacles.localDensity(current.x, current.y, skipIds, otherLayer, 1);
@@ -1140,6 +1141,7 @@ async function astarProbe(sx, sy, ex, ey, obstacles, skipIds, gridStep, traceWid
         yieldEvery = 5000,
         yieldToUI = null,
         bounds = null,
+        routingNet = null,
     } = options;
     const halfTrace = traceWidth / 2;
     const totalClear = halfTrace + clearance;
@@ -1274,7 +1276,8 @@ async function astarProbe(sx, sy, ex, ey, obstacles, skipIds, gridStep, traceWid
         const viaKey = nodeKey(current.x, current.y, otherLayer);
         if (!closed.has(viaKey)) {
             const viaPadClear = viaRadius + clearance;
-            const onPad = obstacles.isOnPad(current.x, current.y, viaPadClear);
+            // Allow vias on same-net pads (see astarRoute for rationale).
+            const onPad = obstacles.isOnPad(current.x, current.y, viaPadClear, routingNet);
             if (!onPad) {
                 const tentG = curG + VIA_COST;
                 if (tentG < (gScore.has(viaKey) ? gScore.get(viaKey) : Infinity)) {
@@ -1731,6 +1734,10 @@ export async function routeAll(input, options = {}) {
             if (found) {
                 idList.push(found.id);
                 used.add(found.id);
+                // Tag the obstacle pad with its electrical net name so the
+                // router can recognise same-net pads (e.g. for via-in-pad
+                // landings on the route's own start/end pad).
+                found.netName = conn.net;
             } else {
                 idList.push(null);
             }
@@ -1782,6 +1789,17 @@ export async function routeAll(input, options = {}) {
                 }
                 ordered.push(pads[bestIdx]);
                 used.add(bestIdx);
+            }
+            // Reorder the parallel pad-id list to match the new pad order so
+            // skipIdsForPair() returns the correct ids for routing pairs.
+            const oldIds = netPadIdList.get(conn.net);
+            if (oldIds) {
+                const orderedIds = [];
+                for (const p of ordered) {
+                    const origIdx = pads.indexOf(p);
+                    orderedIds.push(origIdx >= 0 ? oldIds[origIdx] : null);
+                }
+                netPadIdList.set(conn.net, orderedIds);
             }
             conn.pads = ordered;
         }
@@ -1870,7 +1888,7 @@ export async function routeAll(input, options = {}) {
     function buildObstacles() {
         const obs = new SpatialHash(cellSize);
         for (const pad of allPads) {
-            obs.insertPad(pad.x, pad.y, pad.width, pad.height, pad.id, pad.layer || 'both', { shape: pad.shape });
+            obs.insertPad(pad.x, pad.y, pad.width, pad.height, pad.id, pad.layer || 'both', { shape: pad.shape, netName: pad.netName || null });
         }
         obstacleVersion = 1;
         return obs;
@@ -2305,7 +2323,7 @@ export async function routeAll(input, options = {}) {
                 const viaDia = viaDiameter;
                 for (const v of detectedVias) {
                     obstacles.insertPad(v.x, v.y, viaDia, viaDia, conn.net, 'both',
-                        { isVia: true, connId, shape: 'ellipse' });
+                        { isVia: true, connId, shape: 'ellipse', netName: conn.net });
                 }
                 if (detectedVias.length > 0) obstacleVersion++;
             } else {
@@ -2567,7 +2585,7 @@ export async function routeAll(input, options = {}) {
                         from.x, from.y, to.x, to.y,
                         obstacles, skipIds, gridStep, traceWidth, clearance,
                         sl, endLayer,
-                        { cancelToken, yieldToUI, bounds: routeBounds }
+                        { cancelToken, yieldToUI, bounds: routeBounds, routingNet: conn.net }
                     );
                     if (crossed !== null) {
                         if (bestCrossed === null || crossed.size < bestCrossed.size) {

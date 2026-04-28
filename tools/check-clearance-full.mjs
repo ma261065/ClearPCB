@@ -131,10 +131,12 @@ for (let i = 0; i < result.traces.length; i++) {
     }
 }
 
-// ─── 3. Via ↔ Pad (ANY pad, any net) ──────────────────────────────────
-// Vias must never overlap or sit too close to any pad — including the
-// route's own start/end pad. Via-in-pad shorts SMD pad copper through to
-// the wrong layer, and is redundant on through-hole pads.
+// ─── 3. Via ↔ Pad (foreign pads only) ─────────────────────────────────
+// Vias must keep clearance from foreign pads (different net). Same-net
+// via-on-pad is the standard "via in pad" technique used to bring an SMD
+// pad's copper to the opposite layer (e.g. thermal pads, BGA fanout) —
+// electrically and DRC valid; only a manufacturing concern (solder wicking),
+// handled by via fill at fab.
 const vias = result.vias || [];
 for (const via of vias) {
     for (const pad of board.allObstaclePads) {
@@ -143,6 +145,8 @@ for (const via of vias) {
         if (d < required - EPS) {
             const padNetSet = padNets.get(keyOf(pad.x, pad.y));
             const padNet = padNetSet ? [...padNetSet].join(',') : '<obstacle>';
+            // Skip same-net via-pad (legal via-in-pad).
+            if (padNetSet && padNetSet.has(via.net)) continue;
             addVio('via↔pad', `via.net=${via.net} pad.net=${padNet} d=${d.toFixed(4)} < ${required.toFixed(4)} via@(${via.x.toFixed(2)},${via.y.toFixed(2)}) pad@(${pad.x.toFixed(2)},${pad.y.toFixed(2)})`);
         }
     }
