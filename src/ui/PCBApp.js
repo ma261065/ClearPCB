@@ -1714,14 +1714,17 @@ export default class PCBApp {
         const params = this._getRoutingParams();
         const halo = params.clearance;
 
-        const HALO_STROKE = 'rgba(255, 255, 255, 0.5)';
-        const OUTLINE_W = 0.04;
+        const HALO_STROKE = 'rgba(255, 255, 255, 0.55)';
+        // Stroke width in CSS pixels (constant on screen at any zoom thanks
+        // to vector-effect: non-scaling-stroke). 1px = thin clean line.
+        const OUTLINE_W = 1;
 
         const styleHalo = (el) => {
             el.setAttribute('class', HALO_CLASS);
             el.setAttribute('fill', 'none');
             el.setAttribute('stroke', HALO_STROKE);
             el.setAttribute('stroke-width', String(OUTLINE_W));
+            el.setAttribute('vector-effect', 'non-scaling-stroke');
             el.setAttribute('pointer-events', 'none');
         };
 
@@ -1735,11 +1738,14 @@ export default class PCBApp {
 
         // Build a single SVG path representing the Minkowski expansion of a
         // pad shape by `halo`. Returns null if shape unsupported.
+        // Geometry is sized exactly to the clearance boundary; the constant-
+        // width screen-pixel stroke straddles it.
         const padHaloPath = (cx, cy, w, h, shape) => {
             const hw = w / 2, hh = h / 2;
+            const grow = halo;
             if (shape === 'ellipse') {
                 if (Math.abs(hw - hh) < 1e-9) {
-                    const r = hw + halo;
+                    const r = hw + grow;
                     const c = document.createElementNS(NS, 'circle');
                     c.setAttribute('cx', String(cx));
                     c.setAttribute('cy', String(cy));
@@ -1749,19 +1755,19 @@ export default class PCBApp {
                 const e = document.createElementNS(NS, 'ellipse');
                 e.setAttribute('cx', String(cx));
                 e.setAttribute('cy', String(cy));
-                e.setAttribute('rx', String(hw + halo));
-                e.setAttribute('ry', String(hh + halo));
+                e.setAttribute('rx', String(hw + grow));
+                e.setAttribute('ry', String(hh + grow));
                 return e;
             }
             // 'oval' (stadium) and 'rect' both expand to a rounded rectangle:
             //   oval: corner radius = min(hw, hh) + halo
             //   rect: corner radius = halo (true Minkowski sum with a disk)
-            const cornerR = (shape === 'oval' ? Math.min(hw, hh) : 0) + halo;
+            const cornerR = (shape === 'oval' ? Math.min(hw, hh) : 0) + grow;
             const r = document.createElementNS(NS, 'rect');
-            r.setAttribute('x', String(cx - hw - halo));
-            r.setAttribute('y', String(cy - hh - halo));
-            r.setAttribute('width', String(w + halo * 2));
-            r.setAttribute('height', String(h + halo * 2));
+            r.setAttribute('x', String(cx - hw - grow));
+            r.setAttribute('y', String(cy - hh - grow));
+            r.setAttribute('width', String(w + grow * 2));
+            r.setAttribute('height', String(h + grow * 2));
             r.setAttribute('rx', String(cornerR));
             r.setAttribute('ry', String(cornerR));
             return r;
@@ -1802,7 +1808,9 @@ export default class PCBApp {
         // the stroked outlines visibly cross — same artifact as pad/via
         // halos already have. Acceptable.
         const traceR = params.trackWidth / 2 + halo;
-        const RING_R = traceR + OUTLINE_W / 2;
+        // Visible halo line center sits at the clearance boundary; the
+        // constant-width screen-pixel stroke straddles it (~½ px each side).
+        const RING_R = traceR;
         // Arc tessellation: number of segments per FULL CIRCLE. Each arc
         // emits a proportional fraction of these. Higher = smoother caps
         // and corners at the cost of more polygon vertices.
@@ -1910,7 +1918,19 @@ export default class PCBApp {
                         right.push([a2x, a2y]);
                     } else {
                         const t = ((a2x - a1x) * (-dirs[i][1]) - (a2y - a1y) * (-dirs[i][0])) / denom;
-                        right.push([a1x + dirs[i - 1][0] * t, a1y + dirs[i - 1][1] * t]);
+                        const mx = a1x + dirs[i - 1][0] * t;
+                        const my = a1y + dirs[i - 1][1] * t;
+                        // Miter limit: if the miter point is too far from
+                        // the vertex (acute inside corner), fall back to a
+                        // bevel (two endpoints) to avoid the spike.
+                        const distSq = (mx - pts[i][0]) * (mx - pts[i][0]) + (my - pts[i][1]) * (my - pts[i][1]);
+                        const maxDist = r * 4; // miter limit ~4× ring radius
+                        if (distSq > maxDist * maxDist) {
+                            right.push([pts[i][0] + p0[0] * r, pts[i][1] + p0[1] * r]);
+                            right.push([pts[i][0] + p1[0] * r, pts[i][1] + p1[1] * r]);
+                        } else {
+                            right.push([mx, my]);
+                        }
                     }
                 }
             }
@@ -1942,7 +1962,7 @@ export default class PCBApp {
                     for (const a of arcFan(pts[i][0], pts[i][1], fromA, toA, true)) right.push(a);
                     right.push([pts[i][0] - p1[0] * r, pts[i][1] - p1[1] * r]);
                 } else {
-                    // Inside — miter.
+                    // Inside — miter with limit fallback to bevel.
                     const a1x = pts[i + 1][0] - p0[0] * r;
                     const a1y = pts[i + 1][1] - p0[1] * r;
                     const a2x = pts[i][0] - p1[0] * r;
@@ -1954,7 +1974,16 @@ export default class PCBApp {
                         right.push([a2x, a2y]);
                     } else {
                         const t = ((a2x - a1x) * (-dy1) - (a2y - a1y) * (-dx1)) / denom;
-                        right.push([a1x + dx0 * t, a1y + dy0 * t]);
+                        const mx = a1x + dx0 * t;
+                        const my = a1y + dy0 * t;
+                        const distSq = (mx - pts[i][0]) * (mx - pts[i][0]) + (my - pts[i][1]) * (my - pts[i][1]);
+                        const maxDist = r * 4;
+                        if (distSq > maxDist * maxDist) {
+                            right.push([pts[i][0] - p0[0] * r, pts[i][1] - p0[1] * r]);
+                            right.push([pts[i][0] - p1[0] * r, pts[i][1] - p1[1] * r]);
+                        } else {
+                            right.push([mx, my]);
+                        }
                     }
                 }
             }
@@ -1980,6 +2009,7 @@ export default class PCBApp {
                 el.setAttribute('fill', 'none');
                 el.setAttribute('stroke', HALO_STROKE);
                 el.setAttribute('stroke-width', String(OUTLINE_W));
+                el.setAttribute('vector-effect', 'non-scaling-stroke');
                 el.setAttribute('stroke-linejoin', 'round');
                 el.setAttribute('pointer-events', 'none');
                 overlay.appendChild(el);
