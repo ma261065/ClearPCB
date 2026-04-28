@@ -1096,14 +1096,15 @@ async function astarRoute(sx, sy, ex, ey, obstacles, skipIds, gridStep, traceWid
                 const clearOnOther = !obstacles.isBlocked(current.x, current.y, viaClear, skipIds, otherLayer, routingNet);
                 const clearOnCurrent = !obstacles.isBlocked(current.x, current.y, viaClear, skipIds, current.layer, routingNet);
 
-                // Foreign pads hard-block via placement (clearance + electrical).
-                // Same-net pads are allowed (skipNet=routingNet): this is the
-                // standard "via in pad" technique used to bring an SMD pad's
-                // copper to the opposite layer (e.g. thermal pads, BGA fanout).
-                // It is electrically and DRC valid — only a manufacturing
-                // concern (solder wicking), handled by via fill at fab.
+                // NEVER place a via on or near ANY pad — including the route's
+                // own start/end pads. For SMD pads this would be a real DRC
+                // violation (via-in-pad shorts the pad copper through the
+                // plated hole to the wrong layer). For through-hole pads the
+                // pad itself already conducts both layers, so a via on top is
+                // redundant and just wastes routing space. The route must
+                // escape the pad first, then place the via off-pad.
                 const viaPadClear = viaRadius + clearance;
-                const onPad = obstacles.isOnPad(current.x, current.y, viaPadClear, routingNet);
+                const onPad = obstacles.isOnPad(current.x, current.y, viaPadClear);
 
                 if (clearOnOther && clearOnCurrent && !onPad) {
                     const viaDensity = obstacles.localDensity(current.x, current.y, skipIds, otherLayer, 1);
@@ -1276,8 +1277,7 @@ async function astarProbe(sx, sy, ex, ey, obstacles, skipIds, gridStep, traceWid
         const viaKey = nodeKey(current.x, current.y, otherLayer);
         if (!closed.has(viaKey)) {
             const viaPadClear = viaRadius + clearance;
-            // Allow vias on same-net pads (see astarRoute for rationale).
-            const onPad = obstacles.isOnPad(current.x, current.y, viaPadClear, routingNet);
+            const onPad = obstacles.isOnPad(current.x, current.y, viaPadClear);
             if (!onPad) {
                 const tentG = curG + VIA_COST;
                 if (tentG < (gScore.has(viaKey) ? gScore.get(viaKey) : Infinity)) {
