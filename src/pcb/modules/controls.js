@@ -93,6 +93,16 @@ export function bindPcbControls(app) {
         routeParamUnit = newUnit;
     });
 
+    // Live-redraw clearance halos when any routing parameter changes (only
+    // if the overlay is currently visible). Trace width and clearance both
+    // affect halo radii; via diameter affects via halos.
+    for (const id of routeParamIds) {
+        const el = document.getElementById(id);
+        el?.addEventListener('input', () => {
+            if (app._clearancesVisible) app.showClearances?.(true);
+        });
+    }
+
     // Specctra help flyout
     const specctraHelpBtn = document.getElementById('pcbSpecctraHelp');
     const specctraFlyout = document.getElementById('specctraHelpFlyout');
