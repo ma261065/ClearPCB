@@ -832,6 +832,24 @@ class CongestionGrid {
 
 // ── A* Pathfinder ─────────────────────────────────────────────────
 
+// Numeric node key packing for A* Map/Set lookups.
+// Packs (x_μm, y_μm, layer) into a single safe-integer key so Maps store
+// numeric keys instead of allocating a fresh string per expansion. Integer
+// Map ops are noticeably faster in V8 and avoid GC pressure on the A* hot path.
+//
+// Supports coords in roughly [-4194mm, +4194mm] (far beyond any real PCB).
+// Max key magnitude ≈ 2^48, well under Number.MAX_SAFE_INTEGER (2^53).
+const NODE_KEY_OFFSET = 4194304;     // = 2^22 μm = 4194 mm; shifts coords to non-negative
+const NODE_KEY_Y_STRIDE = 33554432;  // = 2^25 = 2 × (2 × NODE_KEY_OFFSET); reserves layer bit + y range
+/** @param {number} x @param {number} y @param {0|1|string} layer */
+function packNodeKey(x, y, layer) {
+    // layer may arrive as 'top'/'bottom' or 0/1; coerce to 0/1
+    const lbit = (layer === 1 || layer === 'bottom') ? 1 : 0;
+    return (Math.round(x * 1000) + NODE_KEY_OFFSET) * NODE_KEY_Y_STRIDE
+         + (Math.round(y * 1000) + NODE_KEY_OFFSET) * 2
+         + lbit;
+}
+
 /**
  * Find a path from (sx,sy) to (ex,ey) with 2-layer via support.
  * Uses weighted A* on a virtual grid with layer transitions.
@@ -910,8 +928,9 @@ async function astarRoute(sx, sy, ex, ey, obstacles, skipIds, gridStep, traceWid
         Math.hypot(ex - endX, ey - endY)
     );
 
-    // Node key includes layer: "x,y,layer"
-    function nodeKey(x, y, layer) { return `${Math.round(x * 1000)},${Math.round(y * 1000)},${layer}`; }
+    // Node key packs (x_μm, y_μm, layer) into a single safe-integer. Numeric
+    // Map keys avoid per-expansion string allocation/hashing on the A* hot path.
+    const nodeKey = packNodeKey;
 
     // startLayer is passed as parameter
     const startKey = nodeKey(startX, startY, startLayer);
@@ -1183,13 +1202,14 @@ async function astarProbe(sx, sy, ex, ey, obstacles, skipIds, gridStep, traceWid
     const boundedMinY = bounds ? Math.max(minY, bounds.minY - boundsMargin) : minY;
     const boundedMaxY = bounds ? Math.min(maxY, bounds.maxY + boundsMargin) : maxY;
 
-    function nodeKey(x, y, layer) { return `${Math.round(x * 1000)},${Math.round(y * 1000)},${layer}`; }
+    // Numeric-packed node key; see packNodeKey for rationale.
+    const nodeKey = packNodeKey;
 
     const startKey = nodeKey(startX, startY, startLayer);
     const { push: pushHeap, pop: popHeap, size: heapSize } = createMinHeap();
 
     const gScore = new Map();
-    /** @type {Map<string, Set<string>>} nodeKey -> accumulated crossed connection IDs */
+    /** @type {Map<number, Set<string>>} nodeKey -> accumulated crossed connection IDs */
     const crossedAtNode = new Map();
     const closed = new Set();
 
@@ -2316,7 +2336,10 @@ export async function routeAll(input, options = {}) {
         return { traces, failedCount: 0, firstFailedIndex: -1 };
     }
 
-    // ── Pass 1: Initial routing (shortest nets first) ────────────
+    // ── Pass 1: Initial routing (hardest nets first) ─────────────
+    // Order by netDifficultyScore = manhattan + pinCount + localCrowd, so
+    // long / many-pin / congested nets get first pick of routing space
+    // before short nets fill up the easy channels.
 
     const baseObstacles = buildObstacles();
 
