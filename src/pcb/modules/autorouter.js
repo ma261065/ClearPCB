@@ -14,6 +14,54 @@
  *   - Multiple passes with increasing flexibility
  */
 
+// ── Binary Min-Heap (shared by astarRoute / astarProbe) ──────────
+
+/**
+ * Create a binary min-heap ordering nodes by `node.f` (ascending).
+ * Shared between the cost-based router and the rip-up probe so that
+ * both use identical priority-queue semantics.
+ *
+ * @returns {{ push: (node: {f: number}) => void, pop: () => any, size: () => number }}
+ */
+function createMinHeap() {
+    const heap = [];
+    const push = (node) => {
+        heap.push(node);
+        let i = heap.length - 1;
+        while (i > 0) {
+            const parent = (i - 1) >> 1;
+            if (heap[parent].f <= heap[i].f) break;
+            const tmp = heap[parent];
+            heap[parent] = heap[i];
+            heap[i] = tmp;
+            i = parent;
+        }
+    };
+    const pop = () => {
+        const top = heap[0];
+        const last = heap.pop();
+        if (heap.length > 0) {
+            heap[0] = last;
+            let i = 0;
+            const n = heap.length;
+            while (true) {
+                let smallest = i;
+                const l = 2 * i + 1, r = 2 * i + 2;
+                if (l < n && heap[l].f < heap[smallest].f) smallest = l;
+                if (r < n && heap[r].f < heap[smallest].f) smallest = r;
+                if (smallest === i) break;
+                const tmp = heap[i];
+                heap[i] = heap[smallest];
+                heap[smallest] = tmp;
+                i = smallest;
+            }
+        }
+        return top;
+    };
+    const size = () => heap.length;
+    return { push, pop, size };
+}
+
 // ── Spatial Hash Index ────────────────────────────────────────────
 
 /**
@@ -75,12 +123,21 @@ class SpatialHash {
     }
 
     /**
-     * Remove all segments/vias belonging to a specific connection.
+     * Remove all segments and vias belonging to a specific connection.
+     * Pads that are not vias are preserved (we never rip non-via pads).
      * @param {string} connId
      */
     removeConnection(connId) {
         if (!connId) return;
         for (const [key, objs] of this.cells) {
+            // Fast path: no obstacle in this cell carries this connId
+            let hasMatch = false;
+            for (const o of objs) {
+                if (o.connId === connId && !(o.isPad && !o.isVia)) { hasMatch = true; break; }
+            }
+            if (!hasMatch) continue;
+            // Keep obstacles that either belong to a different connection,
+            // or are non-via pads (which we never rip).
             const filtered = objs.filter(o => o.connId !== connId || (o.isPad && !o.isVia));
             if (filtered.length === 0) this.cells.delete(key);
             else this.cells.set(key, filtered);
@@ -92,15 +149,13 @@ class SpatialHash {
      * @param {number} cx @param {number} cy @param {number} w @param {number} h
      * @param {string} net  Pad-instance ID (used for skipIds matching).
      * @param {string} [padLayer='both']
-     * @param {{isVia?: boolean, connId?: string|null, shape?: string, netName?: string|null}} [options={}]
+     * @param {{isVia?: boolean, connId?: string|null, shape?: string}} [options={}]
      *   `shape` may be 'rect' (default) or 'ellipse'. Ellipse pads use elliptical
      *   distance for blocking checks; rect pads use AABB.
-     *   `netName` is the actual electrical net name (separate from `net` which
-     *   carries the per-pad obstacle id used by skipIds).
      */
     insertPad(cx, cy, w, h, net, padLayer = 'both', options = {}) {
         const hw = w / 2, hh = h / 2;
-        const obj = { cx, cy, hw, hh, net, netName: options.netName || null, isPad: true, layer: padLayer, isVia: !!options.isVia, connId: options.connId || undefined, shape: options.shape || 'rect' };
+        const obj = { cx, cy, hw, hh, net, isPad: true, layer: padLayer, isVia: !!options.isVia, connId: options.connId || undefined, shape: options.shape || 'rect' };
         // Register in all cells the pad overlaps
         const minCX = Math.floor((cx - hw) / this.cellSize);
         const maxCX = Math.floor((cx + hw) / this.cellSize);
@@ -116,17 +171,15 @@ class SpatialHash {
     }
 
     /**
-     * Check if a point overlaps any pad (regardless of layer or net).
-     * Used to prevent vias from being placed on top of pads.
-     * Does NOT skip any pads — vias must never land on ANY pad.
-     */
-    /**
-     * Check if a point is on or near any pad.
+     * Check if a point is on or near any pad. Used by via-placement
+     * (no-vias-on-pads policy) and by path-simplification (no-diagonal-
+     * near-pads heuristic). Pads are never skipped by net — vias on the
+     * route's own pads are forbidden too (would short via to wrong layer).
+     *
      * @param {number} x @param {number} y @param {number} clearance
-     * @param {string|null} [skipNet=null]
      * @returns {boolean}
      */
-    isOnPad(x, y, clearance, skipNet = null) {
+    isOnPad(x, y, clearance) {
         const cx = Math.floor(x / this.cellSize);
         const cy = Math.floor(y / this.cellSize);
         for (let dx = -1; dx <= 1; dx++) {
@@ -135,7 +188,6 @@ class SpatialHash {
                 if (!objs) continue;
                 for (const obj of objs) {
                     if (!obj.isPad) continue;
-                    if (skipNet && obj.netName === skipNet) continue;
                     if (padPointBlocked(x, y, obj, clearance)) return true;
                 }
             }
@@ -144,15 +196,11 @@ class SpatialHash {
     }
 
     /**
-     * Check if a point is blocked (too close to any obstacle from a different net).
-     * @param {number} x @param {number} y @param {number} clearance
-     * @param {string|Set<string>} skipIds - the net we're routing (same-net obstacles are ignored)
-     * @returns {boolean}
-     */
-    /**
-     * Check if a point is blocked.
+     * Check if a point is blocked (too close to any obstacle).
      * @param {number} x @param {number} y @param {number} clearance
      * @param {string|Set<string>} skipIds - obstacle IDs to skip (source/dest pads)
+     * @param {string|null} [layer=null] - restrict to this layer
+     * @param {string|null} [skipNet=null] - skip same-net traces (not pads)
      * @returns {boolean}
      */
     isBlocked(x, y, clearance, skipIds, layer = null, skipNet = null) {
@@ -253,10 +301,8 @@ class SpatialHash {
                     const objId = obj.net || obj.id;
                     if (isSet ? skipIds.has(objId) : objId === skipIds) continue;
                     if (layer && obj.layer && obj.layer !== layer) continue;
-                    if (!obj.isPad) {
-                        const d = segmentToSegmentDist(ax1, ay1, ax2, ay2, obj.x1, obj.y1, obj.x2, obj.y2);
-                        if (d < obj.hw + clearance && obj.net) blocking.add(obj.net);
-                    }
+                    const d = segmentToSegmentDist(ax1, ay1, ax2, ay2, obj.x1, obj.y1, obj.x2, obj.y2);
+                    if (d < obj.hw + clearance && obj.net) blocking.add(obj.net);
                 }
             }
         }
@@ -871,39 +917,7 @@ async function astarRoute(sx, sy, ex, ey, obstacles, skipIds, gridStep, traceWid
     const startKey = nodeKey(startX, startY, startLayer);
 
     // Binary min-heap for priority queue
-    const heap = [];
-    const pushHeap = (node) => {
-        heap.push(node);
-        let i = heap.length - 1;
-        while (i > 0) {
-            const parent = (i - 1) >> 1;
-            if (heap[parent].f <= heap[i].f) break;
-            const tmp = heap[parent];
-            heap[parent] = heap[i];
-            heap[i] = tmp;
-            i = parent;
-        }
-    };
-    const popHeap = () => {
-        const top = heap[0];
-        const last = heap.pop();
-        if (heap.length > 0) {
-            heap[0] = last;
-            let i = 0;
-            while (true) {
-                let smallest = i;
-                const l = 2 * i + 1, r = 2 * i + 2;
-                if (l < heap.length && heap[l].f < heap[smallest].f) smallest = l;
-                if (r < heap.length && heap[r].f < heap[smallest].f) smallest = r;
-                if (smallest === i) break;
-                const tmp = heap[i];
-                heap[i] = heap[smallest];
-                heap[smallest] = tmp;
-                i = smallest;
-            }
-        }
-        return top;
-    };
+    const { push: pushHeap, pop: popHeap, size: heapSize } = createMinHeap();
 
     const gScore = new Map();
     const cameFrom = new Map(); // key → { x, y, layer, prevDir }
@@ -924,7 +938,7 @@ async function astarRoute(sx, sy, ex, ey, obstacles, skipIds, gridStep, traceWid
     let stagnantIterations = 0;
     let bestHSeen = Math.hypot(startX - endX, startY - endY);
 
-    while (heap.length > 0 && iterations < maxIterations) {
+    while (heapSize() > 0 && iterations < maxIterations) {
         if (cancelToken?.cancelled) return null;
         iterations++;
         if (yieldToUI && iterations % yieldEvery === 0) {
@@ -1172,35 +1186,7 @@ async function astarProbe(sx, sy, ex, ey, obstacles, skipIds, gridStep, traceWid
     function nodeKey(x, y, layer) { return `${Math.round(x * 1000)},${Math.round(y * 1000)},${layer}`; }
 
     const startKey = nodeKey(startX, startY, startLayer);
-    const heap = [];
-    const pushHeap = (node) => {
-        heap.push(node);
-        let i = heap.length - 1;
-        while (i > 0) {
-            const parent = (i - 1) >> 1;
-            if (heap[parent].f <= heap[i].f) break;
-            [heap[parent], heap[i]] = [heap[i], heap[parent]];
-            i = parent;
-        }
-    };
-    const popHeap = () => {
-        const top = heap[0];
-        const last = heap.pop();
-        if (heap.length > 0) {
-            heap[0] = last;
-            let i = 0;
-            while (true) {
-                let s = i;
-                const l = 2 * i + 1, r = 2 * i + 2;
-                if (l < heap.length && heap[l].f < heap[s].f) s = l;
-                if (r < heap.length && heap[r].f < heap[s].f) s = r;
-                if (s === i) break;
-                [heap[i], heap[s]] = [heap[s], heap[i]];
-                i = s;
-            }
-        }
-        return top;
-    };
+    const { push: pushHeap, pop: popHeap, size: heapSize } = createMinHeap();
 
     const gScore = new Map();
     /** @type {Map<string, Set<string>>} nodeKey -> accumulated crossed connection IDs */
@@ -1214,7 +1200,7 @@ async function astarProbe(sx, sy, ex, ey, obstacles, skipIds, gridStep, traceWid
     const dirs = [[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]];
     let iterations = 0;
 
-    while (heap.length > 0 && iterations < maxIter) {
+    while (heapSize() > 0 && iterations < maxIter) {
         if (cancelToken?.cancelled) return null;
         iterations++;
         if (yieldToUI && iterations % yieldEvery === 0) await yieldToUI();
@@ -1295,17 +1281,6 @@ async function astarProbe(sx, sy, ex, ey, obstacles, skipIds, gridStep, traceWid
 
 // ── Path Simplification ───────────────────────────────────────────
 
-/**
- * Simplify a path by removing redundant waypoints.
- * If we can go directly from point A to point C without collision,
- * remove point B.
- *
- * @param {Array<{x: number, y: number}>} path
- * @param {SpatialHash} obstacles
- * @param {string|Set<string>} skipIds
- * @param {number} totalClear
- * @returns {Array<{x: number, y: number}>}
- */
 /**
  * Check if a segment is at a valid PCB angle (0°, 45°, 90°, 135°).
  */
@@ -1540,16 +1515,14 @@ function sanitizeAngles(pts) {
         if (!isValidAngle(prev.x, prev.y, cur.x, cur.y)) {
             const dx = cur.x - prev.x;
             const dy = cur.y - prev.y;
-            const adx = Math.abs(dx);
-            const ady = Math.abs(dy);
-            const diag = Math.min(adx, ady);
-            if (adx > ady) {
-                // 45° diagonal for diag distance, then horizontal
-                out.push({ x: prev.x + Math.sign(dx) * diag, y: prev.y + Math.sign(dy) * diag, layer: cur.layer });
-            } else {
-                // 45° diagonal for diag distance, then vertical
-                out.push({ x: prev.x + Math.sign(dx) * diag, y: prev.y + Math.sign(dy) * diag, layer: cur.layer });
-            }
+            const diag = Math.min(Math.abs(dx), Math.abs(dy));
+            // Insert a 45° elbow of `diag` length; the remainder to `cur`
+            // is automatically H (if |dx|>|dy|) or V (if |dy|>|dx|).
+            out.push({
+                x: prev.x + Math.sign(dx) * diag,
+                y: prev.y + Math.sign(dy) * diag,
+                layer: cur.layer,
+            });
         }
         out.push(cur);
     }
@@ -1734,10 +1707,6 @@ export async function routeAll(input, options = {}) {
             if (found) {
                 idList.push(found.id);
                 used.add(found.id);
-                // Tag the obstacle pad with its electrical net name so the
-                // router can recognise same-net pads (e.g. for via-in-pad
-                // landings on the route's own start/end pad).
-                found.netName = conn.net;
             } else {
                 idList.push(null);
             }
@@ -1888,9 +1857,12 @@ export async function routeAll(input, options = {}) {
     function buildObstacles() {
         const obs = new SpatialHash(cellSize);
         for (const pad of allPads) {
-            obs.insertPad(pad.x, pad.y, pad.width, pad.height, pad.id, pad.layer || 'both', { shape: pad.shape, netName: pad.netName || null });
+            obs.insertPad(pad.x, pad.y, pad.width, pad.height, pad.id, pad.layer || 'both', { shape: pad.shape });
         }
-        obstacleVersion = 1;
+        // Bump the monotonic version so cached failures from a prior
+        // build are not silently considered "still valid" against the
+        // new obstacle set.
+        obstacleVersion++;
         return obs;
     }
 
@@ -1901,15 +1873,23 @@ export async function routeAll(input, options = {}) {
         };
     }
 
-    function isCachedPathStillClear(path, skipIds, totalClear, skipNet = null) {
+    function isCachedPathStillClear(path, skipIds, skipNet = null) {
+        // At a layer transition we only need to verify the via copper
+        // itself is clear — the arriving/leaving trace segments are
+        // checked by the same-layer branch below. isBlocked(...) adds
+        // the foreign obstacle's own half-extent internally, so passing
+        // viaRadius+clearance enforces edge-to-edge clearance for the via.
+        const viaClear = viaRadius + clearance;
         for (let i = 1; i < path.length; i++) {
             const a = path[i - 1];
             const b = path[i];
             if (a.layer === b.layer) {
                 if (obstacles.isSegmentBlocked(a.x, a.y, b.x, b.y, totalClear, skipIds, a.layer, skipNet)) return false;
             } else {
-                if (obstacles.isBlocked(a.x, a.y, totalClear, skipIds, 'top', skipNet)) return false;
-                if (obstacles.isBlocked(a.x, a.y, totalClear, skipIds, 'bottom', skipNet)) return false;
+                // Layer transition → via at point `a`; check both layers
+                // since the via is plated through.
+                if (obstacles.isBlocked(a.x, a.y, viaClear, skipIds, 'top', skipNet)) return false;
+                if (obstacles.isBlocked(a.x, a.y, viaClear, skipIds, 'bottom', skipNet)) return false;
             }
         }
         return true;
@@ -2016,10 +1996,10 @@ export async function routeAll(input, options = {}) {
         return mergeProfile(base, override);
     };
 
-    function getCachedAttemptResult(key, skipIds) {
+    function getCachedAttemptResult(key, skipIds, skipNet = null) {
         const entry = routeAttemptCache.get(key);
         if (!entry) return undefined;
-        if (entry.successResult && isCachedPathStillClear(entry.successResult.path, skipIds, totalClear)) {
+        if (entry.successResult && isCachedPathStillClear(entry.successResult.path, skipIds, skipNet)) {
             return cloneAstarResult(entry.successResult);
         }
         if (entry.lastFailVersion === obstacleVersion) return null;
@@ -2127,7 +2107,7 @@ export async function routeAll(input, options = {}) {
 
                 const a1CostSig = [a1.viaCostScale, a1.bendCostScale, a1.padDiagCostScale, a1.dirPenaltyScale, a1.congestionPenaltyScale, a1.viaCongestionScale].map(v => Number(v ?? 1).toFixed(2)).join(':');
                 const attempt1Key = makeAttemptKey(from, to, startLayer, endLayer, gridStep * a1.stepScale, a1.weight, a1.effortTag || `${phaseProfile.id}:a1`, a1CostSig, connId);
-                const cached1 = getCachedAttemptResult(attempt1Key, skipIds);
+                const cached1 = getCachedAttemptResult(attempt1Key, skipIds, conn.net);
                 if (cached1 !== undefined) {
                     result = cached1;
                 } else {
@@ -2165,7 +2145,7 @@ export async function routeAll(input, options = {}) {
                 await yieldToUI();
                 const a2CostSig = [a2.viaCostScale, a2.bendCostScale, a2.padDiagCostScale, a2.dirPenaltyScale, a2.congestionPenaltyScale, a2.viaCongestionScale].map(v => Number(v ?? 1).toFixed(2)).join(':');
                 const attempt2Key = makeAttemptKey(from, to, startLayer, endLayer, gridStep * a2.stepScale, a2.weight, a2.effortTag || `${phaseProfile.id}:a2`, a2CostSig, connId);
-                const cached2 = getCachedAttemptResult(attempt2Key, skipIds);
+                const cached2 = getCachedAttemptResult(attempt2Key, skipIds, conn.net);
                 if (cached2 !== undefined) {
                     result = cached2;
                 } else {
@@ -2207,7 +2187,7 @@ export async function routeAll(input, options = {}) {
                 // Try 3: finest grid, thorough search (600K)
                 const a3CostSig = [a3.viaCostScale, a3.bendCostScale, a3.padDiagCostScale, a3.dirPenaltyScale, a3.congestionPenaltyScale, a3.viaCongestionScale].map(v => Number(v ?? 1).toFixed(2)).join(':');
                 const attempt3Key = makeAttemptKey(from, to, startLayer, endLayer, gridStep * a3.stepScale, a3.weight, a3.effortTag || `${phaseProfile.id}:a3`, a3CostSig, connId);
-                const cached3 = getCachedAttemptResult(attempt3Key, skipIds);
+                const cached3 = getCachedAttemptResult(attempt3Key, skipIds, conn.net);
                 if (cached3 !== undefined) {
                     result = cached3;
                 } else {
@@ -2323,7 +2303,7 @@ export async function routeAll(input, options = {}) {
                 const viaDia = viaDiameter;
                 for (const v of detectedVias) {
                     obstacles.insertPad(v.x, v.y, viaDia, viaDia, conn.net, 'both',
-                        { isVia: true, connId, shape: 'ellipse', netName: conn.net });
+                        { isVia: true, connId, shape: 'ellipse' });
                 }
                 if (detectedVias.length > 0) obstacleVersion++;
             } else {
@@ -2427,8 +2407,6 @@ export async function routeAll(input, options = {}) {
     /** @type {Map<string, Array>} best net → traces snapshot */
     let bestRoutedTraces = new Map();
     let bestRoutedConnCount = 0;
-    /** @type {Map<string, number>} snapshot of pending connections at best state */
-    let bestPendingConnections = new Map();
 
     const captureBestIfImproved = () => {
         // Count actual routed connections by counting unique connIds in routedTraces
@@ -2446,7 +2424,6 @@ export async function routeAll(input, options = {}) {
         for (const [netName, netTraces] of routedTraces.entries()) {
             bestRoutedTraces.set(netName, cloneNetTraces(netTraces));
         }
-        bestPendingConnections = new Map(netPendingConnections);
     };
 
     // ── Pass 1: Initial routing (per-connection, hardest first) ──
