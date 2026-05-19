@@ -2526,6 +2526,14 @@ export async function routeAll(input, options = {}) {
         });
         await yieldToUI();
         const stillFailed = [];
+        // Parallel Set tracks membership in O(1); preserves insertion order via the array.
+        const stillFailedSet = new Set();
+        const addStillFailed = (cid) => {
+            if (!stillFailedSet.has(cid)) {
+                stillFailedSet.add(cid);
+                stillFailed.push(cid);
+            }
+        };
 
         for (const failedCid of failedConnIds) {
             if (cancelToken?.cancelled) break;
@@ -2595,7 +2603,7 @@ export async function routeAll(input, options = {}) {
 
             if (blockingConnIds.size === 0) {
                 // No trace obstacles — just pads in the way, can't help
-                stillFailed.push(failedCid);
+                addStillFailed(failedCid);
                 passDone++;
                 emitProgress(passDone, passTotal, `Rip-up ${pass}: ${failedCid}`, {
                     phase: 'ripup',
@@ -2650,7 +2658,7 @@ export async function routeAll(input, options = {}) {
                 setNetPendingConnections(failedNet, Math.max(0, prev - 1));
                 onNetRouted?.(result.traces);
             } else {
-                if (!stillFailed.includes(failedCid)) stillFailed.push(failedCid);
+                addStillFailed(failedCid);
                 onNetFailed?.(conn);
             }
 
@@ -2675,7 +2683,7 @@ export async function routeAll(input, options = {}) {
                     onNetRouted?.(cResult.traces);
                 } else {
                     connectionOnlyRerouteFallbacksToNet++;
-                    if (!stillFailed.includes(cid)) stillFailed.push(cid);
+                    addStillFailed(cid);
                     const fromPad = rc.pads[connIdx];
                     const toPad = rc.pads[connIdx + 1];
                     const probeLayer = fromPad?.layer || 'top';
