@@ -164,6 +164,21 @@ clearpcb/
 | `Ctrl+P` | Print |
 | `F` | Fit to content |
 
+## Testing
+
+The repo has a single regression gate that should be run before committing
+changes to the autorouter:
+
+```
+node tools/regression.mjs
+```
+
+It runs the geometry primitive smoke test plus a full clearance check on
+`test-board.json` (`tools/check-clearance-full.mjs`) and asserts against a
+documented baseline (currently: 65/76 connections routed, 0 violations).
+The run takes roughly two minutes. See `tools/regression.mjs` for the exact
+HARD vs SOFT check criteria.
+
 ## License
 
 MIT
