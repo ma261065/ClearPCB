@@ -885,6 +885,11 @@ async function astarRoute(sx, sy, ex, ey, obstacles, skipIds, gridStep, traceWid
         viaCongestionScale = 1.0,
         congestionGrid = null,
         historyWeight = 0,
+        // Pathfinder hook: optional per-cell cost function (x, y, layer) -> number
+        // added directly to tentG for the destination of each expansion. Used by
+        // negotiated-congestion routing to penalise resources that are currently
+        // overused or have a history of overuse. null = no-op (no extra cost).
+        cellCostFn = null,
         routingNet = null,
         viaRadius: optViaRadius = null,
         startPad = null,
@@ -1101,7 +1106,10 @@ async function astarRoute(sx, sy, ex, ey, obstacles, skipIds, gridStep, traceWid
                 if (cong > 1) histPenalty = (cong - 1) * gridStep * historyWeight * distCongScale;
             }
 
-            const tentG = curG + stepCost + bendPenalty + dirPenalty + padDiagPenalty + congestionPenalty + histPenalty;
+            // Pathfinder negotiated-congestion cost (additive, scaled by step length).
+            const pathfinderCost = cellCostFn ? cellCostFn(nx, ny, current.layer) * stepCost : 0;
+
+            const tentG = curG + stepCost + bendPenalty + dirPenalty + padDiagPenalty + congestionPenalty + histPenalty + pathfinderCost;
 
             if (tentG < (gScore.has(nKey) ? gScore.get(nKey) : Infinity)) {
                 gScore.set(nKey, tentG);
@@ -1142,7 +1150,10 @@ async function astarRoute(sx, sy, ex, ey, obstacles, skipIds, gridStep, traceWid
                 if (clearOnOther && clearOnCurrent && !onPad) {
                     const viaDensity = obstacles.localDensity(current.x, current.y, skipIds, otherLayer, 1);
                     const viaCongestionPenalty = Math.min(viaDensity, 120) * gridStep * 0.04 * viaCongestionScale;
-                    const tentG = curG + VIA_COST + viaCongestionPenalty;
+                    // Pathfinder cost at the via destination cell (other layer, same x,y).
+                    // Vias also consume routing resources on the layer they land on.
+                    const viaPathfinderCost = cellCostFn ? cellCostFn(current.x, current.y, otherLayer) * VIA_COST : 0;
+                    const tentG = curG + VIA_COST + viaCongestionPenalty + viaPathfinderCost;
                     if (tentG < (gScore.has(viaKey) ? gScore.get(viaKey) : Infinity)) {
                         gScore.set(viaKey, tentG);
                         cameFrom.set(viaKey, { x: current.x, y: current.y, layer: current.layer, dx: 0, dy: 0 });
