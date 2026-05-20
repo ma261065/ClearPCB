@@ -309,19 +309,16 @@
                                 <option value="inch">inch</option>
                             </select>
                         </div>
-                        <div class="routing-param-row">
-                            <label for="pcbRouterMode">Router</label>
-                            <select id="pcbRouterMode">
-                                <option value="classic" selected>Classic (A* Rip-up)</option>
-                                <option value="pathfinder">Pathfinder (Negotiated)</option>
-                            </select>
-                        </div>
                     </div>
                 </div>
                 <div class="ribbon-group">
                     <div class="ribbon-group-title">Auto Router</div>
-                    <div class="ribbon-group-items">
+                    <div class="ribbon-group-items auto-router-controls">
                         <button id="pcbAutoRoute" title="Auto-route all connections">⚡ Auto Route</button>
+                        <select id="pcbRouterMode" class="auto-router-mode" title="Router algorithm" aria-label="Router algorithm">
+                            <option value="classic" selected>Classic (A* Rip-up)</option>
+                            <option value="pathfinder">Pathfinder (Negotiated)</option>
+                        </select>
                         <button id="pcbClearRoutes" title="Clear all traces and restore ratlines">✕ Clear Routes</button>
                     </div>
                 </div>

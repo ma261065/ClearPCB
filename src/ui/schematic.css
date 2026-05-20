@@ -2369,6 +2369,18 @@ body {
     width: 68px;
 }
 
+.auto-router-controls {
+    align-items: center;
+    gap: 6px;
+}
+
+.auto-router-controls .auto-router-mode {
+    width: auto;
+    min-width: 0;
+    max-width: 100%;
+    flex: 0 0 auto;
+}
+
 /* ========================================
    PCB Properties Panel
    ======================================== */
