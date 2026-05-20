@@ -25,7 +25,8 @@ const result = await routeAllPathfinder(board);
 const elapsed = Date.now() - t0;
 const routed = result.totalConnectionCount - result.failedConnectionCount;
 console.log(`Routed ${routed}/${result.totalConnectionCount} connections, ${result.traces.length} traces, ${result.vias?.length || 0} vias`);
-console.log(`Converged: ${result.pathfinderConverged}, iterations: ${result.pathfinderIterations}, final overused cells: ${result.pathfinderFinalOverusedCells}, final conflicted nets: ${result.pathfinderFinalOverusedNets}`);
+console.log(`Converged: ${result.pathfinderConverged}, iterations: ${result.pathfinderIterations}, emitted iter: ${result.pathfinderEmittedIter}, emitted overused cells: ${result.pathfinderEmittedOverusedCells}, emitted conflicted nets: ${result.pathfinderEmittedOverusedNets}`);
+console.log(`(last iter: overused cells=${result.pathfinderFinalOverusedCells}, conflicted nets=${result.pathfinderFinalOverusedNets})`);
 
 const halfTrace = traceWidth / 2;
 const viaRadius = viaDiameter / 2;

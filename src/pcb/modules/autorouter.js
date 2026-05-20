@@ -3030,6 +3030,124 @@ function nncReorderPads(conn) {
 }
 
 /**
+ * Greedy feasibility extraction for Pathfinder output.
+ *
+ * Given a Map of (connKey → route|null) where routes may overlap, sample
+ * each emitted route into fine cells (~traceWidth + clearance in size) and
+ * iteratively drop the connection contributing to the most cell conflicts
+ * until no cell is shared by two connections.
+ *
+ * Returns Set<connKey> of dropped connections; caller should null those
+ * routes in the map and report them as failed.
+ *
+ * Cell size is intentionally chosen smaller than the routing grid so that
+ * two routes sharing a cell almost certainly violate clearance. This is a
+ * Maximum Independent Set approximation (NP-hard); the greedy "drop most-
+ * conflicting first" heuristic is standard.
+ */
+function extractFeasibleSubset(finalRoutes, connList, gridStep, traceWidth, clearance) {
+    // Cell smaller than gridStep, and at least (traceWidth + clearance) so
+    // two routes in the same cell really do overlap.
+    const cellSize = Math.max(traceWidth + clearance, gridStep * 0.5);
+    const KEY_OFFSET = 4194304;
+    const KEY_Y_STRIDE = 33554432;
+    const _key = (x, y, layer) => {
+        const cx = Math.floor(x / cellSize);
+        const cy = Math.floor(y / cellSize);
+        const lbit = (layer === 'bottom' || layer === 1) ? 1 : 0;
+        return ((cx + KEY_OFFSET) * KEY_Y_STRIDE) + ((cy + KEY_OFFSET) * 2) + lbit;
+    };
+
+    /** @type {Map<number, Set<string>>} cellKey -> Set<connKey> */
+    const cellOccupants = new Map();
+    /** @type {Map<string, Set<number>>} connKey -> Set<cellKey> */
+    const connCells = new Map();
+
+    const addToCell = (cellKey, connKey) => {
+        let set = cellOccupants.get(cellKey);
+        if (!set) { set = new Set(); cellOccupants.set(cellKey, set); }
+        set.add(connKey);
+        let cs = connCells.get(connKey);
+        if (!cs) { cs = new Set(); connCells.set(connKey, cs); }
+        cs.add(cellKey);
+    };
+
+    // Sample every emitted connection into cells.
+    for (const item of connList) {
+        const connKey = `${item.net}:${item.connIdx}`;
+        const route = finalRoutes.get(connKey);
+        if (!route) continue;
+        // Trace segments per layer.
+        for (let p = 0; p < route.path.length - 1; p++) {
+            const p1 = route.path[p], p2 = route.path[p + 1];
+            if (p1.layer !== p2.layer) continue;
+            const dist = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+            const steps = Math.max(1, Math.ceil(dist / cellSize));
+            for (let s = 0; s <= steps; s++) {
+                const t = s / steps;
+                addToCell(_key(p1.x + (p2.x - p1.x) * t, p1.y + (p2.y - p1.y) * t, p1.layer), connKey);
+            }
+        }
+        // Vias occupy both layers at their (x,y).
+        for (const v of route.vias) {
+            addToCell(_key(v.x, v.y, 'top'), connKey);
+            addToCell(_key(v.x, v.y, 'bottom'), connKey);
+        }
+    }
+
+    /** @type {Set<string>} */
+    const dropped = new Set();
+
+    // Greedy loop: find the connection touching the most conflicted cells,
+    // drop it, repeat. A "conflict" requires occupants from at least two
+    // DIFFERENT nets — two sub-routes of the same multi-pin net legitimately
+    // share cells at junction pads and must NOT be counted as conflicts.
+    while (true) {
+        const conflictCount = new Map();
+        let anyConflict = false;
+        for (const set of cellOccupants.values()) {
+            if (set.size < 2) continue;
+            // Check if any two are from different nets.
+            let firstNet = null, hasDifferentNet = false;
+            for (const ck of set) {
+                const n = ck.split(':')[0];
+                if (firstNet === null) firstNet = n;
+                else if (n !== firstNet) { hasDifferentNet = true; break; }
+            }
+            if (!hasDifferentNet) continue;
+            anyConflict = true;
+            for (const ck of set) {
+                conflictCount.set(ck, (conflictCount.get(ck) || 0) + 1);
+            }
+        }
+        if (!anyConflict) break;
+
+        // Drop the conn with the highest conflict count. Tiebreak: longer
+        // routes (more cells) first — they're more likely to be in conflicts
+        // elsewhere too, and dropping them frees more space per drop.
+        let worstConn = null, worstCount = 0, worstSize = 0;
+        for (const [ck, c] of conflictCount) {
+            const size = connCells.get(ck)?.size || 0;
+            if (c > worstCount || (c === worstCount && size > worstSize)) {
+                worstCount = c; worstSize = size; worstConn = ck;
+            }
+        }
+        if (!worstConn) break;
+        dropped.add(worstConn);
+        // Remove dropped conn from cell occupancy.
+        const cells = connCells.get(worstConn);
+        if (cells) {
+            for (const cellKey of cells) {
+                cellOccupants.get(cellKey)?.delete(worstConn);
+            }
+            connCells.delete(worstConn);
+        }
+    }
+
+    return dropped;
+}
+
+/**
  * Negotiated-congestion (Pathfinder) autorouter.
  *
  * Replaces the rip-up loop of `routeAll` with an iterative negotiation:
@@ -3059,10 +3177,17 @@ export async function routeAllPathfinder(input, options = {}) {
     const {
         cancelToken = null,
         yieldToUI = async () => {},
-        maxIterations = 12,
-        initialPresentFactor = 0.5,
-        presentFactorGrowth = 2.0,
-        historyGrowth = 1.0,
+        // Tuning notes:
+        //  - initialPresentFactor small + presentFactorGrowth ≤ 1.5: avoids
+        //    over-perturbing the system early, gives nets time to settle.
+        //  - historyGrowth ≥ presentFactorGrowth: chronic congestion becomes
+        //    persistent enough that nets permanently route around hot spots
+        //    rather than oscillating in/out each iteration.
+        //  - maxIterations: 25 gives enough rounds for history to dominate.
+        maxIterations = 25,
+        initialPresentFactor = 0.3,
+        presentFactorGrowth = 1.4,
+        historyGrowth = 2.0,
         greedyWeight = 1.5,
     } = options;
 
@@ -3179,21 +3304,41 @@ export async function routeAllPathfinder(input, options = {}) {
 
     // ── Pathfinder iteration ──
     const pfGrid = new PathfinderGrid(gridStep);
-    /** @type {Map<string, {path, vias, net} | null>} connKey -> result */
+    /** @type {Map<string, {path, vias, net} | null>} connKey -> result (current iter) */
     const routes = new Map();
     let presentFactor = initialPresentFactor;
     let iter = 0;
     let converged = false;
     const iterationStats = [];
 
+    // Best-iteration snapshot: emit routes from the iteration with the lowest
+    // overuse count, not the last. Pathfinder schedules can oscillate, and
+    // the most-converged snapshot is often not the final one.
+    let bestOverused = Infinity;
+    let bestIter = -1;
+    /** @type {Map<string, {path, vias, net} | null> | null} */
+    let bestRoutes = null;
+
+    // Per-net "this net touches N overused cells" score, recomputed each iter
+    // from the demand grid. Currently kept for diagnostics only; reordering
+    // nets by this score was tried and found to destabilize the schedule
+    // (most-contested net swaps to the front, gets a clean route, displaces
+    // nets that had clean routes the previous iter → rock-paper-scissors).
+    /** @type {Map<string, number>} net -> overused cell count */
+    const netOveruseScore = new Map();
+
     for (iter = 0; iter < maxIterations; iter++) {
         if (cancelToken?.cancelled) break;
+
+        // Keep stable original ordering across iterations. History/present-cost
+        // negotiation is the convergence mechanism, not order shuffling.
+        const orderedConnList = connList;
 
         pfGrid.clearDemand();
         const cellCostFn = (x, y, layer) => pfGrid.cellCost(x, y, layer, presentFactor);
 
         let routedThisIter = 0;
-        for (const item of connList) {
+        for (const item of orderedConnList) {
             if (cancelToken?.cancelled) break;
             const result = await astarRoute(
                 item.from.x, item.from.y, item.to.x, item.to.y,
@@ -3216,8 +3361,8 @@ export async function routeAllPathfinder(input, options = {}) {
             if (result?.path?.length > 0) {
                 routes.set(connKey, { path: result.path, vias: result.vias || [], net: item.net });
                 routedThisIter++;
-                // Record this net's demand in the grid so subsequent nets in
-                // this iteration negotiate against it.
+                // Record this net's demand so subsequent nets in this iter
+                // negotiate against it.
                 for (let p = 0; p < result.path.length - 1; p++) {
                     const p1 = result.path[p], p2 = result.path[p + 1];
                     if (p1.layer === p2.layer) {
@@ -3233,8 +3378,26 @@ export async function routeAllPathfinder(input, options = {}) {
 
         const overusedCells = pfGrid.countOverused();
         const overusedNets = pfGrid.overusedNets().size;
+
+        // Recompute per-net overuse score for next iteration's ordering.
+        netOveruseScore.clear();
+        for (const m of pfGrid.demand.values()) {
+            if (m.size > 1) {
+                for (const net of m.keys()) {
+                    netOveruseScore.set(net, (netOveruseScore.get(net) || 0) + 1);
+                }
+            }
+        }
+
         iterationStats.push({ iter, routed: routedThisIter, overusedCells, overusedNets, presentFactor });
         console.info(`[pathfinder] iter ${iter}: routed=${routedThisIter}/${totalConns}, overused cells=${overusedCells}, conflicted nets=${overusedNets}, pf=${presentFactor.toFixed(3)}`);
+
+        // Track best-so-far snapshot for emission.
+        if (overusedCells < bestOverused) {
+            bestOverused = overusedCells;
+            bestIter = iter;
+            bestRoutes = new Map(routes);
+        }
 
         if (overusedCells === 0 && routedThisIter === totalConns) {
             converged = true;
@@ -3246,6 +3409,34 @@ export async function routeAllPathfinder(input, options = {}) {
         presentFactor *= presentFactorGrowth;
     }
 
+    // Use best-iteration snapshot for emission (unless we converged at the
+    // very last iteration, in which case routes already holds the converged
+    // result).
+    const finalRoutes = converged ? routes : (bestRoutes || routes);
+    if (!converged && bestIter >= 0) {
+        console.info(`[pathfinder] emitting snapshot from iter ${bestIter} (overused=${bestOverused})`);
+    }
+
+    // ── Feasibility extraction ──
+    // Pathfinder may emit paths that overlap (especially on over-congested
+    // boards). Greedily drop conflicting connections so the remaining
+    // routes are non-overlapping at cell granularity. The cell size used here
+    // is approximately (traceWidth + clearance), so two routes sharing a
+    // cell almost certainly violate clearance.
+    //
+    // This is a Maximum Independent Set approximation (NP-hard in general).
+    // The heuristic: repeatedly drop the connection contributing to the
+    // most cell conflicts until no cell has multiple occupants.
+    const droppedConns = extractFeasibleSubset(
+        finalRoutes, connList, gridStep, traceWidth, clearance,
+    );
+    if (droppedConns.size > 0) {
+        console.info(`[pathfinder] feasibility extraction dropped ${droppedConns.size} conflicting connection(s) of ${totalConns} total`);
+    }
+    for (const connKey of droppedConns) {
+        finalRoutes.set(connKey, null);
+    }
+
     // ── Build result ──
     const allTraces = [];
     const allVias = [];
@@ -3254,7 +3445,7 @@ export async function routeAllPathfinder(input, options = {}) {
 
     for (const item of connList) {
         const connKey = `${item.net}:${item.connIdx}`;
-        const route = routes.get(connKey);
+        const route = finalRoutes.get(connKey);
         if (!route) {
             failedCount++;
             failedConnections.push({
@@ -3307,6 +3498,14 @@ export async function routeAllPathfinder(input, options = {}) {
         pathfinderConverged: converged,
         pathfinderIterations: iter + (converged ? 1 : 0),
         pathfinderIterationStats: iterationStats,
+        pathfinderEmittedIter: converged ? iter : bestIter,
+        pathfinderEmittedOverusedCells: converged
+            ? 0
+            : (bestIter >= 0 ? iterationStats[bestIter].overusedCells : 0),
+        pathfinderEmittedOverusedNets: converged
+            ? 0
+            : (bestIter >= 0 ? iterationStats[bestIter].overusedNets : 0),
+        // Last-iteration stats (may differ from emitted if a worse iter ran after the best)
         pathfinderFinalOverusedCells: iterationStats.length > 0
             ? iterationStats[iterationStats.length - 1].overusedCells
             : 0,
