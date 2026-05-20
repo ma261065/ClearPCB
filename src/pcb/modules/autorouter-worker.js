@@ -1,4 +1,5 @@
-import { routeAll } from './autorouter.js';
+import { routeWithClassicRouter } from './autorouter-classic.js';
+import { routeWithPathfinderRouter } from './autorouter-pathfinder.js';
 
 let activeCancelToken = null;
 let running = false;
@@ -17,7 +18,9 @@ self.addEventListener('message', async (event) => {
     activeCancelToken = { cancelled: false };
 
     try {
-        const result = await routeAll(msg.routeInput, {
+        const routerMode = msg.routerMode === 'pathfinder' ? 'pathfinder' : 'classic';
+        const router = routerMode === 'pathfinder' ? routeWithPathfinderRouter : routeWithClassicRouter;
+        const result = await router(msg.routeInput, {
             cancelToken: activeCancelToken,
             onProgress: (done, total, net, meta = {}) => {
                 self.postMessage({ type: 'progress', done, total, net, meta });
