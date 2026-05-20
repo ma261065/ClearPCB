@@ -1227,6 +1227,7 @@ export default class PCBApp {
         // Build route input from placements + netlist, or use stored test board input
         const routeInput = this._testBoardRouteInput || this._buildRouteInput();
         this._testBoardRouteInput = null;  // consume it — only used once
+        const routerMode = this._getRouterMode();
         // Always honour the current UI design rules, even when the source is a
         // test-board JSON that embedded its own values.
         const uiParams = this._getRoutingParams();
@@ -1240,7 +1241,7 @@ export default class PCBApp {
         try {
             const startTime = performance.now();
 
-            const result = await this._runAutoRouteInWorker(routeInput, cancelToken);
+            const result = await this._runAutoRouteInWorker(routeInput, cancelToken, routerMode);
 
             if (cancelToken.cancelled) {
                 // Keep and finalize partial routes so users can continue from this point.
@@ -1302,9 +1303,10 @@ export default class PCBApp {
      * Run routing in a dedicated worker and relay progress/events back to UI.
      * @param {import('../pcb/modules/autorouter.js').RouteInput} routeInput
      * @param {{cancelled: boolean}} cancelToken
+    * @param {'classic'|'pathfinder'} routerMode
      * @returns {Promise<import('../pcb/modules/autorouter.js').RouteResult>}
      */
-    _runAutoRouteInWorker(routeInput, cancelToken) {
+    _runAutoRouteInWorker(routeInput, cancelToken, routerMode = 'classic') {
         return new Promise((resolve, reject) => {
             const workerUrl = new URL('../pcb/modules/autorouter-worker.js', import.meta.url);
             const worker = new Worker(workerUrl, { type: 'module' });
@@ -1385,7 +1387,7 @@ export default class PCBApp {
 
             worker.addEventListener('message', onMessage);
             worker.addEventListener('error', onError);
-            worker.postMessage({ type: 'start', routeInput });
+            worker.postMessage({ type: 'start', routeInput, routerMode });
 
             cancelPoll = setInterval(() => {
                 if (!cancelToken?.cancelled) return;
@@ -2071,11 +2073,16 @@ export default class PCBApp {
         };
 
         return {
-            trackWidth: readVal('pcbTrackWidth', 0.254),
-            clearance: readVal('pcbClearance', 0.2),
-            viaDiameter: readVal('pcbViaDiameter', 0.6),
-            viaDrill: readVal('pcbViaDrill', 0.3),
+            trackWidth: readVal('pcbTrackWidth', 0.2),
+            clearance: readVal('pcbClearance', 0.1),
+            viaDiameter: readVal('pcbViaDiameter', 0.3),
+            viaDrill: readVal('pcbViaDrill', 0.15),
         };
+    }
+
+    _getRouterMode() {
+        const routerEl = /** @type {HTMLSelectElement|null} */ (document.getElementById('pcbRouterMode'));
+        return routerEl?.value === 'pathfinder' ? 'pathfinder' : 'classic';
     }
 
     /**
