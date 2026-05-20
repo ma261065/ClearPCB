@@ -3171,6 +3171,102 @@ function extractFeasibleSubset(finalRoutes, connList, gridStep, traceWidth, clea
 }
 
 /**
+ * Run the cell-greedy feasibility extraction + hard-obstacle re-route on a
+ * candidate snapshot of Pathfinder routes. Returns a new map with the final
+ * routes (dropped → re-routed or null), plus stats.
+ *
+ * Does NOT mutate the input `snapshotRoutes`. Used by routeAllPathfinder's
+ * multi-snapshot trial loop to score each candidate.
+ */
+async function extractAndReroute(snapshotRoutes, connList, allPads, opts) {
+    const {
+        gridStep, traceWidth, clearance, viaDiameter, cellSize, viaRadius,
+        routeBounds, greedyWeight, cancelToken, yieldToUI,
+    } = opts;
+    const halfTrace = traceWidth / 2;
+    const finalRoutes = new Map(snapshotRoutes);
+
+    // Cell-greedy MIS approximation: drop conflicting connections.
+    const droppedConns = extractFeasibleSubset(finalRoutes, connList, gridStep, traceWidth, clearance);
+    for (const ck of droppedConns) finalRoutes.set(ck, null);
+
+    let rerouteSuccess = 0;
+    if (droppedConns.size > 0) {
+        const rerouteObs = new SpatialHash(cellSize);
+        // Pads (always hard obstacles)
+        for (const pad of allPads) {
+            rerouteObs.insertPad(pad.x, pad.y, pad.width, pad.height, pad.id, pad.layer || 'both', { shape: pad.shape });
+        }
+        // KEPT routes' trace segments + vias become hard obstacles for re-route.
+        let pfConnId = 0;
+        for (const item of connList) {
+            const connKey = `${item.net}:${item.connIdx}`;
+            if (droppedConns.has(connKey)) continue;
+            const route = finalRoutes.get(connKey);
+            if (!route) continue;
+            const connId = `pf_kept_${pfConnId++}`;
+            for (let p = 0; p < route.path.length - 1; p++) {
+                const p1 = route.path[p], p2 = route.path[p + 1];
+                if (p1.layer === p2.layer) {
+                    rerouteObs.insert(p1.x, p1.y, p2.x, p2.y, halfTrace, item.net, p1.layer, connId);
+                }
+            }
+            for (const v of route.vias) {
+                rerouteObs.insertPad(v.x, v.y, viaDiameter, viaDiameter, item.net, 'both', { isVia: true, connId, shape: 'ellipse' });
+            }
+        }
+
+        // Order dropped items shortest-first: easier-to-fit nets succeed first,
+        // hardest left to squeeze through whatever channels remain.
+        const droppedItems = connList.filter(item => droppedConns.has(`${item.net}:${item.connIdx}`));
+        droppedItems.sort((a, b) =>
+            Math.hypot(a.from.x - a.to.x, a.from.y - a.to.y) -
+            Math.hypot(b.from.x - b.to.x, b.from.y - b.to.y));
+
+        for (const item of droppedItems) {
+            if (cancelToken?.cancelled) break;
+            const connKey = `${item.net}:${item.connIdx}`;
+            const result = await astarRoute(
+                item.from.x, item.from.y, item.to.x, item.to.y,
+                rerouteObs, item.skipIds, gridStep, traceWidth, clearance,
+                greedyWeight, /* allowVias */ true,
+                item.startLayer, item.endLayer,
+                {
+                    cancelToken,
+                    yieldToUI,
+                    bounds: routeBounds,
+                    viaRadius,
+                    routingNet: item.net,
+                    startPad: item.from,
+                    endPad: item.to,
+                    // No cellCostFn here — pure hard-obstacle A*.
+                }
+            );
+            if (result?.path?.length > 0) {
+                finalRoutes.set(connKey, { path: result.path, vias: result.vias || [], net: item.net });
+                rerouteSuccess++;
+                // Add this route to rerouteObs so the next re-route sees it.
+                const connId = `pf_reroute_${pfConnId++}`;
+                for (let p = 0; p < result.path.length - 1; p++) {
+                    const p1 = result.path[p], p2 = result.path[p + 1];
+                    if (p1.layer === p2.layer) {
+                        rerouteObs.insert(p1.x, p1.y, p2.x, p2.y, halfTrace, item.net, p1.layer, connId);
+                    }
+                }
+                for (const v of result.vias || []) {
+                    rerouteObs.insertPad(v.x, v.y, viaDiameter, viaDiameter, item.net, 'both', { isVia: true, connId, shape: 'ellipse' });
+                }
+            }
+            await yieldToUI();
+        }
+    }
+
+    let routed = 0;
+    for (const v of finalRoutes.values()) if (v) routed++;
+    return { finalRoutes, dropped: droppedConns.size, recovered: rerouteSuccess, routed };
+}
+
+/**
  * Negotiated-congestion (Pathfinder) autorouter.
  *
  * Replaces the rip-up loop of `routeAll` with an iterative negotiation:
@@ -3342,6 +3438,15 @@ export async function routeAllPathfinder(input, options = {}) {
     /** @type {Map<string, {path, vias, net} | null> | null} */
     let bestRoutes = null;
 
+    // Top-K snapshots by overusedCells (lowest first). Multi-snapshot trial
+    // extraction picks the snapshot with the best post-extraction yield —
+    // which is NOT always the lowest-overuse one (a snapshot whose conflicts
+    // are concentrated in one channel may force many drops, while a snapshot
+    // with conflicts spread out can be pruned more cheaply).
+    const SNAPSHOT_LIMIT = 5;
+    /** @type {Array<{iter:number, overused:number, routes: Map<string, {path,vias,net}|null>}>} */
+    const topSnapshots = [];
+
     // Per-net "this net touches N overused cells" score, recomputed each iter
     // from the demand grid. Currently kept for diagnostics only; reordering
     // nets by this score was tried and found to destabilize the schedule
@@ -3422,6 +3527,15 @@ export async function routeAllPathfinder(input, options = {}) {
             bestRoutes = new Map(routes);
         }
 
+        // Maintain top-K snapshots (lowest overusedCells). Snapshotting
+        // copies the routes map (cheap — entries reference shared {path, vias}
+        // objects) so it survives the next clearDemand pass.
+        if (topSnapshots.length < SNAPSHOT_LIMIT || overusedCells < topSnapshots[topSnapshots.length - 1].overused) {
+            topSnapshots.push({ iter, overused: overusedCells, routes: new Map(routes) });
+            topSnapshots.sort((a, b) => a.overused - b.overused);
+            if (topSnapshots.length > SNAPSHOT_LIMIT) topSnapshots.length = SNAPSHOT_LIMIT;
+        }
+
         if (overusedCells === 0 && routedThisIter === totalConns) {
             converged = true;
             console.info(`[pathfinder] CONVERGED at iter ${iter}`);
@@ -3432,112 +3546,51 @@ export async function routeAllPathfinder(input, options = {}) {
         presentFactor *= presentFactorGrowth;
     }
 
-    // Use best-iteration snapshot for emission (unless we converged at the
-    // very last iteration, in which case routes already holds the converged
-    // result).
-    const finalRoutes = converged ? routes : (bestRoutes || routes);
-    if (!converged && bestIter >= 0) {
-        console.info(`[pathfinder] emitting snapshot from iter ${bestIter} (overused=${bestOverused})`);
+    // ── Multi-snapshot trial extraction ──
+    // Lowest-overuse snapshot is NOT always the best for post-extraction
+    // yield: a snapshot whose conflicts are concentrated in one channel may
+    // force many drops, while a snapshot with conflicts spread out can be
+    // pruned more cheaply. Try the top-K candidates and pick whichever
+    // yields the most routed connections after extraction + re-route.
+    const candidateSnapshots = [];
+    const seenIters = new Set();
+    const addCandidate = (snapIter, overused, snapRoutes) => {
+        if (seenIters.has(snapIter)) return;
+        seenIters.add(snapIter);
+        candidateSnapshots.push({ iter: snapIter, overused, routes: snapRoutes });
+    };
+    if (converged) {
+        addCandidate(iter, 0, routes);
+    } else {
+        for (const snap of topSnapshots) addCandidate(snap.iter, snap.overused, snap.routes);
+        // Also include the LAST snapshot if not already present — sometimes
+        // the post-history schedule lands on something useful at the end.
+        if (iterationStats.length > 0) {
+            const lastIter = iterationStats[iterationStats.length - 1].iter;
+            const lastOveruse = iterationStats[iterationStats.length - 1].overusedCells;
+            addCandidate(lastIter, lastOveruse, routes);
+        }
     }
 
-    // ── Feasibility extraction ──
-    // Pathfinder may emit paths that overlap (especially on over-congested
-    // boards). Greedily drop conflicting connections so the remaining
-    // routes are non-overlapping at cell granularity. The cell size used here
-    // is approximately (traceWidth + clearance), so two routes sharing a
-    // cell almost certainly violate clearance.
-    //
-    // This is a Maximum Independent Set approximation (NP-hard in general).
-    // The heuristic: repeatedly drop the connection contributing to the
-    // most cell conflicts until no cell has multiple occupants.
-    const droppedConns = extractFeasibleSubset(
-        finalRoutes, connList, gridStep, traceWidth, clearance,
-    );
-    if (droppedConns.size > 0) {
-        console.info(`[pathfinder] feasibility extraction dropped ${droppedConns.size} conflicting connection(s) of ${totalConns} total`);
+    let bestRouted = -1;
+    let bestFinalRoutes = null;
+    let bestTrialInfo = null;
+    for (const snap of candidateSnapshots) {
+        if (cancelToken?.cancelled) break;
+        const trial = await extractAndReroute(
+            snap.routes, connList, allPads,
+            { gridStep, traceWidth, clearance, viaDiameter, cellSize, viaRadius, routeBounds, greedyWeight, cancelToken, yieldToUI },
+        );
+        console.info(`[pathfinder] trial snapshot iter=${snap.iter} overused=${snap.overused}: dropped=${trial.dropped} recovered=${trial.recovered} routed=${trial.routed}/${totalConns}`);
+        if (trial.routed > bestRouted) {
+            bestRouted = trial.routed;
+            bestFinalRoutes = trial.finalRoutes;
+            bestTrialInfo = { iter: snap.iter, overused: snap.overused, dropped: trial.dropped, recovered: trial.recovered };
+        }
     }
-    for (const connKey of droppedConns) {
-        finalRoutes.set(connKey, null);
-    }
-
-    // ── Re-route fallback ──
-    // Naively dropping conflicting connections is too lossy because Pathfinder
-    // emits globally-coordinated paths that all "want" the same channels.
-    // Instead, take the dropped connections and try to A* re-route each one
-    // against the KEPT Pathfinder paths as hard obstacles. This recovers the
-    // common case where a conflict was resolvable by detouring one party
-    // around the other.
-    let rerouteSuccess = 0;
-    if (droppedConns.size > 0) {
-        const halfTrace = traceWidth / 2;
-        const rerouteObs = new SpatialHash(cellSize);
-        // Pads (always hard obstacles)
-        for (const pad of allPads) {
-            rerouteObs.insertPad(pad.x, pad.y, pad.width, pad.height, pad.id, pad.layer || 'both', { shape: pad.shape });
-        }
-        // KEPT routes' trace segments + vias become hard obstacles for re-route.
-        let pfConnId = 0;
-        for (const item of connList) {
-            const connKey = `${item.net}:${item.connIdx}`;
-            if (droppedConns.has(connKey)) continue;
-            const route = finalRoutes.get(connKey);
-            if (!route) continue;
-            const connId = `pf_kept_${pfConnId++}`;
-            for (let p = 0; p < route.path.length - 1; p++) {
-                const p1 = route.path[p], p2 = route.path[p + 1];
-                if (p1.layer === p2.layer) {
-                    rerouteObs.insert(p1.x, p1.y, p2.x, p2.y, halfTrace, item.net, p1.layer, connId);
-                }
-            }
-            for (const v of route.vias) {
-                rerouteObs.insertPad(v.x, v.y, viaDiameter, viaDiameter, item.net, 'both', { isVia: true, connId, shape: 'ellipse' });
-            }
-        }
-
-        // Order dropped items shortest-first: easier-to-fit nets succeed first,
-        // hardest left to squeeze through whatever channels remain.
-        const droppedItems = connList.filter(item => droppedConns.has(`${item.net}:${item.connIdx}`));
-        droppedItems.sort((a, b) =>
-            Math.hypot(a.from.x - a.to.x, a.from.y - a.to.y) -
-            Math.hypot(b.from.x - b.to.x, b.from.y - b.to.y));
-
-        for (const item of droppedItems) {
-            if (cancelToken?.cancelled) break;
-            const connKey = `${item.net}:${item.connIdx}`;
-            const result = await astarRoute(
-                item.from.x, item.from.y, item.to.x, item.to.y,
-                rerouteObs, item.skipIds, gridStep, traceWidth, clearance,
-                greedyWeight, /* allowVias */ true,
-                item.startLayer, item.endLayer,
-                {
-                    cancelToken,
-                    yieldToUI,
-                    bounds: routeBounds,
-                    viaRadius,
-                    routingNet: item.net,
-                    startPad: item.from,
-                    endPad: item.to,
-                    // No cellCostFn here — pure hard-obstacle A*.
-                }
-            );
-            if (result?.path?.length > 0) {
-                finalRoutes.set(connKey, { path: result.path, vias: result.vias || [], net: item.net });
-                rerouteSuccess++;
-                // Add this route to rerouteObs so the next re-route sees it.
-                const connId = `pf_reroute_${pfConnId++}`;
-                for (let p = 0; p < result.path.length - 1; p++) {
-                    const p1 = result.path[p], p2 = result.path[p + 1];
-                    if (p1.layer === p2.layer) {
-                        rerouteObs.insert(p1.x, p1.y, p2.x, p2.y, halfTrace, item.net, p1.layer, connId);
-                    }
-                }
-                for (const v of result.vias || []) {
-                    rerouteObs.insertPad(v.x, v.y, viaDiameter, viaDiameter, item.net, 'both', { isVia: true, connId, shape: 'ellipse' });
-                }
-            }
-            await yieldToUI();
-        }
-        console.info(`[pathfinder] re-route fallback recovered ${rerouteSuccess}/${droppedConns.size} dropped connection(s); ${droppedConns.size - rerouteSuccess} remain failed`);
+    const finalRoutes = bestFinalRoutes || (converged ? routes : (bestRoutes || routes));
+    if (bestTrialInfo) {
+        console.info(`[pathfinder] emitting trial from iter ${bestTrialInfo.iter} (overused=${bestTrialInfo.overused}, dropped=${bestTrialInfo.dropped}, recovered=${bestTrialInfo.recovered}, routed=${bestRouted}/${totalConns})`);
     }
 
     // ── Build result ──
@@ -3601,13 +3654,18 @@ export async function routeAllPathfinder(input, options = {}) {
         pathfinderConverged: converged,
         pathfinderIterations: iter + (converged ? 1 : 0),
         pathfinderIterationStats: iterationStats,
-        pathfinderEmittedIter: converged ? iter : bestIter,
+        // Iteration whose snapshot was actually emitted (after multi-snapshot trial).
+        pathfinderEmittedIter: converged ? iter : (bestTrialInfo ? bestTrialInfo.iter : bestIter),
         pathfinderEmittedOverusedCells: converged
             ? 0
-            : (bestIter >= 0 ? iterationStats[bestIter].overusedCells : 0),
+            : (bestTrialInfo ? bestTrialInfo.overused : (bestIter >= 0 ? iterationStats[bestIter].overusedCells : 0)),
         pathfinderEmittedOverusedNets: converged
             ? 0
             : (bestIter >= 0 ? iterationStats[bestIter].overusedNets : 0),
+        // Multi-snapshot trial stats
+        pathfinderTrialCandidates: candidateSnapshots.length,
+        pathfinderTrialDropped: bestTrialInfo ? bestTrialInfo.dropped : 0,
+        pathfinderTrialRecovered: bestTrialInfo ? bestTrialInfo.recovered : 0,
         // Last-iteration stats (may differ from emitted if a worse iter ran after the best)
         pathfinderFinalOverusedCells: iterationStats.length > 0
             ? iterationStats[iterationStats.length - 1].overusedCells
