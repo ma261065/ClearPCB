@@ -3437,6 +3437,86 @@ export async function routeAllPathfinder(input, options = {}) {
         finalRoutes.set(connKey, null);
     }
 
+    // ── Re-route fallback ──
+    // Naively dropping conflicting connections is too lossy because Pathfinder
+    // emits globally-coordinated paths that all "want" the same channels.
+    // Instead, take the dropped connections and try to A* re-route each one
+    // against the KEPT Pathfinder paths as hard obstacles. This recovers the
+    // common case where a conflict was resolvable by detouring one party
+    // around the other.
+    let rerouteSuccess = 0;
+    if (droppedConns.size > 0) {
+        const halfTrace = traceWidth / 2;
+        const rerouteObs = new SpatialHash(cellSize);
+        // Pads (always hard obstacles)
+        for (const pad of allPads) {
+            rerouteObs.insertPad(pad.x, pad.y, pad.width, pad.height, pad.id, pad.layer || 'both', { shape: pad.shape });
+        }
+        // KEPT routes' trace segments + vias become hard obstacles for re-route.
+        let pfConnId = 0;
+        for (const item of connList) {
+            const connKey = `${item.net}:${item.connIdx}`;
+            if (droppedConns.has(connKey)) continue;
+            const route = finalRoutes.get(connKey);
+            if (!route) continue;
+            const connId = `pf_kept_${pfConnId++}`;
+            for (let p = 0; p < route.path.length - 1; p++) {
+                const p1 = route.path[p], p2 = route.path[p + 1];
+                if (p1.layer === p2.layer) {
+                    rerouteObs.insert(p1.x, p1.y, p2.x, p2.y, halfTrace, item.net, p1.layer, connId);
+                }
+            }
+            for (const v of route.vias) {
+                rerouteObs.insertPad(v.x, v.y, viaDiameter, viaDiameter, item.net, 'both', { isVia: true, connId, shape: 'ellipse' });
+            }
+        }
+
+        // Order dropped items shortest-first: easier-to-fit nets succeed first,
+        // hardest left to squeeze through whatever channels remain.
+        const droppedItems = connList.filter(item => droppedConns.has(`${item.net}:${item.connIdx}`));
+        droppedItems.sort((a, b) =>
+            Math.hypot(a.from.x - a.to.x, a.from.y - a.to.y) -
+            Math.hypot(b.from.x - b.to.x, b.from.y - b.to.y));
+
+        for (const item of droppedItems) {
+            if (cancelToken?.cancelled) break;
+            const connKey = `${item.net}:${item.connIdx}`;
+            const result = await astarRoute(
+                item.from.x, item.from.y, item.to.x, item.to.y,
+                rerouteObs, item.skipIds, gridStep, traceWidth, clearance,
+                greedyWeight, /* allowVias */ true,
+                item.startLayer, item.endLayer,
+                {
+                    cancelToken,
+                    yieldToUI,
+                    bounds: routeBounds,
+                    viaRadius,
+                    routingNet: item.net,
+                    startPad: item.from,
+                    endPad: item.to,
+                    // No cellCostFn here — pure hard-obstacle A*.
+                }
+            );
+            if (result?.path?.length > 0) {
+                finalRoutes.set(connKey, { path: result.path, vias: result.vias || [], net: item.net });
+                rerouteSuccess++;
+                // Add this route to rerouteObs so the next re-route sees it.
+                const connId = `pf_reroute_${pfConnId++}`;
+                for (let p = 0; p < result.path.length - 1; p++) {
+                    const p1 = result.path[p], p2 = result.path[p + 1];
+                    if (p1.layer === p2.layer) {
+                        rerouteObs.insert(p1.x, p1.y, p2.x, p2.y, halfTrace, item.net, p1.layer, connId);
+                    }
+                }
+                for (const v of result.vias || []) {
+                    rerouteObs.insertPad(v.x, v.y, viaDiameter, viaDiameter, item.net, 'both', { isVia: true, connId, shape: 'ellipse' });
+                }
+            }
+            await yieldToUI();
+        }
+        console.info(`[pathfinder] re-route fallback recovered ${rerouteSuccess}/${droppedConns.size} dropped connection(s); ${droppedConns.size - rerouteSuccess} remain failed`);
+    }
+
     // ── Build result ──
     const allTraces = [];
     const allVias = [];
