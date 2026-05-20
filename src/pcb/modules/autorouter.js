@@ -3263,7 +3263,254 @@ async function extractAndReroute(snapshotRoutes, connList, allPads, opts) {
 
     let routed = 0;
     for (const v of finalRoutes.values()) if (v) routed++;
-    return { finalRoutes, dropped: droppedConns.size, recovered: rerouteSuccess, routed };
+
+    // Geometric verification: cell-greedy extraction is approximate (sample
+    // grid + via rasterization can miss perpendicular crossings inside one
+    // cell, or grid-edge cases where a trace squeezes through a pad row).
+    // Drop violators based on exact distance calculations.
+    const verifyResult = geometricVerifyAndDrop(finalRoutes, connList, allPads,
+        { traceWidth, clearance, viaDiameter, cellSize });
+
+    return {
+        finalRoutes,
+        dropped: droppedConns.size,
+        recovered: rerouteSuccess,
+        routed,                              // raw post-reroute count (pre-verify)
+        cleanRouted: verifyResult.cleanRouted, // post-geometric-verify count
+        violators: verifyResult.violators,
+    };
+}
+
+/**
+ * Geometric clearance verification for a set of routed connections.
+ *
+ * Cell-based feasibility extraction is approximate — two routes whose cell
+ * footprints don't overlap can still violate clearance at grid edges (a 3μm
+ * sliver inside a dense pad row, a perpendicular crossing inside a single
+ * cell). This pass catches those by running an exact distance check against
+ * a SpatialHash of all routes' traces + vias + pads.
+ *
+ * Iteratively drops the worst violator (most conflicting segments+vias)
+ * until no violations remain. Same-net traces/vias are exempted (multi-pin
+ * nets legitimately share copper). Same-net via-on-pad is allowed.
+ *
+ * @param {Map<string, {path,vias,net}|null>} finalRoutes — mutated in place;
+ *   violators set to null.
+ * @returns {{ violators: number, cleanRouted: number }}
+ */
+function geometricVerifyAndDrop(finalRoutes, connList, allPads, opts) {
+    const { traceWidth, clearance, viaDiameter, cellSize } = opts;
+    const halfTrace = traceWidth / 2;
+    const viaRadius = viaDiameter / 2;
+    const EPS = 1e-4;
+
+    // Pad-instance index (id → {net set of nets that include this pad}).
+    // Built from the conn list (only connected pads contribute net membership).
+    const padNetMap = new Map();
+    const padKey = (x, y) => `${x.toFixed(4)},${y.toFixed(4)}`;
+    for (const item of connList) {
+        for (const p of [item.from, item.to]) {
+            const k = padKey(p.x, p.y);
+            if (!padNetMap.has(k)) padNetMap.set(k, new Set());
+            padNetMap.get(k).add(item.net);
+        }
+    }
+
+    // Build per-conn data + a SpatialHash of all route traces and vias.
+    /** @type {Map<string, {item, route}>} */
+    const connData = new Map();
+    const routeHash = new SpatialHash(cellSize);
+    for (const item of connList) {
+        const connKey = `${item.net}:${item.connIdx}`;
+        const route = finalRoutes.get(connKey);
+        if (!route) continue;
+        connData.set(connKey, { item, route });
+        for (let p = 0; p < route.path.length - 1; p++) {
+            const p1 = route.path[p], p2 = route.path[p + 1];
+            if (p1.layer === p2.layer) {
+                routeHash.insert(p1.x, p1.y, p2.x, p2.y, halfTrace, item.net, p1.layer, connKey);
+            }
+        }
+        for (const v of route.vias) {
+            routeHash.insertPad(v.x, v.y, viaDiameter, viaDiameter, item.net, 'both',
+                { isVia: true, connId: connKey, shape: 'ellipse' });
+        }
+    }
+
+    // Compute violation count for a single connection against the current
+    // routeHash + pads. Counts:
+    //   - segments crossing another conn's trace/via (different net)
+    //   - segments crossing a foreign-net pad (not in own skipIds, not own-net)
+    //   - vias crossing another conn's trace/via or a foreign-net pad
+    const countViolations = (connKey) => {
+        const data = connData.get(connKey);
+        if (!data) return 0;
+        const { item, route } = data;
+        let count = 0;
+
+        // Trace segments
+        for (let p = 0; p < route.path.length - 1; p++) {
+            const p1 = route.path[p], p2 = route.path[p + 1];
+            if (p1.layer !== p2.layer) continue;
+
+            // Trace vs other routes (skip own connKey by using skipIds set
+            // containing the connKey; skipNet=net skips other same-net traces).
+            const segSkip = new Set();
+            segSkip.add(connKey);                  // skip own traces/vias by connKey
+            for (const id of item.skipIds) segSkip.add(id); // skip own endpoint pads
+            // Custom check: query the routeHash for any obj within halfTrace+clearance
+            // of the segment, ignoring own connKey, same-net traces, same-net vias.
+            const blockers = collectBlockers(routeHash, p1, p2, halfTrace + clearance, segSkip, p1.layer, item.net);
+            count += blockers;
+
+            // Trace vs pads (other than own endpoints + same-net)
+            for (const pad of allPads) {
+                const padLayer = pad.layer || 'both';
+                if (padLayer !== 'both' && padLayer !== p1.layer) continue;
+                if (item.skipIds.has(pad.id)) continue;
+                const padNetSet = padNetMap.get(padKey(pad.x, pad.y));
+                if (padNetSet && padNetSet.has(item.net)) continue;
+                // Quick AABB cull
+                const minX = Math.min(p1.x, p2.x), maxX = Math.max(p1.x, p2.x);
+                const minY = Math.min(p1.y, p2.y), maxY = Math.max(p1.y, p2.y);
+                const margin = halfTrace + clearance;
+                if (pad.x + pad.width / 2 < minX - margin || pad.x - pad.width / 2 > maxX + margin) continue;
+                if (pad.y + pad.height / 2 < minY - margin || pad.y - pad.height / 2 > maxY + margin) continue;
+                // Exact distance: treat pad as obstacle object for padSegmentBlocked
+                const padObj = { cx: pad.x, cy: pad.y, hw: pad.width / 2, hh: pad.height / 2, shape: pad.shape || 'rect' };
+                if (padSegmentBlocked(p1.x, p1.y, p2.x, p2.y, padObj, halfTrace + clearance - EPS)) {
+                    count++;
+                }
+            }
+        }
+
+        // Vias
+        for (const via of route.vias) {
+            // Via vs other routes (traces + vias, different net)
+            const viaSkip = new Set();
+            viaSkip.add(connKey);
+            for (const id of item.skipIds) viaSkip.add(id);
+            const blockers = collectViaBlockers(routeHash, via.x, via.y, viaRadius, halfTrace, clearance, viaSkip, item.net);
+            count += blockers;
+
+            // Via vs pads (own-net via-on-pad allowed; foreign-net hard violation).
+            for (const pad of allPads) {
+                if (item.skipIds.has(pad.id)) continue;
+                const padNetSet = padNetMap.get(padKey(pad.x, pad.y));
+                if (padNetSet && padNetSet.has(item.net)) continue;
+                const padObj = { cx: pad.x, cy: pad.y, hw: pad.width / 2, hh: pad.height / 2, shape: pad.shape || 'rect' };
+                if (padPointBlocked(via.x, via.y, padObj, viaRadius + clearance - EPS)) {
+                    count++;
+                }
+            }
+        }
+
+        return count;
+    };
+
+    // Iterative drop loop
+    let violators = 0;
+    while (true) {
+        let worst = null, worstCount = 0;
+        for (const connKey of connData.keys()) {
+            const c = countViolations(connKey);
+            if (c > worstCount) { worstCount = c; worst = connKey; }
+        }
+        if (!worst) break;
+        finalRoutes.set(worst, null);
+        // Remove its traces/vias from the hash so other counts decrease.
+        routeHash.removeConnection(worst);
+        connData.delete(worst);
+        violators++;
+    }
+
+    let cleanRouted = 0;
+    for (const v of finalRoutes.values()) if (v) cleanRouted++;
+    return { violators, cleanRouted };
+}
+
+/**
+ * Helper: count distinct OTHER-net blockers for a segment in the route hash.
+ * Skips: own connKey (via skipIds), same-net traces, same-net vias.
+ *
+ * @param queryClear = halfTrace + clearance (so that obj.hw + queryClear =
+ *   halfTrace + halfTrace + clearance = traceWidth + clearance, the
+ *   trace-to-trace center-distance threshold).
+ *
+ * Returns the number of OTHER routes whose copper violates clearance against
+ * the segment (each is counted once even if multiple of its segments conflict).
+ */
+function collectBlockers(routeHash, p1, p2, queryClear, skipIds, layer, ownNet) {
+    const ax1 = p1.x, ay1 = p1.y, ax2 = p2.x, ay2 = p2.y;
+    const minSX = Math.min(ax1, ax2), maxSX = Math.max(ax1, ax2);
+    const minSY = Math.min(ay1, ay2), maxSY = Math.max(ay1, ay2);
+    const cxMin = Math.floor((minSX - queryClear) / routeHash.cellSize) - 1;
+    const cxMax = Math.floor((maxSX + queryClear) / routeHash.cellSize) + 1;
+    const cyMin = Math.floor((minSY - queryClear) / routeHash.cellSize) - 1;
+    const cyMax = Math.floor((maxSY + queryClear) / routeHash.cellSize) + 1;
+    const blockers = new Set();
+    for (let cx = cxMin; cx <= cxMax; cx++) {
+        for (let cy = cyMin; cy <= cyMax; cy++) {
+            const objs = routeHash.cells.get(routeHash._key(cx, cy));
+            if (!objs) continue;
+            for (const obj of objs) {
+                if (!obj.connId) continue;             // only route-tagged objs (skip pads)
+                if (skipIds.has(obj.connId)) continue; // skip own conn
+                if (obj.net === ownNet) continue;      // skip same-net
+                if (obj.isPad) {
+                    // Via (only vias have connId among inserted pads).
+                    // Threshold: viaRadius + halfTrace + clearance = obj.hw + queryClear.
+                    if (padSegmentBlocked(ax1, ay1, ax2, ay2, obj, queryClear)) {
+                        blockers.add(obj.connId);
+                    }
+                } else {
+                    // Trace segment, must be on same layer to interact.
+                    if (obj.layer && layer && obj.layer !== layer) continue;
+                    // Threshold: traceWidth + clearance = obj.hw + queryClear.
+                    const d = segmentToSegmentDist(ax1, ay1, ax2, ay2, obj.x1, obj.y1, obj.x2, obj.y2);
+                    if (d < obj.hw + queryClear) blockers.add(obj.connId);
+                }
+            }
+        }
+    }
+    return blockers.size;
+}
+
+/**
+ * Helper: count distinct OTHER-net blockers for a via.
+ * Returns the number of other routes whose copper violates clearance against
+ * this via.
+ */
+function collectViaBlockers(routeHash, vx, vy, viaRadius, halfTrace, clearance, skipIds, ownNet) {
+    const blockers = new Set();
+    // Trace-vs-via threshold: viaRadius + halfTrace + clearance
+    // Via-vs-via threshold: 2*viaRadius + clearance
+    const maxThresh = Math.max(viaRadius + halfTrace + clearance, 2 * viaRadius + clearance);
+    const cxMin = Math.floor((vx - maxThresh) / routeHash.cellSize) - 1;
+    const cxMax = Math.floor((vx + maxThresh) / routeHash.cellSize) + 1;
+    const cyMin = Math.floor((vy - maxThresh) / routeHash.cellSize) - 1;
+    const cyMax = Math.floor((vy + maxThresh) / routeHash.cellSize) + 1;
+    for (let cx = cxMin; cx <= cxMax; cx++) {
+        for (let cy = cyMin; cy <= cyMax; cy++) {
+            const objs = routeHash.cells.get(routeHash._key(cx, cy));
+            if (!objs) continue;
+            for (const obj of objs) {
+                if (!obj.connId) continue;
+                if (skipIds.has(obj.connId)) continue;
+                if (obj.net === ownNet) continue;
+                if (obj.isPad) {
+                    // Other via: center distance < 2*viaRadius + clearance
+                    const d = Math.hypot(vx - obj.cx, vy - obj.cy);
+                    if (d < 2 * viaRadius + clearance) blockers.add(obj.connId);
+                } else {
+                    // Other trace: dist from via center to trace center-line < viaRadius + halfTrace + clearance
+                    const d = pointToSegmentDist(vx, vy, obj.x1, obj.y1, obj.x2, obj.y2);
+                    if (d < viaRadius + obj.hw + clearance) blockers.add(obj.connId);
+                }
+            }
+        }
+    }
+    return blockers.size;
 }
 
 /**
@@ -3447,6 +3694,15 @@ export async function routeAllPathfinder(input, options = {}) {
     /** @type {Array<{iter:number, overused:number, routes: Map<string, {path,vias,net}|null>}>} */
     const topSnapshots = [];
 
+    // Always-include early iterations (weak negotiation pressure → routes are
+    // near-optimal and geographically spread out → conflicts spread across
+    // many small zones → extract drops fewer connections). Empirically the
+    // best yield on test-board.json comes from iter=4 (within the first 5);
+    // 8 gives margin for other boards without adding many slow trials.
+    const EARLY_ITER_KEEP = 8;
+    /** @type {Array<{iter:number, overused:number, routes: Map<string, {path,vias,net}|null>}>} */
+    const earlySnapshots = [];
+
     // Per-net "this net touches N overused cells" score, recomputed each iter
     // from the demand grid. Currently kept for diagnostics only; reordering
     // nets by this score was tried and found to destabilize the schedule
@@ -3536,6 +3792,11 @@ export async function routeAllPathfinder(input, options = {}) {
             if (topSnapshots.length > SNAPSHOT_LIMIT) topSnapshots.length = SNAPSHOT_LIMIT;
         }
 
+        // Always keep the first EARLY_ITER_KEEP iterations as candidates.
+        if (iter < EARLY_ITER_KEEP) {
+            earlySnapshots.push({ iter, overused: overusedCells, routes: new Map(routes) });
+        }
+
         if (overusedCells === 0 && routedThisIter === totalConns) {
             converged = true;
             console.info(`[pathfinder] CONVERGED at iter ${iter}`);
@@ -3562,6 +3823,9 @@ export async function routeAllPathfinder(input, options = {}) {
     if (converged) {
         addCandidate(iter, 0, routes);
     } else {
+        // Early-iter snapshots first (often best by yield).
+        for (const snap of earlySnapshots) addCandidate(snap.iter, snap.overused, snap.routes);
+        // Then top-K by overuse (lowest first).
         for (const snap of topSnapshots) addCandidate(snap.iter, snap.overused, snap.routes);
         // Also include the LAST snapshot if not already present — sometimes
         // the post-history schedule lands on something useful at the end.
@@ -3572,7 +3836,7 @@ export async function routeAllPathfinder(input, options = {}) {
         }
     }
 
-    let bestRouted = -1;
+    let bestCleanRouted = -1;
     let bestFinalRoutes = null;
     let bestTrialInfo = null;
     for (const snap of candidateSnapshots) {
@@ -3581,16 +3845,24 @@ export async function routeAllPathfinder(input, options = {}) {
             snap.routes, connList, allPads,
             { gridStep, traceWidth, clearance, viaDiameter, cellSize, viaRadius, routeBounds, greedyWeight, cancelToken, yieldToUI },
         );
-        console.info(`[pathfinder] trial snapshot iter=${snap.iter} overused=${snap.overused}: dropped=${trial.dropped} recovered=${trial.recovered} routed=${trial.routed}/${totalConns}`);
-        if (trial.routed > bestRouted) {
-            bestRouted = trial.routed;
+        console.info(`[pathfinder] trial snapshot iter=${snap.iter} overused=${snap.overused}: dropped=${trial.dropped} recovered=${trial.recovered} routed=${trial.routed}/${totalConns} cleanRouted=${trial.cleanRouted} violators=${trial.violators}`);
+        if (trial.cleanRouted > bestCleanRouted) {
+            bestCleanRouted = trial.cleanRouted;
             bestFinalRoutes = trial.finalRoutes;
-            bestTrialInfo = { iter: snap.iter, overused: snap.overused, dropped: trial.dropped, recovered: trial.recovered };
+            bestTrialInfo = {
+                iter: snap.iter,
+                overused: snap.overused,
+                dropped: trial.dropped,
+                recovered: trial.recovered,
+                routed: trial.routed,
+                cleanRouted: trial.cleanRouted,
+                violators: trial.violators,
+            };
         }
     }
     const finalRoutes = bestFinalRoutes || (converged ? routes : (bestRoutes || routes));
     if (bestTrialInfo) {
-        console.info(`[pathfinder] emitting trial from iter ${bestTrialInfo.iter} (overused=${bestTrialInfo.overused}, dropped=${bestTrialInfo.dropped}, recovered=${bestTrialInfo.recovered}, routed=${bestRouted}/${totalConns})`);
+        console.info(`[pathfinder] emitting trial from iter ${bestTrialInfo.iter} (overused=${bestTrialInfo.overused}, dropped=${bestTrialInfo.dropped}, recovered=${bestTrialInfo.recovered}, routed=${bestTrialInfo.routed}, violators=${bestTrialInfo.violators}, cleanRouted=${bestCleanRouted}/${totalConns})`);
     }
 
     // ── Build result ──
