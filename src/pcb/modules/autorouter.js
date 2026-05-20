@@ -3046,14 +3046,32 @@ function nncReorderPads(conn) {
  * conflicting first" heuristic is standard.
  */
 function extractFeasibleSubset(finalRoutes, connList, gridStep, traceWidth, clearance) {
-    // Cell smaller than gridStep, and at least (traceWidth + clearance) so
-    // two routes in the same cell really do overlap.
+    // Conflict-detection cell. Two routes whose samples land in the same cell
+    // are considered conflicting. Choose cellSize so the strictest clearance
+    // (via-trace = viaRadius + halfTrace + clearance ≈ 0.4mm by default)
+    // fits within (cellSize + some via-rasterization margin).
     const cellSize = Math.max(traceWidth + clearance, gridStep * 0.5);
+    // Sample step << cellSize so diagonally-crossing segments are caught.
+    // Two perpendicular segments crossing at a cell boundary would otherwise
+    // alternate between adjacent cells and miss each other.
+    const sampleStep = cellSize / 4;
+    // Rasterize via footprints over a 3×3 cell block: the via's clearance
+    // requirement (≈ 0.4mm) often spans more than one cell.
+    const VIA_RASTER_OFFSETS = [
+        [-1, -1], [0, -1], [1, -1],
+        [-1,  0], [0,  0], [1,  0],
+        [-1,  1], [0,  1], [1,  1],
+    ];
+
     const KEY_OFFSET = 4194304;
     const KEY_Y_STRIDE = 33554432;
     const _key = (x, y, layer) => {
         const cx = Math.floor(x / cellSize);
         const cy = Math.floor(y / cellSize);
+        const lbit = (layer === 'bottom' || layer === 1) ? 1 : 0;
+        return ((cx + KEY_OFFSET) * KEY_Y_STRIDE) + ((cy + KEY_OFFSET) * 2) + lbit;
+    };
+    const _keyCell = (cx, cy, layer) => {
         const lbit = (layer === 'bottom' || layer === 1) ? 1 : 0;
         return ((cx + KEY_OFFSET) * KEY_Y_STRIDE) + ((cy + KEY_OFFSET) * 2) + lbit;
     };
@@ -3077,21 +3095,26 @@ function extractFeasibleSubset(finalRoutes, connList, gridStep, traceWidth, clea
         const connKey = `${item.net}:${item.connIdx}`;
         const route = finalRoutes.get(connKey);
         if (!route) continue;
-        // Trace segments per layer.
+        // Trace segments per layer, sampled densely.
         for (let p = 0; p < route.path.length - 1; p++) {
             const p1 = route.path[p], p2 = route.path[p + 1];
             if (p1.layer !== p2.layer) continue;
             const dist = Math.hypot(p2.x - p1.x, p2.y - p1.y);
-            const steps = Math.max(1, Math.ceil(dist / cellSize));
+            const steps = Math.max(1, Math.ceil(dist / sampleStep));
             for (let s = 0; s <= steps; s++) {
                 const t = s / steps;
                 addToCell(_key(p1.x + (p2.x - p1.x) * t, p1.y + (p2.y - p1.y) * t, p1.layer), connKey);
             }
         }
-        // Vias occupy both layers at their (x,y).
+        // Vias occupy a 3×3 cell footprint on BOTH layers to capture the
+        // larger via clearance requirement.
         for (const v of route.vias) {
-            addToCell(_key(v.x, v.y, 'top'), connKey);
-            addToCell(_key(v.x, v.y, 'bottom'), connKey);
+            const cx = Math.floor(v.x / cellSize);
+            const cy = Math.floor(v.y / cellSize);
+            for (const [dx, dy] of VIA_RASTER_OFFSETS) {
+                addToCell(_keyCell(cx + dx, cy + dy, 'top'), connKey);
+                addToCell(_keyCell(cx + dx, cy + dy, 'bottom'), connKey);
+            }
         }
     }
 
