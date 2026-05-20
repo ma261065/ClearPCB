@@ -2073,10 +2073,10 @@ export default class PCBApp {
         };
 
         return {
-            trackWidth: readVal('pcbTrackWidth', 0.254),
-            clearance: readVal('pcbClearance', 0.2),
-            viaDiameter: readVal('pcbViaDiameter', 0.6),
-            viaDrill: readVal('pcbViaDrill', 0.3),
+            trackWidth: readVal('pcbTrackWidth', 0.2),
+            clearance: readVal('pcbClearance', 0.1),
+            viaDiameter: readVal('pcbViaDiameter', 0.3),
+            viaDrill: readVal('pcbViaDrill', 0.15),
         };
     }
 
