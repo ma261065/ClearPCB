@@ -1,7 +1,8 @@
 # ClearPCB Autorouter
 
-A connection-oriented maze router with rip-up-and-reroute, inspired by
-[Freerouting](https://github.com/freerouting/freerouting).
+Two connection-oriented routers — a maze router with rip-up-and-reroute
+(inspired by [Freerouting](https://github.com/freerouting/freerouting)) and a
+negotiated-congestion pathfinder — sharing a common geometry / A* core.
 
 ## Architecture
 
@@ -11,23 +12,30 @@ A connection-oriented maze router with rip-up-and-reroute, inspired by
 │  (main UI)  │  Worker messages     │   (Web Worker)      │
 └─────────────┘                      └────────┬───────────┘
                                               │
-                                              ▼
-                                     ┌────────────────┐
-                                     │ autorouter.js   │
-                                     │  routeAll()     │
-                                     │                 │
-                                     │ ┌─────────────┐ │
-                                     │ │ SpatialHash  │ │
-                                     │ │ (obstacles)  │ │
-                                     │ └─────────────┘ │
-                                     │ ┌─────────────┐ │
-                                     │ │ A* Pathfinder│ │
-                                     │ │ (2-layer)    │ │
-                                     │ └─────────────┘ │
-                                     │ ┌─────────────┐ │
-                                     │ │ Congestion   │ │
-                                     │ │ Grid         │ │
-                                     │ └─────────────┘ │
+                              ┌──────────────┴─────────────┐
+                              ▼                            ▼
+                  ┌───────────────────┐    ┌─────────────────────┐
+                  │ autorouter-maze.js │    │ autorouter-pathfinder │
+                  │   routeAll()       │    │   routeAllPathfinder()│
+                  └────────┬──────────┘    └───────────┬─────────┘
+                           │                       │
+                           └──────────┬───────────┘
+                                      ▼
+                            ┌────────────────────┐
+                            │ autorouter-common.js │
+                            │  ┌─────────────┐ │
+                            │  │ SpatialHash  │ │
+                            │  │ (obstacles)  │ │
+                            │  └─────────────┘ │
+                            │  ┌─────────────┐ │
+                            │  │ A* Pathfinder│ │
+                            │  │ (2-layer)    │ │
+                            │  └─────────────┘ │
+                            │  ┌─────────────┐ │
+                            │  │ Congestion / │ │
+                            │  │ Pathfinder   │ │
+                            │  │ Grids        │ │
+                            │  └─────────────┘ │
                                      └────────────────┘
 ```
 
@@ -237,18 +245,31 @@ across the board and resolves routing-order butterfly effects.
 
 ```
 src/pcb/modules/
-├── autorouter.js          # Core routing engine (~2600 lines)
-│   ├── SpatialHash        # Obstacle spatial index
-│   ├── CongestionGrid     # Historical routing demand
-│   ├── astarRoute()       # Weighted A* pathfinder
-│   ├── astarProbe()       # Crossing-aware A* for rip-up
-│   ├── routeAll()         # Main entry point
-│   └── (geometry helpers, path post-processing)
+├── autorouter-common.js      # Shared infrastructure (~1700 lines)
+│   ├── SpatialHash            # Obstacle spatial index
+│   ├── CongestionGrid         # Historical routing demand (maze)
+│   ├── PathfinderGrid         # Cell-based path-cost accumulation
+│   ├── astarRoute()           # Weighted A* pathfinder
+│   ├── astarProbe()           # Crossing-aware A* for rip-up
+│   ├── padPointBlocked / padSegmentBlocked   # Pad blocking predicates
+│   ├── RouteInput / RouteResult typedefs     # Router contract
+│   └── (geometry helpers, path post-processing, node-key packing)
 │
-└── autorouter-worker.js   # Web Worker wrapper (~50 lines)
+├── autorouter-maze.js        # Maze router (~1300 lines)
+│   ├── routeAll()             # Rip-up-and-reroute main entry
+│   ├── routeWithMazeRouter()  # Worker-facing wrapper
+│   └── defaultChainEdges / buildMstEdges / netManhattan
+│
+├── autorouter-pathfinder.js  # Negotiated-congestion router (~1800 lines)
+│   ├── routeAllPathfinder()         # Main entry
+│   ├── routeWithPathfinderRouter()  # Worker-facing wrapper
+│   └── nncReorderPads, extractFeasibleSubset, geometricVerifyAndDrop,
+│       smoothPathfinderRoutes, ripUpSwap, unionExtend, …
+│
+└── autorouter-worker.js      # Web Worker wrapper (~50 lines)
 
 src/ui/
-└── PCBApp.js              # UI integration
+└── PCBApp.js                 # UI integration
     ├── _buildRouteInput()
     ├── _runAutoRouteInWorker()
     ├── _renderNetTraces()

@@ -5,7 +5,7 @@
 // Usage: node tools/check-clearance-pathfinder.mjs [boardFile] [traceWidth] [clearance] [viaDia]
 
 import { readFileSync } from 'fs';
-import { routeAllPathfinder } from '../src/pcb/modules/autorouter.js';
+import { routeAllPathfinder } from '../src/pcb/modules/autorouter-pathfinder.js';
 
 const boardFile = process.argv[2] || 'test-board.json';
 const traceWidth = parseFloat(process.argv[3] ?? '0.2');

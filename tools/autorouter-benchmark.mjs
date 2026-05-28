@@ -17,7 +17,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { importDSN } from '../src/pcb/modules/dsn.js';
-import { routeAll } from '../src/pcb/modules/autorouter.js';
+import { routeAll } from '../src/pcb/modules/autorouter-maze.js';
 
 function parseArgs(argv) {
     const args = {

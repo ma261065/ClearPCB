@@ -1,7 +1,7 @@
 // Find vias geometrically overlapping pad copper (ignoring clearance).
 // Usage: node tools/check-via-on-pad.mjs [board] [tw] [cl] [vd]
 import { readFileSync } from 'fs';
-import { routeAll } from '../src/pcb/modules/autorouter.js';
+import { routeAll } from '../src/pcb/modules/autorouter-maze.js';
 
 const file = process.argv[2] || 'test-board.json';
 const tw = parseFloat(process.argv[3] ?? '0.2');

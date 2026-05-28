@@ -301,6 +301,11 @@ export default class PCBApp {
         });
 
         svg.addEventListener('contextmenu', (e) => e.preventDefault());
+
+        // Suppress browser context menu on PCB ribbon header & body.
+        // (SchematicApp uses querySelector('.ribbon') which only catches the
+        //  first match — the schematic ribbon — so we handle #ribbonPCB here.)
+        document.getElementById('ribbonPCB')?.addEventListener('contextmenu', (e) => e.preventDefault());
     }
 
     _updateViewportStatus() {
@@ -1301,12 +1306,12 @@ export default class PCBApp {
 
     /**
      * Run routing in a dedicated worker and relay progress/events back to UI.
-     * @param {import('../pcb/modules/autorouter.js').RouteInput} routeInput
+     * @param {import('../pcb/modules/autorouter-common.js').RouteInput} routeInput
      * @param {{cancelled: boolean}} cancelToken
-    * @param {'classic'|'pathfinder'} routerMode
-     * @returns {Promise<import('../pcb/modules/autorouter.js').RouteResult>}
+    * @param {'maze'|'pathfinder'} routerMode
+     * @returns {Promise<import('../pcb/modules/autorouter-common.js').RouteResult>}
      */
-    _runAutoRouteInWorker(routeInput, cancelToken, routerMode = 'classic') {
+    _runAutoRouteInWorker(routeInput, cancelToken, routerMode = 'maze') {
         return new Promise((resolve, reject) => {
             const workerUrl = new URL('../pcb/modules/autorouter-worker.js', import.meta.url);
             const worker = new Worker(workerUrl, { type: 'module' });
@@ -1553,15 +1558,22 @@ export default class PCBApp {
 
         const pct = state.total > 0 ? Math.round((state.done / state.total) * 100) : 0;
         const isRipup = state.phase === 'ripup' || String(state.netName || '').startsWith('Rip-up');
-        const phaseLabel = isRipup
-            ? `Phase: Rip-up ${Math.max(1, state.ripupPass || 1)} of ${Math.max(1, state.ripupMaxPasses || 4)}`
-            : 'Phase: Route placement';
+        const isPathfinder = state.phase === 'pathfinder';
+        let phaseLabel;
+        if (isRipup) {
+            phaseLabel = `Phase: Rip-up ${Math.max(1, state.ripupPass || 1)} of ${Math.max(1, state.ripupMaxPasses || 4)}`;
+        } else if (isPathfinder) {
+            // Pathfinder sends a self-describing netName (e.g. "Pathfinder iter 12/25: 950 overused").
+            phaseLabel = `Phase: ${state.netName || 'Pathfinder'}`;
+        } else {
+            phaseLabel = 'Phase: Route placement';
+        }
         const remainingConns = Math.max(0, Number.isFinite(state.pendingConnections) ? state.pendingConnections : (state.total - state.done));
-        const progressLabel = isRipup
-            ? `${state.done}/${state.total} (${pct}%)`
-            : `${state.done}/${state.total} (${pct}%)`;
+        const progressLabel = `${pct}%`;
         if (label) {
-            label.textContent = `${phaseLabel} - ${progressLabel} - ${remainingConns} connections unrouted`;
+            label.textContent = isPathfinder
+                ? `${phaseLabel} - ${progressLabel} - ${remainingConns} pending`
+                : `${phaseLabel} - ${state.done}/${state.total} (${pct}%) - ${remainingConns} connections unrouted`;
         }
         if (bar) bar.style.width = `${pct}%`;
         if (elapsed) {
@@ -1599,32 +1611,39 @@ export default class PCBApp {
 
     /**
      * Convert placements + netlist into the input format for our A* router.
-     * @returns {import('../pcb/modules/autorouter.js').RouteInput}
+     * @returns {import('../pcb/modules/autorouter-common.js').RouteInput}
      */
     _buildRouteInput() {
         // Build connections with pad positions and sizes
         const connections = [];
+        const toRouterLayer = (l) => l === 'bottom-copper' ? 'bottom' : (l === 'both' ? 'both' : 'top');
         for (const entry of this.netlist) {
             const pads = [];
             for (const pin of entry.pins) {
                 const pl = this.placements.get(pin.componentId);
                 if (!pl) continue;
-                const padPos = pl.pads.get(pin.pinNumber);
-                if (!padPos) continue;
-                // Find pad dimensions from offsets
-                const off = (pl.padOffsets || []).find(o => o.number === pin.pinNumber);
-                // Map footprint layer to router layer
-                const fpLayer = off?.layer || 'top-copper';
-                const routerLayer = fpLayer === 'bottom-copper' ? 'bottom'
-                    : fpLayer === 'both' ? 'both' : 'top';
-                pads.push({
-                    x: padPos.x,
-                    y: padPos.y,
-                    width: off?.width || 1.0,
-                    height: off?.height || 1.0,
-                    layer: routerLayer,
-                    shape: off?.shape || 'rect',
+                // Multi-pad pins (e.g. thermal/centre pads of TQFN/SOIC-with-EP
+                // share a pin number across many physical pads). Collect ALL
+                // matching offsets — first becomes the primary endpoint, the
+                // rest go into `alternates` so the router can land on any of
+                // them. Without this we'd only see the arbitrary last-inserted
+                // pad from the placement Map, often a hemmed-in centre pad
+                // that's hard or impossible to reach.
+                const matches = (pl.padOffsets || []).filter(o => o.number === pin.pinNumber);
+                if (matches.length === 0) continue;
+                const padFor = (off) => ({
+                    x: pl.x + off.dx,
+                    y: pl.y + off.dy,
+                    width: off.width || 1.0,
+                    height: off.height || 1.0,
+                    layer: toRouterLayer(off.layer || 'top-copper'),
+                    shape: off.shape || 'rect',
                 });
+                const primary = padFor(matches[0]);
+                if (matches.length > 1) {
+                    primary.alternates = matches.slice(1).map(padFor);
+                }
+                pads.push(primary);
             }
             if (pads.length >= 2) {
                 connections.push({ net: entry.net, pads });
@@ -1636,15 +1655,12 @@ export default class PCBApp {
         const allObstaclePads = [];
         for (const [, pl] of this.placements) {
             for (const off of (pl.padOffsets || [])) {
-                const fpLayer = off.layer || 'top-copper';
-                const routerLayer = fpLayer === 'bottom-copper' ? 'bottom'
-                    : fpLayer === 'both' ? 'both' : 'top';
                 allObstaclePads.push({
                     x: pl.x + off.dx,
                     y: pl.y + off.dy,
                     width: off.width || 1.0,
                     height: off.height || 1.0,
-                    layer: routerLayer,
+                    layer: toRouterLayer(off.layer || 'top-copper'),
                     shape: off.shape || 'rect',
                 });
             }
@@ -2082,7 +2098,7 @@ export default class PCBApp {
 
     _getRouterMode() {
         const routerEl = /** @type {HTMLSelectElement|null} */ (document.getElementById('pcbRouterMode'));
-        return routerEl?.value === 'pathfinder' ? 'pathfinder' : 'classic';
+        return routerEl?.value === 'pathfinder' ? 'pathfinder' : 'maze';
     }
 
     /**
@@ -2305,7 +2321,7 @@ export default class PCBApp {
 
     /**
      * Render routing result onto copper layers and hide routed ratlines.
-     * @param {import('../pcb/modules/autorouter.js').RouteResult} result
+     * @param {import('../pcb/modules/autorouter-common.js').RouteResult} result
      */
     _renderRouteResult(result) {
         this._flushRatsnestVisibilityQueue();

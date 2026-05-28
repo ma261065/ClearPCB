@@ -2,7 +2,7 @@
 // Usage: node tools/check-clearance.mjs [boardFile] [traceWidth] [clearance] [viaDia]
 
 import { readFileSync } from 'fs';
-import { routeAll } from '../src/pcb/modules/autorouter.js';
+import { routeAll } from '../src/pcb/modules/autorouter-maze.js';
 
 const boardFile = process.argv[2] || 'test-board.json';
 const traceWidth = parseFloat(process.argv[3] ?? '0.2');

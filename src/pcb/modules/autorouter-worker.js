@@ -1,4 +1,4 @@
-import { routeWithClassicRouter } from './autorouter-classic.js';
+import { routeWithMazeRouter } from './autorouter-maze.js';
 import { routeWithPathfinderRouter } from './autorouter-pathfinder.js';
 
 let activeCancelToken = null;
@@ -18,8 +18,8 @@ self.addEventListener('message', async (event) => {
     activeCancelToken = { cancelled: false };
 
     try {
-        const routerMode = msg.routerMode === 'pathfinder' ? 'pathfinder' : 'classic';
-        const router = routerMode === 'pathfinder' ? routeWithPathfinderRouter : routeWithClassicRouter;
+        const routerMode = msg.routerMode === 'pathfinder' ? 'pathfinder' : 'maze';
+        const router = routerMode === 'pathfinder' ? routeWithPathfinderRouter : routeWithMazeRouter;
         const result = await router(msg.routeInput, {
             cancelToken: activeCancelToken,
             onProgress: (done, total, net, meta = {}) => {

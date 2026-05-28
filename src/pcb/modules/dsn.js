@@ -184,7 +184,7 @@ ${classDef}
  *
  * @param {string} dsnText
  * @returns {{
- *   routeInput: import('./autorouter.js').RouteInput,
+ *   routeInput: import('./autorouter-common.js').RouteInput,
  *   meta: {
  *     resolution: number,
  *     unit: string,
