@@ -60,7 +60,7 @@ export async function routeAll(input, options = {}) {
      *   — both of which were turning maze routing into a 1-3 minute slog on the
      *   GitHub Pages tab when the browser window wasn't in the foreground.
      */
-    let yieldToUI = (() => {
+    const yieldToUI = (() => {
         if (typeof document !== 'undefined') {
             return () => {
                 if (document.visibilityState === 'visible') {
@@ -93,18 +93,6 @@ export async function routeAll(input, options = {}) {
 
         return () => Promise.resolve();
     })();
-    // ── PERF DIAG ── wrap yieldToUI in place to record stats on self.__yieldStats
-    if (typeof self !== 'undefined' && self.__yieldStats) {
-        const __raw = yieldToUI;
-        const __ys = self.__yieldStats;
-        yieldToUI = async () => {
-            const __t = performance.now();
-            await __raw();
-            __ys.totalMs += performance.now() - __t;
-            __ys.count++;
-        };
-    }
-    // ── /PERF DIAG ──
     // Routing parameters are required — there is no sensible global default
     // for clearance/traceWidth/viaDiameter/gridStep. Callers must supply them
     // (UI provides values from #pcbClearance / #pcbTrackWidth / etc.).
