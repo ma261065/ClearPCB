@@ -39,6 +39,11 @@ export function bindPcbControls(app) {
 
     const setTool = (tool) => {
         const nextTool = validTools.has(tool) ? tool : 'select';
+        // Cancel any in-progress Track draw when switching away from the
+        // track tool (or even just re-selecting it).
+        if (app._trackDraw && nextTool !== 'track') {
+            app._cancelTrackDraw?.();
+        }
         app.currentTool = nextTool;
         setToolButtonActive(nextTool);
         app._updateCursorForTool?.();
@@ -68,6 +73,10 @@ export function bindPcbControls(app) {
     // Export DSN button
     const exportDsnBtn = document.getElementById('pcbExportDSN');
     exportDsnBtn?.addEventListener('click', () => app.exportDSN?.());
+
+    // Export Gerber button
+    const exportGerberBtn = document.getElementById('pcbExportGerber');
+    exportGerberBtn?.addEventListener('click', () => app.exportGerber?.());
 
     // Import SES button
     const importSesBtn = document.getElementById('pcbImportSES');

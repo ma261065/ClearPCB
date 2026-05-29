@@ -56,6 +56,15 @@ export function serializeDocument(app) {
         doc.schematic.defs = defs;
     }
 
+    // Pull PCB-side state (tracks, vias) from the sibling PCBApp if it
+    // exists and has any persistable content. Kept optional so the
+    // schematic remains loadable in environments that don't bootstrap
+    // the PCB editor.
+    const pcbApp = /** @type {any} */ (globalThis).bootstrap?.pcbApp;
+    if (pcbApp && (pcbApp.tracks?.length || pcbApp.vias?.length)) {
+        doc.pcb = pcbApp.serialize();
+    }
+
     return doc;
 }
 
@@ -209,6 +218,14 @@ export async function loadDocument(app, data) {
 
     app._updateSelectableItems();
     app.renderShapes(true);
+
+    // Hand the PCB-side data off to the PCBApp, if present. The PCB
+    // editor rebuilds placements/board on activate, so the tracks/vias
+    // we restore here will line up with whatever the schematic produces.
+    const pcbApp = /** @type {any} */ (globalThis).bootstrap?.pcbApp;
+    if (pcbApp?.loadFromData) {
+        pcbApp.loadFromData(data.pcb || null);
+    }
 }
 
 /**

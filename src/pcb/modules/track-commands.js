@@ -1,0 +1,141 @@
+/**
+ * Command classes for PCB Track/Via undo/redo.
+ *
+ * Each command owns enough state to fully reverse itself. Render/SVG
+ * updates run inside execute()/undo() so the visible board state always
+ * matches the model.
+ */
+
+import {
+    renderTrack,
+    renderVia,
+    removeTrackElements,
+    removeViaElements,
+} from './track-render.js';
+import { reconcileRatsnest } from './track-draw.js';
+
+function _opts(app) {
+    return {
+        viaDiameter: app._getRoutingParams?.()?.viaDiameter,
+        viaDrill: app._getRoutingParams?.()?.viaDrill,
+    };
+}
+
+/** Add a freshly-built Track to app.tracks and render it. */
+export class AddTrackCommand {
+    constructor(app, track) {
+        this.app = app;
+        this.track = track;
+    }
+    execute() {
+        if (!this.app.tracks.includes(this.track)) this.app.tracks.push(this.track);
+        renderTrack(this.track, (id) => this.app._getLayerGroup(id), _opts(this.app));
+        reconcileRatsnest(this.app);
+    }
+    undo() {
+        removeTrackElements(this.track);
+        const i = this.app.tracks.indexOf(this.track);
+        if (i >= 0) this.app.tracks.splice(i, 1);
+        reconcileRatsnest(this.app);
+    }
+}
+
+/** Remove an existing Track from app.tracks and its SVG. */
+export class RemoveTrackCommand {
+    constructor(app, track) {
+        this.app = app;
+        this.track = track;
+    }
+    execute() {
+        removeTrackElements(this.track);
+        const i = this.app.tracks.indexOf(this.track);
+        if (i >= 0) this.app.tracks.splice(i, 1);
+        reconcileRatsnest(this.app);
+    }
+    undo() {
+        if (!this.app.tracks.includes(this.track)) this.app.tracks.push(this.track);
+        renderTrack(this.track, (id) => this.app._getLayerGroup(id), _opts(this.app));
+        reconcileRatsnest(this.app);
+    }
+}
+
+/**
+ * Change one or more scalar properties of a Track (e.g. width). Both
+ * snapshots are plain {key: value} objects.
+ */
+export class ModifyTrackCommand {
+    constructor(app, track, before, after) {
+        this.app = app;
+        this.track = track;
+        this.before = { ...before };
+        this.after = { ...after };
+    }
+    _apply(state) {
+        Object.assign(this.track, state);
+        renderTrack(this.track, (id) => this.app._getLayerGroup(id), _opts(this.app));
+    }
+    execute() { this._apply(this.after); }
+    undo() { this._apply(this.before); }
+}
+
+/** Move a single Track node from (fromX, fromY) to (toX, toY). */
+export class MoveVertexCommand {
+    constructor(app, track, nodeId, fromX, fromY, toX, toY) {
+        this.app = app;
+        this.track = track;
+        this.nodeId = nodeId;
+        this.from = { x: fromX, y: fromY };
+        this.to = { x: toX, y: toY };
+    }
+    _set(pt) {
+        const n = this.track.nodes.get(this.nodeId);
+        if (!n) return;
+        n.x = pt.x;
+        n.y = pt.y;
+        renderTrack(this.track, (id) => this.app._getLayerGroup(id), _opts(this.app));
+        reconcileRatsnest(this.app);
+    }
+    execute() { this._set(this.to); }
+    undo() { this._set(this.from); }
+}
+
+export class AddViaCommand {
+    constructor(app, via) { this.app = app; this.via = via; }
+    execute() {
+        if (!this.app.vias.includes(this.via)) this.app.vias.push(this.via);
+        renderVia(this.via, (id) => this.app._getLayerGroup(id));
+    }
+    undo() {
+        removeViaElements(this.via);
+        const i = this.app.vias.indexOf(this.via);
+        if (i >= 0) this.app.vias.splice(i, 1);
+    }
+}
+
+export class RemoveViaCommand {
+    constructor(app, via) { this.app = app; this.via = via; }
+    execute() {
+        removeViaElements(this.via);
+        const i = this.app.vias.indexOf(this.via);
+        if (i >= 0) this.app.vias.splice(i, 1);
+    }
+    undo() {
+        if (!this.app.vias.includes(this.via)) this.app.vias.push(this.via);
+        renderVia(this.via, (id) => this.app._getLayerGroup(id));
+    }
+}
+
+export class ModifyViaCommand {
+    constructor(app, via, before, after) {
+        this.app = app;
+        this.via = via;
+        this.before = { ...before };
+        this.after = { ...after };
+    }
+    _apply(state) {
+        Object.assign(this.via, state);
+        renderVia(this.via, (id) => this.app._getLayerGroup(id));
+    }
+    execute() { this._apply(this.after); }
+    undo() { this._apply(this.before); }
+}

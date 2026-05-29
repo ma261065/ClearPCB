@@ -179,6 +179,27 @@ documented baseline (currently: 65/76 connections routed, 0 violations).
 The run takes roughly two minutes. See `tools/regression.mjs` for the exact
 HARD vs SOFT check criteria.
 
+## Troubleshooting
+
+### Autorouting is unusually slow in Microsoft Edge
+
+If a route that should take ~30s is taking 2–3 minutes on the hosted site
+(but is fast when running locally), Microsoft Edge's **"Enhance your
+security on the web"** setting is likely the cause. When enabled, Edge
+disables V8's optimising JIT compiler for sites it considers "unfamiliar",
+forcing hot loops to run in the interpreter only — typically an 8–10×
+slowdown for compute-heavy code like the autorouter.
+
+Two fixes:
+
+1. **Add an exception:** `edge://settings/privacy` → "Enhance your
+   security on the web" → "Manage exceptions" → add the site.
+2. **Wait it out:** Edge graduates frequently-visited sites to its
+   trusted list automatically, after which the throttle goes away.
+
+Chrome, Firefox, Safari, Brave and other Chromium-based browsers are
+not affected.
+
 ## License
 
 MIT

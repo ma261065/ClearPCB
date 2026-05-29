@@ -10,6 +10,37 @@ import { buildRatsnest } from '../pcb/modules/ratsnest.js';
 import { updateGridDropdown } from './modules/viewport.js';
 import { PCB_LAYERS } from '../pcb/modules/layers.js';
 import { exportDSN, importSES } from '../pcb/modules/dsn.js';
+import { exportGerbers, buildZip } from '../pcb/modules/gerber.js';
+import { tracksFromAutorouterResult } from '../pcb/modules/autorouter-adapter.js';
+import { renderTrack, renderVia, removeTrackElements, removeViaElements } from '../pcb/modules/track-render.js';
+import {
+    startTrackDraw,
+    updateTrackDraw,
+    addTrackWaypoint,
+    finishTrackDraw,
+    cancelTrackDraw,
+    toggleTrackLayer,
+} from '../pcb/modules/track-draw.js';
+import {
+    hitTestTrack,
+    selectTrackOrVia,
+    clearTrackSelection,
+    deleteSelectedTrack,
+    setHoverHighlight,
+} from '../pcb/modules/track-select.js';
+import {
+    startVertexDrag,
+    updateVertexDrag,
+    finishVertexDrag,
+    cancelVertexDrag,
+} from '../pcb/modules/track-drag.js';
+import {
+    AddTrackCommand,
+} from '../pcb/modules/track-commands.js';
+import { CommandHistory } from '../core/CommandHistory.js';
+import { Track } from '../shapes/track.js';
+import { Via } from '../shapes/via.js';
+import { createShape } from '../shapes/index.js';
 
 /**
  * PCB editor application.
@@ -58,6 +89,22 @@ export default class PCBApp {
         /** Cached netlist from last sync */
         this.netlist = [];
 
+        /**
+         * Tracks (routed copper traces) on the board. The autorouter pushes
+         * here via the autorouter-adapter; the interactive Track tool (Phase
+         * 2) will push here too. Each entry is a Track shape instance.
+         * @type {Array<import('../shapes/track.js').Track>}
+         */
+        this.tracks = [];
+
+        /**
+         * Standalone vias (e.g. ground-plane stitching). Vias implied by
+         * a Track changing layer at a node are NOT stored here — they live
+         * inside the Track itself.
+         * @type {Array<import('../shapes/via.js').Via>}
+         */
+        this.vias = [];
+
         /** True when the schematic has changed since last PCB rebuild */
         this._stale = true;
         /** Debounce timer for live rebuilds while PCB pane is active */
@@ -83,6 +130,12 @@ export default class PCBApp {
         /** Drag state: { compId, startWorld, startPos } or null */
         this._drag = null;
 
+        /**
+         * Undo/redo for PCB-side edits (tracks, vias, vertex drags,
+         * property tweaks). Separate from the schematic's history.
+         * @type {CommandHistory}
+         */
+        this.history = new CommandHistory({ maxSize: 200 });
         /** Debug tooltip for showing raw footprintShapes data */
         this._debugTooltip = null;
         this._debugTooltipVisible = false;
@@ -212,10 +265,21 @@ export default class PCBApp {
 
         svg.addEventListener('mousedown', (e) => {
             if (!this._active) return;
-            // Switch ribbon back to Home tab on canvas click
-            const activeTab = this.ribbon?.querySelector('.ribbon-tab.active');
-            if (activeTab instanceof HTMLElement && activeTab.dataset?.tab !== 'pcb-home') {
-                this._setActiveRibbonTab?.('pcb-home');
+            // Switch ribbon back to Home tab on canvas click — but NOT
+            // while we're drawing a track (the Track tool drives the
+            // Properties tab so its width spinner stays visible).
+            if (!this._trackDraw) {
+                const activeTab = this.ribbon?.querySelector('.ribbon-tab.active');
+                if (activeTab instanceof HTMLElement && activeTab.dataset?.tab !== 'pcb-home') {
+                    this._setActiveRibbonTab?.('pcb-home');
+                }
+            }
+            // Right-click while drawing a track: defer the finish decision
+            // to mouseup — if the user actually drags (pans), don't finish.
+            // Either way, still let the standard pan handler below start a
+            // pan immediately.
+            if (e.button === 2 && this._trackDraw) {
+                this._trackRightDown = { x: e.clientX, y: e.clientY };
             }
             // Right-click: pin/unpin debug tooltip
             if (e.button === 2 && this._showDebugTooltip && this._debugTooltipVisible) {
@@ -236,9 +300,31 @@ export default class PCBApp {
                 return;
             }
 
-            // Left-click with select tool: hit-test for component
+            // Left-click with select tool: hit-test for a track/via first
+            // (smaller targets win when they overlap a component), then
+            // fall back to component / board-outline selection.
             if (e.button === 0 && this.currentTool === 'select') {
                 const worldPos = this._screenToWorld(e);
+
+                // If a track is already selected, try to start a vertex
+                // drag on it before doing anything else — this lets the
+                // user grab a node or bend a segment without re-clicking.
+                if (this._selectedTrack) {
+                    if (startVertexDrag(this, this._selectedTrack, worldPos)) {
+                        svg.style.cursor = 'grabbing';
+                        return;
+                    }
+                }
+
+                const trackHit = hitTestTrack(this, worldPos);
+                if (trackHit) {
+                    this._selectComponent(null);
+                    this._selectBoardOutline(false);
+                    selectTrackOrVia(this, trackHit);
+                    return;
+                }
+                // Anything else clears any track selection first.
+                clearTrackSelection(this);
                 const hit = this._hitTestComponent(worldPos);
                 if (hit) {
                     this._selectComponent(hit);
@@ -263,6 +349,16 @@ export default class PCBApp {
                     this._clearProperties();
                 }
             }
+
+            // Left-click with track tool: start a new track or add a waypoint.
+            if (e.button === 0 && this.currentTool === 'track') {
+                const worldPos = this._screenToWorld(e);
+                if (this._trackDraw) {
+                    addTrackWaypoint(this, worldPos);
+                } else {
+                    startTrackDraw(this, worldPos);
+                }
+            }
         });
 
         svg.addEventListener('mousemove', (e) => {
@@ -271,13 +367,72 @@ export default class PCBApp {
                 this.viewport.updatePan(e.clientX, e.clientY);
             } else if (this._drag) {
                 this._handleDrag(e);
+            } else if (this._vertexDrag) {
+                updateVertexDrag(this, this._screenToWorld(e));
+            } else if (this._trackDraw) {
+                updateTrackDraw(this, this._screenToWorld(e));
             } else if (this.currentTool === 'select') {
                 const worldPos = this._screenToWorld(e);
                 this._hoverBoardOutline(this._hitTestBoardOutline(worldPos));
+                // Hover highlight for tracks/vias.
+                setHoverHighlight(this, this._hitTestPad(worldPos) || hitTestTrack(this, worldPos));
             }
             this.viewport.trackMouse(e);
             this._updateDebugTooltip(e);
         });
+
+        svg.addEventListener('dblclick', (e) => {
+            if (!this._active) return;
+            if (this._trackDraw) {
+                e.preventDefault();
+                finishTrackDraw(this);
+            }
+        });
+
+        // Keyboard: Escape finishes (preserving committed segments),
+        // Space inserts a via at the cursor and switches layer. Bound on
+        // window because the SVG cannot receive keyboard focus.
+        if (!this._trackKeyHandler) {
+            this._trackKeyHandler = (e) => {
+                if (!this._active) return;
+                // While drawing, the Track tool owns the keyboard.
+                if (this._trackDraw) {
+                    if (e.key === 'Escape') {
+                        finishTrackDraw(this);
+                    } else if (e.code === 'Space' || e.key === ' ') {
+                        e.preventDefault();
+                        const snap = this._trackDraw.snap;
+                        if (snap) addTrackWaypoint(this, { x: snap.x, y: snap.y });
+                        if (this._trackDraw) toggleTrackLayer(this);
+                    }
+                    return;
+                }
+                // Otherwise: Delete removes the selected track/via,
+                // Escape clears the selection, Ctrl+Z/Y drive history.
+                const ctrl = e.ctrlKey || e.metaKey;
+                if (ctrl && !e.shiftKey && (e.key === 'z' || e.key === 'Z')) {
+                    e.preventDefault();
+                    if (this._vertexDrag) cancelVertexDrag(this);
+                    this.history.undo();
+                } else if (ctrl && ((e.key === 'y' || e.key === 'Y') || ((e.key === 'z' || e.key === 'Z') && e.shiftKey))) {
+                    e.preventDefault();
+                    this.history.redo();
+                } else if (e.key === 'Delete' || e.key === 'Backspace') {
+                    if (this._selectedTrack || this._selectedVia) {
+                        e.preventDefault();
+                        deleteSelectedTrack(this);
+                    }
+                } else if (e.key === 'Escape') {
+                    if (this._vertexDrag) {
+                        cancelVertexDrag(this);
+                    } else if (this._selectedTrack || this._selectedVia) {
+                        clearTrackSelection(this);
+                        this._clearProperties?.();
+                    }
+                }
+            };
+            window.addEventListener('keydown', this._trackKeyHandler);
+        }
 
         const endInteraction = () => {
             if (!this._active) return;
@@ -287,9 +442,34 @@ export default class PCBApp {
             if (this._drag) {
                 this._endDrag();
             }
+            if (this._vertexDrag) {
+                finishVertexDrag(this);
+                svg.style.cursor = 'default';
+                // Refresh the halo on the (possibly reshaped) selected track.
+                if (this._selectedTrack) {
+                    const t = this._selectedTrack;
+                    clearTrackSelection(this);
+                    selectTrackOrVia(this, { type: 'track', track: t });
+                }
+            }
         };
 
-        svg.addEventListener('mouseup', endInteraction);
+        svg.addEventListener('mouseup', (e) => {
+            endInteraction();
+            // Right-click release while drawing a track: if the user
+            // didn't pan (movement under threshold), treat it as "finish".
+            if (e.button === 2 && this._trackDraw && this._trackRightDown) {
+                const dx = e.clientX - this._trackRightDown.x;
+                const dy = e.clientY - this._trackRightDown.y;
+                this._trackRightDown = null;
+                if (Math.hypot(dx, dy) < 4) {
+                    // Commit a final waypoint at the cursor, then finish.
+                    const snap = this._trackDraw.snap;
+                    if (snap) addTrackWaypoint(this, { x: snap.x, y: snap.y });
+                    if (this._trackDraw) finishTrackDraw(this);
+                }
+            }
+        });
 
         // Only end pan on mouseleave — keep drag active so component
         // follows mouse back into canvas (matches schematic behavior)
@@ -320,7 +500,78 @@ export default class PCBApp {
 
     _updateCursorForTool() {
         if (!this.viewport?.svg) return;
-        this.viewport.svg.style.cursor = this.currentTool === 'pan' ? 'grab' : 'default';
+        const t = this.currentTool;
+        this.viewport.svg.style.cursor =
+            t === 'pan' ? 'grab' :
+            t === 'track' ? 'crosshair' :
+            'default';
+    }
+
+    /** Public hook used by controls.setTool to abort an in-flight track draw. */
+    _cancelTrackDraw() {
+        if (this._trackDraw) cancelTrackDraw(this);
+    }
+
+    /**
+     * Commit a freshly-drawn Track via the history stack so it can be
+     * undone. Called from finishTrackDraw().
+     * @param {Track} track
+     */
+    _commitTrack(track) {
+        this.history.execute(new AddTrackCommand(this, track));
+    }
+
+    /**
+     * Serialise the PCB state (tracks, vias) to a JSON-friendly object.
+     * Board outline / placements are derived from the schematic and not
+     * persisted here.
+     */
+    serialize() {
+        return {
+            tracks: this.tracks.map(t => t.toJSON()),
+            vias: this.vias.map(v => v.toJSON()),
+        };
+    }
+
+    /**
+     * Restore PCB state previously produced by serialize(). Replaces any
+     * existing tracks/vias and re-renders them.
+     * @param {{tracks?: Array, vias?: Array}|null} data
+     */
+    loadFromData(data) {
+        // Drop any existing tracks/vias and their SVG.
+        for (const t of this.tracks) removeTrackElements(t);
+        for (const v of this.vias) removeViaElements(v);
+        this.tracks.length = 0;
+        this.vias.length = 0;
+        clearTrackSelection(this);
+        this.history.clear?.();
+
+        if (!data) return;
+
+        if (Array.isArray(data.tracks)) {
+            for (const td of data.tracks) {
+                const track = createShape(td);
+                if (track instanceof Track) {
+                    this.tracks.push(track);
+                    renderTrack(track, (id) => this._getLayerGroup(id), {
+                        viaDiameter: this._getRoutingParams?.()?.viaDiameter,
+                        viaDrill: this._getRoutingParams?.()?.viaDrill,
+                    });
+                }
+            }
+        }
+        if (Array.isArray(data.vias)) {
+            for (const vd of data.vias) {
+                const via = Via.fromJSON(vd);
+                this.vias.push(via);
+                renderVia(via, (id) => this._getLayerGroup(id));
+            }
+        }
+        // Re-evaluate ratlines once the model is in place.
+        import('../pcb/modules/track-draw.js').then(({ reconcileRatsnest }) => {
+            reconcileRatsnest(this);
+        });
     }
 
     /**
@@ -651,6 +902,37 @@ export default class PCBApp {
     }
 
     /**
+     * Show live editable properties for an in-progress Track draw.
+     * Currently exposes net, layer, and a width spinner. Editing the
+     * width updates the live preview immediately.
+     * @param {object} ctx - the _trackDraw context
+     */
+    _showTrackDrawProperties(ctx) {
+        const items = document.getElementById('pcbPropsItems');
+        if (!items || !ctx) return;
+        const netLabel = ctx.net || '(unassigned)';
+        const layerLabel = ctx.currentLayer === 'bottom-copper' ? 'Bottom Copper' : 'Top Copper';
+        items.innerHTML = `
+            <div class="prop-row"><label>Type</label><span style="font-size:11px;color:var(--text-primary)">Track (drawing)</span></div>
+            <div class="prop-row"><label>Net</label><span style="font-size:11px;color:var(--text-primary)">${netLabel}</span></div>
+            <div class="prop-row"><label>Layer</label><span style="font-size:11px;color:var(--text-primary)">${layerLabel}</span></div>
+            <div class="prop-row"><label>Width (mm)</label><input type="number" id="pcbPropTrackWidth" value="${ctx.width}" min="0.05" step="0.05"></div>
+        `;
+        const wEl = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropTrackWidth'));
+        wEl?.addEventListener('input', () => {
+            const v = parseFloat(wEl.value);
+            if (Number.isFinite(v) && v > 0) {
+                ctx.width = v;
+                // Trigger a preview re-render at the current cursor position.
+                const last = ctx.points[ctx.points.length - 1];
+                const live = ctx.snap ? { x: ctx.snap.x, y: ctx.snap.y } : last;
+                updateTrackDraw(this, live);
+            }
+        });
+        this._setActiveRibbonTab?.('pcb-properties');
+    }
+
+    /**
      * Show board outline properties and switch to Properties tab.
      */
     _showBoardOutlineProperties() {
@@ -864,7 +1146,7 @@ export default class PCBApp {
             const padOffsets = [];
             for (const pad of fpGeom.pads) {
                 padMap.set(pad.number, { x: cx + pad.x, y: cy + pad.y });
-                padOffsets.push({ number: pad.number, dx: pad.x, dy: pad.y, width: pad.width, height: pad.height, layer: pad.layer, shape: pad.shape || 'rect' });
+                padOffsets.push({ number: pad.number, dx: pad.x, dy: pad.y, width: pad.width, height: pad.height, drill: pad.drill || 0, layer: pad.layer, shape: pad.shape || 'rect' });
             }
 
             this.placements.set(comp.id, {
@@ -968,6 +1250,30 @@ export default class PCBApp {
             }
         }
         return closest;
+    }
+
+    /**
+     * Hit-test: find a pad whose bounding box contains the world position.
+     * Returns `{ type:'pad', componentId, pinNumber }` or null. Pad shape
+     * is approximated by the bounding box from padOffsets.
+     */
+    _hitTestPad(worldPos) {
+        for (const [componentId, pl] of this.placements) {
+            if (!pl?.padOffsets) continue;
+            for (const off of pl.padOffsets) {
+                const pos = pl.pads.get(off.number);
+                if (!pos) continue;
+                const w = (off.width || 1.2) / 2;
+                const h = (off.height || 1.2) / 2;
+                if (
+                    worldPos.x >= pos.x - w && worldPos.x <= pos.x + w
+                    && worldPos.y >= pos.y - h && worldPos.y <= pos.y + h
+                ) {
+                    return { type: 'pad', componentId, pinNumber: off.number };
+                }
+            }
+        }
+        return null;
     }
 
     /**
@@ -1160,13 +1466,16 @@ export default class PCBApp {
 
         // Build minimal placements from allObstaclePads
         // Group pads into a single virtual component
+        // Pad layers follow the footprint/autorouter convention:
+        // 'top' | 'bottom' | 'both' (short form). Track layers use the
+        // long SVG-layer-id form ('top-copper'/'bottom-copper').
         const padOffsets = (routeInput.allObstaclePads || []).map((p, i) => ({
             number: String(i),
             dx: p.x,
             dy: p.y,
             width: p.width,
             height: p.height,
-            layer: p.layer === 'bottom' ? 'bottom-copper' : p.layer === 'both' ? 'both' : 'top-copper',
+            layer: p.layer === 'bottom' ? 'bottom' : p.layer === 'both' ? 'both' : 'top',
         }));
         const padMap = new Map();
         for (const off of padOffsets) {
@@ -1252,9 +1561,6 @@ export default class PCBApp {
                 // Keep and finalize partial routes so users can continue from this point.
                 this._clearIncrementalTraces();
                 this._renderRouteResult(result);
-                if (result.vias?.length) {
-                    this._renderVias(result.vias);
-                }
                 const routedConns = result.totalConnectionCount - (result.failedConnectionCount || 0);
                 const totalConns2 = result.totalConnectionCount || routeInput.connections.length;
                 this._hideRouteProgress();
@@ -1273,11 +1579,6 @@ export default class PCBApp {
             // Clear incremental traces and do final clean render
             this._clearIncrementalTraces();
             this._renderRouteResult(result);
-
-            // Render vias from built-in router
-            if (result.vias?.length) {
-                this._renderVias(result.vias);
-            }
 
             const totalConns = result.totalConnectionCount || routeInput.connections.length;
             const viaCount = result.vias?.length || 0;
@@ -2029,7 +2330,9 @@ export default class PCBApp {
             if (layerId === 'top-copper' && !topVisible) continue;
             if (layerId === 'bottom-copper' && !bottomVisible) continue;
             const sourceGroup = this._getLayerGroup(layerId);
-            const traces = [...sourceGroup.querySelectorAll('.pcb-routed-trace')];
+            // Both the legacy incremental render ('.pcb-routed-trace') and
+            // the model-driven render ('.pcb-track') are valid trace sources.
+            const traces = [...sourceGroup.querySelectorAll('.pcb-routed-trace, .pcb-track')];
             if (traces.length === 0) continue;
 
             for (const trace of traces) {
@@ -2050,12 +2353,13 @@ export default class PCBApp {
             }
         }
 
-        // Vias: drawn as circles with class 'pcb-routed-via' on the 'hole' layer.
-        // Two elements share the class (ring + drill); halo only the ring (the larger r).
+        // Vias: drawn as circles with class 'pcb-routed-via' (legacy/animation)
+        // or 'pcb-via' (model-driven) on the 'hole' layer. Two elements share
+        // the class (ring + drill); halo only the ring (the larger r).
         const holeGroup = this._getLayerGroup('hole');
         if (!holeVisible) return;
         const viaRingByCenter = new Map();
-        for (const via of holeGroup.querySelectorAll('circle.pcb-routed-via')) {
+        for (const via of holeGroup.querySelectorAll('circle.pcb-routed-via, circle.pcb-via')) {
             const cx = parseFloat(via.getAttribute('cx'));
             const cy = parseFloat(via.getAttribute('cy'));
             const r = parseFloat(via.getAttribute('r'));
@@ -2321,44 +2625,51 @@ export default class PCBApp {
 
     /**
      * Render routing result onto copper layers and hide routed ratlines.
+     *
+     * Converts the autorouter's raw {traces, vias} payload into Track and
+     * Via model instances stored on this.tracks / this.vias, then renders
+     * those via the track-render module. All downstream selection/edit/
+     * undo operations operate on the model, not on raw SVG.
+     *
      * @param {import('../pcb/modules/autorouter-common.js').RouteResult} result
      */
     _renderRouteResult(result) {
         this._flushRatsnestVisibilityQueue();
-        const NS = 'http://www.w3.org/2000/svg';
-        const topCopper = this._getLayerGroup('top-copper');
-        const bottomCopper = this._getLayerGroup('bottom-copper');
         const params = this._getRoutingParams();
 
-        // Clear previous traces
-        topCopper.querySelectorAll('.pcb-routed-trace').forEach(el => el.remove());
-        bottomCopper.querySelectorAll('.pcb-routed-trace').forEach(el => el.remove());
+        // Discard previous tracks/vias (the autorouter replaces the entire
+        // routed copper picture each run; manually-drawn tracks will be
+        // preserved separately once Phase 2 lands).
+        for (const t of this.tracks) removeTrackElements(t);
+        for (const v of this.vias) removeViaElements(v);
+        this.tracks.length = 0;
+        this.vias.length = 0;
 
-        const routedNets = new Set();
+        // Also clear any stale incremental-render SVG (from progress msgs).
+        const topCopper = this._getLayerGroup('top-copper');
+        const bottomCopper = this._getLayerGroup('bottom-copper');
+        if (topCopper) topCopper.querySelectorAll('.pcb-routed-trace, .pcb-route-anim').forEach(el => el.remove());
+        if (bottomCopper) bottomCopper.querySelectorAll('.pcb-routed-trace, .pcb-route-anim').forEach(el => el.remove());
+        const holeLayerEarly = this._getLayerGroup('hole');
+        if (holeLayerEarly) holeLayerEarly.querySelectorAll('.pcb-routed-via, .pcb-route-anim').forEach(el => el.remove());
 
-        for (const trace of result.traces) {
-            routedNets.add(trace.net);
-            const target = trace.layer === 'bottom' ? bottomCopper : topCopper;
-            const color = trace.layer === 'bottom' ? '#3498db' : '#e74c3c';
+        // Build model objects from the autorouter output.
+        const { tracks, vias } = tracksFromAutorouterResult(result, {
+            trackWidth: params.trackWidth,
+            viaDiameter: params.viaDiameter,
+            viaDrill: params.viaDrill,
+            placements: this.placements,
+        });
+        this.tracks.push(...tracks);
+        this.vias.push(...vias);
 
-            if (trace.points.length < 2) continue;
-            // Render the full trace as a single polyline so it gets exactly
-            // ONE halo when the clearance overlay is on. Splitting into
-            // per-segment <line> elements caused each segment to draw its own
-            // halo, and `stroke-linecap="round"` made the halos overlap at
-            // every corner — visibly doubling the halo alpha and making the
-            // body look much darker than the pad/via halos.
-            const polyline = document.createElementNS(NS, 'polyline');
-            polyline.setAttribute('class', 'pcb-routed-trace');
-            polyline.setAttribute('points', trace.points.map(p => `${p.x},${p.y}`).join(' '));
-            polyline.setAttribute('fill', 'none');
-            polyline.setAttribute('stroke', color);
-            polyline.setAttribute('stroke-width', String(params.trackWidth));
-            polyline.setAttribute('stroke-linecap', 'round');
-            polyline.setAttribute('stroke-linejoin', 'round');
-            polyline.setAttribute('stroke-opacity', '0.9');
-            target.appendChild(polyline);
-        }
+        // Render them.
+        const getGroup = (id) => this._getLayerGroup(id);
+        for (const t of this.tracks) renderTrack(t, getGroup, {
+            viaDiameter: params.viaDiameter,
+            viaDrill: params.viaDrill,
+        });
+        for (const v of this.vias) renderVia(v, getGroup);
 
         // Reconcile final ratsnest: hide all original ratlines, then draw
         // per-connection ratlines for each failed connection.
@@ -2367,7 +2678,6 @@ export default class PCBApp {
             /** @type {HTMLElement} */ (el).style.display = 'none';
         }
 
-        // Draw ratlines for each individual failed connection
         const NS2 = 'http://www.w3.org/2000/svg';
         if (Array.isArray(result.failedConnections)) {
             for (const fc of result.failedConnections) {
@@ -2398,9 +2708,19 @@ export default class PCBApp {
             this._ratsnestVisibilityRaf = 0;
         }
         this._ratsnestVisibilityQueue.clear();
-        // Remove all routed trace elements and vias
+
+        // Drop track/via selection (its references are about to become stale).
+        clearTrackSelection(this);
+
+        // Drop model objects and their SVG.
+        for (const t of this.tracks) removeTrackElements(t);
+        for (const v of this.vias) removeViaElements(v);
+        this.tracks.length = 0;
+        this.vias.length = 0;
+
+        // Remove any stray legacy SVG (incremental render, SES import, etc.)
         for (const [, g] of this._layerGroups) {
-            g.querySelectorAll('.pcb-routed-trace, .pcb-routed-via').forEach(el => el.remove());
+            g.querySelectorAll('.pcb-routed-trace, .pcb-routed-via, .pcb-track, .pcb-via, .pcb-route-anim').forEach(el => el.remove());
         }
 
         // Restore all original ratlines and remove failed-connection ratlines
@@ -2412,40 +2732,6 @@ export default class PCBApp {
 
         this._refreshClearanceHalos();
         this._setStatus('Routes cleared');
-    }
-
-    /**
-     * Render via markers on the hole layer (visible on both copper layers).
-     * @param {Array<{net: string, x: number, y: number}>} vias
-     */
-    _renderVias(vias) {
-        const NS = 'http://www.w3.org/2000/svg';
-        const holeLayer = this._getLayerGroup('hole');
-        const params = this._getRoutingParams();
-        const viaRadius = params.viaDiameter / 2;
-        const drillRadius = params.viaDrill / 2;
-
-        for (const via of vias) {
-            // Outer copper ring
-            const ring = document.createElementNS(NS, 'circle');
-            ring.setAttribute('class', 'pcb-routed-via');
-            ring.setAttribute('cx', String(via.x));
-            ring.setAttribute('cy', String(via.y));
-            ring.setAttribute('r', String(viaRadius));
-            ring.setAttribute('fill', '#b8860b');
-            ring.setAttribute('fill-opacity', '0.9');
-            holeLayer.appendChild(ring);
-
-            // Inner drill hole
-            const drill = document.createElementNS(NS, 'circle');
-            drill.setAttribute('class', 'pcb-routed-via');
-            drill.setAttribute('cx', String(via.x));
-            drill.setAttribute('cy', String(via.y));
-            drill.setAttribute('r', String(drillRadius));
-            drill.setAttribute('fill', '#1a1a2e');
-            holeLayer.appendChild(drill);
-        }
-        this._refreshClearanceHalos();
     }
 
     // ── Specctra DSN / SES ────────────────────────────────────────
@@ -2477,6 +2763,36 @@ export default class PCBApp {
         URL.revokeObjectURL(url);
 
         this._setStatus('DSN exported — open in Freerouting, then Import SES');
+    }
+
+    /**
+     * Export the current board as a ZIP of Gerber + Excellon drill files.
+     * Files included: top/bottom copper, top silkscreen, board outline,
+     * and an Excellon drill file.
+     */
+    exportGerber() {
+        if (!this.placements.size) {
+            this._setStatus('Nothing to export');
+            return;
+        }
+        const files = exportGerbers({
+            placements: this.placements,
+            tracks: this.tracks,
+            vias: this.vias,
+            boardX: this._boardX || 0,
+            boardY: this._boardY || 0,
+            boardWidth: this._boardWidth,
+            boardHeight: this._boardHeight,
+            boardRadius: this._boardRadius,
+        });
+        const blob = buildZip(files);
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'gerbers.zip';
+        a.click();
+        URL.revokeObjectURL(url);
+        this._setStatus(`Gerbers exported (${files.size} files)`);
     }
 
     /**
@@ -2512,12 +2828,8 @@ export default class PCBApp {
                         break;
                     }
                 }
-                // Render imported traces
-                this._renderRouteResult({ traces: result.traces, failed: [] });
-                // Render vias
-                if (result.vias?.length) {
-                    this._renderVias(result.vias);
-                }
+                // Render imported traces (and their vias)
+                this._renderRouteResult({ traces: result.traces, vias: result.vias || [], failed: [] });
                 this._setStatus(`Imported ${result.traces.length} trace(s), ${result.vias?.length || 0} via(s) from SES`);
             };
             reader.readAsText(file);

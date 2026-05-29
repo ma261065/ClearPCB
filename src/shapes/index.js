@@ -9,6 +9,8 @@ export { Polyline, createLine, createPolygon, createRect } from './polyline.js';
 export { Polyline as Line } from './polyline.js';
 export { Polyline as Polygon } from './polyline.js';
 export { Wire, bumpWireLabelCounter, resetWireLabelCounter, resetNetNameCounter, COLLINEAR_EPSILON } from './wire.js';
+export { Track } from './track.js';
+export { Via, resetViaIdCounter, updateViaIdCounter } from './via.js';
 export { Circle } from './circle.js';
 export { Rect } from './rect.js';
 export { Arc } from './arc.js';
@@ -18,6 +20,8 @@ export { NoConnect } from './noconnect.js';
 
 import { Polyline } from './polyline.js';
 import { Wire } from './wire.js';
+import { Track } from './track.js';
+import { Via } from './via.js';
 import { Circle } from './circle.js';
 import { Rect } from './rect.js';
 import { Arc } from './arc.js';
@@ -31,6 +35,8 @@ const shapeRegistry = {
     polygon: Polyline,
     rect: Rect,
     wire: Wire,
+    track: Track,
+    via: Via,
     circle: Circle,
     arc: Arc,
     text: Text,
@@ -44,6 +50,7 @@ const SHORT_KEYS = {
     c: 'color', l: 'layer', lw: 'lineWidth', v: 'visible', lk: 'locked',
     pts: 'points', n: 'net',
     nd: 'graphNodes', ed: 'graphEdges', pc: 'pinConnections', wl: 'wireLabel',
+    el: 'edgeLayers', pdc: 'padConnections',
     r: 'radius', w: 'width', h: 'height', cr: 'cornerRadius',
     f: 'fill', fc: 'fillColor', fa: 'fillAlpha', cl: 'closed', ir: 'isRect',
     sp: 'startPoint', ep: 'endPoint', bp: 'bulgePoint',
