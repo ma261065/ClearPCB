@@ -2416,3 +2416,7 @@ body {
 [data-panel="pcb-properties"] .prop-row span {
     font-size: 11px;
 }
+
+/* Hide PCB net-name labels on tracks at low zoom (<200%) */
+svg.pcb-zoom-low .pcb-track-label { display: none; }
+

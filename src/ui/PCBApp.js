@@ -496,6 +496,11 @@ export default class PCBApp {
         if (this.status.zoomPercent) {
             this.status.zoomPercent.textContent = `${Math.round(this.viewport.zoom * 100)}%`;
         }
+        // Hide net-name labels on tracks below 200% zoom — at low zoom
+        // they're tiny and just add visual noise.
+        if (this.viewport.svg) {
+            this.viewport.svg.classList.toggle('pcb-zoom-low', this.viewport.zoom < 2);
+        }
     }
 
     _updateCursorForTool() {
