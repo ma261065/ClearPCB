@@ -50,13 +50,19 @@ export async function routeAll(input, options = {}) {
     } = options;
     /**
      * Yield strategy:
-     * - Visible tab: macrotask yield lets the UI repaint and process clicks.
-     * - Hidden/unfocused tab: avoid timer-based yields that can be aggressively throttled.
+     * - Visible tab (main thread): macrotask yield lets the UI repaint and process clicks.
+     * - Hidden/unfocused tab (main thread): skip the yield — setTimeout in a background
+     *   page is throttled hard (Chrome's "Intensive Wake Up Throttling" clamps it to 1Hz),
+     *   so a setTimeout-based yield would freeze routing for ~1s per call.
+     * - Worker context: use a MessageChannel-based yield. This drains the worker's task
+     *   queue (so a `cancel` postMessage can be observed) but is NOT subject to the 4ms
+     *   nested-setTimeout clamp or to Chrome's intensive throttling on background pages
+     *   — both of which were turning maze routing into a 1-3 minute slog on the
+     *   GitHub Pages tab when the browser window wasn't in the foreground.
      */
     const yieldToUI = (() => {
         if (typeof document !== 'undefined') {
             return () => {
-                // Main-thread browser path: avoid hidden-tab timer throttling stalls.
                 if (document.visibilityState === 'visible') {
                     return new Promise(r => setTimeout(r, 0));
                 }
@@ -64,13 +70,42 @@ export async function routeAll(input, options = {}) {
             };
         }
 
-        // Worker / non-DOM environments: keep classic timer-yield pacing.
+        // Worker / non-DOM environments: prefer MessageChannel over setTimeout(0).
+        // MessageChannel postMessage schedules a task on the worker's task queue with
+        // no minimum-delay clamping, so it drains pending messages (e.g. cancel signals)
+        // without incurring the 4ms / 1s throttle that setTimeout(0) is subject to.
+        if (typeof MessageChannel === 'function') {
+            const channel = new MessageChannel();
+            const waiters = [];
+            channel.port1.onmessage = () => {
+                const r = waiters.shift();
+                if (r) r();
+            };
+            return () => new Promise(r => {
+                waiters.push(r);
+                channel.port2.postMessage(0);
+            });
+        }
+
         if (typeof setTimeout === 'function') {
             return () => new Promise(r => setTimeout(r, 0));
         }
 
         return () => Promise.resolve();
     })();
+    // ── PERF DIAG ── wrap yieldToUI to record stats on self.__yieldStats
+    let __yieldToUI = yieldToUI;
+    if (typeof self !== 'undefined' && self.__yieldStats) {
+        const __raw = yieldToUI;
+        const __ys = self.__yieldStats;
+        __yieldToUI = async () => {
+            const __t = performance.now();
+            await __raw();
+            __ys.totalMs += performance.now() - __t;
+            __ys.count++;
+        };
+    }
+    // ── /PERF DIAG ──
     // Routing parameters are required — there is no sensible global default
     // for clearance/traceWidth/viaDiameter/gridStep. Callers must supply them
     // (UI provides values from #pcbClearance / #pcbTrackWidth / etc.).

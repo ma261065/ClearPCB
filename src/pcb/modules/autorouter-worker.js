@@ -17,6 +17,15 @@ self.addEventListener('message', async (event) => {
     running = true;
     activeCancelToken = { cancelled: false };
 
+    // ── PERF DIAG ──
+    const t0 = performance.now();
+    self.__yieldStats = { count: 0, totalMs: 0 };
+    console.log('[autorouter-worker] start', {
+        origin: self.location.origin,
+        href: self.location.href,
+    });
+    // ── /PERF DIAG ──
+
     try {
         const routerMode = msg.routerMode === 'pathfinder' ? 'pathfinder' : 'maze';
         const router = routerMode === 'pathfinder' ? routeWithPathfinderRouter : routeWithMazeRouter;
@@ -47,6 +56,18 @@ self.addEventListener('message', async (event) => {
             cancelled: !!activeCancelToken.cancelled,
             result,
         });
+
+        // ── PERF DIAG ──
+        const elapsed = performance.now() - t0;
+        const ys = self.__yieldStats || { count: 0, totalMs: 0 };
+        console.log('[autorouter-worker] done', {
+            elapsedMs: Math.round(elapsed),
+            yieldCount: ys.count,
+            yieldTotalMs: Math.round(ys.totalMs),
+            yieldAvgUs: ys.count ? Math.round((ys.totalMs * 1000) / ys.count) : 0,
+            computeMs: Math.round(elapsed - ys.totalMs),
+        });
+        // ── /PERF DIAG ──
     } catch (err) {
         const message = err && err.message ? err.message : String(err);
         self.postMessage({ type: 'error', error: message });
