@@ -60,7 +60,7 @@ export async function routeAll(input, options = {}) {
      *   — both of which were turning maze routing into a 1-3 minute slog on the
      *   GitHub Pages tab when the browser window wasn't in the foreground.
      */
-    const yieldToUI = (() => {
+    let yieldToUI = (() => {
         if (typeof document !== 'undefined') {
             return () => {
                 if (document.visibilityState === 'visible') {
@@ -93,12 +93,11 @@ export async function routeAll(input, options = {}) {
 
         return () => Promise.resolve();
     })();
-    // ── PERF DIAG ── wrap yieldToUI to record stats on self.__yieldStats
-    let __yieldToUI = yieldToUI;
+    // ── PERF DIAG ── wrap yieldToUI in place to record stats on self.__yieldStats
     if (typeof self !== 'undefined' && self.__yieldStats) {
         const __raw = yieldToUI;
         const __ys = self.__yieldStats;
-        __yieldToUI = async () => {
+        yieldToUI = async () => {
             const __t = performance.now();
             await __raw();
             __ys.totalMs += performance.now() - __t;
