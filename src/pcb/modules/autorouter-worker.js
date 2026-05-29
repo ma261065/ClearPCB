@@ -20,10 +20,10 @@ self.addEventListener('message', async (event) => {
     // ── PERF DIAG ──
     const t0 = performance.now();
     self.__yieldStats = { count: 0, totalMs: 0 };
-    console.log('[autorouter-worker] start', {
+    console.log('[autorouter-worker] start ' + JSON.stringify({
         origin: self.location.origin,
         href: self.location.href,
-    });
+    }));
     // ── /PERF DIAG ──
 
     try {
@@ -60,13 +60,13 @@ self.addEventListener('message', async (event) => {
         // ── PERF DIAG ──
         const elapsed = performance.now() - t0;
         const ys = self.__yieldStats || { count: 0, totalMs: 0 };
-        console.log('[autorouter-worker] done', {
+        console.log('[autorouter-worker] done ' + JSON.stringify({
             elapsedMs: Math.round(elapsed),
             yieldCount: ys.count,
             yieldTotalMs: Math.round(ys.totalMs),
             yieldAvgUs: ys.count ? Math.round((ys.totalMs * 1000) / ys.count) : 0,
             computeMs: Math.round(elapsed - ys.totalMs),
-        });
+        }));
         // ── /PERF DIAG ──
     } catch (err) {
         const message = err && err.message ? err.message : String(err);
