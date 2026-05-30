@@ -139,3 +139,56 @@ export class ModifyViaCommand {
     execute() { this._apply(this.after); }
     undo() { this._apply(this.before); }
 }
+
+/**
+ * Move a component placement from (fromX, fromY) to (toX, toY).
+ * Mirrors the work done by PCBApp._handleDrag/_endDrag: transforms the
+ * SVG group(s), updates pad world positions, and rebuilds the ratsnest.
+ */
+export class MovePlacementCommand {
+    constructor(app, compId, fromX, fromY, toX, toY) {
+        this.app = app;
+        this.compId = compId;
+        this.from = { x: fromX, y: fromY };
+        this.to = { x: toX, y: toY };
+    }
+    _apply(pt) {
+        const pl = this.app.placements.get(this.compId);
+        if (!pl) return;
+        pl.x = pt.x;
+        pl.y = pt.y;
+        for (const el of (pl.elements || [])) {
+            el.setAttribute('transform', `translate(${pt.x}, ${pt.y})`);
+        }
+        const halo = this.app._padHaloGroups?.get(this.compId);
+        if (halo) halo.setAttribute('transform', `translate(${pt.x}, ${pt.y})`);
+        for (const off of (pl.padOffsets || [])) {
+            pl.pads.set(off.number, { x: pt.x + off.dx, y: pt.y + off.dy });
+        }
+        this.app._updateRatsnest?.();
+    }
+    execute() { this._apply(this.to); }
+    undo() { this._apply(this.from); }
+}
+
+/**
+ * Change the board outline (width / height / corner radius).
+ * Both snapshots are plain {width, height, radius} objects.
+ */
+export class SetBoardOutlineCommand {
+    constructor(app, before, after) {
+        this.app = app;
+        this.before = { ...before };
+        this.after = { ...after };
+    }
+    _apply(s) {
+        this.app._boardWidth = s.width;
+        this.app._boardHeight = s.height;
+        this.app._boardRadius = s.radius;
+        this.app._drawBoardOutline?.();
+        this.app._saveBoardOutline?.();
+    }
+    execute() { this._apply(this.after); }
+    undo() { this._apply(this.before); }
+}
+

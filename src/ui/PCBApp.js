@@ -36,6 +36,8 @@ import {
 } from '../pcb/modules/track-drag.js';
 import {
     AddTrackCommand,
+    MovePlacementCommand,
+    SetBoardOutlineCommand,
 } from '../pcb/modules/track-commands.js';
 import { CommandHistory } from '../core/CommandHistory.js';
 import { Track } from '../shapes/track.js';
@@ -751,11 +753,19 @@ export default class PCBApp {
             const w = parseFloat(widthInput?.value) || 100;
             const h = parseFloat(heightInput?.value) || 80;
             const r = parseFloat(radiusInput?.value) || 0;
-            this._boardWidth = Math.max(5, w);
-            this._boardHeight = Math.max(5, h);
-            this._boardRadius = Math.max(0, r);
-            this._drawBoardOutline();
-            this._saveBoardOutline();
+            const before = {
+                width: this._boardWidth,
+                height: this._boardHeight,
+                radius: this._boardRadius,
+            };
+            const after = {
+                width: Math.max(5, w),
+                height: Math.max(5, h),
+                radius: Math.max(0, r),
+            };
+            if (before.width !== after.width || before.height !== after.height || before.radius !== after.radius) {
+                this.history.execute(new SetBoardOutlineCommand(this, before, after));
+            }
             overlay.remove();
         };
 
@@ -954,8 +964,19 @@ export default class PCBApp {
             <div class="prop-row"><label>Corner R (mm)</label><input type="number" id="pcbPropBoardR" value="${this._boardRadius}" min="0" step="0.5"></div>
         `;
 
-        // Wire up live editing
-        const onChange = () => {
+        // Live editing: apply changes immediately for visual feedback, but
+        // only commit a SetBoardOutlineCommand on `change` (blur / Enter)
+        // so the undo stack gets a single entry per edit, not one per
+        // keystroke. _boardOutlineEditStart captures the pre-edit values.
+        const snapshot = () => ({
+            width: this._boardWidth,
+            height: this._boardHeight,
+            radius: this._boardRadius,
+        });
+        const onInput = () => {
+            if (!this._boardOutlineEditStart) {
+                this._boardOutlineEditStart = snapshot();
+            }
             const wEl = /** @type {HTMLInputElement} */ (document.getElementById('pcbPropBoardW'));
             const hEl = /** @type {HTMLInputElement} */ (document.getElementById('pcbPropBoardH'));
             const rEl = /** @type {HTMLInputElement} */ (document.getElementById('pcbPropBoardR'));
@@ -963,11 +984,22 @@ export default class PCBApp {
             this._boardHeight = Math.max(5, parseFloat(hEl?.value) || 80);
             this._boardRadius = Math.max(0, parseFloat(rEl?.value) || 0);
             this._drawBoardOutline();
-            this._saveBoardOutline();
         };
-        items.querySelector('#pcbPropBoardW')?.addEventListener('input', onChange);
-        items.querySelector('#pcbPropBoardH')?.addEventListener('input', onChange);
-        items.querySelector('#pcbPropBoardR')?.addEventListener('input', onChange);
+        const onCommit = () => {
+            if (!this._boardOutlineEditStart) return;
+            const before = this._boardOutlineEditStart;
+            const after = snapshot();
+            this._boardOutlineEditStart = null;
+            if (before.width === after.width
+                && before.height === after.height
+                && before.radius === after.radius) return;
+            this.history.execute(new SetBoardOutlineCommand(this, before, after));
+        };
+        for (const id of ['pcbPropBoardW', 'pcbPropBoardH', 'pcbPropBoardR']) {
+            const el = items.querySelector('#' + id);
+            el?.addEventListener('input', onInput);
+            el?.addEventListener('change', onCommit);
+        }
 
         // Switch to Properties tab
         this._setActiveRibbonTab?.('pcb-properties');
@@ -1385,9 +1417,24 @@ export default class PCBApp {
      */
     _endDrag() {
         if (!this._drag) return;
+        const { compId, startPos } = this._drag;
+        const pl = this.placements.get(compId);
         this._drag = null;
         this.viewport.svg.style.cursor = this._selectedComp ? 'grab' : 'default';
-        this._updateRatsnest();
+        // If the placement actually moved, push a MovePlacementCommand so the
+        // drag is undoable. _handleDrag has already applied the new position;
+        // construct the command with execute=no-op by passing identical
+        // to-coords on first execute (we instead apply manually by calling
+        // execute() which re-applies, idempotent).
+        if (pl && (pl.x !== startPos.x || pl.y !== startPos.y)) {
+            const cmd = new MovePlacementCommand(this, compId, startPos.x, startPos.y, pl.x, pl.y);
+            // The drag already moved the component visually; execute() will
+            // re-apply the same position (idempotent), so the history stack
+            // is correct without double-rendering.
+            this.history.execute(cmd);
+        } else {
+            this._updateRatsnest();
+        }
     }
 
     // ── Auto Router ───────────────────────────────────────────────
