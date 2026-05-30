@@ -152,6 +152,23 @@ export class ModifyViaCommand {
     undo() { this._apply(this.before); }
 }
 
+/** Move a standalone Via from (fromX, fromY) to (toX, toY). */
+export class MoveViaCommand {
+    constructor(app, via, fromX, fromY, toX, toY) {
+        this.app = app;
+        this.via = via;
+        this.from = { x: fromX, y: fromY };
+        this.to = { x: toX, y: toY };
+    }
+    _set(pt) {
+        this.via.x = pt.x;
+        this.via.y = pt.y;
+        renderVia(this.via, (id) => this.app._getLayerGroup(id));
+    }
+    execute() { this._set(this.to); }
+    undo() { this._set(this.from); }
+}
+
 /**
  * Move a component placement from (fromX, fromY) to (toX, toY).
  * Mirrors the work done by PCBApp._handleDrag/_endDrag: transforms the
@@ -202,5 +219,22 @@ export class SetBoardOutlineCommand {
     }
     execute() { this._apply(this.after); }
     undo() { this._apply(this.before); }
+}
+
+/**
+ * Group N commands into one atomic history entry. execute() runs them
+ * in order; undo() runs them in reverse. Useful for compound gestures
+ * (e.g. dragging a via that also moves connected track endpoints).
+ */
+export class CompoundCommand {
+    constructor(commands) {
+        this.commands = Array.isArray(commands) ? commands.slice() : [];
+    }
+    execute() {
+        for (const c of this.commands) c.execute();
+    }
+    undo() {
+        for (let i = this.commands.length - 1; i >= 0; i--) this.commands[i].undo();
+    }
 }
 

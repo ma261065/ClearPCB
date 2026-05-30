@@ -12,12 +12,13 @@
  */
 
 import { renderTrack } from './track-render.js';
+import { renderVia } from './track-render.js';
 import {
     resolveTrackSnap,
     reconcileRatsnest,
 } from './track-draw.js';
 import { refreshTrackSelectionHalo } from './track-select.js';
-import { MoveVertexCommand } from './track-commands.js';
+import { MoveVertexCommand, MoveViaCommand, CompoundCommand } from './track-commands.js';
 
 /** Screen-px hit tolerance for selecting a Track node to drag. */
 const NODE_HIT_PX = 8;
@@ -168,4 +169,122 @@ export function cancelVertexDrag(app) {
         n.y = drag.startY;
         renderTrack(drag.track, (id) => app._getLayerGroup(id), _opts(app));
     }
+}
+
+/* ──────────────────────────── via drag ──────────────────────────── */
+
+/** Screen-px hit tolerance for picking up a Via to drag. */
+const VIA_HIT_PX = 6;
+
+/**
+ * Hit-test a Via against the world position. Returns true if the
+ * cursor is within the via's annular-ring radius (plus pixel tolerance).
+ */
+function _hitVia(app, via, worldPos, pxTol = VIA_HIT_PX) {
+    const scale = app.viewport?.scale || 1;
+    const r = (via.diameter || 0.6) / 2 + pxTol / scale;
+    return Math.hypot(via.x - worldPos.x, via.y - worldPos.y) <= r;
+}
+
+/**
+ * Begin a drag on the given (already-selected) Via if the click landed
+ * on it. Captures any Track nodes colocated with the via so they drag
+ * along — the via acts as a hinge that connected wires follow.
+ */
+export function startViaDrag(app, via, worldPos) {
+    if (!via || !_hitVia(app, via, worldPos)) return false;
+    // Find every Track node at the via's current (x, y). Track endpoints
+    // and layer-change nodes commonly sit exactly on a via.
+    const EPS = 1e-4;
+    const attached = []; // [{track, nodeId, startX, startY}]
+    for (const t of app.tracks) {
+        for (const [nid, n] of t.nodes) {
+            if (Math.abs(n.x - via.x) < EPS && Math.abs(n.y - via.y) < EPS) {
+                attached.push({ track: t, nodeId: nid, startX: n.x, startY: n.y });
+            }
+        }
+    }
+    app._viaDrag = {
+        via,
+        startX: via.x,
+        startY: via.y,
+        attached,
+    };
+    return true;
+}
+
+/** Update the dragged via's position from the current mouse world pos. */
+export function updateViaDrag(app, worldPos) {
+    const drag = app._viaDrag;
+    if (!drag) return;
+    const snap = resolveTrackSnap(app, worldPos);
+    drag.via.x = snap.x;
+    drag.via.y = snap.y;
+    renderVia(drag.via, (id) => app._getLayerGroup(id));
+    // Drag attached track nodes in lock-step.
+    const touched = new Set();
+    for (const a of drag.attached) {
+        const n = a.track.nodes.get(a.nodeId);
+        if (!n) continue;
+        n.x = snap.x;
+        n.y = snap.y;
+        touched.add(a.track);
+    }
+    for (const t of touched) {
+        renderTrack(t, (id) => app._getLayerGroup(id), _opts(app));
+    }
+    refreshTrackSelectionHalo(app);
+}
+
+/**
+ * Commit the in-progress via drag. Wraps the via move plus every
+ * attached track-node move as a single compound history entry.
+ */
+export function finishViaDrag(app) {
+    const drag = app._viaDrag;
+    if (!drag) return;
+    app._viaDrag = null;
+    const moved = Math.abs(drag.via.x - drag.startX) > 1e-6
+        || Math.abs(drag.via.y - drag.startY) > 1e-6;
+    if (!moved) {
+        // Restore any incidental sub-tolerance drift on track nodes.
+        for (const a of drag.attached) {
+            const n = a.track.nodes.get(a.nodeId);
+            if (n) { n.x = a.startX; n.y = a.startY; }
+        }
+        return;
+    }
+    const toX = drag.via.x, toY = drag.via.y;
+    // Snap-back the model so commands' execute() re-apply.
+    drag.via.x = drag.startX;
+    drag.via.y = drag.startY;
+    for (const a of drag.attached) {
+        const n = a.track.nodes.get(a.nodeId);
+        if (n) { n.x = a.startX; n.y = a.startY; }
+    }
+    const cmds = [new MoveViaCommand(app, drag.via, drag.startX, drag.startY, toX, toY)];
+    for (const a of drag.attached) {
+        cmds.push(new MoveVertexCommand(app, a.track, a.nodeId, a.startX, a.startY, toX, toY));
+    }
+    app.history.execute(new CompoundCommand(cmds));
+    reconcileRatsnest(app);
+}
+
+/** Abort the in-progress via drag and restore the original position. */
+export function cancelViaDrag(app) {
+    const drag = app._viaDrag;
+    if (!drag) return;
+    app._viaDrag = null;
+    drag.via.x = drag.startX;
+    drag.via.y = drag.startY;
+    renderVia(drag.via, (id) => app._getLayerGroup(id));
+    const touched = new Set();
+    for (const a of drag.attached) {
+        const n = a.track.nodes.get(a.nodeId);
+        if (n) { n.x = a.startX; n.y = a.startY; touched.add(a.track); }
+    }
+    for (const t of touched) {
+        renderTrack(t, (id) => app._getLayerGroup(id), _opts(app));
+    }
+    refreshTrackSelectionHalo(app);
 }

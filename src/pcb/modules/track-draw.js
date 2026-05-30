@@ -14,7 +14,12 @@
  *   5. Space                                  → toggleTrackLayer(app)
  *      Switches the *next* edge's layer. On finish, a standalone Via
  *      is emitted at each layer-change node and added to app.vias.
- *   6. Escape / right-click / double-click    → cancelTrackDraw / finishTrackDraw
+ *   6. Escape / double-click                  → finishTrackDraw
+ *      Commits whatever waypoints have been clicked so far. The
+ *      trailing rubber-band segment (between the last click and the
+ *      cursor) is dropped — it was never committed.
+ *      Right-click / tool-switch                → cancelTrackDraw
+ *      Aborts the whole draw without committing anything.
  *
  * Track storage:
  *   - The in-progress track is held on `app._trackDraw` (a private context
@@ -97,23 +102,147 @@ export function findNearbyTrackNode(app, worldPos, tolerance = TRACK_SNAP_TOL, e
 
 /**
  * Resolve a snap target for the track tool.
- * @returns {{x:number, y:number, snapType:'pad'|'track-node'|'grid', pad?:object, trackNode?:object}}
+ *
+ * Priority (highest first):
+ *   1. Pad centre (electrical connection)
+ *   2. Track node on the *same net*
+ *   3. Track node on any net
+ *   4. 45° diagonal line from `options.lastPt`
+ *   5. Per-axis snap to grid line or to H/V axis through `options.lastPt`
+ *      (X and Y resolved independently — both axes can snap, only one
+ *      can snap, or neither)
+ *
+ * All proximity tests for grid/axis snapping use a screen-pixel
+ * tolerance so the feel is constant across zoom levels.
+ *
+ * @param {object} app
+ * @param {{x:number,y:number}} worldPos
+ * @param {object} [options]
+ * @param {number} [options.padTolerance]
+ * @param {number} [options.trackTolerance]
+ * @param {object} [options.excludeTrack]
+ * @param {{x:number,y:number}} [options.lastPt] - Previous waypoint
+ *   (enables H/V/45° axis snapping).
+ * @param {string} [options.net] - Net of the in-progress track (used
+ *   to bias same-net snapping).
+ * @returns {{x:number, y:number, snapType:'pad'|'track-node'|'axis'|'grid'|'free', pad?:object, trackNode?:object}}
  */
 export function resolveTrackSnap(app, worldPos, options = {}) {
     const padTol = options.padTolerance ?? PAD_SNAP_TOL;
     const trackTol = options.trackTolerance ?? TRACK_SNAP_TOL;
     const excludeTrack = options.excludeTrack || null;
+    const lastPt = options.lastPt || null;
+    const net = options.net || '';
 
     const nearPad = findNearbyPad(app, worldPos, padTol);
     if (nearPad) {
         return { x: nearPad.x, y: nearPad.y, snapType: 'pad', pad: nearPad };
     }
-    const nearNode = findNearbyTrackNode(app, worldPos, trackTol, excludeTrack);
+    // Prefer same-net track nodes; fall back to any node.
+    const nearNode = _findNearbyTrackNodePreferNet(app, worldPos, trackTol, excludeTrack, net);
     if (nearNode) {
         return { x: nearNode.x, y: nearNode.y, snapType: 'track-node', trackNode: nearNode };
     }
-    const grid = app.viewport?.getSnappedPosition?.(worldPos) || { x: worldPos.x, y: worldPos.y };
-    return { x: grid.x, y: grid.y, snapType: 'grid' };
+
+    // Screen-pixel tolerance for grid / axis snapping.
+    const scale = app.viewport?.scale || 1;
+    const tol = SNAP_PX / scale;
+
+    // ── 45° diagonal from last anchor (couples both X and Y) ──
+    if (lastPt) {
+        const dx = worldPos.x - lastPt.x;
+        const dy = worldPos.y - lastPt.y;
+        // Perpendicular distance to y = lastPt.y ± (x - lastPt.x).
+        const d1 = Math.abs(dy - dx) / Math.SQRT2; // slope +1
+        const d2 = Math.abs(dy + dx) / Math.SQRT2; // slope -1
+        const dMin = Math.min(d1, d2);
+        // Only snap to the diagonal when we're clearly off both pure
+        // H and pure V axes — otherwise H or V wins (handled below).
+        const offH = Math.abs(dy) > tol;
+        const offV = Math.abs(dx) > tol;
+        if (dMin <= tol && offH && offV) {
+            const slope = d1 < d2 ? 1 : -1;
+            const t = (dx + slope * dy) / 2;
+            return {
+                x: lastPt.x + t,
+                y: lastPt.y + slope * t,
+                snapType: 'axis',
+            };
+        }
+    }
+
+    // ── Per-axis snap: closer of grid-line vs axis-through-lastPt ──
+    let sx = worldPos.x;
+    let sy = worldPos.y;
+    let snappedX = false;
+    let snappedY = false;
+    const gs = app.viewport?.gridSize || 0;
+    const gridOn = gs > 0 && app.viewport?.gridVisible !== false;
+
+    // Candidate X-snaps
+    {
+        let bestDx = tol;
+        if (gridOn) {
+            const gx = Math.round(worldPos.x / gs) * gs;
+            const d = Math.abs(gx - worldPos.x);
+            if (d <= bestDx) { bestDx = d; sx = gx; snappedX = true; }
+        }
+        if (lastPt) {
+            const d = Math.abs(lastPt.x - worldPos.x);
+            if (d <= bestDx) { bestDx = d; sx = lastPt.x; snappedX = true; }
+        }
+    }
+    // Candidate Y-snaps
+    {
+        let bestDy = tol;
+        if (gridOn) {
+            const gy = Math.round(worldPos.y / gs) * gs;
+            const d = Math.abs(gy - worldPos.y);
+            if (d <= bestDy) { bestDy = d; sy = gy; snappedY = true; }
+        }
+        if (lastPt) {
+            const d = Math.abs(lastPt.y - worldPos.y);
+            if (d <= bestDy) { bestDy = d; sy = lastPt.y; snappedY = true; }
+        }
+    }
+
+    if (snappedX || snappedY) {
+        // Mark as 'axis' if any axis component locked to lastPt, else 'grid'.
+        const axisHit = lastPt && (sx === lastPt.x || sy === lastPt.y);
+        return { x: sx, y: sy, snapType: axisHit ? 'axis' : 'grid' };
+    }
+    return { x: worldPos.x, y: worldPos.y, snapType: 'free' };
+}
+
+/** Screen-pixel tolerance for grid / axis-line snapping. */
+const SNAP_PX = 8;
+
+/**
+ * Same as findNearbyTrackNode but prefers nodes whose owning Track
+ * matches `preferredNet`. A same-net hit beats an other-net hit even
+ * if the other-net node is geometrically closer (within tolerance).
+ */
+function _findNearbyTrackNodePreferNet(app, worldPos, tolerance, excludeTrack, preferredNet) {
+    if (!app?.tracks?.length) return null;
+    const tol2 = tolerance * tolerance;
+    let bestSameNet = null, bestSameD2 = Infinity;
+    let bestAny = null, bestAnyD2 = Infinity;
+    for (const track of app.tracks) {
+        if (track === excludeTrack) continue;
+        const sameNet = preferredNet && track.net === preferredNet;
+        for (const [nid, p] of track.nodes) {
+            const dx = p.x - worldPos.x;
+            const dy = p.y - worldPos.y;
+            const d2 = dx * dx + dy * dy;
+            if (d2 > tol2) continue;
+            if (sameNet) {
+                if (d2 < bestSameD2) { bestSameD2 = d2; bestSameNet = { x: p.x, y: p.y, track, nodeId: nid }; }
+            } else {
+                if (d2 < bestAnyD2) { bestAnyD2 = d2; bestAny = { x: p.x, y: p.y, track, nodeId: nid }; }
+            }
+        }
+    }
+    return bestSameNet || bestAny;
 }
 
 /**
@@ -175,6 +304,7 @@ export function startTrackDraw(app, worldPos) {
     const net = startPad?.net || '';
     const layer = TOGGLE_LAYERS.includes(app.activeLayer) ? app.activeLayer : 'top-copper';
     const width = _getTrackWidth(app);
+    const routeOpts = _renderOptsFromApp(app);
 
     /** @type {TrackDrawContext} */
     const ctx = {
@@ -188,6 +318,10 @@ export function startTrackDraw(app, worldPos) {
         axisLock: null,                  // 'horizontal' | 'vertical' | 'diagonal' | null
         previewElements: [],             // SVG nodes owned by the current preview render
         snap,                            // most recent live snap result
+        // Via geometry snapshot — captured at draw-start so the preview
+        // marker and the eventually-committed Via render at the same size.
+        viaDiameter: routeOpts.viaDiameter,
+        viaDrill: routeOpts.viaDrill,
     };
     app._trackDraw = ctx;
     _renderPreview(app, ctx, ctx.points[0]);
@@ -203,23 +337,11 @@ export function updateTrackDraw(app, worldPos) {
     const ctx = app._trackDraw;
     if (!ctx) return;
 
-    // Snap raw cursor first (so pads/nodes always win over axis lock).
-    const snap = resolveTrackSnap(app, worldPos);
-    ctx.snap = snap;
-
     const last = ctx.points[ctx.points.length - 1];
-    let target = { x: snap.x, y: snap.y };
-
-    // If the snap fell back to grid, enforce axis constraint relative to
-    // last anchor. Pad/track-node snaps override the lock (you can always
-    // hit them).
-    if (snap.snapType === 'grid') {
-        const axis = pickAxis(last, worldPos);
-        ctx.axisLock = axis;
-        target = applyAxisConstraint(last, target, axis);
-    } else {
-        ctx.axisLock = null;
-    }
+    const snap = resolveTrackSnap(app, worldPos, { lastPt: last, net: ctx.net });
+    ctx.snap = snap;
+    ctx.axisLock = null;
+    const target = { x: snap.x, y: snap.y };
 
     _renderPreview(app, ctx, target);
 }
@@ -233,12 +355,9 @@ export function addTrackWaypoint(app, worldPos) {
     const ctx = app._trackDraw;
     if (!ctx) return;
 
-    const snap = resolveTrackSnap(app, worldPos);
     const last = ctx.points[ctx.points.length - 1];
-    let target = { x: snap.x, y: snap.y };
-    if (snap.snapType === 'grid') {
-        target = applyAxisConstraint(last, target, pickAxis(last, worldPos));
-    }
+    const snap = resolveTrackSnap(app, worldPos, { lastPt: last, net: ctx.net });
+    const target = { x: snap.x, y: snap.y };
 
     // Ignore zero-length waypoints (double click on same spot).
     if (Math.hypot(target.x - last.x, target.y - last.y) < 1e-6) {
@@ -502,6 +621,37 @@ function _renderPreview(app, ctx, livePt) {
     const segLayers = ctx.edgeLayers.concat([ctx.currentLayer]);
     const width = String(ctx.width || _getTrackWidth(app));
 
+    // Axis-alignment highlight: if the trailing rubber-band segment is
+    // horizontal, vertical, or exactly 45°, draw a soft yellow glow
+    // underlay so the user knows the segment is "on-axis". Mirrors the
+    // same affordance used by the schematic Wire tool.
+    {
+        const a = allPts[allPts.length - 2];
+        const b = allPts[allPts.length - 1];
+        const align = _axisAlignment(a, b);
+        if (align) {
+            const layerId = segLayers[segLayers.length - 1];
+            const parent = app._getLayerGroup(layerId);
+            if (parent) {
+                const glow = document.createElementNS(NS, 'line');
+                glow.setAttribute('class', PREVIEW_CLASS);
+                glow.setAttribute('x1', String(a.x));
+                glow.setAttribute('y1', String(a.y));
+                glow.setAttribute('x2', String(b.x));
+                glow.setAttribute('y2', String(b.y));
+                glow.setAttribute('stroke', _alignColor(align));
+                // Only a thin halo on each side — keep the perceived
+                // line width the same as the final committed track.
+                glow.setAttribute('stroke-width', String((ctx.width || _getTrackWidth(app)) * 1.35));
+                glow.setAttribute('stroke-linecap', 'round');
+                glow.setAttribute('stroke-opacity', '0.9');
+                glow.setAttribute('pointer-events', 'none');
+                parent.appendChild(glow);
+                ctx.previewElements.push(glow);
+            }
+        }
+    }
+
     // Group contiguous same-layer segments into runs and emit one
     // <polyline> per run — mirrors the final render and gives each
     // copper layer its true colour.
@@ -567,6 +717,38 @@ function _appendPreviewVia(ctx, holeLayer, p, viaDia, viaDrill) {
     drill.setAttribute('pointer-events', 'none');
     holeLayer.appendChild(drill);
     ctx.previewElements.push(drill);
+}
+
+/**
+ * Classify a segment as horizontal, vertical, or diagonal (45°), or
+ * return null if it isn't axis-aligned within tolerance.
+ *
+ * @param {{x:number,y:number}} a
+ * @param {{x:number,y:number}} b
+ * @returns {'h'|'v'|'d'|null}
+ */
+function _axisAlignment(a, b) {
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const len = Math.hypot(dx, dy);
+    if (len < 1e-6) return null;
+    const adx = Math.abs(dx);
+    const ady = Math.abs(dy);
+    // ~0.5° tolerance on the minor axis (relative to segment length).
+    const TOL = 0.01;
+    if (ady / len < TOL) return 'h';
+    if (adx / len < TOL) return 'v';
+    if (Math.abs(adx - ady) / len < TOL) return 'd';
+    return null;
+}
+
+/** Highlight glow colour per alignment kind. */
+function _alignColor(kind) {
+    // Use the same yellow accent the schematic Wire tool uses for its
+    // axis indicator. Distinct enough from copper layer colours.
+    if (kind === 'h') return '#ffd633';
+    if (kind === 'v') return '#ffd633';
+    return '#ffaa33'; // 45°
 }
 
 /**

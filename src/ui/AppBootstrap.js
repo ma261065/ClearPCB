@@ -20,6 +20,12 @@ class AppBootstrap {
         this.pcbApp = new PCBApp();
         this.pcbApp.initialize();
 
+        // Install the dispatcher BEFORE SchematicApp constructs so that
+        // it occupies an earlier slot in window-capture order than the
+        // schematic shortcut listener, and so always gets first crack
+        // at every keydown.
+        this._bindKeyboardDispatcher();
+
         /** @type {any} */ (window).app = new SchematicApp();
         this.schematicApp = /** @type {any} */ (window).app;
 
@@ -27,6 +33,24 @@ class AppBootstrap {
 
         this._bindModeTabs();
         this._setupLaunchQueue();
+    }
+
+    /**
+     * Single window-capture keydown listener that routes keys to the
+     * active mode. PCB shortcuts get first crack when PCB is active;
+     * the schematic listener (also bound on window-capture, but later)
+     * still runs as a fallback for global keys (Ctrl+S, Ctrl+Tab, etc.)
+     * unless PCB consumed the event.
+     */
+    _bindKeyboardDispatcher() {
+        window.addEventListener('keydown', (e) => {
+            if (this.pcbApp?._active && typeof this.pcbApp.handleKeyDown === 'function') {
+                if (this.pcbApp.handleKeyDown(e)) {
+                    e.preventDefault();
+                    e.stopImmediatePropagation();
+                }
+            }
+        }, { capture: true });
     }
 
     _bindModeTabs() {

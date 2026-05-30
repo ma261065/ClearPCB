@@ -118,6 +118,16 @@ export function handleEscape(app) {
  */
 export function bindKeyboardShortcuts(app) {
     const onKeyDown = (e) => {
+        // PCB mode owns the keyboard. AppBootstrap's window-capture
+        // dispatcher runs first; if it consumed the key it already
+        // called stopImmediatePropagation and we never see it. If PCB
+        // is active and the key wasn't consumed, we still bail so we
+        // don't accidentally fire schematic-scoped tool shortcuts
+        // (e.g. 'V' switching to the select tool) while the user is
+        // in PCB mode.
+        const pcbApp = /** @type {any} */ (globalThis).bootstrap?.pcbApp;
+        if (pcbApp?._active) return;
+
         const topModal = ModalManager.top();
         if (topModal && topModal.id !== 'text-edit' && topModal.id !== 'componentPicker') {
             return;

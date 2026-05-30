@@ -2,8 +2,12 @@
  * Minimal Gerber RS-274X + Excellon drill export for ClearPCB.
  *
  * Produces a Map of filename → string for the standard board layers:
- *   - top-copper.gtl   (tracks, pads, vias, top layer)
+ *   - top-copper.gtl    (tracks, pads, vias, top layer)
  *   - bottom-copper.gbl (tracks, pads, vias, bottom layer)
+ *   - top-mask.gts      (soldermask openings, top — pad shape + expansion)
+ *   - bottom-mask.gbs   (soldermask openings, bottom)
+ *   - top-paste.gtp     (stencil apertures, top — SMD pads only)
+ *   - bottom-paste.gbp  (stencil apertures, bottom)
  *   - top-silk.gto      (component reference labels on silkscreen)
  *   - board-outline.gko (rectangular / rounded board boundary)
  *   - drill.drl         (Excellon plated-through holes)
@@ -19,6 +23,21 @@
 
 const FORMAT = '%FSLAX46Y46*%\n%MOMM*%\n';
 const SCALE = 1e6; // 4.6 fixed-point: multiply mm by 10^6
+
+/**
+ * Soldermask expansion per side (mm). 0.05 mm is the typical board-house
+ * default — pads emerge with a 0.1 mm-larger opening so that solder
+ * wicks to copper without ever touching the mask edge.
+ */
+const MASK_EXPANSION = 0.05;
+
+/**
+ * Whether to tent vias (no soldermask opening over a via). Tenting is
+ * the modern default for hobbyist 2-layer boards: it stops dust /
+ * shorts / accidental probing without paying the assembly cost of
+ * leaving copper exposed.
+ */
+const TENT_VIAS = true;
 
 /**
  * Build all gerber/drill files for the current board state.
@@ -58,6 +77,10 @@ export function exportGerbers(opts) {
     return new Map([
         ['board.gtl', _buildCopper(placements, tracks, vias, 'top-copper', clipBounds)],
         ['board.gbl', _buildCopper(placements, tracks, vias, 'bottom-copper', clipBounds)],
+        ['board.gts', _buildMask(placements, vias, 'top', clipBounds)],
+        ['board.gbs', _buildMask(placements, vias, 'bottom', clipBounds)],
+        ['board.gtp', _buildPaste(placements, 'top', clipBounds)],
+        ['board.gbp', _buildPaste(placements, 'bottom', clipBounds)],
         ['board.gto', _buildSilk(placements, clipBounds)],
         ['board.gko', _buildOutline(outlineBounds)],
         ['board.drl', _buildDrill(placements, vias, clipBounds, tracks)],
@@ -206,6 +229,122 @@ function _apertureBody(key) {
     if (kind === 'R') return `R,${parts[0]}X${parts[1]}`;
     if (kind === 'O') return `O,${parts[0]}X${parts[1]}`;
     return `C,${parts[0]}`;
+}
+
+/* ──────────────────────────── pad-shape gerber helper ──────────────────────────── */
+
+/**
+ * Emit a positive-aperture gerber that flashes pad-shaped openings.
+ * Used by both soldermask (every pad on this side, inflated by
+ * `expansion`) and paste (SMD pads on this side, optionally shrunk).
+ *
+ * @param {Map<string, object>} placements
+ * @param {Array<object>} vias
+ * @param {'top'|'bottom'} side
+ * @param {object} bounds  clip rect (SVG-Y-down)
+ * @param {object} opts
+ * @param {number}  opts.expansion          mm added to each side of the pad
+ * @param {boolean} opts.includeThruHole    include drilled (THT) pads
+ * @param {boolean} opts.includeVias        include standalone vias
+ * @param {boolean} opts.includeSmd         include SMD (non-drilled) pads
+ * @param {string}  opts.title              human-readable header text
+ */
+function _buildPadLayer(placements, vias, side, bounds, opts) {
+    const {
+        expansion = 0,
+        includeThruHole = true,
+        includeVias = true,
+        includeSmd = true,
+        title = 'Pad Layer',
+    } = opts;
+    /** @type {Map<string, number>} apertureKey → D-code */
+    const apertures = new Map();
+    let nextD = 10;
+    const apKey = (kind, ...vals) => `${kind}:${vals.map((v) => v.toFixed?.(4) ?? v).join('x')}`;
+    const getAp = (key) => {
+        let d = apertures.get(key);
+        if (d == null) { d = nextD++; apertures.set(key, d); }
+        return d;
+    };
+    /** @type {Array<{d:number, op:string}>} */
+    const ops = [];
+
+    for (const [, pl] of placements) {
+        if (!pl?.padOffsets) continue;
+        for (const off of pl.padOffsets) {
+            const padLayer = off.layer || 'top';
+            if (padLayer !== 'both' && padLayer !== side) continue;
+            const isThru = (off.drill || 0) > 0;
+            if (isThru && !includeThruHole) continue;
+            if (!isThru && !includeSmd) continue;
+            const pos = pl.pads.get(off.number);
+            if (!pos) continue;
+            if (!_inBoard(pos.x, pos.y, bounds)) continue;
+            const w = (off.width || 1.2) + 2 * expansion;
+            const h = (off.height || 1.2) + 2 * expansion;
+            if (w <= 0 || h <= 0) continue;
+            const shape = off.shape || 'rect';
+            let key;
+            if (shape === 'ellipse') {
+                key = apKey('C', Math.max(w, h));
+            } else if (shape === 'oval') {
+                key = apKey('O', w, h);
+            } else {
+                key = apKey('R', w, h);
+            }
+            const d = getAp(key);
+            ops.push({ d, op: `X${_fmt(pos.x)}Y${_fmtY(pos.y)}D03*` });
+        }
+    }
+
+    if (includeVias) {
+        for (const v of vias) {
+            if (!_inBoard(v.x, v.y, bounds)) continue;
+            const dia = (v.diameter || 0.6) + 2 * expansion;
+            if (dia <= 0) continue;
+            const key = apKey('C', dia);
+            const d = getAp(key);
+            ops.push({ d, op: `X${_fmt(v.x)}Y${_fmtY(v.y)}D03*` });
+        }
+    }
+
+    let out = `G04 ClearPCB ${title}*\n` + FORMAT + '%LPD*%\n';
+    for (const [key, code] of apertures) {
+        out += `%ADD${code}${_apertureBody(key)}*%\n`;
+    }
+    let currentD = -1;
+    for (const { d, op } of ops) {
+        if (d !== currentD) { out += `D${d}*\n`; currentD = d; }
+        out += op + '\n';
+    }
+    out += 'M02*\n';
+    return out;
+}
+
+/* ──────────────────────────── soldermask ──────────────────────────── */
+
+function _buildMask(placements, vias, side, bounds) {
+    return _buildPadLayer(placements, vias, side, bounds, {
+        expansion: MASK_EXPANSION,
+        includeThruHole: true,
+        includeSmd: true,
+        includeVias: !TENT_VIAS,
+        title: side === 'top' ? 'Top Soldermask' : 'Bottom Soldermask',
+    });
+}
+
+/* ──────────────────────────── solder paste ──────────────────────────── */
+
+function _buildPaste(placements, side, bounds) {
+    // Paste stencil only opens for SMD pads. Through-hole pads and vias
+    // get no paste (they're soldered after reflow, or tented).
+    return _buildPadLayer(placements, [], side, bounds, {
+        expansion: 0,
+        includeThruHole: false,
+        includeSmd: true,
+        includeVias: false,
+        title: side === 'top' ? 'Top Paste' : 'Bottom Paste',
+    });
 }
 
 /* ──────────────────────────── silkscreen ──────────────────────────── */

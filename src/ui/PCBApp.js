@@ -33,6 +33,10 @@ import {
     updateVertexDrag,
     finishVertexDrag,
     cancelVertexDrag,
+    startViaDrag,
+    updateViaDrag,
+    finishViaDrag,
+    cancelViaDrag,
 } from '../pcb/modules/track-drag.js';
 import {
     AddTrackCommand,
@@ -317,12 +321,31 @@ export default class PCBApp {
                         return;
                     }
                 }
+                // Same for a selected via: clicking on the via begins a
+                // drag without losing the selection.
+                if (this._selectedVia) {
+                    if (startViaDrag(this, this._selectedVia, worldPos)) {
+                        svg.style.cursor = 'grabbing';
+                        return;
+                    }
+                }
 
                 const trackHit = hitTestTrack(this, worldPos);
                 if (trackHit) {
                     this._selectComponent(null);
                     this._selectBoardOutline(false);
                     selectTrackOrVia(this, trackHit);
+                    // Begin a drag immediately so click-and-drag works in
+                    // one motion (no separate select-then-drag click).
+                    if (trackHit.type === 'via') {
+                        if (startViaDrag(this, trackHit.via, worldPos)) {
+                            svg.style.cursor = 'grabbing';
+                        }
+                    } else if (trackHit.type === 'track') {
+                        if (startVertexDrag(this, trackHit.track, worldPos)) {
+                            svg.style.cursor = 'grabbing';
+                        }
+                    }
                     return;
                 }
                 // Anything else clears any track selection first.
@@ -371,6 +394,8 @@ export default class PCBApp {
                 this._handleDrag(e);
             } else if (this._vertexDrag) {
                 updateVertexDrag(this, this._screenToWorld(e));
+            } else if (this._viaDrag) {
+                updateViaDrag(this, this._screenToWorld(e));
             } else if (this._trackDraw) {
                 updateTrackDraw(this, this._screenToWorld(e));
             } else if (this.currentTool === 'select') {
@@ -392,49 +417,9 @@ export default class PCBApp {
         });
 
         // Keyboard: Escape finishes (preserving committed segments),
-        // Space inserts a via at the cursor and switches layer. Bound on
-        // window because the SVG cannot receive keyboard focus.
-        if (!this._trackKeyHandler) {
-            this._trackKeyHandler = (e) => {
-                if (!this._active) return;
-                // While drawing, the Track tool owns the keyboard.
-                if (this._trackDraw) {
-                    if (e.key === 'Escape') {
-                        finishTrackDraw(this);
-                    } else if (e.code === 'Space' || e.key === ' ') {
-                        e.preventDefault();
-                        const snap = this._trackDraw.snap;
-                        if (snap) addTrackWaypoint(this, { x: snap.x, y: snap.y });
-                        if (this._trackDraw) toggleTrackLayer(this);
-                    }
-                    return;
-                }
-                // Otherwise: Delete removes the selected track/via,
-                // Escape clears the selection, Ctrl+Z/Y drive history.
-                const ctrl = e.ctrlKey || e.metaKey;
-                if (ctrl && !e.shiftKey && (e.key === 'z' || e.key === 'Z')) {
-                    e.preventDefault();
-                    if (this._vertexDrag) cancelVertexDrag(this);
-                    this.history.undo();
-                } else if (ctrl && ((e.key === 'y' || e.key === 'Y') || ((e.key === 'z' || e.key === 'Z') && e.shiftKey))) {
-                    e.preventDefault();
-                    this.history.redo();
-                } else if (e.key === 'Delete' || e.key === 'Backspace') {
-                    if (this._selectedTrack || this._selectedVia) {
-                        e.preventDefault();
-                        deleteSelectedTrack(this);
-                    }
-                } else if (e.key === 'Escape') {
-                    if (this._vertexDrag) {
-                        cancelVertexDrag(this);
-                    } else if (this._selectedTrack || this._selectedVia) {
-                        clearTrackSelection(this);
-                        this._clearProperties?.();
-                    }
-                }
-            };
-            window.addEventListener('keydown', this._trackKeyHandler);
-        }
+        // PCB keyboard shortcuts are dispatched by AppBootstrap's
+        // central window-capture listener via handleKeyDown() below —
+        // no per-instance event registration here.
 
         const endInteraction = () => {
             if (!this._active) return;
@@ -452,6 +437,16 @@ export default class PCBApp {
                     const t = this._selectedTrack;
                     clearTrackSelection(this);
                     selectTrackOrVia(this, { type: 'track', track: t });
+                }
+            }
+            if (this._viaDrag) {
+                finishViaDrag(this);
+                svg.style.cursor = 'default';
+                // Refresh the halo on the moved via.
+                if (this._selectedVia) {
+                    const v = this._selectedVia;
+                    clearTrackSelection(this);
+                    selectTrackOrVia(this, { type: 'via', via: v });
                 }
             }
         };
@@ -517,6 +512,68 @@ export default class PCBApp {
     /** Public hook used by controls.setTool to abort an in-flight track draw. */
     _cancelTrackDraw() {
         if (this._trackDraw) cancelTrackDraw(this);
+    }
+
+    /**
+     * Central keyboard handler for PCB mode. Invoked by
+     * AppBootstrap's window-capture dispatcher when this app is the
+     * active mode. Returns `true` if the key was consumed (caller
+     * should stop propagation), `false` to let other listeners run.
+     *
+     * Modes (highest priority first):
+     *   - In-flight Track draw: Escape finishes, Space adds via + toggles layer.
+     *   - Selection / drag:     Ctrl+Z/Y undo/redo, Delete removes, Escape cancels.
+     *
+     * @param {KeyboardEvent} e
+     * @returns {boolean} true if consumed
+     */
+    handleKeyDown(e) {
+        if (!this._active) return false;
+
+        // Track-draw mode owns Escape + Space.
+        if (this._trackDraw) {
+            if (e.key === 'Escape') {
+                finishTrackDraw(this);
+                return true;
+            }
+            if (e.code === 'Space' || e.key === ' ') {
+                const snap = this._trackDraw.snap;
+                if (snap) addTrackWaypoint(this, { x: snap.x, y: snap.y });
+                if (this._trackDraw) toggleTrackLayer(this);
+                return true;
+            }
+            return false;
+        }
+
+        // Otherwise: history, delete, selection-cancel.
+        const ctrl = e.ctrlKey || e.metaKey;
+        if (ctrl && !e.shiftKey && (e.key === 'z' || e.key === 'Z')) {
+            if (this._vertexDrag) cancelVertexDrag(this);
+            if (this._viaDrag) cancelViaDrag(this);
+            this.history.undo();
+            return true;
+        }
+        if (ctrl && ((e.key === 'y' || e.key === 'Y') || ((e.key === 'z' || e.key === 'Z') && e.shiftKey))) {
+            this.history.redo();
+            return true;
+        }
+        if (e.key === 'Delete' || e.key === 'Backspace') {
+            if (this._selectedTrack || this._selectedVia) {
+                deleteSelectedTrack(this);
+                return true;
+            }
+            return false;
+        }
+        if (e.key === 'Escape') {
+            if (this._vertexDrag) { cancelVertexDrag(this); return true; }
+            if (this._viaDrag) { cancelViaDrag(this); return true; }
+            if (this._selectedTrack || this._selectedVia) {
+                clearTrackSelection(this);
+                this._clearProperties?.();
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -2836,28 +2893,33 @@ export default class PCBApp {
      * and an Excellon drill file.
      */
     exportGerber() {
-        if (!this.placements.size) {
+        if (!this.placements.size && !this.tracks.length && !this.vias.length) {
             this._setStatus('Nothing to export');
             return;
         }
-        const files = exportGerbers({
-            placements: this.placements,
-            tracks: this.tracks,
-            vias: this.vias,
-            boardX: this._boardX || 0,
-            boardY: this._boardY || 0,
-            boardWidth: this._boardWidth,
-            boardHeight: this._boardHeight,
-            boardRadius: this._boardRadius,
-        });
-        const blob = buildZip(files);
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = 'gerbers.zip';
-        a.click();
-        URL.revokeObjectURL(url);
-        this._setStatus(`Gerbers exported (${files.size} files)`);
+        try {
+            const files = exportGerbers({
+                placements: this.placements,
+                tracks: this.tracks,
+                vias: this.vias,
+                boardX: this._boardX || 0,
+                boardY: this._boardY || 0,
+                boardWidth: this._boardWidth,
+                boardHeight: this._boardHeight,
+                boardRadius: this._boardRadius,
+            });
+            const blob = buildZip(files);
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'gerbers.zip';
+            a.click();
+            URL.revokeObjectURL(url);
+            this._setStatus(`Gerbers exported (${files.size} files)`);
+        } catch (err) {
+            console.error('Gerber export failed:', err);
+            this._setStatus(`Gerber export failed: ${err?.message || err}`);
+        }
     }
 
     /**
