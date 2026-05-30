@@ -60,6 +60,7 @@ export function exportGerbers(opts) {
         placements, tracks = [], vias = [],
         boardWidth, boardHeight, boardRadius = 0,
         boardX = 0, boardY = 0,
+        texts = [],
     } = opts;
 
     // Caller's boardX/boardY describe the Y-up bottom-left corner of the
@@ -77,14 +78,14 @@ export function exportGerbers(opts) {
         r: boardRadius || 0,
     };
     return new Map([
-        ['board.gtl', _buildCopper(placements, tracks, vias, 'top-copper', clipBounds)],
-        ['board.gbl', _buildCopper(placements, tracks, vias, 'bottom-copper', clipBounds)],
+        ['board.gtl', _buildCopper(placements, tracks, vias, 'top-copper', clipBounds, texts)],
+        ['board.gbl', _buildCopper(placements, tracks, vias, 'bottom-copper', clipBounds, texts)],
         ['board.gts', _buildMask(placements, vias, 'top', clipBounds)],
         ['board.gbs', _buildMask(placements, vias, 'bottom', clipBounds)],
         ['board.gtp', _buildPaste(placements, 'top', clipBounds)],
         ['board.gbp', _buildPaste(placements, 'bottom', clipBounds)],
-        ['board.gto', _buildSilk(placements, 'top', clipBounds)],
-        ['board.gbo', _buildSilk(placements, 'bottom', clipBounds)],
+        ['board.gto', _buildSilk(placements, 'top', clipBounds, texts)],
+        ['board.gbo', _buildSilk(placements, 'bottom', clipBounds, texts)],
         ['board.gko', _buildOutline(outlineBounds)],
         ['board.drl', _buildDrill(placements, vias, clipBounds, tracks)],
     ]);
@@ -135,7 +136,7 @@ const _fmtY = (mm) => String(_fx(-mm));
 
 /* ──────────────────────────── copper layers ──────────────────────────── */
 
-function _buildCopper(placements, tracks, vias, layerId, bounds) {
+function _buildCopper(placements, tracks, vias, layerId, bounds, texts = []) {
     const isTop = layerId === 'top-copper';
     // Pads use the footprint/autorouter convention: 'top'|'bottom'|'both'.
     // Tracks use SVG-layer-id form: 'top-copper'|'bottom-copper'.
@@ -208,6 +209,21 @@ function _buildCopper(placements, tracks, vias, layerId, bounds) {
 
     // Layer-change nodes are not flashed here. Vias are exclusively
     // standalone `Via` objects; tracks contribute only segment copper.
+
+    // Free-standing text annotations placed on this copper layer.
+    for (const t of texts) {
+        if (t.layer !== layerId) continue;
+        const sw = Number.isFinite(t.strokeWidth) && t.strokeWidth > 0 ? t.strokeWidth : 0.15;
+        const key = apKey('C', sw);
+        const d = getAp(key);
+        const segs = _textSegments(t);
+        for (const [a, b] of segs) {
+            const clipped = _clipSegment(a.x, a.y, b.x, b.y, bounds);
+            if (!clipped) continue;
+            ops.push({ d, op: `X${_fmt(clipped[0])}Y${_fmtY(clipped[1])}D02*` });
+            ops.push({ d, op: `X${_fmt(clipped[2])}Y${_fmtY(clipped[3])}D01*` });
+        }
+    }
 
     // Emit file.
     let out = `G04 ClearPCB ${isTop ? 'Top' : 'Bottom'} Copper*\n` + FORMAT;
@@ -352,7 +368,7 @@ function _buildPaste(placements, side, bounds) {
 
 /* ──────────────────────────── silkscreen ──────────────────────────── */
 
-function _buildSilk(placements, side, bounds) {
+function _buildSilk(placements, side, bounds, texts = []) {
     // Component silk: footprint silk shapes (lines / circles / paths)
     // plus a small reference designator near each component origin.
     // `side` is 'top' or 'bottom'.
@@ -451,7 +467,46 @@ function _buildSilk(placements, side, bounds) {
         }
     }
 
+    // Free-standing text annotations on this silk side.
+    for (const t of texts) {
+        if (t.layer !== wantLayer) continue;
+        const sw = Number.isFinite(t.strokeWidth) && t.strokeWidth > 0 ? t.strokeWidth : 0.15;
+        const head = useAperture(sw);
+        if (head) body += head;
+        for (const [a, b] of _textSegments(t)) {
+            body += emitSeg(a, b);
+        }
+    }
+
     out += body + 'M02*\n';
+    return out;
+}
+
+/**
+ * Convert a free-standing PCB text into world-space line segments,
+ * applying its rotation about the anchor (x,y). Rotation matches the
+ * editor: positive degrees = CCW in SVG-Y-down (i.e. CW in gerber Y-up).
+ * @param {{content:string, x:number, y:number, size:number, rotation:number}} t
+ * @returns {Array<[{x:number,y:number}, {x:number,y:number}]>}
+ */
+function _textSegments(t) {
+    const polys = stringToPolylines(t.content, 0, 0, t.size, false);
+    const rad = (t.rotation || 0) * Math.PI / 180;
+    // Editor renders with transform rotate(-rotation) in SVG-Y-down so
+    // positive degrees feel CCW visually. Replicate here.
+    const cos = Math.cos(-rad), sin = Math.sin(-rad);
+    const mirror = typeof t.layer === 'string' && t.layer.startsWith('bottom-') ? -1 : 1;
+    const out = [];
+    for (const poly of polys) {
+        for (let i = 1; i < poly.length; i++) {
+            const a = poly[i - 1], b = poly[i];
+            const ax = a.x * mirror, bx = b.x * mirror;
+            out.push([
+                { x: t.x + ax * cos - a.y * sin, y: t.y + ax * sin + a.y * cos },
+                { x: t.x + bx * cos - b.y * sin, y: t.y + bx * sin + b.y * cos },
+            ]);
+        }
+    }
     return out;
 }
 

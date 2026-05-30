@@ -211,6 +211,19 @@
             <span class="ribbon-title">PCB Layout</span>
         </div>
         <div class="ribbon-panels">
+            <div class="ribbon-group ribbon-group--persistent ribbon-group--right">
+                <div class="ribbon-group-title">Layers</div>
+                <div class="ribbon-group-items">
+                    <div class="pcb-layer-control" id="pcbLayerControl">
+                        <div class="pcb-layer-trigger" id="pcbLayerTrigger">
+                            <span class="pcb-layer-swatch" id="pcbLayerSwatch"></span>
+                            <span id="pcbLayerLabel">Top Copper</span>
+                            <span class="pcb-layer-arrow">▾</span>
+                        </div>
+                        <div class="pcb-layer-panel" id="pcbLayerPanel"></div>
+                    </div>
+                </div>
+            </div>
             <div class="ribbon-panel" data-panel="pcb-file">
                 <div class="ribbon-group">
                     <div class="ribbon-group-title">File</div>
@@ -232,21 +245,9 @@
                             <button id="pcbToolPad" class="ribbon-tool-btn" title="Place Pad">◼ Pad</button>
                             <button id="pcbToolVia" class="ribbon-tool-btn" title="Place Via">◉ Via</button>
                             <button id="pcbToolHole" class="ribbon-tool-btn" title="Place Hole">◎ Hole</button>
+                            <button id="pcbToolText" class="ribbon-tool-btn" title="Place Text">T Text</button>
                         </div>
                         <div class="ribbon-shape-options" id="pcbToolOptions"></div>
-                    </div>
-                </div>
-                <div class="ribbon-group">
-                    <div class="ribbon-group-title">Layers</div>
-                    <div class="ribbon-group-items">
-                        <div class="pcb-layer-control" id="pcbLayerControl">
-                            <div class="pcb-layer-trigger" id="pcbLayerTrigger">
-                                <span class="pcb-layer-swatch" id="pcbLayerSwatch"></span>
-                                <span id="pcbLayerLabel">Top Copper</span>
-                                <span class="pcb-layer-arrow">▾</span>
-                            </div>
-                            <div class="pcb-layer-panel" id="pcbLayerPanel"></div>
-                        </div>
                     </div>
                 </div>
                 <div class="ribbon-group">

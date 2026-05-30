@@ -196,6 +196,10 @@ export function endTextEdit(app, commit = true) {
     state.overlayBox = null;
     state.overlayCaret = null;
     state.overlayBlink = null;
+    if (state.blinkTimer) {
+        clearInterval(state.blinkTimer);
+        state.blinkTimer = null;
+    }
     if (state.blinkTimeoutId) {
         clearTimeout(state.blinkTimeoutId);
         state.blinkTimeoutId = null;
@@ -562,14 +566,6 @@ function ensureOverlay(app) {
     caret.setAttribute('stroke-width', '0.2');
     caret.style.opacity = '1';
 
-    const blink = document.createElementNS(SVG_NS, 'animate');
-    blink.setAttribute('attributeName', 'opacity');
-    blink.setAttribute('values', '1;1;0;0;1');
-    blink.setAttribute('keyTimes', '0;0.49;0.5;0.99;1');
-    blink.setAttribute('dur', '1s');
-    blink.setAttribute('repeatCount', 'indefinite');
-    caret.appendChild(blink);
-
     g.appendChild(box);
     g.appendChild(caret);
 
@@ -578,29 +574,40 @@ function ensureOverlay(app) {
     state.overlayGroup = g;
     state.overlayBox = box;
     state.overlayCaret = caret;
-    state.overlayBlink = blink;
+    state.overlayBlink = null;
+
+    // Wallclock metronome blink: state is a pure function of time so the
+    // rhythm stays constant regardless of caret movement. While the user
+    // is active, the caret is held solid-on, and only releases back into
+    // the cycle on a "light" beat (avoids a disconcerting brief flash).
+    const BLINK_MS = 530;
+    state.blinkEpoch = performance.now();
+    state.forceVisibleUntil = 0;
+    state.releasePending = false;
+    state.blinkTimer = setInterval(() => {
+        const s = app.textEdit;
+        if (!s || !s.overlayCaret) return;
+        const now = performance.now();
+        const beat = (Math.floor((now - s.blinkEpoch) / BLINK_MS) % 2) === 0;
+        let on;
+        if (now < s.forceVisibleUntil) {
+            on = true;
+            s.releasePending = true;
+        } else if (s.releasePending) {
+            if (beat) { s.releasePending = false; on = true; }
+            else { on = true; }
+        } else {
+            on = beat;
+        }
+        s.overlayCaret.style.opacity = on ? '1' : '0';
+    }, 60);
 }
 
-function resetCaretBlink(state, delay = 300) {
+function resetCaretBlink(state, _delay = 300) {
     if (!state || !state.overlayCaret) return;
-
-    if (state.overlayBlink && state.overlayBlink.parentNode === state.overlayCaret) {
-        state.overlayCaret.removeChild(state.overlayBlink);
-    }
-
+    const IDLE_MS = 400;
+    state.forceVisibleUntil = performance.now() + IDLE_MS;
     state.overlayCaret.style.opacity = '1';
-
-    if (state.blinkTimeoutId) {
-        clearTimeout(state.blinkTimeoutId);
-        state.blinkTimeoutId = null;
-    }
-
-    state.blinkTimeoutId = setTimeout(() => {
-        if (state.overlayCaret && state.overlayBlink && !state.overlayBlink.parentNode) {
-            state.overlayCaret.appendChild(state.overlayBlink);
-        }
-        state.blinkTimeoutId = null;
-    }, delay);
 }
 
 function updateText(app, nextText, caretIndex) {
@@ -761,6 +768,10 @@ function _cleanupTextEditState(state, app, shape) {
     state.overlayBox = null;
     state.overlayCaret = null;
     state.overlayBlink = null;
+    if (state.blinkTimer) {
+        clearInterval(state.blinkTimer);
+        state.blinkTimer = null;
+    }
     if (state.blinkTimeoutId) {
         clearTimeout(state.blinkTimeoutId);
         state.blinkTimeoutId = null;

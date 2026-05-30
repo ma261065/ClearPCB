@@ -88,7 +88,7 @@
     --ribbon-group-label: #444444;
     --ribbon-divider: rgba(68, 68, 68, 0.4);
     --panel-bg: #f0f0f0;
-    --bg-canvas: #ffffff;
+    --bg-canvas: #ececec;
     --schematic-component: #444444;
     --component-icon-bg: #f3f3f3;
     --select-bg: rgba(0, 0, 0, 0.04);
@@ -98,7 +98,7 @@
     --btn-hover-border: rgba(0, 0, 0, 0.1);
     
     /* === Schematic Canvas === */
-    --sch-background: #ffffff;
+    --sch-background: #ececec;
     --sch-grid: rgba(0, 0, 0, 0.1);
     --sch-grid-major: rgba(0, 0, 0, 0.16);
     --sch-selection: #0066cc;
@@ -325,6 +325,45 @@ body {
     color: var(--accent-color);
     font-size: 12px;
     padding-right: 4px;
+}
+
+/* Layer dropdown when hosted in the always-visible ribbon tab strip. */
+.pcb-layer-control--ribbon {
+    margin-right: 8px;
+}
+.pcb-layer-control--ribbon .pcb-layer-trigger {
+    height: 20px;
+    padding: 0 8px;
+    width: 140px;
+}
+.pcb-layer-control--ribbon .pcb-layer-panel {
+    top: calc(100% + 2px);
+}
+
+/* Persistent ribbon group shown across all PCB tabs (e.g. Layers). */
+.ribbon-group--persistent {
+    /* Always visible regardless of active tab. */
+    display: flex !important;
+}
+.ribbon-group--right {
+    margin-left: auto;
+    order: 999;
+    padding-left: 14px;
+    position: relative;
+}
+.ribbon-group--right::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 1px;
+    background: var(--ribbon-divider, rgba(128,128,128,0.6));
+}
+/* Suppress the default right border on the persistent group. */
+.ribbon-group--right,
+.ribbon-group--right:last-child {
+    border-right: none;
 }
 
 .ribbon-panels {

@@ -45,6 +45,22 @@ import {
     MovePlacementCommand,
     SetBoardOutlineCommand,
 } from '../pcb/modules/track-commands.js';
+import {
+    createPcbText,
+    renderPcbText,
+    pcbTextHitTest,
+    pcbTextBounds,
+    serializePcbText,
+    textColorForLayer,
+    TEXT_LAYERS,
+} from '../pcb/modules/pcb-text.js';
+import {
+    AddTextCommand,
+    RemoveTextCommand,
+    MoveTextCommand,
+    EditTextCommand,
+} from '../pcb/modules/text-commands.js';
+import { measureText as measureStrokeText } from '../pcb/modules/stroke-font.js';
 import { CommandHistory } from '../core/CommandHistory.js';
 import { Track } from '../shapes/track.js';
 import { Via } from '../shapes/via.js';
@@ -139,6 +155,23 @@ export default class PCBApp {
         this._drag = null;
 
         /**
+         * Free-standing text annotations placed by the user.
+         * Map<id, text> where text matches createPcbText() shape.
+         * @type {Map<string, object>}
+         */
+        this.texts = new Map();
+        /** SVG <g> elements keyed by text id for quick remove/replace. */
+        this._textElements = new Map();
+        /** Currently selected text object, or null. */
+        this._selectedText = null;
+        /** Active text drag: { textId, startWorld, startPos } or null. */
+        this._textDrag = null;
+        /** Defaults for the Text tool (modifiable via tool options). */
+        this._textDefaults = { size: 1.0, rotation: 0, layer: 'top-silk', strokeWidth: 0.15 };
+        /** Last typed content for the Text tool. */
+        this._lastTextContent = 'Text';
+
+        /**
          * Undo/redo for PCB-side edits (tracks, vias, vertex drags,
          * property tweaks). Separate from the schematic's history.
          * @type {CommandHistory}
@@ -197,6 +230,7 @@ export default class PCBApp {
         this._ensureViewport();
         this._hookSchematicChanges();
         this._updateCursorForTool();
+        this._syncPcbHomeToolHighlight?.();
         this.viewport?._onResize?.();
         this._updateViewportStatus();
         this.syncPcbViewToggles?.();
@@ -362,6 +396,24 @@ export default class PCBApp {
                 }
                 // Anything else clears any track selection first.
                 clearTrackSelection(this);
+
+                // Text hit-test (above components in z-order).
+                const textHit = this._hitTestText(worldPos);
+                if (textHit) {
+                    this._selectComponent(null);
+                    this._selectBoardOutline(false);
+                    this._selectText(textHit);
+                    this._showTextProperties(textHit);
+                    this._textDrag = {
+                        textId: textHit.id,
+                        startWorld: worldPos,
+                        startPos: { x: textHit.x, y: textHit.y },
+                    };
+                    svg.style.cursor = 'grabbing';
+                    return;
+                }
+                this._selectText(null);
+
                 const hit = this._hitTestComponent(worldPos);
                 if (hit) {
                     this._selectComponent(hit);
@@ -412,6 +464,34 @@ export default class PCBApp {
                 });
                 this.history.execute(new AddViaCommand(this, via));
             }
+
+            // Left-click with text tool: place a text at the cursor.
+            if (e.button === 0 && this.currentTool === 'text') {
+                const worldPos = this._screenToWorld(e);
+                const snap = this._snapToGrid(worldPos);
+                // Place on the active edit layer if it can carry text,
+                // else fall back to the tool-options default.
+                const layer = TEXT_LAYERS.includes(this.activeLayer)
+                    ? this.activeLayer
+                    : this._textDefaults.layer;
+                const text = createPcbText({
+                    content: '',
+                    x: snap.x,
+                    y: snap.y,
+                    size: this._textDefaults.size,
+                    rotation: this._textDefaults.rotation,
+                    layer,
+                    strokeWidth: this._textDefaults.strokeWidth,
+                });
+                this.history.execute(new AddTextCommand(this, text));
+                // Select the freshly-placed text so the user can immediately
+                // edit it in the Properties panel.
+                this._selectText(text);
+                this._showTextProperties(text);
+                // Match the schematic editor: drop straight into inline
+                // edit mode so the user can type the content right away.
+                this._startTextInlineEdit(text, null, { isNewPlacement: true });
+            }
         });
 
         svg.addEventListener('mousemove', (e) => {
@@ -420,6 +500,8 @@ export default class PCBApp {
                 this.viewport.updatePan(e.clientX, e.clientY);
             } else if (this._drag) {
                 this._handleDrag(e);
+            } else if (this._textDrag) {
+                this._handleTextDrag(e);
             } else if (this._vertexDrag) {
                 updateVertexDrag(this, this._screenToWorld(e));
             } else if (this._viaDrag) {
@@ -434,9 +516,13 @@ export default class PCBApp {
                 this._hoverBoardOutline(this._hitTestBoardOutline(worldPos));
                 // Hover highlight for tracks/vias.
                 setHoverHighlight(this, this._hitTestPad(worldPos) || hitTestTrack(this, worldPos));
+                // Hover highlight for text annotations.
+                this._setTextHover(this._hitTestText(worldPos));
             } else if (this.currentTool === 'via') {
                 this._updateViaPreview(this._screenToWorld(e));
             } else if (this.currentTool === 'track') {
+                this._updateCursorCrosshair(this._screenToWorld(e));
+            } else if (this.currentTool === 'text') {
                 this._updateCursorCrosshair(this._screenToWorld(e));
             }
             this.viewport.trackMouse(e);
@@ -448,6 +534,30 @@ export default class PCBApp {
             if (this._trackDraw) {
                 e.preventDefault();
                 finishTrackDraw(this);
+                return;
+            }
+            // Double-click a text → inline edit it.
+            const worldPos = this._screenToWorld(e);
+            const textHit = this._hitTestText(worldPos);
+            if (textHit) {
+                e.preventDefault();
+                this._selectText(textHit);
+                this._startTextInlineEdit(textHit, worldPos);
+            }
+        });
+        // Some pointer sequences (e.g. when the two clicks land on
+        // different child elements with the layer-group hierarchy) cause
+        // the browser to never fire a `dblclick`. Catch it manually via
+        // `click` with `detail === 2` as a fallback.
+        svg.addEventListener('click', (e) => {
+            if (!this._active || e.detail !== 2) return;
+            if (this._textEdit) return; // already editing
+            const worldPos = this._screenToWorld(e);
+            const textHit = this._hitTestText(worldPos);
+            if (textHit) {
+                e.preventDefault();
+                this._selectText(textHit);
+                this._startTextInlineEdit(textHit, worldPos);
             }
         });
 
@@ -463,6 +573,9 @@ export default class PCBApp {
             }
             if (this._drag) {
                 this._endDrag();
+            }
+            if (this._textDrag) {
+                this._endTextDrag();
             }
             if (this._vertexDrag) {
                 finishVertexDrag(this);
@@ -542,9 +655,26 @@ export default class PCBApp {
             t === 'pan' ? 'grab' :
             t === 'track' ? 'crosshair' :
             t === 'via' ? 'crosshair' :
+            t === 'text' ? this._textToolCursor() :
             'default';
         if (t !== 'via') this._clearViaRing();
-        if (t !== 'via' && t !== 'track') this._clearCursorCrosshair();
+        if (t !== 'via' && t !== 'track' && t !== 'text') this._clearCursorCrosshair();
+    }
+
+    /** Crosshair + small "T" icon cursor for the text-placement tool. */
+    _textToolCursor() {
+        const stroke = '#ffffff';
+        // Same shape as the schematic editor: white crosshair with a
+        // little glyph drawn in the upper-right quadrant.
+        const svgMarkup = `<?xml version="1.0" encoding="UTF-8"?>` +
+            `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="-4 -6 26 26">` +
+                `<path d="M 0 8 H 16 M 8 0 V 16" fill="none" stroke="${stroke}" stroke-width="1" stroke-linecap="round"/>` +
+                `<g transform="translate(10 -2)">` +
+                    `<path d="M 1 1 H 7 M 4 1 V 7" fill="none" stroke="${stroke}" stroke-width="1.4" stroke-linecap="round"/>` +
+                `</g>` +
+            `</svg>`;
+        const encoded = encodeURIComponent(svgMarkup).replace(/'/g, '%27').replace(/"/g, '%22');
+        return `url("data:image/svg+xml,${encoded}") 16 18, crosshair`;
     }
 
     /**
@@ -685,6 +815,14 @@ export default class PCBApp {
     handleKeyDown(e) {
         if (!this._active) return false;
 
+        // Don't hijack keys when the user is typing in an input/textarea
+        // (e.g. the Properties panel text fields). Otherwise Backspace
+        // would delete the selected text instead of a character.
+        const tgt = /** @type {HTMLElement} */ (e.target);
+        if (tgt && (tgt.tagName === 'INPUT' || tgt.tagName === 'TEXTAREA' || tgt.isContentEditable)) {
+            return false;
+        }
+
         // Track-draw mode owns Escape + Space.
         if (this._trackDraw) {
             if (e.key === 'Escape') {
@@ -713,6 +851,10 @@ export default class PCBApp {
             return true;
         }
         if (e.key === 'Delete' || e.key === 'Backspace') {
+            if (this._selectedText) {
+                this._deleteSelectedText();
+                return true;
+            }
             if (this._selectedTrack || this._selectedVia) {
                 deleteSelectedTrack(this);
                 return true;
@@ -722,6 +864,12 @@ export default class PCBApp {
         if (e.key === 'Escape') {
             if (this._vertexDrag) { cancelVertexDrag(this); return true; }
             if (this._viaDrag) { cancelViaDrag(this); return true; }
+            if (this._selectedText) {
+                this._selectText(null);
+                this._clearProperties?.();
+                this._setActiveRibbonTab?.('pcb-home');
+                return true;
+            }
             if (this._selectedTrack || this._selectedVia) {
                 clearTrackSelection(this);
                 this._clearProperties?.();
@@ -760,6 +908,7 @@ export default class PCBApp {
         return {
             tracks: this.tracks.map(t => t.toJSON()),
             vias: this.vias.map(v => v.toJSON()),
+            texts: [...this.texts.values()].map(serializePcbText),
         };
     }
 
@@ -774,6 +923,10 @@ export default class PCBApp {
         for (const v of this.vias) removeViaElements(v);
         this.tracks.length = 0;
         this.vias.length = 0;
+        // Drop any existing free-standing texts.
+        for (const id of this._textElements.keys()) this._removeTextElement(id);
+        this.texts.clear();
+        this._selectedText = null;
         clearTrackSelection(this);
         this.history.clear?.();
 
@@ -796,6 +949,13 @@ export default class PCBApp {
                 const via = Via.fromJSON(vd);
                 this.vias.push(via);
                 renderVia(via, (id) => this._getLayerGroup(id));
+            }
+        }
+        if (Array.isArray(data.texts)) {
+            for (const td of data.texts) {
+                const t = createPcbText(td);
+                this.texts.set(t.id, t);
+                this._renderText(t);
             }
         }
         // Re-evaluate ratlines once the model is in place.
@@ -1724,6 +1884,528 @@ export default class PCBApp {
         } else {
             this._updateRatsnest();
         }
+    }
+
+    // ── Text annotations ─────────────────────────────────────────
+
+    /** Snap a world point to grid if snap-to-grid is enabled. */
+    _snapToGrid(p) {
+        if (!this.viewport?.snapToGrid) return { x: p.x, y: p.y };
+        const gs = this.viewport.gridSize;
+        return { x: Math.round(p.x / gs) * gs, y: Math.round(p.y / gs) * gs };
+    }
+
+    /**
+     * Render `text` into its layer group, replacing any prior element
+     * with the same id. Stores the new element in _textElements.
+     */
+    _renderText(text) {
+        this._removeTextElement(text.id);
+        const layerG = this._getLayerGroup(text.layer);
+        if (!layerG) return;
+        const isSel = this._selectedText?.id === text.id;
+        const isHover = !isSel && this._hoveredText?.id === text.id;
+        // While inline-editing, render the text in white so it doesn't
+        // disappear against same-coloured tracks/pads on the layer.
+        const isEditing = this._textEdit?.text?.id === text.id;
+        const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+        const selColor = isLight ? '#000000' : '#ffffff';
+        const hoverColor = isLight ? '#555555' : '#aaaaaa';
+        const editColor = isLight ? '#000000' : '#ffffff';
+        const strokeOverride = isEditing ? editColor
+            : isSel ? selColor
+            : isHover ? hoverColor
+            : undefined;
+        const el = renderPcbText(text, strokeOverride);
+        layerG.appendChild(el);
+        this._textElements.set(text.id, el);
+    }
+
+    /** Remove the SVG element for a text id (model untouched). */
+    _removeTextElement(id) {
+        const el = this._textElements.get(id);
+        if (el?.parentNode) el.parentNode.removeChild(el);
+        this._textElements.delete(id);
+    }
+
+    /** Set/clear hover highlight for text annotations. */
+    _setTextHover(text) {
+        const prev = this._hoveredText || null;
+        const next = text || null;
+        if (prev === next || (prev && next && prev.id === next.id)) return;
+        this._hoveredText = next;
+        if (prev && (!next || prev.id !== next.id)) this._refreshText(prev.id);
+        if (next) this._refreshText(next.id);
+    }
+
+    /** Re-render an existing text in place (e.g. after a property change). */
+    _refreshText(id) {
+        const t = this.texts.get(id);
+        if (!t) return;
+        this._renderText(t);
+    }
+
+    /**
+     * Hit-test the given world point against every text. Returns the
+     * topmost (last-added) hit, or null.
+     */
+    _hitTestText(worldPos) {
+        let hit = null;
+        for (const t of this.texts.values()) {
+            if (pcbTextHitTest(t, worldPos.x, worldPos.y)) hit = t;
+        }
+        return hit;
+    }
+
+    /** Select/deselect a text. Pass null to clear. */
+    _selectText(text) {
+        const prev = this._selectedText;
+        const next = text || null;
+        // No-op when selection doesn't change — important because
+        // _refreshText removes & re-creates the SVG element, which
+        // breaks the browser's same-target requirement for `dblclick`.
+        if (prev === next || (prev && next && prev.id === next.id)) return;
+        this._selectedText = next;
+        if (prev && (!next || prev.id !== next.id)) this._refreshText(prev.id);
+        if (next) this._refreshText(next.id);
+    }
+
+    /** Drag an already-selected text. */
+    _handleTextDrag(e) {
+        if (!this._textDrag) return;
+        const worldPos = this._screenToWorld(e);
+        const dx = worldPos.x - this._textDrag.startWorld.x;
+        const dy = worldPos.y - this._textDrag.startWorld.y;
+        const snap = this._snapToGrid({
+            x: this._textDrag.startPos.x + dx,
+            y: this._textDrag.startPos.y + dy,
+        });
+        const t = this.texts.get(this._textDrag.textId);
+        if (!t) return;
+        t.x = snap.x;
+        t.y = snap.y;
+        this._refreshText(t.id);
+    }
+
+    /** End a text drag, pushing a MoveTextCommand if it actually moved. */
+    _endTextDrag() {
+        if (!this._textDrag) return;
+        const { textId, startPos } = this._textDrag;
+        this._textDrag = null;
+        this.viewport.svg.style.cursor = 'default';
+        const t = this.texts.get(textId);
+        if (!t) return;
+        if (t.x === startPos.x && t.y === startPos.y) return;
+        // The visible position is already current; record the move so it's
+        // undoable. Roll back first, then execute so the command stays the
+        // single source of truth.
+        const x1 = t.x, y1 = t.y;
+        t.x = startPos.x; t.y = startPos.y;
+        this._refreshText(t.id);
+        this.history.execute(new MoveTextCommand(this, textId, startPos.x, startPos.y, x1, y1));
+    }
+
+    /** Show tool-options spinners for the Text tool. */
+    _showTextToolOptions() {
+        const d = this._textDefaults;
+        this._showToolOptions(`
+            <label style="display:flex;align-items:center;gap:4px;font-size:11px">Size
+              <input type="number" id="pcbTextSize" value="${d.size}" min="0.2" max="20" step="0.1" style="width:50px">
+            </label>
+            <label style="display:flex;align-items:center;gap:4px;font-size:11px">Line W
+              <input type="number" id="pcbTextLW" value="${d.strokeWidth}" min="0.05" max="2" step="0.05" style="width:55px">
+            </label>
+        `, () => {
+            const s = document.getElementById('pcbTextSize');
+            const lw = document.getElementById('pcbTextLW');
+            s?.addEventListener('input', () => {
+                const v = parseFloat(s.value);
+                if (Number.isFinite(v) && v > 0) this._textDefaults.size = v;
+            });
+            lw?.addEventListener('input', () => {
+                const v = parseFloat(lw.value);
+                if (Number.isFinite(v) && v > 0) this._textDefaults.strokeWidth = v;
+            });
+        });
+    }
+
+    _layerLabel(layer) {
+        switch (layer) {
+            case 'top-silk':      return 'Top Silk';
+            case 'bottom-silk':   return 'Bottom Silk';
+            case 'top-copper':    return 'Top Copper';
+            case 'bottom-copper': return 'Bottom Copper';
+            default:              return layer;
+        }
+    }
+
+    _escapeAttr(s) {
+        return String(s ?? '').replace(/[&"<>]/g, c => ({ '&':'&amp;', '"':'&quot;', '<':'&lt;', '>':'&gt;' }[c]));
+    }
+
+    /**
+     * Show properties for the given text and switch to Properties tab.
+     * Editing pushes EditTextCommand on `change` (not per keystroke) so
+     * undo collapses each edit into one entry.
+     */
+    _showTextProperties(text) {
+        const items = document.getElementById('pcbPropsItems');
+        if (!items) return;
+        const layerOpts = TEXT_LAYERS.map(l =>
+            `<option value="${l}" ${l === text.layer ? 'selected' : ''}>${this._layerLabel(l)}</option>`
+        ).join('');
+        items.innerHTML = `
+            <div class="prop-row"><label>Type</label><span style="font-size:11px;color:var(--text-primary)">Text</span></div>
+            <div class="prop-row"><label>Layer</label><select id="pcbPropTextLayer">${layerOpts}</select></div>
+            <div class="prop-row"><label>Size (mm)</label><input type="number" id="pcbPropTextSize" value="${text.size}" min="0.2" step="0.1"></div>
+            <div class="prop-row"><label>Rotation (°)</label><input type="number" id="pcbPropTextRot" value="${text.rotation}" step="15"></div>
+            <div class="prop-row"><label>Line W (mm)</label><input type="number" id="pcbPropTextLW" value="${text.strokeWidth}" min="0.05" step="0.05"></div>
+        `;
+        // Snapshot at first edit so undo collapses keystrokes into a
+        // single command per field.
+        let snapshot = null;
+        const onInput = (key, parse) => () => {
+            if (!snapshot) snapshot = { ...text };
+            const el = document.getElementById(`pcbPropText${key}`);
+            const v = parse(el?.value);
+            if (v === null) return;
+            text[this._propFieldMap[key]] = v;
+            this._refreshText(text.id);
+        };
+        const onCommit = () => {
+            if (!snapshot) return;
+            const after = {};
+            for (const k of ['content', 'layer', 'size', 'rotation', 'strokeWidth', 'x', 'y']) {
+                if (snapshot[k] !== text[k]) after[k] = text[k];
+            }
+            // Roll back to snapshot first; EditTextCommand will reapply.
+            const final = { ...text };
+            Object.assign(text, snapshot);
+            this._refreshText(text.id);
+            snapshot = null;
+            if (Object.keys(after).length === 0) return;
+            // Re-apply via command for undo history.
+            Object.assign(text, final); // restore current values inside cmd
+            this.history.execute(new EditTextCommand(this, text.id, after));
+        };
+        const bindField = (key, parse) => {
+            const el = document.getElementById(`pcbPropText${key}`);
+            el?.addEventListener('input', onInput(key, parse));
+            el?.addEventListener('change', onCommit);
+        };
+        const num = (min) => (v) => {
+            const n = parseFloat(v);
+            if (!Number.isFinite(n)) return null;
+            return min !== undefined ? Math.max(min, n) : n;
+        };
+        bindField('Layer',   (v) => TEXT_LAYERS.includes(v) ? v : null);
+        bindField('Size',    num(0.1));
+        bindField('Rot',     (v) => {
+            const n = parseFloat(v);
+            if (!Number.isFinite(n)) return null;
+            return ((n % 360) + 360) % 360;
+        });
+        bindField('LW',      num(0.01));
+        const rotEl = document.getElementById('pcbPropTextRot');
+        const wrapRot = () => {
+            const n = parseFloat(rotEl.value);
+            if (!Number.isFinite(n)) return;
+            const wrapped = ((n % 360) + 360) % 360;
+            if (wrapped !== n) rotEl.value = String(wrapped);
+        };
+        rotEl?.addEventListener('input', wrapRot);
+        rotEl?.addEventListener('change', wrapRot);
+        this._setActiveRibbonTab?.('pcb-properties');
+    }
+
+    /** Property panel field → text-object field mapping. */
+    get _propFieldMap() {
+        return { Content: 'content', Layer: 'layer', Size: 'size',
+                 Rot: 'rotation', LW: 'strokeWidth', X: 'x', Y: 'y' };
+    }
+
+    /**
+     * Delete the currently-selected text (if any). Called from the
+     * Delete-key handler. Returns true if it consumed the keystroke.
+     */
+    _deleteSelectedText() {
+        if (!this._selectedText) return false;
+        const id = this._selectedText.id;
+        this.history.execute(new RemoveTextCommand(this, id));
+        this._clearProperties?.();
+        return true;
+    }
+
+    /**
+     * Begin in-place editing of a PCB text annotation. Overlays an HTML
+     * <input> positioned over the text via a <foreignObject>. Commits on
+     * Enter or blur, cancels on Escape.
+     * @param {object} text
+     * @param {{x:number,y:number}} [worldPos] - if given, the caret is
+     *   placed at the character nearest this click point; otherwise it
+     *   goes to the end of the text.
+     */
+    _startTextInlineEdit(text, worldPos, opts = {}) {
+        if (!text) return;
+        if (this._textEdit) this._endTextInlineEdit(true);
+
+        const svg = this.viewport?.svg;
+        if (!svg) return;
+
+        // Hidden input captures keystrokes / selection / IME / clipboard.
+        // Its visual is irrelevant; we draw our own caret as an SVG line
+        // positioned via the actual Hershey font's measureText().
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.value = text.content;
+        input.style.cssText =
+            'position:fixed;left:-1000px;top:-1000px;width:10px;height:10px;' +
+            'opacity:0;';
+        document.body.appendChild(input);
+
+        const layerG = this._getLayerGroup(text.layer);
+        // Editing box around the text (matches schematic style).
+        const box = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+        box.setAttribute('fill', 'none');
+        box.setAttribute('stroke', '#00ccff');
+        box.setAttribute('stroke-opacity', '0.5');
+        box.setAttribute('vector-effect', 'non-scaling-stroke');
+        box.setAttribute('stroke-width', '2');
+        box.style.pointerEvents = 'none';
+        layerG?.appendChild(box);
+
+        const caret = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+        // Use a contrasting colour so the caret stands out against the
+        // silk/copper text colour (yellow/teal/red). A cyan-ish accent
+        // works on every layer.
+        caret.setAttribute('stroke', '#00ccff');
+        caret.setAttribute('stroke-width', String(Math.max(text.strokeWidth * 0.8, text.size * 0.06)));
+        caret.setAttribute('stroke-linecap', 'butt');
+        caret.style.pointerEvents = 'none';
+        caret.style.opacity = '1';
+
+        // Steady blink rhythm: a single setInterval toggles the caret
+        // on a fixed cadence and is never reset. While the user is
+        // actively typing or moving the caret, `forceVisibleUntil` is
+        // bumped — the toggle then just keeps it visible without
+        // touching the underlying rhythm, so there's no stutter.
+        layerG?.appendChild(caret);
+
+        this._textEdit = {
+            text, input, caret, box,
+            isNewPlacement: !!opts.isNewPlacement,
+            originalContent: text.content,
+            committed: false,
+            blinkTimer: null,
+            blinkEpoch: performance.now(),
+            forceVisibleUntil: 0,
+        };
+
+        // Metronome: blink state is a pure function of wallclock time
+        // (floor((now-epoch)/BLINK_MS) % 2). Movement bumps
+        // forceVisibleUntil to hold the caret solid-on, but the
+        // metronome keeps ticking underneath — so when movement
+        // stops, the blink resumes exactly in phase.
+        const BLINK_MS = 530;
+        const IDLE_MS = 400;
+        const tick = () => {
+            const st = this._textEdit;
+            if (!st) return;
+            const now = performance.now();
+            const beat = (Math.floor((now - st.blinkEpoch) / BLINK_MS) % 2) === 0;
+            // Caret is solid-on while the activity hold is in effect.
+            // After the hold expires, only release into the blink cycle
+            // on a "light" beat — otherwise we'd flash dark for a few ms
+            // then back to light, which reads as a disconcerting blink.
+            let on;
+            if (now < st.forceVisibleUntil) {
+                on = true;
+                st.releasePending = true;
+            } else if (st.releasePending) {
+                if (beat) { st.releasePending = false; on = true; }
+                else { on = true; }   // hold through residual dark
+            } else {
+                on = beat;
+            }
+            st.caret.style.opacity = on ? '1' : '0';
+        };
+        // Sample faster than BLINK_MS so the visible transition
+        // happens close to the true metronome edge.
+        this._textEdit.blinkTimer = setInterval(tick, 60);
+        const keepVisible = () => {
+            const st = this._textEdit;
+            if (!st) return;
+            st.forceVisibleUntil = performance.now() + IDLE_MS;
+            st.caret.style.opacity = '1';
+        };
+
+        const updateCaret = () => {
+            // Update editing box bounds. Top of box sits a small pad
+            // above the cap-top; bottom sits below the baseline far
+            // enough to clear descenders (g, y, p, …).
+            const totalW = measureStrokeText(input.value, text.size);
+            const padX = text.size * 0.15;
+            const padTop = text.size * 0.25;
+            const padBot = text.size * 1.0;   // descender room (Hershey 'g','y' reach -0.75)
+            const mirror = (typeof text.layer === 'string' && text.layer.startsWith('bottom-')) ? -1 : 1;
+            box.setAttribute('x', String(-padX));
+            box.setAttribute('y', String(-text.size - padTop));
+            box.setAttribute('width', String(totalW + padX * 2));
+            box.setAttribute('height', String(text.size + padTop + padBot));
+            // scale(mirror,1) mirrors box + caret about the text's local Y
+            // axis so the editing overlay tracks the mirrored rendered text
+            // on bottom layers.
+            const xform = `translate(${text.x},${text.y}) rotate(${-(text.rotation || 0)}) scale(${mirror},1)`;
+            box.setAttribute('transform', xform);
+            caret.setAttribute('transform', xform);
+
+            const caretIdx = input.selectionStart ?? input.value.length;
+            const sub = input.value.slice(0, caretIdx);
+            const lx = measureStrokeText(sub, text.size);
+            // Caret spans the editing box vertically (cap-top + small
+            // overhang, baseline + descender room).
+            const ly0 = text.size * 1.0;      // below baseline (matches box padBot)
+            const ly1 = -text.size * 1.25;    // above cap-top (matches box: size+padTop)
+            caret.setAttribute('x1', String(lx));
+            caret.setAttribute('y1', String(ly0));
+            caret.setAttribute('x2', String(lx));
+            caret.setAttribute('y2', String(ly1));
+        };
+
+        keepVisible();
+
+        const live = () => {
+            text.content = input.value;
+            this._refreshText(text.id);
+            updateCaret();
+            keepVisible();
+        };
+        input.addEventListener('input', live);
+        input.addEventListener('keyup', () => { updateCaret(); keepVisible(); });
+        input.addEventListener('click', () => { updateCaret(); keepVisible(); });
+        input.addEventListener('select', () => { updateCaret(); keepVisible(); });
+
+        input.addEventListener('keydown', (e) => {
+            e.stopPropagation();
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                this._endTextInlineEdit(true);
+            } else if (e.key === 'Escape') {
+                e.preventDefault();
+                this._endTextInlineEdit(false);
+            } else {
+                // Arrow/Home/End/Backspace/Delete autorepeat only fires
+                // keydown (no keyup, no input event for arrows). Defer
+                // one tick so input.selectionStart reflects the post-key
+                // position, then redraw the SVG caret.
+                requestAnimationFrame(() => { updateCaret(); keepVisible(); });
+            }
+        });
+        input.addEventListener('blur', () => {
+            if (this._textEdit && !this._textEdit.committed) {
+                this._endTextInlineEdit(true);
+            }
+        });
+
+        setTimeout(() => {
+            input.focus();
+            // Place caret at the character nearest the click, if known.
+            let idx = input.value.length;
+            if (worldPos) {
+                // Inverse-rotate the click into the text's local frame,
+                // undo the mirror, then walk glyphs accumulating widths
+                // to find the nearest gap.
+                const rad = -(text.rotation || 0) * Math.PI / 180;
+                const cos = Math.cos(-rad), sin = Math.sin(-rad);
+                const mirror = (typeof text.layer === 'string' && text.layer.startsWith('bottom-')) ? -1 : 1;
+                const dx = worldPos.x - text.x, dy = worldPos.y - text.y;
+                const lx = (dx * cos - dy * sin) * mirror;
+                let cursorX = 0;
+                let best = 0;
+                let bestDist = Math.abs(lx - cursorX);
+                const s = input.value;
+                for (let i = 0; i < s.length; i++) {
+                    const charW = measureStrokeText(s[i], text.size);
+                    cursorX += charW;
+                    // After the i-th char, caret would be at index i+1.
+                    const d = Math.abs(lx - cursorX);
+                    if (d < bestDist) { bestDist = d; best = i + 1; }
+                }
+                idx = best;
+            }
+            try { input.setSelectionRange(idx, idx); } catch { /* ignore */ }
+            updateCaret();
+        }, 0);
+    }
+
+    /**
+     * Finish in-place text editing. If `commit`, pushes an EditTextCommand
+     * with the new content. Always tears down the overlay.
+     * @param {boolean} commit
+     */
+    _endTextInlineEdit(commit) {
+        const state = this._textEdit;
+        if (!state) return;
+        state.committed = true;
+        this._textEdit = null;
+
+        const { text, input, caret, box, originalContent, blinkTimer, isNewPlacement } = state;
+        const finalContent = input.value;
+
+        if (blinkTimer) clearInterval(blinkTimer);
+        if (caret.parentNode) caret.parentNode.removeChild(caret);
+        if (box.parentNode) box.parentNode.removeChild(box);
+        if (input.parentNode) input.parentNode.removeChild(input);
+
+        text.content = originalContent;
+        this._refreshText(text.id);
+
+        // Determine effective final content (empty if cancelled).
+        const effective = commit ? finalContent : originalContent;
+        // No empty orphans: if the resulting content is blank, delete
+        // the text outright. For a freshly-created text (originalContent
+        // was already empty), this avoids the undo stack growing for
+        // an aborted placement; use Remove instead of Edit.
+        if (effective.trim() === '') {
+            if (isNewPlacement) {
+                // The AddTextCommand is still the top of the undo stack;
+                // pop it so a cancelled placement leaves no history.
+                this.history.undo();
+                this.history.redoStack = [];
+            } else {
+                this.history.execute(new RemoveTextCommand(this, text.id));
+            }
+            if (this._selectedText?.id === text.id) {
+                this._selectedText = null;
+                this._clearProperties?.();
+            }
+            this._exitTextTool();
+            return;
+        }
+
+        if (commit && finalContent !== originalContent) {
+            this.history.execute(new EditTextCommand(this, text.id, { content: finalContent }));
+        }
+        // Always deselect after exiting inline edit and return to home.
+        this._selectText(null);
+        this._clearProperties?.();
+        this._exitTextTool();
+    }
+
+    /**
+     * After finishing an inline text edit, switch back to the Select
+     * tool, hide the per-tool options group on the Home ribbon, and
+     * make the Home tab active. Centralised so cancel/commit paths
+     * stay consistent.
+     */
+    _exitTextTool() {
+        if (this.currentTool === 'text') {
+            this.currentTool = 'select';
+            this._updateCursorForTool?.();
+            this._syncPcbHomeToolHighlight?.();
+        }
+        this._hideToolOptions?.();
+        this._setActiveRibbonTab?.('pcb-home');
     }
 
     // ── Auto Router ───────────────────────────────────────────────
@@ -3133,6 +3815,7 @@ export default class PCBApp {
                 placements: this.placements,
                 tracks: this.tracks,
                 vias: this.vias,
+                texts: [...this.texts.values()],
                 boardX: this._boardX || 0,
                 boardY: this._boardY || 0,
                 boardWidth: this._boardWidth,

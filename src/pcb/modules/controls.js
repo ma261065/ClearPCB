@@ -11,6 +11,7 @@ export function bindPcbControls(app) {
     const padBtn = document.getElementById('pcbToolPad');
     const viaBtn = document.getElementById('pcbToolVia');
     const holeBtn = document.getElementById('pcbToolHole');
+    const textBtn = document.getElementById('pcbToolText');
     const zoomOutBtn = document.getElementById('pcbZoomOut');
     const zoomInBtn = document.getElementById('pcbZoomIn');
     const zoomFitBtn = document.getElementById('pcbZoomFit');
@@ -21,8 +22,8 @@ export function bindPcbControls(app) {
     const unitsSelect = document.getElementById('pcbUnits');
     const gridStyleSelect = document.getElementById('pcbGridStyle');
 
-    const toolBtns = [selectBtn, trackBtn, padBtn, viaBtn, holeBtn];
-    const validTools = new Set(['select', 'track', 'pad', 'via', 'hole']);
+    const toolBtns = [selectBtn, trackBtn, padBtn, viaBtn, holeBtn, textBtn];
+    const validTools = new Set(['select', 'track', 'pad', 'via', 'hole', 'text']);
 
     const setToolButtonActive = (tool) => {
         for (const btn of toolBtns) {
@@ -53,6 +54,8 @@ export function bindPcbControls(app) {
             app._showViaToolOptions?.();
         } else if (nextTool === 'track') {
             app._showTrackToolOptions?.();
+        } else if (nextTool === 'text') {
+            app._showTextToolOptions?.();
         } else {
             app._hideToolOptions?.();
         }
@@ -65,6 +68,7 @@ export function bindPcbControls(app) {
     padBtn?.addEventListener('click', () => setTool('pad'));
     viaBtn?.addEventListener('click', () => setTool('via'));
     holeBtn?.addEventListener('click', () => setTool('hole'));
+    textBtn?.addEventListener('click', () => setTool('text'));
 
     // Auto Route button
     const autoRouteBtn = document.getElementById('pcbAutoRoute');
