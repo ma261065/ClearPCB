@@ -636,45 +636,145 @@ export function cancelWireDrawing(app) {
 
 // --- Wire preview ---
 
+const SVG_NS = 'http://www.w3.org/2000/svg';
+
+/**
+ * Lazily build the persistent preview DOM structure: a <g> for committed
+ * segments, a <g> for waypoint dots, and two reusable rubber-band lines
+ * (`liveA`/`liveB`) for the segment(s) from the last waypoint to the cursor.
+ * Returns the per-preview state object stored on the previewElement itself
+ * so it dies automatically when cancelWireDrawing() removes the element.
+ */
+function _ensurePreviewState(previewElement) {
+    if (previewElement._wirePreviewState) return previewElement._wirePreviewState;
+
+    const committedGroup = document.createElementNS(SVG_NS, 'g');
+    const dotsGroup = document.createElementNS(SVG_NS, 'g');
+    const liveA = document.createElementNS(SVG_NS, 'line');
+    const liveB = document.createElementNS(SVG_NS, 'line');
+    for (const ln of [liveA, liveB]) {
+        ln.setAttribute('stroke', WIRE_COLOR);
+        ln.setAttribute('stroke-linecap', 'round');
+        ln.setAttribute('stroke-opacity', '0.6');
+        ln.setAttribute('display', 'none');
+    }
+    previewElement.appendChild(committedGroup);
+    previewElement.appendChild(dotsGroup);
+    previewElement.appendChild(liveA);
+    previewElement.appendChild(liveB);
+
+    const state = {
+        committedGroup,
+        dotsGroup,
+        liveA,
+        liveB,
+        committedCount: 0, // number of <line>s currently in committedGroup
+        dotCount: 0,       // number of <circle>s currently in dotsGroup
+    };
+    previewElement._wirePreviewState = state;
+    return state;
+}
+
 /**
  * Redraw the wire-drawing preview SVG from app.wirePoints
  * plus the current cursor position (app.drawCurrent).
+ *
+ * Uses persistent DOM nodes and only mutates what actually changed:
+ *   - committed segments / waypoint dots are appended once and never touched again
+ *   - the live rubber-band segment(s) are two reused <line> nodes whose endpoint
+ *     attributes are the only thing updated on each mousemove
+ * This avoids the O(N) innerHTML re-parse-and-recreate that the previous
+ * implementation did on every cursor move.
+ *
  * @param {object} app - SchematicApp instance
  */
 export function updateWirePreview(app) {
     if (!app.previewElement) return;
 
+    const state = _ensurePreviewState(app.previewElement);
     const strokeWidth = app._getEffectiveStrokeWidth(0.2);
-    let svg = '';
     const pts = app.wirePoints;
 
-    // Draw committed segments
-    for (let i = 0; i < pts.length - 1; i++) {
-        svg += `<line x1="${pts[i].x}" y1="${pts[i].y}" x2="${pts[i + 1].x}" y2="${pts[i + 1].y}" 
-                stroke="${WIRE_COLOR}" stroke-width="${strokeWidth}" stroke-linecap="round"/>`;
-    }
-
-    // Draw waypoint dots
-    for (const p of pts) {
-        svg += `<circle cx="${p.x}" cy="${p.y}" r="${2 / app.viewport.scale}" fill="${WIRE_COLOR}"/>`;    
-    }
-
-    // Draw live segment from last waypoint to cursor (with optional corner)
-    if (app.drawCurrent && pts.length > 0) {
-        const last = pts[pts.length - 1];
-        if (app.drawCorner) {
-            const c = app.drawCorner;
-            svg += `<line x1="${last.x}" y1="${last.y}" x2="${c.x}" y2="${c.y}" 
-                    stroke="${WIRE_COLOR}" stroke-width="${strokeWidth}" stroke-linecap="round" stroke-opacity="0.6"/>`;
-            svg += `<line x1="${c.x}" y1="${c.y}" x2="${app.drawCurrent.x}" y2="${app.drawCurrent.y}" 
-                    stroke="${WIRE_COLOR}" stroke-width="${strokeWidth}" stroke-linecap="round" stroke-opacity="0.6"/>`;    
-        } else {
-            svg += `<line x1="${last.x}" y1="${last.y}" x2="${app.drawCurrent.x}" y2="${app.drawCurrent.y}" 
-                    stroke="${WIRE_COLOR}" stroke-width="${strokeWidth}" stroke-linecap="round" stroke-opacity="0.6"/>`;    
+    // If pts shrank (collinear-merge splice, backspace, …) or the most
+    // recently committed segment no longer matches the underlying points,
+    // discard cached nodes and rebuild. This is rare enough to be cheap.
+    const segCount = Math.max(0, pts.length - 1);
+    let needsReset = state.committedCount > segCount || state.dotCount > pts.length;
+    if (!needsReset && state.committedCount > 0) {
+        const lastLine = state.committedGroup.lastChild;
+        const expectedEnd = pts[state.committedCount];
+        if (!lastLine
+            || lastLine.getAttribute('x2') !== String(expectedEnd.x)
+            || lastLine.getAttribute('y2') !== String(expectedEnd.y)) {
+            needsReset = true;
         }
     }
+    if (needsReset) {
+        while (state.committedGroup.firstChild) state.committedGroup.removeChild(state.committedGroup.firstChild);
+        while (state.dotsGroup.firstChild) state.dotsGroup.removeChild(state.dotsGroup.firstChild);
+        state.committedCount = 0;
+        state.dotCount = 0;
+    }
 
-    app.previewElement.innerHTML = svg;
+    // Append any newly committed segments (between consecutive waypoints).
+    while (state.committedCount < pts.length - 1) {
+        const i = state.committedCount;
+        const ln = document.createElementNS(SVG_NS, 'line');
+        ln.setAttribute('x1', String(pts[i].x));
+        ln.setAttribute('y1', String(pts[i].y));
+        ln.setAttribute('x2', String(pts[i + 1].x));
+        ln.setAttribute('y2', String(pts[i + 1].y));
+        ln.setAttribute('stroke', WIRE_COLOR);
+        ln.setAttribute('stroke-width', String(strokeWidth));
+        ln.setAttribute('stroke-linecap', 'round');
+        state.committedGroup.appendChild(ln);
+        state.committedCount++;
+    }
+
+    // Append any new waypoint dots.
+    const dotR = String(2 / app.viewport.scale);
+    while (state.dotCount < pts.length) {
+        const i = state.dotCount;
+        const c = document.createElementNS(SVG_NS, 'circle');
+        c.setAttribute('cx', String(pts[i].x));
+        c.setAttribute('cy', String(pts[i].y));
+        c.setAttribute('r', dotR);
+        c.setAttribute('fill', WIRE_COLOR);
+        state.dotsGroup.appendChild(c);
+        state.dotCount++;
+    }
+
+    // Update live rubber-band segment(s). This is the hot path.
+    if (app.drawCurrent && pts.length > 0) {
+        const last = pts[pts.length - 1];
+        const { liveA, liveB } = state;
+        if (app.drawCorner) {
+            const c = app.drawCorner;
+            liveA.setAttribute('x1', String(last.x));
+            liveA.setAttribute('y1', String(last.y));
+            liveA.setAttribute('x2', String(c.x));
+            liveA.setAttribute('y2', String(c.y));
+            liveA.setAttribute('stroke-width', String(strokeWidth));
+            liveA.setAttribute('display', '');
+            liveB.setAttribute('x1', String(c.x));
+            liveB.setAttribute('y1', String(c.y));
+            liveB.setAttribute('x2', String(app.drawCurrent.x));
+            liveB.setAttribute('y2', String(app.drawCurrent.y));
+            liveB.setAttribute('stroke-width', String(strokeWidth));
+            liveB.setAttribute('display', '');
+        } else {
+            liveA.setAttribute('x1', String(last.x));
+            liveA.setAttribute('y1', String(last.y));
+            liveA.setAttribute('x2', String(app.drawCurrent.x));
+            liveA.setAttribute('y2', String(app.drawCurrent.y));
+            liveA.setAttribute('stroke-width', String(strokeWidth));
+            liveA.setAttribute('display', '');
+            liveB.setAttribute('display', 'none');
+        }
+    } else {
+        state.liveA.setAttribute('display', 'none');
+        state.liveB.setAttribute('display', 'none');
+    }
 }
 
 // --- Snap highlight (unified pin + wire junction) ---
