@@ -21,6 +21,8 @@
  * which is the modern standard for sub-micron precision in mm.
  */
 
+import { stringToPolylines, measureText } from './stroke-font.js';
+
 const FORMAT = '%FSLAX46Y46*%\n%MOMM*%\n';
 const SCALE = 1e6; // 4.6 fixed-point: multiply mm by 10^6
 
@@ -81,7 +83,8 @@ export function exportGerbers(opts) {
         ['board.gbs', _buildMask(placements, vias, 'bottom', clipBounds)],
         ['board.gtp', _buildPaste(placements, 'top', clipBounds)],
         ['board.gbp', _buildPaste(placements, 'bottom', clipBounds)],
-        ['board.gto', _buildSilk(placements, clipBounds)],
+        ['board.gto', _buildSilk(placements, 'top', clipBounds)],
+        ['board.gbo', _buildSilk(placements, 'bottom', clipBounds)],
         ['board.gko', _buildOutline(outlineBounds)],
         ['board.drl', _buildDrill(placements, vias, clipBounds, tracks)],
     ]);
@@ -349,107 +352,196 @@ function _buildPaste(placements, side, bounds) {
 
 /* ──────────────────────────── silkscreen ──────────────────────────── */
 
-function _buildSilk(placements, bounds) {
-    // Minimal silk: a small reference designator near each component
-    // origin. Drawn as a stroked polyline using a thin circular aperture.
-    let out = 'G04 ClearPCB Top Silk*\n' + FORMAT + '%LPD*%\n';
+function _buildSilk(placements, side, bounds) {
+    // Component silk: footprint silk shapes (lines / circles / paths)
+    // plus a small reference designator near each component origin.
+    // `side` is 'top' or 'bottom'.
+    const wantLayer = side === 'bottom' ? 'bottom-silk' : 'top-silk';
+    const title = side === 'bottom' ? 'Bottom Silk' : 'Top Silk';
+    let out = `G04 ClearPCB ${title}*\n` + FORMAT + '%LPD*%\n';
+    // Default aperture for ref-designator strokes.
     out += '%ADD10C,0.15*%\nD10*\n';
+    let currentApertureW = 0.15;
+    /** @returns {number} next aperture code starting at 11. */
+    const apertures = new Map(); // strokeWidth -> code
+    let nextCode = 11;
+    const useAperture = (w) => {
+        const key = w.toFixed(4);
+        let code = apertures.get(key);
+        let header = '';
+        if (code === undefined) {
+            code = nextCode++;
+            apertures.set(key, code);
+            header = `%ADD${code}C,${w.toFixed(4)}*%\n`;
+        }
+        let sel = '';
+        if (w !== currentApertureW) {
+            sel = `D${code}*\n`;
+            currentApertureW = w;
+        }
+        return header + sel;
+    };
+
+    const emitSeg = (a, b) => {
+        const clipped = _clipSegment(a.x, a.y, b.x, b.y, bounds);
+        if (!clipped) return '';
+        return `X${_fmt(clipped[0])}Y${_fmtY(clipped[1])}D02*\n`
+             + `X${_fmt(clipped[2])}Y${_fmtY(clipped[3])}D01*\n`;
+    };
+
+    let body = '';
     for (const [, pl] of placements) {
+        // ── Component silk shapes (offsets are in component-local mm).
+        for (const s of (pl.silks || [])) {
+            if (s.layer !== wantLayer) continue;
+            const sw = Number.isFinite(s.strokeWidth) && s.strokeWidth > 0 ? s.strokeWidth : 0.12;
+            const head = useAperture(sw);
+            if (head) body += head;
+            if (s.type === 'line') {
+                body += emitSeg(
+                    { x: pl.x + s.x1, y: pl.y + s.y1 },
+                    { x: pl.x + s.x2, y: pl.y + s.y2 },
+                );
+            } else if (s.type === 'circle') {
+                // Approximate the circle with a 32-segment polyline.
+                const N = 32;
+                const cx = pl.x + s.cx, cy = pl.y + s.cy;
+                let prev = { x: cx + s.r, y: cy };
+                for (let i = 1; i <= N; i++) {
+                    const t = (i / N) * Math.PI * 2;
+                    const next = { x: cx + s.r * Math.cos(t), y: cy + s.r * Math.sin(t) };
+                    body += emitSeg(prev, next);
+                    prev = next;
+                }
+            } else if (s.type === 'path') {
+                // Flatten the SVG path into polyline segments and emit.
+                const polys = _flattenPath(s.d);
+                for (const poly of polys) {
+                    for (let i = 1; i < poly.length; i++) {
+                        body += emitSeg(
+                            { x: pl.x + poly[i - 1].x, y: pl.y + poly[i - 1].y },
+                            { x: pl.x + poly[i].x,     y: pl.y + poly[i].y },
+                        );
+                    }
+                }
+            }
+        }
+
+        // ── Reference designator (top side only).
+        if (side !== 'top') continue;
         const ref = pl.reference;
         if (!ref) continue;
         if (!_inBoard(pl.x, pl.y, bounds)) continue;
-        // Stroke each glyph as a 1x1.4mm rect outline near the component
-        // centre — simplistic but produces visible text on the gerber.
-        const strokes = _strokeText(ref, pl.x, pl.y + 2, 1.0);
+        const head = useAperture(0.15);
+        if (head) body += head;
+        // Match editor layout: centred horizontally on the outline, sitting
+        // just above its top edge. `bounds` here is the component's local
+        // courtyard/outline rect; fall back to the placement origin.
+        const size = 0.9;
+        const ob = pl.bounds;
+        const labelW = measureText(ref, size);
+        const tx = ob ? pl.x + ob.x + ob.width / 2 - labelW / 2
+                      : pl.x - labelW / 2;
+        const ty = ob ? pl.y + ob.y - 0.8 : pl.y - 2;
+        const strokes = stringToPolylines(ref, tx, ty, size, false);
         for (const seg of strokes) {
-            // Clip each polyline segment against the board.
             for (let i = 1; i < seg.length; i++) {
-                const a = seg[i - 1], b = seg[i];
-                const clipped = _clipSegment(a.x, a.y, b.x, b.y, bounds);
-                if (!clipped) continue;
-                out += `X${_fmt(clipped[0])}Y${_fmtY(clipped[1])}D02*\n`;
-                out += `X${_fmt(clipped[2])}Y${_fmtY(clipped[3])}D01*\n`;
+                body += emitSeg(seg[i - 1], seg[i]);
             }
         }
     }
-    out += 'M02*\n';
+
+    out += body + 'M02*\n';
     return out;
 }
 
 /**
- * Very simple stroked glyph generator — turns a string into a list of
- * point-polylines suitable for a Gerber pen plotter. Each character is
- * rendered in a `size`-mm cell using a minimal 7-segment-ish font.
- * Falls back to a filled rectangle outline for any glyph not in the
- * font table.
+ * Flatten a simple SVG path data string into polylines in mm.
+ * Supports M/m, L/l, H/h, V/v, Z/z plus bezier curves approximated
+ * with 16 sub-segments. Unknown commands are skipped.
+ * @param {string} d
+ * @returns {Array<Array<{x:number,y:number}>>}
  */
-function _strokeText(text, x, y, size) {
-    const segs = [];
-    const advance = size * 0.8;
-    let cx = x;
-    for (const ch of text.toUpperCase()) {
-        const glyph = _GLYPHS[ch];
-        if (glyph) {
-            for (const stroke of glyph) {
-                segs.push(stroke.map(([gx, gy]) => ({
-                    x: cx + gx * size,
-                    y: y + gy * size,
-                })));
+function _flattenPath(d) {
+    if (!d) return [];
+    const tokens = d.match(/[a-zA-Z]|-?[0-9]*\.?[0-9]+(?:e[-+]?[0-9]+)?/g) || [];
+    const polys = [];
+    let poly = [];
+    let x = 0, y = 0, sx = 0, sy = 0;
+    let i = 0;
+    const num = () => parseFloat(tokens[i++]);
+    const push = () => { poly.push({ x, y }); };
+    while (i < tokens.length) {
+        const t = tokens[i++];
+        if (/[a-zA-Z]/.test(t) === false) { i--; /* no command — treat as L */ }
+        const cmd = /[a-zA-Z]/.test(t) ? t : 'L';
+        const rel = cmd === cmd.toLowerCase() && cmd !== 'Z' && cmd !== 'z';
+        const c = cmd.toUpperCase();
+        if (c === 'M') {
+            if (poly.length) { polys.push(poly); poly = []; }
+            const nx = num(), ny = num();
+            x = rel ? x + nx : nx; y = rel ? y + ny : ny;
+            sx = x; sy = y;
+            push();
+            // Subsequent pairs after M are implicit L.
+            while (i < tokens.length && !/[a-zA-Z]/.test(tokens[i])) {
+                const lx = num(), ly = num();
+                x = rel ? x + lx : lx; y = rel ? y + ly : ly;
+                push();
+            }
+        } else if (c === 'L') {
+            while (i < tokens.length && !/[a-zA-Z]/.test(tokens[i])) {
+                const lx = num(), ly = num();
+                x = rel ? x + lx : lx; y = rel ? y + ly : ly;
+                push();
+            }
+        } else if (c === 'H') {
+            while (i < tokens.length && !/[a-zA-Z]/.test(tokens[i])) {
+                const lx = num(); x = rel ? x + lx : lx; push();
+            }
+        } else if (c === 'V') {
+            while (i < tokens.length && !/[a-zA-Z]/.test(tokens[i])) {
+                const ly = num(); y = rel ? y + ly : ly; push();
+            }
+        } else if (c === 'Z') {
+            x = sx; y = sy; push();
+            polys.push(poly); poly = [];
+        } else if (c === 'C') {
+            while (i < tokens.length && !/[a-zA-Z]/.test(tokens[i])) {
+                const x1 = (rel ? x : 0) + num(), y1 = (rel ? y : 0) + num();
+                const x2 = (rel ? x : 0) + num(), y2 = (rel ? y : 0) + num();
+                const nx = (rel ? x : 0) + num(), ny = (rel ? y : 0) + num();
+                _flattenBezier(poly, x, y, x1, y1, x2, y2, nx, ny, 16);
+                x = nx; y = ny;
+            }
+        } else if (c === 'Q') {
+            while (i < tokens.length && !/[a-zA-Z]/.test(tokens[i])) {
+                const x1 = (rel ? x : 0) + num(), y1 = (rel ? y : 0) + num();
+                const nx = (rel ? x : 0) + num(), ny = (rel ? y : 0) + num();
+                // Quadratic -> cubic.
+                const cx1 = x + 2/3 * (x1 - x), cy1 = y + 2/3 * (y1 - y);
+                const cx2 = nx + 2/3 * (x1 - nx), cy2 = ny + 2/3 * (y1 - ny);
+                _flattenBezier(poly, x, y, cx1, cy1, cx2, cy2, nx, ny, 16);
+                x = nx; y = ny;
             }
         } else {
-            // Box outline as fallback.
-            segs.push([
-                { x: cx, y },
-                { x: cx + advance, y },
-                { x: cx + advance, y: y + size },
-                { x: cx, y: y + size },
-                { x: cx, y },
-            ]);
+            // Unsupported (A, S, T): skip its numeric args conservatively.
+            while (i < tokens.length && !/[a-zA-Z]/.test(tokens[i])) i++;
         }
-        cx += advance + size * 0.2;
     }
-    return segs;
+    if (poly.length) polys.push(poly);
+    return polys;
 }
 
-/** Minimal stroke font: each glyph is an array of polylines in a unit cell. */
-const _GLYPHS = {
-    '0': [[[0, 0], [0.6, 0], [0.6, 1], [0, 1], [0, 0]]],
-    '1': [[[0.3, 0], [0.3, 1]]],
-    '2': [[[0, 1], [0.6, 1], [0.6, 0.5], [0, 0.5], [0, 0], [0.6, 0]]],
-    '3': [[[0, 1], [0.6, 1], [0.6, 0], [0, 0]], [[0, 0.5], [0.6, 0.5]]],
-    '4': [[[0, 1], [0, 0.5], [0.6, 0.5]], [[0.6, 1], [0.6, 0]]],
-    '5': [[[0.6, 1], [0, 1], [0, 0.5], [0.6, 0.5], [0.6, 0], [0, 0]]],
-    '6': [[[0.6, 1], [0, 1], [0, 0], [0.6, 0], [0.6, 0.5], [0, 0.5]]],
-    '7': [[[0, 1], [0.6, 1], [0.6, 0]]],
-    '8': [[[0, 0], [0.6, 0], [0.6, 1], [0, 1], [0, 0]], [[0, 0.5], [0.6, 0.5]]],
-    '9': [[[0.6, 0], [0.6, 1], [0, 1], [0, 0.5], [0.6, 0.5]]],
-    'A': [[[0, 0], [0, 1], [0.6, 1], [0.6, 0]], [[0, 0.5], [0.6, 0.5]]],
-    'B': [[[0, 0], [0, 1], [0.5, 1], [0.6, 0.75], [0.5, 0.5], [0, 0.5], [0.5, 0.5], [0.6, 0.25], [0.5, 0], [0, 0]]],
-    'C': [[[0.6, 1], [0, 1], [0, 0], [0.6, 0]]],
-    'D': [[[0, 0], [0, 1], [0.4, 1], [0.6, 0.8], [0.6, 0.2], [0.4, 0], [0, 0]]],
-    'E': [[[0.6, 1], [0, 1], [0, 0], [0.6, 0]], [[0, 0.5], [0.5, 0.5]]],
-    'F': [[[0, 0], [0, 1], [0.6, 1]], [[0, 0.5], [0.5, 0.5]]],
-    'G': [[[0.6, 1], [0, 1], [0, 0], [0.6, 0], [0.6, 0.5], [0.3, 0.5]]],
-    'H': [[[0, 0], [0, 1]], [[0.6, 0], [0.6, 1]], [[0, 0.5], [0.6, 0.5]]],
-    'I': [[[0.3, 0], [0.3, 1]]],
-    'J': [[[0.6, 1], [0.6, 0.2], [0.4, 0], [0.2, 0], [0, 0.2]]],
-    'K': [[[0, 0], [0, 1]], [[0.6, 1], [0, 0.5], [0.6, 0]]],
-    'L': [[[0, 1], [0, 0], [0.6, 0]]],
-    'M': [[[0, 0], [0, 1], [0.3, 0.5], [0.6, 1], [0.6, 0]]],
-    'N': [[[0, 0], [0, 1], [0.6, 0], [0.6, 1]]],
-    'O': [[[0, 0], [0.6, 0], [0.6, 1], [0, 1], [0, 0]]],
-    'P': [[[0, 0], [0, 1], [0.6, 1], [0.6, 0.5], [0, 0.5]]],
-    'Q': [[[0, 0], [0.6, 0], [0.6, 1], [0, 1], [0, 0]], [[0.4, 0.3], [0.7, 0]]],
-    'R': [[[0, 0], [0, 1], [0.6, 1], [0.6, 0.5], [0, 0.5]], [[0.3, 0.5], [0.6, 0]]],
-    'S': [[[0.6, 1], [0, 1], [0, 0.5], [0.6, 0.5], [0.6, 0], [0, 0]]],
-    'T': [[[0, 1], [0.6, 1]], [[0.3, 1], [0.3, 0]]],
-    'U': [[[0, 1], [0, 0], [0.6, 0], [0.6, 1]]],
-    'V': [[[0, 1], [0.3, 0], [0.6, 1]]],
-    'W': [[[0, 1], [0.15, 0], [0.3, 0.5], [0.45, 0], [0.6, 1]]],
-    'X': [[[0, 0], [0.6, 1]], [[0, 1], [0.6, 0]]],
-    'Y': [[[0, 1], [0.3, 0.5], [0.6, 1]], [[0.3, 0.5], [0.3, 0]]],
-    'Z': [[[0, 1], [0.6, 1], [0, 0], [0.6, 0]]],
-};
+function _flattenBezier(poly, x0, y0, x1, y1, x2, y2, x3, y3, steps) {
+    for (let s = 1; s <= steps; s++) {
+        const t = s / steps, u = 1 - t;
+        const bx = u*u*u*x0 + 3*u*u*t*x1 + 3*u*t*t*x2 + t*t*t*x3;
+        const by = u*u*u*y0 + 3*u*u*t*y1 + 3*u*t*t*y2 + t*t*t*y3;
+        poly.push({ x: bx, y: by });
+    }
+}
+
 
 /* ──────────────────────────── board outline ──────────────────────────── */
 

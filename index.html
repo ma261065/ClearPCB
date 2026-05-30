@@ -225,12 +225,15 @@
             <div class="ribbon-panel active" data-panel="pcb-home">
                 <div class="ribbon-group">
                     <div class="ribbon-group-title">Tools</div>
-                    <div class="ribbon-group-items">
-                        <button id="pcbToolSelect" class="ribbon-tool-btn active" title="Select (V)">⊹ Select</button>
-                        <button id="pcbToolTrack" class="ribbon-tool-btn" title="Route Track">⏤ Track</button>
-                        <button id="pcbToolPad" class="ribbon-tool-btn" title="Place Pad">◼ Pad</button>
-                        <button id="pcbToolVia" class="ribbon-tool-btn" title="Place Via">◉ Via</button>
-                        <button id="pcbToolHole" class="ribbon-tool-btn" title="Place Hole">◎ Hole</button>
+                    <div class="ribbon-shape-body">
+                        <div class="ribbon-group-items ribbon-shape-tools">
+                            <button id="pcbToolSelect" class="ribbon-tool-btn active" title="Select (V)">⊹ Select</button>
+                            <button id="pcbToolTrack" class="ribbon-tool-btn" title="Route Track">⏤ Track</button>
+                            <button id="pcbToolPad" class="ribbon-tool-btn" title="Place Pad">◼ Pad</button>
+                            <button id="pcbToolVia" class="ribbon-tool-btn" title="Place Via">◉ Via</button>
+                            <button id="pcbToolHole" class="ribbon-tool-btn" title="Place Hole">◎ Hole</button>
+                        </div>
+                        <div class="ribbon-shape-options" id="pcbToolOptions"></div>
                     </div>
                 </div>
                 <div class="ribbon-group">
@@ -271,6 +274,12 @@
                         <button id="pcbZoomFit" title="Fit to Board Area">Fit</button>
                         <button id="pcbResetView" title="Default View">Default</button>
                         <button id="pcbThemeToggle" class="theme-toggle" title="Toggle Dark/Light Mode">🌙</button>
+                    </div>
+                </div>
+                <div class="ribbon-group">
+                    <div class="ribbon-group-title">Fabrication</div>
+                    <div class="ribbon-group-items">
+                        <button id="pcbExportGerber" title="Export Gerber + drill files as ZIP">📁 Export Gerber</button>
                     </div>
                 </div>
             </div>
@@ -327,12 +336,6 @@
                     <div class="ribbon-group-items">
                         <button id="pcbTestDense" title="Load dense test board (42×40mm, 76 connections)">🔬 Dense</button>
                         <button id="pcbTestSpread" title="Load spread test board (102×84mm, 76 connections)">🔬 Spread</button>
-                    </div>
-                </div>
-                <div class="ribbon-group">
-                    <div class="ribbon-group-title">Fabrication</div>
-                    <div class="ribbon-group-items">
-                        <button id="pcbExportGerber" title="Export Gerber + drill files as ZIP">📁 Export Gerber</button>
                     </div>
                 </div>
                 <div class="ribbon-group">

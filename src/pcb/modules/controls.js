@@ -48,6 +48,14 @@ export function bindPcbControls(app) {
         setToolButtonActive(nextTool);
         app._updateCursorForTool?.();
         app._setPcbStatus?.();
+        // Show per-tool options group (Home tab).
+        if (nextTool === 'via') {
+            app._showViaToolOptions?.();
+        } else if (nextTool === 'track') {
+            app._showTrackToolOptions?.();
+        } else {
+            app._hideToolOptions?.();
+        }
     };
 
     app._syncPcbHomeToolHighlight = syncHomeToolHighlight;

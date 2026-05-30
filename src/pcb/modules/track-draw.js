@@ -325,7 +325,7 @@ export function startTrackDraw(app, worldPos) {
     };
     app._trackDraw = ctx;
     _renderPreview(app, ctx, ctx.points[0]);
-    app._showTrackDrawProperties?.(ctx);
+    app._showTrackDrawToolOptions?.(ctx);
     return ctx;
 }
 
@@ -444,7 +444,8 @@ export function finishTrackDraw(app) {
     }
 
     _teardownDraw(app);
-    app._clearProperties?.();
+    // Track tool is still selected — show its idle options (width).
+    app._showTrackToolOptions?.();
 }
 
 /**
@@ -452,7 +453,7 @@ export function finishTrackDraw(app) {
  */
 export function cancelTrackDraw(app) {
     _teardownDraw(app);
-    app._clearProperties?.();
+    app._showTrackToolOptions?.();
 }
 
 /**

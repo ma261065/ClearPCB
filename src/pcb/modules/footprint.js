@@ -6,6 +6,8 @@
  * strings into pad geometry objects and renders them as SVG.
  */
 
+import { stringToPolylines, measureText } from './stroke-font.js';
+
 const NS = 'http://www.w3.org/2000/svg';
 
 /**
@@ -764,19 +766,28 @@ export function renderFootprint(fp, ref, x, y, rotation = 0) {
         }
     }
 
-    // Reference text → top silk
-    const refText = document.createElementNS(NS, 'text');
+    // Reference text → top silk (stroked polylines, identical to gerber)
+    const refSize = 0.9;
     const outlineY = fp.outline ? fp.outline.y : -2;
-    refText.setAttribute('x', String(fp.outline ? fp.outline.x + fp.outline.width / 2 : 0));
-    refText.setAttribute('y', String(outlineY - 0.8));
-    refText.setAttribute('text-anchor', 'middle');
-    refText.setAttribute('dominant-baseline', 'auto');
-    refText.setAttribute('font-size', '1.2');
-    refText.setAttribute('fill', '#f0e68c');
-    refText.setAttribute('font-family', 'Arial, sans-serif');
-    refText.setAttribute('pointer-events', 'none');
-    refText.textContent = ref;
-    getLayer('top-silk').appendChild(refText);
+    const cxRef = fp.outline ? fp.outline.x + fp.outline.width / 2 : 0;
+    const labelW = measureText(ref, refSize);
+    const baseX = cxRef - labelW / 2;
+    // SVG is Y-down; place baseline at outlineY - 0.8 (above the outline).
+    const baseY = outlineY - 0.8;
+    const refGroup = document.createElementNS(NS, 'g');
+    refGroup.setAttribute('pointer-events', 'none');
+    refGroup.setAttribute('fill', 'none');
+    refGroup.setAttribute('stroke', '#f0e68c');
+    refGroup.setAttribute('stroke-width', '0.15');
+    refGroup.setAttribute('stroke-linecap', 'round');
+    refGroup.setAttribute('stroke-linejoin', 'round');
+    for (const poly of stringToPolylines(ref, baseX, baseY, refSize, false)) {
+        if (poly.length < 2) continue;
+        const pl = document.createElementNS(NS, 'polyline');
+        pl.setAttribute('points', poly.map(p => `${p.x},${p.y}`).join(' '));
+        refGroup.appendChild(pl);
+    }
+    getLayer('top-silk').appendChild(refGroup);
 
     return layers;
 }

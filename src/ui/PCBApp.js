@@ -20,6 +20,7 @@ import {
     finishTrackDraw,
     cancelTrackDraw,
     toggleTrackLayer,
+    resolveTrackSnap,
 } from '../pcb/modules/track-draw.js';
 import {
     hitTestTrack,
@@ -40,6 +41,7 @@ import {
 } from '../pcb/modules/track-drag.js';
 import {
     AddTrackCommand,
+    AddViaCommand,
     MovePlacementCommand,
     SetBoardOutlineCommand,
 } from '../pcb/modules/track-commands.js';
@@ -248,6 +250,16 @@ export default class PCBApp {
         this.viewport.onViewChanged = () => {
             if (!this._active) return;
             this._updateViewportStatus();
+            // Cursor crosshair (track/via tools) is sized in screen pixels
+            // and spans the viewport — redraw on zoom/pan so it doesn't drift.
+            if (this._lastCrosshairWorld &&
+                (this.currentTool === 'via' || this.currentTool === 'track')) {
+                if (this.currentTool === 'via') {
+                    this._updateViaPreview(this._lastCrosshairWorld);
+                } else {
+                    this._updateCursorCrosshair(this._lastCrosshairWorld);
+                }
+            }
         };
 
         // Bind mouse events for panning
@@ -384,6 +396,22 @@ export default class PCBApp {
                     startTrackDraw(this, worldPos);
                 }
             }
+
+            // Left-click with via tool: place a standalone via at the cursor.
+            if (e.button === 0 && this.currentTool === 'via') {
+                const worldPos = this._screenToWorld(e);
+                const snap = resolveTrackSnap(this, worldPos, {});
+                const p = this._getRoutingParams?.() || {};
+                const snapNet = snap.pad?.net || snap.trackNode?.track?.net || '';
+                const via = new Via({
+                    x: snap.x,
+                    y: snap.y,
+                    diameter: Number.isFinite(p.viaDiameter) && p.viaDiameter > 0 ? p.viaDiameter : 0.6,
+                    drill: Number.isFinite(p.viaDrill) && p.viaDrill > 0 ? p.viaDrill : 0.3,
+                    net: snapNet,
+                });
+                this.history.execute(new AddViaCommand(this, via));
+            }
         });
 
         svg.addEventListener('mousemove', (e) => {
@@ -398,11 +426,18 @@ export default class PCBApp {
                 updateViaDrag(this, this._screenToWorld(e));
             } else if (this._trackDraw) {
                 updateTrackDraw(this, this._screenToWorld(e));
+                if (this._trackDraw?.snap) {
+                    this._updateCursorCrosshair({ x: this._trackDraw.snap.x, y: this._trackDraw.snap.y });
+                }
             } else if (this.currentTool === 'select') {
                 const worldPos = this._screenToWorld(e);
                 this._hoverBoardOutline(this._hitTestBoardOutline(worldPos));
                 // Hover highlight for tracks/vias.
                 setHoverHighlight(this, this._hitTestPad(worldPos) || hitTestTrack(this, worldPos));
+            } else if (this.currentTool === 'via') {
+                this._updateViaPreview(this._screenToWorld(e));
+            } else if (this.currentTool === 'track') {
+                this._updateCursorCrosshair(this._screenToWorld(e));
             }
             this.viewport.trackMouse(e);
             this._updateDebugTooltip(e);
@@ -506,7 +541,127 @@ export default class PCBApp {
         this.viewport.svg.style.cursor =
             t === 'pan' ? 'grab' :
             t === 'track' ? 'crosshair' :
+            t === 'via' ? 'crosshair' :
             'default';
+        if (t !== 'via') this._clearViaRing();
+        if (t !== 'via' && t !== 'track') this._clearCursorCrosshair();
+    }
+
+    /**
+     * Show/update a full-viewport dashed H+V crosshair at the snapped
+     * world position. Stroke and dash are sized in screen pixels so
+     * they don't visually scale with zoom. Style matches the
+     * schematic editor's crosshair.
+     */
+    _updateCursorCrosshair(worldPos) {
+        const svg = this.viewport?.svg;
+        if (!svg) return;
+        const snap = resolveTrackSnap(this, worldPos, {});
+        this._lastCrosshairWorld = { x: worldPos.x, y: worldPos.y };
+        const vb = this.viewport.viewBox;
+        const scale = this.viewport.scale || 1;
+        const stroke = 1 / scale;
+        const dash = `${4 / scale} ${4 / scale}`;
+        const accent = getComputedStyle(document.documentElement)
+            .getPropertyValue('--accent-color').trim() || '#0098ff';
+
+        let g = this._crosshairGroup;
+        if (!g) {
+            const NS = 'http://www.w3.org/2000/svg';
+            g = document.createElementNS(NS, 'g');
+            g.setAttribute('class', 'pcb-cursor-crosshair');
+            g.setAttribute('pointer-events', 'none');
+            const hLine = document.createElementNS(NS, 'line');
+            hLine.setAttribute('data-role', 'h');
+            const vLine = document.createElementNS(NS, 'line');
+            vLine.setAttribute('data-role', 'v');
+            g.appendChild(hLine);
+            g.appendChild(vLine);
+            svg.appendChild(g);
+            this._crosshairGroup = g;
+        }
+        const hLine = g.querySelector('[data-role="h"]');
+        const vLine = g.querySelector('[data-role="v"]');
+        for (const el of [hLine, vLine]) {
+            el.setAttribute('stroke', accent);
+            el.setAttribute('stroke-width', String(stroke));
+            el.setAttribute('stroke-dasharray', dash);
+        }
+        hLine.setAttribute('x1', String(vb.x));
+        hLine.setAttribute('x2', String(vb.x + vb.width));
+        hLine.setAttribute('y1', String(snap.y));
+        hLine.setAttribute('y2', String(snap.y));
+        vLine.setAttribute('x1', String(snap.x));
+        vLine.setAttribute('x2', String(snap.x));
+        vLine.setAttribute('y1', String(vb.y));
+        vLine.setAttribute('y2', String(vb.y + vb.height));
+    }
+
+    _clearCursorCrosshair() {
+        if (this._crosshairGroup) {
+            this._crosshairGroup.remove();
+            this._crosshairGroup = null;
+        }
+        this._lastCrosshairWorld = null;
+    }
+
+    /**
+     * Via tool preview: crosshair + outlined via (ring + drill) at the
+     * snapped cursor position.
+     */
+    _updateViaPreview(worldPos) {
+        this._updateCursorCrosshair(worldPos);
+        const svg = this.viewport?.svg;
+        if (!svg) return;
+        const snap = resolveTrackSnap(this, worldPos, {});
+        const p = this._getRoutingParams?.() || {};
+        const dia = Number.isFinite(p.viaDiameter) && p.viaDiameter > 0 ? p.viaDiameter : 0.6;
+        const drill = Number.isFinite(p.viaDrill) && p.viaDrill > 0 ? p.viaDrill : 0.3;
+        const scale = this.viewport.scale || 1;
+        const stroke = 1 / scale;
+        const accent = getComputedStyle(document.documentElement)
+            .getPropertyValue('--accent-color').trim() || '#0098ff';
+
+        let g = this._viaRingGroup;
+        if (!g) {
+            const NS = 'http://www.w3.org/2000/svg';
+            g = document.createElementNS(NS, 'g');
+            g.setAttribute('class', 'pcb-via-preview');
+            g.setAttribute('pointer-events', 'none');
+            const ring = document.createElementNS(NS, 'circle');
+            ring.setAttribute('data-role', 'ring');
+            ring.setAttribute('fill', 'none');
+            const hole = document.createElementNS(NS, 'circle');
+            hole.setAttribute('data-role', 'hole');
+            hole.setAttribute('fill', 'none');
+            g.appendChild(ring);
+            g.appendChild(hole);
+            svg.appendChild(g);
+            this._viaRingGroup = g;
+        }
+        const ring = g.querySelector('[data-role="ring"]');
+        const hole = g.querySelector('[data-role="hole"]');
+        for (const el of [ring, hole]) el.setAttribute('stroke', accent);
+        ring.setAttribute('cx', String(snap.x));
+        ring.setAttribute('cy', String(snap.y));
+        ring.setAttribute('r', String(dia / 2));
+        ring.setAttribute('stroke-width', String(stroke * 1.5));
+        hole.setAttribute('cx', String(snap.x));
+        hole.setAttribute('cy', String(snap.y));
+        hole.setAttribute('r', String(drill / 2));
+        hole.setAttribute('stroke-width', String(stroke));
+    }
+
+    _clearViaRing() {
+        if (this._viaRingGroup) {
+            this._viaRingGroup.remove();
+            this._viaRingGroup = null;
+        }
+    }
+
+    _clearViaPreview() {
+        this._clearViaRing();
+        this._clearCursorCrosshair();
     }
 
     /** Public hook used by controls.setTool to abort an in-flight track draw. */
@@ -572,6 +727,15 @@ export default class PCBApp {
                 this._clearProperties?.();
                 return true;
             }
+            // No active interaction: return to Home tab + select tool.
+            if (this.currentTool !== 'select') {
+                this.currentTool = 'select';
+                this._updateCursorForTool?.();
+                this._syncPcbHomeToolHighlight?.();
+                this._setPcbStatus?.();
+            }
+            this._setActiveRibbonTab?.('pcb-home');
+            return true;
         }
         return false;
     }
@@ -969,6 +1133,93 @@ export default class PCBApp {
     }
 
     /**
+     * Render extra tool controls inline within the Tools group on the
+     * Home tab — same pattern as the schematic editor's
+     * `.ribbon-shape-options` container.
+     * @param {string} html - inner HTML for the options container
+     * @param {(items: HTMLElement) => void} [bind] - optional listener wiring
+     */
+    _showToolOptions(html, bind) {
+        const items = document.getElementById('pcbToolOptions');
+        if (!items) return;
+        items.innerHTML = html;
+        bind?.(items);
+    }
+
+    _hideToolOptions() {
+        const items = document.getElementById('pcbToolOptions');
+        if (items) items.innerHTML = '';
+    }
+
+    /**
+     * Show live editable options for an in-progress Track draw
+     * (currently just track width). Replaces the old Properties-tab UI.
+     * @param {object} ctx - the _trackDraw context
+     */
+    _showTrackDrawToolOptions(ctx) {
+        if (!ctx) return;
+        this._showToolOptions(
+            `<label>Width (mm) <input type="number" id="pcbToolTrackWidth" value="${ctx.width}" min="0.05" step="0.05"></label>`,
+            () => {
+                const wEl = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbToolTrackWidth'));
+                wEl?.addEventListener('input', () => {
+                    const v = parseFloat(wEl.value);
+                    if (Number.isFinite(v) && v > 0) {
+                        ctx.width = v;
+                        const last = ctx.points[ctx.points.length - 1];
+                        const live = ctx.snap ? { x: ctx.snap.x, y: ctx.snap.y } : last;
+                        updateTrackDraw(this, live);
+                    }
+                });
+            });
+    }
+
+    /**
+     * Show idle Track tool options (width spinner only). Used when the
+     * track tool is selected but no draw is in progress; edits write
+     * back to the routing-params input so the next draw picks them up.
+     */
+    _showTrackToolOptions() {
+        const p = this._getRoutingParams?.() || {};
+        const w = Number.isFinite(p.trackWidth) && p.trackWidth > 0 ? p.trackWidth : 0.2;
+        this._showToolOptions(
+            `<label>Width (mm) <input type="number" id="pcbToolTrackWidth" value="${w}" min="0.05" step="0.05"></label>`,
+            () => {
+                const wEl = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbToolTrackWidth'));
+                const src = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbTrackWidth'));
+                wEl?.addEventListener('input', () => {
+                    if (src) src.value = wEl.value;
+                });
+            });
+    }
+
+    /**
+     * Show live editable options for the Via tool (diameter / drill).
+     */
+    _showViaToolOptions() {
+        const p = this._getRoutingParams?.() || {};
+        const dia = Number.isFinite(p.viaDiameter) && p.viaDiameter > 0 ? p.viaDiameter : 0.6;
+        const drill = Number.isFinite(p.viaDrill) && p.viaDrill > 0 ? p.viaDrill : 0.3;
+        this._showToolOptions(
+            `<label>Diameter (mm) <input type="number" id="pcbToolViaDia" value="${dia}" min="0.1" step="0.05"></label>
+             <label>Drill (mm) <input type="number" id="pcbToolViaDrill" value="${drill}" min="0.05" step="0.05"></label>`,
+            () => {
+                const diaEl = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbToolViaDia'));
+                const drillEl = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbToolViaDrill'));
+                const srcDia = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbViaDiameter'));
+                const srcDrill = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbViaDrill'));
+                diaEl?.addEventListener('input', () => {
+                    if (srcDia) srcDia.value = diaEl.value;
+                    if (this._lastCrosshairWorld) this._updateViaPreview(this._lastCrosshairWorld);
+                });
+                drillEl?.addEventListener('input', () => {
+                    if (srcDrill) srcDrill.value = drillEl.value;
+                    if (this._lastCrosshairWorld) this._updateViaPreview(this._lastCrosshairWorld);
+                });
+            });
+    }
+
+    /**
      * Clear the properties panel to its default state.
      */
     _clearProperties() {
@@ -980,34 +1231,11 @@ export default class PCBApp {
 
     /**
      * Show live editable properties for an in-progress Track draw.
-     * Currently exposes net, layer, and a width spinner. Editing the
-     * width updates the live preview immediately.
-     * @param {object} ctx - the _trackDraw context
+     * @deprecated Track-draw options now live in the Home tab Tool
+     * Options group (see _showTrackDrawToolOptions). Kept as a no-op
+     * for backwards compat with anything still calling it.
      */
-    _showTrackDrawProperties(ctx) {
-        const items = document.getElementById('pcbPropsItems');
-        if (!items || !ctx) return;
-        const netLabel = ctx.net || '(unassigned)';
-        const layerLabel = ctx.currentLayer === 'bottom-copper' ? 'Bottom Copper' : 'Top Copper';
-        items.innerHTML = `
-            <div class="prop-row"><label>Type</label><span style="font-size:11px;color:var(--text-primary)">Track (drawing)</span></div>
-            <div class="prop-row"><label>Net</label><span style="font-size:11px;color:var(--text-primary)">${netLabel}</span></div>
-            <div class="prop-row"><label>Layer</label><span style="font-size:11px;color:var(--text-primary)">${layerLabel}</span></div>
-            <div class="prop-row"><label>Width (mm)</label><input type="number" id="pcbPropTrackWidth" value="${ctx.width}" min="0.05" step="0.05"></div>
-        `;
-        const wEl = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropTrackWidth'));
-        wEl?.addEventListener('input', () => {
-            const v = parseFloat(wEl.value);
-            if (Number.isFinite(v) && v > 0) {
-                ctx.width = v;
-                // Trigger a preview re-render at the current cursor position.
-                const last = ctx.points[ctx.points.length - 1];
-                const live = ctx.snap ? { x: ctx.snap.x, y: ctx.snap.y } : last;
-                updateTrackDraw(this, live);
-            }
-        });
-        this._setActiveRibbonTab?.('pcb-properties');
-    }
+    _showTrackDrawProperties() { /* no-op */ }
 
     /**
      * Show board outline properties and switch to Properties tab.
@@ -1256,6 +1484,8 @@ export default class PCBApp {
                 elements,
                 bounds: fpGeom.courtyard || fpGeom.outline,
                 reference: comp.reference,
+                silks: fpGeom.silks || [],
+                rotation: 0,
             });
         }
     }
@@ -2897,8 +3127,9 @@ export default class PCBApp {
             this._setStatus('Nothing to export');
             return;
         }
+        let blob, files;
         try {
-            const files = exportGerbers({
+            files = exportGerbers({
                 placements: this.placements,
                 tracks: this.tracks,
                 vias: this.vias,
@@ -2908,18 +3139,67 @@ export default class PCBApp {
                 boardHeight: this._boardHeight,
                 boardRadius: this._boardRadius,
             });
-            const blob = buildZip(files);
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = 'gerbers.zip';
-            a.click();
-            URL.revokeObjectURL(url);
-            this._setStatus(`Gerbers exported (${files.size} files)`);
+            blob = buildZip(files);
         } catch (err) {
             console.error('Gerber export failed:', err);
             this._setStatus(`Gerber export failed: ${err?.message || err}`);
+            return;
         }
+        // Derive default filename from the project name.
+        const schematicApp = /** @type {any} */ (window).app;
+        const fname = schematicApp?.fileManager?.fileName || 'untitled.cpcb';
+        const base = fname.replace(/\.[^./\\]+$/, '') || 'untitled';
+        const suggestedName = `${base}-gerber.zip`;
+        this._saveBlob(blob, suggestedName, {
+            description: 'Gerber ZIP archive',
+            accept: { 'application/zip': ['.zip'] },
+        }).then(saved => {
+            if (saved) this._setStatus(`Gerbers exported (${files.size} files)`);
+        }).catch(err => {
+            console.error('Gerber save failed:', err);
+            this._setStatus(`Gerber save failed: ${err?.message || err}`);
+        });
+    }
+
+    /**
+     * Save a Blob to disk. Uses the File System Access API when
+     * available (proper Save As dialog), falling back to an anchor
+     * download. Returns true if a file was saved, false if the user
+     * cancelled the picker.
+     * @param {Blob} blob
+     * @param {string} suggestedName
+     * @param {{description?: string, accept?: Record<string,string[]>}} [opts]
+     * @returns {Promise<boolean>}
+     */
+    async _saveBlob(blob, suggestedName, opts = {}) {
+        const w = /** @type {any} */ (window);
+        if (typeof w.showSaveFilePicker === 'function') {
+            try {
+                const handle = await w.showSaveFilePicker({
+                    suggestedName,
+                    types: opts.accept ? [{
+                        description: opts.description || '',
+                        accept: opts.accept,
+                    }] : undefined,
+                });
+                const writable = await handle.createWritable();
+                await writable.write(blob);
+                await writable.close();
+                return true;
+            } catch (err) {
+                // User cancelled — not an error.
+                if (err && (err.name === 'AbortError' || err.code === 20)) return false;
+                throw err;
+            }
+        }
+        // Fallback: anchor download (Firefox / older browsers).
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = suggestedName;
+        a.click();
+        URL.revokeObjectURL(url);
+        return true;
     }
 
     /**
