@@ -90,31 +90,9 @@ export function renderTrack(track, getLayerGroup, opts = {}) {
         }
     }
 
-    // Implicit-via nodes (layer changes within the Track).
-    const viaNodes = track.getImplicitViaNodes();
-    if (viaNodes.length > 0) {
-        const holeLayer = getLayerGroup('hole');
-        if (holeLayer) {
-            for (const nid of viaNodes) {
-                const p = track.nodes.get(nid);
-                if (!p) continue;
-                const ring = _makeViaCircle(p.x, p.y, viaDiameter / 2, viaRingColor);
-                ring.setAttribute('fill-opacity', '0.9');
-                ring.dataset.trackId = track.id;
-                ring.dataset.implicitVia = '1';
-                if (track.net) ring.dataset.net = track.net;
-                holeLayer.appendChild(ring);
-                created.push(ring);
-
-                const drill = _makeViaCircle(p.x, p.y, viaDrill / 2, viaDrillColor);
-                drill.dataset.trackId = track.id;
-                drill.dataset.implicitVia = '1';
-                if (track.net) drill.dataset.net = track.net;
-                holeLayer.appendChild(drill);
-                created.push(drill);
-            }
-        }
-    }
+    // Layer-change nodes are NOT drawn here. Vias are independent
+    // `Via` shapes (see PCBApp.vias / renderVia). A Track that changes
+    // layer without a colocated Via simply shows an in-air vertex.
 
     track._svgElements = created;
 }

@@ -240,27 +240,6 @@ export class Track extends PolylineGraph {
         return this.edgeLayers.get(edgeId) || this.layer;
     }
 
-    /**
-     * Return node IDs at which adjacent edges use different layers — i.e.
-     * the implicit via locations within this Track. Standalone vias (e.g.
-     * ground-plane stitching) are separate Via shapes, not surfaced here.
-     */
-    getImplicitViaNodes() {
-        const adjLayers = new Map(); // nodeId → Set<layer>
-        for (const [eid, e] of this.edges) {
-            const lyr = this.getEdgeLayer(eid);
-            if (!adjLayers.has(e.from)) adjLayers.set(e.from, new Set());
-            if (!adjLayers.has(e.to)) adjLayers.set(e.to, new Set());
-            adjLayers.get(e.from).add(lyr);
-            adjLayers.get(e.to).add(lyr);
-        }
-        const result = [];
-        for (const [nid, layers] of adjLayers) {
-            if (layers.size > 1) result.push(nid);
-        }
-        return result;
-    }
-
     /* ──────────────────── Serialization ──────────────────────── */
 
     /**

@@ -180,19 +180,8 @@ function _buildCopper(placements, tracks, vias, layerId, bounds) {
         }
     }
 
-    // Implicit vias from layer-changing tracks (drawn as circular flashes).
-    for (const t of tracks) {
-        const implicit = t.getImplicitViaNodes?.() || [];
-        if (!implicit.length) continue;
-        const key = apKey('C', 0.6); // default implicit-via diameter
-        const d = getAp(key);
-        for (const nid of implicit) {
-            const p = t.nodes.get(nid);
-            if (!p) continue;
-            if (!_inBoard(p.x, p.y, bounds)) continue;
-            ops.push({ d, op: `X${_fmt(p.x)}Y${_fmtY(p.y)}D03*` });
-        }
-    }
+    // Layer-change nodes are not flashed here. Vias are exclusively
+    // standalone `Via` objects; tracks contribute only segment copper.
 
     // Emit file.
     let out = `G04 ClearPCB ${isTop ? 'Top' : 'Bottom'} Copper*\n` + FORMAT;
@@ -390,15 +379,7 @@ function _buildDrill(placements, vias, bounds, tracks = []) {
     }
     // Standalone vias.
     for (const v of vias) addHole(v.drill, v.x, v.y);
-    // Implicit vias from layer-changing tracks (default drill).
-    for (const t of tracks) {
-        const implicit = t.getImplicitViaNodes?.() || [];
-        for (const nid of implicit) {
-            const p = t.nodes.get(nid);
-            if (!p) continue;
-            addHole(0.3, p.x, p.y);
-        }
-    }
+    // Layer-change nodes do not drill — vias are explicit Via objects.
 
     // Header. Use decimal coordinates (universally supported); declare
     // METRIC with leading-zero suppression as a sensible default.

@@ -1,10 +1,10 @@
 /**
  * Via – Plated through-hole connecting copper layers
  *
- * A standalone via that can exist independently of any Track (e.g. for
- * ground-plane stitching). Vias produced *implicitly* by Tracks that
- * change layer at a node are represented by Track.getImplicitViaNodes(),
- * not by Via instances.
+ * All vias on a PCB are standalone Via objects, decoupled from any
+ * Track. They may sit at a Track's layer-change node (placed there by
+ * the drawing/autorouter pipeline) but moving the Track does NOT move
+ * the Via — and vice versa.
  *
  * Vias are positioned in world coordinates (mm). The annular ring is
  * drawn as a filled circle of radius (diameter / 2); the drill is a

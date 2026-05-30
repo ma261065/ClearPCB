@@ -21,18 +21,30 @@ function _opts(app) {
     };
 }
 
-/** Add a freshly-built Track to app.tracks and render it. */
+/** Add a freshly-built Track to app.tracks and render it. Optionally
+ *  also add associated standalone Vias (e.g. at layer-change nodes)
+ *  in the same atomic undo step. */
 export class AddTrackCommand {
-    constructor(app, track) {
+    constructor(app, track, vias = []) {
         this.app = app;
         this.track = track;
+        this.vias = Array.isArray(vias) ? vias : [];
     }
     execute() {
         if (!this.app.tracks.includes(this.track)) this.app.tracks.push(this.track);
         renderTrack(this.track, (id) => this.app._getLayerGroup(id), _opts(this.app));
+        for (const v of this.vias) {
+            if (!this.app.vias.includes(v)) this.app.vias.push(v);
+            renderVia(v, (id) => this.app._getLayerGroup(id));
+        }
         reconcileRatsnest(this.app);
     }
     undo() {
+        for (const v of this.vias) {
+            removeViaElements(v);
+            const j = this.app.vias.indexOf(v);
+            if (j >= 0) this.app.vias.splice(j, 1);
+        }
         removeTrackElements(this.track);
         const i = this.app.tracks.indexOf(this.track);
         if (i >= 0) this.app.tracks.splice(i, 1);

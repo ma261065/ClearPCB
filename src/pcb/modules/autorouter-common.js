@@ -15,7 +15,8 @@
  *   - Node-key packing for A* (x,y,layer → int)
  *   - astarRoute / astarProbe (cost-based and crossing-aware searches)
  *   - Angle validation, path simplification, sanitisation
- *   - RouteInput / RouteResult typedefs (the contract both routers honour)
+ *   - RouteInput / RouteResult typedefs (the contract both routers honour)inline & delete
+ * 
  */
 
 /**

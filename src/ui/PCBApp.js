@@ -521,11 +521,13 @@ export default class PCBApp {
 
     /**
      * Commit a freshly-drawn Track via the history stack so it can be
-     * undone. Called from finishTrackDraw().
+     * undone. Called from finishTrackDraw(). Optional `vias` array
+     * (e.g. layer-change vias) is added in the same undo step.
      * @param {Track} track
+     * @param {Via[]} [vias]
      */
-    _commitTrack(track) {
-        this.history.execute(new AddTrackCommand(this, track));
+    _commitTrack(track, vias = []) {
+        this.history.execute(new AddTrackCommand(this, track, vias));
     }
 
     /**

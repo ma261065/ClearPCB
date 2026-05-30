@@ -12,8 +12,8 @@
  *      Snapping to a pad on the same net (or any pad if no net yet)
  *      finishes the draw automatically.
  *   5. Space                                  → toggleTrackLayer(app)
- *      Switches the *next* edge's layer; a via is implied at the current
- *      cursor anchor (handled by Track.getImplicitViaNodes during render).
+ *      Switches the *next* edge's layer. On finish, a standalone Via
+ *      is emitted at each layer-change node and added to app.vias.
  *   6. Escape / right-click / double-click    → cancelTrackDraw / finishTrackDraw
  *
  * Track storage:
@@ -26,6 +26,7 @@
  */
 
 import { Track } from '../../shapes/track.js';
+import { Via } from '../../shapes/via.js';
 import { renderTrack } from './track-render.js';
 
 const NS = 'http://www.w3.org/2000/svg';
@@ -275,9 +276,9 @@ export function addTrackWaypoint(app, worldPos) {
 }
 
 /**
- * Toggle the layer used by the *next* segment. The current anchor will
- * become an implicit via (a node where adjacent edge layers differ —
- * Track.getImplicitViaNodes() picks it up at render time).
+ * Toggle the layer used by the *next* segment. The current anchor
+ * becomes a layer-change node; on finish, `_buildExplicitVias()`
+ * emits a standalone `Via` at that node.
  */
 export function toggleTrackLayer(app) {
     const ctx = app._trackDraw;
@@ -300,14 +301,25 @@ export function finishTrackDraw(app) {
 
     if (ctx.points.length >= 2) {
         const track = _buildTrackFromContext(ctx);
+        // Emit a standalone Via at each layer-change node. Vias are
+        // independent objects from now on; the Track no longer carries
+        // implicit-via semantics.
+        const newVias = _buildExplicitVias(track, ctx);
         // If PCBApp provides an undo hook, route the add through it so
         // the track lands on the history stack. Otherwise fall back to
         // a direct push + render.
         if (typeof app._commitTrack === 'function') {
-            app._commitTrack(track);
+            app._commitTrack(track, newVias);
         } else {
             app.tracks.push(track);
             renderTrack(track, (id) => app._getLayerGroup(id), _renderOptsFromApp(app));
+            for (const v of newVias) {
+                app.vias.push(v);
+                // Render lazily to avoid a hard import cycle.
+                import('./track-render.js').then(({ renderVia }) => {
+                    renderVia(v, (id) => app._getLayerGroup(id));
+                });
+            }
             reconcileRatsnest(app);
         }
     }
@@ -555,6 +567,44 @@ function _appendPreviewVia(ctx, holeLayer, p, viaDia, viaDrill) {
     drill.setAttribute('pointer-events', 'none');
     holeLayer.appendChild(drill);
     ctx.previewElements.push(drill);
+}
+
+/**
+ * Build standalone Via shapes for each layer-change node in a freshly
+ * built Track. Vias are independent objects — once placed they are not
+ * coupled to the Track's nodes (dragging a node leaves the via behind).
+ *
+ * @param {Track} track
+ * @param {object} ctx - draw context (for via diameter/drill)
+ * @returns {Via[]}
+ */
+function _buildExplicitVias(track, ctx) {
+    const out = [];
+    const diameter = Number.isFinite(ctx.viaDiameter) && ctx.viaDiameter > 0
+        ? ctx.viaDiameter : 0.6;
+    const drill = Number.isFinite(ctx.viaDrill) && ctx.viaDrill > 0
+        ? ctx.viaDrill : 0.3;
+    // Find nodes where adjacent edges use different layers — those are
+    // the layer-change points that need a via.
+    const adjLayers = new Map(); // nodeId → Set<layer>
+    for (const [eid, e] of track.edges) {
+        const lyr = track.edgeLayers.get(eid) || track.layer;
+        if (!adjLayers.has(e.from)) adjLayers.set(e.from, new Set());
+        if (!adjLayers.has(e.to)) adjLayers.set(e.to, new Set());
+        adjLayers.get(e.from).add(lyr);
+        adjLayers.get(e.to).add(lyr);
+    }
+    for (const [nid, layers] of adjLayers) {
+        if (layers.size <= 1) continue;
+        const p = track.nodes.get(nid);
+        if (!p) continue;
+        out.push(new Via({
+            x: p.x, y: p.y,
+            diameter, drill,
+            net: track.net || '',
+        }));
+    }
+    return out;
 }
 
 function _buildTrackFromContext(ctx) {
