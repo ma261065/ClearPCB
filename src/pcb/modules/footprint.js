@@ -173,13 +173,16 @@ function generateFromShapes(shapes, bbox, source) {
                 ? (parts[8] || String(pads.length + 1))
                 : (parts[6] || String(pads.length + 1));
 
-            let padLayer = 'top-copper';
+            // Pad layer naming convention: 'top' | 'bottom' | 'both'
+            // (compact form used throughout the routing + gerber pipelines).
+            // Tracks/edges use the long form 'top-copper'/'bottom-copper'.
+            let padLayer = 'top';
             if (isEasyEDA) {
                 const layerCode = parseInt(parts[6], 10);
-                if (layerCode === 11) padLayer = 'both';            // multi-layer = through-hole
-                else if (layerCode === 2) padLayer = 'bottom-copper'; // back SMD
-                else if (layerCode === 1) padLayer = 'top-copper';    // front SMD
-                else padLayer = 'both';                               // unknown → safer default
+                if (layerCode === 11) padLayer = 'both';        // multi-layer = through-hole
+                else if (layerCode === 2) padLayer = 'bottom';  // back SMD
+                else if (layerCode === 1) padLayer = 'top';     // front SMD
+                else padLayer = 'both';                         // unknown → safer default
             }
 
             if (!Number.isFinite(cx) || !Number.isFinite(cy) ||
@@ -443,9 +446,9 @@ function generateFromShapes(shapes, bbox, source) {
     // Paste = same size as pad, Mask = pad + 0.1mm expansion.
     const MASK_EXPANSION = 0.1;  // mm
     for (const pad of pads) {
-        const copperLayer = pad.layer || 'top-copper';
-        const isTop = copperLayer === 'top-copper' || copperLayer === 'both';
-        const isBottom = copperLayer === 'bottom-copper' || copperLayer === 'both';
+        const copperLayer = pad.layer || 'top';
+        const isTop = copperLayer === 'top' || copperLayer === 'both';
+        const isBottom = copperLayer === 'bottom' || copperLayer === 'both';
         const sw = 0.1;
 
         const layers = [];
@@ -689,9 +692,13 @@ export function renderFootprint(fp, ref, x, y, rotation = 0) {
     // Pads → copper layers
     for (const pad of fp.pads) {
         // Determine target layer(s)
+        // Pad layer convention: 'top'|'bottom'|'both' (short form).
+        // The SVG groups still use 'top-copper'/'bottom-copper' ids.
         const padLayers = pad.layer === 'both'
             ? ['top-copper', 'bottom-copper']
-            : [pad.layer || 'top-copper'];
+            : pad.layer === 'bottom'
+                ? ['bottom-copper']
+                : ['top-copper'];
 
         for (const layerId of padLayers) {
             const target = getLayer(layerId);

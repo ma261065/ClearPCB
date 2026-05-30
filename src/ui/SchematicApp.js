@@ -248,9 +248,12 @@ export default class SchematicApp {
         this.componentLibrary.kicadFetcher?.ensureIndexLoaded()
             ?.catch(err => console.warn('KiCad background index warm-up failed:', err));
 
-        // Warn about unsaved changes
+        // Warn about unsaved changes (schematic OR PCB).
         window.addEventListener('beforeunload', (e) => {
-            if (this.fileManager.isDirty) {
+            const schematicDirty = this.fileManager?.isDirty;
+            const pcbDirty = this.pcbApp?.fileManager?.isDirty
+                || this.pcbApp?._isDirty;
+            if (schematicDirty || pcbDirty) {
                 e.preventDefault();
                 e.returnValue = '';
             }

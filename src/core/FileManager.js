@@ -323,8 +323,20 @@ export class FileManager {
             }
             localStorage.setItem(this.autoSavePrefix + 'index', JSON.stringify(index));
             console.log('Auto-saved to localStorage');
+            // Reset failure-backoff state on success.
+            this._autoSaveBackoffMs = 0;
+            if (this._autoSaveErrorNotified) this._autoSaveErrorNotified = false;
         } catch (err) {
             console.error('Auto-save failed:', err);
+            // Notify the user once per failure streak so they know their
+            // work isn't being backed up (storage full, private mode, …).
+            if (!this._autoSaveErrorNotified) {
+                this._autoSaveErrorNotified = true;
+                try {
+                    globalThis.bootstrap?.schematicApp?._setStatus?.(
+                        'Auto-save failed: storage full or unavailable');
+                } catch { /* status bar may not exist */ }
+            }
         }
     }
     

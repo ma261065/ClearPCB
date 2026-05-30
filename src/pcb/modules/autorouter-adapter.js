@@ -39,13 +39,18 @@ export function tracksFromAutorouterResult(routeResult, opts = {}) {
     // Build a position→pad lookup so we can re-attach endpoints to
     // component pads. Keyed by rounded (x,y) to absorb fp arithmetic.
     const padByPos = new Map();
-    if (opts.placements) {
+    if (opts.placements instanceof Map) {
         for (const [componentId, pl] of opts.placements) {
             if (!pl?.pads) continue;
             for (const [pinNumber, pos] of pl.pads) {
                 padByPos.set(_posKey(pos.x, pos.y), { componentId, pinNumber });
             }
         }
+    } else if (opts.placements !== undefined) {
+        // Common mistake: passing a plain object instead of a Map. Without
+        // placements, tracks won't link back to component pads — the user
+        // will see "orphan" tracks that don't follow component drags.
+        console.warn('tracksFromAutorouterResult: opts.placements must be a Map; pads will not link to components');
     }
 
     const sourceTraces = Array.isArray(routeResult?.traces) ? routeResult.traces : [];

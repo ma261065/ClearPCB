@@ -145,17 +145,26 @@ export class LCSCFetcher {
 
     /**
      * Parse JSON from response text with fallback for prefixed proxy content.
+     * Only accepts objects/arrays — bare primitives (number, string, null) are
+     * rejected because they always indicate a corrupted or non-JSON response
+     * from a misbehaving proxy.
      * @param {string} text
      * @returns {{data?: any, error?: Error}}
      */
     _parseJsonWithRecovery(text) {
+        const accept = (value) => {
+            if (value === null || typeof value !== 'object') {
+                return { error: new Error('LCSC: expected JSON object, got ' + typeof value) };
+            }
+            return { data: value };
+        };
         try {
-            return { data: JSON.parse(text) };
+            return accept(JSON.parse(text));
         } catch (parseError) {
             const jsonStart = text.indexOf('{');
             if (jsonStart !== -1) {
                 try {
-                    return { data: JSON.parse(text.slice(jsonStart)) };
+                    return accept(JSON.parse(text.slice(jsonStart)));
                 } catch (retryError) {
                     return { error: retryError };
                 }

@@ -775,7 +775,10 @@ export default class PCBApp {
                 height: this._boardHeight,
                 radius: this._boardRadius,
             }));
-        } catch { /* quota exceeded — ignore */ }
+        } catch (err) {
+            console.warn('Board outline save failed:', err);
+            this._setStatus?.('Board outline not saved (storage full)');
+        }
     }
 
     /**
@@ -1920,9 +1923,10 @@ export default class PCBApp {
      * @returns {import('../pcb/modules/autorouter-common.js').RouteInput}
      */
     _buildRouteInput() {
-        // Build connections with pad positions and sizes
+        // Build connections with pad positions and sizes.
+        // Pad layers are already in the router's 'top'|'bottom'|'both' form
+        // (set by footprint.js); no translation needed.
         const connections = [];
-        const toRouterLayer = (l) => l === 'bottom-copper' ? 'bottom' : (l === 'both' ? 'both' : 'top');
         for (const entry of this.netlist) {
             const pads = [];
             for (const pin of entry.pins) {
@@ -1942,7 +1946,7 @@ export default class PCBApp {
                     y: pl.y + off.dy,
                     width: off.width || 1.0,
                     height: off.height || 1.0,
-                    layer: toRouterLayer(off.layer || 'top-copper'),
+                    layer: off.layer || 'top',
                     shape: off.shape || 'rect',
                 });
                 const primary = padFor(matches[0]);
@@ -1966,7 +1970,7 @@ export default class PCBApp {
                     y: pl.y + off.dy,
                     width: off.width || 1.0,
                     height: off.height || 1.0,
-                    layer: toRouterLayer(off.layer || 'top-copper'),
+                    layer: off.layer || 'top',
                     shape: off.shape || 'rect',
                 });
             }
@@ -2008,7 +2012,14 @@ export default class PCBApp {
             console.log(`Route input copied to clipboard (${input.connections.length} nets, ${input.allObstaclePads.length} pads). Paste into ${filename}`);
         } catch (e) {
             const w = window.open('', '_blank');
-            if (w) { w.document.write('<pre>' + json + '</pre>'); }
+            if (w) {
+                // Use DOM APIs (never document.write with interpolated JSON)
+                // so any special characters in the payload can't break out
+                // of the <pre>.
+                const pre = w.document.createElement('pre');
+                pre.textContent = json;
+                w.document.body.appendChild(pre);
+            }
             console.log(`Clipboard failed — opened in new tab. Save as ${filename}`);
         }
     }
@@ -2114,11 +2125,11 @@ export default class PCBApp {
             grp.setAttribute('data-comp-id', compId);
             grp.setAttribute('transform', `translate(${pl.x}, ${pl.y})`);
             for (const off of (pl.padOffsets || [])) {
-                const padLayer = off.layer || 'top-copper';
+                const padLayer = off.layer || 'top';
                 // Respect copper-layer visibility. 'both' (through-hole pads)
                 // are shown if either copper layer is visible.
-                if (padLayer === 'top-copper' && !topVisible) continue;
-                if (padLayer === 'bottom-copper' && !bottomVisible) continue;
+                if (padLayer === 'top' && !topVisible) continue;
+                if (padLayer === 'bottom' && !bottomVisible) continue;
                 if (padLayer === 'both' && !topVisible && !bottomVisible) continue;
                 // Coords are pad offsets from the component origin; the
                 // wrapping <g> applies pl.x/pl.y as a translate.

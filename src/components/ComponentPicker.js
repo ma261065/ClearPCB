@@ -1580,6 +1580,24 @@ export class ComponentPicker {
     }
 
     /**
+     * Build a thumbnail <img> element safely (no innerHTML interpolation,
+     * no inline onerror) and mount it in `container`. On image-load error
+     * the container is replaced with `fallbackHTML` (a hard-coded literal
+     * — never user data).
+     * @param {HTMLElement} container
+     * @param {string} url
+     * @param {string} [fallbackHTML='<span>📦</span>']
+     */
+    _mountThumbnail(container, url, fallbackHTML = '<span>📦</span>') {
+        const img = document.createElement('img');
+        img.alt = '';
+        img.onerror = () => { container.innerHTML = fallbackHTML; };
+        img.src = url;
+        container.innerHTML = '';
+        container.appendChild(img);
+    }
+
+    /**
      * Applies an LCSC product thumbnail image to the given icon element.
      * @param {HTMLElement} iconEl - The icon container element.
      * @param {Object} result - The LCSC result with thumbnail URL data.
@@ -1590,7 +1608,7 @@ export class ComponentPicker {
         if (!thumbUrl) return;
 
         if (this._isDirectImageUrl(thumbUrl)) {
-            iconEl.innerHTML = `<img src="${thumbUrl}" alt="" onerror="this.parentElement.innerHTML='<span>📦</span>'">`;
+            this._mountThumbnail(iconEl, thumbUrl);
             return;
         }
 
@@ -1603,8 +1621,12 @@ export class ComponentPicker {
         try {
             const resolvedUrl = await result._thumbPromise;
             result._thumbPromise = null;
+            // Bail out if the search results were re-rendered while we were
+            // waiting: stamping a thumbnail on a detached node leaks and may
+            // race with a newer fetch on a recycled element.
+            if (!iconEl.isConnected) return;
             if (resolvedUrl && this._isDirectImageUrl(resolvedUrl)) {
-                iconEl.innerHTML = `<img src="${resolvedUrl}" alt="" onerror="this.parentElement.innerHTML='<span>📦</span>'">`;
+                this._mountThumbnail(iconEl, resolvedUrl);
             }
         } catch (error) {
             result._thumbPromise = null;
@@ -1624,7 +1646,7 @@ export class ComponentPicker {
         }
 
         if (thumbUrl && this._isDirectImageUrl(thumbUrl)) {
-            iconEl.innerHTML = `<img src="${thumbUrl}" alt="" onerror="this.parentElement.innerHTML='<span>📦</span>'">`;
+            this._mountThumbnail(iconEl, thumbUrl);
             return true;
         }
 
@@ -1639,8 +1661,9 @@ export class ComponentPicker {
         try {
             const resolvedUrl = await result._thumbPromise;
             result._thumbPromise = null;
+            if (!iconEl.isConnected) return false;
             if (resolvedUrl && this._isDirectImageUrl(resolvedUrl)) {
-                iconEl.innerHTML = `<img src="${resolvedUrl}" alt="" onerror="this.parentElement.innerHTML='<span>📦</span>'">`;
+                this._mountThumbnail(iconEl, resolvedUrl);
                 return true;
             }
         } catch (error) {
@@ -1662,7 +1685,7 @@ export class ComponentPicker {
 
         const directUrl = result.imageUrl || result.thumbUrl || '';
         if (directUrl && this._isDirectImageUrl(directUrl)) {
-            this.previewImage.innerHTML = `<img src="${directUrl}" alt="" onerror="this.parentElement.innerHTML=''">`;
+            this._mountThumbnail(this.previewImage, directUrl, '');
             return;
         }
 
@@ -1674,7 +1697,7 @@ export class ComponentPicker {
         try {
             const resolvedUrl = await this.library.lcscFetcher.fetchEasyedaProductImage(result.lcscPartNumber);
             if (resolvedUrl) {
-                this.previewImage.innerHTML = `<img src="${resolvedUrl}" alt="" onerror="this.parentElement.innerHTML=''">`;
+                this._mountThumbnail(this.previewImage, resolvedUrl, '');
             } else {
                 this.previewImage.innerHTML = '';
             }

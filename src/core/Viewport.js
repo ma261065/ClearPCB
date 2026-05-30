@@ -260,7 +260,7 @@ export class Viewport {
      */
     _getCachedRect() {
         const now = performance.now();
-        if (!this.cachedRect || (now - this.cachedRectTime) > 10) {
+        if (!this.cachedRect || (now - this.cachedRectTime) > 50) {
             this.cachedRect = this.svg.getBoundingClientRect();
             this.cachedRectTime = now;
         }

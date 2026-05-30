@@ -92,9 +92,7 @@ export async function printSchematic(app) {
         // Keep SVG dimensions in mm for proper print scaling
         svgNode.setAttribute('width', paperWidth + 'mm');
         svgNode.setAttribute('height', paperHeight + 'mm');
-        
-        const svgString = new XMLSerializer().serializeToString(svgNode);
-        
+
         // Create an invisible iframe for printing
         const iframe = document.createElement('iframe');
         iframe.style.display = 'none';
@@ -102,68 +100,54 @@ export async function printSchematic(app) {
         iframe.style.height = '1px';
         document.body.appendChild(iframe);
 
-        // Write HTML content to iframe with proper page sizing
+        // Write HTML content to iframe with proper page sizing.
+        // Use DOM APIs so the SVG (which contains shape/text data that
+        // ultimately comes from user input) is never re-parsed from a
+        // string — no chance of breaking out of the host document.
         const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
         iframeDoc.open();
-        iframeDoc.write(`
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <title>Print Schematic</title>
-                <style>
-                    * { margin: 0 !important; padding: 0 !important; box-sizing: border-box !important; }
-                    @page {
-                        size: ${paperWidth}mm ${paperHeight}mm;
-                        margin: 0 !important;
-                    }
-                    @media print {
-                        body { margin: 0 !important; padding: 5mm !important; }
-                        html { margin: 0 !important; padding: 0 !important; }
-                    }
-                    html { 
-                        width: 100%;
-                        height: 100%;
-                        margin: 0 !important;
-                        padding: 0 !important;
-                    }
-                    body { 
-                        width: 100%;
-                        height: 100%;
-                        margin: 0 !important;
-                        padding: 5mm !important; /* Force 5mm safe zone */
-                        background: white;
-                        overflow: hidden;
-                    }
-                    svg { 
-                        width: 100%;
-                        height: 100%;
-                        display: block;
-                        margin: 0 !important;
-                        padding: 0 !important;
-                    }
-                </style>
-            </head>
-            <body>
-                ${svgString}
-            </body>
-            </html>
-        `);
+        iframeDoc.write(`<!DOCTYPE html><html><head><title>Print Schematic</title></head><body></body></html>`);
         iframeDoc.close();
 
-        // Wait for iframe to load, then print
-        setTimeout(() => {
-            iframe.contentWindow.focus();
-            iframe.contentWindow.print();
-            
-            // Remove iframe after print completes
-            setTimeout(() => {
-                document.body.removeChild(iframe);
-                
-                // Restore selection
-                app.selection.selectMultiple(previousSelection, false);
-                app.renderShapes(true);
-            }, 500);
-        }, 250);
+        const style = iframeDoc.createElement('style');
+        style.textContent = `
+            * { margin: 0 !important; padding: 0 !important; box-sizing: border-box !important; }
+            @page { size: ${paperWidth}mm ${paperHeight}mm; margin: 0 !important; }
+            @media print {
+                body { margin: 0 !important; padding: 5mm !important; }
+                html { margin: 0 !important; padding: 0 !important; }
+            }
+            html { width: 100%; height: 100%; margin: 0 !important; padding: 0 !important; }
+            body { width: 100%; height: 100%; margin: 0 !important; padding: 5mm !important; background: white; overflow: hidden; }
+            svg { width: 100%; height: 100%; display: block; margin: 0 !important; padding: 0 !important; }
+        `;
+        iframeDoc.head.appendChild(style);
+
+        // Import the cloned SVG into the iframe document and append it.
+        const importedSvg = iframeDoc.importNode(svgNode, true);
+        iframeDoc.body.appendChild(importedSvg);
+
+        // Wait for iframe layout, then print. Use a load handler when
+        // possible to avoid the timing race of a fixed setTimeout.
+        const doPrint = () => {
+            try {
+                iframe.contentWindow.focus();
+                iframe.contentWindow.print();
+            } finally {
+                // Remove iframe shortly after print dialog opens.
+                setTimeout(() => {
+                    if (iframe.parentNode) document.body.removeChild(iframe);
+                    app.selection.selectMultiple(previousSelection, false);
+                    app.renderShapes(true);
+                }, 500);
+            }
+        };
+        if (iframe.contentWindow.document.readyState === 'complete') {
+            // Defer one frame so the appended SVG has laid out.
+            requestAnimationFrame(doPrint);
+        } else {
+            iframe.addEventListener('load', doPrint, { once: true });
+        }
     } catch (err) {
             app._alert('Failed to print: ' + (err?.message || 'Unknown error'), { title: 'Print Failed' });
         // Restore selection in case of error
