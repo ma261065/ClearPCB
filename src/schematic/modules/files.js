@@ -61,7 +61,7 @@ export function serializeDocument(app) {
     // schematic remains loadable in environments that don't bootstrap
     // the PCB editor.
     const pcbApp = /** @type {any} */ (globalThis).bootstrap?.pcbApp;
-    if (pcbApp && (pcbApp.tracks?.length || pcbApp.vias?.length)) {
+    if (pcbApp && (pcbApp.tracks?.length || pcbApp.vias?.length || pcbApp.texts?.size)) {
         doc.pcb = pcbApp.serialize();
     }
 

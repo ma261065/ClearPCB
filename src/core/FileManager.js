@@ -4,6 +4,31 @@
  * Uses File System Access API where available, falls back to download/upload
  */
 
+/**
+ * Briefly flash a small blue dot in the bottom-right corner to give a
+ * visual confirmation that an auto-save just completed. The element is
+ * created lazily on first use and reused thereafter.
+ */
+function _flashAutoSaveIndicator() {
+    if (typeof document === 'undefined') return;
+    let dot = document.getElementById('clearpcb-autosave-dot');
+    if (!dot) {
+        dot = document.createElement('div');
+        dot.id = 'clearpcb-autosave-dot';
+        dot.style.cssText = [
+            'position:fixed', 'right:4px', 'bottom:4px',
+            'width:4px', 'height:4px', 'border-radius:50%',
+            'background:#3b9dff', 'box-shadow:0 0 4px #3b9dff',
+            'opacity:0', 'pointer-events:none', 'z-index:99999',
+            'transition:opacity 120ms ease-out',
+        ].join(';');
+        document.body.appendChild(dot);
+    }
+    dot.style.opacity = '1';
+    clearTimeout(/** @type {any} */ (dot)._t);
+    /** @type {any} */ (dot)._t = setTimeout(() => { dot.style.opacity = '0'; }, 250);
+}
+
 export class FileManager {
     /** Initialises the file manager with default state (no file open). */
     constructor() {
@@ -279,10 +304,11 @@ export class FileManager {
     /**
      * Start auto-save timer
      */
-    startAutoSave(getDataFn) {
+    startAutoSave(getDataFn, isDirtyFn) {
         this.stopAutoSave();
         this.autoSaveTimer = setInterval(() => {
-            if (this.isDirty) {
+            const dirty = this.isDirty || (typeof isDirtyFn === 'function' && isDirtyFn());
+            if (dirty) {
                 this.autoSaveToStorage(getDataFn());
             }
         }, this.autoSaveInterval);
@@ -323,6 +349,7 @@ export class FileManager {
             }
             localStorage.setItem(this.autoSavePrefix + 'index', JSON.stringify(index));
             console.log('Auto-saved to localStorage');
+            _flashAutoSaveIndicator();
             // Reset failure-backoff state on success.
             this._autoSaveBackoffMs = 0;
             if (this._autoSaveErrorNotified) this._autoSaveErrorNotified = false;

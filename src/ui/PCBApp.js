@@ -176,7 +176,16 @@ export default class PCBApp {
          * property tweaks). Separate from the schematic's history.
          * @type {CommandHistory}
          */
-        this.history = new CommandHistory({ maxSize: 200 });
+        this.history = new CommandHistory({
+            maxSize: 200,
+            // Flag PCB as having unsaved changes so the schematic-side
+            // autosave (which serialises the combined document) fires.
+            // Setting a private flag here \u2014 rather than calling
+            // schematic.fileManager.setDirty() \u2014 avoids triggering
+            // the schematic\u2192PCB stale-sync listener that would
+            // otherwise rebuild and wipe PCB-only edits.
+            onChanged: () => { this._isDirty = true; },
+        });
         /** Debug tooltip for showing raw footprintShapes data */
         this._debugTooltip = null;
         this._debugTooltipVisible = false;
@@ -938,6 +947,10 @@ export default class PCBApp {
      * @param {{tracks?: Array, vias?: Array}|null} data
      */
     loadFromData(data) {
+        // Need a viewport in place before we can render into layer
+        // groups (autosave-recovery may call this before the user has
+        // ever activated the PCB tab).
+        this._ensureViewport();
         // Drop any existing tracks/vias and their SVG.
         for (const t of this.tracks) removeTrackElements(t);
         for (const v of this.vias) removeViaElements(v);
@@ -1581,6 +1594,14 @@ export default class PCBApp {
         // Place footprints (elements distributed to correct layer groups)
         this._placeFootprints(components);
 
+        // Re-render free-standing texts: _clearPCBContent above wiped
+        // every layer-group child (including text SVG), but the text
+        // model lives in this.texts and survives the rebuild.
+        this._textElements.clear();
+        for (const t of this.texts.values()) {
+            this._renderText(t);
+        }
+
         // Draw ratsnest
         this._updateRatsnest();
 
@@ -2093,7 +2114,25 @@ export default class PCBApp {
             const el = document.getElementById(`pcbPropText${key}`);
             const v = parse(el?.value);
             if (v === null) return;
-            text[this._propFieldMap[key]] = v;
+            const field = this._propFieldMap[key];
+            // Layer change: if mirror flips (top↔bottom), the rendered
+            // text reflects about its anchor x and visually jumps. Shift
+            // the anchor by the text width (rotated into world space) so
+            // the visible glyphs stay put.
+            if (field === 'layer') {
+                const wasBottom = typeof text.layer === 'string' && text.layer.startsWith('bottom-');
+                const willBottom = typeof v === 'string' && v.startsWith('bottom-');
+                if (wasBottom !== willBottom) {
+                    const w = measureStrokeText(text.content, text.size);
+                    const sign = willBottom ? 1 : -1; // top→bottom: +w; bottom→top: -w
+                    const rot = (text.rotation || 0) * Math.PI / 180;
+                    // SVG-Y-down with rotate(-rot): dx,dy in local frame map
+                    // to (cos(rot)*dx, -sin(rot)*dx) in world.
+                    text.x += sign * w * Math.cos(rot);
+                    text.y += sign * w * -Math.sin(rot);
+                }
+            }
+            text[field] = v;
             this._refreshText(text.id);
         };
         const onCommit = () => {

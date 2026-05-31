@@ -131,6 +131,9 @@ class AppBootstrap {
 
 document.addEventListener('DOMContentLoaded', async () => {
     const bootstrap = new AppBootstrap();
-    await bootstrap.initialize();
+    // Expose BEFORE initialize() so autosave-recovery (which runs
+    // inside initialize()) can reach bootstrap.pcbApp to restore the
+    // PCB section of the document.
     /** @type {any} */ (window).bootstrap = bootstrap;
+    await bootstrap.initialize();
 });

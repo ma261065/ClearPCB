@@ -237,8 +237,12 @@ export default class SchematicApp {
 
 
 
-        // Start auto-save
-        this.fileManager.startAutoSave(() => this._serializeDocument());
+        // Start auto-save (fires if either the schematic or the PCB
+        // has unsaved changes — both are persisted into the same doc).
+        this.fileManager.startAutoSave(
+            () => this._serializeDocument(),
+            () => !!(this.pcbApp?.fileManager?.isDirty || this.pcbApp?._isDirty),
+        );
 
         // Start KiCad index loading/refresh in the background immediately.
         // - If no cache exists: downloads index now.
