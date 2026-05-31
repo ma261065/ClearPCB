@@ -287,7 +287,7 @@ export default class PCBApp {
             // Cursor crosshair (track/via tools) is sized in screen pixels
             // and spans the viewport — redraw on zoom/pan so it doesn't drift.
             if (this._lastCrosshairWorld &&
-                (this.currentTool === 'via' || this.currentTool === 'track')) {
+                (this.currentTool === 'via' || this.currentTool === 'track' || this.currentTool === 'text')) {
                 if (this.currentTool === 'via') {
                     this._updateViaPreview(this._lastCrosshairWorld);
                 } else {
@@ -319,12 +319,21 @@ export default class PCBApp {
             if (!this._active) return;
             // Switch ribbon back to Home tab on canvas click — but NOT
             // while we're drawing a track (the Track tool drives the
-            // Properties tab so its width spinner stays visible).
-            if (!this._trackDraw) {
+            // Properties tab so its width spinner stays visible), and
+            // NOT while inline-editing text (the Properties tab hosts
+            // the text's size/rotation spinners).
+            if (!this._trackDraw && !this._textEdit) {
                 const activeTab = this.ribbon?.querySelector('.ribbon-tab.active');
                 if (activeTab instanceof HTMLElement && activeTab.dataset?.tab !== 'pcb-home') {
                     this._setActiveRibbonTab?.('pcb-home');
                 }
+            }
+            // Inline text edit: any left-click on the canvas commits
+            // the current edit. (Right-click is reserved for pan and
+            // must not commit.) If the text tool is active, the
+            // text-tool branch below will then place a new text.
+            if (this._textEdit && e.button === 0) {
+                this._endTextInlineEdit(true);
             }
             // Right-click while drawing a track: defer the finish decision
             // to mouseup — if the user actually drags (pans), don't finish.
@@ -498,6 +507,12 @@ export default class PCBApp {
             if (!this._active) return;
             if (this.viewport.isPanning) {
                 this.viewport.updatePan(e.clientX, e.clientY);
+                // Keep tool crosshairs anchored under the cursor while panning.
+                if (this.currentTool === 'track' || this.currentTool === 'text') {
+                    this._updateCursorCrosshair(this._screenToWorld(e));
+                } else if (this.currentTool === 'via') {
+                    this._updateViaPreview(this._screenToWorld(e));
+                }
             } else if (this._drag) {
                 this._handleDrag(e);
             } else if (this._textDrag) {
@@ -536,6 +551,7 @@ export default class PCBApp {
                 finishTrackDraw(this);
                 return;
             }
+            if (this._textEdit) return; // already editing
             // Double-click a text → inline edit it.
             const worldPos = this._screenToWorld(e);
             const textHit = this._hitTestText(worldPos);
@@ -570,6 +586,9 @@ export default class PCBApp {
             if (!this._active) return;
             if (this.viewport.isPanning) {
                 this.viewport.endPan();
+                // Restore the tool's own cursor (Viewport.endPan resets
+                // to 'grab' / default — text tool wants the T+crosshair).
+                this._updateCursorForTool?.();
             }
             if (this._drag) {
                 this._endDrag();
@@ -881,6 +900,7 @@ export default class PCBApp {
                 this._updateCursorForTool?.();
                 this._syncPcbHomeToolHighlight?.();
                 this._setPcbStatus?.();
+                this._hideToolOptions?.();
             }
             this._setActiveRibbonTab?.('pcb-home');
             return true;
@@ -1919,6 +1939,10 @@ export default class PCBApp {
         const el = renderPcbText(text, strokeOverride);
         layerG.appendChild(el);
         this._textElements.set(text.id, el);
+        // If this text is being inline-edited, keep the editing
+        // box/caret transform in sync with any property changes
+        // (rotation, size, layer mirror) that just re-rendered it.
+        if (isEditing) this._textEdit?.updateCaret?.();
     }
 
     /** Remove the SVG element for a text id (model untouched). */
@@ -2090,7 +2114,11 @@ export default class PCBApp {
         };
         const bindField = (key, parse) => {
             const el = document.getElementById(`pcbPropText${key}`);
-            el?.addEventListener('input', onInput(key, parse));
+            const handler = onInput(key, parse);
+            el?.addEventListener('input', handler);
+            // Also handle 'change' — spinner step clicks on number
+            // inputs fire 'change' in some browsers without an 'input'.
+            el?.addEventListener('change', handler);
             el?.addEventListener('change', onCommit);
         };
         const num = (min) => (v) => {
@@ -2179,7 +2207,8 @@ export default class PCBApp {
         // silk/copper text colour (yellow/teal/red). A cyan-ish accent
         // works on every layer.
         caret.setAttribute('stroke', '#00ccff');
-        caret.setAttribute('stroke-width', String(Math.max(text.strokeWidth * 0.8, text.size * 0.06)));
+        caret.setAttribute('stroke-width', '2');
+        caret.setAttribute('vector-effect', 'non-scaling-stroke');
         caret.setAttribute('stroke-linecap', 'butt');
         caret.style.pointerEvents = 'none';
         caret.style.opacity = '1';
@@ -2232,6 +2261,11 @@ export default class PCBApp {
         // Sample faster than BLINK_MS so the visible transition
         // happens close to the true metronome edge.
         this._textEdit.blinkTimer = setInterval(tick, 60);
+
+        // Surface the Properties panel for this text so the user can
+        // tweak size/rotation/etc. mid-edit without leaving edit mode.
+        this._selectedText = text;
+        this._showTextProperties(text);
         const keepVisible = () => {
             const st = this._textEdit;
             if (!st) return;
@@ -2270,9 +2304,14 @@ export default class PCBApp {
             caret.setAttribute('y1', String(ly0));
             caret.setAttribute('x2', String(lx));
             caret.setAttribute('y2', String(ly1));
+            // Keep caret/box on top of the (re-rendered) text so a
+            // fat stroke doesn't obscure the cursor.
+            if (box.parentNode) box.parentNode.appendChild(box);
+            if (caret.parentNode) caret.parentNode.appendChild(caret);
         };
 
         keepVisible();
+        this._textEdit.updateCaret = updateCaret;
 
         const live = () => {
             text.content = input.value;
@@ -2284,6 +2323,82 @@ export default class PCBApp {
         input.addEventListener('keyup', () => { updateCaret(); keepVisible(); });
         input.addEventListener('click', () => { updateCaret(); keepVisible(); });
         input.addEventListener('select', () => { updateCaret(); keepVisible(); });
+
+        // Document-level capture: while inline-editing, route text-editing
+        // keys (printable chars, arrows, Home/End, Backspace/Delete) back
+        // to the hidden input even if focus is on a Properties spinner,
+        // so the user can tweak rotation/size and keep typing seamlessly.
+        const docKeyCapture = (ev) => {
+            const st = this._textEdit;
+            if (!st) return;
+            const active = document.activeElement;
+            if (active === input) return;
+            const propsPanel = document.getElementById('pcbPropertiesPanel');
+            if (!(propsPanel && active && propsPanel.contains(active))) return;
+            // Determine if this is a text-editing key we should reroute.
+            const k = ev.key;
+            const editingKey =
+                k === 'ArrowLeft' || k === 'ArrowRight' ||
+                k === 'Home' || k === 'End' ||
+                k === 'Backspace' || k === 'Delete' ||
+                k === 'Escape' || k === 'Enter' ||
+                (k.length === 1 && !ev.metaKey);
+            if (!editingKey) return;
+            // Don't steal the spinner's own up/down arrows, Tab, etc.
+            ev.preventDefault();
+            ev.stopPropagation();
+            input.focus();
+            // Synthesize: for printable chars, insert at selection.
+            const sel = input.selectionStart ?? input.value.length;
+            const end = input.selectionEnd ?? sel;
+            if (k.length === 1 && !ev.ctrlKey && !ev.metaKey) {
+                const v = input.value;
+                input.value = v.slice(0, sel) + k + v.slice(end);
+                const pos = sel + 1;
+                try { input.setSelectionRange(pos, pos); } catch { /* */ }
+                input.dispatchEvent(new Event('input', { bubbles: true }));
+            } else if (k === 'Backspace') {
+                const v = input.value;
+                if (sel !== end) {
+                    input.value = v.slice(0, sel) + v.slice(end);
+                    try { input.setSelectionRange(sel, sel); } catch { /* */ }
+                } else if (sel > 0) {
+                    input.value = v.slice(0, sel - 1) + v.slice(sel);
+                    try { input.setSelectionRange(sel - 1, sel - 1); } catch { /* */ }
+                }
+                input.dispatchEvent(new Event('input', { bubbles: true }));
+            } else if (k === 'Delete') {
+                const v = input.value;
+                if (sel !== end) {
+                    input.value = v.slice(0, sel) + v.slice(end);
+                } else if (sel < v.length) {
+                    input.value = v.slice(0, sel) + v.slice(sel + 1);
+                }
+                try { input.setSelectionRange(sel, sel); } catch { /* */ }
+                input.dispatchEvent(new Event('input', { bubbles: true }));
+            } else if (k === 'ArrowLeft') {
+                const pos = Math.max(0, (ev.ctrlKey ? 0 : sel - 1));
+                try { input.setSelectionRange(pos, pos); } catch { /* */ }
+                updateCaret(); keepVisible();
+            } else if (k === 'ArrowRight') {
+                const pos = ev.ctrlKey ? input.value.length : Math.min(input.value.length, sel + 1);
+                try { input.setSelectionRange(pos, pos); } catch { /* */ }
+                updateCaret(); keepVisible();
+            } else if (k === 'Home') {
+                try { input.setSelectionRange(0, 0); } catch { /* */ }
+                updateCaret(); keepVisible();
+            } else if (k === 'End') {
+                const pos = input.value.length;
+                try { input.setSelectionRange(pos, pos); } catch { /* */ }
+                updateCaret(); keepVisible();
+            } else if (k === 'Enter') {
+                this._endTextInlineEdit(true);
+            } else if (k === 'Escape') {
+                this._endTextInlineEdit(false);
+            }
+        };
+        document.addEventListener('keydown', docKeyCapture, true);
+        this._textEdit.docKeyCapture = docKeyCapture;
 
         input.addEventListener('keydown', (e) => {
             e.stopPropagation();
@@ -2301,10 +2416,21 @@ export default class PCBApp {
                 requestAnimationFrame(() => { updateCaret(); keepVisible(); });
             }
         });
-        input.addEventListener('blur', () => {
-            if (this._textEdit && !this._textEdit.committed) {
-                this._endTextInlineEdit(true);
-            }
+        input.addEventListener('blur', (e) => {
+            // Keep edit mode alive on blur. If focus moved to the
+            // Properties panel, leave it there (the user is tweaking
+            // a spinner). Otherwise refocus the hidden input on the
+            // next tick so transient blurs (e.g. right-drag panning
+            // the canvas) don't end edit mode. Commit happens only
+            // via Enter or Escape.
+            const propsPanel = document.getElementById('pcbPropertiesPanel');
+            setTimeout(() => {
+                if (!this._textEdit || this._textEdit.committed) return;
+                const active = document.activeElement;
+                if (active === input) return;
+                if (propsPanel && active && propsPanel.contains(active)) return;
+                input.focus();
+            }, 0);
         });
 
         setTimeout(() => {
@@ -2353,6 +2479,7 @@ export default class PCBApp {
         const finalContent = input.value;
 
         if (blinkTimer) clearInterval(blinkTimer);
+        if (state.docKeyCapture) document.removeEventListener('keydown', state.docKeyCapture, true);
         if (caret.parentNode) caret.parentNode.removeChild(caret);
         if (box.parentNode) box.parentNode.removeChild(box);
         if (input.parentNode) input.parentNode.removeChild(input);
@@ -2368,10 +2495,22 @@ export default class PCBApp {
         // an aborted placement; use Remove instead of Edit.
         if (effective.trim() === '') {
             if (isNewPlacement) {
-                // The AddTextCommand is still the top of the undo stack;
-                // pop it so a cancelled placement leaves no history.
-                this.history.undo();
+                // Surgically remove the AddTextCommand for THIS text
+                // from the undo stack — it may not be at the top if
+                // committing a previous inline-edit pushed an
+                // EditTextCommand on top (e.g. click-elsewhere flow).
+                const stack = this.history.undoStack;
+                for (let i = stack.length - 1; i >= 0; i--) {
+                    const cmd = stack[i];
+                    if (cmd?.constructor?.name === 'AddTextCommand' && cmd.text?.id === text.id) {
+                        stack.splice(i, 1);
+                        break;
+                    }
+                }
                 this.history.redoStack = [];
+                // Remove the model + SVG for the cancelled placement.
+                this._removeTextElement(text.id);
+                this.texts.delete(text.id);
             } else {
                 this.history.execute(new RemoveTextCommand(this, text.id));
             }
@@ -2393,18 +2532,11 @@ export default class PCBApp {
     }
 
     /**
-     * After finishing an inline text edit, switch back to the Select
-     * tool, hide the per-tool options group on the Home ribbon, and
-     * make the Home tab active. Centralised so cancel/commit paths
-     * stay consistent.
+     * After finishing an inline text edit, return to the Home ribbon
+     * tab. Keep the Text tool active so the user can immediately
+     * place another label.
      */
     _exitTextTool() {
-        if (this.currentTool === 'text') {
-            this.currentTool = 'select';
-            this._updateCursorForTool?.();
-            this._syncPcbHomeToolHighlight?.();
-        }
-        this._hideToolOptions?.();
         this._setActiveRibbonTab?.('pcb-home');
     }
 
