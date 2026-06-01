@@ -33,6 +33,27 @@ import { Text } from '../shapes/text.js';
 let compIdCounter = 0;
 
 /**
+ * Merge component property objects while stripping dangerous keys
+ * (`__proto__`, `constructor`, `prototype`) so that definitions parsed from
+ * remote/untrusted sources cannot pollute the prototype chain.
+ * @param {Object} [base]
+ * @param {Object} [override]
+ * @returns {Object}
+ */
+function _safeMergeProps(base, override) {
+    const result = {};
+    const FORBIDDEN = new Set(['__proto__', 'constructor', 'prototype']);
+    for (const src of [base, override]) {
+        if (!src || typeof src !== 'object') continue;
+        for (const [k, v] of Object.entries(src)) {
+            if (FORBIDDEN.has(k)) continue;
+            result[k] = v;
+        }
+    }
+    return result;
+}
+
+/**
  * Update the ID counter to avoid collisions with loaded components
  * @param {string|number} id
  */
@@ -76,7 +97,7 @@ export class Component {
         this.mirror = options.mirror || false;
         this.reference = options.reference ?? (definition.defaultReference || 'U?');
         this.value = options.value ?? (definition.defaultValue ?? '');
-        this.properties = { ...definition.defaultProperties, ...options.properties };
+        this.properties = _safeMergeProps(definition.defaultProperties, options.properties);
         this.element = null;
         this.pinElements = new Map();
         

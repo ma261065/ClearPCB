@@ -1,6 +1,8 @@
 /**
  * Simple VRML parser and isometric renderer for 3D model previews
  */
+import { escapeHtml } from '../core/ui-helpers.js';
+
 export class VRMLPreview {
     /**
      * Parse VRML (.wrl) file content
@@ -147,8 +149,10 @@ export class VRMLPreview {
                 .filter(idx => idx < geometry.vertices.length)
                 .map(idx => {
                     const p = this.projectIsometric(geometry.vertices[idx], scale);
+                    if (!Number.isFinite(p.x) || !Number.isFinite(p.y)) return null;
                     return `${p.x},${p.y}`;
                 })
+                .filter(Boolean)
                 .join(' ');
 
             if (points) {
@@ -194,7 +198,7 @@ export class VRMLPreview {
             return this.renderToSVG(geometry, options);
         } catch (error) {
             console.error('Error fetching/rendering 3D model:', error);
-            return `<div style="color:var(--accent-color);text-align:center;padding:20px;font-size:12px">3D load error: ${error.message}</div>`;
+            return `<div style="color:var(--accent-color);text-align:center;padding:20px;font-size:12px">3D load error: ${escapeHtml(error.message)}</div>`;
         }
     }
 
@@ -258,7 +262,7 @@ export class VRMLPreview {
             return this.renderToSVG(geometry, options);
         } catch (error) {
             console.error('Error rendering EasyEDA 3D model:', error);
-            return `<div style="color:var(--accent-color);text-align:center;padding:20px;font-size:12px">3D render error: ${error.message}</div>`;
+            return `<div style="color:var(--accent-color);text-align:center;padding:20px;font-size:12px">3D render error: ${escapeHtml(error.message)}</div>`;
         }
     }
 
@@ -287,7 +291,7 @@ export class VRMLPreview {
             return this.renderToSVG(geometry, renderOptions);
         } catch (error) {
             console.error('Error rendering OBJ model:', error);
-            return `<div style="color:var(--accent-color);text-align:center;padding:20px;font-size:12px">OBJ render error: ${error.message}</div>`;
+            return `<div style="color:var(--accent-color);text-align:center;padding:20px;font-size:12px">OBJ render error: ${escapeHtml(error.message)}</div>`;
         }
     }
 

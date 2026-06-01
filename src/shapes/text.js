@@ -36,6 +36,12 @@ export class Text extends Shape {
         this.fontFamily = options.fontFamily || 'Arial';
         this.textAnchor = options.textAnchor || 'start';
         this.rotation = options.rotation || 0;
+
+        // Text is rendered as a filled glyph, so its fill follows `color`
+        // unless an explicit override is supplied. Without this, reloaded
+        // text (which only serialises `color`) would fall back to the
+        // generic shape-fill default and lose its colour.
+        if (options.fillColor == null) this.fillColor = this.color;
         
         // Component field linkage (set externally, not via constructor)
         this.parentComponent = null;

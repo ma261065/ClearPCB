@@ -82,7 +82,9 @@ class AppBootstrap {
 
     _registerServiceWorker() {
         if (!('serviceWorker' in navigator)) return;
-        navigator.serviceWorker.register('./sw.js').catch(() => {});
+        navigator.serviceWorker.register('./sw.js').catch((err) => {
+            console.warn('Service worker registration failed:', err);
+        });
     }
 
     _setupLaunchQueue() {

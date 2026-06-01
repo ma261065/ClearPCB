@@ -26,24 +26,24 @@ export function createLockIcon(x, y, item, cls) {
     // Invisible hit area (slightly larger for easier clicking)
     const pad = LOCK_SIZE * 0.15;
     const hit = document.createElementNS(NS, 'rect');
-    hit.setAttribute('x', x - pad);
-    hit.setAttribute('y', y - pad);
-    hit.setAttribute('width', bodyW + pad * 2);
-    hit.setAttribute('height', bodyH + LOCK_SIZE * 0.5 + pad);
+    hit.setAttribute('x', String(x - pad));
+    hit.setAttribute('y', String(y - pad));
+    hit.setAttribute('width', String(bodyW + pad * 2));
+    hit.setAttribute('height', String(bodyH + LOCK_SIZE * 0.5 + pad));
     hit.setAttribute('fill', 'transparent');
     hit.setAttribute('stroke', 'none');
     g.appendChild(hit);
 
     // Body
     const body = document.createElementNS(NS, 'rect');
-    body.setAttribute('x', x);
-    body.setAttribute('y', bodyY);
-    body.setAttribute('width', bodyW);
-    body.setAttribute('height', bodyH);
-    body.setAttribute('rx', LOCK_SIZE * 0.12);
+    body.setAttribute('x', String(x));
+    body.setAttribute('y', String(bodyY));
+    body.setAttribute('width', String(bodyW));
+    body.setAttribute('height', String(bodyH));
+    body.setAttribute('rx', String(LOCK_SIZE * 0.12));
     body.setAttribute('fill', 'var(--lock-icon, #666666)');
     body.setAttribute('stroke', 'var(--lock-icon, #666666)');
-    body.setAttribute('stroke-width', LOCK_STROKE);
+    body.setAttribute('stroke-width', String(LOCK_STROKE));
     g.appendChild(body);
 
     // Shackle
@@ -54,7 +54,7 @@ export function createLockIcon(x, y, item, cls) {
     path.setAttribute('d', `M ${cx - r} ${shackleY} A ${r} ${r} 0 0 1 ${cx + r} ${shackleY}`);
     path.setAttribute('fill', 'none');
     path.setAttribute('stroke', 'var(--lock-icon, #666666)');
-    path.setAttribute('stroke-width', LOCK_STROKE);
+    path.setAttribute('stroke-width', String(LOCK_STROKE));
     g.appendChild(path);
 
     // Click-to-unlock
@@ -93,13 +93,13 @@ export function buildPointAnchorsGroup(shape, scale) {
     // Regular point anchors (squares)
     for (const anchor of pointAnchors) {
         const rect = document.createElementNS(NS, 'rect');
-        rect.setAttribute('x', anchor.x - size / 2);
-        rect.setAttribute('y', anchor.y - size / 2);
-        rect.setAttribute('width', size);
-        rect.setAttribute('height', size);
+        rect.setAttribute('x', String(anchor.x - size / 2));
+        rect.setAttribute('y', String(anchor.y - size / 2));
+        rect.setAttribute('width', String(size));
+        rect.setAttribute('height', String(size));
         rect.setAttribute('fill', '#fff');
         rect.setAttribute('stroke', '#e94560');
-        rect.setAttribute('stroke-width', strokeW);
+        rect.setAttribute('stroke-width', String(strokeW));
         rect.setAttribute('data-anchor-id', anchor.id);
         g.appendChild(rect);
         rects.push(rect);
@@ -111,32 +111,32 @@ export function buildPointAnchorsGroup(shape, scale) {
         mg.setAttribute('data-anchor-id', anchor.id);
 
         const circle = document.createElementNS(NS, 'circle');
-        circle.setAttribute('cx', anchor.x);
-        circle.setAttribute('cy', anchor.y);
-        circle.setAttribute('r', midR);
+        circle.setAttribute('cx', String(anchor.x));
+        circle.setAttribute('cy', String(anchor.y));
+        circle.setAttribute('r', String(midR));
         circle.setAttribute('fill', '#fff');
         circle.setAttribute('stroke', '#4aa3df');
-        circle.setAttribute('stroke-width', strokeW);
+        circle.setAttribute('stroke-width', String(strokeW));
         mg.appendChild(circle);
 
         const plusLen = midR * 1.1;
         const plusH = document.createElementNS(NS, 'line');
-        plusH.setAttribute('x1', anchor.x - plusLen);
-        plusH.setAttribute('y1', anchor.y);
-        plusH.setAttribute('x2', anchor.x + plusLen);
-        plusH.setAttribute('y2', anchor.y);
+        plusH.setAttribute('x1', String(anchor.x - plusLen));
+        plusH.setAttribute('y1', String(anchor.y));
+        plusH.setAttribute('x2', String(anchor.x + plusLen));
+        plusH.setAttribute('y2', String(anchor.y));
         plusH.setAttribute('stroke', '#4aa3df');
-        plusH.setAttribute('stroke-width', strokeW * 1.5);
+        plusH.setAttribute('stroke-width', String(strokeW * 1.5));
         plusH.setAttribute('stroke-linecap', 'round');
         mg.appendChild(plusH);
 
         const plusV = document.createElementNS(NS, 'line');
-        plusV.setAttribute('x1', anchor.x);
-        plusV.setAttribute('y1', anchor.y - plusLen);
-        plusV.setAttribute('x2', anchor.x);
-        plusV.setAttribute('y2', anchor.y + plusLen);
+        plusV.setAttribute('x1', String(anchor.x));
+        plusV.setAttribute('y1', String(anchor.y - plusLen));
+        plusV.setAttribute('x2', String(anchor.x));
+        plusV.setAttribute('y2', String(anchor.y + plusLen));
         plusV.setAttribute('stroke', '#4aa3df');
-        plusV.setAttribute('stroke-width', strokeW * 1.5);
+        plusV.setAttribute('stroke-width', String(strokeW * 1.5));
         plusV.setAttribute('stroke-linecap', 'round');
         mg.appendChild(plusV);
 
@@ -153,4 +153,45 @@ export function buildPointAnchorsGroup(shape, scale) {
     }
 
     return { group: g, rects };
+}
+
+/**
+ * Escape a string for safe interpolation into HTML/SVG markup (innerHTML).
+ * Prevents XSS when rendering untrusted text such as error messages or
+ * data fetched from remote APIs.
+ * @param {*} str
+ * @returns {string}
+ */
+export function escapeHtml(str) {
+    return String(str == null ? '' : str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+/**
+ * Validate a URL intended to be used as an image source (e.g. remote
+ * thumbnails from LCSC/EasyEDA). Returns the URL if it uses a safe scheme
+ * and (for http/https) an allowed host, otherwise null.
+ * @param {*} url
+ * @param {string[]} [allowedHostSuffixes] Permitted host suffixes for http(s) URLs.
+ * @returns {string|null}
+ */
+export function sanitizeImageUrl(url, allowedHostSuffixes = ['lceda.cn', 'easyeda.com', 'lcsc.com', 'gitlab.com']) {
+    if (typeof url !== 'string' || !url) return null;
+    let u;
+    try {
+        u = new URL(url, window.location.href);
+    } catch {
+        return null;
+    }
+    if (u.protocol === 'data:') {
+        return /^data:image\//i.test(u.href) ? url : null;
+    }
+    if (u.protocol !== 'https:' && u.protocol !== 'http:') return null;
+    const host = u.hostname.toLowerCase();
+    const ok = allowedHostSuffixes.some(suffix => host === suffix || host.endsWith('.' + suffix));
+    return ok ? url : null;
 }

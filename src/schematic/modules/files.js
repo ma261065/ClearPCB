@@ -163,13 +163,13 @@ export async function loadDocument(app, data) {
     }
 
     if (settings) {
-        if (settings.gridSize) {
+        if (Number.isFinite(settings.gridSize) && settings.gridSize > 0 && settings.gridSize <= 1000) {
             app.viewport.setGridSize(settings.gridSize);
             if (app.ui.gridSize) {
                 app.ui.gridSize.value = settings.gridSize;
             }
         }
-        if (settings.units) {
+        if (settings.units === 'mm' || settings.units === 'inch' || settings.units === 'mil') {
             app.viewport.setUnits(settings.units);
             if (app.ui.units) {
                 app.ui.units.value = settings.units;
@@ -179,7 +179,7 @@ export async function loadDocument(app, data) {
             }
         }
         // Restore paper size, orientation, and title block from file
-        if (settings.paperSize) {
+        if (settings.paperSize && typeof settings.paperSize === 'string') {
             const paperSelect = /** @type {HTMLSelectElement|null} */ (document.getElementById('paperSize'));
             const orientationSelect = /** @type {HTMLSelectElement|null} */ (document.getElementById('paperOrientation'));
             const titleBlockCheckbox = /** @type {HTMLInputElement|null} */ (document.getElementById('showTitleBlock'));

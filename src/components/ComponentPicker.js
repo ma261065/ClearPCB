@@ -7,6 +7,7 @@ import { ModalManager } from '../core/ModalManager.js';
 import { globalEventBus } from '../core/EventBus.js';
 import { getSearchManager, initSearchManager } from '../core/SearchManager.js';
 import { LazyLoader } from '../core/LazyLoader.js';
+import { escapeHtml, sanitizeImageUrl } from '../core/ui-helpers.js';
 import { createDebouncedRunner, createGenerationGate } from './async-control.js';
 
 export class ComponentPicker {
@@ -720,13 +721,13 @@ export class ComponentPicker {
                     const svg = this._renderFootprintSVG(preview.shapes, preview.bbox);
                     if (svg) {
                         this.previewFootprint.innerHTML = svg;
-                        this.previewFootprintInfo.innerHTML = `<span class="cp-preview-ok">${footprintName}</span>`;
+                        this.previewFootprintInfo.innerHTML = `<span class="cp-preview-ok">${escapeHtml(footprintName)}</span>`;
                     } else {
-                        this.previewFootprint.innerHTML = `<div class="cp-preview-placeholder">${footprintName}</div>`;
+                        this.previewFootprint.innerHTML = `<div class="cp-preview-placeholder">${escapeHtml(footprintName)}</div>`;
                         this.previewFootprintInfo.innerHTML = '<span class="cp-preview-ok">Footprint available</span>';
                     }
                 } else {
-                    this.previewFootprint.innerHTML = `<div class="cp-preview-placeholder">${footprintName}</div>`;
+                    this.previewFootprint.innerHTML = `<div class="cp-preview-placeholder">${escapeHtml(footprintName)}</div>`;
                     this.previewFootprintInfo.innerHTML = '<span class="cp-preview-ok">Footprint available</span>';
                 }
             } else {
@@ -838,7 +839,7 @@ export class ComponentPicker {
             }
         } catch (error) {
             console.error('Failed to fetch KiCad symbol:', error);
-            this.previewInfo.innerHTML += `<br><span style="color:var(--accent-color)">Failed: ${error.message}</span>`;
+            this.previewInfo.innerHTML += `<br><span style="color:var(--accent-color)">Failed: ${escapeHtml(error.message)}</span>`;
         } finally {
             this.placeBtn.disabled = false;
             this.placeBtn.textContent = 'Place Component';
@@ -1254,7 +1255,7 @@ export class ComponentPicker {
             }
         } catch (error) {
             console.error('Failed to fetch component:', error);
-            this.previewInfo.innerHTML += `<br><span style="color:var(--accent-color)">Failed: ${error.message}</span>`;
+            this.previewInfo.innerHTML += `<br><span style="color:var(--accent-color)">Failed: ${escapeHtml(error.message)}</span>`;
         } finally {
             if (!fetchedDefinition) {
                 this.placeBtn.disabled = false;
@@ -1306,7 +1307,7 @@ export class ComponentPicker {
             }
         } catch (error) {
             console.error('Failed to place component:', error);
-            this.previewInfo.innerHTML += `<br><span style="color:var(--accent-color)">Failed: ${error.message}</span>`;
+            this.previewInfo.innerHTML += `<br><span style="color:var(--accent-color)">Failed: ${escapeHtml(error.message)}</span>`;
             this.placeBtn.disabled = false;
             this.placeBtn.textContent = 'Place Component';
         }
@@ -1589,10 +1590,12 @@ export class ComponentPicker {
      * @param {string} [fallbackHTML='<span>📦</span>']
      */
     _mountThumbnail(container, url, fallbackHTML = '<span>📦</span>') {
+        const safeUrl = sanitizeImageUrl(url);
+        if (!safeUrl) { container.innerHTML = fallbackHTML; return; }
         const img = document.createElement('img');
         img.alt = '';
         img.onerror = () => { container.innerHTML = fallbackHTML; };
-        img.src = url;
+        img.src = safeUrl;
         container.innerHTML = '';
         container.appendChild(img);
     }
@@ -1770,15 +1773,15 @@ export class ComponentPicker {
             this.previewSvg.appendChild(svg);
             
             // Update info
-            let info = `<strong>${comp.name || 'Component'}</strong>`;
+            let info = `<strong>${escapeHtml(comp.name || 'Component')}</strong>`;
             if (comp.description) {
-                info += `<br><span style="color:var(--text-secondary)">${comp.description}</span>`;
+                info += `<br><span style="color:var(--text-secondary)">${escapeHtml(comp.description)}</span>`;
             }
             if (symbol.pins) {
                 info += `<br><span style="color:var(--text-muted)">${symbol.pins.length} pins</span>`;
             }
             if (comp.category) {
-                info += `<br><span style="color:var(--text-muted)">${comp.category}</span>`;
+                info += `<br><span style="color:var(--text-muted)">${escapeHtml(comp.category)}</span>`;
             }
             this.previewInfo.innerHTML = info;
 
@@ -1789,7 +1792,7 @@ export class ComponentPicker {
         } catch (error) {
             console.error('Error updating preview:', error);
             this.previewSvg.innerHTML = '<div style="color:var(--accent-color);text-align:center;padding:20px">Preview error</div>';
-            this.previewInfo.innerHTML = `<span style="color:var(--accent-color);font-size:12px">${error.message}</span>`;
+            this.previewInfo.innerHTML = `<span style="color:var(--accent-color);font-size:12px">${escapeHtml(error.message)}</span>`;
             if (!options.skipFootprint3d) {
                 this._setFootprintPreviewStatus('Footprint preview error', false);
                 this._set3dPreviewStatus('3D preview error', false);
@@ -2305,7 +2308,7 @@ export class ComponentPicker {
         const name = metadata.footprintName || metadata.package || 'Footprint';
         const svg = this._renderFootprintSVG(metadata.footprintShapes, metadata.footprintBBox);
         if (!svg) {
-            this.previewFootprint.innerHTML = `<div class="cp-preview-placeholder">${name}</div>`;
+            this.previewFootprint.innerHTML = `<div class="cp-preview-placeholder">${escapeHtml(name)}</div>`;
             if (this.previewFootprintInfo) {
                 this.previewFootprintInfo.innerHTML = '<span class="cp-preview-ok">Footprint available</span>';
             }
@@ -2314,7 +2317,7 @@ export class ComponentPicker {
 
         this.previewFootprint.innerHTML = svg;
         if (this.previewFootprintInfo) {
-            this.previewFootprintInfo.innerHTML = `<span class="cp-preview-ok">${name}</span>`;
+            this.previewFootprintInfo.innerHTML = `<span class="cp-preview-ok">${escapeHtml(name)}</span>`;
         }
     }
 
@@ -2371,18 +2374,18 @@ export class ComponentPicker {
                 this.preview3d.appendChild(svgElement);
                 
                 if (this.preview3dInfo) {
-                    this.preview3dInfo.innerHTML = `<span class="cp-preview-ok">${modelName}</span>`;
+                    this.preview3dInfo.innerHTML = `<span class="cp-preview-ok">${escapeHtml(modelName)}</span>`;
                 }
             } catch (error) {
                 console.error('Error rendering 3D preview:', error);
-                this.preview3d.innerHTML = `<div class="cp-preview-placeholder">🧊 ${modelName}</div>`;
+                this.preview3d.innerHTML = `<div class="cp-preview-placeholder">🧊 ${escapeHtml(modelName)}</div>`;
                 if (this.preview3dInfo) {
                     this.preview3dInfo.innerHTML = '<span class="cp-preview-ok">3D model available</span>';
                 }
             }
         } else {
             // No model data available
-            this.preview3d.innerHTML = `<div class="cp-preview-placeholder">🧊 ${modelName}</div>`;
+            this.preview3d.innerHTML = `<div class="cp-preview-placeholder">🧊 ${escapeHtml(modelName)}</div>`;
             if (this.preview3dInfo) {
                 this.preview3dInfo.innerHTML = '<span class="cp-preview-ok">3D model available</span>';
             }

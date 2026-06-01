@@ -967,7 +967,13 @@ export default class PCBApp {
 
         if (Array.isArray(data.tracks)) {
             for (const td of data.tracks) {
-                const track = createShape(td);
+                let track;
+                try {
+                    track = createShape(td);
+                } catch (err) {
+                    console.warn('Skipping malformed track during load:', err);
+                    continue;
+                }
                 if (track instanceof Track) {
                     this.tracks.push(track);
                     renderTrack(track, (id) => this._getLayerGroup(id), {
@@ -994,6 +1000,8 @@ export default class PCBApp {
         // Re-evaluate ratlines once the model is in place.
         import('../pcb/modules/track-draw.js').then(({ reconcileRatsnest }) => {
             reconcileRatsnest(this);
+        }).catch((err) => {
+            console.error('Failed to load track-draw module:', err);
         });
     }
 

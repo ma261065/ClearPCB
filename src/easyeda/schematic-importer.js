@@ -34,9 +34,16 @@ export function importEasyEDASchematic(fileData, componentLibrary) {
     }
 
     const schematic = fileData.schematics[0];
-    const dataStr = typeof schematic.dataStr === 'string'
-        ? JSON.parse(schematic.dataStr)
-        : schematic.dataStr;
+    let dataStr;
+    if (typeof schematic.dataStr === 'string') {
+        try {
+            dataStr = JSON.parse(schematic.dataStr);
+        } catch (e) {
+            throw new Error('Invalid EasyEDA schematic: malformed dataStr JSON (' + (e instanceof Error ? e.message : e) + ')');
+        }
+    } else {
+        dataStr = schematic.dataStr;
+    }
 
     if (!dataStr || !Array.isArray(dataStr.shape)) {
         throw new Error('Invalid EasyEDA schematic: no shape data');

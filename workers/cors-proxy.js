@@ -27,16 +27,27 @@ export default {
     const target = url.searchParams.get('url');
     if (!target) return new Response('Missing ?url=', { status: 400 });
 
-    // Only proxy to known, trusted API domains
-    const allowed = [
-      /^https?:\/\/(www\.)?lcsc\.com\//i,
-      /^https?:\/\/(wwwapi|api)\.lcsc\.com\//i,
-      /^https?:\/\/(www\.)?easyeda\.com\//i,
-      /^https?:\/\/gitlab\.com\//i,
-      /^https?:\/\/image\.lceda\.cn\//i,
-      /^https?:\/\/modules\.easyeda\.com\//i
-    ];
-    if (!allowed.some(rx => rx.test(target))) {
+    // Only proxy to known, trusted API hosts over https. Parse the target so
+    // that ports, credentials and protocol-relative tricks can't slip past a
+    // regex.
+    const allowedHosts = new Set([
+      'lcsc.com', 'www.lcsc.com',
+      'wwwapi.lcsc.com', 'api.lcsc.com',
+      'easyeda.com', 'www.easyeda.com',
+      'gitlab.com',
+      'image.lceda.cn',
+      'modules.easyeda.com'
+    ]);
+    let targetUrl;
+    try {
+      targetUrl = new URL(target);
+    } catch {
+      return new Response('Invalid url', { status: 400 });
+    }
+    const okProtocol = targetUrl.protocol === 'https:';
+    const okPort = !targetUrl.port || targetUrl.port === '443';
+    const okHost = allowedHosts.has(targetUrl.hostname.toLowerCase());
+    if (!okProtocol || !okPort || !okHost || targetUrl.username || targetUrl.password) {
       return new Response('Blocked', { status: 403 });
     }
 
@@ -54,7 +65,15 @@ export default {
       body: request.method === 'GET' || request.method === 'HEAD' ? undefined : await request.text()
     };
 
-    const resp = await fetch(target, init);
+    let resp;
+    try {
+      resp = await fetch(targetUrl.toString(), init);
+    } catch (err) {
+      return new Response('Upstream fetch failed: ' + (err && err.message || 'error'), {
+        status: 502,
+        headers: { 'Access-Control-Allow-Origin': '*' }
+      });
+    }
 
     const headers = new Headers(resp.headers);
     headers.set('Access-Control-Allow-Origin', '*');

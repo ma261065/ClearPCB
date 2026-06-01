@@ -204,7 +204,8 @@ export function importDSN(dsnText) {
 
     const resNode = _findNode(pcb, 'resolution');
     const resUnit = resNode?.[1] || 'mm';
-    const resolution = parseFloat(resNode?.[2]) || 1000;
+    let resolution = parseFloat(resNode?.[2]);
+    if (!Number.isFinite(resolution) || resolution <= 0) resolution = 1000;
     const toMM = (v) => {
         const n = parseFloat(v);
         if (!Number.isFinite(n)) return 0;
@@ -439,7 +440,8 @@ export function importSES(sesText, resolution = 1000) {
     const resNode = _findNode(routes, 'resolution');
     if (resNode && resNode.length >= 3) {
         const unit = resNode[1];
-        const res = parseFloat(resNode[2]) || resolution;
+        let res = parseFloat(resNode[2]);
+        if (!Number.isFinite(res) || res <= 0) res = resolution;
         if (unit === 'um') {
             toMM = 1 / (res * 1000);       // e.g. (resolution um 10) → 0.1um → /10000
         } else if (unit === 'mil') {

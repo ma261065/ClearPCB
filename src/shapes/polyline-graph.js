@@ -759,9 +759,15 @@ export class PolylineGraph extends Shape {
         if (state.nodes) {
             this.nodes = new Map();
             this.edges = new Map();
-            for (const [id, p] of Object.entries(state.nodes)) this.nodes.set(id, { x: p.x, y: p.y });
+            for (const [id, p] of Object.entries(state.nodes)) {
+                if (!p || !Number.isFinite(p.x) || !Number.isFinite(p.y)) continue;
+                this.nodes.set(id, { x: p.x, y: p.y });
+            }
             if (state.edges)
-                for (const [id, e] of Object.entries(state.edges)) this.edges.set(id, { from: e.from, to: e.to });
+                for (const [id, e] of Object.entries(state.edges)) {
+                    if (!e || !this.nodes.has(e.from) || !this.nodes.has(e.to)) continue;
+                    this.edges.set(id, { from: e.from, to: e.to });
+                }
         }
         if ('closed' in state) this.closed = state.closed;
         if ('type' in state) this.type = state.type;

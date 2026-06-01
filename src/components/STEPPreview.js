@@ -7,6 +7,8 @@
  * Curved edges are represented by their start/end vertices, giving a
  * straight-edge approximation that is adequate for a small preview thumbnail.
  */
+import { escapeHtml } from '../core/ui-helpers.js';
+
 export class STEPPreview {
 
     // ── public API ──────────────────────────────────────────────────────
@@ -267,7 +269,7 @@ export class STEPPreview {
             return this.renderToSVG(geometry, options);
         } catch (error) {
             console.error('Error fetching/rendering STEP:', error);
-            return `<div style="color:var(--accent-color);text-align:center;padding:20px;font-size:12px">3D load error: ${error.message}</div>`;
+            return `<div style="color:var(--accent-color);text-align:center;padding:20px;font-size:12px">3D load error: ${escapeHtml(error.message)}</div>`;
         }
     }
 }

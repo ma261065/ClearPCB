@@ -1,4 +1,5 @@
 import { updateSnapHighlight } from './wire.js';
+import { ShapeValidator } from '../../core/ShapeValidator.js';
 import {
     buildNetGroundBarsPath,
     buildNetSymbolPath,
@@ -55,12 +56,33 @@ export function loadToolOptions() {
     try {
         const stored = localStorage.getItem(STORAGE_KEY);
         if (stored) {
-            return JSON.parse(stored);
+            return _sanitizeToolOptions(JSON.parse(stored));
         }
     } catch (e) {
         console.warn('Failed to load tool options:', e);
     }
     return null;
+}
+
+/**
+ * Validate/clamp persisted tool options so untrusted localStorage data can't
+ * inject markup (colors flow into preview SVG) or break rendering with
+ * out-of-range numbers.
+ * @param {*} opts
+ * @returns {object|null}
+ */
+function _sanitizeToolOptions(opts) {
+    if (!opts || typeof opts !== 'object') return null;
+    const clampNum = (v, min, max, dflt) =>
+        (Number.isFinite(v) && v >= min && v <= max) ? v : dflt;
+    const out = { ...opts };
+    if ('color' in out) out.color = ShapeValidator.validateColor(out.color, { default: 'var(--sch-symbol-outline, #ffffff)' });
+    if ('textColor' in out) out.textColor = ShapeValidator.validateColor(out.textColor, { default: 'var(--sch-text-label, #00b894)' });
+    out.lineWidth = clampNum(out.lineWidth, 0.01, 100, 0.25);
+    if ('fontSize' in out) out.fontSize = clampNum(out.fontSize, 0.1, 1000, 2.0);
+    if ('netFontSize' in out) out.netFontSize = clampNum(out.netFontSize, 0.1, 1000, 1.4);
+    out.fill = !!out.fill;
+    return out;
 }
 
 /**

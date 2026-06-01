@@ -152,7 +152,6 @@ export class Polyline extends PolylineGraph {
         const json = { ...super.toJSON(), type: 'polyline' };
         if (this.isRect) json.ir = true;
         return json;
-        return json;
     }
 }
 
