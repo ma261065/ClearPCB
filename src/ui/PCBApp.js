@@ -2099,12 +2099,27 @@ export default class PCBApp {
         const layerOpts = TEXT_LAYERS.map(l =>
             `<option value="${l}" ${l === text.layer ? 'selected' : ''}>${this._layerLabel(l)}</option>`
         ).join('');
+        const isEditingThis = this._textEdit?.text?.id === text.id;
+        const insertRow = isEditingThis ? `
+            <div class="prop-row"><label>Insert</label><select id="pcbPropTextInsert">
+                <option value="">Symbol…</option>
+                <option value="\u00A9">© Copyright</option>
+                <option value="\u00AE">® Registered</option>
+                <option value="\u2122">™ Trademark</option>
+                <option value="\u00B0">° Degree</option>
+                <option value="\u00B5">µ Micro</option>
+                <option value="\u03A9">Ω Ohm</option>
+                <option value="\u00B1">± Plus-minus</option>
+                <option value="\u00D7">× Times</option>
+                <option value="\u00F7">÷ Divide</option>
+            </select></div>` : '';
         items.innerHTML = `
             <div class="prop-row"><label>Type</label><span style="font-size:11px;color:var(--text-primary)">Text</span></div>
             <div class="prop-row"><label>Layer</label><select id="pcbPropTextLayer">${layerOpts}</select></div>
             <div class="prop-row"><label>Size (mm)</label><input type="number" id="pcbPropTextSize" value="${text.size}" min="0.2" step="0.1"></div>
             <div class="prop-row"><label>Rotation (°)</label><input type="number" id="pcbPropTextRot" value="${text.rotation}" step="15"></div>
             <div class="prop-row"><label>Line W (mm)</label><input type="number" id="pcbPropTextLW" value="${text.strokeWidth}" min="0.05" step="0.05"></div>
+            ${insertRow}
         `;
         // Snapshot at first edit so undo collapses keystrokes into a
         // single command per field.
@@ -2182,6 +2197,33 @@ export default class PCBApp {
         };
         rotEl?.addEventListener('input', wrapRot);
         rotEl?.addEventListener('change', wrapRot);
+
+        // Insert-symbol dropdown: insert at caret when inline-editing,
+        // otherwise append to the text via an EditTextCommand. Resets
+        // to the placeholder after each selection so the same symbol
+        // can be inserted again.
+        const insertEl = /** @type {HTMLSelectElement|null} */
+            (document.getElementById('pcbPropTextInsert'));
+        insertEl?.addEventListener('change', () => {
+            const sym = insertEl.value;
+            insertEl.value = '';
+            if (!sym) return;
+            const edit = this._textEdit;
+            if (edit && edit.text?.id === text.id) {
+                const inp = edit.input;
+                const sel = inp.selectionStart ?? inp.value.length;
+                const end = inp.selectionEnd ?? sel;
+                inp.value = inp.value.slice(0, sel) + sym + inp.value.slice(end);
+                const pos = sel + sym.length;
+                try { inp.setSelectionRange(pos, pos); } catch { /* */ }
+                inp.dispatchEvent(new Event('input', { bubbles: true }));
+                inp.focus();
+            } else {
+                this.history.execute(new EditTextCommand(this, text.id,
+                    { content: (text.content || '') + sym }));
+            }
+        });
+
         this._setActiveRibbonTab?.('pcb-properties');
     }
 
@@ -2353,6 +2395,29 @@ export default class PCBApp {
         this._textEdit.updateCaret = updateCaret;
 
         const live = () => {
+            // Inline autoreplace for common typographic symbols. Matches
+            // only at the caret so the user can still type literal "(c)"
+            // by undoing (Ctrl+Z) after the substitution.
+            const AUTOREPLACE = [
+                ['(c)',  '\u00A9'],
+                ['(C)',  '\u00A9'],
+                ['(r)',  '\u00AE'],
+                ['(R)',  '\u00AE'],
+                ['(tm)', '\u2122'],
+                ['(TM)', '\u2122'],
+            ];
+            const caret = input.selectionStart ?? input.value.length;
+            for (const [from, to] of AUTOREPLACE) {
+                if (caret >= from.length &&
+                    input.value.slice(caret - from.length, caret) === from) {
+                    const before = input.value.slice(0, caret - from.length);
+                    const after = input.value.slice(caret);
+                    input.value = before + to + after;
+                    const pos = before.length + to.length;
+                    try { input.setSelectionRange(pos, pos); } catch { /* */ }
+                    break;
+                }
+            }
             text.content = input.value;
             this._refreshText(text.id);
             updateCaret();

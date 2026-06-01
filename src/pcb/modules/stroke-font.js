@@ -7,9 +7,10 @@
  */
 
 import { HERSHEY } from './hershey-data.js';
+import { EXTRA_GLYPHS } from './stroke-font-extras.js';
 
 /** Stroked glyph table: { char: { w: cellWidth, s: [stroke,...] } } */
-export const GLYPHS = HERSHEY;
+export const GLYPHS = { ...HERSHEY, ...EXTRA_GLYPHS };
 
 /** Letter spacing (in glyph cells, multiply by size). Hershey glyphs
  * already include side bearings, so a small extra value gives natural spacing. */
