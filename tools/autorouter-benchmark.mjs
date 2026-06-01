@@ -18,11 +18,13 @@ import path from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { importDSN } from '../src/pcb/modules/dsn.js';
 import { routeAll } from '../src/pcb/modules/autorouter-maze.js';
+import { routeWithPathfinderRouter } from '../src/pcb/modules/autorouter-pathfinder.js';
 
 function parseArgs(argv) {
     const args = {
         dsn: null,
         mode: 'recommended',
+        router: 'maze',
         maxPasses: null,
         gridStep: null,
         maxCaseMinutes: null,
@@ -35,6 +37,7 @@ function parseArgs(argv) {
         const a = argv[i];
         if (a === '--dsn') args.dsn = argv[++i];
         else if (a === '--mode') args.mode = String(argv[++i] || 'recommended').toLowerCase();
+        else if (a === '--router') args.router = String(argv[++i] || 'maze').toLowerCase();
         else if (a === '--max-passes') args.maxPasses = Math.max(1, parseInt(argv[++i] || '4', 10) || 4);
         else if (a === '--grid-step') args.gridStep = parseFloat(argv[++i] || '0.5') || 0.5;
         else if (a === '--max-case-minutes') args.maxCaseMinutes = Math.max(1, parseFloat(argv[++i] || '1') || 1);
@@ -49,6 +52,9 @@ function parseArgs(argv) {
     }
     if (!['quick', 'recommended', 'balanced', 'overnight', 'exhaustive'].includes(args.mode)) {
         throw new Error('Invalid --mode. Use quick, recommended, balanced, overnight, or exhaustive');
+    }
+    if (!['maze', 'pathfinder', 'both'].includes(args.router)) {
+        throw new Error('Invalid --router. Use maze, pathfinder, or both');
     }
     if (!args.dsn) {
         printHelp();
@@ -67,6 +73,7 @@ function printHelp() {
         'Options:',
         '  --dsn <path>          DSN file to test',
         '  --mode <name>         quick | recommended | balanced | overnight | exhaustive (default recommended)',
+        '  --router <name>       maze | pathfinder | both (default maze)',
         '  --max-passes <n>      Optional fixed rip-up passes (pins sweep to this value)',
         '  --grid-step <mm>      Optional fixed grid step in mm (pins sweep to this value)',
         '  --max-case-minutes <n> Optional timeout per case (cancel + keep best-so-far)',
@@ -173,85 +180,85 @@ function buildScaledOverrides(scale) {
     };
 }
 
-function buildSweep(args) {
-    const presets = {
-        quick: {
-            maxPasses: [4],
-            gridSteps: [0.5],
-            weightScales: [0.95, 1.0, 1.05],
-            detourScales: [0.95, 1.05],
-            iterScales: [0.9, 1.1],
-            costProfiles: [
-                { name: 'neutral', viaCostScale: 1.0, bendCostScale: 1.0, padDiagCostScale: 1.0, dirPenaltyScale: 1.0, congestionPenaltyScale: 1.0, viaCongestionScale: 1.0 },
-                { name: 'low-via', viaCostScale: 0.8, bendCostScale: 1.0, padDiagCostScale: 1.0, dirPenaltyScale: 1.0, congestionPenaltyScale: 1.0, viaCongestionScale: 0.9 },
-                { name: 'low-angle', viaCostScale: 1.0, bendCostScale: 0.8, padDiagCostScale: 0.85, dirPenaltyScale: 0.85, congestionPenaltyScale: 1.0, viaCongestionScale: 1.0 },
-            ],
-        },
-        recommended: {
-            maxPasses: [4, 5],
-            gridSteps: [0.45, 0.5],
-            weightScales: [0.95, 1.0, 1.08],
-            detourScales: [0.95, 1.05, 1.2],
-            iterScales: [0.9, 1.1],
-            costProfiles: [
-                { name: 'neutral', viaCostScale: 1.0, bendCostScale: 1.0, padDiagCostScale: 1.0, dirPenaltyScale: 1.0, congestionPenaltyScale: 1.0, viaCongestionScale: 1.0 },
-                { name: 'low-via', viaCostScale: 0.8, bendCostScale: 1.0, padDiagCostScale: 1.0, dirPenaltyScale: 1.0, congestionPenaltyScale: 1.0, viaCongestionScale: 0.9 },
-                { name: 'high-via', viaCostScale: 1.2, bendCostScale: 1.0, padDiagCostScale: 1.0, dirPenaltyScale: 1.0, congestionPenaltyScale: 1.0, viaCongestionScale: 1.1 },
-                { name: 'low-angle', viaCostScale: 1.0, bendCostScale: 0.85, padDiagCostScale: 0.9, dirPenaltyScale: 0.9, congestionPenaltyScale: 1.0, viaCongestionScale: 1.0 },
-                { name: 'high-angle', viaCostScale: 1.0, bendCostScale: 1.2, padDiagCostScale: 1.2, dirPenaltyScale: 1.2, congestionPenaltyScale: 1.0, viaCongestionScale: 1.0 },
-            ],
-        },
-        balanced: {
-            maxPasses: [4, 5],
-            gridSteps: [0.45, 0.5, 0.55],
-            weightScales: [0.9, 1.0, 1.1],
-            detourScales: [0.9, 1.0, 1.15],
-            iterScales: [0.85, 1.0, 1.2],
-            costProfiles: [
-                { name: 'neutral', viaCostScale: 1.0, bendCostScale: 1.0, padDiagCostScale: 1.0, dirPenaltyScale: 1.0, congestionPenaltyScale: 1.0, viaCongestionScale: 1.0 },
-                { name: 'low-via', viaCostScale: 0.8, bendCostScale: 1.0, padDiagCostScale: 1.0, dirPenaltyScale: 1.0, congestionPenaltyScale: 1.0, viaCongestionScale: 0.9 },
-                { name: 'high-via', viaCostScale: 1.2, bendCostScale: 1.0, padDiagCostScale: 1.0, dirPenaltyScale: 1.0, congestionPenaltyScale: 1.0, viaCongestionScale: 1.1 },
-                { name: 'low-angle', viaCostScale: 1.0, bendCostScale: 0.8, padDiagCostScale: 0.85, dirPenaltyScale: 0.85, congestionPenaltyScale: 1.0, viaCongestionScale: 1.0 },
-                { name: 'high-angle', viaCostScale: 1.0, bendCostScale: 1.2, padDiagCostScale: 1.2, dirPenaltyScale: 1.2, congestionPenaltyScale: 1.0, viaCongestionScale: 1.0 },
-                { name: 'high-congestion', viaCostScale: 1.0, bendCostScale: 1.0, padDiagCostScale: 1.0, dirPenaltyScale: 1.0, congestionPenaltyScale: 1.25, viaCongestionScale: 1.25 },
-            ],
-        },
-        overnight: {
-            maxPasses: [4, 5, 6],
-            gridSteps: [0.4, 0.45, 0.5, 0.55, 0.6],
-            weightScales: [0.85, 0.95, 1.0, 1.1, 1.2],
-            detourScales: [0.85, 0.95, 1.05, 1.2, 1.35],
-            iterScales: [0.75, 0.9, 1.0, 1.2, 1.4],
-            costProfiles: [
-                { name: 'neutral', viaCostScale: 1.0, bendCostScale: 1.0, padDiagCostScale: 1.0, dirPenaltyScale: 1.0, congestionPenaltyScale: 1.0, viaCongestionScale: 1.0 },
-                { name: 'low-via', viaCostScale: 0.75, bendCostScale: 1.0, padDiagCostScale: 1.0, dirPenaltyScale: 1.0, congestionPenaltyScale: 1.0, viaCongestionScale: 0.85 },
-                { name: 'high-via', viaCostScale: 1.3, bendCostScale: 1.0, padDiagCostScale: 1.0, dirPenaltyScale: 1.0, congestionPenaltyScale: 1.0, viaCongestionScale: 1.2 },
-                { name: 'low-angle', viaCostScale: 1.0, bendCostScale: 0.75, padDiagCostScale: 0.8, dirPenaltyScale: 0.8, congestionPenaltyScale: 1.0, viaCongestionScale: 1.0 },
-                { name: 'high-angle', viaCostScale: 1.0, bendCostScale: 1.3, padDiagCostScale: 1.25, dirPenaltyScale: 1.25, congestionPenaltyScale: 1.0, viaCongestionScale: 1.0 },
-                { name: 'high-congestion', viaCostScale: 1.0, bendCostScale: 1.0, padDiagCostScale: 1.0, dirPenaltyScale: 1.0, congestionPenaltyScale: 1.35, viaCongestionScale: 1.35 },
-                { name: 'low-congestion', viaCostScale: 1.0, bendCostScale: 1.0, padDiagCostScale: 1.0, dirPenaltyScale: 1.0, congestionPenaltyScale: 0.8, viaCongestionScale: 0.8 },
-                { name: 'tight-angle-high-via', viaCostScale: 1.25, bendCostScale: 1.2, padDiagCostScale: 1.2, dirPenaltyScale: 1.2, congestionPenaltyScale: 1.1, viaCongestionScale: 1.15 },
-            ],
-        },
-        exhaustive: {
-            // Full-factorial over a bounded but meaningful range.
-            // This is intentionally large and may run for many hours.
-            exhaustiveIndependent: true,
-            maxPasses: [4, 5],
-            gridSteps: [0.45, 0.5],
-            weightScales: [0.95, 1.05],
-            detourScales: [0.95, 1.15],
-            iterScales: [0.9, 1.1],
-            viaCostScales: [0.85, 1.15],
-            bendCostScales: [0.85, 1.15],
-            padDiagCostScales: [0.85, 1.15],
-            dirPenaltyScales: [0.85, 1.15],
-            congestionPenaltyScales: [0.85, 1.15],
-            viaCongestionScales: [0.85, 1.15],
-        },
-    };
+const SWEEP_PRESETS = {
+    quick: {
+        maxPasses: [4],
+        gridSteps: [0.5],
+        weightScales: [0.95, 1.0, 1.05],
+        detourScales: [0.95, 1.05],
+        iterScales: [0.9, 1.1],
+        costProfiles: [
+            { name: 'neutral', viaCostScale: 1.0, bendCostScale: 1.0, padDiagCostScale: 1.0, dirPenaltyScale: 1.0, congestionPenaltyScale: 1.0, viaCongestionScale: 1.0 },
+            { name: 'low-via', viaCostScale: 0.8, bendCostScale: 1.0, padDiagCostScale: 1.0, dirPenaltyScale: 1.0, congestionPenaltyScale: 1.0, viaCongestionScale: 0.9 },
+            { name: 'low-angle', viaCostScale: 1.0, bendCostScale: 0.8, padDiagCostScale: 0.85, dirPenaltyScale: 0.85, congestionPenaltyScale: 1.0, viaCongestionScale: 1.0 },
+        ],
+    },
+    recommended: {
+        maxPasses: [4, 5],
+        gridSteps: [0.45, 0.5],
+        weightScales: [0.95, 1.0, 1.08],
+        detourScales: [0.95, 1.05, 1.2],
+        iterScales: [0.9, 1.1],
+        costProfiles: [
+            { name: 'neutral', viaCostScale: 1.0, bendCostScale: 1.0, padDiagCostScale: 1.0, dirPenaltyScale: 1.0, congestionPenaltyScale: 1.0, viaCongestionScale: 1.0 },
+            { name: 'low-via', viaCostScale: 0.8, bendCostScale: 1.0, padDiagCostScale: 1.0, dirPenaltyScale: 1.0, congestionPenaltyScale: 1.0, viaCongestionScale: 0.9 },
+            { name: 'high-via', viaCostScale: 1.2, bendCostScale: 1.0, padDiagCostScale: 1.0, dirPenaltyScale: 1.0, congestionPenaltyScale: 1.0, viaCongestionScale: 1.1 },
+            { name: 'low-angle', viaCostScale: 1.0, bendCostScale: 0.85, padDiagCostScale: 0.9, dirPenaltyScale: 0.9, congestionPenaltyScale: 1.0, viaCongestionScale: 1.0 },
+            { name: 'high-angle', viaCostScale: 1.0, bendCostScale: 1.2, padDiagCostScale: 1.2, dirPenaltyScale: 1.2, congestionPenaltyScale: 1.0, viaCongestionScale: 1.0 },
+        ],
+    },
+    balanced: {
+        maxPasses: [4, 5],
+        gridSteps: [0.45, 0.5, 0.55],
+        weightScales: [0.9, 1.0, 1.1],
+        detourScales: [0.9, 1.0, 1.15],
+        iterScales: [0.85, 1.0, 1.2],
+        costProfiles: [
+            { name: 'neutral', viaCostScale: 1.0, bendCostScale: 1.0, padDiagCostScale: 1.0, dirPenaltyScale: 1.0, congestionPenaltyScale: 1.0, viaCongestionScale: 1.0 },
+            { name: 'low-via', viaCostScale: 0.8, bendCostScale: 1.0, padDiagCostScale: 1.0, dirPenaltyScale: 1.0, congestionPenaltyScale: 1.0, viaCongestionScale: 0.9 },
+            { name: 'high-via', viaCostScale: 1.2, bendCostScale: 1.0, padDiagCostScale: 1.0, dirPenaltyScale: 1.0, congestionPenaltyScale: 1.0, viaCongestionScale: 1.1 },
+            { name: 'low-angle', viaCostScale: 1.0, bendCostScale: 0.8, padDiagCostScale: 0.85, dirPenaltyScale: 0.85, congestionPenaltyScale: 1.0, viaCongestionScale: 1.0 },
+            { name: 'high-angle', viaCostScale: 1.0, bendCostScale: 1.2, padDiagCostScale: 1.2, dirPenaltyScale: 1.2, congestionPenaltyScale: 1.0, viaCongestionScale: 1.0 },
+            { name: 'high-congestion', viaCostScale: 1.0, bendCostScale: 1.0, padDiagCostScale: 1.0, dirPenaltyScale: 1.0, congestionPenaltyScale: 1.25, viaCongestionScale: 1.25 },
+        ],
+    },
+    overnight: {
+        maxPasses: [4, 5, 6],
+        gridSteps: [0.4, 0.45, 0.5, 0.55, 0.6],
+        weightScales: [0.85, 0.95, 1.0, 1.1, 1.2],
+        detourScales: [0.85, 0.95, 1.05, 1.2, 1.35],
+        iterScales: [0.75, 0.9, 1.0, 1.2, 1.4],
+        costProfiles: [
+            { name: 'neutral', viaCostScale: 1.0, bendCostScale: 1.0, padDiagCostScale: 1.0, dirPenaltyScale: 1.0, congestionPenaltyScale: 1.0, viaCongestionScale: 1.0 },
+            { name: 'low-via', viaCostScale: 0.75, bendCostScale: 1.0, padDiagCostScale: 1.0, dirPenaltyScale: 1.0, congestionPenaltyScale: 1.0, viaCongestionScale: 0.85 },
+            { name: 'high-via', viaCostScale: 1.3, bendCostScale: 1.0, padDiagCostScale: 1.0, dirPenaltyScale: 1.0, congestionPenaltyScale: 1.0, viaCongestionScale: 1.2 },
+            { name: 'low-angle', viaCostScale: 1.0, bendCostScale: 0.75, padDiagCostScale: 0.8, dirPenaltyScale: 0.8, congestionPenaltyScale: 1.0, viaCongestionScale: 1.0 },
+            { name: 'high-angle', viaCostScale: 1.0, bendCostScale: 1.3, padDiagCostScale: 1.25, dirPenaltyScale: 1.25, congestionPenaltyScale: 1.0, viaCongestionScale: 1.0 },
+            { name: 'high-congestion', viaCostScale: 1.0, bendCostScale: 1.0, padDiagCostScale: 1.0, dirPenaltyScale: 1.0, congestionPenaltyScale: 1.35, viaCongestionScale: 1.35 },
+            { name: 'low-congestion', viaCostScale: 1.0, bendCostScale: 1.0, padDiagCostScale: 1.0, dirPenaltyScale: 1.0, congestionPenaltyScale: 0.8, viaCongestionScale: 0.8 },
+            { name: 'tight-angle-high-via', viaCostScale: 1.25, bendCostScale: 1.2, padDiagCostScale: 1.2, dirPenaltyScale: 1.2, congestionPenaltyScale: 1.1, viaCongestionScale: 1.15 },
+        ],
+    },
+    exhaustive: {
+        // Full-factorial over a bounded but meaningful range.
+        // This is intentionally large and may run for many hours.
+        exhaustiveIndependent: true,
+        maxPasses: [4, 5],
+        gridSteps: [0.45, 0.5],
+        weightScales: [0.95, 1.05],
+        detourScales: [0.95, 1.15],
+        iterScales: [0.9, 1.1],
+        viaCostScales: [0.85, 1.15],
+        bendCostScales: [0.85, 1.15],
+        padDiagCostScales: [0.85, 1.15],
+        dirPenaltyScales: [0.85, 1.15],
+        congestionPenaltyScales: [0.85, 1.15],
+        viaCongestionScales: [0.85, 1.15],
+    },
+};
 
-    const preset = presets[args.mode];
+function buildSweep(args) {
+    const preset = SWEEP_PRESETS[args.mode];
     const maxPassesValues = args.maxPasses != null ? [args.maxPasses] : preset.maxPasses;
     const gridSteps = args.gridStep != null ? [args.gridStep] : preset.gridSteps;
 
@@ -408,7 +415,128 @@ async function runOne(routeInput, sweepCase, opts, index, total) {
 }
 
 function labelScale(s) {
+    if (s.router === 'pathfinder') {
+        return `[pathfinder] g=${s.gridStep.toFixed(2)} gw=${s.greedyWeight.toFixed(2)} it=${s.maxIterations}`;
+    }
     return `p=${s.maxPasses} g=${s.gridStep.toFixed(2)} w=${s.weightScale.toFixed(2)} d=${s.detourScale.toFixed(2)} i=${s.iterScale.toFixed(2)} cp=${s.costProfile} vc=${s.viaCostScale.toFixed(2)} bc=${s.bendCostScale.toFixed(2)} pc=${s.padDiagCostScale.toFixed(2)} dc=${s.dirPenaltyScale.toFixed(2)} cc=${s.congestionPenaltyScale.toFixed(2)} vcc=${s.viaCongestionScale.toFixed(2)}`;
+}
+
+/**
+ * Build pathfinder benchmark cases. The negotiated-congestion router has no
+ * maze-style parameter sweep (it self-iterates), so we only vary the grid
+ * step — the single dimension shared with the maze sweep — and otherwise use
+ * the router's tuned defaults. One case per distinct grid step.
+ */
+function buildPathfinderCases(args) {
+    const preset = SWEEP_PRESETS[args.mode];
+    const gridSteps = args.gridStep != null ? [args.gridStep] : preset.gridSteps;
+    return gridSteps.map(gs => ({
+        router: 'pathfinder',
+        gridStep: gs,
+        greedyWeight: 1.5,
+        maxIterations: 25,
+    }));
+}
+
+/**
+ * Build the full case list based on the requested router(s). Maze cases are
+ * tagged router:'maze' so the dispatch loop can route each case to the right
+ * runner.
+ */
+function buildCases(args) {
+    const cases = [];
+    if (args.router === 'maze' || args.router === 'both') {
+        for (const c of buildSweep(args)) {
+            cases.push({ ...c, router: 'maze' });
+        }
+    }
+    if (args.router === 'pathfinder' || args.router === 'both') {
+        cases.push(...buildPathfinderCases(args));
+    }
+    return cases;
+}
+
+/**
+ * Run a single pathfinder case. Mirrors runOne's result-row shape so
+ * pathfinder and maze results rank together.
+ */
+async function runPathfinderOne(routeInput, pfCase, opts, index, total) {
+    routeInput.gridStep = pfCase.gridStep;
+
+    let lastProgressLog = 0;
+    let latestProgress = { completed: 0, total: routeInput.connections.length, phase: 'pathfinder' };
+    let timedOut = false;
+    const caseCancelToken = { cancelled: false };
+    const start = performance.now();
+
+    let timeoutHandle = null;
+    if (Number.isFinite(opts.maxCaseMinutes) && opts.maxCaseMinutes > 0) {
+        timeoutHandle = setTimeout(() => {
+            timedOut = true;
+            caseCancelToken.cancelled = true;
+        }, opts.maxCaseMinutes * 60 * 1000);
+    }
+
+    let result;
+    try {
+        result = await routeWithPathfinderRouter(routeInput, {
+            greedyWeight: pfCase.greedyWeight,
+            maxIterations: pfCase.maxIterations,
+            cancelToken: caseCancelToken,
+            onProgress(completed, totalUnits, label, meta) {
+                latestProgress = {
+                    completed,
+                    total: totalUnits,
+                    netName: label,
+                    phase: meta?.phase || 'pathfinder',
+                };
+                const now = Date.now();
+                if (now - lastProgressLog < opts.logIntervalSec * 1000) return;
+                lastProgressLog = now;
+                const runElapsedSec = (performance.now() - start) / 1000;
+                const done = latestProgress.completed;
+                const t = Math.max(1, latestProgress.total || 1);
+                const pct = Math.max(0, Math.min(100, (done / t) * 100));
+                console.log(
+                    `[${String(index).padStart(3, '0')}/${total}] pathfinder ${pct.toFixed(1)}% ` +
+                    `phase=${latestProgress.phase} ${latestProgress.netName || ''} ` +
+                    `elapsed=${fmtSec(runElapsedSec)}`
+                );
+            },
+        });
+    } finally {
+        if (timeoutHandle) clearTimeout(timeoutHandle);
+    }
+
+    const elapsedMs = performance.now() - start;
+    const totalNets = routeInput.connections.length;
+    const routedNets = new Set(result.traces.map(t => t.net)).size;
+    const failedNets = Array.isArray(result.failed) ? result.failed.slice() : [];
+    const failed = failedNets.length;
+
+    return {
+        router: 'pathfinder',
+        label: labelScale(pfCase),
+        sweepCase: pfCase,
+        tuning: null,
+        totalNets,
+        routedNets,
+        failed,
+        failedNets,
+        timedOut,
+        segments: result.traces.length,
+        vias: result.vias?.length || 0,
+        elapsedMs: Math.round(elapsedMs),
+        lastProgress: latestProgress,
+        pathfinder: {
+            converged: result.pathfinderConverged,
+            iterations: result.pathfinderIterations,
+            emittedIter: result.pathfinderEmittedIter,
+            trialCandidates: result.pathfinderTrialCandidates,
+            trialDropped: result.pathfinderTrialDropped,
+            trialRecovered: result.pathfinderTrialRecovered,
+        },
+    };
 }
 
 async function writeReport(filePath, payload) {
@@ -434,7 +562,7 @@ async function main() {
         console.log(`Per-case timeout: ${args.maxCaseMinutes} min`);
     }
 
-    const sweep = buildSweep(args);
+    const sweep = buildCases(args);
     const results = [];
     const startedAt = new Date().toISOString();
     let interrupted = false;
@@ -475,7 +603,9 @@ async function main() {
         const label = labelScale(s);
 
         console.log(`\n[${String(caseIndex).padStart(3, '0')}/${sweep.length}] START ${label}`);
-        const r = await runOne(runInput, s, args, caseIndex, sweep.length);
+        const r = s.router === 'pathfinder'
+            ? await runPathfinderOne(runInput, s, args, caseIndex, sweep.length)
+            : await runOne(runInput, s, args, caseIndex, sweep.length);
 
         const row = {
             ...r,

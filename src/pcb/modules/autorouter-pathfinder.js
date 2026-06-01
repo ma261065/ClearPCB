@@ -1,6 +1,8 @@
 // @ts-nocheck — JSDoc partial types and runtime type narrowing not expressible to TS
 import {
     astarRoute,
+    fixAngles,
+    optimizePath,
     padPointBlocked,
     padSegmentBlocked,
     PathfinderGrid,
@@ -505,6 +507,173 @@ function buildConnTracesFromPath(path, net, connId, vias) {
 }
 
 /**
+ * Count direction changes ("bends") in a single-layer-aware path. Used to
+ * decide whether a fresh re-route is geometrically cleaner than the
+ * congestion-shaped original.
+ */
+function countPathBends(path) {
+    let bends = 0;
+    for (let i = 2; i < path.length; i++) {
+        const ax = path[i - 1].x - path[i - 2].x, ay = path[i - 1].y - path[i - 2].y;
+        const bx = path[i].x - path[i - 1].x, by = path[i].y - path[i - 1].y;
+        const cross = ax * by - ay * bx;
+        const dot = ax * bx + ay * by;
+        if (Math.abs(cross) > 1e-6 || dot < 0) bends++;
+    }
+    return bends;
+}
+
+function pathLength(path) {
+    let len = 0;
+    for (let i = 1; i < path.length; i++) {
+        len += Math.hypot(path[i].x - path[i - 1].x, path[i].y - path[i - 1].y);
+    }
+    return len;
+}
+
+/**
+ * Count diagonal (non-orthogonal) segments in a path. A segment is diagonal
+ * when both its x- and y-deltas are non-zero (a 45° or skew run). Lower is
+ * visually cleaner / more "PCB-conventional".
+ */
+function countDiagSegments(path) {
+    let diag = 0;
+    for (let i = 1; i < path.length; i++) {
+        const dx = Math.abs(path[i].x - path[i - 1].x);
+        const dy = Math.abs(path[i].y - path[i - 1].y);
+        if (dx > 1e-6 && dy > 1e-6) diag++;
+    }
+    return diag;
+}
+
+/**
+ * Post-finalisation clean re-route for the pathfinder. The negotiated-
+ * congestion router shapes its KEPT routes under heavy present/history
+ * cell costs, so even in regions that end up clear the paths weave
+ * octilinearly (lots of diagonals + zig-zags). Once the infeasible subset
+ * has been dropped, the emitted board is far less congested — so we can
+ * re-route each kept net with PURE hard-obstacle A* (no congestion cost),
+ * which produces the same clean, mostly-orthogonal geometry as the maze
+ * router.
+ *
+ * Safety / monotonicity:
+ *  - Each net is removed from the obstacle set, re-routed against pads +
+ *    all OTHER kept routes, then re-inserted. A* enforces clearance, so a
+ *    successful re-route is collision-free by construction.
+ *  - The re-route is accepted only when it is geometrically no worse than
+ *    the original (fewer bends, or equal bends and not materially longer).
+ *  - If the re-route fails or is worse, the original (already-verified
+ *    clean) route is restored unchanged. Net count can never drop.
+ *
+ * @param {Map<string, {path,vias,net}|null>} finalRoutes
+ * @param {Array} connList
+ * @param {Array} allPads
+ * @param {object} opts
+ * @returns {Promise<{rerouted: number, considered: number}>}
+ */
+async function cleanRerouteFinalRoutes(finalRoutes, connList, allPads, opts) {
+    const {
+        gridStep, traceWidth, clearance, viaDiameter, cellSize, viaRadius,
+        routeBounds, greedyWeight, cancelToken, yieldToUI, emitConnChange,
+    } = opts;
+    const halfTrace = traceWidth / 2;
+
+    // Combined hard-obstacle hash: pads + every kept route. Each route is
+    // tagged with its connKey so it can be selectively pulled while its own
+    // net is re-routed.
+    const obs = new SpatialHash(cellSize);
+    for (const pad of allPads) {
+        obs.insertPad(pad.x, pad.y, pad.width, pad.height, pad.id, pad.layer || 'both', { shape: pad.shape });
+    }
+    const insertRoute = (connKey, net, route) => {
+        for (let p = 0; p < route.path.length - 1; p++) {
+            const p1 = route.path[p], p2 = route.path[p + 1];
+            if (p1.layer === p2.layer) {
+                obs.insert(p1.x, p1.y, p2.x, p2.y, halfTrace, net, p1.layer, connKey);
+            }
+        }
+        for (const v of route.vias) {
+            obs.insertPad(v.x, v.y, viaDiameter, viaDiameter, net, 'both', { isVia: true, connId: connKey, shape: 'ellipse' });
+        }
+    };
+    for (const item of connList) {
+        const connKey = `${item.net}:${item.connIdx}`;
+        const route = finalRoutes.get(connKey);
+        if (route) insertRoute(connKey, item.net, route);
+    }
+
+    // Process shortest-first: short nets straighten trivially and lock in
+    // clean channels before longer nets are reconsidered.
+    const keptItems = connList.filter(item => finalRoutes.get(`${item.net}:${item.connIdx}`));
+    keptItems.sort((a, b) =>
+        Math.hypot(a.from.x - a.to.x, a.from.y - a.to.y) -
+        Math.hypot(b.from.x - b.to.x, b.from.y - b.to.y));
+
+    let rerouted = 0;
+    for (const item of keptItems) {
+        if (cancelToken?.cancelled) break;
+        const connKey = `${item.net}:${item.connIdx}`;
+        const current = finalRoutes.get(connKey);
+        if (!current) continue;
+
+        // Pull this net's own copper so the re-route doesn't collide with it.
+        obs.removeConnection(connKey);
+
+        const result = await astarRouteAnyEndpoint(
+            item.from, item.to,
+            obs, item.skipIds, gridStep, traceWidth, clearance,
+            greedyWeight, /* allowVias */ true,
+            item.startLayer, item.endLayer,
+            {
+                cancelToken,
+                yieldToUI,
+                bounds: routeBounds,
+                viaRadius,
+                routingNet: item.net,
+                // No cellCostFn: pure hard-obstacle A* for clean geometry.
+                // Elevated direction/bend penalties bias the search toward
+                // long orthogonal runs (fewer 45° diagonals + corners) than
+                // the negotiated pass produced. These only re-shape an
+                // already-feasible route; they never relax clearance.
+                dirPenaltyScale: 2.5,
+                bendCostScale: 2.0,
+            }
+        );
+
+        let accept = null;
+        if (result?.path?.length > 0) {
+            // Score by orthogonality: bends + diagonal segments (each weighted
+            // equally). A straighter, more-orthogonal route scores lower.
+            const newScore = countPathBends(result.path) + countDiagSegments(result.path);
+            const curScore = countPathBends(current.path) + countDiagSegments(current.path);
+            const newLen = pathLength(result.path);
+            const curLen = pathLength(current.path);
+            const newVias = (result.vias || []).length;
+            const curVias = current.vias.length;
+            // Accept when the fresh route is no worse: it must not add vias,
+            // and it must improve the ortho score, or match it without
+            // getting materially longer (>2% is treated as worse).
+            if (newVias <= curVias &&
+                (newScore < curScore ||
+                    (newScore === curScore && newLen <= curLen * 1.02))) {
+                accept = { path: result.path, vias: result.vias || [], net: item.net };
+            }
+        }
+
+        const chosen = accept || current;
+        finalRoutes.set(connKey, chosen);
+        insertRoute(connKey, item.net, chosen);
+        if (accept) {
+            rerouted++;
+            if (emitConnChange) emitConnChange(connKey, chosen.path, chosen.vias, item.net);
+        }
+        if (yieldToUI) await yieldToUI();
+    }
+
+    return { rerouted, considered: keptItems.length };
+}
+
+/**
  * Post-finalisation cosmetic pass for the pathfinder. The negotiated-
  * congestion router emits grid-aligned A* paths which often staircase
  * (alternating D and H/V steps) through clear regions. Classical
@@ -579,12 +748,27 @@ function smoothPathfinderRoutes(finalRoutes, connList, opts) {
         routeHash.removeConnection(connKey);
 
         const before = route.path.length;
-        const simplified = simplifyPath(route.path, combinedObstacles, item.skipIds, totalClear, item.net);
+        // Match the maze router's octilinear cleanup so the two routers
+        // produce visually consistent geometry. simplifyPath collapses
+        // grid staircases into the farthest valid H/V/45° segment;
+        // optimizePath then rewrites any remaining staircases into clean
+        // 1–3 segment L-shapes (preferring orthogonal runs over diagonals);
+        // fixAngles merges collinear runs and normalises any stray angle.
+        // Every optimizePath candidate is validated against the combined
+        // pad+route obstacle view, so this cannot introduce a violation.
+        const s1 = simplifyPath(route.path, combinedObstacles, item.skipIds, totalClear, item.net);
+        const s2 = fixAngles(s1);
+        const cleaned = fixAngles(optimizePath(s2, combinedObstacles, item.skipIds, totalClear, item.net));
 
-        if (simplified.length < before) {
-            route.path = simplified;
-            smoothed++;
-            segmentsRemoved += (before - simplified.length);
+        // Accept the cleaned path when it is no longer than the original.
+        // optimizePath/simplifyPath never lengthen a route in practice, but
+        // guard anyway so a pathological case can't add waypoints.
+        if (cleaned.length <= before && cleaned.length >= 2) {
+            if (cleaned.length < before) {
+                smoothed++;
+                segmentsRemoved += (before - cleaned.length);
+            }
+            route.path = cleaned;
         }
 
         // Re-insert this route's (possibly-simpler) trace segments. Vias
@@ -1820,6 +2004,20 @@ export async function routeAllPathfinder(input, options = {}) {
     const finalRoutes = bestFinalRoutes || (converged ? routes : (bestRoutes || routes));
     if (bestTrialInfo) {
         console.info(`[pathfinder] emitting trial from iter ${bestTrialInfo.iter} (overused=${bestTrialInfo.overused}, dropped=${bestTrialInfo.dropped}, recovered=${bestTrialInfo.recovered}, routed=${bestTrialInfo.routed}, violators=${bestTrialInfo.violators}, trialClean=${bestTrialInfo.cleanRouted}, unionAdded=${unionAdded}, swapAdded=${swapAdded}, finalClean=${bestCleanRouted}/${totalConns})`);
+    }
+
+    // Clean re-route: now that the infeasible subset has been dropped the
+    // emitted board is far less congested, so re-route every kept net with
+    // pure hard-obstacle A*. This replaces the congestion-shaped (diagonal-
+    // heavy, zig-zaggy) geometry with clean, mostly-orthogonal paths that
+    // match the maze router's visual quality. Monotonic: never drops a net,
+    // never introduces a violation.
+    if (!cancelToken?.cancelled) {
+        const rerouteInfo = await cleanRerouteFinalRoutes(finalRoutes, connList, allPads, {
+            gridStep, traceWidth, clearance, viaDiameter, cellSize, viaRadius,
+            routeBounds, greedyWeight, cancelToken, yieldToUI, emitConnChange,
+        });
+        console.info(`[pathfinder] clean re-route: ${rerouteInfo.rerouted}/${rerouteInfo.considered} routes straightened`);
     }
 
     // Cosmetic smoothing: collapse grid staircases via line-of-sight
