@@ -32,6 +32,10 @@
  *   and `shape` ('rect'|'ellipse', default 'rect'). Ellipse pads use elliptical
  *   blocking; rect pads use AABB.
  * @property {Array<{x: number, y: number, width: number, height: number, layer?: string, shape?: string}>} [allObstaclePads] - ALL component pads (including unconnected)
+ * @property {CopperObstacle[]} [copperObstacles] - fixed (non-routable) copper
+ *   features the router must avoid but never rip up: copper text, copper
+ *   fills/rectangles, arcs, keep-outs, imported artwork, etc. See
+ *   {@link insertCopperObstacles}.
  * @property {number} traceWidth - trace width in mm (required)
  * @property {number} clearance - clearance in mm (required)
  * @property {number} viaDiameter - via diameter in mm (required)
@@ -563,6 +567,60 @@ export class SpatialHash {
             }
         }
         return crossed;
+    }
+}
+
+/**
+ * A fixed (non-routable) copper feature the autorouter must avoid: copper
+ * text, copper fills/rectangles, arcs, keep-outs, imported artwork, etc.
+ * Described in the router's two native obstacle primitives so that any new
+ * board feature can be made router-aware simply by decomposing it into
+ * segments and/or pads — no router changes required.
+ *
+ *   segment: { kind: 'segment', x1, y1, x2, y2, width, layer }
+ *   pad:     { kind: 'pad', x, y, width, height, layer, shape }
+ *
+ * `layer` is 'top' | 'bottom' | 'both' (default 'both'). `shape` (pad only)
+ * is 'rect' | 'ellipse' (default 'rect'). `width` on a segment is the copper
+ * stroke width in mm.
+ *
+ * @typedef {(
+ *   {kind: 'segment', x1: number, y1: number, x2: number, y2: number, width?: number, layer?: string} |
+ *   {kind: 'pad', x: number, y: number, width: number, height?: number, layer?: string, shape?: string}
+ * )} CopperObstacle
+ */
+
+/**
+ * Insert fixed copper obstacles into an obstacle {@link SpatialHash}.
+ *
+ * Segment obstacles are inserted with no net and no connId, which makes them
+ * permanent hard obstacles: `isBlocked` / `isSegmentBlocked` still treat them
+ * as blocking copper, but every rip-up query (`findBlockingNets`,
+ * `findBlockingConnIds`, `crossingConnIds*`) skips them because they have no
+ * net/connId to target. Pad-kind obstacles are inserted as static pads
+ * (which are likewise never ripped).
+ *
+ * Call this at every site that builds an obstacle hash, right after the
+ * component pads are inserted, so all routing/rerouting honours fixed copper.
+ *
+ * @param {SpatialHash} hash
+ * @param {CopperObstacle[]} [copperObstacles]
+ */
+export function insertCopperObstacles(hash, copperObstacles) {
+    if (!Array.isArray(copperObstacles)) return;
+    let id = 0;
+    for (const o of copperObstacles) {
+        if (!o) continue;
+        const layer = o.layer || 'both';
+        if (o.kind === 'segment') {
+            const hw = (Number.isFinite(o.width) && o.width > 0 ? o.width : 0) / 2;
+            // net=undefined, connId=undefined → hard obstacle, never ripped.
+            hash.insert(o.x1, o.y1, o.x2, o.y2, hw, undefined, layer, undefined);
+        } else {
+            const w = Number.isFinite(o.width) && o.width > 0 ? o.width : 0;
+            const h = Number.isFinite(o.height) && o.height > 0 ? o.height : w;
+            hash.insertPad(o.x, o.y, w, h, `copperobs_${id++}`, layer, { shape: o.shape || 'rect' });
+        }
     }
 }
 

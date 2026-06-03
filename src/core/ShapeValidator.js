@@ -132,7 +132,14 @@ export class ShapeValidator {
      * Validate layer name
      */
     static validateLayer(value, options = {}) {
-        const validLayers = ['top', 'bottom', 'silkscreen', 'copper', 'outline'];
+        const validLayers = [
+            // Schematic / generic layers
+            'top', 'bottom', 'silkscreen', 'copper', 'outline',
+            // PCB layer ids (see src/pcb/modules/layers.js)
+            'top-copper', 'bottom-copper', 'top-silk', 'bottom-silk',
+            'top-paste', 'bottom-paste', 'top-mask', 'bottom-mask',
+            'board-outline', 'document', 'hole',
+        ];
         const {
             coerce = true,
             default: defaultLayer = 'top'

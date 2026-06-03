@@ -50,6 +50,7 @@ import {
     renderPcbText,
     pcbTextHitTest,
     pcbTextBounds,
+    pcbTextObstacles,
     serializePcbText,
     textColorForLayer,
     TEXT_LAYERS,
@@ -536,12 +537,12 @@ export default class PCBApp {
                     this._updateCursorCrosshair({ x: this._trackDraw.snap.x, y: this._trackDraw.snap.y });
                 }
             } else if (this.currentTool === 'select') {
-                const worldPos = this._screenToWorld(e);
-                this._hoverBoardOutline(this._hitTestBoardOutline(worldPos));
-                // Hover highlight for tracks/vias.
-                setHoverHighlight(this, this._hitTestPad(worldPos) || hitTestTrack(this, worldPos));
-                // Hover highlight for text annotations.
-                this._setTextHover(this._hitTestText(worldPos));
+                // Hover hit-testing is O(N) over every pad/track/text, so
+                // running it on each raw mousemove backs up the event queue
+                // on complex boards and the highlight lags the cursor.
+                // Coalesce to one pass per animation frame using the latest
+                // pointer position.
+                this._scheduleHoverUpdate(e);
             } else if (this.currentTool === 'via') {
                 this._updateViaPreview(this._screenToWorld(e));
             } else if (this.currentTool === 'track') {
@@ -1591,6 +1592,15 @@ export default class PCBApp {
         // Clear previous PCB content
         this._clearPCBContent();
 
+        // Re-render persistent model objects that _clearPCBContent wiped
+        // from the layer groups but whose models survive the rebuild
+        // (texts, tracks, vias — e.g. restored from an autosave, or a
+        // routed test board with no schematic components). This must run
+        // BEFORE the components-empty early-return below, otherwise a
+        // component-less board (e.g. test board) leaves recovered tracks
+        // in the model — they hit-test on hover but stay invisible.
+        this._renderPersistentObjects();
+
         if (components.length === 0) {
             this._setStatus('No components in schematic');
             return;
@@ -1601,14 +1611,6 @@ export default class PCBApp {
 
         // Place footprints (elements distributed to correct layer groups)
         this._placeFootprints(components);
-
-        // Re-render free-standing texts: _clearPCBContent above wiped
-        // every layer-group child (including text SVG), but the text
-        // model lives in this.texts and survives the rebuild.
-        this._textElements.clear();
-        for (const t of this.texts.values()) {
-            this._renderText(t);
-        }
 
         // Draw ratsnest
         this._updateRatsnest();
@@ -1622,6 +1624,38 @@ export default class PCBApp {
 
         const netCount = netlist.length;
         this._setStatus(`${components.length} component(s), ${netCount} net(s)`);
+    }
+
+    /**
+     * Re-render the persistent board model (texts, tracks, vias) into the
+     * layer groups. Their SVG is wiped by _clearPCBContent on every
+     * schematic rebuild, but the underlying models survive (and may have
+     * been restored from an autosave before the first sync). Without this
+     * the objects exist in the model — hit-testing/hover still work — but
+     * are invisible. Idempotent: removes any stale SVG first.
+     */
+    _renderPersistentObjects() {
+        const getGroup = (id) => this._getLayerGroup(id);
+
+        // Free-standing texts.
+        this._textElements.clear();
+        for (const t of this.texts.values()) {
+            this._renderText(t);
+        }
+
+        // Tracks and vias.
+        const routeParams = this._getRoutingParams?.();
+        for (const t of this.tracks) {
+            removeTrackElements(t);
+            renderTrack(t, getGroup, {
+                viaDiameter: routeParams?.viaDiameter,
+                viaDrill: routeParams?.viaDrill,
+            });
+        }
+        for (const v of this.vias) {
+            removeViaElements(v);
+            renderVia(v, getGroup);
+        }
     }
 
     /**
@@ -1762,7 +1796,15 @@ export default class PCBApp {
      * @returns {{x: number, y: number}}
      */
     _screenToWorld(e) {
-        const rect = this.viewport.svg.getBoundingClientRect();
+        // Use the viewport's cached rect rather than calling
+        // getBoundingClientRect() directly. The hover code mutates the SVG
+        // (halo polylines) every frame, which marks layout dirty; a fresh
+        // getBoundingClientRect() would then force a synchronous reflow of
+        // the whole board on each mousemove — cheap when zoomed out but
+        // expensive when zoomed in, which is why hover lagged after zoom.
+        // The SVG element's own rect only changes on resize (handled by the
+        // 50 ms cache), not on pan/zoom or content edits.
+        const rect = this.viewport._getCachedRect();
         return this.viewport.screenToWorld({
             x: e.clientX - rect.left,
             y: e.clientY - rect.top,
@@ -1795,6 +1837,35 @@ export default class PCBApp {
      * Returns `{ type:'pad', componentId, pinNumber }` or null. Pad shape
      * is approximated by the bounding box from padOffsets.
      */
+    /**
+     * Schedule a select-tool hover update for the next animation frame.
+     * Mousemove fires many times per frame; the hover hit-test is O(N) over
+     * every pad/track/text, so running it per-event makes the highlight lag
+     * the cursor on dense boards. We stash the latest pointer event and do a
+     * single hit-test pass per frame against the current viewport.
+     * @param {MouseEvent} e
+     */
+    _scheduleHoverUpdate(e) {
+        // Keep the freshest pointer position; the rAF callback re-derives the
+        // world coordinate so it always reflects the current pan/zoom.
+        this._pendingHoverEvent = e;
+        if (this._hoverRaf) return;
+        this._hoverRaf = requestAnimationFrame(() => {
+            this._hoverRaf = 0;
+            const ev = this._pendingHoverEvent;
+            this._pendingHoverEvent = null;
+            // Bail if the tool changed or the tab went inactive between the
+            // event and this frame.
+            if (!ev || !this._active || this.currentTool !== 'select') return;
+            const worldPos = this._screenToWorld(ev);
+            this._hoverBoardOutline(this._hitTestBoardOutline(worldPos));
+            // Hover highlight for tracks/vias.
+            setHoverHighlight(this, this._hitTestPad(worldPos) || hitTestTrack(this, worldPos));
+            // Hover highlight for text annotations.
+            this._setTextHover(this._hitTestText(worldPos));
+        });
+    }
+
     _hitTestPad(worldPos) {
         for (const [componentId, pl] of this.placements) {
             if (!pl?.padOffsets) continue;
@@ -2809,6 +2880,7 @@ export default class PCBApp {
         });
 
         // Build route input from placements + netlist, or use stored test board input
+        const usingTestBoard = !!this._testBoardRouteInput;
         const routeInput = this._testBoardRouteInput || this._buildRouteInput();
         this._testBoardRouteInput = null;  // consume it — only used once
         const routerMode = this._getRouterMode();
@@ -2818,6 +2890,12 @@ export default class PCBApp {
         routeInput.traceWidth = uiParams.trackWidth;
         routeInput.clearance = uiParams.clearance;
         routeInput.viaDiameter = uiParams.viaDiameter;
+        // A stored test-board input pre-dates any copper text the user has
+        // since drawn on it, so refresh its copper obstacles from the live
+        // model. (_buildRouteInput already embeds these for the normal path.)
+        if (usingTestBoard) {
+            routeInput.copperObstacles = this._buildCopperObstacles();
+        }
         this._routeNetUnrouted = new Map(routeInput.connections.map(c => [c.net, true]));
         this._routeLastBoundaryKey = '';
         this._reconcileRatsnestFromRouteState();
@@ -3181,6 +3259,22 @@ export default class PCBApp {
     }
 
     /**
+     * Build the router's copper-obstacle list from the live board model.
+     * Copper text decomposes into per-stroke segment obstacles; silk text
+     * is not copper and is ignored. Future copper shapes (rects, arcs,
+     * pours, imported artwork) should append their obstacles here too.
+     * @returns {import('../pcb/modules/autorouter-common.js').CopperObstacle[]}
+     */
+    _buildCopperObstacles() {
+        const copperObstacles = [];
+        for (const text of this.texts.values()) {
+            if (text.layer !== 'top-copper' && text.layer !== 'bottom-copper') continue;
+            for (const seg of pcbTextObstacles(text)) copperObstacles.push(seg);
+        }
+        return copperObstacles;
+    }
+
+    /**
      * Convert placements + netlist into the input format for our A* router.
      * @returns {import('../pcb/modules/autorouter-common.js').RouteInput}
      */
@@ -3238,6 +3332,12 @@ export default class PCBApp {
             }
         }
 
+        // Fixed copper features the router must avoid but never rip up. Copper
+        // text decomposes into per-stroke segment obstacles; silk text is not
+        // copper and is ignored. Future copper shapes (rects, arcs, pours,
+        // imported artwork) append their own segment/pad obstacles here.
+        const copperObstacles = this._buildCopperObstacles();
+
         // Compute bounds
         let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
         for (const [, pl] of this.placements) {
@@ -3253,6 +3353,7 @@ export default class PCBApp {
         return {
             connections,
             allObstaclePads,
+            copperObstacles,
             traceWidth: params.trackWidth,
             clearance: params.clearance,
             viaDiameter: params.viaDiameter,

@@ -81,6 +81,7 @@ export function renderPcbText(text, strokeOverride) {
     g.setAttribute('fill', 'none');
     g.setAttribute('stroke', strokeOverride || textColorForLayer(text.layer));
     g.setAttribute('stroke-width', String(text.strokeWidth));
+    g.setAttribute('stroke-opacity', '0.9');
     g.setAttribute('stroke-linecap', 'round');
     g.setAttribute('stroke-linejoin', 'round');
     g.setAttribute('pointer-events', 'stroke');
@@ -168,4 +169,42 @@ export function serializePcbText(text) {
         layer: text.layer,
         strokeWidth: text.strokeWidth,
     };
+}
+
+/**
+ * Decompose a copper text into the autorouter's native segment obstacles,
+ * one per stroked-glyph line, so the router treats the text as real copper
+ * (a keepout) rather than empty space.
+ *
+ * Each returned obstacle is a `{kind:'segment', x1,y1,x2,y2, width, layer}`
+ * descriptor (see CopperObstacle in autorouter-common.js), in world (board
+ * mm) coordinates, with `width` = the text stroke width and `layer` in the
+ * router's 'top'|'bottom' form.
+ *
+ * Intended for copper-layer text only; silk text is not copper and should
+ * not be passed here.
+ *
+ * @param {object} text
+ * @returns {Array<{kind:'segment',x1:number,y1:number,x2:number,y2:number,width:number,layer:string}>}
+ */
+export function pcbTextObstacles(text) {
+    const routerLayer = isBottomLayer(text.layer) ? 'bottom' : 'top';
+    const width = text.strokeWidth > 0 ? text.strokeWidth : 0.15;
+    const mirror = isBottomLayer(text.layer) ? -1 : 1;
+    const rad = -text.rotation * Math.PI / 180; // negate to match render
+    const cos = Math.cos(rad), sin = Math.sin(rad);
+    const toWorld = (lx, ly) => ({
+        x: text.x + (mirror * lx) * cos - ly * sin,
+        y: text.y + (mirror * lx) * sin + ly * cos,
+    });
+    const segments = [];
+    for (const poly of stringToPolylines(text.content, 0, 0, text.size, false)) {
+        if (poly.length < 2) continue;
+        for (let i = 0; i < poly.length - 1; i++) {
+            const a = toWorld(poly[i].x, poly[i].y);
+            const b = toWorld(poly[i + 1].x, poly[i + 1].y);
+            segments.push({ kind: 'segment', x1: a.x, y1: a.y, x2: b.x, y2: b.y, width, layer: routerLayer });
+        }
+    }
+    return segments;
 }

@@ -4,6 +4,7 @@ import {
     astarRoute,
     CongestionGrid,
     fixAngles,
+    insertCopperObstacles,
     isValidAngle,
     optimizePath,
     sanitizeAngles,
@@ -308,6 +309,7 @@ export async function routeAll(input, options = {}) {
         for (const pad of allPads) {
             obs.insertPad(pad.x, pad.y, pad.width, pad.height, pad.id, pad.layer || 'both', { shape: pad.shape });
         }
+        insertCopperObstacles(obs, input.copperObstacles);
         // Bump the monotonic version so cached failures from a prior
         // build are not silently considered "still valid" against the
         // new obstacle set.

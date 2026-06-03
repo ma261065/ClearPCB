@@ -2,6 +2,7 @@
 import {
     astarRoute,
     fixAngles,
+    insertCopperObstacles,
     optimizePath,
     padPointBlocked,
     padSegmentBlocked,
@@ -249,6 +250,7 @@ async function extractAndReroute(snapshotRoutes, connList, allPads, opts) {
         for (const pad of allPads) {
             rerouteObs.insertPad(pad.x, pad.y, pad.width, pad.height, pad.id, pad.layer || 'both', { shape: pad.shape });
         }
+        insertCopperObstacles(rerouteObs, opts.copperObstacles);
         // KEPT routes' trace segments + vias become hard obstacles for re-route.
         let pfConnId = 0;
         for (const item of connList) {
@@ -585,6 +587,7 @@ async function cleanRerouteFinalRoutes(finalRoutes, connList, allPads, opts) {
     for (const pad of allPads) {
         obs.insertPad(pad.x, pad.y, pad.width, pad.height, pad.id, pad.layer || 'both', { shape: pad.shape });
     }
+    insertCopperObstacles(obs, opts.copperObstacles);
     const insertRoute = (connKey, net, route) => {
         for (let p = 0; p < route.path.length - 1; p++) {
             const p1 = route.path[p], p2 = route.path[p + 1];
@@ -1184,6 +1187,7 @@ async function ripUpSwap(bestRoutes, allTrialRoutes, connList, allPads, opts) {
     for (const pad of allPads) {
         hash.insertPad(pad.x, pad.y, pad.width, pad.height, pad.id, pad.layer || 'both', { shape: pad.shape });
     }
+    insertCopperObstacles(hash, opts.copperObstacles);
 
     const insertRoute = (route, item, connKey) => {
         for (let p = 0; p < route.path.length - 1; p++) {
@@ -1633,6 +1637,7 @@ export async function routeAllPathfinder(input, options = {}) {
     for (const pad of allPads) {
         obstacles.insertPad(pad.x, pad.y, pad.width, pad.height, pad.id, pad.layer || 'both', { shape: pad.shape });
     }
+    insertCopperObstacles(obstacles, input.copperObstacles);
 
     // ── Pad-net map: padId -> Set<net names that use this pad>. Built once
     //    from netPadIdList (flattening each group of primary+alternates);
@@ -1920,7 +1925,7 @@ export async function routeAllPathfinder(input, options = {}) {
         );
         const trial = await extractAndReroute(
             snap.routes, connList, allPads,
-            { gridStep, traceWidth, clearance, viaDiameter, cellSize, viaRadius, routeBounds, greedyWeight, cancelToken, yieldToUI, padHash: obstacles, padNetMap, emitConnChange, itemByKey: connItemByKey },
+            { gridStep, traceWidth, clearance, viaDiameter, cellSize, viaRadius, routeBounds, greedyWeight, cancelToken, yieldToUI, padHash: obstacles, padNetMap, emitConnChange, itemByKey: connItemByKey, copperObstacles: input.copperObstacles },
         );
         console.info(`[pathfinder] trial snapshot iter=${snap.iter} overused=${snap.overused}: dropped=${trial.dropped} recovered=${trial.recovered} routed=${trial.routed}/${totalConns} cleanRouted=${trial.cleanRouted} violators=${trial.violators}`);
         allTrialRoutes.push(trial.finalRoutes);
@@ -1984,7 +1989,7 @@ export async function routeAllPathfinder(input, options = {}) {
         swapAdded = await ripUpSwap(bestFinalRoutes, allTrialRoutes, connList, allPads, {
             gridStep, traceWidth, clearance, viaDiameter, cellSize, viaRadius,
             routeBounds, greedyWeight, cancelToken, yieldToUI, padNetMap,
-            emitConnChange, itemByKey: connItemByKey,
+            emitConnChange, itemByKey: connItemByKey, copperObstacles: input.copperObstacles,
         });
         if (swapAdded > 0) {
             bestCleanRouted += swapAdded;
@@ -2016,6 +2021,7 @@ export async function routeAllPathfinder(input, options = {}) {
         const rerouteInfo = await cleanRerouteFinalRoutes(finalRoutes, connList, allPads, {
             gridStep, traceWidth, clearance, viaDiameter, cellSize, viaRadius,
             routeBounds, greedyWeight, cancelToken, yieldToUI, emitConnChange,
+            copperObstacles: input.copperObstacles,
         });
         console.info(`[pathfinder] clean re-route: ${rerouteInfo.rerouted}/${rerouteInfo.considered} routes straightened`);
     }
