@@ -227,10 +227,18 @@
                 <div class="ribbon-group">
                     <div class="ribbon-group-title">File</div>
                     <div class="ribbon-group-items">
-                        <button disabled title="New">📄 New</button>
-                        <button disabled title="Open">📂 Open</button>
-                        <button disabled title="Save">💾 Save</button>
-                        <button disabled title="Export">🧾 Export</button>
+                        <button id="pcbRibbonNew" title="New (Ctrl+N)">📄 New</button>
+                        <button id="pcbRibbonOpen" title="Open (Ctrl+O)">📂 Open</button>
+                        <div class="dropdown" id="pcbRibbonImportDropdown">
+                            <button id="pcbRibbonImport" title="Import from other formats">📥 Import ▾</button>
+                            <div class="dropdown-menu" id="pcbRibbonImportMenu">
+                                <button class="dropdown-item" data-format="easyeda-sch">EasyEDA Schematic (.json)</button>
+                            </div>
+                        </div>
+                        <button id="pcbRibbonSave" title="Save (Ctrl+S)">💾 Save</button>
+                        <button id="pcbRibbonSaveAs" title="Save As (Ctrl+Alt+S)">💾 Save As</button>
+                        <button id="pcbRibbonExportPdf" title="Export PDF (Ctrl+Shift+P)">🧾 Export PDF</button>
+                        <button id="pcbRibbonPrint" title="Print (Ctrl+P)">🖨️ Print</button>
                     </div>
                 </div>
             </div>

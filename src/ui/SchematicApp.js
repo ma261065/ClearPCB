@@ -72,9 +72,29 @@ export default class SchematicApp {
 
     /**
      * Initializes the schematic editor app: viewport, event bus, history, selection, UI elements, component picker, and binds all event handlers.
+     * @param {import('../core/ProjectDocument.js').ProjectDocument} [project]
+     *        The neutral document owner. When provided, the schematic
+     *        registers itself as the document's UI-host view and shares the
+     *        project's FileManager. Omitted only in standalone/test setups,
+     *        where a private FileManager is created as a fallback.
      */
-    constructor() {
-        this.fileManager = new FileManager();
+    constructor(project) {
+        /** @type {any} */
+        this.project = project || null;
+        this.fileManager = project ? project.fileManager : new FileManager();
+        // Register as the schematic view + UI host, and inject the file
+        // lifecycle so the project can drive New/Open/Save without
+        // importing this module (keeping core free of view dependencies).
+        project?.registerView('schematic', this, {
+            isUiHost: true,
+            lifecycle: {
+                new: () => FileTools.newFile(this),
+                open: () => FileTools.openFile(this),
+                save: () => FileTools.saveFile(this),
+                saveAs: () => FileTools.saveFileAs(this),
+                importEasyEDA: () => FileTools.importEasyEDA(this),
+            },
+        });
         // Auto-save recovery now runs after initialization.
         this._skipAutoSaveRecovery = !!/** @type {any} */ (window)._launchFile;
 
@@ -237,12 +257,15 @@ export default class SchematicApp {
 
 
 
-        // Start auto-save (fires if either the schematic or the PCB
-        // has unsaved changes — both are persisted into the same doc).
-        this.fileManager.startAutoSave(
-            () => this._serializeDocument(),
-            () => !!(this.pcbApp?.fileManager?.isDirty || this.pcbApp?._isDirty),
-        );
+        // Start auto-save. When a project owns this view the project
+        // drives autosave (it aggregates dirty state across both editors);
+        // only fall back to a private timer in standalone setups.
+        if (!this.project) {
+            this.fileManager.startAutoSave(
+                () => this._serializeDocument(),
+                () => false,
+            );
+        }
 
         // Start KiCad index loading/refresh in the background immediately.
         // - If no cache exists: downloads index now.
@@ -252,12 +275,12 @@ export default class SchematicApp {
         this.componentLibrary.kicadFetcher?.ensureIndexLoaded()
             ?.catch(err => console.warn('KiCad background index warm-up failed:', err));
 
-        // Warn about unsaved changes (schematic OR PCB).
+        // Warn about unsaved changes in either editor (one document).
         window.addEventListener('beforeunload', (e) => {
-            const schematicDirty = this.fileManager?.isDirty;
-            const pcbDirty = this.pcbApp?.fileManager?.isDirty
-                || this.pcbApp?._isDirty;
-            if (schematicDirty || pcbDirty) {
+            const dirty = this.project
+                ? this.project.isDirty
+                : this.fileManager?.isDirty;
+            if (dirty) {
                 e.preventDefault();
                 e.returnValue = '';
             }
@@ -1295,22 +1318,60 @@ export default class SchematicApp {
     }
     
     // ==================== File Operations ====================
-    
+
     /**
-     * Serializes the document to a JSON-ready object.
+     * Serializes the WHOLE project document (schematic + PCB) to a
+     * JSON-ready object. Delegates to the project owner when present so
+     * every section is gathered consistently; falls back to the schematic
+     * section alone in standalone setups.
      * @returns {Object} The serialized document data.
      */
     _serializeDocument() {
-        return FileTools.serializeDocument(this);
+        return this.project ? this.project.serialize() : this.serializeSection();
     }
-    
+
     /**
-     * Loads a document from serialized data.
+     * Loads a whole project document from serialized data, restoring every
+     * registered section via the project owner when present.
      * @param {Object} data - The serialized document data.
      * @returns {Promise<void>}
      */
     async _loadDocument(data) {
+        if (this.project) {
+            await this.project.load(data);
+        } else {
+            await this.loadSection(data);
+        }
+    }
+
+    // ── ProjectDocument view interface ────────────────────────────────
+
+    /**
+     * Serialize just this editor's slice of the document (the schematic
+     * envelope). Called by ProjectDocument.serialize().
+     * @returns {Object}
+     */
+    serializeSection() {
+        return FileTools.serializeDocument(this);
+    }
+
+    /**
+     * Restore just this editor's slice of the document.
+     * @param {Object} data
+     * @returns {Promise<void>}
+     */
+    async loadSection(data) {
         await FileTools.loadDocument(this, data);
+    }
+
+    /**
+     * Report whether this editor has unsaved changes beyond the file
+     * manager's own dirty flag. The schematic's edits already drive the
+     * shared FileManager's dirty flag, so there's nothing extra to add.
+     * @returns {boolean}
+     */
+    isSectionDirty() {
+        return false;
     }
     
     /**
@@ -1405,6 +1466,7 @@ export default class SchematicApp {
      * @returns {Promise<void>}
      */
     async newFile() {
+        if (this.project) return await this.project.newDocument();
         await FileTools.newFile(this);
     }
     
@@ -1413,6 +1475,7 @@ export default class SchematicApp {
      * @returns {Promise<*>} The save result.
      */
     async saveFile() {
+        if (this.project) return await this.project.save();
         return await FileTools.saveFile(this);
     }
     
@@ -1421,6 +1484,7 @@ export default class SchematicApp {
      * @returns {Promise<*>} The save result.
      */
     async saveFileAs() {
+        if (this.project) return await this.project.saveAs();
         return await FileTools.saveFileAs(this);
     }
 
@@ -1499,6 +1563,7 @@ export default class SchematicApp {
      * @returns {Promise<void>}
      */
     async openFile() {
+        if (this.project) return await this.project.open();
         await FileTools.openFile(this);
     }
 
@@ -1507,6 +1572,7 @@ export default class SchematicApp {
      * @returns {Promise<void>}
      */
     async _importEasyEDA() {
+        if (this.project) return await this.project.importEasyEDA();
         await FileTools.importEasyEDA(this);
     }
 }

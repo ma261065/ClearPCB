@@ -236,4 +236,66 @@ export function bindPcbControls(app) {
     });
 
     app.syncPcbViewToggles = syncViewToggles;
+
+    bindPcbFileMenu(app);
+}
+
+/**
+ * Wire the PCB ribbon's File menu so it mirrors the schematic editor's
+ * File menu exactly. There is only ONE document (schematic + PCB live in
+ * a single file owned by the ProjectDocument), so every File operation
+ * delegates to the project — New / Open / Save / Save As / Import all act
+ * on the same document regardless of which editor the user triggered them
+ * from. PDF / Print render the PCB itself (board-sized, in colour) and
+ * are handled by the PCB view.
+ * @param {object} app PCBApp instance.
+ */
+function bindPcbFileMenu(app) {
+    const get = (id) => document.getElementById(id);
+    /** The neutral document owner coordinates all file I/O. */
+    const project = () => /** @type {any} */ (window).bootstrap?.project;
+    /** The schematic view hosts the shared save-toast UI. */
+    const host = () => /** @type {any} */ (window).app;
+
+    get('pcbRibbonNew')?.addEventListener('click', () => {
+        project()?.newDocument();
+        app._setActiveRibbonTab?.('pcb-home');
+    });
+    get('pcbRibbonOpen')?.addEventListener('click', () => {
+        project()?.open();
+        app._setActiveRibbonTab?.('pcb-home');
+    });
+
+    // ── Import dropdown (mirrors the schematic File menu) ────────
+    const importBtn = get('pcbRibbonImport');
+    const importMenu = get('pcbRibbonImportMenu');
+    if (importBtn && importMenu) {
+        const closeImportMenu = () => importMenu.classList.remove('open');
+        importBtn.addEventListener('click', () => {
+            importMenu.classList.toggle('open');
+        });
+        document.addEventListener('click', (e) => {
+            const t = /** @type {Node} */ (e.target);
+            if (!importBtn.contains(t) && !importMenu.contains(t)) closeImportMenu();
+        });
+        importMenu.addEventListener('click', (e) => {
+            const item = /** @type {HTMLElement} */ (e.target).closest('.dropdown-item');
+            if (!item) return;
+            closeImportMenu();
+            if (/** @type {HTMLElement} */ (item).dataset.format === 'easyeda-sch') {
+                project()?.importEasyEDA();
+            }
+        });
+    }
+
+    get('pcbRibbonSave')?.addEventListener('click', async () => {
+        const result = await project()?.save();
+        if (result?.success) host()?._showSaveToast?.('Saved');
+    });
+    get('pcbRibbonSaveAs')?.addEventListener('click', async () => {
+        const result = await project()?.saveAs();
+        if (result?.success) host()?._showSaveToast?.('Saved');
+    });
+    get('pcbRibbonExportPdf')?.addEventListener('click', () => app.savePdf());
+    get('pcbRibbonPrint')?.addEventListener('click', () => app.print());
 }

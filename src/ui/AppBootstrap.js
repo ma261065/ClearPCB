@@ -2,6 +2,7 @@
 
 import SchematicApp from './SchematicApp.js';
 import PCBApp from './PCBApp.js';
+import { ProjectDocument } from '../core/ProjectDocument.js';
 
 class AppBootstrap {
     constructor() {
@@ -10,6 +11,8 @@ class AppBootstrap {
         this.ribbonSchematic = document.getElementById('ribbonSchematic');
         this.ribbonPCB = document.getElementById('ribbonPCB');
 
+        /** The neutral owner of the single project document. */
+        this.project = new ProjectDocument();
         this.schematicApp = null;
         this.pcbApp = null;
     }
@@ -19,6 +22,9 @@ class AppBootstrap {
 
         this.pcbApp = new PCBApp();
         this.pcbApp.initialize();
+        // Register the PCB editor as a project view (contributes doc.pcb).
+        this.pcbApp.project = this.project;
+        this.project.registerView('pcb', this.pcbApp);
 
         // Install the dispatcher BEFORE SchematicApp constructs so that
         // it occupies an earlier slot in window-capture order than the
@@ -26,10 +32,16 @@ class AppBootstrap {
         // at every keydown.
         this._bindKeyboardDispatcher();
 
-        /** @type {any} */ (window).app = new SchematicApp();
+        // The schematic editor registers itself as the project's UI-host
+        // view (and injects the file lifecycle) from its constructor.
+        /** @type {any} */ (window).app = new SchematicApp(this.project);
         this.schematicApp = /** @type {any} */ (window).app;
 
         await this.schematicApp._recoverAutoSave?.();
+
+        // Both views are registered — start project-driven autosave so
+        // edits in EITHER editor are captured into the one document.
+        this.project.startAutoSave();
 
         this._bindModeTabs();
         this._setupLaunchQueue();
@@ -134,7 +146,7 @@ class AppBootstrap {
 document.addEventListener('DOMContentLoaded', async () => {
     const bootstrap = new AppBootstrap();
     // Expose BEFORE initialize() so autosave-recovery (which runs
-    // inside initialize()) can reach bootstrap.pcbApp to restore the
+    // inside initialize()) can reach bootstrap.project to restore the
     // PCB section of the document.
     /** @type {any} */ (window).bootstrap = bootstrap;
     await bootstrap.initialize();

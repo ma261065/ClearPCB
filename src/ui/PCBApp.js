@@ -11,6 +11,7 @@ import { updateGridDropdown } from './modules/viewport.js';
 import { PCB_LAYERS } from '../pcb/modules/layers.js';
 import { exportDSN, importSES } from '../pcb/modules/dsn.js';
 import { exportGerbers, buildZip } from '../pcb/modules/gerber.js';
+import { savePcbPdf, printPcb } from '../pcb/modules/pcb-export.js';
 import { tracksFromAutorouterResult } from '../pcb/modules/autorouter-adapter.js';
 import { renderTrack, renderVia, removeTrackElements, removeViaElements } from '../pcb/modules/track-render.js';
 import {
@@ -940,6 +941,44 @@ export default class PCBApp {
             vias: this.vias.map(v => v.toJSON()),
             texts: [...this.texts.values()].map(serializePcbText),
         };
+    }
+
+    // ── ProjectDocument view interface ────────────────────────────────
+
+    /**
+     * Serialize this editor's slice of the document for the project owner.
+     * Returns null when there is nothing to persist so the combined
+     * document omits an empty `pcb` section.
+     * @returns {object|null}
+     */
+    serializeSection() {
+        const hasContent = this.tracks?.length || this.vias?.length || this.texts?.size;
+        return hasContent ? this.serialize() : null;
+    }
+
+    /**
+     * Restore this editor's slice of the document.
+     * @param {object|null} data The PCB section (or null to clear).
+     */
+    loadSection(data) {
+        this.loadFromData(data || null);
+    }
+
+    /**
+     * Reset the PCB editor to empty (used by New).
+     */
+    clearSection() {
+        this.loadFromData(null);
+    }
+
+    /**
+     * Report whether the PCB has unsaved changes. This is the "extra"
+     * dirtiness the shared FileManager can't see on its own, so PCB-only
+     * edits still trigger autosave / unload warnings.
+     * @returns {boolean}
+     */
+    isSectionDirty() {
+        return !!this._isDirty;
     }
 
     /**
@@ -4111,6 +4150,24 @@ export default class PCBApp {
 
         this._refreshClearanceHalos();
         this._setStatus('Routes cleared');
+    }
+
+    // ── PDF / Print ───────────────────────────────────────────────
+
+    /**
+     * Export the PCB to a vector PDF sized to the board outline.
+     * @returns {Promise<void>}
+     */
+    async savePdf() {
+        await savePcbPdf(this);
+    }
+
+    /**
+     * Print the PCB via a hidden iframe sized to the board outline.
+     * @returns {Promise<void>}
+     */
+    async print() {
+        await printPcb(this);
     }
 
     // ── Specctra DSN / SES ────────────────────────────────────────

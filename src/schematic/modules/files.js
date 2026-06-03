@@ -56,15 +56,9 @@ export function serializeDocument(app) {
         doc.schematic.defs = defs;
     }
 
-    // Pull PCB-side state (tracks, vias) from the sibling PCBApp if it
-    // exists and has any persistable content. Kept optional so the
-    // schematic remains loadable in environments that don't bootstrap
-    // the PCB editor.
-    const pcbApp = /** @type {any} */ (globalThis).bootstrap?.pcbApp;
-    if (pcbApp && (pcbApp.tracks?.length || pcbApp.vias?.length || pcbApp.texts?.size)) {
-        doc.pcb = pcbApp.serialize();
-    }
-
+    // NB: the PCB section (`doc.pcb`) is added by ProjectDocument, which
+    // coordinates both editor views. This function only produces the
+    // schematic envelope so the schematic view never reaches into the PCB.
     return doc;
 }
 
@@ -219,13 +213,8 @@ export async function loadDocument(app, data) {
     app._updateSelectableItems();
     app.renderShapes(true);
 
-    // Hand the PCB-side data off to the PCBApp, if present. The PCB
-    // editor rebuilds placements/board on activate, so the tracks/vias
-    // we restore here will line up with whatever the schematic produces.
-    const pcbApp = /** @type {any} */ (globalThis).bootstrap?.pcbApp;
-    if (pcbApp?.loadFromData) {
-        pcbApp.loadFromData(data.pcb || null);
-    }
+    // NB: the PCB section is restored by ProjectDocument after this
+    // schematic section loads, so neither view reaches into the other.
 }
 
 /**
@@ -384,6 +373,11 @@ export async function newFile(app) {
     resetNetNameCounter();
     app.fileManager.newDocument();
     app.viewport.resetView();
+
+    // Clear the PCB section too — one document means New wipes both
+    // editors. Routed via the project so the schematic doesn't reach
+    // directly into the PCB view.
+    /** @type {any} */ (globalThis).bootstrap?.project?.pcb?.clearSection?.();
 
     // Reset title block to defaults (preserve persisted user-identity fields)
     app.viewport.setTitleBlockData({

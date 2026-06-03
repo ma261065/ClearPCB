@@ -1,6 +1,6 @@
 # ClearPCB
 
-A browser-based schematic editor built with vanilla JavaScript and SVG.  No build step, no framework — open `index.html` and start drawing.
+A browser-based schematic + PCB editor built with vanilla JavaScript and SVG.  No build step, no framework — open `index.html` and start drawing.  A project is a single document holding both the schematic and the PCB.
 
 ## Features
 
@@ -41,6 +41,7 @@ clearpcb/
 │   │   ├── SelectionManager.js # Hit-testing, multi-select, box-select
 │   │   ├── EventBus.js         # Global pub/sub
 │   │   ├── FileManager.js      # Dirty tracking, auto-save, file naming
+│   │   ├── ProjectDocument.js  # Neutral owner of the single project file
 │   │   ├── StorageManager.js   # localStorage / IndexedDB abstraction
 │   │   ├── geometry.js         # Point/segment math helpers
 │   │   ├── ShapeValidator.js   # Validates shape data on load
@@ -72,9 +73,9 @@ clearpcb/
 │   │   └── VRMLPreview.js      # VRML model preview (lazy-loaded)
 │   │
 │   └── ui/                     # Application layer
-│       ├── AppBootstrap.js     # Shared startup + schematic/pcb mode switching
-│       ├── SchematicApp.js     # Schematic facade — delegates to modules
-│       ├── PCBApp.js           # PCB facade scaffold (mode-owned logic)
+│       ├── AppBootstrap.js     # Shared startup; owns ProjectDocument + mode switching
+│       ├── SchematicApp.js     # Schematic view — delegates to modules
+│       ├── PCBApp.js           # PCB view — delegates to pcb modules
 │       ├── schematic.css       # All styles
 │       └── modules/            # Schematic feature modules (functional, not classes)
 │           ├── mouse.js        # Mouse event binding (click, drag, box-select)
@@ -113,39 +114,65 @@ clearpcb/
 
 ## Architecture
 
+A ClearPCB project is a **single document** that holds both the schematic
+and the PCB. That document is owned by a neutral `ProjectDocument` (in
+`core/`), so the schematic and PCB editors are peer *views* rather than one
+owning the other.
+
 ```
-                  ┌──────────────────┐
-                  │  SchematicApp.js │   thin facade
-                  │  (constructor +  │   passes `this` as
-                  │   delegations)   │   shared app context
-                  └────────┬─────────┘
-                           │
-        ┌──────────────────┼──────────────────┐
-        │                  │                  │
-        ▼                  ▼                  ▼
-  ┌───────────┐    ┌─────────────┐    ┌────────────┐
-  │ ui/modules│    │   shapes/   │    │ components/│
-  │ (features)│    │ (primitives)│    │ (symbols)  │
-  └─────┬─────┘    └──────┬──────┘    └─────┬──────┘
-        │                 │                 │
-        └─────────────────┼─────────────────┘
-                          │
-                          ▼
-                   ┌─────────────┐
-                   │    core/    │
-                   │  Viewport   │
-                   │  Commands   │
-                   │  Selection  │
-                   │  EventBus   │
-                   └─────────────┘
+                   ┌────────────────────┐
+                   │   AppBootstrap.js  │  creates the project,
+                   │  (mode switching)  │  registers both views
+                   └─────────┬──────────┘
+                             │
+                   ┌─────────▼──────────┐
+                   │ ProjectDocument.js │  single FileManager,
+                   │  (neutral owner)   │  combined serialize/load,
+                   └─────────┬──────────┘  aggregate dirty state
+               registerView  │  registerView
+            ┌────────────────┴────────────────┐
+            ▼                                  ▼
+   ┌──────────────────┐               ┌──────────────────┐
+   │  SchematicApp.js │  UI host      │     PCBApp.js     │
+   │  (schematic view)│               │    (pcb view)    │
+   └────────┬─────────┘               └────────┬─────────┘
+            │                                  │
+   ┌────────┴─────────┐               ┌────────┴─────────┐
+   │ ui/modules,      │               │ pcb/modules,     │
+   │ shapes, components│              │ autorouter, …    │
+   └────────┬─────────┘               └────────┬─────────┘
+            └────────────────┬────────────────┘
+                             ▼
+                      ┌─────────────┐
+                      │    core/    │
+                      │  Viewport   │
+                      │  Commands   │
+                      │  Selection  │
+                      │  EventBus   │
+                      └─────────────┘
 ```
 
 **Key patterns:**
 
-- **Facade** — `SchematicApp` owns all state in its constructor and exposes ~110 methods, but ~103 are one-line delegations to module functions.  The real logic lives in `ui/modules/`.
-- **Command** — Every edit (move, add, delete, modify) creates a command object pushed onto `CommandHistory`, giving full undo/redo.
-- **Graph-based wires** — Wires use a node+edge graph model (`shapes/wire.js`) rather than simple point arrays, enabling T-junctions, segment dragging, and merge/split operations.
-- **Functional modules** — `ui/modules/` files export plain functions that receive the app object as their first argument.  No classes, no singletons.
+- **Single document, peer views** — `ProjectDocument` owns the one
+  `FileManager` and coordinates the editors. Each view contributes one
+  section through a small duck-typed interface (`serializeSection`,
+  `loadSection`, `clearSection`, `isSectionDirty`); the project assembles
+  the combined file and aggregates dirty state for auto-save. The file
+  lifecycle (New/Open/Save/Import) is *injected* into the project by the
+  schematic view, so `core/` never imports a view module. Both editors'
+  File menus drive the same `bootstrap.project.*` operations.
+- **Facade** — `SchematicApp` owns all schematic state in its constructor
+  and exposes ~110 methods, but most are one-line delegations to module
+  functions. The real logic lives in `ui/modules/`.
+- **Command** — Every edit (move, add, delete, modify) creates a command
+  object pushed onto `CommandHistory`, giving full undo/redo.
+- **Graph-based wires** — Wires use a node+edge graph model
+  (`shapes/wire.js`) rather than simple point arrays, enabling
+  T-junctions, segment dragging, and merge/split operations.
+- **Functional modules** — `ui/modules/` files export plain functions that
+  receive the app object as their first argument. No classes, no
+  singletons.
 
 ## Keyboard shortcuts
 
