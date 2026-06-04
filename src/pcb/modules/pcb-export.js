@@ -328,9 +328,6 @@ function showPdfExportDialog(app) {
 
         okBtn?.addEventListener('click', accept);
         cancelBtn?.addEventListener('click', () => close(null));
-        overlay.addEventListener('mousedown', (e) => {
-            if (e.target === overlay) close(null);
-        });
         ModalManager.push('pdfExport', () => close(null));
     });
 }

@@ -231,6 +231,9 @@ export class Viewport {
         this.themeColors = this._getThemeColors();
         this.svg.style.backgroundColor = this.themeColors.canvasBg;
         this._createGrid();
+        // Force a full ruler rebuild — colours changed but scale/size did not,
+        // which would otherwise be served by the reposition fast-path.
+        this._rulerBuildState = null;
         this._createRulers();
         this._drawPaperOutline();
     }
@@ -550,6 +553,7 @@ export class Viewport {
             requestAnimationFrame(() => {
                 this._panUpdatePending = false;
                 this._createRulers();
+                this._ensureGridCoverage();
                 if (this.onViewportCull) this.onViewportCull();
             });
         }
@@ -613,6 +617,9 @@ export class Viewport {
                 this.cachedVisibleBounds = currentBounds;
                 // Grid only needs full redraw when scale changes (stroke-width, spacing)
                 if (this.gridDirty && scaleChanged) this._createGrid();
+                // A large same-scale jump (e.g. Fit/reset after a long pan) can
+                // leave the view outside the pre-rendered grid coverage rect.
+                else this._ensureGridCoverage();
                 if (this.paperDirty) this._drawPaperOutline();
                 this._createRulers();
             }
@@ -729,6 +736,29 @@ export class Viewport {
             </g>
         `;
         this.axesLayer.innerHTML = axes;
+
+        // Record the world-space rect the grid currently covers so a long pan
+        // (which doesn't change scale and so doesn't rebuild the grid) can
+        // detect when the view nears the coverage edge and refresh.
+        this._gridCoverage = { minX: startX, minY: startY, maxX: startX + w, maxY: startY + h };
+    }
+
+    /**
+     * Rebuild the grid if the current view has panned close to the edge of the
+     * pre-rendered coverage rect. Cheap no-op while the view stays centred.
+     */
+    _ensureGridCoverage() {
+        if (!this.gridVisible || !this._gridCoverage) return;
+        const b = this.getVisibleBounds();
+        const cov = this._gridCoverage;
+        // Refresh once any edge of the view comes within one viewport of the
+        // coverage boundary, so the rebuild happens well before blank shows.
+        const marginX = b.maxX - b.minX;
+        const marginY = b.maxY - b.minY;
+        if (b.minX - cov.minX < marginX || cov.maxX - b.maxX < marginX
+            || b.minY - cov.minY < marginY || cov.maxY - b.maxY < marginY) {
+            this._createGrid();
+        }
     }
     
     // ==================== Paper Size ====================
@@ -1171,9 +1201,56 @@ export class Viewport {
     _createRulers() {
         if (!this.showRulers) {
             this.rulerContainer.innerHTML = '';
+            this._rulerBuildState = null;
             return;
         }
-        
+        // Fast path: during a pan the scale (and tick spacing/labels) are
+        // unchanged — only the screen offset shifts. Translate the
+        // pre-rendered tick groups instead of rebuilding the ruler SVG.
+        if (this._rulerBuildState && this.rulerContainer.firstElementChild
+            && this._repositionRulers()) {
+            return;
+        }
+        this._buildRulers();
+    }
+
+    /**
+     * Reposition the pre-built ruler tick groups by translating them to
+     * match the current pan, avoiding a full SVG rebuild. Returns false if
+     * a rebuild is required (scale/units/size changed, or the pan moved
+     * beyond the pre-rendered margin).
+     * @returns {boolean}
+     */
+    _repositionRulers() {
+        const st = this._rulerBuildState;
+        if (!st) return false;
+        if (st.scale !== this.scale || st.units !== this.units
+            || st.w !== this.width || st.h !== this.height) {
+            return false;
+        }
+        const tx = (st.vbX - this.viewBox.x) * this.scale;
+        const ty = (st.vbY - this.viewBox.y) * this.scale;
+        // Ticks were rendered one viewport-width/height beyond each edge, so
+        // there is `width`/`height` pixels of slack before a gap appears.
+        if (Math.abs(tx) > this.width * 0.85 || Math.abs(ty) > this.height * 0.85) {
+            return false;
+        }
+        if (this._rulerTopTicksEl) {
+            this._rulerTopTicksEl.setAttribute('transform', `translate(${tx} 0)`);
+        }
+        if (this._rulerLeftTicksEl) {
+            this._rulerLeftTicksEl.setAttribute('transform', `translate(0 ${ty})`);
+        }
+        this._updateRulerCursor();
+        return true;
+    }
+
+    /**
+     * Fully rebuild the ruler SVG for the current view. Ticks are rendered
+     * one viewport beyond each edge and wrapped in translatable groups so
+     * subsequent pans (same scale) can be served by `_repositionRulers`.
+     */
+    _buildRulers() {
         const rs = this.rulerSize;
         const w = this.width;
         const h = this.height;
@@ -1248,59 +1325,69 @@ export class Viewport {
         
         // Get theme colors
         const colors = this.themeColors || this._getThemeColors();
-        
-        // Build ruler SVG
+
+        // Unique clip ids so two viewports (schematic + PCB) don't collide.
+        this._rulerIdSuffix = this._rulerIdSuffix
+            || Math.random().toString(36).slice(2, 8);
+        const topClip = `rulerTopClip-${this._rulerIdSuffix}`;
+        const leftClip = `rulerLeftClip-${this._rulerIdSuffix}`;
+        const topId = `rulerTopTicks-${this._rulerIdSuffix}`;
+        const leftId = `rulerLeftTicks-${this._rulerIdSuffix}`;
+
+        // Build top-ruler ticks/labels over a range extended one viewport
+        // beyond each edge so panning can translate the group without gaps.
+        // Screen-space culling is omitted here — the clip rect handles it.
+        const vw = bounds.maxX - bounds.minX;
+        const vh = bounds.maxY - bounds.minY;
+        let topTicks = '';
+        const startX = Math.floor((bounds.minX - vw) / tickSpacingMm) * tickSpacingMm;
+        const endX = Math.ceil((bounds.maxX + vw) / tickSpacingMm) * tickSpacingMm;
+        for (let worldX = startX; worldX <= endX; worldX += tickSpacingMm) {
+            const screenX = this.worldToScreen({ x: worldX, y: 0 }).x;
+            topTicks += `<line x1="${screenX}" y1="${rs}" x2="${screenX}" y2="${rs - 8}" stroke="${colors.rulerLine}"/>`;
+            topTicks += `<text x="${screenX + 2}" y="12" fill="${colors.rulerText}" font-size="10" font-family="monospace">${formatLabel(worldX)}</text>`;
+            for (let i = 1; i < 5; i++) {
+                const minorX = worldX + (tickSpacingMm / 5) * i;
+                const minorScreenX = this.worldToScreen({ x: minorX, y: 0 }).x;
+                topTicks += `<line x1="${minorScreenX}" y1="${rs}" x2="${minorScreenX}" y2="${rs - 4}" stroke="${colors.rulerLine}"/>`;
+            }
+        }
+
+        // Left-ruler ticks/labels, likewise extended one viewport each side.
+        let leftTicks = '';
+        const startY = Math.floor((bounds.minY - vh) / tickSpacingMm) * tickSpacingMm;
+        const endY = Math.ceil((bounds.maxY + vh) / tickSpacingMm) * tickSpacingMm;
+        for (let worldY = startY; worldY <= endY; worldY += tickSpacingMm) {
+            const screenY = this.worldToScreen({ x: 0, y: worldY }).y;
+            leftTicks += `<line x1="${rs}" y1="${screenY}" x2="${rs - 8}" y2="${screenY}" stroke="${colors.rulerLine}"/>`;
+            leftTicks += `<text x="3" y="${screenY + 3}" fill="${colors.rulerText}" font-size="10" font-family="monospace">${formatLabel(-worldY)}</text>`;
+            for (let i = 1; i < 5; i++) {
+                const minorY = worldY + (tickSpacingMm / 5) * i;
+                const minorScreenY = this.worldToScreen({ x: 0, y: minorY }).y;
+                leftTicks += `<line x1="${rs}" y1="${minorScreenY}" x2="${rs - 4}" y2="${minorScreenY}" stroke="${colors.rulerLine}"/>`;
+            }
+        }
+
+        // Assemble: backgrounds, clipped tick groups, then chrome on top.
         let svg = `<svg width="${w}" height="${h}" style="position:absolute;top:0;left:0;">`;
-        
+        svg += `<defs>`;
+        svg += `<clipPath id="${topClip}"><rect x="${rs}" y="0" width="${Math.max(0, w - rs)}" height="${rs}"/></clipPath>`;
+        svg += `<clipPath id="${leftClip}"><rect x="0" y="${rs}" width="${rs}" height="${Math.max(0, h - rs)}"/></clipPath>`;
+        svg += `</defs>`;
+
         // Backgrounds
         svg += `<rect x="0" y="0" width="${w}" height="${rs}" fill="${colors.rulerBg}"/>`;
         svg += `<rect x="0" y="${rs}" width="${rs}" height="${h - rs}" fill="${colors.rulerBg}"/>`;
         svg += `<rect x="0" y="0" width="${rs}" height="${rs}" fill="${colors.rulerBg}"/>`;
-        
-        // Top ruler ticks and labels
-        const startX = Math.floor(bounds.minX / tickSpacingMm) * tickSpacingMm;
-        const endX = Math.ceil(bounds.maxX / tickSpacingMm) * tickSpacingMm;
-        
-        for (let worldX = startX; worldX <= endX; worldX += tickSpacingMm) {
-            const screenX = this.worldToScreen({ x: worldX, y: 0 }).x;
-            if (screenX > w) continue;
-            
-            if (screenX >= rs) {
-                svg += `<line x1="${screenX}" y1="${rs}" x2="${screenX}" y2="${rs - 8}" stroke="${colors.rulerLine}"/>`;
-                svg += `<text x="${screenX + 2}" y="12" fill="${colors.rulerText}" font-size="10" font-family="monospace">${formatLabel(worldX)}</text>`;
-            }
-            
-            // Minor ticks
-            for (let i = 1; i < 5; i++) {
-                const minorX = worldX + (tickSpacingMm / 5) * i;
-                const minorScreenX = this.worldToScreen({ x: minorX, y: 0 }).x;
-                if (minorScreenX > rs && minorScreenX < w) {
-                    svg += `<line x1="${minorScreenX}" y1="${rs}" x2="${minorScreenX}" y2="${rs - 4}" stroke="${colors.rulerLine}"/>`;
-                }
-            }
-        }
-        
-        // Left ruler ticks and labels
-        const startY = Math.floor(bounds.minY / tickSpacingMm) * tickSpacingMm;
-        const endY = Math.ceil(bounds.maxY / tickSpacingMm) * tickSpacingMm;
-        
-        for (let worldY = startY; worldY <= endY; worldY += tickSpacingMm) {
-            const screenY = this.worldToScreen({ x: 0, y: worldY }).y;
-            if (screenY < rs || screenY > h) continue;
-            
-            svg += `<line x1="${rs}" y1="${screenY}" x2="${rs - 8}" y2="${screenY}" stroke="${colors.rulerLine}"/>`;
-            svg += `<text x="3" y="${screenY + 3}" fill="${colors.rulerText}" font-size="10" font-family="monospace">${formatLabel(-worldY)}</text>`;
-            
-            // Minor ticks
-            for (let i = 1; i < 5; i++) {
-                const minorY = worldY + (tickSpacingMm / 5) * i;
-                const minorScreenY = this.worldToScreen({ x: 0, y: minorY }).y;
-                if (minorScreenY > rs && minorScreenY < h) {
-                    svg += `<line x1="${rs}" y1="${minorScreenY}" x2="${rs - 4}" y2="${minorScreenY}" stroke="${colors.rulerLine}"/>`;
-                }
-            }
-        }
-        
+
+        // Translatable tick groups (clipped to their ruler strips). The
+        // clip-path sits on a STATIC outer group; the inner group carries the
+        // pan transform. (If clip-path and transform share one element, the
+        // clip window translates with the group and slides off the strip,
+        // leaving blank space mid-pan.)
+        svg += `<g clip-path="url(#${topClip})"><g id="${topId}">${topTicks}</g></g>`;
+        svg += `<g clip-path="url(#${leftClip})"><g id="${leftId}">${leftTicks}</g></g>`;
+
         // Borders
         svg += `<line x1="${rs}" y1="0" x2="${rs}" y2="${h}" stroke="${colors.rulerBorder}"/>`;
         svg += `<line x1="0" y1="${rs}" x2="${w}" y2="${rs}" stroke="${colors.rulerBorder}"/>`;
@@ -1308,11 +1395,22 @@ export class Viewport {
         // Mouse-position indicators on rulers
         svg += `<line id="rulerCursorX" x1="${rs}" y1="0" x2="${rs}" y2="${rs}" stroke="${colors.axis}" stroke-width="1" stroke-opacity="0.9"/>`;
         svg += `<line id="rulerCursorY" x1="0" y1="${rs}" x2="${rs}" y2="${rs}" stroke="${colors.axis}" stroke-width="1" stroke-opacity="0.9"/>`;
-        
+
         svg += '</svg>';
         this.rulerContainer.innerHTML = svg;
+        this._rulerTopTicksEl = this.rulerContainer.querySelector(`#${topId}`);
+        this._rulerLeftTicksEl = this.rulerContainer.querySelector(`#${leftId}`);
         this._rulerCursorXLine = this.rulerContainer.querySelector('#rulerCursorX');
         this._rulerCursorYLine = this.rulerContainer.querySelector('#rulerCursorY');
+        // Record the build state so subsequent same-scale pans can reposition.
+        this._rulerBuildState = {
+            scale: this.scale,
+            units: this.units,
+            w: this.width,
+            h: this.height,
+            vbX: this.viewBox.x,
+            vbY: this.viewBox.y,
+        };
         this._updateRulerCursor();
     }
 

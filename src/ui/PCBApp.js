@@ -1138,7 +1138,34 @@ export default class PCBApp {
 
     _fitToContent() {
         this._ensureViewport();
-        this.viewport?.fitToContent();
+        if (!this.viewport) return;
+
+        // Measure the actual artwork from the live layer groups rather than
+        // relying on the viewport's fixed placeholder bounds.
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        if (this._layerGroups) {
+            for (const g of this._layerGroups.values()) {
+                if (!g || !g.childNodes.length) continue;
+                let bb;
+                try {
+                    bb = g.getBBox();
+                } catch {
+                    continue;
+                }
+                if (!bb || (bb.width === 0 && bb.height === 0)) continue;
+                minX = Math.min(minX, bb.x);
+                minY = Math.min(minY, bb.y);
+                maxX = Math.max(maxX, bb.x + bb.width);
+                maxY = Math.max(maxY, bb.y + bb.height);
+            }
+        }
+
+        if (Number.isFinite(minX)) {
+            this.viewport.fitToBounds(minX, minY, maxX, maxY, 10);
+        } else {
+            // Nothing drawn yet — fall back to the nominal board outline.
+            this.viewport.fitToBounds(0, -this._boardHeight, this._boardWidth, 0, 10);
+        }
     }
 
     _bindRibbonTabs() {

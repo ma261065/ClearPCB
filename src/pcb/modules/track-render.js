@@ -232,14 +232,43 @@ function _makeViaCircle(cx, cy, r, fillColor) {
 
 /** Spacing between net-name labels along a track run, in mm. */
 const LABEL_INTERVAL_MM = 12;
-/** Minimum segment length that may host a label, in mm. */
-const LABEL_MIN_SEGMENT_MM = 3;
 
 /**
- * Generate `<text>` elements with the net name placed at regular
- * intervals along the polyline `points`. Labels are rotated to the
- * local segment direction, kept upright (no upside-down text), and
- * scaled relative to the track width so they sit visually on the trace.
+ * Build a single rotated net-name `<text>` element centred on (x, y).
+ * @param {number} x
+ * @param {number} y
+ * @param {number} angle - degrees, already clamped upright
+ * @param {number} fontSize - mm
+ * @param {string} netName
+ * @returns {SVGTextElement}
+ */
+function _makeNetLabel(x, y, angle, fontSize, netName) {
+    const text = document.createElementNS(NS, 'text');
+    text.setAttribute('x', String(x));
+    text.setAttribute('y', String(y));
+    text.setAttribute('text-anchor', 'middle');
+    text.setAttribute('dominant-baseline', 'central');
+    text.setAttribute('font-size', String(fontSize));
+    text.setAttribute('font-family', 'sans-serif');
+    text.setAttribute('fill', '#ffffff');
+    text.setAttribute('fill-opacity', '0.9');
+    text.setAttribute('pointer-events', 'none');
+    text.setAttribute('transform', `rotate(${angle.toFixed(2)} ${x} ${y})`);
+    text.setAttribute('class', 'pcb-track-label');
+    text.textContent = netName;
+    return text;
+}
+
+/**
+ * Generate `<text>` elements with the net name placed along the polyline
+ * `points`. Each label is rotated to its segment direction, kept upright
+ * (no upside-down text), and scaled relative to the track width so it sits
+ * visually on the trace.
+ *
+ * Labels are placed *per straight segment* and constrained so the whole
+ * rotated string fits between the segment's endpoints — they never cross a
+ * bend or overhang a corner into empty space. Segments too short to host
+ * the text get no label.
  *
  * @param {Array<{x:number,y:number}>} points
  * @param {string} netName
@@ -250,58 +279,44 @@ function _buildNetLabels(points, netName, trackWidth) {
     const labels = [];
     if (!netName || points.length < 2) return labels;
 
-    // Cumulative arc length along the polyline.
-    const segLen = [];
-    let total = 0;
-    for (let i = 0; i < points.length - 1; i++) {
-        const d = Math.hypot(points[i + 1].x - points[i].x, points[i + 1].y - points[i].y);
-        segLen.push(d);
-        total += d;
-    }
-    if (total < LABEL_MIN_SEGMENT_MM) return labels;
-
-    // Walk arclength placing a label every LABEL_INTERVAL_MM starting at
-    // the first half-interval offset so labels don't crowd endpoints.
-    // Font size sits just inside the track width so the label reads as
-    // "on" the copper. At low zoom levels the resulting on-screen text
-    // shrinks below readable size and effectively disappears.
+    // Font sized just inside the track width so the label reads as "on" the
+    // copper. At low zoom the on-screen text shrinks below readable size and
+    // effectively disappears.
     const fontSize = (trackWidth || 0.2) * 0.7;
-    for (let dist = LABEL_INTERVAL_MM / 2; dist < total; dist += LABEL_INTERVAL_MM) {
-        // Find which segment this distance lands on.
-        let acc = 0;
-        let segIdx = 0;
-        for (; segIdx < segLen.length; segIdx++) {
-            if (acc + segLen[segIdx] >= dist) break;
-            acc += segLen[segIdx];
-        }
-        if (segIdx >= segLen.length) break;
-        if (segLen[segIdx] < LABEL_MIN_SEGMENT_MM) continue;
+    // Approximate rendered length of the string along its baseline
+    // (~0.62 em per average sans-serif glyph), plus a small margin so glyphs
+    // never reach a bend.
+    const textLen = netName.length * fontSize * 0.62;
+    const minSeg = textLen + fontSize * 0.6;
 
-        const a = points[segIdx];
-        const b = points[segIdx + 1];
-        const t = (dist - acc) / segLen[segIdx];
-        const x = a.x + t * (b.x - a.x);
-        const y = a.y + t * (b.y - a.y);
+    for (let i = 0; i < points.length - 1; i++) {
+        const a = points[i];
+        const b = points[i + 1];
+        const segLen = Math.hypot(b.x - a.x, b.y - a.y);
+        // Skip segments too short to host the whole label without overhanging
+        // the bend at either end.
+        if (segLen < minSeg) continue;
+
+        const ux = (b.x - a.x) / segLen;
+        const uy = (b.y - a.y) / segLen;
 
         // Angle of the segment in degrees; keep text upright.
         let angle = Math.atan2(b.y - a.y, b.x - a.x) * 180 / Math.PI;
         if (angle > 90) angle -= 180;
         else if (angle < -90) angle += 180;
 
-        const text = document.createElementNS(NS, 'text');
-        text.setAttribute('x', String(x));
-        text.setAttribute('y', String(y));
-        text.setAttribute('text-anchor', 'middle');
-        text.setAttribute('dominant-baseline', 'central');
-        text.setAttribute('font-size', String(fontSize));
-        text.setAttribute('font-family', 'sans-serif');
-        text.setAttribute('fill', '#ffffff');
-        text.setAttribute('fill-opacity', '0.9');
-        text.setAttribute('pointer-events', 'none');
-        text.setAttribute('transform', `rotate(${angle.toFixed(2)} ${x} ${y})`);
-        text.setAttribute('class', 'pcb-track-label');
-        text.textContent = netName;
-        labels.push(text);
+        // The label centre may range over [textLen/2, segLen - textLen/2] so
+        // the full string stays within the segment.
+        const usable = segLen - textLen;
+        const n = Math.max(1, Math.floor(segLen / LABEL_INTERVAL_MM));
+        for (let k = 0; k < n; k++) {
+            const frac = n === 1 ? 0.5 : k / (n - 1);
+            const d = textLen / 2 + usable * frac;
+            const x = a.x + ux * d;
+            const y = a.y + uy * d;
+            labels.push(_makeNetLabel(x, y, angle, fontSize, netName));
+        }
     }
     return labels;
 }
+
