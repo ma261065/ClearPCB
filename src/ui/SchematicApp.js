@@ -17,7 +17,7 @@ import { bindMouseEvents } from './modules/mouse.js';
 import { handleEscape, bindKeyboardShortcuts } from './modules/keyboard.js';
 import { bindPropertiesPanel, applyCommonProperty, updatePropertiesPanel } from './modules/properties.js';
 import { bindRibbon, updateShapePanelOptions } from './modules/ribbon.js';
-import { updateCrosshair, getToolIconPath, setToolCursor, showCrosshair, hideCrosshair } from './modules/cursor.js';
+import { getToolIconPath, setToolCursor } from './modules/cursor.js';
 import { bindViewportControls, updateGridDropdown, fitToContent } from './modules/viewport.js';
 import { bindThemeToggle, toggleTheme, loadTheme, updateComponentColors } from './modules/theme.js';
 import { toggleSelectionLock, deleteSelected, captureShapeState, applyShapeState } from './modules/selection.js';
@@ -135,14 +135,6 @@ export default class SchematicApp {
         this.arcEndpoint = null;        // set by drawing.js / mouse.js — arc second click
         this.arcDirection = undefined;  // set by drawing.js — arc CW/CCW flag
         this.arcSweepFlag = undefined;  // set by drawing.js — SVG sweep-flag
-
-        // ── Crosshair ──────────────────────────────────────────────────
-        this.crosshair = {
-            container: document.getElementById('drawingCrosshair'),
-            lineX: document.getElementById('crosshairX'),
-            lineY: document.getElementById('crosshairY'),
-            toolIcon: document.getElementById('crosshairToolIcon')
-        };
 
         // ── Drag state (mutated by mouse-states.js / drag.js) ────────
         this.drag = null;                  // { mode, shape, ... } — see mouse-states.js begin*Session
@@ -873,10 +865,10 @@ export default class SchematicApp {
     /**
      * Positions the crosshair at the snapped world position.
      * @param {Object} snapped - The snapped position data.
-     * @param {Object|null} [screenPosOverride=null] - Optional screen position override.
      */
-    _updateCrosshair(snapped, screenPosOverride = null) {
-        updateCrosshair(this, snapped, screenPosOverride);
+    _updateCrosshair(snapped) {
+        this.lastCrosshairWorld = { x: snapped.x, y: snapped.y };
+        this.viewport.setCrosshair(snapped);
     }
 
     /**
@@ -908,14 +900,14 @@ export default class SchematicApp {
      * Shows the crosshair overlay.
      */
     _showCrosshair() {
-        showCrosshair(this);
+        this.viewport.showCrosshair();
     }
     
     /**
      * Hides the crosshair overlay.
      */
     _hideCrosshair() {
-        hideCrosshair(this);
+        this.viewport.hideCrosshair();
     }
     
     /**

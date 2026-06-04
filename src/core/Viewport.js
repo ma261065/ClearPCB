@@ -47,6 +47,26 @@ export class Viewport {
         container.appendChild(this.rulerContainer);
         this._rulerCursorXLine = null;
         this._rulerCursorYLine = null;
+
+        // Crosshair overlay (screen-space, shared by both editors). Lines are
+        // offset past the rulers so they never paint over the ruler strips.
+        const svgNS = 'http://www.w3.org/2000/svg';
+        this.crosshairContainer = document.createElement('div');
+        this.crosshairContainer.style.cssText =
+            'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;display:none;';
+        const chSvg = document.createElementNS(svgNS, 'svg');
+        chSvg.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;';
+        this._crosshairXLine = document.createElementNS(svgNS, 'line');
+        this._crosshairYLine = document.createElementNS(svgNS, 'line');
+        for (const ln of [this._crosshairXLine, this._crosshairYLine]) {
+            ln.setAttribute('stroke', 'var(--accent-color, #0098ff)');
+            ln.setAttribute('stroke-width', '1');
+            ln.setAttribute('stroke-dasharray', '4 4');
+            chSvg.appendChild(ln);
+        }
+        this.crosshairContainer.appendChild(chSvg);
+        container.appendChild(this.crosshairContainer);
+        this._crosshairWorld = null;
         
         // View state - viewBox defines visible world area
         this.baseWidth = 200; // mm visible at 100% zoom (for display purposes)
@@ -554,6 +574,7 @@ export class Viewport {
                 this._panUpdatePending = false;
                 this._createRulers();
                 this._ensureGridCoverage();
+                this._positionCrosshair();
                 if (this.onViewportCull) this.onViewportCull();
             });
         }
@@ -622,6 +643,7 @@ export class Viewport {
                 else this._ensureGridCoverage();
                 if (this.paperDirty) this._drawPaperOutline();
                 this._createRulers();
+                this._positionCrosshair();
             }
             
             if (this.onViewChanged) {
@@ -1435,6 +1457,53 @@ export class Viewport {
             this._rulerCursorYLine.setAttribute('y1', String(cy));
             this._rulerCursorYLine.setAttribute('y2', String(cy));
         }
+    }
+    
+    // ==================== Crosshair ====================
+
+    /**
+     * Show/move the drawing crosshair to the given world position. The
+     * crosshair is a screen-space dashed H+V pair shared by both editors;
+     * lines start past the rulers so they don't overlap the ruler strips.
+     * @param {{x: number, y: number}} worldPos
+     */
+    setCrosshair(worldPos) {
+        if (!worldPos) return;
+        this._crosshairWorld = { x: worldPos.x, y: worldPos.y };
+        this.crosshairContainer.style.display = 'block';
+        this._positionCrosshair();
+    }
+
+    /** Show the crosshair at its last known world position. */
+    showCrosshair() {
+        this.crosshairContainer.style.display = 'block';
+        this._positionCrosshair();
+    }
+
+    /** Hide the crosshair. */
+    hideCrosshair() {
+        this.crosshairContainer.style.display = 'none';
+    }
+
+    /**
+     * Position the crosshair lines for the current view. Called on set and
+     * automatically during pan/zoom so the crosshair stays anchored to its
+     * world point.
+     */
+    _positionCrosshair() {
+        if (this.crosshairContainer.style.display === 'none' || !this._crosshairWorld) return;
+        const s = this.worldToScreen(this._crosshairWorld);
+        const w = this.width;
+        const h = this.height;
+        const rs = this.showRulers ? this.rulerSize : 0;
+        this._crosshairXLine.setAttribute('x1', String(rs));
+        this._crosshairXLine.setAttribute('y1', String(s.y));
+        this._crosshairXLine.setAttribute('x2', String(w));
+        this._crosshairXLine.setAttribute('y2', String(s.y));
+        this._crosshairYLine.setAttribute('x1', String(s.x));
+        this._crosshairYLine.setAttribute('y1', String(rs));
+        this._crosshairYLine.setAttribute('x2', String(s.x));
+        this._crosshairYLine.setAttribute('y2', String(h));
     }
     
     // ==================== Units ====================

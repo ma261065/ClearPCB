@@ -1,29 +1,4 @@
 /**
- * Positions the full-screen crosshair lines (horizontal + vertical)
- * at the given snapped world position.
- * @param {object} app - Application state.
- * @param {{x: number, y: number}} snapped - Snapped world position.
- * @param {{x: number, y: number}|null} [screenPosOverride=null] - Optional override for screen coords.
- */
-export function updateCrosshair(app, snapped, screenPosOverride = null) {
-    const screenPos = app.viewport.worldToScreen(snapped);
-    const w = app.container.clientWidth;
-    const h = app.container.clientHeight;
-
-    app.lastCrosshairWorld = { x: snapped.x, y: snapped.y };
-
-    app.crosshair.lineX.setAttribute('x1', 0);
-    app.crosshair.lineX.setAttribute('y1', screenPos.y);
-    app.crosshair.lineX.setAttribute('x2', w);
-    app.crosshair.lineX.setAttribute('y2', screenPos.y);
-
-    app.crosshair.lineY.setAttribute('x1', screenPos.x);
-    app.crosshair.lineY.setAttribute('y1', 0);
-    app.crosshair.lineY.setAttribute('x2', screenPos.x);
-    app.crosshair.lineY.setAttribute('y2', h);
-}
-
-/**
  * Returns an SVG path string for the given tool name, used as a cursor icon.
  * @param {string} tool - Tool identifier (e.g. 'line', 'wire', 'rect', 'circle').
  * @returns {string} SVG path data, or empty string for unknown tools.
@@ -87,20 +62,4 @@ export function setToolCursor(app, tool, svg) {
         .replace(/'/g, '%27')
         .replace(/"/g, '%22');
     svg.style.cursor = `url("data:image/svg+xml,${encoded}") 16 18, crosshair`;
-}
-
-/**
- * Shows the crosshair by adding the `'active'` CSS class to its container.
- * @param {object} app - Application state.
- */
-export function showCrosshair(app) {
-    app.crosshair.container.classList.add('active');
-}
-
-/**
- * Hides the crosshair by removing the `'active'` CSS class from its container.
- * @param {object} app - Application state.
- */
-export function hideCrosshair(app) {
-    app.crosshair.container.classList.remove('active');
 }

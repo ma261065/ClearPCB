@@ -708,60 +708,19 @@ export default class PCBApp {
     }
 
     /**
-     * Show/update a full-viewport dashed H+V crosshair at the snapped
-     * world position. Stroke and dash are sized in screen pixels so
-     * they don't visually scale with zoom. Style matches the
-     * schematic editor's crosshair.
+     * Show/update the drawing crosshair at the snapped cursor position.
+     * Delegates the actual H+V lines to the shared Viewport crosshair so
+     * schematic and PCB behave identically (and clear of the rulers).
      */
     _updateCursorCrosshair(worldPos) {
-        const svg = this.viewport?.svg;
-        if (!svg) return;
+        if (!this.viewport) return;
         const snap = resolveTrackSnap(this, worldPos, {});
         this._lastCrosshairWorld = { x: worldPos.x, y: worldPos.y };
-        const vb = this.viewport.viewBox;
-        const scale = this.viewport.scale || 1;
-        const stroke = 1 / scale;
-        const dash = `${4 / scale} ${4 / scale}`;
-        const accent = getComputedStyle(document.documentElement)
-            .getPropertyValue('--accent-color').trim() || '#0098ff';
-
-        let g = this._crosshairGroup;
-        if (!g) {
-            const NS = 'http://www.w3.org/2000/svg';
-            g = document.createElementNS(NS, 'g');
-            g.setAttribute('class', 'pcb-cursor-crosshair');
-            g.setAttribute('pointer-events', 'none');
-            const hLine = document.createElementNS(NS, 'line');
-            hLine.setAttribute('data-role', 'h');
-            const vLine = document.createElementNS(NS, 'line');
-            vLine.setAttribute('data-role', 'v');
-            g.appendChild(hLine);
-            g.appendChild(vLine);
-            svg.appendChild(g);
-            this._crosshairGroup = g;
-        }
-        const hLine = g.querySelector('[data-role="h"]');
-        const vLine = g.querySelector('[data-role="v"]');
-        for (const el of [hLine, vLine]) {
-            el.setAttribute('stroke', accent);
-            el.setAttribute('stroke-width', String(stroke));
-            el.setAttribute('stroke-dasharray', dash);
-        }
-        hLine.setAttribute('x1', String(vb.x));
-        hLine.setAttribute('x2', String(vb.x + vb.width));
-        hLine.setAttribute('y1', String(snap.y));
-        hLine.setAttribute('y2', String(snap.y));
-        vLine.setAttribute('x1', String(snap.x));
-        vLine.setAttribute('x2', String(snap.x));
-        vLine.setAttribute('y1', String(vb.y));
-        vLine.setAttribute('y2', String(vb.y + vb.height));
+        this.viewport.setCrosshair({ x: snap.x, y: snap.y });
     }
 
     _clearCursorCrosshair() {
-        if (this._crosshairGroup) {
-            this._crosshairGroup.remove();
-            this._crosshairGroup = null;
-        }
+        this.viewport?.hideCrosshair();
         this._lastCrosshairWorld = null;
     }
 

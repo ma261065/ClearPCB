@@ -34,6 +34,10 @@ export function bindMouseEvents(app) {
         if (e.button === 2) {
             app.viewport.startPan(e.clientX, e.clientY);
             app._rightClickStart = { x: e.clientX, y: e.clientY };
+            // Mark this gesture so the contextmenu it generates is suppressed
+            // even if the button is released outside the canvas (over other
+            // page chrome), where the svg-scoped handler below never fires.
+            app._rightPanGesture = true;
             return;
         }
         const positions = getEventPositions(e, app.viewport);
@@ -70,6 +74,17 @@ export function bindMouseEvents(app) {
     svg.addEventListener('contextmenu', (e) => {
         e.preventDefault();
     });
+
+    // A right-button pan can be released outside the canvas (over other page
+    // chrome). The browser then fires `contextmenu` on that element, not the
+    // svg, showing the default page menu. Suppress it at the window level for
+    // any gesture that began as a right-button pan on the canvas.
+    window.addEventListener('contextmenu', (e) => {
+        if (app._rightPanGesture) {
+            app._rightPanGesture = false;
+            e.preventDefault();
+        }
+    }, true);
 
     // click
     svg.addEventListener('click', (e) => {
