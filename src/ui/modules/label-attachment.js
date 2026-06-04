@@ -186,6 +186,10 @@ export function getLabelAttachmentAnchorPoint(labelShape, referencePoint = null)
 
 /**
  * Attach a generic label Text shape to a target shape/component.
+ * @param {object} labelShape
+ * @param {object} target
+ * @param {{x:number,y:number}|null} [snapPos]
+ * @param {{isNewLabel?:boolean}} [opts]
  */
 export function attachLabelToTarget(labelShape, target, snapPos = null, { isNewLabel = false } = {}) {
     if (!labelShape || labelShape.type !== 'text') return;

@@ -31,6 +31,11 @@ import { attachLabelToTarget, getLabelDropHotspot } from '../../ui/modules/label
 
 // --- Constants ---
 
+// ── Snap tolerances ──
+// All distance/angle thresholds that govern how wire endpoints, segments and
+// pins "snap" together. Co-located so the snap feel can be tuned in one place.
+// World units unless noted otherwise.
+
 /** Snap threshold in screen pixels (divided by viewport.scale for world units). */
 export const SNAP_SCREEN_PX = 5;
 
@@ -49,6 +54,23 @@ export const PIN_SNAP_TOL = 1.5;
 /** Tolerance for wire-to-wire snap detection (world units). */
 export const WIRE_SNAP_TOL = 0.5;
 
+/**
+ * Minimum radius of the axis-choice zone around a segment start, in screen
+ * pixels. Inside this zone the H/V drawing direction stays unlocked so the
+ * user can re-pick it; the world-space radius is at least 2× the effective
+ * stroke width but never smaller than this.
+ */
+export const CHOICE_ZONE_MIN_PX = 20;
+
+/**
+ * Dominance ratio for honoring a perpendicular departure from a pin. While the
+ * first segment leaves a pin, the pin's own axis is preferred until the cursor
+ * moves more than this ratio further along the perpendicular axis.
+ */
+export const PIN_DEPART_RATIO = 2;
+
+// ── Appearance ──
+
 /** Default wire stroke color. */
 export const WIRE_COLOR = '#00cc66';
 
@@ -63,6 +85,10 @@ const MAX_MERGE_ITERATIONS = 50;
 /**
  * Find the nearest component pin (or Net label connection point) within tolerance.
  * Returns { component, pin, pinKey, distance, worldPos } or null.
+ * @param {Array<any>} components
+ * @param {{x:number,y:number}} worldPos
+ * @param {number} [tolerance]
+ * @param {Array<any>|null} [shapes] - extra shapes (e.g. Net labels) to also test
  */
 export function findNearbyPin(components, worldPos, tolerance = 0.5, shapes = null) {
     let nearest = null;
@@ -233,8 +259,9 @@ export function getDrawingSnappedPosition(app, worldPos) {
     // --- Axis choice zone ---
     // A small zone around the segment start lets the user pick H/V direction.
     // Once the cursor exits, the axis is locked until the cursor returns.
-    // Radius is at least 2× effective stroke width, but no smaller than 20 screen pixels.
-    const choiceRadius = Math.max(app._getEffectiveStrokeWidth(0.2) * 2, 20 / app.viewport.scale);
+    // Radius is at least 2× effective stroke width, but no smaller than
+    // CHOICE_ZONE_MIN_PX screen pixels.
+    const choiceRadius = Math.max(app._getEffectiveStrokeWidth(0.2) * 2, CHOICE_ZONE_MIN_PX / app.viewport.scale);
     const inChoiceZone = rawDx < choiceRadius && rawDy < choiceRadius;
 
     let axis;
@@ -253,12 +280,12 @@ export function getDrawingSnappedPosition(app, worldPos) {
 
     // If departing a pin (first segment), prefer the pin axis when the
     // cursor direction is ambiguous. Once the user clearly moves in the
-    // perpendicular direction (ratio > 2:1), respect that choice.
+    // perpendicular direction (ratio > PIN_DEPART_RATIO:1), respect that choice.
     if (app.wirePoints.length === 1 && lastPoint.pin) {
         const pinAxis = pinDepartAxis(lastPoint);
         const dominant = Math.max(rawDx, rawDy);
         const minor = Math.min(rawDx, rawDy);
-        if (dominant < minor * 2) {
+        if (dominant < minor * PIN_DEPART_RATIO) {
             axis = pinAxis;
         }
     }
@@ -271,7 +298,7 @@ export function getDrawingSnappedPosition(app, worldPos) {
     const extraSegments = _buildDrawingExtraSegments(app.wirePoints);
     const snap = resolveWireSnapPosition(app, worldPos, {
         excludePin,
-        extraSegments,
+        extraSegments: extraSegments ?? undefined,
         pinTolerance: PIN_SNAP_TOL,
         wireTolerance: WIRE_SNAP_TOL,
     });
@@ -957,6 +984,11 @@ function _classifyDir(dx, dy) {
  * Find the nearest point on another wire (node or edge interior)
  * that is within tolerance of worldPos.  Returns { x, y, type } or null.
  * type is 'endpoint' (snap to node) or 'segment' (T-junction on edge).
+ * @param {object} app
+ * @param {{x:number,y:number}} worldPos
+ * @param {number} tolerance
+ * @param {object|Set<any>|null} [excludeWires] - a wire, set of wires, or null
+ * @param {object} [options]
  */
 export function findNearbyWirePoint(app, worldPos, tolerance, excludeWires = null, options = {}) {
     const excludeSet = !excludeWires ? new Set() :
@@ -994,7 +1026,7 @@ export function findNearbyWirePoint(app, worldPos, tolerance, excludeWires = nul
 
         // Check edges (T-junction)
         for (const [eid, e] of shape.edges) {
-            if (isPartiallyExcluded && excNodeEdgeIds.has(eid)) continue;
+            if (isPartiallyExcluded && excNodeEdgeIds?.has(eid)) continue;
             const a = shape.nodes.get(e.from), b = shape.nodes.get(e.to);
             if (!a || !b) continue;
             const dx = b.x - a.x, dy = b.y - a.y;
@@ -1504,6 +1536,9 @@ const _wireLabelTieBreak = (a, b) =>
  *   • label split breaks the remaining tie by case-insensitive wireLabel order;
  *   • net split passes no comparator, so the earlier fragment is kept (array order).
  * Everything else is identical, which is why they share this selector.
+ * @param {Array<any>} wires
+ * @param {any|null} [preferredOnTie]
+ * @param {((a:any,b:any)=>number)|null} [tieBreak]
  */
 function _selectSurvivor(wires, preferredOnTie = null, tieBreak = null) {
     if (!wires || wires.length === 0) return null;
@@ -1673,6 +1708,14 @@ function _applyMergeLabelRules(keeper, removed, keeperPreSegs, removedPreSegs, r
     _setWireLabelVisibility(keeper, postVisible);
 }
 
+/**
+ * @param {Wire} originalWire
+ * @param {Wire[]} newFragments
+ * @param {string} preSplitLabel
+ * @param {boolean} preSplitVisible
+ * @param {{x:number,y:number,rotation?:number}|null} [preSplitLabelPosition]
+ * @param {object|null} [app]
+ */
 export function applySplitLabelRules(originalWire, newFragments, preSplitLabel, preSplitVisible, preSplitLabelPosition = null, app = null) {
     const allPostWires = [originalWire, ...newFragments];
     const originalPrimaryLabel = _getPrimaryWireNameLabel(originalWire);
@@ -1880,7 +1923,7 @@ function _removeMerged(app, removed, affected, changed, keeper, keeperPreSegs, r
  *
  * @param {object} app
  * @param {Wire[]} changedWires - the wires that just changed
- * @param {Set<Wire>} [skipSet] - wires to skip pairwise checks against
+ * @param {Set<Wire>|null} [skipSet] - wires to skip pairwise checks against
  */
 export function reconcileWires(app, changedWires, skipSet = null) {
     const changed = new Set(changedWires.filter(w => app.shapes.includes(w)));
@@ -1955,7 +1998,7 @@ export function reconcileWires(app, changedWires, skipSet = null) {
 
         const newFragments = [];
         for (let i = 1; i < comps.length; i++) {
-            const sub = w.extractSubgraph(comps[i]);
+            const sub = /** @type {Wire} */ (w.extractSubgraph(comps[i]));
             if (sub.edges.size > 0) {
                 app._addShapeInternal(sub);
                 changed.add(sub);
@@ -1988,6 +2031,7 @@ export function reconcileWires(app, changedWires, skipSet = null) {
  * @param {Map<Wire, {state: object, signature: string} | object>} beforeStates - captured states before mutation
  * @param {string} label - undo command label
  * @param {Wire[]} [extraAdds] - additional new wires to include as AddShapeCommand
+ * @param {Map<any,any>|null} [labelTextBefore] - captured label-text states before mutation
  * @returns {BatchCommand|null} - batch or null if nothing changed
  */
 export function buildWireDiffBatch(app, beforeStates, label, extraAdds = [], labelTextBefore = null) {
@@ -2053,7 +2097,7 @@ export function buildWireDiffBatch(app, beforeStates, label, extraAdds = [], lab
  *
  * @param {object} app
  * @param {Wire[]} changedWires
- * @param {Set<Wire>} [skipSet]
+ * @param {Set<Wire>|null} [skipSet]
  * @returns {BatchCommand|null} - batch command or null if nothing changed
  */
 export function reconcileWiresWithUndo(app, changedWires, skipSet = null) {
@@ -2341,7 +2385,9 @@ export function computeAnchorCollinearSnap(app, wire, anchorId, anchorPos) {
         const visited = new Set([anchorId, otherNode]);
         const queue = [{ nodeId: otherNode, prevPos: anchorPos }];
         while (queue.length > 0) {
-            const { nodeId: current, prevPos } = queue.shift();
+            const item = queue.shift();
+            if (!item) break;
+            const { nodeId: current, prevPos } = item;
             const currentPos = wire.nodes.get(current);
             if (!currentPos) continue;
             for (const { otherNode: beyond } of wire.incidentEdges(current)) {
@@ -2459,7 +2505,7 @@ export function computeSegmentDragSnap(app, wire, dragEdgeId, origState, target,
         if (alreadyConnected) bestPin = null;
     }
 
-    if (bestPin) {
+    if (bestPin && bestRaw) {
         let offX = bestPin.worldPos.x - bestRaw.x;
         let offY = bestPin.worldPos.y - bestRaw.y;
         if (dragSegAxis === 'vertical') offX = 0;
