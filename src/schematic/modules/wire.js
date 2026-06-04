@@ -320,23 +320,19 @@ export function getDrawingSnappedPosition(app, worldPos) {
 
     // Normal orthogonal constraint — but prefer a nearby pin's coordinate
     // as a snap line on the free axis so off-grid pins are reachable.
+    // Route through the shared off-grid snap-line primitive so the rule
+    // "within half a grid cell of a neighbor coordinate → snap to it" lives
+    // in exactly one place. Only the free axis is read back; the constrained
+    // axis stays pinned to lastPoint.
     const gridSnapped = app.viewport.getSnappedPosition(worldPos);
     const gridSize = app.viewport.gridSize || 1.0;
-    const halfGrid = gridSize * 0.5;
     const pinSnap = findNearbyPin(app.components, worldPos, PIN_SNAP_TOL);
+    applyOffGridNeighborSnap(worldPos, gridSnapped, pinSnap ? [pinSnap.worldPos] : [], gridSize);
 
     if (axis === 'horizontal') {
-        let freeX = gridSnapped.x;
-        if (pinSnap && Math.abs(worldPos.x - pinSnap.worldPos.x) <= halfGrid) {
-            freeX = pinSnap.worldPos.x;
-        }
-        return { x: freeX, y: lastPoint.y, snapPin: null, snapType: 'grid' };
+        return { x: gridSnapped.x, y: lastPoint.y, snapPin: null, snapType: 'grid' };
     } else {
-        let freeY = gridSnapped.y;
-        if (pinSnap && Math.abs(worldPos.y - pinSnap.worldPos.y) <= halfGrid) {
-            freeY = pinSnap.worldPos.y;
-        }
-        return { x: lastPoint.x, y: freeY, snapPin: null, snapType: 'grid' };
+        return { x: lastPoint.x, y: gridSnapped.y, snapPin: null, snapType: 'grid' };
     }
 }
 
@@ -403,6 +399,29 @@ export function updateWireDrawing(app, worldPos) {
     // When approaching an off-grid pin, shift the last waypoint's
     // constrained coordinate so the segment stays perfectly orthogonal.
     const lastPt = app.wirePoints[app.wirePoints.length - 1];
+    _applyDrawAdjustLast(lastPt, target);
+
+    updateWirePreview(app);
+}
+
+/**
+ * Off-grid orthogonality adjustment for the in-progress drawing tail.
+ *
+ * When the live segment snaps to an off-grid pin/endpoint, the previous
+ * waypoint's *constrained* axis must shift so the segment stays perfectly
+ * H/V.  We mutate the waypoint in place (rather than deriving a preview-only
+ * value) because the single `app.wirePoints` array feeds all three preview
+ * elements at once — the live rubber-band, the last committed segment, and
+ * the waypoint dot — so they follow the corner together and stay connected.
+ *
+ * The pre-adjustment coordinate is stashed on `_savedX`/`_savedY` so moving
+ * away from the pin restores it; {@link _lockDrawAdjustLast} bakes it in on
+ * commit by discarding the stash.
+ *
+ * @param {{x:number,y:number,_savedX?:number,_savedY?:number}} lastPt
+ * @param {{adjustLastX?:number, adjustLastY?:number}} target
+ */
+function _applyDrawAdjustLast(lastPt, target) {
     if (target.adjustLastY !== undefined) {
         lastPt._savedY = lastPt._savedY ?? lastPt.y;
         lastPt.y = target.adjustLastY;
@@ -410,12 +429,20 @@ export function updateWireDrawing(app, worldPos) {
         lastPt._savedX = lastPt._savedX ?? lastPt.x;
         lastPt.x = target.adjustLastX;
     } else {
-        // Restore if we moved away from the pin
+        // Moved away from the pin — restore the original constrained coordinate.
         if (lastPt._savedY !== undefined) { lastPt.y = lastPt._savedY; delete lastPt._savedY; }
         if (lastPt._savedX !== undefined) { lastPt.x = lastPt._savedX; delete lastPt._savedX; }
     }
+}
 
-    updateWirePreview(app);
+/**
+ * Lock in any pending off-grid adjustment on a waypoint by discarding the
+ * restore stash, making the current (possibly adjusted) coordinate permanent.
+ * @param {{_savedX?:number,_savedY?:number}} pt
+ */
+function _lockDrawAdjustLast(pt) {
+    delete pt._savedX;
+    delete pt._savedY;
 }
 
 /**
@@ -435,8 +462,7 @@ export function addWireWaypoint(app, waypointData) {
     if (pointsMatch(last, point)) return;
 
     // Lock in any pin-adjusted coordinate on the previous waypoint
-    delete last._savedX;
-    delete last._savedY;
+    _lockDrawAdjustLast(last);
 
     app.wirePoints.push(point);
     app._wireAxisLock = null;   // Reset axis lock for new segment
@@ -463,6 +489,28 @@ export function addWireWaypoint(app, waypointData) {
  * @param {object} app - SchematicApp instance
  * @param {{x: number, y: number, snapPin?: object}} worldPos - Final endpoint
  */
+/**
+ * Scan all surviving wires for a net conflict: a single wire whose connected
+ * Net-label shapes carry two or more different net names. Returns the first
+ * offending wire with the two clashing names (sorted), or null if none.
+ * @param {object} app
+ * @returns {{ wire: object, names: string[] } | null}
+ */
+function _findWireNetConflict(app) {
+    for (const w of app.shapes) {
+        if (w.type !== 'wire') continue;
+        const netNames = new Set();
+        for (const [, conn] of w.pinConnections) {
+            const ns = app.shapes.find(s => s.id === conn.componentId && s.type === 'net');
+            if (ns?.net) netNames.add(ns.net);
+        }
+        if (netNames.size > 1) {
+            return { wire: w, names: [...netNames].sort() };
+        }
+    }
+    return null;
+}
+
 export function finishWireDrawing(app, worldPos) {
     // Add final point if different from last waypoint
     if (app.drawCurrent) {
@@ -578,34 +626,30 @@ export function finishWireDrawing(app, worldPos) {
 
     // Build undo batch (pure snapshot, no revert/replay)
     const batch = buildWireDiffBatch(app, beforeStates, 'Draw wire', [wire], labelTextBefore);
+
+    // Post-commit check: does any surviving wire now have two or more
+    // connected Net shapes with different names?  If so, warn and roll back.
+    const netConflictResult = _findWireNetConflict(app);
+    if (netConflictResult) {
+        const [n0, n1] = netConflictResult.names;
+        app._alert?.(
+            `Cannot merge wire segments with different net names: "${n0}" and "${n1}".`,
+            { title: 'Net Conflict' }
+        );
+        // Revert the reconciliation directly via the diff batch. This is the
+        // same reversion history.undo() would perform, but without ever
+        // recording the batch — so a rejected draw leaves no undo/redo trace
+        // (and doesn't clobber the existing redo stack).
+        batch?.undo();
+        cancelWireDrawing(app);
+        app.renderShapes(true);
+        app._updatePropertiesPanel?.(app.selection?.getSelection?.() || []);
+        return;
+    }
+
     if (batch) {
         // Record to undo stack without executing — state is already correct
         app.history.record(batch);
-    }
-
-    // Post-commit check: does any surviving wire now have two or more
-    // connected Net shapes with different names?  If so, warn and undo.
-    for (const w of app.shapes) {
-        if (w.type !== 'wire') continue;
-        const netNames = new Set();
-        for (const [, conn] of w.pinConnections) {
-            const ns = app.shapes.find(s => s.id === conn.componentId && s.type === 'net');
-            if (ns?.net) netNames.add(ns.net);
-        }
-        if (netNames.size > 1) {
-            const sorted = [...netNames].sort();
-            app._alert?.(
-                `Cannot merge wire segments with different net names: "${sorted[0]}" and "${sorted[1]}".`,
-                { title: 'Net Conflict' }
-            );
-            app.history.undo();
-            app.history.redoStack.pop();
-            app.history._notifyChanged();
-            cancelWireDrawing(app);
-            app.renderShapes(true);
-            app._updatePropertiesPanel?.(app.selection?.getSelection?.() || []);
-            return;
-        }
     }
 
     cancelWireDrawing(app);
@@ -1257,49 +1301,45 @@ function _ensureWireNameLabel(app, wire, visible = false) {
     return label;
 }
 
+/**
+ * Resolve the live Text shape that backs a wire's name label: the primary
+ * attached label if present, otherwise the legacy `wire.labelText`, otherwise
+ * null (the label state lives only in the wire's pending-* fields).
+ * @returns {Text|null}
+ */
+function wireLabelTextTarget(wire) {
+    return _getPrimaryWireNameLabel(wire) || wire.labelText || null;
+}
+
 function _setWireLabelVisibility(wire, visible) {
-    const primary = _getPrimaryWireNameLabel(wire);
-    if (primary) {
-        primary.visible = visible;
-        primary.invalidate();
-        return;
-    }
-    if (wire.labelText) {
-        wire.labelText.visible = visible;
-        wire.labelText.invalidate();
+    const target = wireLabelTextTarget(wire);
+    if (target) {
+        target.visible = visible;
+        target.invalidate();
         return;
     }
     wire._pendingLabelVisible = visible;
 }
 
 function _getWireLabelVisibility(wire) {
-    const primary = _getPrimaryWireNameLabel(wire);
-    if (primary) return !!primary.visible;
-    if (wire.labelText) return wire.labelText.visible;
+    const target = wireLabelTextTarget(wire);
+    if (target) return !!target.visible;
     if (wire._pendingLabelVisible !== undefined) return wire._pendingLabelVisible;
     return false;
 }
 
 function _setWireLabelPosition(wire, position) {
     if (!position) return;
+    const target = wireLabelTextTarget(wire);
     const rotation = position.rotation
-        ?? _getPrimaryWireNameLabel(wire)?.rotation
-        ?? wire.labelText?.rotation
+        ?? target?.rotation
         ?? wire._pendingLabelPosition?.rotation
         ?? 0;
-    const primary = _getPrimaryWireNameLabel(wire);
-    if (primary) {
-        primary.x = position.x;
-        primary.y = position.y;
-        primary.rotation = rotation;
-        primary.invalidate();
-        return;
-    }
-    if (wire.labelText) {
-        wire.labelText.x = position.x;
-        wire.labelText.y = position.y;
-        wire.labelText.rotation = rotation;
-        wire.labelText.invalidate();
+    if (target) {
+        target.x = position.x;
+        target.y = position.y;
+        target.rotation = rotation;
+        target.invalidate();
         return;
     }
     wire._pendingLabelPosition = {
@@ -1311,20 +1351,13 @@ function _setWireLabelPosition(wire, position) {
 
 function _resetWireLabelPositionToDefault(wire) {
     const pos = wire.getLabelPosition();
-    const primary = _getPrimaryWireNameLabel(wire);
-    const rotation = primary?.rotation ?? wire.labelText?.rotation ?? wire._pendingLabelPosition?.rotation ?? 0;
-    if (primary) {
-        primary.x = pos.x;
-        primary.y = pos.y;
-        primary.rotation = rotation;
-        primary.invalidate();
-        return;
-    }
-    if (wire.labelText) {
-        wire.labelText.x = pos.x;
-        wire.labelText.y = pos.y;
-        wire.labelText.rotation = rotation;
-        wire.labelText.invalidate();
+    const target = wireLabelTextTarget(wire);
+    const rotation = target?.rotation ?? wire._pendingLabelPosition?.rotation ?? 0;
+    if (target) {
+        target.x = pos.x;
+        target.y = pos.y;
+        target.rotation = rotation;
+        target.invalidate();
         return;
     }
     wire._pendingLabelPosition = {
@@ -1335,12 +1368,9 @@ function _resetWireLabelPositionToDefault(wire) {
 }
 
 function _getWireLabelPosition(wire) {
-    const primary = _getPrimaryWireNameLabel(wire);
-    if (primary) {
-        return { x: primary.x, y: primary.y, rotation: primary.rotation || 0 };
-    }
-    if (wire.labelText) {
-        return { x: wire.labelText.x, y: wire.labelText.y, rotation: wire.labelText.rotation || 0 };
+    const target = wireLabelTextTarget(wire);
+    if (target) {
+        return { x: target.x, y: target.y, rotation: target.rotation || 0 };
     }
     if (wire._pendingLabelPosition) {
         return {
@@ -1435,7 +1465,47 @@ function _deoverlapWireLabelPosition(wire, referencePositions) {
     return _getWireLabelPosition(wire);
 }
 
-function _selectSplitWinner(wires, preferredOnTie = null) {
+/**
+ * Reassign a wire's human-readable label (Wnnnn), freeing the previous
+ * label and registering the new one in the allocation pool.  No-op when the
+ * value is unchanged.  (Labels have no "default" tier — every label is equal.)
+ */
+function _adoptWireLabel(wire, label) {
+    if (!label || wire.wireLabel === label) return;
+    freeWireLabel(wire.wireLabel);
+    wire.wireLabel = label;
+    bumpWireLabelCounter(label);
+}
+
+/**
+ * Reassign a wire's net name, freeing the previous name and registering the
+ * new one in the allocation pool.  No-op when the value is unchanged.
+ */
+function _adoptNetName(wire, net) {
+    if (!net || wire.net === net) return;
+    if (wire.net) freeNetName(wire.net);
+    wire.net = net;
+    bumpNetNameCounter(net);
+}
+
+/** Case-insensitive wireLabel comparator (negative => prefer `a`). */
+const _wireLabelTieBreak = (a, b) =>
+    String(a.wireLabel).localeCompare(String(b.wireLabel), undefined, { sensitivity: 'base' });
+
+/**
+ * Pick the post-split fragment that should retain the pre-split identity.
+ * Shared policy for both label and net splits:
+ *   1. most segments wins;
+ *   2. on a size tie, the pre-split owner (`preferredOnTie` / originalWire) is kept;
+ *   3. if neither tied candidate is the preferred owner, the optional `tieBreak`
+ *      comparator decides (return < 0 to prefer the candidate).
+ *
+ * The label and net splits differ ONLY in step 3:
+ *   • label split breaks the remaining tie by case-insensitive wireLabel order;
+ *   • net split passes no comparator, so the earlier fragment is kept (array order).
+ * Everything else is identical, which is why they share this selector.
+ */
+function _selectSurvivor(wires, preferredOnTie = null, tieBreak = null) {
     if (!wires || wires.length === 0) return null;
     let winner = wires[0];
     for (let i = 1; i < wires.length; i++) {
@@ -1450,7 +1520,7 @@ function _selectSplitWinner(wires, preferredOnTie = null) {
                 continue;
             }
             if (preferredOnTie && winner === preferredOnTie) continue;
-            if (String(candidate.wireLabel).localeCompare(String(winner.wireLabel), undefined, { sensitivity: 'base' }) < 0) {
+            if (tieBreak && tieBreak(candidate, winner) < 0) {
                 winner = candidate;
             }
         }
@@ -1574,9 +1644,7 @@ function _applyMergeLabelRules(keeper, removed, keeperPreSegs, removedPreSegs, r
     // preserve the existing wire's label identity.
     if (keeperWasChanged && !removedWasChanged) {
         if (removed.wireLabel && removed.wireLabel !== keeper.wireLabel) {
-            freeWireLabel(keeper.wireLabel);
-            keeper.wireLabel = removed.wireLabel;
-            bumpWireLabelCounter(removed.wireLabel);
+            _adoptWireLabel(keeper, removed.wireLabel);
             _syncWireLabelText(keeper);
             _setWireLabelPosition(keeper, removedLabelMeta.position);
         }
@@ -1584,6 +1652,8 @@ function _applyMergeLabelRules(keeper, removed, keeperPreSegs, removedPreSegs, r
         return;
     }
 
+    // Labels have no auto/custom tier (unlike net names), so the winner is
+    // chosen purely by visibility, then segment count, then lexical order.
     const useRemovedLabel = _shouldUseRemovedLabel(
         keeperPreSegs,
         removedPreSegs,
@@ -1594,11 +1664,7 @@ function _applyMergeLabelRules(keeper, removed, keeperPreSegs, removedPreSegs, r
     );
 
     if (useRemovedLabel) {
-        const removedLabel = removed.wireLabel;
-
-        freeWireLabel(keeper.wireLabel);
-        keeper.wireLabel = removedLabel;
-        bumpWireLabelCounter(removedLabel);
+        _adoptWireLabel(keeper, removed.wireLabel);
         _syncWireLabelText(keeper);
 
         _setWireLabelPosition(keeper, removedLabelMeta.position);
@@ -1611,17 +1677,17 @@ export function applySplitLabelRules(originalWire, newFragments, preSplitLabel, 
     const allPostWires = [originalWire, ...newFragments];
     const originalPrimaryLabel = _getPrimaryWireNameLabel(originalWire);
     const currentOwner = allPostWires.find(w => w.wireLabel === preSplitLabel) || null;
-    const winner = _selectSplitWinner(allPostWires, currentOwner);
+    const winner = _selectSurvivor(allPostWires, currentOwner, _wireLabelTieBreak);
     if (!winner) return;
 
     if (currentOwner !== winner) {
-        freeWireLabel(winner.wireLabel);
-        winner.wireLabel = preSplitLabel;
-        bumpWireLabelCounter(preSplitLabel);
+        _adoptWireLabel(winner, preSplitLabel);
         _syncWireLabelText(winner);
         _setWireLabelPosition(winner, preSplitLabelPosition);
 
         if (currentOwner) {
+            // The pre-split label now belongs to the winner; give the previous
+            // owner a fresh name WITHOUT freeing the old one (the winner uses it).
             currentOwner.wireLabel = nextWireLabel();
             _syncWireLabelText(currentOwner);
             _resetWireLabelPositionToDefault(currentOwner);
@@ -1670,30 +1736,20 @@ export function applySplitNetRules(originalWire, newFragments, preSplitNet = '')
     const allPostWires = [originalWire, ...newFragments].filter(w => w?.type === 'wire');
     if (allPostWires.length <= 1) return;
 
-    // Keep the original net on the largest post-split wire; tie-break prefers originalWire.
-    let winner = originalWire;
-    for (const wire of allPostWires) {
-        if (!winner || wire.edges.size > winner.edges.size) {
-            winner = wire;
-            continue;
-        }
-        if (wire.edges.size === winner.edges.size && winner !== originalWire && wire === originalWire) {
-            winner = wire;
-        }
-    }
+    // Keep the original net on the largest post-split wire; tie-break prefers
+    // originalWire (no further fallback — earlier fragment wins on a deeper tie).
+    const winner = _selectSurvivor(allPostWires, originalWire);
     if (!winner) return;
 
     const winnerNet = preSplitNet || winner.net || nextNetName();
-    if (winner.net !== winnerNet) {
-        if (winner.net && winner.net !== preSplitNet) freeNetName(winner.net);
-        winner.net = winnerNet;
-    }
-    if (winner.net) bumpNetNameCounter(winner.net);
+    _adoptNetName(winner, winnerNet);
 
     for (const wire of allPostWires) {
         if (wire === winner) continue;
         const oldNet = wire.net;
         wire.net = nextNetName();
+        // Free the old net only if it is not still in use by the winner
+        // (preSplitNet / winnerNet) or already reused as this wire's fresh name.
         if (oldNet && oldNet !== preSplitNet && oldNet !== winnerNet && oldNet !== wire.net) {
             freeNetName(oldNet);
         }
@@ -1753,9 +1809,13 @@ function _transferAttachedLabelsOnMerge(keeper, removed) {
 }
 
 /**
- * Merge net names when two wires are combined. If the keeper has a default
- * net (Net0001, Net0002, etc.) and the removed wire has a custom net name,
- * adopt the custom one. Otherwise keep the keeper's net and free the removed one.
+ * Merge net names when two wires are combined.
+ *
+ * Unlike wire labels, net names have an auto/custom TIER: an auto-assigned
+ * name (Net0001, Net0002, …) is a placeholder, while a user-assigned name
+ * (VCC, GND, …) carries intent.  So the merge winner is chosen by that tier —
+ * a custom name always beats a default one — which is why this policy differs
+ * from the label merge (labels fall back to visibility/segments/lexical).
  */
 function _mergeNetNames(keeper, removed, keeperWasChanged = false, removedWasChanged = false) {
     if (!removed.net) return;
@@ -1764,11 +1824,7 @@ function _mergeNetNames(keeper, removed, keeperWasChanged = false, removedWasCha
     // preserve the existing wire's net identity.
     const preferRemovedNet = keeperWasChanged && !removedWasChanged;
     if (preferRemovedNet && removed.net) {
-        if (keeper.net && keeper.net !== removed.net) {
-            freeNetName(keeper.net);
-        }
-        keeper.net = removed.net;
-        bumpNetNameCounter(keeper.net);
+        _adoptNetName(keeper, removed.net);
         return;
     }
 
@@ -1780,9 +1836,7 @@ function _mergeNetNames(keeper, removed, keeperWasChanged = false, removedWasCha
         freeNetName(removed.net);
     } else if (keeperIsDefault && !removedIsDefault) {
         // Keeper has default, removed has custom → adopt the custom, free the default
-        freeNetName(keeper.net);
-        keeper.net = removed.net;
-        bumpNetNameCounter(removed.net);
+        _adoptNetName(keeper, removed.net);
     } else {
         // Both custom or both default → free the removed one (keeper keeps its net)
         freeNetName(removed.net);
@@ -2364,6 +2418,12 @@ export function computeSegmentDragSnap(app, wire, dragEdgeId, origState, target,
     // target is the raw position of the 'from' node; the 'to' node is at
     // target + segOff.  A fixed neighbor (e.g. a pin node) may be adjacent
     // to either endpoint, so we check both.
+    //
+    // This is a dual-endpoint variant of applyOffGridNeighborSnap: each
+    // neighbor is tested against BOTH endpoints with a segment offset, and
+    // the 'from' endpoint takes precedence (the `else if`). That A-over-B
+    // precedence doesn't fit the single-position scalar primitive, so the
+    // loop is kept inline intentionally.
     {
         const halfGrid = gridSize * 0.5;
         const rawBx = target.x + segOffX, rawBy = target.y + segOffY;
