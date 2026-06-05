@@ -33,11 +33,21 @@
 import { Track } from '../../shapes/track.js';
 import { Via } from '../../shapes/via.js';
 import { renderTrack } from './track-render.js';
+import { collinearSnap, pointsCollinear } from '../../core/geometry.js';
 
 const NS = 'http://www.w3.org/2000/svg';
 
 /** Preview polyline CSS class (cleaned up on finish/cancel). */
 const PREVIEW_CLASS = 'pcb-track-preview';
+
+/**
+ * Screen-pixel pull radius for the collinear (straight-line) snap applied
+ * while dragging a degree-2 waypoint between its two neighbours.
+ */
+export const COLLINEAR_SNAP_SCREEN_PX = 6;
+
+/** Glow colour shown when two incident segments are collinear (any angle). */
+const COLLINEAR_GLOW_COLOR = '#33dd77';
 
 /** Pad snap tolerance (world mm). */
 export const PAD_SNAP_TOL = 1.0;
@@ -121,6 +131,9 @@ export function findNearbyTrackNode(app, worldPos, tolerance = TRACK_SNAP_TOL, e
  * @param {number} [options.padTolerance]
  * @param {number} [options.trackTolerance]
  * @param {object} [options.excludeTrack]
+ * @param {(track:object, nodeId:string)=>boolean} [options.excludeNode] -
+ *   Predicate returning true for track nodes that should be ignored when
+ *   snapping (e.g. the nodes that move in lock-step with a dragged via).
  * @param {{x:number,y:number}} [options.lastPt] - Previous waypoint
  *   (enables H/V/45° axis snapping).
  * @param {string} [options.net] - Net of the in-progress track (used
@@ -131,6 +144,7 @@ export function resolveTrackSnap(app, worldPos, options = {}) {
     const padTol = options.padTolerance ?? PAD_SNAP_TOL;
     const trackTol = options.trackTolerance ?? TRACK_SNAP_TOL;
     const excludeTrack = options.excludeTrack || null;
+    const excludeNode = options.excludeNode || null;
     const lastPt = options.lastPt || null;
     const net = options.net || '';
 
@@ -139,7 +153,7 @@ export function resolveTrackSnap(app, worldPos, options = {}) {
         return { x: nearPad.x, y: nearPad.y, snapType: 'pad', pad: nearPad };
     }
     // Prefer same-net track nodes; fall back to any node.
-    const nearNode = _findNearbyTrackNodePreferNet(app, worldPos, trackTol, excludeTrack, net);
+    const nearNode = _findNearbyTrackNodePreferNet(app, worldPos, trackTol, excludeTrack, net, excludeNode);
     if (nearNode) {
         return { x: nearNode.x, y: nearNode.y, snapType: 'track-node', trackNode: nearNode };
     }
@@ -176,7 +190,12 @@ export function resolveTrackSnap(app, worldPos, options = {}) {
     let sy = worldPos.y;
     let snappedX = false;
     let snappedY = false;
-    const gs = app.viewport?.gridSize || 0;
+    // Snap to the *displayed* grid spacing (the adaptive 1-2-5 multiple
+    // shown on screen), not the raw base gridSize — otherwise snapping
+    // lands on an "invisible" finer grid between the visible lines when
+    // zoomed out.
+    const gs = app.viewport?.getEffectiveGridSize?.()
+        ?? app.viewport?.gridSize ?? 0;
     const gridOn = gs > 0 && app.viewport?.gridVisible !== false;
 
     // Candidate X-snaps
@@ -222,7 +241,7 @@ const SNAP_PX = 8;
  * matches `preferredNet`. A same-net hit beats an other-net hit even
  * if the other-net node is geometrically closer (within tolerance).
  */
-function _findNearbyTrackNodePreferNet(app, worldPos, tolerance, excludeTrack, preferredNet) {
+function _findNearbyTrackNodePreferNet(app, worldPos, tolerance, excludeTrack, preferredNet, excludeNode) {
     if (!app?.tracks?.length) return null;
     const tol2 = tolerance * tolerance;
     let bestSameNet = null, bestSameD2 = Infinity;
@@ -231,6 +250,7 @@ function _findNearbyTrackNodePreferNet(app, worldPos, tolerance, excludeTrack, p
         if (track === excludeTrack) continue;
         const sameNet = preferredNet && track.net === preferredNet;
         for (const [nid, p] of track.nodes) {
+            if (excludeNode && excludeNode(track, nid)) continue;
             const dx = p.x - worldPos.x;
             const dy = p.y - worldPos.y;
             const d2 = dx * dx + dy * dy;
@@ -285,6 +305,52 @@ function pickAxis(lastPt, worldPos, diagBand = 0.3) {
     const ratio = Math.min(dx, dy) / major;
     if (ratio >= 1 - diagBand) return 'diagonal';
     return dx >= dy ? 'horizontal' : 'vertical';
+}
+
+/**
+ * If the dragged node forms an H/V/45° segment with any neighbour
+ * (within the same band used for the alignment glow), snap the node so
+ * that segment is exactly aligned. When several neighbours qualify, the
+ * one needing the smallest positional nudge wins. The coordinate along
+ * the aligned axis is preserved (so any grid snap there survives); only
+ * the perpendicular coordinate is locked onto the neighbour's axis.
+ *
+ * @param {{x:number,y:number}} pos current dragged-node position
+ * @param {Array<{x:number,y:number}>} neighbours positions of adjacent nodes
+ * @returns {{x:number,y:number}}
+ */
+export function snapNodeToAxis(pos, neighbours) {
+    let best = null;
+    let bestDist = Infinity;
+    for (const nb of neighbours) {
+        const align = _axisAlignment(nb, pos);
+        if (!align) continue;
+        const axis = align === 'h' ? 'horizontal' : align === 'v' ? 'vertical' : 'diagonal';
+        const snapped = applyAxisConstraint(nb, pos, axis);
+        const d = Math.hypot(snapped.x - pos.x, snapped.y - pos.y);
+        if (d < bestDist) {
+            bestDist = d;
+            best = snapped;
+        }
+    }
+    return best || pos;
+}
+
+/**
+ * Straight-line (collinear) snap for a degree-2 waypoint: when the node
+ * has exactly two neighbours and sits within `threshold` world units of
+ * the line connecting them, project it onto that line so its two incident
+ * segments become exactly collinear (a straight run at ANY angle). Returns
+ * the projected position, or null when not applicable / out of range.
+ *
+ * @param {{x:number,y:number}} pos current dragged-node position
+ * @param {Array<{x:number,y:number}>} neighbours positions of adjacent nodes
+ * @param {number} threshold perpendicular pull distance (world mm)
+ * @returns {{x:number,y:number}|null}
+ */
+export function snapNodeToCollinear(pos, neighbours, threshold) {
+    if (neighbours.length !== 2) return null;
+    return collinearSnap(neighbours[0], pos, neighbours[1], threshold);
 }
 
 /* ──────────────────────────── lifecycle ──────────────────────────── */
@@ -476,121 +542,351 @@ export function popTrackWaypoint(app) {
 }
 
 /**
- * Recompute ratsnest visibility based on current copper connectivity.
+ * Rebuild the ratsnest from net connectivity.
  *
- * For each net we union-find the pads using each Track as evidence
- * that all pads it touches are now electrically connected:
- *   - A Track contributes its pad-touching nodes into one set per
- *     connected component of its graph.
- *   - A pad is "touched" if it has a padConnections entry OR if a Track
- *     node coincides with the pad's world position (catches autorouter-
- *     produced tracks which don't set padConnections).
+ * The ratsnest is derived purely from net names: any pad, Track or Via
+ * that carries a net name is a "terminal" on that net. Terminals are
+ * grouped into clusters of physically-connected copper, then for every
+ * net with two or more disconnected clusters a minimum-spanning-tree of
+ * dashed guide lines is drawn between the nearest points of each cluster.
  *
- * Then every ratsnest `<line data-net="X">` is hidden iff its endpoint
- * positions map to pads in the same union-find class.
+ * Connectivity rules (all within a single net):
+ *   - Each connected component of a Track's graph is one cluster.
+ *   - A Via is a cluster (a single point).
+ *   - A pad is a cluster (net assigned from the schematic netlist).
+ *   - Two clusters merge when any of their points coincide — this is how
+ *     a routed Track joins the pads / vias it lands on, removing the rat
+ *     line automatically.
+ *
+ * Autorouter "failed" lines (class `ratsnest-failed`) have their own
+ * lifecycle and are left untouched.
+ *
+ * @param {object} app - PCBApp
  */
 export function reconcileRatsnest(app) {
     const ratLayer = app._getLayerGroup?.('ratlines');
     if (!ratLayer) return;
 
-    const posKey = (x, y) => `${Math.round(x * 10000)},${Math.round(y * 10000)}`;
-    /** @type {Map<string, string>} */
-    const padByPos = new Map();
-    for (const [compId, pl] of app.placements) {
-        if (!pl?.pads) continue;
-        for (const [pinNum, pad] of pl.pads) {
-            padByPos.set(posKey(pad.x, pad.y), `${compId}|${pinNum}`);
-        }
+    // Clear previously-generated ratsnest (keep autorouter failed lines).
+    for (const el of [...ratLayer.children]) {
+        if (el.classList?.contains('ratsnest-failed')) continue;
+        el.remove();
     }
 
-    /** @type {Map<string, Map<string, string>>} */
-    const parents = new Map();
-    const ensure = (net, k) => {
-        if (!parents.has(net)) parents.set(net, new Map());
-        const m = parents.get(net);
-        if (!m.has(k)) m.set(k, k);
-        return m;
-    };
-    const find = (net, k) => {
-        const m = parents.get(net);
-        let cur = k;
-        while (m.get(cur) !== cur) {
-            m.set(cur, m.get(m.get(cur)));
-            cur = m.get(cur);
-        }
-        return cur;
-    };
-    const union = (net, a, b) => {
-        ensure(net, a); ensure(net, b);
-        const ra = find(net, a);
-        const rb = find(net, b);
-        if (ra !== rb) parents.get(net).set(ra, rb);
-    };
+    const posKey = (x, y) => `${Math.round(x * 10000)},${Math.round(y * 10000)}`;
 
-    for (const track of app.tracks) {
-        if (!track?.net) continue;
+    /** @type {Array<{net:string, layer:string, points:Array<{x:number,y:number}>}>} */
+    const clusters = [];
 
-        // BFS to label each node with its graph component index.
-        const compOfNode = new Map();
+    // ── Tracks: one cluster per connected component ──
+    // Each component is single-layer (the via/node invariant keeps the two
+    // layers at a via on SEPARATE coincident nodes with no edge between
+    // them), so we tag the cluster with that layer. Connectivity across
+    // layers then requires an explicit bond (via / pad), not bare
+    // coincidence — so deleting a via correctly disconnects the layers.
+    for (const track of (app.tracks || [])) {
+        const net = track.net || '';
+        if (!net) continue;
         const adj = new Map();
         for (const nid of track.nodes.keys()) adj.set(nid, []);
-        for (const e of track.edges.values()) {
-            adj.get(e.from)?.push(e.to);
-            adj.get(e.to)?.push(e.from);
+        for (const [eid, e] of track.edges) {
+            const layer = track.edgeLayers.get(eid) || track.layer;
+            adj.get(e.from)?.push({ to: e.to, layer });
+            adj.get(e.to)?.push({ to: e.from, layer });
         }
-        let compIdx = 0;
+        const seen = new Set();
         for (const start of track.nodes.keys()) {
-            if (compOfNode.has(start)) continue;
+            if (seen.has(start)) continue;
+            const points = [];
+            const layers = new Set();
             const stack = [start];
             while (stack.length) {
                 const n = stack.pop();
-                if (compOfNode.has(n)) continue;
-                compOfNode.set(n, compIdx);
-                for (const m of adj.get(n) || []) stack.push(m);
+                if (seen.has(n)) continue;
+                seen.add(n);
+                const p = track.nodes.get(n);
+                if (p) points.push({ x: p.x, y: p.y });
+                for (const m of adj.get(n) || []) {
+                    layers.add(m.layer);
+                    stack.push(m.to);
+                }
             }
-            compIdx++;
-        }
-
-        // Pad keys touched per component.
-        /** @type {Map<number, string[]>} */
-        const padsByComp = new Map();
-        const touch = (c, padKey) => {
-            if (!padsByComp.has(c)) padsByComp.set(c, []);
-            padsByComp.get(c).push(padKey);
-        };
-        for (const [nid, conn] of track.padConnections) {
-            const c = compOfNode.get(nid);
-            if (c != null) touch(c, `${conn.componentId}|${conn.pinNumber}`);
-        }
-        for (const [nid, p] of track.nodes) {
-            const k = padByPos.get(posKey(p.x, p.y));
-            if (!k) continue;
-            const c = compOfNode.get(nid);
-            if (c != null) touch(c, k);
-        }
-
-        for (const pads of padsByComp.values()) {
-            ensure(track.net, pads[0]);
-            for (let i = 1; i < pads.length; i++) union(track.net, pads[0], pads[i]);
+            if (points.length) {
+                // A clean component is single-layer; if somehow mixed, fall
+                // back to 'all' so it bonds freely (no false disconnect).
+                const layer = layers.size === 1 ? [...layers][0] : 'all';
+                clusters.push({ net, layer, points });
+            }
         }
     }
 
-    // Toggle ratsnest line visibility. Skip the per-failed-connection
-    // lines added by the autorouter — those have their own lifecycle.
-    for (const el of ratLayer.querySelectorAll('line.ratsnest-line')) {
-        if (el.classList.contains('ratsnest-failed')) continue;
-        const net = el.dataset.net || '';
-        if (!net) continue;
-        const x1 = parseFloat(el.getAttribute('x1'));
-        const y1 = parseFloat(el.getAttribute('y1'));
-        const x2 = parseFloat(el.getAttribute('x2'));
-        const y2 = parseFloat(el.getAttribute('y2'));
-        const a = padByPos.get(posKey(x1, y1));
-        const b = padByPos.get(posKey(x2, y2));
-        const m = parents.get(net);
-        const satisfied = !!(a && b && m && m.has(a) && m.has(b) && find(net, a) === find(net, b));
-        /** @type {HTMLElement} */ (el).style.display = satisfied ? 'none' : '';
+    // ── Vias ── bond every layer at their point.
+    for (const via of (app.vias || [])) {
+        if (!via.net) continue;
+        clusters.push({ net: via.net, layer: 'all', points: [{ x: via.x, y: via.y }] });
     }
+
+    // ── Pads (net from the schematic netlist) ── treated as all-layer bonds.
+    const padNet = new Map();
+    for (const entry of (app.netlist || [])) {
+        for (const pin of entry.pins) {
+            padNet.set(`${pin.componentId}|${pin.pinNumber}`, entry.net);
+        }
+    }
+    for (const [compId, pl] of (app.placements || [])) {
+        if (!pl?.pads) continue;
+        for (const [pin, pad] of pl.pads) {
+            const net = padNet.get(`${compId}|${pin}`);
+            if (!net) continue;
+            clusters.push({ net, layer: 'all', points: [{ x: pad.x, y: pad.y }] });
+        }
+    }
+
+    if (!clusters.length) return;
+
+    // ── Union clusters that physically touch (same net, coincident point,
+    //    AND layer-compatible: same layer, or one side is an all-layer bond
+    //    such as a via or pad). Cross-layer coincidence WITHOUT a bond does
+    //    not connect. ──
+    const parent = clusters.map((_, i) => i);
+    const find = (i) => { while (parent[i] !== i) { parent[i] = parent[parent[i]]; i = parent[i]; } return i; };
+    const union = (a, b) => { const ra = find(a), rb = find(b); if (ra !== rb) parent[ra] = rb; };
+
+    const byPos = new Map();
+    for (let i = 0; i < clusters.length; i++) {
+        for (const p of clusters[i].points) {
+            const k = posKey(p.x, p.y);
+            if (!byPos.has(k)) byPos.set(k, []);
+            byPos.get(k).push(i);
+        }
+    }
+    for (const idxs of byPos.values()) {
+        // Within each position, group same-net clusters. An all-layer bond
+        // (via/pad) fuses every cluster of that net here; otherwise only
+        // clusters sharing the same copper layer fuse.
+        const byNet = new Map();
+        for (const idx of idxs) {
+            const net = clusters[idx].net;
+            if (!byNet.has(net)) byNet.set(net, []);
+            byNet.get(net).push(idx);
+        }
+        for (const group of byNet.values()) {
+            const hasBond = group.some((idx) => clusters[idx].layer === 'all');
+            if (hasBond) {
+                for (let j = 1; j < group.length; j++) union(group[0], group[j]);
+            } else {
+                const firstByLayer = new Map();
+                for (const idx of group) {
+                    const layer = clusters[idx].layer;
+                    if (firstByLayer.has(layer)) union(firstByLayer.get(layer), idx);
+                    else firstByLayer.set(layer, idx);
+                }
+            }
+        }
+    }
+
+    // ── Group merged clusters by net ──
+    /** @type {Map<number, {net:string, points:Array<{x:number,y:number}>}>} */
+    const supernodes = new Map();
+    for (let i = 0; i < clusters.length; i++) {
+        const r = find(i);
+        let sn = supernodes.get(r);
+        if (!sn) { sn = { net: clusters[i].net, points: [] }; supernodes.set(r, sn); }
+        for (const p of clusters[i].points) sn.points.push(p);
+    }
+
+    /** @type {Map<string, Array<Array<{x:number,y:number}>>>} */
+    const netGroups = new Map();
+    for (const sn of supernodes.values()) {
+        if (!netGroups.has(sn.net)) netGroups.set(sn.net, []);
+        netGroups.get(sn.net).push(sn.points);
+    }
+
+    // ── Draw an MST of nearest-point lines for every multi-cluster net ──
+    for (const [net, nodes] of netGroups) {
+        if (nodes.length < 2) continue;
+        const edges = _clusterMST(nodes);
+        for (const edge of edges) {
+            const line = document.createElementNS(NS, 'line');
+            line.setAttribute('x1', String(edge.x1));
+            line.setAttribute('y1', String(edge.y1));
+            line.setAttribute('x2', String(edge.x2));
+            line.setAttribute('y2', String(edge.y2));
+            line.setAttribute('stroke', '#4488ff');
+            line.setAttribute('stroke-width', '1');
+            line.setAttribute('vector-effect', 'non-scaling-stroke');
+            line.setAttribute('pointer-events', 'none');
+            line.setAttribute('class', 'ratsnest-line');
+            line.dataset.net = net;
+            ratLayer.appendChild(line);
+        }
+    }
+}
+
+/**
+ * Walk the physically-bonded copper reachable from a seed track/via,
+ * using the SAME bonding rules as the ratsnest: two pieces connect only
+ * where they share a coincident point AND are layer-compatible (same
+ * copper layer, or one side is an all-layer bond — a via or pad). A
+ * cross-layer coincidence WITHOUT a via/pad does NOT connect (so a
+ * deleted via genuinely separates the layers). Net is ignored entirely —
+ * this is purely geometric — so it can gather copper that currently
+ * carries different (or empty) net names, which is exactly what net
+ * propagation needs.
+ *
+ * @param {object} app
+ * @param {{track?:object, via?:object}} seed
+ * @returns {{tracks:Set<object>, vias:Set<object>, padNets:Set<string>}}
+ */
+export function collectBondedCopper(app, seed) {
+    const posKey = (x, y) => `${Math.round(x * 10000)},${Math.round(y * 10000)}`;
+    const compatible = (a, b) => a === b || a === 'all' || b === 'all';
+
+    /** @type {Array<{kind:string, layer:string, points:Array<{x,y}>, track?:object, via?:object, padNet?:string}>} */
+    const clusters = [];
+
+    // Track connected-components (each single-layer per the via/node invariant).
+    for (const track of (app.tracks || [])) {
+        const adj = new Map();
+        for (const nid of track.nodes.keys()) adj.set(nid, []);
+        for (const [eid, e] of track.edges) {
+            const layer = track.edgeLayers.get(eid) || track.layer;
+            adj.get(e.from)?.push({ to: e.to, layer });
+            adj.get(e.to)?.push({ to: e.from, layer });
+        }
+        const seen = new Set();
+        for (const start of track.nodes.keys()) {
+            if (seen.has(start)) continue;
+            const points = [];
+            const layers = new Set();
+            const stack = [start];
+            while (stack.length) {
+                const n = stack.pop();
+                if (seen.has(n)) continue;
+                seen.add(n);
+                const p = track.nodes.get(n);
+                if (p) points.push({ x: p.x, y: p.y });
+                for (const m of adj.get(n) || []) { layers.add(m.layer); stack.push(m.to); }
+            }
+            if (!points.length) continue;
+            const layer = layers.size === 1 ? [...layers][0] : 'all';
+            clusters.push({ kind: 'track', layer, points, track });
+        }
+    }
+
+    // Vias and pads bond every layer at their point.
+    for (const via of (app.vias || [])) {
+        clusters.push({ kind: 'via', layer: 'all', points: [{ x: via.x, y: via.y }], via });
+    }
+    const padNetMap = new Map();
+    for (const entry of (app.netlist || [])) {
+        for (const pin of entry.pins) padNetMap.set(`${pin.componentId}|${pin.pinNumber}`, entry.net);
+    }
+    for (const [compId, pl] of (app.placements || [])) {
+        if (!pl?.pads) continue;
+        for (const [pin, pad] of pl.pads) {
+            const net = padNetMap.get(`${compId}|${pin}`);
+            clusters.push({ kind: 'pad', layer: 'all', points: [{ x: pad.x, y: pad.y }], padNet: net || '' });
+        }
+    }
+
+    // Union-find with layer-aware coincidence (mirrors reconcileRatsnest).
+    const parent = clusters.map((_, i) => i);
+    const find = (i) => { while (parent[i] !== i) { parent[i] = parent[parent[i]]; i = parent[i]; } return i; };
+    const union = (a, b) => { const ra = find(a), rb = find(b); if (ra !== rb) parent[ra] = rb; };
+    const byPos = new Map();
+    for (let i = 0; i < clusters.length; i++) {
+        for (const p of clusters[i].points) {
+            const k = posKey(p.x, p.y);
+            if (!byPos.has(k)) byPos.set(k, []);
+            byPos.get(k).push(i);
+        }
+    }
+    for (const idxs of byPos.values()) {
+        for (let a = 0; a < idxs.length; a++) {
+            for (let b = a + 1; b < idxs.length; b++) {
+                if (compatible(clusters[idxs[a]].layer, clusters[idxs[b]].layer)) {
+                    union(idxs[a], idxs[b]);
+                }
+            }
+        }
+    }
+
+    // Find the root of the seed's cluster(s).
+    const roots = new Set();
+    for (let i = 0; i < clusters.length; i++) {
+        const c = clusters[i];
+        if ((seed.track && c.track === seed.track) || (seed.via && c.via === seed.via)) {
+            roots.add(find(i));
+        }
+    }
+
+    const tracks = new Set();
+    const vias = new Set();
+    const padNets = new Set();
+    for (let i = 0; i < clusters.length; i++) {
+        if (!roots.has(find(i))) continue;
+        const c = clusters[i];
+        if (c.kind === 'track' && c.track) tracks.add(c.track);
+        else if (c.kind === 'via' && c.via) vias.add(c.via);
+        else if (c.kind === 'pad' && c.padNet) padNets.add(c.padNet);
+    }
+    return { tracks, vias, padNets };
+}
+
+/**
+ * Closest pair of points between two point sets. Returns the segment
+ * endpoints plus the squared distance.
+ * @returns {{x1:number,y1:number,x2:number,y2:number,d2:number}}
+ */
+function _closestPair(A, B) {
+    let best = Infinity;
+    let r = { x1: A[0].x, y1: A[0].y, x2: B[0].x, y2: B[0].y, d2: Infinity };
+    for (const a of A) {
+        for (const b of B) {
+            const dx = a.x - b.x, dy = a.y - b.y;
+            const d2 = dx * dx + dy * dy;
+            if (d2 < best) { best = d2; r = { x1: a.x, y1: a.y, x2: b.x, y2: b.y, d2 }; }
+        }
+    }
+    return r;
+}
+
+/**
+ * Minimum spanning tree over clusters (each a set of candidate points),
+ * using the nearest-point distance between clusters. Returns the drawn
+ * line segments (closest point of each connected cluster pair).
+ * @param {Array<Array<{x:number,y:number}>>} nodes
+ * @returns {Array<{x1:number,y1:number,x2:number,y2:number}>}
+ */
+function _clusterMST(nodes) {
+    const n = nodes.length;
+    const edges = [];
+    if (n < 2) return edges;
+    const inTree = new Uint8Array(n);
+    const best = new Float64Array(n).fill(Infinity);
+    const bestFrom = new Int32Array(n).fill(-1);
+    inTree[0] = 1;
+    const relax = (k) => {
+        for (let i = 0; i < n; i++) {
+            if (inTree[i]) continue;
+            const d2 = _closestPair(nodes[k], nodes[i]).d2;
+            if (d2 < best[i]) { best[i] = d2; bestFrom[i] = k; }
+        }
+    };
+    relax(0);
+    for (let iter = 1; iter < n; iter++) {
+        let b = -1, bc = Infinity;
+        for (let i = 0; i < n; i++) {
+            if (!inTree[i] && best[i] < bc) { bc = best[i]; b = i; }
+        }
+        if (b === -1) break;
+        inTree[b] = 1;
+        const pair = _closestPair(nodes[bestFrom[b]], nodes[b]);
+        edges.push({ x1: pair.x1, y1: pair.y1, x2: pair.x2, y2: pair.y2 });
+        relax(b);
+    }
+    return edges;
 }
 
 /* ────────────────────────── internals ────────────────────────── */
@@ -606,6 +902,81 @@ function _clearPreviewElements(ctx) {
     if (!ctx.previewElements) return;
     for (const el of ctx.previewElements) el.remove();
     ctx.previewElements = [];
+}
+
+/**
+ * Draw H/V/45° axis-alignment glow underlays for a set of live segments
+ * (e.g. the edges incident to a node being dragged). Mirrors the
+ * affordance shown while drawing a track. Any segment that isn't
+ * axis-aligned is skipped. Glow elements are tracked on
+ * `app._trackAxisGlow` and replaced on each call — pass an empty array
+ * or call `clearTrackAxisGlow` to remove them.
+ *
+ * @param {object} app
+ * @param {Array<{a:{x:number,y:number}, b:{x:number,y:number}, layerId:string, width?:number}>} segments
+ */
+export function renderTrackAxisGlow(app, segments) {
+    clearTrackAxisGlow(app);
+    if (!segments || !segments.length) return;
+    const els = [];
+
+    // Collinear-pair highlight: when exactly two incident segments share
+    // the dragged node (their common apex) and the three points lie on a
+    // straight line, the pair forms ONE straight run at ANY angle — draw
+    // both with the collinear colour. This is the across-the-node case the
+    // per-segment H/V/45 test below cannot express. A tight angle tolerance
+    // keeps the glow in lock-step with the collinear snap (which projects
+    // the node exactly onto the line), so it only lights up once aligned.
+    if (segments.length === 2
+        && _ptsClose(segments[0].a, segments[1].a)
+        && pointsCollinear(segments[0].b, segments[0].a, segments[1].b, 1e-3)) {
+        for (const seg of segments) {
+            const el = _makeGlowLine(app, seg, COLLINEAR_GLOW_COLOR);
+            if (el) els.push(el);
+        }
+        app._trackAxisGlow = els;
+        return;
+    }
+
+    for (const seg of segments) {
+        const align = _axisAlignment(seg.a, seg.b);
+        if (!align) continue;
+        const el = _makeGlowLine(app, seg, _alignColor(align));
+        if (el) els.push(el);
+    }
+    app._trackAxisGlow = els;
+}
+
+/** Whether two points coincide within `eps` (world mm). */
+function _ptsClose(a, b, eps = 1e-6) {
+    return Math.abs(a.x - b.x) < eps && Math.abs(a.y - b.y) < eps;
+}
+
+/** Build one glow underlay `<line>` for a segment, or null if no layer group. */
+function _makeGlowLine(app, seg, color) {
+    const parent = app._getLayerGroup(seg.layerId);
+    if (!parent) return null;
+    const glow = document.createElementNS(NS, 'line');
+    glow.setAttribute('class', PREVIEW_CLASS);
+    glow.setAttribute('x1', String(seg.a.x));
+    glow.setAttribute('y1', String(seg.a.y));
+    glow.setAttribute('x2', String(seg.b.x));
+    glow.setAttribute('y2', String(seg.b.y));
+    glow.setAttribute('stroke', color);
+    glow.setAttribute('stroke-width', String((seg.width || _getTrackWidth(app)) * 1.35));
+    glow.setAttribute('stroke-linecap', 'round');
+    glow.setAttribute('stroke-opacity', '0.9');
+    glow.setAttribute('pointer-events', 'none');
+    parent.appendChild(glow);
+    return glow;
+}
+
+/** Remove any axis-alignment glow underlays created by `renderTrackAxisGlow`. */
+export function clearTrackAxisGlow(app) {
+    const els = app._trackAxisGlow;
+    if (!els) return;
+    for (const el of els) el.remove();
+    app._trackAxisGlow = null;
 }
 
 function _renderPreview(app, ctx, livePt) {

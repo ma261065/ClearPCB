@@ -120,19 +120,26 @@ export class Track extends PolylineGraph {
                 }
             }
         }
+        // Carry over each absorbed edge's copper layer. Edge IDs are
+        // re-issued during absorb, but the endpoints are remapped via
+        // `remap`, so match the new edge by its (remapped) node pair.
         if (other.edgeLayers && other.edges) {
-            // Edge IDs may be re-issued during absorb; rely on the base class
-            // to add new edges and assign them this.layer as the default
-            // (handled in the loop after super.absorb). If the caller
-            // preserves edge IDs, copy over per-edge layers here.
-            for (const [oldEid, lyr] of other.edgeLayers) {
-                // remap is for nodes; edges keep their (newly issued) ids,
-                // so we cannot reliably map per-edge layers across absorb.
-                // Future enhancement: pass an edge remap from PolylineGraph.
-                void oldEid; void lyr;
+            const layerByPair = new Map();
+            for (const [oldEid, e] of other.edges) {
+                const a = remap.get(e.from);
+                const b = remap.get(e.to);
+                if (a == null || b == null) continue;
+                const lyr = other.edgeLayers.get(oldEid) || other.layer;
+                layerByPair.set(`${a}|${b}`, lyr);
+                layerByPair.set(`${b}|${a}`, lyr);
+            }
+            for (const [eid, e] of this.edges) {
+                if (this.edgeLayers.has(eid)) continue;
+                const lyr = layerByPair.get(`${e.from}|${e.to}`);
+                if (lyr) this.edgeLayers.set(eid, lyr);
             }
         }
-        // Ensure all edges have a layer entry.
+        // Ensure any still-unassigned edges fall back to this track's layer.
         for (const eid of this.edges.keys()) {
             if (!this.edgeLayers.has(eid)) this.edgeLayers.set(eid, this.layer);
         }

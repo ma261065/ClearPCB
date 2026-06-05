@@ -6,7 +6,6 @@ import { Viewport } from '../core/Viewport.js';
 import { loadAndApplyTheme, toggleTheme as toggleSharedTheme, syncThemeToggleButtons } from '../shared/ui/theme.js';
 import { extractNetlist, extractComponents } from '../pcb/modules/netlist.js';
 import { generateFootprint, renderFootprint } from '../pcb/modules/footprint.js';
-import { buildRatsnest } from '../pcb/modules/ratsnest.js';
 import { updateGridDropdown } from './modules/viewport.js';
 import { PCB_LAYERS } from '../pcb/modules/layers.js';
 import { exportDSN, importSES } from '../pcb/modules/dsn.js';
@@ -22,6 +21,7 @@ import {
     cancelTrackDraw,
     toggleTrackLayer,
     resolveTrackSnap,
+    reconcileRatsnest,
 } from '../pcb/modules/track-draw.js';
 import {
     hitTestTrack,
@@ -29,6 +29,8 @@ import {
     clearTrackSelection,
     deleteSelectedTrack,
     setHoverHighlight,
+    showTrackContextMenu,
+    refreshTrackSelectionHalo,
 } from '../pcb/modules/track-select.js';
 import {
     startVertexDrag,
@@ -39,12 +41,20 @@ import {
     updateViaDrag,
     finishViaDrag,
     cancelViaDrag,
+    hitTestTrackNode,
+    findSplittableTrackEdge,
+    splitTrackObjectAtPoint,
+    commitCollinearCleanup,
+    hitTestTrackMidpoint,
 } from '../pcb/modules/track-drag.js';
 import {
     AddTrackCommand,
     AddViaCommand,
+    RemoveTrackCommand,
+    CompoundCommand,
     MovePlacementCommand,
     SetBoardOutlineCommand,
+    repositionPadConnectedNodes,
 } from '../pcb/modules/track-commands.js';
 import {
     createPcbText,
@@ -295,6 +305,14 @@ export default class PCBApp {
         this.viewport.onViewChanged = () => {
             if (!this._active) return;
             this._updateViewportStatus();
+            // Selection halo node handles are sized in screen pixels, so they
+            // must be redrawn when the zoom scale changes to stay constant on
+            // screen. (Pan doesn't change scale, so skip the churn then.)
+            const sc = this.viewport?.scale || 1;
+            if (sc !== this._lastHaloScale && (this._selectedTrack || this._selectedVia)) {
+                this._lastHaloScale = sc;
+                refreshTrackSelectionHalo(this);
+            }
             // Cursor crosshair (track/via tools) is sized in screen pixels
             // and spans the viewport — redraw on zoom/pan so it doesn't drift.
             if (this._lastCrosshairWorld &&
@@ -328,6 +346,24 @@ export default class PCBApp {
 
         svg.addEventListener('mousedown', (e) => {
             if (!this._active) return;
+            // A floating vertex move drops on the next left-click. This covers
+            // both the context-menu "Split" drag and a node/midpoint that was
+            // click-armed into move mode (click to grab, move, click to place).
+            // Consume that click here so it commits instead of starting a new
+            // interaction.
+            if (this._vertexDrag?.floating && e.button === 0) {
+                this._vertexDrag.floating = false;
+                this._vertexDragDownScreen = null;
+                finishVertexDrag(this);
+                this.viewport.hideCrosshair();
+                svg.style.cursor = 'default';
+                if (this._selectedTrack) {
+                    const t = this._selectedTrack;
+                    clearTrackSelection(this);
+                    selectTrackOrVia(this, { type: 'track', track: t });
+                }
+                return;
+            }
             // Switch ribbon back to Home tab on canvas click — but NOT
             // while we're drawing a track (the Track tool drives the
             // Properties tab so its width spinner stays visible), and
@@ -383,6 +419,13 @@ export default class PCBApp {
                 // user grab a node or bend a segment without re-clicking.
                 if (this._selectedTrack) {
                     if (startVertexDrag(this, this._selectedTrack, worldPos)) {
+                        // Clear any lingering hover halo so it doesn't sit
+                        // at the original position while the drag is live
+                        // (hover updates are suppressed during a drag).
+                        setHoverHighlight(this, null);
+                        this._hideNetTooltip();
+                        this._vertexDragDownScreen = { x: e.clientX, y: e.clientY };
+                        this._updateVertexDragCrosshair();
                         svg.style.cursor = 'grabbing';
                         return;
                     }
@@ -391,9 +434,20 @@ export default class PCBApp {
                 // drag without losing the selection.
                 if (this._selectedVia) {
                     if (startViaDrag(this, this._selectedVia, worldPos)) {
+                        setHoverHighlight(this, null);
+                        this._hideNetTooltip();
                         svg.style.cursor = 'grabbing';
                         return;
                     }
+                }
+
+                // The click isn't continuing a drag of the current
+                // selection, so the selected track (if any) is about to be
+                // deselected or replaced. Tidy away any redundant collinear
+                // waypoints first — e.g. a node added by double-click but
+                // never moved is collinear by definition and is removed here.
+                if (this._selectedTrack) {
+                    commitCollinearCleanup(this, this._selectedTrack);
                 }
 
                 const trackHit = hitTestTrack(this, worldPos);
@@ -405,10 +459,14 @@ export default class PCBApp {
                     // one motion (no separate select-then-drag click).
                     if (trackHit.type === 'via') {
                         if (startViaDrag(this, trackHit.via, worldPos)) {
+                            this._hideNetTooltip();
                             svg.style.cursor = 'grabbing';
                         }
                     } else if (trackHit.type === 'track') {
                         if (startVertexDrag(this, trackHit.track, worldPos)) {
+                            this._hideNetTooltip();
+                            this._vertexDragDownScreen = { x: e.clientX, y: e.clientY };
+                            this._updateVertexDragCrosshair();
                             svg.style.cursor = 'grabbing';
                         }
                     }
@@ -474,15 +532,40 @@ export default class PCBApp {
                 const worldPos = this._screenToWorld(e);
                 const snap = resolveTrackSnap(this, worldPos, {});
                 const p = this._getRoutingParams?.() || {};
-                const snapNet = snap.pad?.net || snap.trackNode?.track?.net || '';
-                const via = new Via({
-                    x: snap.x,
-                    y: snap.y,
-                    diameter: Number.isFinite(p.viaDiameter) && p.viaDiameter > 0 ? p.viaDiameter : 0.6,
-                    drill: Number.isFinite(p.viaDrill) && p.viaDrill > 0 ? p.viaDrill : 0.3,
-                    net: snapNet,
-                });
-                this.history.execute(new AddViaCommand(this, via));
+                const diameter = Number.isFinite(p.viaDiameter) && p.viaDiameter > 0 ? p.viaDiameter : 0.6;
+                const drill = Number.isFinite(p.viaDrill) && p.viaDrill > 0 ? p.viaDrill : 0.3;
+
+                if (snap.snapType === 'pad' || snap.snapType === 'track-node') {
+                    // Landed on an existing pad / track node: attach the via
+                    // there and inherit that net (the via sits on a node).
+                    const net = snap.pad?.net || snap.trackNode?.track?.net || '';
+                    const via = new Via({ x: snap.x, y: snap.y, diameter, drill, net });
+                    this.history.execute(new AddViaCommand(this, via));
+                } else {
+                    // Mid-segment? Split the host track so the via lands on a
+                    // node of each resulting half (both keep the track's net).
+                    const split = findSplittableTrackEdge(this, worldPos);
+                    if (split) {
+                        const via = new Via({
+                            x: split.px, y: split.py, diameter, drill,
+                            net: split.track.net || '',
+                        });
+                        const parts = splitTrackObjectAtPoint(
+                            split.track, split.edgeId, { x: split.px, y: split.py });
+                        if (parts && parts.length) {
+                            const cmds = [new RemoveTrackCommand(this, split.track)];
+                            for (const part of parts) cmds.push(new AddTrackCommand(this, part));
+                            cmds.push(new AddViaCommand(this, via));
+                            this.history.execute(new CompoundCommand(cmds));
+                        } else {
+                            this.history.execute(new AddViaCommand(this, via));
+                        }
+                    } else {
+                        // Empty space: a standalone via with no net assignment.
+                        const via = new Via({ x: snap.x, y: snap.y, diameter, drill, net: '' });
+                        this.history.execute(new AddViaCommand(this, via));
+                    }
+                }
             }
 
             // Left-click with text tool: place a text at the cursor.
@@ -529,7 +612,17 @@ export default class PCBApp {
             } else if (this._textDrag) {
                 this._handleTextDrag(e);
             } else if (this._vertexDrag) {
+                // Distinguish a press-drag (mode 1, place on mouse-up) from a
+                // click that arms move mode (mode 2, follow-the-mouse). Once the
+                // pointer travels past the threshold while the button is held,
+                // it is unambiguously a drag.
+                if (!this._vertexDrag.floating && this._vertexDragDownScreen) {
+                    const ddx = e.clientX - this._vertexDragDownScreen.x;
+                    const ddy = e.clientY - this._vertexDragDownScreen.y;
+                    if (Math.hypot(ddx, ddy) > 3) this._vertexDrag.userDragged = true;
+                }
                 updateVertexDrag(this, this._screenToWorld(e));
+                this._updateVertexDragCrosshair();
             } else if (this._viaDrag) {
                 updateViaDrag(this, this._screenToWorld(e));
             } else if (this._trackDraw) {
@@ -570,7 +663,11 @@ export default class PCBApp {
                 e.preventDefault();
                 this._selectText(textHit);
                 this._startTextInlineEdit(textHit, worldPos);
+                return;
             }
+            // NOTE: double-click track-node insertion is handled in the
+            // mousedown listener (via e.detail === 2) — starting a vertex
+            // drag on the second click suppresses the `dblclick` event.
         });
         // Some pointer sequences (e.g. when the two clicks land on
         // different child elements with the layer-group hierarchy) cause
@@ -585,6 +682,7 @@ export default class PCBApp {
                 e.preventDefault();
                 this._selectText(textHit);
                 this._startTextInlineEdit(textHit, worldPos);
+                return;
             }
         });
 
@@ -608,13 +706,29 @@ export default class PCBApp {
                 this._endTextDrag();
             }
             if (this._vertexDrag) {
-                finishVertexDrag(this);
-                svg.style.cursor = 'default';
-                // Refresh the halo on the (possibly reshaped) selected track.
-                if (this._selectedTrack) {
-                    const t = this._selectedTrack;
-                    clearTrackSelection(this);
-                    selectTrackOrVia(this, { type: 'track', track: t });
+                // Mode 2 (click to enter move mode): the node was pressed and
+                // released without dragging. Instead of committing, keep the
+                // drag alive as a floating node that follows the mouse and is
+                // placed on the next click. Only single-node moves qualify;
+                // segment drags always place on mouse-up.
+                if (!this._vertexDrag.floating
+                    && this._vertexDrag.mode === 'node'
+                    && !this._vertexDrag.userDragged) {
+                    this._vertexDrag.floating = true;
+                    this._vertexDragDownScreen = null;
+                    svg.style.cursor = 'grabbing';
+                    this._updateVertexDragCrosshair();
+                } else {
+                    this._vertexDragDownScreen = null;
+                    finishVertexDrag(this);
+                    this.viewport.hideCrosshair();
+                    svg.style.cursor = 'default';
+                    // Refresh the halo on the (possibly reshaped) selected track.
+                    if (this._selectedTrack) {
+                        const t = this._selectedTrack;
+                        clearTrackSelection(this);
+                        selectTrackOrVia(this, { type: 'track', track: t });
+                    }
                 }
             }
             if (this._viaDrag) {
@@ -655,7 +769,22 @@ export default class PCBApp {
             }
         });
 
-        svg.addEventListener('contextmenu', (e) => e.preventDefault());
+        svg.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            // Track/via context menu — select tool only, and never while
+            // drawing a track (right-click finishes the draw in that mode,
+            // so there's no clash).
+            if (!this._active) return;
+            if (this.currentTool !== 'select' || this._trackDraw) return;
+            const worldPos = this._screenToWorld(e);
+            const hit = hitTestTrack(this, worldPos);
+            if (hit) {
+                // A right-click that started a pan must not leave the
+                // viewport in panning state behind the menu.
+                if (this.viewport.isPanning) this.viewport.endPan();
+                showTrackContextMenu(this, hit, e.clientX, e.clientY, worldPos);
+            }
+        });
 
         // Suppress browser context menu on PCB ribbon header & body.
         // (SchematicApp uses querySelector('.ribbon') which only catches the
@@ -722,6 +851,21 @@ export default class PCBApp {
     _clearCursorCrosshair() {
         this.viewport?.hideCrosshair();
         this._lastCrosshairWorld = null;
+    }
+
+    /**
+     * Show/update the drawing crosshair at the position of the node being
+     * dragged (single-node and plus-in-circle insertion drags). The node's
+     * position has already been resolved by updateVertexDrag (grid / pad /
+     * axis snap), so the crosshair lands exactly where the node will drop.
+     * No-op for segment drags (two moving nodes, no single point).
+     */
+    _updateVertexDragCrosshair() {
+        const drag = this._vertexDrag;
+        if (!drag || drag.mode !== 'node' || !this.viewport) return;
+        const nd = drag.nodes?.[0];
+        const n = nd && drag.track?.nodes?.get(nd.nodeId);
+        if (n) this.viewport.setCrosshair({ x: n.x, y: n.y });
     }
 
     /**
@@ -830,7 +974,7 @@ export default class PCBApp {
         // Otherwise: history, delete, selection-cancel.
         const ctrl = e.ctrlKey || e.metaKey;
         if (ctrl && !e.shiftKey && (e.key === 'z' || e.key === 'Z')) {
-            if (this._vertexDrag) cancelVertexDrag(this);
+            if (this._vertexDrag) { cancelVertexDrag(this); this.viewport.hideCrosshair(); }
             if (this._viaDrag) cancelViaDrag(this);
             this.history.undo();
             return true;
@@ -851,7 +995,7 @@ export default class PCBApp {
             return false;
         }
         if (e.key === 'Escape') {
-            if (this._vertexDrag) { cancelVertexDrag(this); return true; }
+            if (this._vertexDrag) { cancelVertexDrag(this); this.viewport.hideCrosshair(); return true; }
             if (this._viaDrag) { cancelViaDrag(this); return true; }
             if (this._selectedText) {
                 this._selectText(null);
@@ -997,11 +1141,7 @@ export default class PCBApp {
             }
         }
         // Re-evaluate ratlines once the model is in place.
-        import('../pcb/modules/track-draw.js').then(({ reconcileRatsnest }) => {
-            reconcileRatsnest(this);
-        }).catch((err) => {
-            console.error('Failed to load track-draw module:', err);
-        });
+        reconcileRatsnest(this);
     }
 
     /**
@@ -1034,6 +1174,10 @@ export default class PCBApp {
             // Overlays — non-editable visual aids drawn on top of everything
             // (clearance halos, etc.). Must be last in z-order.
             'clearance-overlay',
+            // Selection-overlay — track node handles etc. sit above ALL
+            // copper, vias (hole layer) and overlays so they stay visible
+            // even when a via covers the node they mark.
+            'selection-overlay',
         ];
 
         for (const id of zOrder) {
@@ -1762,20 +1906,9 @@ export default class PCBApp {
      * Rebuild the ratsnest lines from the current netlist and placements.
      */
     _updateRatsnest() {
-        // Clear old ratsnest
-        if (this._ratsnestGroup) {
-            while (this._ratsnestGroup.firstChild)
-                this._ratsnestGroup.removeChild(this._ratsnestGroup.firstChild);
-        }
-
-        if (!this.netlist.length || !this.placements.size) return;
-
-        const ratsnestSvg = buildRatsnest(this.netlist, this.placements);
-
-        // Move children into existing group
-        while (ratsnestSvg.firstChild) {
-            this._ratsnestGroup.appendChild(ratsnestSvg.firstChild);
-        }
+        // Net-based rebuild — draws guide lines between every disconnected
+        // cluster of same-net copper (pads, tracks and vias alike).
+        reconcileRatsnest(this);
     }
 
     /**
@@ -1885,9 +2018,33 @@ export default class PCBApp {
             const worldPos = this._screenToWorld(ev);
             this._hoverBoardOutline(this._hitTestBoardOutline(worldPos));
             // Hover highlight for tracks/vias.
-            setHoverHighlight(this, this._hitTestPad(worldPos) || hitTestTrack(this, worldPos));
+            const trackHover = hitTestTrack(this, worldPos);
+            const hovered = this._hitTestPad(worldPos) || trackHover;
+            setHoverHighlight(this, hovered);
+            // Net-name tooltip for the hovered pad/track/via.
+            this._updateNetTooltip(ev, hovered);
             // Hover highlight for text annotations.
             this._setTextHover(this._hitTestText(worldPos));
+            // Cursor feedback: a diagonal double-arrow (matching the
+            // schematic editor's graph anchors) when the pointer is over a
+            // draggable track node. Only toggle on transitions so we don't
+            // clobber other cursors (e.g. a selected component's grab).
+            const overNode = trackHover?.type === 'track'
+                && !!hitTestTrackNode(this, trackHover.track, worldPos);
+            const overMidpoint = !overNode
+                && trackHover?.type === 'track'
+                && trackHover.track === this._selectedTrack
+                && !!hitTestTrackMidpoint(this, trackHover.track, worldPos);
+            if (overNode) {
+                this.viewport.svg.style.cursor = 'nwse-resize';
+                this._hoverNodeCursor = true;
+            } else if (overMidpoint) {
+                this.viewport.svg.style.cursor = 'copy';
+                this._hoverNodeCursor = true;
+            } else if (this._hoverNodeCursor) {
+                this._hoverNodeCursor = false;
+                this._updateCursorForTool();
+            }
         });
     }
 
@@ -1908,6 +2065,77 @@ export default class PCBApp {
             }
         }
         return null;
+    }
+
+    /**
+     * Resolve the net name for a hovered pad/track/via hit, or '' if none.
+     * @param {{type:string, track?:any, via?:any, componentId?:string, pinNumber?:string|number}|null} hovered
+     * @returns {string}
+     */
+    _netNameForHover(hovered) {
+        if (!hovered) return '';
+        if (hovered.type === 'track') return hovered.track?.net || '';
+        if (hovered.type === 'via') return hovered.via?.net || '';
+        if (hovered.type === 'pad') {
+            const key = `${hovered.componentId}|${hovered.pinNumber}`;
+            for (const entry of (this.netlist || [])) {
+                for (const pin of entry.pins) {
+                    if (`${pin.componentId}|${pin.pinNumber}` === key) return entry.net || '';
+                }
+            }
+        }
+        return '';
+    }
+
+    /** Hide the net-name tooltip if it is showing. */
+    _hideNetTooltip() {
+        if (this._netTooltipTimer) {
+            clearTimeout(this._netTooltipTimer);
+            this._netTooltipTimer = 0;
+        }
+        if (this._netTooltip) this._netTooltip.style.display = 'none';
+    }
+
+    /**
+     * Show/hide a small tooltip with the net name of the hovered element.
+     * Only appears for an unselected pad/track/via, after a short delay.
+     * @param {MouseEvent} e
+     * @param {{type:string, track?:any, via?:any}|null} hovered
+     */
+    _updateNetTooltip(e, hovered) {
+        // Skip when nothing is hovered or the hovered item is selected.
+        const isSelected = hovered
+            && ((hovered.type === 'track' && hovered.track === this._selectedTrack)
+                || (hovered.type === 'via' && hovered.via === this._selectedVia));
+        if (!hovered || isSelected) {
+            this._hideNetTooltip();
+            return;
+        }
+        const net = this._netNameForHover(hovered) || '(no net)';
+        const x = e.clientX, y = e.clientY;
+        // Restart the show timer on each move so it appears only after the
+        // pointer settles briefly over the item.
+        if (this._netTooltipTimer) clearTimeout(this._netTooltipTimer);
+        this._netTooltipTimer = setTimeout(() => {
+            this._netTooltipTimer = 0;
+            if (!this._netTooltip) {
+                const el = document.createElement('div');
+                el.style.cssText = 'position:fixed;z-index:10000;pointer-events:none;'
+                    + 'padding:2px 6px;border-radius:3px;font:11px/1.4 monospace;'
+                    + 'background:rgba(20,20,28,0.92);color:#9fd0ff;'
+                    + 'border:1px solid rgba(120,160,220,0.5);white-space:nowrap;';
+                document.body.appendChild(el);
+                this._netTooltip = el;
+            }
+            const el = this._netTooltip;
+            el.textContent = net;
+            el.style.display = 'block';
+            const pad = 14;
+            const maxX = window.innerWidth - el.offsetWidth - pad;
+            const maxY = window.innerHeight - el.offsetHeight - pad;
+            el.style.left = `${Math.min(x + pad, Math.max(pad, maxX))}px`;
+            el.style.top = `${Math.min(y + pad, Math.max(pad, maxY))}px`;
+        }, 400);
     }
 
     /**
@@ -2001,6 +2229,9 @@ export default class PCBApp {
         for (const off of (pl.padOffsets || [])) {
             pl.pads.set(off.number, { x: snapX + off.dx, y: snapY + off.dy });
         }
+
+        // Drag pad-bonded track endpoints along with the component.
+        repositionPadConnectedNodes(this, this._drag.compId);
 
         // Rebuild ratsnest in real-time
         this._updateRatsnest();
@@ -4127,12 +4358,12 @@ export default class PCBApp {
             g.querySelectorAll('.pcb-routed-trace, .pcb-routed-via, .pcb-track, .pcb-via, .pcb-route-anim').forEach(el => el.remove());
         }
 
-        // Restore all original ratlines and remove failed-connection ratlines
+        // Rebuild the ratsnest from scratch now that all routed copper is
+        // gone (every net reverts to fully-unconnected guide lines) and drop
+        // the autorouter's failed-connection lines.
         const ratLayer = this._getLayerGroup('ratlines');
         ratLayer.querySelectorAll('.ratsnest-failed').forEach(el => el.remove());
-        for (const el of ratLayer.children) {
-            /** @type {HTMLElement} */ (el).style.display = '';
-        }
+        reconcileRatsnest(this);
 
         this._refreshClearanceHalos();
         this._setStatus('Routes cleared');

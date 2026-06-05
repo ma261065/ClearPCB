@@ -15,22 +15,28 @@
  */
 
 import { removeTrackElements, removeViaElements } from './track-render.js';
-import { reconcileRatsnest } from './track-draw.js';
+import { reconcileRatsnest, collectBondedCopper } from './track-draw.js';
+import { hitTestTrackEdge, deleteTrackSegment, hitTestTrackNode, splitTrackNodeAndDrag, deleteTrackNode } from './track-drag.js';
 import {
     RemoveTrackCommand,
     RemoveViaCommand,
+    AddTrackCommand,
+    CompoundCommand,
     ModifyTrackCommand,
     ModifyViaCommand,
 } from './track-commands.js';
+import { showAlert } from '../../ui/modules/modal.js';
 
 const NS = 'http://www.w3.org/2000/svg';
 const HALO_CLASS = 'pcb-track-selection';
 const HOVER_CLASS = 'pcb-track-hover';
 
 /** Halo stroke colour — translucent white overlays the trace so the
- *  underlying copper colour still reads through. */
+ *  underlying copper colour still reads through. Kept low-opacity so a
+ *  selected trace only brightens slightly and its layer colour (top vs
+ *  bottom) stays clearly distinguishable. */
 const HALO_COLOR = '#ffffff';
-const HALO_OPACITY_SELECTED = 0.85;
+const HALO_OPACITY_SELECTED = 0.55;
 const HALO_OPACITY_HOVER = 0.6;
 
 /** Pixel tolerance for hit-testing tracks (converted to world units). */
@@ -391,6 +397,129 @@ export function deleteSelectedTrack(app) {
     }
 }
 
+/**
+ * Delete a single segment (edge) of `track`, replacing it with the
+ * remaining connected pieces. Runs as one undoable compound command.
+ */
+export function deleteTrackSegmentAt(app, track, edgeId) {
+    if (!track || !edgeId) return;
+    const parts = deleteTrackSegment(track, edgeId);
+    clearTrackSelection(app);
+    const cmds = [new RemoveTrackCommand(app, track)];
+    for (const part of parts) cmds.push(new AddTrackCommand(app, part));
+    app.history?.execute(new CompoundCommand(cmds));
+}
+
+/* ─────────────────────────── context menu ─────────────────────────── */
+
+const CTX_MENU_STYLE = 'position:fixed;z-index:10000;background:#2b2b2b;border:1px solid #555;border-radius:4px;padding:2px 0;box-shadow:0 2px 8px rgba(0,0,0,0.4);min-width:120px;';
+const CTX_ITEM_STYLE = 'padding:6px 16px;color:#eee;cursor:pointer;font:13px/1.4 system-ui,sans-serif;white-space:nowrap;';
+
+/** Remove any open PCB context menu and its dismiss listeners. */
+export function dismissTrackContextMenu() {
+    const menu = document.getElementById('pcbTrackContextMenu');
+    if (!menu) return;
+    const h = /** @type {any} */ (menu)._dismiss;
+    if (h) {
+        document.removeEventListener('mousedown', h.dismiss, { capture: true });
+        document.removeEventListener('keydown', h.onKey, { capture: true });
+    }
+    menu.remove();
+}
+
+/**
+ * Show a right-click context menu for the given track/via hit at the
+ * screen position. Selects the item first so the action targets it.
+ * Intended for the select tool only (caller enforces that).
+ *
+ * @param {object} app
+ * @param {{type:'track', track:object}|{type:'via', via:object}} hit
+ * @param {number} clientX
+ * @param {number} clientY
+ * @param {{x:number,y:number}} [worldPos] - cursor position, used to
+ *   target a specific segment for "Delete segment".
+ */
+export function showTrackContextMenu(app, hit, clientX, clientY, worldPos) {
+    dismissTrackContextMenu();
+    // Make the right-clicked item the current selection so the action
+    // operates on it (and the user sees what they're about to act on).
+    selectTrackOrVia(app, hit);
+
+    const label = hit.type === 'via' ? 'Delete via' : 'Delete track';
+    const items = [];
+    // Node-targeted actions (Split / Delete Node) when right-clicking on
+    // a track vertex — mirrors the schematic wire anchor context menu.
+    let nodeId = null;
+    if (hit.type === 'track' && worldPos) {
+        nodeId = hitTestTrackNode(app, hit.track, worldPos);
+    }
+    if (nodeId) {
+        // Right-click landed on a vertex: show ONLY the node actions.
+        const track = hit.track;
+        const deg = track.degree(nodeId);
+        if (deg === 2) {
+            items.push({
+                text: 'Split',
+                onClick: () => splitTrackNodeAndDrag(app, track, nodeId),
+            });
+        }
+        if (track.edges.size > 1 && (deg === 1 || deg === 2)) {
+            items.push({
+                text: 'Delete Node',
+                onClick: () => deleteTrackNode(app, track, nodeId),
+            });
+        }
+        // Fall back to whole-track deletion if no node action applies
+        // (e.g. a single-segment track has only degree-1 endpoints).
+        if (items.length === 0) {
+            items.push({ text: label, onClick: () => deleteSelectedTrack(app) });
+        }
+    } else {
+        // Offer single-segment deletion when right-clicking on a track edge.
+        if (hit.type === 'track' && worldPos) {
+            const edgeHit = hitTestTrackEdge(app, hit.track, worldPos);
+            if (edgeHit && hit.track.edges.size > 1) {
+                items.push({
+                    text: 'Delete segment',
+                    onClick: () => deleteTrackSegmentAt(app, hit.track, edgeHit.edgeId),
+                });
+            }
+        }
+        items.push({ text: label, onClick: () => deleteSelectedTrack(app) });
+    }
+
+    const menu = document.createElement('div');
+    menu.id = 'pcbTrackContextMenu';
+    menu.style.cssText = `${CTX_MENU_STYLE}left:${clientX}px;top:${clientY}px;`;
+    for (const item of items) {
+        const el = document.createElement('div');
+        el.textContent = item.text;
+        el.style.cssText = CTX_ITEM_STYLE;
+        el.addEventListener('mouseenter', () => { el.style.background = '#3a3a3a'; });
+        el.addEventListener('mouseleave', () => { el.style.background = ''; });
+        el.addEventListener('click', () => {
+            dismissTrackContextMenu();
+            item.onClick();
+        });
+        menu.appendChild(el);
+    }
+    menu.addEventListener('contextmenu', (e) => e.preventDefault());
+    document.body.appendChild(menu);
+
+    const dismiss = (e) => {
+        if (!menu.contains(/** @type {Node|null} */ (e.target))) dismissTrackContextMenu();
+    };
+    const onKey = (e) => {
+        if (e.key === 'Escape') dismissTrackContextMenu();
+    };
+    setTimeout(() => {
+        document.addEventListener('mousedown', dismiss, { capture: true });
+        document.addEventListener('keydown', onKey, { capture: true });
+    }, 0);
+    /** @type {any} */ (menu)._dismiss = { dismiss, onKey };
+    return menu;
+}
+
 /* ──────────────────────────── halos ──────────────────────────── */
 
 function _drawTrackHalo(app, track, cls = HALO_CLASS, opacity = HALO_OPACITY_SELECTED) {
@@ -415,6 +544,92 @@ function _drawTrackHalo(app, track, cls = HALO_CLASS, opacity = HALO_OPACITY_SEL
         parent.appendChild(poly);
     }
     _drawPadHighlights(app, track, cls, opacity);
+    // Draw draggable node handles only for the SELECTION halo (not hover),
+    // so the user can see the vertices they can grab.
+    if (cls === HALO_CLASS) _drawNodeHandles(app, track, cls);
+}
+
+/**
+ * Draw a small square handle at each Track node so the user can see the
+ * draggable vertices. Handles are sized in screen pixels (constant on
+ * screen regardless of zoom) and rendered on the node's own layer.
+ */
+function _drawNodeHandles(app, track, cls) {
+    if (!track.nodes?.size) return;
+    const scale = app.viewport?.scale || 1;
+    // Constant ~7px on-screen handle; clamp so it never dwarfs a thin trace.
+    const sizePx = 7;
+    const half = (sizePx / scale) / 2;
+    const strokePx = 1.25;
+    // Draw on the dedicated top-most overlay so handles sit above all
+    // copper AND any via (hole layer) that covers the node they mark.
+    const parent = app._getLayerGroup('selection-overlay');
+    if (!parent) return;
+    for (const [, n] of track.nodes) {
+        const r = document.createElementNS(NS, 'rect');
+        r.setAttribute('class', cls);
+        r.setAttribute('x', String(n.x - half));
+        r.setAttribute('y', String(n.y - half));
+        r.setAttribute('width', String(half * 2));
+        r.setAttribute('height', String(half * 2));
+        r.setAttribute('fill', HALO_COLOR);
+        r.setAttribute('fill-opacity', '0.9');
+        r.setAttribute('stroke', '#000');
+        r.setAttribute('stroke-opacity', '0.5');
+        r.setAttribute('stroke-width', String(strokePx / scale));
+        r.setAttribute('pointer-events', 'none');
+        parent.appendChild(r);
+    }
+    _drawMidpointHandles(app, track, cls, parent, scale);
+}
+
+/**
+ * Draw an insertion handle at the midpoint of each segment, styled to
+ * match the schematic Wire's midpoint anchor exactly: a white circle with
+ * a blue stroke and a blue "+" sign (see core/ui-helpers buildPointAnchorsGroup).
+ * Grabbing one inserts a new vertex and drags it. Sized in screen pixels
+ * so it stays constant on screen regardless of zoom.
+ */
+function _drawMidpointHandles(app, track, cls, parent, scale) {
+    if (!track.edges?.size) return;
+    const midR = 5.5 / scale;
+    const strokeW = 1 / scale;
+    const plusLen = midR * 1.1;
+    const MID_COLOR = '#4aa3df';
+    for (const [, e] of track.edges) {
+        const a = track.nodes.get(e.from);
+        const b = track.nodes.get(e.to);
+        if (!a || !b) continue;
+        const cx = (a.x + b.x) / 2, cy = (a.y + b.y) / 2;
+        const g = document.createElementNS(NS, 'g');
+        g.setAttribute('class', cls);
+        g.setAttribute('pointer-events', 'none');
+
+        const circle = document.createElementNS(NS, 'circle');
+        circle.setAttribute('cx', String(cx));
+        circle.setAttribute('cy', String(cy));
+        circle.setAttribute('r', String(midR));
+        circle.setAttribute('fill', '#fff');
+        circle.setAttribute('stroke', MID_COLOR);
+        circle.setAttribute('stroke-width', String(strokeW));
+        g.appendChild(circle);
+
+        for (const [x1, y1, x2, y2] of [
+            [cx - plusLen, cy, cx + plusLen, cy],
+            [cx, cy - plusLen, cx, cy + plusLen],
+        ]) {
+            const ln = document.createElementNS(NS, 'line');
+            ln.setAttribute('x1', String(x1));
+            ln.setAttribute('y1', String(y1));
+            ln.setAttribute('x2', String(x2));
+            ln.setAttribute('y2', String(y2));
+            ln.setAttribute('stroke', MID_COLOR);
+            ln.setAttribute('stroke-width', String(strokeW * 1.5));
+            ln.setAttribute('stroke-linecap', 'round');
+            g.appendChild(ln);
+        }
+        parent.appendChild(g);
+    }
 }
 
 /**
@@ -536,19 +751,18 @@ function _buildRuns(track) {
 function _showTrackProperties(app, track) {
     const items = document.getElementById('pcbPropsItems');
     if (!items) return;
-    const net = track.net || '(unassigned)';
     const layers = new Set(track.edgeLayers.values());
     const layerLabel = layers.size > 1
         ? 'Multiple'
         : (layers.values().next().value === 'bottom-copper' ? 'Bottom Copper' : 'Top Copper');
     items.innerHTML = `
         <div class="prop-row"><label>Type</label><span style="font-size:11px;color:var(--text-primary)">Track</span></div>
-        <div class="prop-row"><label>Net</label><span style="font-size:11px;color:var(--text-primary)">${_escape(net)}</span></div>
+        <div class="prop-row"><label>Net</label><input type="text" id="pcbPropTrackNet" value="${_escape(track.net || '')}" placeholder="(unassigned)"></div>
         <div class="prop-row"><label>Layer</label><span style="font-size:11px;color:var(--text-primary)">${layerLabel}</span></div>
         <div class="prop-row"><label>Width (mm)</label><input type="number" id="pcbPropTrackWidth" value="${track.width}" min="0.05" step="0.05"></div>
     `;
     const wEl = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropTrackWidth'));
-    const baseline = { width: track.width };
+    const baseline = { width: track.width, net: track.net || '' };
     wEl?.addEventListener('input', () => {
         const v = parseFloat(wEl.value);
         if (!Number.isFinite(v) || v <= 0) return;
@@ -576,7 +790,53 @@ function _showTrackProperties(app, track) {
         app.history?.execute(new ModifyTrackCommand(app, track, { width: baseline.width }, { width: v }));
         baseline.width = v;
     });
+    const netEl = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropTrackNet'));
+    netEl?.addEventListener('change', () => {
+        const v = netEl.value.trim();
+        if (v === baseline.net) return;
+        if (_applyNetToBondedCopper(app, { track }, v)) {
+            baseline.net = v;
+        } else {
+            netEl.value = baseline.net; // refused — restore the field
+        }
+    });
     app._setActiveRibbonTab?.('pcb-properties');
+}
+
+/**
+ * Set net `v` on every track + via physically bonded to the seed copper
+ * (one undoable compound command). Refuses with a dialog if the bonded
+ * region touches a pad whose schematic-assigned net differs from `v`
+ * (the schematic is authoritative — rename it there instead).
+ *
+ * @returns {boolean} true if applied (or a no-op), false if refused.
+ */
+function _applyNetToBondedCopper(app, seed, v) {
+    const group = collectBondedCopper(app, seed);
+    // Authoritative pad-net guard: if the bonded copper reaches a pad, that
+    // pad's schematic net is the truth; renaming the copper to something
+    // else would contradict it.
+    const padNets = [...group.padNets].filter(Boolean);
+    const conflict = padNets.find((pn) => pn !== v);
+    if (conflict !== undefined) {
+        showAlert(
+            `This copper is connected to a pad on net "${conflict}" (assigned by the schematic). ` +
+            `Rename the net in the schematic instead of editing the track.`,
+            { title: 'Net Assigned by Schematic' }
+        );
+        return false;
+    }
+    const cmds = [];
+    for (const t of group.tracks) {
+        if ((t.net || '') !== v) cmds.push(new ModifyTrackCommand(app, t, { net: t.net || '' }, { net: v }));
+    }
+    for (const vi of group.vias) {
+        if ((vi.net || '') !== v) cmds.push(new ModifyViaCommand(app, vi, { net: vi.net || '' }, { net: v }));
+    }
+    if (cmds.length) {
+        app.history?.execute(cmds.length === 1 ? cmds[0] : new CompoundCommand(cmds));
+    }
+    return true;
 }
 
 function _showViaProperties(app, via) {
@@ -584,7 +844,7 @@ function _showViaProperties(app, via) {
     if (!items) return;
     items.innerHTML = `
         <div class="prop-row"><label>Type</label><span style="font-size:11px;color:var(--text-primary)">Via</span></div>
-        <div class="prop-row"><label>Net</label><span style="font-size:11px;color:var(--text-primary)">${_escape(via.net || '(unassigned)')}</span></div>
+        <div class="prop-row"><label>Net</label><input type="text" id="pcbPropViaNet" value="${_escape(via.net || '')}" placeholder="(unassigned)"></div>
         <div class="prop-row"><label>Diameter (mm)</label><input type="number" id="pcbPropViaDia" value="${via.diameter}" min="0.1" step="0.05"></div>
         <div class="prop-row"><label>Drill (mm)</label><input type="number" id="pcbPropViaDrill" value="${via.drill}" min="0.05" step="0.05"></div>
     `;
@@ -594,7 +854,7 @@ function _showViaProperties(app, via) {
         app._selectedVia = via;
         _drawViaHalo(app, via);
     });
-    const baseline = { diameter: via.diameter, drill: via.drill };
+    const baseline = { diameter: via.diameter, drill: via.drill, net: via.net || '' };
     const live = (key) => (e) => {
         const v = parseFloat(/** @type {HTMLInputElement} */ (e.target).value);
         if (Number.isFinite(v) && v > 0) { via[key] = v; reRender(); }
@@ -615,6 +875,16 @@ function _showViaProperties(app, via) {
     const drlEl = document.getElementById('pcbPropViaDrill');
     drlEl?.addEventListener('input', live('drill'));
     drlEl?.addEventListener('change', commit('drill'));
+    const netEl = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropViaNet'));
+    netEl?.addEventListener('change', () => {
+        const v = netEl.value.trim();
+        if (v === baseline.net) return;
+        if (_applyNetToBondedCopper(app, { via }, v)) {
+            baseline.net = v;
+        } else {
+            netEl.value = baseline.net; // refused — restore the field
+        }
+    });
     app._setActiveRibbonTab?.('pcb-properties');
 }
 

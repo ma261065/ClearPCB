@@ -21,6 +21,47 @@ function _opts(app) {
     };
 }
 
+/**
+ * Re-glue track endpoints to the pads they are bonded to. For every
+ * Track node whose padConnections entry references `compId`, move the
+ * node to its pad's current world position and re-render that track.
+ * This keeps hand-drawn / routed traces attached when a component is
+ * moved (the schematic Wire "sticky pin" behaviour, applied to pads).
+ *
+ * Pad world positions are read live from the placement, so the caller
+ * must update `pl.pads` (and `pl.x`/`pl.y`) before calling this.
+ *
+ * @param {object} app - PCBApp
+ * @param {string} compId - The component whose pads moved
+ * @returns {Set<object>|null} the set of tracks that were repositioned
+ */
+export function repositionPadConnectedNodes(app, compId) {
+    const pl = app.placements?.get(compId);
+    if (!pl?.pads) return null;
+    const touched = new Set();
+    for (const track of (app.tracks || [])) {
+        if (!track.padConnections?.size) continue;
+        for (const [nid, conn] of track.padConnections) {
+            if (!conn || conn.componentId !== compId) continue;
+            const pad = pl.pads.get(conn.pinNumber)
+                ?? pl.pads.get(String(conn.pinNumber))
+                ?? pl.pads.get(Number(conn.pinNumber));
+            if (!pad) continue;
+            const n = track.nodes.get(nid);
+            if (!n) continue;
+            if (n.x !== pad.x || n.y !== pad.y) {
+                n.x = pad.x;
+                n.y = pad.y;
+                touched.add(track);
+            }
+        }
+    }
+    for (const track of touched) {
+        renderTrack(track, (id) => app._getLayerGroup(id), _opts(app));
+    }
+    return touched;
+}
+
 /** Add a freshly-built Track to app.tracks and render it. Optionally
  *  also add associated standalone Vias (e.g. at layer-change nodes)
  *  in the same atomic undo step. */
@@ -85,6 +126,7 @@ export class ModifyTrackCommand {
     _apply(state) {
         Object.assign(this.track, state);
         renderTrack(this.track, (id) => this.app._getLayerGroup(id), _opts(this.app));
+        reconcileRatsnest(this.app);
     }
     execute() { this._apply(this.after); }
     undo() { this._apply(this.before); }
@@ -111,16 +153,40 @@ export class MoveVertexCommand {
     undo() { this._set(this.from); }
 }
 
+/**
+ * Replace a Track's entire graph (nodes, edges, layers, pad links) with
+ * a captured snapshot. Used for edits that change topology — e.g. a
+ * segment drag that pins a via and grows a bridging segment. `before`
+ * and `after` are `track.captureState()` snapshots.
+ */
+export class ModifyTrackGraphCommand {
+    constructor(app, track, before, after) {
+        this.app = app;
+        this.track = track;
+        this.before = before;
+        this.after = after;
+    }
+    _apply(state) {
+        this.track.applyState(state);
+        renderTrack(this.track, (id) => this.app._getLayerGroup(id), _opts(this.app));
+        reconcileRatsnest(this.app);
+    }
+    execute() { this._apply(this.after); }
+    undo() { this._apply(this.before); }
+}
+
 export class AddViaCommand {
     constructor(app, via) { this.app = app; this.via = via; }
     execute() {
         if (!this.app.vias.includes(this.via)) this.app.vias.push(this.via);
         renderVia(this.via, (id) => this.app._getLayerGroup(id));
+        reconcileRatsnest(this.app);
     }
     undo() {
         removeViaElements(this.via);
         const i = this.app.vias.indexOf(this.via);
         if (i >= 0) this.app.vias.splice(i, 1);
+        reconcileRatsnest(this.app);
     }
 }
 
@@ -130,10 +196,12 @@ export class RemoveViaCommand {
         removeViaElements(this.via);
         const i = this.app.vias.indexOf(this.via);
         if (i >= 0) this.app.vias.splice(i, 1);
+        reconcileRatsnest(this.app);
     }
     undo() {
         if (!this.app.vias.includes(this.via)) this.app.vias.push(this.via);
         renderVia(this.via, (id) => this.app._getLayerGroup(id));
+        reconcileRatsnest(this.app);
     }
 }
 
@@ -147,6 +215,7 @@ export class ModifyViaCommand {
     _apply(state) {
         Object.assign(this.via, state);
         renderVia(this.via, (id) => this.app._getLayerGroup(id));
+        reconcileRatsnest(this.app);
     }
     execute() { this._apply(this.after); }
     undo() { this._apply(this.before); }
@@ -194,6 +263,8 @@ export class MovePlacementCommand {
         for (const off of (pl.padOffsets || [])) {
             pl.pads.set(off.number, { x: pt.x + off.dx, y: pt.y + off.dy });
         }
+        // Keep pad-bonded track endpoints glued to the component.
+        repositionPadConnectedNodes(this.app, this.compId);
         this.app._updateRatsnest?.();
     }
     execute() { this._apply(this.to); }
