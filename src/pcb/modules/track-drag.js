@@ -571,8 +571,17 @@ function _tryMergeDroppedNode(app, drag) {
 /**
  * Begin a drag on the selected track. Returns true if a drag was
  * started, false if the click missed.
+ *
+ * @param {object} app
+ * @param {object} track
+ * @param {{x:number,y:number}} worldPos
+ * @param {{allowMidpointInsert?:boolean}} [opts] - When `allowMidpointInsert`
+ *   is false, a click on a midpoint "+" handle is ignored (it won't start a
+ *   split). Used on the click that first selects a track so the plus requires
+ *   a separate, deliberate second click.
  */
-export function startVertexDrag(app, track, worldPos) {
+export function startVertexDrag(app, track, worldPos, opts = {}) {
+    const allowMidpointInsert = opts.allowMidpointInsert !== false;
     const nodeId = hitTestTrackNode(app, track, worldPos);
 
     // Grabbing a node: drag that single node (snaps to grid/pad/node).
@@ -598,9 +607,14 @@ export function startVertexDrag(app, track, worldPos) {
     // Grabbing a midpoint "+" handle: insert a new vertex there and drag
     // it (schematic Wire midpoint-anchor model). Checked before the
     // segment grab so the handle wins over a parallel-segment drag.
-    const midEdge = hitTestTrackMidpoint(app, track, worldPos);
-    if (midEdge && startMidpointInsertDrag(app, track, midEdge)) {
-        return true;
+    // Skipped on the selecting click (allowMidpointInsert === false) so a
+    // freshly selected track doesn't split just because the cursor happened
+    // to land on a "+".
+    if (allowMidpointInsert) {
+        const midEdge = hitTestTrackMidpoint(app, track, worldPos);
+        if (midEdge && startMidpointInsertDrag(app, track, midEdge)) {
+            return true;
+        }
     }
 
     // Grabbing a segment: KiCad-style parallel drag — translate both of
@@ -789,6 +803,7 @@ export function finishVertexDrag(app) {
             drag.track.applyState(drag.graphBefore);
             renderTrack(drag.track, (id) => app._getLayerGroup(id), _opts(app));
             refreshTrackSelectionHalo(app);
+            reconcileRatsnest(app);
             return;
         }
         // Dissolve any waypoints the drag made redundant before snapshotting.
@@ -858,6 +873,7 @@ export function cancelVertexDrag(app) {
         drag.track.applyState(drag.graphBefore);
         renderTrack(drag.track, (id) => app._getLayerGroup(id), _opts(app));
         refreshTrackSelectionHalo(app);
+        reconcileRatsnest(app);
         return;
     }
     for (const nd of (drag.nodes || [])) {
@@ -868,6 +884,7 @@ export function cancelVertexDrag(app) {
         }
     }
     renderTrack(drag.track, (id) => app._getLayerGroup(id), _opts(app));
+    reconcileRatsnest(app);
 }
 
 /* ──────────────────────────── via drag ──────────────────────────── */

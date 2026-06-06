@@ -1130,6 +1130,18 @@ export const idleState = {
             if (!hitShape.selected) {
                 app.selection.select(hitShape, false);
                 app.renderShapes(true);
+                // The "+" insertion handles only appear once the shape is
+                // selected. If this selecting click happened to land on one,
+                // don't arm a move/segment drag — just select and show the
+                // insert affordance. A deliberate second click on the "+"
+                // starts the split (matches the PCB track behaviour).
+                const justSelectedAnchor = hitShape.hitTestAnchor?.(worldPos, app.viewport.scale);
+                if (justSelectedAnchor && String(justSelectedAnchor).startsWith('mid')
+                    && canQueueMidpointAnchorDrag(hitShape, justSelectedAnchor)) {
+                    app.viewport.svg.style.cursor = 'copy';
+                    event.preventDefault();
+                    return;
+                }
             }
 
             if (hitShape.locked) { event.preventDefault(); return; }

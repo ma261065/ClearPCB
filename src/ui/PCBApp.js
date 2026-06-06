@@ -463,7 +463,7 @@ export default class PCBApp {
                             svg.style.cursor = 'grabbing';
                         }
                     } else if (trackHit.type === 'track') {
-                        if (startVertexDrag(this, trackHit.track, worldPos)) {
+                        if (startVertexDrag(this, trackHit.track, worldPos, { allowMidpointInsert: false })) {
                             this._hideNetTooltip();
                             this._vertexDragDownScreen = { x: e.clientX, y: e.clientY };
                             this._updateVertexDragCrosshair();

@@ -7,35 +7,86 @@ import { updateLabelDragGuide } from './draw-states.js';
 import { ModalManager } from '../../core/ModalManager.js';
 
 /**
- * Central Escape key handler. Uses app.interactionState to determine
- * what to cancel, then transitions back to idle.
+ * Single-letter shortcuts that simply select a tool. Overloaded keys
+ * (x/y/space — flip/rotate vs tool) are handled explicitly below.
+ * @type {Record<string, string>}
+ */
+const TOOL_KEYS = {
+    v: 'select',
+    l: 'text',
+    w: 'wire',
+    c: 'circle',
+    a: 'arc',
+    p: 'polygon',
+    i: 'line',
+    n: 'net',
+    o: 'component',
+    r: 'rect',
+};
+
+/**
+ * True when keyboard actions that operate on the current selection
+ * (flip, rotate, etc.) are allowed: select tool active and no
+ * text-edit / drawing / paste in progress.
+ * @param {object} app
+ */
+function canActOnSelection(app) {
+    return !app.textEdit && !app.isDrawing && !app.pastingClipboard && app.currentTool === 'select';
+}
+
+/**
+ * Tear down an active anchor/segment drag and return to idle, keeping
+ * the dragged shape selected. Shared by the segmentDrag/anchorDrag
+ * Escape branches (callers revert geometry first).
+ * @param {object} app
+ */
+function cancelDragToIdle(app) {
+    const shape = app.drag?.shape;
+    clearDragState(app);
+    app.pendingAnchorDrag = null;
+    app.didDrag = false;
+    app.viewport.svg.style.cursor = '';
+    app._hideCrosshair();
+    app.interactionState = 'idle';
+    if (shape) shape.selected = true;
+    app.renderShapes(true);
+}
+
+/**
+ * Central Escape handler. Encodes the full cancellation precedence in
+ * one place so a single Escape always cancels the most specific active
+ * thing first. Each step returns once it consumes the key:
+ *   1. inline text edit
+ *   2. an in-progress drag (interactionState-driven)
+ *   3. a pending (pre-threshold) midpoint split
+ *   4. the component picker
+ *   5. an active selection (deselect)
+ *   6. the open Net-style dropdown
+ *   7. a non-Home ribbon tab (back to Home)
+ *   8. a non-select tool (back to select)
  * @param {object} app - Application state.
  */
 export function handleEscape(app) {
+    // 1. Inline text edit.
     if (app.textEdit) {
         app._endTextEdit(false);
         return;
     }
 
+    // 2. Cancel an in-progress drag.
     switch (app.interactionState) {
         case 'segmentDrag':
-            // Revert bridge insertions from segment drag start
+            // Revert bridge insertions from segment drag start.
             if (app.drag?.wireStates) {
                 for (const [wire, beforeState] of app.drag.wireStates) {
                     app._applyShapeState(wire, beforeState);
                 }
             }
-            { const shape = app.drag?.shape;
-              clearDragState(app);
-              app.didDrag = false;
-              app.viewport.svg.style.cursor = '';
-              app.interactionState = 'idle';
-              if (shape) shape.selected = true;
-              app.renderShapes(true); }
+            cancelDragToIdle(app);
             return;
 
         case 'anchorDrag':
-            // Revert shape and linked wires to pre-drag state
+            // Revert shape and linked wires to pre-drag state.
             if (app.drag?.beforeState) {
                 app._applyShapeState(app.drag.shape, app.drag.beforeState);
             }
@@ -44,13 +95,7 @@ export function handleEscape(app) {
                     app._applyShapeState(wire, beforeState);
                 }
             }
-            { const shape = app.drag?.shape;
-              clearDragState(app);
-              app.didDrag = false;
-              app.viewport.svg.style.cursor = '';
-              app.interactionState = 'idle';
-              if (shape) shape.selected = true;
-              app.renderShapes(true); }
+            cancelDragToIdle(app);
             return;
 
         case 'moveDrag':
@@ -83,30 +128,137 @@ export function handleEscape(app) {
         case 'toolActive':
             app._onToolSelected('select');
             return;
+    }
 
-        case 'idle':
-        default:
-            // Cancel pending anchor drag if present
-            if (app.pendingAnchorDrag) {
-                const { shape, preInsertState } = app.pendingAnchorDrag;
-                if (preInsertState) {
-                    app._applyShapeState(shape, preInsertState);
-                }
-                if (shape) shape.selected = true;
-                app.pendingAnchorDrag = null;
-                app.viewport.svg.style.cursor = '';
-                app.renderShapes(true);
-                return;
-            }
-            // Close component picker if open
-            if (app.componentPicker.isOpen) {
-                app.componentPicker.close();
-                return;
-            }
-            // Clear selection
-            app.selection.clearSelection();
+    // 3. Pending (pre-threshold) midpoint split.
+    if (app.pendingAnchorDrag) {
+        const { shape, preInsertState } = app.pendingAnchorDrag;
+        if (preInsertState) app._applyShapeState(shape, preInsertState);
+        if (shape) shape.selected = true;
+        app.pendingAnchorDrag = null;
+        app.viewport.svg.style.cursor = '';
+        app.renderShapes(true);
+        return;
+    }
+
+    // 4. Component picker.
+    if (app.componentPicker?.isOpen) {
+        app.componentPicker.close();
+        return;
+    }
+
+    // 5. Active selection — deselect. (Selecting a shape auto-activates the
+    // Properties ribbon tab, so this must run BEFORE the ribbon-tab step
+    // below, otherwise the first Escape would only reset the ribbon.)
+    if (app.selection?.getSelection?.().length > 0) {
+        app.selection.clearSelection();
+        app.renderShapes(true);
+        return;
+    }
+
+    // 6. Open Net-style dropdown.
+    const netMenu = document.getElementById('ribbonNetStyleMenu');
+    if (netMenu && netMenu.classList.contains('open')) {
+        netMenu.classList.remove('open');
+        return;
+    }
+
+    // 7. Non-Home ribbon tab → Home.
+    const activeTab = (document.getElementById('ribbonSchematic') || document)
+        .querySelector('.ribbon-tab.active');
+    if (activeTab instanceof HTMLElement && activeTab.dataset.tab !== 'home') {
+        app._setActiveRibbonTab?.('home');
+        return;
+    }
+
+    // 8. Non-select tool → select (safety net for stale state).
+    if (app.currentTool !== 'select') {
+        app._onToolSelected('select');
+    }
+}
+
+/** Flip the placing component / selected components horizontally. */
+function handleFlipHorizontal(app, e) {
+    if (!app.textEdit && app.placingComponent) {
+        app._flipComponentH();
+        e.preventDefault();
+        return true;
+    }
+    if (canActOnSelection(app) && app.selection.getSelection().some(s => s.definition)) {
+        app._flipComponentH();
+        e.preventDefault();
+        return true;
+    }
+    return false;
+}
+
+/** Flip the placing component / selected components vertically. */
+function handleFlipVertical(app, e) {
+    if (!app.textEdit && app.placingComponent) {
+        app._flipComponentV();
+        e.preventDefault();
+        return;
+    }
+    if (canActOnSelection(app) && app.selection.getSelection().some(s => s.definition)) {
+        app._flipComponentV();
+        e.preventDefault();
+    }
+}
+
+/**
+ * Spacebar: rotate the placing component, the selected components, the
+ * active Net tool's orientation, or selected Net/Text shapes.
+ */
+function handleSpaceRotate(app, e) {
+    // Rotate component while placing.
+    if (!app.textEdit && app.placingComponent) {
+        app._rotateComponentRight();
+        e.preventDefault();
+        return;
+    }
+    // Rotate selected component(s).
+    if (canActOnSelection(app) && app.selection.getSelection().some(s => s.definition)) {
+        app._rotateComponentRight();
+        e.preventDefault();
+        return;
+    }
+    // Rotate Net orientation while the Net tool is active.
+    if (!app.textEdit && app.currentTool === 'net') {
+        const current = app.toolOptions?.netOrientation || 'E';
+        app._onOptionsChanged?.({ netOrientation: rotateNetOrientation(current) });
+        const world = app.viewport.currentMouseWorld;
+        if (world) {
+            const resolved = resolveWireSnapPosition(app, world, { pinTolerance: PIN_SNAP_TOL });
+            updateToolGhost(app, { x: resolved.x, y: resolved.y });
+        }
+        e.preventDefault();
+        return;
+    }
+    // Rotate selected Net / Text shapes.
+    if (!app.textEdit && !app.isDrawing && app.currentTool === 'select') {
+        const sel = app.selection.getSelection();
+
+        const netShapes = sel.filter(s => s.type === 'net' && !s.locked);
+        if (netShapes.length > 0) {
+            const newOrientation = rotateNetOrientation(netShapes[0].orientation || 'E');
+            app.history.execute(new ModifyPropertyCommand(app, netShapes, 'orientation', newOrientation));
             app.renderShapes(true);
+            app._updatePropertiesPanel(sel);
+            e.preventDefault();
             return;
+        }
+
+        const textShapes = sel.filter(s => s.type === 'text' && !s.locked);
+        if (textShapes.length > 0) {
+            const newRot = textShapes[0].rotation === 270 ? 0 : 270;
+            app.history.execute(new ModifyPropertyCommand(app, textShapes, 'rotation', newRot));
+            app.renderShapes(true);
+            app._updatePropertiesPanel(sel);
+            if (sel.length === 1 && sel[0].parentComponent) {
+                updateLabelDragGuide(app, sel[0]);
+            }
+            e.preventDefault();
+        }
     }
 }
 
@@ -231,24 +383,9 @@ export function bindKeyboardShortcuts(app) {
         } else {
             switch (e.key) {
                 case 'Escape': {
-                    // Close Net dropdown if open (highest priority)
-                    const netMenu = document.getElementById('ribbonNetStyleMenu');
-                    if (netMenu && netMenu.classList.contains('open')) {
-                        netMenu.classList.remove('open');
-                        e.preventDefault();
-                        break;
-                    }
-                    // If a non-Home ribbon tab is showing, switch back to Home
-                    const activeTab = (document.getElementById('ribbonSchematic') || document).querySelector('.ribbon-tab.active');
-                    if (activeTab && activeTab.dataset.tab !== 'home') {
-                        app._setActiveRibbonTab('home');
-                        e.preventDefault();
-                        break;
-                    }
+                    // All cancellation precedence lives in handleEscape.
+                    // Escape is always consumed in schematic mode.
                     app._handleEscape();
-                    if (!app.textEdit && !app.isDrawing && !app.pastingClipboard && !app.placingComponent && !app.componentPicker?.isOpen && app.currentTool !== 'select') {
-                        app._onToolSelected('select');
-                    }
                     e.preventDefault();
                     e.stopPropagation();
                     e.stopImmediatePropagation();
@@ -272,142 +409,20 @@ export function bindKeyboardShortcuts(app) {
                 case 'Backspace':
                     app._deleteSelected();
                     break;
-                case 'v':
-                case 'V':
-                    app._onToolSelected('select');
-                    break;
-                case 'l':
-                case 'L':
-                    app._onToolSelected('text');
-                    break;
-                case 'w':
-                case 'W':
-                    app._onToolSelected('wire');
-                    break;
-                case 'c':
-                case 'C':
-                    app._onToolSelected('circle');
-                    break;
-                case 'a':
-                case 'A':
-                    app._onToolSelected('arc');
-                    break;
-                case 'p':
-                case 'P':
-                    app._onToolSelected('polygon');
-                    break;
-                case 'i':
-                case 'I':
-                    app._onToolSelected('line');
-                    break;
-                case 'n':
-                case 'N':
-                    app._onToolSelected('net');
-                    break;
                 case 'x':
                 case 'X':
-                    // X: flip component horizontally while placing or selected
-                    if (!app.textEdit && app.placingComponent) {
-                        app._flipComponentH();
-                        e.preventDefault();
-                        break;
-                    }
-                    if (!app.textEdit && !app.isDrawing && !app.pastingClipboard && app.currentTool === 'select') {
-                        const sel = app.selection.getSelection();
-                        const components = sel.filter(s => s.definition);
-                        if (components.length > 0) {
-                            app._flipComponentH();
-                            e.preventDefault();
-                            break;
-                        }
-                    }
+                    // X: flip horizontally (placing/selected component) else
+                    // select the no-connect tool.
+                    if (handleFlipHorizontal(app, e)) break;
                     app._onToolSelected('noconnect');
                     break;
                 case 'y':
                 case 'Y':
-                    // Y: flip component vertically while placing or selected
-                    if (!app.textEdit && app.placingComponent) {
-                        app._flipComponentV();
-                        e.preventDefault();
-                        break;
-                    }
-                    if (!app.textEdit && !app.isDrawing && !app.pastingClipboard && app.currentTool === 'select') {
-                        const sel = app.selection.getSelection();
-                        const components = sel.filter(s => s.definition);
-                        if (components.length > 0) {
-                            app._flipComponentV();
-                            e.preventDefault();
-                            break;
-                        }
-                    }
+                    // Y: flip vertically (placing/selected component). No tool.
+                    handleFlipVertical(app, e);
                     break;
                 case ' ':
-                    // Spacebar: rotate component while placing or selected
-                    if (!app.textEdit && app.placingComponent) {
-                        app._rotateComponentRight();
-                        e.preventDefault();
-                        break;
-                    }
-                    if (!app.textEdit && !app.isDrawing && !app.pastingClipboard && app.currentTool === 'select') {
-                        const sel = app.selection.getSelection();
-                        const components = sel.filter(s => s.definition);
-                        if (components.length > 0) {
-                            app._rotateComponentRight();
-                            e.preventDefault();
-                            break;
-                        }
-                    }
-
-                    // Spacebar: rotate Net orientation while placing
-                    if (!app.textEdit && app.currentTool === 'net') {
-                        const current = app.toolOptions?.netOrientation || 'E';
-                        const next = rotateNetOrientation(current);
-                        app._onOptionsChanged?.({ netOrientation: next });
-
-                        const world = app.viewport.currentMouseWorld;
-                        if (world) {
-                            const resolved = resolveWireSnapPosition(app, world, { pinTolerance: PIN_SNAP_TOL });
-                            updateToolGhost(app, { x: resolved.x, y: resolved.y });
-                        }
-
-                        e.preventDefault();
-                        break;
-                    }
-
-                    // Spacebar: toggle H/V rotation on any selected text shape
-                    if (!app.textEdit && !app.isDrawing && app.currentTool === 'select') {
-                        const sel = app.selection.getSelection();
-
-                        // Rotate selected Net shapes
-                        const netShapes = sel.filter(s => s.type === 'net' && !s.locked);
-                        if (netShapes.length > 0) {
-                            const newOrientation = rotateNetOrientation(netShapes[0].orientation || 'E');
-                            const cmd = new ModifyPropertyCommand(app, netShapes, 'orientation', newOrientation);
-                            app.history.execute(cmd);
-                            app.renderShapes(true);
-                            app._updatePropertiesPanel(sel);
-                            e.preventDefault();
-                            break;
-                        }
-
-                        const textShapes = sel.filter(s => s.type === 'text' && !s.locked);
-                        if (textShapes.length > 0) {
-                            const newRot = textShapes[0].rotation === 270 ? 0 : 270;
-                            const cmd = new ModifyPropertyCommand(app, textShapes, 'rotation', newRot);
-                            app.history.execute(cmd);
-                            app.renderShapes(true);
-                            app._updatePropertiesPanel(sel);
-                            if (sel.length === 1 && sel[0].parentComponent) {
-                                updateLabelDragGuide(app, sel[0]);
-                            }
-                            e.preventDefault();
-                        }
-                    }
-                    break;
-                case 'o':
-                case 'O':
-                    e.preventDefault();
-                    app._onToolSelected('component');
+                    handleSpaceRotate(app, e);
                     break;
                 case 'f':
                 case 'F':
@@ -426,13 +441,6 @@ export function bindKeyboardShortcuts(app) {
                 case '_':
                     e.preventDefault();
                     app.viewport.zoomOut();
-                    break;
-                case 'r':
-                case 'R':
-                    app._onToolSelected('rect');
-                    break;
-                case 'm':
-                case 'M':
                     break;
                 case 'ArrowUp':
                 case 'ArrowDown':
@@ -458,6 +466,15 @@ export function bindKeyboardShortcuts(app) {
                         app.viewport.viewBox.y += dy > 0 ? panAmount : dy < 0 ? -panAmount : 0;
                         app.viewport._updateViewBox();
                         app.viewport._notifyViewChanged();
+                    }
+                    break;
+                }
+                default: {
+                    // Single-letter tool shortcuts (v/w/c/a/p/i/n/o/r/l).
+                    const tool = TOOL_KEYS[e.key.toLowerCase()];
+                    if (tool) {
+                        e.preventDefault();
+                        app._onToolSelected(tool);
                     }
                     break;
                 }

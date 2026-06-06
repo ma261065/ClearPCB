@@ -564,6 +564,13 @@ export function popTrackWaypoint(app) {
  * @param {object} app - PCBApp
  */
 export function reconcileRatsnest(app) {
+    // The clearance overlay is derived from the rendered trace geometry, so
+    // it must be rebuilt whenever the copper changes — exactly the same set
+    // of call sites that reconcile the ratsnest (live vertex drag, drag
+    // finish, and every track/via command). Keep the two overlays in lock-
+    // step here (no-op unless the clearance overlay is currently visible).
+    app._refreshClearanceHalos?.();
+
     const ratLayer = app._getLayerGroup?.('ratlines');
     if (!ratLayer) return;
 
