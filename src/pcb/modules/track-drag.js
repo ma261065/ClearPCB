@@ -31,6 +31,7 @@ import {
     snapNodeToAxis,
     snapNodeToCollinear,
     applyAxisConstraint,
+    _axisAlignment,
     COLLINEAR_SNAP_SCREEN_PX,
     COLLINEAR_GLOW_ANGLE_TOL,
 } from './track-draw.js';
@@ -888,6 +889,11 @@ function _incidentSegments(track, nodes) {
             layerId: track.edgeLayers.get(edgeId) || track.layer || 'top-copper',
             width: track.width,
             collinear: false,
+            // Axis classification of the (post-snap) geometry. This is the
+            // SINGLE place the glow's H/V/45 kind is decided: the glow reads
+            // `axisKind` and never re-derives it, so the glow lights a
+            // segment exactly when the snap pinned it onto an axis.
+            axisKind: _axisAlignment(a, b),
             // "Frozen": both endpoints move together (the segment being
             // translated in a segment drag), so its orientation can't change.
             // Don't give it an H/V/45 glow on its own — only light it when a

@@ -44,7 +44,7 @@ const PREVIEW_CLASS = 'pcb-track-preview';
  * Screen-pixel pull radius for the collinear (straight-line) snap applied
  * while dragging a degree-2 waypoint between its two neighbours.
  */
-export const COLLINEAR_SNAP_SCREEN_PX = 6;
+export const COLLINEAR_SNAP_SCREEN_PX = 15;
 
 /**
  * Glow colour shown when two incident segments are collinear (any angle).
@@ -964,7 +964,10 @@ export function renderTrackAxisGlow(app, segments) {
             // gets no axis glow on its own — only via a collinear pull above.
             continue;
         } else {
-            const align = _axisAlignment(seg.a, seg.b);
+            // The segment model already classified this edge against the
+            // exact post-snap geometry; the glow renders that decision and
+            // never re-derives it, so glow and snap stay in lock-step.
+            const align = seg.axisKind !== undefined ? seg.axisKind : _axisAlignment(seg.a, seg.b);
             if (!align) continue;
             color = _alignColor(align);
         }
@@ -1192,19 +1195,31 @@ function _appendPreviewVia(ctx, holeLayer, p, viaDia, viaDrill) {
  * Classify a segment as horizontal, vertical, or diagonal (45°), or
  * return null if it isn't axis-aligned within tolerance.
  *
+ * This is the SINGLE definition of "axis-aligned" shared by the snap and
+ * the glow. The snap pins a segment to an EXACT axis (applyAxisConstraint
+ * zeroes the minor-axis component), so the tolerance is effectively zero —
+ * the classifier returns a kind only for geometry the snap actually
+ * produced. The drag glow does not call this directly; the segment model
+ * (`_incidentSegments`) calls it once per edge and the glow renders that
+ * decision, so the two can never disagree.
+ *
  * @param {{x:number,y:number}} a
  * @param {{x:number,y:number}} b
  * @returns {'h'|'v'|'d'|null}
  */
-function _axisAlignment(a, b) {
+export function _axisAlignment(a, b) {
     const dx = b.x - a.x;
     const dy = b.y - a.y;
     const len = Math.hypot(dx, dy);
     if (len < 1e-6) return null;
     const adx = Math.abs(dx);
     const ady = Math.abs(dy);
-    // ~0.5° tolerance on the minor axis (relative to segment length).
-    const TOL = 0.01;
+    // The snap pins a segment to an EXACT axis (applyAxisConstraint zeroes
+    // the minor axis), so the glow only needs to recognise exact alignment.
+    // A tight tolerance keeps the glow in lock-step with the snap — a wider
+    // angular tolerance would light segments that are close but never snapped
+    // (the snap pull is a screen-pixel distance, not a fixed angle).
+    const TOL = 1e-4;
     if (ady / len < TOL) return 'h';
     if (adx / len < TOL) return 'v';
     if (Math.abs(adx - ady) / len < TOL) return 'd';
@@ -1224,7 +1239,7 @@ function _alignColor(kind) {
 /** Stroke-dash style per glow kind: solid H/V, dashed 45°, dotted collinear. */
 function _glowDashKind(seg) {
     if (seg.collinear) return 'dotted';
-    const align = _axisAlignment(seg.a, seg.b);
+    const align = seg.axisKind !== undefined ? seg.axisKind : _axisAlignment(seg.a, seg.b);
     if (align === 'd') return 'dashed';
     return 'solid';
 }
