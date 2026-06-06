@@ -26,13 +26,17 @@ import {
     resolveTrackSnap,
     reconcileRatsnest,
     renderTrackAxisGlow,
+    renderTrackAxisGlowTop,
     clearTrackAxisGlow,
     snapNodeToAxis,
     snapNodeToCollinear,
+    applyAxisConstraint,
     COLLINEAR_SNAP_SCREEN_PX,
+    COLLINEAR_GLOW_ANGLE_TOL,
 } from './track-draw.js';
 import { refreshTrackSelectionHalo } from './track-select.js';
 import { MoveVertexCommand, MoveViaCommand, CompoundCommand, ModifyTrackGraphCommand, RemoveTrackCommand, AddViaCommand } from './track-commands.js';
+import { pointsCollinear, collinearSnap } from '../../core/geometry.js';
 import { showAlert } from '../../ui/modules/modal.js';
 import { Via } from '../../shapes/via.js';
 
@@ -53,10 +57,11 @@ function _viaAtPoint(app, x, y) {
     return false;
 }
 
-function _opts(app) {
+function _opts(app, track = app._vertexDrag?.track) {
     return {
         viaDiameter: app._getRoutingParams?.()?.viaDiameter,
         viaDrill: app._getRoutingParams?.()?.viaDrill,
+        hideNetLabel: !!track && (track === app._selectedTrack || track === app._vertexDrag?.track),
     };
 }
 
@@ -669,12 +674,14 @@ export function updateVertexDrag(app, worldPos) {
     if (!drag) return;
 
     if (drag.mode === 'segment') {
-        // Translate both endpoints by the raw cursor delta. Pad/grid
-        // snapping is intentionally skipped here (snapping each endpoint
-        // independently would distort the segment); a bonded endpoint
-        // that moves drops its pad link.
-        const dx = worldPos.x - drag.grabX;
-        const dy = worldPos.y - drag.grabY;
+        // Translate both endpoints by the cursor delta. The dragged segment
+        // itself can't change orientation, but its connected (non-dragged)
+        // neighbours can — so snap the delta when one of those neighbours
+        // lands on an H/V/45° axis or becomes collinear with its far edge.
+        const rawDx = worldPos.x - drag.grabX;
+        const rawDy = worldPos.y - drag.grabY;
+        const threshold = COLLINEAR_SNAP_SCREEN_PX / (app.viewport?.scale || 1);
+        const { dx, dy } = _snapSegmentDrag(drag.track, drag.nodes, rawDx, rawDy, threshold);
         for (const nd of drag.nodes) {
             const n = drag.track.nodes.get(nd.nodeId);
             if (!n) continue;
@@ -684,6 +691,7 @@ export function updateVertexDrag(app, worldPos) {
         }
         renderTrackAxisGlow(app, _incidentSegments(drag.track, drag.nodes));
         renderTrack(drag.track, (id) => app._getLayerGroup(id), _opts(app));
+        renderTrackAxisGlowTop(app);
         refreshTrackSelectionHalo(app);
         reconcileRatsnest(app);
         return;
@@ -707,21 +715,22 @@ export function updateVertexDrag(app, worldPos) {
             const nb = drag.track.nodes.get(otherNode);
             if (nb) neighbours.push({ x: nb.x, y: nb.y });
         }
-        // Prefer the straight-line (collinear) snap when this is a degree-2
-        // waypoint near the line through both neighbours — projecting onto
-        // that line makes the two incident segments collinear at any angle
-        // (and lights the collinear glow). Otherwise fall back to the
-        // per-segment H/V/45° axis snap.
+        const pos = { x: n.x, y: n.y };
         const threshold = COLLINEAR_SNAP_SCREEN_PX / (app.viewport?.scale || 1);
-        const collinear = snapNodeToCollinear({ x: n.x, y: n.y }, neighbours, threshold);
-        if (collinear) {
-            n.x = collinear.x;
-            n.y = collinear.y;
-        } else {
-            const snapped = snapNodeToAxis({ x: n.x, y: n.y }, neighbours);
-            n.x = snapped.x;
-            n.y = snapped.y;
-        }
+        // 1. Dragged node is itself a degree-2 waypoint between its two
+        //    neighbours: project onto the line through them so both incident
+        //    segments become one straight run.
+        let snapped = snapNodeToCollinear(pos, neighbours, threshold);
+        // 2. Otherwise, when dragging an endpoint whose neighbour is a
+        //    degree-2 corner, project onto the extension of that corner's
+        //    far segment so the dragged segment lines up straight through
+        //    the corner (the across-the-node collinear case). Subtle pull,
+        //    same band as the green collinear glow.
+        if (!snapped) snapped = _snapNodeAcrossNeighbour(drag.track, nd.nodeId, pos, threshold);
+        // 3. Fall back to the per-segment H/V/45° axis snap (same pull band).
+        if (!snapped) snapped = snapNodeToAxis(pos, neighbours, threshold);
+        n.x = snapped.x;
+        n.y = snapped.y;
     }
 
     // If the user landed on a pad, record/replace the pad connection.
@@ -736,42 +745,240 @@ export function updateVertexDrag(app, worldPos) {
 
     renderTrackAxisGlow(app, _incidentSegments(drag.track, drag.nodes));
     renderTrack(drag.track, (id) => app._getLayerGroup(id), _opts(app));
+    renderTrackAxisGlowTop(app);
     // Keep the selection halo glued to the new geometry.
     refreshTrackSelectionHalo(app);
     reconcileRatsnest(app);
 }
 
 /**
+ * Snap the translation delta of a segment drag so a connected (non-dragged)
+ * neighbour segment locks onto an H/V/45° axis or becomes collinear with its
+ * far edge. Both dragged endpoints move by the same delta, so we look for a
+ * nearby delta that satisfies a constraint on any dragged endpoint's edge to
+ * a fixed neighbour. Independent H/V snaps combine per-axis; 45°/collinear
+ * are coupled candidates and win when they fit at least as tightly.
+ *
+ * @param {Track} track
+ * @param {Array<{nodeId:string, startX:number, startY:number}>} nodes
+ * @param {number} rawDx raw cursor delta x (world mm)
+ * @param {number} rawDy raw cursor delta y (world mm)
+ * @param {number} threshold perpendicular pull distance (world mm)
+ * @returns {{dx:number, dy:number}}
+ */
+function _snapSegmentDrag(track, nodes, rawDx, rawDy, threshold) {
+    const draggedSet = new Set(nodes.map((n) => n.nodeId));
+    // Start positions of the dragged nodes (they all translate by the same
+    // delta, so the dragged segment's direction is constant during the drag).
+    const startMap = new Map(nodes.map((n) => [n.nodeId, { x: n.startX, y: n.startY }]));
+    // Coupled 45°/collinear candidates: full delta, smallest nudge wins.
+    let coupled = null;
+    const considerCoupled = (dx, dy) => {
+        const nudge = Math.hypot(dx - rawDx, dy - rawDy);
+        if (nudge <= threshold && (!coupled || nudge < coupled.nudge)) {
+            coupled = { dx, dy, nudge };
+        }
+    };
+    // Independent per-axis H/V snaps.
+    let snapX = rawDx, snapY = rawDy;
+    let bestXNudge = threshold, bestYNudge = threshold;
+    let snappedX = false, snappedY = false;
+
+    for (const nd of nodes) {
+        const sx = nd.startX, sy = nd.startY;
+        const newPos = { x: sx + rawDx, y: sy + rawDy };
+        const inc = track.incidentEdges(nd.nodeId);
+
+        // Scenario A — collinear at the DRAGGED node: when this endpoint has
+        // exactly one frozen (dragged) segment and one fixed neighbour on the
+        // same layer, the neighbour can line up straight with the dragged
+        // segment (they fuse on release). The dragged segment's direction is
+        // fixed, so project the moved endpoint onto the line through the fixed
+        // neighbour parallel to that direction.
+        if (inc.length === 2) {
+            const draggedEdge = inc.find((e) => draggedSet.has(e.otherNode));
+            const fixedEdge = inc.find((e) => !draggedSet.has(e.otherNode));
+            if (draggedEdge && fixedEdge) {
+                const l1 = track.edgeLayers.get(draggedEdge.edgeId) || track.layer;
+                const l2 = track.edgeLayers.get(fixedEdge.edgeId) || track.layer;
+                const P = startMap.get(draggedEdge.otherNode);   // dragged partner (start)
+                const F = track.nodes.get(fixedEdge.otherNode);  // fixed neighbour
+                if (l1 === l2 && P && F) {
+                    const segDx = P.x - sx, segDy = P.y - sy;    // frozen direction
+                    const far = { x: F.x + segDx, y: F.y + segDy };
+                    const proj = collinearSnap(F, newPos, far, threshold);
+                    if (proj) considerCoupled(proj.x - sx, proj.y - sy);
+                }
+            }
+        }
+
+        for (const { edgeId, otherNode } of inc) {
+            if (draggedSet.has(otherNode)) continue;     // skip the frozen dragged segment
+            const F = track.nodes.get(otherNode);
+            if (!F) continue;
+            // Vertical: snap delta.x so F→D is vertical.
+            const cx = F.x - sx, nx = Math.abs(rawDx - cx);
+            if (nx < bestXNudge) { bestXNudge = nx; snapX = cx; snappedX = true; }
+            // Horizontal: snap delta.y so F→D is horizontal.
+            const cy = F.y - sy, ny = Math.abs(rawDy - cy);
+            if (ny < bestYNudge) { bestYNudge = ny; snapY = cy; snappedY = true; }
+            // 45°: project the moved endpoint onto the nearest diagonal from F.
+            const d45 = applyAxisConstraint(F, newPos, 'd');
+            considerCoupled(d45.x - sx, d45.y - sy);
+            // Scenario B — collinear at a FIXED corner: when F is a degree-2
+            // corner, project the moved endpoint onto the line through F and
+            // its far neighbour so the dragged-to-F segment lines up straight
+            // with that far edge.
+            const fInc = track.incidentEdges(otherNode);
+            if (fInc.length === 2) {
+                const other = fInc.find((e) => e.otherNode !== nd.nodeId);
+                const l1 = track.edgeLayers.get(edgeId) || track.layer;
+                const l2 = other ? (track.edgeLayers.get(other.edgeId) || track.layer) : null;
+                if (other && l1 === l2) {
+                    const G = track.nodes.get(other.otherNode);
+                    if (G) {
+                        const proj = collinearSnap(F, newPos, G, threshold);
+                        if (proj) considerCoupled(proj.x - sx, proj.y - sy);
+                    }
+                }
+            }
+        }
+    }
+
+    // Only count an axis nudge when a snap actually fired on that axis;
+    // otherwise the raw delta is unconstrained there and must not pin the
+    // coupled 45°/collinear candidate out of contention.
+    const axisNudge = (snappedX || snappedY)
+        ? Math.hypot(snappedX ? rawDx - snapX : 0, snappedY ? rawDy - snapY : 0)
+        : Infinity;
+    if (coupled && coupled.nudge <= axisNudge) return { dx: coupled.dx, dy: coupled.dy };
+    return { dx: snapX, dy: snapY };
+}
+
+/**
  * Collect the edges incident to the dragged node(s) as live segments for
- * the axis-alignment glow. Each segment runs from a dragged node to its
- * neighbour and carries that edge's copper layer. Edges are de-duplicated
- * (a segment shared by two dragged nodes is emitted once).
+ * the axis-alignment glow, and flag those that participate in a collinear
+ * "would-merge-on-release" relationship.
+ *
+ * Each returned segment runs between two nodes and carries that edge's
+ * copper layer. The `collinear` flag is set when the segment is one of the
+ * two edges of a degree-2 node whose edges are collinear (same layer) —
+ * exactly the condition `collapseCollinearTrackNodes` fuses on release. The
+ * pivot may be the dragged node itself OR a degree-2 corner that an
+ * endpoint drag rotates a segment toward (that corner is not a dragged
+ * node, so its far "second-ring" edge is pulled in too so it glows).
  *
  * @param {Track} track
  * @param {Array<{nodeId:string}>} nodes
- * @returns {Array<{a:{x:number,y:number}, b:{x:number,y:number}, layerId:string, width:number}>}
+ * @returns {Array<{a:{x:number,y:number}, b:{x:number,y:number}, layerId:string, width:number, collinear:boolean}>}
  */
 function _incidentSegments(track, nodes) {
-    const segs = [];
-    const seen = new Set();
+    const draggedSet = new Set(nodes.map((n) => n.nodeId));
+    const segMap = new Map(); // edgeId → segment record (deduped)
+    const addEdge = (edgeId) => {
+        if (segMap.has(edgeId)) return segMap.get(edgeId);
+        const e = track.edges.get(edgeId);
+        if (!e) return null;
+        const a = track.nodes.get(e.from);
+        const b = track.nodes.get(e.to);
+        if (!a || !b) return null;
+        const rec = {
+            a: { x: a.x, y: a.y },
+            b: { x: b.x, y: b.y },
+            layerId: track.edgeLayers.get(edgeId) || track.layer || 'top-copper',
+            width: track.width,
+            collinear: false,
+            // "Frozen": both endpoints move together (the segment being
+            // translated in a segment drag), so its orientation can't change.
+            // Don't give it an H/V/45 glow on its own — only light it when a
+            // collinear relationship pulls it in (handled in step 2).
+            frozen: draggedSet.has(e.from) && draggedSet.has(e.to),
+        };
+        segMap.set(edgeId, rec);
+        return rec;
+    };
+
+    // 1. Directly incident edges to the dragged node(s) — these change
+    //    orientation during the drag and always get a glow if axis-aligned.
+    const incidentEids = new Set();
     for (const { nodeId } of nodes) {
-        const a = track.nodes.get(nodeId);
-        if (!a) continue;
-        for (const { edgeId, otherNode } of track.incidentEdges(nodeId)) {
-            if (seen.has(edgeId)) continue;
-            seen.add(edgeId);
-            const b = track.nodes.get(otherNode);
-            if (!b) continue;
-            const layerId = track.edgeLayers.get(edgeId) || track.layer || 'top-copper';
-            segs.push({
-                a: { x: a.x, y: a.y },
-                b: { x: b.x, y: b.y },
-                layerId,
-                width: track.width,
-            });
+        for (const { edgeId } of track.incidentEdges(nodeId)) {
+            incidentEids.add(edgeId);
+            addEdge(edgeId);
         }
     }
-    return segs;
+
+    // 2. Collinear-merge detection at every degree-2 node touched by an
+    //    incident segment (the dragged node, and the far corners its
+    //    segments rotate toward). When such a pivot's two edges line up
+    //    (same layer, within the merge angle tolerance), flag BOTH green —
+    //    pulling in the partner edge even when it isn't directly incident.
+    const pivots = new Set();
+    for (const eid of incidentEids) {
+        const e = track.edges.get(eid);
+        if (!e) continue;
+        pivots.add(e.from);
+        pivots.add(e.to);
+    }
+    for (const pid of pivots) {
+        const inc = track.incidentEdges(pid);
+        if (inc.length !== 2) continue;
+        const l1 = track.edgeLayers.get(inc[0].edgeId) || track.layer;
+        const l2 = track.edgeLayers.get(inc[1].edgeId) || track.layer;
+        if (l1 !== l2) continue;
+        const p = track.nodes.get(pid);
+        const f1 = track.nodes.get(inc[0].otherNode);
+        const f2 = track.nodes.get(inc[1].otherNode);
+        if (!p || !f1 || !f2) continue;
+        if (!pointsCollinear(f1, p, f2, COLLINEAR_GLOW_ANGLE_TOL)) continue;
+        const r1 = addEdge(inc[0].edgeId);
+        const r2 = addEdge(inc[1].edgeId);
+        if (r1) r1.collinear = true;
+        if (r2) r2.collinear = true;
+    }
+
+    return [...segMap.values()];
+}
+
+/**
+ * Straight-line snap across a degree-2 neighbour. When the dragged node
+ * `nodeId` has a neighbour that is a degree-2 corner (one edge back to the
+ * dragged node, one edge on to a far node), project `pos` onto the line
+ * through that corner and its far node — so the dragged segment becomes
+ * collinear with the corner's other segment (they would fuse on release).
+ * Only same-layer corners qualify. When several corners are in range the
+ * one needing the smallest nudge wins. Returns the projected position, or
+ * null if no corner is within `threshold`.
+ *
+ * @param {Track} track
+ * @param {string} nodeId dragged node
+ * @param {{x:number,y:number}} pos current dragged-node position
+ * @param {number} threshold perpendicular pull distance (world mm)
+ * @returns {{x:number,y:number}|null}
+ */
+function _snapNodeAcrossNeighbour(track, nodeId, pos, threshold) {
+    let best = null;
+    let bestDist = Infinity;
+    for (const { edgeId, otherNode } of track.incidentEdges(nodeId)) {
+        const inc = track.incidentEdges(otherNode);
+        if (inc.length !== 2) continue;               // neighbour must be a corner
+        const other = inc.find((e) => e.otherNode !== nodeId);
+        if (!other) continue;
+        const l1 = track.edgeLayers.get(edgeId) || track.layer;
+        const l2 = track.edgeLayers.get(other.edgeId) || track.layer;
+        if (l1 !== l2) continue;                      // only same-layer runs merge
+        const corner = track.nodes.get(otherNode);
+        const far = track.nodes.get(other.otherNode);
+        if (!corner || !far) continue;
+        const proj = collinearSnap(corner, pos, far, threshold);
+        if (!proj) continue;
+        const d = Math.hypot(proj.x - pos.x, proj.y - pos.y);
+        if (d < bestDist) {
+            bestDist = d;
+            best = proj;
+        }
+    }
+    return best;
 }
 
 /**
@@ -801,7 +1008,7 @@ export function finishVertexDrag(app) {
         if (!moved) {
             // No real move: discard the bridge geometry added on start.
             drag.track.applyState(drag.graphBefore);
-            renderTrack(drag.track, (id) => app._getLayerGroup(id), _opts(app));
+            renderTrack(drag.track, (id) => app._getLayerGroup(id), _opts(app, drag.track));
             refreshTrackSelectionHalo(app);
             reconcileRatsnest(app);
             return;
@@ -871,7 +1078,7 @@ export function cancelVertexDrag(app) {
     if (drag.graphBefore) {
         // Roll back any bridge geometry plus the node moves in one step.
         drag.track.applyState(drag.graphBefore);
-        renderTrack(drag.track, (id) => app._getLayerGroup(id), _opts(app));
+        renderTrack(drag.track, (id) => app._getLayerGroup(id), _opts(app, drag.track));
         refreshTrackSelectionHalo(app);
         reconcileRatsnest(app);
         return;
@@ -883,7 +1090,7 @@ export function cancelVertexDrag(app) {
             n.y = nd.startY;
         }
     }
-    renderTrack(drag.track, (id) => app._getLayerGroup(id), _opts(app));
+    renderTrack(drag.track, (id) => app._getLayerGroup(id), _opts(app, drag.track));
     reconcileRatsnest(app);
 }
 
@@ -953,7 +1160,7 @@ export function updateViaDrag(app, worldPos) {
         touched.add(a.track);
     }
     for (const t of touched) {
-        renderTrack(t, (id) => app._getLayerGroup(id), _opts(app));
+        renderTrack(t, (id) => app._getLayerGroup(id), _opts(app, t));
     }
     refreshTrackSelectionHalo(app);
     reconcileRatsnest(app);
@@ -1007,7 +1214,7 @@ export function cancelViaDrag(app) {
         if (n) { n.x = a.startX; n.y = a.startY; touched.add(a.track); }
     }
     for (const t of touched) {
-        renderTrack(t, (id) => app._getLayerGroup(id), _opts(app));
+        renderTrack(t, (id) => app._getLayerGroup(id), _opts(app, t));
     }
     refreshTrackSelectionHalo(app);
 }

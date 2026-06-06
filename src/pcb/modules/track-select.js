@@ -14,7 +14,7 @@
  *   - Multi-selection.
  */
 
-import { removeTrackElements, removeViaElements } from './track-render.js';
+import { removeTrackElements, removeViaElements, renderTrack } from './track-render.js';
 import { reconcileRatsnest, collectBondedCopper } from './track-draw.js';
 import { hitTestTrackEdge, deleteTrackSegment, hitTestTrackNode, splitTrackNodeAndDrag, deleteTrackNode } from './track-drag.js';
 import {
@@ -106,6 +106,7 @@ export function selectTrackOrVia(app, hit) {
     }
     if (hit.type === 'track') {
         app._selectedTrack = hit.track;
+        _setTrackLabelsVisible(hit.track, false);
         _drawTrackHalo(app, hit.track);
         _showTrackProperties(app, hit.track);
     } else {
@@ -115,11 +116,38 @@ export function selectTrackOrVia(app, hit) {
     }
 }
 
+/** Show/hide a track's net-name labels without a full re-render. */
+function _setTrackLabelsVisible(track, visible) {
+    const els = track?._svgElements;
+    if (!els) return;
+    let found = false;
+    for (const el of els) {
+        if (el.getAttribute?.('class') === 'pcb-track-label') {
+            el.style.display = visible ? '' : 'none';
+            found = true;
+        }
+    }
+    return found;
+}
+
 /** Remove any track/via selection halos and clear stored references. */
 export function clearTrackSelection(app) {
+    const prev = app._selectedTrack;
     app._selectedTrack = null;
     app._selectedVia = null;
     _removeHalos(app, HALO_CLASS);
+    if (prev) {
+        // Bring the net labels back. They were hidden via display toggling,
+        // but a re-render while selected may have dropped them entirely
+        // (hideNetLabel) — in that case re-render now to rebuild them.
+        const restored = _setTrackLabelsVisible(prev, true);
+        if (!restored) {
+            renderTrack(prev, (id) => app._getLayerGroup(id), {
+                viaDiameter: app._getRoutingParams?.()?.viaDiameter,
+                viaDrill: app._getRoutingParams?.()?.viaDrill,
+            });
+        }
+    }
 }
 
 /**
@@ -139,6 +167,15 @@ export function refreshTrackSelectionHalo(app) {
  * already covers it).
  */
 export function setHoverHighlight(app, hit) {
+    // While a track is selected, suppress the whole-net hover highlight so
+    // the selection stays the sole focus.
+    if (app._selectedTrack) {
+        if (app._hoveredTrackOrVia !== null) {
+            app._hoveredTrackOrVia = null;
+            _removeHalos(app, HOVER_CLASS);
+        }
+        return;
+    }
     const key = hit
         ? (hit.type === 'track' ? hit.track
             : hit.type === 'via' ? hit.via
@@ -595,7 +632,7 @@ function _drawMidpointHandles(app, track, cls, parent, scale) {
     const midR = 5.5 / scale;
     const strokeW = 1 / scale;
     const plusLen = midR * 1.1;
-    const MID_COLOR = '#4aa3df';
+    const MID_COLOR = '#1565c0';
     for (const [, e] of track.edges) {
         const a = track.nodes.get(e.from);
         const b = track.nodes.get(e.to);

@@ -70,6 +70,12 @@ class AppBootstrap {
             tab.addEventListener('click', () => {
                 const mode = tab.dataset.mode === 'pcb' ? 'pcb' : 'schematic';
                 this.switchMode(mode);
+                // Don't let the tab keep DOM focus — otherwise the next
+                // keypress (e.g. Escape) promotes it to :focus-visible and
+                // paints a stray outline. The active-tab styling already
+                // conveys which mode is selected. Genuine keyboard Tab
+                // navigation still focuses (and rings) the tab afresh.
+                tab.blur();
             });
         });
     }

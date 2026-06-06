@@ -33,7 +33,7 @@
 import { Track } from '../../shapes/track.js';
 import { Via } from '../../shapes/via.js';
 import { renderTrack } from './track-render.js';
-import { collinearSnap, pointsCollinear } from '../../core/geometry.js';
+import { collinearSnap } from '../../core/geometry.js';
 
 const NS = 'http://www.w3.org/2000/svg';
 
@@ -46,8 +46,23 @@ const PREVIEW_CLASS = 'pcb-track-preview';
  */
 export const COLLINEAR_SNAP_SCREEN_PX = 6;
 
-/** Glow colour shown when two incident segments are collinear (any angle). */
-const COLLINEAR_GLOW_COLOR = '#33dd77';
+/**
+ * Glow colour shown when two incident segments are collinear (any angle).
+ * Okabe–Ito blue — sits on the blue–yellow axis so it stays distinct from
+ * the yellow/magenta axis glows for red–green colourblind users. Paired
+ * with a DOTTED line style so it never relies on hue alone.
+ */
+const COLLINEAR_GLOW_COLOR = '#0072B2';
+
+/**
+ * Angle tolerance (normalized cross product ≈ sine of the corner angle)
+ * for the collinear-pair glow. Matches the on-release merge tolerance
+ * (`COLLINEAR_EPSILON` in polyline-graph.js) so the glow lights exactly
+ * when releasing would fuse the two segments — important for SEGMENT
+ * drags, which translate freely with no collinear snap and so never reach
+ * the much tighter precision a node drag's projection snap achieves.
+ */
+export const COLLINEAR_GLOW_ANGLE_TOL = 0.01;
 
 /** Pad snap tolerance (world mm). */
 export const PAD_SNAP_TOL = 1.0;
@@ -308,29 +323,32 @@ function pickAxis(lastPt, worldPos, diagBand = 0.3) {
 }
 
 /**
- * If the dragged node forms an H/V/45° segment with any neighbour
- * (within the same band used for the alignment glow), snap the node so
- * that segment is exactly aligned. When several neighbours qualify, the
- * one needing the smallest positional nudge wins. The coordinate along
- * the aligned axis is preserved (so any grid snap there survives); only
- * the perpendicular coordinate is locked onto the neighbour's axis.
+ * If the dragged node is within `threshold` world units of forming an
+ * H / V / 45° segment with any neighbour, snap the node so that segment is
+ * exactly aligned. Each neighbour offers three candidate axes (horizontal,
+ * vertical, 45°); a candidate qualifies when the node sits within
+ * `threshold` of the aligned line, and across all neighbours/axes the one
+ * needing the smallest nudge wins. The band is a perpendicular *distance*
+ * (so the pull feels the same regardless of segment length), matching the
+ * collinear snap band.
  *
  * @param {{x:number,y:number}} pos current dragged-node position
  * @param {Array<{x:number,y:number}>} neighbours positions of adjacent nodes
+ * @param {number} [threshold] perpendicular pull distance (world mm); when
+ *   omitted, falls back to the legacy angular test (any alignment accepted).
  * @returns {{x:number,y:number}}
  */
-export function snapNodeToAxis(pos, neighbours) {
+export function snapNodeToAxis(pos, neighbours, threshold = Infinity) {
     let best = null;
     let bestDist = Infinity;
     for (const nb of neighbours) {
-        const align = _axisAlignment(nb, pos);
-        if (!align) continue;
-        const axis = align === 'h' ? 'horizontal' : align === 'v' ? 'vertical' : 'diagonal';
-        const snapped = applyAxisConstraint(nb, pos, axis);
-        const d = Math.hypot(snapped.x - pos.x, snapped.y - pos.y);
-        if (d < bestDist) {
-            bestDist = d;
-            best = snapped;
+        for (const axis of ['horizontal', 'vertical', 'diagonal']) {
+            const snapped = applyAxisConstraint(nb, pos, axis);
+            const d = Math.hypot(snapped.x - pos.x, snapped.y - pos.y);
+            if (d <= threshold && d < bestDist) {
+                bestDist = d;
+                best = snapped;
+            }
         }
     }
     return best || pos;
@@ -462,8 +480,9 @@ export function addTrackWaypoint(app, worldPos) {
 
 /**
  * Toggle the layer used by the *next* segment. The current anchor
- * becomes a layer-change node; on finish, `_buildExplicitVias()`
- * emits a standalone `Via` at that node.
+ * becomes a layer-change node; on finish, the draw is split into
+ * separate single-layer Track objects with a standalone `Via` at that
+ * node.
  */
 export function toggleTrackLayer(app) {
     const ctx = app._trackDraw;
@@ -485,19 +504,23 @@ export function finishTrackDraw(app) {
     if (!ctx) return;
 
     if (ctx.points.length >= 2) {
-        const track = _buildTrackFromContext(ctx);
-        // Emit a standalone Via at each layer-change node. Vias are
-        // independent objects from now on; the Track no longer carries
-        // implicit-via semantics.
-        const newVias = _buildExplicitVias(track, ctx);
+        // A draw that toggled layers mid-route is split into one
+        // single-layer Track object per layer run, joined at each
+        // transition by two coincident single-layer nodes plus a
+        // standalone Via — the canonical via/node model (the same shape
+        // the via tool produces). This keeps every graph node on exactly
+        // one copper layer.
+        const { tracks, vias: newVias } = _buildTracksFromContext(ctx);
         // If PCBApp provides an undo hook, route the add through it so
-        // the track lands on the history stack. Otherwise fall back to
+        // the tracks land on the history stack. Otherwise fall back to
         // a direct push + render.
-        if (typeof app._commitTrack === 'function') {
-            app._commitTrack(track, newVias);
+        if (typeof app._commitTracks === 'function') {
+            app._commitTracks(tracks, newVias);
         } else {
-            app.tracks.push(track);
-            renderTrack(track, (id) => app._getLayerGroup(id), _renderOptsFromApp(app));
+            for (const track of tracks) {
+                app.tracks.push(track);
+                renderTrack(track, (id) => app._getLayerGroup(id), _renderOptsFromApp(app));
+            }
             for (const v of newVias) {
                 app.vias.push(v);
                 // Render lazily to avoid a hard import cycle.
@@ -912,78 +935,148 @@ function _clearPreviewElements(ctx) {
 }
 
 /**
- * Draw H/V/45° axis-alignment glow underlays for a set of live segments
- * (e.g. the edges incident to a node being dragged). Mirrors the
- * affordance shown while drawing a track. Any segment that isn't
- * axis-aligned is skipped. Glow elements are tracked on
- * `app._trackAxisGlow` and replaced on each call — pass an empty array
- * or call `clearTrackAxisGlow` to remove them.
+ * Draw H/V/45° and collinear glow underlays for a set of live segments.
+ * Each segment carries a `collinear` flag (set upstream by
+ * `_incidentSegments` when it belongs to a degree-2 node whose two edges
+ * are collinear — i.e. would fuse on release): those are drawn GREEN.
+ * Remaining segments are drawn in their H/V/45° accent colour, or skipped
+ * if not axis-aligned. Glow elements are tracked on `app._trackAxisGlow`
+ * and replaced on each call — pass an empty array or call
+ * `clearTrackAxisGlow` to remove them.
  *
  * @param {object} app
- * @param {Array<{a:{x:number,y:number}, b:{x:number,y:number}, layerId:string, width?:number}>} segments
+ * @param {Array<{a:{x:number,y:number}, b:{x:number,y:number}, layerId:string, width?:number, collinear?:boolean}>} segments
  */
 export function renderTrackAxisGlow(app, segments) {
     clearTrackAxisGlow(app);
     if (!segments || !segments.length) return;
+    // Resolve each segment to a colour + dash style and stash it so the
+    // matching white centerlines can be drawn ON TOP of the track in a
+    // second pass (renderTrackAxisGlowTop), after renderTrack runs.
+    const resolved = [];
     const els = [];
-
-    // Collinear-pair highlight: when exactly two incident segments share
-    // the dragged node (their common apex) and the three points lie on a
-    // straight line, the pair forms ONE straight run at ANY angle — draw
-    // both with the collinear colour. This is the across-the-node case the
-    // per-segment H/V/45 test below cannot express. A tight angle tolerance
-    // keeps the glow in lock-step with the collinear snap (which projects
-    // the node exactly onto the line), so it only lights up once aligned.
-    if (segments.length === 2
-        && _ptsClose(segments[0].a, segments[1].a)
-        && pointsCollinear(segments[0].b, segments[0].a, segments[1].b, 1e-3)) {
-        for (const seg of segments) {
-            const el = _makeGlowLine(app, seg, COLLINEAR_GLOW_COLOR);
-            if (el) els.push(el);
-        }
-        app._trackAxisGlow = els;
-        return;
-    }
-
     for (const seg of segments) {
-        const align = _axisAlignment(seg.a, seg.b);
-        if (!align) continue;
-        const el = _makeGlowLine(app, seg, _alignColor(align));
-        if (el) els.push(el);
+        let color;
+        if (seg.collinear) {
+            color = COLLINEAR_GLOW_COLOR;
+        } else if (seg.frozen) {
+            // A translated segment can't change its own orientation, so it
+            // gets no axis glow on its own — only via a collinear pull above.
+            continue;
+        } else {
+            const align = _axisAlignment(seg.a, seg.b);
+            if (!align) continue;
+            color = _alignColor(align);
+        }
+        const dashKind = _glowDashKind(seg);
+        const parent = app._getLayerGroup(seg.layerId);
+        if (!parent) continue;
+        // Solid colour halo UNDER the track — only the outer ring shows, so
+        // the track copper keeps its true colour (no tint).
+        const halo = _makeGlowHalo(app, seg, color);
+        parent.appendChild(halo);
+        els.push(halo);
+        resolved.push({ seg, dashKind });
     }
     app._trackAxisGlow = els;
+    app._axisGlowResolved = resolved;
+    // Draw the centerlines now in case the track is already rendered; the
+    // standard flow re-draws them after renderTrack via renderTrackAxisGlowTop.
+    renderTrackAxisGlowTop(app);
 }
 
-/** Whether two points coincide within `eps` (world mm). */
-function _ptsClose(a, b, eps = 1e-6) {
-    return Math.abs(a.x - b.x) < eps && Math.abs(a.y - b.y) < eps;
+/**
+ * Second pass: draw the thin white patterned centerlines (solid / dashed /
+ * dotted) for the segments resolved by the last `renderTrackAxisGlow`.
+ * Call this AFTER `renderTrack` so the centerlines sit on top of the copper.
+ */
+export function renderTrackAxisGlowTop(app) {
+    if (app._trackAxisGlowTop) {
+        for (const el of app._trackAxisGlowTop) el.remove();
+    }
+    const tops = [];
+    for (const { seg, dashKind } of (app._axisGlowResolved || [])) {
+        const parent = app._getLayerGroup(seg.layerId);
+        if (!parent) continue;
+        const line = _makeGlowCenterline(app, seg, dashKind);
+        parent.appendChild(line);
+        tops.push(line);
+    }
+    app._trackAxisGlowTop = tops;
 }
 
-/** Build one glow underlay `<line>` for a segment, or null if no layer group. */
-function _makeGlowLine(app, seg, color) {
-    const parent = app._getLayerGroup(seg.layerId);
-    if (!parent) return null;
-    const glow = document.createElementNS(NS, 'line');
-    glow.setAttribute('class', PREVIEW_CLASS);
-    glow.setAttribute('x1', String(seg.a.x));
-    glow.setAttribute('y1', String(seg.a.y));
-    glow.setAttribute('x2', String(seg.b.x));
-    glow.setAttribute('y2', String(seg.b.y));
-    glow.setAttribute('stroke', color);
-    glow.setAttribute('stroke-width', String((seg.width || _getTrackWidth(app)) * 1.35));
-    glow.setAttribute('stroke-linecap', 'round');
-    glow.setAttribute('stroke-opacity', '0.9');
-    glow.setAttribute('pointer-events', 'none');
-    parent.appendChild(glow);
-    return glow;
+/**
+ * Build the solid colour halo (track width + outer ring) for a glow
+ * segment. Drawn UNDER the track so only its outer ring is visible.
+ */
+function _makeGlowHalo(app, seg, color) {
+    const scale = app.viewport?.scale || 1;
+    const trackW = seg.width || _getTrackWidth(app);
+    // Halo extends a fixed screen-pixel ring beyond each track edge, so the
+    // glow thickness looks the same at any zoom.
+    const ring = 5 / scale;
+    const line = document.createElementNS(NS, 'line');
+    line.setAttribute('class', PREVIEW_CLASS);
+    line.setAttribute('x1', String(seg.a.x));
+    line.setAttribute('y1', String(seg.a.y));
+    line.setAttribute('x2', String(seg.b.x));
+    line.setAttribute('y2', String(seg.b.y));
+    line.setAttribute('stroke', color);
+    line.setAttribute('stroke-width', String(trackW + ring * 2));
+    line.setAttribute('stroke-linecap', 'round');
+    line.setAttribute('stroke-opacity', '0.7');
+    line.setAttribute('pointer-events', 'none');
+    return line;
+}
+
+/**
+ * Build the thin white patterned centerline for a glow segment. White (not
+ * the halo colour) so the dash/dot gaps read clearly against the halo, and
+ * thin enough to sit on the track without tinting it.
+ */
+function _makeGlowCenterline(app, seg, dashKind) {
+    const scale = app.viewport?.scale || 1;
+    const line = document.createElementNS(NS, 'line');
+    line.setAttribute('class', PREVIEW_CLASS);
+    line.setAttribute('x1', String(seg.a.x));
+    line.setAttribute('y1', String(seg.a.y));
+    line.setAttribute('x2', String(seg.b.x));
+    line.setAttribute('y2', String(seg.b.y));
+    line.setAttribute('stroke', '#ffffff');
+    line.setAttribute('stroke-width', String(1.5 / scale));
+    line.setAttribute('stroke-linecap', dashKind === 'dotted' ? 'round' : 'butt');
+    _applyGlowDash(app, line, dashKind);
+    line.setAttribute('stroke-opacity', '0.95');
+    line.setAttribute('pointer-events', 'none');
+    return line;
+}
+
+/**
+ * Apply a dash pattern for the given style. The pattern is sized in fixed
+ * SCREEN pixels (converted to world units via the viewport scale) so dashes
+ * and dots look the same on screen at any zoom level.
+ */
+function _applyGlowDash(app, line, dashKind) {
+    const scale = app.viewport?.scale || 1;
+    const px = (n) => n / scale; // screen px -> world units
+    if (dashKind === 'dotted') {
+        // Tiny dash + round cap = round dot, spaced 6px.
+        line.setAttribute('stroke-dasharray', `${px(0.01)} ${px(6)}`);
+    } else if (dashKind === 'dashed') {
+        line.setAttribute('stroke-dasharray', `${px(8)} ${px(6)}`);
+    } else {
+        line.removeAttribute('stroke-dasharray');
+    }
 }
 
 /** Remove any axis-alignment glow underlays created by `renderTrackAxisGlow`. */
 export function clearTrackAxisGlow(app) {
-    const els = app._trackAxisGlow;
-    if (!els) return;
-    for (const el of els) el.remove();
-    app._trackAxisGlow = null;
+    for (const key of ['_trackAxisGlow', '_trackAxisGlowTop']) {
+        const els = app[key];
+        if (els) for (const el of els) el.remove();
+        app[key] = null;
+    }
+    app._axisGlowResolved = null;
 }
 
 function _renderPreview(app, ctx, livePt) {
@@ -1001,35 +1094,25 @@ function _renderPreview(app, ctx, livePt) {
     const width = String(ctx.width || _getTrackWidth(app));
 
     // Axis-alignment highlight: if the trailing rubber-band segment is
-    // horizontal, vertical, or exactly 45°, draw a soft yellow glow
-    // underlay so the user knows the segment is "on-axis". Mirrors the
-    // same affordance used by the schematic Wire tool.
-    {
+    // horizontal, vertical, or exactly 45°, draw a soft colour glow RING
+    // under the preview polyline (solid halo, only the outer ring shows) and
+    // a thin white patterned centerline on top. H/V = solid, 45° = dashed.
+    const axisGlow = (() => {
         const a = allPts[allPts.length - 2];
         const b = allPts[allPts.length - 1];
         const align = _axisAlignment(a, b);
-        if (align) {
-            const layerId = segLayers[segLayers.length - 1];
-            const parent = app._getLayerGroup(layerId);
-            if (parent) {
-                const glow = document.createElementNS(NS, 'line');
-                glow.setAttribute('class', PREVIEW_CLASS);
-                glow.setAttribute('x1', String(a.x));
-                glow.setAttribute('y1', String(a.y));
-                glow.setAttribute('x2', String(b.x));
-                glow.setAttribute('y2', String(b.y));
-                glow.setAttribute('stroke', _alignColor(align));
-                // Only a thin halo on each side — keep the perceived
-                // line width the same as the final committed track.
-                glow.setAttribute('stroke-width', String((ctx.width || _getTrackWidth(app)) * 1.35));
-                glow.setAttribute('stroke-linecap', 'round');
-                glow.setAttribute('stroke-opacity', '0.9');
-                glow.setAttribute('pointer-events', 'none');
-                parent.appendChild(glow);
-                ctx.previewElements.push(glow);
-            }
-        }
-    }
+        if (!align) return null;
+        const layerId = segLayers[segLayers.length - 1];
+        const parent = app._getLayerGroup(layerId);
+        if (!parent) return null;
+        const dashKind = align === 'd' ? 'dashed' : 'solid';
+        const seg = { a, b, width: ctx.width || _getTrackWidth(app) };
+        // Solid colour halo UNDER the polyline.
+        const halo = _makeGlowHalo(app, seg, _alignColor(align));
+        parent.appendChild(halo);
+        ctx.previewElements.push(halo);
+        return { seg, dashKind, parent };
+    })();
 
     // Group contiguous same-layer segments into runs and emit one
     // <polyline> per run — mirrors the final render and gives each
@@ -1056,6 +1139,13 @@ function _renderPreview(app, ctx, livePt) {
             }
             runStart = i;
         }
+    }
+
+    // White patterned centerline ON TOP of the preview polyline.
+    if (axisGlow) {
+        const line = _makeGlowCenterline(app, axisGlow.seg, axisGlow.dashKind);
+        axisGlow.parent.appendChild(line);
+        ctx.previewElements.push(line);
     }
 
     // Implicit-via markers: any committed anchor where adjacent committed
@@ -1121,13 +1211,22 @@ function _axisAlignment(a, b) {
     return null;
 }
 
-/** Highlight glow colour per alignment kind. */
+/** Highlight glow colour per alignment kind (Okabe–Ito colourblind-safe). */
 function _alignColor(kind) {
-    // Use the same yellow accent the schematic Wire tool uses for its
-    // axis indicator. Distinct enough from copper layer colours.
-    if (kind === 'h') return '#ffd633';
-    if (kind === 'v') return '#ffd633';
-    return '#ffaa33'; // 45°
+    // H/V use yellow (solid line); 45° uses magenta (dashed line). Both are
+    // separable from the collinear blue under common colour-vision
+    // deficiencies, and the line style carries the meaning regardless.
+    if (kind === 'h') return '#E69F00';
+    if (kind === 'v') return '#E69F00';
+    return '#CC79A7'; // 45°
+}
+
+/** Stroke-dash style per glow kind: solid H/V, dashed 45°, dotted collinear. */
+function _glowDashKind(seg) {
+    if (seg.collinear) return 'dotted';
+    const align = _axisAlignment(seg.a, seg.b);
+    if (align === 'd') return 'dashed';
+    return 'solid';
 }
 
 /**
@@ -1139,64 +1238,75 @@ function _alignColor(kind) {
  * @param {object} ctx - draw context (for via diameter/drill)
  * @returns {Via[]}
  */
-function _buildExplicitVias(track, ctx) {
-    const out = [];
+/**
+ * Build the committed Track object(s) and any layer-transition Vias from
+ * a finished draw context.
+ *
+ * The drawn path is a simple polyline n0 → n1 → … → nN with a layer per
+ * segment. Wherever two consecutive segments use different copper layers
+ * the path is cut into separate single-layer Track objects: the previous
+ * run ends on a node at the transition point and the next run starts on a
+ * *second, coincident* node at the same point. A standalone Via is emitted
+ * there. This is the canonical via/node model — every node belongs to
+ * exactly one layer, and a layer change is always two coincident
+ * single-layer nodes plus a via (matching the via tool's split path).
+ *
+ * @param {object} ctx - draw context
+ * @returns {{ tracks: Track[], vias: Via[] }}
+ */
+function _buildTracksFromContext(ctx) {
+    const net = ctx.net || '';
+    const width = ctx.width || 0.2;
+    const pts = ctx.points;
+    const segLayers = ctx.edgeLayers;
     const diameter = Number.isFinite(ctx.viaDiameter) && ctx.viaDiameter > 0
         ? ctx.viaDiameter : 0.6;
     const drill = Number.isFinite(ctx.viaDrill) && ctx.viaDrill > 0
         ? ctx.viaDrill : 0.3;
-    // Find nodes where adjacent edges use different layers — those are
-    // the layer-change points that need a via.
-    const adjLayers = new Map(); // nodeId → Set<layer>
-    for (const [eid, e] of track.edges) {
-        const lyr = track.edgeLayers.get(eid) || track.layer;
-        if (!adjLayers.has(e.from)) adjLayers.set(e.from, new Set());
-        if (!adjLayers.has(e.to)) adjLayers.set(e.to, new Set());
-        adjLayers.get(e.from).add(lyr);
-        adjLayers.get(e.to).add(lyr);
-    }
-    for (const [nid, layers] of adjLayers) {
-        if (layers.size <= 1) continue;
-        const p = track.nodes.get(nid);
-        if (!p) continue;
-        out.push(new Via({
-            x: p.x, y: p.y,
-            diameter, drill,
-            net: track.net || '',
-        }));
-    }
-    return out;
-}
 
-function _buildTrackFromContext(ctx) {
-    const track = new Track({
-        net: ctx.net || '',
-        width: ctx.width || 0.2,
-        layer: ctx.edgeLayers[0] || ctx.currentLayer,
-    });
+    const tracks = [];
+    const transitions = []; // {x, y} points where the layer changed
+    let cur = null;         // current single-layer Track being built
+    let curNodeId = null;   // last node id appended to `cur`
 
-    // Build the graph as a simple path: n0 → n1 → … → nN.
-    const nodeIds = [];
-    for (const p of ctx.points) nodeIds.push(track.addNode(p.x, p.y));
-    for (let i = 0; i < nodeIds.length - 1; i++) {
-        const eid = track.addEdge(nodeIds[i], nodeIds[i + 1]);
-        track.edgeLayers.set(eid, ctx.edgeLayers[i] || ctx.currentLayer);
+    for (let i = 0; i < pts.length - 1; i++) {
+        const segLayer = segLayers[i] || ctx.currentLayer;
+        const a = pts[i];
+        const b = pts[i + 1];
+        if (!cur || segLayer !== cur.layer) {
+            // Layer run boundary. If a run preceded this one, `a` is a
+            // layer-transition point → drop a via and start a fresh,
+            // coincident node so the two runs are separate objects.
+            if (cur) transitions.push({ x: a.x, y: a.y });
+            cur = new Track({ net, width, layer: segLayer });
+            curNodeId = cur.addNode(a.x, a.y);
+            tracks.push(cur);
+            // Start-pad metadata belongs to the very first node.
+            if (i === 0 && ctx.startPad) {
+                cur.padConnections.set(curNodeId, {
+                    componentId: ctx.startPad.componentId,
+                    pinNumber: ctx.startPad.pinNumber,
+                });
+            }
+        }
+        const nextNodeId = cur.addNode(b.x, b.y);
+        const eid = cur.addEdge(curNodeId, nextNodeId);
+        cur.edgeLayers.set(eid, segLayer);
+        curNodeId = nextNodeId;
     }
 
-    // Pad-connection metadata for endpoints.
-    if (ctx.startPad) {
-        track.padConnections.set(nodeIds[0], {
-            componentId: ctx.startPad.componentId,
-            pinNumber: ctx.startPad.pinNumber,
-        });
-    }
-    if (ctx.endPad) {
-        track.padConnections.set(nodeIds[nodeIds.length - 1], {
+    // End-pad metadata belongs to the last node of the last run.
+    if (cur && ctx.endPad) {
+        cur.padConnections.set(curNodeId, {
             componentId: ctx.endPad.componentId,
             pinNumber: ctx.endPad.pinNumber,
         });
     }
-    return track;
+
+    const vias = transitions.map((t) => new Via({
+        x: t.x, y: t.y, diameter, drill, net,
+    }));
+    return { tracks, vias };
 }
 
 function _padNet(app, componentId, pinNumber) {

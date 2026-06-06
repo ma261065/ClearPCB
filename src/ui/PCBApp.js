@@ -1034,6 +1034,25 @@ export default class PCBApp {
     }
 
     /**
+     * Commit one or more freshly drawn Track objects plus any
+     * layer-transition Vias as a single undo step. A draw that toggled
+     * copper layers mid-route produces several single-layer Tracks joined
+     * by vias; grouping them keeps undo/redo atomic.
+     * @param {Track[]} tracks
+     * @param {Via[]} [vias]
+     */
+    _commitTracks(tracks, vias = []) {
+        const list = Array.isArray(tracks) ? tracks : [tracks];
+        if (list.length === 1 && (!vias || vias.length === 0)) {
+            this.history.execute(new AddTrackCommand(this, list[0]));
+            return;
+        }
+        const cmds = list.map((t) => new AddTrackCommand(this, t));
+        for (const v of (vias || [])) cmds.push(new AddViaCommand(this, v));
+        this.history.execute(new CompoundCommand(cmds));
+    }
+
+    /**
      * Serialise the PCB state (tracks, vias) to a JSON-friendly object.
      * Board outline / placements are derived from the schematic and not
      * persisted here.
@@ -1122,6 +1141,7 @@ export default class PCBApp {
                     renderTrack(track, (id) => this._getLayerGroup(id), {
                         viaDiameter: this._getRoutingParams?.()?.viaDiameter,
                         viaDrill: this._getRoutingParams?.()?.viaDrill,
+                        hideNetLabel: track === this._selectedTrack,
                     });
                 }
             }
@@ -1819,6 +1839,7 @@ export default class PCBApp {
             renderTrack(t, getGroup, {
                 viaDiameter: routeParams?.viaDiameter,
                 viaDrill: routeParams?.viaDrill,
+                hideNetLabel: t === this._selectedTrack || t === this._vertexDrag?.track,
             });
         }
         for (const v of this.vias) {

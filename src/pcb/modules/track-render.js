@@ -81,7 +81,7 @@ export function renderTrack(track, getLayerGroup, opts = {}) {
         created.push(polyline);
 
         // Net-name labels along the run.
-        if (track.net) {
+        if (track.net && !opts.hideNetLabel) {
             for (const lbl of _buildNetLabels(run.points, track.net, track.width)) {
                 parent.appendChild(lbl);
                 lbl.dataset.trackId = track.id;

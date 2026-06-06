@@ -14,11 +14,17 @@ import {
 } from './track-render.js';
 import { reconcileRatsnest } from './track-draw.js';
 
-function _opts(app) {
+function _opts(app, track) {
     return {
         viaDiameter: app._getRoutingParams?.()?.viaDiameter,
         viaDrill: app._getRoutingParams?.()?.viaDrill,
+        hideNetLabel: _shouldHideNetLabel(app, track),
     };
+}
+
+/** Net labels are hidden while a track is selected or being dragged. */
+function _shouldHideNetLabel(app, track) {
+    return !!track && (track === app._selectedTrack || track === app._vertexDrag?.track);
 }
 
 /**
@@ -57,7 +63,7 @@ export function repositionPadConnectedNodes(app, compId) {
         }
     }
     for (const track of touched) {
-        renderTrack(track, (id) => app._getLayerGroup(id), _opts(app));
+        renderTrack(track, (id) => app._getLayerGroup(id), _opts(app, track));
     }
     return touched;
 }
@@ -73,7 +79,7 @@ export class AddTrackCommand {
     }
     execute() {
         if (!this.app.tracks.includes(this.track)) this.app.tracks.push(this.track);
-        renderTrack(this.track, (id) => this.app._getLayerGroup(id), _opts(this.app));
+        renderTrack(this.track, (id) => this.app._getLayerGroup(id), _opts(this.app, this.track));
         for (const v of this.vias) {
             if (!this.app.vias.includes(v)) this.app.vias.push(v);
             renderVia(v, (id) => this.app._getLayerGroup(id));
@@ -107,7 +113,7 @@ export class RemoveTrackCommand {
     }
     undo() {
         if (!this.app.tracks.includes(this.track)) this.app.tracks.push(this.track);
-        renderTrack(this.track, (id) => this.app._getLayerGroup(id), _opts(this.app));
+        renderTrack(this.track, (id) => this.app._getLayerGroup(id), _opts(this.app, this.track));
         reconcileRatsnest(this.app);
     }
 }
@@ -125,7 +131,7 @@ export class ModifyTrackCommand {
     }
     _apply(state) {
         Object.assign(this.track, state);
-        renderTrack(this.track, (id) => this.app._getLayerGroup(id), _opts(this.app));
+        renderTrack(this.track, (id) => this.app._getLayerGroup(id), _opts(this.app, this.track));
         reconcileRatsnest(this.app);
     }
     execute() { this._apply(this.after); }
@@ -146,7 +152,7 @@ export class MoveVertexCommand {
         if (!n) return;
         n.x = pt.x;
         n.y = pt.y;
-        renderTrack(this.track, (id) => this.app._getLayerGroup(id), _opts(this.app));
+        renderTrack(this.track, (id) => this.app._getLayerGroup(id), _opts(this.app, this.track));
         reconcileRatsnest(this.app);
     }
     execute() { this._set(this.to); }
@@ -168,7 +174,7 @@ export class ModifyTrackGraphCommand {
     }
     _apply(state) {
         this.track.applyState(state);
-        renderTrack(this.track, (id) => this.app._getLayerGroup(id), _opts(this.app));
+        renderTrack(this.track, (id) => this.app._getLayerGroup(id), _opts(this.app, this.track));
         reconcileRatsnest(this.app);
     }
     execute() { this._apply(this.after); }

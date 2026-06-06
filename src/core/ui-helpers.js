@@ -115,7 +115,7 @@ export function buildPointAnchorsGroup(shape, scale) {
         circle.setAttribute('cy', String(anchor.y));
         circle.setAttribute('r', String(midR));
         circle.setAttribute('fill', '#fff');
-        circle.setAttribute('stroke', '#4aa3df');
+        circle.setAttribute('stroke', '#1565c0');
         circle.setAttribute('stroke-width', String(strokeW));
         mg.appendChild(circle);
 
@@ -125,7 +125,7 @@ export function buildPointAnchorsGroup(shape, scale) {
         plusH.setAttribute('y1', String(anchor.y));
         plusH.setAttribute('x2', String(anchor.x + plusLen));
         plusH.setAttribute('y2', String(anchor.y));
-        plusH.setAttribute('stroke', '#4aa3df');
+        plusH.setAttribute('stroke', '#1565c0');
         plusH.setAttribute('stroke-width', String(strokeW * 1.5));
         plusH.setAttribute('stroke-linecap', 'round');
         mg.appendChild(plusH);
@@ -135,7 +135,7 @@ export function buildPointAnchorsGroup(shape, scale) {
         plusV.setAttribute('y1', String(anchor.y - plusLen));
         plusV.setAttribute('x2', String(anchor.x));
         plusV.setAttribute('y2', String(anchor.y + plusLen));
-        plusV.setAttribute('stroke', '#4aa3df');
+        plusV.setAttribute('stroke', '#1565c0');
         plusV.setAttribute('stroke-width', String(strokeW * 1.5));
         plusV.setAttribute('stroke-linecap', 'round');
         mg.appendChild(plusV);
