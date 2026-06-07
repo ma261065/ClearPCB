@@ -16,14 +16,14 @@
 
 import { removeTrackElements, removeViaElements, renderTrack } from './track-render.js';
 import { reconcileRatsnest, collectBondedCopper } from './track-draw.js';
-import { hitTestTrackEdge, deleteTrackSegment, hitTestTrackNode, splitTrackNodeAndDrag, deleteTrackNode } from './track-drag.js';
+import { hitTestTrackEdge, deleteTrackSegment, hitTestTrackNode, splitTrackNodeAndDrag, deleteTrackNode, reconcileCopperRegion } from './track-drag.js';
 import {
     RemoveTrackCommand,
     RemoveViaCommand,
     AddTrackCommand,
+    AddViaCommand,
     CompoundCommand,
     ModifyTrackCommand,
-    ModifyTrackGraphCommand,
     ModifyViaCommand,
 } from './track-commands.js';
 import { PCB_LAYERS } from './layers.js';
@@ -454,6 +454,14 @@ function _removeHalos(app, cls) {
  * and update the properties panel.
  */
 export function deleteSelectedTrack(app) {
+    // A single highlighted segment deletes just that edge (the rest of the
+    // track survives as its remaining connected pieces). `_selectedSegment`
+    // keeps `_selectedTrack` set too, so check the segment refinement first.
+    if (app._selectedSegment && app._selectedTrack) {
+        const { track, edgeId } = app._selectedSegment;
+        deleteTrackSegmentAt(app, track, edgeId);
+        return;
+    }
     if (app._selectedTrack) {
         const t = app._selectedTrack;
         clearTrackSelection(app);
@@ -815,8 +823,18 @@ function _buildRuns(track) {
     const usedEdges = new Set();
     const runs = [];
 
+    // Start from endpoint (degree-1) nodes first, then any remaining nodes.
+    // A chain that passes THROUGH a degree-2 node must render as ONE
+    // continuous run; starting at that interior node instead would split it
+    // into two runs meeting there, doubling the round line-caps into a
+    // visible "join" blob in the halo (this is exactly the ordering used by
+    // track-render._buildLayerRuns, which this is meant to mirror).
+    const startOrder = [];
+    for (const [nid, list] of adj) if (list.length === 1) startOrder.push(nid);
+    for (const nid of adj.keys()) if (!startOrder.includes(nid)) startOrder.push(nid);
+
     // Walk from each end / branch node along same-layer paths.
-    for (const startNid of track.nodes.keys()) {
+    for (const startNid of startOrder) {
         for (const { other, eid } of adj.get(startNid)) {
             if (usedEdges.has(eid)) continue;
             const layer = track.edgeLayers.get(eid) || track.layer;
@@ -906,17 +924,28 @@ function _showTrackProperties(app, track) {
         const v = layerEl.value;
         if (!v) return; // the "Multiple" placeholder
         const before = track.captureState();
+        // Move every edge of this track onto the chosen layer, then
+        // re-normalise the whole bonded copper region into the canonical
+        // via/node model. This mirrors the segment-layer handler: moving a
+        // track onto a different layer than its neighbours inserts boundary
+        // vias; moving it BACK onto a neighbour's layer fuses the tracks and
+        // removes the now-superfluous vias.
         track.layer = v;
         for (const eid of track.edges.keys()) track.edgeLayers.set(eid, v);
-        const after = track.captureState();
-        // Roll back so the command's execute() applies it through history.
+        const region = reconcileCopperRegion(app, track);
+        // Restore the seed so its RemoveTrackCommand captures clean undo.
         track.applyState(before);
-        app.history?.execute(new ModifyTrackGraphCommand(app, track, before, after));
-        // Re-render the panel and selection halo on the new layer.
+        // Drop the selection FIRST, while the original tracks are still
+        // present and rendered (see the segment handler for why).
         clearTrackSelection(app);
-        app._selectedTrack = track;
-        _drawTrackHalo(app, track);
-        _showTrackProperties(app, track);
+        const cmds = [];
+        for (const t of region.removeTracks) cmds.push(new RemoveTrackCommand(app, t));
+        for (const vv of region.removeVias) cmds.push(new RemoveViaCommand(app, vv));
+        for (const t of region.addTracks) cmds.push(new AddTrackCommand(app, t));
+        for (const vv of region.addVias) cmds.push(new AddViaCommand(app, vv));
+        if (cmds.length) app.history?.execute(new CompoundCommand(cmds));
+        reconcileRatsnest(app);
+        app._setActiveRibbonTab?.('pcb-properties');
     });
     app._setActiveRibbonTab?.('pcb-properties');
 }
@@ -976,11 +1005,29 @@ function _showTrackSegmentProperties(app, track, edgeId) {
         if (!v) return;
         const before = track.captureState();
         track.edgeLayers.set(edgeId, v);
-        const after = track.captureState();
+        // Re-normalise the whole bonded copper region into the canonical
+        // via/node model. This handles BOTH directions: a layer JUMP splits
+        // the track and adds boundary vias; moving a segment BACK onto a
+        // neighbour's layer fuses the tracks again and removes the now
+        // superfluous via.
+        const region = reconcileCopperRegion(app, track);
+        // Restore the seed so its RemoveTrackCommand captures clean undo.
         track.applyState(before);
-        app.history?.execute(new ModifyTrackGraphCommand(app, track, before, after));
-        // Re-render and keep just this segment selected.
-        selectTrackSegment(app, track, edgeId);
+        // Drop the selection FIRST, while the original tracks are still
+        // present and rendered. clearTrackSelection re-renders a selected
+        // track whose labels can't be restored — and once RemoveTrackCommand
+        // has stripped the original's SVG elements that re-render would
+        // resurrect it as an orphan (a stale polyline). Clearing here avoids
+        // that.
+        clearTrackSelection(app);
+        const cmds = [];
+        for (const t of region.removeTracks) cmds.push(new RemoveTrackCommand(app, t));
+        for (const vv of region.removeVias) cmds.push(new RemoveViaCommand(app, vv));
+        for (const t of region.addTracks) cmds.push(new AddTrackCommand(app, t));
+        for (const vv of region.addVias) cmds.push(new AddViaCommand(app, vv));
+        if (cmds.length) app.history?.execute(new CompoundCommand(cmds));
+        reconcileRatsnest(app);
+        app._setActiveRibbonTab?.('pcb-properties');
     });
     app._setActiveRibbonTab?.('pcb-properties');
 }

@@ -67,8 +67,16 @@ export const COLLINEAR_GLOW_ANGLE_TOL = 0.01;
 /** Pad snap tolerance (world mm). */
 export const PAD_SNAP_TOL = 1.0;
 
-/** Track-node snap tolerance (world mm). */
+/** Track-node snap tolerance (world mm) — used as the bare default of
+ * `findNearbyTrackNode`. `resolveTrackSnap` overrides this with a
+ * screen-pixel band (see `TRACK_SNAP_SCREEN_PX`) so the snap feels the
+ * same at every zoom instead of grabbing a wide area when zoomed out. */
 export const TRACK_SNAP_TOL = 0.5;
+
+/** Track-node snap radius in SCREEN pixels. Converted to world mm via the
+ * live viewport scale inside `resolveTrackSnap`, giving a constant, less
+ * aggressive feel across zoom levels (mirrors the grid/axis SNAP_PX). */
+export const TRACK_SNAP_SCREEN_PX = 8;
 
 /** Layers that the Track tool toggles between when Space is pressed. */
 const TOGGLE_LAYERS = ['top-copper', 'bottom-copper'];
@@ -157,7 +165,11 @@ export function findNearbyTrackNode(app, worldPos, tolerance = TRACK_SNAP_TOL, e
  */
 export function resolveTrackSnap(app, worldPos, options = {}) {
     const padTol = options.padTolerance ?? PAD_SNAP_TOL;
-    const trackTol = options.trackTolerance ?? TRACK_SNAP_TOL;
+    // Track-node snap uses a screen-pixel band (constant feel across zoom),
+    // not the fixed world tolerance — a 0.5mm world grab is huge when zoomed
+    // out. Callers can still force a world value via options.trackTolerance.
+    const scale = app.viewport?.scale || 1;
+    const trackTol = options.trackTolerance ?? (TRACK_SNAP_SCREEN_PX / scale);
     const excludeTrack = options.excludeTrack || null;
     const excludeNode = options.excludeNode || null;
     const lastPt = options.lastPt || null;
@@ -174,7 +186,6 @@ export function resolveTrackSnap(app, worldPos, options = {}) {
     }
 
     // Screen-pixel tolerance for grid / axis snapping.
-    const scale = app.viewport?.scale || 1;
     const tol = SNAP_PX / scale;
 
     // ── 45° diagonal from last anchor (couples both X and Y) ──
@@ -456,6 +467,13 @@ export function updateTrackDraw(app, worldPos) {
     ctx.snap = snap;
     ctx.axisLock = null;
     const target = { x: snap.x, y: snap.y };
+
+    // Yellow target circle when locked onto a hard snap (pad / track node).
+    if (snap.snapType === 'pad' || snap.snapType === 'track-node') {
+        showTrackSnapMarker(app, target);
+    } else {
+        clearTrackSnapMarker(app);
+    }
 
     _renderPreview(app, ctx, target);
 }
@@ -955,6 +973,7 @@ function _teardownDraw(app) {
     const ctx = app._trackDraw;
     if (!ctx) return;
     _clearPreviewElements(ctx);
+    clearTrackSnapMarker(app);
     app._trackDraw = null;
 }
 
@@ -1110,6 +1129,45 @@ export function clearTrackAxisGlow(app) {
         app[key] = null;
     }
     app._axisGlowResolved = null;
+}
+
+/**
+ * Show a yellow target circle at a hard snap point (pad centre or an
+ * existing track node), mirroring the schematic editor's snap highlight.
+ * Replaces any previous marker. Pass a falsy `pos` (or call
+ * `clearTrackSnapMarker`) to remove it.
+ *
+ * @param {object} app
+ * @param {{x:number,y:number}|null} pos - snap point in world mm
+ */
+export function showTrackSnapMarker(app, pos) {
+    clearTrackSnapMarker(app);
+    if (!pos || !app?.viewport?.svg) return;
+    const scale = app.viewport?.scale || 1;
+    // Small target dot: a few screen pixels regardless of zoom, with a tiny
+    // world floor so it stays visible when zoomed far out. Kept much smaller
+    // than the schematic junction dot — PCB tracks are sub-millimetre.
+    const screenRadiusPx = 4;
+    const minWorldRadius = 0.08;
+    const dot = document.createElementNS(NS, 'circle');
+    dot.setAttribute('cx', String(pos.x));
+    dot.setAttribute('cy', String(pos.y));
+    dot.setAttribute('r', String(Math.max(minWorldRadius, screenRadiusPx / scale)));
+    dot.setAttribute('fill', '#ffff00');
+    dot.setAttribute('stroke', 'none');
+    dot.setAttribute('pointer-events', 'none');
+    dot.classList.add('track-snap-highlight');
+    // Attach to the root SVG so the marker always paints above the copper.
+    app.viewport.svg.appendChild(dot);
+    app._trackSnapMarker = dot;
+}
+
+/** Remove the yellow snap target circle, if present. */
+export function clearTrackSnapMarker(app) {
+    if (app._trackSnapMarker) {
+        app._trackSnapMarker.remove();
+        app._trackSnapMarker = null;
+    }
 }
 
 function _renderPreview(app, ctx, livePt) {

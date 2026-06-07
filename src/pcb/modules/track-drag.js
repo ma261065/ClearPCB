@@ -28,6 +28,8 @@ import {
     renderTrackAxisGlow,
     renderTrackAxisGlowTop,
     clearTrackAxisGlow,
+    showTrackSnapMarker,
+    clearTrackSnapMarker,
     snapNodeToAxis,
     snapNodeToCollinear,
     applyAxisConstraint,
@@ -36,10 +38,11 @@ import {
     COLLINEAR_GLOW_ANGLE_TOL,
 } from './track-draw.js';
 import { refreshTrackSelectionHalo } from './track-select.js';
-import { MoveVertexCommand, MoveViaCommand, CompoundCommand, ModifyTrackGraphCommand, RemoveTrackCommand, AddViaCommand } from './track-commands.js';
+import { MoveVertexCommand, MoveViaCommand, CompoundCommand, ModifyTrackGraphCommand, RemoveTrackCommand, AddViaCommand, AddTrackCommand } from './track-commands.js';
 import { pointsCollinear, collinearSnap } from '../../core/geometry.js';
 import { showAlert } from '../../ui/modules/modal.js';
 import { Via } from '../../shapes/via.js';
+import { Track } from '../../shapes/track.js';
 
 /** Screen-px hit tolerance for selecting a Track node to drag. */
 const NODE_HIT_PX = 8;
@@ -459,6 +462,112 @@ function _incidentLayers(track, nodeId) {
     return layers;
 }
 
+/**
+ * Find an existing track node coincident with `(x, y)` that the drawn
+ * geometry may fuse into: same net (or one side blank) and carrying an
+ * edge on `layer`. Tracks in `exclude` (the freshly drawn ones, not yet
+ * committed) are skipped.
+ *
+ * @returns {{track:object, nodeId:string}|null}
+ */
+function _findExistingMergeNode(app, x, y, net, layer, exclude) {
+    const excludeSet = exclude instanceof Set ? exclude : new Set(exclude || []);
+    for (const t of (app.tracks || [])) {
+        if (excludeSet.has(t)) continue;
+        const otherNet = t.net || '';
+        if (net && otherNet && net !== otherNet) continue; // net conflict
+        for (const [nid, p] of t.nodes) {
+            if (Math.abs(p.x - x) >= NODE_MERGE_EPS || Math.abs(p.y - y) >= NODE_MERGE_EPS) continue;
+            // Same copper layer required so we don't silently fuse what
+            // should be a via transition.
+            if (!_incidentLayers(t, nid).has(layer)) continue;
+            return { track: t, nodeId: nid };
+        }
+    }
+    return null;
+}
+
+/**
+ * Build the history command(s) that commit freshly drawn tracks/vias,
+ * fusing any drawn endpoint that lands on an existing track's node (same
+ * net, same copper layer) into that existing track. Joined traces become
+ * one continuous polyline instead of two coincident Track objects (which
+ * render with a doubled round end-cap at the join).
+ *
+ * Cross-layer coincidences are deliberately NOT fused here — those remain
+ * distinct single-layer nodes bonded by a via (the via/transition model).
+ *
+ * @param {object} app
+ * @param {object|object[]} newTracks freshly built (uncommitted) tracks
+ * @param {object[]} [newVias] standalone vias produced alongside the draw
+ * @returns {object|null} a single Command, a CompoundCommand, or null when
+ *   there is nothing to commit.
+ */
+export function buildDrawnTrackCommands(app, newTracks, newVias = []) {
+    const drawn = Array.isArray(newTracks) ? newTracks.slice() : [newTracks];
+    const vias = newVias || [];
+    const drawnSet = new Set(drawn);
+
+    const beforeStates = new Map();      // existing track -> pre-merge snapshot
+    const removedExisting = new Set();   // existing tracks emptied by absorb
+    const independentAdds = [];          // drawn tracks with no existing join
+    const ensureBefore = (t) => { if (!beforeStates.has(t)) beforeStates.set(t, t.captureState()); };
+
+    for (const nt of drawn) {
+        // Endpoints (degree-1 nodes) of the drawn track, with their layer.
+        const conns = [];
+        for (const [nid] of nt.nodes) {
+            const inc = nt.incidentEdges(nid);
+            if (inc.length !== 1) continue;
+            const layer = nt.getEdgeLayer(inc[0].edgeId) || nt.layer;
+            const p = nt.nodes.get(nid);
+            const target = _findExistingMergeNode(app, p.x, p.y, nt.net, layer, drawnSet);
+            if (target) conns.push({ nodeId: nid, target });
+        }
+        if (conns.length === 0) { independentAdds.push(nt); continue; }
+
+        // Fuse the drawn track into the first existing track it touches.
+        const primary = conns[0].target.track;
+        ensureBefore(primary);
+        const remapNt = primary.absorb(nt);
+        if (!primary.net && nt.net) primary.net = nt.net;
+
+        for (const { nodeId, target } of conns) {
+            let targetNodeId = target.nodeId;
+            if (target.track !== primary) {
+                // Drawn track bridges two existing tracks: pull the second
+                // one into primary as well, then drop it.
+                ensureBefore(target.track);
+                const remapEx = primary.absorb(target.track);
+                if (!primary.net && target.track.net) primary.net = target.track.net;
+                removedExisting.add(target.track);
+                targetNodeId = remapEx.get(target.nodeId) ?? targetNodeId;
+            }
+            const drawnNodeId = remapNt.get(nodeId);
+            if (drawnNodeId && targetNodeId) primary.mergeNodes(targetNodeId, drawnNodeId);
+        }
+        // Dissolve any now-redundant collinear waypoint at the join.
+        collapseCollinearTrackNodes(app, primary);
+    }
+
+    const cmds = [];
+    for (const [existing, before] of beforeStates) {
+        if (removedExisting.has(existing)) {
+            cmds.push(new RemoveTrackCommand(app, existing));
+        } else {
+            const after = existing.captureState();
+            existing.applyState(before);
+            cmds.push(new ModifyTrackGraphCommand(app, existing, before, after));
+        }
+    }
+    for (const nt of independentAdds) cmds.push(new AddTrackCommand(app, nt));
+    for (const v of vias) cmds.push(new AddViaCommand(app, v));
+
+    if (cmds.length === 0) return null;
+    return cmds.length === 1 ? cmds[0] : new CompoundCommand(cmds);
+}
+
+
 /** True if a standalone Via already sits at `(x, y)`. */
 function _hasViaAt(app, x, y) {
     return (app.vias || []).some(
@@ -471,6 +580,168 @@ function _makeViaAt(app, x, y, net) {
     const diameter = Number.isFinite(p.viaDiameter) && p.viaDiameter > 0 ? p.viaDiameter : 0.6;
     const drill = Number.isFinite(p.viaDrill) && p.viaDrill > 0 ? p.viaDrill : 0.3;
     return new Via({ x, y, diameter, drill, net: net || '' });
+}
+
+/**
+ * Re-normalise the whole copper region physically bonded to `seedTrack`
+ * into the canonical model and return the minimal command payload to get
+ * there. Handles BOTH directions of an edit:
+ *
+ *  - SPLIT: an edge now jumps layer → the region splits into one
+ *    single-layer Track per maximal same-layer connected run, with a
+ *    standalone Via added at every position where ≥2 layers now meet.
+ *  - MERGE: an edge moved back so a former transition is gone → the two
+ *    formerly-separate single-layer Tracks fuse into one and the now
+ *    superfluous Via is removed.
+ *
+ * The region is the set of Tracks reachable from `seedTrack` through
+ * coincident node positions (positional bonding — the same premise the
+ * ratsnest uses), plus every standalone Via sitting on one of those
+ * positions. The region is rebuilt from a single position-keyed multigraph
+ * of all its edges: per layer → connected components → one Track each; a
+ * via is needed iff a position carries edges of ≥2 distinct layers. Region
+ * vias at a still-needed position are KEPT (preserving their diameter/drill);
+ * all other region vias are removed as superfluous.
+ *
+ * A via is required at EVERY layer boundary regardless of copper-ness, so a
+ * TOP → SILK → BOTTOM run keeps a via at each boundary.
+ *
+ * The caller must apply the edge's layer change to `seedTrack` BEFORE calling
+ * this (the mutated graph is read here), then restore it to its pre-change
+ * state so the returned RemoveTrackCommand captures clean undo.
+ *
+ * @param {object} app
+ * @param {import('../../shapes/track.js').Track} seedTrack
+ * @returns {{removeTracks: object[], addTracks: object[], removeVias: object[], addVias: object[]}}
+ */
+export function reconcileCopperRegion(app, seedTrack) {
+    const EPS = NODE_MERGE_EPS;
+    const key = (x, y) => `${Math.round(x / EPS)}|${Math.round(y / EPS)}`;
+
+    // Index every track node by rounded position for fast coincidence lookup.
+    const nodeIndex = new Map();   // posKey → [{ track }]
+    for (const t of (app.tracks || [])) {
+        for (const [, p] of t.nodes) {
+            const k = key(p.x, p.y);
+            if (!nodeIndex.has(k)) nodeIndex.set(k, []);
+            nodeIndex.get(k).push(t);
+        }
+    }
+
+    // BFS the region of tracks connected through shared positions.
+    const regionTracks = new Set([seedTrack]);
+    const stack = [seedTrack];
+    while (stack.length) {
+        const t = stack.pop();
+        for (const [, p] of t.nodes) {
+            for (const other of nodeIndex.get(key(p.x, p.y)) || []) {
+                if (!regionTracks.has(other)) {
+                    regionTracks.add(other);
+                    stack.push(other);
+                }
+            }
+        }
+    }
+
+    // Positions occupied by region copper, and the region's standalone vias.
+    const regionPosSet = new Set();
+    for (const t of regionTracks)
+        for (const [, p] of t.nodes) regionPosSet.add(key(p.x, p.y));
+    const regionVias = (app.vias || []).filter((v) => regionPosSet.has(key(v.x, v.y)));
+
+    // Net for rebuilt copper: first non-empty among region tracks, then vias.
+    let net = '';
+    for (const t of regionTracks) if (t.net) { net = t.net; break; }
+    if (!net) for (const v of regionVias) if (v.net) { net = v.net; break; }
+
+    // Unified position-keyed multigraph of all region edges.
+    const uNodes = new Map();      // posKey → { x, y }
+    const uEdges = [];             // { a, b, layer, width }
+    const padAt = new Map();       // posKey → padConnection
+    for (const t of regionTracks) {
+        for (const [eid, e] of t.edges) {
+            const pa = t.nodes.get(e.from), pb = t.nodes.get(e.to);
+            const ka = key(pa.x, pa.y), kb = key(pb.x, pb.y);
+            if (!uNodes.has(ka)) uNodes.set(ka, { x: pa.x, y: pa.y });
+            if (!uNodes.has(kb)) uNodes.set(kb, { x: pb.x, y: pb.y });
+            uEdges.push({ a: ka, b: kb, layer: t.getEdgeLayer(eid), width: t.width });
+        }
+        for (const [nid, conn] of t.padConnections) {
+            const p = t.nodes.get(nid);
+            if (p) padAt.set(key(p.x, p.y), { ...conn });
+        }
+    }
+
+    // Per-layer connected components → one fresh single-layer Track each.
+    const addTracks = [];
+    const layers = new Set(uEdges.map((e) => e.layer));
+    for (const layer of layers) {
+        const layerEdges = uEdges.filter((e) => e.layer === layer);
+        const adj = new Map();     // posKey → [posKey]
+        for (const e of layerEdges) {
+            if (!adj.has(e.a)) adj.set(e.a, []);
+            if (!adj.has(e.b)) adj.set(e.b, []);
+            adj.get(e.a).push(e.b);
+            adj.get(e.b).push(e.a);
+        }
+        const seen = new Set();
+        for (const startK of adj.keys()) {
+            if (seen.has(startK)) continue;
+            const compKeys = new Set();
+            const st = [startK];
+            while (st.length) {
+                const k = st.pop();
+                if (compKeys.has(k)) continue;
+                compKeys.add(k);
+                seen.add(k);
+                for (const o of adj.get(k) || []) if (!compKeys.has(o)) st.push(o);
+            }
+            const compWidth = layerEdges.find((e) => compKeys.has(e.a))?.width || seedTrack.width;
+            const sub = new Track({ net, width: compWidth, layer });
+            const kToNid = new Map();
+            for (const k of compKeys) {
+                const p = uNodes.get(k);
+                const nn = sub.addNode(p.x, p.y);
+                kToNid.set(k, nn);
+                if (padAt.has(k)) sub.padConnections.set(nn, { ...padAt.get(k) });
+            }
+            for (const e of layerEdges) {
+                if (!compKeys.has(e.a)) continue;
+                const ne = sub.addEdge(kToNid.get(e.a), kToNid.get(e.b));
+                if (ne) sub.edgeLayers.set(ne, layer);
+            }
+            addTracks.push(sub);
+        }
+    }
+
+    // Positions where ≥2 distinct layers meet require a via.
+    const layersAt = new Map();    // posKey → Set(layer)
+    for (const e of uEdges) {
+        if (!layersAt.has(e.a)) layersAt.set(e.a, new Set());
+        if (!layersAt.has(e.b)) layersAt.set(e.b, new Set());
+        layersAt.get(e.a).add(e.layer);
+        layersAt.get(e.b).add(e.layer);
+    }
+    const neededViaKeys = new Set();
+    for (const [k, ls] of layersAt) if (ls.size >= 2) neededViaKeys.add(k);
+
+    // Keep region vias still at a needed boundary; remove the rest as
+    // superfluous; add vias at needed boundaries not already covered.
+    const keptKeys = new Set();
+    const removeVias = [];
+    for (const v of regionVias) {
+        const k = key(v.x, v.y);
+        if (neededViaKeys.has(k) && !keptKeys.has(k)) keptKeys.add(k);
+        else removeVias.push(v);
+    }
+    const addVias = [];
+    for (const k of neededViaKeys) {
+        if (keptKeys.has(k)) continue;
+        const p = uNodes.get(k);
+        addVias.push(_makeViaAt(app, p.x, p.y, net));
+    }
+
+    return { removeTracks: [...regionTracks], addTracks, removeVias, addVias };
 }
 
 /**
@@ -496,9 +767,24 @@ function _tryMergeDroppedNode(app, drag) {
     const track = drag.track;
     const n = track.nodes.get(nd.nodeId);
     if (!n) return false;
-    const dropX = n.x, dropY = n.y;
-    const target = _findCoincidentNode(app, track, nd.nodeId, dropX, dropY);
+    let dropX = n.x, dropY = n.y;
+    // Prefer the node the cursor actually snapped onto during the drag (the
+    // yellow target). Coincidence re-detection is a fallback: with the
+    // screen-pixel node-snap band, a drop can land visually-on but not
+    // bit-exactly on the target, so coincidence alone would miss the merge.
+    let target = null;
+    if (drag.snapTargetNode
+        && !(drag.snapTargetNode.track === track && drag.snapTargetNode.nodeId === nd.nodeId)
+        && app.tracks?.includes(drag.snapTargetNode.track)
+        && drag.snapTargetNode.track.nodes?.has(drag.snapTargetNode.nodeId)) {
+        target = drag.snapTargetNode;
+    }
+    if (!target) target = _findCoincidentNode(app, track, nd.nodeId, dropX, dropY);
     if (!target) return false;
+    // Pull the dragged node exactly onto the target so the fused geometry is
+    // bit-coincident regardless of the release position.
+    const tp = target.track.nodes.get(target.nodeId);
+    if (tp) { dropX = tp.x; dropY = tp.y; n.x = tp.x; n.y = tp.y; }
 
     const netA = track.net || '';
     const netB = target.track.net || '';
@@ -701,11 +987,40 @@ export function updateVertexDrag(app, worldPos) {
 
     // Single-node drag: snaps to grid / pad / track-node targets.
     const nd = drag.nodes[0];
-    const snap = resolveTrackSnap(app, worldPos, { excludeTrack: drag.track });
+    // Don't exclude the whole dragged track — that would prevent snapping a
+    // loose end onto ANOTHER node of the SAME track (e.g. closing a loop, or
+    // merging the two remaining ends after a prior cross-track merge fused
+    // both tracks into one). Instead exclude just the dragged node itself and
+    // its directly-connected neighbours (snapping onto an adjacent node would
+    // collapse that edge to zero length).
+    const draggedId = nd.nodeId;
+    const neighborIds = new Set();
+    for (const [, e] of drag.track.edges) {
+        if (e.from === draggedId) neighborIds.add(e.to);
+        else if (e.to === draggedId) neighborIds.add(e.from);
+    }
+    const snap = resolveTrackSnap(app, worldPos, {
+        excludeNode: (track, nid) =>
+            track === drag.track && (nid === draggedId || neighborIds.has(nid)),
+    });
     const n = drag.track.nodes.get(nd.nodeId);
     if (!n) return;
     n.x = snap.x;
     n.y = snap.y;
+
+    // Remember the exact node the cursor snapped onto, so the drop merges
+    // into THAT node even though the smaller node-snap band means the
+    // released position may not re-detect by coincidence alone.
+    drag.snapTargetNode = snap.snapType === 'track-node' && snap.trackNode
+        ? { track: snap.trackNode.track, nodeId: snap.trackNode.nodeId }
+        : null;
+
+    // Yellow target circle when locked onto a hard snap (pad / track node).
+    if (snap.snapType === 'pad' || snap.snapType === 'track-node') {
+        showTrackSnapMarker(app, { x: snap.x, y: snap.y });
+    } else {
+        clearTrackSnapMarker(app);
+    }
 
     // Axis snap: when an incident segment falls within the alignment-glow
     // band, lock the node exactly onto that H/V/45° axis so a drop matches
@@ -1007,6 +1322,7 @@ export function finishVertexDrag(app) {
     if (!drag) return;
     app._vertexDrag = null;
     clearTrackAxisGlow(app);
+    clearTrackSnapMarker(app);
 
     // Did any dragged node actually move?
     let moved = false;
@@ -1040,7 +1356,12 @@ export function finishVertexDrag(app) {
 
     // Single-node drop onto another node → merge into one (schematic-style).
     // A net conflict (two different non-empty nets) is rejected with a dialog.
-    if (drag.mode === 'node' && drag.nodes.length === 1 && moved) {
+    // The merge also fires when the node didn't net-move but snapped onto
+    // another track's node during the drag (`snapTargetNode`): two endpoints
+    // that are already coincident (the visible "join") produce zero net
+    // displacement when one is dragged onto the other, so a `moved`-only gate
+    // would never fuse them.
+    if (drag.mode === 'node' && drag.nodes.length === 1 && (moved || drag.snapTargetNode)) {
         if (_tryMergeDroppedNode(app, drag)) return;
     }
 
@@ -1091,6 +1412,7 @@ export function cancelVertexDrag(app) {
     if (!drag) return;
     app._vertexDrag = null;
     clearTrackAxisGlow(app);
+    clearTrackSnapMarker(app);
     if (drag.graphBefore) {
         // Roll back any bridge geometry plus the node moves in one step.
         drag.track.applyState(drag.graphBefore);
@@ -1165,6 +1487,13 @@ export function updateViaDrag(app, worldPos) {
         : null;
     const snap = resolveTrackSnap(app, worldPos, excludeNode ? { excludeNode } : {});
     let pos = { x: snap.x, y: snap.y };
+
+    // Yellow target circle when locked onto a hard snap (pad / track node).
+    if (snap.snapType === 'pad' || snap.snapType === 'track-node') {
+        showTrackSnapMarker(app, { x: snap.x, y: snap.y });
+    } else {
+        clearTrackSnapMarker(app);
+    }
 
     // Axis / collinear snap — match single-node drag so the via aligns onto
     // H/V/45° axes and straight runs (and lights the same glow). Skip when
@@ -1244,6 +1573,7 @@ export function finishViaDrag(app) {
     if (!drag) return;
     app._viaDrag = null;
     clearTrackAxisGlow(app);
+    clearTrackSnapMarker(app);
     const moved = Math.abs(drag.via.x - drag.startX) > 1e-6
         || Math.abs(drag.via.y - drag.startY) > 1e-6;
     if (!moved) {
@@ -1276,6 +1606,7 @@ export function cancelViaDrag(app) {
     if (!drag) return;
     app._viaDrag = null;
     clearTrackAxisGlow(app);
+    clearTrackSnapMarker(app);
     drag.via.x = drag.startX;
     drag.via.y = drag.startY;
     renderVia(drag.via, (id) => app._getLayerGroup(id));

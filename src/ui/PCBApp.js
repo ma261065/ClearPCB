@@ -47,6 +47,7 @@ import {
     splitTrackObjectAtPoint,
     commitCollinearCleanup,
     hitTestTrackMidpoint,
+    buildDrawnTrackCommands,
 } from '../pcb/modules/track-drag.js';
 import {
     AddTrackCommand,
@@ -1071,13 +1072,11 @@ export default class PCBApp {
      */
     _commitTracks(tracks, vias = []) {
         const list = Array.isArray(tracks) ? tracks : [tracks];
-        if (list.length === 1 && (!vias || vias.length === 0)) {
-            this.history.execute(new AddTrackCommand(this, list[0]));
-            return;
-        }
-        const cmds = list.map((t) => new AddTrackCommand(this, t));
-        for (const v of (vias || [])) cmds.push(new AddViaCommand(this, v));
-        this.history.execute(new CompoundCommand(cmds));
+        // Fuse any drawn endpoint that lands on an existing same-net/
+        // same-layer track node into that track, so joined traces render
+        // as one continuous polyline instead of two coincident objects.
+        const cmd = buildDrawnTrackCommands(this, list, vias);
+        if (cmd) this.history.execute(cmd);
     }
 
     /**
