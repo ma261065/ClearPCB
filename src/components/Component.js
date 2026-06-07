@@ -620,6 +620,9 @@ export class Component {
         // Always include pins in bounds calculation
         if (symbol?.pins) {
             for (const pin of symbol.pins) {
+                // Hidden pins aren't drawn, so they must not inflate bounds
+                // (they're often parked at arbitrary positions by KiCad).
+                if (pin.hidden) continue;
                 // Include pin connection point
                 minX = Math.min(minX, pin.x);
                 maxX = Math.max(maxX, pin.x);
@@ -741,6 +744,9 @@ export class Component {
 
         if (this.symbol?.pins) {
             for (const pin of this.symbol.pins) {
+                // KiCad hides certain pins (e.g. no-connect / duplicate
+                // hidden pins). Match KiCad's default view: don't draw them.
+                if (pin.hidden) continue;
                 const pinGroup = this._createPinElement(pin, ns);
                 if (pinGroup) {
                     group.appendChild(pinGroup);

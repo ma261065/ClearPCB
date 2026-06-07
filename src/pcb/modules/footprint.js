@@ -51,6 +51,8 @@ export function generateFootprint(_footprintName, _pins, footprintShapes, footpr
 function generateFromShapes(shapes, bbox, source) {
     const pads = [];
     const silks = [];
+    /** Paste-only stencil apertures (no copper): {x,y,width,height,shape,side} */
+    const pasteApertures = [];
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
 
     const isEasyEDA = source === 'EasyEDA' || source === 'LCSC';
@@ -185,7 +187,17 @@ function generateFromShapes(shapes, bbox, source) {
                 else if (layerCode === 2) padLayer = 'bottom';  // back SMD
                 else if (layerCode === 1) padLayer = 'top';     // front SMD
                 else padLayer = 'both';                         // unknown → safer default
+            } else if (parts[7] === 'top' || parts[7] === 'bottom') {
+                // KiCad copper pads carry their side as field [7].
+                padLayer = parts[7];
             }
+
+            // KiCad pads also carry mask/paste membership as fields [8]/[9]
+            // ('1'/'0'). A copper pad without paste — e.g. a QFN exposed pad
+            // that is windowpaned by separate PASTE apertures — must NOT get
+            // a full-area paste opening. Absent (EasyEDA) → default true.
+            const hasMask  = isEasyEDA ? true : parts[8] !== '0';
+            const hasPaste = isEasyEDA ? true : parts[9] !== '0';
 
             if (!Number.isFinite(cx) || !Number.isFinite(cy) ||
                 !Number.isFinite(w)  || !Number.isFinite(h)) continue;
@@ -211,6 +223,7 @@ function generateFromShapes(shapes, bbox, source) {
                 number: num, x: cx, y: cy, width: w, height: h,
                 shape: canonicalShape,
                 drill, layer: padLayer,
+                mask: hasMask, paste: hasPaste,
             });
 
             minX = Math.min(minX, cx - w / 2);
@@ -219,6 +232,37 @@ function generateFromShapes(shapes, bbox, source) {
             maxY = Math.max(maxY, cy + h / 2);
             continue;
         }
+
+        // ── PASTE apertures (KiCad paste-only sub-pads) ────────
+        // Format: PASTE~{TYPE}~{x}~{y}~{w}~{h}~{side}
+        // These are stencil openings with no copper/number (e.g. the matrix
+        // a QFN exposed pad is subdivided into). They render on the paste
+        // layer only and never participate in copper/ratsnest/netlist.
+        if (shape.startsWith('PASTE~')) {
+            const parts = shape.split('~');
+            if (parts.length < 7) continue;
+            const padType = parts[1];
+            const cx = parseFloat(parts[2]) * S;
+            const cy = parseFloat(parts[3]) * S;
+            const w  = parseFloat(parts[4]) * S;
+            const h  = parseFloat(parts[5]) * S;
+            const side = parts[6] === 'bottom' ? 'bottom' : 'top';
+            if (!Number.isFinite(cx) || !Number.isFinite(cy) ||
+                !Number.isFinite(w)  || !Number.isFinite(h)) continue;
+            let canonicalShape;
+            switch (padType) {
+                case 'ELLIPSE': canonicalShape = 'ellipse'; break;
+                case 'OVAL':    canonicalShape = 'oval'; break;
+                default:        canonicalShape = 'rect'; break;
+            }
+            pasteApertures.push({ x: cx, y: cy, width: w, height: h, shape: canonicalShape, side });
+            minX = Math.min(minX, cx - w / 2);
+            minY = Math.min(minY, cy - h / 2);
+            maxX = Math.max(maxX, cx + w / 2);
+            maxY = Math.max(maxY, cy + h / 2);
+            continue;
+        }
+
 
         // ── SILK shapes (from KiCad parser) ────────────────────
         // Format: SILK~LINE~x1~y1~x2~y2~strokeWidth~side
@@ -413,6 +457,10 @@ function generateFromShapes(shapes, bbox, source) {
             pad.x -= centerX;
             pad.y -= centerY;
         }
+        for (const ap of pasteApertures) {
+            ap.x -= centerX;
+            ap.y -= centerY;
+        }
         for (const s of silks) {
             if (s.type === 'line') { s.x1 -= centerX; s.y1 -= centerY; s.x2 -= centerX; s.y2 -= centerY; }
             else if (s.type === 'circle') { s.cx -= centerX; s.cy -= centerY; }
@@ -447,45 +495,53 @@ function generateFromShapes(shapes, bbox, source) {
     // EasyEDA doesn't store these explicitly — they're derived from pad geometry.
     // Paste = same size as pad, Mask = pad + 0.1mm expansion.
     const MASK_EXPANSION = 0.1;  // mm
+    const sw = 0.1;
+
+    /** Push a filled pad-shaped opening onto `silks` for the given layer. */
+    const emitFilledOpening = (px, py, pw, ph, padShape, exp, layerId) => {
+        if (padShape === 'ellipse') {
+            silks.push({ type: 'circle', cx: px, cy: py,
+                r: pw / 2 + exp, strokeWidth: sw, layer: layerId, filled: true });
+        } else if (padShape === 'oval') {
+            // Stadium / discorectangle as SVG path (rounded rect with r = min(w,h)/2)
+            const r = Math.min(pw, ph) / 2 + exp;
+            const x1 = px - pw / 2 - exp, y1 = py - ph / 2 - exp;
+            const w = pw + 2 * exp, h = ph + 2 * exp;
+            let d;
+            if (w >= h) {
+                d = `M ${x1 + r} ${y1} L ${x1 + w - r} ${y1} A ${r} ${r} 0 0 1 ${x1 + w - r} ${y1 + h} L ${x1 + r} ${y1 + h} A ${r} ${r} 0 0 1 ${x1 + r} ${y1} Z`;
+            } else {
+                d = `M ${x1} ${y1 + r} L ${x1} ${y1 + h - r} A ${r} ${r} 0 0 0 ${x1 + w} ${y1 + h - r} L ${x1 + w} ${y1 + r} A ${r} ${r} 0 0 0 ${x1} ${y1 + r} Z`;
+            }
+            silks.push({ type: 'path', d, strokeWidth: sw, layer: layerId, filled: true });
+        } else {
+            // Filled rectangle as path
+            const x1 = px - pw / 2 - exp, y1 = py - ph / 2 - exp;
+            const x2 = px + pw / 2 + exp, y2 = py + ph / 2 + exp;
+            const d = `M ${x1} ${y1} L ${x2} ${y1} L ${x2} ${y2} L ${x1} ${y2} Z`;
+            silks.push({ type: 'path', d, strokeWidth: sw, layer: layerId, filled: true });
+        }
+    };
+
     for (const pad of pads) {
         const copperLayer = pad.layer || 'top';
         const isTop = copperLayer === 'top' || copperLayer === 'both';
         const isBottom = copperLayer === 'bottom' || copperLayer === 'both';
-        const sw = 0.1;
 
-        const layers = [];
-        if (isTop) layers.push(['top-paste', 0], ['top-mask', MASK_EXPANSION]);
-        if (isBottom) layers.push(['bottom-paste', 0], ['bottom-mask', MASK_EXPANSION]);
-
-        for (const entry of layers) {
-            const layerId = /** @type {string} */ (entry[0]);
-            const exp = /** @type {number} */ (entry[1]);
-            if (pad.shape === 'ellipse') {
-                silks.push({ type: 'circle', cx: pad.x, cy: pad.y,
-                    r: pad.width / 2 + exp, strokeWidth: sw, layer: layerId, filled: true });
-            } else if (pad.shape === 'oval') {
-                // Stadium / discorectangle as SVG path (rounded rect with r = min(w,h)/2)
-                const r = Math.min(pad.width, pad.height) / 2 + exp;
-                const x1 = pad.x - pad.width / 2 - exp, y1 = pad.y - pad.height / 2 - exp;
-                const w = pad.width + 2 * exp, h = pad.height + 2 * exp;
-                let d;
-                if (w >= h) {
-                    d = `M ${x1 + r} ${y1} L ${x1 + w - r} ${y1} A ${r} ${r} 0 0 1 ${x1 + w - r} ${y1 + h} L ${x1 + r} ${y1 + h} A ${r} ${r} 0 0 1 ${x1 + r} ${y1} Z`;
-                } else {
-                    d = `M ${x1} ${y1 + r} L ${x1} ${y1 + h - r} A ${r} ${r} 0 0 0 ${x1 + w} ${y1 + h - r} L ${x1 + w} ${y1 + r} A ${r} ${r} 0 0 0 ${x1} ${y1 + r} Z`;
-                }
-                silks.push({ type: 'path', d, strokeWidth: sw, layer: layerId, filled: true });
-            } else {
-                // Filled rectangle as path
-                const x1 = pad.x - pad.width / 2 - exp, y1 = pad.y - pad.height / 2 - exp;
-                const x2 = pad.x + pad.width / 2 + exp, y2 = pad.y + pad.height / 2 + exp;
-                const d = `M ${x1} ${y1} L ${x2} ${y1} L ${x2} ${y2} L ${x1} ${y2} Z`;
-                silks.push({ type: 'path', d, strokeWidth: sw, layer: layerId, filled: true });
-            }
+        // A pad only contributes paste/mask openings on the layers it
+        // actually lists (KiCad). Absent flags (EasyEDA) default to true.
+        for (const side of (isTop ? ['top'] : []).concat(isBottom ? ['bottom'] : [])) {
+            if (pad.paste !== false) emitFilledOpening(pad.x, pad.y, pad.width, pad.height, pad.shape, 0, `${side}-paste`);
+            if (pad.mask !== false) emitFilledOpening(pad.x, pad.y, pad.width, pad.height, pad.shape, MASK_EXPANSION, `${side}-mask`);
         }
     }
 
-    return { pads, silks, outline, courtyard };
+    // Standalone paste apertures (no copper) — windowpane stencil openings.
+    for (const ap of pasteApertures) {
+        emitFilledOpening(ap.x, ap.y, ap.width, ap.height, ap.shape, 0, `${ap.side}-paste`);
+    }
+
+    return { pads, silks, outline, courtyard, pasteApertures };
 }
 
 /**

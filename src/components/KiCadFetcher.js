@@ -1370,6 +1370,10 @@ export class KiCadFetcher {
             let rotation = 0;
             let sizeX = 0;
             let sizeY = 0;
+            // Layer membership. A pad may live on any combination of copper,
+            // soldermask and solderpaste, on the front (F.*) or back (B.*).
+            let hasCopper = false, hasPaste = false, hasMask = false;
+            let onFront = false, onBack = false;
 
             for (const padItem of item) {
                 if (!Array.isArray(padItem)) continue;
@@ -1380,6 +1384,15 @@ export class KiCadFetcher {
                 } else if (padItem[0] === 'size') {
                     sizeX = parseFloat(padItem[1]) || 0;
                     sizeY = parseFloat(padItem[2]) || 0;
+                } else if (padItem[0] === 'layers') {
+                    for (let li = 1; li < padItem.length; li++) {
+                        const lyr = String(padItem[li]).replace(/"/g, '');
+                        if (lyr === 'F.Cu' || lyr === 'B.Cu' || lyr.endsWith('*.Cu')) hasCopper = true;
+                        else if (lyr.endsWith('.Paste')) hasPaste = true;
+                        else if (lyr.endsWith('.Mask')) hasMask = true;
+                        if (lyr.startsWith('F.') || lyr.startsWith('*.')) onFront = true;
+                        if (lyr.startsWith('B.')) onBack = true;
+                    }
                 }
             }
 
@@ -1402,7 +1415,31 @@ export class KiCadFetcher {
             if (shape === 'circle') padType = 'ELLIPSE';
             else if (shape === 'oval') padType = 'OVAL';
             else padType = 'RECT';
-            shapes.push(`PAD~${padType}~${atX}~${atY}~${w}~${h}~${padNumber}`);
+
+            const side = onBack && !onFront ? 'bottom' : 'top';
+
+            if (!hasCopper) {
+                // Non-copper pad — a paste (or mask) aperture, not a pin.
+                // The matrix of paste sub-apertures a QFN exposed pad is
+                // subdivided into is the common case; importing these as
+                // copper pins collides their (blank → auto-numbered)
+                // numbers with real pins and stacks them in gerber. Emit
+                // them as standalone PASTE apertures so the stencil stays
+                // faithful without polluting the electrical pad list.
+                if (hasPaste) {
+                    shapes.push(`PASTE~${padType}~${atX}~${atY}~${w}~${h}~${side}`);
+                    includeRect(atX, atY, w, h);
+                }
+                continue;
+            }
+
+            // Copper pad. Append side + mask/paste membership so the
+            // footprint pipeline can build a faithful stencil/mask: an
+            // exposed pad that is copper+mask but NOT paste (windowpaned
+            // separately) must not get a full-area paste opening.
+            const maskFlag = hasMask ? 1 : 0;
+            const pasteFlag = hasPaste ? 1 : 0;
+            shapes.push(`PAD~${padType}~${atX}~${atY}~${w}~${h}~${padNumber}~${side}~${maskFlag}~${pasteFlag}`);
             includeRect(atX, atY, w, h);
         }
 
@@ -2465,6 +2502,7 @@ export class KiCadFetcher {
             length: 2.54,
             pinType: 'passive',
             shape: 'line',
+            hidden: false,
             kicadNameFontSize: null,
             kicadNumberFontSize: null
         };
@@ -2513,6 +2551,11 @@ export class KiCadFetcher {
                 case 'length':
                     pin.length = parseFloat(item[1]) || 2.54;
                     break;
+                case 'hide':
+                    // KiCad 7+: (hide yes); older value forms also count as hidden
+                    // unless explicitly 'no'/false.
+                    pin.hidden = item[1] == null || (item[1] !== 'no' && item[1] !== false);
+                    break;
                 case 'name':
                     // Remove quotes if present
                     pin.name = String(item[1] || '').replace(/^"|"$/g, '');
@@ -2524,6 +2567,8 @@ export class KiCadFetcher {
                     break;
             }
         }
+        // KiCad 6 marks hidden pins with a bare `hide` token (not a list).
+        if (pinSexp.includes('hide')) pin.hidden = true;
         
         if (Number.isFinite(pin.x) && Number.isFinite(pin.y)) {
             pin._coordKey = `${pin.x.toFixed(3)},${pin.y.toFixed(3)}`;

@@ -162,8 +162,11 @@ function _buildCopper(placements, tracks, vias, layerId, bounds, texts = []) {
         for (const off of pl.padOffsets) {
             const padLayer = off.layer || 'top';
             if (padLayer !== 'both' && padLayer !== padSide) continue;
-            const pos = pl.pads.get(off.number);
-            if (!pos) continue;
+            // Flash at this offset's OWN position. A footprint may have
+            // several pad offsets sharing one pad number (e.g. a thermal
+            // pad subdivided into a matrix), so the number-keyed pad map
+            // (one entry per number) cannot be used for copper placement.
+            const pos = { x: pl.x + off.dx, y: pl.y + off.dy };
             if (!_inBoard(pos.x, pos.y, bounds)) continue;
             const w = off.width || 1.2;
             const h = off.height || 1.2;
@@ -275,6 +278,9 @@ function _buildPadLayer(placements, vias, side, bounds, opts) {
         includeThruHole = true,
         includeVias = true,
         includeSmd = true,
+        respectPaste = false,
+        respectMask = false,
+        pasteApertures = false,
         title = 'Pad Layer',
     } = opts;
     /** @type {Map<string, number>} apertureKey → D-code */
@@ -297,8 +303,15 @@ function _buildPadLayer(placements, vias, side, bounds, opts) {
             const isThru = (off.drill || 0) > 0;
             if (isThru && !includeThruHole) continue;
             if (!isThru && !includeSmd) continue;
-            const pos = pl.pads.get(off.number);
-            if (!pos) continue;
+            // A copper pad only contributes to the paste/mask layer it
+            // actually lists. e.g. a QFN exposed pad is copper+mask but NOT
+            // paste (it is windowpaned by separate apertures) — full-area
+            // paste there would bridge solder.
+            if (respectPaste && off.paste === false) continue;
+            if (respectMask && off.mask === false) continue;
+            // Flash at the offset's own position (see copper loop note):
+            // duplicate-numbered offsets must each draw at their own dx/dy.
+            const pos = { x: pl.x + off.dx, y: pl.y + off.dy };
             if (!_inBoard(pos.x, pos.y, bounds)) continue;
             const w = (off.width || 1.2) + 2 * expansion;
             const h = (off.height || 1.2) + 2 * expansion;
@@ -314,6 +327,32 @@ function _buildPadLayer(placements, vias, side, bounds, opts) {
             }
             const d = getAp(key);
             ops.push({ d, op: `X${_fmt(pos.x)}Y${_fmtY(pos.y)}D03*` });
+        }
+    }
+
+    // Standalone paste apertures (no copper) — windowpane stencil openings.
+    if (pasteApertures) {
+        for (const [, pl] of placements) {
+            if (!pl?.pasteOffsets) continue;
+            for (const off of pl.pasteOffsets) {
+                if ((off.side || 'top') !== side) continue;
+                const pos = { x: pl.x + off.dx, y: pl.y + off.dy };
+                if (!_inBoard(pos.x, pos.y, bounds)) continue;
+                const w = (off.width || 1.2) + 2 * expansion;
+                const h = (off.height || 1.2) + 2 * expansion;
+                if (w <= 0 || h <= 0) continue;
+                const shape = off.shape || 'rect';
+                let key;
+                if (shape === 'ellipse') {
+                    key = apKey('C', Math.max(w, h));
+                } else if (shape === 'oval') {
+                    key = apKey('O', w, h);
+                } else {
+                    key = apKey('R', w, h);
+                }
+                const d = getAp(key);
+                ops.push({ d, op: `X${_fmt(pos.x)}Y${_fmtY(pos.y)}D03*` });
+            }
         }
     }
 
@@ -349,6 +388,7 @@ function _buildMask(placements, vias, side, bounds) {
         includeThruHole: true,
         includeSmd: true,
         includeVias: !TENT_VIAS,
+        respectMask: true,
         title: side === 'top' ? 'Top Soldermask' : 'Bottom Soldermask',
     });
 }
@@ -357,12 +397,16 @@ function _buildMask(placements, vias, side, bounds) {
 
 function _buildPaste(placements, side, bounds) {
     // Paste stencil only opens for SMD pads. Through-hole pads and vias
-    // get no paste (they're soldered after reflow, or tented).
+    // get no paste (they're soldered after reflow, or tented). Copper pads
+    // without a paste layer (windowpaned exposed pads) are skipped; their
+    // stencil is supplied by standalone paste apertures instead.
     return _buildPadLayer(placements, [], side, bounds, {
         expansion: 0,
         includeThruHole: false,
         includeSmd: true,
         includeVias: false,
+        respectPaste: true,
+        pasteApertures: true,
         title: side === 'top' ? 'Top Paste' : 'Bottom Paste',
     });
 }

@@ -1933,7 +1933,15 @@ export default class PCBApp {
             const padOffsets = [];
             for (const pad of fpGeom.pads) {
                 padMap.set(pad.number, { x: cx + pad.x, y: cy + pad.y });
-                padOffsets.push({ number: pad.number, dx: pad.x, dy: pad.y, width: pad.width, height: pad.height, drill: pad.drill || 0, layer: pad.layer, shape: pad.shape || 'rect' });
+                padOffsets.push({ number: pad.number, dx: pad.x, dy: pad.y, width: pad.width, height: pad.height, drill: pad.drill || 0, layer: pad.layer, shape: pad.shape || 'rect', mask: pad.mask !== false, paste: pad.paste !== false });
+            }
+            // Paste-only stencil apertures (no copper) — e.g. a QFN exposed
+            // pad's windowpane matrix. Carried separately so they reach the
+            // paste gerber without polluting copper/ratsnest/netlist.
+            /** @type {Array<{dx: number, dy: number, width: number, height: number, shape: string, side: string}>} */
+            const pasteOffsets = [];
+            for (const ap of (fpGeom.pasteApertures || [])) {
+                pasteOffsets.push({ dx: ap.x, dy: ap.y, width: ap.width, height: ap.height, shape: ap.shape || 'rect', side: ap.side || 'top' });
             }
 
             this.placements.set(comp.id, {
@@ -1941,6 +1949,7 @@ export default class PCBApp {
                 y: cy,
                 pads: padMap,
                 padOffsets,
+                pasteOffsets,
                 elements,
                 bounds: fpGeom.courtyard || fpGeom.outline,
                 reference: comp.reference,
