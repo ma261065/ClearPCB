@@ -24,6 +24,7 @@ import {
     AddViaCommand,
     CompoundCommand,
     ModifyTrackCommand,
+    ModifyTrackGraphCommand,
     ModifyViaCommand,
 } from './track-commands.js';
 import { PCB_LAYERS } from './layers.js';
@@ -63,14 +64,16 @@ export function hitTestTrack(app, worldPos, pxTol = HIT_TOL_PX) {
         }
     }
 
-    // Tracks: distance to any segment within (width/2 + tol).
+    // Tracks: distance to any segment within (width/2 + tol). Width is
+    // per-edge, so resolve it inside the segment loop.
     for (let i = app.tracks.length - 1; i >= 0; i--) {
         const t = app.tracks[i];
-        const half = (t.width || 0.2) / 2 + worldTol;
-        for (const e of t.edges.values()) {
+        for (const [eid, e] of t.edges) {
             const a = t.nodes.get(e.from);
             const b = t.nodes.get(e.to);
             if (!a || !b) continue;
+            const ew = t.getEdgeWidth ? t.getEdgeWidth(eid) : t.width;
+            const half = (ew || 0.2) / 2 + worldTol;
             if (_pointSegDist(worldPos, a, b) <= half) {
                 return { type: 'track', track: t };
             }
@@ -603,7 +606,6 @@ function _drawTrackHalo(app, track, cls = HALO_CLASS, opacity = HALO_OPACITY_SEL
     // width as the trace itself, so it brightens the copper in place
     // instead of producing an outer glow that lags behind moves.
     const runs = _buildRuns(track);
-    const haloWidth = track.width || 0.2;
     for (const run of runs) {
         const parent = app._getLayerGroup(run.layer);
         if (!parent) continue;
@@ -612,7 +614,7 @@ function _drawTrackHalo(app, track, cls = HALO_CLASS, opacity = HALO_OPACITY_SEL
         poly.setAttribute('points', run.points.map((p) => `${p.x},${p.y}`).join(' '));
         poly.setAttribute('fill', 'none');
         poly.setAttribute('stroke', HALO_COLOR);
-        poly.setAttribute('stroke-width', String(haloWidth));
+        poly.setAttribute('stroke-width', String(run.width));
         poly.setAttribute('stroke-linecap', 'round');
         poly.setAttribute('stroke-linejoin', 'round');
         poly.setAttribute('stroke-opacity', String(opacity));
@@ -635,7 +637,7 @@ function _drawSegmentHalo(app, track, edgeId, cls = HALO_CLASS, opacity = HALO_O
     const a = track.nodes.get(e.from);
     const b = track.nodes.get(e.to);
     if (!a || !b) return;
-    const layerId = track.edgeLayers.get(edgeId) || track.layer || 'top-copper';
+    const layerId = track.getEdgeLayer(edgeId) || 'top-copper';
     const parent = app._getLayerGroup(layerId);
     if (parent) {
         const line = document.createElementNS(NS, 'line');
@@ -645,7 +647,7 @@ function _drawSegmentHalo(app, track, edgeId, cls = HALO_CLASS, opacity = HALO_O
         line.setAttribute('x2', String(b.x));
         line.setAttribute('y2', String(b.y));
         line.setAttribute('stroke', HALO_COLOR);
-        line.setAttribute('stroke-width', String(track.width || 0.2));
+        line.setAttribute('stroke-width', String(track.getEdgeWidth(edgeId) || 0.2));
         line.setAttribute('stroke-linecap', 'round');
         line.setAttribute('stroke-opacity', String(opacity));
         line.setAttribute('pointer-events', 'none');
@@ -837,16 +839,18 @@ function _buildRuns(track) {
     for (const startNid of startOrder) {
         for (const { other, eid } of adj.get(startNid)) {
             if (usedEdges.has(eid)) continue;
-            const layer = track.edgeLayers.get(eid) || track.layer;
+            const layer = track.getEdgeLayer(eid);
+            const width = track.getEdgeWidth(eid);
             const points = [track.nodes.get(startNid), track.nodes.get(other)];
             usedEdges.add(eid);
-            // Extend forward while next edge shares the layer and the
-            // current end has exactly two edges (no branch).
+            // Extend forward while next edge shares the layer AND width and
+            // the current end has exactly two edges (no branch).
             let prev = startNid, cur = other;
             while (true) {
                 const next = (adj.get(cur) || []).find(
                     (n) => !usedEdges.has(n.eid)
-                        && (track.edgeLayers.get(n.eid) || track.layer) === layer
+                        && track.getEdgeLayer(n.eid) === layer
+                        && track.getEdgeWidth(n.eid) === width
                         && n.other !== prev,
                 );
                 if (!next) break;
@@ -856,7 +860,7 @@ function _buildRuns(track) {
                 prev = cur;
                 cur = next.other;
             }
-            runs.push({ layer, points });
+            runs.push({ layer, width, points });
         }
     }
     return runs;
@@ -867,7 +871,8 @@ function _buildRuns(track) {
 function _showTrackProperties(app, track) {
     const items = document.getElementById('pcbPropsItems');
     if (!items) return;
-    const layers = new Set(track.edgeLayers.values());
+    const layers = new Set();
+    for (const eid of track.edges.keys()) layers.add(track.getEdgeLayer(eid));
     const mixed = layers.size > 1;
     const currentLayer = mixed ? '' : (layers.values().next().value || track.layer || 'top-copper');
     const layerOpts = PCB_LAYERS.map(
@@ -880,6 +885,12 @@ function _showTrackProperties(app, track) {
         <div class="prop-row"><label>Layer</label><select id="pcbPropTrackLayer">${mixedOpt}${layerOpts}</select></div>
         <div class="prop-row"><label>Width (mm)</label><input type="number" id="pcbPropTrackWidth" value="${track.width}" min="0.05" step="0.05"></div>
     `;
+    // Apply a width to the whole track: the track-wide default AND every
+    // edge (render/export read per-edge widths).
+    const applyWidthAll = (w) => {
+        track.width = w;
+        for (const eid of track.edges.keys()) track.setEdgeAttr(eid, 'width', w);
+    };
     const wEl = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropTrackWidth'));
     const baseline = { width: track.width, net: track.net || '' };
     wEl?.addEventListener('input', () => {
@@ -888,7 +899,7 @@ function _showTrackProperties(app, track) {
         // Live preview — mutate directly so the user sees the change
         // immediately. The committed value lands on the history stack
         // when the input loses focus or 'change' fires.
-        track.width = v;
+        applyWidthAll(v);
         import('./track-render.js').then(({ renderTrack }) => {
             renderTrack(track, (id) => app._getLayerGroup(id), {
                 viaDiameter: app._getRoutingParams?.()?.viaDiameter,
@@ -897,16 +908,21 @@ function _showTrackProperties(app, track) {
             clearTrackSelection(app);
             app._selectedTrack = track;
             _drawTrackHalo(app, track);
+            app._refreshClearanceHalos?.();
         });
     });
     wEl?.addEventListener('change', () => {
         const v = parseFloat(wEl.value);
         if (!Number.isFinite(v) || v <= 0) return;
         if (v === baseline.width) return;
-        // Roll back the live-preview mutation so the command's
-        // execute() can apply it cleanly through the history stack.
-        track.width = baseline.width;
-        app.history?.execute(new ModifyTrackCommand(app, track, { width: baseline.width }, { width: v }));
+        // Roll back the live-preview mutation, then commit a graph snapshot
+        // so per-edge widths are captured for undo/redo.
+        applyWidthAll(baseline.width);
+        const before = track.captureState();
+        applyWidthAll(v);
+        const after = track.captureState();
+        track.applyState(before);
+        app.history?.execute(new ModifyTrackGraphCommand(app, track, before, after));
         baseline.width = v;
     });
     const netEl = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropTrackNet'));
@@ -931,7 +947,7 @@ function _showTrackProperties(app, track) {
         // vias; moving it BACK onto a neighbour's layer fuses the tracks and
         // removes the now-superfluous vias.
         track.layer = v;
-        for (const eid of track.edges.keys()) track.edgeLayers.set(eid, v);
+        for (const eid of track.edges.keys()) track.setEdgeAttr(eid, 'layer', v);
         const region = reconcileCopperRegion(app, track);
         // Restore the seed so its RemoveTrackCommand captures clean undo.
         track.applyState(before);
@@ -952,13 +968,14 @@ function _showTrackProperties(app, track) {
 
 /**
  * Properties panel for a single selected track segment (one edge). The
- * Net and Width are track-wide; the Layer dropdown retargets only this
- * edge so a single segment can hop layers independently.
+ * Net is track-wide; the Layer and Width retarget only this edge so a
+ * single segment can hop layers and change width independently.
  */
 function _showTrackSegmentProperties(app, track, edgeId) {
     const items = document.getElementById('pcbPropsItems');
     if (!items) return;
-    const currentLayer = track.edgeLayers.get(edgeId) || track.layer || 'top-copper';
+    const currentLayer = track.getEdgeLayer(edgeId) || 'top-copper';
+    const segWidth = track.getEdgeWidth(edgeId);
     const layerOpts = PCB_LAYERS.map(
         (l) => `<option value="${l.id}"${l.id === currentLayer ? ' selected' : ''}>${_escape(l.name)}</option>`
     ).join('');
@@ -966,27 +983,35 @@ function _showTrackSegmentProperties(app, track, edgeId) {
         <div class="prop-row"><label>Type</label><span style="font-size:11px;color:var(--text-primary)">Track Segment</span></div>
         <div class="prop-row"><label>Net</label><input type="text" id="pcbPropTrackNet" value="${_escape(track.net || '')}" placeholder="(unassigned)"></div>
         <div class="prop-row"><label>Layer</label><select id="pcbPropSegLayer">${layerOpts}</select></div>
-        <div class="prop-row"><label>Width (mm)</label><input type="number" id="pcbPropTrackWidth" value="${track.width}" min="0.05" step="0.05"></div>
+        <div class="prop-row"><label>Width (mm)</label><input type="number" id="pcbPropTrackWidth" value="${segWidth}" min="0.05" step="0.05"></div>
     `;
-    const baseline = { width: track.width, net: track.net || '' };
+    const baseline = { width: segWidth, net: track.net || '' };
     const wEl = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropTrackWidth'));
     wEl?.addEventListener('input', () => {
         const v = parseFloat(wEl.value);
         if (!Number.isFinite(v) || v <= 0) return;
-        track.width = v;
+        // Live preview — set just this edge's width.
+        track.setEdgeAttr(edgeId, 'width', v);
         import('./track-render.js').then(({ renderTrack }) => {
             renderTrack(track, (id) => app._getLayerGroup(id), {
                 viaDiameter: app._getRoutingParams?.()?.viaDiameter,
                 viaDrill: app._getRoutingParams?.()?.viaDrill,
             });
             refreshTrackSelectionHalo(app);
+            app._refreshClearanceHalos?.();
         });
     });
     wEl?.addEventListener('change', () => {
         const v = parseFloat(wEl.value);
         if (!Number.isFinite(v) || v <= 0 || v === baseline.width) return;
-        track.width = baseline.width;
-        app.history?.execute(new ModifyTrackCommand(app, track, { width: baseline.width }, { width: v }));
+        // Roll back the live preview, then commit a graph snapshot so the
+        // per-edge width change is captured for undo/redo.
+        track.setEdgeAttr(edgeId, 'width', baseline.width);
+        const before = track.captureState();
+        track.setEdgeAttr(edgeId, 'width', v);
+        const after = track.captureState();
+        track.applyState(before);
+        app.history?.execute(new ModifyTrackGraphCommand(app, track, before, after));
         baseline.width = v;
     });
     const netEl = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropTrackNet'));
@@ -1004,7 +1029,7 @@ function _showTrackSegmentProperties(app, track, edgeId) {
         const v = layerEl.value;
         if (!v) return;
         const before = track.captureState();
-        track.edgeLayers.set(edgeId, v);
+        track.setEdgeAttr(edgeId, 'layer', v);
         // Re-normalise the whole bonded copper region into the canonical
         // via/node model. This handles BOTH directions: a layer JUMP splits
         // the track and adds boundary vias; moving a segment BACK onto a

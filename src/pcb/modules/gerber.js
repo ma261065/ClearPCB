@@ -192,16 +192,17 @@ function _buildCopper(placements, tracks, vias, layerId, bounds, texts = []) {
     // Tracks on this layer.
     for (const t of tracks) {
         if (!t.edges?.size) continue;
-        const key = apKey('C', t.width || 0.2);
-        const d = getAp(key);
         for (const [eid, e] of t.edges) {
-            const edgeLayer = t.edgeLayers?.get(eid) || t.layer;
+            const edgeLayer = t.getEdgeLayer ? t.getEdgeLayer(eid) : (t.layer);
             if (edgeLayer !== layerId) continue;
             const a = t.nodes.get(e.from);
             const b = t.nodes.get(e.to);
             if (!a || !b) continue;
             const clipped = _clipSegment(a.x, a.y, b.x, b.y, bounds);
             if (!clipped) continue;
+            // Aperture is per-edge: each segment may have its own width.
+            const w = t.getEdgeWidth ? t.getEdgeWidth(eid) : t.width;
+            const d = getAp(apKey('C', w || 0.2));
             ops.push({ d, op: `X${_fmt(clipped[0])}Y${_fmtY(clipped[1])}D02*` });
             ops.push({ d, op: `X${_fmt(clipped[2])}Y${_fmtY(clipped[3])}D01*` });
         }

@@ -183,18 +183,110 @@ export class PolylineGraph extends Shape {
 
     /**
      * Add an edge connecting two nodes. Self-loops are rejected.
+     *
+     * Per-edge attributes declared in the subclass `edgeAttributes` schema
+     * are initialised here: any value supplied in `attrs` wins, otherwise the
+     * schema default is used. Extra keys in `attrs` that are not part of the
+     * schema are copied verbatim (so callers can hand a whole edge object —
+     * e.g. from `splitEdge`/`absorb` — and have its attributes carried over).
      * @param {string} fromId
      * @param {string} toId
+     * @param {object} [attrs] Optional per-edge attribute values (or a source edge).
      * @returns {string|null} The new edge ID, or null if self-loop
      */
-    addEdge(fromId, toId) {
+    addEdge(fromId, toId, attrs = {}) {
         if (fromId === toId) return null;
         let i = 0;
         while (this.edges.has(`e${i}`)) i++;
         const id = `e${i}`;
-        this.edges.set(id, { from: fromId, to: toId });
+        const edge = { from: fromId, to: toId };
+        const schema = this._edgeAttrSchema();
+        for (const name of Object.keys(schema)) {
+            edge[name] = attrs[name] !== undefined
+                ? attrs[name]
+                : schema[name].default(this);
+        }
+        // Carry any extra (non-schema) attributes verbatim, skipping the
+        // structural from/to keys so a source edge can be passed directly.
+        for (const k of Object.keys(attrs)) {
+            if (k === 'from' || k === 'to' || k in edge) continue;
+            edge[k] = attrs[k];
+        }
+        this.edges.set(id, edge);
         this.invalidate();
         return id;
+    }
+
+    /* ──────────────────── per-edge attributes ──────────────────── */
+
+    /**
+     * Per-edge attribute schema. Subclasses override this to declare
+     * attributes that live on each edge object. Each entry is keyed by the
+     * attribute name (also the key stored on the edge object) and maps to:
+     *   - `prop`: constructor-option name carrying a `{edgeId: value}` map
+     *   - `json`: compact key used in `toJSON`/`fromJSON` serialisation
+     *   - `default(shape)`: returns the fallback value for an edge that has
+     *     no explicit value (typically a shape-wide field).
+     * @type {Object<string, {prop: string, json: string, default: (shape: any) => any}>}
+     */
+    static edgeAttributes = {};
+
+    /** @returns {Object<string, {prop: string, json: string, default: Function}>} */
+    _edgeAttrSchema() {
+        return /** @type {any} */ (this.constructor).edgeAttributes || {};
+    }
+
+    /** Shallow-copy an edge object (structure + attributes). */
+    _cloneEdge(e) {
+        return { ...e };
+    }
+
+    /**
+     * Read a per-edge attribute, falling back to the schema default.
+     * @param {string} edgeId
+     * @param {string} name
+     * @returns {any}
+     */
+    getEdgeAttr(edgeId, name) {
+        const e = this.edges.get(edgeId);
+        if (!e) return undefined;
+        if (e[name] !== undefined) return e[name];
+        const spec = this._edgeAttrSchema()[name];
+        return spec ? spec.default(this) : undefined;
+    }
+
+    /**
+     * Set a per-edge attribute.
+     * @param {string} edgeId
+     * @param {string} name
+     * @param {any} value
+     */
+    setEdgeAttr(edgeId, name, value) {
+        const e = this.edges.get(edgeId);
+        if (!e) return;
+        e[name] = value;
+        this.invalidate();
+    }
+
+    /**
+     * Initialise per-edge attributes on every edge from constructor options.
+     * Subclasses call this at the END of their constructor, once the
+     * shape-wide default fields the schema relies on are in place. For each
+     * schema attribute, a `{edgeId: value}` map may be supplied via
+     * `options[spec.prop]`; edges without an explicit value get the default.
+     * @param {object} [options]
+     */
+    _initEdgeAttributes(options = {}) {
+        const schema = this._edgeAttrSchema();
+        for (const [name, spec] of Object.entries(schema)) {
+            const provided = options[spec.prop];
+            for (const [eid, e] of this.edges) {
+                let v;
+                if (provided instanceof Map) v = provided.get(eid);
+                else if (provided && typeof provided === 'object') v = provided[eid];
+                e[name] = v !== undefined ? v : spec.default(this);
+            }
+        }
     }
 
     /**
@@ -366,9 +458,13 @@ export class PolylineGraph extends Shape {
         const edge = this.edges.get(edgeId);
         if (!edge) return null;
         const nid = this.addNode(point.x, point.y);
+        // Capture the source edge's attributes BEFORE deleting it so both
+        // halves inherit layer/width/etc. (passing the whole edge object as
+        // `attrs`; addEdge ignores its from/to keys).
+        const attrs = this._cloneEdge(edge);
         this.edges.delete(edgeId);
-        const e1 = this.addEdge(edge.from, nid);
-        const e2 = this.addEdge(nid, edge.to);
+        const e1 = this.addEdge(edge.from, nid, attrs);
+        const e2 = this.addEdge(nid, edge.to, attrs);
         return { newNodeId: nid, edge1Id: e1, edge2Id: e2 };
     }
 
@@ -397,7 +493,7 @@ export class PolylineGraph extends Shape {
         for (const [oldId, pos] of other.nodes)
             remap.set(oldId, this.addNode(pos.x, pos.y));
         for (const [, e] of other.edges)
-            this.addEdge(remap.get(e.from), remap.get(e.to));
+            this.addEdge(remap.get(e.from), remap.get(e.to), e);
         this._onAbsorb(other, remap);
         this.invalidate();
         return remap;
@@ -445,7 +541,7 @@ export class PolylineGraph extends Shape {
         }
         for (const [eid, e] of this.edges) {
             if (ns.has(e.from) && ns.has(e.to)) {
-                sub.edges.set(eid, { from: e.from, to: e.to });
+                sub.edges.set(eid, this._cloneEdge(e));
             }
         }
         this._onExtractSubgraph(sub, ns);
@@ -704,11 +800,14 @@ export class PolylineGraph extends Shape {
         if (deg === 1) { this.removeNode(anchorId); return true; }
         if (deg === 2) {
             const [e1, e2] = this.incidentEdges(anchorId);
+            // The bridging edge inherits the first removed edge's attributes
+            // (layer/width/etc.) so the reconnected segment keeps its styling.
+            const inherited = this._cloneEdge(this.edges.get(e1.edgeId));
             this.edges.delete(e1.edgeId);
             this.edges.delete(e2.edgeId);
             this.nodes.delete(anchorId);
             if (!this.hasEdgeBetween(e1.otherNode, e2.otherNode))
-                this.addEdge(e1.otherNode, e2.otherNode);
+                this.addEdge(e1.otherNode, e2.otherNode, inherited);
             this.invalidate();
             return true;
         }
@@ -736,7 +835,7 @@ export class PolylineGraph extends Shape {
     clone() {
         const c = this._createSubgraphInstance();
         for (const [id, p] of this.nodes) c.nodes.set(id, { x: p.x, y: p.y });
-        for (const [id, e] of this.edges) c.edges.set(id, { from: e.from, to: e.to });
+        for (const [id, e] of this.edges) c.edges.set(id, this._cloneEdge(e));
         return c;
     }
 
@@ -747,7 +846,7 @@ export class PolylineGraph extends Shape {
     captureState() {
         const s = { nodes: {}, edges: {}, closed: this.closed, type: this.type, fill: this.fill, fillAlpha: this.fillAlpha, cornerRadius: this.cornerRadius };
         for (const [id, p] of this.nodes) s.nodes[id] = { x: p.x, y: p.y };
-        for (const [id, e] of this.edges) s.edges[id] = { from: e.from, to: e.to };
+        for (const [id, e] of this.edges) s.edges[id] = this._cloneEdge(e);
         return s;
     }
 
@@ -766,7 +865,7 @@ export class PolylineGraph extends Shape {
             if (state.edges)
                 for (const [id, e] of Object.entries(state.edges)) {
                     if (!e || !this.nodes.has(e.from) || !this.nodes.has(e.to)) continue;
-                    this.edges.set(id, { from: e.from, to: e.to });
+                    this.edges.set(id, this._cloneEdge(e));
                 }
         }
         if ('closed' in state) this.closed = state.closed;
@@ -1041,6 +1140,20 @@ export class PolylineGraph extends Shape {
         const json = { ...super.toJSON(), nd: {}, ed: {} };
         for (const [id, p] of this.nodes) json.nd[id] = [_r4(p.x), _r4(p.y)];
         for (const [id, e] of this.edges) json.ed[id] = [e.from, e.to];
+        // Emit per-edge attribute maps declared by the subclass schema. Only
+        // values that differ from the shape-wide default are written, so the
+        // common (uniform) case stays compact.
+        const schema = this._edgeAttrSchema();
+        for (const [name, spec] of Object.entries(schema)) {
+            const map = {};
+            let any = false;
+            const def = spec.default(this);
+            for (const [id, e] of this.edges) {
+                const v = e[name];
+                if (v !== undefined && v !== def) { map[id] = v; any = true; }
+            }
+            if (any) json[spec.json] = map;
+        }
         if (this.closed) json.cl = true;
         if (this.fill) json.f = true;
         else json.f = false;

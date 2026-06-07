@@ -668,7 +668,7 @@ export function reconcileRatsnest(app) {
         const adj = new Map();
         for (const nid of track.nodes.keys()) adj.set(nid, []);
         for (const [eid, e] of track.edges) {
-            const layer = track.edgeLayers.get(eid) || track.layer;
+            const layer = track.getEdgeLayer(eid);
             adj.get(e.from)?.push({ to: e.to, layer });
             adj.get(e.to)?.push({ to: e.from, layer });
         }
@@ -828,7 +828,7 @@ export function collectBondedCopper(app, seed) {
         const adj = new Map();
         for (const nid of track.nodes.keys()) adj.set(nid, []);
         for (const [eid, e] of track.edges) {
-            const layer = track.edgeLayers.get(eid) || track.layer;
+            const layer = track.getEdgeLayer(eid);
             adj.get(e.from)?.push({ to: e.to, layer });
             adj.get(e.to)?.push({ to: e.from, layer });
         }
@@ -1393,8 +1393,7 @@ function _buildTracksFromContext(ctx) {
             }
         }
         const nextNodeId = cur.addNode(b.x, b.y);
-        const eid = cur.addEdge(curNodeId, nextNodeId);
-        cur.edgeLayers.set(eid, segLayer);
+        cur.addEdge(curNodeId, nextNodeId, { layer: segLayer });
         curNodeId = nextNodeId;
     }
 

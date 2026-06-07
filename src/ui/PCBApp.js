@@ -3825,10 +3825,9 @@ export default class PCBApp {
         // Where two traces meet at a junction, their polygons overlap and
         // the stroked outlines visibly cross — same artifact as pad/via
         // halos already have. Acceptable.
-        const traceR = params.trackWidth / 2 + halo;
-        // Visible halo line center sits at the clearance boundary; the
-        // constant-width screen-pixel stroke straddles it (~½ px each side).
-        const RING_R = traceR;
+        //
+        // Halo radius is sized per-trace from each rendered run's stroke
+        // width (tracks may carry per-segment widths); see the trace loop.
         // Arc tessellation: number of segments per FULL CIRCLE. Each arc
         // emits a proportional fraction of these. Higher = smoother caps
         // and corners at the cost of more polygon vertices.
@@ -4021,7 +4020,12 @@ export default class PCBApp {
             for (const trace of traces) {
                 const pts = traceToPoints(trace);
                 if (pts.length < 2) continue;
-                const poly = offsetPolygon(pts, RING_R);
+                // Each rendered run carries its own stroke-width (tracks can
+                // have per-segment widths), so size the halo from THIS trace's
+                // width rather than the global routing width.
+                const sw = parseFloat(trace.getAttribute('stroke-width'));
+                const ringR = (Number.isFinite(sw) && sw > 0 ? sw / 2 : params.trackWidth / 2) + halo;
+                const poly = offsetPolygon(pts, ringR);
                 if (poly.length < 3) continue;
                 const el = document.createElementNS(NS, 'polygon');
                 el.setAttribute('class', HALO_CLASS);

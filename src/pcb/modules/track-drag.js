@@ -114,20 +114,21 @@ export function hitTestTrackMidpoint(app, track, worldPos, pxTol = NODE_HIT_PX) 
  */
 export function hitTestTrackEdge(app, track, worldPos, pxTol = 6) {
     const scale = app.viewport?.scale || 1;
-    const half = (track.width || 0.2) / 2 + pxTol / scale;
+    const tol = pxTol / scale;
     let best = null;
-    let bestD = half;
+    let bestD = Infinity;
     for (const [eid, e] of track.edges) {
         const a = track.nodes.get(e.from);
         const b = track.nodes.get(e.to);
         if (!a || !b) continue;
+        const half = (track.getEdgeWidth ? track.getEdgeWidth(eid) : track.width || 0.2) / 2 + tol;
         const vx = b.x - a.x, vy = b.y - a.y;
         const len2 = vx * vx + vy * vy;
         if (len2 < 1e-12) continue;
         let t = ((worldPos.x - a.x) * vx + (worldPos.y - a.y) * vy) / len2;
         if (t < 0 || t > 1) continue;
         const d = Math.hypot(worldPos.x - (a.x + t * vx), worldPos.y - (a.y + t * vy));
-        if (d < bestD) { bestD = d; best = { edgeId: eid, edge: e, t }; }
+        if (d <= half && d < bestD) { bestD = d; best = { edgeId: eid, edge: e, t }; }
     }
     return best;
 }
@@ -150,11 +151,11 @@ export function findSplittableTrackEdge(app, worldPos, pxTol = 6) {
     let best = null;
     let bestD = Infinity;
     for (const t of (app.tracks || [])) {
-        const half = (t.width || 0.2) / 2 + pxTol / scale;
         for (const [eid, e] of t.edges) {
             const a = t.nodes.get(e.from);
             const b = t.nodes.get(e.to);
             if (!a || !b) continue;
+            const half = (t.getEdgeWidth ? t.getEdgeWidth(eid) : t.width || 0.2) / 2 + pxTol / scale;
             const vx = b.x - a.x, vy = b.y - a.y;
             const len2 = vx * vx + vy * vy;
             if (len2 < 1e-9) continue;
@@ -188,12 +189,10 @@ export function findSplittableTrackEdge(app, worldPos, pxTol = 6) {
  */
 export function splitTrackObjectAtPoint(track, edgeId, splitPoint) {
     const clone = track.clone();
-    const origLayer = clone.edgeLayers.get(edgeId) || clone.layer;
     const split = clone.splitEdge(edgeId, splitPoint);
     if (!split) return null;
-    // splitEdge issues fresh edge IDs without layer entries — carry over.
-    clone.edgeLayers.set(split.edge1Id, origLayer);
-    clone.edgeLayers.set(split.edge2Id, origLayer);
+    // splitEdge copies the source edge's per-edge attributes (layer/width)
+    // onto both halves, so no manual carry-over is needed here.
 
     const P = split.newNodeId;
     const p = clone.nodes.get(P);
@@ -249,25 +248,10 @@ export function deleteTrackSegment(track, edgeId) {
 export function deleteTrackNode(app, track, nodeId) {
     if (!track?.nodes?.has(nodeId) || track.edges.size <= 1) return false;
     const before = track.captureState();
-    // Remember the incident-edge layers (degree-2 case) so the bridging
-    // edge created by deleteAnchor inherits the right copper layer.
-    const inc = track.incidentEdges(nodeId);
-    const neighborA = inc[0]?.otherNode;
-    const neighborB = inc[1]?.otherNode;
-    const bridgeLayer = inc.length === 2
-        ? (track.edgeLayers.get(inc[0].edgeId) || track.layer)
-        : null;
-    const edgesBefore = new Set(track.edges.keys());
+    // deleteAnchor reconnects a degree-2 node's neighbours with a bridging
+    // edge that inherits the first incident edge's attributes (layer/width),
+    // so no manual carry-over is needed here.
     if (!track.deleteAnchor(nodeId)) return false;
-    if (bridgeLayer && neighborA != null && neighborB != null) {
-        for (const [eid, e] of track.edges) {
-            if (edgesBefore.has(eid)) continue;
-            if ((e.from === neighborA && e.to === neighborB) ||
-                (e.from === neighborB && e.to === neighborA)) {
-                track.edgeLayers.set(eid, bridgeLayer);
-            }
-        }
-    }
     const after = track.captureState();
     track.applyState(before);
     app.history.execute(new ModifyTrackGraphCommand(app, track, before, after));
@@ -302,20 +286,24 @@ export function collapseCollinearTrackNodes(app, track) {
             if (_viaAtPoint(app, pos.x, pos.y)) continue;  // via / layer change
             const inc = track.incidentEdges(nid);
             if (inc.length !== 2) continue;
-            const l1 = track.edgeLayers.get(inc[0].edgeId) || track.layer;
-            const l2 = track.edgeLayers.get(inc[1].edgeId) || track.layer;
+            const l1 = track.getEdgeLayer(inc[0].edgeId);
+            const l2 = track.getEdgeLayer(inc[1].edgeId);
             if (l1 !== l2) continue;                        // layer change → keep
+            const w1 = track.getEdgeWidth(inc[0].edgeId);
+            const w2 = track.getEdgeWidth(inc[1].edgeId);
+            if (w1 !== w2) continue;                         // width change → keep
             const p1 = track.nodes.get(inc[0].otherNode);
             const p2 = track.nodes.get(inc[1].otherNode);
             if (!p1 || !p2) continue;
             if (!track._areCollinear(p1, pos, p2)) continue;
-            // Drop the node and its two edges, then bridge the neighbours.
+            // Drop the node and its two edges, then bridge the neighbours,
+            // carrying the (shared) layer/width onto the new edge.
+            const bridgeAttrs = track._cloneEdge(track.edges.get(inc[0].edgeId));
             track.removeEdge(inc[0].edgeId);
             track.removeEdge(inc[1].edgeId);
             track.removeNode(nid);
             if (!track.hasEdgeBetween(inc[0].otherNode, inc[1].otherNode)) {
-                const ne = track.addEdge(inc[0].otherNode, inc[1].otherNode);
-                if (ne) track.edgeLayers.set(ne, l1);
+                track.addEdge(inc[0].otherNode, inc[1].otherNode, bridgeAttrs);
             }
             removedAny = true;
             changed = true;
@@ -410,16 +398,12 @@ export function startMidpointInsertDrag(app, track, edgeId) {
     const b = track.nodes.get(e.to);
     if (!a || !b) return false;
     const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
-    const layer = track.edgeLayers.get(edgeId) || track.layer;
 
     const before = track.captureState();
     const res = track.splitEdge(edgeId, mid);
     if (!res) return false;
-    // splitEdge deletes the old edge directly (bypassing edgeLayers
-    // cleanup); drop the stale entry and tag the two new edges.
-    track.edgeLayers.delete(edgeId);
-    track.edgeLayers.set(res.edge1Id, layer);
-    track.edgeLayers.set(res.edge2Id, layer);
+    // splitEdge copies the source edge's attributes (layer/width) onto both
+    // halves, so no manual carry-over is needed.
 
     app._vertexDrag = {
         track,
@@ -456,7 +440,7 @@ function _incidentLayers(track, nodeId) {
     const layers = new Set();
     for (const [eid, e] of track.edges) {
         if (e.from === nodeId || e.to === nodeId) {
-            layers.add(track.edgeLayers.get(eid) || track.layer);
+            layers.add(track.getEdgeLayer(eid));
         }
     }
     return layers;
@@ -664,7 +648,7 @@ export function reconcileCopperRegion(app, seedTrack) {
             const ka = key(pa.x, pa.y), kb = key(pb.x, pb.y);
             if (!uNodes.has(ka)) uNodes.set(ka, { x: pa.x, y: pa.y });
             if (!uNodes.has(kb)) uNodes.set(kb, { x: pb.x, y: pb.y });
-            uEdges.push({ a: ka, b: kb, layer: t.getEdgeLayer(eid), width: t.width });
+            uEdges.push({ a: ka, b: kb, layer: t.getEdgeLayer(eid), width: t.getEdgeWidth(eid) });
         }
         for (const [nid, conn] of t.padConnections) {
             const p = t.nodes.get(nid);
@@ -707,8 +691,9 @@ export function reconcileCopperRegion(app, seedTrack) {
             }
             for (const e of layerEdges) {
                 if (!compKeys.has(e.a)) continue;
-                const ne = sub.addEdge(kToNid.get(e.a), kToNid.get(e.b));
-                if (ne) sub.edgeLayers.set(ne, layer);
+                // Carry the per-edge layer and width onto the rebuilt edge so
+                // a component with mixed-width segments keeps each width.
+                sub.addEdge(kToNid.get(e.a), kToNid.get(e.b), { layer, width: e.width });
             }
             addTracks.push(sub);
         }
@@ -925,15 +910,15 @@ export function startVertexDrag(app, track, worldPos, opts = {}) {
     // to the moving endpoint, so the trace stays connected through the
     // via instead of tearing away from it. This is a topology change, so
     // snapshot the graph up-front for an atomic undo.
-    const segLayer = track.edgeLayers.get(hit.edgeId) || track.layer;
+    const segAttrs = track._cloneEdge(track.edges.get(hit.edgeId));
     let graphBefore = null;
     for (const epId of [e.from, e.to]) {
         const n = track.nodes.get(epId);
         if (!_viaAtPoint(app, n.x, n.y)) continue;
         if (!graphBefore) graphBefore = track.captureState();
         const bridgeId = track.addNode(n.x, n.y);
-        const bridgeEdge = track.addEdge(bridgeId, epId);
-        if (bridgeEdge) track.edgeLayers.set(bridgeEdge, segLayer);
+        // The bridge segment inherits the dragged segment's layer + width.
+        track.addEdge(bridgeId, epId, segAttrs);
         // NOTE: the other layer's copper at this via lives on a SEPARATE
         // coincident node (model invariant: one node per layer at a via),
         // so it is not an endpoint of the dragged segment and stays pinned
@@ -1125,8 +1110,8 @@ function _snapSegmentDrag(track, nodes, rawDx, rawDy, threshold) {
             const draggedEdge = inc.find((e) => draggedSet.has(e.otherNode));
             const fixedEdge = inc.find((e) => !draggedSet.has(e.otherNode));
             if (draggedEdge && fixedEdge) {
-                const l1 = track.edgeLayers.get(draggedEdge.edgeId) || track.layer;
-                const l2 = track.edgeLayers.get(fixedEdge.edgeId) || track.layer;
+                const l1 = track.getEdgeLayer(draggedEdge.edgeId);
+                const l2 = track.getEdgeLayer(fixedEdge.edgeId);
                 const P = startMap.get(draggedEdge.otherNode);   // dragged partner (start)
                 const F = track.nodes.get(fixedEdge.otherNode);  // fixed neighbour
                 if (l1 === l2 && P && F) {
@@ -1158,8 +1143,8 @@ function _snapSegmentDrag(track, nodes, rawDx, rawDy, threshold) {
             const fInc = track.incidentEdges(otherNode);
             if (fInc.length === 2) {
                 const other = fInc.find((e) => e.otherNode !== nd.nodeId);
-                const l1 = track.edgeLayers.get(edgeId) || track.layer;
-                const l2 = other ? (track.edgeLayers.get(other.edgeId) || track.layer) : null;
+                const l1 = track.getEdgeLayer(edgeId);
+                const l2 = other ? track.getEdgeLayer(other.edgeId) : null;
                 if (other && l1 === l2) {
                     const G = track.nodes.get(other.otherNode);
                     if (G) {
@@ -1211,8 +1196,8 @@ function _incidentSegments(track, nodes) {
         const rec = {
             a: { x: a.x, y: a.y },
             b: { x: b.x, y: b.y },
-            layerId: track.edgeLayers.get(edgeId) || track.layer || 'top-copper',
-            width: track.width,
+            layerId: track.getEdgeLayer(edgeId) || 'top-copper',
+            width: track.getEdgeWidth(edgeId),
             collinear: false,
             // Axis classification of the (post-snap) geometry. This is the
             // SINGLE place the glow's H/V/45 kind is decided: the glow reads
@@ -1254,8 +1239,8 @@ function _incidentSegments(track, nodes) {
     for (const pid of pivots) {
         const inc = track.incidentEdges(pid);
         if (inc.length !== 2) continue;
-        const l1 = track.edgeLayers.get(inc[0].edgeId) || track.layer;
-        const l2 = track.edgeLayers.get(inc[1].edgeId) || track.layer;
+        const l1 = track.getEdgeLayer(inc[0].edgeId);
+        const l2 = track.getEdgeLayer(inc[1].edgeId);
         if (l1 !== l2) continue;
         const p = track.nodes.get(pid);
         const f1 = track.nodes.get(inc[0].otherNode);
@@ -1295,8 +1280,8 @@ function _snapNodeAcrossNeighbour(track, nodeId, pos, threshold) {
         if (inc.length !== 2) continue;               // neighbour must be a corner
         const other = inc.find((e) => e.otherNode !== nodeId);
         if (!other) continue;
-        const l1 = track.edgeLayers.get(edgeId) || track.layer;
-        const l2 = track.edgeLayers.get(other.edgeId) || track.layer;
+        const l1 = track.getEdgeLayer(edgeId);
+        const l2 = track.getEdgeLayer(other.edgeId);
         if (l1 !== l2) continue;                      // only same-layer runs merge
         const corner = track.nodes.get(otherNode);
         const far = track.nodes.get(other.otherNode);

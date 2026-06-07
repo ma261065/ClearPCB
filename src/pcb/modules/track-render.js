@@ -70,7 +70,7 @@ export function renderTrack(track, getLayerGroup, opts = {}) {
         polyline.setAttribute('points', run.points.map(p => `${p.x},${p.y}`).join(' '));
         polyline.setAttribute('fill', 'none');
         polyline.setAttribute('stroke', color);
-        polyline.setAttribute('stroke-width', String(track.width));
+        polyline.setAttribute('stroke-width', String(run.width));
         polyline.setAttribute('stroke-linecap', 'round');
         polyline.setAttribute('stroke-linejoin', 'round');
         polyline.setAttribute('stroke-opacity', '0.9');
@@ -82,7 +82,7 @@ export function renderTrack(track, getLayerGroup, opts = {}) {
 
         // Net-name labels along the run.
         if (track.net && !opts.hideNetLabel) {
-            for (const lbl of _buildNetLabels(run.points, track.net, track.width)) {
+            for (const lbl of _buildNetLabels(run.points, track.net, run.width)) {
                 parent.appendChild(lbl);
                 lbl.dataset.trackId = track.id;
                 created.push(lbl);
@@ -161,13 +161,14 @@ function _buildLayerRuns(track) {
     const runs = [];
     if (track.edges.size === 0) return runs;
 
-    // Build adjacency: nodeId → [{edgeId, otherNodeId, layer}]
+    // Build adjacency: nodeId → [{edgeId, otherNodeId, layer, width}]
     const adj = new Map();
     for (const nid of track.nodes.keys()) adj.set(nid, []);
     for (const [eid, e] of track.edges) {
         const lyr = track.getEdgeLayer(eid);
-        adj.get(e.from)?.push({ edgeId: eid, other: e.to, layer: lyr });
-        adj.get(e.to)?.push({ edgeId: eid, other: e.from, layer: lyr });
+        const w = track.getEdgeWidth(eid);
+        adj.get(e.from)?.push({ edgeId: eid, other: e.to, layer: lyr, width: w });
+        adj.get(e.to)?.push({ edgeId: eid, other: e.from, layer: lyr, width: w });
     }
 
     const visitedEdges = new Set();
@@ -183,7 +184,7 @@ function _buildLayerRuns(track) {
         for (const initial of adj.get(startNid) || []) {
             if (visitedEdges.has(initial.edgeId)) continue;
 
-            // Walk a single contiguous same-layer run.
+            // Walk a single contiguous same-layer, same-width run.
             const points = [];
             const startPt = track.nodes.get(startNid);
             if (!startPt) continue;
@@ -191,20 +192,24 @@ function _buildLayerRuns(track) {
 
             let currentNid = startNid;
             let currentLayer = initial.layer;
+            let currentWidth = initial.width;
             let next = initial;
 
-            while (next && !visitedEdges.has(next.edgeId) && next.layer === currentLayer) {
+            while (next && !visitedEdges.has(next.edgeId)
+                && next.layer === currentLayer && next.width === currentWidth) {
                 visitedEdges.add(next.edgeId);
                 const np = track.nodes.get(next.other);
                 if (!np) break;
                 points.push({ x: np.x, y: np.y });
                 currentNid = next.other;
 
-                // Find next unvisited edge on the same layer at currentNid
-                // (excluding the one we just traversed). For a degree-≥3
-                // junction or layer change we stop the run here.
+                // Find next unvisited edge on the same layer AND width at
+                // currentNid (excluding the one we just traversed). For a
+                // degree-≥3 junction, layer change, or width change we stop
+                // the run here.
                 const candidates = (adj.get(currentNid) || []).filter(
-                    a => !visitedEdges.has(a.edgeId) && a.layer === currentLayer
+                    a => !visitedEdges.has(a.edgeId)
+                        && a.layer === currentLayer && a.width === currentWidth
                 );
                 if (candidates.length === 1) {
                     next = candidates[0];
@@ -213,7 +218,7 @@ function _buildLayerRuns(track) {
                 }
             }
 
-            if (points.length >= 2) runs.push({ layer: currentLayer, points });
+            if (points.length >= 2) runs.push({ layer: currentLayer, width: currentWidth, points });
         }
     }
 
