@@ -660,6 +660,7 @@ export function startVertexDrag(app, track, worldPos, opts = {}) {
         grabX: worldPos.x,
         grabY: worldPos.y,
         graphBefore,
+        edgeId: hit.edgeId,
         nodes: [
             { nodeId: e.from, startX: a.x, startY: a.y, padLink: track.padConnections.get(e.from) || null },
             { nodeId: e.to, startX: b.x, startY: b.y, padLink: track.padConnections.get(e.to) || null },
@@ -716,20 +717,29 @@ export function updateVertexDrag(app, worldPos) {
             const nb = drag.track.nodes.get(otherNode);
             if (nb) neighbours.push({ x: nb.x, y: nb.y });
         }
-        const pos = { x: n.x, y: n.y };
+        // Measure alignment from the RAW cursor, not the grid-snapped point:
+        // grid quantisation would otherwise shrink the effective pull band
+        // (and, on an off-grid track, let one axis "use up" the snap so the
+        // second axis never catches). Axes that DON'T align fall back to the
+        // grid-snapped coordinate so grid snapping still applies there.
+        const rawPos = { x: worldPos.x, y: worldPos.y };
+        const gridPos = { x: snap.x, y: snap.y };
         const threshold = COLLINEAR_SNAP_SCREEN_PX / (app.viewport?.scale || 1);
         // 1. Dragged node is itself a degree-2 waypoint between its two
         //    neighbours: project onto the line through them so both incident
         //    segments become one straight run.
-        let snapped = snapNodeToCollinear(pos, neighbours, threshold);
+        let snapped = snapNodeToCollinear(rawPos, neighbours, threshold);
         // 2. Otherwise, when dragging an endpoint whose neighbour is a
         //    degree-2 corner, project onto the extension of that corner's
         //    far segment so the dragged segment lines up straight through
         //    the corner (the across-the-node collinear case). Subtle pull,
         //    same band as the green collinear glow.
-        if (!snapped) snapped = _snapNodeAcrossNeighbour(drag.track, nd.nodeId, pos, threshold);
+        if (!snapped) snapped = _snapNodeAcrossNeighbour(drag.track, nd.nodeId, rawPos, threshold);
         // 3. Fall back to the per-segment H/V/45° axis snap (same pull band).
-        if (!snapped) snapped = snapNodeToAxis(pos, neighbours, threshold);
+        //    Both incident axes are tested independently against the raw
+        //    cursor, so an L-pivot can lock H and V at once; unaligned axes
+        //    keep the grid-snapped coordinate.
+        if (!snapped) snapped = snapNodeToAxis(rawPos, neighbours, threshold, gridPos);
         n.x = snapped.x;
         n.y = snapped.y;
     }
@@ -1097,6 +1107,7 @@ export function cancelVertexDrag(app) {
         }
     }
     renderTrack(drag.track, (id) => app._getLayerGroup(id), _opts(app, drag.track));
+    refreshTrackSelectionHalo(app);
     reconcileRatsnest(app);
 }
 
@@ -1153,21 +1164,73 @@ export function updateViaDrag(app, worldPos) {
         ? (track, nodeId) => drag.attached.some(a => a.track === track && a.nodeId === nodeId)
         : null;
     const snap = resolveTrackSnap(app, worldPos, excludeNode ? { excludeNode } : {});
-    drag.via.x = snap.x;
-    drag.via.y = snap.y;
-    renderVia(drag.via, (id) => app._getLayerGroup(id));
+    let pos = { x: snap.x, y: snap.y };
+
+    // Axis / collinear snap — match single-node drag so the via aligns onto
+    // H/V/45° axes and straight runs (and lights the same glow). Skip when
+    // the grid snap already locked a hard pad / track-node target. The via's
+    // attached nodes all move with it, so they're excluded as neighbours.
+    if (snap.snapType !== 'pad' && snap.snapType !== 'track-node') {
+        const threshold = COLLINEAR_SNAP_SCREEN_PX / (app.viewport?.scale || 1);
+        const isAttached = (track, nid) =>
+            drag.attached.some(a => a.track === track && a.nodeId === nid);
+        const neighboursOf = (a) => {
+            const nbs = [];
+            for (const { otherNode } of a.track.incidentEdges(a.nodeId)) {
+                if (isAttached(a.track, otherNode)) continue;
+                const nb = a.track.nodes.get(otherNode);
+                if (nb) nbs.push({ x: nb.x, y: nb.y });
+            }
+            return nbs;
+        };
+        // Measure alignment from the RAW cursor (not the grid-snapped point)
+        // so grid quantisation can't shrink the pull band; unaligned axes
+        // fall back to the grid-snapped position.
+        const rawPos = { x: worldPos.x, y: worldPos.y };
+        const gridPos = { x: snap.x, y: snap.y };
+        // 1. Collinear straight-run (degree-2) or across-the-corner, per node.
+        let snapped = null;
+        for (const a of drag.attached) {
+            snapped = snapNodeToCollinear(rawPos, neighboursOf(a), threshold);
+            if (snapped) break;
+            snapped = _snapNodeAcrossNeighbour(a.track, a.nodeId, rawPos, threshold);
+            if (snapped) break;
+        }
+        // 2. Fall back to H/V/45° against any attached node's neighbour.
+        if (!snapped) {
+            const allNeighbours = [];
+            for (const a of drag.attached) allNeighbours.push(...neighboursOf(a));
+            snapped = snapNodeToAxis(rawPos, allNeighbours, threshold, gridPos);
+        }
+        if (snapped) pos = { x: snapped.x, y: snapped.y };
+    }
+
+    drag.via.x = pos.x;
+    drag.via.y = pos.y;
     // Drag attached track nodes in lock-step.
     const touched = new Set();
     for (const a of drag.attached) {
         const n = a.track.nodes.get(a.nodeId);
         if (!n) continue;
-        n.x = snap.x;
-        n.y = snap.y;
+        n.x = pos.x;
+        n.y = pos.y;
         touched.add(a.track);
     }
+    // Build the axis glow from every attached track's incident segments, then
+    // render: glow halos UNDER the copper, centerlines ON TOP (two-pass).
+    const byTrack = new Map();
+    for (const a of drag.attached) {
+        if (!byTrack.has(a.track)) byTrack.set(a.track, []);
+        byTrack.get(a.track).push({ nodeId: a.nodeId });
+    }
+    const glowSegs = [];
+    for (const [track, nodes] of byTrack) glowSegs.push(..._incidentSegments(track, nodes));
+    renderTrackAxisGlow(app, glowSegs);
     for (const t of touched) {
         renderTrack(t, (id) => app._getLayerGroup(id), _opts(app, t));
     }
+    renderVia(drag.via, (id) => app._getLayerGroup(id));
+    renderTrackAxisGlowTop(app);
     refreshTrackSelectionHalo(app);
     reconcileRatsnest(app);
 }
@@ -1180,6 +1243,7 @@ export function finishViaDrag(app) {
     const drag = app._viaDrag;
     if (!drag) return;
     app._viaDrag = null;
+    clearTrackAxisGlow(app);
     const moved = Math.abs(drag.via.x - drag.startX) > 1e-6
         || Math.abs(drag.via.y - drag.startY) > 1e-6;
     if (!moved) {
@@ -1211,6 +1275,7 @@ export function cancelViaDrag(app) {
     const drag = app._viaDrag;
     if (!drag) return;
     app._viaDrag = null;
+    clearTrackAxisGlow(app);
     drag.via.x = drag.startX;
     drag.via.y = drag.startY;
     renderVia(drag.via, (id) => app._getLayerGroup(id));

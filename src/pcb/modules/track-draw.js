@@ -338,20 +338,50 @@ function pickAxis(lastPt, worldPos, diagBand = 0.3) {
  *   omitted, falls back to the legacy angular test (any alignment accepted).
  * @returns {{x:number,y:number}}
  */
-export function snapNodeToAxis(pos, neighbours, threshold = Infinity) {
-    let best = null;
-    let bestDist = Infinity;
-    for (const nb of neighbours) {
-        for (const axis of ['horizontal', 'vertical', 'diagonal']) {
-            const snapped = applyAxisConstraint(nb, pos, axis);
-            const d = Math.hypot(snapped.x - pos.x, snapped.y - pos.y);
-            if (d <= threshold && d < bestDist) {
-                bestDist = d;
-                best = snapped;
-            }
+export function snapNodeToAxis(pos, neighbours, threshold = Infinity, fallback = pos) {
+    // A horizontal segment fixes only y (to a neighbour's y); a vertical
+    // segment fixes only x. These constraints are orthogonal, so when the
+    // node sits near BOTH at once — the classic case being the pivot of an
+    // L-bend, whose two neighbours each want a different axis — we can
+    // satisfy both simultaneously and light both segments. Track the best
+    // independent x-snap (vertical) and y-snap (horizontal), plus the best
+    // joint 45° candidate, then combine when two *different* neighbours
+    // supply the two axes.
+    //
+    // The pull band is measured against `pos` (pass the RAW cursor here so
+    // grid quantisation can't defeat an off-grid alignment); axes that don't
+    // align fall back to `fallback` (e.g. the grid-snapped position) so grid
+    // snapping still applies where no neighbour alignment is found.
+    let bestX = null;   // { x, d, i }  vertical snap: x → neighbour.x
+    let bestY = null;   // { y, d, i }  horizontal snap: y → neighbour.y
+    let bestDiag = null; // { x, y, d } joint 45° snap
+    for (let i = 0; i < neighbours.length; i++) {
+        const nb = neighbours[i];
+        const dV = Math.abs(pos.x - nb.x);            // vertical alignment
+        if (dV <= threshold && (!bestX || dV < bestX.d)) bestX = { x: nb.x, d: dV, i };
+        const dH = Math.abs(pos.y - nb.y);            // horizontal alignment
+        if (dH <= threshold && (!bestY || dH < bestY.d)) bestY = { y: nb.y, d: dH, i };
+        const diag = applyAxisConstraint(nb, pos, 'diagonal');
+        const dD = Math.hypot(diag.x - pos.x, diag.y - pos.y);
+        if (dD <= threshold && (!bestDiag || dD < bestDiag.d)) {
+            bestDiag = { x: diag.x, y: diag.y, d: dD };
         }
     }
-    return best || pos;
+    // Combined H+V: only when the two axes come from different neighbours
+    // (combining x and y from the SAME neighbour would collapse a segment
+    // onto that neighbour).
+    if (bestX && bestY && bestX.i !== bestY.i) {
+        return { x: bestX.x, y: bestY.y };
+    }
+    // Otherwise take the single smallest nudge among H / V / 45°. The free
+    // axis keeps the fallback (grid) coordinate; the aligned axis snaps to
+    // the neighbour.
+    let best = null;
+    let bestDist = Infinity;
+    if (bestX && bestX.d < bestDist) { bestDist = bestX.d; best = { x: bestX.x, y: fallback.y }; }
+    if (bestY && bestY.d < bestDist) { bestDist = bestY.d; best = { x: fallback.x, y: bestY.y }; }
+    if (bestDiag && bestDiag.d < bestDist) { bestDist = bestDiag.d; best = { x: bestDiag.x, y: bestDiag.y }; }
+    return best || fallback;
 }
 
 /**

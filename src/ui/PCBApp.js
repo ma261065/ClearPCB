@@ -31,6 +31,7 @@ import {
     setHoverHighlight,
     showTrackContextMenu,
     refreshTrackSelectionHalo,
+    selectTrackSegment,
 } from '../pcb/modules/track-select.js';
 import {
     startVertexDrag,
@@ -419,6 +420,12 @@ export default class PCBApp {
                 // user grab a node or bend a segment without re-clicking.
                 if (this._selectedTrack) {
                     if (startVertexDrag(this, this._selectedTrack, worldPos)) {
+                        // A pure click (no drag) on a segment of the already-
+                        // selected track refines the selection down to just
+                        // that segment on mouse-up. Node grabs and drags are
+                        // unaffected.
+                        this._segmentClickEdgeId =
+                            this._vertexDrag?.mode === 'segment' ? this._vertexDrag.edgeId : null;
                         // Clear any lingering hover halo so it doesn't sit
                         // at the original position while the drag is live
                         // (hover updates are suppressed during a drag).
@@ -455,6 +462,8 @@ export default class PCBApp {
                     this._selectComponent(null);
                     this._selectBoardOutline(false);
                     selectTrackOrVia(this, trackHit);
+                    // Fresh whole-track selection — not a segment-refine click.
+                    this._segmentClickEdgeId = null;
                     // Begin a drag immediately so click-and-drag works in
                     // one motion (no separate select-then-drag click).
                     if (trackHit.type === 'via') {
@@ -720,6 +729,12 @@ export default class PCBApp {
                     this._updateVertexDragCrosshair();
                 } else {
                     this._vertexDragDownScreen = null;
+                    // A pure click (no drag) on a segment of the already-
+                    // selected track refines down to that single segment.
+                    const segmentClick = this._vertexDrag.mode === 'segment'
+                        && !this._vertexDrag.userDragged
+                        && this._segmentClickEdgeId;
+                    const segEdgeId = this._segmentClickEdgeId;
                     finishVertexDrag(this);
                     this.viewport.hideCrosshair();
                     svg.style.cursor = 'default';
@@ -727,9 +742,14 @@ export default class PCBApp {
                     if (this._selectedTrack) {
                         const t = this._selectedTrack;
                         clearTrackSelection(this);
-                        selectTrackOrVia(this, { type: 'track', track: t });
+                        if (segmentClick && t.edges?.has(segEdgeId)) {
+                            selectTrackSegment(this, t, segEdgeId);
+                        } else {
+                            selectTrackOrVia(this, { type: 'track', track: t });
+                        }
                     }
                 }
+                this._segmentClickEdgeId = null;
             }
             if (this._viaDrag) {
                 finishViaDrag(this);
@@ -995,7 +1015,15 @@ export default class PCBApp {
             return false;
         }
         if (e.key === 'Escape') {
-            if (this._vertexDrag) { cancelVertexDrag(this); this.viewport.hideCrosshair(); return true; }
+            if (this._vertexDrag) {
+                cancelVertexDrag(this);
+                this.viewport.hideCrosshair();
+                // The mouse-up block that normally clears this is skipped now
+                // that the drag is gone, so reset it here to avoid a stale
+                // segment-click candidate leaking into the next interaction.
+                this._segmentClickEdgeId = null;
+                return true;
+            }
             if (this._viaDrag) { cancelViaDrag(this); return true; }
             if (this._selectedText) {
                 this._selectText(null);

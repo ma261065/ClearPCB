@@ -23,8 +23,10 @@ import {
     AddTrackCommand,
     CompoundCommand,
     ModifyTrackCommand,
+    ModifyTrackGraphCommand,
     ModifyViaCommand,
 } from './track-commands.js';
+import { PCB_LAYERS } from './layers.js';
 import { showAlert } from '../../ui/modules/modal.js';
 
 const NS = 'http://www.w3.org/2000/svg';
@@ -116,6 +118,32 @@ export function selectTrackOrVia(app, hit) {
     }
 }
 
+/**
+ * Select a single segment (one edge) of a track — the "second click"
+ * refinement after the whole track is already selected. Keeps
+ * `_selectedTrack` set so the existing drag/hover suppression still
+ * applies, and records the focused edge in `_selectedSegment`.
+ *
+ * @param {object} app
+ * @param {object} track
+ * @param {string} edgeId
+ */
+export function selectTrackSegment(app, track, edgeId) {
+    clearTrackSelection(app);
+    _removeHalos(app, HOVER_CLASS);
+    app._hoveredTrackOrVia = null;
+    if (!track || !track.edges?.has(edgeId)) {
+        // Edge vanished (e.g. merged away) — fall back to whole-track select.
+        if (track) selectTrackOrVia(app, { type: 'track', track });
+        return;
+    }
+    app._selectedTrack = track;
+    app._selectedSegment = { track, edgeId };
+    _setTrackLabelsVisible(track, false);
+    _drawSegmentHalo(app, track, edgeId);
+    _showTrackSegmentProperties(app, track, edgeId);
+}
+
 /** Show/hide a track's net-name labels without a full re-render. */
 function _setTrackLabelsVisible(track, visible) {
     const els = track?._svgElements;
@@ -135,6 +163,7 @@ export function clearTrackSelection(app) {
     const prev = app._selectedTrack;
     app._selectedTrack = null;
     app._selectedVia = null;
+    app._selectedSegment = null;
     _removeHalos(app, HALO_CLASS);
     if (prev) {
         // Bring the net labels back. They were hidden via display toggling,
@@ -157,7 +186,9 @@ export function clearTrackSelection(app) {
  */
 export function refreshTrackSelectionHalo(app) {
     _removeHalos(app, HALO_CLASS);
-    if (app._selectedTrack) _drawTrackHalo(app, app._selectedTrack, HALO_CLASS, HALO_OPACITY_SELECTED);
+    if (app._selectedSegment && app._selectedTrack) {
+        _drawSegmentHalo(app, app._selectedSegment.track, app._selectedSegment.edgeId);
+    } else if (app._selectedTrack) _drawTrackHalo(app, app._selectedTrack, HALO_CLASS, HALO_OPACITY_SELECTED);
     else if (app._selectedVia) _drawViaHalo(app, app._selectedVia, HALO_CLASS, HALO_OPACITY_SELECTED);
 }
 
@@ -587,6 +618,36 @@ function _drawTrackHalo(app, track, cls = HALO_CLASS, opacity = HALO_OPACITY_SEL
 }
 
 /**
+ * Draw the selection halo for a single track edge (segment selection).
+ * Overlays just that one edge plus handles at its two endpoints.
+ */
+function _drawSegmentHalo(app, track, edgeId, cls = HALO_CLASS, opacity = HALO_OPACITY_SELECTED) {
+    const e = track.edges?.get(edgeId);
+    if (!e) return;
+    const a = track.nodes.get(e.from);
+    const b = track.nodes.get(e.to);
+    if (!a || !b) return;
+    const layerId = track.edgeLayers.get(edgeId) || track.layer || 'top-copper';
+    const parent = app._getLayerGroup(layerId);
+    if (parent) {
+        const line = document.createElementNS(NS, 'line');
+        line.setAttribute('class', cls);
+        line.setAttribute('x1', String(a.x));
+        line.setAttribute('y1', String(a.y));
+        line.setAttribute('x2', String(b.x));
+        line.setAttribute('y2', String(b.y));
+        line.setAttribute('stroke', HALO_COLOR);
+        line.setAttribute('stroke-width', String(track.width || 0.2));
+        line.setAttribute('stroke-linecap', 'round');
+        line.setAttribute('stroke-opacity', String(opacity));
+        line.setAttribute('pointer-events', 'none');
+        parent.appendChild(line);
+    }
+    _drawPadHighlights(app, track, cls, opacity);
+    if (cls === HALO_CLASS) _drawNodeHandles(app, track, cls);
+}
+
+/**
  * Draw a small square handle at each Track node so the user can see the
  * draggable vertices. Handles are sized in screen pixels (constant on
  * screen regardless of zoom) and rendered on the node's own layer.
@@ -789,13 +850,16 @@ function _showTrackProperties(app, track) {
     const items = document.getElementById('pcbPropsItems');
     if (!items) return;
     const layers = new Set(track.edgeLayers.values());
-    const layerLabel = layers.size > 1
-        ? 'Multiple'
-        : (layers.values().next().value === 'bottom-copper' ? 'Bottom Copper' : 'Top Copper');
+    const mixed = layers.size > 1;
+    const currentLayer = mixed ? '' : (layers.values().next().value || track.layer || 'top-copper');
+    const layerOpts = PCB_LAYERS.map(
+        (l) => `<option value="${l.id}"${l.id === currentLayer ? ' selected' : ''}>${_escape(l.name)}</option>`
+    ).join('');
+    const mixedOpt = mixed ? `<option value="" selected>Multiple</option>` : '';
     items.innerHTML = `
         <div class="prop-row"><label>Type</label><span style="font-size:11px;color:var(--text-primary)">Track</span></div>
         <div class="prop-row"><label>Net</label><input type="text" id="pcbPropTrackNet" value="${_escape(track.net || '')}" placeholder="(unassigned)"></div>
-        <div class="prop-row"><label>Layer</label><span style="font-size:11px;color:var(--text-primary)">${layerLabel}</span></div>
+        <div class="prop-row"><label>Layer</label><select id="pcbPropTrackLayer">${mixedOpt}${layerOpts}</select></div>
         <div class="prop-row"><label>Width (mm)</label><input type="number" id="pcbPropTrackWidth" value="${track.width}" min="0.05" step="0.05"></div>
     `;
     const wEl = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropTrackWidth'));
@@ -836,6 +900,87 @@ function _showTrackProperties(app, track) {
         } else {
             netEl.value = baseline.net; // refused — restore the field
         }
+    });
+    const layerEl = /** @type {HTMLSelectElement|null} */ (document.getElementById('pcbPropTrackLayer'));
+    layerEl?.addEventListener('change', () => {
+        const v = layerEl.value;
+        if (!v) return; // the "Multiple" placeholder
+        const before = track.captureState();
+        track.layer = v;
+        for (const eid of track.edges.keys()) track.edgeLayers.set(eid, v);
+        const after = track.captureState();
+        // Roll back so the command's execute() applies it through history.
+        track.applyState(before);
+        app.history?.execute(new ModifyTrackGraphCommand(app, track, before, after));
+        // Re-render the panel and selection halo on the new layer.
+        clearTrackSelection(app);
+        app._selectedTrack = track;
+        _drawTrackHalo(app, track);
+        _showTrackProperties(app, track);
+    });
+    app._setActiveRibbonTab?.('pcb-properties');
+}
+
+/**
+ * Properties panel for a single selected track segment (one edge). The
+ * Net and Width are track-wide; the Layer dropdown retargets only this
+ * edge so a single segment can hop layers independently.
+ */
+function _showTrackSegmentProperties(app, track, edgeId) {
+    const items = document.getElementById('pcbPropsItems');
+    if (!items) return;
+    const currentLayer = track.edgeLayers.get(edgeId) || track.layer || 'top-copper';
+    const layerOpts = PCB_LAYERS.map(
+        (l) => `<option value="${l.id}"${l.id === currentLayer ? ' selected' : ''}>${_escape(l.name)}</option>`
+    ).join('');
+    items.innerHTML = `
+        <div class="prop-row"><label>Type</label><span style="font-size:11px;color:var(--text-primary)">Track Segment</span></div>
+        <div class="prop-row"><label>Net</label><input type="text" id="pcbPropTrackNet" value="${_escape(track.net || '')}" placeholder="(unassigned)"></div>
+        <div class="prop-row"><label>Layer</label><select id="pcbPropSegLayer">${layerOpts}</select></div>
+        <div class="prop-row"><label>Width (mm)</label><input type="number" id="pcbPropTrackWidth" value="${track.width}" min="0.05" step="0.05"></div>
+    `;
+    const baseline = { width: track.width, net: track.net || '' };
+    const wEl = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropTrackWidth'));
+    wEl?.addEventListener('input', () => {
+        const v = parseFloat(wEl.value);
+        if (!Number.isFinite(v) || v <= 0) return;
+        track.width = v;
+        import('./track-render.js').then(({ renderTrack }) => {
+            renderTrack(track, (id) => app._getLayerGroup(id), {
+                viaDiameter: app._getRoutingParams?.()?.viaDiameter,
+                viaDrill: app._getRoutingParams?.()?.viaDrill,
+            });
+            refreshTrackSelectionHalo(app);
+        });
+    });
+    wEl?.addEventListener('change', () => {
+        const v = parseFloat(wEl.value);
+        if (!Number.isFinite(v) || v <= 0 || v === baseline.width) return;
+        track.width = baseline.width;
+        app.history?.execute(new ModifyTrackCommand(app, track, { width: baseline.width }, { width: v }));
+        baseline.width = v;
+    });
+    const netEl = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropTrackNet'));
+    netEl?.addEventListener('change', () => {
+        const v = netEl.value.trim();
+        if (v === baseline.net) return;
+        if (_applyNetToBondedCopper(app, { track }, v)) {
+            baseline.net = v;
+        } else {
+            netEl.value = baseline.net;
+        }
+    });
+    const layerEl = /** @type {HTMLSelectElement|null} */ (document.getElementById('pcbPropSegLayer'));
+    layerEl?.addEventListener('change', () => {
+        const v = layerEl.value;
+        if (!v) return;
+        const before = track.captureState();
+        track.edgeLayers.set(edgeId, v);
+        const after = track.captureState();
+        track.applyState(before);
+        app.history?.execute(new ModifyTrackGraphCommand(app, track, before, after));
+        // Re-render and keep just this segment selected.
+        selectTrackSegment(app, track, edgeId);
     });
     app._setActiveRibbonTab?.('pcb-properties');
 }

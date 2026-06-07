@@ -1570,6 +1570,7 @@ export class Viewport {
             default:
                 return [
                     { value: 0.1, label: '0.1 mm' },
+                    { value: 0.127, label: '0.127 mm (5 mil)' },
                     { value: 0.25, label: '0.25 mm' },
                     { value: 0.5, label: '0.5 mm' },
                     { value: 1, label: '1 mm' },
