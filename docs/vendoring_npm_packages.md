@@ -89,6 +89,15 @@ Pop-Location
 |------|---------|--------|---------|------|---------|
 | `jspdf.umd.min.js` | jspdf | [MrRio/jsPDF](https://github.com/MrRio/jsPDF) | — | ~500KB | MIT |
 | `svg2pdf.umd.min.js` | svg2pdf.js | [yWorks/svg2pdf.js](https://github.com/yWorks/svg2pdf.js) | — | ~100KB | MIT |
+| `three.module.js` | three + OrbitControls + TrackballControls | [mrdoob/three.js](https://github.com/mrdoob/three.js) | 0.184.0 | ~536KB | MIT |
+
+> **three.js note:** the bundle entry re-exports only the ~17 symbols the
+> 3D board viewer uses (`Scene`, `PerspectiveCamera`, `WebGLRenderer`,
+> `MeshStandardMaterial`, `PointLight`, `TrackballControls`, etc.) so esbuild
+> tree-shakes the rest of the library. If the viewer starts using new three.js
+> features (e.g. `RoomEnvironment` / `PMREMGenerator` for full environment
+> reflections), add the symbols to the entry's export list and re-vendor.
+
 
 ## Notes
 

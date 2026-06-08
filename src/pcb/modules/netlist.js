@@ -93,6 +93,8 @@ export function extractComponents(schematicApp) {
             footprintShapes: comp.definition.footprintShapes || null,
             footprintBBox: comp.definition.footprintBBox || null,
             source: comp.definition._source || comp.symbol?._source || 'Built-in',
+            model3dObj: comp.definition.model3dObj || null,
+            model3dUrl: comp.definition.model3dUrl || null,
             pins
         });
     }

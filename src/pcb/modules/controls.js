@@ -98,6 +98,10 @@ export function bindPcbControls(app) {
     const exportPnpBtn = document.getElementById('pcbExportPnP');
     exportPnpBtn?.addEventListener('click', () => app.exportPickAndPlace?.());
 
+    // 3D View button
+    const view3dBtn = document.getElementById('pcb3dView');
+    view3dBtn?.addEventListener('click', () => app.open3DView?.());
+
     // Import SES button
     const importSesBtn = document.getElementById('pcbImportSES');
     importSesBtn?.addEventListener('click', () => app.importSES?.());

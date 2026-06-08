@@ -113,6 +113,29 @@ function generateFromShapes(shapes, bbox, source) {
     }
     const S = maxCoord > 50 ? 0.254 : 1;
 
+    // Capture the EasyEDA 3D model placement (SVGNODE outline3D). It carries
+    // the model's reference origin (c_origin), Z rotation (c_rotation = rx,ry,rz)
+    // and Z height — all needed to seat the OBJ over the pads in the 3D viewer.
+    /** @type {{originX:number, originY:number, rotation:number, z:number}|null} */
+    let model3dRaw = null;
+    for (const shape of shapes) {
+        if (typeof shape !== 'string' || !shape.startsWith('SVGNODE~')) continue;
+        try {
+            const svg = JSON.parse(shape.substring(8));
+            const at = svg?.attrs;
+            if (!at || at.c_etype !== 'outline3D' || !at.c_origin) continue;
+            const o = String(at.c_origin).split(',').map(Number);
+            const rot = String(at.c_rotation || '0,0,0').split(',').map(Number);
+            model3dRaw = {
+                originX: o[0] * S,
+                originY: o[1] * S,
+                rotation: rot[2] || 0,
+                z: (parseFloat(at.z) || 0) * S,
+            };
+        } catch { /* ignore malformed SVGNODE */ }
+        break;
+    }
+
     /**
      * Map an EasyEDA layer code to a PCB layer id for outline/silk shapes.
      * Returns null for layers we don't render (copper, etc.).
@@ -477,6 +500,16 @@ function generateFromShapes(shapes, bbox, source) {
         maxY = h / 2;
     }
 
+    // Convert the 3D model placement into the same footprint-local frame as the
+    // pads (origin shifted by the centroid). dx/dy seat the model over its pads.
+    /** @type {{dx:number, dy:number, rotation:number, z:number}|null} */
+    const model3d = model3dRaw ? {
+        dx: model3dRaw.originX - centerX,
+        dy: model3dRaw.originY - centerY,
+        rotation: model3dRaw.rotation,
+        z: model3dRaw.z,
+    } : null;
+
     const padding = 0.5;
     const outline = {
         x: minX - padding,
@@ -541,7 +574,7 @@ function generateFromShapes(shapes, bbox, source) {
         emitFilledOpening(ap.x, ap.y, ap.width, ap.height, ap.shape, 0, `${ap.side}-paste`);
     }
 
-    return { pads, silks, outline, courtyard, pasteApertures };
+    return { pads, silks, outline, courtyard, pasteApertures, model3d };
 }
 
 /**

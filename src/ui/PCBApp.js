@@ -11,8 +11,8 @@ import { PCB_LAYERS, isLayerLocked, isViaLocked, showLockedLayerBubble } from '.
 import { exportDSN, importSES } from '../pcb/modules/dsn.js';
 import { exportGerbers, buildZip } from '../pcb/modules/gerber.js';
 import { generateBOM, generatePickAndPlace } from '../pcb/modules/assembly.js';
-import { savePcbPdf, printPcb } from '../pcb/modules/pcb-export.js';
-import { tracksFromAutorouterResult } from '../pcb/modules/autorouter-adapter.js';
+import { openBoard3DViewer } from '../pcb/modules/board3d.js';
+import { savePcbPdf, printPcb } from '../pcb/modules/pcb-export.js';import { tracksFromAutorouterResult } from '../pcb/modules/autorouter-adapter.js';
 import { renderTrack, renderVia, removeTrackElements, removeViaElements } from '../pcb/modules/track-render.js';
 import {
     startTrackDraw,
@@ -2090,6 +2090,9 @@ export default class PCBApp {
                 reference: comp.reference,
                 value: comp.value || '',
                 footprint: comp.footprint || '',
+                model3dObj: comp.model3dObj || null,
+                model3dUrl: comp.model3dUrl || null,
+                model3dPlacement: fpGeom.model3d || null,
                 silks: fpGeom.silks || [],
                 rotation: 0,
             });
@@ -4757,6 +4760,13 @@ export default class PCBApp {
         const schematicApp = /** @type {any} */ (window).app;
         const fname = schematicApp?.fileManager?.fileName || 'untitled.cpcb';
         return fname.replace(/\.[^./\\]+$/, '') || 'untitled';
+    }
+
+    /**
+     * Open the interactive 3D board visualiser in a pop-up window.
+     */
+    open3DView() {
+        openBoard3DViewer(this);
     }
 
     /**
