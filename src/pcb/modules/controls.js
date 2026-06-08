@@ -90,6 +90,14 @@ export function bindPcbControls(app) {
     const exportGerberBtn = document.getElementById('pcbExportGerber');
     exportGerberBtn?.addEventListener('click', () => app.exportGerber?.());
 
+    // Export BOM button
+    const exportBomBtn = document.getElementById('pcbExportBOM');
+    exportBomBtn?.addEventListener('click', () => app.exportBOM?.());
+
+    // Export Pick-and-place button
+    const exportPnpBtn = document.getElementById('pcbExportPnP');
+    exportPnpBtn?.addEventListener('click', () => app.exportPickAndPlace?.());
+
     // Import SES button
     const importSesBtn = document.getElementById('pcbImportSES');
     importSesBtn?.addEventListener('click', () => app.importSES?.());

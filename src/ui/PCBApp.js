@@ -10,6 +10,7 @@ import { updateGridDropdown } from './modules/viewport.js';
 import { PCB_LAYERS, isLayerLocked, isViaLocked, showLockedLayerBubble } from '../pcb/modules/layers.js';
 import { exportDSN, importSES } from '../pcb/modules/dsn.js';
 import { exportGerbers, buildZip } from '../pcb/modules/gerber.js';
+import { generateBOM, generatePickAndPlace } from '../pcb/modules/assembly.js';
 import { savePcbPdf, printPcb } from '../pcb/modules/pcb-export.js';
 import { tracksFromAutorouterResult } from '../pcb/modules/autorouter-adapter.js';
 import { renderTrack, renderVia, removeTrackElements, removeViaElements } from '../pcb/modules/track-render.js';
@@ -2087,6 +2088,8 @@ export default class PCBApp {
                 elements,
                 bounds: fpGeom.courtyard || fpGeom.outline,
                 reference: comp.reference,
+                value: comp.value || '',
+                footprint: comp.footprint || '',
                 silks: fpGeom.silks || [],
                 rotation: 0,
             });
@@ -4686,6 +4689,74 @@ export default class PCBApp {
             console.error('Gerber save failed:', err);
             this._setStatus(`Gerber save failed: ${err?.message || err}`);
         });
+    }
+
+    /**
+     * Export the Bill of Materials as a CSV file.
+     */
+    exportBOM() {
+        if (!this.placements.size) {
+            this._setStatus('No components to export');
+            return;
+        }
+        let blob;
+        try {
+            const csv = generateBOM(this.placements);
+            blob = new Blob([csv], { type: 'text/csv' });
+        } catch (err) {
+            console.error('BOM export failed:', err);
+            this._setStatus(`BOM export failed: ${err?.message || err}`);
+            return;
+        }
+        const suggestedName = `${this._exportBaseName()}-bom.csv`;
+        this._saveBlob(blob, suggestedName, {
+            description: 'CSV file',
+            accept: { 'text/csv': ['.csv'] },
+        }).then(saved => {
+            if (saved) this._setStatus(`BOM exported (${this.placements.size} parts)`);
+        }).catch(err => {
+            console.error('BOM save failed:', err);
+            this._setStatus(`BOM save failed: ${err?.message || err}`);
+        });
+    }
+
+    /**
+     * Export the Pick-and-Place (centroid) file as a CSV.
+     */
+    exportPickAndPlace() {
+        if (!this.placements.size) {
+            this._setStatus('No components to export');
+            return;
+        }
+        let blob;
+        try {
+            const csv = generatePickAndPlace(this.placements);
+            blob = new Blob([csv], { type: 'text/csv' });
+        } catch (err) {
+            console.error('Pick-and-place export failed:', err);
+            this._setStatus(`Pick-and-place export failed: ${err?.message || err}`);
+            return;
+        }
+        const suggestedName = `${this._exportBaseName()}-pick-and-place.csv`;
+        this._saveBlob(blob, suggestedName, {
+            description: 'CSV file',
+            accept: { 'text/csv': ['.csv'] },
+        }).then(saved => {
+            if (saved) this._setStatus(`Pick-and-place exported (${this.placements.size} parts)`);
+        }).catch(err => {
+            console.error('Pick-and-place save failed:', err);
+            this._setStatus(`Pick-and-place save failed: ${err?.message || err}`);
+        });
+    }
+
+    /**
+     * Derive a default export filename base from the project name.
+     * @returns {string}
+     */
+    _exportBaseName() {
+        const schematicApp = /** @type {any} */ (window).app;
+        const fname = schematicApp?.fileManager?.fileName || 'untitled.cpcb';
+        return fname.replace(/\.[^./\\]+$/, '') || 'untitled';
     }
 
     /**
