@@ -7,7 +7,7 @@ import { loadAndApplyTheme, toggleTheme as toggleSharedTheme, syncThemeToggleBut
 import { extractNetlist, extractComponents } from '../pcb/modules/netlist.js';
 import { generateFootprint, renderFootprint } from '../pcb/modules/footprint.js';
 import { updateGridDropdown } from './modules/viewport.js';
-import { PCB_LAYERS, isLayerLocked, isViaLocked } from '../pcb/modules/layers.js';
+import { PCB_LAYERS, isLayerLocked, isViaLocked, showLockedLayerBubble } from '../pcb/modules/layers.js';
 import { exportDSN, importSES } from '../pcb/modules/dsn.js';
 import { exportGerbers, buildZip } from '../pcb/modules/gerber.js';
 import { savePcbPdf, printPcb } from '../pcb/modules/pcb-export.js';
@@ -25,6 +25,7 @@ import {
 } from '../pcb/modules/track-draw.js';
 import {
     hitTestTrack,
+    hitTestLockedTrack,
     selectTrackOrVia,
     clearTrackSelection,
     deleteSelectedTrack,
@@ -520,6 +521,7 @@ export default class PCBApp {
                     }
                     return;
                 }
+
                 // Anything else clears any track selection first.
                 clearTrackSelection(this);
 
@@ -547,6 +549,12 @@ export default class PCBApp {
                     this._showComponentProperties(hit);
                     const pl = this.placements.get(hit);
                     if (pl) {
+                        // Clear the hover net-highlight before dragging: hover
+                        // updates are suppressed while a drag is active, so a
+                        // leftover halo would otherwise sit at the component's
+                        // original position the whole drag.
+                        setHoverHighlight(this, null);
+                        this._hideNetTooltip();
                         this._drag = {
                             compId: hit,
                             startWorld: worldPos,
@@ -731,6 +739,14 @@ export default class PCBApp {
                 this._startTextInlineEdit(textHit, worldPos);
                 return;
             }
+            // Double-clicking a LOCKED track/via is the natural "why can't I
+            // select this?" gesture — explain it with a speech bubble.
+            const lockedHit = hitTestLockedTrack(this, worldPos);
+            if (lockedHit) {
+                e.preventDefault();
+                showLockedLayerBubble(this, lockedHit.layerId, { x: e.clientX, y: e.clientY });
+                return;
+            }
             // NOTE: double-click track-node insertion is handled in the
             // mousedown listener (via e.detail === 2) — starting a vertex
             // drag on the second click suppresses the `dblclick` event.
@@ -748,6 +764,12 @@ export default class PCBApp {
                 e.preventDefault();
                 this._selectText(textHit);
                 this._startTextInlineEdit(textHit, worldPos);
+                return;
+            }
+            const lockedHit = hitTestLockedTrack(this, worldPos);
+            if (lockedHit) {
+                e.preventDefault();
+                showLockedLayerBubble(this, lockedHit.layerId, { x: e.clientX, y: e.clientY });
                 return;
             }
         });
@@ -827,7 +849,13 @@ export default class PCBApp {
             }
         };
 
-        svg.addEventListener('mouseup', (e) => {
+        // Drag/interaction termination is handled at the WINDOW level (not the
+        // svg) so a release anywhere ends the gesture cleanly — and, combined
+        // with the mouseleave handler below that keeps drags alive, a drag that
+        // leaves the canvas and re-enters elsewhere continues seamlessly. This
+        // matches the schematic editor's mouse model.
+        window.addEventListener('mouseup', (e) => {
+            if (!this._active) return;
             endInteraction();
             // Right-click release while drawing a track: if the user
             // didn't pan (movement under threshold), treat it as "finish".
@@ -844,14 +872,11 @@ export default class PCBApp {
             }
         });
 
-        // Only end pan on mouseleave — keep drag active so component
-        // follows mouse back into canvas (matches schematic behavior)
-        svg.addEventListener('mouseleave', () => {
-            if (!this._active) return;
-            if (this.viewport.isPanning) {
-                this.viewport.endPan();
-            }
-        });
+        // No mouseleave handler: leaving the canvas must NOT end an active
+        // pan (or any drag). Movement freezes while the cursor is outside
+        // (svg gets no mousemove) and resumes seamlessly on re-entry; the
+        // window-level mouseup above ends the gesture wherever it's released.
+        // This matches the schematic editor, which has no mouseleave handler.
 
         svg.addEventListener('contextmenu', (e) => {
             e.preventDefault();
@@ -2136,24 +2161,53 @@ export default class PCBApp {
     }
 
     /**
-     * Hit-test: find which component is closest to a world position.
-     * Returns the component ID or null.
+     * Hit-test: find which component contains a world position.
+     * Tests against the footprint's courtyard/outline bounds (the same box
+     * drawn as the selection highlight). Falls back to the pad bounding-box
+     * extent for footprints without stored bounds. Returns the component ID
+     * or null. Iterates in insertion order and keeps the last (topmost)
+     * match so overlapping components resolve to the one drawn on top.
      * @param {{x: number, y: number}} worldPos
      * @returns {string|null}
      */
     _hitTestComponent(worldPos) {
-        let closest = null;
-        let closestDist = 10; // mm tolerance
+        let hit = null;
         for (const [compId, pl] of this.placements) {
-            for (const [, pad] of pl.pads) {
-                const d = Math.hypot(pad.x - worldPos.x, pad.y - worldPos.y);
-                if (d < closestDist) {
-                    closestDist = d;
-                    closest = compId;
+            const b = pl.bounds;
+            if (b) {
+                const x0 = pl.x + b.x;
+                const y0 = pl.y + b.y;
+                if (
+                    worldPos.x >= x0 && worldPos.x <= x0 + b.width
+                    && worldPos.y >= y0 && worldPos.y <= y0 + b.height
+                ) {
+                    hit = compId;
                 }
+                continue;
+            }
+            // Fallback: no courtyard/outline — use the union of pad bounding
+            // boxes plus a small margin so the body between pads is clickable.
+            const MARGIN = 0.5; // mm
+            let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+            for (const off of (pl.padOffsets || [])) {
+                const pos = pl.pads.get(off.number);
+                if (!pos) continue;
+                const w = (off.width || 1.2) / 2;
+                const h = (off.height || 1.2) / 2;
+                if (pos.x - w < minX) minX = pos.x - w;
+                if (pos.y - h < minY) minY = pos.y - h;
+                if (pos.x + w > maxX) maxX = pos.x + w;
+                if (pos.y + h > maxY) maxY = pos.y + h;
+            }
+            if (
+                minX !== Infinity
+                && worldPos.x >= minX - MARGIN && worldPos.x <= maxX + MARGIN
+                && worldPos.y >= minY - MARGIN && worldPos.y <= maxY + MARGIN
+            ) {
+                hit = compId;
             }
         }
-        return closest;
+        return hit;
     }
 
     /**

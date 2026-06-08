@@ -81,6 +81,11 @@ const LOCK_OPEN_SVG = `<svg width="20" height="20" viewBox="0 0 14 14" fill="non
   <path d="M4.6 6.2V4.6a2.4 2.4 0 0 1 4.8-0.4" stroke="currentColor" stroke-width="1.1"/>
 </svg>`;
 
+const PIN_SVG = `<svg width="28" height="28" viewBox="3.5 0.5 7 13" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <path d="M5.2 1.5h3.6l-0.5 3 1.9 1.9-0.6 0.6H4.4l-0.6-0.6 1.9-1.9-0.5-3z" stroke="currentColor" stroke-width="1.1" stroke-linejoin="round"/>
+  <path d="M7 7v5.5" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/>
+</svg>`;
+
 /**
  * Build the layer panel inside #pcbLayerPanel and wire events.
  * @param {object} app - PCBApp instance
@@ -127,6 +132,28 @@ export function buildLayerPanel(app) {
     // ---- Layers section -------------------------------------------------
     const { row: layersHeader, eyeBtn: layersMasterEye } = makeSectionHeader('Layers', 'layers');
     panel.appendChild(layersHeader);
+
+    // Pin toggle, sitting just left of the "Layers" heading text. Keeps the
+    // panel open after the mouse leaves so the user can work on the board
+    // without it auto-collapsing.
+    const control = document.getElementById('pcbLayerControl');
+    const layersHeading = /** @type {HTMLElement|null} */ (layersHeader.querySelector('.pcb-layer-name'));
+    if (layersHeading) {
+        layersHeading.style.display = 'flex';
+        layersHeading.style.alignItems = 'center';
+        layersHeading.style.gap = '6px';
+        const pinBtn = document.createElement('button');
+        pinBtn.className = 'pcb-layer-pin' + (control?.classList.contains('pinned') ? ' active' : '');
+        pinBtn.innerHTML = PIN_SVG;
+        pinBtn.title = control?.classList.contains('pinned') ? 'Unpin panel' : 'Pin Panel';
+        pinBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const pinned = control?.classList.toggle('pinned') ?? false;
+            pinBtn.classList.toggle('active', pinned);
+            pinBtn.title = pinned ? 'Unpin panel' : 'Pin Panel';
+        });
+        layersHeading.insertBefore(pinBtn, layersHeading.firstChild);
+    }
 
     let allLayersVisible = PCB_LAYERS.every(l => l.visible);
     layersMasterEye.classList.toggle('active', allLayersVisible);
@@ -189,6 +216,12 @@ export function buildLayerPanel(app) {
             lockBtn.classList.toggle('active', layer.locked);
             lockBtn.innerHTML = layer.locked ? LOCK_CLOSED_SVG : LOCK_OPEN_SVG;
             lockBtn.title = layer.locked ? 'Unlock layer' : 'Lock layer';
+            // Locking the active edit layer would leave you unable to draw, so
+            // move the active layer down one (looping at the bottom) to the
+            // next unlocked layer.
+            if (layer.locked && layer.edit) {
+                _advanceEditLayerFromLocked(app, layer.id);
+            }
             app._onLayerLockChanged?.(layer.id, layer.locked);
         });
         row.appendChild(lockBtn);
@@ -282,6 +315,27 @@ export function buildLayerPanel(app) {
 }
 
 /**
+ * The active edit layer just got locked. Advance the active layer downward
+ * through the PCB layer list (wrapping from bottom back to top) to the next
+ * unlocked layer, so the user is never left editing a locked layer.
+ * @param {object} app
+ * @param {string} lockedLayerId
+ */
+function _advanceEditLayerFromLocked(app, lockedLayerId) {
+    const n = PCB_LAYERS.length;
+    const start = PCB_LAYERS.findIndex(l => l.id === lockedLayerId);
+    if (start < 0) return;
+    for (let step = 1; step <= n; step++) {
+        const cand = PCB_LAYERS[(start + step) % n];
+        if (!cand.locked) {
+            _setEditLayer(app, cand.id);
+            return;
+        }
+    }
+    // Every layer is locked — nothing to switch to; leave as-is.
+}
+
+/**
  * Set the active edit layer (radio behavior — only one at a time).
  * @param {object} app
  * @param {string} layerId
@@ -291,8 +345,11 @@ function _setEditLayer(app, layerId) {
     if (!panel) return;
 
     // A locked layer can't be made the active edit layer — you can't draw
-    // on something that's locked.
-    if (isLayerLocked(layerId)) return;
+    // on something that's locked. Nudge the user with a speech bubble.
+    if (isLayerLocked(layerId)) {
+        showLockedLayerBubble(app, layerId);
+        return;
+    }
 
     for (const layer of PCB_LAYERS) {
         layer.edit = layer.id === layerId;
@@ -318,6 +375,80 @@ function _setEditLayer(app, layerId) {
         app.activeLayer = active.id;
         app._setPcbStatus?.();
     }
+}
+
+/**
+ * Show a small speech bubble explaining why a locked layer/object can't be
+ * selected. Anchors to the layer's row in the panel by default, or to a given
+ * client-space point (e.g. the mouse cursor) when `anchor` is provided.
+ * Auto-dismisses after a short delay.
+ * @param {object} app
+ * @param {string} layerId
+ * @param {{x:number,y:number}} [anchor] client-space point to anchor beside
+ */
+export function showLockedLayerBubble(app, layerId, anchor) {
+    const panel = document.getElementById('pcbLayerPanel');
+    const row = panel
+        ? panel.querySelector(`.pcb-layer-row[data-layer-id="${layerId}"]`)
+        : null;
+    if (!row && !anchor) return;
+    const def = PCB_LAYERS.find(l => l.id === layerId);
+
+    let bubble = document.getElementById('pcbLockedLayerBubble');
+    if (!bubble) {
+        bubble = document.createElement('div');
+        bubble.id = 'pcbLockedLayerBubble';
+        bubble.className = 'pcb-locked-bubble';
+        document.body.appendChild(bubble);
+    }
+    bubble.innerHTML =
+        `<span class="pcb-locked-bubble-icon">${LOCK_CLOSED_SVG}</span>`
+        + `<span>“${def ? def.name : 'This layer'}” is locked</span>`;
+
+    // Resolve the anchor point (client space). Default to the row's left edge.
+    let anchorX, anchorY;
+    if (anchor) {
+        anchorX = anchor.x;
+        anchorY = anchor.y;
+    } else if (row) {
+        const r = row.getBoundingClientRect();
+        anchorX = r.left;
+        anchorY = r.top + r.height / 2;
+    } else {
+        return;
+    }
+
+    // Make it measurable, then decide which side to grow toward so it never
+    // clips off the left edge of the window.
+    bubble.style.display = 'flex';
+    bubble.classList.remove('pcb-locked-bubble-flip');
+    const width = bubble.offsetWidth;
+    const height = bubble.offsetHeight;
+    const margin = 8;
+    // The default layout grows LEFT from the anchor (tail on the right). If
+    // that would push the left edge off-screen, flip so it grows RIGHT.
+    const flip = (anchorX - 10) - width < margin;
+    bubble.classList.toggle('pcb-locked-bubble-flip', flip);
+
+    // Clamp vertically so the bubble stays fully on-screen.
+    const top = Math.min(
+        Math.max(anchorY, margin + height / 2),
+        window.innerHeight - margin - height / 2
+    );
+    bubble.style.top = `${top}px`;
+    bubble.style.left = `${flip ? anchorX + 10 : anchorX - 10}px`;
+
+    // Restart the pop-in animation each time it's triggered.
+    bubble.classList.remove('pcb-locked-bubble-show');
+    // Force reflow so re-adding the class restarts the keyframes.
+    void bubble.offsetWidth;
+    bubble.classList.add('pcb-locked-bubble-show');
+
+    clearTimeout(app._lockedBubbleTimer);
+    app._lockedBubbleTimer = setTimeout(() => {
+        bubble.classList.remove('pcb-locked-bubble-show');
+        bubble.style.display = 'none';
+    }, 2400);
 }
 
 /**

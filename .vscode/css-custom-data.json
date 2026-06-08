@@ -1,0 +1,13 @@
+{
+  "version": 1.1,
+  "properties": [
+    {
+      "name": "scrollbar-width",
+      "description": "Sets the width of the scrollbar. Used for theming custom scrollbars in modern browsers (Firefox, Chrome 121+); older WebKit browsers are handled via ::-webkit-scrollbar rules."
+    },
+    {
+      "name": "scrollbar-color",
+      "description": "Sets the color of the scrollbar thumb and track. Used for theming custom scrollbars in modern browsers (Firefox, Chrome 121+); older WebKit browsers are handled via ::-webkit-scrollbar rules."
+    }
+  ]
+}

@@ -126,9 +126,9 @@ export class KiCadFetcher {
 
         // If API failed, try expired cache before hardcoded fallback
         const expired = storageManager.getRaw(KICAD_LATEST_TAG_CACHE_KEY);
-        if (typeof expired?.value === 'string' && expired.value.length > 0) {
-            console.log(`KiCad using expired cached tag: ${expired.value}`);
-            return expired.value;
+        if (typeof expired?.data === 'string' && expired.data.length > 0) {
+            console.log(`KiCad using expired cached tag: ${expired.data}`);
+            return expired.data;
         }
 
         return KICAD_FALLBACK_RELEASE;
@@ -1928,6 +1928,7 @@ export class KiCadFetcher {
 
         console.log('KiCad unit symbols found for', cleanBase, unitSymbols.map(u => (typeof u[1] === 'string' ? u[1].replace(/^"|"$/g, '') : u[1])));
 
+        /** @type {{ width: number, height: number, origin: { x: number, y: number }, graphics: any[], pins: any[], properties: Record<string, any>, _source: string }} */
         const symbol = {
             width: 20,
             height: 20,
@@ -2059,6 +2060,7 @@ export class KiCadFetcher {
     _convertKiCadSymbol(symbolSexp) {
         const name = symbolSexp[1].replace(/^"|"$/g, '');
         
+        /** @type {{ width: number, height: number, origin: { x: number, y: number }, graphics: any[], pins: any[], properties: Record<string, any>, _source: string, _extends?: string }} */
         const symbol = {
             width: 20,
             height: 20,
@@ -2265,6 +2267,7 @@ export class KiCadFetcher {
     _buildSymbolFromNestedUnits(symbolSexp) {
         if (!Array.isArray(symbolSexp)) return null;
 
+        /** @type {{ width: number, height: number, origin: { x: number, y: number }, graphics: any[], pins: any[], properties: Record<string, any>, _source: string, _extends?: string }} */
         const symbol = {
             width: 20,
             height: 20,
@@ -2409,6 +2412,7 @@ export class KiCadFetcher {
      * @returns {{graphics: Array, pins: Array, minX: number, minY: number, maxX: number, maxY: number}}
      */
     _processSymbolUnit(unitSexp) {
+        /** @type {{ graphics: any[], pins: any[], minX: number, minY: number, maxX: number, maxY: number }} */
         const result = {
             graphics: [],
             pins: [],
@@ -2492,6 +2496,7 @@ export class KiCadFetcher {
      * (pin type shape (at x y angle) (length len) (name "name" ...) (number "num" ...))
      */
     _parseKiCadPin(pinSexp) {
+        /** @type {{ type: string, number: string, name: string, x: number, y: number, orientation: string, length: number, pinType: string, shape: string, hidden: boolean, kicadNameFontSize: number|null, kicadNumberFontSize: number|null, _coordKey?: string }} */
         const pin = {
             type: 'pin',
             number: '',
@@ -2579,7 +2584,7 @@ export class KiCadFetcher {
     /**
      * Parse a `(property "Name" "Value")` S-expression.
      * @param {Array} propSexp
-     * @returns {{name: string, value: string}|null}
+     * @returns {{name: string|null, value: string|null}|null}
      */
     _parseKiCadProperty(propSexp) {
         if (!Array.isArray(propSexp) || propSexp.length < 3) return null;

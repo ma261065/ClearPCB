@@ -87,6 +87,46 @@ export function hitTestTrack(app, worldPos, pxTol = HIT_TOL_PX) {
     return null;
 }
 
+/**
+ * Hit-test a world position against LOCKED tracks/vias only — the mirror of
+ * hitTestTrack, which deliberately ignores them. Used to detect when a user
+ * clicks something that's locked so we can explain why it can't be selected.
+ * @param {object} app
+ * @param {{x:number,y:number}} worldPos
+ * @param {number} [pxTol]
+ * @returns {{type:'via'|'track', layerId:string}|null}
+ */
+export function hitTestLockedTrack(app, worldPos, pxTol = HIT_TOL_PX) {
+    const scale = app.viewport?.scale || 1;
+    const worldTol = pxTol / scale;
+
+    if (isViaLocked()) {
+        for (let i = app.vias.length - 1; i >= 0; i--) {
+            const v = app.vias[i];
+            const r = (v.diameter || 0.6) / 2 + worldTol;
+            if (Math.hypot(v.x - worldPos.x, v.y - worldPos.y) <= r) {
+                return { type: 'via', layerId: v.layer || 'top-copper' };
+            }
+        }
+    }
+
+    for (let i = app.tracks.length - 1; i >= 0; i--) {
+        const t = app.tracks[i];
+        if (!isLayerLocked(t.layer)) continue;
+        for (const [eid, e] of t.edges) {
+            const a = t.nodes.get(e.from);
+            const b = t.nodes.get(e.to);
+            if (!a || !b) continue;
+            const ew = t.getEdgeWidth ? t.getEdgeWidth(eid) : t.width;
+            const half = (ew || 0.2) / 2 + worldTol;
+            if (_pointSegDist(worldPos, a, b) <= half) {
+                return { type: 'track', layerId: t.layer };
+            }
+        }
+    }
+    return null;
+}
+
 function _pointSegDist(p, a, b) {
     const vx = b.x - a.x, vy = b.y - a.y;
     const wx = p.x - a.x, wy = p.y - a.y;
