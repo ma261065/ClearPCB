@@ -27,7 +27,7 @@ import {
     ModifyTrackGraphCommand,
     ModifyViaCommand,
 } from './track-commands.js';
-import { PCB_LAYERS } from './layers.js';
+import { PCB_LAYERS, isLayerLocked, isViaLocked } from './layers.js';
 import { showAlert } from '../../ui/modules/modal.js';
 
 const NS = 'http://www.w3.org/2000/svg';
@@ -56,18 +56,23 @@ export function hitTestTrack(app, worldPos, pxTol = HIT_TOL_PX) {
     const worldTol = pxTol / scale;
 
     // Vias first (smaller targets, should win over coincident traces).
-    for (let i = app.vias.length - 1; i >= 0; i--) {
-        const v = app.vias[i];
-        const r = (v.diameter || 0.6) / 2 + worldTol;
-        if (Math.hypot(v.x - worldPos.x, v.y - worldPos.y) <= r) {
-            return { type: 'via', via: v };
+    // Skip them entirely when the via layers are locked.
+    if (!isViaLocked()) {
+        for (let i = app.vias.length - 1; i >= 0; i--) {
+            const v = app.vias[i];
+            const r = (v.diameter || 0.6) / 2 + worldTol;
+            if (Math.hypot(v.x - worldPos.x, v.y - worldPos.y) <= r) {
+                return { type: 'via', via: v };
+            }
         }
     }
 
     // Tracks: distance to any segment within (width/2 + tol). Width is
-    // per-edge, so resolve it inside the segment loop.
+    // per-edge, so resolve it inside the segment loop. Locked-layer tracks
+    // are not hit-testable.
     for (let i = app.tracks.length - 1; i >= 0; i--) {
         const t = app.tracks[i];
+        if (isLayerLocked(t.layer)) continue;
         for (const [eid, e] of t.edges) {
             const a = t.nodes.get(e.from);
             const b = t.nodes.get(e.to);
@@ -450,6 +455,23 @@ function _removeHalos(app, cls) {
     for (const g of app._layerGroups.values()) {
         g.querySelectorAll(`.${cls}`).forEach((el) => el.remove());
     }
+}
+
+/* ── Public halo helpers (used by box-select multi-selection) ── */
+
+/** Draw a selection halo over a track using the given CSS class. */
+export function drawTrackHalo(app, track, cls, opacity = HALO_OPACITY_SELECTED) {
+    _drawTrackHalo(app, track, cls, opacity);
+}
+
+/** Draw a selection halo over a via using the given CSS class. */
+export function drawViaHalo(app, via, cls, opacity = HALO_OPACITY_SELECTED) {
+    _drawViaHalo(app, via, cls, opacity);
+}
+
+/** Remove every halo with the given CSS class from all layers. */
+export function removeHalosByClass(app, cls) {
+    _removeHalos(app, cls);
 }
 
 /**

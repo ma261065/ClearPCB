@@ -7,7 +7,7 @@ import { loadAndApplyTheme, toggleTheme as toggleSharedTheme, syncThemeToggleBut
 import { extractNetlist, extractComponents } from '../pcb/modules/netlist.js';
 import { generateFootprint, renderFootprint } from '../pcb/modules/footprint.js';
 import { updateGridDropdown } from './modules/viewport.js';
-import { PCB_LAYERS } from '../pcb/modules/layers.js';
+import { PCB_LAYERS, isLayerLocked, isViaLocked } from '../pcb/modules/layers.js';
 import { exportDSN, importSES } from '../pcb/modules/dsn.js';
 import { exportGerbers, buildZip } from '../pcb/modules/gerber.js';
 import { savePcbPdf, printPcb } from '../pcb/modules/pcb-export.js';
@@ -74,6 +74,18 @@ import {
     MoveTextCommand,
     EditTextCommand,
 } from '../pcb/modules/text-commands.js';
+import {
+    armBoxSelect,
+    maybeStartBoxSelect,
+    finishBoxSelect,
+    clearBoxSelection,
+    hasBoxSelection,
+    pointInBoxSelection,
+    beginGroupDrag,
+    updateGroupDrag,
+    endGroupDrag,
+    deleteBoxSelection,
+} from '../pcb/modules/box-select.js';
 import { measureText as measureStrokeText } from '../pcb/modules/stroke-font.js';
 import { CommandHistory } from '../core/CommandHistory.js';
 import { Track } from '../shapes/track.js';
@@ -167,6 +179,18 @@ export default class PCBApp {
         this._selectedComp = null;
         /** Drag state: { compId, startWorld, startPos } or null */
         this._drag = null;
+        /**
+         * Box (marquee) multi-selection state. Populated lazily by the
+         * box-select module: { comps:Set, tracks:Set, vias:Set }.
+         * @type {{comps:Set, tracks:Set, vias:Set}|null}
+         */
+        this._boxSel = null;
+        /** Pending marquee arm (before the drag threshold), or null */
+        this._boxSelectArm = null;
+        /** True while a marquee is actively being dragged */
+        this._boxSelectActive = false;
+        /** Group-drag state for a box selection, or null */
+        this._groupDrag = null;
 
         /**
          * Free-standing text annotations placed by the user.
@@ -416,6 +440,20 @@ export default class PCBApp {
             if (e.button === 0 && this.currentTool === 'select') {
                 const worldPos = this._screenToWorld(e);
 
+                // Box-selection group drag: clicking on any member of an
+                // active multi-selection moves the whole group together.
+                // Clicking elsewhere drops the multi-selection and falls
+                // through to normal single-object selection below.
+                if (hasBoxSelection(this)) {
+                    if (pointInBoxSelection(this, worldPos)) {
+                        beginGroupDrag(this, worldPos);
+                        this._hideNetTooltip();
+                        svg.style.cursor = 'grabbing';
+                        return;
+                    }
+                    clearBoxSelection(this);
+                }
+
                 // If a track is already selected, try to start a vertex
                 // drag on it before doing anything else — this lets the
                 // user grab a node or bend a segment without re-clicking.
@@ -524,12 +562,18 @@ export default class PCBApp {
                     this._selectComponent(null);
                     this._selectBoardOutline(false);
                     this._clearProperties();
+                    // Empty canvas: arm a box-select. The marquee only
+                    // materialises once the pointer crosses the drag
+                    // threshold (see the mousemove handler).
+                    armBoxSelect(this, { x: e.clientX, y: e.clientY }, worldPos);
                 }
             }
 
             // Left-click with track tool: start a new track or add a waypoint.
             if (e.button === 0 && this.currentTool === 'track') {
                 const worldPos = this._screenToWorld(e);
+                // Can't draw on a locked layer.
+                if (!this._trackDraw && isLayerLocked(this.activeLayer)) return;
                 if (this._trackDraw) {
                     addTrackWaypoint(this, worldPos);
                 } else {
@@ -540,6 +584,8 @@ export default class PCBApp {
             // Left-click with via tool: place a standalone via at the cursor.
             if (e.button === 0 && this.currentTool === 'via') {
                 const worldPos = this._screenToWorld(e);
+                // A via spans both copper layers — refuse if either is locked.
+                if (isViaLocked()) return;
                 const snap = resolveTrackSnap(this, worldPos, {});
                 const p = this._getRoutingParams?.() || {};
                 const diameter = Number.isFinite(p.viaDiameter) && p.viaDiameter > 0 ? p.viaDiameter : 0.6;
@@ -587,6 +633,8 @@ export default class PCBApp {
                 const layer = TEXT_LAYERS.includes(this.activeLayer)
                     ? this.activeLayer
                     : this._textDefaults.layer;
+                // Don't place text on a locked layer.
+                if (isLayerLocked(layer)) return;
                 const text = createPcbText({
                     content: '',
                     x: snap.x,
@@ -619,6 +667,8 @@ export default class PCBApp {
                 }
             } else if (this._drag) {
                 this._handleDrag(e);
+            } else if (this._groupDrag) {
+                updateGroupDrag(this, this._screenToWorld(e));
             } else if (this._textDrag) {
                 this._handleTextDrag(e);
             } else if (this._vertexDrag) {
@@ -641,12 +691,18 @@ export default class PCBApp {
                     this._updateCursorCrosshair({ x: this._trackDraw.snap.x, y: this._trackDraw.snap.y });
                 }
             } else if (this.currentTool === 'select') {
-                // Hover hit-testing is O(N) over every pad/track/text, so
-                // running it on each raw mousemove backs up the event queue
-                // on complex boards and the highlight lags the cursor.
-                // Coalesce to one pass per animation frame using the latest
-                // pointer position.
-                this._scheduleHoverUpdate(e);
+                // A pending/active marquee owns the move; only fall back to
+                // hover hit-testing when no box-select is in progress.
+                if (maybeStartBoxSelect(this, e, this._screenToWorld(e))) {
+                    // Marquee active — selection halos already updated.
+                } else {
+                    // Hover hit-testing is O(N) over every pad/track/text, so
+                    // running it on each raw mousemove backs up the event queue
+                    // on complex boards and the highlight lags the cursor.
+                    // Coalesce to one pass per animation frame using the latest
+                    // pointer position.
+                    this._scheduleHoverUpdate(e);
+                }
             } else if (this.currentTool === 'via') {
                 this._updateViaPreview(this._screenToWorld(e));
             } else if (this.currentTool === 'track') {
@@ -709,6 +765,13 @@ export default class PCBApp {
                 // to 'grab' / default — text tool wants the T+crosshair).
                 this._updateCursorForTool?.();
             }
+            if (this._groupDrag) {
+                endGroupDrag(this);
+                svg.style.cursor = 'default';
+            }
+            // Finish (or discard) a marquee box-select. Safe to call even
+            // when nothing was armed — it just clears the pending state.
+            finishBoxSelect(this);
             if (this._drag) {
                 this._endDrag();
             }
@@ -1005,6 +1068,13 @@ export default class PCBApp {
             return true;
         }
         if (e.key === 'Delete' || e.key === 'Backspace') {
+            // Box multi-selection: delete the enclosed tracks/vias as one
+            // undoable action. Components are kept (they belong to the
+            // schematic netlist and are never deleted on the PCB).
+            if (hasBoxSelection(this)) {
+                deleteBoxSelection(this);
+                return true;
+            }
             if (this._selectedText) {
                 this._deleteSelectedText();
                 return true;
@@ -1026,6 +1096,10 @@ export default class PCBApp {
                 return true;
             }
             if (this._viaDrag) { cancelViaDrag(this); return true; }
+            if (hasBoxSelection(this)) {
+                clearBoxSelection(this);
+                return true;
+            }
             if (this._selectedText) {
                 this._selectText(null);
                 this._clearProperties?.();
@@ -1271,6 +1345,38 @@ export default class PCBApp {
     }
 
     /**
+     * Called by the layer panel when a layer's lock is toggled. A locked
+     * layer is rendered dimmed (reduced opacity) so it's clearly set apart
+     * from the editable layers.
+     * @param {string} layerId
+     * @param {boolean} locked
+     */
+    _onLayerLockChanged(layerId, locked) {
+        const g = this._layerGroups.get(layerId);
+        if (g) {
+            g.style.opacity = locked ? '0.4' : '';
+        }
+        if (!locked) return;
+        // A newly-locked layer must not keep anything on it selected or
+        // hovered — locked objects are read-only.
+        const viaAffected = layerId === 'top-copper' || layerId === 'bottom-copper';
+        if ((this._selectedTrack && this._selectedTrack.layer === layerId) ||
+            (this._selectedVia && viaAffected)) {
+            clearTrackSelection(this);
+            this._clearProperties();
+        }
+        if (this._selectedText && this._selectedText.layer === layerId) {
+            this._selectText(null);
+            this._clearProperties();
+        }
+        if (this._boardOutlineSelected && layerId === 'board-outline') {
+            this._selectBoardOutline(false);
+        }
+        if (hasBoxSelection(this)) clearBoxSelection(this);
+        setHoverHighlight(this, null);
+    }
+
+    /**
      * Overlay visibility callback (clearance halos, etc.). Wired from
      * `buildLayerPanel` via the Overlays section in the layer dropdown.
      * @param {string} overlayId
@@ -1502,6 +1608,9 @@ export default class PCBApp {
      */
     _hitTestBoardOutline(pos) {
         if (!this._boardOutlineDrawn) return false;
+        // The board outline lives on the 'board-outline' layer; don't allow
+        // selecting/hovering it while that layer is locked.
+        if (isLayerLocked('board-outline')) return false;
         const w = this._boardWidth, h = this._boardHeight;
         // In SVG coords (Y-down), board goes from (0, -h) to (w, 0)
         const x1 = 0, y1 = -h;
@@ -2389,6 +2498,7 @@ export default class PCBApp {
     _hitTestText(worldPos) {
         let hit = null;
         for (const t of this.texts.values()) {
+            if (isLayerLocked(t.layer)) continue;
             if (pcbTextHitTest(t, worldPos.x, worldPos.y)) hit = t;
         }
         return hit;

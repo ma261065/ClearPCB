@@ -7,21 +7,21 @@
  * visibility eye (toggle) for every layer.
  */
 
-/** @typedef {{id: string, name: string, color: string, edit: boolean, visible: boolean}} LayerDef */
+/** @typedef {{id: string, name: string, color: string, edit: boolean, visible: boolean, locked: boolean}} LayerDef */
 
 /** All PCB layers with their display colors. */
 export const PCB_LAYERS = /** @type {LayerDef[]} */ ([
-    { id: 'top-copper',       name: 'Top Copper',          color: '#e74c3c', edit: true,  visible: true },
-    { id: 'bottom-copper',    name: 'Bottom Copper',       color: '#3498db', edit: false, visible: true },
-    { id: 'top-silk',         name: 'Top Silk',            color: '#f0e68c', edit: false, visible: true },
-    { id: 'bottom-silk',      name: 'Bottom Silk',         color: '#a89332', edit: false, visible: true },
-    { id: 'top-paste',        name: 'Top Paste Mask',      color: '#e88dd6', edit: false, visible: true },
-    { id: 'bottom-paste',     name: 'Bottom Paste Mask',   color: '#8d5e87', edit: false, visible: true },
-    { id: 'top-mask',         name: 'Top Solder Mask',     color: '#9b59b6', edit: false, visible: true },
-    { id: 'bottom-mask',      name: 'Bottom Solder Mask',  color: '#5b3a70', edit: false, visible: true },
-    { id: 'board-outline',    name: 'Board Outline',       color: '#f1c40f', edit: false, visible: true },
-    { id: 'document',         name: 'Document',            color: '#95a5a6', edit: false, visible: true },
-    { id: 'hole',             name: 'Hole',                color: '#1abc9c', edit: false, visible: true },
+    { id: 'top-copper',       name: 'Top Copper',          color: '#e74c3c', edit: true,  visible: true, locked: false },
+    { id: 'bottom-copper',    name: 'Bottom Copper',       color: '#3498db', edit: false, visible: true, locked: false },
+    { id: 'top-silk',         name: 'Top Silk',            color: '#f0e68c', edit: false, visible: true, locked: false },
+    { id: 'bottom-silk',      name: 'Bottom Silk',         color: '#a89332', edit: false, visible: true, locked: false },
+    { id: 'top-paste',        name: 'Top Paste Mask',      color: '#e88dd6', edit: false, visible: true, locked: false },
+    { id: 'bottom-paste',     name: 'Bottom Paste Mask',   color: '#8d5e87', edit: false, visible: true, locked: false },
+    { id: 'top-mask',         name: 'Top Solder Mask',     color: '#9b59b6', edit: false, visible: true, locked: false },
+    { id: 'bottom-mask',      name: 'Bottom Solder Mask',  color: '#5b3a70', edit: false, visible: true, locked: false },
+    { id: 'board-outline',    name: 'Board Outline',       color: '#f1c40f', edit: false, visible: true, locked: false },
+    { id: 'document',         name: 'Document',            color: '#95a5a6', edit: false, visible: true, locked: false },
+    { id: 'hole',             name: 'Hole',                color: '#1abc9c', edit: false, visible: true, locked: false },
 ]);
 
 /**
@@ -34,6 +34,27 @@ export const PCB_OVERLAYS = /** @type {OverlayDef[]} */ ([
     { id: 'ratlines',  name: 'Ratlines',  color: '#4488ff', visible: true },
     { id: 'clearance', name: 'Clearance', color: '#ffffff', visible: false },
 ]);
+
+/**
+ * True when the given layer id is currently locked. Locked layers are
+ * read-only: their objects can't be selected, hovered, dragged or deleted,
+ * and nothing new may be drawn on them.
+ * @param {string} layerId
+ * @returns {boolean}
+ */
+export function isLayerLocked(layerId) {
+    const def = PCB_LAYERS.find(l => l.id === layerId);
+    return !!(def && def.locked);
+}
+
+/**
+ * True when a through-hole via is locked. A via spans both copper layers,
+ * so it is protected whenever either copper layer is locked.
+ * @returns {boolean}
+ */
+export function isViaLocked() {
+    return isLayerLocked('top-copper') || isLayerLocked('bottom-copper');
+}
 
 // SVG icon paths (inline, no external deps)
 const PENCIL_SVG = `<svg width="20" height="20" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -48,6 +69,16 @@ const EYE_OPEN_SVG = `<svg width="20" height="20" viewBox="0 0 14 14" fill="none
 const EYE_CLOSED_SVG = `<svg width="20" height="20" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
   <path d="M1 7s2.5-4 6-4 6 4 6 4-2.5 4-6 4-6-4-6-4z" stroke="currentColor" stroke-width="1.1"/>
   <line x1="2" y1="12" x2="12" y2="2" stroke="currentColor" stroke-width="1.2"/>
+</svg>`;
+
+const LOCK_CLOSED_SVG = `<svg width="20" height="20" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect x="3" y="6.2" width="8" height="5.5" rx="1" stroke="currentColor" stroke-width="1.1"/>
+  <path d="M4.6 6.2V4.6a2.4 2.4 0 0 1 4.8 0v1.6" stroke="currentColor" stroke-width="1.1"/>
+</svg>`;
+
+const LOCK_OPEN_SVG = `<svg width="20" height="20" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect x="3" y="6.2" width="8" height="5.5" rx="1" stroke="currentColor" stroke-width="1.1"/>
+  <path d="M4.6 6.2V4.6a2.4 2.4 0 0 1 4.8-0.4" stroke="currentColor" stroke-width="1.1"/>
 </svg>`;
 
 /**
@@ -82,6 +113,8 @@ export function buildLayerPanel(app) {
         heading.style.gridColumn = '1 / span 2';
         row.appendChild(heading);
         // empty pencil col
+        row.appendChild(document.createElement('span'));
+        // empty lock col
         row.appendChild(document.createElement('span'));
         const eyeBtn = document.createElement('button');
         eyeBtn.className = `pcb-layer-btn vis-btn section-master-vis ${sectionClass}-master active`;
@@ -143,6 +176,22 @@ export function buildLayerPanel(app) {
             _setEditLayer(app, layer.id);
         });
         row.appendChild(editBtn);
+
+        // Lock button (padlock) — toggle. A locked layer renders dimmed
+        // so it's visually distinct from the editable layers.
+        const lockBtn = document.createElement('button');
+        lockBtn.className = 'pcb-layer-btn lock-btn' + (layer.locked ? ' active' : '');
+        lockBtn.innerHTML = layer.locked ? LOCK_CLOSED_SVG : LOCK_OPEN_SVG;
+        lockBtn.title = 'Lock layer';
+        lockBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            layer.locked = !layer.locked;
+            lockBtn.classList.toggle('active', layer.locked);
+            lockBtn.innerHTML = layer.locked ? LOCK_CLOSED_SVG : LOCK_OPEN_SVG;
+            lockBtn.title = layer.locked ? 'Unlock layer' : 'Lock layer';
+            app._onLayerLockChanged?.(layer.id, layer.locked);
+        });
+        row.appendChild(lockBtn);
 
         // Visibility button (eye) — toggle
         const visBtn = document.createElement('button');
@@ -208,6 +257,8 @@ export function buildLayerPanel(app) {
 
             // Empty pencil column — overlays aren't editable layers.
             row.appendChild(document.createElement('span'));
+            // Empty lock column — overlays can't be locked.
+            row.appendChild(document.createElement('span'));
 
             const visBtn = document.createElement('button');
             visBtn.className = 'pcb-layer-btn vis-btn' + (ov.visible ? ' active' : '');
@@ -238,6 +289,10 @@ export function buildLayerPanel(app) {
 function _setEditLayer(app, layerId) {
     const panel = document.getElementById('pcbLayerPanel');
     if (!panel) return;
+
+    // A locked layer can't be made the active edit layer — you can't draw
+    // on something that's locked.
+    if (isLayerLocked(layerId)) return;
 
     for (const layer of PCB_LAYERS) {
         layer.edit = layer.id === layerId;
