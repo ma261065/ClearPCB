@@ -89,18 +89,21 @@ Pop-Location
 |------|---------|--------|---------|------|---------|
 | `jspdf.umd.min.js` | jspdf | [MrRio/jsPDF](https://github.com/MrRio/jsPDF) | — | ~500KB | MIT |
 | `svg2pdf.umd.min.js` | svg2pdf.js | [yWorks/svg2pdf.js](https://github.com/yWorks/svg2pdf.js) | — | ~100KB | MIT |
-| `three.module.js` | three + OrbitControls + TrackballControls | [mrdoob/three.js](https://github.com/mrdoob/three.js) | 0.184.0 | ~536KB | MIT |
+| `three.module.js` | three (core only) | [mrdoob/three.js](https://github.com/mrdoob/three.js) | 0.184.0 | ~502KB | MIT |
 
-> **three.js note:** the bundle entry re-exports only the ~17 symbols the
+> **three.js note:** the bundle entry re-exports only the ~16 core symbols the
 > 3D board viewer uses (`Scene`, `PerspectiveCamera`, `WebGLRenderer`,
-> `MeshStandardMaterial`, `PointLight`, `TrackballControls`, etc.) so esbuild
-> tree-shakes the rest of the library. If the viewer starts using new three.js
-> features (e.g. `RoomEnvironment` / `PMREMGenerator` for full environment
-> reflections), add the symbols to the entry's export list and re-vendor.
+> `MeshStandardMaterial`, `PointLight`, `BufferGeometry`, etc.) so esbuild
+> tree-shakes the rest of the library. Orbit/pan/zoom is a custom Shoemake
+> arcball implemented directly in `board3d.js` (no three.js controls addon is
+> bundled). If the viewer starts using new three.js features (e.g.
+> `RoomEnvironment` / `PMREMGenerator` for full environment reflections), add
+> the symbols to the entry's export list and re-vendor.
 
 
 ## Notes
 
+- **`// @ts-nocheck` header** — vendored bundles (`three.module.js`, `earcut.module.js`) carry a `// @ts-nocheck` first line so the editor's `checkJs` type-checker skips them (jsconfig `exclude` doesn't help because they're imported by `src/`). Re-add this line after re-vendoring.
 - **No build step in development** — vendored files are committed to git and loaded directly by the browser
 - **Offline support** — vendored files work without internet, important for PWA/service worker
 - **Lazy loading** — use `await import(...)` to load heavy vendor files only when needed

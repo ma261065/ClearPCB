@@ -1500,6 +1500,23 @@ export class Component {
             if (this.definition.footprintBBox) {
                 json.def.footprintBBox = this.definition.footprintBBox;
             }
+            if (this.definition.footprintName) {
+                json.def.footprintName = this.definition.footprintName;
+            }
+            // Persist 3D model geometry so the 3D viewer survives save/reload
+            // (e.g. autorecover) without re-fetching from the supplier.
+            if (this.definition.model3dObj) {
+                json.def.model3dObj = this.definition.model3dObj;
+            }
+            if (this.definition.model3dUrl) {
+                json.def.model3dUrl = this.definition.model3dUrl;
+            }
+            if (this.definition.model3dName) {
+                json.def.model3dName = this.definition.model3dName;
+            }
+            if (this.definition.has3d) {
+                json.def.has3d = this.definition.has3d;
+            }
         }
         
         return json;
