@@ -1057,7 +1057,7 @@ function flattenSvgPath(d) {
                 const x1 = (rel ? x : 0) + num(), y1 = (rel ? y : 0) + num();
                 const x2 = (rel ? x : 0) + num(), y2 = (rel ? y : 0) + num();
                 const nx = (rel ? x : 0) + num(), ny = (rel ? y : 0) + num();
-                bezier(x, y, x1, y1, x2, y2, nx, ny, 14); x = nx; y = ny;
+                bezier(x, y, x1, y1, x2, y2, nx, ny, 24); x = nx; y = ny;
             }
         } else if (c === 'Q') {
             while (i < tokens.length && !isCmd(tokens[i])) {
@@ -1065,7 +1065,7 @@ function flattenSvgPath(d) {
                 const nx = (rel ? x : 0) + num(), ny = (rel ? y : 0) + num();
                 const cx1 = x + (2 / 3) * (x1 - x), cy1 = y + (2 / 3) * (y1 - y);
                 const cx2 = nx + (2 / 3) * (x1 - nx), cy2 = ny + (2 / 3) * (y1 - ny);
-                bezier(x, y, cx1, cy1, cx2, cy2, nx, ny, 14); x = nx; y = ny;
+                bezier(x, y, cx1, cy1, cx2, cy2, nx, ny, 24); x = nx; y = ny;
             }
         } else if (c === 'A') {
             while (i < tokens.length && !isCmd(tokens[i])) {
@@ -1099,18 +1099,18 @@ function strokePolysToMesh(polys, strokeWidth, y, color, toWorld) {
         if (!poly || poly.length === 0) continue;
         if (poly.length === 1) {
             const p = toWorld(poly[0].x, poly[0].y);
-            appendMesh(mesh, discMesh(p.x, p.z, sw / 2, y, color, 6));
+            appendMesh(mesh, discMesh(p.x, p.z, sw / 2, y, color, 12));
             continue;
         }
         for (let i = 1; i < poly.length; i++) {
             const a = toWorld(poly[i - 1].x, poly[i - 1].y);
             const b = toWorld(poly[i].x, poly[i].y);
             appendMesh(mesh, ribbonMesh(a.x, a.z, b.x, b.z, sw, y, color));
-            appendMesh(mesh, discMesh(a.x, a.z, sw / 2, y, color, 6));
+            appendMesh(mesh, discMesh(a.x, a.z, sw / 2, y, color, 12));
         }
         const last = poly[poly.length - 1];
         const lp = toWorld(last.x, last.y);
-        appendMesh(mesh, discMesh(lp.x, lp.z, sw / 2, y, color, 6));
+        appendMesh(mesh, discMesh(lp.x, lp.z, sw / 2, y, color, 12));
     }
     return mesh;
 }
@@ -1415,9 +1415,13 @@ class ThreeScene {
         this.boardMaterial = makeBoardMaterial();
 
         this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-        // Cap the pixel ratio: hi-DPI displays otherwise render 4× the pixels
-        // for no visible gain, which is the main cause of sluggish orbiting.
-        this.renderer.setPixelRatio(Math.min(win.devicePixelRatio || 1, 1.5));
+        // Two pixel-ratio tiers. Orbiting renders at the capped ratio (hi-DPI
+        // displays otherwise draw 4× the pixels for no visible gain — the main
+        // cause of sluggish dragging); the settled frame after interaction ends
+        // renders at full device ratio so a stationary, zoomed-in view is crisp.
+        this._dprActive = Math.min(win.devicePixelRatio || 1, 1.5);
+        this._dprIdle = win.devicePixelRatio || 1;
+        this.renderer.setPixelRatio(this._dprIdle);
         this.renderer.outputColorSpace = THREE.SRGBColorSpace;
 
         this.scene = new THREE.Scene();
@@ -1509,12 +1513,23 @@ class ThreeScene {
     _startAnimating() {
         if (this._animating) return;
         this._animating = true;
+        // Drop to the capped pixel ratio for the duration of the interaction so
+        // dragging stays smooth; the settled frame restores full resolution.
+        if (this.renderer.getPixelRatio() !== this._dprActive) {
+            this.renderer.setPixelRatio(this._dprActive);
+            this._resize();
+        }
         this.win.requestAnimationFrame(this._animate);
     }
 
     /** Stop the render loop and draw one final settled frame. */
     _stopAnimating() {
         this._animating = false;
+        // Restore full device pixel ratio so the stationary view is crisp.
+        if (this.renderer.getPixelRatio() !== this._dprIdle) {
+            this.renderer.setPixelRatio(this._dprIdle);
+            this._resize();
+        }
         this.requestRender();
     }
 
@@ -1672,8 +1687,13 @@ export async function openBoard3DViewer(app) {
     /** @type {Set<string>} compIds already resolved to a real model */
     const resolved = new Set();
 
+    // All pads share the gold material and never move, so merge them into one
+    // mesh: the whole board's copper pads cost a single draw call instead of
+    // one per component (the dominant cost on dense boards). Component bodies
+    // stay separate — they toggle and get swapped for lazy STEP models by id.
+    const padsMesh = emptyMesh();
     for (const [id, pl] of placements) {
-        scene.addMesh(padMesh(pl));
+        appendMesh(padsMesh, padMesh(pl));
         // EasyEDA/LCSC parts carry an OBJ model on the placement — render it
         // immediately (it is already in memory, no network needed).
         let body = null;
@@ -1684,6 +1704,7 @@ export async function openBoard3DViewer(app) {
         }
         bodyMeshes.set(id, scene.addMesh(body || fallbackBoxMesh(pl)));
     }
+    if (padsMesh.faces.length) scene.addMesh(padsMesh);
     scene.frameAll();
 
     const setStatus = (text) => { if (dom.status && !win.closed) dom.status.textContent = text; };
