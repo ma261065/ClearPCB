@@ -80,7 +80,7 @@ export function hitTestTrack(app, worldPos, pxTol = HIT_TOL_PX) {
             const ew = t.getEdgeWidth ? t.getEdgeWidth(eid) : t.width;
             const half = (ew || 0.2) / 2 + worldTol;
             if (_pointSegDist(worldPos, a, b) <= half) {
-                return { type: 'track', track: t };
+                return { type: 'track', track: t, edgeId: eid };
             }
         }
     }
@@ -120,7 +120,7 @@ export function hitTestLockedTrack(app, worldPos, pxTol = HIT_TOL_PX) {
             const ew = t.getEdgeWidth ? t.getEdgeWidth(eid) : t.width;
             const half = (ew || 0.2) / 2 + worldTol;
             if (_pointSegDist(worldPos, a, b) <= half) {
-                return { type: 'track', layerId: t.layer };
+                return { type: 'track', layerId: t.layer, edgeId: eid };
             }
         }
     }
@@ -155,6 +155,10 @@ export function selectTrackOrVia(app, hit) {
         return;
     }
     if (hit.type === 'track') {
+        if (hit.edgeId && hit.track?.edges?.has(hit.edgeId)) {
+            selectTrackSegment(app, hit.track, hit.edgeId);
+            return;
+        }
         app._selectedTrack = hit.track;
         _setTrackLabelsVisible(hit.track, false);
         _drawTrackHalo(app, hit.track);

@@ -470,9 +470,12 @@ class ThreeScene {
         // vertical because of its fixed up-vector). staticMoving = no inertia,
         // so motion stops the instant the mouse is released.
         this.controls.rotateSpeed = 3.2;
-        this.controls.zoomSpeed = 1.2;
+        this.controls.zoomSpeed = 7;
         this.controls.panSpeed = 0.8;
         this.controls.staticMoving = true;
+        // Floor the zoom-in distance (set from board size in positionGlint) so
+        // the camera can't push through the surface into the board/components.
+        this.controls.minDistance = 5;
 
         /** @type {THREE.Group} */
         this.root = new THREE.Group();
@@ -545,27 +548,39 @@ class ThreeScene {
 
     /**
      * Pin the headlight rig to the camera so the face toward the viewer is lit.
-     * The point light sits at the camera and its intensity tracks the camera
-     * distance (illuminance ≈ intensity / distance² with inverse-square decay),
-     * keeping the radial glow consistent as you zoom.
+     * The light follows the view direction but is held at a minimum standoff
+     * distance from the target: riding all the way in with the camera makes
+     * near surfaces blow out (inverse-square falloff spikes as r→0), so when
+     * zoomed in close the light stays back and the glow stays even. Intensity
+     * tracks that standoff distance (illuminance ≈ I / r² ≈ constant).
      */
     _updateLights() {
+        const target = this.controls.target;
         const cam = this.camera.position;
-        this.glint.position.copy(cam);
-        this.key.position.copy(cam);
-        const d = cam.distanceTo(this.controls.target) || 1;
-        this.glint.intensity = d * d * 1.4;
+        const d = cam.distanceTo(target) || 1;
+        const standoff = Math.max(d, this._glintMinDist || d);
+        const dir = cam.clone().sub(target);
+        if (dir.lengthSq() < 1e-9) dir.set(0, 0, 1);
+        dir.normalize();
+        const pos = target.clone().addScaledVector(dir, standoff);
+        this.glint.position.copy(pos);
+        this.key.position.copy(pos);
+        this.glint.intensity = standoff * standoff * 1.4;
     }
 
     /**
-     * Configure the headlight pool for the board scale. The light itself rides
-     * with the camera (see _updateLights); here we just set its falloff range
-     * so the glow covers the board. Pure inverse-square (distance 0) keeps a
-     * smooth, uncut pool.
-     * @param {number} _x @param {number} _z @param {number} _span board extent (mm)
+     * Configure the headlight pool for the board scale. The light rides with the
+     * camera (see _updateLights) but never closer than this standoff distance,
+     * so zooming into a component doesn't wash the scene out. Pure inverse-square
+     * (distance 0) keeps a smooth, uncut pool.
+     * @param {number} _x @param {number} _z @param {number} span board extent (mm)
      */
-    positionGlint(_x, _z, _span) {
+    positionGlint(_x, _z, span) {
         this.glint.distance = 0;
+        this._glintMinDist = Math.max(40, span * 0.9);
+        // Stop the camera before it reaches the surface: ~12% of the board span
+        // keeps a close-up component in view without clipping into geometry.
+        this.controls.minDistance = Math.max(6, span * 0.12);
         this._updateLights();
         this.requestRender();
     }
