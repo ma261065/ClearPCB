@@ -59,6 +59,15 @@ class ArcballController {
         this.maxDistance = Infinity;
         this.enabled = true;
 
+        // Solid-geometry keep-out volume (set via setBounds). The camera is
+        // never allowed inside it, so panning/zooming can't punch through the
+        // board slab or dive into a component — update() pushes the camera back
+        // out to the nearest face each frame. `minDistance` alone can't prevent
+        // this because it only limits distance-to-target, and panning moves the
+        // whole rig (camera + target) together.
+        /** @type {any} */
+        this.boundingBox = null;
+
         /** @type {Record<string, Array<() => void>>} */
         this._listeners = { start: [], end: [], change: [] };
 
@@ -252,9 +261,43 @@ class ArcballController {
             offset.setLength(clamped);
             this.camera.position.copy(this.target).add(offset);
         }
+        this._ejectFromBounds();
         this.camera.lookAt(this.target);
         this._needsUpdate = false;
         return true;
+    }
+
+    /**
+     * Define the solid keep-out volume the camera may not enter (the board +
+     * components bounding box). A small margin keeps the camera just clear of
+     * surfaces. Pass null to disable.
+     * @param {any} box THREE.Box3 in world space, or null
+     * @param {number} [margin] outward expansion in mm
+     */
+    setBounds(box, margin = 0.5) {
+        if (!box || box.isEmpty()) { this.boundingBox = null; return; }
+        this.boundingBox = box.clone().expandByScalar(margin);
+    }
+
+    /**
+     * If the camera sits inside the keep-out box, shove it out through the
+     * nearest face. Run every frame from update() so pan/zoom/rotate feel like
+     * they hit a solid wall at the board/component surface.
+     */
+    _ejectFromBounds() {
+        const bb = this.boundingBox;
+        const p = this.camera.position;
+        if (!bb || !bb.containsPoint(p)) return;
+        const dxMin = p.x - bb.min.x, dxMax = bb.max.x - p.x;
+        const dyMin = p.y - bb.min.y, dyMax = bb.max.y - p.y;
+        const dzMin = p.z - bb.min.z, dzMax = bb.max.z - p.z;
+        const m = Math.min(dxMin, dxMax, dyMin, dyMax, dzMin, dzMax);
+        if (m === dyMax) p.y = bb.max.y;
+        else if (m === dyMin) p.y = bb.min.y;
+        else if (m === dxMax) p.x = bb.max.x;
+        else if (m === dxMin) p.x = bb.min.x;
+        else if (m === dzMax) p.z = bb.max.z;
+        else p.z = bb.min.z;
     }
 
     dispose() {
@@ -1608,6 +1651,9 @@ class ThreeScene {
     frameAll() {
         const box = new THREE.Box3().setFromObject(this.root);
         if (box.isEmpty()) return;
+        // The fitted scene box doubles as the camera keep-out volume so pan/zoom
+        // can't end up inside the board or a component.
+        this.controls.setBounds(box);
         const center = box.getCenter(new THREE.Vector3());
         const size = box.getSize(new THREE.Vector3());
         const radius = 0.5 * Math.hypot(size.x, size.y, size.z);

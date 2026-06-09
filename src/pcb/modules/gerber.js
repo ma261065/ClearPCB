@@ -703,7 +703,7 @@ function _buildDrill(placements, vias, bounds, tracks = []) {
         if (!pl?.padOffsets) continue;
         for (const off of pl.padOffsets) {
             if (!(off.drill > 0)) continue;
-            const pos = pl.pads.get(off.number);
+            const pos = pl.pads.get(off.padId);
             if (!pos) continue;
             addHole(off.drill, pos.x, pos.y);
         }

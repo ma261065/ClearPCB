@@ -267,10 +267,12 @@ export class MovePlacementCommand {
         const halo = this.app._padHaloGroups?.get(this.compId);
         if (halo) halo.setAttribute('transform', `translate(${pt.x}, ${pt.y})`);
         for (const off of (pl.padOffsets || [])) {
-            pl.pads.set(off.number, { x: pt.x + off.dx, y: pt.y + off.dy });
+            pl.pads.set(off.padId, { x: pt.x + off.dx, y: pt.y + off.dy, number: off.number });
         }
         // Keep pad-bonded track endpoints glued to the component.
         repositionPadConnectedNodes(this.app, this.compId);
+        // Remember the new position so it survives schematic re-syncs / reload.
+        this.app._recordPlacementOverride?.(this.compId);
         this.app._updateRatsnest?.();
     }
     execute() { this._apply(this.to); }

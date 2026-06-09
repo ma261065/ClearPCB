@@ -94,18 +94,25 @@ export function findNearbyPad(app, worldPos, tolerance = PAD_SNAP_TOL) {
     let bestD2 = Infinity;
     for (const [compId, pl] of app.placements) {
         if (!pl?.pads) continue;
-        for (const [pinNum, pad] of pl.pads) {
+        for (const [padId, pad] of pl.pads) {
             const dx = pad.x - worldPos.x;
             const dy = pad.y - worldPos.y;
             const d2 = dx * dx + dy * dy;
             if (d2 < bestD2 && d2 <= tol2) {
                 bestD2 = d2;
-                best = { x: pad.x, y: pad.y, componentId: compId, pinNumber: String(pinNum) };
+                // pinNumber is the unique pad identity (so a track bonds to
+                // THIS physical pad and follows it on drag). `number` is the
+                // schematic-facing pad number used for net resolution — they
+                // differ only for duplicate-numbered pads (e.g. shell pads).
+                best = {
+                    x: pad.x, y: pad.y, componentId: compId,
+                    pinNumber: String(padId), number: String(pad.number ?? padId),
+                };
             }
         }
     }
     if (!best) return null;
-    best.net = _padNet(app, best.componentId, best.pinNumber);
+    best.net = _padNet(app, best.componentId, best.number);
     return best;
 }
 

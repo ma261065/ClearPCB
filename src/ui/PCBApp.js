@@ -134,10 +134,21 @@ export default class PCBApp {
         this._layerGroups = new Map();
         /**
          * Placed footprint data for ratsnest computation.
-         * Map of componentId → { x, y, pads: Map<pinNumber, {x,y}>, element }
+         * Map of componentId → { x, y, pads: Map<padId, {x,y,number}>, element }
+         * where padId uniquely identifies a physical pad (it equals the pad
+         * number except for duplicate-numbered pads, which get a "#k" suffix).
          * @type {Map<string, object>}
          */
         this.placements = new Map();
+        /**
+         * User-customised footprint positions, keyed by component id. The
+         * placement Map itself is rebuilt from the schematic on every sync
+         * (grid auto-layout), so manual moves must be remembered here and
+         * persisted, otherwise a moved footprint snaps back to its grid slot
+         * after autosave + reload.
+         * @type {Map<string, {x:number, y:number, rotation:number}>}
+         */
+        this._placementOverrides = new Map();
         /** Cached netlist from last sync */
         this.netlist = [];
 
@@ -1181,14 +1192,22 @@ export default class PCBApp {
 
     /**
      * Serialise the PCB state (tracks, vias) to a JSON-friendly object.
-     * Board outline / placements are derived from the schematic and not
-     * persisted here.
+     * Board outline is derived from the schematic. Footprint placements are
+     * re-derived from the schematic too, so only the positions the user has
+     * manually moved are persisted (as overrides) — untouched components keep
+     * following the auto grid-layout.
      */
     serialize() {
+        /** @type {Record<string, {x:number, y:number, rotation:number}>} */
+        const placements = {};
+        for (const [id, p] of this._placementOverrides) {
+            placements[id] = { x: p.x, y: p.y, rotation: p.rotation || 0 };
+        }
         return {
             tracks: this.tracks.map(t => t.toJSON()),
             vias: this.vias.map(v => v.toJSON()),
             texts: [...this.texts.values()].map(serializePcbText),
+            placements,
         };
     }
 
@@ -1201,7 +1220,8 @@ export default class PCBApp {
      * @returns {object|null}
      */
     serializeSection() {
-        const hasContent = this.tracks?.length || this.vias?.length || this.texts?.size;
+        const hasContent = this.tracks?.length || this.vias?.length
+            || this.texts?.size || this._placementOverrides.size;
         return hasContent ? this.serialize() : null;
     }
 
@@ -1252,7 +1272,24 @@ export default class PCBApp {
         clearTrackSelection(this);
         this.history.clear?.();
 
+        // Restore manual footprint position overrides. These are applied when
+        // _placeFootprints rebuilds the placements from the schematic; if
+        // placements already exist (sync ran first), re-apply immediately.
+        this._placementOverrides.clear();
+
         if (!data) return;
+
+        if (data.placements && typeof data.placements === 'object') {
+            for (const [id, p] of Object.entries(data.placements)) {
+                if (!p) continue;
+                this._placementOverrides.set(id, {
+                    x: Number(p.x) || 0,
+                    y: Number(p.y) || 0,
+                    rotation: Number(p.rotation) || 0,
+                });
+            }
+            if (this.placements.size) this._applyPlacementOverrides();
+        }
 
         if (Array.isArray(data.tracks)) {
             for (const td of data.tracks) {
@@ -2041,8 +2078,17 @@ export default class PCBApp {
             const comp = components[i];
             const col = i % COLS;
             const row = Math.floor(i / COLS);
-            const cx = offsetX + col * SPACING_X;
-            const cy = offsetY - row * SPACING_Y;  // go downward in user view = more negative in SVG
+            let cx = offsetX + col * SPACING_X;
+            let cy = offsetY - row * SPACING_Y;  // go downward in user view = more negative in SVG
+            let rot = 0;
+            // Honour a remembered manual position so a moved footprint stays
+            // put across schematic re-syncs and reloads.
+            const override = this._placementOverrides.get(comp.id);
+            if (override) {
+                cx = override.x;
+                cy = override.y;
+                rot = override.rotation || 0;
+            }
 
             // Generate footprint geometry (use real pad data when available)
             const fpGeom = generateFootprint(
@@ -2052,7 +2098,7 @@ export default class PCBApp {
             );
 
             // Render SVG (returns Map<layerId, SVGGElement>)
-            const fpLayers = renderFootprint(fpGeom, comp.reference, cx, cy, 0);
+            const fpLayers = renderFootprint(fpGeom, comp.reference, cx, cy, rot);
 
             // Distribute each layer's group to the correct SVG layer
             /** @type {SVGGElement[]} */
@@ -2064,11 +2110,24 @@ export default class PCBApp {
 
             // Build pad world-position map for ratsnest
             const padMap = new Map();
-            /** @type {Array<{number: string, dx: number, dy: number, width: number, height: number, layer: string, shape: string}>} */
+            /** @type {Array<{number: string, padId: string, dx: number, dy: number, width: number, height: number, layer: string, shape: string}>} */
             const padOffsets = [];
+            // Some footprints carry several physical pads that share one pad
+            // number (e.g. the four shell/shield pads of a USB connector, or a
+            // QFN's exposed thermal pad). A Map keyed purely by number would
+            // collapse them, leaving all but one unselectable / unroutable. So
+            // each pad gets a unique padId: the first of a number keeps
+            // padId === number (net-side lookups by number still resolve), and
+            // duplicates get a "#k" suffix. Every pad entry also stores its
+            // original number for net resolution.
+            const numCount = new Map();
             for (const pad of fpGeom.pads) {
-                padMap.set(pad.number, { x: cx + pad.x, y: cy + pad.y });
-                padOffsets.push({ number: pad.number, dx: pad.x, dy: pad.y, width: pad.width, height: pad.height, drill: pad.drill || 0, layer: pad.layer, shape: pad.shape || 'rect', mask: pad.mask !== false, paste: pad.paste !== false });
+                const num = String(pad.number);
+                const seen = numCount.get(num) || 0;
+                numCount.set(num, seen + 1);
+                const padId = seen === 0 ? num : `${num}#${seen + 1}`;
+                padMap.set(padId, { x: cx + pad.x, y: cy + pad.y, number: num });
+                padOffsets.push({ number: num, padId, dx: pad.x, dy: pad.y, width: pad.width, height: pad.height, drill: pad.drill || 0, layer: pad.layer, shape: pad.shape || 'rect', mask: pad.mask !== false, paste: pad.paste !== false });
             }
             // Paste-only stencil apertures (no copper) — e.g. a QFN exposed
             // pad's windowpane matrix. Carried separately so they reach the
@@ -2094,7 +2153,7 @@ export default class PCBApp {
                 model3dUrl: comp.model3dUrl || null,
                 model3dPlacement: fpGeom.model3d || null,
                 silks: fpGeom.silks || [],
-                rotation: 0,
+                rotation: rot,
             });
         }
     }
@@ -2196,7 +2255,7 @@ export default class PCBApp {
             const MARGIN = 0.5; // mm
             let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
             for (const off of (pl.padOffsets || [])) {
-                const pos = pl.pads.get(off.number);
+                const pos = pl.pads.get(off.padId);
                 if (!pos) continue;
                 const w = (off.width || 1.2) / 2;
                 const h = (off.height || 1.2) / 2;
@@ -2278,7 +2337,7 @@ export default class PCBApp {
         for (const [componentId, pl] of this.placements) {
             if (!pl?.padOffsets) continue;
             for (const off of pl.padOffsets) {
-                const pos = pl.pads.get(off.number);
+                const pos = pl.pads.get(off.padId);
                 if (!pos) continue;
                 const w = (off.width || 1.2) / 2;
                 const h = (off.height || 1.2) / 2;
@@ -2362,6 +2421,47 @@ export default class PCBApp {
             el.style.left = `${Math.min(x + pad, Math.max(pad, maxX))}px`;
             el.style.top = `${Math.min(y + pad, Math.max(pad, maxY))}px`;
         }, 400);
+    }
+
+    /**
+     * Reposition already-built placements to their remembered override
+     * positions. Used when overrides are restored after the placements were
+     * already created (otherwise _placeFootprints applies them at build time).
+     */
+    _applyPlacementOverrides() {
+        for (const [compId, o] of this._placementOverrides) {
+            const pl = this.placements.get(compId);
+            if (!pl) continue;
+            pl.x = o.x;
+            pl.y = o.y;
+            pl.rotation = o.rotation || 0;
+            for (const el of (pl.elements || [])) {
+                el.setAttribute('transform', `translate(${o.x}, ${o.y})`);
+            }
+            const halo = this._padHaloGroups?.get(compId);
+            if (halo) halo.setAttribute('transform', `translate(${o.x}, ${o.y})`);
+            for (const off of (pl.padOffsets || [])) {
+                pl.pads.set(off.padId, { x: o.x + off.dx, y: o.y + off.dy, number: off.number });
+            }
+        }
+        this._updateRatsnest?.();
+    }
+
+    /**
+     * Remember a footprint's current position as a manual override so it
+     * survives schematic re-syncs and is persisted across reloads. Called
+     * whenever a placement is moved (drag, box-select, undo/redo).
+     * @param {string} compId
+     */
+    _recordPlacementOverride(compId) {
+        const pl = this.placements.get(compId);
+        if (!pl) return;
+        this._placementOverrides.set(compId, {
+            x: pl.x,
+            y: pl.y,
+            rotation: pl.rotation || 0,
+        });
+        this._isDirty = true;
     }
 
     /**
@@ -2453,7 +2553,7 @@ export default class PCBApp {
 
         // Update pad world positions
         for (const off of (pl.padOffsets || [])) {
-            pl.pads.set(off.number, { x: snapX + off.dx, y: snapY + off.dy });
+            pl.pads.set(off.padId, { x: snapX + off.dx, y: snapY + off.dy, number: off.number });
         }
 
         // Drag pad-bonded track endpoints along with the component.
