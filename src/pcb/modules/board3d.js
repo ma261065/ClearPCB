@@ -780,7 +780,11 @@ function padMesh(pl) {
         }
         const bottom = off.layer === 'bottom';
         const y = bottom ? Y_BOT - COPPER_EPS : Y_TOP + COPPER_EPS;
-        if (off.shape === 'ellipse' || off.shape === 'oval') {
+        if (off.shape === 'oval') {
+            // Stadium / obround (matches the 2D footprint render): straight
+            // sides with semicircular ends, NOT a pointy ellipse.
+            appendMesh(mesh, stadiumDiscMesh(w.x, w.z, halfW, halfH, ct, st, y, COLOR_PAD));
+        } else if (off.shape === 'ellipse') {
             appendMesh(mesh, ellipseDiscMesh(w.x, w.z, halfW, halfH, ct, st, y, COLOR_PAD, 20));
         } else {
             const local = [
@@ -817,6 +821,23 @@ function ellipseDiscMesh(cx, cz, rx, rz, ct, st, y, color, seg = 20) {
     return { verts, faces };
 }
 
+/** Flat (optionally rotated) stadium/obround disc on a y-plane (oval pad). */
+function stadiumDiscMesh(cx, cz, halfW, halfH, ct, st, y, color) {
+    // Stadium = rounded rect with r = min(halfW, halfH), centred on origin.
+    const local = roundedRectOutline(-halfW, -halfH, halfW * 2, halfH * 2, Math.min(halfW, halfH));
+    const n = local.length;
+    const verts = [{ x: cx, y, z: cz }];
+    const faces = [];
+    for (const p of local) {
+        verts.push({ x: cx + p.x * ct - p.z * st, y, z: cz + p.x * st + p.z * ct });
+    }
+    for (let i = 0; i < n; i++) {
+        const j = (i + 1) % n;
+        faces.push({ idx: [0, 1 + i, 1 + j], color });
+    }
+    return { verts, faces };
+}
+
 /**
  * Shape-correct through-hole pad copper: an outer pad outline (oval/rect) with
  * a round drill hole punched out, rendered as copper on BOTH faces plus an
@@ -834,7 +855,12 @@ function throughHolePadMesh(cx, cz, shape, halfW, halfH, ct, st, ri, yBottom, yT
     const toWorld = (lx, lz) => ({ x: cx + lx * ct - lz * st, y: cz + lx * st + lz * ct });
     // Outer outline in the board plane (x, y(=world z)).
     const outline = [];
-    if (shape === 'ellipse' || shape === 'oval') {
+    if (shape === 'oval') {
+        // Stadium / obround — matches the 2D footprint render.
+        for (const p of roundedRectOutline(-halfW, -halfH, halfW * 2, halfH * 2, Math.min(halfW, halfH))) {
+            outline.push(toWorld(p.x, p.z));
+        }
+    } else if (shape === 'ellipse') {
         const seg = 24;
         for (let i = 0; i < seg; i++) {
             const a = (i / seg) * Math.PI * 2;
