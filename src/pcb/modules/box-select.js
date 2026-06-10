@@ -320,6 +320,7 @@ export function updateGroupDrag(app, worldPos) {
         const nx = c.x + dx, ny = c.y + dy;
         pl.x = nx; pl.y = ny;
         for (const el of pl.elements) el.setAttribute('transform', `translate(${nx}, ${ny})`);
+        if (pl.lodEl) pl.lodEl.setAttribute('transform', `translate(${nx}, ${ny})`);
         const halo = app._padHaloGroups?.get(c.id);
         if (halo) halo.setAttribute('transform', `translate(${nx}, ${ny})`);
         for (const off of (pl.padOffsets || [])) {

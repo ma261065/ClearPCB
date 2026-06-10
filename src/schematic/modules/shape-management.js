@@ -20,6 +20,12 @@ export function addShape(app, shape) {
 const OVERLAY_TYPES = new Set(['noconnect', 'net']);
 
 /**
+ * On-screen size (in CSS pixels) below which a component is drawn as a single
+ * level-of-detail placeholder rect instead of its full symbol graphics.
+ */
+const LOD_PIXEL_THRESHOLD = 16;
+
+/**
  * Directly adds a shape (no undo) — pushes to `app.shapes`, renders,
  * adds SVG element, updates selectable items, and marks dirty.
  * @param {object} app - Application state.
@@ -393,6 +399,19 @@ export function updateViewportCulling(app) {
         } else if (!inView && !comp._culled) {
             comp._culled = true;
             if (comp.element) comp.element.classList.add('culled');
+        }
+
+        // Level-of-detail: when an in-view component is drawn smaller than a
+        // few pixels, collapse it to its placeholder rect so the SVG renderer
+        // paints one node instead of dozens. Skip selected/hovered components
+        // so editing always shows full detail.
+        if (!comp._culled && comp.element) {
+            const px = Math.max(b.maxX - b.minX, b.maxY - b.minY) * scale;
+            const far = px < LOD_PIXEL_THRESHOLD && !comp.selected && !comp.hovered;
+            if (far !== comp._lodFar) {
+                comp._lodFar = far;
+                comp.element.classList.toggle('lod-far', far);
+            }
         }
     }
 }

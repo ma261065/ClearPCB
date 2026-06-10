@@ -869,6 +869,18 @@ body {
 /* Viewport culling — hide off-screen elements so the SVG renderer skips them */
 .culled { display: none !important; }
 
+/* Level-of-detail: when a component is drawn very small (zoomed out on a
+   large board), hide its dozens of detail nodes and paint a single
+   placeholder rect instead, so each viewBox change repaints far fewer SVG
+   nodes. The placeholder is hidden by default and only shown on .lod-far. */
+.cpcb-lod-rect { display: none; fill: var(--sch-pin-name, #00cccc); opacity: 0.85; }
+.component.lod-far > *:not(.cpcb-lod-rect) { display: none !important; }
+.component.lod-far .cpcb-lod-rect { display: inline; }
+
+/* PCB footprint level-of-detail placeholder: a solid block drawn in place of
+   a footprint's full geometry when it's too small on screen to show detail. */
+.pcb-fp-lod { fill: #6b6f55; stroke: #f0e68c; stroke-width: 0.15; opacity: 0.9; }
+
 .ribbon-help .ribbon-group-items {
     flex-direction: row;
     align-items: flex-start;

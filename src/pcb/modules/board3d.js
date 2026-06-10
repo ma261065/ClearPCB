@@ -2296,6 +2296,12 @@ export async function openBoard3DViewer(app, opts = {}) {
         return board2d;
     };
 
+    /** Window/title text reflecting whether the flat 2D or orbit 3D view is active. */
+    const popTitle = () =>
+        (panel.view === 'top' || panel.view === 'bottom')
+            ? 'ClearPCB — 2D View'
+            : 'ClearPCB — 3D View';
+
     // ── View mode (3D ⇄ flat 2D top/bottom) ─────────────────────────────
     // One shared sliding panel hosts both views; `panel.view` decides which
     // canvas (WebGL vs 2D) is shown and which toolbar button is highlighted.
@@ -2325,6 +2331,10 @@ export async function openBoard3DViewer(app, opts = {}) {
             scene?.requestRender();
             if (dom.hint) dom.hint.textContent =
                 'Drag to orbit · Right-drag to pan · Wheel to zoom';
+        }
+        // Keep a torn-off window's title in sync with the active view.
+        if (panel.mode === 'popped' && panel.popWin && !panel.popWin.closed) {
+            try { panel.popWin.document.title = popTitle(); } catch { /* ignore */ }
         }
         app._update3DButtonState?.();
     };
@@ -2586,9 +2596,18 @@ export async function openBoard3DViewer(app, opts = {}) {
 
     // ── Pop out / dock / close ──────────────────────────────────────────
     let pollTimer = 0;
+    // Keep the live canvases sized to the pop-up window. The 3D viewer's
+    // ResizeObserver was created in the main document and stops firing once the
+    // canvas is adopted into the pop-up, and Board2D has no observer at all — so
+    // without this the backing store keeps its old size and the image stretches.
+    const onPopResize = () => {
+        scene?.resize();
+        if (panel.view === 'top' || panel.view === 'bottom') board2d?.resize();
+    };
     const dock = () => {
         if (panel.mode !== 'popped') return;
         if (pollTimer) { window.clearInterval(pollTimer); pollTimer = 0; }
+        try { panel.popWin?.removeEventListener('resize', onPopResize); } catch { /* ignore */ }
         // Re-home the host (and its live canvas) back into the main document as
         // the right-side overlay again.
         mainContainer.appendChild(document.adoptNode(host));
@@ -2618,7 +2637,7 @@ export async function openBoard3DViewer(app, opts = {}) {
             wd.documentElement.style.background = '#4a4c4f';
             wd.documentElement.style.colorScheme = 'dark';
         } catch { /* ignore */ }
-        wd.title = 'ClearPCB — 3D View';
+        wd.title = popTitle();
         ensure3DStyles(wd);
         const base = wd.createElement('style');
         base.textContent =
@@ -2639,6 +2658,7 @@ export async function openBoard3DViewer(app, opts = {}) {
         dom.btnPop.title = 'Dock back into the main window';
         panel.mode = 'popped';
         panel.popWin = win;
+        win.addEventListener('resize', onPopResize);
         scene?.resize();
         if (panel.view === 'top' || panel.view === 'bottom') board2d?.resize();
         // Closing the pop-up with its red X should HIDE the view, not destroy

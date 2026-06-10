@@ -95,6 +95,13 @@ import { Via } from '../shapes/via.js';
 import { createShape } from '../shapes/index.js';
 
 /**
+ * On-screen size (CSS px) of a footprint's bounding box below which it is
+ * drawn as a single level-of-detail placeholder rect instead of its full
+ * pad/silk/text geometry. Keeps zoomed-out pan/zoom fast on large boards.
+ */
+const PCB_LOD_PIXEL_THRESHOLD = 24;
+
+/**
  * PCB editor application.
  *
  * Keeps the PCB canvas in sync with the schematic: whenever the
@@ -371,6 +378,14 @@ export default class PCBApp {
                     this._updateCursorCrosshair(this._lastCrosshairWorld);
                 }
             }
+            // Re-evaluate footprint culling / level-of-detail after zoom or pan.
+            this._updatePcbCulling();
+        };
+
+        // Throttled footprint culling during an active pan (Viewport rAF).
+        this.viewport.onViewportCull = () => {
+            if (!this._active) return;
+            this._updatePcbCulling();
         };
 
         // Bind mouse events for panning
@@ -1363,6 +1378,11 @@ export default class PCBApp {
             'bottom-silk', 'top-silk',
             'hole',
             'ratlines',
+            // Level-of-detail placeholders: one solid rect per footprint, shown
+            // (in place of the footprint's full geometry) when zoomed out far
+            // enough that the detail is sub-pixel. Sits above copper/silk so the
+            // block reads clearly; hidden whenever the real geometry is shown.
+            'fp-lod',
             'document',
             // Overlays — non-editable visual aids drawn on top of everything
             // (clearance halos, etc.). Must be last in z-order.
@@ -1467,6 +1487,11 @@ export default class PCBApp {
     _fitToContent() {
         this._ensureViewport();
         if (!this.viewport) return;
+
+        // Culled footprints are display:none and report a zero bounding box, so
+        // restore full detail before measuring; the resulting view change will
+        // re-apply culling for the new viewport.
+        this._uncullAllPlacements();
 
         // Measure the actual artwork from the live layer groups rather than
         // relying on the viewport's fixed placeholder bounds.
@@ -2196,6 +2221,142 @@ export default class PCBApp {
                 silks: fpGeom.silks || [],
                 rotation: rot,
             });
+            this._buildLodPlaceholder(comp.id);
+        }
+    }
+
+    /**
+     * Create (once) the single level-of-detail placeholder rect for a
+     * placement, covering its footprint bounds. Hidden by default; the cull
+     * pass reveals it (and hides the real geometry) when the footprint is too
+     * small to show detail. Re-created if it doesn't yet exist.
+     * @param {string} compId
+     */
+    _buildLodPlaceholder(compId) {
+        const pl = this.placements.get(compId);
+        if (!pl || !pl.bounds) return;
+        const NS = 'http://www.w3.org/2000/svg';
+        const rect = document.createElementNS(NS, 'rect');
+        rect.setAttribute('class', 'pcb-fp-lod culled');
+        rect.setAttribute('x', String(pl.bounds.x));
+        rect.setAttribute('y', String(pl.bounds.y));
+        rect.setAttribute('width', String(pl.bounds.width));
+        rect.setAttribute('height', String(pl.bounds.height));
+        rect.setAttribute('pointer-events', 'none');
+        let transform = `translate(${pl.x}, ${pl.y})`;
+        if (pl.rotation) transform += ` rotate(${pl.rotation})`;
+        rect.setAttribute('transform', transform);
+        this._getLayerGroup('fp-lod').appendChild(rect);
+        pl.lodEl = rect;
+        pl._culled = false;
+        pl._lodFar = false;
+    }
+
+    /**
+     * Hide/show footprints based on whether they intersect the viewport, and
+     * collapse on-screen footprints that are drawn very small to a single
+     * placeholder rect. This keeps each SVG viewBox change from repainting the
+     * tens of thousands of pad/silk/text nodes of a large board.
+     */
+    _updatePcbCulling() {
+        if (!this.viewport || !this.placements.size) return;
+        const vb = this.viewport.getVisibleBounds();
+        const w = vb.maxX - vb.minX;
+        const h = vb.maxY - vb.minY;
+        const margin = Math.max(w, h) * 0.5; // 50% overdraw so nothing pops in
+        const minX = vb.minX - margin, maxX = vb.maxX + margin;
+        const minY = vb.minY - margin, maxY = vb.maxY + margin;
+        const scale = this.viewport.scale;
+
+        for (const [compId, pl] of this.placements) {
+            const b = this._placementWorldBounds(pl);
+            if (!b) continue;
+            const inView = b.maxX >= minX && b.minX <= maxX &&
+                           b.maxY >= minY && b.minY <= maxY;
+            // Never collapse the actively-selected footprint — keep it editable.
+            const px = Math.max(b.maxX - b.minX, b.maxY - b.minY) * scale;
+            const far = inView && px < PCB_LOD_PIXEL_THRESHOLD && compId !== this._selectedComp;
+
+            // Detail (real geometry) is visible only when in view AND not far.
+            const detailHidden = !inView || far;
+            if (detailHidden !== pl._culled) {
+                pl._culled = detailHidden;
+                for (const el of pl.elements) el.classList.toggle('culled', detailHidden);
+            }
+            // Placeholder is visible only when in view AND far.
+            const lodShown = inView && far;
+            if (lodShown === pl._lodFar) continue;
+            pl._lodFar = lodShown;
+            if (pl.lodEl) {
+                if (lodShown) this._syncLodTransform(pl);
+                pl.lodEl.classList.toggle('culled', !lodShown);
+            }
+        }
+    }
+
+    /**
+     * Keep a placement's LOD placeholder rect aligned with the footprint's
+     * current pose. Called when revealing it and whenever the footprint moves.
+     * @param {object} pl
+     */
+    _syncLodTransform(pl) {
+        if (!pl.lodEl) return;
+        let t = `translate(${pl.x}, ${pl.y})`;
+        if (pl.rotation) t += ` rotate(${pl.rotation})`;
+        pl.lodEl.setAttribute('transform', t);
+    }
+
+    /**
+     * World-space AABB of a placement's footprint bounds (local courtyard/
+     * outline rotated by the placement rotation and translated to position).
+     * Cached and recomputed only when the placement's pose changes.
+     * @param {object} pl
+     * @returns {{minX:number,minY:number,maxX:number,maxY:number}|null}
+     */
+    _placementWorldBounds(pl) {
+        const b = pl.bounds;
+        if (!b) return null;
+        const rot = pl.rotation || 0;
+        const sig = `${pl.x}|${pl.y}|${rot}`;
+        if (pl._cullSig === sig && pl._cullBounds) return pl._cullBounds;
+        const rad = rot * Math.PI / 180;
+        const cos = Math.cos(rad), sin = Math.sin(rad);
+        const corners = [
+            [b.x, b.y],
+            [b.x + b.width, b.y],
+            [b.x, b.y + b.height],
+            [b.x + b.width, b.y + b.height],
+        ];
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        for (const [lx, ly] of corners) {
+            const wx = pl.x + lx * cos - ly * sin;
+            const wy = pl.y + lx * sin + ly * cos;
+            if (wx < minX) minX = wx;
+            if (wx > maxX) maxX = wx;
+            if (wy < minY) minY = wy;
+            if (wy > maxY) maxY = wy;
+        }
+        pl._cullBounds = { minX, minY, maxX, maxY };
+        pl._cullSig = sig;
+        return pl._cullBounds;
+    }
+
+    /**
+     * Force every footprint (and its placeholder) back to its detailed,
+     * non-culled state. Used before measuring all artwork for fit-to-content,
+     * since culled (display:none) groups report a zero bounding box. The next
+     * view-change re-applies culling automatically.
+     */
+    _uncullAllPlacements() {
+        for (const [, pl] of this.placements) {
+            if (pl._culled) {
+                pl._culled = false;
+                for (const el of pl.elements) el.classList.remove('culled');
+            }
+            if (pl._lodFar) {
+                pl._lodFar = false;
+                if (pl.lodEl) pl.lodEl.classList.add('culled');
+            }
         }
     }
 
@@ -2479,6 +2640,7 @@ export default class PCBApp {
             for (const el of (pl.elements || [])) {
                 el.setAttribute('transform', `translate(${o.x}, ${o.y})`);
             }
+            if (pl.lodEl) pl.lodEl.setAttribute('transform', `translate(${o.x}, ${o.y})`);
             const halo = this._padHaloGroups?.get(compId);
             if (halo) halo.setAttribute('transform', `translate(${o.x}, ${o.y})`);
             for (const off of (pl.padOffsets || [])) {
@@ -2550,6 +2712,9 @@ export default class PCBApp {
         pl.elements[0].appendChild(highlight);
 
         this.viewport.svg.style.cursor = 'grab';
+        // Ensure the selected footprint shows full detail even when zoomed out
+        // far enough that it would otherwise be collapsed to its LOD placeholder.
+        this._updatePcbCulling();
     }
 
     /**
@@ -2580,6 +2745,8 @@ export default class PCBApp {
         for (const el of pl.elements) {
             el.setAttribute('transform', `translate(${snapX}, ${snapY})`);
         }
+        // Keep the LOD placeholder aligned with the dragged footprint.
+        if (pl.lodEl) pl.lodEl.setAttribute('transform', `translate(${snapX}, ${snapY})`);
 
         // Move the matching pad-halo group too, so clearance outlines
         // follow the component during drag (no full halo rebuild).

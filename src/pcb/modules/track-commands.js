@@ -264,6 +264,7 @@ export class MovePlacementCommand {
         for (const el of (pl.elements || [])) {
             el.setAttribute('transform', `translate(${pt.x}, ${pt.y})`);
         }
+        if (pl.lodEl) pl.lodEl.setAttribute('transform', `translate(${pt.x}, ${pt.y})`);
         const halo = this.app._padHaloGroups?.get(this.compId);
         if (halo) halo.setAttribute('transform', `translate(${pt.x}, ${pt.y})`);
         for (const off of (pl.padOffsets || [])) {

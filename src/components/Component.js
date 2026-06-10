@@ -366,7 +366,17 @@ export class Component {
     getBounds() {
         const symbol = this.symbol;
         if (!symbol) return null;
-        
+
+        // World bounds change only when the component moves/rotates/mirrors.
+        // The viewport-culling pass calls this for every component on every
+        // pan/zoom frame, so cache the result keyed on the pose signature to
+        // avoid recomputing the rotated corners (and the symbol-geometry scan
+        // in _getLocalBounds) thousands of times per frame on large boards.
+        const sig = `${this.x}|${this.y}|${this.rotation}|${this.mirror}`;
+        if (this._worldBoundsSig === sig && this._worldBounds) {
+            return this._worldBounds;
+        }
+
         const localBounds = this._getLocalBounds();
         let minX = localBounds.minX;
         let minY = localBounds.minY;
@@ -404,7 +414,9 @@ export class Component {
             worldMaxY = Math.max(worldMaxY, wy);
         }
         
-        return { minX: worldMinX, minY: worldMinY, maxX: worldMaxX, maxY: worldMaxY };
+        this._worldBounds = { minX: worldMinX, minY: worldMinY, maxX: worldMaxX, maxY: worldMaxY };
+        this._worldBoundsSig = sig;
+        return this._worldBounds;
     }
 
     /**
@@ -532,6 +544,14 @@ export class Component {
      */
     _getLocalBounds() {
         const symbol = this.symbol;
+        // Local (un-posed) bounds depend only on the symbol geometry and the
+        // mirror flag (applied below), both immutable between flips for a placed
+        // component, so compute once and reuse. Keyed on the symbol object
+        // identity (in case the symbol is ever swapped) plus the mirror state.
+        if (this._localBounds && this._localBoundsSymbol === symbol
+            && this._localBoundsMirror === this.mirror) {
+            return this._localBounds;
+        }
         const width = symbol?.width || 10;
         const height = symbol?.height || 10;
         const origin = symbol?.origin || { x: width / 2, y: height / 2 };
@@ -714,12 +734,15 @@ export class Component {
             maxX = -tmp;
         }
         
-        return {
+        this._localBounds = {
             minX: minX - padding,
             minY: minY - padding,
             maxX: maxX + padding,
             maxY: maxY + padding
         };
+        this._localBoundsSymbol = symbol;
+        this._localBoundsMirror = this.mirror;
+        return this._localBounds;
     }
 
     /**
@@ -735,6 +758,19 @@ export class Component {
         
         const transform = this._buildTransform();
         if (transform) group.setAttribute('transform', transform);
+
+        // Level-of-detail placeholder: a single rect covering the symbol,
+        // hidden by default and revealed via the `.lod-far` class when the
+        // component is drawn very small. Replacing the dozens of graphic/pin
+        // nodes with one rect keeps zoomed-out pan/zoom fast on large boards.
+        const lb = this._getLocalBounds();
+        const lod = document.createElementNS(ns, 'rect');
+        lod.setAttribute('class', 'cpcb-lod-rect');
+        lod.setAttribute('x', String(lb.minX));
+        lod.setAttribute('y', String(lb.minY));
+        lod.setAttribute('width', String(Math.max(0, lb.maxX - lb.minX)));
+        lod.setAttribute('height', String(Math.max(0, lb.maxY - lb.minY)));
+        group.appendChild(lod);
 
         if (this.symbol?.graphics) {
             for (const graphic of this.symbol.graphics) {
