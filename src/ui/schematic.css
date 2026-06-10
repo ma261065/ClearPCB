@@ -365,6 +365,11 @@ body {
 .ribbon-group--right:last-child {
     border-right: none;
 }
+/* With multiple persistent right groups (e.g. 3D + Layers), only the leftmost
+   pushes off with the auto margin; the rest sit flush beside it. */
+.ribbon-group--right + .ribbon-group--right {
+    margin-left: 0;
+}
 
 .ribbon-panels {
     background: var(--bg-secondary);
@@ -465,6 +470,17 @@ body {
 .ribbon-tool-btn.active {
     background: var(--accent-color);
     color: #ffffff;
+    border-color: var(--accent-color);
+}
+
+.ribbon-group-items button#pcb3dView.active {
+    background: var(--accent-color);
+    color: #ffffff;
+    border-color: var(--accent-color);
+}
+
+.ribbon-group-items button#pcb3dView.active:hover:not(:disabled) {
+    background: var(--accent-color);
     border-color: var(--accent-color);
 }
 

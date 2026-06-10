@@ -149,6 +149,15 @@ export default class PCBApp {
          * @type {Map<string, {x:number, y:number, rotation:number}>}
          */
         this._placementOverrides = new Map();
+        /**
+         * Stable auto-grid positions for components that have NOT been
+         * manually moved, keyed by component id. The grid slot is computed
+         * once (the first time a component is seen) and remembered, so that
+         * deleting a component does not reflow the others — each un-moved
+         * footprint keeps the exact spot it was first assigned.
+         * @type {Map<string, {x:number, y:number}>}
+         */
+        this._autoSlots = new Map();
         /** Cached netlist from last sync */
         this.netlist = [];
 
@@ -2012,6 +2021,10 @@ export default class PCBApp {
 
         const netCount = netlist.length;
         this._setStatus(`${components.length} component(s), ${netCount} net(s)`);
+
+        // A schematic-driven rebuild (e.g. a component added or deleted) does
+        // not pass through the PCB history, so refresh any open 3D view here.
+        this._board3d?.refresh?.();
     }
 
     /**
@@ -2074,20 +2087,48 @@ export default class PCBApp {
         const offsetX = MARGIN;
         const offsetY = -(MARGIN);  // start near top of board in SVG coords
 
+        // Assign a stable auto-grid slot to every component that has no manual
+        // override. Slots are remembered per component id (in _autoSlots) so
+        // that deleting one component does NOT reflow the others: each un-moved
+        // footprint keeps the exact spot it was first given. A grid cell is
+        // computed only for components seen for the first time, scanning for
+        // the lowest cell not already taken by an override or an existing slot.
+        const slotPos = (i) => ({
+            x: offsetX + (i % COLS) * SPACING_X,
+            y: offsetY - Math.floor(i / COLS) * SPACING_Y,
+        });
+        const posKey = (x, y) => `${Math.round(x * 100)},${Math.round(y * 100)}`;
+        const occupied = new Set();
+        for (const comp of components) {
+            const ov = this._placementOverrides.get(comp.id);
+            if (ov) { occupied.add(posKey(ov.x, ov.y)); continue; }
+            const slot = this._autoSlots.get(comp.id);
+            if (slot) occupied.add(posKey(slot.x, slot.y));
+        }
+        for (const comp of components) {
+            if (this._placementOverrides.has(comp.id) || this._autoSlots.has(comp.id)) continue;
+            let i = 0, pos = slotPos(0);
+            while (occupied.has(posKey(pos.x, pos.y))) { i++; pos = slotPos(i); }
+            occupied.add(posKey(pos.x, pos.y));
+            this._autoSlots.set(comp.id, pos);
+        }
+
         for (let i = 0; i < components.length; i++) {
             const comp = components[i];
-            const col = i % COLS;
-            const row = Math.floor(i / COLS);
-            let cx = offsetX + col * SPACING_X;
-            let cy = offsetY - row * SPACING_Y;  // go downward in user view = more negative in SVG
             let rot = 0;
             // Honour a remembered manual position so a moved footprint stays
-            // put across schematic re-syncs and reloads.
+            // put across schematic re-syncs and reloads; otherwise use the
+            // component's stable auto-grid slot.
             const override = this._placementOverrides.get(comp.id);
+            let cx, cy;
             if (override) {
                 cx = override.x;
                 cy = override.y;
                 rot = override.rotation || 0;
+            } else {
+                const slot = this._autoSlots.get(comp.id);
+                cx = slot.x;
+                cy = slot.y;
             }
 
             // Generate footprint geometry (use real pad data when available)
@@ -4863,10 +4904,27 @@ export default class PCBApp {
     }
 
     /**
-     * Open the interactive 3D board visualiser in a pop-up window.
+     * Toggle the interactive 3D board visualiser. The toolbar 3D View button
+     * opens/shows it when hidden and hides it when visible; the button stays
+     * highlighted while the panel is active.
      */
     open3DView() {
-        openBoard3DViewer(this);
+        const p = this._board3d;
+        if (p && !p.closed && !p.hidden) {
+            p.hide?.();
+        } else {
+            openBoard3DViewer(this);
+        }
+    }
+
+    /**
+     * Reflect the 3D panel's visibility on the toolbar 3D View button.
+     */
+    _update3DButtonState() {
+        const btn = document.getElementById('pcb3dView');
+        if (!btn) return;
+        const active = !!(this._board3d && !this._board3d.closed && !this._board3d.hidden);
+        btn.classList.toggle('active', active);
     }
 
     /**

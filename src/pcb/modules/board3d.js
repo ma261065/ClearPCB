@@ -153,8 +153,13 @@ class ArcballController {
             this._panStartY = e.clientY;
         }
         this.domElement.setPointerCapture?.(e.pointerId);
-        this._win.addEventListener('pointermove', this._onPointerMove);
-        this._win.addEventListener('pointerup', this._onPointerUp);
+        // Resolve the window from the canvas's CURRENT document each time: the
+        // canvas can be re-homed between the in-page panel and a torn-off pop-up
+        // (document.adoptNode), so a window captured at construction would go
+        // stale and miss pointer events in the other document.
+        this._activeWin = this.domElement.ownerDocument?.defaultView || this._win;
+        this._activeWin.addEventListener('pointermove', this._onPointerMove);
+        this._activeWin.addEventListener('pointerup', this._onPointerUp);
         this._emit('start');
     }
 
@@ -168,8 +173,9 @@ class ArcballController {
     _onPointerUp(e) {
         this._mode = 0;
         this.domElement.releasePointerCapture?.(e.pointerId);
-        this._win.removeEventListener('pointermove', this._onPointerMove);
-        this._win.removeEventListener('pointerup', this._onPointerUp);
+        const win = this._activeWin || this._win;
+        win.removeEventListener('pointermove', this._onPointerMove);
+        win.removeEventListener('pointerup', this._onPointerUp);
         this._emit('end');
     }
 
@@ -923,6 +929,109 @@ function appendMesh(dst, src) {
     }
 }
 
+/** Signed area of a closed polygon in the x–z plane; its sign is the winding. */
+function polygonAreaXZ(poly) {
+    let a = 0;
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+        a += poly[j].x * poly[i].z - poly[i].x * poly[j].z;
+    }
+    return a / 2;
+}
+
+/**
+ * Clip every triangle of `mesh` to the vertical prism of the convex board
+ * `outline` (Sutherland–Hodgman in the x–z plane, with y linearly interpolated
+ * at each new edge crossing). Geometry that overhangs the board edge is trimmed
+ * exactly at the boundary instead of being dropped or left floating. The board
+ * outline is convex (a rounded rectangle), so each clipped triangle stays a
+ * single convex polygon that fan-triangulates cleanly.
+ * @param {{verts:Array<{x:number,y:number,z:number}>, faces:Array<{idx:number[],color:number[]}>}} mesh
+ * @param {Array<{x:number,z:number}>} outline
+ * @returns {{verts:Array, faces:Array}}
+ */
+function clipMeshToOutline(mesh, outline) {
+    if (!outline || outline.length < 3) return mesh;
+    const orient = polygonAreaXZ(outline) >= 0 ? 1 : -1;
+    const edges = [];
+    for (let i = 0, j = outline.length - 1; i < outline.length; j = i++) {
+        edges.push({
+            ax: outline[j].x, az: outline[j].z,
+            bx: outline[i].x, bz: outline[i].z,
+        });
+    }
+    // Signed distance of (px,pz) to a clip edge; ≥0 means on the inside.
+    const side = (e, px, pz) =>
+        orient * ((e.bx - e.ax) * (pz - e.az) - (e.bz - e.az) * (px - e.ax));
+
+    const out = emptyMesh();
+    const emitTri = (a, b, c, color) => {
+        const base = out.verts.length;
+        out.verts.push(a, b, c);
+        out.faces.push({ idx: [base, base + 1, base + 2], color });
+    };
+
+    for (const f of mesh.faces) {
+        const idx = f.idx;
+        if (!idx || idx.length < 3) continue;
+        // Fan-triangulate the (possibly quad) face, then clip each triangle.
+        for (let t = 1; t + 1 < idx.length; t++) {
+            const v0 = mesh.verts[idx[0]];
+            const v1 = mesh.verts[idx[t]];
+            const v2 = mesh.verts[idx[t + 1]];
+            if (!v0 || !v1 || !v2) continue;
+            // Fast path: a triangle wholly inside every edge passes through.
+            let allIn = true;
+            for (const e of edges) {
+                if (side(e, v0.x, v0.z) < 0 || side(e, v1.x, v1.z) < 0 ||
+                    side(e, v2.x, v2.z) < 0) { allIn = false; break; }
+            }
+            if (allIn) {
+                emitTri({ ...v0 }, { ...v1 }, { ...v2 }, f.color);
+                continue;
+            }
+            // Sutherland–Hodgman: clip the triangle against each outline edge.
+            let poly = [
+                { x: v0.x, y: v0.y, z: v0.z },
+                { x: v1.x, y: v1.y, z: v1.z },
+                { x: v2.x, y: v2.y, z: v2.z },
+            ];
+            for (const e of edges) {
+                if (poly.length === 0) break;
+                const next = [];
+                for (let k = 0; k < poly.length; k++) {
+                    const S = poly[(k + poly.length - 1) % poly.length];
+                    const E = poly[k];
+                    const dS = side(e, S.x, S.z);
+                    const dE = side(e, E.x, E.z);
+                    if (dE >= 0) {
+                        if (dS < 0) {
+                            const u = dS / (dS - dE);
+                            next.push({
+                                x: S.x + u * (E.x - S.x),
+                                y: S.y + u * (E.y - S.y),
+                                z: S.z + u * (E.z - S.z),
+                            });
+                        }
+                        next.push(E);
+                    } else if (dS >= 0) {
+                        const u = dS / (dS - dE);
+                        next.push({
+                            x: S.x + u * (E.x - S.x),
+                            y: S.y + u * (E.y - S.y),
+                            z: S.z + u * (E.z - S.z),
+                        });
+                    }
+                }
+                poly = next;
+            }
+            for (let k = 1; k + 1 < poly.length; k++) {
+                emitTri(poly[0], poly[k], poly[k + 1], f.color);
+            }
+        }
+    }
+    return out;
+}
+
 /** Flat filled disc on the y-plane (used for round trace end-caps / pads). */
 function discMesh(cx, cz, r, y, color, seg = 14) {
     const verts = [{ x: cx, y, z: cz }];
@@ -1416,59 +1525,113 @@ function makeBoardMaterial() {
     });
 }
 
-/* ───────────────────────────── pop-up host ──────────────────────────────── */
+/* ───────────────────────────── view host ────────────────────────────────── */
 
-/**
- * Build the pop-up document skeleton and return its canvas + status elements.
- * @param {Window} win
- */
-function buildPopupDom(win) {
-    const doc = win.document;
-    doc.open();
-    doc.write(`<!DOCTYPE html>
-<html lang="en"><head><meta charset="utf-8">
-<title>ClearPCB — 3D View</title>
-<style>
-  html,body{margin:0;height:100%;background:#15181c;color:#e6e6e6;
-    font:13px/1.4 system-ui,Segoe UI,sans-serif;overflow:hidden}
-  #bar{position:absolute;top:0;left:0;right:0;height:38px;display:flex;
+const CPCB3D_CSS = `
+  .cpcb3d-host{position:relative;flex:1 1 0;min-width:0;min-height:0;
+    overflow:hidden;background:#4a4c4f;color:#e6e6e6;
+    font:13px/1.4 system-ui,Segoe UI,sans-serif}
+  .cpcb3d-bar{position:absolute;top:0;left:0;right:0;height:38px;display:flex;
     align-items:center;gap:8px;padding:0 10px;background:rgba(20,23,27,.85);
     backdrop-filter:blur(4px);border-bottom:1px solid #2c3138;z-index:2}
-  #bar button{background:#2c3138;color:#e6e6e6;border:1px solid #3a414a;
+  .cpcb3d-bar strong{font-size:13px}
+  .cpcb3d-bar button{background:#2c3138;color:#e6e6e6;border:1px solid #3a414a;
     border-radius:5px;padding:5px 10px;cursor:pointer;font-size:12px}
-  #bar button:hover{background:#3a414a}
-  #bar button.off{opacity:.5}
-  #bar .sp{flex:1}
-  #status{font-size:12px;color:#9aa3ad}
-  #cv{position:absolute;inset:38px 0 0 0;width:100%;height:calc(100% - 38px);
-    display:block;cursor:grab}
-  #cv:active{cursor:grabbing}
-  #hint{position:absolute;bottom:8px;left:10px;font-size:11px;color:#6b7480;
+  .cpcb3d-bar button:hover{background:#3a414a}
+  .cpcb3d-bar button.off{opacity:.5}
+  .cpcb3d-bar .cpcb3d-sp{flex:1}
+  .cpcb3d-status{font-size:12px;color:#9aa3ad}
+  .cpcb3d-cv{position:absolute;inset:38px 0 0 0;width:100%;height:calc(100% - 38px);
+    display:block;cursor:grab;background:#4a4c4f}
+  .cpcb3d-cv:active{cursor:grabbing}
+  /* Opaque cover painted from the first frame so the canvas's black pre-render
+     frames never show; fades once the board has actually rendered. */
+  .cpcb3d-cover{position:absolute;inset:0;background:#4a4c4f;z-index:10;
+    pointer-events:none;transition:opacity .18s linear}
+  .cpcb3d-cover.hide{opacity:0}
+  .cpcb3d-hint{position:absolute;bottom:8px;left:10px;font-size:11px;color:#6b7480;
     z-index:2;pointer-events:none}
-</style></head>
-<body>
-  <div id="bar">
-    <strong>3D Board View</strong>
-    <span id="status"></span>
-    <span class="sp"></span>
-    <button id="btnParts" title="Show/hide component parts">Parts</button>
-    <button id="btnTop">Top</button>
-    <button id="btnIso">Iso</button>
-    <button id="btnFit">Fit</button>
+  .cpcb3d-spinner{position:absolute;inset:38px 0 0 0;display:none;
+    flex-direction:column;align-items:center;justify-content:center;gap:14px;
+    z-index:3;background:rgba(21,24,28,.55);color:#cfd6de;font-size:13px;
+    pointer-events:none}
+  .cpcb3d-spinner.show{display:flex}
+  .cpcb3d-spinner .cpcb3d-ring{width:38px;height:38px;border-radius:50%;
+    border:3px solid #3a414a;border-top-color:#5aa9ff;
+    animation:cpcb-spin .8s linear infinite}
+  @keyframes cpcb-spin{to{transform:rotate(360deg)}}
+  /* Drag divider between the PCB editor and the 3D panel. */
+  .cpcb3d-splitter{flex:0 0 6px;cursor:col-resize;background:#23262b;
+    border-left:1px solid #2c3138;border-right:1px solid #2c3138;z-index:5}
+  .cpcb3d-splitter:hover{background:#3a414a}
+  /* Docked = a floating overlay pinned to the right of the editor area. The
+     PCB editor pane underneath keeps its full width and never reflows; the
+     panel simply covers the right portion of it. */
+  .cpcb3d-host.cpcb3d-docked{position:absolute;top:0;right:0;bottom:0;
+    flex:none;z-index:6}
+  .cpcb3d-splitter.cpcb3d-docked{position:absolute;top:0;bottom:0;width:6px;
+    flex:none;z-index:7}
+  /* Slide in/out as a GPU-composited transform (same technique as the
+     schematic/PCB editor slider): only translateX is animated, so nothing
+     re-rasterises per frame and the editor underneath is untouched. */
+  .cpcb3d-host.cpcb3d-sliding{transition:transform .35s ease;will-change:transform}
+`;
+
+/**
+ * Inject the shared 3D-view stylesheet into a document once.
+ * @param {Document} doc
+ */
+function ensure3DStyles(doc) {
+    if (doc.getElementById('cpcb3d-styles')) return;
+    const style = doc.createElement('style');
+    style.id = 'cpcb3d-styles';
+    style.textContent = CPCB3D_CSS;
+    (doc.head || doc.documentElement).appendChild(style);
+}
+
+/**
+ * Build the 3D-view host element (bar + canvas + overlays) inside a document.
+ * The same host can live in-page (split panel) or be adopted into a torn-off
+ * pop-up window, so it is a self-contained element tree, not a whole document.
+ * @param {Document} doc
+ * @returns {{host:HTMLElement, canvas:HTMLCanvasElement, status:HTMLElement,
+ *   spinner:HTMLElement, cover:HTMLElement, btnParts:HTMLElement,
+ *   btnTop:HTMLElement, btnIso:HTMLElement, btnFit:HTMLElement,
+ *   btnPop:HTMLElement}}
+ */
+function build3DHost(doc) {
+    ensure3DStyles(doc);
+    const host = doc.createElement('div');
+    host.className = 'cpcb3d-host';
+    host.innerHTML = `
+  <div class="cpcb3d-bar">
+    <button data-act="parts" title="Show/hide component parts">Parts</button>
+    <button data-act="top">Top</button>
+    <button data-act="iso">Iso</button>
+    <button data-act="fit">Fit</button>
+    <button data-act="pop" title="Pop out to a separate window">⇱ Pop out</button>
+    <span class="cpcb3d-sp"></span>
+    <span class="cpcb3d-status"></span>
   </div>
-  <canvas id="cv"></canvas>
-  <div id="hint">Drag to orbit · Right-drag to pan · Wheel to zoom</div>
-</body></html>`);
-    doc.close();
+  <canvas class="cpcb3d-cv"></canvas>
+  <div class="cpcb3d-spinner"><div class="cpcb3d-ring"></div><div>Loading…</div></div>
+  <div class="cpcb3d-hint">Drag to orbit · Right-drag to pan · Wheel to zoom</div>
+  <div class="cpcb3d-cover"></div>`;
+    const q = (/** @type {string} */ sel) => /** @type {any} */ (host.querySelector(sel));
     return {
-        canvas: /** @type {HTMLCanvasElement} */ (doc.getElementById('cv')),
-        status: doc.getElementById('status'),
-        btnParts: doc.getElementById('btnParts'),
-        btnTop: doc.getElementById('btnTop'),
-        btnIso: doc.getElementById('btnIso'),
-        btnFit: doc.getElementById('btnFit'),
+        host,
+        canvas: q('.cpcb3d-cv'),
+        status: q('.cpcb3d-status'),
+        spinner: q('.cpcb3d-spinner'),
+        cover: q('.cpcb3d-cover'),
+        btnParts: q('[data-act="parts"]'),
+        btnTop: q('[data-act="top"]'),
+        btnIso: q('[data-act="iso"]'),
+        btnFit: q('[data-act="fit"]'),
+        btnPop: q('[data-act="pop"]'),
     };
 }
+
 
 /* ───────────────────────────── scene helper ─────────────────────────────── */
 
@@ -1483,7 +1646,8 @@ class ThreeScene {
         this.material = makeMaterial();
         this.boardMaterial = makeBoardMaterial();
 
-        this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+        this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true,
+            logarithmicDepthBuffer: true });
         // Two pixel-ratio tiers. Orbiting renders at the capped ratio (hi-DPI
         // displays otherwise draw 4× the pixels for no visible gain — the main
         // cause of sluggish dragging); the settled frame after interaction ends
@@ -1492,9 +1656,13 @@ class ThreeScene {
         this._dprIdle = win.devicePixelRatio || 1;
         this.renderer.setPixelRatio(this._dprIdle);
         this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+        // Clear to the board grey, not the WebGL default black, so any frame the
+        // canvas presents before the first scene render (or any uncovered moment)
+        // is grey rather than a black flash.
+        this.renderer.setClearColor(0x4a4c4f, 1);
 
         this.scene = new THREE.Scene();
-        this.scene.background = new THREE.Color(0x808286);
+        this.scene.background = new THREE.Color(0x4a4c4f);
 
         this.camera = /** @type {any} */ (new THREE.PerspectiveCamera(45, 1, 0.1, 20000));
         this.camera.position.set(80, 120, 160);
@@ -1540,18 +1708,56 @@ class ThreeScene {
         // (geometry added, resize, view buttons) use requestRender().
         this._renderScheduled = false;
         this._animating = false;
+        this._disposed = false;
         this._renderOnce = this._renderOnce.bind(this);
         this._animate = this._animate.bind(this);
         this.controls.addEventListener('start', () => this._startAnimating());
         this.controls.addEventListener('end', () => this._stopAnimating());
-        win.addEventListener('resize', () => {
+        // Observe the canvas itself rather than a window 'resize' event: the
+        // canvas resizes both when the in-page split divider is dragged AND when
+        // a torn-off pop-up window is resized, and a ResizeObserver fires for
+        // either regardless of which document the canvas currently lives in.
+        this._ro = new ResizeObserver(() => {
+            if (this._disposed) return;
             this._resize();
             this.controls.handleResize();
             this.requestRender();
         });
+        this._ro.observe(this.canvas);
+        // Moving the canvas between documents (in-page panel ⇄ torn-off pop-up)
+        // can drop the WebGL context on some browsers. Allow the browser to
+        // restore it, then re-upload by drawing again — three.js re-initialises
+        // its GL state on the next render after a restore.
+        this.canvas.addEventListener('webglcontextlost', (e) => e.preventDefault());
+        this.canvas.addEventListener('webglcontextrestored', () => {
+            if (this._disposed) return;
+            this.resize();
+            this.requestRender();
+        });
+        this._resize();
+        this.controls.handleResize();
+        // Render the (empty) grey scene synchronously now so the opaque WebGL
+        // canvas presents grey on its very first composite — without this the
+        // canvas can flash black/white in the gap before the first async frame.
+        this.renderer.render(this.scene, this.camera);
+        this.requestRender();
+    }
+
+    /** Recompute the canvas/camera for the current host size. */
+    resize() {
         this._resize();
         this.controls.handleResize();
         this.requestRender();
+    }
+
+    /** Tear down the render loop, observers and GL context. */
+    dispose() {
+        if (this._disposed) return;
+        this._disposed = true;
+        this._animating = false;
+        try { this._ro?.disconnect(); } catch { /* ignore */ }
+        try { this.controls?.dispose?.(); } catch { /* ignore */ }
+        try { this.renderer?.dispose?.(); } catch { /* ignore */ }
     }
 
     _resize() {
@@ -1565,14 +1771,28 @@ class ThreeScene {
 
     /** Schedule a single render on the next animation frame (deduplicated). */
     requestRender() {
-        if (this._renderScheduled || this.win.closed) return;
+        if (this._renderScheduled || this._disposed) return;
         this._renderScheduled = true;
-        this.win.requestAnimationFrame(this._renderOnce);
+        this._raf(this._renderOnce);
+    }
+
+    /**
+     * Request an animation frame from the window that currently hosts the
+     * canvas. When the view is torn off into a pop-up, the main window can be
+     * occluded (e.g. the pop-up is maximised over it) and the browser throttles
+     * or pauses its rAF — which would freeze the loop if it stayed pinned to the
+     * main window. The host window (canvas's owner document) is the visible one,
+     * so its rAF keeps firing.
+     * @param {FrameRequestCallback} cb
+     */
+    _raf(cb) {
+        const w = this.canvas.ownerDocument?.defaultView || this.win;
+        w.requestAnimationFrame(cb);
     }
 
     _renderOnce() {
         this._renderScheduled = false;
-        if (this.win.closed) return;
+        if (this._disposed) return;
         this.controls.update();
         this._updateLights();
         this.renderer.render(this.scene, this.camera);
@@ -1588,7 +1808,7 @@ class ThreeScene {
             this.renderer.setPixelRatio(this._dprActive);
             this._resize();
         }
-        this.win.requestAnimationFrame(this._animate);
+        this._raf(this._animate);
     }
 
     /** Stop the render loop and draw one final settled frame. */
@@ -1603,11 +1823,11 @@ class ThreeScene {
     }
 
     _animate() {
-        if (!this._animating || this.win.closed) return;
+        if (!this._animating || this._disposed) return;
         this.controls.update();
         this._updateLights();
         this.renderer.render(this.scene, this.camera);
-        this.win.requestAnimationFrame(this._animate);
+        this._raf(this._animate);
     }
 
     /**
@@ -1673,6 +1893,17 @@ class ThreeScene {
         this.requestRender();
     }
 
+    /**
+     * Remove a mesh from the scene and free its geometry.
+     * @param {THREE.Mesh|null|undefined} obj
+     */
+    removeMesh(obj) {
+        if (!obj) return;
+        this.root.remove(obj);
+        obj.geometry?.dispose();
+        this.requestRender();
+    }
+
     /** Frame the camera to fit the whole scene. */
     frameAll() {
         const box = new THREE.Box3().setFromObject(this.root);
@@ -1710,101 +1941,179 @@ class ThreeScene {
 /* ───────────────────────────── public entry ─────────────────────────────── */
 
 /**
- * Open the interactive 3D board visualiser in a pop-up window.
+ * Open the interactive 3D board visualiser as a 50:50 split panel beside the
+ * PCB editor. The panel can be popped out into a separate window and docked
+ * back again, carrying its live WebGL view with it.
  * @param {any} app The PCBApp instance.
  */
 export async function openBoard3DViewer(app) {
-    const win = window.open('', 'clearpcb3d', 'width=960,height=720');
-    if (!win) {
-        app._setStatus?.('Pop-up blocked — allow pop-ups to use 3D view');
+    // Single instance: re-opening shows a hidden panel, focuses a popped-out
+    // window, or is otherwise a no-op.
+    if (app._board3d && !app._board3d.closed) {
+        if (app._board3d.hidden) app._board3d.show?.();
+        else if (app._board3d.mode === 'popped') app._board3d.popWin?.focus();
         return;
     }
 
-    const dom = buildPopupDom(win);
-    const scene = new ThreeScene(win, dom.canvas);
-
-    // ── Board ───────────────────────────────────────────────────────────
-    const w = app._boardWidth || 100;
-    const h = app._boardHeight || 80;
-    const r = app._boardRadius || 0;
-    // PCB world: X∈[0,w], Z(=pcb y)∈[-h,0].
-    const outline = roundedRectOutline(0, -h, w, h, r);
-    // Bore drilled holes (plated pad drills + mounting holes) clean through the
-    // slab so they read as real openings; only holes wholly inside the board.
-    const boardHoles = collectBoardHoles(app.placements).filter((ho) =>
-        ho.r > 0 && ho.x - ho.r > 0 && ho.x + ho.r < w &&
-        ho.z - ho.r > -h && ho.z + ho.r < 0);
-    const boardMesh = boardWithHoles(outline, boardHoles, 0, BOARD_THICKNESS,
-        COLOR_BOARD, COLOR_BOARD_EDGE);
-    scene.addMesh(boardMesh, scene.boardMaterial);
-    scene.positionGlint(w / 2, -h / 2, Math.max(w, h));
-
-    // ── Copper, vias and silkscreen ────────────────────────────────────
-    // Each is one merged mesh so the whole board's traces/silk cost a single
-    // draw call rather than one per feature. Drilled holes are bored into the
-    // board slab above; plated pads line their bores in padMesh.
-    const copper = buildCopperMesh(app.tracks);
-    if (copper.faces.length) scene.addMesh(copper);
-    const viaMesh = buildViaMesh(app.vias);
-    if (viaMesh.faces.length) scene.addMesh(viaMesh);
-    const silk = buildSilkMesh(app.placements);
-    if (silk.faces.length) scene.addMesh(silk);
-    const textMesh = buildTextMesh(app);
-    if (textMesh.faces.length) scene.addMesh(textMesh);
-
-    // ── Pads + component bodies (OBJ now, STEP lazily) ──────────────────
-    const placements = [...app.placements.entries()];
-    /** @type {Map<string, THREE.Mesh>} compId → its body mesh */
-    const bodyMeshes = new Map();
-    /** @type {Set<string>} compIds already resolved to a real model */
-    const resolved = new Set();
-
-    // All pads share the gold material and never move, so merge them into one
-    // mesh: the whole board's copper pads cost a single draw call instead of
-    // one per component (the dominant cost on dense boards). Component bodies
-    // stay separate — they toggle and get swapped for lazy STEP models by id.
-    const padsMesh = emptyMesh();
-    for (const [id, pl] of placements) {
-        appendMesh(padsMesh, padMesh(pl));
-        // EasyEDA/LCSC parts carry an OBJ model on the placement — render it
-        // immediately (it is already in memory, no network needed).
-        let body = null;
-        if (pl.model3dObj) {
-            const parsed = parseObjModel(pl.model3dObj);
-            body = parsed && objModelToMesh(parsed, pl);
-            if (body) resolved.add(id);
-        }
-        bodyMeshes.set(id, scene.addMesh(body || fallbackBoxMesh(pl)));
+    const pcbContainer = document.getElementById('pcbCanvasContainer');
+    const mainContainer = pcbContainer?.parentElement;
+    if (!pcbContainer || !mainContainer) {
+        app._setStatus?.('Cannot open 3D view — editor not ready');
+        return;
     }
-    if (padsMesh.faces.length) scene.addMesh(padsMesh);
-    scene.frameAll();
 
-    const setStatus = (text) => { if (dom.status && !win.closed) dom.status.textContent = text; };
-    if (!placements.length) setStatus('No components placed');
+    // ── Mount the host as a floating overlay over the right of the editor ─
+    const dom = build3DHost(document);
+    const host = dom.host;
+    const splitter = document.createElement('div');
+    splitter.className = 'cpcb3d-splitter';
+    mainContainer.appendChild(splitter);
+    mainContainer.appendChild(host);
+    // The host is positioned absolutely within this container, so it must be a
+    // positioned ancestor (harmless to leave relative permanently).
+    if (!mainContainer.style.position) mainContainer.style.position = 'relative';
+    pcbContainer.style.flex = '1 1 0';
+    host.classList.add('cpcb3d-docked');
+    splitter.classList.add('cpcb3d-docked');
 
-    // ── View buttons ────────────────────────────────────────────────────
-    dom.btnTop?.addEventListener('click', () => scene.setView([0, 1, 0.0001]));
-    dom.btnIso?.addEventListener('click', () => scene.setView([0.7, 0.9, 1.1]));
-    dom.btnFit?.addEventListener('click', () => scene.frameAll());
+    // ── Overlay layout ───────────────────────────────────────────────────
+    // The panel covers the right `panelPct`% of the editor area; the PCB pane
+    // underneath keeps its full width and never resizes. Stored as a percentage
+    // so the ratio survives window resizes.
+    let panelPct = 50;
+    const applyDockLayout = () => {
+        host.style.width = `${panelPct}%`;
+        splitter.style.right = `${panelPct}%`;
+    };
+    applyDockLayout();
 
-    // ── Parts toggle: show/hide every component body mesh ───────────────
-    let partsVisible = true;
-    dom.btnParts?.addEventListener('click', () => {
-        partsVisible = !partsVisible;
-        for (const mesh of bodyMeshes.values()) mesh.visible = partsVisible;
-        dom.btnParts?.classList.toggle('off', !partsVisible);
-        scene.requestRender();
+    // ── Slide helpers (GPU transform — same feel as the editor slider) ───
+    // The docked host is already an absolute overlay, so opening/closing only
+    // animates its translateX. The editor underneath is never touched.
+    let slideTimer = 0;
+    const slideIn = (/** @type {(()=>void)=} */ onDone) => {
+        if (slideTimer) { window.clearTimeout(slideTimer); slideTimer = 0; }
+        host.style.display = '';
+        splitter.style.display = 'none';
+        applyDockLayout();
+        host.classList.add('cpcb3d-sliding');
+        host.style.transition = 'none';
+        host.style.transform = 'translateX(100%)';
+        void host.offsetWidth;
+        host.style.transition = '';
+        host.style.transform = 'translateX(0)';
+        let done = false;
+        const finish = () => {
+            if (done) return;
+            done = true;
+            host.removeEventListener('transitionend', finish);
+            host.classList.remove('cpcb3d-sliding');
+            host.style.transition = '';
+            host.style.transform = '';
+            splitter.style.display = '';
+            onDone?.();
+        };
+        host.addEventListener('transitionend', finish);
+        slideTimer = window.setTimeout(finish, 420);
+    };
+    const slideOut = (/** @type {(()=>void)=} */ onDone) => {
+        if (slideTimer) { window.clearTimeout(slideTimer); slideTimer = 0; }
+        splitter.style.display = 'none';
+        host.classList.add('cpcb3d-sliding');
+        host.style.transition = 'none';
+        host.style.transform = 'translateX(0)';
+        void host.offsetWidth;
+        host.style.transition = '';
+        host.style.transform = 'translateX(100%)';
+        let done = false;
+        const finish = () => {
+            if (done) return;
+            done = true;
+            host.removeEventListener('transitionend', finish);
+            host.classList.remove('cpcb3d-sliding');
+            host.style.transition = '';
+            host.style.transform = '';
+            onDone?.();
+        };
+        host.addEventListener('transitionend', finish);
+        slideTimer = window.setTimeout(finish, 420);
+    };
+
+    // Slide the panel in.
+    slideIn();
+
+    /** @type {any} */
+    const panel = { mode: 'docked', popWin: null, closed: false, hidden: false, scene: null };
+    app._board3d = panel;
+    app._update3DButtonState?.();
+
+    // ── Split-divider drag ───────────────────────────────────────────────
+    // Resizes only the overlay panel; the PCB editor underneath is unaffected.
+    let dragging = false;
+    const onSplitMove = (/** @type {PointerEvent} */ e) => {
+        if (!dragging) return;
+        const rect = mainContainer.getBoundingClientRect();
+        let pct = ((rect.right - e.clientX) / rect.width) * 100;
+        pct = Math.max(20, Math.min(80, pct));
+        panelPct = pct;
+        applyDockLayout();
+        panel.scene?.resize();
+    };
+    const onSplitUp = (/** @type {PointerEvent} */ e) => {
+        if (!dragging) return;
+        dragging = false;
+        splitter.releasePointerCapture?.(e.pointerId);
+    };
+    splitter.addEventListener('pointerdown', (e) => {
+        dragging = true;
+        splitter.setPointerCapture?.(e.pointerId);
+        e.preventDefault();
     });
+    window.addEventListener('pointermove', onSplitMove);
+    window.addEventListener('pointerup', onSplitUp);
 
-    // ── Lazily fetch KiCad STEP models per unique footprint ─────────────
+    // ── Spinner / cover (synchronous build blocks the thread) ───────────
+    const startedAt = performance.now();
+    let spinnerShown = false;
+    let lastYieldAt = startedAt;
+    const nextFrame = () =>
+        new Promise((resolve) => window.requestAnimationFrame(() => resolve()));
+    const revealSpinner = () => {
+        if (!panel.closed && !spinnerShown) {
+            dom.spinner?.classList.add('show');
+            spinnerShown = true;
+        }
+    };
+    const spinnerTimer = window.setTimeout(revealSpinner, 1000);
+    const hideSpinner = () => {
+        window.clearTimeout(spinnerTimer);
+        if (!panel.closed) dom.spinner?.classList.remove('show');
+    };
+    const checkpoint = async () => {
+        if (panel.closed) return;
+        const now = performance.now();
+        if (!spinnerShown && now - startedAt > 1000) revealSpinner();
+        if (spinnerShown && now - lastYieldAt > 50) {
+            await nextFrame();
+            lastYieldAt = performance.now();
+        }
+    };
+
+    // Let the grey cover paint before the WebGL context-create + shader-compile
+    // block runs, so the panel shows grey (not a black canvas) while it builds.
+    await nextFrame();
+    await nextFrame();
+    if (panel.closed) { hideSpinner(); return; }
+
+    // The render loop schedules its frames on whichever window currently hosts
+    // the canvas (see ThreeScene._raf), so tearing the view into a pop-up keeps
+    // it animating even when that pop-up is maximised over (and throttles) the
+    // main window. The scene logic still runs on this one JS thread.
+    const scene = new ThreeScene(window, dom.canvas);
+    panel.scene = scene;
+
+    // ── Model fetching (KiCad STEP, cached per footprint) ───────────────
     const fetcher = getComponentLibrary()?.kicadFetcher;
-    if (!fetcher) {
-        setStatus(placements.length
-            ? `${placements.length} components · ${resolved.size} with 3D models`
-            : 'No components placed');
-        return;
-    }
-
     /** @type {Map<string, Promise<{vertices:Array,faces:Array}|null>>} */
     const modelCache = new Map();
     const fetchModel = (footprint) => {
@@ -1828,32 +2137,324 @@ export async function openBoard3DViewer(app) {
         return p;
     };
 
-    let loaded = 0;
-    let withModels = resolved.size;
-    const total = placements.length;
+    // ── Reusable surface builders (initial build + live re-sync) ────────
+    // Each is one merged, single-draw-call mesh kept by handle so a live edit
+    // can swap it without disturbing the camera or the component bodies. Every
+    // surface is clipped to the board outline so copper/via/silk/text/pads that
+    // overhang the edge are trimmed at the boundary rather than floating.
+    /** @type {{board:THREE.Mesh|null,copper:THREE.Mesh|null,via:THREE.Mesh|null,silk:THREE.Mesh|null,text:THREE.Mesh|null,pads:THREE.Mesh|null}} */
+    const surf = { board: null, copper: null, via: null, silk: null, text: null, pads: null };
+    let outline = null;
+    const swapSurface = (/** @type {string} */ key, /** @type {any} */ data) => {
+        scene.removeMesh(surf[key]);
+        surf[key] = data && data.faces.length ? scene.addMesh(data) : null;
+    };
+    const rebuildSurfaces = () => {
+        const w = app._boardWidth || 100;
+        const h = app._boardHeight || 80;
+        const r = app._boardRadius || 0;
+        // PCB world: X∈[0,w], Z(=pcb y)∈[-h,0].
+        outline = roundedRectOutline(0, -h, w, h, r);
+        // Bore drilled holes (pad drills + mounting holes) clean through the
+        // slab so they read as real openings; only holes wholly inside the board.
+        const boardHoles = collectBoardHoles(app.placements).filter((ho) =>
+            ho.r > 0 && ho.x - ho.r > 0 && ho.x + ho.r < w &&
+            ho.z - ho.r > -h && ho.z + ho.r < 0);
+        scene.removeMesh(surf.board);
+        surf.board = scene.addMesh(
+            boardWithHoles(outline, boardHoles, 0, BOARD_THICKNESS, COLOR_BOARD, COLOR_BOARD_EDGE),
+            scene.boardMaterial);
+        scene.positionGlint(w / 2, -h / 2, Math.max(w, h));
+        swapSurface('copper', clipMeshToOutline(buildCopperMesh(app.tracks), outline));
+        swapSurface('via', clipMeshToOutline(buildViaMesh(app.vias), outline));
+        swapSurface('silk', clipMeshToOutline(buildSilkMesh(app.placements), outline));
+        swapSurface('text', clipMeshToOutline(buildTextMesh(app), outline));
+        const padsMesh = emptyMesh();
+        for (const [, pl] of app.placements) appendMesh(padsMesh, padMesh(pl));
+        swapSurface('pads', clipMeshToOutline(padsMesh, outline));
+    };
 
-    await Promise.all(placements.map(async ([id, pl]) => {
-        if (win.closed) return;
-        // OBJ models were resolved synchronously above; only fetch STEP for
-        // KiCad footprints (namespaced as "Library:Footprint") that have none.
+    // ── Component bodies (OBJ now, STEP lazily, diffed on live re-sync) ──
+    /** @type {Map<string, THREE.Mesh>} compId → body mesh */
+    const bodyMeshes = new Map();
+    /** @type {Set<string>} ids currently showing a real (OBJ/STEP) model */
+    const resolved = new Set();
+    /** @type {Map<string, string>} id → placement signature (change detection) */
+    const bodySig = new Map();
+    let partsVisible = true;
+    const placementSig = (/** @type {any} */ pl) =>
+        `${pl.x}|${pl.y}|${pl.rotation || 0}|${pl.layer || ''}|${pl.footprint || ''}|${pl.model3dObj ? 1 : 0}`;
+
+    // Build the immediate (synchronous) body for a placement: a real OBJ body if
+    // the part carries one in memory, otherwise a fallback box. STEP models load
+    // asynchronously afterward via loadModelFor.
+    const addBody = (/** @type {string} */ id, /** @type {any} */ pl) => {
+        let body = null;
+        if (pl.model3dObj) {
+            const parsed = parseObjModel(pl.model3dObj);
+            body = parsed && objModelToMesh(parsed, pl);
+        }
+        const mesh = scene.addMesh(body || fallbackBoxMesh(pl));
+        mesh.visible = partsVisible;
+        bodyMeshes.set(id, mesh);
+        if (body) resolved.add(id); else resolved.delete(id);
+        bodySig.set(id, placementSig(pl));
+    };
+
+    // Fetch + apply the KiCad STEP model for one placement (cached per footprint).
+    // Re-checks the signature before applying so a model that arrives after the
+    // component was moved/removed is not stamped onto a now-stale body.
+    const loadModelFor = async (/** @type {string} */ id, /** @type {any} */ pl) => {
         const footprint = pl.footprint || '';
-        if (!resolved.has(id) && footprint.includes(':')) {
-            const geom = await fetchModel(footprint);
-            const obj = bodyMeshes.get(id);
-            if (!win.closed && geom && obj) {
-                const mesh = stepGeometryToMesh(geom, pl);
-                if (mesh) {
-                    scene.replaceMesh(obj, mesh);
-                    withModels++;
-                }
+        if (!fetcher || resolved.has(id) || !footprint.includes(':')) return;
+        const geom = await fetchModel(footprint);
+        if (panel.closed) return;
+        const obj = bodyMeshes.get(id);
+        if (geom && obj && bodySig.get(id) === placementSig(pl)) {
+            const mesh = stepGeometryToMesh(geom, pl);
+            if (mesh) { scene.replaceMesh(obj, mesh); resolved.add(id); }
+        }
+    };
+
+    // Diff component bodies against the current placements: only new, removed or
+    // moved components are rebuilt — unchanged ones (the common case while
+    // routing tracks) keep their already-loaded STEP models untouched.
+    const syncBodies = () => {
+        const ids = new Set();
+        /** @type {Array<[string, any]>} */
+        const toLoad = [];
+        for (const [id, pl] of app.placements) {
+            ids.add(id);
+            if (!bodyMeshes.has(id)) {
+                addBody(id, pl);
+                toLoad.push([id, pl]);
+            } else if (bodySig.get(id) !== placementSig(pl)) {
+                scene.removeMesh(bodyMeshes.get(id));
+                bodyMeshes.delete(id);
+                resolved.delete(id);
+                addBody(id, pl);
+                toLoad.push([id, pl]);
             }
         }
-        loaded++;
-        setStatus(`${loaded}/${total} components · ${withModels} with 3D models`);
-    }));
+        for (const id of [...bodyMeshes.keys()]) {
+            if (!ids.has(id)) {
+                scene.removeMesh(bodyMeshes.get(id));
+                bodyMeshes.delete(id);
+                resolved.delete(id);
+                bodySig.delete(id);
+            }
+        }
+        for (const [id, pl] of toLoad) loadModelFor(id, pl);
+    };
+
+    // ── Initial build ───────────────────────────────────────────────────
+    rebuildSurfaces();
+    // Frame the camera to the board NOW, before the body build or any yielded
+    // paint, so the very first frame is already at the final framing and the
+    // view never jumps as components stream in.
+    scene.frameAll();
+    // Fade the grey cover out once the board has rendered its first real frame.
+    await nextFrame();
+    if (panel.closed) { hideSpinner(); return; }
+    await nextFrame();
+    dom.cover?.classList.add('hide');
+    await checkpoint();
+
+    // Component bodies: parsing OBJ bodies is the dominant synchronous cost on
+    // dense boards, so yield occasionally through checkpoint() so the spinner
+    // can surface and the panel repaint.
+    const placements = [...app.placements.entries()];
+    let built = 0;
+    for (const [id, pl] of placements) {
+        addBody(id, pl);
+        if ((++built & 15) === 0) await checkpoint();
+    }
+
+    const setStatus = (text) => { if (dom.status && !panel.closed) dom.status.textContent = text; };
+    const total = placements.length;
+    if (!total) setStatus('No components placed');
+
+    // ── View buttons ────────────────────────────────────────────────────
+    dom.btnTop?.addEventListener('click', () => scene.setView([0, 1, 0.0001]));
+    dom.btnIso?.addEventListener('click', () => scene.setView([0.7, 0.9, 1.1]));
+    dom.btnFit?.addEventListener('click', () => scene.frameAll());
+
+    // ── Parts toggle: show/hide every component body mesh ───────────────
+    dom.btnParts?.addEventListener('click', () => {
+        partsVisible = !partsVisible;
+        for (const mesh of bodyMeshes.values()) mesh.visible = partsVisible;
+        dom.btnParts?.classList.toggle('off', !partsVisible);
+        scene.requestRender();
+    });
+
+    // ── Live sync: mirror 2D edits into the 3D view (debounced) ─────────
+    // PCB edits run through app.history; wrap its onChanged so every committed
+    // edit schedules a rebuild. Debounced so a burst of edits (or a drag that
+    // commits many sub-steps) collapses into one rebuild after things settle.
+    // Surfaces (copper/via/silk/text/pads/board) always rebuild — they are cheap
+    // merged meshes; component bodies only rebuild for placements that changed.
+    let syncTimer = 0;
+    const scheduleSync = () => {
+        if (panel.closed || panel.hidden) return;
+        if (syncTimer) window.clearTimeout(syncTimer);
+        syncTimer = window.setTimeout(() => {
+            syncTimer = 0;
+            if (panel.closed || panel.hidden) return;
+            rebuildSurfaces();
+            syncBodies();
+        }, 300);
+    };
+    // Public hook so non-history edits (e.g. a schematic-driven re-sync that
+    // adds/removes components) can refresh the 3D view too. PCB-side edits go
+    // through history.onChanged below; schematic-side edits call panel.refresh.
+    panel.refresh = scheduleSync;
+    const prevOnChanged = app.history?.onChanged;
+    const onHistoryChanged = (/** @type {any[]} */ ...args) => {
+        prevOnChanged?.(...args);
+        scheduleSync();
+    };
+    if (app.history) app.history.onChanged = onHistoryChanged;
+
+    // ── Pop out / dock / close ──────────────────────────────────────────
+    let pollTimer = 0;
+    const dock = (/** @type {boolean} */ popupClosing = false) => {
+        if (panel.mode !== 'popped') return;
+        if (pollTimer) { window.clearInterval(pollTimer); pollTimer = 0; }
+        // Re-home the host (and its live canvas) back into the main document as
+        // the right-side overlay again.
+        mainContainer.appendChild(document.adoptNode(host));
+        host.classList.add('cpcb3d-docked');
+        splitter.classList.add('cpcb3d-docked');
+        host.style.transform = '';
+        host.style.transition = '';
+        applyDockLayout();
+        splitter.style.display = '';
+        dom.btnPop.textContent = '⇱ Pop out';
+        dom.btnPop.title = 'Pop out to a separate window';
+        panel.mode = 'docked';
+        if (!popupClosing && panel.popWin && !panel.popWin.closed) {
+            try { panel.popWin.close(); } catch { /* ignore */ }
+        }
+        panel.popWin = null;
+        scene.resize();
+    };
+    const popOut = () => {
+        if (panel.mode === 'popped') { panel.popWin?.focus(); return; }
+        const win = window.open('', 'clearpcb3d', 'width=980,height=720');
+        if (!win) { setStatus('Pop-up blocked — allow pop-ups to tear off'); return; }
+        const wd = win.document;
+        // Paint the new window grey immediately and give it the 3D stylesheet.
+        try {
+            wd.documentElement.style.background = '#4a4c4f';
+            wd.documentElement.style.colorScheme = 'dark';
+        } catch { /* ignore */ }
+        wd.title = 'ClearPCB — 3D View';
+        ensure3DStyles(wd);
+        const base = wd.createElement('style');
+        base.textContent =
+            'html,body{margin:0;height:100%;background:#4a4c4f;overflow:hidden}' +
+            '.cpcb3d-host{position:absolute;inset:0}';
+        (wd.head || wd.documentElement).appendChild(base);
+        if (wd.body) wd.body.style.background = '#4a4c4f';
+        // Move the live host into the pop-up; the WebGL canvas and its context
+        // travel with the node and the render loop follows it to the pop-up's rAF.
+        wd.body.appendChild(wd.adoptNode(host));
+        // Shed the docked-overlay positioning so the popup CSS (inset:0) fills.
+        host.classList.remove('cpcb3d-docked', 'cpcb3d-sliding');
+        host.style.width = '';
+        host.style.transform = '';
+        host.style.transition = '';
+        splitter.style.display = 'none';
+        dom.btnPop.textContent = '⤢ Dock';
+        dom.btnPop.title = 'Dock back into the main window';
+        panel.mode = 'popped';
+        panel.popWin = win;
+        scene.resize();
+        // Dock back automatically if the user closes the pop-up. pagehide fires
+        // before the document is destroyed, so the host can be rescued first; a
+        // poll covers browsers that close without a usable pagehide.
+        win.addEventListener('pagehide', () => { if (panel.mode === 'popped') dock(true); }, { once: true });
+        pollTimer = window.setInterval(() => {
+            if (win.closed) {
+                window.clearInterval(pollTimer); pollTimer = 0;
+                if (panel.mode === 'popped') dock(true);
+            }
+        }, 500);
+    };
+    const closePanel = () => {
+        if (panel.closed) return;
+        panel.closed = true;
+        if (pollTimer) { window.clearInterval(pollTimer); pollTimer = 0; }
+        if (syncTimer) { window.clearTimeout(syncTimer); syncTimer = 0; }
+        if (slideTimer) { window.clearTimeout(slideTimer); slideTimer = 0; }
+        // Unhook the live-sync wrapper (only if nothing re-wrapped after us).
+        if (app.history && app.history.onChanged === onHistoryChanged) {
+            app.history.onChanged = prevOnChanged;
+        }
+        window.removeEventListener('pointermove', onSplitMove);
+        window.removeEventListener('pointerup', onSplitUp);
+        hideSpinner();
+        scene.dispose();
+        if (panel.mode === 'popped' && panel.popWin && !panel.popWin.closed) {
+            try { panel.popWin.close(); } catch { /* ignore */ }
+        }
+        host.remove();
+        splitter.remove();
+        if (app._board3d === panel) app._board3d = null;
+        app._update3DButtonState?.();
+    };
+    panel.popOut = popOut;
+    panel.dock = dock;
+    panel.close = closePanel;
+
+    // ── Hide / show ─────────────────────────────────────────────────────
+    // The ✕ button hides the panel rather than disposing it, so re-opening is
+    // instant (no rebuild / STEP re-fetch). The render loop is on-demand, so a
+    // hidden panel costs no CPU/GPU — it only holds its WebGL context + meshes
+    // in memory (modest for a single board). A hidden panel skips live sync;
+    // show() runs one catch-up sync for edits made while it was hidden.
+    const hidePanel = () => {
+        if (panel.closed || panel.hidden) return;
+        if (panel.mode === 'popped') dock();
+        panel.hidden = true;
+        app._update3DButtonState?.();
+        // Slide the overlay out to the right; the editor underneath is untouched.
+        slideOut(() => {
+            host.style.display = 'none';
+        });
+    };
+    const showPanel = () => {
+        if (panel.closed || !panel.hidden) return;
+        panel.hidden = false;
+        app._update3DButtonState?.();
+        slideIn(() => {
+            scene.resize();
+            scheduleSync();
+        });
+    };
+    panel.hide = hidePanel;
+    panel.show = showPanel;
+
+    dom.btnPop?.addEventListener('click', () => (panel.mode === 'popped' ? dock() : popOut()));
+
+    // ── Initial lazy STEP load (with progress) ──────────────────────────
+    if (fetcher && total) {
+        let loaded = 0;
+        await Promise.all(placements.map(async ([id, pl]) => {
+            await loadModelFor(id, pl);
+            loaded++;
+            if (!panel.closed) {
+                setStatus(`${loaded}/${total} components · ${resolved.size} with 3D models`);
+            }
+        }));
+    }
 
     setStatus(total
-        ? `${total} components · ${withModels} with 3D models`
+        ? `${total} components · ${resolved.size} with 3D models`
         : 'No components placed');
-    if (!win.closed) scene.frameAll();
+    hideSpinner();
+    // No frameAll here: the camera was framed to the board up front (before the
+    // geometry build), so the view never jumps and any orbit the user did while
+    // STEP models streamed in is preserved.
 }
+

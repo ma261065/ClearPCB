@@ -69,36 +69,23 @@ export class Viewport {
         this._crosshairWorld = null;
         
         // View state - viewBox defines visible world area
-        this.baseWidth = 200; // mm visible at 100% zoom (for display purposes)
-        
-        // Zoom levels with clean 1-2-5 percentage progression
-        // View width = baseWidth / (zoomPercent / 100) = 20000 / zoomPercent
-        // Zoom percentages: 1, 2, 5, 10, 20, 35, 50, 75, 100, 150, 200, 500, 1000, 2000, 5000, 10000
-        this.zoomLevels = [
-            20000,  // 1%
-            10000,  // 2%
-            4000,   // 5%
-            2000,   // 10%
-            1000,   // 20%
-            571,    // 35% (20000/35 ≈ 571.43)
-            400,    // 50%
-            266,    // 75% (20000/75 ≈ 266.67)
-            200,    // 100%
-            133,    // 150% (20000/150 ≈ 133.33)
-            100,    // 200%
-            40,     // 500%
-            20,     // 1000%
-            10,     // 2000%
-            4,      // 5000%
-            2       // 10000%
-        ];
-        this.zoomIndex = 8; // Start at 200mm (index 8) = 100% zoom
-        
+        //
+        // Zoom is defined as ON-SCREEN SCALE (CSS px per mm), NOT "mm visible".
+        // This makes zoom independent of the pane/window size: resizing the
+        // window or sliding the 3D panel in/out changes how much board is
+        // visible, but never how big things appear and never the zoom %.
+        // refScale100 is the px/mm at 100%; each discrete level is a multiple.
+        this.refScale100 = 5; // CSS px per mm at 100% zoom
+        this.zoomPercents = [1, 2, 5, 10, 20, 35, 50, 75, 100, 150, 200, 500, 1000, 2000, 5000, 10000];
+        /** Scale (CSS px/mm) for each discrete zoom level. */
+        this.zoomScales = this.zoomPercents.map(p => this.refScale100 * p / 100);
+        this.zoomIndex = 8; // index of 100%
+
         this.viewBox = { x: -100, y: -60, width: 200, height: 120 };
         
         // Constraints (index bounds)
         this.minZoomIndex = 0;
-        this.maxZoomIndex = this.zoomLevels.length - 1;
+        this.maxZoomIndex = this.zoomScales.length - 1;
         
         // Grid
         this.gridSize = 1.27;
@@ -216,9 +203,10 @@ export class Viewport {
         return this.width / this.viewBox.width;
     }
     
-    /** Zoom multiplier (1.0 = 100% = `baseWidth` mm visible). */
+    /** Zoom multiplier (1.0 = 100%). Defined as on-screen scale / reference
+     * scale, so it is independent of the pane/window size. */
     get zoom() {
-        return this.baseWidth / this.viewBox.width;
+        return (this.width / this.viewBox.width) / this.refScale100;
     }
     
     /** Current visible width in mm. */
@@ -277,7 +265,7 @@ export class Viewport {
         this.svg.setAttribute('viewBox', `${vb.x} ${vb.y} ${vb.width} ${vb.height}`);
     }
     
-    /** Handle container resize: adjust viewBox height to maintain aspect ratio. */
+    /** Handle container resize: keep on-screen scale (px/mm) constant. */
     _onResize() {
         // Invalidate rect cache since viewport dimensions changed
         this.cachedRect = null;
@@ -286,10 +274,27 @@ export class Viewport {
         // schematic slide is hidden behind the PCB slide). Doing the aspect
         // math here would divide by zero and corrupt the viewBox permanently.
         if (!this._hasValidSize()) return;
-        
-        // Maintain aspect ratio - adjust height to match new container
-        const aspect = this.height / this.width;
-        this.viewBox.height = this.viewBox.width * aspect;
+
+        const w = this.width, h = this.height;
+        const prevW = this._lastResizeW, prevH = this._lastResizeH;
+
+        if (prevW && prevH) {
+            // Scale the viewBox in proportion to the pixel-size change so that
+            // px/mm stays constant: resizing the pane reveals/hides board area
+            // instead of re-zooming the content. Anchor on the view centre.
+            const cx = this.viewBox.x + this.viewBox.width / 2;
+            const cy = this.viewBox.y + this.viewBox.height / 2;
+            this.viewBox.width *= w / prevW;
+            this.viewBox.height *= h / prevH;
+            this.viewBox.x = cx - this.viewBox.width / 2;
+            this.viewBox.y = cy - this.viewBox.height / 2;
+        } else {
+            // First layout: seed the aspect from the current pane.
+            this.viewBox.height = this.viewBox.width * (h / w);
+        }
+
+        this._lastResizeW = w;
+        this._lastResizeH = h;
         this._updateViewBox();
         this._notifyViewChanged();
     }
@@ -404,7 +409,7 @@ export class Viewport {
     
     /**
      * Jump to a specific zoom level, optionally anchored on a world point.
-     * @param {number} index - Target index into `zoomLevels`.
+     * @param {number} index - Target index into `zoomScales`.
      * @param {{x: number, y: number}|null} [worldPoint=null] - Focal point; defaults to view centre.
      */
     zoomToLevel(index, worldPoint = null) {
@@ -416,8 +421,12 @@ export class Viewport {
         // would be NaN and corrupt the viewBox.
         if (!this._hasValidSize()) return;
         
-        const newWidth = this.zoomLevels[newIndex];
-        const newHeight = newWidth * (this.height / this.width);
+        // Zoom is a fixed on-screen scale (px/mm); the visible mm derive from
+        // the current pane pixel size, so the view stays the same apparent size
+        // regardless of how wide the pane is.
+        const scale = this.zoomScales[newIndex];
+        const newWidth = this.width / scale;
+        const newHeight = this.height / scale;
         
         // Default to center if no point specified
         if (!worldPoint) {
@@ -461,13 +470,13 @@ export class Viewport {
         if (!this._hasValidSize()) return;
         // Reset to 100% zoom (index 8)
         this.zoomIndex = 8;
-        const aspect = this.height / this.width;
-        this.viewBox.width = this.zoomLevels[this.zoomIndex];
-        this.viewBox.height = this.viewBox.width * aspect;
+        // Zoom is a fixed scale (px/mm); visible mm derive from the pane size.
+        const scale = this.zoomScales[this.zoomIndex];
+        this.viewBox.width = this.width / scale;
+        this.viewBox.height = this.height / scale;
         
         // Calculate ruler width in world units (mm)
         // scale is pixelsPerMM = width / viewBox.width
-        const scale = this.width / this.viewBox.width;
         const rulerOffset = this.showRulers ? (this.rulerSize / scale) : 0;
         
         // Position so origin (0,0) is 3mm from rule edge (visible area)
@@ -508,35 +517,30 @@ export class Viewport {
             return;
         }
         
-        const aspect = this.height / this.width;
+        // Required visible area in mm, including padding.
+        const requiredWidth = contentWidth * (1 + 2 * paddingPercent / 100);
+        const requiredHeight = contentHeight * (1 + 2 * paddingPercent / 100);
         
-        // Add padding as a percentage of content size
-        const paddingX = contentWidth * (paddingPercent / 100);
-        const paddingY = contentHeight * (paddingPercent / 100);
-        
-        // Calculate required view size to fit content with padding
-        let requiredWidth = contentWidth + paddingX * 2;
-        let requiredHeight = contentHeight + paddingY * 2;
-        
-        // Adjust to maintain aspect ratio
-        if (requiredHeight / requiredWidth > aspect) {
-            requiredWidth = requiredHeight / aspect;
-        }
-        
-        // Find the most zoomed-in level that still fits the content
-        // zoomLevels goes from largest (index 0) to smallest (index n-1)
-        // We want the smallest viewWidth that is >= requiredWidth
-        let bestIndex = 0;  // Default to most zoomed out
-        for (let i = this.zoomLevels.length - 1; i >= 0; i--) {
-            if (this.zoomLevels[i] >= requiredWidth) {
+        // Zoom is a fixed scale (px/mm). A level fits when its visible area
+        // (pixelSize / scale) covers the required mm in BOTH dimensions, i.e.
+        // scale <= width/requiredWidth and scale <= height/requiredHeight.
+        const maxScale = Math.min(
+            this.width / requiredWidth,
+            this.height / requiredHeight
+        );
+        // Pick the most zoomed-in discrete level whose scale still fits.
+        let bestIndex = this.minZoomIndex;
+        for (let i = this.zoomScales.length - 1; i >= 0; i--) {
+            if (this.zoomScales[i] <= maxScale) {
                 bestIndex = i;
                 break;
             }
         }
         
         this.zoomIndex = bestIndex;
-        const viewWidth = this.zoomLevels[bestIndex];
-        const viewHeight = viewWidth * aspect;
+        const scale = this.zoomScales[bestIndex];
+        const viewWidth = this.width / scale;
+        const viewHeight = this.height / scale;
         
         // Center on content
         const cx = (minX + maxX) / 2;

@@ -293,11 +293,35 @@ export class LCSCFetcher {
                 const objText = result.text;
                 if (objText && objText.includes('v ')) {
                     console.log('Successfully fetched OBJ file, size:', objText.length);
-                    return objText;
+                    return this._compactObj(objText);
                 }
             }
         }
         return null;
+    }
+
+    /**
+     * Shrink an OBJ string for storage by rounding geometry coordinates to 4
+     * decimal places (0.1 µm — far finer than the 3D viewer needs). EasyEDA
+     * ships 6-decimal vertices/normals, which bloats the serialised document
+     * for no visual benefit. Only numeric data on geometry lines (v, vn, vt) is
+     * touched; material/face/group lines pass through unchanged.
+     * @param {string} objText
+     * @returns {string}
+     */
+    _compactObj(objText) {
+        const round = (/** @type {string} */ m) => {
+            const n = Math.round(parseFloat(m) * 1e4) / 1e4;
+            return Number.isFinite(n) ? String(n) : m;
+        };
+        return objText.split('\n').map((line) => {
+            // Only geometry lines carry the high-precision coordinates worth
+            // shrinking; leave faces, materials, groups, etc. untouched.
+            if (/^(v|vn|vt) /.test(line)) {
+                return line.replace(/-?\d+\.\d+(?:[eE][-+]?\d+)?/g, round);
+            }
+            return line;
+        }).join('\n');
     }
 
     /**
