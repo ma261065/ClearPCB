@@ -102,6 +102,10 @@ export function bindPcbControls(app) {
     const view3dBtn = document.getElementById('pcb3dView');
     view3dBtn?.addEventListener('click', () => app.open3DView?.());
 
+    // 2D View button (shares the 3D panel; Top/Bottom toggle lives in the pane header)
+    const view2dBtn = document.getElementById('pcb2dView');
+    view2dBtn?.addEventListener('click', () => app.open2DView?.(app._last2DSide || 'top'));
+
     // Import SES button
     const importSesBtn = document.getElementById('pcbImportSES');
     importSesBtn?.addEventListener('click', () => app.importSES?.());

@@ -484,6 +484,14 @@ body {
     border-color: var(--accent-color);
 }
 
+/* 2D render view button (Top/Bottom flip lives in the view pane header). */
+.ribbon-group-items button#pcb2dView.active,
+.ribbon-group-items button#pcb2dView.active:hover:not(:disabled) {
+    background: var(--accent-color);
+    color: #ffffff;
+    border-color: var(--accent-color);
+}
+
 .ribbon-group-items button:disabled {
     opacity: 0.4;
     cursor: default;

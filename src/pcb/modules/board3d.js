@@ -317,6 +317,7 @@ class ArcballController {
 import { STEPPreview } from '../../components/STEPPreview.js';
 import { getComponentLibrary } from '../../components/index.js';
 import { stringToPolylines, measureText } from './stroke-font.js';
+import { Board2D } from './board2d.js';
 
 /** Finished board thickness in millimetres (standard 1.6 mm). */
 const BOARD_THICKNESS = 1.6;
@@ -342,8 +343,10 @@ const COLOR_SILK = [228, 228, 228];        // white silkscreen
 /** Surface heights (world Y, mm) for the thin layers on each board face. */
 const Y_TOP = BOARD_THICKNESS;             // top copper plane
 const Y_BOT = 0;                           // bottom copper plane
-const COPPER_EPS = 0.015;                  // copper sits just proud of the face
-const SILK_EPS = 0.035;                    // silk sits just above the copper
+const COPPER_EPS = 0.015;                  // copper (tracks) sits just proud of the face
+const PAD_EPS = 0.025;                      // pads sit just above the tracks (avoids
+                                           // coplanar z-fight where a track overlaps a pad)
+const SILK_EPS = 0.035;                    // silk sits just above the pads
 
 /* ───────────────────────────── mesh builders ────────────────────────────── */
 
@@ -777,15 +780,15 @@ function padMesh(pl) {
             if (round) {
                 const ro = Math.max(halfW, Math.max(0.05, ri + 0.05));
                 appendMesh(mesh, tubeMesh(w.x, w.z, ri, ro,
-                    Y_BOT - COPPER_EPS, Y_TOP + COPPER_EPS, COLOR_PAD, 16));
+                    Y_BOT - PAD_EPS, Y_TOP + PAD_EPS, COLOR_PAD, 16));
             } else {
                 appendMesh(mesh, throughHolePadMesh(w.x, w.z, off.shape, halfW, halfH,
-                    ct, st, ri, Y_BOT - COPPER_EPS, Y_TOP + COPPER_EPS, COLOR_PAD));
+                    ct, st, ri, Y_BOT - PAD_EPS, Y_TOP + PAD_EPS, COLOR_PAD));
             }
             continue;
         }
         const bottom = off.layer === 'bottom';
-        const y = bottom ? Y_BOT - COPPER_EPS : Y_TOP + COPPER_EPS;
+        const y = bottom ? Y_BOT - PAD_EPS : Y_TOP + PAD_EPS;
         if (off.shape === 'oval') {
             // Stadium / obround (matches the 2D footprint render): straight
             // sides with semicircular ends, NOT a pointy ellipse.
@@ -1026,6 +1029,126 @@ function clipMeshToOutline(mesh, outline) {
             }
             for (let k = 1; k + 1 < poly.length; k++) {
                 emitTri(poly[0], poly[k], poly[k + 1], f.color);
+            }
+        }
+    }
+    return out;
+}
+
+/**
+ * Subtract drilled holes from a flat (single y-plane) mesh so copper, silk and
+ * text are bored through exactly where the board substrate is — otherwise a
+ * track or pad lid floats over an open hole. Each hole is approximated by a
+ * convex polygon ring; every face triangle that overlaps a hole is replaced by
+ * the convex pieces of `triangle \ holePolygon` (the standard convex-difference
+ * decomposition: the part outside edge i but inside edges 0..i-1, unioned over
+ * all edges). Triangles clear of every hole pass straight through.
+ * @param {{verts:Array, faces:Array}} mesh flat planar mesh (constant-ish y)
+ * @param {Array<{x:number,z:number,r:number}>} holes drilled holes (board plane)
+ * @param {number} [seg] polygon segments per hole
+ * @returns {{verts:Array, faces:Array}}
+ */
+function punchHolesInFlatMesh(mesh, holes, seg = 16) {
+    if (!holes || !holes.length || !mesh.faces.length) return mesh;
+    // Pre-build each hole as a CCW polygon ring in the (x, z) board plane.
+    const rings = holes.filter((h) => h.r > 0).map((h) => {
+        const pts = [];
+        for (let i = 0; i < seg; i++) {
+            const a = (i / seg) * Math.PI * 2;
+            pts.push({ x: h.x + h.r * Math.cos(a), z: h.z + h.r * Math.sin(a) });
+        }
+        return { pts, x: h.x, z: h.z, r: h.r };
+    });
+    if (!rings.length) return mesh;
+
+    // Signed area-ish test against the directed edge P→Q in the (x,z) plane;
+    // ≥0 is the polygon interior side (rings are CCW, so interior is left).
+    const dist = (P, Q, R) =>
+        (Q.x - P.x) * (R.z - P.z) - (Q.z - P.z) * (R.x - P.x);
+    const lerp = (S, E, dS, dE) => {
+        const u = dS / (dS - dE);
+        return {
+            x: S.x + u * (E.x - S.x),
+            y: S.y + u * (E.y - S.y),
+            z: S.z + u * (E.z - S.z),
+        };
+    };
+    // Sutherland–Hodgman clip of a convex polygon against one half-plane.
+    // keepInside=true keeps the interior side of edge P→Q, false the exterior.
+    const clipHalf = (poly, P, Q, keepInside) => {
+        const res = [];
+        const n = poly.length;
+        const s = keepInside ? 1 : -1;
+        for (let k = 0; k < n; k++) {
+            const S = poly[(k + n - 1) % n];
+            const E = poly[k];
+            const dS = s * dist(P, Q, S);
+            const dE = s * dist(P, Q, E);
+            if (dE >= 0) {
+                if (dS < 0) res.push(lerp(S, E, dS, dE));
+                res.push(E);
+            } else if (dS >= 0) {
+                res.push(lerp(S, E, dS, dE));
+            }
+        }
+        return res;
+    };
+    // piece \ ringPoly → push the resulting convex sub-pieces onto `out`.
+    const subtractRing = (piece, ring, out) => {
+        const m = ring.pts.length;
+        let inside = piece; // part still inside edges processed so far
+        for (let i = 0; i < m; i++) {
+            const P = ring.pts[i];
+            const Q = ring.pts[(i + 1) % m];
+            const outer = clipHalf(inside, P, Q, false);
+            if (outer.length >= 3) out.push(outer);
+            inside = clipHalf(inside, P, Q, true);
+            if (inside.length < 3) return; // fully consumed by the hole
+        }
+        // Whatever remains `inside` every edge is the hole interior → dropped.
+    };
+    const overlapsCircle = (piece, ring) => {
+        let minx = Infinity, maxx = -Infinity, minz = Infinity, maxz = -Infinity;
+        for (const p of piece) {
+            if (p.x < minx) minx = p.x; if (p.x > maxx) maxx = p.x;
+            if (p.z < minz) minz = p.z; if (p.z > maxz) maxz = p.z;
+        }
+        return !(minx > ring.x + ring.r || maxx < ring.x - ring.r ||
+            minz > ring.z + ring.r || maxz < ring.z - ring.r);
+    };
+
+    const out = emptyMesh();
+    const emitTri = (a, b, c, color) => {
+        const base = out.verts.length;
+        out.verts.push(a, b, c);
+        out.faces.push({ idx: [base, base + 1, base + 2], color });
+    };
+    for (const f of mesh.faces) {
+        const idx = f.idx;
+        if (!idx || idx.length < 3) continue;
+        for (let t = 1; t + 1 < idx.length; t++) {
+            const v0 = mesh.verts[idx[0]];
+            const v1 = mesh.verts[idx[t]];
+            const v2 = mesh.verts[idx[t + 1]];
+            if (!v0 || !v1 || !v2) continue;
+            let pieces = [[
+                { x: v0.x, y: v0.y, z: v0.z },
+                { x: v1.x, y: v1.y, z: v1.z },
+                { x: v2.x, y: v2.y, z: v2.z },
+            ]];
+            for (const ring of rings) {
+                const next = [];
+                for (const piece of pieces) {
+                    if (overlapsCircle(piece, ring)) subtractRing(piece, ring, next);
+                    else next.push(piece);
+                }
+                pieces = next;
+                if (!pieces.length) break;
+            }
+            for (const piece of pieces) {
+                for (let k = 1; k + 1 < piece.length; k++) {
+                    emitTri({ ...piece[0] }, { ...piece[k] }, { ...piece[k + 1] }, f.color);
+                }
             }
         }
     }
@@ -1544,6 +1667,23 @@ const CPCB3D_CSS = `
   .cpcb3d-cv{position:absolute;inset:38px 0 0 0;width:100%;height:calc(100% - 38px);
     display:block;cursor:grab;background:#4a4c4f}
   .cpcb3d-cv:active{cursor:grabbing}
+  /* Flat 2D board preview canvas (board2d.js). Shares the host with the WebGL
+     canvas; only one is shown at a time depending on the active view. */
+  .cpcb3d-cv2d{position:absolute;inset:38px 0 0 0;width:100%;height:calc(100% - 38px);
+    display:none;cursor:grab;background:#4a4c4f}
+  .cpcb3d-cv2d:active{cursor:grabbing}
+  .cpcb3d-host.cpcb3d-mode2d .cpcb3d-cv{display:none}
+  .cpcb3d-host.cpcb3d-mode2d .cpcb3d-cv2d{display:block}
+  /* The Top/Bottom side buttons are 2D-only; Parts/Top/Iso are 3D-only. */
+  [data-act="2dtop"],[data-act="2dbottom"]{display:none}
+  .cpcb3d-host.cpcb3d-mode2d [data-act="parts"],
+  .cpcb3d-host.cpcb3d-mode2d [data-act="top"],
+  .cpcb3d-host.cpcb3d-mode2d [data-act="iso"]{display:none}
+  .cpcb3d-host.cpcb3d-mode2d [data-act="2dtop"],
+  .cpcb3d-host.cpcb3d-mode2d [data-act="2dbottom"]{display:inline-block}
+  .cpcb3d-bar [data-act="2dtop"].active,
+  .cpcb3d-bar [data-act="2dbottom"].active{
+    background:#2d7dd2;border-color:#2d7dd2;color:#fff}
   /* Opaque cover painted from the first frame so the canvas's black pre-render
      frames never show; fades once the board has actually rendered. */
   .cpcb3d-cover{position:absolute;inset:0;background:#4a4c4f;z-index:10;
@@ -1597,7 +1737,7 @@ function ensure3DStyles(doc) {
  * @returns {{host:HTMLElement, canvas:HTMLCanvasElement, status:HTMLElement,
  *   spinner:HTMLElement, cover:HTMLElement, btnParts:HTMLElement,
  *   btnTop:HTMLElement, btnIso:HTMLElement, btnFit:HTMLElement,
- *   btnPop:HTMLElement}}
+ *   btn2dTop:HTMLElement, btn2dBottom:HTMLElement, btnPop:HTMLElement}}
  */
 function build3DHost(doc) {
     ensure3DStyles(doc);
@@ -1608,12 +1748,15 @@ function build3DHost(doc) {
     <button data-act="parts" title="Show/hide component parts">Parts</button>
     <button data-act="top">Top</button>
     <button data-act="iso">Iso</button>
+    <button data-act="2dtop" title="Show the top of the board">Top</button>
+    <button data-act="2dbottom" title="Show the bottom of the board">Bottom</button>
     <button data-act="fit">Fit</button>
     <button data-act="pop" title="Pop out to a separate window">⇱ Pop out</button>
     <span class="cpcb3d-sp"></span>
     <span class="cpcb3d-status"></span>
   </div>
   <canvas class="cpcb3d-cv"></canvas>
+  <canvas class="cpcb3d-cv2d"></canvas>
   <div class="cpcb3d-spinner"><div class="cpcb3d-ring"></div><div>Loading…</div></div>
   <div class="cpcb3d-hint">Drag to orbit · Right-drag to pan · Wheel to zoom</div>
   <div class="cpcb3d-cover"></div>`;
@@ -1621,14 +1764,18 @@ function build3DHost(doc) {
     return {
         host,
         canvas: q('.cpcb3d-cv'),
+        canvas2d: q('.cpcb3d-cv2d'),
         status: q('.cpcb3d-status'),
         spinner: q('.cpcb3d-spinner'),
         cover: q('.cpcb3d-cover'),
         btnParts: q('[data-act="parts"]'),
         btnTop: q('[data-act="top"]'),
         btnIso: q('[data-act="iso"]'),
+        btn2dTop: q('[data-act="2dtop"]'),
+        btn2dBottom: q('[data-act="2dbottom"]'),
         btnFit: q('[data-act="fit"]'),
         btnPop: q('[data-act="pop"]'),
+        hint: q('.cpcb3d-hint'),
     };
 }
 
@@ -1945,13 +2092,16 @@ class ThreeScene {
  * PCB editor. The panel can be popped out into a separate window and docked
  * back again, carrying its live WebGL view with it.
  * @param {any} app The PCBApp instance.
+ * @param {{view?: '3d'|'top'|'bottom'}} [opts] Initial view; defaults to 3D.
  */
-export async function openBoard3DViewer(app) {
+export async function openBoard3DViewer(app, opts = {}) {
+    const initialView = opts.view || '3d';
     // Single instance: re-opening shows a hidden panel, focuses a popped-out
     // window, or is otherwise a no-op.
     if (app._board3d && !app._board3d.closed) {
         if (app._board3d.hidden) app._board3d.show?.();
         else if (app._board3d.mode === 'popped') app._board3d.popWin?.focus();
+        app._board3d.setView?.(initialView);
         return;
     }
 
@@ -2043,7 +2193,7 @@ export async function openBoard3DViewer(app) {
     slideIn();
 
     /** @type {any} */
-    const panel = { mode: 'docked', popWin: null, closed: false, hidden: false, scene: null };
+    const panel = { mode: 'docked', popWin: null, closed: false, hidden: false, scene: null, view: initialView };
     app._board3d = panel;
     app._update3DButtonState?.();
 
@@ -2058,6 +2208,7 @@ export async function openBoard3DViewer(app) {
         panelPct = pct;
         applyDockLayout();
         panel.scene?.resize();
+        if (panel.view === 'top' || panel.view === 'bottom') board2d?.resize();
     };
     const onSplitUp = (/** @type {PointerEvent} */ e) => {
         if (!dragging) return;
@@ -2072,10 +2223,11 @@ export async function openBoard3DViewer(app) {
     window.addEventListener('pointermove', onSplitMove);
     window.addEventListener('pointerup', onSplitUp);
 
-    // ── Spinner / cover (synchronous build blocks the thread) ───────────
-    const startedAt = performance.now();
+    // ── Spinner / cover (the 3D build blocks the thread; armed in ensure3D) ─
+    let startedAt = 0;
     let spinnerShown = false;
-    let lastYieldAt = startedAt;
+    let lastYieldAt = 0;
+    let spinnerTimer = 0;
     const nextFrame = () =>
         new Promise((resolve) => window.requestAnimationFrame(() => resolve()));
     const revealSpinner = () => {
@@ -2084,7 +2236,6 @@ export async function openBoard3DViewer(app) {
             spinnerShown = true;
         }
     };
-    const spinnerTimer = window.setTimeout(revealSpinner, 1000);
     const hideSpinner = () => {
         window.clearTimeout(spinnerTimer);
         if (!panel.closed) dom.spinner?.classList.remove('show');
@@ -2093,24 +2244,105 @@ export async function openBoard3DViewer(app) {
         if (panel.closed) return;
         const now = performance.now();
         if (!spinnerShown && now - startedAt > 1000) revealSpinner();
-        if (spinnerShown && now - lastYieldAt > 50) {
+        // Yield on a fixed cadence regardless of whether the spinner is showing
+        // yet: the first second of the build would otherwise run without ever
+        // releasing the main thread, so a hide/close click during that window
+        // sat queued until the build paused (the panel felt unresponsive to
+        // close while it was still loading). Yielding every ~50ms keeps input
+        // — including the hide button — responsive throughout the build.
+        if (now - lastYieldAt > 50) {
             await nextFrame();
             lastYieldAt = performance.now();
         }
     };
 
-    // Let the grey cover paint before the WebGL context-create + shader-compile
-    // block runs, so the panel shows grey (not a black canvas) while it builds.
-    await nextFrame();
-    await nextFrame();
-    if (panel.closed) { hideSpinner(); return; }
+    // ── Lazy 3D state ───────────────────────────────────────────────────
+    // The WebGL scene and every board surface/body are built only when the 3D
+    // view is first shown (see ensure3D). Opening straight into a flat 2D view
+    // therefore pays no 3D cost — no GL context, no surface meshing, no STEP
+    // fetch. These are forward-declared so the shared panel handlers (sync,
+    // dock, pop-out, parts toggle, …) can reference them before the build runs.
+    /** @type {ThreeScene|null} */
+    let scene = null;
+    let build3DStarted = false;
+    /** @type {Map<string, THREE.Mesh>} compId → body mesh */
+    const bodyMeshes = new Map();
+    let partsVisible = true;
+    let rebuildSurfaces = () => {};
+    let syncBodies = () => {};
+    const setStatus = (/** @type {string} */ text) => {
+        if (dom.status && !panel.closed) dom.status.textContent = text;
+    };
 
-    // The render loop schedules its frames on whichever window currently hosts
-    // the canvas (see ThreeScene._raf), so tearing the view into a pop-up keeps
-    // it animating even when that pop-up is maximised over (and throttles) the
-    // main window. The scene logic still runs on this one JS thread.
-    const scene = new ThreeScene(window, dom.canvas);
-    panel.scene = scene;
+    // ── Flat 2D board preview (board2d.js) ──────────────────────────────
+    // The 2D side views do NOT use the 3D renderer: they draw the board the way
+    // the Gerber exporter builds its layers (copper / pads / vias / silk),
+    // straight to a 2D canvas. Created lazily the first time a 2D view shows.
+    /** @type {import('./board2d.js').Board2D|null} */
+    let board2d = null;
+    const boardData = () => ({
+        placements: app.placements,
+        tracks: app.tracks,
+        vias: app.vias,
+        texts: [...(app.texts?.values?.() || [])],
+        boardX: app._boardX || 0,
+        boardY: app._boardY || 0,
+        boardWidth: app._boardWidth,
+        boardHeight: app._boardHeight,
+        boardRadius: app._boardRadius,
+    });
+    const ensureBoard2D = () => {
+        if (!board2d) board2d = new Board2D(dom.canvas2d);
+        return board2d;
+    };
+
+    // ── View mode (3D ⇄ flat 2D top/bottom) ─────────────────────────────
+    // One shared sliding panel hosts both views; `panel.view` decides which
+    // canvas (WebGL vs 2D) is shown and which toolbar button is highlighted.
+    const applyView = (/** @type {'3d'|'top'|'bottom'} */ view) => {
+        panel.view = view;
+        if (view === 'top' || view === 'bottom') {
+            host.classList.add('cpcb3d-mode2d');
+            // The 2D canvas paints instantly; drop the grey 3D cover/spinner.
+            dom.cover?.classList.add('hide');
+            hideSpinner();
+            const b2 = ensureBoard2D();
+            b2.setSide(view);
+            b2.setData(boardData());
+            b2.resize();
+            b2.fit();
+            dom.btn2dTop?.classList.toggle('active', view === 'top');
+            dom.btn2dBottom?.classList.toggle('active', view === 'bottom');
+            if (dom.hint) dom.hint.textContent = 'Drag to pan · Wheel to zoom';
+        } else {
+            host.classList.remove('cpcb3d-mode2d');
+            // Show the grey cover only while the 3D scene is being built for the
+            // first time, so a 2D→3D switch on an already-built scene doesn't
+            // flash grey over the live view.
+            if (!build3DStarted) dom.cover?.classList.remove('hide');
+            ensure3D();
+            scene?.resize();
+            scene?.requestRender();
+            if (dom.hint) dom.hint.textContent =
+                'Drag to orbit · Right-drag to pan · Wheel to zoom';
+        }
+        app._update3DButtonState?.();
+    };
+    panel.setView = applyView;
+
+    // ── Lazy 3D build ───────────────────────────────────────────────────
+    // Runs once, the first time the 3D view is shown. Creates the WebGL scene,
+    // builds every board surface, then streams component bodies + STEP models.
+    const ensure3D = () => {
+        if (build3DStarted) return;
+        build3DStarted = true;
+
+        // The render loop schedules its frames on whichever window currently
+        // hosts the canvas (see ThreeScene._raf), so tearing the view into a
+        // pop-up keeps it animating even when that pop-up is maximised over
+        // (and throttles) the main window. The scene runs on this JS thread.
+        scene = new ThreeScene(window, dom.canvas);
+        panel.scene = scene;
 
     // ── Model fetching (KiCad STEP, cached per footprint) ───────────────
     const fetcher = getComponentLibrary()?.kicadFetcher;
@@ -2149,7 +2381,7 @@ export async function openBoard3DViewer(app) {
         scene.removeMesh(surf[key]);
         surf[key] = data && data.faces.length ? scene.addMesh(data) : null;
     };
-    const rebuildSurfaces = () => {
+    rebuildSurfaces = () => {
         const w = app._boardWidth || 100;
         const h = app._boardHeight || 80;
         const r = app._boardRadius || 0;
@@ -2157,31 +2389,34 @@ export async function openBoard3DViewer(app) {
         outline = roundedRectOutline(0, -h, w, h, r);
         // Bore drilled holes (pad drills + mounting holes) clean through the
         // slab so they read as real openings; only holes wholly inside the board.
-        const boardHoles = collectBoardHoles(app.placements).filter((ho) =>
-            ho.r > 0 && ho.x - ho.r > 0 && ho.x + ho.r < w &&
+        const drilledHoles = collectBoardHoles(app.placements).filter((ho) => ho.r > 0);
+        const boardHoles = drilledHoles.filter((ho) =>
+            ho.x - ho.r > 0 && ho.x + ho.r < w &&
             ho.z - ho.r > -h && ho.z + ho.r < 0);
         scene.removeMesh(surf.board);
         surf.board = scene.addMesh(
             boardWithHoles(outline, boardHoles, 0, BOARD_THICKNESS, COLOR_BOARD, COLOR_BOARD_EDGE),
             scene.boardMaterial);
         scene.positionGlint(w / 2, -h / 2, Math.max(w, h));
-        swapSurface('copper', clipMeshToOutline(buildCopperMesh(app.tracks), outline));
+        // Punch the same drilled holes through the flat copper so tracks/pours
+        // crossing a hole are bored out instead of lidding over an open hole.
+        swapSurface('copper', clipMeshToOutline(
+            punchHolesInFlatMesh(buildCopperMesh(app.tracks), drilledHoles), outline));
         swapSurface('via', clipMeshToOutline(buildViaMesh(app.vias), outline));
-        swapSurface('silk', clipMeshToOutline(buildSilkMesh(app.placements), outline));
-        swapSurface('text', clipMeshToOutline(buildTextMesh(app), outline));
+        swapSurface('silk', clipMeshToOutline(
+            punchHolesInFlatMesh(buildSilkMesh(app.placements), drilledHoles), outline));
+        swapSurface('text', clipMeshToOutline(
+            punchHolesInFlatMesh(buildTextMesh(app), drilledHoles), outline));
         const padsMesh = emptyMesh();
         for (const [, pl] of app.placements) appendMesh(padsMesh, padMesh(pl));
         swapSurface('pads', clipMeshToOutline(padsMesh, outline));
     };
 
     // ── Component bodies (OBJ now, STEP lazily, diffed on live re-sync) ──
-    /** @type {Map<string, THREE.Mesh>} compId → body mesh */
-    const bodyMeshes = new Map();
     /** @type {Set<string>} ids currently showing a real (OBJ/STEP) model */
     const resolved = new Set();
     /** @type {Map<string, string>} id → placement signature (change detection) */
     const bodySig = new Map();
-    let partsVisible = true;
     const placementSig = (/** @type {any} */ pl) =>
         `${pl.x}|${pl.y}|${pl.rotation || 0}|${pl.layer || ''}|${pl.footprint || ''}|${pl.model3dObj ? 1 : 0}`;
 
@@ -2219,7 +2454,7 @@ export async function openBoard3DViewer(app) {
     // Diff component bodies against the current placements: only new, removed or
     // moved components are rebuilt — unchanged ones (the common case while
     // routing tracks) keep their already-loaded STEP models untouched.
-    const syncBodies = () => {
+    syncBodies = () => {
         const ids = new Set();
         /** @type {Array<[string, any]>} */
         const toLoad = [];
@@ -2247,44 +2482,74 @@ export async function openBoard3DViewer(app) {
         for (const [id, pl] of toLoad) loadModelFor(id, pl);
     };
 
-    // ── Initial build ───────────────────────────────────────────────────
-    rebuildSurfaces();
-    // Frame the camera to the board NOW, before the body build or any yielded
-    // paint, so the very first frame is already at the final framing and the
-    // view never jumps as components stream in.
-    scene.frameAll();
-    // Fade the grey cover out once the board has rendered its first real frame.
-    await nextFrame();
-    if (panel.closed) { hideSpinner(); return; }
-    await nextFrame();
-    dom.cover?.classList.add('hide');
-    await checkpoint();
+        // ── Initial build ───────────────────────────────────────────────
+        // Build all board surfaces synchronously and frame the camera to the
+        // board now, then stream component bodies + STEP models asynchronously.
+        rebuildSurfaces();
+        scene.frameAll();
+        scene.resize();
+        scene.requestRender();
+        (async () => {
+            startedAt = performance.now();
+            lastYieldAt = startedAt;
+            spinnerTimer = window.setTimeout(revealSpinner, 1000);
+            // Fade the grey cover out once the board has rendered its first frame.
+            await nextFrame();
+            if (panel.closed) { hideSpinner(); return; }
+            await nextFrame();
+            dom.cover?.classList.add('hide');
+            await checkpoint();
 
-    // Component bodies: parsing OBJ bodies is the dominant synchronous cost on
-    // dense boards, so yield occasionally through checkpoint() so the spinner
-    // can surface and the panel repaint.
-    const placements = [...app.placements.entries()];
-    let built = 0;
-    for (const [id, pl] of placements) {
-        addBody(id, pl);
-        if ((++built & 15) === 0) await checkpoint();
-    }
+            // Component bodies: parsing OBJ bodies is the dominant synchronous
+            // cost on dense boards, so yield occasionally through checkpoint()
+            // so the spinner can surface and the panel repaint.
+            const placements = [...app.placements.entries()];
+            let built = 0;
+            for (const [id, pl] of placements) {
+                addBody(id, pl);
+                if ((++built & 15) === 0) await checkpoint();
+            }
+            const total = placements.length;
+            if (!total) setStatus('No components placed');
 
-    const setStatus = (text) => { if (dom.status && !panel.closed) dom.status.textContent = text; };
-    const total = placements.length;
-    if (!total) setStatus('No components placed');
+            // ── Lazy STEP load (with progress) ──────────────────────────
+            if (fetcher && total) {
+                let loaded = 0;
+                await Promise.all(placements.map(async ([id, pl]) => {
+                    await loadModelFor(id, pl);
+                    loaded++;
+                    if (!panel.closed) {
+                        setStatus(`${loaded}/${total} components · ${resolved.size} with 3D models`);
+                    }
+                }));
+            }
+            setStatus(total
+                ? `${total} components · ${resolved.size} with 3D models`
+                : 'No components placed');
+            hideSpinner();
+        })();
+    };
 
     // ── View buttons ────────────────────────────────────────────────────
-    dom.btnTop?.addEventListener('click', () => scene.setView([0, 1, 0.0001]));
-    dom.btnIso?.addEventListener('click', () => scene.setView([0.7, 0.9, 1.1]));
-    dom.btnFit?.addEventListener('click', () => scene.frameAll());
+    // These navigate the orbitable 3D view, so they also drop any flat 2D lock.
+    dom.btnTop?.addEventListener('click', () => { applyView('3d'); scene?.setView([0, 1, 0.0001]); });
+    dom.btnIso?.addEventListener('click', () => { applyView('3d'); scene?.setView([0.7, 0.9, 1.1]); });
+    dom.btnFit?.addEventListener('click', () => {
+        if (panel.view === 'top' || panel.view === 'bottom') board2d?.fit();
+        else scene?.frameAll();
+    });
+
+    // ── 2D Top/Bottom side buttons (only visible while a flat 2D view shows).
+    // Two side-by-side buttons; the active one is highlighted (see applyView).
+    dom.btn2dTop?.addEventListener('click', () => { app._last2DSide = 'top'; applyView('top'); });
+    dom.btn2dBottom?.addEventListener('click', () => { app._last2DSide = 'bottom'; applyView('bottom'); });
 
     // ── Parts toggle: show/hide every component body mesh ───────────────
     dom.btnParts?.addEventListener('click', () => {
         partsVisible = !partsVisible;
         for (const mesh of bodyMeshes.values()) mesh.visible = partsVisible;
         dom.btnParts?.classList.toggle('off', !partsVisible);
-        scene.requestRender();
+        scene?.requestRender();
     });
 
     // ── Live sync: mirror 2D edits into the 3D view (debounced) ─────────
@@ -2302,6 +2567,10 @@ export async function openBoard3DViewer(app) {
             if (panel.closed || panel.hidden) return;
             rebuildSurfaces();
             syncBodies();
+            // Keep the flat 2D view in step with edits when it is the one showing.
+            if (board2d && (panel.view === 'top' || panel.view === 'bottom')) {
+                board2d.setData(boardData());
+            }
         }, 300);
     };
     // Public hook so non-history edits (e.g. a schematic-driven re-sync that
@@ -2317,7 +2586,7 @@ export async function openBoard3DViewer(app) {
 
     // ── Pop out / dock / close ──────────────────────────────────────────
     let pollTimer = 0;
-    const dock = (/** @type {boolean} */ popupClosing = false) => {
+    const dock = () => {
         if (panel.mode !== 'popped') return;
         if (pollTimer) { window.clearInterval(pollTimer); pollTimer = 0; }
         // Re-home the host (and its live canvas) back into the main document as
@@ -2332,11 +2601,12 @@ export async function openBoard3DViewer(app) {
         dom.btnPop.textContent = '⇱ Pop out';
         dom.btnPop.title = 'Pop out to a separate window';
         panel.mode = 'docked';
-        if (!popupClosing && panel.popWin && !panel.popWin.closed) {
+        if (panel.popWin && !panel.popWin.closed) {
             try { panel.popWin.close(); } catch { /* ignore */ }
         }
         panel.popWin = null;
-        scene.resize();
+        scene?.resize();
+        if (panel.view === 'top' || panel.view === 'bottom') board2d?.resize();
     };
     const popOut = () => {
         if (panel.mode === 'popped') { panel.popWin?.focus(); return; }
@@ -2369,15 +2639,25 @@ export async function openBoard3DViewer(app) {
         dom.btnPop.title = 'Dock back into the main window';
         panel.mode = 'popped';
         panel.popWin = win;
-        scene.resize();
-        // Dock back automatically if the user closes the pop-up. pagehide fires
-        // before the document is destroyed, so the host can be rescued first; a
-        // poll covers browsers that close without a usable pagehide.
-        win.addEventListener('pagehide', () => { if (panel.mode === 'popped') dock(true); }, { once: true });
+        scene?.resize();
+        if (panel.view === 'top' || panel.view === 'bottom') board2d?.resize();
+        // Closing the pop-up with its red X should HIDE the view, not destroy
+        // it — so re-opening is instant (no 3D rebuild / STEP re-fetch). Rescue
+        // the host back into the main document first (pagehide fires before the
+        // pop-up document is torn down), then hide the now-docked panel. The
+        // Dock button instead leaves it visible; it sets panel.mode='docked'
+        // before closing the window, so these guards only fire for a genuine
+        // user window close. A poll covers browsers with no usable pagehide.
+        const rescueAndHide = () => {
+            if (panel.mode !== 'popped') return;
+            dock();
+            hidePanel();
+        };
+        win.addEventListener('pagehide', rescueAndHide, { once: true });
         pollTimer = window.setInterval(() => {
             if (win.closed) {
                 window.clearInterval(pollTimer); pollTimer = 0;
-                if (panel.mode === 'popped') dock(true);
+                rescueAndHide();
             }
         }, 500);
     };
@@ -2394,7 +2674,8 @@ export async function openBoard3DViewer(app) {
         window.removeEventListener('pointermove', onSplitMove);
         window.removeEventListener('pointerup', onSplitUp);
         hideSpinner();
-        scene.dispose();
+        scene?.dispose();
+        board2d?.dispose();
         if (panel.mode === 'popped' && panel.popWin && !panel.popWin.closed) {
             try { panel.popWin.close(); } catch { /* ignore */ }
         }
@@ -2428,7 +2709,8 @@ export async function openBoard3DViewer(app) {
         panel.hidden = false;
         app._update3DButtonState?.();
         slideIn(() => {
-            scene.resize();
+            scene?.resize();
+            if (panel.view === 'top' || panel.view === 'bottom') board2d?.resize();
             scheduleSync();
         });
     };
@@ -2437,24 +2719,8 @@ export async function openBoard3DViewer(app) {
 
     dom.btnPop?.addEventListener('click', () => (panel.mode === 'popped' ? dock() : popOut()));
 
-    // ── Initial lazy STEP load (with progress) ──────────────────────────
-    if (fetcher && total) {
-        let loaded = 0;
-        await Promise.all(placements.map(async ([id, pl]) => {
-            await loadModelFor(id, pl);
-            loaded++;
-            if (!panel.closed) {
-                setStatus(`${loaded}/${total} components · ${resolved.size} with 3D models`);
-            }
-        }));
-    }
-
-    setStatus(total
-        ? `${total} components · ${resolved.size} with 3D models`
-        : 'No components placed');
-    hideSpinner();
-    // No frameAll here: the camera was framed to the board up front (before the
-    // geometry build), so the view never jumps and any orbit the user did while
-    // STEP models streamed in is preserved.
+    // Honour the initial view. Opening into 2D never builds 3D (instant); the
+    // 3D scene + STEP models are built lazily by ensure3D when 3D is first shown.
+    applyView(initialView);
 }
 

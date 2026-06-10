@@ -4906,25 +4906,51 @@ export default class PCBApp {
     /**
      * Toggle the interactive 3D board visualiser. The toolbar 3D View button
      * opens/shows it when hidden and hides it when visible; the button stays
-     * highlighted while the panel is active.
+     * highlighted while the panel is active. The 3D and 2D views share one
+     * panel, so opening 3D simply re-aims the shared panel.
      */
     open3DView() {
         const p = this._board3d;
-        if (p && !p.closed && !p.hidden) {
-            p.hide?.();
-        } else {
-            openBoard3DViewer(this);
+        if (p && !p.closed) {
+            if (!p.hidden && p.view === '3d') { p.hide?.(); return; }
+            if (p.hidden) p.show?.();
+            p.setView?.('3d');
+            return;
         }
+        openBoard3DViewer(this, { view: '3d' });
     }
 
     /**
-     * Reflect the 3D panel's visibility on the toolbar 3D View button.
+     * Toggle the flat 2D board visualiser for one side. Reuses the same sliding
+     * panel as the 3D view (the two buttons are mutually exclusive): clicking
+     * the active side hides the panel; any other state opens/switches it to
+     * `side`.
+     * @param {'top'|'bottom'} [side]
+     */
+    open2DView(side = 'top') {
+        this._last2DSide = side;
+        const p = this._board3d;
+        if (p && !p.closed) {
+            if (!p.hidden && p.view === side) { p.hide?.(); return; }
+            if (p.hidden) p.show?.();
+            p.setView?.(side);
+            return;
+        }
+        openBoard3DViewer(this, { view: side });
+    }
+
+    /**
+     * Reflect the shared render panel's state on the toolbar 3D and 2D View
+     * buttons. Only one is highlighted at a time (or neither, when hidden).
      */
     _update3DButtonState() {
-        const btn = document.getElementById('pcb3dView');
-        if (!btn) return;
-        const active = !!(this._board3d && !this._board3d.closed && !this._board3d.hidden);
-        btn.classList.toggle('active', active);
+        const btn3d = document.getElementById('pcb3dView');
+        const btn2d = document.getElementById('pcb2dView');
+        const p = this._board3d;
+        const live = !!(p && !p.closed && !p.hidden);
+        const view = live ? p.view : null;
+        btn3d?.classList.toggle('active', view === '3d');
+        btn2d?.classList.toggle('active', view === 'top' || view === 'bottom');
     }
 
     /**
