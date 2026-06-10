@@ -96,16 +96,24 @@ export function findNearbyPin(components, worldPos, tolerance = 0.5, shapes = nu
 
     for (const component of components) {
         if (!component.symbol || !component.symbol.pins) continue;
+        // Hoist the component transform out of the per-pin loop. The old code
+        // called component.getPinPosition(pin.number) for every pin, which
+        // re-scanned the pin list by number (O(pins²)) and allocated a String
+        // per call — needless work on every mousemove during placement.
+        const cx = component.x, cy = component.y;
+        const rad = (component.rotation || 0) * Math.PI / 180;
+        const cos = Math.cos(rad), sin = Math.sin(rad);
+        const mirror = !!component.mirror;
         for (const pin of component.symbol.pins) {
-            const pinWorld = component.getPinPosition
-                ? component.getPinPosition(pin.number)
-                : { x: component.x + pin.x, y: component.y + pin.y };
-            if (!pinWorld) continue;
-            const dist = Math.hypot(worldPos.x - pinWorld.x, worldPos.y - pinWorld.y);
+            const lx = mirror ? -pin.x : pin.x;
+            const ly = pin.y;
+            const wx = lx * cos - ly * sin + cx;
+            const wy = lx * sin + ly * cos + cy;
+            const dist = Math.hypot(worldPos.x - wx, worldPos.y - wy);
             if (dist < minDist) {
                 const pinKey = pin._key || pin._id || pin.number || `${pin.x},${pin.y}`;
                 minDist = dist;
-                nearest = { component, pin, pinKey, distance: dist, worldPos: { x: pinWorld.x, y: pinWorld.y } };
+                nearest = { component, pin, pinKey, distance: dist, worldPos: { x: wx, y: wy } };
             }
         }
     }

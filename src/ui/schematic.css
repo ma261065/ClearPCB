@@ -1317,6 +1317,12 @@ body {
     z-index: 100;
     transition: width 0.2s, opacity 0.2s;
     overflow: hidden;
+    /* Promote this opaque overlay to its own compositing layer. Without this
+       it shares the canvas paint layer, so the full-width drawing crosshair
+       sweeping underneath forces its footprint/3D-preview SVGs to
+       re-rasterize every mouse move (lag when the cursor's Y lines up with
+       those previews). Its own layer isolates those repaints. */
+    will-change: transform;
 }
 
 .component-picker.collapsed {

@@ -199,6 +199,17 @@ export class Viewport {
     get height() {
         return this.svg.clientHeight || this.container.clientHeight;
     }
+
+    /**
+     * True when the viewport has a usable, finite on-screen size.
+     * Returns false while the schematic slide is hidden (0 clientWidth) or
+     * before layout, where viewBox math would divide by zero and poison the
+     * viewBox with Infinity/NaN.
+     */
+    _hasValidSize() {
+        const w = this.width, h = this.height;
+        return Number.isFinite(w) && Number.isFinite(h) && w > 0 && h > 0;
+    }
     
     /** Pixels per world unit (mm). */
     get scale() {
@@ -270,6 +281,11 @@ export class Viewport {
     _onResize() {
         // Invalidate rect cache since viewport dimensions changed
         this.cachedRect = null;
+
+        // Ignore resize events fired while the viewport has no size (e.g. the
+        // schematic slide is hidden behind the PCB slide). Doing the aspect
+        // math here would divide by zero and corrupt the viewBox permanently.
+        if (!this._hasValidSize()) return;
         
         // Maintain aspect ratio - adjust height to match new container
         const aspect = this.height / this.width;
@@ -395,6 +411,10 @@ export class Viewport {
         const newIndex = Math.max(this.minZoomIndex, Math.min(this.maxZoomIndex, index));
         
         if (newIndex === this.zoomIndex) return;
+
+        // Ignore zoom requests while the viewport has no size; the aspect ratio
+        // would be NaN and corrupt the viewBox.
+        if (!this._hasValidSize()) return;
         
         const newWidth = this.zoomLevels[newIndex];
         const newHeight = newWidth * (this.height / this.width);
@@ -436,6 +456,9 @@ export class Viewport {
     
     /** Reset zoom to 100% and position the origin 3 mm from the ruler edges. */
     resetView() {
+        // Bail out if the viewport has no size yet; the ruler/aspect math below
+        // divides by width and would set viewBox.x/y to Infinity/NaN.
+        if (!this._hasValidSize()) return;
         // Reset to 100% zoom (index 8)
         this.zoomIndex = 8;
         const aspect = this.height / this.width;
@@ -473,6 +496,10 @@ export class Viewport {
      * @param {number} [paddingPercent=10] - Extra margin as a % of content size.
      */
     fitToBounds(minX, minY, maxX, maxY, paddingPercent = 10) {
+        // Skip when the viewport has no on-screen size; the aspect ratio below
+        // would be 0/0 = NaN and poison the viewBox.
+        if (!this._hasValidSize()) return;
+
         const contentWidth = maxX - minX;
         const contentHeight = maxY - minY;
         
@@ -1493,8 +1520,14 @@ export class Viewport {
     _positionCrosshair() {
         if (this.crosshairContainer.style.display === 'none' || !this._crosshairWorld) return;
         const s = this.worldToScreen(this._crosshairWorld);
-        const w = this.width;
-        const h = this.height;
+        // Use the cached rect (already populated by worldToScreen above) for the
+        // line extents. Reading this.width/this.height hits svg.clientWidth/
+        // clientHeight live, which forces a synchronous layout reflow on every
+        // call — and this runs twice per mouse move during placement/drawing,
+        // stalling the frame so the crosshair (and any synced preview) lag.
+        const rect = this._getCachedRect();
+        const w = rect.width;
+        const h = rect.height;
         const rs = this.showRulers ? this.rulerSize : 0;
         this._crosshairXLine.setAttribute('x1', String(rs));
         this._crosshairXLine.setAttribute('y1', String(s.y));
