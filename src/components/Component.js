@@ -1,5 +1,6 @@
 import { createLockIcon, LOCK_SIZE } from '../core/ui-helpers.js';
 import { Text } from '../shapes/text.js';
+import { compactObjText } from './LCSCFetcher.js';
 
 /**
  * @typedef {{
@@ -1504,9 +1505,11 @@ export class Component {
                 json.def.footprintName = this.definition.footprintName;
             }
             // Persist 3D model geometry so the 3D viewer survives save/reload
-            // (e.g. autorecover) without re-fetching from the supplier.
+            // (e.g. autorecover) without re-fetching from the supplier. Compact
+            // it on the way out so models cached before compaction existed (or
+            // from any other source) are also rounded to 4 dp in the file.
             if (this.definition.model3dObj) {
-                json.def.model3dObj = this.definition.model3dObj;
+                json.def.model3dObj = compactObjText(this.definition.model3dObj);
             }
             if (this.definition.model3dUrl) {
                 json.def.model3dUrl = this.definition.model3dUrl;

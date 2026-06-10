@@ -13,6 +13,32 @@
  * Symbol and footprint data comes from KiCadFetcher.
  */
 
+/**
+ * Shrink an OBJ string for storage by rounding geometry coordinates to 4
+ * decimal places (0.1 µm — far finer than the 3D viewer needs). Suppliers ship
+ * 6-decimal vertices/normals, which bloats the serialised document for no
+ * visual benefit. Only numeric data on geometry lines (v, vn, vt) is touched;
+ * material/face/group lines pass through unchanged. Idempotent, so it is safe
+ * to run again at save time on already-stored models.
+ * @param {string} objText
+ * @returns {string}
+ */
+export function compactObjText(objText) {
+    if (!objText) return objText;
+    const round = (/** @type {string} */ m) => {
+        const n = Math.round(parseFloat(m) * 1e4) / 1e4;
+        return Number.isFinite(n) ? String(n) : m;
+    };
+    return objText.split('\n').map((line) => {
+        // Only geometry lines carry the high-precision coordinates worth
+        // shrinking; leave faces, materials, groups, etc. untouched.
+        if (/^(v|vn|vt) /.test(line)) {
+            return line.replace(/-?\d+\.\d+(?:[eE][-+]?\d+)?/g, round);
+        }
+        return line;
+    }).join('\n');
+}
+
 export class LCSCFetcher {
     /** Initialise API endpoints, CORS proxies and in-memory caches. */
     constructor() {
@@ -310,18 +336,7 @@ export class LCSCFetcher {
      * @returns {string}
      */
     _compactObj(objText) {
-        const round = (/** @type {string} */ m) => {
-            const n = Math.round(parseFloat(m) * 1e4) / 1e4;
-            return Number.isFinite(n) ? String(n) : m;
-        };
-        return objText.split('\n').map((line) => {
-            // Only geometry lines carry the high-precision coordinates worth
-            // shrinking; leave faces, materials, groups, etc. untouched.
-            if (/^(v|vn|vt) /.test(line)) {
-                return line.replace(/-?\d+\.\d+(?:[eE][-+]?\d+)?/g, round);
-            }
-            return line;
-        }).join('\n');
+        return compactObjText(objText);
     }
 
     /**
