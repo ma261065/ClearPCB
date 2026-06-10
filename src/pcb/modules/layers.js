@@ -105,9 +105,12 @@ export function buildLayerPanel(app) {
      * @param {string} title
      * @param {string} sectionClass - extra class so we can scope the master
      *   eye's iteration to rows of this section.
-     * @returns {{row: HTMLElement, eyeBtn: HTMLButtonElement}}
+     * @param {boolean} [withLock] - also add a master lock button in the lock
+     *   column (only the Layers section has per-row locks).
+     * @returns {{row: HTMLElement, eyeBtn: HTMLButtonElement,
+     *   lockBtn: HTMLButtonElement|null}}
      */
-    const makeSectionHeader = (title, sectionClass) => {
+    const makeSectionHeader = (title, sectionClass, withLock = false) => {
         const row = document.createElement('div');
         row.className = 'pcb-layer-row pcb-layer-section-header';
         const heading = document.createElement('span');
@@ -119,18 +122,28 @@ export function buildLayerPanel(app) {
         row.appendChild(heading);
         // empty pencil col
         row.appendChild(document.createElement('span'));
-        // empty lock col
-        row.appendChild(document.createElement('span'));
+        // lock col: a master lock button when requested, else an empty spacer
+        let lockBtn = null;
+        if (withLock) {
+            lockBtn = document.createElement('button');
+            lockBtn.className = `pcb-layer-btn lock-btn section-master-lock ${sectionClass}-master-lock`;
+            lockBtn.innerHTML = LOCK_OPEN_SVG;
+            lockBtn.title = `Lock/Unlock all ${title.toLowerCase()}`;
+            row.appendChild(lockBtn);
+        } else {
+            row.appendChild(document.createElement('span'));
+        }
         const eyeBtn = document.createElement('button');
         eyeBtn.className = `pcb-layer-btn vis-btn section-master-vis ${sectionClass}-master active`;
         eyeBtn.innerHTML = EYE_OPEN_SVG;
         eyeBtn.title = `Show/Hide all ${title.toLowerCase()}`;
         row.appendChild(eyeBtn);
-        return { row, eyeBtn };
+        return { row, eyeBtn, lockBtn };
     };
 
     // ---- Layers section -------------------------------------------------
-    const { row: layersHeader, eyeBtn: layersMasterEye } = makeSectionHeader('Layers', 'layers');
+    const { row: layersHeader, eyeBtn: layersMasterEye, lockBtn: layersMasterLock } =
+        makeSectionHeader('Layers', 'layers', true);
     panel.appendChild(layersHeader);
 
     // Pin toggle, sitting just left of the "Layers" heading text. Keeps the
@@ -172,6 +185,39 @@ export function buildLayerPanel(app) {
             if (!visBtn) continue;
             visBtn.classList.toggle('active', allLayersVisible);
             visBtn.innerHTML = allLayersVisible ? EYE_OPEN_SVG : EYE_CLOSED_SVG;
+        }
+    });
+
+    // Master lock: lock or unlock every layer at once. If locking would leave
+    // the active edit layer locked, hand editing to the next unlocked layer.
+    let allLayersLocked = PCB_LAYERS.every(l => l.locked);
+    const syncMasterLock = () => {
+        if (!layersMasterLock) return;
+        layersMasterLock.classList.toggle('active', allLayersLocked);
+        layersMasterLock.innerHTML = allLayersLocked ? LOCK_CLOSED_SVG : LOCK_OPEN_SVG;
+        layersMasterLock.title = allLayersLocked ? 'Unlock all layers' : 'Lock all layers';
+    };
+    syncMasterLock();
+    layersMasterLock?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        allLayersLocked = !allLayersLocked;
+        syncMasterLock();
+        const editLayer = PCB_LAYERS.find(l => l.edit);
+        for (const layer of PCB_LAYERS) {
+            layer.locked = allLayersLocked;
+            app._onLayerLockChanged?.(layer.id, allLayersLocked);
+        }
+        // Update only LAYER row lock buttons.
+        for (const row of panel.querySelectorAll('.pcb-layer-row.section-layers')) {
+            const lockBtn = /** @type {HTMLButtonElement|null} */ (row.querySelector('.lock-btn'));
+            if (!lockBtn) continue;
+            lockBtn.classList.toggle('active', allLayersLocked);
+            lockBtn.innerHTML = allLayersLocked ? LOCK_CLOSED_SVG : LOCK_OPEN_SVG;
+            lockBtn.title = allLayersLocked ? 'Unlock layer' : 'Lock layer';
+        }
+        // Locking everything would leave the edit layer locked; move editing on.
+        if (allLayersLocked && editLayer) {
+            _advanceEditLayerFromLocked(app, editLayer.id);
         }
     });
 
@@ -223,6 +269,9 @@ export function buildLayerPanel(app) {
                 _advanceEditLayerFromLocked(app, layer.id);
             }
             app._onLayerLockChanged?.(layer.id, layer.locked);
+            // Keep the master lock in sync with the per-row states.
+            allLayersLocked = PCB_LAYERS.every(l => l.locked);
+            syncMasterLock();
         });
         row.appendChild(lockBtn);
 
