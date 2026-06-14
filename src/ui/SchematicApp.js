@@ -115,6 +115,7 @@ export default class SchematicApp {
         this.shapes = [];
         this.components = [];
         this.selection = new SelectionManager({
+            getScale: () => this.viewport?.scale,
             onSelectionChanged: (shapes) => this._onSelectionChanged(shapes)
         });
         this._updateSelectableItems();

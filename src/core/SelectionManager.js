@@ -15,6 +15,8 @@ export class SelectionManager {
      * Create a new SelectionManager.
      * @param {Object} [options]
      * @param {number} [options.tolerance=0.5] - Hit-test tolerance in world units
+     * @param {number} [options.screenTolerancePx=6] - Minimum hit tolerance in screen pixels (kept constant on screen across zoom)
+     * @param {Function} [options.getScale] - Returns current viewport scale (px per world unit) so tolerance stays usable when zoomed out
      * @param {Function} [options.onSelectionChanged] - Callback fired when selection changes
      */
     constructor(options = {}) {
@@ -26,6 +28,11 @@ export class SelectionManager {
         
         // Hit test tolerance in world units
         this.tolerance = options.tolerance || 0.5;
+        // Minimum on-screen hit tolerance (px). At low zoom a fixed world-unit
+        // tolerance shrinks to sub-pixel size, making thin shapes nearly
+        // impossible to click; this floor keeps the target a usable size.
+        this.screenTolerancePx = options.screenTolerancePx || 6;
+        this.getScale = options.getScale || null;
         
         // Cache for hitTest results (point-based)
         this.hitTestCache = {
@@ -36,6 +43,19 @@ export class SelectionManager {
         
         // Callbacks
         this.onSelectionChanged = options.onSelectionChanged || null;
+    }
+    
+    /**
+     * Effective hit tolerance in world units: the larger of the configured
+     * world tolerance and the screen-pixel floor converted to world units.
+     * @returns {number}
+     */
+    _effectiveTolerance() {
+        const scale = this.getScale ? this.getScale() : 0;
+        if (scale && scale > 0) {
+            return Math.max(this.tolerance, this.screenTolerancePx / scale);
+        }
+        return this.tolerance;
     }
     
     /**
@@ -95,8 +115,9 @@ export class SelectionManager {
      * @returns {Shape|Shape[]|null}
      */
     hitTest(point, all = false) {
-        // Check cache - if same point was tested recently, return cached result
-        const cacheKey = `${point.x},${point.y}`;
+        const tol = this._effectiveTolerance();
+        // Check cache - if same point + tolerance was tested recently, reuse
+        const cacheKey = `${point.x},${point.y},${tol}`;
         if (this.hitTestCache.lastPoint === cacheKey) {
             if (all) {
                 if (this.hitTestCache.lastAllResults) return this.hitTestCache.lastAllResults;
@@ -113,7 +134,7 @@ export class SelectionManager {
             for (let i = this.shapes.length - 1; i >= 0; i--) {
                 const shape = this.shapes[i];
                 if (!shape.visible || shape._culled) continue;
-                if (shape.hitTest(point, this.tolerance)) {
+                if (shape.hitTest(point, tol)) {
                     hits.push(shape);
                 }
             }
@@ -131,7 +152,7 @@ export class SelectionManager {
             const shape = this.shapes[i];
             if (!shape.visible || shape._culled || !shape.selected) continue;
             
-            if (shape.hitTest(point, this.tolerance)) {
+            if (shape.hitTest(point, tol)) {
                 this.hitTestCache.lastPoint = cacheKey;
                 this.hitTestCache.lastResult = shape;
                 this.hitTestCache.lastAllResults = null; // Invalidate 'all' because we skipped unselected
@@ -144,7 +165,7 @@ export class SelectionManager {
             const shape = this.shapes[i];
             if (!shape.visible || shape._culled || shape.selected) continue;
             
-            if (shape.hitTest(point, this.tolerance)) {
+            if (shape.hitTest(point, tol)) {
                this.hitTestCache.lastPoint = cacheKey;
                this.hitTestCache.lastResult = shape;
                this.hitTestCache.lastAllResults = null;
