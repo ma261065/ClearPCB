@@ -9,6 +9,7 @@
 import { ModifyShapeCommand, ModifyPropertyCommand, BatchCommand, AddShapeCommand, DeleteShapesCommand } from '../../core/CommandHistory.js';
 import { VERTEX_EPSILON, applySplitLabelRules, applySplitNetRules } from './wire.js';
 import { detachLabel } from './label-attachment.js';
+import { canDecomposeRoundedCorners, decomposeRoundedCorners } from '../../shapes/shape-decompose.js';
 
 /**
  * @typedef {HTMLDivElement & {
@@ -635,9 +636,40 @@ export function showSegmentContextMenu(app, shape, edgeId, clientX, clientY) {
         });
     }
 
+    if (canDecomposeRoundedCorners(shape)) {
+        items.push({
+            text: 'Decompose corners',
+            onClick: () => decomposeShapeCorners(app, shape)
+        });
+    }
+
     if (items.length > 0) {
         createContextMenu(items, clientX, clientY);
     }
+}
+
+/**
+ * Replace a rounded-corner polygon with its decomposed equivalent (straight
+ * edges + real arc edges) as one undoable batch, then select the result.
+ * Shared by the segment context menu and the properties-panel action button.
+ * @param {object} app
+ * @param {any} shape - The rounded-corner polygon to decompose.
+ * @returns {boolean} Whether a decomposition was applied.
+ */
+export function decomposeShapeCorners(app, shape) {
+    const result = decomposeRoundedCorners(shape);
+    if (!result) return false;
+
+    const batch = new BatchCommand('Decompose corners');
+    batch.add(new DeleteShapesCommand(app, [shape]));
+    batch.add(new AddShapeCommand(app, result));
+    app.history.execute(batch);
+
+    app.selection?.select?.(result, false);
+    app.renderShapes(true);
+    app.fileManager?.setDirty?.(true);
+    app._updatePropertiesPanel?.(app.selection?.getSelection?.() || []);
+    return true;
 }
 
 /**

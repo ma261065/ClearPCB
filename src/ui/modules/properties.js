@@ -2,6 +2,8 @@ import { setCheckboxState } from './ui-utils.js';
 import { ModifyPropertyCommand } from '../../core/CommandHistory.js';
 import { rotateNetOrientation } from '../../shapes/net.js';
 import { adaptShortcutText } from './platform-keys.js';
+import { canDecomposeRoundedCorners } from '../../shapes/shape-decompose.js';
+import { decomposeShapeCorners } from './context-menu.js';
 
 /**
  * Initializes the properties panel and subscribes to `selectionChanged`
@@ -443,6 +445,14 @@ export function updatePropertiesPanel(app, selection) {
         const div = document.createElement('div');
         div.className = 'prop-actions';
 
+        if (selection.length === 1 && canDecomposeRoundedCorners(selection[0]) && !allLocked) {
+            const decomposeBtn = document.createElement('button');
+            decomposeBtn.title = 'Convert rounded corners into editable arc edges';
+            decomposeBtn.id = 'propDecomposeCorners';
+            decomposeBtn.textContent = '⌒ Decompose corners';
+            div.appendChild(decomposeBtn);
+        }
+
         const deleteBtn = document.createElement('button');
         deleteBtn.className = 'ribbon-danger';
         deleteBtn.title = 'Delete (Del)';
@@ -467,6 +477,13 @@ function _bindActionButtons(app) {
     const deleteBtn = document.getElementById('ribbonDelete');
     if (deleteBtn) {
         deleteBtn.addEventListener('click', () => app._deleteSelected());
+    }
+    const decomposeBtn = document.getElementById('propDecomposeCorners');
+    if (decomposeBtn) {
+        decomposeBtn.addEventListener('click', () => {
+            const sel = app.selection?.getSelection?.() || [];
+            if (sel.length === 1) decomposeShapeCorners(app, sel[0]);
+        });
     }
     const cutBtn = document.getElementById('propCut');
     if (cutBtn) {
