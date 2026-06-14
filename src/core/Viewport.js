@@ -1320,34 +1320,30 @@ export class Viewport {
         if (this.units === 'inch') {
             // Inch-based nice numbers: 0.0625" (1/16), 0.125" (1/8), 0.25" (1/4), 0.5", 1", 2", 5", 10"
             const niceInches = [0.0625, 0.125, 0.25, 0.5, 1, 2, 5, 10];
-            let tickSpacingInch = 0.125;
-            for (const n of niceInches) {
-                if (n >= targetDisplay) {
-                    tickSpacingInch = n;
-                    break;
-                }
+            let tickSpacingInch = niceInches.find(n => n >= targetDisplay);
+            // Beyond the table (extreme zoom-out): keep scaling the largest
+            // value by 10 so the tick count stays bounded.
+            if (tickSpacingInch === undefined) {
+                tickSpacingInch = niceInches[niceInches.length - 1];
+                while (tickSpacingInch < targetDisplay) tickSpacingInch *= 10;
             }
             tickSpacingMm = tickSpacingInch / this.unitConversions['inch']; // Convert back to mm
         } else if (this.units === 'mil') {
             // Mil-based nice numbers: 10, 25, 50, 100, 250, 500, 1000, 2500, 5000
             const niceMils = [10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000];
-            let tickSpacingMil = 100;
-            for (const n of niceMils) {
-                if (n >= targetDisplay) {
-                    tickSpacingMil = n;
-                    break;
-                }
+            let tickSpacingMil = niceMils.find(n => n >= targetDisplay);
+            if (tickSpacingMil === undefined) {
+                tickSpacingMil = niceMils[niceMils.length - 1];
+                while (tickSpacingMil < targetDisplay) tickSpacingMil *= 10;
             }
             tickSpacingMm = tickSpacingMil / this.unitConversions['mil']; // Convert back to mm
         } else {
             // mm-based nice numbers
             const niceNumbersMm = [0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50, 100, 200, 500, 1000];
-            tickSpacingMm = 1;
-            for (const n of niceNumbersMm) {
-                if (n >= targetMm) {
-                    tickSpacingMm = n;
-                    break;
-                }
+            tickSpacingMm = niceNumbersMm.find(n => n >= targetMm);
+            if (tickSpacingMm === undefined) {
+                tickSpacingMm = niceNumbersMm[niceNumbersMm.length - 1];
+                while (tickSpacingMm < targetMm) tickSpacingMm *= 10;
             }
         }
         
@@ -1392,15 +1388,20 @@ export class Viewport {
         // Screen-space culling is omitted here — the clip rect handles it.
         const vw = bounds.maxX - bounds.minX;
         const vh = bounds.maxY - bounds.minY;
+        // Hard cap on major ticks per axis as defense-in-depth: even if spacing
+        // selection regresses, the DOM (and the main thread) stay bounded.
+        const MAX_TICKS = 1000;
         let topTicks = '';
-        const startX = Math.floor((bounds.minX - vw) / tickSpacingMm) * tickSpacingMm;
-        const endX = Math.ceil((bounds.maxX + vw) / tickSpacingMm) * tickSpacingMm;
-        for (let worldX = startX; worldX <= endX; worldX += tickSpacingMm) {
+        let tickSpacingX = tickSpacingMm;
+        const startX = Math.floor((bounds.minX - vw) / tickSpacingX) * tickSpacingX;
+        const endX = Math.ceil((bounds.maxX + vw) / tickSpacingX) * tickSpacingX;
+        if ((endX - startX) / tickSpacingX > MAX_TICKS) tickSpacingX = (endX - startX) / MAX_TICKS;
+        for (let worldX = startX; worldX <= endX; worldX += tickSpacingX) {
             const screenX = this.worldToScreen({ x: worldX, y: 0 }).x;
             topTicks += `<line x1="${screenX}" y1="${rs}" x2="${screenX}" y2="${rs - 8}" stroke="${colors.rulerLine}"/>`;
             topTicks += `<text x="${screenX + 2}" y="12" fill="${colors.rulerText}" font-size="10" font-family="monospace">${formatLabel(worldX)}</text>`;
             for (let i = 1; i < 5; i++) {
-                const minorX = worldX + (tickSpacingMm / 5) * i;
+                const minorX = worldX + (tickSpacingX / 5) * i;
                 const minorScreenX = this.worldToScreen({ x: minorX, y: 0 }).x;
                 topTicks += `<line x1="${minorScreenX}" y1="${rs}" x2="${minorScreenX}" y2="${rs - 4}" stroke="${colors.rulerLine}"/>`;
             }
@@ -1408,14 +1409,16 @@ export class Viewport {
 
         // Left-ruler ticks/labels, likewise extended one viewport each side.
         let leftTicks = '';
-        const startY = Math.floor((bounds.minY - vh) / tickSpacingMm) * tickSpacingMm;
-        const endY = Math.ceil((bounds.maxY + vh) / tickSpacingMm) * tickSpacingMm;
-        for (let worldY = startY; worldY <= endY; worldY += tickSpacingMm) {
+        let tickSpacingY = tickSpacingMm;
+        const startY = Math.floor((bounds.minY - vh) / tickSpacingY) * tickSpacingY;
+        const endY = Math.ceil((bounds.maxY + vh) / tickSpacingY) * tickSpacingY;
+        if ((endY - startY) / tickSpacingY > MAX_TICKS) tickSpacingY = (endY - startY) / MAX_TICKS;
+        for (let worldY = startY; worldY <= endY; worldY += tickSpacingY) {
             const screenY = this.worldToScreen({ x: 0, y: worldY }).y;
             leftTicks += `<line x1="${rs}" y1="${screenY}" x2="${rs - 8}" y2="${screenY}" stroke="${colors.rulerLine}"/>`;
             leftTicks += `<text x="3" y="${screenY + 3}" fill="${colors.rulerText}" font-size="10" font-family="monospace">${formatLabel(-worldY)}</text>`;
             for (let i = 1; i < 5; i++) {
-                const minorY = worldY + (tickSpacingMm / 5) * i;
+                const minorY = worldY + (tickSpacingY / 5) * i;
                 const minorScreenY = this.worldToScreen({ x: 0, y: minorY }).y;
                 leftTicks += `<line x1="${rs}" y1="${minorScreenY}" x2="${rs - 4}" y2="${minorScreenY}" stroke="${colors.rulerLine}"/>`;
             }
