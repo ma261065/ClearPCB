@@ -10,10 +10,11 @@
  * responsibility  the state machine or keyboard handler owns that.
  */
 
-import { MoveShapesCommand, ModifyShapeCommand, DeleteShapesCommand, BatchCommand } from '../../core/CommandHistory.js';
+import { MoveShapesCommand, ModifyShapeCommand, DeleteShapesCommand, AddShapeCommand, BatchCommand } from '../../core/CommandHistory.js';
 import { reconcileWires, reconcileWiresWithUndo, refreshWireConnections, refreshNoConnectConnection, collapseRedundantWirePoints, buildWireDiffBatch } from './wire.js';
 import { validateNetNameAtPoint } from './net-validation.js';
 import { connectNetToWires, disconnectNetFromWires, connectComponentPinsToWires } from './shape-management.js';
+import { joinShapes } from '../../shapes/shape-join.js';
 
 /**
  * Compare two captured shape states for equality.
@@ -299,6 +300,45 @@ export function commitAnchorDrag(app, dragShape, beforeState, anchorWireStates =
 }
 
 //  Anchor drag resolution 
+
+/**
+ * Commit a cross-shape join: the dragged shape's endpoint was dropped onto
+ * another joinable shape's endpoint. Builds a single merged Polyline and
+ * replaces the two originals as one undoable batch.
+ *
+ * Pure-geometry merge lives in shapes/shape-join.js so the PCB editor can
+ * reuse it; this function only handles the schematic command/selection glue.
+ *
+ * @param {object} app
+ * @param {any} dragShape - The shape being dragged.
+ * @param {string} dragAnchorId - The dragged endpoint anchor.
+ * @param {{shape:any, anchorId:string}} joinTarget - The shape/anchor dropped onto.
+ * @param {any} beforeState - Pre-drag captured state of dragShape.
+ * @returns {boolean}
+ */
+export function commitShapeJoin(app, dragShape, dragAnchorId, joinTarget, beforeState) {
+    const merged = joinShapes(dragShape, dragAnchorId, joinTarget.shape, joinTarget.anchorId);
+    if (!merged) {
+        // Not actually joinable — fall back to a normal anchor move.
+        return resolveAnchorDragOnMouseUp(app, dragShape, beforeState, true);
+    }
+
+    // Restore the dragged shape to its pre-drag geometry so that undo brings
+    // back the two originals exactly as they were before the drag.
+    if (beforeState) app._applyShapeState(dragShape, beforeState);
+
+    const batch = new BatchCommand('Join shapes');
+    batch.add(new DeleteShapesCommand(app, [dragShape, joinTarget.shape]));
+    batch.add(new AddShapeCommand(app, merged));
+    app.history.execute(batch);
+
+    // Select the merged result.
+    app.selection?.clear?.();
+    merged.selected = true;
+    app._updatePropertiesPanel?.(app.selection?.getSelection?.() || []);
+    app.renderShapes(true);
+    return true;
+}
 
 /**
  * Resolve anchor drag on mouseup: commit if moved, otherwise keep selected.

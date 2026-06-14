@@ -19,6 +19,15 @@ import { PolylineGraph } from './polyline-graph.js';
 import { ShapeValidator } from '../core/ShapeValidator.js';
 
 export class Polyline extends PolylineGraph {
+    /**
+     * Per-edge attribute schema (see PolylineGraph). `bulge` lets an individual
+     * edge curve into a circular arc (0 = straight) — the model behind a
+     * "polygon with some segments as arcs". Serialised under the `bg` key.
+     */
+    static edgeAttributes = {
+        bulge: { prop: 'edgeBulges', json: 'bg', default: () => 0 },
+    };
+
     constructor(options = {}) {
         const closed = options.closed !== undefined ? options.closed : false;
         const fill = options.fill !== undefined ? options.fill : (closed ? true : false);
@@ -34,6 +43,10 @@ export class Polyline extends PolylineGraph {
 
         // Rectangle mode: constrained corner dragging
         this.isRect = options.isRect || false;
+
+        // Apply per-edge attributes (bulge) from constructor options. Must run
+        // after the graph is loaded by super().
+        this._initEdgeAttributes(options);
     }
 
     /**
@@ -120,7 +133,10 @@ export class Polyline extends PolylineGraph {
     }
 
     /** @override */
-    getAnchorSnapMode() { return this.isRect ? 'grid' : 'axis'; }
+    getAnchorSnapMode(anchorId) {
+        if (typeof anchorId === 'string' && anchorId.startsWith('bulge_')) return 'none';
+        return this.isRect ? 'grid' : 'axis';
+    }
 
     /** @override */
     captureState() {
@@ -137,14 +153,21 @@ export class Polyline extends PolylineGraph {
     }
 
     clone() {
-        const pts = this.getOrderedPoints();
+        const graphNodes = {};
+        for (const [id, p] of this.nodes) graphNodes[id] = { x: p.x, y: p.y };
+        const graphEdges = {};
+        const edgeBulges = {};
+        for (const [id, e] of this.edges) {
+            graphEdges[id] = { from: e.from, to: e.to };
+            if (e.bulge) edgeBulges[id] = e.bulge;
+        }
         return new Polyline({
             color: this.color, lineWidth: this.lineWidth,
             layer: this.layer, visible: this.visible, locked: this.locked,
             closed: this.closed, fill: this.fill,
             fillColor: this.fillColor, fillAlpha: this.fillAlpha,
             isRect: this.isRect, cornerRadius: this.cornerRadius,
-            points: pts ? pts.map(p => ({ x: p.x, y: p.y })) : [],
+            graphNodes, graphEdges, edgeBulges,
         });
     }
 

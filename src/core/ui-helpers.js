@@ -80,8 +80,9 @@ export function createLockIcon(x, y, item, cls) {
  */
 export function buildPointAnchorsGroup(shape, scale) {
     const anchors = shape.getAnchors();
-    const pointAnchors = anchors.filter(a => !a.midpoint);
+    const pointAnchors = anchors.filter(a => !a.midpoint && !a.bulge);
     const midAnchors = anchors.filter(a => a.midpoint);
+    const bulgeAnchors = anchors.filter(a => a.bulge);
     const size = 8 / scale;
     const midR = 5.5 / scale;
     const strokeW = 1 / scale;
@@ -141,6 +142,19 @@ export function buildPointAnchorsGroup(shape, scale) {
         mg.appendChild(plusV);
 
         g.appendChild(mg);
+    }
+
+    // Bulge (arc curvature) handles — green diamonds at each curved edge's apex.
+    for (const anchor of bulgeAnchors) {
+        const d = midR;
+        const diamond = document.createElementNS(NS, 'path');
+        diamond.setAttribute('d',
+            `M ${anchor.x} ${anchor.y - d} L ${anchor.x + d} ${anchor.y} L ${anchor.x} ${anchor.y + d} L ${anchor.x - d} ${anchor.y} Z`);
+        diamond.setAttribute('fill', '#fff');
+        diamond.setAttribute('stroke', '#2e7d32');
+        diamond.setAttribute('stroke-width', String(strokeW));
+        diamond.setAttribute('data-anchor-id', anchor.id);
+        g.appendChild(diamond);
     }
 
     // Lock icon when locked

@@ -19,7 +19,8 @@
  */
 
 import { Shape } from './shape.js';
-import { distanceToSegment, pointsCollinear, pointInPolygon } from '../core/geometry.js';
+import { distanceToSegment, pointsCollinear, pointInPolygon, bulgeRatio, bulgePointFromRatio } from '../core/geometry.js';
+import { arcEdgePathD, arcEdgeContinuation, distanceToArcEdge, arcEdgeBounds, BULGE_EPS } from './arc-edge.js';
 import { buildPointAnchorsGroup } from '../core/ui-helpers.js';
 
 /** Round to 4 decimal places for compact serialisation. */
@@ -162,6 +163,67 @@ export class PolylineGraph extends Shape {
             current = next.otherNode;
         }
         return points;
+    }
+
+    /** @returns {boolean} Whether any edge carries a non-zero bulge (is an arc). */
+    _hasBulgedEdges() {
+        for (const e of this.edges.values()) if (e.bulge) return true;
+        return false;
+    }
+
+    /**
+     * Walk the graph as a single chain, returning each traversed edge with its
+     * endpoints and bulge. For a closed shape the closing edge is appended.
+     * Used to build arc-aware outline paths (assumes a non-branching chain).
+     * @returns {Array<{a:{x:number,y:number},b:{x:number,y:number},bulge:number,edgeId:string}>}
+     */
+    getOrderedEdgeChain() {
+        if (this.nodes.size === 0) return [];
+        let startId = null;
+        for (const nid of this.nodes.keys()) {
+            if (this.degree(nid) === 1) { startId = nid; break; }
+        }
+        if (!startId) startId = this.nodes.keys().next().value;
+
+        const chain = [];
+        const visited = new Set();
+        let current = startId;
+        let prevEdge = null;
+
+        while (current && !visited.has(current)) {
+            visited.add(current);
+            const edges = this.incidentEdges(current);
+            const next = edges.find(e => e.edgeId !== prevEdge && !visited.has(e.otherNode));
+            if (!next) {
+                // Closing edge back to the start (closed loop)?
+                const closing = edges.find(e => e.edgeId !== prevEdge && e.otherNode === startId);
+                if (closing && this.closed) {
+                    const a = this.nodes.get(current), b = this.nodes.get(startId);
+                    if (a && b) chain.push({ a: { x: a.x, y: a.y }, b: { x: b.x, y: b.y }, bulge: this.getEdgeAttr(closing.edgeId, 'bulge') || 0, edgeId: closing.edgeId });
+                }
+                break;
+            }
+            const a = this.nodes.get(current), b = this.nodes.get(next.otherNode);
+            if (a && b) chain.push({ a: { x: a.x, y: a.y }, b: { x: b.x, y: b.y }, bulge: this.getEdgeAttr(next.edgeId, 'bulge') || 0, edgeId: next.edgeId });
+            prevEdge = next.edgeId;
+            current = next.otherNode;
+        }
+        return chain;
+    }
+
+    /**
+     * Build SVG path data following the ordered edge chain, emitting arc (`A`)
+     * commands for bulged edges and lines (`L`) otherwise.
+     * @param {boolean} [closeIt=false] Append `Z` to close the path.
+     * @returns {string}
+     */
+    _buildOutlinePathD(closeIt = false) {
+        const chain = this.getOrderedEdgeChain();
+        if (!chain.length) return '';
+        let d = `M ${chain[0].a.x} ${chain[0].a.y}`;
+        for (const seg of chain) d += ' ' + arcEdgeContinuation(seg.a, seg.b, seg.bulge);
+        if (closeIt) d += ' Z';
+        return d;
     }
 
     /* ──────────────────── graph mutation ───────────────────────── */
@@ -410,7 +472,12 @@ export class PolylineGraph extends Shape {
             const lenSq = dx * dx + dy * dy;
             let t = lenSq === 0 ? 0 : ((point.x - a.x) * dx + (point.y - a.y) * dy) / lenSq;
             t = Math.max(0, Math.min(1, t));
-            const d = Math.hypot(point.x - (a.x + t * dx), point.y - (a.y + t * dy));
+            // Rank by true (arc-aware) distance, but keep the straight-line
+            // projection as the reported point/t (sufficient for hit-testing;
+            // exact arc projection is not needed by current callers).
+            const d = e.bulge
+                ? distanceToArcEdge(point, a, b, e.bulge)
+                : Math.hypot(point.x - (a.x + t * dx), point.y - (a.y + t * dy));
             if (d < bestD) { bestD = d; bestId = eid; bestT = t; }
         }
         if (!bestId) return null;
@@ -605,6 +672,7 @@ export class PolylineGraph extends Shape {
                 if (changed) break;
                 for (const [eid, e] of this.edges) {
                     if (e.from === nid || e.to === nid) continue;
+                    if (this.getEdgeAttr(eid, 'bulge')) continue; // never split a curved edge here
                     const a = this.nodes.get(e.from), b = this.nodes.get(e.to);
                     if (!a || !b) continue;
                     const dx = b.x - a.x, dy = b.y - a.y;
@@ -647,6 +715,8 @@ export class PolylineGraph extends Shape {
                 if (this.degree(nid) !== 2) continue;
                 if (this._isProtectedNode(nid)) continue;
                 const [e1, e2] = this.incidentEdges(nid);
+                // Never simplify across a curved edge — that would discard the arc.
+                if (this.getEdgeAttr(e1.edgeId, 'bulge') || this.getEdgeAttr(e2.edgeId, 'bulge')) continue;
                 const p1 = this.nodes.get(e1.otherNode), p2 = this.nodes.get(e2.otherNode);
                 if (!p1 || !p2) continue;
                 if (this._areCollinear(p1, pos, p2)) {
@@ -722,6 +792,17 @@ export class PolylineGraph extends Shape {
             if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x;
             if (p.y < minY) minY = p.y; if (p.y > maxY) maxY = p.y;
         }
+        // Arcs can bulge beyond their endpoints — extend bounds per curved edge.
+        if (this._hasBulgedEdges()) {
+            for (const e of this.edges.values()) {
+                if (!e.bulge) continue;
+                const a = this.nodes.get(e.from), b = this.nodes.get(e.to);
+                if (!a || !b) continue;
+                const eb = arcEdgeBounds(a, b, e.bulge);
+                if (eb.minX < minX) minX = eb.minX; if (eb.maxX > maxX) maxX = eb.maxX;
+                if (eb.minY < minY) minY = eb.minY; if (eb.maxY > maxY) maxY = eb.maxY;
+            }
+        }
         const hw = this.lineWidth / 2;
         return { minX: minX - hw, minY: minY - hw, maxX: maxX + hw, maxY: maxY + hw };
     }
@@ -745,7 +826,8 @@ export class PolylineGraph extends Shape {
         for (const e of this.edges.values()) {
             const a = this.nodes.get(e.from), b = this.nodes.get(e.to);
             if (!a || !b) continue;
-            min = Math.min(min, distanceToSegment(point, a, b));
+            const d = e.bulge ? distanceToArcEdge(point, a, b, e.bulge) : distanceToSegment(point, a, b);
+            if (d < min) min = d;
         }
         return min;
     }
@@ -762,17 +844,35 @@ export class PolylineGraph extends Shape {
         for (const [eid, e] of this.edges) {
             const a = this.nodes.get(e.from), b = this.nodes.get(e.to);
             if (!a || !b) continue;
+            // Curved (bulged) edges have no straight midpoint — the chord
+            // midpoint floats off the arc — and the apex handle below already
+            // provides on-curve interaction, so skip the insert handle there.
+            if (Math.abs(this.getEdgeAttr(eid, 'bulge') || 0) >= BULGE_EPS) continue;
             anchors.push({
                 id: `mid_${eid}`,
                 x: (a.x + b.x) / 2, y: (a.y + b.y) / 2,
                 cursor: 'copy', midpoint: true,
             });
         }
+        // Apex handle for curved (bulged) edges so the curvature can be
+        // adjusted. Only for non-wire shapes (wires never carry a bulge).
+        // Appended last so node/midpoint hit-tests win on overlap.
+        if (this.type !== 'wire') {
+            for (const [eid, e] of this.edges) {
+                const bulge = this.getEdgeAttr(eid, 'bulge') || 0;
+                if (Math.abs(bulge) < BULGE_EPS) continue;
+                const a = this.nodes.get(e.from), b = this.nodes.get(e.to);
+                if (!a || !b) continue;
+                const apex = bulgePointFromRatio(a, b, bulge);
+                anchors.push({ id: `bulge_${eid}`, x: apex.x, y: apex.y, cursor: 'grab', bulge: true });
+            }
+        }
         return anchors;
     }
 
     /**
-     * Move a node anchor, or split an edge at its midpoint.
+     * Move a node anchor, split an edge at its midpoint, or re-curve an edge
+     * via its bulge apex handle.
      * @returns {string|undefined} New anchor ID for midpoint insertions
      */
     moveAnchor(anchorId, x, y) {
@@ -780,6 +880,20 @@ export class PolylineGraph extends Shape {
             const eid = anchorId.substring(4);
             const r = this.splitEdge(eid, { x, y });
             return r ? r.newNodeId : anchorId;
+        }
+        if (anchorId.startsWith('bulge_')) {
+            const eid = anchorId.substring(6);
+            const e = this.edges.get(eid);
+            if (e) {
+                const a = this.nodes.get(e.from), b = this.nodes.get(e.to);
+                if (a && b) {
+                    const ratio = bulgeRatio(a, b, { x, y });
+                    // Keep within a semicircle (and avoid a degenerate full one).
+                    const clamped = Math.max(-0.999, Math.min(0.999, ratio));
+                    this.setEdgeAttr(eid, 'bulge', clamped);
+                }
+            }
+            return anchorId;
         }
         if (this.nodes.has(anchorId)) {
             const p = this.nodes.get(anchorId);
@@ -815,7 +929,11 @@ export class PolylineGraph extends Shape {
     }
 
     /** @override — Wire-style: anchor dragging snaps along H/V axes. */
-    getAnchorSnapMode() { return 'axis'; }
+    getAnchorSnapMode(anchorId) {
+        // Bulge apex handles move freely (no axis/grid snapping).
+        if (typeof anchorId === 'string' && anchorId.startsWith('bulge_')) return 'none';
+        return 'axis';
+    }
 
     /**
      * Translate the entire graph by (dx, dy).
@@ -889,6 +1007,7 @@ export class PolylineGraph extends Shape {
      */
     isAxisAlignedRect() {
         if (!this.closed || this.nodes.size !== 4 || this.edges.size !== 4) return false;
+        if (this._hasBulgedEdges()) return false; // a curved edge is never a rectangle
         const pts = this.getOrderedPoints();
         if (!pts || pts.length !== 4) return false;
 
@@ -934,8 +1053,10 @@ export class PolylineGraph extends Shape {
         const r = this.cornerRadius || 0;
 
         // Rounded-corner path rendering for shapes with cornerRadius
-        // Only use path rendering for simple chains (no branching)
-        if (r > 0) {
+        // Only use path rendering for simple chains (no branching). Bulged
+        // (arc) edges are incompatible with the corner-rounding builder, so
+        // fall through to the per-edge renderer below when any are present.
+        if (r > 0 && !this._hasBulgedEdges()) {
             const pts = this.getOrderedPoints();
             const hasBranches = this.getJunctionNodes().length > 0;
             if (pts && pts.length >= 3 && pts.length === this.nodes.size && !hasBranches) {
@@ -979,31 +1100,56 @@ export class PolylineGraph extends Shape {
             }
         }
 
-        // For filled shapes without radius, render fill polygon underneath edges
+        // For filled shapes without radius, render fill underneath edges.
+        // When any edge is curved, build an arc-aware outline path so the
+        // fill follows the arcs; otherwise use a plain polygon.
         if (this.fill) {
-            const pts = this.getOrderedPoints();
-            if (pts && pts.length >= 3) {
-                const poly = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
-                poly.setAttribute('points', pts.map(p => `${p.x},${p.y}`).join(' '));
-                poly.setAttribute('fill', fillColor);
-                poly.setAttribute('fill-opacity', String(this.fillAlpha));
-                poly.setAttribute('stroke', 'none');
-                el.appendChild(poly);
+            if (this._hasBulgedEdges()) {
+                const d = this._buildOutlinePathD(true);
+                if (d) {
+                    const fillPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                    fillPath.setAttribute('d', d);
+                    fillPath.setAttribute('fill', fillColor);
+                    fillPath.setAttribute('fill-opacity', String(this.fillAlpha));
+                    fillPath.setAttribute('stroke', 'none');
+                    el.appendChild(fillPath);
+                }
+            } else {
+                const pts = this.getOrderedPoints();
+                if (pts && pts.length >= 3) {
+                    const poly = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+                    poly.setAttribute('points', pts.map(p => `${p.x},${p.y}`).join(' '));
+                    poly.setAttribute('fill', fillColor);
+                    poly.setAttribute('fill-opacity', String(this.fillAlpha));
+                    poly.setAttribute('stroke', 'none');
+                    el.appendChild(poly);
+                }
             }
         }
 
-        // One <line> per edge
-        for (const e of this.edges.values()) {
+        // One <line> per straight edge, one <path> per curved (bulged) edge.
+        for (const [eid, e] of this.edges) {
             const a = this.nodes.get(e.from), b = this.nodes.get(e.to);
             if (!a || !b) continue;
-            const ln = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-            ln.setAttribute('x1', a.x); ln.setAttribute('y1', a.y);
-            ln.setAttribute('x2', b.x); ln.setAttribute('y2', b.y);
-            ln.setAttribute('stroke', strokeColor);
-            ln.setAttribute('stroke-width', String(sw));
-            ln.setAttribute('stroke-linecap', 'round');
-            ln.setAttribute('fill', 'none');
-            el.appendChild(ln);
+            const bulge = this.getEdgeAttr(eid, 'bulge') || 0;
+            if (bulge) {
+                const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                path.setAttribute('d', arcEdgePathD(a, b, bulge));
+                path.setAttribute('stroke', strokeColor);
+                path.setAttribute('stroke-width', String(sw));
+                path.setAttribute('stroke-linecap', 'round');
+                path.setAttribute('fill', 'none');
+                el.appendChild(path);
+            } else {
+                const ln = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                ln.setAttribute('x1', a.x); ln.setAttribute('y1', a.y);
+                ln.setAttribute('x2', b.x); ln.setAttribute('y2', b.y);
+                ln.setAttribute('stroke', strokeColor);
+                ln.setAttribute('stroke-width', String(sw));
+                ln.setAttribute('stroke-linecap', 'round');
+                ln.setAttribute('fill', 'none');
+                el.appendChild(ln);
+            }
         }
 
         // Junction dots at degree ≥ 3 nodes (wires only)

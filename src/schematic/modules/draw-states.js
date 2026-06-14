@@ -17,14 +17,14 @@
  */
 
 import { updateStickyWires, updateSnapHighlight, resolveWireSnapPosition, renderGuideLines, computeAnchorCollinearSnap, computeSegmentDragSnap, computeStickyWireSnaps, applyOffGridNeighborSnap, buildCollinearChain, bridgeCollinearPinEndpoints, SNAP_SCREEN_PX, COLLINEAR_EPSILON, VERTEX_EPSILON, PIN_SNAP_TOL } from './wire.js';
-import { commitAnchorDrag, clearDragState, commitMoveDrag, commitSegmentDrag, resolveAnchorDragOnMouseUp, revertSegmentDragIfNoMove, areCapturedStatesEqual } from '../../ui/modules/drag.js';
+import { commitAnchorDrag, clearDragState, commitMoveDrag, commitSegmentDrag, resolveAnchorDragOnMouseUp, revertSegmentDragIfNoMove, areCapturedStatesEqual, commitShapeJoin } from '../../ui/modules/drag.js';
 import { detectTJunction, showAnchorContextMenu, showSegmentContextMenu, showLabelContextMenu } from '../../ui/modules/context-menu.js';
 import { updateToolGhost } from '../../ui/modules/tool.js';
 import { ModifyShapeCommand } from '../../core/CommandHistory.js';
 import { collapseRedundantWirePoints } from './wire.js';
 import { Text } from '../../shapes/text.js';
 import { attachLabelToTarget, detachLabel, refreshLabelAttachmentOffset, getLabelAttachmentAnchorPoint, getLabelDropHotspot } from '../../ui/modules/label-attachment.js';
-
+import { findJoinTarget, isJoinable } from '../../shapes/shape-join.js';
 // ─── Constants ─────────────────────────────────────────────────────
 
 const DRAWING_TOOLS = new Set(['line', 'rect', 'circle', 'polygon']);
@@ -706,7 +706,11 @@ function handleDragEnd(app) {
         if (app.didDrag) commitSegmentDrag(app, app.drag.shape, app.drag.wireStates, app.drag.ncLinks, app.drag.labelBefore);
         else revertSegmentDragIfNoMove(app, app.drag.wireStates);
     } else if (app.drag.shape) {
-        resolveAnchorDragOnMouseUp(app, app.drag.shape, app.drag.beforeState, app.didDrag, app.drag.wireStates, app.drag.ncLinks, app.drag.junctionBeforeWireStates, app.drag.junctionBeforeLabelTextStates);
+        if (app.didDrag && app.drag.joinTarget && isJoinable(app.drag.shape)) {
+            commitShapeJoin(app, app.drag.shape, app.drag.anchorId, app.drag.joinTarget, app.drag.beforeState);
+        } else {
+            resolveAnchorDragOnMouseUp(app, app.drag.shape, app.drag.beforeState, app.didDrag, app.drag.wireStates, app.drag.ncLinks, app.drag.junctionBeforeWireStates, app.drag.junctionBeforeLabelTextStates);
+        }
     }
 
     commitPendingMidpointAfterDrag(app);
@@ -1733,7 +1737,8 @@ export const anchorDragState = {
         }
 
         let anchorGuides = [];
-        const isGraphShape = !!(app.drag.shape.nodes && app.drag.shape.edges);
+        const isBulgeHandle = typeof app.drag.anchorId === 'string' && app.drag.anchorId.startsWith('bulge_');
+        const isGraphShape = !isBulgeHandle && !!(app.drag.shape.nodes && app.drag.shape.edges);
         if (isGraphShape) {
             const isLeaf = app.drag.shape.nodes.has(app.drag.anchorId) && app.drag.shape.degree(app.drag.anchorId) <= 1;
 
@@ -1771,6 +1776,28 @@ export const anchorDragState = {
         app._updateCrosshair(anchorPos);
         anchorPos = mergeAnchorTJunctionGuides(app, anchorPos, anchorGuides);
         renderGuideLines(app, anchorGuides);
+
+        // Cross-shape join snap: dragging a polyline/arc endpoint onto another
+        // joinable shape's endpoint fuses them on drop. Show the snap dot (the
+        // "yellow circle") and record the target. Shared with PCB drawing tools
+        // via shapes/shape-join.js (no schematic-only assumptions).
+        app.drag.joinTarget = null;
+        if (isJoinable(app.drag.shape)) {
+            const isJoinSource = app.drag.shape.type === 'arc'
+                ? (app.drag.anchorId === 'start' || app.drag.anchorId === 'end')
+                : !!(app.drag.shape.nodes && app.drag.shape.nodes.has(app.drag.anchorId));
+            if (isJoinSource) {
+                const joinTol = SNAP_SCREEN_PX / app.viewport.scale;
+                const jt = findJoinTarget(app.shapes, anchorPos, joinTol, app.drag.shape);
+                if (jt) {
+                    anchorPos = { x: jt.x, y: jt.y };
+                    app.drag.joinTarget = jt;
+                    updateSnapHighlight(app, { x: jt.x, y: jt.y, type: 'endpoint' });
+                } else if (app.drag.shape.type === 'arc') {
+                    updateSnapHighlight(app, null);
+                }
+            }
+        }
 
         const newAnchorId = app.drag.shape.moveAnchor(app.drag.anchorId, anchorPos.x, anchorPos.y);
         if (newAnchorId && newAnchorId !== app.drag.anchorId) app.drag.anchorId = newAnchorId;
