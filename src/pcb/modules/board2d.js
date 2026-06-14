@@ -235,6 +235,31 @@ export class Board2D {
         const padSide = top ? 'top' : 'bottom';
         const copperLayer = top ? 'top-copper' : 'bottom-copper';
 
+        // Copper pours first (under tracks/pads), drawn from their computed
+        // polygon geometry (outer ring with holes punched, even-odd fill).
+        ctx.fillStyle = top ? COL.trackTop : COL.trackBottom;
+        for (const fill of (d.fills || [])) {
+            if (fill?.visible === false) continue;
+            if (fill?.layer !== copperLayer) continue;
+            const polys = fill?._computed;
+            if (!Array.isArray(polys) || polys.length === 0) continue;
+            ctx.beginPath();
+            for (const ex of polys) {
+                const outer = ex.outer || [];
+                if (outer.length < 3) continue;
+                ctx.moveTo(outer[0].x, outer[0].y);
+                for (let i = 1; i < outer.length; i++) ctx.lineTo(outer[i].x, outer[i].y);
+                ctx.closePath();
+                for (const h of (ex.holes || [])) {
+                    if (h.length < 3) continue;
+                    ctx.moveTo(h[0].x, h[0].y);
+                    for (let i = 1; i < h.length; i++) ctx.lineTo(h[i].x, h[i].y);
+                    ctx.closePath();
+                }
+            }
+            ctx.fill('evenodd');
+        }
+
         // Tracks (per-edge layer + width), drawn as stroked segments.
         ctx.strokeStyle = top ? COL.trackTop : COL.trackBottom;
         ctx.lineCap = 'round';

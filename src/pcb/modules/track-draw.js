@@ -649,6 +649,11 @@ export function reconcileRatsnest(app) {
     // step here (no-op unless the clearance overlay is currently visible).
     app._refreshClearanceHalos?.();
 
+    // Copper pours are derived from trace/via/pad geometry, so they must be
+    // recomputed whenever the copper changes — the same call sites that
+    // reconcile the ratsnest. (No-op when there are no fills.)
+    app._refreshFills?.();
+
     const ratLayer = app._getLayerGroup?.('ratlines');
     if (!ratLayer) return;
 

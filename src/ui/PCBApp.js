@@ -92,6 +92,17 @@ import { measureText as measureStrokeText } from '../pcb/modules/stroke-font.js'
 import { CommandHistory } from '../core/CommandHistory.js';
 import { Track } from '../shapes/track.js';
 import { Via } from '../shapes/via.js';
+import { CopperFill, updateFillIdCounter } from '../shapes/copper-fill.js';
+import { computeFillPolygons, loadClipper, isClipperReady } from '../pcb/modules/copper-fill-geom.js';
+import { renderCopperFill } from '../pcb/modules/copper-fill-render.js';
+import { AddFillCommand, RemoveFillCommand, ModifyFillCommand } from '../pcb/modules/copper-fill-commands.js';
+import {
+    startFillDraw,
+    updateFillDraw,
+    addFillWaypoint,
+    finishFillDraw,
+    cancelFillDraw,
+} from '../pcb/modules/copper-fill-draw.js';
 import { createShape } from '../shapes/index.js';
 
 /**
@@ -183,6 +194,18 @@ export default class PCBApp {
          * @type {Array<import('../shapes/via.js').Via>}
          */
         this.vias = [];
+
+        /**
+         * Copper pour regions (net-aware flood fills). Each entry is a
+         * CopperFill (user-authored outline + layer + net); the poured
+         * copper geometry is computed live by the fill engine.
+         * @type {Array<import('../shapes/copper-fill.js').CopperFill>}
+         */
+        this.copperFills = [];
+        /** Currently selected CopperFill, or null. */
+        this._selectedFill = null;
+        /** Global show/hide state for copper pours (Home-tab toggle). */
+        this._fillsVisible = true;
 
         /** True when the schematic has changed since last PCB rebuild */
         this._stale = true;
@@ -452,7 +475,9 @@ export default class PCBApp {
             if (e.button === 2 && this._trackDraw) {
                 this._trackRightDown = { x: e.clientX, y: e.clientY };
             }
-            // Right-click: pin/unpin debug tooltip
+            if (e.button === 2 && this._fillDraw) {
+                this._fillRightDown = { x: e.clientX, y: e.clientY };
+            }
             if (e.button === 2 && this._showDebugTooltip && this._debugTooltipVisible) {
                 if (this._debugTooltipPinned) {
                     this._debugTooltipPinned = false;
@@ -490,6 +515,20 @@ export default class PCBApp {
                     }
                     clearBoxSelection(this);
                 }
+
+                // Continue interacting with an already-selected fill: grab a
+                // vertex or drag the whole region without re-clicking.
+                if (this._selectedFill) {
+                    if (this._startFillDrag(this._selectedFill, worldPos, e)) {
+                        setHoverHighlight(this, null);
+                        this._hideNetTooltip();
+                        svg.style.cursor = 'grabbing';
+                        return;
+                    }
+                }
+                // Any other click drops the current fill selection (it may be
+                // re-selected below if the click lands on a fill region).
+                this._selectFill(null);
 
                 // If a track is already selected, try to start a vertex
                 // drag on it before doing anything else — this lets the
@@ -600,11 +639,18 @@ export default class PCBApp {
                     }
                 } else if (this._hitTestBoardOutline(worldPos)) {
                     this._selectComponent(null);
+                    this._selectFill(null);
                     this._selectBoardOutline(true);
                     this._showBoardOutlineProperties();
+                } else if (this._hitTestFill(worldPos)) {
+                    this._selectComponent(null);
+                    this._selectBoardOutline(false);
+                    this._selectFill(this._hitTestFill(worldPos));
+                    this._showFillProperties(this._selectedFill);
                 } else {
                     this._selectComponent(null);
                     this._selectBoardOutline(false);
+                    this._selectFill(null);
                     this._clearProperties();
                     // Empty canvas: arm a box-select. The marquee only
                     // materialises once the pointer crosses the drag
@@ -622,6 +668,16 @@ export default class PCBApp {
                     addTrackWaypoint(this, worldPos);
                 } else {
                     startTrackDraw(this, worldPos);
+                }
+            }
+
+            // Left-click with fill tool: start a new pour region or add a vertex.
+            if (e.button === 0 && this.currentTool === 'fill') {
+                const worldPos = this._screenToWorld(e);
+                if (this._fillDraw) {
+                    addFillWaypoint(this, worldPos);
+                } else {
+                    startFillDraw(this, worldPos);
                 }
             }
 
@@ -729,10 +785,17 @@ export default class PCBApp {
                 this._updateVertexDragCrosshair();
             } else if (this._viaDrag) {
                 updateViaDrag(this, this._screenToWorld(e));
+            } else if (this._fillDrag) {
+                this._handleFillDrag(this._screenToWorld(e));
             } else if (this._trackDraw) {
                 updateTrackDraw(this, this._screenToWorld(e));
                 if (this._trackDraw?.snap) {
                     this._updateCursorCrosshair({ x: this._trackDraw.snap.x, y: this._trackDraw.snap.y });
+                }
+            } else if (this._fillDraw) {
+                updateFillDraw(this, this._screenToWorld(e));
+                if (this._fillDraw?.snap) {
+                    this._updateCursorCrosshair({ x: this._fillDraw.snap.x, y: this._fillDraw.snap.y });
                 }
             } else if (this.currentTool === 'select') {
                 // A pending/active marquee owns the move; only fall back to
@@ -753,6 +816,8 @@ export default class PCBApp {
                 this._updateCursorCrosshair(this._screenToWorld(e));
             } else if (this.currentTool === 'text') {
                 this._updateCursorCrosshair(this._screenToWorld(e));
+            } else if (this.currentTool === 'fill') {
+                this._updateCursorCrosshair(this._screenToWorld(e));
             }
             this.viewport.trackMouse(e);
             this._updateDebugTooltip(e);
@@ -763,6 +828,11 @@ export default class PCBApp {
             if (this._trackDraw) {
                 e.preventDefault();
                 finishTrackDraw(this);
+                return;
+            }
+            if (this._fillDraw) {
+                e.preventDefault();
+                finishFillDraw(this);
                 return;
             }
             if (this._textEdit) return; // already editing
@@ -883,6 +953,10 @@ export default class PCBApp {
                     selectTrackOrVia(this, { type: 'via', via: v });
                 }
             }
+            if (this._fillDrag) {
+                this._endFillDrag();
+                svg.style.cursor = 'default';
+            }
         };
 
         // Drag/interaction termination is handled at the WINDOW level (not the
@@ -905,6 +979,13 @@ export default class PCBApp {
                     if (snap) addTrackWaypoint(this, { x: snap.x, y: snap.y });
                     if (this._trackDraw) finishTrackDraw(this);
                 }
+            }
+            // Right-click release while drawing a fill: finish the region.
+            if (e.button === 2 && this._fillDraw && this._fillRightDown) {
+                const dx = e.clientX - this._fillRightDown.x;
+                const dy = e.clientY - this._fillRightDown.y;
+                this._fillRightDown = null;
+                if (Math.hypot(dx, dy) < 4) finishFillDraw(this);
             }
         });
 
@@ -1077,6 +1158,11 @@ export default class PCBApp {
         if (this._trackDraw) cancelTrackDraw(this);
     }
 
+    /** Public hook used by controls.setTool to abort an in-flight fill draw. */
+    _cancelFillDraw() {
+        if (this._fillDraw) cancelFillDraw(this);
+    }
+
     /**
      * Central keyboard handler for PCB mode. Invoked by
      * AppBootstrap's window-capture dispatcher when this app is the
@@ -1116,6 +1202,19 @@ export default class PCBApp {
             return false;
         }
 
+        // Fill-draw mode owns Enter / Escape.
+        if (this._fillDraw) {
+            if (e.key === 'Enter') {
+                finishFillDraw(this);
+                return true;
+            }
+            if (e.key === 'Escape') {
+                cancelFillDraw(this);
+                return true;
+            }
+            return false;
+        }
+
         // Otherwise: history, delete, selection-cancel.
         const ctrl = e.ctrlKey || e.metaKey;
         if (ctrl && !e.shiftKey && (e.key === 'z' || e.key === 'Z')) {
@@ -1144,6 +1243,10 @@ export default class PCBApp {
                 deleteSelectedTrack(this);
                 return true;
             }
+            if (this._selectedFill) {
+                this.deleteSelectedFill();
+                return true;
+            }
             return false;
         }
         if (e.key === 'Escape') {
@@ -1169,6 +1272,11 @@ export default class PCBApp {
             }
             if (this._selectedTrack || this._selectedVia) {
                 clearTrackSelection(this);
+                this._clearProperties?.();
+                return true;
+            }
+            if (this._selectedFill) {
+                this._selectFill(null);
                 this._clearProperties?.();
                 return true;
             }
@@ -1231,6 +1339,7 @@ export default class PCBApp {
             tracks: this.tracks.map(t => t.toJSON()),
             vias: this.vias.map(v => v.toJSON()),
             texts: [...this.texts.values()].map(serializePcbText),
+            fills: this.copperFills.map(f => f.toJSON()),
             placements,
         };
     }
@@ -1245,7 +1354,7 @@ export default class PCBApp {
      */
     serializeSection() {
         const hasContent = this.tracks?.length || this.vias?.length
-            || this.texts?.size || this._placementOverrides.size;
+            || this.texts?.size || this.copperFills?.length || this._placementOverrides.size;
         return hasContent ? this.serialize() : null;
     }
 
@@ -1289,6 +1398,11 @@ export default class PCBApp {
         for (const v of this.vias) removeViaElements(v);
         this.tracks.length = 0;
         this.vias.length = 0;
+        // Drop any existing copper pours and their SVG.
+        this.copperFills.length = 0;
+        this._selectedFill = null;
+        this._clearFillHandles?.();
+        this._clearFillGroups?.();
         // Drop any existing free-standing texts.
         for (const id of this._textElements.keys()) this._removeTextElement(id);
         this.texts.clear();
@@ -1348,8 +1462,21 @@ export default class PCBApp {
                 this._renderText(t);
             }
         }
+        if (Array.isArray(data.fills)) {
+            for (const fd of data.fills) {
+                try {
+                    const fill = CopperFill.fromJSON(fd);
+                    updateFillIdCounter(fill.id);
+                    this.copperFills.push(fill);
+                } catch (err) {
+                    console.warn('Skipping malformed copper fill during load:', err);
+                }
+            }
+        }
         // Re-evaluate ratlines once the model is in place.
         reconcileRatsnest(this);
+        // Compute and render the pours now that obstacles are loaded.
+        this._refreshFills();
     }
 
     /**
@@ -1374,7 +1501,10 @@ export default class PCBApp {
             'board-outline',
             'bottom-mask', 'top-mask',
             'bottom-paste', 'top-paste',
-            'bottom-copper', 'top-copper',
+            // Copper pours sit directly beneath their copper layer so
+            // tracks and pads paint on top of the flood fill.
+            'bottom-fill', 'bottom-copper',
+            'top-fill', 'top-copper',
             'bottom-silk', 'top-silk',
             'hole',
             'ratlines',
@@ -4676,6 +4806,337 @@ export default class PCBApp {
         if (this._clearancesVisible) this.showClearances(true);
     }
 
+    /* ──────────────────── Copper fill (pours) ─────────────────────── */
+
+    /**
+     * Schedule a recompute + re-render of all copper pours, coalesced to
+     * one pass per animation frame. This is the live-refresh hook called
+     * from reconcileRatsnest() (every copper mutation) and on routing-
+     * parameter changes, as well as during fill editing.
+     */
+    _refreshFills() {
+        if (!this.copperFills || this.copperFills.length === 0) {
+            // Nothing to pour: make sure both fill groups are empty.
+            this._clearFillGroups();
+            return;
+        }
+        if (this._fillRefreshScheduled) return;
+        this._fillRefreshScheduled = true;
+        const run = () => {
+            this._fillRefreshScheduled = false;
+            this._recomputeFillsNow();
+        };
+        if (typeof requestAnimationFrame === 'function') requestAnimationFrame(run);
+        else setTimeout(run, 0);
+    }
+
+    /** Remove all rendered pour geometry from both fill layer groups. */
+    _clearFillGroups() {
+        for (const gid of ['top-fill', 'bottom-fill']) {
+            const g = this._layerGroups.get(gid);
+            if (g) while (g.firstChild) g.firstChild.remove();
+        }
+    }
+
+    /**
+     * Recompute the poured geometry for every fill and re-render. Ensures
+     * the clipper engine is loaded first (async, once); until it is, the
+     * recompute is deferred.
+     */
+    _recomputeFillsNow() {
+        if (!this.copperFills || this.copperFills.length === 0) {
+            this._clearFillGroups();
+            return;
+        }
+        if (!isClipperReady()) {
+            // Load the polygon engine, then try again.
+            loadClipper().then(() => this._recomputeFillsNow()).catch(() => {});
+            return;
+        }
+        const ctx = this._fillContext();
+        this._clearFillGroups();
+        for (const fill of this.copperFills) {
+            try {
+                fill._computed = computeFillPolygons(fill, ctx);
+            } catch (_) {
+                fill._computed = null;
+            }
+            renderCopperFill(fill, (id) => this._getLayerGroup(id), {
+                selected: fill === this._selectedFill,
+                visible: this._fillsVisible,
+            });
+        }
+        if (this._selectedFill) this._renderFillHandles(this._selectedFill);
+    }
+
+    /** Build the obstacle/parameter context for the fill geometry engine. */
+    _fillContext() {
+        const params = this._getRoutingParams?.() || {};
+        const pads = [];
+        for (const [compId, pl] of this.placements) {
+            for (const off of (pl.padOffsets || [])) {
+                pads.push({
+                    x: pl.x + off.dx,
+                    y: pl.y + off.dy,
+                    width: off.width || 0,
+                    height: off.height || 0,
+                    shape: off.shape || 'rect',
+                    layer: off.layer || 'top',
+                    net: this._padNetLookup(compId, off.number),
+                });
+            }
+        }
+        return {
+            tracks: this.tracks,
+            vias: this.vias,
+            pads,
+            params: { clearance: Number.isFinite(params.clearance) ? params.clearance : 0.1 },
+            board: (this._boardWidth > 0 && this._boardHeight > 0)
+                ? { w: this._boardWidth, h: this._boardHeight, r: this._boardRadius || 0 }
+                : null,
+        };
+    }
+
+    /** Resolve a pad's net from the netlist (componentId + pad number). */
+    _padNetLookup(componentId, number) {
+        if (!Array.isArray(this.netlist)) return '';
+        for (const entry of this.netlist) {
+            if (!entry?.pins) continue;
+            for (const pin of entry.pins) {
+                if (pin.componentId === componentId && String(pin.pinNumber) === String(number)) {
+                    return entry.net || '';
+                }
+            }
+        }
+        return '';
+    }
+
+    /**
+     * Show or hide all copper pours (Home-tab toggle). Persists nothing —
+     * purely a view state.
+     */
+    showFills(show) {
+        this._fillsVisible = show !== false;
+        for (const gid of ['top-fill', 'bottom-fill']) {
+            const g = this._layerGroups.get(gid);
+            if (g) g.style.display = this._fillsVisible ? '' : 'none';
+        }
+        // Sync the Home-tab toggle button state if present.
+        const btn = document.getElementById('pcbToggleFill');
+        if (btn) btn.classList.toggle('active', this._fillsVisible);
+    }
+
+    /** Hit-test a world point against any pour region outline. */
+    _hitTestFill(worldPos) {
+        if (!this.copperFills || !this._fillsVisible) return null;
+        // Topmost (last drawn) first.
+        for (let i = this.copperFills.length - 1; i >= 0; i--) {
+            const fill = this.copperFills[i];
+            if (fill.visible === false || fill.locked) continue;
+            if (isLayerLocked(fill.layer)) continue;
+            if (fill.containsPoint(worldPos.x, worldPos.y)
+                || fill.distanceToEdge(worldPos.x, worldPos.y) < 0.6) {
+                return fill;
+            }
+        }
+        return null;
+    }
+
+    /** Select (or clear) the active pour and refresh its highlight. */
+    _selectFill(fill) {
+        if (this._selectedFill === fill) {
+            if (fill) this._renderFillHandles(fill);
+            return;
+        }
+        const prev = this._selectedFill;
+        this._selectedFill = fill || null;
+        // Re-render the previously- and newly-selected fills to update the
+        // boundary highlight.
+        const getGroup = (id) => this._getLayerGroup(id);
+        if (prev) {
+            renderCopperFill(prev, getGroup, { selected: false, visible: this._fillsVisible });
+        }
+        this._clearFillHandles();
+        if (this._selectedFill) {
+            renderCopperFill(this._selectedFill, getGroup,
+                { selected: true, visible: this._fillsVisible });
+            this._renderFillHandles(this._selectedFill);
+        }
+    }
+
+    /** Draw draggable vertex handles for the selected pour on the overlay. */
+    _renderFillHandles(fill) {
+        this._clearFillHandles();
+        if (!fill || !this._fillsVisible) return;
+        const NS = 'http://www.w3.org/2000/svg';
+        const overlay = this._getLayerGroup('selection-overlay');
+        const g = document.createElementNS(NS, 'g');
+        g.setAttribute('class', 'pcb-fill-handles');
+        for (let i = 0; i < fill.outline.length; i++) {
+            const p = fill.outline[i];
+            const r = document.createElementNS(NS, 'rect');
+            r.setAttribute('x', String(p.x - 0.25));
+            r.setAttribute('y', String(p.y - 0.25));
+            r.setAttribute('width', '0.5');
+            r.setAttribute('height', '0.5');
+            r.setAttribute('fill', '#ffffff');
+            r.setAttribute('stroke', '#000000');
+            r.setAttribute('stroke-width', '0.06');
+            r.setAttribute('data-vertex', String(i));
+            g.appendChild(r);
+        }
+        overlay.appendChild(g);
+    }
+
+    /** Remove the pour vertex handles from the overlay. */
+    _clearFillHandles() {
+        const overlay = this._layerGroups.get('selection-overlay');
+        if (!overlay) return;
+        for (const el of [...overlay.querySelectorAll('.pcb-fill-handles')]) el.remove();
+    }
+
+    /**
+     * Begin a drag of the selected pour: grab the nearest vertex (within
+     * tolerance) for a vertex edit, otherwise move the whole region if the
+     * click lands inside it. Returns true if a drag was started.
+     */
+    _startFillDrag(fill, worldPos, e) {
+        if (!fill || fill.locked || isLayerLocked(fill.layer)) return false;
+        // Vertex grab?
+        const tol = 0.6;
+        let vi = -1, best = tol;
+        for (let i = 0; i < fill.outline.length; i++) {
+            const d = Math.hypot(fill.outline[i].x - worldPos.x, fill.outline[i].y - worldPos.y);
+            if (d < best) { best = d; vi = i; }
+        }
+        if (vi >= 0) {
+            this._fillDrag = {
+                fill, mode: 'vertex', vertex: vi,
+                before: fill.captureState(),
+                start: { x: worldPos.x, y: worldPos.y },
+            };
+            return true;
+        }
+        // Whole-region move?
+        if (fill.containsPoint(worldPos.x, worldPos.y)) {
+            this._fillDrag = {
+                fill, mode: 'move',
+                before: fill.captureState(),
+                start: { x: worldPos.x, y: worldPos.y },
+                last: { x: worldPos.x, y: worldPos.y },
+            };
+            return true;
+        }
+        return false;
+    }
+
+    /** Update a live pour drag (vertex move or whole-region translate). */
+    _handleFillDrag(world) {
+        const fd = this._fillDrag;
+        if (!fd) return;
+        const snap = this._snapToGrid ? this._snapToGrid(world) : world;
+        if (fd.mode === 'vertex') {
+            const p = fd.fill.outline[fd.vertex];
+            if (p) { p.x = snap.x; p.y = snap.y; }
+        } else {
+            const dx = snap.x - fd.last.x;
+            const dy = snap.y - fd.last.y;
+            if (dx === 0 && dy === 0) return;
+            fd.fill.move(dx, dy);
+            fd.last = { x: snap.x, y: snap.y };
+        }
+        // Live preview: re-render the boundary + handles and recompute pour.
+        renderCopperFill(fd.fill, (id) => this._getLayerGroup(id),
+            { selected: true, visible: this._fillsVisible });
+        this._renderFillHandles(fd.fill);
+        this._refreshFills();
+    }
+
+    /** Commit a pour drag as an undoable ModifyFillCommand. */
+    _endFillDrag() {
+        const fd = this._fillDrag;
+        this._fillDrag = null;
+        if (!fd) return;
+        const after = fd.fill.captureState();
+        const moved = JSON.stringify(after.outline) !== JSON.stringify(fd.before.outline);
+        if (moved) {
+            // Roll the model back to its pre-drag state, then execute the
+            // command so it re-applies "after" through the normal undo path.
+            fd.fill.applyState(fd.before);
+            this.history.execute(new ModifyFillCommand(this, fd.fill, fd.before, after));
+        } else {
+            this._refreshFills();
+        }
+    }
+
+    /** Delete the selected pour (Delete/Backspace). */
+    deleteSelectedFill() {
+        if (!this._selectedFill) return false;
+        if (this._selectedFill.locked || isLayerLocked(this._selectedFill.layer)) return false;
+        this.history.execute(new RemoveFillCommand(this, this._selectedFill));
+        return true;
+    }
+
+    /**
+     * Render the Properties-tab editor for a selected copper pour. The pour
+     * has two editable attributes: its net (same-net copper is joined, other
+     * nets are cleared) and its copper layer. Both commit through a single
+     * ModifyFillCommand for clean undo/redo.
+     */
+    _showFillProperties(fill) {
+        const items = document.getElementById('pcbPropsItems');
+        if (!items || !fill) return;
+        const esc = (s) => String(s).replace(/[&<>"']/g, (c) => (
+            { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+        ));
+        // Available nets: every net in the schematic netlist, plus the pour's
+        // own net (in case it references one no longer present).
+        const nets = new Set();
+        if (Array.isArray(this.netlist)) {
+            for (const entry of this.netlist) if (entry?.net) nets.add(entry.net);
+        }
+        if (fill.net) nets.add(fill.net);
+        const netList = [...nets].sort();
+        const netOpts = [`<option value=""${fill.net ? '' : ' selected'}>(isolated)</option>`]
+            .concat(netList.map((n) => `<option value="${esc(n)}"${n === fill.net ? ' selected' : ''}>${esc(n)}</option>`))
+            .join('');
+        const layerOpts = [
+            ['top-copper', 'Top Copper'],
+            ['bottom-copper', 'Bottom Copper'],
+        ].map(([id, name]) => `<option value="${id}"${id === fill.layer ? ' selected' : ''}>${name}</option>`).join('');
+        items.innerHTML = `
+            <div class="prop-row"><label>Type</label><span style="font-size:11px;color:var(--text-primary)">Copper Fill</span></div>
+            <div class="prop-row"><label>Net</label><select id="pcbPropFillNet">${netOpts}</select></div>
+            <div class="prop-row"><label>Layer</label><select id="pcbPropFillLayer">${layerOpts}</select></div>
+        `;
+        const commit = (mutate) => {
+            const before = fill.captureState();
+            mutate();
+            const after = fill.captureState();
+            fill.applyState(before);
+            this.history.execute(new ModifyFillCommand(this, fill, before, after));
+        };
+        const netEl = /** @type {HTMLSelectElement|null} */ (document.getElementById('pcbPropFillNet'));
+        netEl?.addEventListener('change', () => {
+            if ((fill.net || '') === netEl.value) return;
+            commit(() => { fill.net = netEl.value; });
+        });
+        const layerEl = /** @type {HTMLSelectElement|null} */ (document.getElementById('pcbPropFillLayer'));
+        layerEl?.addEventListener('change', () => {
+            if (fill.layer === layerEl.value) return;
+            commit(() => { fill.layer = layerEl.value; });
+        });
+        this._setActiveRibbonTab?.('pcb-properties');
+    }
+
+    /**
+     * Re-sync the pour Properties panel after a programmatic change (e.g. a
+     * ModifyFillCommand undo/redo). Simply re-renders if this pour is shown.
+     */
+    _refreshFillProperties(fill) {
+        if (fill && this._selectedFill === fill) this._showFillProperties(fill);
+    }
+
     /**
      * Show a brief "trying" line for a connection being attempted.
      */
@@ -4974,6 +5435,7 @@ export default class PCBApp {
                 tracks: this.tracks,
                 vias: this.vias,
                 texts: [...this.texts.values()],
+                fills: this.copperFills,
                 boardX: this._boardX || 0,
                 boardY: this._boardY || 0,
                 boardWidth: this._boardWidth,

@@ -12,6 +12,7 @@ export function bindPcbControls(app) {
     const viaBtn = document.getElementById('pcbToolVia');
     const holeBtn = document.getElementById('pcbToolHole');
     const textBtn = document.getElementById('pcbToolText');
+    const fillBtn = document.getElementById('pcbToolFill');
     const zoomOutBtn = document.getElementById('pcbZoomOut');
     const zoomInBtn = document.getElementById('pcbZoomIn');
     const zoomFitBtn = document.getElementById('pcbZoomFit');
@@ -22,8 +23,8 @@ export function bindPcbControls(app) {
     const unitsSelect = document.getElementById('pcbUnits');
     const gridStyleSelect = document.getElementById('pcbGridStyle');
 
-    const toolBtns = [selectBtn, trackBtn, padBtn, viaBtn, holeBtn, textBtn];
-    const validTools = new Set(['select', 'track', 'pad', 'via', 'hole', 'text']);
+    const toolBtns = [selectBtn, trackBtn, padBtn, viaBtn, holeBtn, textBtn, fillBtn];
+    const validTools = new Set(['select', 'track', 'pad', 'via', 'hole', 'text', 'fill']);
 
     const setToolButtonActive = (tool) => {
         for (const btn of toolBtns) {
@@ -44,6 +45,10 @@ export function bindPcbControls(app) {
         // track tool (or even just re-selecting it).
         if (app._trackDraw && nextTool !== 'track') {
             app._cancelTrackDraw?.();
+        }
+        // Cancel any in-progress copper-fill outline when leaving the fill tool.
+        if (app._fillDraw && nextTool !== 'fill') {
+            app._cancelFillDraw?.();
         }
         app.currentTool = nextTool;
         setToolButtonActive(nextTool);
@@ -69,6 +74,11 @@ export function bindPcbControls(app) {
     viaBtn?.addEventListener('click', () => setTool('via'));
     holeBtn?.addEventListener('click', () => setTool('hole'));
     textBtn?.addEventListener('click', () => setTool('text'));
+    fillBtn?.addEventListener('click', () => setTool('fill'));
+
+    // Show/Hide copper pours toggle (Home tab)
+    const toggleFillBtn = document.getElementById('pcbToggleFill');
+    toggleFillBtn?.addEventListener('click', () => app.showFills?.(!app._fillsVisible));
 
     // Auto Route button
     const autoRouteBtn = document.getElementById('pcbAutoRoute');
@@ -137,6 +147,8 @@ export function bindPcbControls(app) {
         const el = document.getElementById(id);
         el?.addEventListener('input', () => {
             if (app._clearancesVisible) app.showClearances?.(true);
+            // Pour clearances follow the routing parameters, so reflow.
+            app._refreshFills?.();
         });
     }
 

@@ -60,7 +60,7 @@ export function exportGerbers(opts) {
         placements, tracks = [], vias = [],
         boardWidth, boardHeight, boardRadius = 0,
         boardX = 0, boardY = 0,
-        texts = [],
+        texts = [], fills = [],
     } = opts;
 
     // Caller's boardX/boardY describe the Y-up bottom-left corner of the
@@ -78,8 +78,8 @@ export function exportGerbers(opts) {
         r: boardRadius || 0,
     };
     return new Map([
-        ['board.gtl', _buildCopper(placements, tracks, vias, 'top-copper', clipBounds, texts)],
-        ['board.gbl', _buildCopper(placements, tracks, vias, 'bottom-copper', clipBounds, texts)],
+        ['board.gtl', _buildCopper(placements, tracks, vias, 'top-copper', clipBounds, texts, fills)],
+        ['board.gbl', _buildCopper(placements, tracks, vias, 'bottom-copper', clipBounds, texts, fills)],
         ['board.gts', _buildMask(placements, vias, 'top', clipBounds)],
         ['board.gbs', _buildMask(placements, vias, 'bottom', clipBounds)],
         ['board.gtp', _buildPaste(placements, 'top', clipBounds)],
@@ -136,7 +136,7 @@ const _fmtY = (mm) => String(_fx(-mm));
 
 /* ──────────────────────────── copper layers ──────────────────────────── */
 
-function _buildCopper(placements, tracks, vias, layerId, bounds, texts = []) {
+function _buildCopper(placements, tracks, vias, layerId, bounds, texts = [], fills = []) {
     const isTop = layerId === 'top-copper';
     // Pads use the footprint/autorouter convention: 'top'|'bottom'|'both'.
     // Tracks use SVG-layer-id form: 'top-copper'|'bottom-copper'.
@@ -235,6 +235,12 @@ function _buildCopper(placements, tracks, vias, layerId, bounds, texts = []) {
     for (const [key, code] of apertures) {
         out += `%ADD${code}${_apertureBody(key)}*%\n`;
     }
+    // Copper pours: emit BEFORE the pad/track/via flashes so the cleared
+    // gaps (holes = obstacle + clearance) are carved first and the dark
+    // flashes that follow restore the obstacle copper, leaving the annular
+    // clearance ring intact. Regions don't use apertures (G36 fill mode).
+    out += _buildFillRegions(fills, layerId);
+    out += '%LPD*%\n';
     let currentD = -1;
     for (const { d, op } of ops) {
         if (d !== currentD) { out += `D${d}*\n`; currentD = d; }
@@ -243,6 +249,43 @@ function _buildCopper(placements, tracks, vias, layerId, bounds, texts = []) {
     out += 'M02*\n';
     return out;
 }
+
+/**
+ * Emit copper-pour polygons for `layerId` as gerber G36/G37 regions. Each
+ * pour's last-computed geometry is a list of ExPolygons {outer, holes} in
+ * world mm (SVG-Y-down). Outer contours fill in dark polarity (LPD); holes
+ * clear in LPC. Returns '' when there is nothing to emit.
+ */
+function _buildFillRegions(fills, layerId) {
+    if (!Array.isArray(fills) || !fills.length) return '';
+    const ringD = (ring, op) => {
+        if (!ring || ring.length < 3) return '';
+        let s = 'G36*\n';
+        s += `X${_fmt(ring[0].x)}Y${_fmtY(ring[0].y)}D02*\n`;
+        for (let i = 1; i < ring.length; i++) {
+            s += `X${_fmt(ring[i].x)}Y${_fmtY(ring[i].y)}D01*\n`;
+        }
+        s += 'G37*\n';
+        return s;
+    };
+    let out = '';
+    for (const f of fills) {
+        if (f.layer !== layerId) continue;
+        if (f.visible === false) continue;
+        const polys = f._computed;
+        if (!Array.isArray(polys) || !polys.length) continue;
+        for (const poly of polys) {
+            out += '%LPD*%\n';
+            out += ringD(poly.outer);
+            if (Array.isArray(poly.holes) && poly.holes.length) {
+                out += '%LPC*%\n';
+                for (const hole of poly.holes) out += ringD(hole);
+            }
+        }
+    }
+    return out;
+}
+
 
 function _apertureBody(key) {
     // key formats: "C:0.6000", "R:1.0000x2.0000", "O:1.0000x2.0000"

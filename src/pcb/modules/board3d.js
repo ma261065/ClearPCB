@@ -1444,6 +1444,40 @@ function buildCopperMesh(tracks) {
 }
 
 /**
+ * Build one combined mesh for every copper pour. Each fill's computed
+ * geometry (an array of ExPolygons {outer, holes} in world mm) is laid flat
+ * on its copper plane and triangulated (holes punched) so it reads as solid
+ * copper matching the tracks on that side.
+ * @param {Array} fills  app.copperFills
+ * @returns {{verts:Array, faces:Array}}
+ */
+function buildFillMesh(fills) {
+    const mesh = emptyMesh();
+    for (const fill of fills || []) {
+        if (fill?.visible === false) continue;
+        const polys = fill?._computed;
+        if (!Array.isArray(polys) || polys.length === 0) continue;
+        const bottom = fill.layer === 'bottom-copper';
+        const y = bottom ? Y_BOT - COPPER_EPS : Y_TOP + COPPER_EPS;
+        const color = bottom ? COLOR_TRACK_BOTTOM : COLOR_TRACK_TOP;
+        for (const ex of polys) {
+            const outer = (ex.outer || []).map((p) => ({ x: p.x, y: p.y }));
+            if (outer.length < 3) continue;
+            const holes = (ex.holes || []).map((h) => h.map((p) => ({ x: p.x, y: p.y })));
+            let tri = null;
+            try { tri = triangulateWithHoles(outer, holes); } catch { tri = null; }
+            if (!tri) continue;
+            const base = mesh.verts.length;
+            for (const p of tri.pts) mesh.verts.push({ x: p.x, y, z: p.y });
+            for (const t of tri.tris) {
+                mesh.faces.push({ idx: [base + t[0], base + t[1], base + t[2]], color });
+            }
+        }
+    }
+    return mesh;
+}
+
+/**
  * Build one combined mesh for standalone vias. Each via is a gold annular pad
  * on both copper faces, a dark drilled centre, and a plated barrel through the
  * board — so it reads clearly from above (the bare barrel alone is buried in
@@ -2284,6 +2318,7 @@ export async function openBoard3DViewer(app, opts = {}) {
         placements: app.placements,
         tracks: app.tracks,
         vias: app.vias,
+        fills: app.copperFills,
         texts: [...(app.texts?.values?.() || [])],
         boardX: app._boardX || 0,
         boardY: app._boardY || 0,
@@ -2410,8 +2445,12 @@ export async function openBoard3DViewer(app, opts = {}) {
         scene.positionGlint(w / 2, -h / 2, Math.max(w, h));
         // Punch the same drilled holes through the flat copper so tracks/pours
         // crossing a hole are bored out instead of lidding over an open hole.
+        // Copper pours sit on the same plane as tracks, so combine both into
+        // the one copper surface before boring/clipping.
+        const copperMesh = buildCopperMesh(app.tracks);
+        appendMesh(copperMesh, buildFillMesh(app.copperFills));
         swapSurface('copper', clipMeshToOutline(
-            punchHolesInFlatMesh(buildCopperMesh(app.tracks), drilledHoles), outline));
+            punchHolesInFlatMesh(copperMesh, drilledHoles), outline));
         swapSurface('via', clipMeshToOutline(buildViaMesh(app.vias), outline));
         swapSurface('silk', clipMeshToOutline(
             punchHolesInFlatMesh(buildSilkMesh(app.placements), drilledHoles), outline));
