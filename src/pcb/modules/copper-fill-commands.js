@@ -14,13 +14,15 @@ export class AddFillCommand {
     }
     execute() {
         if (!this.app.copperFills.includes(this.fill)) this.app.copperFills.push(this.fill);
-        this.app._refreshFills?.();
+        this.app._recomputeFillsNow?.();
+        this.app._updateRatsnest?.();
     }
     undo() {
         const i = this.app.copperFills.indexOf(this.fill);
         if (i >= 0) this.app.copperFills.splice(i, 1);
         if (this.app._selectedFill === this.fill) this.app._selectFill?.(null);
-        this.app._refreshFills?.();
+        this.app._recomputeFillsNow?.();
+        this.app._updateRatsnest?.();
     }
 }
 
@@ -34,11 +36,13 @@ export class RemoveFillCommand {
         const i = this.app.copperFills.indexOf(this.fill);
         if (i >= 0) this.app.copperFills.splice(i, 1);
         if (this.app._selectedFill === this.fill) this.app._selectFill?.(null);
-        this.app._refreshFills?.();
+        this.app._recomputeFillsNow?.();
+        this.app._updateRatsnest?.();
     }
     undo() {
         if (!this.app.copperFills.includes(this.fill)) this.app.copperFills.push(this.fill);
-        this.app._refreshFills?.();
+        this.app._recomputeFillsNow?.();
+        this.app._updateRatsnest?.();
     }
 }
 
@@ -55,12 +59,17 @@ export class ModifyFillCommand {
     }
     execute() {
         this.fill.applyState(this.after);
-        this.app._refreshFills?.();
+        // Recompute pours synchronously so fill._computed is fresh, then
+        // reconcile the ratsnest — a net/layer change alters which copper the
+        // pour bonds, so ratlines must reappear/disappear accordingly.
+        this.app._recomputeFillsNow?.();
+        this.app._updateRatsnest?.();
         this.app._refreshFillProperties?.(this.fill);
     }
     undo() {
         this.fill.applyState(this.before);
-        this.app._refreshFills?.();
+        this.app._recomputeFillsNow?.();
+        this.app._updateRatsnest?.();
         this.app._refreshFillProperties?.(this.fill);
     }
 }

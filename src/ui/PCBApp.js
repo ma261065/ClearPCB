@@ -7,7 +7,7 @@ import { loadAndApplyTheme, toggleTheme as toggleSharedTheme, syncThemeToggleBut
 import { extractNetlist, extractComponents } from '../pcb/modules/netlist.js';
 import { generateFootprint, renderFootprint } from '../pcb/modules/footprint.js';
 import { updateGridDropdown } from './modules/viewport.js';
-import { PCB_LAYERS, isLayerLocked, isViaLocked, showLockedLayerBubble } from '../pcb/modules/layers.js';
+import { PCB_LAYERS, isLayerLocked, isViaLocked, showLockedLayerBubble, isCopperFillLocked, isCopperFillVisible } from '../pcb/modules/layers.js';
 import { exportDSN, importSES } from '../pcb/modules/dsn.js';
 import { exportGerbers, buildZip } from '../pcb/modules/gerber.js';
 import { generateBOM, generatePickAndPlace } from '../pcb/modules/assembly.js';
@@ -100,7 +100,7 @@ import { Via } from '../shapes/via.js';
 import { Hole, updateHoleIdCounter } from '../shapes/hole.js';
 import { CopperFill, updateFillIdCounter } from '../shapes/copper-fill.js';
 import { computeFillPolygons, loadClipper, isClipperReady } from '../pcb/modules/copper-fill-geom.js';
-import { renderCopperFill } from '../pcb/modules/copper-fill-render.js';
+import { renderCopperFill, fillGroupId } from '../pcb/modules/copper-fill-render.js';
 import { AddFillCommand, RemoveFillCommand, ModifyFillCommand } from '../pcb/modules/copper-fill-commands.js';
 import {
     startFillDraw,
@@ -216,8 +216,6 @@ export default class PCBApp {
         this.copperFills = [];
         /** Currently selected CopperFill, or null. */
         this._selectedFill = null;
-        /** Global show/hide state for copper pours (Home-tab toggle). */
-        this._fillsVisible = true;
 
         /** True when the schematic has changed since last PCB rebuild */
         this._stale = true;
@@ -2110,6 +2108,25 @@ export default class PCBApp {
                 const diaEl = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbToolHoleDia'));
                 diaEl?.addEventListener('input', () => {
                     if (this._lastCrosshairWorld) this._updateHolePreview(this._lastCrosshairWorld);
+                });
+            });
+    }
+
+    /**
+     * Show Fill tool options (copper-layer picker). The chosen layer becomes
+     * the active layer so the next pour is drawn on it; if a pour outline is
+     * already in progress, retarget it live.
+     */
+    _showFillToolOptions() {
+        const cur = this.activeLayer === 'bottom-copper' ? 'bottom-copper' : 'top-copper';
+        const opt = (id, name) => `<option value="${id}"${id === cur ? ' selected' : ''}>${name}</option>`;
+        this._showToolOptions(
+            `<label>Layer <select id="pcbToolFillLayer">${opt('top-copper', 'Top Copper')}${opt('bottom-copper', 'Bottom Copper')}</select></label>`,
+            () => {
+                const el = /** @type {HTMLSelectElement|null} */ (document.getElementById('pcbToolFillLayer'));
+                el?.addEventListener('change', () => {
+                    this.activeLayer = el.value === 'bottom-copper' ? 'bottom-copper' : 'top-copper';
+                    if (this._fillDraw) this._fillDraw.layer = this.activeLayer;
                 });
             });
     }
@@ -5064,7 +5081,6 @@ export default class PCBApp {
             }
             renderCopperFill(fill, (id) => this._getLayerGroup(id), {
                 selected: fill === this._selectedFill,
-                visible: this._fillsVisible,
             });
         }
         if (this._selectedFill) this._renderFillHandles(this._selectedFill);
@@ -5114,28 +5130,40 @@ export default class PCBApp {
     }
 
     /**
-     * Show or hide all copper pours (Home-tab toggle). Persists nothing —
-     * purely a view state.
+     * Layer-panel callback: show/hide the copper pour on one side. Visibility
+     * is purely a view state (toggles the fill layer-group's display).
+     * @param {string} copperLayerId - 'top-copper' | 'bottom-copper'
+     * @param {boolean} visible
      */
-    showFills(show) {
-        this._fillsVisible = show !== false;
-        for (const gid of ['top-fill', 'bottom-fill']) {
-            const g = this._layerGroups.get(gid);
-            if (g) g.style.display = this._fillsVisible ? '' : 'none';
+    _onCopperFillVisibilityChanged(copperLayerId, visible) {
+        const g = this._layerGroups.get(fillGroupId(copperLayerId));
+        if (g) g.style.display = visible ? '' : 'none';
+    }
+
+    /**
+     * Layer-panel callback: lock/unlock the copper pour on one side. A locked
+     * pour is dimmed and can't be selected; deselect anything on it.
+     * @param {string} copperLayerId - 'top-copper' | 'bottom-copper'
+     * @param {boolean} locked
+     */
+    _onCopperFillLockChanged(copperLayerId, locked) {
+        const g = this._layerGroups.get(fillGroupId(copperLayerId));
+        if (g) g.style.opacity = locked ? '0.4' : '';
+        if (locked && this._selectedFill && this._selectedFill.layer === copperLayerId) {
+            this._selectFill(null);
+            this._clearProperties?.();
         }
-        // Sync the Home-tab toggle button state if present.
-        const btn = document.getElementById('pcbToggleFill');
-        if (btn) btn.classList.toggle('active', this._fillsVisible);
     }
 
     /** Hit-test a world point against any pour region outline. */
     _hitTestFill(worldPos) {
-        if (!this.copperFills || !this._fillsVisible) return null;
+        if (!this.copperFills) return null;
         // Topmost (last drawn) first.
         for (let i = this.copperFills.length - 1; i >= 0; i--) {
             const fill = this.copperFills[i];
             if (fill.visible === false || fill.locked) continue;
             if (isLayerLocked(fill.layer)) continue;
+            if (isCopperFillLocked(fill.layer) || !isCopperFillVisible(fill.layer)) continue;
             if (fill.containsPoint(worldPos.x, worldPos.y)
                 || fill.distanceToEdge(worldPos.x, worldPos.y) < 0.6) {
                 return fill;
@@ -5156,12 +5184,12 @@ export default class PCBApp {
         // boundary highlight.
         const getGroup = (id) => this._getLayerGroup(id);
         if (prev) {
-            renderCopperFill(prev, getGroup, { selected: false, visible: this._fillsVisible });
+            renderCopperFill(prev, getGroup, { selected: false });
         }
         this._clearFillHandles();
         if (this._selectedFill) {
             renderCopperFill(this._selectedFill, getGroup,
-                { selected: true, visible: this._fillsVisible });
+                { selected: true });
             this._renderFillHandles(this._selectedFill);
         }
     }
@@ -5169,7 +5197,7 @@ export default class PCBApp {
     /** Draw draggable vertex handles for the selected pour on the overlay. */
     _renderFillHandles(fill) {
         this._clearFillHandles();
-        if (!fill || !this._fillsVisible) return;
+        if (!fill || !isCopperFillVisible(fill.layer)) return;
         const NS = 'http://www.w3.org/2000/svg';
         const overlay = this._getLayerGroup('selection-overlay');
         const g = document.createElementNS(NS, 'g');
@@ -5203,7 +5231,7 @@ export default class PCBApp {
      * click lands inside it. Returns true if a drag was started.
      */
     _startFillDrag(fill, worldPos, e) {
-        if (!fill || fill.locked || isLayerLocked(fill.layer)) return false;
+        if (!fill || fill.locked || isLayerLocked(fill.layer) || isCopperFillLocked(fill.layer)) return false;
         // Vertex grab?
         const tol = 0.6;
         let vi = -1, best = tol;
@@ -5249,7 +5277,7 @@ export default class PCBApp {
         }
         // Live preview: re-render the boundary + handles and recompute pour.
         renderCopperFill(fd.fill, (id) => this._getLayerGroup(id),
-            { selected: true, visible: this._fillsVisible });
+            { selected: true });
         this._renderFillHandles(fd.fill);
         this._refreshFills();
     }
@@ -5274,7 +5302,8 @@ export default class PCBApp {
     /** Delete the selected pour (Delete/Backspace). */
     deleteSelectedFill() {
         if (!this._selectedFill) return false;
-        if (this._selectedFill.locked || isLayerLocked(this._selectedFill.layer)) return false;
+        if (this._selectedFill.locked || isLayerLocked(this._selectedFill.layer)
+            || isCopperFillLocked(this._selectedFill.layer)) return false;
         this.history.execute(new RemoveFillCommand(this, this._selectedFill));
         return true;
     }
@@ -5291,24 +5320,13 @@ export default class PCBApp {
         const esc = (s) => String(s).replace(/[&<>"']/g, (c) => (
             { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
         ));
-        // Available nets: every net in the schematic netlist, plus the pour's
-        // own net (in case it references one no longer present).
-        const nets = new Set();
-        if (Array.isArray(this.netlist)) {
-            for (const entry of this.netlist) if (entry?.net) nets.add(entry.net);
-        }
-        if (fill.net) nets.add(fill.net);
-        const netList = [...nets].sort();
-        const netOpts = [`<option value=""${fill.net ? '' : ' selected'}>(isolated)</option>`]
-            .concat(netList.map((n) => `<option value="${esc(n)}"${n === fill.net ? ' selected' : ''}>${esc(n)}</option>`))
-            .join('');
         const layerOpts = [
             ['top-copper', 'Top Copper'],
             ['bottom-copper', 'Bottom Copper'],
         ].map(([id, name]) => `<option value="${id}"${id === fill.layer ? ' selected' : ''}>${name}</option>`).join('');
         items.innerHTML = `
             <div class="prop-row"><label>Type</label><span style="font-size:11px;color:var(--text-primary)">Copper Fill</span></div>
-            <div class="prop-row"><label>Net</label><select id="pcbPropFillNet">${netOpts}</select></div>
+            <div class="prop-row"><label>Net</label><input type="text" id="pcbPropFillNet" placeholder="(isolated)" value="${esc(fill.net || '')}"></div>
             <div class="prop-row"><label>Layer</label><select id="pcbPropFillLayer">${layerOpts}</select></div>
         `;
         const commit = (mutate) => {
@@ -5318,10 +5336,11 @@ export default class PCBApp {
             fill.applyState(before);
             this.history.execute(new ModifyFillCommand(this, fill, before, after));
         };
-        const netEl = /** @type {HTMLSelectElement|null} */ (document.getElementById('pcbPropFillNet'));
+        const netEl = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropFillNet'));
         netEl?.addEventListener('change', () => {
-            if ((fill.net || '') === netEl.value) return;
-            commit(() => { fill.net = netEl.value; });
+            const value = netEl.value.trim();
+            if ((fill.net || '') === value) return;
+            commit(() => { fill.net = value; });
         });
         const layerEl = /** @type {HTMLSelectElement|null} */ (document.getElementById('pcbPropFillLayer'));
         layerEl?.addEventListener('change', () => {

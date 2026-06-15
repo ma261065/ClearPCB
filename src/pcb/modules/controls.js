@@ -63,6 +63,8 @@ export function bindPcbControls(app) {
             app._showTextToolOptions?.();
         } else if (nextTool === 'hole') {
             app._showHoleToolOptions?.();
+        } else if (nextTool === 'fill') {
+            app._showFillToolOptions?.();
         } else {
             app._hideToolOptions?.();
         }
@@ -77,10 +79,6 @@ export function bindPcbControls(app) {
     holeBtn?.addEventListener('click', () => setTool('hole'));
     textBtn?.addEventListener('click', () => setTool('text'));
     fillBtn?.addEventListener('click', () => setTool('fill'));
-
-    // Show/Hide copper pours toggle (Home tab)
-    const toggleFillBtn = document.getElementById('pcbToggleFill');
-    toggleFillBtn?.addEventListener('click', () => app.showFills?.(!app._fillsVisible));
 
     // Auto Route button
     const autoRouteBtn = document.getElementById('pcbAutoRoute');

@@ -44,6 +44,7 @@ import { pointsCollinear, collinearSnap } from '../../core/geometry.js';
 import { showAlert } from '../../ui/modules/modal.js';
 import { Via } from '../../shapes/via.js';
 import { Track } from '../../shapes/track.js';
+import { isLayerLocked } from './layers.js';
 
 /** Screen-px hit tolerance for selecting a Track node to drag. */
 const NODE_HIT_PX = 8;
@@ -1624,7 +1625,7 @@ function _hitHole(app, hole, worldPos, pxTol = HOLE_HIT_PX) {
  * it. A hole has no copper or attached track nodes, so it simply translates.
  */
 export function startHoleDrag(app, hole, worldPos) {
-    if (!hole || !_hitHole(app, hole, worldPos)) return false;
+    if (!hole || isLayerLocked('hole') || !_hitHole(app, hole, worldPos)) return false;
     app._holeDrag = { hole, startX: hole.x, startY: hole.y };
     return true;
 }

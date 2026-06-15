@@ -1519,12 +1519,11 @@ function buildHoleMesh(holes) {
     for (const hole of holes || []) {
         if (!hole?.plated || !(hole.diameter > 0)) continue;
         const bore = hole.diameter / 2;
-        // A gold barrel lining the bore — no annular ring on the board faces.
-        // The outer wall sits at the bore; the inner wall is inset so the
-        // copper occludes the FR4 edge cleanly (no z-fighting stripes).
-        const ro = bore;
-        const ri = Math.max(0.05, bore - Math.max(0.08, bore * 0.12));
-        appendMesh(mesh, tubeMesh(hole.x, hole.y, ri, ro, yBot, yTop, COLOR_VIA, 48));
+        // A single-walled gold cylinder lining the bore — no end caps, so no
+        // copper ring shows on the board faces. Inset just inside the bored
+        // wall so the gold occludes the FR4 edge cleanly (no z-fighting).
+        const r = Math.max(0.05, bore - 0.02);
+        appendMesh(mesh, cylinderWallMesh(hole.x, hole.y, r, yBot, yTop, COLOR_VIA, 48));
     }
     return mesh;
 }
@@ -1733,13 +1732,14 @@ const CPCB3D_CSS = `
   .cpcb3d-cv2d:active{cursor:grabbing}
   .cpcb3d-host.cpcb3d-mode2d .cpcb3d-cv{display:none}
   .cpcb3d-host.cpcb3d-mode2d .cpcb3d-cv2d{display:block}
-  /* The Top/Bottom side buttons are 2D-only; Parts/Top/Iso are 3D-only. */
-  [data-act="2dtop"],[data-act="2dbottom"]{display:none}
+  /* The Top/Bottom/Save side buttons are 2D-only; Parts/Top/Iso are 3D-only. */
+  [data-act="2dtop"],[data-act="2dbottom"],[data-act="2dsave"]{display:none}
   .cpcb3d-host.cpcb3d-mode2d [data-act="parts"],
   .cpcb3d-host.cpcb3d-mode2d [data-act="top"],
   .cpcb3d-host.cpcb3d-mode2d [data-act="iso"]{display:none}
   .cpcb3d-host.cpcb3d-mode2d [data-act="2dtop"],
-  .cpcb3d-host.cpcb3d-mode2d [data-act="2dbottom"]{display:inline-block}
+  .cpcb3d-host.cpcb3d-mode2d [data-act="2dbottom"],
+  .cpcb3d-host.cpcb3d-mode2d [data-act="2dsave"]{display:inline-block}
   .cpcb3d-bar [data-act="2dtop"].active,
   .cpcb3d-bar [data-act="2dbottom"].active{
     background:#2d7dd2;border-color:#2d7dd2;color:#fff}
@@ -1796,7 +1796,8 @@ function ensure3DStyles(doc) {
  * @returns {{host:HTMLElement, canvas:HTMLCanvasElement, status:HTMLElement,
  *   spinner:HTMLElement, cover:HTMLElement, btnParts:HTMLElement,
  *   btnTop:HTMLElement, btnIso:HTMLElement, btnFit:HTMLElement,
- *   btn2dTop:HTMLElement, btn2dBottom:HTMLElement, btnPop:HTMLElement}}
+ *   btn2dTop:HTMLElement, btn2dBottom:HTMLElement, btn2dSave:HTMLElement,
+ *   btnPop:HTMLElement}}
  */
 function build3DHost(doc) {
     ensure3DStyles(doc);
@@ -1809,6 +1810,7 @@ function build3DHost(doc) {
     <button data-act="iso">Iso</button>
     <button data-act="2dtop" title="Show the top of the board">Top</button>
     <button data-act="2dbottom" title="Show the bottom of the board">Bottom</button>
+    <button data-act="2dsave" title="Save this view as a PNG image">Save Image</button>
     <button data-act="fit">Fit</button>
     <button data-act="pop" title="Pop out to a separate window">⇱ Pop out</button>
     <span class="cpcb3d-sp"></span>
@@ -1832,6 +1834,7 @@ function build3DHost(doc) {
         btnIso: q('[data-act="iso"]'),
         btn2dTop: q('[data-act="2dtop"]'),
         btn2dBottom: q('[data-act="2dbottom"]'),
+        btn2dSave: q('[data-act="2dsave"]'),
         btnFit: q('[data-act="fit"]'),
         btnPop: q('[data-act="pop"]'),
         hint: q('.cpcb3d-hint'),
@@ -2624,6 +2627,25 @@ export async function openBoard3DViewer(app, opts = {}) {
     // Two side-by-side buttons; the active one is highlighted (see applyView).
     dom.btn2dTop?.addEventListener('click', () => { app._last2DSide = 'top'; applyView('top'); });
     dom.btn2dBottom?.addEventListener('click', () => { app._last2DSide = 'bottom'; applyView('bottom'); });
+
+    // The 2D canvas is a plain board preview; suppress the browser context menu
+    // so right-drag panning never pops up the default menu.
+    dom.canvas2d?.addEventListener('contextmenu', (e) => e.preventDefault());
+
+    // ── Save Image: export the current flat 2D view as a PNG ────────────
+    dom.btn2dSave?.addEventListener('click', () => {
+        const cv = dom.canvas2d;
+        if (!cv) return;
+        cv.toBlob((blob) => {
+            if (!blob) return;
+            const side = panel.view === 'bottom' ? 'bottom' : 'top';
+            const base = app._exportBaseName?.() || 'board';
+            app._saveBlob?.(blob, `${base}-${side}.png`, {
+                description: 'PNG image',
+                accept: { 'image/png': ['.png'] },
+            });
+        }, 'image/png');
+    });
 
     // ── Parts toggle: show/hide every component body mesh ───────────────
     dom.btnParts?.addEventListener('click', () => {

@@ -36,6 +36,39 @@ export const PCB_OVERLAYS = /** @type {OverlayDef[]} */ ([
 ]);
 
 /**
+ * Copper fill (pour) sides — their own panel section with master eye + lock,
+ * mirroring the per-copper-layer pours. `id` is the copper layer the pour
+ * belongs to (matching `fill.layer`); colours match the copper layers.
+ * @typedef {{id: string, name: string, color: string, visible: boolean, locked: boolean}} CopperFillDef
+ */
+export const PCB_COPPER_FILLS = /** @type {CopperFillDef[]} */ ([
+    { id: 'top-copper',    name: 'Top',    color: '#e74c3c', visible: true, locked: false },
+    { id: 'bottom-copper', name: 'Bottom', color: '#3498db', visible: true, locked: false },
+]);
+
+/**
+ * True when the copper pour on the given copper layer is hidden via the
+ * Copper Fill section's eye toggle.
+ * @param {string} copperLayerId
+ * @returns {boolean}
+ */
+export function isCopperFillVisible(copperLayerId) {
+    const def = PCB_COPPER_FILLS.find(f => f.id === copperLayerId);
+    return def ? def.visible : true;
+}
+
+/**
+ * True when the copper pour on the given copper layer is locked (read-only)
+ * via the Copper Fill section's lock toggle.
+ * @param {string} copperLayerId
+ * @returns {boolean}
+ */
+export function isCopperFillLocked(copperLayerId) {
+    const def = PCB_COPPER_FILLS.find(f => f.id === copperLayerId);
+    return !!(def && def.locked);
+}
+
+/**
  * True when the given layer id is currently locked. Locked layers are
  * read-only: their objects can't be selected, hovered, dragged or deleted,
  * and nothing new may be drawn on them.
@@ -293,6 +326,116 @@ export function buildLayerPanel(app) {
         row.addEventListener('click', () => _setEditLayer(app, layer.id));
 
         panel.appendChild(row);
+    }
+
+    // ---- Copper Fill section -------------------------------------------
+    {
+        const { row: cfHeader, eyeBtn: cfMasterEye, lockBtn: cfMasterLock } =
+            makeSectionHeader('Copper Fill', 'copperfill', true);
+        cfHeader.style.marginTop = '6px';
+        panel.appendChild(cfHeader);
+
+        // Master eye: show/hide both pour sides.
+        let allFillsVisible = PCB_COPPER_FILLS.every(f => f.visible);
+        cfMasterEye.classList.toggle('active', allFillsVisible);
+        cfMasterEye.innerHTML = allFillsVisible ? EYE_OPEN_SVG : EYE_CLOSED_SVG;
+        cfMasterEye.addEventListener('click', () => {
+            allFillsVisible = !allFillsVisible;
+            cfMasterEye.classList.toggle('active', allFillsVisible);
+            cfMasterEye.innerHTML = allFillsVisible ? EYE_OPEN_SVG : EYE_CLOSED_SVG;
+            for (const f of PCB_COPPER_FILLS) {
+                f.visible = allFillsVisible;
+                app._onCopperFillVisibilityChanged?.(f.id, allFillsVisible);
+            }
+            for (const row of panel.querySelectorAll('.pcb-layer-row.section-copperfill')) {
+                const visBtn = row.querySelector('.vis-btn');
+                if (!visBtn) continue;
+                visBtn.classList.toggle('active', allFillsVisible);
+                visBtn.innerHTML = allFillsVisible ? EYE_OPEN_SVG : EYE_CLOSED_SVG;
+            }
+        });
+
+        // Master lock: lock/unlock both pour sides.
+        let allFillsLocked = PCB_COPPER_FILLS.every(f => f.locked);
+        const syncCfMasterLock = () => {
+            if (!cfMasterLock) return;
+            cfMasterLock.classList.toggle('active', allFillsLocked);
+            cfMasterLock.innerHTML = allFillsLocked ? LOCK_CLOSED_SVG : LOCK_OPEN_SVG;
+            cfMasterLock.title = allFillsLocked ? 'Unlock all copper fill' : 'Lock all copper fill';
+        };
+        syncCfMasterLock();
+        cfMasterLock?.addEventListener('click', (e) => {
+            e.stopPropagation();
+            allFillsLocked = !allFillsLocked;
+            syncCfMasterLock();
+            for (const f of PCB_COPPER_FILLS) {
+                f.locked = allFillsLocked;
+                app._onCopperFillLockChanged?.(f.id, allFillsLocked);
+            }
+            for (const row of panel.querySelectorAll('.pcb-layer-row.section-copperfill')) {
+                const lockBtn = /** @type {HTMLButtonElement|null} */ (row.querySelector('.lock-btn'));
+                if (!lockBtn) continue;
+                lockBtn.classList.toggle('active', allFillsLocked);
+                lockBtn.innerHTML = allFillsLocked ? LOCK_CLOSED_SVG : LOCK_OPEN_SVG;
+                lockBtn.title = allFillsLocked ? 'Unlock copper fill' : 'Lock copper fill';
+            }
+        });
+
+        for (const f of PCB_COPPER_FILLS) {
+            const row = document.createElement('div');
+            row.className = 'pcb-layer-row section-copperfill';
+            row.dataset.fillId = f.id;
+
+            const swatch = document.createElement('span');
+            swatch.className = 'pcb-layer-swatch';
+            swatch.style.background = f.color;
+            row.appendChild(swatch);
+
+            const name = document.createElement('span');
+            name.className = 'pcb-layer-name';
+            name.textContent = f.name;
+            name.style.color = f.color;
+            row.appendChild(name);
+
+            // Empty pencil column — copper fill isn't its own edit layer.
+            row.appendChild(document.createElement('span'));
+
+            // Lock button (padlock) — toggle.
+            const lockBtn = document.createElement('button');
+            lockBtn.className = 'pcb-layer-btn lock-btn' + (f.locked ? ' active' : '');
+            lockBtn.innerHTML = f.locked ? LOCK_CLOSED_SVG : LOCK_OPEN_SVG;
+            lockBtn.title = 'Lock copper fill';
+            lockBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                f.locked = !f.locked;
+                lockBtn.classList.toggle('active', f.locked);
+                lockBtn.innerHTML = f.locked ? LOCK_CLOSED_SVG : LOCK_OPEN_SVG;
+                lockBtn.title = f.locked ? 'Unlock copper fill' : 'Lock copper fill';
+                app._onCopperFillLockChanged?.(f.id, f.locked);
+                allFillsLocked = PCB_COPPER_FILLS.every(x => x.locked);
+                syncCfMasterLock();
+            });
+            row.appendChild(lockBtn);
+
+            // Visibility button (eye) — toggle.
+            const visBtn = document.createElement('button');
+            visBtn.className = 'pcb-layer-btn vis-btn' + (f.visible ? ' active' : '');
+            visBtn.innerHTML = f.visible ? EYE_OPEN_SVG : EYE_CLOSED_SVG;
+            visBtn.title = 'Toggle copper fill';
+            visBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                f.visible = !f.visible;
+                visBtn.classList.toggle('active', f.visible);
+                visBtn.innerHTML = f.visible ? EYE_OPEN_SVG : EYE_CLOSED_SVG;
+                app._onCopperFillVisibilityChanged?.(f.id, f.visible);
+                allFillsVisible = PCB_COPPER_FILLS.every(x => x.visible);
+                cfMasterEye.classList.toggle('active', allFillsVisible);
+                cfMasterEye.innerHTML = allFillsVisible ? EYE_OPEN_SVG : EYE_CLOSED_SVG;
+            });
+            row.appendChild(visBtn);
+
+            panel.appendChild(row);
+        }
     }
 
     // ---- Overlays section ----------------------------------------------

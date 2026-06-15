@@ -33,7 +33,7 @@
 import { Track } from '../../shapes/track.js';
 import { Via } from '../../shapes/via.js';
 import { renderTrack } from './track-render.js';
-import { collinearSnap } from '../../core/geometry.js';
+import { collinearSnap, pointInPolygon } from '../../core/geometry.js';
 
 const NS = 'http://www.w3.org/2000/svg';
 
@@ -771,6 +771,33 @@ export function reconcileRatsnest(app) {
                     if (firstByLayer.has(layer)) union(firstByLayer.get(layer), idx);
                     else firstByLayer.set(layer, idx);
                 }
+            }
+        }
+    }
+
+    // ── Copper-fill bonding ── A poured fill is solid same-net copper, and
+    // thermal-reliefs same-net pads, so it electrically joins every same-net,
+    // layer-compatible cluster whose point lies within one of its poured
+    // islands. Bond all such clusters per island so no ratline is drawn across
+    // copper the fill already connects. (Per-island, not per-outline, so a
+    // pour split into disjoint islands by other-net copper doesn't falsely
+    // bridge them. Holes are ignored: a same-net pad sits inside a clearance
+    // hole yet is tied to that island through its thermal spokes.)
+    for (const fill of (app.copperFills || [])) {
+        const fnet = fill.net || '';
+        if (!fnet) continue;
+        const polys = fill._computed;
+        if (!Array.isArray(polys) || polys.length === 0) continue;
+        const compat = (layer) => layer === 'all' || layer === fill.layer;
+        for (const poly of polys) {
+            const outer = poly.outer;
+            if (!outer || outer.length < 3) continue;
+            let first = -1;
+            for (let i = 0; i < clusters.length; i++) {
+                const c = clusters[i];
+                if (c.net !== fnet || !compat(c.layer)) continue;
+                if (!c.points.some((p) => pointInPolygon(p, outer))) continue;
+                if (first === -1) first = i; else union(first, i);
             }
         }
     }

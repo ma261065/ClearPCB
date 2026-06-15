@@ -70,11 +70,14 @@ export function hitTestTrack(app, worldPos, pxTol = HIT_TOL_PX) {
     }
 
     // Standalone non-plated holes (also small targets on the hole layer).
-    for (let i = (app.holes?.length || 0) - 1; i >= 0; i--) {
-        const h = app.holes[i];
-        const r = (h.diameter || 0.8) / 2 + worldTol;
-        if (Math.hypot(h.x - worldPos.x, h.y - worldPos.y) <= r) {
-            return { type: 'hole', hole: h };
+    // Skip them when the hole layer is locked (read-only).
+    if (!isLayerLocked('hole')) {
+        for (let i = (app.holes?.length || 0) - 1; i >= 0; i--) {
+            const h = app.holes[i];
+            const r = (h.diameter || 0.8) / 2 + worldTol;
+            if (Math.hypot(h.x - worldPos.x, h.y - worldPos.y) <= r) {
+                return { type: 'hole', hole: h };
+            }
         }
     }
 

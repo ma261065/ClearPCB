@@ -660,7 +660,8 @@ body {
     pointer-events: none;
 }
 
-.ribbon-group-items select {
+.ribbon-group-items select,
+.ribbon-shape-options select {
     -webkit-appearance: none;
     appearance: none;
     background-color: var(--bg-tertiary);
@@ -676,21 +677,25 @@ body {
     transition: border-color 0.15s;
 }
 
-.ribbon-group-items select option {
+.ribbon-group-items select option,
+.ribbon-shape-options select option {
     background: var(--bg-tertiary);
     color: var(--text-primary);
 }
 
-.ribbon-group-items select optgroup {
+.ribbon-group-items select optgroup,
+.ribbon-shape-options select optgroup {
     background: var(--bg-tertiary);
     color: var(--text-primary);
 }
 
-.ribbon-group-items select:hover {
+.ribbon-group-items select:hover,
+.ribbon-shape-options select:hover {
     border-color: var(--select-border-hover, rgba(255, 255, 255, 0.25));
 }
 
-.ribbon-group-items select:focus {
+.ribbon-group-items select:focus,
+.ribbon-shape-options select:focus {
     outline: none;
 }
 

@@ -14,6 +14,11 @@
  * radius width/2 + clearance); vias become discs (radius diameter/2 +
  * clearance); pads become their footprint outline expanded by clearance.
  *
+ * Exception — same-net pads get a plus-shaped THERMAL RELIEF: the pad's
+ * clearance ring is voided like any other pad, but two crossed spokes
+ * (horizontal + vertical) are kept as copper so the pour ties to the pad
+ * through four narrow bridges instead of a solid flood (eases soldering).
+ *
  * Coordinates: world millimetres in, world millimetres out. Clipper works
  * on integers, so all geometry is scaled by SCALE during computation.
  *
@@ -168,12 +173,18 @@ function collectObstacles(C, fill, ctx, clearance) {
         out.push(circlePath(C, hole.x, hole.y, rad));
     }
 
-    // ── Pads (on this copper layer, other net) ──
+    // ── Pads (on this copper layer) ──
+    // Other-net pads are voided solid (pad + clearance). Same-net pads get a
+    // plus-shaped thermal relief: the clearance ring is voided too, but four
+    // spokes are left as copper so the pour stays tied to the pad.
     for (const pad of (ctx.pads || [])) {
         if (!pad) continue;
         if (!padOnLayer(pad.layer, fill.layer)) continue;
-        if (sameNet(pad.net || '')) continue;
-        out.push(...padObstaclePaths(C, pad, clearance));
+        if (sameNet(pad.net || '')) {
+            out.push(...thermalReliefPaths(C, pad, clearance));
+        } else {
+            out.push(...padObstaclePaths(C, pad, clearance));
+        }
     }
 
     return out;
@@ -226,6 +237,39 @@ function padObstaclePaths(C, pad, clearance) {
     const cornerR = (shape === 'oval' ? Math.min(hw, hh) : 0) + clearance;
     return [roundedRectPath(C, cx - hw - clearance, cy - hh - clearance,
         (hw + clearance) * 2, (hh + clearance) * 2, cornerR)];
+}
+
+/** Thermal spoke width (mm) for same-net pad connections. */
+const THERMAL_SPOKE_WIDTH = 0.4;
+
+/**
+ * Void geometry for a same-net pad with a plus-shaped thermal relief. Takes
+ * the pad's clearance ring and subtracts two crossed spokes (a horizontal and
+ * a vertical bar through the pad centre), so the returned obstacle leaves four
+ * copper bridges tying the pad to the surrounding pour.
+ * @returns {Array} scaled int paths to subtract from the pour
+ */
+function thermalReliefPaths(C, pad, clearance) {
+    const hw = (pad.width || 0) / 2;
+    const hh = (pad.height || 0) / 2;
+    // Spoke can't be wider than the pad, or the relief would have no gaps.
+    const sh = Math.min(THERMAL_SPOKE_WIDTH, Math.min(hw, hh) * 1.5) / 2;
+    // Arms reach two clearances past the ring so they merge with the pour.
+    const armX = hw + clearance * 2;
+    const armY = hh + clearance * 2;
+    const cx = pad.x, cy = pad.y;
+    const ring = padObstaclePaths(C, pad, clearance);
+    const plus = [
+        roundedRectPath(C, cx - armX, cy - sh, armX * 2, sh * 2, 0), // horizontal
+        roundedRectPath(C, cx - sh, cy - armY, sh * 2, armY * 2, 0), // vertical
+    ];
+    const clip = new C.Clipper();
+    clip.AddPaths(ring, C.PolyType.ptSubject, true);
+    clip.AddPaths(plus, C.PolyType.ptClip, true);
+    const sol = new C.Paths();
+    clip.Execute(C.ClipType.ctDifference, sol,
+        C.PolyFillType.pftNonZero, C.PolyFillType.pftNonZero);
+    return sol;
 }
 
 /** Ellipse polygon (scaled int path). */

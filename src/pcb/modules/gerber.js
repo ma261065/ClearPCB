@@ -10,7 +10,8 @@
  *   - bottom-paste.gbp  (stencil apertures, bottom)
  *   - top-silk.gto      (component reference labels on silkscreen)
  *   - board-outline.gko (rectangular / rounded board boundary)
- *   - drill.drl         (Excellon plated-through holes)
+ *   - board-PTH.drl     (Excellon plated through-holes: pads, vias, plated holes)
+ *   - board-NPTH.drl    (Excellon non-plated holes: mounting/tooling — when present)
  *
  * Coordinate system: ClearPCB stores PCB geometry in SVG-Y-down
  * millimetres (positive Y points down on screen). Gerber files use
@@ -78,7 +79,7 @@ export function exportGerbers(opts) {
         w: boardWidth, h: boardHeight,
         r: boardRadius || 0,
     };
-    return new Map([
+    const files = new Map([
         ['board.gtl', _buildCopper(placements, tracks, vias, 'top-copper', clipBounds, texts, fills)],
         ['board.gbl', _buildCopper(placements, tracks, vias, 'bottom-copper', clipBounds, texts, fills)],
         ['board.gts', _buildMask(placements, vias, 'top', clipBounds)],
@@ -88,8 +89,16 @@ export function exportGerbers(opts) {
         ['board.gto', _buildSilk(placements, 'top', clipBounds, texts)],
         ['board.gbo', _buildSilk(placements, 'bottom', clipBounds, texts)],
         ['board.gko', _buildOutline(outlineBounds)],
-        ['board.drl', _buildDrill(placements, vias, clipBounds, tracks, holes)],
+        // Plated through-holes (pads, vias, plated standalone holes) and
+        // non-plated holes go in separate Excellon files so fabs (JLCPCB,
+        // etc.) can tell them apart — they key off the -PTH / -NPTH suffix.
+        ['board-PTH.drl', _buildDrill(_collectPlatedDrills(placements, vias, holes), clipBounds)],
     ]);
+    // Only emit the NPTH file when there are non-plated holes — an empty
+    // drill file trips up some fab pre-checks.
+    const npth = _collectNonPlatedDrills(holes);
+    if (npth.length) files.set('board-NPTH.drl', _buildDrill(npth, clipBounds, true));
+    return files;
 }
 
 /* ──────────────────────────── board clipping ──────────────────────────── */
@@ -730,39 +739,71 @@ function _buildOutline(b) {
 
 /* ──────────────────────────── drill ──────────────────────────── */
 
-function _buildDrill(placements, vias, bounds, tracks = [], holes = []) {
-    /** @type {Map<number, Array<{x:number,y:number}>>} drill mm → positions */
-    const tools = new Map();
-    const addHole = (dia, x, y) => {
-        if (!dia || dia <= 0) return;
-        if (!_inBoard(x, y, bounds)) return;
-        const key = Math.round(dia * 1000) / 1000;
-        let list = tools.get(key);
-        if (!list) { list = []; tools.set(key, list); }
-        list.push({ x, y });
-    };
-
-    // Through-hole pads — any pad with a positive drill diameter.
+/** Collect plated drills: through-hole pads, vias, and plated holes. */
+function _collectPlatedDrills(placements, vias, holes) {
+    const out = [];
     for (const [, pl] of placements) {
         if (!pl?.padOffsets) continue;
         for (const off of pl.padOffsets) {
             if (!(off.drill > 0)) continue;
             const pos = pl.pads.get(off.padId);
             if (!pos) continue;
-            addHole(off.drill, pos.x, pos.y);
+            out.push({ dia: off.drill, x: pos.x, y: pos.y });
         }
     }
-    // Standalone vias.
-    for (const v of vias) addHole(v.drill, v.x, v.y);
-    // Standalone non-plated through-holes (mounting / tooling).
-    for (const h of holes) addHole(h.diameter, h.x, h.y);
-    // Layer-change nodes do not drill — vias are explicit Via objects.
+    for (const v of vias) {
+        if (v.drill > 0) out.push({ dia: v.drill, x: v.x, y: v.y });
+    }
+    for (const h of holes) {
+        if (h.plated && h.diameter > 0) out.push({ dia: h.diameter, x: h.x, y: h.y });
+    }
+    return out;
+}
+
+/** Collect non-plated drills: standalone mounting/tooling holes. */
+function _collectNonPlatedDrills(holes) {
+    const out = [];
+    for (const h of holes) {
+        if (!h.plated && h.diameter > 0) out.push({ dia: h.diameter, x: h.x, y: h.y });
+    }
+    return out;
+}
+
+/**
+ * Build an Excellon drill file from a flat list of {dia, x, y} drills.
+ * @param {Array<{dia:number,x:number,y:number}>} drills
+ * @param {object} bounds   board clip bounds
+ * @param {boolean} [nonPlated]  annotate the header as non-plated
+ */
+function _buildDrill(drills, bounds, nonPlated = false) {
+    /** @type {Map<number, Array<{x:number,y:number}>>} drill mm → positions */
+    const tools = new Map();
+    for (const d of drills) {
+        if (!d.dia || d.dia <= 0) continue;
+        if (!_inBoard(d.x, d.y, bounds)) continue;
+        const key = Math.round(d.dia * 1000) / 1000;
+        let list = tools.get(key);
+        if (!list) { list = []; tools.set(key, list); }
+        list.push({ x: d.x, y: d.y });
+    }
 
     // Header. Use decimal coordinates (universally supported); declare
-    // METRIC with leading-zero suppression as a sensible default.
-    let out = 'M48\n; ClearPCB Excellon drill\nFMAT,2\nMETRIC,LZ\n';
+    // METRIC with leading-zero suppression as a sensible default. Gerber X2
+    // attributes (the `; #@! ` comment form) tag the file's plating so
+    // compliant viewers/fabs classify the holes; the -PTH / -NPTH filename
+    // suffix is the fallback for tools that ignore attributes.
+    const plating = nonPlated ? 'NonPlated' : 'Plated';
+    const tag = nonPlated ? 'NPTH' : 'PTH';
+    const aperFn = nonPlated ? 'MechanicalDrill' : 'ComponentDrill';
+    let out = 'M48\n; ClearPCB Excellon drill\n';
+    out += `; #@! TF.FileFunction,${plating},1,2,${tag}\n`;
+    out += '; #@! TF.FilePolarity,Positive\n';
+    out += `; TYPE=${nonPlated ? 'NON_PLATED' : 'PLATED'}\n`;
+    out += 'FMAT,2\nMETRIC,LZ\n';
     const sorted = [...tools.keys()].sort((a, b) => a - b);
     sorted.forEach((dia, i) => {
+        // Aperture function classifies the drill (component vs mechanical).
+        out += `; #@! TA.AperFunction,${aperFn}\n`;
         out += `T${i + 1}C${dia.toFixed(3)}\n`;
     });
     out += '%\nG90\nG05\n';
