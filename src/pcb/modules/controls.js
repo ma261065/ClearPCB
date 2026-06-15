@@ -147,8 +147,11 @@ export function bindPcbControls(app) {
         const el = document.getElementById(id);
         el?.addEventListener('input', () => {
             if (app._clearancesVisible) app.showClearances?.(true);
-            // Pour clearances follow the routing parameters, so reflow.
+            // Pour clearances follow the routing parameters, so reflow. The
+            // reflow is rAF-deferred; the 2D/3D panel rebuild is debounced, so
+            // by the time it runs the pour geometry (_computed) is up to date.
             app._refreshFills?.();
+            app._board3d?.refresh?.();
         });
     }
 

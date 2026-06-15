@@ -281,7 +281,8 @@ export default class PCBApp {
         this._debugTooltipVisible = false;
         this._debugTooltipPinned = false;
         this._showDebugTooltip = false;
-
+        /** Transient message bubble shown over a component, or null. */
+        this._componentPopup = null;
         /** Autoroute progress/cancel runtime state */
         this._routeCancelToken = null;
         this._routeWorker = null;
@@ -343,13 +344,12 @@ export default class PCBApp {
             this.viewport._notifyViewChanged?.();
         }
 
-        // First-time board outline setup
+        // Board outline setup. The outline is part of the document and is
+        // (re)drawn by _renderPersistentObjects whenever the layer DOM is
+        // built or rebuilt. If no dimensions exist yet this is a brand-new
+        // board, so prompt the user for them.
         if (!this._boardOutlineDrawn) {
-            if (this._loadBoardOutline()) {
-                this._drawBoardOutline();
-            } else {
-                this._showBoardDimensionsDialog();
-            }
+            this._showBoardDimensionsDialog();
         }
     }
 
@@ -1247,6 +1247,13 @@ export default class PCBApp {
                 this.deleteSelectedFill();
                 return true;
             }
+            // Components belong to the schematic netlist and can't be deleted
+            // on the PCB — tell the user where to do it instead.
+            if (this._selectedComp) {
+                this._showComponentPopup(
+                    this._selectedComp, 'Delete components from the schematic editor');
+                return true;
+            }
             return false;
         }
         if (e.key === 'Escape') {
@@ -1416,6 +1423,17 @@ export default class PCBApp {
         clearTrackSelection(this);
         this.history.clear?.();
 
+        // Reset the board outline to "undrawn" so a document without board
+        // dimensions (a brand-new board) prompts for them on activation, and a
+        // loaded document gets a clean slate before its outline is restored.
+        this._selectBoardOutline?.(false);
+        this._getLayerGroup('board-outline')
+            ?.querySelector('.pcb-board-outline')?.remove();
+        this._boardOutlineDrawn = false;
+        this._boardWidth = 100;
+        this._boardHeight = 80;
+        this._boardRadius = 0;
+
         // Restore manual footprint position overrides. These are applied when
         // _placeFootprints rebuilds the placements from the schematic; if
         // placements already exist (sync ran first), re-apply immediately.
@@ -1423,14 +1441,13 @@ export default class PCBApp {
 
         if (!data) return;
 
-        // Restore the saved board outline so it survives save/reopen (the
-        // dimensions are part of the document, not just localStorage).
+        // Restore the saved board outline so it survives save/reopen and
+        // autosave-recovery (the dimensions are part of the document).
         if (data.board && data.board.width > 0 && data.board.height > 0) {
             this._boardWidth = data.board.width;
             this._boardHeight = data.board.height;
             this._boardRadius = data.board.radius || 0;
             this._drawBoardOutline();
-            this._saveBoardOutline();
         }
 
         if (data.placements && typeof data.placements === 'object') {
@@ -1757,9 +1774,10 @@ export default class PCBApp {
                 this.history.execute(new SetBoardOutlineCommand(this, before, after));
             } else if (!this._boardOutlineDrawn) {
                 // Dimensions unchanged from defaults, so no command runs — but
-                // the outline still needs its first draw (and to be persisted).
+                // the outline still needs its first draw, and the document must
+                // be flagged dirty so the autosave captures the new board.
                 this._drawBoardOutline();
-                this._saveBoardOutline();
+                this._isDirty = true;
             }
             overlay.remove();
         };
@@ -1768,41 +1786,6 @@ export default class PCBApp {
         overlay.addEventListener('keydown', (e) => {
             if (e.key === 'Enter') accept();
         });
-    }
-
-    /**
-     * Save board outline dimensions to localStorage.
-     */
-    _saveBoardOutline() {
-        try {
-            localStorage.setItem('clearpcb_board_outline', JSON.stringify({
-                width: this._boardWidth,
-                height: this._boardHeight,
-                radius: this._boardRadius,
-            }));
-        } catch (err) {
-            console.warn('Board outline save failed:', err);
-            this._setStatus?.('Board outline not saved (storage full)');
-        }
-    }
-
-    /**
-     * Load board outline dimensions from localStorage.
-     * @returns {boolean} true if data was found and loaded
-     */
-    _loadBoardOutline() {
-        try {
-            const raw = localStorage.getItem('clearpcb_board_outline');
-            if (!raw) return false;
-            const data = JSON.parse(raw);
-            if (data.width > 0 && data.height > 0) {
-                this._boardWidth = data.width;
-                this._boardHeight = data.height;
-                this._boardRadius = data.radius || 0;
-                return true;
-            }
-        } catch { /* corrupt data — ignore */ }
-        return false;
     }
 
     /**
@@ -2214,6 +2197,12 @@ export default class PCBApp {
     _renderPersistentObjects() {
         const getGroup = (id) => this._getLayerGroup(id);
 
+        // Board outline. Its model (width/height/radius) survives the rebuild
+        // but its SVG is wiped by _clearPCBContent, so redraw it here.
+        if (this._boardOutlineDrawn) {
+            this._drawBoardOutline();
+        }
+
         // Free-standing texts.
         this._textElements.clear();
         for (const t of this.texts.values()) {
@@ -2233,6 +2222,15 @@ export default class PCBApp {
         for (const v of this.vias) {
             removeViaElements(v);
             renderVia(v, getGroup);
+        }
+
+        // Copper pours. Their model (copperFills) survives the rebuild but
+        // their SVG is wiped by _clearPCBContent, so re-pour them here. This
+        // is coalesced to one recompute on the next frame, by which point any
+        // footprint placement in the same sync pass has finished, so the pour
+        // clips against the up-to-date obstacles.
+        if (this.copperFills.length) {
+            this._refreshFills();
         }
     }
 
@@ -2866,6 +2864,47 @@ export default class PCBApp {
         // Ensure the selected footprint shows full detail even when zoomed out
         // far enough that it would otherwise be collapsed to its LOD placeholder.
         this._updatePcbCulling();
+    }
+
+    /**
+     * Show a short-lived message bubble centred over a component, then fade
+     * it away. Used for actions that aren't allowed on the PCB (e.g. trying
+     * to delete a component, which must be done in the schematic editor).
+     * @param {string} compId
+     * @param {string} message
+     */
+    _showComponentPopup(compId, message) {
+        const pl = this.placements.get(compId);
+        if (!pl || !this.viewport) return;
+
+        // Centre of the footprint in world coords (bounds are in the
+        // footprint's local space, offset by the placement translate).
+        const b = pl.bounds;
+        const cx = pl.x + (b ? b.x + b.width / 2 : 0);
+        const cy = pl.y + (b ? b.y + b.height / 2 : 0);
+
+        const screen = this.viewport.worldToScreen({ x: cx, y: cy });
+        const svgRect = this.viewport.svg.getBoundingClientRect();
+
+        // Remove any existing popup so rapid presses don't stack.
+        this._componentPopup?.remove();
+
+        const popup = document.createElement('div');
+        popup.className = 'pcb-component-popup';
+        popup.textContent = message;
+        popup.style.left = `${svgRect.left + screen.x}px`;
+        popup.style.top = `${svgRect.top + screen.y}px`;
+        document.body.appendChild(popup);
+        this._componentPopup = popup;
+
+        requestAnimationFrame(() => popup.classList.add('show'));
+        window.setTimeout(() => {
+            popup.classList.remove('show');
+            window.setTimeout(() => {
+                popup.remove();
+                if (this._componentPopup === popup) this._componentPopup = null;
+            }, 250);
+        }, 1400);
     }
 
     /**
