@@ -61,6 +61,8 @@ export function bindPcbControls(app) {
             app._showTrackToolOptions?.();
         } else if (nextTool === 'text') {
             app._showTextToolOptions?.();
+        } else if (nextTool === 'hole') {
+            app._showHoleToolOptions?.();
         } else {
             app._hideToolOptions?.();
         }

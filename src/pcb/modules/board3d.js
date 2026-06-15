@@ -367,7 +367,7 @@ function roundedRectOutline(x0, z0, w, h, r) {
             { x: x0, z: z0 + h },
         ];
     }
-    const seg = 6; // points per corner arc
+    const seg = 24; // points per corner arc
     const pts = [];
     const corners = [
         { cx: x0 + w - r, cz: z0 + r, a0: -Math.PI / 2, a1: 0 },        // TR
@@ -514,7 +514,7 @@ function mergeOverlappingHoles(holes, margin = 0.1) {
  */
 function boardWithHoles(outline, holeList, yBottom, yTop, color, edgeColor) {
     if (!holeList.length) return extrudePrism(outline, yBottom, yTop, color, edgeColor);
-    const seg = 16;
+    const seg = 48;
     const bores = mergeOverlappingHoles(holeList);
     const outer2d = outline.map((p) => ({ x: p.x, y: p.z }));
     const holes2d = bores.map((h) => {
@@ -1048,7 +1048,7 @@ function clipMeshToOutline(mesh, outline) {
  * @param {number} [seg] polygon segments per hole
  * @returns {{verts:Array, faces:Array}}
  */
-function punchHolesInFlatMesh(mesh, holes, seg = 16) {
+function punchHolesInFlatMesh(mesh, holes, seg = 48) {
     if (!holes || !holes.length || !mesh.faces.length) return mesh;
     // Pre-build each hole as a CCW polygon ring in the (x, z) board plane.
     const rings = holes.filter((h) => h.r > 0).map((h) => {
@@ -1500,6 +1500,31 @@ function buildViaMesh(vias) {
         // Dark drilled centre sitting just above the pads so the hole reads.
         appendMesh(mesh, discMesh(via.x, via.y, ri, yTop + 0.006, COLOR_HOLE, 14));
         appendMesh(mesh, discMesh(via.x, via.y, ri, yBot - 0.006, COLOR_HOLE, 14));
+    }
+    return mesh;
+}
+
+/**
+ * Build a combined copper mesh for plated standalone holes. The drilled bore
+ * is already bored through the board slab/copper; here we line it with a gold
+ * barrel so the plating reads through the bore. Non-plated holes contribute
+ * nothing (the bare bored opening is all that shows).
+ * @param {Array} holes
+ * @returns {{verts:Array, faces:Array}}
+ */
+function buildHoleMesh(holes) {
+    const mesh = emptyMesh();
+    const yTop = Y_TOP + COPPER_EPS;
+    const yBot = Y_BOT - COPPER_EPS;
+    for (const hole of holes || []) {
+        if (!hole?.plated || !(hole.diameter > 0)) continue;
+        const bore = hole.diameter / 2;
+        // A gold barrel lining the bore — no annular ring on the board faces.
+        // The outer wall sits at the bore; the inner wall is inset so the
+        // copper occludes the FR4 edge cleanly (no z-fighting stripes).
+        const ro = bore;
+        const ri = Math.max(0.05, bore - Math.max(0.08, bore * 0.12));
+        appendMesh(mesh, tubeMesh(hole.x, hole.y, ri, ro, yBot, yTop, COLOR_VIA, 48));
     }
     return mesh;
 }
@@ -2318,6 +2343,7 @@ export async function openBoard3DViewer(app, opts = {}) {
         placements: app.placements,
         tracks: app.tracks,
         vias: app.vias,
+        holes: app.holes,
         fills: app.copperFills,
         texts: [...(app.texts?.values?.() || [])],
         boardX: app._boardX || 0,
@@ -2435,6 +2461,10 @@ export async function openBoard3DViewer(app, opts = {}) {
         // Bore drilled holes (pad drills + mounting holes) clean through the
         // slab so they read as real openings; only holes wholly inside the board.
         const drilledHoles = collectBoardHoles(app.placements).filter((ho) => ho.r > 0);
+        // Standalone non-plated through-holes (Hole objects).
+        for (const h of (app.holes || [])) {
+            if (h.diameter > 0) drilledHoles.push({ x: h.x, z: h.y, r: h.diameter / 2, plated: !!h.plated });
+        }
         const boardHoles = drilledHoles.filter((ho) =>
             ho.x - ho.r > 0 && ho.x + ho.r < w &&
             ho.z - ho.r > -h && ho.z + ho.r < 0);
@@ -2451,7 +2481,9 @@ export async function openBoard3DViewer(app, opts = {}) {
         appendMesh(copperMesh, buildFillMesh(app.copperFills));
         swapSurface('copper', clipMeshToOutline(
             punchHolesInFlatMesh(copperMesh, drilledHoles), outline));
-        swapSurface('via', clipMeshToOutline(buildViaMesh(app.vias), outline));
+        const viaMesh = buildViaMesh(app.vias);
+        appendMesh(viaMesh, buildHoleMesh(app.holes));
+        swapSurface('via', clipMeshToOutline(viaMesh, outline));
         swapSurface('silk', clipMeshToOutline(
             punchHolesInFlatMesh(buildSilkMesh(app.placements), drilledHoles), outline));
         swapSurface('text', clipMeshToOutline(

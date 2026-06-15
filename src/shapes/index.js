@@ -11,6 +11,7 @@ export { Polyline as Polygon } from './polyline.js';
 export { Wire, bumpWireLabelCounter, resetWireLabelCounter, resetNetNameCounter, COLLINEAR_EPSILON } from './wire.js';
 export { Track } from './track.js';
 export { Via, resetViaIdCounter, updateViaIdCounter } from './via.js';
+export { Hole, resetHoleIdCounter, updateHoleIdCounter } from './hole.js';
 export { Circle } from './circle.js';
 export { Rect } from './rect.js';
 export { Arc } from './arc.js';

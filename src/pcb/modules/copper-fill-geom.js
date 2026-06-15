@@ -56,6 +56,7 @@ const U = (v) => v / SCALE;
  * @property {Array} tracks        - app.tracks (PolylineGraph tracks)
  * @property {Array} vias          - app.vias (Via)
  * @property {Array<{x:number,y:number,width:number,height:number,shape:string,layer:string,net:string}>} pads
+ * @property {Array<{x:number,y:number,diameter:number}>} holes - app.holes (Hole)
  * @property {{clearance:number}} params
  * @property {{w:number,h:number,r:number}|null} board
  */
@@ -158,6 +159,13 @@ function collectObstacles(C, fill, ctx, clearance) {
         if (sameNet(via.net || '')) continue;
         const rad = (via.diameter || 0.6) / 2 + clearance;
         out.push(circlePath(C, via.x, via.y, rad));
+    }
+
+    // ── Non-plated holes (no net, all layers — always void the pour) ──
+    for (const hole of (ctx.holes || [])) {
+        if (!hole) continue;
+        const rad = (hole.diameter || 0.8) / 2 + clearance;
+        out.push(circlePath(C, hole.x, hole.y, rad));
     }
 
     // ── Pads (on this copper layer, other net) ──

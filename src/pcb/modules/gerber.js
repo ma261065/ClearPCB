@@ -48,6 +48,7 @@ const TENT_VIAS = true;
  * @param {Map<string, object>} opts.placements   componentId → placement
  * @param {Array<object>} opts.tracks             Track instances
  * @param {Array<object>} opts.vias               Via instances
+ * @param {Array<object>} [opts.holes]            standalone NPTH Hole instances
  * @param {number} opts.boardWidth                mm
  * @param {number} opts.boardHeight               mm
  * @param {number} [opts.boardRadius=0]           corner radius, mm
@@ -57,7 +58,7 @@ const TENT_VIAS = true;
  */
 export function exportGerbers(opts) {
     const {
-        placements, tracks = [], vias = [],
+        placements, tracks = [], vias = [], holes = [],
         boardWidth, boardHeight, boardRadius = 0,
         boardX = 0, boardY = 0,
         texts = [], fills = [],
@@ -87,7 +88,7 @@ export function exportGerbers(opts) {
         ['board.gto', _buildSilk(placements, 'top', clipBounds, texts)],
         ['board.gbo', _buildSilk(placements, 'bottom', clipBounds, texts)],
         ['board.gko', _buildOutline(outlineBounds)],
-        ['board.drl', _buildDrill(placements, vias, clipBounds, tracks)],
+        ['board.drl', _buildDrill(placements, vias, clipBounds, tracks, holes)],
     ]);
 }
 
@@ -729,7 +730,7 @@ function _buildOutline(b) {
 
 /* ──────────────────────────── drill ──────────────────────────── */
 
-function _buildDrill(placements, vias, bounds, tracks = []) {
+function _buildDrill(placements, vias, bounds, tracks = [], holes = []) {
     /** @type {Map<number, Array<{x:number,y:number}>>} drill mm → positions */
     const tools = new Map();
     const addHole = (dia, x, y) => {
@@ -753,6 +754,8 @@ function _buildDrill(placements, vias, bounds, tracks = []) {
     }
     // Standalone vias.
     for (const v of vias) addHole(v.drill, v.x, v.y);
+    // Standalone non-plated through-holes (mounting / tooling).
+    for (const h of holes) addHole(h.diameter, h.x, h.y);
     // Layer-change nodes do not drill — vias are explicit Via objects.
 
     // Header. Use decimal coordinates (universally supported); declare

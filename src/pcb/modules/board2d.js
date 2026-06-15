@@ -337,6 +337,14 @@ export class Board2D {
             ctx.arc(v.x, v.y, drill / 2, 0, Math.PI * 2);
             ctx.fill();
         }
+        for (const h of (d.holes || [])) {
+            const drill = h.diameter || 0;
+            if (drill <= 0) continue;
+            ctx.beginPath();
+            ctx.arc(h.x, h.y, drill / 2, 0, Math.PI * 2);
+            ctx.fillStyle = COL.bg;
+            ctx.fill();
+        }
     }
 
     /** Silkscreen for the active side: shapes, ref designators, free text. */

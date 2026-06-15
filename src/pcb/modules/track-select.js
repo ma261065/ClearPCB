@@ -20,12 +20,14 @@ import { hitTestTrackEdge, deleteTrackSegment, hitTestTrackNode, splitTrackNodeA
 import {
     RemoveTrackCommand,
     RemoveViaCommand,
+    RemoveHoleCommand,
     AddTrackCommand,
     AddViaCommand,
     CompoundCommand,
     ModifyTrackCommand,
     ModifyTrackGraphCommand,
     ModifyViaCommand,
+    ModifyHoleCommand,
 } from './track-commands.js';
 import { PCB_LAYERS, isLayerLocked, isViaLocked } from './layers.js';
 import { showAlert } from '../../ui/modules/modal.js';
@@ -64,6 +66,15 @@ export function hitTestTrack(app, worldPos, pxTol = HIT_TOL_PX) {
             if (Math.hypot(v.x - worldPos.x, v.y - worldPos.y) <= r) {
                 return { type: 'via', via: v };
             }
+        }
+    }
+
+    // Standalone non-plated holes (also small targets on the hole layer).
+    for (let i = (app.holes?.length || 0) - 1; i >= 0; i--) {
+        const h = app.holes[i];
+        const r = (h.diameter || 0.8) / 2 + worldTol;
+        if (Math.hypot(h.x - worldPos.x, h.y - worldPos.y) <= r) {
+            return { type: 'hole', hole: h };
         }
     }
 
@@ -159,6 +170,10 @@ export function selectTrackOrVia(app, hit) {
         _setTrackLabelsVisible(hit.track, false);
         _drawTrackHalo(app, hit.track);
         _showTrackProperties(app, hit.track);
+    } else if (hit.type === 'hole') {
+        app._selectedHole = hit.hole;
+        _drawHoleHalo(app, hit.hole);
+        _showHoleProperties(app, hit.hole);
     } else {
         app._selectedVia = hit.via;
         _drawViaHalo(app, hit.via);
@@ -211,6 +226,7 @@ export function clearTrackSelection(app) {
     const prev = app._selectedTrack;
     app._selectedTrack = null;
     app._selectedVia = null;
+    app._selectedHole = null;
     app._selectedSegment = null;
     _removeHalos(app, HALO_CLASS);
     if (prev) {
@@ -238,6 +254,7 @@ export function refreshTrackSelectionHalo(app) {
         _drawSegmentHalo(app, app._selectedSegment.track, app._selectedSegment.edgeId);
     } else if (app._selectedTrack) _drawTrackHalo(app, app._selectedTrack, HALO_CLASS, HALO_OPACITY_SELECTED);
     else if (app._selectedVia) _drawViaHalo(app, app._selectedVia, HALO_CLASS, HALO_OPACITY_SELECTED);
+    else if (app._selectedHole) _drawHoleHalo(app, app._selectedHole, HALO_CLASS, HALO_OPACITY_SELECTED);
 }
 
 /**
@@ -258,6 +275,7 @@ export function setHoverHighlight(app, hit) {
     const key = hit
         ? (hit.type === 'track' ? hit.track
             : hit.type === 'via' ? hit.via
+            : hit.type === 'hole' ? hit.hole
             : hit.type === 'pad' ? `pad:${hit.componentId}|${hit.pinNumber}`
             : null)
         : null;
@@ -288,6 +306,8 @@ export function setHoverHighlight(app, hit) {
         }
     } else if (hit.type === 'via' && hit.via !== app._selectedVia) {
         _drawViaHalo(app, hit.via, HOVER_CLASS, HALO_OPACITY_HOVER);
+    } else if (hit.type === 'hole' && hit.hole !== app._selectedHole) {
+        _drawHoleHalo(app, hit.hole, HOVER_CLASS, HALO_OPACITY_HOVER);
     }
 }
 
@@ -535,6 +555,10 @@ export function deleteSelectedTrack(app) {
         const v = app._selectedVia;
         clearTrackSelection(app);
         app.history?.execute(new RemoveViaCommand(app, v));
+    } else if (app._selectedHole) {
+        const h = app._selectedHole;
+        clearTrackSelection(app);
+        app.history?.execute(new RemoveHoleCommand(app, h));
     }
 }
 
@@ -586,7 +610,9 @@ export function showTrackContextMenu(app, hit, clientX, clientY, worldPos) {
     // operates on it (and the user sees what they're about to act on).
     selectTrackOrVia(app, hit);
 
-    const label = hit.type === 'via' ? 'Delete via' : 'Delete track';
+    const label = hit.type === 'via' ? 'Delete via'
+        : hit.type === 'hole' ? 'Delete hole'
+        : 'Delete track';
     const items = [];
     // Node-targeted actions (Split / Delete Node) when right-clicking on
     // a track vertex — mirrors the schematic wire anchor context menu.
@@ -869,6 +895,54 @@ function _drawViaHalo(app, via, cls = HALO_CLASS, opacity = HALO_OPACITY_SELECTE
     c.setAttribute('stroke', 'none');
     c.setAttribute('pointer-events', 'none');
     hole.appendChild(c);
+}
+
+/**
+ * Draw a hole highlight with an inscribed "X" cross so the drilled centre is
+ * unmistakable. The visual state is derived from `cls`:
+ *   - hover  → just the X (the bore stays open)
+ *   - select → the X plus a filled disc
+ */
+function _drawHoleHalo(app, hole, cls = HALO_CLASS, opacity = HALO_OPACITY_SELECTED) {
+    const layer = app._getLayerGroup('hole');
+    if (!layer) return;
+    const dia = hole.diameter || 0.8;
+    const r = dia / 2;
+    const selected = cls !== HOVER_CLASS;
+    const g = document.createElementNS(NS, 'g');
+    g.setAttribute('class', cls);
+    g.setAttribute('pointer-events', 'none');
+
+    if (selected) {
+        const c = document.createElementNS(NS, 'circle');
+        c.setAttribute('cx', String(hole.x));
+        c.setAttribute('cy', String(hole.y));
+        c.setAttribute('r', String(r));
+        c.setAttribute('fill', HALO_COLOR);
+        c.setAttribute('fill-opacity', String(opacity));
+        c.setAttribute('stroke', 'none');
+        g.appendChild(c);
+    }
+
+    // Inscribed X: arms reach the disc edge (45° offsets).
+    const d = r * Math.SQRT1_2;
+    const sw = Math.max(0.03, dia * 0.07);
+    const arms = [
+        [hole.x - d, hole.y - d, hole.x + d, hole.y + d],
+        [hole.x - d, hole.y + d, hole.x + d, hole.y - d],
+    ];
+    for (const [x1, y1, x2, y2] of arms) {
+        const ln = document.createElementNS(NS, 'line');
+        ln.setAttribute('x1', String(x1));
+        ln.setAttribute('y1', String(y1));
+        ln.setAttribute('x2', String(x2));
+        ln.setAttribute('y2', String(y2));
+        ln.setAttribute('stroke', HALO_COLOR);
+        ln.setAttribute('stroke-width', String(sw));
+        ln.setAttribute('stroke-linecap', 'round');
+        g.appendChild(ln);
+    }
+    layer.appendChild(g);
 }
 
 /**
@@ -1200,6 +1274,46 @@ function _showViaProperties(app, via) {
         } else {
             netEl.value = baseline.net; // refused — restore the field
         }
+    });
+    app._setActiveRibbonTab?.('pcb-properties');
+}
+
+function _showHoleProperties(app, hole) {
+    const items = document.getElementById('pcbPropsItems');
+    if (!items) return;
+    items.innerHTML = `
+        <div class="prop-row"><label>Type</label><span style="font-size:11px;color:var(--text-primary)">Hole</span></div>
+        <div class="prop-row"><label>Diameter (mm)</label><input type="number" id="pcbPropHoleDia" value="${hole.diameter}" min="0.1" step="0.05"></div>
+        <div class="prop-row"><label>Plated</label><input type="checkbox" id="pcbPropHolePlated" ${hole.plated ? 'checked' : ''}></div>
+    `;
+    const reRender = () => import('./track-render.js').then(({ renderHole }) => {
+        renderHole(hole, (id) => app._getLayerGroup(id));
+        clearTrackSelection(app);
+        app._selectedHole = hole;
+        _drawHoleHalo(app, hole);
+    });
+    const baseline = { diameter: hole.diameter };
+    const diaEl = document.getElementById('pcbPropHoleDia');
+    diaEl?.addEventListener('input', (e) => {
+        const v = parseFloat(/** @type {HTMLInputElement} */ (e.target).value);
+        if (Number.isFinite(v) && v > 0) { hole.diameter = v; reRender(); }
+    });
+    diaEl?.addEventListener('change', (e) => {
+        const v = parseFloat(/** @type {HTMLInputElement} */ (e.target).value);
+        if (!Number.isFinite(v) || v <= 0 || v === baseline.diameter) return;
+        const before = { diameter: baseline.diameter };
+        const after = { diameter: v };
+        hole.diameter = baseline.diameter;
+        app.history?.execute(new ModifyHoleCommand(app, hole, before, after));
+        baseline.diameter = v;
+    });
+    const platedEl = document.getElementById('pcbPropHolePlated');
+    platedEl?.addEventListener('change', (e) => {
+        const checked = /** @type {HTMLInputElement} */ (e.target).checked;
+        if (checked === hole.plated) return;
+        const before = { plated: hole.plated };
+        const after = { plated: checked };
+        app.history?.execute(new ModifyHoleCommand(app, hole, before, after));
     });
     app._setActiveRibbonTab?.('pcb-properties');
 }

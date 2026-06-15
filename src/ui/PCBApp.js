@@ -13,7 +13,7 @@ import { exportGerbers, buildZip } from '../pcb/modules/gerber.js';
 import { generateBOM, generatePickAndPlace } from '../pcb/modules/assembly.js';
 import { openBoard3DViewer } from '../pcb/modules/board3d.js';
 import { savePcbPdf, printPcb } from '../pcb/modules/pcb-export.js';import { tracksFromAutorouterResult } from '../pcb/modules/autorouter-adapter.js';
-import { renderTrack, renderVia, removeTrackElements, removeViaElements } from '../pcb/modules/track-render.js';
+import { renderTrack, renderVia, renderHole, removeTrackElements, removeViaElements, removeHoleElements } from '../pcb/modules/track-render.js';
 import {
     startTrackDraw,
     updateTrackDraw,
@@ -44,6 +44,10 @@ import {
     updateViaDrag,
     finishViaDrag,
     cancelViaDrag,
+    startHoleDrag,
+    updateHoleDrag,
+    finishHoleDrag,
+    cancelHoleDrag,
     hitTestTrackNode,
     findSplittableTrackEdge,
     splitTrackObjectAtPoint,
@@ -54,6 +58,7 @@ import {
 import {
     AddTrackCommand,
     AddViaCommand,
+    AddHoleCommand,
     RemoveTrackCommand,
     CompoundCommand,
     MovePlacementCommand,
@@ -92,6 +97,7 @@ import { measureText as measureStrokeText } from '../pcb/modules/stroke-font.js'
 import { CommandHistory } from '../core/CommandHistory.js';
 import { Track } from '../shapes/track.js';
 import { Via } from '../shapes/via.js';
+import { Hole, updateHoleIdCounter } from '../shapes/hole.js';
 import { CopperFill, updateFillIdCounter } from '../shapes/copper-fill.js';
 import { computeFillPolygons, loadClipper, isClipperReady } from '../pcb/modules/copper-fill-geom.js';
 import { renderCopperFill } from '../pcb/modules/copper-fill-render.js';
@@ -194,6 +200,12 @@ export default class PCBApp {
          * @type {Array<import('../shapes/via.js').Via>}
          */
         this.vias = [];
+
+        /**
+         * Standalone non-plated through-holes (mounting / tooling holes).
+         * @type {Array<import('../shapes/hole.js').Hole>}
+         */
+        this.holes = [];
 
         /**
          * Copper pour regions (net-aware flood fills). Each entry is a
@@ -562,6 +574,15 @@ export default class PCBApp {
                         return;
                     }
                 }
+                // Same for a selected hole: clicking on it begins a drag.
+                if (this._selectedHole) {
+                    if (startHoleDrag(this, this._selectedHole, worldPos)) {
+                        setHoverHighlight(this, null);
+                        this._hideNetTooltip();
+                        svg.style.cursor = 'grabbing';
+                        return;
+                    }
+                }
 
                 // The click isn't continuing a drag of the current
                 // selection, so the selected track (if any) is about to be
@@ -583,6 +604,11 @@ export default class PCBApp {
                     // one motion (no separate select-then-drag click).
                     if (trackHit.type === 'via') {
                         if (startViaDrag(this, trackHit.via, worldPos)) {
+                            this._hideNetTooltip();
+                            svg.style.cursor = 'grabbing';
+                        }
+                    } else if (trackHit.type === 'hole') {
+                        if (startHoleDrag(this, trackHit.hole, worldPos)) {
                             this._hideNetTooltip();
                             svg.style.cursor = 'grabbing';
                         }
@@ -724,6 +750,15 @@ export default class PCBApp {
                 }
             }
 
+            // Left-click with hole tool: place a standalone NPTH at the cursor.
+            if (e.button === 0 && this.currentTool === 'hole') {
+                const worldPos = this._screenToWorld(e);
+                const snap = this._snapToGrid(worldPos);
+                const diameter = this._getHoleDiameter();
+                const hole = new Hole({ x: snap.x, y: snap.y, diameter });
+                this.history.execute(new AddHoleCommand(this, hole));
+            }
+
             // Left-click with text tool: place a text at the cursor.
             if (e.button === 0 && this.currentTool === 'text') {
                 const worldPos = this._screenToWorld(e);
@@ -764,6 +799,8 @@ export default class PCBApp {
                     this._updateCursorCrosshair(this._screenToWorld(e));
                 } else if (this.currentTool === 'via') {
                     this._updateViaPreview(this._screenToWorld(e));
+                } else if (this.currentTool === 'hole') {
+                    this._updateHolePreview(this._screenToWorld(e));
                 }
             } else if (this._drag) {
                 this._handleDrag(e);
@@ -785,6 +822,8 @@ export default class PCBApp {
                 this._updateVertexDragCrosshair();
             } else if (this._viaDrag) {
                 updateViaDrag(this, this._screenToWorld(e));
+            } else if (this._holeDrag) {
+                updateHoleDrag(this, this._screenToWorld(e));
             } else if (this._fillDrag) {
                 this._handleFillDrag(this._screenToWorld(e));
             } else if (this._trackDraw) {
@@ -812,6 +851,8 @@ export default class PCBApp {
                 }
             } else if (this.currentTool === 'via') {
                 this._updateViaPreview(this._screenToWorld(e));
+            } else if (this.currentTool === 'hole') {
+                this._updateHolePreview(this._screenToWorld(e));
             } else if (this.currentTool === 'track') {
                 this._updateCursorCrosshair(this._screenToWorld(e));
             } else if (this.currentTool === 'text') {
@@ -953,6 +994,16 @@ export default class PCBApp {
                     selectTrackOrVia(this, { type: 'via', via: v });
                 }
             }
+            if (this._holeDrag) {
+                finishHoleDrag(this);
+                svg.style.cursor = 'default';
+                // Refresh the halo on the moved hole.
+                if (this._selectedHole) {
+                    const h = this._selectedHole;
+                    clearTrackSelection(this);
+                    selectTrackOrVia(this, { type: 'hole', hole: h });
+                }
+            }
             if (this._fillDrag) {
                 this._endFillDrag();
                 svg.style.cursor = 'default';
@@ -1040,10 +1091,12 @@ export default class PCBApp {
             t === 'pan' ? 'grab' :
             t === 'track' ? 'crosshair' :
             t === 'via' ? 'crosshair' :
+            t === 'hole' ? 'crosshair' :
             t === 'text' ? this._textToolCursor() :
             'default';
         if (t !== 'via') this._clearViaRing();
-        if (t !== 'via' && t !== 'track' && t !== 'text') this._clearCursorCrosshair();
+        if (t !== 'hole') this._clearHoleRing();
+        if (t !== 'via' && t !== 'track' && t !== 'text' && t !== 'hole') this._clearCursorCrosshair();
     }
 
     /** Crosshair + small "T" icon cursor for the text-placement tool. */
@@ -1153,6 +1206,64 @@ export default class PCBApp {
         this._clearCursorCrosshair();
     }
 
+    /**
+     * Hole tool default drill diameter (mm), read from the tool options
+     * spinner if present, else a sensible mounting-hole default.
+     */
+    _getHoleDiameter() {
+        const el = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbToolHoleDia'));
+        const v = el ? parseFloat(el.value) : NaN;
+        return Number.isFinite(v) && v > 0 ? v : 0.8;
+    }
+
+    /**
+     * Hole tool preview: crosshair + outlined drilled hole at the snapped
+     * cursor position.
+     */
+    _updateHolePreview(worldPos) {
+        this._updateCursorCrosshair(worldPos);
+        const svg = this.viewport?.svg;
+        if (!svg) return;
+        const snap = resolveTrackSnap(this, worldPos, {});
+        const dia = this._getHoleDiameter();
+        const scale = this.viewport.scale || 1;
+        const stroke = 1 / scale;
+        const accent = getComputedStyle(document.documentElement)
+            .getPropertyValue('--accent-color').trim() || '#0098ff';
+
+        let g = this._holeRingGroup;
+        if (!g) {
+            const NS = 'http://www.w3.org/2000/svg';
+            g = document.createElementNS(NS, 'g');
+            g.setAttribute('class', 'pcb-hole-preview');
+            g.setAttribute('pointer-events', 'none');
+            const ring = document.createElementNS(NS, 'circle');
+            ring.setAttribute('data-role', 'ring');
+            ring.setAttribute('fill', 'none');
+            g.appendChild(ring);
+            svg.appendChild(g);
+            this._holeRingGroup = g;
+        }
+        const ring = g.querySelector('[data-role="ring"]');
+        ring.setAttribute('stroke', accent);
+        ring.setAttribute('cx', String(snap.x));
+        ring.setAttribute('cy', String(snap.y));
+        ring.setAttribute('r', String(dia / 2));
+        ring.setAttribute('stroke-width', String(stroke * 1.5));
+    }
+
+    _clearHoleRing() {
+        if (this._holeRingGroup) {
+            this._holeRingGroup.remove();
+            this._holeRingGroup = null;
+        }
+    }
+
+    _clearHolePreview() {
+        this._clearHoleRing();
+        this._clearCursorCrosshair();
+    }
+
     /** Public hook used by controls.setTool to abort an in-flight track draw. */
     _cancelTrackDraw() {
         if (this._trackDraw) cancelTrackDraw(this);
@@ -1220,6 +1331,7 @@ export default class PCBApp {
         if (ctrl && !e.shiftKey && (e.key === 'z' || e.key === 'Z')) {
             if (this._vertexDrag) { cancelVertexDrag(this); this.viewport.hideCrosshair(); }
             if (this._viaDrag) cancelViaDrag(this);
+            if (this._holeDrag) cancelHoleDrag(this);
             this.history.undo();
             return true;
         }
@@ -1239,7 +1351,7 @@ export default class PCBApp {
                 this._deleteSelectedText();
                 return true;
             }
-            if (this._selectedTrack || this._selectedVia) {
+            if (this._selectedTrack || this._selectedVia || this._selectedHole) {
                 deleteSelectedTrack(this);
                 return true;
             }
@@ -1267,6 +1379,7 @@ export default class PCBApp {
                 return true;
             }
             if (this._viaDrag) { cancelViaDrag(this); return true; }
+            if (this._holeDrag) { cancelHoleDrag(this); return true; }
             if (hasBoxSelection(this)) {
                 clearBoxSelection(this);
                 return true;
@@ -1277,7 +1390,7 @@ export default class PCBApp {
                 this._setActiveRibbonTab?.('pcb-home');
                 return true;
             }
-            if (this._selectedTrack || this._selectedVia) {
+            if (this._selectedTrack || this._selectedVia || this._selectedHole) {
                 clearTrackSelection(this);
                 this._clearProperties?.();
                 return true;
@@ -1350,6 +1463,7 @@ export default class PCBApp {
             },
             tracks: this.tracks.map(t => t.toJSON()),
             vias: this.vias.map(v => v.toJSON()),
+            holes: this.holes.map(h => h.toJSON()),
             texts: [...this.texts.values()].map(serializePcbText),
             fills: this.copperFills.map(f => f.toJSON()),
             placements,
@@ -1366,6 +1480,7 @@ export default class PCBApp {
      */
     serializeSection() {
         const hasContent = this.tracks?.length || this.vias?.length
+            || this.holes?.length
             || this.texts?.size || this.copperFills?.length || this._placementOverrides.size
             || this._boardOutlineDrawn;
         return hasContent ? this.serialize() : null;
@@ -1409,8 +1524,10 @@ export default class PCBApp {
         // Drop any existing tracks/vias and their SVG.
         for (const t of this.tracks) removeTrackElements(t);
         for (const v of this.vias) removeViaElements(v);
+        for (const h of this.holes) removeHoleElements(h);
         this.tracks.length = 0;
         this.vias.length = 0;
+        this.holes.length = 0;
         // Drop any existing copper pours and their SVG.
         this.copperFills.length = 0;
         this._selectedFill = null;
@@ -1486,6 +1603,14 @@ export default class PCBApp {
                 const via = Via.fromJSON(vd);
                 this.vias.push(via);
                 renderVia(via, (id) => this._getLayerGroup(id));
+            }
+        }
+        if (Array.isArray(data.holes)) {
+            for (const hd of data.holes) {
+                const hole = Hole.fromJSON(hd);
+                updateHoleIdCounter(hole.id);
+                this.holes.push(hole);
+                renderHole(hole, (id) => this._getLayerGroup(id));
             }
         }
         if (Array.isArray(data.texts)) {
@@ -1977,6 +2102,18 @@ export default class PCBApp {
             });
     }
 
+    _showHoleToolOptions() {
+        const dia = this._getHoleDiameter();
+        this._showToolOptions(
+            `<label>Diameter (mm) <input type="number" id="pcbToolHoleDia" value="${dia}" min="0.1" step="0.05"></label>`,
+            () => {
+                const diaEl = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbToolHoleDia'));
+                diaEl?.addEventListener('input', () => {
+                    if (this._lastCrosshairWorld) this._updateHolePreview(this._lastCrosshairWorld);
+                });
+            });
+    }
+
     /**
      * Clear the properties panel to its default state.
      */
@@ -2222,6 +2359,10 @@ export default class PCBApp {
         for (const v of this.vias) {
             removeViaElements(v);
             renderVia(v, getGroup);
+        }
+        for (const h of this.holes) {
+            removeHoleElements(h);
+            renderHole(h, getGroup);
         }
 
         // Copper pours. Their model (copperFills) survives the rebuild but
@@ -4950,6 +5091,7 @@ export default class PCBApp {
             tracks: this.tracks,
             vias: this.vias,
             pads,
+            holes: this.holes,
             params: { clearance: Number.isFinite(params.clearance) ? params.clearance : 0.1 },
             board: (this._boardWidth > 0 && this._boardHeight > 0)
                 ? { w: this._boardWidth, h: this._boardHeight, r: this._boardRadius || 0 }
@@ -5494,6 +5636,7 @@ export default class PCBApp {
                 placements: this.placements,
                 tracks: this.tracks,
                 vias: this.vias,
+                holes: this.holes,
                 texts: [...this.texts.values()],
                 fills: this.copperFills,
                 boardX: this._boardX || 0,
