@@ -1336,6 +1336,11 @@ export default class PCBApp {
             placements[id] = { x: p.x, y: p.y, rotation: p.rotation || 0 };
         }
         return {
+            board: {
+                width: this._boardWidth,
+                height: this._boardHeight,
+                radius: this._boardRadius,
+            },
             tracks: this.tracks.map(t => t.toJSON()),
             vias: this.vias.map(v => v.toJSON()),
             texts: [...this.texts.values()].map(serializePcbText),
@@ -1354,7 +1359,8 @@ export default class PCBApp {
      */
     serializeSection() {
         const hasContent = this.tracks?.length || this.vias?.length
-            || this.texts?.size || this.copperFills?.length || this._placementOverrides.size;
+            || this.texts?.size || this.copperFills?.length || this._placementOverrides.size
+            || this._boardOutlineDrawn;
         return hasContent ? this.serialize() : null;
     }
 
@@ -1416,6 +1422,16 @@ export default class PCBApp {
         this._placementOverrides.clear();
 
         if (!data) return;
+
+        // Restore the saved board outline so it survives save/reopen (the
+        // dimensions are part of the document, not just localStorage).
+        if (data.board && data.board.width > 0 && data.board.height > 0) {
+            this._boardWidth = data.board.width;
+            this._boardHeight = data.board.height;
+            this._boardRadius = data.board.radius || 0;
+            this._drawBoardOutline();
+            this._saveBoardOutline();
+        }
 
         if (data.placements && typeof data.placements === 'object') {
             for (const [id, p] of Object.entries(data.placements)) {
