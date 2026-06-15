@@ -1739,6 +1739,11 @@ export default class PCBApp {
             };
             if (before.width !== after.width || before.height !== after.height || before.radius !== after.radius) {
                 this.history.execute(new SetBoardOutlineCommand(this, before, after));
+            } else if (!this._boardOutlineDrawn) {
+                // Dimensions unchanged from defaults, so no command runs — but
+                // the outline still needs its first draw (and to be persisted).
+                this._drawBoardOutline();
+                this._saveBoardOutline();
             }
             overlay.remove();
         };
