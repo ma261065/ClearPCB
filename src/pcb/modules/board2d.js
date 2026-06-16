@@ -118,6 +118,19 @@ export class Board2D {
         this._needFit = false;
     }
 
+    /**
+     * Lower bound on `scale` (px/mm) for zoom-out: half the scale at which the
+     * board just fits the viewport, so it can never shrink to a few pixels.
+     */
+    _minScale(cssW, cssH) {
+        const b = this._boardRect();
+        const margin = 20;
+        const sx = (cssW - margin * 2) / b.w;
+        const sy = (cssH - margin * 2) / b.h;
+        const fit = Math.min(sx, sy);
+        return Math.max(0.05, fit * 0.12);
+    }
+
     /* ── interaction ──────────────────────────────────────────────────── */
 
     /** @param {PointerEvent} e */
@@ -154,7 +167,10 @@ export class Board2D {
         const px = e.clientX - rect.left;
         const py = e.clientY - rect.top;
         const factor = Math.pow(1.0015, -e.deltaY);
-        const next = Math.max(0.05, Math.min(2000, this.scale * factor));
+        // Floor the zoom-out so the board can't shrink to a few pixels: never
+        // smaller than half the scale at which it just fits the viewport.
+        const minScale = this._minScale(rect.width || 1, rect.height || 1);
+        const next = Math.max(minScale, Math.min(2000, this.scale * factor));
         const k = next / this.scale;
         // Keep the world point under the cursor fixed while zooming.
         this.tx = px - k * (px - this.tx);

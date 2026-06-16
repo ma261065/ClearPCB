@@ -2124,6 +2124,9 @@ class ThreeScene {
         const size = box.getSize(new THREE.Vector3());
         const radius = 0.5 * Math.hypot(size.x, size.y, size.z);
         const dist = (radius / Math.sin((this.camera.fov * Math.PI) / 180 / 2)) * 1.15;
+        // Floor the zoom-out so the board can't shrink away to nothing: cap the
+        // camera distance at a few times the framing distance.
+        this.controls.maxDistance = dist * 5;
         const dir = this.camera.position.clone().sub(this.controls.target);
         if (dir.lengthSq() < 1e-6) dir.set(0.6, 0.9, 1.2);
         dir.normalize();
@@ -2380,7 +2383,6 @@ export async function openBoard3DViewer(app, opts = {}) {
             b2.setSide(view);
             b2.setData(boardData());
             b2.resize();
-            b2.fit();
             dom.btn2dTop?.classList.toggle('active', view === 'top');
             dom.btn2dBottom?.classList.toggle('active', view === 'bottom');
             if (dom.hint) dom.hint.textContent = 'Drag to pan · Wheel to zoom';

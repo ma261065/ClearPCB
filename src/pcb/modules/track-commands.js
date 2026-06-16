@@ -15,6 +15,7 @@ import {
     removeHoleElements,
 } from './track-render.js';
 import { reconcileRatsnest } from './track-draw.js';
+import { refreshTrackSelectionHalo } from './track-select.js';
 
 function _opts(app, track) {
     return {
@@ -156,6 +157,7 @@ export class MoveVertexCommand {
         n.y = pt.y;
         renderTrack(this.track, (id) => this.app._getLayerGroup(id), _opts(this.app, this.track));
         reconcileRatsnest(this.app);
+        refreshTrackSelectionHalo(this.app);
     }
     execute() { this._set(this.to); }
     undo() { this._set(this.from); }
@@ -178,6 +180,7 @@ export class ModifyTrackGraphCommand {
         this.track.applyState(state);
         renderTrack(this.track, (id) => this.app._getLayerGroup(id), _opts(this.app, this.track));
         reconcileRatsnest(this.app);
+        refreshTrackSelectionHalo(this.app);
     }
     execute() { this._apply(this.after); }
     undo() { this._apply(this.before); }
@@ -241,6 +244,7 @@ export class MoveViaCommand {
         this.via.x = pt.x;
         this.via.y = pt.y;
         renderVia(this.via, (id) => this.app._getLayerGroup(id));
+        refreshTrackSelectionHalo(this.app);
     }
     execute() { this._set(this.to); }
     undo() { this._set(this.from); }
@@ -291,6 +295,7 @@ export class MoveHoleCommand {
         this.hole.y = pt.y;
         renderHole(this.hole, (id) => this.app._getLayerGroup(id));
         this.app._refreshFills?.();
+        refreshTrackSelectionHalo(this.app);
     }
     execute() { this._set(this.to); }
     undo() { this._set(this.from); }
@@ -307,6 +312,7 @@ export class ModifyHoleCommand {
         Object.assign(this.hole, state);
         renderHole(this.hole, (id) => this.app._getLayerGroup(id));
         this.app._refreshFills?.();
+        refreshTrackSelectionHalo(this.app);
     }
     execute() { this._apply(this.after); }
     undo() { this._apply(this.before); }

@@ -89,6 +89,87 @@ export function isViaLocked() {
     return isLayerLocked('top-copper') || isLayerLocked('bottom-copper');
 }
 
+/**
+ * Persistence of per-session layer-panel state (eye/lock/pencil) in
+ * localStorage. These are UI preferences, deliberately kept out of the saved
+ * document — they survive reloads but aren't part of the file.
+ */
+const LAYER_PREFS_KEY = 'clearpcb_pcb_layer_prefs';
+let _savePrefsScheduled = false;
+
+function _writeLayerPrefs() {
+    try {
+        const data = {
+            layers: {},
+            fills: {},
+            overlays: {},
+        };
+        for (const l of PCB_LAYERS) {
+            data.layers[l.id] = { visible: l.visible, locked: l.locked, edit: l.edit };
+        }
+        for (const f of PCB_COPPER_FILLS) {
+            data.fills[f.id] = { visible: f.visible, locked: f.locked };
+        }
+        for (const ov of PCB_OVERLAYS) {
+            data.overlays[ov.id] = { visible: ov.visible };
+        }
+        localStorage.setItem(LAYER_PREFS_KEY, JSON.stringify(data));
+    } catch { /* storage unavailable — ignore */ }
+}
+
+/** Persist the current layer-panel state (debounced to one write per frame). */
+export function saveLayerPrefs() {
+    if (_savePrefsScheduled) return;
+    _savePrefsScheduled = true;
+    requestAnimationFrame(() => {
+        _savePrefsScheduled = false;
+        _writeLayerPrefs();
+    });
+}
+
+/** Restore layer-panel state from localStorage into the module arrays. */
+export function loadLayerPrefs() {
+    let data;
+    try {
+        data = JSON.parse(localStorage.getItem(LAYER_PREFS_KEY) || 'null');
+    } catch { data = null; }
+    if (!data) return;
+
+    if (data.layers) {
+        let anyEdit = false;
+        for (const l of PCB_LAYERS) {
+            const s = data.layers[l.id];
+            if (!s) continue;
+            if (typeof s.visible === 'boolean') l.visible = s.visible;
+            if (typeof s.locked === 'boolean') l.locked = s.locked;
+            if (typeof s.edit === 'boolean') l.edit = s.edit;
+            if (l.edit) anyEdit = true;
+        }
+        // Never restore into a state with no editable layer (e.g. the saved
+        // edit layer is now locked); fall back to the first unlocked layer.
+        const editLayer = PCB_LAYERS.find(l => l.edit);
+        if (!anyEdit || (editLayer && editLayer.locked)) {
+            for (const l of PCB_LAYERS) l.edit = false;
+            const firstFree = PCB_LAYERS.find(l => !l.locked) || PCB_LAYERS[0];
+            if (firstFree) firstFree.edit = true;
+        }
+    }
+    if (data.fills) {
+        for (const f of PCB_COPPER_FILLS) {
+            const s = data.fills[f.id];
+            if (!s) continue;
+            if (typeof s.visible === 'boolean') f.visible = s.visible;
+            if (typeof s.locked === 'boolean') f.locked = s.locked;
+        }
+    }
+    if (data.overlays) {
+        for (const ov of PCB_OVERLAYS) {
+            const s = data.overlays[ov.id];
+            if (s && typeof s.visible === 'boolean') ov.visible = s.visible;
+        }
+    }
+}
+
 // SVG icon paths (inline, no external deps)
 const PENCIL_SVG = `<svg width="20" height="20" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg">
   <path d="M8.5 1.5l2 2L4 10H2v-2L8.5 1.5z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/>
@@ -128,6 +209,9 @@ export function buildLayerPanel(app) {
     const triggerLabel = document.getElementById('pcbLayerLabel');
     const triggerSwatch = document.getElementById('pcbLayerSwatch');
     if (!panel) return;
+
+    // Restore persisted eye/lock/pencil state before rendering the rows.
+    loadLayerPrefs();
 
     panel.innerHTML = '';
 
@@ -567,6 +651,7 @@ function _setEditLayer(app, layerId) {
         app.activeLayer = active.id;
         app._setPcbStatus?.();
     }
+    saveLayerPrefs();
 }
 
 /**

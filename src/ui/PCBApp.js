@@ -7,7 +7,7 @@ import { loadAndApplyTheme, toggleTheme as toggleSharedTheme, syncThemeToggleBut
 import { extractNetlist, extractComponents } from '../pcb/modules/netlist.js';
 import { generateFootprint, renderFootprint } from '../pcb/modules/footprint.js';
 import { updateGridDropdown } from './modules/viewport.js';
-import { PCB_LAYERS, isLayerLocked, isViaLocked, showLockedLayerBubble, isCopperFillLocked, isCopperFillVisible } from '../pcb/modules/layers.js';
+import { PCB_LAYERS, PCB_OVERLAYS, PCB_COPPER_FILLS, isLayerLocked, isViaLocked, showLockedLayerBubble, isCopperFillLocked, isCopperFillVisible, saveLayerPrefs } from '../pcb/modules/layers.js';
 import { exportDSN, importSES } from '../pcb/modules/dsn.js';
 import { exportGerbers, buildZip } from '../pcb/modules/gerber.js';
 import { generateBOM, generatePickAndPlace } from '../pcb/modules/assembly.js';
@@ -426,6 +426,10 @@ export default class PCBApp {
 
         // Create SVG layer groups (one <g> per PCB layer, in z-order)
         this._createLayerGroups();
+
+        // Push any restored eye/lock state (from a prior session) into the
+        // freshly-created render groups so the artwork matches the panel.
+        this._applyLayerPrefsToRender();
 
         // Apply current theme to the viewport
         this.viewport.updateTheme();
@@ -1689,6 +1693,27 @@ export default class PCBApp {
     }
 
     /**
+     * Sync the SVG render groups to the current (possibly session-restored)
+     * layer-panel state. Run once after the groups are created.
+     */
+    _applyLayerPrefsToRender() {
+        for (const l of PCB_LAYERS) {
+            this._onLayerVisibilityChanged(l.id, l.visible);
+            this._onLayerLockChanged(l.id, l.locked);
+        }
+        for (const f of PCB_COPPER_FILLS) {
+            this._onCopperFillVisibilityChanged(f.id, f.visible);
+            this._onCopperFillLockChanged(f.id, f.locked);
+        }
+        for (const ov of PCB_OVERLAYS) {
+            this._onOverlayVisibilityChanged(ov.id, ov.visible);
+        }
+        // Match the active draw layer to the restored edit (pencil) layer.
+        const editLayer = PCB_LAYERS.find(l => l.edit);
+        if (editLayer) this.activeLayer = editLayer.id;
+    }
+
+    /**
      * Get the SVG group for a layer, creating it if needed.
      * @param {string} layerId
      * @returns {SVGGElement}
@@ -1720,6 +1745,7 @@ export default class PCBApp {
         if (this._clearancesVisible && (layerId === 'top-copper' || layerId === 'bottom-copper' || layerId === 'hole')) {
             this.showClearances(true);
         }
+        saveLayerPrefs();
     }
 
     /**
@@ -1734,6 +1760,7 @@ export default class PCBApp {
         if (g) {
             g.style.opacity = locked ? '0.4' : '';
         }
+        saveLayerPrefs();
         if (!locked) return;
         // A newly-locked layer must not keep anything on it selected or
         // hovered — locked objects are read-only.
@@ -1768,6 +1795,7 @@ export default class PCBApp {
             const g = this._layerGroups.get('ratlines');
             if (g) g.style.display = visible ? '' : 'none';
         }
+        saveLayerPrefs();
     }
 
     _fitToContent() {
@@ -5138,6 +5166,7 @@ export default class PCBApp {
     _onCopperFillVisibilityChanged(copperLayerId, visible) {
         const g = this._layerGroups.get(fillGroupId(copperLayerId));
         if (g) g.style.display = visible ? '' : 'none';
+        saveLayerPrefs();
     }
 
     /**
@@ -5153,6 +5182,7 @@ export default class PCBApp {
             this._selectFill(null);
             this._clearProperties?.();
         }
+        saveLayerPrefs();
     }
 
     /** Hit-test a world point against any pour region outline. */
