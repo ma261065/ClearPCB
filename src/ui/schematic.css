@@ -1888,6 +1888,13 @@ body {
     color: var(--text-muted);
 }
 
+/* Interactive THREE.js 3D model viewer: taller and the canvas fills the box. */
+.cp-preview-3d.cp-preview-3d-interactive {
+    height: 160px;
+    padding: 0;
+    overflow: hidden;
+}
+
 .cp-preview-placeholder {
     font-size: 11px;
     text-align: center;

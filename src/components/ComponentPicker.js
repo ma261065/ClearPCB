@@ -1930,6 +1930,7 @@ export class ComponentPicker {
      */
     _set3dPreviewStatus(message, available) {
         if (!this.preview3d) return;
+        this._disposeModel3dViewer();
         this.preview3d.innerHTML = `<div class="cp-preview-placeholder">${message}</div>`;
         if (this.preview3dInfo) {
             this.preview3dInfo.innerHTML = available
@@ -1953,6 +1954,7 @@ export class ComponentPicker {
             const availability = await this.library.kicadFetcher.checkFootprintAvailability(footprintName);
             if (!this.selectionRequestGate.isCurrent(selId)) return;
             if (availability.has3d) {
+                this._disposeModel3dViewer();
                 this.preview3d.innerHTML = '<div class="cp-preview-placeholder">Loading 3D model...</div>';
                 this.preview3dInfo.innerHTML = '<span style="color:var(--text-muted)">Rendering...</span>';
                 try {
@@ -2327,52 +2329,65 @@ export class ComponentPicker {
      * @returns {Promise<void>}
      */
     async _update3dPreview(metadata) {
+        this._disposeModel3dViewer();
         if (!metadata || !metadata.has3d) {
             this._set3dPreviewStatus('No 3D model', false);
             return;
         }
 
         const modelName = metadata.model3dName || '3D model';
-        
-        // Render 3D preview for both KiCad (VRML URLs) and EasyEDA (OBJ data)
-        if (metadata.model3dUrl || metadata.model3dObj) {
+
+        // EasyEDA OBJ models are rendered with the interactive THREE.js viewer
+        // (drag to spin, wheel to zoom) — the same pipeline as the board viewer.
+        if (metadata.model3dObj) {
             this.preview3d.innerHTML = '<div class="cp-preview-placeholder">Loading 3D model...</div>';
             if (this.preview3dInfo) {
                 this.preview3dInfo.innerHTML = '<span style="color:var(--text-muted)">Rendering...</span>';
             }
-
+            try {
+                const { Model3DViewer } = await import('./Model3DViewer.js');
+                this.preview3d.innerHTML = '';
+                this.preview3d.classList.add('cp-preview-3d-interactive');
+                const viewer = new Model3DViewer(this.preview3d);
+                const ok = viewer.setModel(metadata.model3dObj);
+                if (!ok) {
+                    viewer.dispose();
+                    throw new Error('Unable to parse OBJ model');
+                }
+                this._model3dViewer = viewer;
+                if (this.preview3dInfo) {
+                    this.preview3dInfo.innerHTML =
+                        `<span class="cp-preview-ok">${escapeHtml(modelName)}</span>` +
+                        ' <span style="color:var(--text-muted)">· drag to rotate</span>';
+                }
+            } catch (error) {
+                console.error('Error rendering 3D preview:', error);
+                this._disposeModel3dViewer();
+                this.preview3d.innerHTML = `<div class="cp-preview-placeholder">🧊 ${escapeHtml(modelName)}</div>`;
+                if (this.preview3dInfo) {
+                    this.preview3dInfo.innerHTML = '<span class="cp-preview-ok">3D model available</span>';
+                }
+            }
+        } else if (metadata.model3dUrl) {
+            // KiCad VRML model — render as a static isometric SVG preview.
+            this.preview3d.innerHTML = '<div class="cp-preview-placeholder">Loading 3D model...</div>';
+            if (this.preview3dInfo) {
+                this.preview3dInfo.innerHTML = '<span style="color:var(--text-muted)">Rendering...</span>';
+            }
             try {
                 const { VRMLPreview } = await import('./VRMLPreview.js');
-                let svgPreview;
-                
-                if (metadata.model3dUrl) {
-                    // KiCad VRML model - fetch and render
-                    svgPreview = await VRMLPreview.fetchAndRender(metadata.model3dUrl, {
-                        lineColor: '#444444',
-                        fillColor: '#666666',
-                        lineWidth: 0.8,
-                        strokeOpacity: 0.9,
-                        fillOpacity: 0.7,
-                        proxyUrl: this.library?.kicadFetcher?.corsProxy
-                    });
-                } else if (metadata.model3dObj) {
-                    // EasyEDA OBJ model - render directly
-                    svgPreview = VRMLPreview.renderOBJ(metadata.model3dObj, {
-                        lineColor: '#444444',
-                        fillColor: '#666666',
-                        lineWidth: 0.8,
-                        strokeOpacity: 0.9,
-                        fillOpacity: 0.7
-                    });
-                }
-                
-                // Parse and insert SVG using DOM
+                const svgPreview = await VRMLPreview.fetchAndRender(metadata.model3dUrl, {
+                    lineColor: '#444444',
+                    fillColor: '#666666',
+                    lineWidth: 0.8,
+                    strokeOpacity: 0.9,
+                    fillOpacity: 0.7,
+                    proxyUrl: this.library?.kicadFetcher?.corsProxy
+                });
                 this.preview3d.innerHTML = '';
                 const parser = new DOMParser();
                 const svgDoc = parser.parseFromString(svgPreview, 'image/svg+xml');
-                const svgElement = svgDoc.documentElement;
-                this.preview3d.appendChild(svgElement);
-                
+                this.preview3d.appendChild(svgDoc.documentElement);
                 if (this.preview3dInfo) {
                     this.preview3dInfo.innerHTML = `<span class="cp-preview-ok">${escapeHtml(modelName)}</span>`;
                 }
@@ -2390,6 +2405,15 @@ export class ComponentPicker {
                 this.preview3dInfo.innerHTML = '<span class="cp-preview-ok">3D model available</span>';
             }
         }
+    }
+
+    /** Tear down the interactive 3D viewer (frees its WebGL context). */
+    _disposeModel3dViewer() {
+        if (this._model3dViewer) {
+            try { this._model3dViewer.dispose(); } catch { /* already gone */ }
+            this._model3dViewer = null;
+        }
+        this.preview3d?.classList.remove('cp-preview-3d-interactive');
     }
 
     /**
@@ -2704,6 +2728,7 @@ export class ComponentPicker {
         if (this.isOpen) {
             this.toggle();
         }
+        this._disposeModel3dViewer();
         // Cleanup lazy loader to save memory
         if (this.lazyLoader) {
             this.lazyLoader.destroy();
@@ -2754,6 +2779,7 @@ export class ComponentPicker {
      */
     destroy() {
         this.close();
+        this._disposeModel3dViewer();
         if (this.searchDebouncer) {
             this.searchDebouncer.dispose();
         }

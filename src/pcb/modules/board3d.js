@@ -42,7 +42,7 @@ import earcut from '../../../assets/vendor/earcut.module.js';
  * `update()`, `handleResize()`, `addEventListener('start'|'end'|'change')` and
  * `dispose()`.
  */
-class ArcballController {
+export class ArcballController {
     /**
      * @param {any} camera THREE.PerspectiveCamera
      * @param {HTMLElement} domElement
@@ -769,7 +769,7 @@ function stepGeometryToMesh(geom, pl) {
  * @param {string} objText raw Wavefront OBJ text
  * @returns {{vertices:Array<{x:number,y:number,z:number}>, faces:Array<{idx:number[], color:number[]}>}|null}
  */
-function parseObjModel(objText) {
+export function parseObjModel(objText) {
     if (!objText) return null;
     /** @type {Array<{x:number,y:number,z:number}>} */
     const vertices = [];
@@ -1850,7 +1850,7 @@ function buildTextMesh(app) {
  * @param {{verts:Array<{x:number,y:number,z:number}>, faces:Array<{idx:number[], color:number[]}>}} mesh
  * @returns {THREE.BufferGeometry}
  */
-function meshToGeometry(mesh) {
+export function meshToGeometry(mesh) {
     const positions = [];
     const colors = [];
     const col = new THREE.Color();
@@ -1881,7 +1881,7 @@ function meshToGeometry(mesh) {
 }
 
 /** Shared flat-shaded, vertex-coloured, double-sided material. */
-function makeMaterial() {
+export function makeMaterial() {
     return new THREE.MeshStandardMaterial({
         vertexColors: true,
         flatShading: true,
