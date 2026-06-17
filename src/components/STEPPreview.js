@@ -24,16 +24,17 @@ export class STEPPreview {
     }
 
     /**
-     * Parse a STEP file into preview geometry.
+     * Parse a STEP file into preview geometry with optional per-face colors.
      *
      * Walks: ADVANCED_FACE → FACE_BOUND / FACE_OUTER_BOUND → EDGE_LOOP
      *        → ORIENTED_EDGE → EDGE_CURVE → VERTEX_POINT → CARTESIAN_POINT
+     *        Also attempts to extract STYLED_ITEM→SURFACE_STYLE→COLOR for face colors.
      *
      * @param {string} stepText - Full STEP file content
-     * @returns {{vertices:{x:number,y:number,z:number}[], faces:number[][]}|null}
+     * @returns {{vertices:{x:number,y:number,z:number}[], faces:number[][], faceColors?:number[][]|null}|null}
      */
     static parse(stepText) {
-        const geometry = { vertices: [], faces: [] };
+        const geometry = { vertices: [], faces: [], faceColors: null };
 
         try {
             // Flatten to a single line
@@ -120,8 +121,73 @@ export class STEPPreview {
                 return idx;
             }
 
+            // ── Extract any COLOUR entities from STEP as a palette ─────────
+            // If the STEP file doesn't have explicit colors (rare), we'll use heuristics below
+            const colorPalette = [];
+            
+            // First, build a map of REAL entities (for when colors reference REALs)
+            const realValues = {};
+            for (const [id, ent] of Object.entries(entities)) {
+                if (ent.type === 'REAL') {
+                    const m = ent.raw.match(/^([0-9.eE+-]+)/);
+                    if (m) realValues[id] = parseFloat(m[1]);
+                }
+            }
+            
+            // Extract COLOUR entities
+            for (const [id, ent] of Object.entries(entities)) {
+                if (ent.type !== 'COLOUR') continue;
+                const colorArgs = splitArgs(ent.raw);
+                if (colorArgs.length >= 4) {
+                    try {
+                        // Try parsing as 0-1 floats (direct) or references to REAL entities
+                        let r = colorArgs[1].trim();
+                        let g = colorArgs[2].trim();
+                        let b = colorArgs[3].trim();
+                        
+                        // Handle references like #123
+                        const rRef = r.match(/#(\d+)/)?.at(1);
+                        const gRef = g.match(/#(\d+)/)?.at(1);
+                        const bRef = b.match(/#(\d+)/)?.at(1);
+                        
+                        r = rRef && realValues[rRef] !== undefined ? realValues[rRef] : parseFloat(r);
+                        g = gRef && realValues[gRef] !== undefined ? realValues[gRef] : parseFloat(g);
+                        b = bRef && realValues[bRef] !== undefined ? realValues[bRef] : parseFloat(b);
+                        
+                        if (Number.isFinite(r) && Number.isFinite(g) && Number.isFinite(b)) {
+                            // Convert 0-1 range to 0-255 if needed
+                            const rInt = r <= 1 ? Math.round(r * 255) : Math.round(r);
+                            const gInt = g <= 1 ? Math.round(g * 255) : Math.round(g);
+                            const bInt = b <= 1 ? Math.round(b * 255) : Math.round(b);
+                            colorPalette.push([rInt, gInt, bInt]);
+                        }
+                    } catch (e) { /* ignore parse errors */ }
+                }
+            }
+
+            // Log what we found
+            if (colorPalette.length > 0) {
+                console.log(`[STEP] Found ${colorPalette.length} colors:`, colorPalette.slice(0, 5));
+            } else {
+                console.log(`[STEP] No COLOUR entities - will use face-size heuristic`);
+            }
+
+            // If colors found, use them; otherwise, mark for heuristic coloring
+            const hasExplicitColors = colorPalette.length > 0;
+            if (!hasExplicitColors) {
+                // Placeholder for heuristic: grey for IC body (large faces), gold for pins (small)
+                colorPalette.push([100, 100, 100], [200, 170, 80]);
+            }
+
+            const styleMap = colorPalette.length > 0 ? new Map() : null;
+
             // ── Walk ADVANCED_FACE topology ──────────────────────────────
-            for (const ent of Object.values(entities)) {
+            const faceColors = [];
+            const faceSizes = []; // For heuristic coloring
+            
+            // First pass: collect all faces and their sizes
+            const faceData = [];
+            for (const [faceId, ent] of Object.entries(entities)) {
                 if (ent.type !== 'ADVANCED_FACE') continue;
 
                 const args = splitArgs(ent.raw);
@@ -159,11 +225,57 @@ export class STEPPreview {
                         }
                     }
 
-                    if (faceVerts.length >= 3) geometry.faces.push(faceVerts);
+                    if (faceVerts.length >= 3) {
+                        geometry.faces.push(faceVerts);
+                        
+                        // Calculate face area (approximate using first 3 vertices)
+                        let area = 0;
+                        if (faceVerts.length >= 3) {
+                            const v0 = geometry.vertices[faceVerts[0]];
+                            const v1 = geometry.vertices[faceVerts[1]];
+                            const v2 = geometry.vertices[faceVerts[2]];
+                            const dx1 = v1.x - v0.x, dy1 = v1.y - v0.y, dz1 = v1.z - v0.z;
+                            const dx2 = v2.x - v0.x, dy2 = v2.y - v0.y, dz2 = v2.z - v0.z;
+                            const cx = dy1 * dz2 - dz1 * dy2;
+                            const cy = dz1 * dx2 - dx1 * dz2;
+                            const cz = dx1 * dy2 - dy1 * dx2;
+                            area = Math.sqrt(cx * cx + cy * cy + cz * cz);
+                        }
+                        
+                        faceData.push({ verts: faceVerts, area });
+                        faceSizes.push(area);
+                    }
                 }
             }
+            
+            // Compute median for heuristic coloring
+            const sortedSizes = [...faceSizes].sort((a, b) => a - b);
+            const medianArea = sortedSizes.length > 0 
+                ? sortedSizes[Math.floor(sortedSizes.length / 2)]
+                : 1;
+            
+            // Assign colors to each face
+            for (const data of faceData) {
+                let faceColor;
+                if (hasExplicitColors) {
+                    faceColor = colorPalette[faceColors.length % colorPalette.length];
+                } else {
+                    // Heuristic: large faces (>2x median) = grey (IC body), small = golden (pins)
+                    faceColor = data.area > medianArea * 2
+                        ? [100, 100, 100]  // Large = grey
+                        : [200, 170, 80];   // Small = golden
+                }
+                faceColors.push(faceColor);
+            }
+            }
 
-            return geometry.vertices.length > 0 ? geometry : null;
+            if (geometry.vertices.length > 0) {
+                if (faceColors.length === geometry.faces.length) {
+                    geometry.faceColors = faceColors;
+                }
+                return geometry;
+            }
+            return null;
         } catch (error) {
             console.error('Error parsing STEP:', error);
             return null;

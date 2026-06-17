@@ -10,6 +10,7 @@ import { ModifyShapeCommand, ModifyPropertyCommand, BatchCommand, AddShapeComman
 import { VERTEX_EPSILON, applySplitLabelRules, applySplitNetRules } from './wire.js';
 import { detachLabel } from './label-attachment.js';
 import { canDecomposeRoundedCorners, decomposeRoundedCorners } from '../../shapes/shape-decompose.js';
+import { hasAny3DModel, openComponent3DFromData } from '../../components/model3d-source.js';
 
 /**
  * @typedef {HTMLDivElement & {
@@ -733,18 +734,21 @@ export function showLabelContextMenu(app, labelShape, clientX, clientY) {
  * @param {number} clientY
  */
 export function showComponentContextMenu(app, component, clientX, clientY) {
-    const objText = component?.definition?.model3dObj;
-    if (!objText) return;
+    const modelData = component?.definition;
+    if (!hasAny3DModel(modelData)) return;
 
     createContextMenu([{
         text: 'Show 3D',
-        onClick: () => {
+        onClick: async () => {
             const title = component.reference
                 ? `${component.reference} \u2014 3D Model`
                 : '3D Model';
-            import('../../components/Model3DPopout.js')
-                .then(({ openModel3DPopout }) => openModel3DPopout({ objText, title }))
-                .catch(err => console.error('Failed to open 3D pop-out:', err));
+            try {
+                const ok = await openComponent3DFromData({ data: modelData, title });
+                if (!ok) console.warn('No renderable 3D model found for component');
+            } catch (err) {
+                console.error('Failed to open 3D pop-out:', err);
+            }
         }
     }], clientX, clientY);
 }

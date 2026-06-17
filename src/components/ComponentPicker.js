@@ -9,6 +9,7 @@ import { getSearchManager, initSearchManager } from '../core/SearchManager.js';
 import { LazyLoader } from '../core/LazyLoader.js';
 import { escapeHtml, sanitizeImageUrl } from '../core/ui-helpers.js';
 import { createDebouncedRunner, createGenerationGate } from './async-control.js';
+import { resolveObjFromModelUrl } from './model3d-source.js';
 
 export class ComponentPicker {
     /**
@@ -31,6 +32,7 @@ export class ComponentPicker {
         this.selectedLCSCResult = null;
         this.selectedKiCadResult = null;
         this.selectedKiCadFootprint = '';
+        this.selectedKiCadModel3dUrl = '';
         this.selectedCategory = 'All';
         this.searchQuery = '';
         this.isOpen = false;
@@ -542,6 +544,7 @@ export class ComponentPicker {
         
         this.selectedKiCadResult = result;
         this.selectedKiCadFootprint = '';
+        this.selectedKiCadModel3dUrl = '';
         this.selectedKiCadItem = itemEl;
         this.selectedComponent = null;
         this.selectedLCSCResult = null;
@@ -661,6 +664,11 @@ export class ComponentPicker {
                                             def.footprint = picked;
                                             def.footprintName = picked;
                                             def.hasFootprint = true;
+                                            if (this.selectedKiCadFootprint === picked && this.selectedKiCadModel3dUrl) {
+                                                def.has3d = true;
+                                                def.model3dUrl = this.selectedKiCadModel3dUrl;
+                                                def.model3dName = picked;
+                                            }
                                             this._beginPlacement(def, { skipFootprint3d: true });
                                         };
                                     } else {
@@ -735,29 +743,7 @@ export class ComponentPicker {
             }
 
             if (availability.has3d) {
-                // Render 3D STEP preview
-                this.preview3d.innerHTML = '<div class="cp-preview-placeholder">Loading 3D model...</div>';
-                this.preview3dInfo.innerHTML = '<span style="color:var(--text-muted)">Rendering...</span>';
-                try {
-                    const { STEPPreview } = await import('./STEPPreview.js');
-                    const svgPreview = await STEPPreview.fetchAndRender(availability.modelUrl, {
-                        lineColor: '#444444',
-                        fillColor: '#666666',
-                        lineWidth: 0.8,
-                        strokeOpacity: 0.9,
-                        fillOpacity: 0.7,
-                        proxyUrl: this.library?.kicadFetcher?.corsProxy
-                    });
-                    this.preview3d.innerHTML = '';
-                    const parser = new DOMParser();
-                    const svgDoc = parser.parseFromString(svgPreview, 'image/svg+xml');
-                    this.preview3d.appendChild(svgDoc.documentElement);
-                    this.preview3dInfo.innerHTML = '<span class="cp-preview-ok">3D model available</span>';
-                } catch (e) {
-                    console.error('3D STEP preview error:', e);
-                    this.preview3d.innerHTML = '<div class="cp-preview-placeholder">3D model available (STEP)</div>';
-                    this.preview3dInfo.innerHTML = '<span class="cp-preview-ok">3D model available</span>';
-                }
+                await this._renderKiCadStepPreviewInteractive(availability.modelUrl, selId, footprintName);
             } else {
                 this._set3dPreviewStatus('3D model not found', false);
             }
@@ -767,6 +753,11 @@ export class ComponentPicker {
             if (fetchedFpShapes) {
                 placeDefinition.footprintShapes = fetchedFpShapes;
                 placeDefinition.footprintBBox = fetchedFpBBox;
+            }
+            if (availability.has3d && availability.modelUrl) {
+                placeDefinition.has3d = true;
+                placeDefinition.model3dUrl = availability.modelUrl;
+                placeDefinition.model3dName = footprintName;
             }
             this.placeBtn.disabled = !ready;
             this.placeBtn.textContent = ready ? 'Place Component' : 'Missing footprint';
@@ -809,8 +800,9 @@ export class ComponentPicker {
             
             if (kicadData) {
                 const footprintName = this._getPropertyValue(kicadProperties, 'Footprint');
+                let availability = null;
                 if (footprintName) {
-                    const availability = await this.library.kicadFetcher.checkFootprintAvailability(footprintName);
+                    availability = await this.library.kicadFetcher.checkFootprintAvailability(footprintName);
                     if (!availability.hasFootprint) {
                         this.previewInfo.innerHTML += `<br><span style="color:var(--text-muted)">Footprint not found on KiCad GitLab</span>`;
                     }
@@ -828,6 +820,11 @@ export class ComponentPicker {
                             definition.footprintBBox = fpPreview.bbox;
                         }
                     } catch (_) { /* non-fatal */ }
+                }
+                if (availability?.has3d && availability.modelUrl) {
+                    definition.has3d = true;
+                    definition.model3dUrl = availability.modelUrl;
+                    definition.model3dName = footprintName || 'KiCad STEP model';
                 }
                 
                 this.library.addDefinition(definition, 'KiCad');
@@ -1940,6 +1937,80 @@ export class ComponentPicker {
     }
 
     /**
+     * Render a KiCad STEP model in the interactive OBJ viewer by parsing STEP
+     * topology and converting it to a temporary OBJ mesh.
+     * Falls back to static STEP SVG when interactive conversion fails.
+     * @param {string} modelUrl
+     * @param {number} selId
+     * @param {string} [label='3D model']
+     */
+    async _renderKiCadStepPreviewInteractive(modelUrl, selId, label = '3D model') {
+        this._disposeModel3dViewer();
+        this.preview3d.innerHTML = '<div class="cp-preview-placeholder">Loading 3D model...</div>';
+        if (this.preview3dInfo) {
+            this.preview3dInfo.innerHTML = '<span style="color:var(--text-muted)">Rendering...</span>';
+        }
+
+        try {
+            const proxyUrl = this.library?.kicadFetcher?.corsProxy || '';
+            const objText = await resolveObjFromModelUrl(modelUrl, proxyUrl);
+            if (!objText) {
+                throw new Error('No geometry found in model');
+            }
+            if (!this.selectionRequestGate.isCurrent(selId)) return;
+
+            const { Model3DViewer } = await import('./Model3DViewer.js');
+            this.preview3d.innerHTML = '';
+            this.preview3d.classList.add('cp-preview-3d-interactive');
+            const viewer = new Model3DViewer(this.preview3d);
+            const ok = viewer.setModel(objText);
+            if (!ok) {
+                viewer.dispose();
+                throw new Error('Unable to parse generated OBJ');
+            }
+            this._model3dViewer = viewer;
+            if (this.preview3dInfo) {
+                this.preview3dInfo.innerHTML =
+                    `<span class="cp-preview-ok">${escapeHtml(label || '3D model')}</span>` +
+                    ' <span style="color:var(--text-muted)">· drag to rotate</span>';
+            }
+            return;
+        } catch (interactiveError) {
+            console.warn('Interactive KiCad STEP preview failed, using static fallback:', interactiveError);
+            if (!this.selectionRequestGate.isCurrent(selId)) return;
+            this._disposeModel3dViewer();
+        }
+
+        // Fallback: static isometric SVG preview.
+        try {
+            const { VRMLPreview } = await import('./VRMLPreview.js');
+            const svgPreview = await VRMLPreview.fetchAndRender(modelUrl, {
+                lineColor: '#444444',
+                fillColor: '#666666',
+                lineWidth: 0.8,
+                strokeOpacity: 0.9,
+                fillOpacity: 0.7,
+                proxyUrl: this.library?.kicadFetcher?.corsProxy
+            });
+            if (!this.selectionRequestGate.isCurrent(selId)) return;
+            this.preview3d.innerHTML = '';
+            const parser = new DOMParser();
+            const svgDoc = parser.parseFromString(svgPreview, 'image/svg+xml');
+            this.preview3d.appendChild(svgDoc.documentElement);
+            if (this.preview3dInfo) {
+                this.preview3dInfo.innerHTML = '<span class="cp-preview-ok">3D model available</span>';
+            }
+        } catch (fallbackError) {
+            if (!this.selectionRequestGate.isCurrent(selId)) return;
+            console.error('3D STEP preview error:', fallbackError);
+            this.preview3d.innerHTML = '<div class="cp-preview-placeholder">3D model available (STEP)</div>';
+            if (this.preview3dInfo) {
+                this.preview3dInfo.innerHTML = '<span class="cp-preview-ok">3D model available</span>';
+            }
+        }
+    }
+
+    /**
      * Check 3D model availability for a selected footprint and render preview.
      * @param {string} footprintName
      * @param {number} selId
@@ -1947,6 +2018,7 @@ export class ComponentPicker {
     async _check3dModelForFootprint(footprintName, selId) {
         if (!footprintName) {
             this._set3dPreviewStatus('Select a footprint first', false);
+            this.selectedKiCadModel3dUrl = '';
             return;
         }
         this._set3dPreviewStatus('Checking 3D model...', false);
@@ -1954,36 +2026,15 @@ export class ComponentPicker {
             const availability = await this.library.kicadFetcher.checkFootprintAvailability(footprintName);
             if (!this.selectionRequestGate.isCurrent(selId)) return;
             if (availability.has3d) {
-                this._disposeModel3dViewer();
-                this.preview3d.innerHTML = '<div class="cp-preview-placeholder">Loading 3D model...</div>';
-                this.preview3dInfo.innerHTML = '<span style="color:var(--text-muted)">Rendering...</span>';
-                try {
-                    const { STEPPreview } = await import('./STEPPreview.js');
-                    const svgPreview = await STEPPreview.fetchAndRender(availability.modelUrl, {
-                        lineColor: '#444444',
-                        fillColor: '#666666',
-                        lineWidth: 0.8,
-                        strokeOpacity: 0.9,
-                        fillOpacity: 0.7,
-                        proxyUrl: this.library?.kicadFetcher?.corsProxy
-                    });
-                    if (!this.selectionRequestGate.isCurrent(selId)) return;
-                    this.preview3d.innerHTML = '';
-                    const parser = new DOMParser();
-                    const svgDoc = parser.parseFromString(svgPreview, 'image/svg+xml');
-                    this.preview3d.appendChild(svgDoc.documentElement);
-                    this.preview3dInfo.innerHTML = '<span class="cp-preview-ok">3D model available</span>';
-                } catch (e) {
-                    if (!this.selectionRequestGate.isCurrent(selId)) return;
-                    console.error('3D STEP preview error:', e);
-                    this.preview3d.innerHTML = '<div class="cp-preview-placeholder">3D model available (STEP)</div>';
-                    this.preview3dInfo.innerHTML = '<span class="cp-preview-ok">3D model available</span>';
-                }
+                this.selectedKiCadModel3dUrl = availability.modelUrl || '';
+                await this._renderKiCadStepPreviewInteractive(availability.modelUrl, selId, footprintName);
             } else {
+                this.selectedKiCadModel3dUrl = '';
                 this._set3dPreviewStatus('3D model not found', false);
             }
         } catch {
             if (!this.selectionRequestGate.isCurrent(selId)) return;
+            this.selectedKiCadModel3dUrl = '';
             this._set3dPreviewStatus('3D model check failed', false);
         }
     }
@@ -2495,6 +2546,9 @@ export class ComponentPicker {
             }
         }
         def.hasFootprint = !!(footprintName || footprintFilters.length > 0);
+        def.model3dObj = def.model3dObj || null;
+        def.model3dUrl = def.model3dUrl || null;
+        def.has3d = !!(def.has3d || def.model3dObj || def.model3dUrl);
         if (kicadSymbol?._kicadRaw) def._kicadRaw = kicadSymbol._kicadRaw;
         return def;
     }

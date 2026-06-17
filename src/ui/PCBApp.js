@@ -90,6 +90,7 @@ import {
     MoveTextCommand,
     EditTextCommand,
 } from '../pcb/modules/text-commands.js';
+import { hasAny3DModel, openComponent3DFromData } from '../components/model3d-source.js';
 import {
     armBoxSelect,
     maybeStartBoxSelect,
@@ -1087,7 +1088,7 @@ export default class PCBApp {
             // carries a 3D model.
             const compId = this._hitTestComponent(worldPos);
             const pl = compId ? this.placements.get(compId) : null;
-            if (pl?.model3dObj) {
+            if (hasAny3DModel(pl)) {
                 if (this.viewport.isPanning) this.viewport.endPan();
                 this._showComponent3DMenu(pl, e.clientX, e.clientY);
             }
@@ -2348,7 +2349,7 @@ export default class PCBApp {
                 <option value="top"${side === 'top' ? ' selected' : ''}>Top</option>
                 <option value="bottom"${side === 'bottom' ? ' selected' : ''}>Bottom</option>
             </select></div>
-            ${pl?.model3dObj ? '<div class="prop-actions" style="margin-top:6px"><button id="pcbPropShow3D" title="Show 3D model">\uD83E\uDDCA Show 3D</button></div>' : ''}
+            ${hasAny3DModel(pl) ? '<div class="prop-actions" style="margin-top:6px"><button id="pcbPropShow3D" title="Show 3D model">\uD83E\uDDCA Show 3D</button></div>' : ''}
         `;
 
         // Sibling ribbon-group sections (mirrors the schematic Properties
@@ -2408,7 +2409,7 @@ export default class PCBApp {
      * @param {number} clientY
      */
     _showComponent3DMenu(pl, clientX, clientY) {
-        if (!pl?.model3dObj) return;
+        if (!hasAny3DModel(pl)) return;
         dismissTrackContextMenu();
         const menu = document.createElement('div');
         menu.id = 'pcbTrackContextMenu';
@@ -2444,11 +2445,12 @@ export default class PCBApp {
         const pl = typeof placementOrId === 'string'
             ? this.placements.get(placementOrId)
             : placementOrId;
-        const objText = pl?.model3dObj;
-        if (!objText) return;
+        if (!hasAny3DModel(pl)) return;
         const title = pl.reference ? `${pl.reference} \u2014 3D Model` : '3D Model';
-        import('../components/Model3DPopout.js')
-            .then(({ openModel3DPopout }) => openModel3DPopout({ objText, title }))
+        openComponent3DFromData({ data: pl, title })
+            .then((ok) => {
+                if (!ok) console.warn('No renderable 3D model found for component');
+            })
             .catch(err => console.error('Failed to open 3D pop-out:', err));
     }
 

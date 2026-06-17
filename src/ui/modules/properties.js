@@ -4,6 +4,7 @@ import { rotateNetOrientation } from '../../shapes/net.js';
 import { adaptShortcutText } from './platform-keys.js';
 import { canDecomposeRoundedCorners } from '../../shapes/shape-decompose.js';
 import { decomposeShapeCorners } from './context-menu.js';
+import { hasAny3DModel, openComponent3DFromData } from '../../components/model3d-source.js';
 
 /**
  * Initializes the properties panel and subscribes to `selectionChanged`
@@ -445,7 +446,7 @@ export function updatePropertiesPanel(app, selection) {
         const div = document.createElement('div');
         div.className = 'prop-actions';
 
-        if (selection.length === 1 && selection[0].definition?.model3dObj) {
+        if (selection.length === 1 && hasAny3DModel(selection[0].definition)) {
             const show3dBtn = document.createElement('button');
             show3dBtn.title = 'Show 3D model';
             show3dBtn.id = 'propShow3D';
@@ -523,15 +524,18 @@ function _bindActionButtons(app) {
     }
     const show3dBtn = document.getElementById('propShow3D');
     if (show3dBtn) {
-        show3dBtn.addEventListener('click', () => {
+        show3dBtn.addEventListener('click', async () => {
             const sel = app.selection?.getSelection?.() || [];
             const comp = sel.length === 1 ? sel[0] : null;
-            const objText = comp?.definition?.model3dObj;
-            if (!objText) return;
+            const modelData = comp?.definition;
+            if (!hasAny3DModel(modelData)) return;
             const title = comp.reference ? `${comp.reference} — 3D Model` : '3D Model';
-            import('../../components/Model3DPopout.js')
-                .then(({ openModel3DPopout }) => openModel3DPopout({ objText, title }))
-                .catch(err => console.error('Failed to open 3D pop-out:', err));
+            try {
+                const ok = await openComponent3DFromData({ data: modelData, title });
+                if (!ok) console.warn('No renderable 3D model found for component');
+            } catch (err) {
+                console.error('Failed to open 3D pop-out:', err);
+            }
         });
     }
 }

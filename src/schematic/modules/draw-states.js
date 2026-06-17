@@ -19,6 +19,7 @@
 import { updateStickyWires, updateSnapHighlight, resolveWireSnapPosition, renderGuideLines, computeAnchorCollinearSnap, computeSegmentDragSnap, computeStickyWireSnaps, applyOffGridNeighborSnap, buildCollinearChain, bridgeCollinearPinEndpoints, SNAP_SCREEN_PX, COLLINEAR_EPSILON, VERTEX_EPSILON, PIN_SNAP_TOL } from './wire.js';
 import { commitAnchorDrag, clearDragState, commitMoveDrag, commitSegmentDrag, resolveAnchorDragOnMouseUp, revertSegmentDragIfNoMove, areCapturedStatesEqual, commitShapeJoin } from '../../ui/modules/drag.js';
 import { detectTJunction, showAnchorContextMenu, showSegmentContextMenu, showLabelContextMenu, showComponentContextMenu } from '../../ui/modules/context-menu.js';
+import { hasAny3DModel } from '../../components/model3d-source.js';
 import { updateToolGhost } from '../../ui/modules/tool.js';
 import { ModifyShapeCommand } from '../../core/CommandHistory.js';
 import { collapseRedundantWirePoints } from './wire.js';
@@ -794,7 +795,7 @@ function handleSelectContextMenu(app, worldPos, clientX, clientY) {
  */
 function handleComponentContextMenu(app, worldPos, clientX, clientY) {
     const comp = app._findComponentAt?.(worldPos);
-    if (!comp?.definition?.model3dObj) return false;
+    if (!hasAny3DModel(comp?.definition)) return false;
     showComponentContextMenu(app, comp, clientX, clientY);
     return true;
 }

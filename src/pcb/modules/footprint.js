@@ -891,18 +891,28 @@ export function renderFootprint(fp, ref, x, y, rotation = 0) {
             }
 
             const numText = document.createElementNS(NS, 'text');
+            const padLabel = String(pad.number ?? '');
+            const padW = Math.max(0.01, Number(pad.width) || 0.01);
+            const padH = Math.max(0.01, Number(pad.height) || 0.01);
+            const minDim = Math.min(padW, padH);
+            const labelChars = Math.max(1, padLabel.length);
+            // Fit by both pad height and available horizontal width so
+            // multi-digit labels on fine-pitch pads don't overlap.
+            const sizeByHeight = minDim * 0.62;
+            const sizeByWidth = (padW * 0.82) / (0.62 * labelChars);
+            const labelFont = Math.max(0.2, Math.min(0.9, sizeByHeight, sizeByWidth));
             numText.setAttribute('x', String(pad.x));
             numText.setAttribute('y', String(pad.y));
             numText.setAttribute('text-anchor', 'middle');
             numText.setAttribute('dominant-baseline', 'central');
-            numText.setAttribute('font-size', '0.7');
+            numText.setAttribute('font-size', String(labelFont));
             numText.setAttribute('fill', 'var(--pcb-pad-text, #fff)');
             numText.setAttribute('font-family', 'Arial, sans-serif');
             numText.setAttribute('pointer-events', 'none');
             // Kept readable when the footprint is mirrored (see applyPlacementPose).
             numText.setAttribute('class', 'pcb-mirror-text');
             numText.setAttribute('data-mx-center', String(pad.x));
-            numText.textContent = pad.number;
+            numText.textContent = padLabel;
             padG.appendChild(numText);
 
             target.appendChild(padG);

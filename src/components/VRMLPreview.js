@@ -5,16 +5,118 @@ import { escapeHtml } from '../core/ui-helpers.js';
 
 export class VRMLPreview {
     /**
+     * Extract balanced blocks like `Shape { ... }` from VRML text.
+     * @param {string} text
+     * @param {string} keyword
+     * @returns {string[]}
+     */
+    static _extractBlocks(text, keyword) {
+        const blocks = [];
+        const needle = `${keyword}`;
+        let i = 0;
+        while (i < text.length) {
+            const k = text.indexOf(needle, i);
+            if (k < 0) break;
+            const open = text.indexOf('{', k + needle.length);
+            if (open < 0) break;
+            let depth = 0;
+            let end = -1;
+            for (let p = open; p < text.length; p++) {
+                const ch = text[p];
+                if (ch === '{') depth++;
+                else if (ch === '}') {
+                    depth--;
+                    if (depth === 0) {
+                        end = p;
+                        break;
+                    }
+                }
+            }
+            if (end > open) {
+                blocks.push(text.slice(open + 1, end));
+                i = end + 1;
+            } else {
+                i = open + 1;
+            }
+        }
+        return blocks;
+    }
+
+    /**
      * Parse VRML (.wrl) file content
      */
     static parseVRML(vrmlText) {
+        const colored = this.parseVRMLWithColors(vrmlText);
+        if (!colored) return null;
+        return {
+            vertices: colored.vertices,
+            faces: colored.faces
+        };
+    }
+
+    /**
+     * Parse VRML and retain per-face diffuse colors when available.
+     * @param {string} vrmlText
+     * @returns {{vertices:Array<{x:number,y:number,z:number}>,faces:number[][],faceColors:number[][]}|null}
+     */
+    static parseVRMLWithColors(vrmlText) {
         const geometry = {
             vertices: [],
-            faces: []
+            faces: [],
+            faceColors: []
         };
 
         try {
-            // Extract all coordinate point blocks (multi-shape VRML files)
+            // Parse by Shape blocks so each face can inherit that shape's material.
+            const shapeBlocks = this._extractBlocks(vrmlText, 'Shape');
+            if (shapeBlocks.length > 0) {
+                for (const block of shapeBlocks) {
+                    const colorMatch = block.match(/diffuseColor\s+([-+]?\d*\.?\d+(?:[eE][-+]?\d+)?)\s+([-+]?\d*\.?\d+(?:[eE][-+]?\d+)?)\s+([-+]?\d*\.?\d+(?:[eE][-+]?\d+)?)/);
+                    const color = colorMatch
+                        ? [
+                            Math.max(0, Math.min(255, Math.round(parseFloat(colorMatch[1]) * 255))),
+                            Math.max(0, Math.min(255, Math.round(parseFloat(colorMatch[2]) * 255))),
+                            Math.max(0, Math.min(255, Math.round(parseFloat(colorMatch[3]) * 255))),
+                        ]
+                        : [102, 102, 102];
+
+                    const coordMatch = block.match(/point\s*\[([\s\S]*?)\]/);
+                    const coordIndexMatch = block.match(/coordIndex\s*\[([\s\S]*?)\]/);
+                    if (!coordMatch || !coordIndexMatch) continue;
+
+                    const vertexOffset = geometry.vertices.length;
+                    const points = coordMatch[1].trim().split(/[\s,]+/).filter(v => v);
+                    for (let i = 0; i + 2 < points.length; i += 3) {
+                        geometry.vertices.push({
+                            x: parseFloat(points[i]),
+                            y: parseFloat(points[i + 1]),
+                            z: parseFloat(points[i + 2])
+                        });
+                    }
+
+                    const indices = coordIndexMatch[1].trim().split(/[\s,]+/).filter(v => v);
+                    let face = [];
+                    for (const idx of indices) {
+                        const index = parseInt(idx, 10);
+                        if (index === -1) {
+                            if (face.length >= 3) {
+                                geometry.faces.push([...face]);
+                                geometry.faceColors.push(color);
+                            }
+                            face = [];
+                        } else {
+                            face.push(index + vertexOffset);
+                        }
+                    }
+                    if (face.length >= 3) {
+                        geometry.faces.push(face);
+                        geometry.faceColors.push(color);
+                    }
+                }
+                return geometry;
+            }
+
+            // Fallback: parse all point/index blocks, default color.
             const coordMatches = [...vrmlText.matchAll(/point\s*\[([\s\S]*?)\]/g)];
             const coordIndexMatches = [...vrmlText.matchAll(/coordIndex\s*\[([\s\S]*?)\]/g)];
 
@@ -22,8 +124,8 @@ export class VRMLPreview {
                 const vertexOffset = geometry.vertices.length;
                 const coordMatch = coordMatches[blockIdx];
 
-                const points = coordMatch[1].trim().split(/,|\s+/).filter(v => v);
-                for (let i = 0; i < points.length; i += 3) {
+                const points = coordMatch[1].trim().split(/[\s,]+/).filter(v => v);
+                for (let i = 0; i + 2 < points.length; i += 3) {
                     geometry.vertices.push({
                         x: parseFloat(points[i]),
                         y: parseFloat(points[i + 1]),
@@ -36,10 +138,11 @@ export class VRMLPreview {
                     const indices = coordIndexMatches[blockIdx][1].trim().split(/,|\s+/).filter(v => v);
                     let face = [];
                     for (const idx of indices) {
-                        const index = parseInt(idx);
+                        const index = parseInt(idx, 10);
                         if (index === -1) {
                             if (face.length >= 3) {
                                 geometry.faces.push([...face]);
+                                geometry.faceColors.push([102, 102, 102]);
                             }
                             face = [];
                         } else {
@@ -48,6 +151,7 @@ export class VRMLPreview {
                     }
                     if (face.length >= 3) {
                         geometry.faces.push(face);
+                        geometry.faceColors.push([102, 102, 102]);
                     }
                 }
             }
@@ -129,7 +233,7 @@ export class VRMLPreview {
         let svg = `<svg viewBox="${viewBox}" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:100%">`;
 
         // Calculate face depths for back-to-front rendering
-        const facesWithDepth = geometry.faces.map(face => {
+        const facesWithDepth = geometry.faces.map((face, faceIdx) => {
             let avgZ = 0;
             for (const idx of face) {
                 if (idx < geometry.vertices.length) {
@@ -137,14 +241,14 @@ export class VRMLPreview {
                 }
             }
             avgZ /= face.length;
-            return { face, depth: avgZ };
+            return { face, faceIdx, depth: avgZ };
         });
 
         // Sort by depth (furthest first)
         facesWithDepth.sort((a, b) => a.depth - b.depth);
 
         // Render faces
-        for (const { face } of facesWithDepth) {
+        for (const { face, faceIdx } of facesWithDepth) {
             const points = face
                 .filter(idx => idx < geometry.vertices.length)
                 .map(idx => {
@@ -156,7 +260,14 @@ export class VRMLPreview {
                 .join(' ');
 
             if (points) {
-                svg += `<polygon points="${points}" fill="${fillColor}" fill-opacity="${fillOpacity}" stroke="${lineColor}" stroke-width="${lineWidth}" stroke-opacity="${strokeOpacity}" />`;
+                let faceFill = fillColor;
+                if (Array.isArray(geometry.faceColors) && Array.isArray(geometry.faceColors[faceIdx])) {
+                    const fc = geometry.faceColors[faceIdx];
+                    if (fc.length >= 3) {
+                        faceFill = `rgb(${fc[0]},${fc[1]},${fc[2]})`;
+                    }
+                }
+                svg += `<polygon points="${points}" fill="${faceFill}" fill-opacity="${fillOpacity}" stroke="${lineColor}" stroke-width="${lineWidth}" stroke-opacity="${strokeOpacity}" />`;
             }
         }
         svg += '</svg>';

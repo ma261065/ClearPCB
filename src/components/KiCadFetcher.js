@@ -366,6 +366,8 @@ export class KiCadFetcher {
         );
         const modelCandidates = [];
         for (const base of this._getRawBaseCandidates(this.models3dBase)) {
+            modelCandidates.push(`${base}/${lib}.3dshapes/${name}.wrl`);
+            modelCandidates.push(`${base}/${lib}.3dshapes/${name}.vrml`);
             modelCandidates.push(`${base}/${lib}.3dshapes/${name}.step`);
             modelCandidates.push(`${base}/${lib}.3dshapes/${name}.stp`);
         }
