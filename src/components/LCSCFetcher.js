@@ -44,7 +44,7 @@ export function compactObjText(objText) {
  * fetch. 0.05 mm is visually lossless for typical SMD parts while removing
  * ~90% of the triangles. Raise for smaller files at the cost of facet detail.
  */
-export const MODEL_SIMPLIFY_GRID_MM = 0.05;
+export const MODEL_SIMPLIFY_GRID_MM = 0.03;
 
 /**
  * Aggressively shrink an OBJ string by mesh decimation (vertex clustering).
@@ -440,10 +440,10 @@ export class LCSCFetcher {
                 if (objText && objText.includes('v ')) {
                     console.log('Successfully fetched OBJ file, size:', objText.length);
                     // Supplier models are wildly over-tessellated (a TSSOP ships
-                    // ~38k triangles, ~1.3 MB). Decimate once on entry: a 0.05 mm
-                    // cluster grid is visually lossless at the sizes the board
-                    // viewer shows yet shrinks the stored model ~90%, which flows
-                    // straight through to the saved .cpcb document.
+                    // ~38k triangles, ~1.4 MB). Decimate once on entry: a 0.03 mm
+                    // cluster grid keeps fine surface detail (e.g. the embossed
+                    // part marking stays crisp) yet shrinks the stored model ~90%,
+                    // which flows straight through to the saved .cpcb document.
                     const simplified = simplifyObjModel(objText, { gridMm: MODEL_SIMPLIFY_GRID_MM });
                     console.log('Simplified OBJ size:', simplified.length, `(${(simplified.length / objText.length * 100).toFixed(0)}% of original)`);
                     return simplified;
