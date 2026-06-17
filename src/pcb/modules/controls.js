@@ -51,6 +51,8 @@ export function bindPcbControls(app) {
             app._cancelFillDraw?.();
         }
         app.currentTool = nextTool;
+        // Clear any component hover outline when leaving the select tool.
+        if (nextTool !== 'select') app._hoverComponent?.(null);
         setToolButtonActive(nextTool);
         app._updateCursorForTool?.();
         app._setPcbStatus?.();

@@ -29,6 +29,34 @@ const COL = {
     silk: 'rgb(228,228,228)',     // white silkscreen
 };
 
+// Footprint silk authored on one side moves to the opposite side when the
+// component is placed on the bottom (matches the editor's FP_LAYER_FLIP).
+const FLIP_SILK = { 'top-silk': 'bottom-silk', 'bottom-silk': 'top-silk' };
+
+/**
+ * Footprint-local → world transform for a placement's pose: mirror (about the
+ * footprint origin) then rotate then translate. Matches `applyPlacementPose`
+ * and the editor's SVG group transform `translate … rotate … scale(-1,1)`, so
+ * pads/silk land exactly where the 2D editor and 3D view draw them.
+ * @param {{x?:number,y?:number,rotation?:number,mirror?:boolean,side?:string}} pl
+ */
+function _placementPose(pl) {
+    const rad = ((pl.rotation || 0) * Math.PI) / 180;
+    const cos = Math.cos(rad), sin = Math.sin(rad);
+    // A user flip (mirror) and a bottom-side placement each mirror the
+    // footprint; together they cancel out.
+    const mx = ((!!pl.mirror) !== (pl.side === 'bottom')) ? -1 : 1;
+    const ox = pl.x || 0, oy = pl.y || 0;
+    return {
+        rad,
+        /** @param {number} lx @param {number} ly */
+        xf(lx, ly) {
+            const x = lx * mx;
+            return { x: ox + x * cos - ly * sin, y: oy + x * sin + ly * cos };
+        },
+    };
+}
+
 export class Board2D {
     /** @param {HTMLCanvasElement} canvas */
     constructor(canvas) {
@@ -298,15 +326,18 @@ export class Board2D {
         }
 
         // Pads on this side (and 'both'), flashed at each offset position.
+        // Each footprint is posed (rotated + mirrored) before flashing so the
+        // pads track the component's orientation, exactly as the editor / 3D.
         ctx.fillStyle = COL.pad;
         for (const [, pl] of (d.placements || [])) {
             if (!pl?.padOffsets) continue;
+            const pose = _placementPose(pl);
             for (const off of pl.padOffsets) {
                 const layer = off.layer || 'top';
                 if (layer !== 'both' && layer !== padSide) continue;
-                this._padPath(ctx, pl.x + off.dx, pl.y + off.dy,
-                    off.width || 1.2, off.height || 1.2, off.shape || 'rect');
-                ctx.fill();
+                const p = pose.xf(off.dx, off.dy);
+                this._fillPad(ctx, p.x, p.y, off.width || 1.2, off.height || 1.2,
+                    off.shape || 'rect', pose.rad);
             }
         }
 
@@ -332,17 +363,35 @@ export class Board2D {
         }
     }
 
+    /** Flash a pad, rotating its shape by the placement angle (so a 90°/270°
+     *  part swaps width/height and oblique parts tilt) before filling. */
+    _fillPad(ctx, cx, cy, w, h, shape, rad) {
+        if (rad) {
+            ctx.save();
+            ctx.translate(cx, cy);
+            ctx.rotate(rad);
+            this._padPath(ctx, 0, 0, w, h, shape);
+            ctx.fill();
+            ctx.restore();
+        } else {
+            this._padPath(ctx, cx, cy, w, h, shape);
+            ctx.fill();
+        }
+    }
+
     /** Drilled holes (THT pad drills, via drills) punched as dark discs. */
     _drawHoles(ctx) {
         const d = this.data;
         ctx.fillStyle = COL.hole;
         for (const [, pl] of (d.placements || [])) {
             if (!pl?.padOffsets) continue;
+            const pose = _placementPose(pl);
             for (const off of pl.padOffsets) {
                 const drill = off.drill || 0;
                 if (drill <= 0) continue;
+                const p = pose.xf(off.dx, off.dy);
                 ctx.beginPath();
-                ctx.arc(pl.x + off.dx, pl.y + off.dy, drill / 2, 0, Math.PI * 2);
+                ctx.arc(p.x, p.y, drill / 2, 0, Math.PI * 2);
                 ctx.fill();
             }
         }
@@ -383,18 +432,21 @@ export class Board2D {
         };
 
         for (const [, pl] of (d.placements || [])) {
+            const pose = _placementPose(pl);
+            // Silk authored on one side moves to the other when the part is on
+            // the bottom; the part's pose mirrors/rotates the geometry too.
+            const bottom = pl.side === 'bottom';
             for (const s of (pl.silks || [])) {
-                if (s.layer !== wantLayer) continue;
+                const layer = bottom ? (FLIP_SILK[s.layer] || s.layer) : s.layer;
+                if (layer !== wantLayer) continue;
                 const sw = Number.isFinite(s.strokeWidth) && s.strokeWidth > 0 ? s.strokeWidth : 0.12;
                 if (s.type === 'line') {
-                    stroke([[
-                        { x: pl.x + s.x1, y: pl.y + s.y1 },
-                        { x: pl.x + s.x2, y: pl.y + s.y2 },
-                    ]], sw);
+                    stroke([[pose.xf(s.x1, s.y1), pose.xf(s.x2, s.y2)]], sw);
                 } else if (s.type === 'circle') {
+                    const c = pose.xf(s.cx, s.cy);
                     ctx.lineWidth = sw;
                     ctx.beginPath();
-                    ctx.arc(pl.x + s.cx, pl.y + s.cy, s.r, 0, Math.PI * 2);
+                    ctx.arc(c.x, c.y, s.r, 0, Math.PI * 2);
                     ctx.stroke();
                 } else if (s.type === 'path') {
                     const polys = _flattenPath(s.d);
@@ -402,8 +454,8 @@ export class Board2D {
                     for (const poly of polys) {
                         for (let i = 1; i < poly.length; i++) {
                             segs.push([
-                                { x: pl.x + poly[i - 1].x, y: pl.y + poly[i - 1].y },
-                                { x: pl.x + poly[i].x, y: pl.y + poly[i].y },
+                                pose.xf(poly[i - 1].x, poly[i - 1].y),
+                                pose.xf(poly[i].x, poly[i].y),
                             ]);
                         }
                     }
@@ -411,19 +463,35 @@ export class Board2D {
                 }
             }
 
-            // Reference designator (top side only, matching the silk gerber).
-            if (!top) continue;
+            // Reference designator: it lives on the component's silk side and
+            // is posed with the footprint, so on the bottom view it reads the
+            // right way round (the board-flip mirror un-mirrors it). Pad pin
+            // numbers are not drawn here, matching the fabricated silkscreen.
+            const refLayer = bottom ? 'bottom-silk' : 'top-silk';
+            if (refLayer !== wantLayer) continue;
+            if (pl.refVisible === false) continue;
             const ref = pl.reference;
             if (!ref) continue;
             const size = 0.9;
             const ob = pl.bounds;
             const labelW = measureText(ref, size);
-            const lx = ob ? pl.x + ob.x + ob.width / 2 - labelW / 2 : pl.x - labelW / 2;
-            const ly = ob ? pl.y + ob.y - 0.8 : pl.y - 2;
+            const cx = ob ? ob.x + ob.width / 2 : 0;
+            const lx = cx - labelW / 2;
+            const ly = ob ? ob.y - 0.8 : -2;
             const strokes = stringToPolylines(ref, lx, ly, size, false);
+            // Counter-mirror the reference about its own centre when the
+            // footprint is user-flipped, exactly as the SVG editor does, so its
+            // net handedness reflects only the board side: readable on top even
+            // after an H/V flip, mirrored on the bottom.
+            const cm = (px) => (pl.mirror ? 2 * cx - px : px);
             const segs = [];
             for (const seg of strokes) {
-                for (let i = 1; i < seg.length; i++) segs.push([seg[i - 1], seg[i]]);
+                for (let i = 1; i < seg.length; i++) {
+                    segs.push([
+                        pose.xf(cm(seg[i - 1].x), seg[i - 1].y),
+                        pose.xf(cm(seg[i].x), seg[i].y),
+                    ]);
+                }
             }
             if (segs.length) stroke(segs, 0.15);
         }

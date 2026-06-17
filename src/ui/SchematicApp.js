@@ -383,6 +383,13 @@ export default class SchematicApp {
                 this._pendingAutoLoad = saved.data;
             }
             if (saved.fileName) this.fileManager.setFileName(saved.fileName);
+            // Restore the original file handle (persisted in IndexedDB) so that
+            // "Save"/Ctrl+S writes back to the same file instead of prompting
+            // for a name. The write-permission grant is re-requested lazily on
+            // the next save (which carries a user gesture).
+            if (saved.fileName) {
+                try { await this.fileManager.restoreFileHandle(saved.fileName); } catch {}
+            }
             this.fileManager.setDirty(true);
             console.log('Recovered auto-saved content');
         }

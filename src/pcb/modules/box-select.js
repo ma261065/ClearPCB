@@ -19,17 +19,19 @@ import {
     removeBoxSelectElement,
     getBoxSelectBounds,
 } from '../../ui/modules/box-selection.js';
-import { drawTrackHalo, drawViaHalo, removeHalosByClass } from './track-select.js';
-import { renderTrack, renderVia } from './track-render.js';
+import { drawTrackHalo, drawViaHalo, drawHoleHalo, removeHalosByClass } from './track-select.js';
+import { renderTrack, renderVia, renderHole } from './track-render.js';
 import { isLayerLocked, isViaLocked } from './layers.js';
 import {
     CompoundCommand,
     RemoveTrackCommand,
     RemoveViaCommand,
+    RemoveHoleCommand,
     MovePlacementCommand,
     MoveViaCommand,
+    MoveHoleCommand,
     ModifyTrackGraphCommand,
-    repositionPadConnectedNodes,
+    applyPlacementPose,
 } from './track-commands.js';
 
 /** Pixel distance the pointer must travel before a marquee starts. */
@@ -37,6 +39,7 @@ const START_THRESHOLD_PX = 3;
 /** CSS classes for the multi-selection halos (distinct from single-select). */
 const TRACK_HALO_CLASS = 'pcb-box-track-sel';
 const VIA_HALO_CLASS = 'pcb-box-via-sel';
+const HOLE_HALO_CLASS = 'pcb-box-hole-sel';
 const COMP_HALO_CLASS = 'pcb-box-comp-sel';
 
 /* ───────────────────────────── state ───────────────────────────── */
@@ -44,15 +47,16 @@ const COMP_HALO_CLASS = 'pcb-box-comp-sel';
 /** Ensure the multi-selection container exists on the app. */
 function _sel(app) {
     if (!app._boxSel) {
-        app._boxSel = { comps: new Set(), tracks: new Set(), vias: new Set() };
+        app._boxSel = { comps: new Set(), tracks: new Set(), vias: new Set(), holes: new Set() };
     }
+    if (!app._boxSel.holes) app._boxSel.holes = new Set();
     return app._boxSel;
 }
 
 /** Any objects currently box-selected? */
 export function hasBoxSelection(app) {
     const s = app._boxSel;
-    return !!s && (s.comps.size > 0 || s.tracks.size > 0 || s.vias.size > 0);
+    return !!s && (s.comps.size > 0 || s.tracks.size > 0 || s.vias.size > 0 || (s.holes?.size > 0));
 }
 
 /* ─────────────────────── arming / marquee ───────────────────────── */
@@ -136,6 +140,7 @@ function _computeEnclosed(app, bounds) {
     s.comps.clear();
     s.tracks.clear();
     s.vias.clear();
+    s.holes.clear();
     const { minX, minY, maxX, maxY } = bounds;
 
     // Components: every pad must lie inside the rectangle.
@@ -175,6 +180,17 @@ function _computeEnclosed(app, bounds) {
             }
         }
     }
+
+    // Holes: centre (± radius) inside the rectangle. Skip when the hole
+    // layer is locked (read-only).
+    if (!isLayerLocked('hole')) {
+        for (const ho of (app.holes || [])) {
+            const r = (ho.diameter || 0.8) / 2;
+            if (ho.x - r >= minX && ho.x + r <= maxX && ho.y - r >= minY && ho.y + r <= maxY) {
+                s.holes.add(ho);
+            }
+        }
+    }
 }
 
 /* ─────────────────────── highlight rendering ─────────────────────── */
@@ -186,12 +202,14 @@ function _applyHighlights(app) {
     for (const compId of s.comps) _drawCompHighlight(app, compId);
     for (const t of s.tracks) drawTrackHalo(app, t, TRACK_HALO_CLASS);
     for (const v of s.vias) drawViaHalo(app, v, VIA_HALO_CLASS);
+    for (const ho of s.holes) drawHoleHalo(app, ho, HOLE_HALO_CLASS);
 }
 
 /** Remove all box-selection halos from the DOM. */
 function _clearHighlights(app) {
     removeHalosByClass(app, TRACK_HALO_CLASS);
     removeHalosByClass(app, VIA_HALO_CLASS);
+    removeHalosByClass(app, HOLE_HALO_CLASS);
     for (const [, pl] of app.placements) {
         if (pl.elements) {
             for (const el of pl.elements) el.querySelector(`.${COMP_HALO_CLASS}`)?.remove();
@@ -225,6 +243,7 @@ export function clearBoxSelection(app) {
     s.comps.clear();
     s.tracks.clear();
     s.vias.clear();
+    s.holes.clear();
 }
 
 /* ─────────────────────────── group drag ─────────────────────────── */
@@ -259,6 +278,11 @@ export function pointInBoxSelection(app, worldPos) {
         const r = (v.diameter || 0.6) / 2 + worldTol;
         if (Math.hypot(v.x - worldPos.x, v.y - worldPos.y) <= r) return true;
     }
+    // A selected hole.
+    for (const ho of (s.holes || [])) {
+        const r = (ho.diameter || 0.8) / 2 + worldTol;
+        if (Math.hypot(ho.x - worldPos.x, ho.y - worldPos.y) <= r) return true;
+    }
     // A selected track segment.
     for (const t of s.tracks) {
         for (const [eid, e] of t.edges) {
@@ -292,13 +316,15 @@ export function beginGroupDrag(app, worldPos) {
     }
     const vias = [];
     for (const v of s.vias) vias.push({ via: v, x: v.x, y: v.y });
+    const holes = [];
+    for (const ho of s.holes) holes.push({ hole: ho, x: ho.x, y: ho.y });
     const tracks = [];
     for (const t of s.tracks) {
         const nodes = new Map();
         for (const [nid, n] of t.nodes) nodes.set(nid, { x: n.x, y: n.y });
         tracks.push({ track: t, nodes, before: t.captureState() });
     }
-    app._groupDrag = { startWorld: { x: worldPos.x, y: worldPos.y }, comps, vias, tracks };
+    app._groupDrag = { startWorld: { x: worldPos.x, y: worldPos.y }, comps, vias, holes, tracks };
 }
 
 /** Live-update positions of every selected object during a group drag. */
@@ -317,21 +343,18 @@ export function updateGroupDrag(app, worldPos) {
     for (const c of g.comps) {
         const pl = app.placements.get(c.id);
         if (!pl) continue;
-        const nx = c.x + dx, ny = c.y + dy;
-        pl.x = nx; pl.y = ny;
-        for (const el of pl.elements) el.setAttribute('transform', `translate(${nx}, ${ny})`);
-        if (pl.lodEl) pl.lodEl.setAttribute('transform', `translate(${nx}, ${ny})`);
-        const halo = app._padHaloGroups?.get(c.id);
-        if (halo) halo.setAttribute('transform', `translate(${nx}, ${ny})`);
-        for (const off of (pl.padOffsets || [])) {
-            pl.pads.set(off.number, { x: nx + off.dx, y: ny + off.dy });
-        }
-        repositionPadConnectedNodes(app, c.id);
+        pl.x = c.x + dx; pl.y = c.y + dy;
+        applyPlacementPose(app, c.id);
     }
     for (const vEntry of g.vias) {
         vEntry.via.x = vEntry.x + dx;
         vEntry.via.y = vEntry.y + dy;
         renderVia(vEntry.via, (id) => app._getLayerGroup(id));
+    }
+    for (const hEntry of (g.holes || [])) {
+        hEntry.hole.x = hEntry.x + dx;
+        hEntry.hole.y = hEntry.y + dy;
+        renderHole(hEntry.hole, (id) => app._getLayerGroup(id));
     }
     for (const tEntry of g.tracks) {
         for (const [nid, start] of tEntry.nodes) {
@@ -340,7 +363,13 @@ export function updateGroupDrag(app, worldPos) {
         }
         renderTrack(tEntry.track, (id) => app._getLayerGroup(id), _trackOpts(app, tEntry.track));
     }
-    app._updateRatsnest?.();
+    // Holes carry no net, so a holes-only drag leaves the ratsnest (and the
+    // copper pours it re-pours) untouched — matching the single-hole drag,
+    // where the fill void stays put until drop. Only reconcile when a
+    // net-bearing object (component / via / track) actually moved.
+    if (g.comps.length || g.vias.length || g.tracks.length) {
+        app._updateRatsnest?.();
+    }
     _applyHighlights(app);
 }
 
@@ -359,6 +388,11 @@ export function endGroupDrag(app) {
     for (const v of g.vias) {
         if (v.via.x !== v.x || v.via.y !== v.y) {
             cmds.push(new MoveViaCommand(app, v.via, v.x, v.y, v.via.x, v.via.y));
+        }
+    }
+    for (const h of (g.holes || [])) {
+        if (h.hole.x !== h.x || h.hole.y !== h.y) {
+            cmds.push(new MoveHoleCommand(app, h.hole, h.x, h.y, h.hole.x, h.hole.y));
         }
     }
     for (const t of g.tracks) {
@@ -396,6 +430,7 @@ export function deleteBoxSelection(app) {
     const cmds = [];
     for (const t of s.tracks) cmds.push(new RemoveTrackCommand(app, t));
     for (const v of s.vias) cmds.push(new RemoveViaCommand(app, v));
+    for (const ho of (s.holes || [])) cmds.push(new RemoveHoleCommand(app, ho));
 
     // Clear the selection (and its halos) before mutating the model.
     clearBoxSelection(app);

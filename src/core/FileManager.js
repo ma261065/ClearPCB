@@ -29,6 +29,73 @@ function _flashAutoSaveIndicator() {
     /** @type {any} */ (dot)._t = setTimeout(() => { dot.style.opacity = '0'; }, 250);
 }
 
+// ==================== FileSystemFileHandle persistence ====================
+// A FileSystemFileHandle is structured-cloneable, so it can be stored in
+// IndexedDB and retrieved after a page reload (its identity and permission
+// grant survive). localStorage can't hold it (JSON-only), which is why an
+// auto-save recovered after reload would otherwise lose the handle and force
+// "Save As". We keep a tiny dedicated DB keyed by file name.
+const HANDLE_DB_NAME = 'clearpcb-file-handles';
+const HANDLE_STORE = 'handles';
+
+function _openHandleDB() {
+    return new Promise((resolve, reject) => {
+        if (typeof indexedDB === 'undefined') { reject(new Error('no indexedDB')); return; }
+        let req;
+        try { req = indexedDB.open(HANDLE_DB_NAME, 1); }
+        catch (e) { reject(e); return; }
+        req.onupgradeneeded = () => {
+            const db = req.result;
+            if (!db.objectStoreNames.contains(HANDLE_STORE)) db.createObjectStore(HANDLE_STORE);
+        };
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+    });
+}
+
+async function _idbPutHandle(fileName, handle) {
+    if (!fileName || !handle) return;
+    try {
+        const db = await _openHandleDB();
+        await new Promise((resolve, reject) => {
+            const tx = db.transaction(HANDLE_STORE, 'readwrite');
+            tx.objectStore(HANDLE_STORE).put(handle, fileName);
+            tx.oncomplete = () => resolve(undefined);
+            tx.onerror = () => reject(tx.error);
+        });
+        db.close();
+    } catch { /* IndexedDB unavailable (private mode etc.) — non-fatal */ }
+}
+
+async function _idbGetHandle(fileName) {
+    if (!fileName) return null;
+    try {
+        const db = await _openHandleDB();
+        const handle = await new Promise((resolve, reject) => {
+            const tx = db.transaction(HANDLE_STORE, 'readonly');
+            const r = tx.objectStore(HANDLE_STORE).get(fileName);
+            r.onsuccess = () => resolve(r.result || null);
+            r.onerror = () => reject(r.error);
+        });
+        db.close();
+        return handle;
+    } catch { return null; }
+}
+
+async function _idbDeleteHandle(fileName) {
+    if (!fileName) return;
+    try {
+        const db = await _openHandleDB();
+        await new Promise((resolve) => {
+            const tx = db.transaction(HANDLE_STORE, 'readwrite');
+            tx.objectStore(HANDLE_STORE).delete(fileName);
+            tx.oncomplete = () => resolve(undefined);
+            tx.onerror = () => resolve(undefined);
+        });
+        db.close();
+    } catch { /* non-fatal */ }
+}
+
 export class FileManager {
     /** Initialises the file manager with default state (no file open). */
     constructor() {
@@ -101,9 +168,19 @@ export class FileManager {
         let oldFileName = this.fileName;
         let result;
         if (this.fileHandle) {
-            // Ensure fileName is up to date
-            if (this.fileHandle.name) this.setFileName(this.fileHandle.name);
-            result = await this.saveToHandle(data, this.fileHandle);
+            // A handle restored from IndexedDB (e.g. after autosave recovery)
+            // may have lost its write grant across the reload. Re-request it
+            // now — this runs from a user gesture (Ctrl+S / Save button), so
+            // the permission prompt is allowed. Only fall back to Save As if
+            // the user actually denies access.
+            const allowed = await this._ensureWritePermission(this.fileHandle);
+            if (allowed) {
+                // Ensure fileName is up to date
+                if (this.fileHandle.name) this.setFileName(this.fileHandle.name);
+                result = await this.saveToHandle(data, this.fileHandle);
+            } else {
+                result = await this.saveAs(data);
+            }
         } else {
             result = await this.saveAs(data);
         }
@@ -158,6 +235,8 @@ export class FileManager {
             this.setFileName(handle.name);
             this.setFilePath(handle.name);
             this.setDirty(false);
+            // Persist the handle so it survives a reload + autosave recovery.
+            _idbPutHandle(handle.name, handle);
             
             return { success: true, fileName: handle.name };
         } catch (err) {
@@ -169,6 +248,43 @@ export class FileManager {
         }
     }
     
+    /**
+     * Ensure we hold a write grant for a handle, requesting it if needed.
+     * Must be called from a user gesture for the prompt to appear. Returns
+     * true if writing is permitted, false if the user denied access.
+     * @param {any} handle
+     */
+    async _ensureWritePermission(handle) {
+        // Older/non-FSA handles have no permission API — assume writable.
+        if (!handle || typeof handle.queryPermission !== 'function') return true;
+        const opts = { mode: 'readwrite' };
+        try {
+            if (await handle.queryPermission(opts) === 'granted') return true;
+            return await handle.requestPermission(opts) === 'granted';
+        } catch {
+            // If the permission API throws (e.g. handle no longer valid),
+            // signal a fall back to Save As.
+            return false;
+        }
+    }
+
+    /**
+     * Restore a previously persisted file handle for the given file name
+     * (used after autosave recovery so "Save" writes back to the original
+     * file instead of prompting). Does not request permission — that happens
+     * lazily on the next save, which carries a user gesture.
+     * @param {string} fileName
+     * @returns {Promise<boolean>} true if a handle was restored
+     */
+    async restoreFileHandle(fileName) {
+        const handle = await _idbGetHandle(fileName);
+        if (handle) {
+            this.fileHandle = handle;
+            return true;
+        }
+        return false;
+    }
+
     /**
      * Save to an existing file handle
      */
@@ -247,6 +363,8 @@ export class FileManager {
             this.setFileName(handle.name);
             this.setFilePath(handle.name);
             this.setDirty(false);
+            // Persist the handle so it survives a reload + autosave recovery.
+            _idbPutHandle(handle.name, handle);
             // Immediately autosave the opened document
             this.autoSaveToStorage(data);
             
@@ -350,6 +468,11 @@ export class FileManager {
             localStorage.setItem(this.autoSavePrefix + 'index', JSON.stringify(index));
             console.log('Auto-saved to localStorage');
             _flashAutoSaveIndicator();
+            // Keep the file handle (if any) persisted alongside the autosave so
+            // a post-reload recovery can "Save" back to the original file.
+            if (this.fileHandle && this.fileName) {
+                _idbPutHandle(this.fileName, this.fileHandle);
+            }
             // Reset failure-backoff state on success.
             this._autoSaveBackoffMs = 0;
             if (this._autoSaveErrorNotified) this._autoSaveErrorNotified = false;
@@ -426,10 +549,12 @@ export class FileManager {
             const key = this.autoSavePrefix + encodeURIComponent(fileName);
             localStorage.removeItem(key);
             index = index.filter(i => i.fileName !== fileName);
+            _idbDeleteHandle(fileName);
         } else {
             // Remove all autosaves
             for (const entry of index) {
                 localStorage.removeItem(entry.key);
+                _idbDeleteHandle(entry.fileName);
             }
             index = [];
         }

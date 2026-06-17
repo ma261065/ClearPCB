@@ -502,6 +502,150 @@ function mergeOverlappingHoles(holes, margin = 0.1) {
     return list;
 }
 
+/** Sample a circle into a CCW polygon ring in the (x, y=z) plane. */
+function circleRing(cx, cz, r, seg) {
+    const ring = [];
+    for (let i = 0; i < seg; i++) {
+        const a = (i / seg) * Math.PI * 2;
+        ring.push({ x: cx + r * Math.cos(a), y: cz + r * Math.sin(a) });
+    }
+    return ring;
+}
+
+/**
+ * Partition bores into connected clusters where each member overlaps or
+ * touches at least one other (union-find over circle intersection). Disjoint
+ * bores fall out as singleton clusters.
+ * @param {Array<{x:number,z:number,r:number}>} holes
+ * @param {number} margin treat bores within this clear gap as touching (mm)
+ * @returns {Array<Array<{x:number,z:number,r:number}>>}
+ */
+function clusterOverlappingHoles(holes, margin = 0.1) {
+    const list = holes.map((h) => ({ x: h.x, z: h.z, r: h.r }));
+    const parent = list.map((_, i) => i);
+    const find = (i) => { while (parent[i] !== i) { parent[i] = parent[parent[i]]; i = parent[i]; } return i; };
+    for (let i = 0; i < list.length; i++) {
+        for (let j = i + 1; j < list.length; j++) {
+            const a = list[i], b = list[j];
+            const d = Math.hypot(a.x - b.x, a.z - b.z);
+            if (d < a.r + b.r + margin) parent[find(i)] = find(j);
+        }
+    }
+    const groups = new Map();
+    for (let i = 0; i < list.length; i++) {
+        const root = find(i);
+        if (!groups.has(root)) groups.set(root, []);
+        groups.get(root).push(list[i]);
+    }
+    return [...groups.values()];
+}
+
+/** True if (px,pz) lies strictly inside any circle other than index `exclude`. */
+function pointInsideOtherCircle(px, pz, circles, exclude) {
+    for (let j = 0; j < circles.length; j++) {
+        if (j === exclude) continue;
+        const o = circles[j];
+        if (Math.hypot(px - o.x, pz - o.z) < o.r - 1e-6) return true;
+    }
+    return false;
+}
+
+/**
+ * Trace the outer boundary of a connected cluster of overlapping circles as a
+ * single polygon ring. Each circle contributes the arcs of its rim that lie
+ * outside every other circle; those arcs are tessellated and stitched together
+ * at the circle-circle intersection points. Two overlapping bores thus read as
+ * a clean figure-8 / peanut opening that earcut can punch without slivers.
+ * @param {Array<{x:number,z:number,r:number}>} circles
+ * @param {number} seg points per full circle
+ * @returns {Array<{x:number,y:number}>|null}
+ */
+function circleUnionRing(circles, seg) {
+    const EPS = 1e-9;
+    const arcs = [];
+    for (let i = 0; i < circles.length; i++) {
+        const c = circles[i];
+        const cuts = [];
+        for (let j = 0; j < circles.length; j++) {
+            if (j === i) continue;
+            const o = circles[j];
+            const d = Math.hypot(o.x - c.x, o.z - c.z);
+            if (d <= EPS) continue;
+            if (d >= c.r + o.r) continue;           // disjoint
+            if (d <= Math.abs(c.r - o.r)) continue; // one contains the other
+            const a = (c.r * c.r - o.r * o.r + d * d) / (2 * d);
+            const base = Math.atan2(o.z - c.z, o.x - c.x);
+            const delta = Math.acos(Math.max(-1, Math.min(1, a / c.r)));
+            cuts.push(base + delta, base - delta);
+        }
+        if (!cuts.length) continue; // rim fully covered, or isolated within cluster
+        const norm = (t) => { let x = t % (2 * Math.PI); if (x < 0) x += 2 * Math.PI; return x; };
+        const sorted = cuts.map(norm).sort((p, q) => p - q);
+        for (let k = 0; k < sorted.length; k++) {
+            const a0 = sorted[k];
+            const a1 = (k + 1 < sorted.length ? sorted[k + 1] : sorted[0] + 2 * Math.PI);
+            const mid = (a0 + a1) / 2;
+            const mx = c.x + c.r * Math.cos(mid);
+            const mz = c.z + c.r * Math.sin(mid);
+            if (pointInsideOtherCircle(mx, mz, circles, i)) continue; // interior arc
+            const span = a1 - a0;
+            const steps = Math.max(1, Math.ceil((span / (2 * Math.PI)) * seg));
+            const pts = [];
+            for (let s = 0; s <= steps; s++) {
+                const a = a0 + span * (s / steps);
+                pts.push({ x: c.x + c.r * Math.cos(a), y: c.z + c.r * Math.sin(a) });
+            }
+            arcs.push(pts);
+        }
+    }
+    if (!arcs.length) return null;
+    return stitchBoundaryArcs(arcs);
+}
+
+/** Chain boundary arcs end-to-end into one closed ring by nearest endpoints. */
+function stitchBoundaryArcs(arcs) {
+    const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+    const used = new Array(arcs.length).fill(false);
+    const ring = arcs[0].slice();
+    used[0] = true;
+    for (let count = 1; count < arcs.length; count++) {
+        const end = ring[ring.length - 1];
+        let best = -1, bestD = Infinity, bestRev = false;
+        for (let k = 0; k < arcs.length; k++) {
+            if (used[k]) continue;
+            const a = arcs[k];
+            const ds = dist(end, a[0]);
+            const de = dist(end, a[a.length - 1]);
+            if (ds < bestD) { bestD = ds; best = k; bestRev = false; }
+            if (de < bestD) { bestD = de; best = k; bestRev = true; }
+        }
+        if (best < 0) break;
+        used[best] = true;
+        const arc = bestRev ? arcs[best].slice().reverse() : arcs[best];
+        for (let s = 1; s < arc.length; s++) ring.push(arc[s]);
+    }
+    // Drop a duplicated closing vertex if the loop came back on itself.
+    if (ring.length > 1) {
+        const f = ring[0], l = ring[ring.length - 1];
+        if (Math.hypot(f.x - l.x, f.y - l.y) < 1e-6) ring.pop();
+    }
+    return ring;
+}
+
+/** Vertical wall lining a polygonal bore (no end caps). */
+function polygonWallMesh(ring, yBottom, yTop, color) {
+    const verts = [];
+    const faces = [];
+    const n = ring.length;
+    for (const p of ring) verts.push({ x: p.x, y: yTop, z: p.y });
+    for (const p of ring) verts.push({ x: p.x, y: yBottom, z: p.y });
+    for (let i = 0; i < n; i++) {
+        const j = (i + 1) % n;
+        faces.push({ idx: [i, j, n + j, n + i], color });
+    }
+    return { verts, faces };
+}
+
 /**
  * Build the board slab with drilled holes bored clean through it, so plated
  * and mounting holes read as actual openings. Falls back to a solid prism if
@@ -515,16 +659,30 @@ function mergeOverlappingHoles(holes, margin = 0.1) {
 function boardWithHoles(outline, holeList, yBottom, yTop, color, edgeColor) {
     if (!holeList.length) return extrudePrism(outline, yBottom, yTop, color, edgeColor);
     const seg = 48;
-    const bores = mergeOverlappingHoles(holeList);
-    const outer2d = outline.map((p) => ({ x: p.x, y: p.z }));
-    const holes2d = bores.map((h) => {
-        const ring = [];
-        for (let i = 0; i < seg; i++) {
-            const a = (i / seg) * Math.PI * 2;
-            ring.push({ x: h.x + h.r * Math.cos(a), y: h.z + h.r * Math.sin(a) });
+    // Group bores that overlap/touch into clusters. A lone bore stays a clean
+    // circle; an overlapping cluster becomes the true union outline, so two
+    // mounting holes that overlap read as a figure-8 opening — not one big
+    // enclosing circle, and not an earcut-bridged sliver.
+    const clusters = clusterOverlappingHoles(holeList);
+    /** @type {Array<{ring:Array<{x:number,y:number}>, circle:{x:number,z:number,r:number}|null}>} */
+    const bores = [];
+    for (const cl of clusters) {
+        if (cl.length === 1) {
+            const h = cl[0];
+            bores.push({ ring: circleRing(h.x, h.z, h.r, seg), circle: { x: h.x, z: h.z, r: h.r } });
+            continue;
         }
-        return ring;
-    });
+        const ring = circleUnionRing(cl, seg);
+        if (ring && ring.length >= 3) {
+            bores.push({ ring, circle: null });
+        } else {
+            // Degenerate cluster → fall back to the smallest enclosing circle.
+            const m = mergeOverlappingHoles(cl)[0];
+            bores.push({ ring: circleRing(m.x, m.z, m.r, seg), circle: { x: m.x, z: m.z, r: m.r } });
+        }
+    }
+    const outer2d = outline.map((p) => ({ x: p.x, y: p.z }));
+    const holes2d = bores.map((b) => b.ring);
     let tri = null;
     try { tri = triangulateWithHoles(outer2d, holes2d); } catch { tri = null; }
     if (!tri || !tri.tris.length) return extrudePrism(outline, yBottom, yTop, color, edgeColor);
@@ -549,8 +707,9 @@ function boardWithHoles(outline, holeList, yBottom, yTop, color, edgeColor) {
     }
     appendMesh(mesh, wall);
     // Inner walls lining each bore (FR4 substrate edge).
-    for (const h of bores) {
-        appendMesh(mesh, cylinderWallMesh(h.x, h.z, h.r, yBottom, yTop, side, seg));
+    for (const b of bores) {
+        if (b.circle) appendMesh(mesh, cylinderWallMesh(b.circle.x, b.circle.z, b.circle.r, yBottom, yTop, side, seg));
+        else appendMesh(mesh, polygonWallMesh(b.ring, yBottom, yTop, side));
     }
     return mesh;
 }
@@ -577,13 +736,22 @@ function stepGeometryToMesh(geom, pl) {
     const ct = Math.cos(theta);
     const st = Math.sin(theta);
 
+    // Bottom-side parts hang under the board (growing downward) and are
+    // mirrored; the net mirror matches the 2D pose.
+    const bottom = pl.side === 'bottom';
+    const mir = (!!pl.mirror) !== bottom;
+
     const verts = geom.vertices.map((v) => {
-        // Model board-plane axes (mx, my); height = mz.
-        const rx = v.x * ct - v.y * st;
-        const ry = v.x * st + v.y * ct;
+        // Mirror in the footprint-local frame (before the placement rotation),
+        // exactly as the 2D `scale(-1,1) … rotate(r)` SVG pose does. Mirroring
+        // after rotation reflects across the wrong axis for rotated parts.
+        const mx = mir ? -v.x : v.x;
+        const rx = mx * ct - v.y * st;
+        const ry = mx * st + v.y * ct;
+        const up = v.z - minZ;
         return {
             x: pl.x + rx,
-            y: BOARD_THICKNESS + (v.z - minZ),
+            y: bottom ? -up : BOARD_THICKNESS + up,
             z: pl.y + ry,
         };
     });
@@ -692,16 +860,27 @@ function objModelToMesh(parsed, pl) {
     // offset relative to the footprint centroid (model3dPlacement). The
     // placement rotation orients the whole footprint on the board.
     const mp = pl.model3dPlacement || { dx: 0, dy: 0, rotation: 0, z: 0 };
-    const angle = (((pl.rotation || 0) + (mp.rotation || 0)) * Math.PI) / 180;
-    const ct = Math.cos(angle);
-    const st = Math.sin(angle);
-
-    // The model-origin offset rotates with the placement (not the model spin).
+    // Intrinsic model spin (about the model's own centre). The spin is NEGATED
+    // because the model→board map reflects Y (mx,my below), and a reflection
+    // inverts the chirality of a rotation: Reflect∘R(θ) = R(−θ)∘Reflect. EasyEDA
+    // spins the model by +c_rotation in its own (un-reflected) frame, so to land
+    // the model's asymmetric features (pin-1 marker, polarity band, text) on the
+    // matching footprint corner we must apply −c_rotation here. This is a no-op
+    // for the common 0°/180° parts (−180≡180) and correctly 180°-reorients the
+    // 90°/270° parts (e.g. a TSSOP whose pin-1 otherwise lands on the far end).
+    const spin = ((-(mp.rotation || 0)) * Math.PI) / 180;
+    const sct = Math.cos(spin);
+    const sst = Math.sin(spin);
+    // Placement rotation (orients the whole footprint on the board).
     const pr = ((pl.rotation || 0) * Math.PI) / 180;
     const pct = Math.cos(pr);
     const pst = Math.sin(pr);
-    const ox = (mp.dx || 0) * pct - (mp.dy || 0) * pst;
-    const oy = (mp.dx || 0) * pst + (mp.dy || 0) * pct;
+
+    // A bottom-side placement seats the body under the board (growing downward
+    // from the bottom face) and mirrors it; the net mirror matches the 2D pose
+    // (a Flip and a bottom side each mirror, so together they cancel).
+    const bottom = pl.side === 'bottom';
+    const mir = (!!pl.mirror) !== bottom;
 
     const verts = parsed.vertices.map((v) => {
         // The board plane maps model X->world X and model Y->world Z while
@@ -711,12 +890,20 @@ function objModelToMesh(parsed, pl) {
         // Subtract the OBJ XY bbox centre so the model seats on its centre.
         const mx = v.x - ocx;
         const my = -(v.y - ocy);
-        const rx = mx * ct - my * st;
-        const ry = mx * st + my * ct;
+        // Footprint-local position: intrinsic spin + model-origin offset.
+        let fx = (mp.dx || 0) + (mx * sct - my * sst);
+        const fy = (mp.dy || 0) + (mx * sst + my * sct);
+        // Mirror in the footprint-local frame (before the placement rotation),
+        // matching the 2D `scale(-1,1) … rotate(r)` SVG pose. Mirroring after
+        // rotation reflects across the wrong axis for rotated parts.
+        if (mir) fx = -fx;
+        const wx = fx * pct - fy * pst;
+        const wz = fx * pst + fy * pct;
+        const up = (mp.z || 0) + (v.z - minZ);
         return {
-            x: pl.x + ox + rx,
-            y: BOARD_THICKNESS + (mp.z || 0) + (v.z - minZ),
-            z: pl.y + oy + ry,
+            x: pl.x + wx,
+            y: bottom ? -up : BOARD_THICKNESS + up,
+            z: pl.y + wz,
         };
     });
 
@@ -743,10 +930,11 @@ function fallbackBoxMesh(pl) {
         x: pl.x + (c.x * ct - c.z * st),
         z: pl.y + (c.x * st + c.z * ct),
     }));
+    const bottom = pl.side === 'bottom';
     return extrudePrism(
         corners,
-        BOARD_THICKNESS,
-        BOARD_THICKNESS + FALLBACK_HEIGHT,
+        bottom ? -FALLBACK_HEIGHT : BOARD_THICKNESS,
+        bottom ? 0 : BOARD_THICKNESS + FALLBACK_HEIGHT,
         COLOR_FALLBACK,
         COLOR_FALLBACK,
     );
@@ -1256,7 +1444,12 @@ function cylinderMesh(cx, cz, r, yBottom, yTop, color, seg = 18) {
 function plLocalToWorld(pl, lx, ly) {
     const t = ((pl.rotation || 0) * Math.PI) / 180;
     const ct = Math.cos(t), st = Math.sin(t);
-    return { x: pl.x + (lx * ct - ly * st), z: pl.y + (lx * st + ly * ct) };
+    // A Flip and a bottom side each mirror the footprint (together they
+    // cancel) — negate local X so pads, holes and silk land mirrored to
+    // match the 2D pose.
+    const mir = (!!pl.mirror) !== (pl.side === 'bottom');
+    const mx = mir ? -lx : lx;
+    return { x: pl.x + (mx * ct - ly * st), z: pl.y + (mx * st + ly * ct) };
 }
 
 /**
@@ -1565,8 +1758,11 @@ function buildSilkMesh(placements) {
     const mesh = emptyMesh();
     for (const [, pl] of placements) {
         for (const s of pl.silks || []) {
-            const bottom = s.layer === 'bottom-silk';
             if (s.layer !== 'top-silk' && s.layer !== 'bottom-silk') continue;
+            // The silk's stored layer is its footprint-local side; a component
+            // flipped to the bottom moves its top silk to the bottom face (and
+            // vice versa), so XOR the placement side onto the silk side.
+            const bottom = (s.layer === 'bottom-silk') !== (pl.side === 'bottom');
             const y = bottom ? Y_BOT - SILK_EPS : Y_TOP + SILK_EPS;
             const sw = s.strokeWidth || 0.15;
             if (s.type === 'line') {
@@ -1624,19 +1820,23 @@ function buildTextMesh(app) {
         appendMesh(mesh, strokePolysToMesh(polys, t.strokeWidth || 0.15, y, color, toWorld));
     }
 
-    // ── Component reference designators (top silk) ──────────────────────
+    // ── Component reference designators (silk) ──────────────────────────
     for (const [, pl] of (app.placements || [])) {
         const ref = pl.reference;
-        if (!ref) continue;
+        if (!ref || pl.refVisible === false) continue;
         const size = 0.9;
         const ob = pl.bounds;
         const labelW = measureText(ref, size);
-        const tx = ob ? pl.x + ob.x + ob.width / 2 - labelW / 2 : pl.x - labelW / 2;
-        const ty = ob ? pl.y + ob.y - 0.8 : pl.y - 2;
-        const polys = stringToPolylines(ref, tx, ty, size, false);
+        const lx = ob ? ob.x + ob.width / 2 - labelW / 2 : -labelW / 2;
+        const ly = ob ? ob.y - 0.8 : -2;
+        // The reference designator sits on top silk by default; follow the
+        // placement onto the bottom face (mirrored) when the part is flipped.
+        const bottom = pl.side === 'bottom';
+        const y = bottom ? Y_BOT - SILK_EPS : Y_TOP + SILK_EPS;
+        const polys = stringToPolylines(ref, 0, 0, size, false);
         appendMesh(mesh, strokePolysToMesh(
-            polys, 0.15, Y_TOP + SILK_EPS, COLOR_SILK,
-            (px, py) => ({ x: px, z: py })));
+            polys, 0.15, y, COLOR_SILK,
+            (px, py) => plLocalToWorld(pl, lx + px, ly + py)));
     }
 
     return mesh;
@@ -2195,7 +2395,7 @@ export async function openBoard3DViewer(app, opts = {}) {
     // The panel covers the right `panelPct`% of the editor area; the PCB pane
     // underneath keeps its full width and never resizes. Stored as a percentage
     // so the ratio survives window resizes.
-    let panelPct = 50;
+    let panelPct = 100 / 3;
     const applyDockLayout = () => {
         host.style.width = `${panelPct}%`;
         splitter.style.right = `${panelPct}%`;
@@ -2504,7 +2704,7 @@ export async function openBoard3DViewer(app, opts = {}) {
     /** @type {Map<string, string>} id → placement signature (change detection) */
     const bodySig = new Map();
     const placementSig = (/** @type {any} */ pl) =>
-        `${pl.x}|${pl.y}|${pl.rotation || 0}|${pl.layer || ''}|${pl.footprint || ''}|${pl.model3dObj ? 1 : 0}`;
+        `${pl.x}|${pl.y}|${pl.rotation || 0}|${pl.side || 'top'}|${pl.mirror ? 1 : 0}|${pl.footprint || ''}|${pl.model3dObj ? 1 : 0}`;
 
     // Build the immediate (synchronous) body for a placement: a real OBJ body if
     // the part carries one in memory, otherwise a fallback box. STEP models load

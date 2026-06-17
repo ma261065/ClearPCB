@@ -281,7 +281,12 @@ export function createComponentFromData(app, data) {
  * @param {object} app - Application state.
  */
 export function updateTitle(app) {
-    const dirty = app.fileManager.isDirty ? '•' : '';
+    // Reflect the aggregate project dirty state (schematic file-manager dirty
+    // OR any view section dirty, e.g. PCB-only edits) so the dot appears for
+    // edits made in either editor. Falls back to the file-manager flag when
+    // there is no project facade (standalone schematic).
+    const isDirty = app.project ? app.project.isDirty : app.fileManager.isDirty;
+    const dirty = isDirty ? '•' : '';
     // Format: ClearPCB (•mike.json) or ClearPCB (mike.json)
     const title = `ClearPCB (${dirty}${app.fileManager.fileName})`;
     document.title = title;
@@ -404,6 +409,10 @@ export async function saveFile(app) {
     const result = await app.fileManager.save(data);
 
     if (result.success) {
+        // Saving writes the WHOLE document, so every section is now clean.
+        // Clear per-view dirty flags (e.g. the PCB's) too, otherwise they
+        // keep re-triggering autosave and the unsaved warning after a save.
+        app.project?.markAllSectionsClean?.();
         app._updateTitle();
         app._showSaveToast?.('Saved');
         console.log('Saved:', result.fileName);
@@ -424,6 +433,8 @@ export async function saveFileAs(app) {
     const result = await app.fileManager.saveAs(data);
 
     if (result.success) {
+        // Saving writes the WHOLE document, so every section is now clean.
+        app.project?.markAllSectionsClean?.();
         app._updateTitle();
         app._showSaveToast?.('Saved');
         console.log('Saved as:', result.fileName);

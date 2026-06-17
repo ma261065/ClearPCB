@@ -66,6 +66,18 @@ export class ProjectDocument {
         return false;
     }
 
+    /**
+     * Mark every registered view as having no unsaved changes. Called after
+     * the combined document is successfully written to disk so that section
+     * dirty flags (e.g. the PCB's) don't keep re-triggering autosave and the
+     * beforeunload warning even though everything is saved.
+     */
+    markAllSectionsClean() {
+        for (const v of this.views.values()) {
+            v?.markSectionClean?.();
+        }
+    }
+
     /** @returns {boolean} True if the document has any unsaved changes. */
     get isDirty() {
         return !!this.fileManager.isDirty || this.isViewDirty();

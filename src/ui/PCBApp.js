@@ -62,8 +62,16 @@ import {
     RemoveTrackCommand,
     CompoundCommand,
     MovePlacementCommand,
+    RotatePlacementCommand,
+    FlipPlacementCommand,
+    SetPlacementSideCommand,
+    SetPlacementRefVisibleCommand,
     SetBoardOutlineCommand,
-    repositionPadConnectedNodes,
+    applyPlacementPose,
+    applyPlacementSide,
+    applyPlacementRefVisible,
+    placementTransform,
+    isPlacementMirrored,
 } from '../pcb/modules/track-commands.js';
 import {
     createPcbText,
@@ -239,6 +247,8 @@ export default class PCBApp {
         // ── Selection & drag state ────────────────────────────
         /** Currently selected component ID, or null */
         this._selectedComp = null;
+        /** Component ID currently showing a hover outline, or null */
+        this._hoveredComp = null;
         /** Drag state: { compId, startWorld, startPos } or null */
         this._drag = null;
         /**
@@ -284,7 +294,7 @@ export default class PCBApp {
             // schematic.fileManager.setDirty() \u2014 avoids triggering
             // the schematic\u2192PCB stale-sync listener that would
             // otherwise rebuild and wipe PCB-only edits.
-            onChanged: () => { this._isDirty = true; },
+            onChanged: () => { this._markDirty(); },
         });
         /** Debug tooltip for showing raw footprintShapes data */
         this._debugTooltip = null;
@@ -522,6 +532,12 @@ export default class PCBApp {
                 // through to normal single-object selection below.
                 if (hasBoxSelection(this)) {
                     if (pointInBoxSelection(this, worldPos)) {
+                        // Clear the hover halo before dragging: hover updates
+                        // are suppressed during a drag, so a leftover hover X
+                        // (e.g. on a hole/via) would otherwise sit at the
+                        // original position the whole drag.
+                        setHoverHighlight(this, null);
+                        this._hoverComponent(null);
                         beginGroupDrag(this, worldPos);
                         this._hideNetTooltip();
                         svg.style.cursor = 'grabbing';
@@ -597,6 +613,7 @@ export default class PCBApp {
 
                 const trackHit = hitTestTrack(this, worldPos);
                 if (trackHit) {
+                    this._hoverComponent(null);
                     this._selectComponent(null);
                     this._selectBoardOutline(false);
                     selectTrackOrVia(this, trackHit);
@@ -657,6 +674,7 @@ export default class PCBApp {
                         // leftover halo would otherwise sit at the component's
                         // original position the whole drag.
                         setHoverHighlight(this, null);
+                        this._hoverComponent(null);
                         this._hideNetTooltip();
                         this._drag = {
                             compId: hit,
@@ -1296,8 +1314,21 @@ export default class PCBApp {
         // (e.g. the Properties panel text fields). Otherwise Backspace
         // would delete the selected text instead of a character.
         const tgt = /** @type {HTMLElement} */ (e.target);
-        if (tgt && (tgt.tagName === 'INPUT' || tgt.tagName === 'TEXTAREA' || tgt.isContentEditable)) {
+        if (tgt && (tgt.tagName === 'INPUT' || tgt.tagName === 'TEXTAREA' || tgt.tagName === 'SELECT' || tgt.isContentEditable)) {
             return false;
+        }
+
+        // File save shortcuts (Ctrl+S / Ctrl+Alt+S). While PCB is active it owns
+        // the keyboard, and the schematic keyboard handler bails out when PCB is
+        // active — so Ctrl+S must be handled here. Otherwise it isn't consumed by
+        // the app and falls through to the browser's native "Save page as…"
+        // dialog instead of saving the project (matching the PCB ribbon Save
+        // button, which calls project.save()/saveAs()).
+        if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S')) {
+            const w = /** @type {any} */ (window);
+            const result = e.altKey ? w.bootstrap?.project?.saveAs() : w.bootstrap?.project?.save();
+            Promise.resolve(result).then((r) => { if (r?.success) w.app?._showSaveToast?.('Saved'); });
+            return true;
         }
 
         // Track-draw mode owns Escape + Space.
@@ -1413,16 +1444,30 @@ export default class PCBApp {
             this._setActiveRibbonTab?.('pcb-home');
             return true;
         }
+        // Component transform shortcuts (match the schematic editor):
+        //   Space = rotate right, X = flip horizontal, Y = flip vertical.
+        if (this._selectedComp && this.placements.has(this._selectedComp)) {
+            if (e.code === 'Space' || e.key === ' ') {
+                this._rotateComponent(this._selectedComp, 'R');
+                this._showComponentProperties(this._selectedComp);
+                e.preventDefault();
+                return true;
+            }
+            if (e.key === 'x' || e.key === 'X') {
+                this._flipComponent(this._selectedComp, 'H');
+                this._showComponentProperties(this._selectedComp);
+                e.preventDefault();
+                return true;
+            }
+            if (e.key === 'y' || e.key === 'Y') {
+                this._flipComponent(this._selectedComp, 'V');
+                this._showComponentProperties(this._selectedComp);
+                e.preventDefault();
+                return true;
+            }
+        }
         return false;
     }
-
-    /**
-     * Commit a freshly-drawn Track via the history stack so it can be
-     * undone. Called from finishTrackDraw(). Optional `vias` array
-     * (e.g. layer-change vias) is added in the same undo step.
-     * @param {Track} track
-     * @param {Via[]} [vias]
-     */
     _commitTrack(track, vias = []) {
         this.history.execute(new AddTrackCommand(this, track, vias));
     }
@@ -1452,10 +1497,13 @@ export default class PCBApp {
      * following the auto grid-layout.
      */
     serialize() {
-        /** @type {Record<string, {x:number, y:number, rotation:number}>} */
+        /** @type {Record<string, {x:number, y:number, rotation:number, mirror?:boolean, side?:string, refVisible?:boolean}>} */
         const placements = {};
         for (const [id, p] of this._placementOverrides) {
             placements[id] = { x: p.x, y: p.y, rotation: p.rotation || 0 };
+            if (p.mirror) placements[id].mirror = true;
+            if (p.side === 'bottom') placements[id].side = 'bottom';
+            if (p.refVisible === false) placements[id].refVisible = false;
         }
         return {
             board: {
@@ -1511,6 +1559,26 @@ export default class PCBApp {
      */
     isSectionDirty() {
         return !!this._isDirty;
+    }
+
+    /**
+     * Mark the PCB section as having no unsaved changes. Called after the
+     * combined document is successfully saved to disk, so the section's
+     * dirty flag stops re-triggering autosave / the unsaved-changes warning.
+     */
+    markSectionClean() {
+        this._isDirty = false;
+    }
+
+    /**
+     * Flag the PCB section as having unsaved changes AND refresh the host
+     * title so the unsaved-changes dot (`•`) appears for PCB-only edits.
+     * The dot reflects the aggregate project dirty state, but only the
+     * schematic host renders the title, so it must be poked here.
+     */
+    _markDirty() {
+        this._isDirty = true;
+        /** @type {any} */ (window).app?._updateTitle?.();
     }
 
     /**
@@ -1576,6 +1644,9 @@ export default class PCBApp {
                     x: Number(p.x) || 0,
                     y: Number(p.y) || 0,
                     rotation: Number(p.rotation) || 0,
+                    mirror: !!p.mirror,
+                    side: p.side === 'bottom' ? 'bottom' : 'top',
+                    refVisible: p.refVisible !== false,
                 });
             }
             if (this.placements.size) this._applyPlacementOverrides();
@@ -1637,6 +1708,10 @@ export default class PCBApp {
         reconcileRatsnest(this);
         // Compute and render the pours now that obstacles are loaded.
         this._refreshFills();
+        // Loading a document is not a user edit — start from a clean slate so
+        // a freshly opened/recovered board isn't immediately treated as having
+        // unsaved PCB changes (which would re-trigger autosave after a save).
+        this._isDirty = false;
     }
 
     /**
@@ -1928,7 +2003,7 @@ export default class PCBApp {
                 // the outline still needs its first draw, and the document must
                 // be flagged dirty so the autosave captures the new board.
                 this._drawBoardOutline();
-                this._isDirty = true;
+                this._markDirty();
             }
             overlay.remove();
         };
@@ -2240,18 +2315,105 @@ export default class PCBApp {
         if (!items) return;
 
         const pl = this.placements.get(compId);
-        const name = pl?.name || compId;
-        const x = pl?.x?.toFixed(2) || '0';
-        const y = pl?.y?.toFixed(2) || '0';
+        const name = pl?.name || pl?.reference || compId;
+        const side = pl?.side === 'bottom' ? 'bottom' : 'top';
+        const refVisible = pl?.refVisible !== false;
 
         items.innerHTML = `
             <div class="prop-row"><label>Type</label><span style="font-size:11px;color:var(--text-primary)">Component</span></div>
             <div class="prop-row"><label>Name</label><span style="font-size:11px;color:var(--text-primary)">${name}</span></div>
-            <div class="prop-row"><label>X (mm)</label><span style="font-size:11px;color:var(--text-primary)">${x}</span></div>
-            <div class="prop-row"><label>Y (mm)</label><span style="font-size:11px;color:var(--text-primary)">${y}</span></div>
+            <div class="prop-row"><label>Layer</label><select id="pcbPropCompSide">
+                <option value="top"${side === 'top' ? ' selected' : ''}>Top</option>
+                <option value="bottom"${side === 'bottom' ? ' selected' : ''}>Bottom</option>
+            </select></div>
+            <div class="prop-row"><input type="checkbox" id="pcbPropCompRefVis"${refVisible ? ' checked' : ''}> <span style="font-size:11px;color:var(--text-secondary)">Show Reference</span></div>
+            <div class="prop-actions" style="margin-top:6px">
+                <button id="pcbPropRotateLeft" title="Rotate Left 90°">↶ Rotate L</button>
+                <button id="pcbPropRotateRight" title="Rotate Right 90°">↷ Rotate R</button>
+                <button id="pcbPropFlipH" title="Flip Horizontal (X)">⇔ Flip H</button>
+                <button id="pcbPropFlipV" title="Flip Vertical (Y)">⇕ Flip V</button>
+            </div>
         `;
 
+        const curRot = () => ((this.placements.get(compId)?.rotation || 0) % 360 + 360) % 360;
+
+        const rotateTo = (deg) => {
+            const p = this.placements.get(compId);
+            if (!p) return;
+            const norm = ((deg % 360) + 360) % 360;
+            if ((p.rotation || 0) === norm) return;
+            this.history.execute(new RotatePlacementCommand(this, compId, p.rotation || 0, norm));
+            this._showComponentProperties(compId);
+        };
+
+        const refEl = /** @type {HTMLInputElement} */ (document.getElementById('pcbPropCompRefVis'));
+        refEl?.addEventListener('change', () => {
+            this._setComponentRefVisible(compId, refEl.checked);
+        });
+        document.getElementById('pcbPropRotateLeft')
+            ?.addEventListener('click', () => rotateTo(curRot() - 90));
+        document.getElementById('pcbPropRotateRight')
+            ?.addEventListener('click', () => rotateTo(curRot() + 90));
+        document.getElementById('pcbPropFlipH')
+            ?.addEventListener('click', () => { this._flipComponent(compId, 'H'); this._showComponentProperties(compId); });
+        document.getElementById('pcbPropFlipV')
+            ?.addEventListener('click', () => { this._flipComponent(compId, 'V'); this._showComponentProperties(compId); });
+        const sideEl = /** @type {HTMLSelectElement} */ (document.getElementById('pcbPropCompSide'));
+        sideEl?.addEventListener('change', () => {
+            this._setPlacementSide(compId, sideEl.value === 'bottom' ? 'bottom' : 'top');
+        });
+
         this._setActiveRibbonTab?.('pcb-properties');
+    }
+
+    /**
+     * Rotate a component by ±90° (dir: 'L' or 'R') via the history stack.
+     * Used by the properties panel buttons and the Space keyboard shortcut.
+     * @param {string} compId
+     * @param {'L'|'R'} dir
+     */
+    _rotateComponent(compId, dir) {
+        const pl = this.placements.get(compId);
+        if (!pl) return;
+        const cur = ((pl.rotation || 0) % 360 + 360) % 360;
+        const next = ((cur + (dir === 'L' ? -90 : 90)) % 360 + 360) % 360;
+        this.history.execute(new RotatePlacementCommand(this, compId, cur, next));
+    }
+
+    /**
+     * Flip a component horizontally or vertically (axis: 'H' or 'V') via the
+     * history stack. Used by the properties panel buttons and the X/Y keys.
+     * @param {string} compId
+     * @param {'H'|'V'} axis
+     */
+    _flipComponent(compId, axis) {
+        if (!this.placements.has(compId)) return;
+        this.history.execute(new FlipPlacementCommand(this, compId, axis));
+    }
+
+    /**
+     * Move a component to the top or bottom copper side via the history stack.
+     * @param {string} compId
+     * @param {'top'|'bottom'} side
+     */
+    _setPlacementSide(compId, side) {
+        const pl = this.placements.get(compId);
+        if (!pl) return;
+        const cur = pl.side === 'bottom' ? 'bottom' : 'top';
+        if (cur === side) return;
+        this.history.execute(new SetPlacementSideCommand(this, compId, side));
+    }
+
+    /**
+     * Show or hide a component's reference designator via the history stack.
+     * @param {string} compId
+     * @param {boolean} visible
+     */
+    _setComponentRefVisible(compId, visible) {
+        const pl = this.placements.get(compId);
+        if (!pl) return;
+        if ((pl.refVisible !== false) === !!visible) return;
+        this.history.execute(new SetPlacementRefVisibleCommand(this, compId, !!visible));
     }
 
     _bindThemeToggle() {
@@ -2555,8 +2717,21 @@ export default class PCBApp {
                 model3dPlacement: fpGeom.model3d || null,
                 silks: fpGeom.silks || [],
                 rotation: rot,
+                mirror: !!override?.mirror,
+                side: override?.side === 'bottom' ? 'bottom' : 'top',
+                refVisible: override?.refVisible !== false,
             });
             this._buildLodPlaceholder(comp.id);
+        }
+
+        // Apply mirror / bottom-side overrides now that all elements exist
+        // (rotation and position were baked into renderFootprint above).
+        for (const comp of components) {
+            const pl = this.placements.get(comp.id);
+            if (!pl) continue;
+            if (pl.side === 'bottom') applyPlacementSide(this, comp.id, 'bottom');
+            if (pl.refVisible === false) applyPlacementRefVisible(this, comp.id, false);
+            if (pl.mirror || pl.side === 'bottom') applyPlacementPose(this, comp.id);
         }
     }
 
@@ -2578,9 +2753,7 @@ export default class PCBApp {
         rect.setAttribute('width', String(pl.bounds.width));
         rect.setAttribute('height', String(pl.bounds.height));
         rect.setAttribute('pointer-events', 'none');
-        let transform = `translate(${pl.x}, ${pl.y})`;
-        if (pl.rotation) transform += ` rotate(${pl.rotation})`;
-        rect.setAttribute('transform', transform);
+        rect.setAttribute('transform', placementTransform(pl));
         this._getLayerGroup('fp-lod').appendChild(rect);
         pl.lodEl = rect;
         pl._culled = false;
@@ -2636,9 +2809,7 @@ export default class PCBApp {
      */
     _syncLodTransform(pl) {
         if (!pl.lodEl) return;
-        let t = `translate(${pl.x}, ${pl.y})`;
-        if (pl.rotation) t += ` rotate(${pl.rotation})`;
-        pl.lodEl.setAttribute('transform', t);
+        pl.lodEl.setAttribute('transform', placementTransform(pl));
     }
 
     /**
@@ -2652,7 +2823,8 @@ export default class PCBApp {
         const b = pl.bounds;
         if (!b) return null;
         const rot = pl.rotation || 0;
-        const sig = `${pl.x}|${pl.y}|${rot}`;
+        const mx = pl.mirror ? -1 : 1;
+        const sig = `${pl.x}|${pl.y}|${rot}|${mx}`;
         if (pl._cullSig === sig && pl._cullBounds) return pl._cullBounds;
         const rad = rot * Math.PI / 180;
         const cos = Math.cos(rad), sin = Math.sin(rad);
@@ -2663,7 +2835,8 @@ export default class PCBApp {
             [b.x + b.width, b.y + b.height],
         ];
         let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-        for (const [lx, ly] of corners) {
+        for (const [lx0, ly] of corners) {
+            const lx = lx0 * mx;
             const wx = pl.x + lx * cos - ly * sin;
             const wy = pl.y + lx * sin + ly * cos;
             if (wx < minX) minX = wx;
@@ -2839,6 +3012,8 @@ export default class PCBApp {
             if (!ev || !this._active || this.currentTool !== 'select') return;
             const worldPos = this._screenToWorld(ev);
             this._hoverBoardOutline(this._hitTestBoardOutline(worldPos));
+            // Hover highlight for the component body under the cursor.
+            this._hoverComponent(this._hitTestComponent(worldPos));
             // Hover highlight for tracks/vias.
             const trackHover = hitTestTrack(this, worldPos);
             const hovered = this._hitTestPad(worldPos) || trackHover;
@@ -2873,11 +3048,17 @@ export default class PCBApp {
     _hitTestPad(worldPos) {
         for (const [componentId, pl] of this.placements) {
             if (!pl?.padOffsets) continue;
+            // For 90°/270° placement rotations the pad's footprint-local
+            // width/height are swapped in world space; account for that so the
+            // hit region tracks the pad's actual on-screen extent.
+            const ortho = Math.abs((pl.rotation || 0) % 180) === 90;
             for (const off of pl.padOffsets) {
                 const pos = pl.pads.get(off.padId);
                 if (!pos) continue;
-                const w = (off.width || 1.2) / 2;
-                const h = (off.height || 1.2) / 2;
+                const ow = off.width || 1.2;
+                const oh = off.height || 1.2;
+                const w = (ortho ? oh : ow) / 2;
+                const h = (ortho ? ow : oh) / 2;
                 if (
                     worldPos.x >= pos.x - w && worldPos.x <= pos.x + w
                     && worldPos.y >= pos.y - h && worldPos.y <= pos.y + h
@@ -2972,15 +3153,10 @@ export default class PCBApp {
             pl.x = o.x;
             pl.y = o.y;
             pl.rotation = o.rotation || 0;
-            for (const el of (pl.elements || [])) {
-                el.setAttribute('transform', `translate(${o.x}, ${o.y})`);
-            }
-            if (pl.lodEl) pl.lodEl.setAttribute('transform', `translate(${o.x}, ${o.y})`);
-            const halo = this._padHaloGroups?.get(compId);
-            if (halo) halo.setAttribute('transform', `translate(${o.x}, ${o.y})`);
-            for (const off of (pl.padOffsets || [])) {
-                pl.pads.set(off.padId, { x: o.x + off.dx, y: o.y + off.dy, number: off.number });
-            }
+            pl.mirror = !!o.mirror;
+            applyPlacementSide(this, compId, o.side === 'bottom' ? 'bottom' : 'top');
+            applyPlacementRefVisible(this, compId, o.refVisible !== false);
+            applyPlacementPose(this, compId);
         }
         this._updateRatsnest?.();
     }
@@ -2998,8 +3174,11 @@ export default class PCBApp {
             x: pl.x,
             y: pl.y,
             rotation: pl.rotation || 0,
+            mirror: !!pl.mirror,
+            side: pl.side === 'bottom' ? 'bottom' : 'top',
+            refVisible: pl.refVisible !== false,
         });
-        this._isDirty = true;
+        this._markDirty();
     }
 
     /**
@@ -3050,6 +3229,42 @@ export default class PCBApp {
         // Ensure the selected footprint shows full detail even when zoomed out
         // far enough that it would otherwise be collapsed to its LOD placeholder.
         this._updatePcbCulling();
+    }
+
+    /**
+     * Hover highlight for a component under the select-tool cursor: a faint
+     * dashed outline over the footprint's bounds, matching the selection box
+     * but lighter. Skipped for the currently selected component (its solid
+     * highlight already shows). Pass null to clear. The rect is appended to
+     * the footprint's first layer group so it inherits the placement
+     * transform (bounds are in footprint-local coords).
+     * @param {string|null} compId
+     */
+    _hoverComponent(compId) {
+        if (compId === this._selectedComp) compId = null;
+        if (this._hoveredComp === compId) return;
+        if (this._hoveredComp) {
+            const oldPl = this.placements.get(this._hoveredComp);
+            oldPl?.elements?.[0]?.querySelector('.pcb-hover-highlight')?.remove();
+        }
+        this._hoveredComp = compId || null;
+        if (!compId) return;
+        const pl = this.placements.get(compId);
+        const b = pl?.bounds;
+        if (!pl?.elements?.length || !b) { this._hoveredComp = null; return; }
+        const NS = 'http://www.w3.org/2000/svg';
+        const hl = document.createElementNS(NS, 'rect');
+        hl.setAttribute('class', 'pcb-hover-highlight');
+        hl.setAttribute('x', String(b.x));
+        hl.setAttribute('y', String(b.y));
+        hl.setAttribute('width', String(b.width));
+        hl.setAttribute('height', String(b.height));
+        hl.setAttribute('fill', 'rgba(51,153,255,0.07)');
+        hl.setAttribute('stroke', '#3399ff');
+        hl.setAttribute('stroke-width', '0.1');
+        hl.setAttribute('stroke-dasharray', '0.5 0.35');
+        hl.setAttribute('pointer-events', 'none');
+        pl.elements[0].appendChild(hl);
     }
 
     /**
@@ -3117,31 +3332,13 @@ export default class PCBApp {
         const pl = this.placements.get(this._drag.compId);
         if (!pl) return;
 
-        // Update all SVG group transforms
-        for (const el of pl.elements) {
-            el.setAttribute('transform', `translate(${snapX}, ${snapY})`);
-        }
-        // Keep the LOD placeholder aligned with the dragged footprint.
-        if (pl.lodEl) pl.lodEl.setAttribute('transform', `translate(${snapX}, ${snapY})`);
-
-        // Move the matching pad-halo group too, so clearance outlines
-        // follow the component during drag (no full halo rebuild).
-        const haloGrp = this._padHaloGroups?.get(this._drag.compId);
-        if (haloGrp) {
-            haloGrp.setAttribute('transform', `translate(${snapX}, ${snapY})`);
-        }
-
-        // Update placement position
+        // Update placement position, then re-apply the full pose (so any
+        // rotation is preserved) — this moves the SVG, LOD placeholder and
+        // pad halos, recomputes pad world positions and re-glues bonded
+        // track endpoints.
         pl.x = snapX;
         pl.y = snapY;
-
-        // Update pad world positions
-        for (const off of (pl.padOffsets || [])) {
-            pl.pads.set(off.padId, { x: snapX + off.dx, y: snapY + off.dy, number: off.number });
-        }
-
-        // Drag pad-bonded track endpoints along with the component.
-        repositionPadConnectedNodes(this, this._drag.compId);
+        applyPlacementPose(this, this._drag.compId);
 
         // Rebuild ratsnest in real-time
         this._updateRatsnest();
@@ -4653,7 +4850,7 @@ export default class PCBApp {
             const grp = document.createElementNS(NS, 'g');
             grp.setAttribute('class', 'halo-comp');
             grp.setAttribute('data-comp-id', compId);
-            grp.setAttribute('transform', `translate(${pl.x}, ${pl.y})`);
+            grp.setAttribute('transform', placementTransform(pl));
             for (const off of (pl.padOffsets || [])) {
                 const padLayer = off.layer || 'top';
                 // Respect copper-layer visibility. 'both' (through-hole pads)
@@ -5112,6 +5309,9 @@ export default class PCBApp {
             });
         }
         if (this._selectedFill) this._renderFillHandles(this._selectedFill);
+        // Pours just recomputed — let any open 3D/2D view pick up the fresh
+        // geometry (its rebuild reads fill._computed).
+        this._board3d?.refresh?.();
     }
 
     /** Build the obstacle/parameter context for the fill geometry engine. */
@@ -5119,12 +5319,21 @@ export default class PCBApp {
         const params = this._getRoutingParams?.() || {};
         const pads = [];
         for (const [compId, pl] of this.placements) {
+            // Orient each pad by the placement pose (rotation + mirror) so the
+            // pour carves clearances at the pads' true world positions — not
+            // their unrotated footprint-local offsets.
+            const rad = ((pl.rotation || 0) * Math.PI) / 180;
+            const cos = Math.cos(rad), sin = Math.sin(rad);
+            const mx = isPlacementMirrored(pl) ? -1 : 1;
+            // A 90°/270° rotation swaps a rectangular pad's width and height.
+            const ortho = Math.abs(((pl.rotation || 0) % 180)) === 90;
             for (const off of (pl.padOffsets || [])) {
+                const lx = off.dx * mx;
                 pads.push({
-                    x: pl.x + off.dx,
-                    y: pl.y + off.dy,
-                    width: off.width || 0,
-                    height: off.height || 0,
+                    x: pl.x + lx * cos - off.dy * sin,
+                    y: pl.y + lx * sin + off.dy * cos,
+                    width: (ortho ? off.height : off.width) || 0,
+                    height: (ortho ? off.width : off.height) || 0,
                     shape: off.shape || 'rect',
                     layer: off.layer || 'top',
                     net: this._padNetLookup(compId, off.number),
@@ -5194,8 +5403,10 @@ export default class PCBApp {
             if (fill.visible === false || fill.locked) continue;
             if (isLayerLocked(fill.layer)) continue;
             if (isCopperFillLocked(fill.layer) || !isCopperFillVisible(fill.layer)) continue;
-            if (fill.containsPoint(worldPos.x, worldPos.y)
-                || fill.distanceToEdge(worldPos.x, worldPos.y) < 0.6) {
+            // Only the outline edge (and its vertex nodes) selects a pour —
+            // clicking the flooded interior must not, or every board click
+            // would grab the fill.
+            if (fill.distanceToEdge(worldPos.x, worldPos.y) < 0.6) {
                 return fill;
             }
         }

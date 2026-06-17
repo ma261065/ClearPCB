@@ -54,6 +54,12 @@ function generateFromShapes(shapes, bbox, source) {
     /** Paste-only stencil apertures (no copper): {x,y,width,height,shape,side} */
     const pasteApertures = [];
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    // Separate bounding box of the copper PADS only. The footprint is centred on
+    // this (not the all-geometry bbox) so the pads stay symmetric about the
+    // origin: asymmetric silkscreen / courtyard / pin-1 markers would otherwise
+    // pull the bbox centre off the pad centre, leaving the pads (and thus the
+    // 3D model, which self-centres) misaligned with each other.
+    let padMinX = Infinity, padMinY = Infinity, padMaxX = -Infinity, padMaxY = -Infinity;
 
     const isEasyEDA = source === 'EasyEDA' || source === 'LCSC';
 
@@ -113,24 +119,52 @@ function generateFromShapes(shapes, bbox, source) {
     }
     const S = maxCoord > 50 ? 0.254 : 1;
 
-    // Capture the EasyEDA 3D model placement (SVGNODE outline3D). It carries
-    // the model's reference origin (c_origin), Z rotation (c_rotation = rx,ry,rz)
-    // and Z height — all needed to seat the OBJ over the pads in the 3D viewer.
-    /** @type {{originX:number, originY:number, rotation:number, z:number}|null} */
+    // Capture the EasyEDA 3D model placement (SVGNODE outline3D). It carries the
+    // model's Z rotation (c_rotation = rx,ry,rz), Z height, and — crucially —
+    // the model body's true planar centre.
+    //
+    // That centre is the bounding-box centre of the SVGNODE's child outline
+    // geometry (the projected 3D body outline). Those points live in the SAME
+    // footprint coordinate frame as the pads, so the centre tells us exactly
+    // where the body seats relative to the copper, even when the body is offset
+    // from the pad centroid (e.g. a module with pads along only one edge).
+    //
+    // Do NOT use the SVGNODE `c_origin` attribute for this: its scale varies per
+    // part (sometimes a different unit entirely — e.g. (411,308) where the pads
+    // are at (4000,3000)), which is what once threw the model ~1 m off the
+    // board. The child polyline points are always footprint-space.
+    /** @type {{rotation:number, z:number, ox:number, oy:number}|null} */
     let model3dRaw = null;
     for (const shape of shapes) {
         if (typeof shape !== 'string' || !shape.startsWith('SVGNODE~')) continue;
         try {
             const svg = JSON.parse(shape.substring(8));
             const at = svg?.attrs;
-            if (!at || at.c_etype !== 'outline3D' || !at.c_origin) continue;
-            const o = String(at.c_origin).split(',').map(Number);
+            if (!at || at.c_etype !== 'outline3D') continue;
             const rot = String(at.c_rotation || '0,0,0').split(',').map(Number);
+            // Bounding box of the outline geometry, in raw footprint units.
+            let oMinX = Infinity, oMinY = Infinity, oMaxX = -Infinity, oMaxY = -Infinity;
+            const accPts = (str) => {
+                const n = String(str).trim().split(/[\s,]+/).map(Number);
+                for (let i = 0; i + 1 < n.length; i += 2) {
+                    if (!Number.isFinite(n[i]) || !Number.isFinite(n[i + 1])) continue;
+                    oMinX = Math.min(oMinX, n[i]); oMaxX = Math.max(oMaxX, n[i]);
+                    oMinY = Math.min(oMinY, n[i + 1]); oMaxY = Math.max(oMaxY, n[i + 1]);
+                }
+            };
+            const walk = (node) => {
+                if (!node || typeof node !== 'object') return;
+                if (Array.isArray(node)) { node.forEach(walk); return; }
+                if (node.attrs && typeof node.attrs.points === 'string') accPts(node.attrs.points);
+                if (Array.isArray(node.childNodes)) node.childNodes.forEach(walk);
+            };
+            walk(svg);
+            const hasOutline = oMaxX > oMinX;
             model3dRaw = {
-                originX: o[0] * S,
-                originY: o[1] * S,
                 rotation: rot[2] || 0,
                 z: (parseFloat(at.z) || 0) * S,
+                ox: hasOutline ? (oMinX + oMaxX) / 2 : NaN,
+                oy: hasOutline ? (oMinY + oMaxY) / 2 : NaN,
             };
         } catch { /* ignore malformed SVGNODE */ }
         break;
@@ -253,6 +287,10 @@ function generateFromShapes(shapes, bbox, source) {
             minY = Math.min(minY, cy - h / 2);
             maxX = Math.max(maxX, cx + w / 2);
             maxY = Math.max(maxY, cy + h / 2);
+            padMinX = Math.min(padMinX, cx - w / 2);
+            padMinY = Math.min(padMinY, cy - h / 2);
+            padMaxX = Math.max(padMaxX, cx + w / 2);
+            padMaxY = Math.max(padMaxY, cy + h / 2);
             continue;
         }
 
@@ -472,9 +510,13 @@ function generateFromShapes(shapes, bbox, source) {
     }
 
     // Center the footprint at the origin — EasyEDA data uses arbitrary
-    // absolute coordinates, so shift everything so the centroid is (0,0).
-    const centerX = (minX + maxX) / 2;
-    const centerY = (minY + maxY) / 2;
+    // absolute coordinates, so shift everything so the origin is at the pad
+    // centre. Centre on the PAD bounding box when pads exist (so the copper
+    // pads stay symmetric about the origin and align with the self-centring 3D
+    // model); fall back to the all-geometry bbox for silk-only footprints.
+    const hasPads = padMaxX > padMinX;
+    const centerX = hasPads ? (padMinX + padMaxX) / 2 : (minX + maxX) / 2;
+    const centerY = hasPads ? (padMinY + padMaxY) / 2 : (minY + maxY) / 2;
     if (Math.abs(centerX) > 0.01 || Math.abs(centerY) > 0.01) {
         for (const pad of pads) {
             pad.x -= centerX;
@@ -492,20 +534,25 @@ function generateFromShapes(shapes, bbox, source) {
                 s.d = _offsetPath(s.d, -centerX, -centerY);
             }
         }
-        const w = maxX - minX;
-        const h = maxY - minY;
-        minX = -w / 2;
-        minY = -h / 2;
-        maxX = w / 2;
-        maxY = h / 2;
+        // Re-reference the full-geometry bbox to the new (pad-centred) origin.
+        // This bbox can be asymmetric (silk/courtyard extend further on one
+        // side), so shift it rather than forcing it symmetric.
+        minX -= centerX; maxX -= centerX;
+        minY -= centerY; maxY -= centerY;
     }
 
-    // Convert the 3D model placement into the same footprint-local frame as the
-    // pads (origin shifted by the centroid). dx/dy seat the model over its pads.
+    // Seat the 3D model on its true planar centre (the outline-geometry centre
+    // captured above), expressed relative to the now-centred footprint origin.
+    // The OBJ re-centres on its own XY bbox in the 3D viewer (objModelToMesh),
+    // so dx/dy place that centre exactly on the body centre. For parts whose
+    // body is centred on the pads (most SMD/THT parts) this resolves to ~0; for
+    // parts with offset bodies (modules, edge connectors) it correctly shifts
+    // the model so its leads land on the copper. Falls back to 0 (footprint
+    // origin) when no outline geometry is available.
     /** @type {{dx:number, dy:number, rotation:number, z:number}|null} */
     const model3d = model3dRaw ? {
-        dx: model3dRaw.originX - centerX,
-        dy: model3dRaw.originY - centerY,
+        dx: Number.isFinite(model3dRaw.ox) ? model3dRaw.ox * S - centerX : 0,
+        dy: Number.isFinite(model3dRaw.oy) ? model3dRaw.oy * S - centerY : 0,
         rotation: model3dRaw.rotation,
         z: model3dRaw.z,
     } : null;
@@ -707,6 +754,7 @@ export function renderFootprint(fp, ref, x, y, rotation = 0) {
             g = document.createElementNS(NS, 'g');
             g.setAttribute('class', `pcb-fp-${layerId}`);
             g.setAttribute('data-ref', ref);
+            g.setAttribute('data-fp-layer', layerId);
             let transform = `translate(${x}, ${y})`;
             if (rotation) transform += ` rotate(${rotation})`;
             g.setAttribute('transform', transform);
@@ -796,6 +844,9 @@ export function renderFootprint(fp, ref, x, y, rotation = 0) {
             const padG = document.createElementNS(NS, 'g');
             padG.setAttribute('class', 'pcb-pad');
             padG.setAttribute('data-pad', pad.number);
+            // Through-hole ('both') pads are gold on every face; SMD pads take
+            // the copper colour of the side they sit on (recoloured on flip).
+            padG.setAttribute('data-pad-kind', pad.layer === 'both' ? 'th' : 'smd');
 
             const padFill = layerId === 'bottom-copper'
                 ? '#3498db'
@@ -848,6 +899,9 @@ export function renderFootprint(fp, ref, x, y, rotation = 0) {
             numText.setAttribute('fill', 'var(--pcb-pad-text, #fff)');
             numText.setAttribute('font-family', 'Arial, sans-serif');
             numText.setAttribute('pointer-events', 'none');
+            // Kept readable when the footprint is mirrored (see applyPlacementPose).
+            numText.setAttribute('class', 'pcb-mirror-text');
+            numText.setAttribute('data-mx-center', String(pad.x));
             numText.textContent = pad.number;
             padG.appendChild(numText);
 
@@ -870,6 +924,10 @@ export function renderFootprint(fp, ref, x, y, rotation = 0) {
     refGroup.setAttribute('stroke-width', '0.15');
     refGroup.setAttribute('stroke-linecap', 'round');
     refGroup.setAttribute('stroke-linejoin', 'round');
+    // Kept readable when the footprint is mirrored (see applyPlacementPose).
+    refGroup.setAttribute('class', 'pcb-mirror-text');
+    refGroup.setAttribute('data-mx-center', String(cxRef));
+    refGroup.setAttribute('data-fp-ref', '1');
     for (const poly of stringToPolylines(ref, baseX, baseY, refSize, false)) {
         if (poly.length < 2) continue;
         const pl = document.createElementNS(NS, 'polyline');

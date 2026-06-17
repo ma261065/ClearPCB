@@ -71,6 +71,73 @@ export function repositionPadConnectedNodes(app, compId) {
     return touched;
 }
 
+/** True when a placement's footprint geometry is mirrored on screen.
+ *  A user flip (`mirror`) and a bottom-side placement each mirror the
+ *  footprint; together they cancel out. */
+export function isPlacementMirrored(pl) {
+    return (!!pl?.mirror) !== (pl?.side === 'bottom');
+}
+
+/** The SVG transform for a placement's current pose (position + rotation + mirror). */
+export function placementTransform(pl) {
+    let t = `translate(${pl.x}, ${pl.y})`;
+    if (pl.rotation) t += ` rotate(${pl.rotation})`;
+    if (isPlacementMirrored(pl)) t += ' scale(-1, 1)';
+    return t;
+}
+
+/**
+ * Apply a placement's full pose (position + rotation) to its rendered SVG
+ * and recompute its pads' world positions. Footprint geometry is authored in
+ * local coordinates and oriented purely by the group's `translate … rotate`
+ * transform, so pad world positions are the local offsets rotated by the
+ * placement angle. Pad-bonded track endpoints are re-glued afterwards.
+ *
+ * Callers must set `pl.x`, `pl.y` and `pl.rotation` first, then call this; the
+ * caller decides whether to also reconcile the ratsnest / record an override.
+ * @param {object} app - PCBApp
+ * @param {string} compId
+ */
+export function applyPlacementPose(app, compId) {
+    const pl = app.placements?.get(compId);
+    if (!pl) return;
+    const rot = pl.rotation || 0;
+    const transform = placementTransform(pl);
+    for (const el of (pl.elements || [])) el.setAttribute('transform', transform);
+    if (pl.lodEl) pl.lodEl.setAttribute('transform', transform);
+    const halo = app._padHaloGroups?.get(compId);
+    if (halo) halo.setAttribute('transform', transform);
+    const rad = rot * Math.PI / 180;
+    const cos = Math.cos(rad), sin = Math.sin(rad);
+    const mirrored = isPlacementMirrored(pl);
+    const mx = mirrored ? -1 : 1;
+    for (const off of (pl.padOffsets || [])) {
+        const lx = off.dx * mx;
+        const wx = pl.x + lx * cos - off.dy * sin;
+        const wy = pl.y + lx * sin + off.dy * cos;
+        pl.pads.set(off.padId, { x: wx, y: wy, number: off.number });
+    }
+    // Counter-mirror text inside the (possibly mirrored) footprint group:
+    //  • Pad numbers stay readable in every orientation → counter the full
+    //    visual mirror (`mirrored` = user-flip XOR bottom-side).
+    //  • The reference designator's handedness must reflect only the board
+    //    SIDE: readable on top (even after an H/V flip), mirrored on the
+    //    bottom. The group already applies `mirrored`; countering by the
+    //    user-flip flag alone leaves a net mirror of just (side === 'bottom').
+    for (const el of (pl.elements || [])) {
+        for (const t of el.querySelectorAll('.pcb-mirror-text')) {
+            const flip = t.hasAttribute('data-fp-ref') ? !!pl.mirror : mirrored;
+            if (flip) {
+                const c = parseFloat(t.getAttribute('data-mx-center')) || 0;
+                t.setAttribute('transform', `translate(${2 * c}, 0) scale(-1, 1)`);
+            } else {
+                t.removeAttribute('transform');
+            }
+        }
+    }
+    repositionPadConnectedNodes(app, compId);
+}
+
 /** Add a freshly-built Track to app.tracks and render it. Optionally
  *  also add associated standalone Vias (e.g. at layer-change nodes)
  *  in the same atomic undo step. */
@@ -329,29 +396,260 @@ export class MovePlacementCommand {
         if (!pl) return;
         pl.x = pt.x;
         pl.y = pt.y;
-        for (const el of (pl.elements || [])) {
-            el.setAttribute('transform', `translate(${pt.x}, ${pt.y})`);
-        }
-        if (pl.lodEl) pl.lodEl.setAttribute('transform', `translate(${pt.x}, ${pt.y})`);
-        const halo = this.app._padHaloGroups?.get(this.compId);
-        if (halo) halo.setAttribute('transform', `translate(${pt.x}, ${pt.y})`);
-        for (const off of (pl.padOffsets || [])) {
-            pl.pads.set(off.padId, { x: pt.x + off.dx, y: pt.y + off.dy, number: off.number });
-        }
-        // Keep pad-bonded track endpoints glued to the component.
-        repositionPadConnectedNodes(this.app, this.compId);
+        applyPlacementPose(this.app, this.compId);
         // Remember the new position so it survives schematic re-syncs / reload.
         this.app._recordPlacementOverride?.(this.compId);
         this.app._updateRatsnest?.();
+        // Pads moved — recompute copper-pour clearances around them.
+        this.app._refreshFills?.();
+        this.app._board3d?.refresh?.();
     }
     execute() { this._apply(this.to); }
     undo() { this._apply(this.from); }
 }
 
 /**
- * Change the board outline (width / height / corner radius).
- * Both snapshots are plain {width, height, radius} objects.
+ * Rotate a placement about its origin to an absolute angle (degrees).
+ * Re-orients the footprint SVG, re-glues pad-bonded tracks, persists the
+ * pose override, reconciles the ratsnest and refreshes any open 3D view.
  */
+export class RotatePlacementCommand {
+    constructor(app, compId, fromDeg, toDeg) {
+        this.app = app;
+        this.compId = compId;
+        this.from = ((fromDeg % 360) + 360) % 360;
+        this.to = ((toDeg % 360) + 360) % 360;
+    }
+    _apply(deg) {
+        const pl = this.app.placements.get(this.compId);
+        if (!pl) return;
+        pl.rotation = deg;
+        applyPlacementPose(this.app, this.compId);
+        this.app._recordPlacementOverride?.(this.compId);
+        this.app._updateRatsnest?.();
+        // Pads rotated — recompute copper-pour clearances around them.
+        this.app._refreshFills?.();
+        this.app._board3d?.refresh?.();
+    }
+    execute() { this._apply(this.to); }
+    undo() { this._apply(this.from); }
+}
+
+/**
+ * Flip a placement horizontally or vertically. Mirrors the schematic editor's
+ * model: a flip toggles the `mirror` flag and adjusts the rotation so the net
+ * visual is a pure mirror across the chosen world axis (H = vertical axis,
+ * V = horizontal axis), regardless of current orientation.
+ */
+export class FlipPlacementCommand {
+    constructor(app, compId, axis) {
+        this.app = app;
+        this.compId = compId;
+        const pl = app.placements?.get(compId);
+        const rot = ((pl?.rotation || 0) % 360 + 360) % 360;
+        const mir = !!pl?.mirror;
+        this.before = { rotation: rot, mirror: mir };
+        const nextRot = axis === 'V'
+            ? (180 - rot + 360) % 360
+            : (360 - rot) % 360;
+        this.after = { rotation: nextRot, mirror: !mir };
+    }
+    _apply(state) {
+        const pl = this.app.placements.get(this.compId);
+        if (!pl) return;
+        pl.rotation = state.rotation;
+        pl.mirror = state.mirror;
+        applyPlacementPose(this.app, this.compId);
+        this.app._recordPlacementOverride?.(this.compId);
+        this.app._updateRatsnest?.();
+        // Pads mirrored — recompute copper-pour clearances around them.
+        this.app._refreshFills?.();
+        this.app._board3d?.refresh?.();
+    }
+    execute() { this._apply(this.after); }
+    undo() { this._apply(this.before); }
+}
+
+/**
+ * Show or hide a placement's reference designator (the silkscreen label). The
+ * reference group is tagged with `data-fp-ref` by {@link renderFootprint}, so
+ * it can be toggled per placement without touching the rest of the footprint.
+ * @param {object} app - PCBApp
+ * @param {string} compId
+ * @param {boolean} visible
+ */
+export function applyPlacementRefVisible(app, compId, visible) {
+    const pl = app.placements?.get(compId);
+    if (!pl) return;
+    pl.refVisible = visible !== false;
+    for (const el of (pl.elements || [])) {
+        const ref = el.querySelector?.('[data-fp-ref]');
+        if (ref) ref.style.display = pl.refVisible ? '' : 'none';
+    }
+}
+
+/** Toggle a placement's reference-designator visibility through history. */
+export class SetPlacementRefVisibleCommand {
+    constructor(app, compId, visible) {
+        this.app = app;
+        this.compId = compId;
+        const pl = app.placements?.get(compId);
+        this.before = pl?.refVisible !== false;
+        this.after = visible !== false;
+    }
+    _apply(v) {
+        if (!this.app.placements?.get(this.compId)) return;
+        applyPlacementRefVisible(this.app, this.compId, v);
+        this.app._recordPlacementOverride?.(this.compId);
+        this.app._board3d?.refresh?.();
+    }
+    execute() { this._apply(this.after); }
+    undo() { this._apply(this.before); }
+}
+const FP_LAYER_FLIP = {
+    'top-copper': 'bottom-copper', 'bottom-copper': 'top-copper',
+    'top-silk': 'bottom-silk', 'bottom-silk': 'top-silk',
+    'top-paste': 'bottom-paste', 'bottom-paste': 'top-paste',
+    'top-mask': 'bottom-mask', 'bottom-mask': 'top-mask',
+};
+const flipShortLayer = (l) => (l === 'top' ? 'bottom' : l === 'bottom' ? 'top' : l);
+
+/**
+ * Break pad bonds whose copper layer no longer matches the connected track.
+ * After a component changes side, its single-sided (SMD) pads move to the
+ * opposite copper layer; any track still bonded to such a pad on the old
+ * layer is now electrically disconnected, so its `padConnections` entry is
+ * dropped and the track left where it lies. Through-hole pads (`both`) reach
+ * every copper layer and keep their bonds.
+ * @param {object} app - PCBApp
+ * @param {string} compId
+ */
+export function disconnectIncompatiblePadNodes(app, compId) {
+    const pl = app.placements?.get(compId);
+    if (!pl) return;
+    const padLayer = new Map();
+    for (const off of (pl.padOffsets || [])) padLayer.set(String(off.number), off.layer);
+    const touched = new Set();
+    for (const track of (app.tracks || [])) {
+        if (!track.padConnections?.size) continue;
+        for (const [nid, conn] of [...track.padConnections]) {
+            if (!conn || conn.componentId !== compId) continue;
+            const short = padLayer.get(String(conn.pinNumber));
+            if (short === 'both') continue; // through-hole reaches every layer
+            const copper = short === 'bottom' ? 'bottom-copper' : 'top-copper';
+            const incident = track.incidentEdges(nid);
+            const compatible = incident.length
+                ? incident.some((e) => track.getEdgeLayer(e.edgeId) === copper)
+                : track.layer === copper;
+            if (!compatible) {
+                track.padConnections.delete(nid);
+                touched.add(track);
+            }
+        }
+    }
+    for (const track of touched) {
+        renderTrack(track, (id) => app._getLayerGroup(id), _opts(app, track));
+    }
+}
+
+/**
+ * Move a placement to the top or bottom copper side: reparent each footprint
+ * layer group to its (optionally mirrored) board layer and swap pad/paste
+ * layers for the ratsnest, DRC and gerber export. Geometry mirroring itself is
+ * handled by {@link applyPlacementPose} via {@link isPlacementMirrored}; the
+ * caller must invoke that afterwards. Does not touch history.
+ * @param {object} app - PCBApp
+ * @param {string} compId
+ * @param {'top'|'bottom'} side
+ */
+export function applyPlacementSide(app, compId, side) {
+    const pl = app.placements?.get(compId);
+    if (!pl) return;
+    const flip = side === 'bottom';
+    pl.side = flip ? 'bottom' : 'top';
+    for (const el of (pl.elements || [])) {
+        const base = el.getAttribute('data-fp-layer');
+        if (!base) continue;
+        const target = flip ? (FP_LAYER_FLIP[base] || base) : base;
+        const group = app._getLayerGroup?.(target);
+        if (group && el.parentNode !== group) group.appendChild(el);
+        // Recolour SMD pads to the copper colour of the side they now sit on
+        // (top = red, bottom = blue). Through-hole pads stay gold.
+        if (target === 'top-copper' || target === 'bottom-copper') {
+            const fill = target === 'bottom-copper' ? '#3498db' : '#e74c3c';
+            for (const pg of el.querySelectorAll('.pcb-pad')) {
+                if (pg.getAttribute('data-pad-kind') === 'th') continue;
+                const shape = pg.querySelector('rect, circle');
+                if (shape) shape.setAttribute('fill', fill);
+            }
+        }
+    }
+    for (const off of (pl.padOffsets || [])) {
+        if (off._baseLayer === undefined) off._baseLayer = off.layer;
+        off.layer = flip ? flipShortLayer(off._baseLayer) : off._baseLayer;
+    }
+    for (const off of (pl.pasteOffsets || [])) {
+        if (off._baseSide === undefined) off._baseSide = off.side;
+        off.side = flip ? flipShortLayer(off._baseSide) : off._baseSide;
+    }
+    // SMD pads have just changed copper layer — drop any track bonds that no
+    // longer share a layer with their pad so the trace stops sticking.
+    disconnectIncompatiblePadNodes(app, compId);
+}
+
+/**
+ * Place a component on the top or bottom copper side. Reparents its artwork to
+ * the matching layers, mirrors the footprint, re-glues pad-bonded tracks,
+ * persists the override, reconciles the ratsnest and refreshes any 3D view.
+ */
+export class SetPlacementSideCommand {
+    constructor(app, compId, side) {
+        this.app = app;
+        this.compId = compId;
+        const pl = app.placements?.get(compId);
+        this.before = pl?.side === 'bottom' ? 'bottom' : 'top';
+        this.after = side === 'bottom' ? 'bottom' : 'top';
+        this._bonds = null;
+    }
+    _snapshotBonds() {
+        // Capture every track's pad bonds so undo can restore the ones that
+        // applyPlacementSide drops when single-sided pads change layer.
+        const snap = new Map();
+        for (const track of (this.app.tracks || [])) {
+            if (!track.padConnections?.size) continue;
+            const m = new Map();
+            for (const [nid, conn] of track.padConnections) m.set(nid, { ...conn });
+            snap.set(track, m);
+        }
+        return snap;
+    }
+    _restoreBonds(snap) {
+        if (!snap) return;
+        for (const [track, m] of snap) {
+            track.padConnections.clear();
+            for (const [nid, conn] of m) track.padConnections.set(nid, { ...conn });
+        }
+    }
+    _apply(side) {
+        if (!this.app.placements?.get(this.compId)) return;
+        applyPlacementSide(this.app, this.compId, side);
+        applyPlacementPose(this.app, this.compId);
+        this.app._recordPlacementOverride?.(this.compId);
+        this.app._updateRatsnest?.();
+        // Pads changed side — recompute copper-pour clearances around them.
+        this.app._refreshFills?.();
+        this.app._board3d?.refresh?.();
+    }
+    execute() {
+        this._bonds = this._snapshotBonds();
+        this._apply(this.after);
+    }
+    undo() {
+        this._restoreBonds(this._bonds);
+        this._apply(this.before);
+    }
+}
+
 export class SetBoardOutlineCommand {
     constructor(app, before, after) {
         this.app = app;

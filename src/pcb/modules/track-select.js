@@ -483,6 +483,14 @@ function _drawSinglePadHighlight(app, componentId, pinNumber, cls, opacity) {
     const w = off?.width || 1.2;
     const h = off?.height || 1.2;
     const shape = off?.shape || 'rect';
+    // The pad's rendered group is rotated by the placement angle (and mirrored
+    // for flips / bottom side). `pos` is the already-transformed world centre,
+    // but a rect/oval drawn axis-aligned would point the wrong way under
+    // rotation — rotate the highlight about its centre to match. A symmetric
+    // shape's mirror is visually identical to a rotation, so the angle alone
+    // (sign irrelevant for the centred box) keeps it aligned with the pad.
+    const rot = pl.rotation || 0;
+    const rotAttr = rot ? `rotate(${rot} ${pos.x} ${pos.y})` : '';
     for (const layerId of layers) {
         const parent = app._getLayerGroup(layerId);
         if (!parent) continue;
@@ -503,6 +511,7 @@ function _drawSinglePadHighlight(app, componentId, pinNumber, cls, opacity) {
                 el.setAttribute('rx', String(r));
                 el.setAttribute('ry', String(r));
             }
+            if (rotAttr) el.setAttribute('transform', rotAttr);
         }
         el.setAttribute('class', cls);
         el.setAttribute('fill', HALO_COLOR);
@@ -530,6 +539,11 @@ export function drawTrackHalo(app, track, cls, opacity = HALO_OPACITY_SELECTED) 
 /** Draw a selection halo over a via using the given CSS class. */
 export function drawViaHalo(app, via, cls, opacity = HALO_OPACITY_SELECTED) {
     _drawViaHalo(app, via, cls, opacity);
+}
+
+/** Draw a selection halo over a hole using the given CSS class. */
+export function drawHoleHalo(app, hole, cls, opacity = HALO_OPACITY_SELECTED) {
+    _drawHoleHalo(app, hole, cls, opacity);
 }
 
 /** Remove every halo with the given CSS class from all layers. */
