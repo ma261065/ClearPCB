@@ -1916,6 +1916,87 @@ body {
     color: var(--accent-color);
 }
 
+/* ── Floating 3D model pop-out (component right-click → "Show 3D") ── */
+.model3d-popout {
+    position: fixed;
+    z-index: 10001;
+    width: 380px;
+    height: 360px;
+    min-width: 220px;
+    min-height: 200px;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg-panel, #2b2b2b);
+    border: 1px solid var(--border-color, #555);
+    border-radius: 6px;
+    box-shadow: 0 8px 28px rgba(0, 0, 0, 0.5);
+    overflow: hidden;
+    resize: both;
+}
+
+.model3d-popout-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 8px 6px 12px;
+    background: var(--bg-toolbar, #333);
+    border-bottom: 1px solid var(--border-color, #555);
+    cursor: move;
+    user-select: none;
+    touch-action: none;
+}
+
+.model3d-popout-title {
+    font: 600 13px/1.4 system-ui, sans-serif;
+    color: var(--text-color, #eee);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.model3d-popout-close {
+    flex: none;
+    width: 22px;
+    height: 22px;
+    margin-left: 8px;
+    padding: 0;
+    border: none;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--text-muted, #aaa);
+    font: 18px/1 system-ui, sans-serif;
+    cursor: pointer;
+}
+
+.model3d-popout-close:hover {
+    background: var(--bg-hover, #444);
+    color: var(--text-color, #eee);
+}
+
+.model3d-popout-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    background: #4a4c4f;
+}
+
+.model3d-popout-body-error {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-muted, #aaa);
+    font: 12px/1.4 system-ui, sans-serif;
+}
+
+.model3d-popout-hint {
+    flex: none;
+    padding: 4px 12px;
+    background: var(--bg-toolbar, #333);
+    border-top: 1px solid var(--border-color, #555);
+    color: var(--text-muted, #aaa);
+    font: 10px/1.4 system-ui, sans-serif;
+    text-align: center;
+}
+
 .cp-preview-svg svg {
     max-width: 100%;
     max-height: 100%;
@@ -2621,6 +2702,8 @@ body {
     flex-direction: row;
     flex-wrap: wrap;
     align-items: center;
+    align-content: center;
+    flex: 1 1 auto;
     gap: 4px 12px;
 }
 

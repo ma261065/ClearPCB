@@ -1022,7 +1022,7 @@ function _buildRuns(track) {
 /* ──────────────────────────── properties panel ──────────────────────────── */
 
 function _showTrackProperties(app, track) {
-    const items = document.getElementById('pcbPropsItems');
+    const items = app._pcbPropsItems?.() || document.getElementById('pcbPropsItems');
     if (!items) return;
     const layers = new Set();
     for (const eid of track.edges.keys()) layers.add(track.getEdgeLayer(eid));
@@ -1125,7 +1125,7 @@ function _showTrackProperties(app, track) {
  * single segment can hop layers and change width independently.
  */
 function _showTrackSegmentProperties(app, track, edgeId) {
-    const items = document.getElementById('pcbPropsItems');
+    const items = app._pcbPropsItems?.() || document.getElementById('pcbPropsItems');
     if (!items) return;
     const currentLayer = track.getEdgeLayer(edgeId) || 'top-copper';
     const segWidth = track.getEdgeWidth(edgeId);
@@ -1247,7 +1247,7 @@ function _applyNetToBondedCopper(app, seed, v) {
 }
 
 function _showViaProperties(app, via) {
-    const items = document.getElementById('pcbPropsItems');
+    const items = app._pcbPropsItems?.() || document.getElementById('pcbPropsItems');
     if (!items) return;
     items.innerHTML = `
         <div class="prop-row"><label>Type</label><span style="font-size:11px;color:var(--text-primary)">Via</span></div>
@@ -1296,7 +1296,7 @@ function _showViaProperties(app, via) {
 }
 
 function _showHoleProperties(app, hole) {
-    const items = document.getElementById('pcbPropsItems');
+    const items = app._pcbPropsItems?.() || document.getElementById('pcbPropsItems');
     if (!items) return;
     items.innerHTML = `
         <div class="prop-row"><label>Type</label><span style="font-size:11px;color:var(--text-primary)">Hole</span></div>

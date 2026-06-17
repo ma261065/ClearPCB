@@ -61,13 +61,18 @@ export class Model3DViewer {
         this.camera = camera;
 
         // Lighting mirrors the board viewer: a soft ambient fill, plus a key
-        // directional and a point glint that both ride with the camera.
-        scene.add(new THREE.AmbientLight(0xffffff, 0.45));
-        const key = new THREE.DirectionalLight(0xffffff, 0.7);
+        // directional and a point glint that both ride with the camera. A
+        // dim back-fill directional keeps the shadowed faces from going flat
+        // grey so the part reads bright from every angle.
+        scene.add(new THREE.AmbientLight(0xffffff, 1.05));
+        const key = new THREE.DirectionalLight(0xffffff, 1.6);
+        const fill = new THREE.DirectionalLight(0xffffff, 0.6);
         const glint = new THREE.PointLight(0xffffff, 1.0, 0, 2);
         scene.add(key);
+        scene.add(fill);
         scene.add(glint);
         this._key = key;
+        this._fill = fill;
         this._glint = glint;
 
         const controls = new ArcballController(camera, canvas);
@@ -157,6 +162,15 @@ export class Model3DViewer {
         // Lights ride with the camera so the lit side always faces the viewer.
         this._key.position.copy(this.camera.position);
         this._glint.position.copy(this.camera.position);
+        // Back-fill from the opposite side of the model so shadowed faces are
+        // lit too (keeps the part from reading as a dull grey blob).
+        this._fill.position.copy(this.controls.target)
+            .sub(this.camera.position).add(this.controls.target);
+        // The glint uses inverse-square decay, so a fixed intensity all but
+        // vanishes at the camera's standoff distance. Scale by distance² (as
+        // the board viewer does) so it stays a consistent, bright highlight.
+        const d = this.camera.position.distanceTo(this.controls.target) || 1;
+        this._glint.intensity = d * d * 2.2;
         this.renderer.render(this.scene, this.camera);
     }
 

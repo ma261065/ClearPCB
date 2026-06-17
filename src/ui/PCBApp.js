@@ -34,6 +34,7 @@ import {
     showTrackContextMenu,
     refreshTrackSelectionHalo,
     selectTrackSegment,
+    dismissTrackContextMenu,
 } from '../pcb/modules/track-select.js';
 import {
     startVertexDrag,
@@ -1080,6 +1081,15 @@ export default class PCBApp {
                 // viewport in panning state behind the menu.
                 if (this.viewport.isPanning) this.viewport.endPan();
                 showTrackContextMenu(this, hit, e.clientX, e.clientY, worldPos);
+                return;
+            }
+            // Otherwise, offer "Show 3D" when right-clicking a footprint that
+            // carries a 3D model.
+            const compId = this._hitTestComponent(worldPos);
+            const pl = compId ? this.placements.get(compId) : null;
+            if (pl?.model3dObj) {
+                if (this.viewport.isPanning) this.viewport.endPan();
+                this._showComponent3DMenu(pl, e.clientX, e.clientY);
             }
         });
 
@@ -2238,10 +2248,21 @@ export default class PCBApp {
      * Clear the properties panel to its default state.
      */
     _clearProperties() {
-        const items = document.getElementById('pcbPropsItems');
+        const items = this._pcbPropsItems();
         if (items) {
             items.innerHTML = '<span style="font-size:11px;color:var(--text-muted)">Click an object to see its properties</span>';
         }
+    }
+
+    /**
+     * Return the `#pcbPropsItems` container, first stripping any component-only
+     * sibling sections (Transform / 3D) so non-component property views render
+     * with the base Properties group as the sole panel content.
+     */
+    _pcbPropsItems() {
+        document.getElementById('pcbPropertiesPanel')
+            ?.querySelectorAll('.pcb-props-extra').forEach((el) => el.remove());
+        return document.getElementById('pcbPropsItems');
     }
 
     /**
@@ -2256,7 +2277,7 @@ export default class PCBApp {
      * Show board outline properties and switch to Properties tab.
      */
     _showBoardOutlineProperties() {
-        const items = document.getElementById('pcbPropsItems');
+        const items = this._pcbPropsItems();
         if (!items) return;
 
         items.innerHTML = `
@@ -2311,7 +2332,7 @@ export default class PCBApp {
      * Show component properties (placeholder for now).
      */
     _showComponentProperties(compId) {
-        const items = document.getElementById('pcbPropsItems');
+        const items = this._pcbPropsItems();
         if (!items) return;
 
         const pl = this.placements.get(compId);
@@ -2321,19 +2342,30 @@ export default class PCBApp {
 
         items.innerHTML = `
             <div class="prop-row"><label>Type</label><span style="font-size:11px;color:var(--text-primary)">Component</span></div>
-            <div class="prop-row"><label>Name</label><span style="font-size:11px;color:var(--text-primary)">${name}</span></div>
+            <div class="prop-row"><label>Reference</label><span style="font-size:11px;color:var(--text-primary)">${name}</span></div>
+            <div class="prop-row"><input type="checkbox" id="pcbPropCompRefVis"${refVisible ? ' checked' : ''}> <span style="font-size:11px;color:var(--text-secondary)">Show Reference</span></div>
             <div class="prop-row"><label>Layer</label><select id="pcbPropCompSide">
                 <option value="top"${side === 'top' ? ' selected' : ''}>Top</option>
                 <option value="bottom"${side === 'bottom' ? ' selected' : ''}>Bottom</option>
             </select></div>
-            <div class="prop-row"><input type="checkbox" id="pcbPropCompRefVis"${refVisible ? ' checked' : ''}> <span style="font-size:11px;color:var(--text-secondary)">Show Reference</span></div>
-            <div class="prop-actions" style="margin-top:6px">
+            ${pl?.model3dObj ? '<div class="prop-actions" style="margin-top:6px"><button id="pcbPropShow3D" title="Show 3D model">\uD83E\uDDCA Show 3D</button></div>' : ''}
+        `;
+
+        // Sibling ribbon-group sections (mirrors the schematic Properties
+        // panel: Transform sits beside the info group horizontally).
+        const panel = document.getElementById('pcbPropertiesPanel');
+        const transform = document.createElement('div');
+        transform.className = 'ribbon-group pcb-props-extra';
+        transform.innerHTML = `
+            <div class="ribbon-group-title">Transform</div>
+            <div class="ribbon-group-items prop-actions">
                 <button id="pcbPropRotateLeft" title="Rotate Left 90°">↶ Rotate L</button>
                 <button id="pcbPropRotateRight" title="Rotate Right 90°">↷ Rotate R</button>
                 <button id="pcbPropFlipH" title="Flip Horizontal (X)">⇔ Flip H</button>
                 <button id="pcbPropFlipV" title="Flip Vertical (Y)">⇕ Flip V</button>
             </div>
         `;
+        panel?.appendChild(transform);
 
         const curRot = () => ((this.placements.get(compId)?.rotation || 0) % 360 + 360) % 360;
 
@@ -2362,8 +2394,62 @@ export default class PCBApp {
         sideEl?.addEventListener('change', () => {
             this._setPlacementSide(compId, sideEl.value === 'bottom' ? 'bottom' : 'top');
         });
+        document.getElementById('pcbPropShow3D')
+            ?.addEventListener('click', () => this._openComponent3DPopout(compId));
 
         this._setActiveRibbonTab?.('pcb-properties');
+    }
+
+    /**
+     * Show a small "Show 3D" context menu for a placed footprint that carries a
+     * 3D OBJ model, at the given screen position.
+     * @param {object} pl - the placement (has `model3dObj`, `reference`)
+     * @param {number} clientX
+     * @param {number} clientY
+     */
+    _showComponent3DMenu(pl, clientX, clientY) {
+        if (!pl?.model3dObj) return;
+        dismissTrackContextMenu();
+        const menu = document.createElement('div');
+        menu.id = 'pcbTrackContextMenu';
+        menu.style.cssText = `position:fixed;z-index:10000;background:#2b2b2b;border:1px solid #555;border-radius:4px;padding:2px 0;box-shadow:0 2px 8px rgba(0,0,0,0.4);min-width:120px;left:${clientX}px;top:${clientY}px;`;
+        const el = document.createElement('div');
+        el.textContent = '\uD83E\uDDCA Show 3D';
+        el.style.cssText = 'padding:6px 16px;color:#eee;cursor:pointer;font:13px/1.4 system-ui,sans-serif;white-space:nowrap;';
+        el.addEventListener('mouseenter', () => { el.style.background = '#3a3a3a'; });
+        el.addEventListener('mouseleave', () => { el.style.background = ''; });
+        el.addEventListener('click', () => {
+            dismissTrackContextMenu();
+            this._openComponent3DPopout(pl);
+        });
+        menu.appendChild(el);
+        menu.addEventListener('contextmenu', (e) => e.preventDefault());
+        document.body.appendChild(menu);
+        const dismiss = (e) => {
+            if (!menu.contains(/** @type {Node|null} */ (e.target))) dismissTrackContextMenu();
+        };
+        const onKey = (e) => { if (e.key === 'Escape') dismissTrackContextMenu(); };
+        setTimeout(() => {
+            document.addEventListener('mousedown', dismiss, { capture: true });
+            document.addEventListener('keydown', onKey, { capture: true });
+        }, 0);
+        /** @type {any} */ (menu)._dismiss = { dismiss, onKey };
+    }
+
+    /**
+     * Open the interactive 3D model pop-out for a placement (or compId).
+     * @param {string|object} placementOrId
+     */
+    _openComponent3DPopout(placementOrId) {
+        const pl = typeof placementOrId === 'string'
+            ? this.placements.get(placementOrId)
+            : placementOrId;
+        const objText = pl?.model3dObj;
+        if (!objText) return;
+        const title = pl.reference ? `${pl.reference} \u2014 3D Model` : '3D Model';
+        import('../components/Model3DPopout.js')
+            .then(({ openModel3DPopout }) => openModel3DPopout({ objText, title }))
+            .catch(err => console.error('Failed to open 3D pop-out:', err));
     }
 
     /**
@@ -2731,7 +2817,13 @@ export default class PCBApp {
             if (!pl) continue;
             if (pl.side === 'bottom') applyPlacementSide(this, comp.id, 'bottom');
             if (pl.refVisible === false) applyPlacementRefVisible(this, comp.id, false);
-            if (pl.mirror || pl.side === 'bottom') applyPlacementPose(this, comp.id);
+            // padMap above is built from the un-rotated local offsets
+            // (cx+dx, cy+dy); a rotation, mirror or bottom-side placement must
+            // recompute the pads' world positions so the ratsnest (and routed
+            // track re-gluing) follow the footprint's true orientation. The SVG
+            // already carries the same translate+rotate transform, so this only
+            // corrects the pad geometry — it does not double-rotate the render.
+            if (pl.mirror || pl.side === 'bottom' || pl.rotation) applyPlacementPose(this, comp.id);
         }
     }
 
@@ -2950,11 +3042,16 @@ export default class PCBApp {
         for (const [compId, pl] of this.placements) {
             const b = pl.bounds;
             if (b) {
-                const x0 = pl.x + b.x;
-                const y0 = pl.y + b.y;
+                // `bounds` is in footprint-LOCAL coordinates; the rendered
+                // halo/LOD rects apply the full placement transform
+                // (translate → rotate → mirror). Map the cursor into the same
+                // local frame by inverting that transform, then test the
+                // axis-aligned local bounds rect — otherwise a rotated or
+                // mirrored footprint's hit box wouldn't match its halo.
+                const local = this._worldToPlacementLocal(worldPos, pl);
                 if (
-                    worldPos.x >= x0 && worldPos.x <= x0 + b.width
-                    && worldPos.y >= y0 && worldPos.y <= y0 + b.height
+                    local.x >= b.x && local.x <= b.x + b.width
+                    && local.y >= b.y && local.y <= b.y + b.height
                 ) {
                     hit = compId;
                 }
@@ -2983,6 +3080,33 @@ export default class PCBApp {
             }
         }
         return hit;
+    }
+
+    /**
+     * Map a world-space point into a placement's local footprint frame,
+     * inverting `placementTransform` (translate → rotate → mirror). Used so
+     * hit-tests against footprint-local `bounds` match the rendered halo on
+     * rotated/mirrored placements.
+     * @param {{x:number,y:number}} worldPos
+     * @param {object} pl - placement
+     * @returns {{x:number,y:number}} point in footprint-local coordinates
+     */
+    _worldToPlacementLocal(worldPos, pl) {
+        // Undo translate.
+        let px = worldPos.x - pl.x;
+        let py = worldPos.y - pl.y;
+        // Undo rotation (inverse = rotate by -θ).
+        const rot = pl.rotation || 0;
+        if (rot) {
+            const rad = rot * Math.PI / 180;
+            const cos = Math.cos(rad), sin = Math.sin(rad);
+            const rx = px * cos + py * sin;
+            const ry = -px * sin + py * cos;
+            px = rx; py = ry;
+        }
+        // Undo mirror (scale(-1,1) is its own inverse).
+        if (isPlacementMirrored(pl)) px = -px;
+        return { x: px, y: py };
     }
 
     /**
@@ -3537,7 +3661,7 @@ export default class PCBApp {
      * undo collapses each edit into one entry.
      */
     _showTextProperties(text) {
-        const items = document.getElementById('pcbPropsItems');
+        const items = this._pcbPropsItems();
         if (!items) return;
         const layerOpts = TEXT_LAYERS.map(l =>
             `<option value="${l}" ${l === text.layer ? 'selected' : ''}>${this._layerLabel(l)}</option>`
@@ -5556,7 +5680,7 @@ export default class PCBApp {
      * ModifyFillCommand for clean undo/redo.
      */
     _showFillProperties(fill) {
-        const items = document.getElementById('pcbPropsItems');
+        const items = this._pcbPropsItems();
         if (!items || !fill) return;
         const esc = (s) => String(s).replace(/[&<>"']/g, (c) => (
             { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]

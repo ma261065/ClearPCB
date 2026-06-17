@@ -2081,8 +2081,8 @@ class ThreeScene {
         // of the board facing the viewer is always the lit one. Ambient is kept
         // moderate so directional shading stays crisp and colours stay vivid (too
         // much flat fill washes the saturation out).
-        this.scene.add(new THREE.AmbientLight(0xffffff, 0.45));
-        this.key = /** @type {any} */ (new THREE.DirectionalLight(0xffffff, 0.7));
+        this.scene.add(new THREE.AmbientLight(0xffffff, 0.55));
+        this.key = /** @type {any} */ (new THREE.DirectionalLight(0xffffff, 0.85));
         this.scene.add(this.key);
 
         // Camera headlight: a point light pinned to the camera each frame. With

@@ -18,7 +18,7 @@
 
 import { updateStickyWires, updateSnapHighlight, resolveWireSnapPosition, renderGuideLines, computeAnchorCollinearSnap, computeSegmentDragSnap, computeStickyWireSnaps, applyOffGridNeighborSnap, buildCollinearChain, bridgeCollinearPinEndpoints, SNAP_SCREEN_PX, COLLINEAR_EPSILON, VERTEX_EPSILON, PIN_SNAP_TOL } from './wire.js';
 import { commitAnchorDrag, clearDragState, commitMoveDrag, commitSegmentDrag, resolveAnchorDragOnMouseUp, revertSegmentDragIfNoMove, areCapturedStatesEqual, commitShapeJoin } from '../../ui/modules/drag.js';
-import { detectTJunction, showAnchorContextMenu, showSegmentContextMenu, showLabelContextMenu } from '../../ui/modules/context-menu.js';
+import { detectTJunction, showAnchorContextMenu, showSegmentContextMenu, showLabelContextMenu, showComponentContextMenu } from '../../ui/modules/context-menu.js';
 import { updateToolGhost } from '../../ui/modules/tool.js';
 import { ModifyShapeCommand } from '../../core/CommandHistory.js';
 import { collapseRedundantWirePoints } from './wire.js';
@@ -783,7 +783,20 @@ function handleSelectContextMenu(app, worldPos, clientX, clientY) {
         return true;
     }
     if (handleAnchorContextMenu(app, worldPos, clientX, clientY)) return true;
-    return handleSegmentContextMenu(app, worldPos, clientX, clientY);
+    if (handleSegmentContextMenu(app, worldPos, clientX, clientY)) return true;
+    return handleComponentContextMenu(app, worldPos, clientX, clientY);
+}
+
+/**
+ * Show the component context menu ("Show 3D") when the right-click lands on a
+ * placed component that carries a 3D OBJ model. Returns false otherwise so the
+ * caller falls through to the debug-tooltip behaviour.
+ */
+function handleComponentContextMenu(app, worldPos, clientX, clientY) {
+    const comp = app._findComponentAt?.(worldPos);
+    if (!comp?.definition?.model3dObj) return false;
+    showComponentContextMenu(app, comp, clientX, clientY);
+    return true;
 }
 
 function resolveLabelAttachTarget(app, probePos, excludeShape = null) {

@@ -722,3 +722,30 @@ export function showLabelContextMenu(app, labelShape, clientX, clientY) {
 
     createContextMenu(items, clientX, clientY);
 }
+
+/**
+ * Show a context menu for a placed component. Currently exposes "Show 3D",
+ * which opens the interactive 3D model viewer in a floating pop-out. The
+ * caller only invokes this when the component actually carries an OBJ model.
+ * @param {object} app
+ * @param {any} component - The component instance (has `definition.model3dObj`).
+ * @param {number} clientX
+ * @param {number} clientY
+ */
+export function showComponentContextMenu(app, component, clientX, clientY) {
+    const objText = component?.definition?.model3dObj;
+    if (!objText) return;
+
+    createContextMenu([{
+        text: 'Show 3D',
+        onClick: () => {
+            const title = component.reference
+                ? `${component.reference} \u2014 3D Model`
+                : '3D Model';
+            import('../../components/Model3DPopout.js')
+                .then(({ openModel3DPopout }) => openModel3DPopout({ objText, title }))
+                .catch(err => console.error('Failed to open 3D pop-out:', err));
+        }
+    }], clientX, clientY);
+}
+

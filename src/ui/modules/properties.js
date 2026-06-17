@@ -445,6 +445,14 @@ export function updatePropertiesPanel(app, selection) {
         const div = document.createElement('div');
         div.className = 'prop-actions';
 
+        if (selection.length === 1 && selection[0].definition?.model3dObj) {
+            const show3dBtn = document.createElement('button');
+            show3dBtn.title = 'Show 3D model';
+            show3dBtn.id = 'propShow3D';
+            show3dBtn.textContent = '🧊 Show 3D';
+            div.appendChild(show3dBtn);
+        }
+
         if (selection.length === 1 && canDecomposeRoundedCorners(selection[0]) && !allLocked) {
             const decomposeBtn = document.createElement('button');
             decomposeBtn.title = 'Convert rounded corners into editable arc edges';
@@ -512,6 +520,19 @@ function _bindActionButtons(app) {
     const flipVBtn = document.getElementById('propFlipV');
     if (flipVBtn) {
         flipVBtn.addEventListener('click', () => app._flipComponentV());
+    }
+    const show3dBtn = document.getElementById('propShow3D');
+    if (show3dBtn) {
+        show3dBtn.addEventListener('click', () => {
+            const sel = app.selection?.getSelection?.() || [];
+            const comp = sel.length === 1 ? sel[0] : null;
+            const objText = comp?.definition?.model3dObj;
+            if (!objText) return;
+            const title = comp.reference ? `${comp.reference} — 3D Model` : '3D Model';
+            import('../../components/Model3DPopout.js')
+                .then(({ openModel3DPopout }) => openModel3DPopout({ objText, title }))
+                .catch(err => console.error('Failed to open 3D pop-out:', err));
+        });
     }
 }
 
