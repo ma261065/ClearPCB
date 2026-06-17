@@ -39,6 +39,126 @@ export function compactObjText(objText) {
     }).join('\n');
 }
 
+/**
+ * Default mesh-decimation cell size (mm) applied to supplier 3D models on
+ * fetch. 0.05 mm is visually lossless for typical SMD parts while removing
+ * ~90% of the triangles. Raise for smaller files at the cost of facet detail.
+ */
+export const MODEL_SIMPLIFY_GRID_MM = 0.05;
+
+/**
+ * Aggressively shrink an OBJ string by mesh decimation (vertex clustering).
+ *
+ * Supplier 3D models are wildly over-tessellated for our use — a single
+ * passive can ship 30-40k triangles where a few hundred render identically at
+ * the sizes the board viewer shows. This collapses the mesh by snapping every
+ * vertex to a {@link gridMm}-spaced grid, merging all vertices in a cell to
+ * their centroid, and dropping triangles that collapse to a line. It also
+ * discards the `vn`/`vt` lines and the `//` normal/texcoord refs on faces,
+ * which {@link parseObjModel} and the renderer ignore entirely (the renderer
+ * recomputes vertex normals), so they are pure dead weight.
+ *
+ * Inline materials (`newmtl`/`Kd`/`endmtl`) and per-face colours are preserved:
+ * faces are re-grouped under their `usemtl` so region colours stay correct.
+ * Lossy on geometry (a deliberate quality-for-size trade) — run at fetch time,
+ * NOT idempotently at save (re-running shrinks further). Returns the input
+ * unchanged if it cannot be parsed.
+ *
+ * @param {string} objText raw Wavefront OBJ text
+ * @param {{gridMm?:number}} [opts] gridMm: cluster cell size in mm (bigger = smaller/coarser; 0.05 is near-lossless for typical parts)
+ * @returns {string}
+ */
+export function simplifyObjModel(objText, opts = {}) {
+    if (!objText) return objText;
+    const gridMm = opts.gridMm ?? 0.05;
+    if (!(gridMm > 0)) return objText;
+
+    /** @type {Array<[number,number,number]>} */
+    const verts = [];
+    /** Material definition blocks, emitted verbatim up front. */
+    const mtlLines = [];
+    /** @type {Map<string, Array<[number,number,number]>>} material name → triangles (vertex indices, 0-based) */
+    const groups = new Map();
+    let curMtl = '__default__';
+    let inMtl = false;
+
+    for (const raw of objText.split('\n')) {
+        const line = raw.trim();
+        if (!line) continue;
+        const sp = line.indexOf(' ');
+        const kw = sp < 0 ? line : line.slice(0, sp);
+        const rest = sp < 0 ? '' : line.slice(sp + 1).trim();
+        if (kw === 'v') {
+            const p = rest.split(/\s+/);
+            verts.push([+p[0], +p[1], +p[2]]);
+        } else if (kw === 'newmtl') {
+            inMtl = true;
+            mtlLines.push(line);
+        } else if (kw === 'Kd' || kw === 'Ka' || kw === 'Ks' || kw === 'Ns' || kw === 'd' || kw === 'Tr' || kw === 'illum' || kw === 'Ke' || kw === 'Ni') {
+            if (inMtl) mtlLines.push(line);
+        } else if (kw === 'endmtl') {
+            inMtl = false;
+            mtlLines.push(line);
+        } else if (kw === 'usemtl') {
+            curMtl = rest || '__default__';
+            if (!groups.has(curMtl)) groups.set(curMtl, []);
+        } else if (kw === 'f') {
+            const p = rest.split(/\s+/);
+            const idx = p.map((tok) => parseInt(tok.split('/')[0], 10) - 1);
+            if (idx.length < 3 || idx.some((i) => i < 0 || Number.isNaN(i))) continue;
+            let bucket = groups.get(curMtl);
+            if (!bucket) { bucket = []; groups.set(curMtl, bucket); }
+            // Fan-triangulate, matching parseObjModel.
+            for (let i = 1; i + 1 < idx.length; i++) bucket.push([idx[0], idx[i], idx[i + 1]]);
+        }
+    }
+    if (!verts.length || !groups.size) return objText;
+
+    // Cluster vertices to a grid; each occupied cell becomes one centroid vertex.
+    const inv = 1 / gridMm;
+    /** @type {Map<string, number>} cell key → new vertex index (0-based) */
+    const cellId = new Map();
+    /** @type {Array<[number,number,number,number]>} accumulator [sx,sy,sz,count] */
+    const acc = [];
+    const remap = new Int32Array(verts.length);
+    for (let i = 0; i < verts.length; i++) {
+        const v = verts[i];
+        const key = Math.round(v[0] * inv) + ',' + Math.round(v[1] * inv) + ',' + Math.round(v[2] * inv);
+        let id = cellId.get(key);
+        if (id === undefined) {
+            id = acc.length;
+            cellId.set(key, id);
+            acc.push([0, 0, 0, 0]);
+        }
+        remap[i] = id;
+        const a = acc[id];
+        a[0] += v[0]; a[1] += v[1]; a[2] += v[2]; a[3]++;
+    }
+
+    const r4 = (/** @type {number} */ n) => {
+        const x = Math.round(n * 1e4) / 1e4;
+        return Number.isFinite(x) ? String(x) : '0';
+    };
+    const out = [];
+    for (const m of mtlLines) out.push(m);
+    // Centroid vertex per cell (1-indexed in OBJ).
+    for (const a of acc) {
+        out.push('v ' + r4(a[0] / a[3]) + ' ' + r4(a[1] / a[3]) + ' ' + r4(a[2] / a[3]));
+    }
+    // Faces, grouped by material, remapped and de-degenerated.
+    for (const [mtl, tris] of groups) {
+        if (!tris.length) continue;
+        let emittedUse = false;
+        for (const t of tris) {
+            const a = remap[t[0]], b = remap[t[1]], c = remap[t[2]];
+            if (a === b || b === c || a === c) continue; // collapsed to a line/point
+            if (!emittedUse && mtl !== '__default__') { out.push('usemtl ' + mtl); emittedUse = true; }
+            out.push('f ' + (a + 1) + ' ' + (b + 1) + ' ' + (c + 1));
+        }
+    }
+    return out.join('\n');
+}
+
 export class LCSCFetcher {
     /** Initialise API endpoints, CORS proxies and in-memory caches. */
     constructor() {
@@ -319,24 +439,18 @@ export class LCSCFetcher {
                 const objText = result.text;
                 if (objText && objText.includes('v ')) {
                     console.log('Successfully fetched OBJ file, size:', objText.length);
-                    return this._compactObj(objText);
+                    // Supplier models are wildly over-tessellated (a TSSOP ships
+                    // ~38k triangles, ~1.3 MB). Decimate once on entry: a 0.05 mm
+                    // cluster grid is visually lossless at the sizes the board
+                    // viewer shows yet shrinks the stored model ~90%, which flows
+                    // straight through to the saved .cpcb document.
+                    const simplified = simplifyObjModel(objText, { gridMm: MODEL_SIMPLIFY_GRID_MM });
+                    console.log('Simplified OBJ size:', simplified.length, `(${(simplified.length / objText.length * 100).toFixed(0)}% of original)`);
+                    return simplified;
                 }
             }
         }
         return null;
-    }
-
-    /**
-     * Shrink an OBJ string for storage by rounding geometry coordinates to 4
-     * decimal places (0.1 µm — far finer than the 3D viewer needs). EasyEDA
-     * ships 6-decimal vertices/normals, which bloats the serialised document
-     * for no visual benefit. Only numeric data on geometry lines (v, vn, vt) is
-     * touched; material/face/group lines pass through unchanged.
-     * @param {string} objText
-     * @returns {string}
-     */
-    _compactObj(objText) {
-        return compactObjText(objText);
     }
 
     /**
