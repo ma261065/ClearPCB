@@ -29,7 +29,11 @@
                     <div class="ribbon-group-title">File</div>
                     <div class="ribbon-group-items">
                         <button id="ribbonNew" title="New (Ctrl+N)">📄 New</button>
-                        <button id="ribbonOpen" title="Open (Ctrl+O)">📂 Open</button>
+                        <div class="dropdown split-dropdown" id="ribbonOpenDropdown">
+                            <button id="ribbonOpen" title="Open (Ctrl+O)">📂 Open</button>
+                            <button id="ribbonOpenRecent" class="dropdown-caret" title="Recent files" aria-haspopup="true" aria-label="Recent files">▾</button>
+                            <div class="dropdown-menu" id="ribbonRecentMenu"></div>
+                        </div>
                         <div class="dropdown" id="ribbonImportDropdown">
                             <button id="ribbonImport" title="Import from other formats">📥 Import ▾</button>
                             <div class="dropdown-menu" id="ribbonImportMenu">
@@ -235,7 +239,11 @@
                     <div class="ribbon-group-title">File</div>
                     <div class="ribbon-group-items">
                         <button id="pcbRibbonNew" title="New (Ctrl+N)">📄 New</button>
-                        <button id="pcbRibbonOpen" title="Open (Ctrl+O)">📂 Open</button>
+                        <div class="dropdown split-dropdown" id="pcbRibbonOpenDropdown">
+                            <button id="pcbRibbonOpen" title="Open (Ctrl+O)">📂 Open</button>
+                            <button id="pcbRibbonOpenRecent" class="dropdown-caret" title="Recent files" aria-haspopup="true" aria-label="Recent files">▾</button>
+                            <div class="dropdown-menu" id="pcbRibbonRecentMenu"></div>
+                        </div>
                         <div class="dropdown" id="pcbRibbonImportDropdown">
                             <button id="pcbRibbonImport" title="Import from other formats">📥 Import ▾</button>
                             <div class="dropdown-menu" id="pcbRibbonImportMenu">
@@ -450,6 +458,9 @@
                 <div class="status-spacer"></div>
                 <div class="status-item status-filename">
                     <span class="value" id="pcbModeStatus">Active: Select | Top Layer</span>
+                </div>
+                <div class="status-item status-filename">
+                    <span class="value" id="pcbDocTitle">untitled.json</span>
                 </div>
             </div>
         </div>

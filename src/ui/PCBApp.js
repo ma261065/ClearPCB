@@ -147,7 +147,8 @@ export default class PCBApp {
             gridSnap: document.getElementById('pcbGridSnap'),
             viewportInfo: document.getElementById('pcbViewportInfo'),
             zoomPercent: document.getElementById('pcbZoomPercent'),
-            modeStatus: document.getElementById('pcbModeStatus')
+            modeStatus: document.getElementById('pcbModeStatus'),
+            docTitle: document.getElementById('pcbDocTitle')
         };
 
         this._initialized = false;
@@ -404,6 +405,10 @@ export default class PCBApp {
 
         this.viewport.onViewChanged = () => {
             if (!this._active) return;
+            // A track context menu is anchored to a screen position but refers
+            // to a board location; any zoom or pan (wheel, +/- keys, arrow-key
+            // pan, buttons, drag) makes it stale, so dismiss it on view change.
+            dismissTrackContextMenu();
             this._updateViewportStatus();
             // Selection halo node handles are sized in screen pixels, so they
             // must be redrawn when the zoom scale changes to stay constant on
@@ -1338,7 +1343,7 @@ export default class PCBApp {
         if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S')) {
             const w = /** @type {any} */ (window);
             const result = e.altKey ? w.bootstrap?.project?.saveAs() : w.bootstrap?.project?.save();
-            Promise.resolve(result).then((r) => { if (r?.success) w.app?._showSaveToast?.('Saved'); });
+            Promise.resolve(result).then((r) => { if (r?.success) this._showSaveToast('Saved'); });
             return true;
         }
 
@@ -1590,6 +1595,33 @@ export default class PCBApp {
     _markDirty() {
         this._isDirty = true;
         /** @type {any} */ (window).app?._updateTitle?.();
+    }
+
+    /**
+     * Show a transient "Saved" toast anchored to the PCB status-bar filename.
+     * Mirrors the schematic editor's toast, but anchors to the PCB filename so
+     * it appears in the right place while the PCB view is active (the schematic
+     * docTitle is hidden then).
+     * @param {string} [text]
+     */
+    _showSaveToast(text = 'Saved') {
+        const anchor = this.status.docTitle || document.getElementById('pcbDocTitle');
+        if (!anchor) return;
+        const rect = anchor.getBoundingClientRect();
+        const existing = document.getElementById('ribbon-save-toast');
+        if (existing) existing.remove();
+        const toast = document.createElement('div');
+        toast.id = 'ribbon-save-toast';
+        toast.className = 'ribbon-save-toast';
+        toast.textContent = text;
+        toast.style.left = `${rect.left + rect.width / 2}px`;
+        toast.style.top = `${rect.top - 28}px`;
+        document.body.appendChild(toast);
+        requestAnimationFrame(() => toast.classList.add('show'));
+        window.setTimeout(() => {
+            toast.classList.remove('show');
+            window.setTimeout(() => toast.remove(), 200);
+        }, 900);
     }
 
     /**

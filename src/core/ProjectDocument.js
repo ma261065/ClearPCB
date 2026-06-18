@@ -132,6 +132,8 @@ export class ProjectDocument {
     async newDocument() { return this._lifecycle.new?.(); }
     /** Open a document from disk (prompts if unsaved). */
     async open() { return this._lifecycle.open?.(); }
+    /** Re-open a file from the recents list (prompts if unsaved). */
+    async openRecent(name) { return this._lifecycle.openRecent?.(name); }
     /** Save the document, prompting for a location if needed. */
     async save() { return this._lifecycle.save?.(); }
     /** Save the document to a new location. */

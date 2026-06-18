@@ -805,6 +805,70 @@ body {
     border: 1px solid var(--accent-color);
 }
 
+/* Open split-button: the Open button and the recents ▾ caret read as one
+   control. The caret toggles the recents dropdown; Open still opens a file. */
+.split-dropdown {
+    display: inline-flex;
+    align-items: stretch;
+}
+
+.split-dropdown > #ribbonOpen,
+.split-dropdown > #pcbRibbonOpen {
+    border-top-right-radius: 0;
+    border-bottom-right-radius: 0;
+}
+
+.dropdown-caret {
+    padding: 0 5px;
+    border-top-left-radius: 0;
+    border-bottom-left-radius: 0;
+    border-left: 1px solid var(--border-color);
+    font-size: 10px;
+    line-height: 1;
+}
+
+/* Recent-file rows: a wide "open" item plus a small remove (×) affordance. */
+.dropdown-menu .recent-row {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+}
+
+.recent-row .recent-open {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+.recent-row .recent-remove {
+    flex: 0 0 auto;
+    background: transparent;
+    border: none;
+    color: var(--text-secondary, #888);
+    cursor: pointer;
+    font-size: 14px;
+    line-height: 1;
+    padding: 4px 6px;
+    border-radius: 4px;
+}
+
+.recent-row .recent-remove:hover {
+    background: var(--accent-color);
+    color: #fff;
+}
+
+.dropdown-item.recent-empty {
+    color: var(--text-secondary, #888);
+    cursor: default;
+    font-style: italic;
+}
+
+.dropdown-item.recent-empty:hover {
+    background: transparent;
+}
+
 .ribbon-net-dropdown {
     position: relative;
     display: inline-flex;

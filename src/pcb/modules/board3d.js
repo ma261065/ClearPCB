@@ -2044,7 +2044,8 @@ const CPCB3D_CSS = `
   [data-act="2dtop"],[data-act="2dbottom"],[data-act="2dsave"]{display:none}
   .cpcb3d-host.cpcb3d-mode2d [data-act="parts"],
   .cpcb3d-host.cpcb3d-mode2d [data-act="top"],
-  .cpcb3d-host.cpcb3d-mode2d [data-act="iso"]{display:none}
+  .cpcb3d-host.cpcb3d-mode2d [data-act="iso"],
+  .cpcb3d-host.cpcb3d-mode2d [data-act="3dsave"]{display:none}
   .cpcb3d-host.cpcb3d-mode2d [data-act="2dtop"],
   .cpcb3d-host.cpcb3d-mode2d [data-act="2dbottom"],
   .cpcb3d-host.cpcb3d-mode2d [data-act="2dsave"]{display:inline-block}
@@ -2105,7 +2106,7 @@ function ensure3DStyles(doc) {
  *   spinner:HTMLElement, cover:HTMLElement, btnParts:HTMLElement,
  *   btnTop:HTMLElement, btnIso:HTMLElement, btnFit:HTMLElement,
  *   btn2dTop:HTMLElement, btn2dBottom:HTMLElement, btn2dSave:HTMLElement,
- *   btnPop:HTMLElement}}
+ *   btn3dSave:HTMLElement, btnPop:HTMLElement}}
  */
 function build3DHost(doc) {
     ensure3DStyles(doc);
@@ -2116,6 +2117,7 @@ function build3DHost(doc) {
     <button data-act="parts" title="Show/hide component parts">Parts</button>
     <button data-act="top">Top</button>
     <button data-act="iso">Iso</button>
+    <button data-act="3dsave" title="Save this 3D view as a PNG image">Save Image</button>
     <button data-act="2dtop" title="Show the top of the board">Top</button>
     <button data-act="2dbottom" title="Show the bottom of the board">Bottom</button>
     <button data-act="2dsave" title="Save this view as a PNG image">Save Image</button>
@@ -2143,6 +2145,7 @@ function build3DHost(doc) {
         btn2dTop: q('[data-act="2dtop"]'),
         btn2dBottom: q('[data-act="2dbottom"]'),
         btn2dSave: q('[data-act="2dsave"]'),
+        btn3dSave: q('[data-act="3dsave"]'),
         btnFit: q('[data-act="fit"]'),
         btnPop: q('[data-act="pop"]'),
         hint: q('.cpcb3d-hint'),
@@ -2332,6 +2335,51 @@ class ThreeScene {
         this.controls.update();
         this._updateLights();
         this.renderer.render(this.scene, this.camera);
+    }
+
+    /**
+     * Render one frame synchronously and hand the canvas pixels to a callback
+     * as a PNG Blob. The render and the readback happen in the same task so the
+     * WebGL drawing buffer is still intact (the renderer is created without
+     * preserveDrawingBuffer, so the buffer is cleared after the frame is
+     * composited — reading later would yield a blank image).
+     *
+     * The frame is supersampled: the drawing buffer is temporarily enlarged to
+     * `scale`× the on-screen pixel ratio (the GPU renders extra samples that the
+     * PNG encoder downfilters), so edges, silk text and copper read much
+     * sharper than the live view. The buffer size and pixel ratio are restored
+     * immediately afterwards so the interactive canvas is unaffected.
+     * @param {(blob: Blob|null) => void} cb
+     * @param {number} [scale] Supersample factor applied over the idle DPR.
+     */
+    captureBlob(cb, scale = 3) {
+        if (this._disposed) { cb(null); return; }
+        const cv = this.canvas;
+        const w = cv.clientWidth || 1;
+        const h = cv.clientHeight || 1;
+        // Cap the buffer so a large viewport can't exceed the GPU's max texture
+        // size (commonly 8192/16384); pick the largest scale that still fits.
+        const gl = this.renderer.getContext();
+        const maxDim = gl.getParameter(gl.MAX_TEXTURE_SIZE) || 8192;
+        const targetDpr = this._dprIdle * Math.max(1, scale);
+        const dpr = Math.max(
+            this._dprIdle,
+            Math.min(targetDpr, maxDim / w, maxDim / h),
+        );
+        const prevDpr = this.renderer.getPixelRatio();
+        try {
+            this.renderer.setPixelRatio(dpr);
+            this.renderer.setSize(w, h, false);
+            this.controls.update();
+            this._updateLights();
+            this.renderer.render(this.scene, this.camera);
+            cv.toBlob(cb, 'image/png');
+        } finally {
+            // Restore the live buffer resolution regardless of capture outcome.
+            this.renderer.setPixelRatio(prevDpr);
+            this._resize();
+            this.requestRender();
+        }
     }
 
     /** Begin the per-frame render loop (while the user is interacting). */
@@ -3036,6 +3084,18 @@ export async function openBoard3DViewer(app, opts = {}) {
                 accept: { 'image/png': ['.png'] },
             });
         }, 'image/png');
+    });
+
+    // ── Save Image (3D): export the current orbit view as a PNG ─────────
+    dom.btn3dSave?.addEventListener('click', () => {
+        scene?.captureBlob((blob) => {
+            if (!blob) return;
+            const base = app._exportBaseName?.() || 'board';
+            app._saveBlob?.(blob, `${base}-3d.png`, {
+                description: 'PNG image',
+                accept: { 'image/png': ['.png'] },
+            });
+        });
     });
 
     // ── Parts toggle: show/hide every component body mesh ───────────────

@@ -90,6 +90,7 @@ export default class SchematicApp {
             lifecycle: {
                 new: () => FileTools.newFile(this),
                 open: () => FileTools.openFile(this),
+                openRecent: (name) => FileTools.openRecentFile(this, name),
                 save: () => FileTools.saveFile(this),
                 saveAs: () => FileTools.saveFileAs(this),
                 importEasyEDA: () => FileTools.importEasyEDA(this),
@@ -1565,6 +1566,16 @@ export default class SchematicApp {
     async openFile() {
         if (this.project) return await this.project.open();
         await FileTools.openFile(this);
+    }
+
+    /**
+     * Re-open a file from the recents list (Open ▾ dropdown).
+     * @param {string} name - The recents entry / file name to reopen.
+     * @returns {Promise<void>}
+     */
+    async openRecentFile(name) {
+        if (this.project) return await this.project.openRecent(name);
+        await FileTools.openRecentFile(this, name);
     }
 
     /**

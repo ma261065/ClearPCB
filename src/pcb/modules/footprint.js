@@ -257,8 +257,9 @@ function generateFromShapes(shapes, bbox, source) {
                 else if (layerCode === 2) padLayer = 'bottom';  // back SMD
                 else if (layerCode === 1) padLayer = 'top';     // front SMD
                 else padLayer = 'both';                         // unknown → safer default
-            } else if (parts[7] === 'top' || parts[7] === 'bottom') {
-                // KiCad copper pads carry their side as field [7].
+            } else if (parts[7] === 'top' || parts[7] === 'bottom' || parts[7] === 'both') {
+                // KiCad copper pads carry their side as field [7]
+                // ('top'/'bottom' for SMD, 'both' for through-hole).
                 padLayer = parts[7];
             }
 
@@ -272,9 +273,11 @@ function generateFromShapes(shapes, bbox, source) {
             if (!Number.isFinite(cx) || !Number.isFinite(cy) ||
                 !Number.isFinite(w)  || !Number.isFinite(h)) continue;
 
-            // PAD field [9] = hole radius (official docs), convert to diameter
-            const drillRadius = isEasyEDA && parts.length > 9 ? (parseFloat(parts[9]) || 0) : 0;
-            const drill = drillRadius * 2 * S;
+            // PAD field [9] = hole radius (official docs), convert to diameter.
+            // KiCad pads carry their drill DIAMETER in field [10] instead.
+            const drill = isEasyEDA
+                ? (parts.length > 9 ? (parseFloat(parts[9]) || 0) : 0) * 2 * S
+                : (parts.length > 10 ? (parseFloat(parts[10]) || 0) : 0) * S;
 
             // Map EasyEDA's PAD shape enum onto our internal vocabulary.
             // POLYGON pads are fairly rare; we conservatively treat them as
@@ -841,8 +844,19 @@ export function renderFootprint(fp, ref, x, y, rotation = 0) {
         }
     }
 
-    // Pads → copper layers
-    for (const pad of fp.pads) {
+    // Pads → copper layers.
+    //
+    // Draw larger pads first so smaller ones land on top. A thermal/heatsink
+    // pad (e.g. ESP32-S3-WROOM-1 pad "41") is one big SMD rect plus a grid of
+    // small thru-hole thermal vias sharing the number. In the source order the
+    // big rect sits mid-list and would paint over every via emitted before it,
+    // hiding ~half of them. Sorting by descending area puts the big pad
+    // underneath and keeps all the vias visible, matching KiCad.
+    const padsToRender = [...fp.pads].sort(
+        (a, b) => ((Number(b.width) || 0) * (Number(b.height) || 0))
+                - ((Number(a.width) || 0) * (Number(a.height) || 0))
+    );
+    for (const pad of padsToRender) {
         // Determine target layer(s)
         // Pad layer convention: 'top'|'bottom'|'both' (short form).
         // The SVG groups still use 'top-copper'/'bottom-copper' ids.

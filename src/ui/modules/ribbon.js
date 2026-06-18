@@ -1,4 +1,5 @@
 import { hasClipboard } from './clipboard.js';
+import { bindRecentsDropdown } from './recents.js';
 
 /**
  * Binds all ribbon tab buttons, tool buttons, file commands, edit commands,
@@ -151,6 +152,14 @@ export function bindRibbon(app) {
     get('ribbonOpen')?.addEventListener('click', () => {
         app.openFile();
         app._setActiveRibbonTab('home');
+    });
+
+    // ── Recent files (Open ▾ dropdown) ───────────────────────────
+    bindRecentsDropdown({
+        caretBtn: get('ribbonOpenRecent'),
+        menu: get('ribbonRecentMenu'),
+        getFileManager: () => app.fileManager,
+        openRecent: (name) => app.openRecentFile?.(name),
     });
 
     // ── Import dropdown ──────────────────────────────────────────

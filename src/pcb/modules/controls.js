@@ -1,5 +1,6 @@
 import { updateGridDropdown } from '../../ui/modules/viewport.js';
 import { PCB_LAYERS, buildLayerPanel } from './layers.js';
+import { bindRecentsDropdown } from '../../ui/modules/recents.js';
 
 /**
  * Binds PCB-specific UI controls for tools and layers.
@@ -327,8 +328,6 @@ function bindPcbFileMenu(app) {
     const get = (id) => document.getElementById(id);
     /** The neutral document owner coordinates all file I/O. */
     const project = () => /** @type {any} */ (window).bootstrap?.project;
-    /** The schematic view hosts the shared save-toast UI. */
-    const host = () => /** @type {any} */ (window).app;
 
     get('pcbRibbonNew')?.addEventListener('click', () => {
         project()?.newDocument();
@@ -337,6 +336,14 @@ function bindPcbFileMenu(app) {
     get('pcbRibbonOpen')?.addEventListener('click', () => {
         project()?.open();
         app._setActiveRibbonTab?.('pcb-home');
+    });
+
+    // ── Recent files (Open ▾ dropdown) ───────────────────────────
+    bindRecentsDropdown({
+        caretBtn: get('pcbRibbonOpenRecent'),
+        menu: get('pcbRibbonRecentMenu'),
+        getFileManager: () => project()?.fileManager,
+        openRecent: (name) => project()?.openRecent(name),
     });
 
     // ── Import dropdown (mirrors the schematic File menu) ────────
@@ -363,11 +370,11 @@ function bindPcbFileMenu(app) {
 
     get('pcbRibbonSave')?.addEventListener('click', async () => {
         const result = await project()?.save();
-        if (result?.success) host()?._showSaveToast?.('Saved');
+        if (result?.success) app._showSaveToast?.('Saved');
     });
     get('pcbRibbonSaveAs')?.addEventListener('click', async () => {
         const result = await project()?.saveAs();
-        if (result?.success) host()?._showSaveToast?.('Saved');
+        if (result?.success) app._showSaveToast?.('Saved');
     });
     get('pcbRibbonExportPdf')?.addEventListener('click', () => app.savePdf());
     get('pcbRibbonPrint')?.addEventListener('click', () => app.print());

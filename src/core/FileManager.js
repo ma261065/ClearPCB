@@ -30,13 +30,18 @@ function _flashAutoSaveIndicator() {
 }
 
 // ==================== FileSystemFileHandle persistence ====================
-// A FileSystemFileHandle is structured-cloneable, so it can be stored in
-// IndexedDB and retrieved after a page reload (its identity and permission
-// grant survive). localStorage can't hold it (JSON-only), which is why an
-// auto-save recovered after reload would otherwise lose the handle and force
-// "Save As". We keep a tiny dedicated DB keyed by file name.
+// ==================== Recent files + file handles (IndexedDB) ============
+// One store, one source of truth. Each record is
+//   { name, path, ts, handle }
+// keyed by file name. The `handle` is a FileSystemFileHandle — structured-
+// cloneable, so IndexedDB can persist it (identity + permission grant survive a
+// reload); localStorage can't hold it (JSON-only). Keeping the recents metadata
+// (path/ts) in the SAME record means the Open ▾ list and the re-openable handle
+// can never disagree and there's no cross-store write race. The list is just
+// every record sorted by `ts` (newest first), capped at MAX_RECENTS.
 const HANDLE_DB_NAME = 'clearpcb-file-handles';
 const HANDLE_STORE = 'handles';
+const MAX_RECENTS = 10;
 
 function _openHandleDB() {
     return new Promise((resolve, reject) => {
@@ -53,47 +58,151 @@ function _openHandleDB() {
     });
 }
 
-async function _idbPutHandle(fileName, handle) {
-    if (!fileName || !handle) return;
-    try {
-        const db = await _openHandleDB();
-        await new Promise((resolve, reject) => {
-            const tx = db.transaction(HANDLE_STORE, 'readwrite');
-            tx.objectStore(HANDLE_STORE).put(handle, fileName);
-            tx.oncomplete = () => resolve(undefined);
-            tx.onerror = () => reject(tx.error);
-        });
-        db.close();
-    } catch { /* IndexedDB unavailable (private mode etc.) — non-fatal */ }
+/**
+ * Normalise a stored value to a record. Tolerates the legacy format where the
+ * bare FileSystemFileHandle was stored directly (no metadata wrapper).
+ * @returns {{name:string, path:string, ts:number, handle:any}|null}
+ */
+function _asRecord(name, value) {
+    if (!value) return null;
+    // New format: a wrapper object carrying the handle.
+    if (value.handle) {
+        return {
+            name: value.name || name,
+            path: value.path || value.name || name,
+            ts: value.ts || 0,
+            handle: value.handle,
+        };
+    }
+    // Legacy format: the value IS the handle (has a `kind`/`getFile`).
+    if (typeof value.getFile === 'function' || value.kind) {
+        return { name, path: name, ts: 0, handle: value };
+    }
+    return null;
 }
 
-async function _idbGetHandle(fileName) {
-    if (!fileName) return null;
+async function _idbGetRecord(name) {
+    if (!name) return null;
     try {
         const db = await _openHandleDB();
-        const handle = await new Promise((resolve, reject) => {
+        const value = await new Promise((resolve, reject) => {
             const tx = db.transaction(HANDLE_STORE, 'readonly');
-            const r = tx.objectStore(HANDLE_STORE).get(fileName);
+            const r = tx.objectStore(HANDLE_STORE).get(name);
             r.onsuccess = () => resolve(r.result || null);
             r.onerror = () => reject(r.error);
         });
         db.close();
-        return handle;
+        return _asRecord(name, value);
     } catch { return null; }
 }
 
-async function _idbDeleteHandle(fileName) {
-    if (!fileName) return;
+async function _idbGetHandle(name) {
+    const rec = await _idbGetRecord(name);
+    return rec ? rec.handle : null;
+}
+
+/**
+ * Upsert a recents record. Writes name/path/ts plus the handle in a single
+ * transaction. If `handle` is omitted, the existing stored handle is preserved
+ * (so bumping a recent's position never drops its handle).
+ * @param {string} name
+ * @param {{path?:string, handle?:any}} [opts]
+ */
+async function _idbPutRecord(name, { path, handle } = {}) {
+    if (!name) return;
+    try {
+        const existing = await _idbGetRecord(name);
+        const record = {
+            name,
+            path: path || existing?.path || name,
+            ts: Date.now(),
+            handle: handle || existing?.handle || null,
+        };
+        const db = await _openHandleDB();
+        await new Promise((resolve, reject) => {
+            const tx = db.transaction(HANDLE_STORE, 'readwrite');
+            tx.objectStore(HANDLE_STORE).put(record, name);
+            tx.oncomplete = () => resolve(undefined);
+            tx.onerror = () => reject(tx.error);
+            tx.onabort = () => reject(tx.error || new Error('tx aborted'));
+        });
+        db.close();
+        await _idbPruneRecents();
+    } catch (e) { console.warn('[recents] failed to store record for', name, e); }
+}
+
+async function _idbDeleteRecord(name) {
+    if (!name) return;
     try {
         const db = await _openHandleDB();
         await new Promise((resolve) => {
             const tx = db.transaction(HANDLE_STORE, 'readwrite');
-            tx.objectStore(HANDLE_STORE).delete(fileName);
+            tx.objectStore(HANDLE_STORE).delete(name);
             tx.oncomplete = () => resolve(undefined);
             tx.onerror = () => resolve(undefined);
         });
         db.close();
     } catch { /* non-fatal */ }
+}
+
+/** Drop the oldest records beyond MAX_RECENTS so the store stays bounded. */
+async function _idbPruneRecents() {
+    try {
+        const db = await _openHandleDB();
+        const entries = await new Promise((resolve) => {
+            const tx = db.transaction(HANDLE_STORE, 'readonly');
+            const store = tx.objectStore(HANDLE_STORE);
+            const rv = store.getAll();
+            const rk = store.getAllKeys();
+            let values = [], keys = [];
+            rv.onsuccess = () => { values = rv.result || []; };
+            rk.onsuccess = () => { keys = rk.result || []; };
+            tx.oncomplete = () => resolve(keys.map((k, i) => ({ key: k, ts: (values[i] && values[i].ts) || 0 })));
+            tx.onerror = () => resolve([]);
+        });
+        const stale = entries
+            .sort((a, b) => b.ts - a.ts)
+            .slice(MAX_RECENTS);
+        if (stale.length) {
+            await new Promise((resolve) => {
+                const tx = db.transaction(HANDLE_STORE, 'readwrite');
+                const store = tx.objectStore(HANDLE_STORE);
+                for (const e of stale) store.delete(e.key);
+                tx.oncomplete = () => resolve(undefined);
+                tx.onerror = () => resolve(undefined);
+            });
+        }
+        db.close();
+    } catch { /* non-fatal */ }
+}
+
+/**
+ * Return all recents records, newest first, capped at MAX_RECENTS.
+ * @returns {Promise<Array<{name:string, path:string, ts:number}>>}
+ */
+async function _idbGetAllRecents() {
+    try {
+        const db = await _openHandleDB();
+        const values = await new Promise((resolve, reject) => {
+            const tx = db.transaction(HANDLE_STORE, 'readonly');
+            const r = tx.objectStore(HANDLE_STORE).getAll();
+            r.onsuccess = () => resolve(r.result || []);
+            r.onerror = () => reject(r.error);
+        });
+        const keys = await new Promise((resolve) => {
+            const tx = db.transaction(HANDLE_STORE, 'readonly');
+            const r = tx.objectStore(HANDLE_STORE).getAllKeys();
+            r.onsuccess = () => resolve(r.result || []);
+            r.onerror = () => resolve([]);
+        });
+        db.close();
+        return values
+            .map((v, i) => _asRecord(String(keys[i]), v))
+            .filter((r) => r)
+            .sort((a, b) => b.ts - a.ts)
+            .slice(0, MAX_RECENTS)
+            .map(({ name, path, ts }) => ({ name, path, ts }));
+    } catch { return []; }
 }
 
 export class FileManager {
@@ -235,8 +344,9 @@ export class FileManager {
             this.setFileName(handle.name);
             this.setFilePath(handle.name);
             this.setDirty(false);
-            // Persist the handle so it survives a reload + autosave recovery.
-            _idbPutHandle(handle.name, handle);
+            // Persist the handle + recents metadata in one record so it survives
+            // a reload (autosave recovery) and shows in the Open ▾ list.
+            await this._recordRecent(handle.name, handle.name, handle);
             
             return { success: true, fileName: handle.name };
         } catch (err) {
@@ -363,8 +473,9 @@ export class FileManager {
             this.setFileName(handle.name);
             this.setFilePath(handle.name);
             this.setDirty(false);
-            // Persist the handle so it survives a reload + autosave recovery.
-            _idbPutHandle(handle.name, handle);
+            // Persist the handle + recents metadata in one record so it survives
+            // a reload (autosave recovery) and shows in the Open ▾ list.
+            await this._recordRecent(handle.name, handle.name, handle);
             // Immediately autosave the opened document
             this.autoSaveToStorage(data);
             
@@ -377,7 +488,95 @@ export class FileManager {
             return { success: false, error: err.message };
         }
     }
-    
+
+    // ==================== Recent files ====================
+
+    /**
+     * Return the most-recently-used file list (newest first), as stored for
+     * the Open button's dropdown. Each entry is `{name, path, ts}`.
+     * @returns {Promise<Array<{name:string, path:string, ts:number}>>}
+     */
+    getRecentFiles() {
+        return _idbGetAllRecents();
+    }
+
+    /**
+     * Record (or bump to the top of) a file in the recents list, persisting its
+     * handle in the same record. Called after a successful open/save.
+     * @param {string} name File name (the IndexedDB record key).
+     * @param {string} [path] Display path (defaults to name).
+     * @param {any} [handle] FileSystemFileHandle (preserved if omitted).
+     */
+    _recordRecent(name, path, handle) {
+        if (!name) return Promise.resolve();
+        return _idbPutRecord(name, { path, handle });
+    }
+
+    /**
+     * Remove a file from the recents list (which also drops its stored handle,
+     * since both live in one record).
+     * @param {string} name
+     */
+    removeRecent(name) {
+        if (!name) return;
+        _idbDeleteRecord(name);
+    }
+
+    /**
+     * Re-open a file straight from a stored handle (a recents-menu click),
+     * skipping the file picker. The click supplies the user gesture needed to
+     * (re)request read permission. Mirrors {@link openWithFilePicker}'s result
+     * shape so callers can run the same load pipeline.
+     * @param {string} name The recents entry / handle key.
+     * @returns {Promise<{success:boolean, data?:any, fileName?:string, error?:string, missingHandle?:boolean}>}
+     */
+    async openRecent(name) {
+        if (!name) return { success: false, error: 'No file specified' };
+        const handle = await _idbGetHandle(name);
+        if (!handle) {
+            // No stored handle for this entry. This happens when the file was
+            // opened via the input fallback, or when the browser couldn't
+            // persist the FileSystemFileHandle (some configs can't structured-
+            // clone it). The file itself may well still exist, so don't claim
+            // it's gone or drop the recent — just fall back to the normal
+            // picker so the user can re-open it (which re-stores the handle).
+            return this.openWithFilePicker();
+        }
+        try {
+            if (typeof handle.queryPermission === 'function') {
+                const opts = { mode: 'read' };
+                if (await handle.queryPermission(opts) !== 'granted'
+                    && await handle.requestPermission(opts) !== 'granted') {
+                    return { success: false, error: 'Permission to read the file was denied.' };
+                }
+            }
+            const file = await handle.getFile();
+            const text = await file.text();
+            const data = JSON.parse(text);
+
+            this.fileHandle = handle;
+            this.setFileName(handle.name || name);
+            this.setFilePath(handle.name || name);
+            this.setDirty(false);
+            await this._recordRecent(this.fileName, this.filePath, handle);
+            // Immediately autosave the opened document
+            this.autoSaveToStorage(data);
+
+            return { success: true, data, fileName: this.fileName };
+        } catch (err) {
+            if (err && err.name === 'NotFoundError') {
+                // The file was moved or deleted — drop the dead recent.
+                this.removeRecent(name);
+                return { success: false, error: 'The file could not be found (it may have been moved or deleted).' };
+            }
+            if (err && err.name === 'NotAllowedError') {
+                return { success: false, error: 'Permission to read the file was denied.' };
+            }
+            console.error('Open recent failed:', err);
+            return { success: false, error: err.message };
+        }
+    }
+
     /**
      * Open using file input (fallback for all browsers)
      */
@@ -468,10 +667,10 @@ export class FileManager {
             localStorage.setItem(this.autoSavePrefix + 'index', JSON.stringify(index));
             console.log('Auto-saved to localStorage');
             _flashAutoSaveIndicator();
-            // Keep the file handle (if any) persisted alongside the autosave so
+            // Keep the file handle (if any) persisted in its recents record so
             // a post-reload recovery can "Save" back to the original file.
             if (this.fileHandle && this.fileName) {
-                _idbPutHandle(this.fileName, this.fileHandle);
+                _idbPutRecord(this.fileName, { path: this.filePath || this.fileName, handle: this.fileHandle });
             }
             // Reset failure-backoff state on success.
             this._autoSaveBackoffMs = 0;
@@ -549,12 +748,13 @@ export class FileManager {
             const key = this.autoSavePrefix + encodeURIComponent(fileName);
             localStorage.removeItem(key);
             index = index.filter(i => i.fileName !== fileName);
-            _idbDeleteHandle(fileName);
+            // NOTE: the file's recents record (and its handle) is intentionally
+            // NOT removed here — clearing a recovery snapshot must not evict the
+            // file from the Open ▾ list. Recents are pruned/removed separately.
         } else {
             // Remove all autosaves
             for (const entry of index) {
                 localStorage.removeItem(entry.key);
-                _idbDeleteHandle(entry.fileName);
             }
             index = [];
         }

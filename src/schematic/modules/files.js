@@ -295,6 +295,14 @@ export function updateTitle(app) {
         app.ui.docTitle.textContent = `${dirty}${app.fileManager.fileName}`;
         app.ui.docTitle.title = app.fileManager.filePath || app.fileManager.fileName;
     }
+
+    // Mirror the filename into the PCB editor's status bar so both editors
+    // (one shared document) show the same name + dirty indicator.
+    const pcbDocTitle = document.getElementById('pcbDocTitle');
+    if (pcbDocTitle) {
+        pcbDocTitle.textContent = `${dirty}${app.fileManager.fileName}`;
+        pcbDocTitle.title = app.fileManager.filePath || app.fileManager.fileName;
+    }
 }
 
 /**
@@ -466,6 +474,37 @@ export async function openFile(app) {
             app._updateTitle();
             app.fileManager.clearAutoSave();
             console.log('Opened:', result.fileName);
+        } else if (result.error) {
+            app._alert('Failed to open: ' + result.error, { title: 'Open Failed' });
+        }
+    } catch (err) {
+        app._alert('Failed to open file: ' + err.message, { title: 'Open Failed' });
+    }
+}
+
+/**
+ * Re-open a file from the recents list (Open ▾ dropdown) without showing the
+ * file picker. Mirrors {@link openFile} but routes through
+ * `fileManager.openRecent(name)`, which reuses the stored handle.
+ * @param {object} app - Application state.
+ * @param {string} name - The recents entry / file name to reopen.
+ */
+export async function openRecentFile(app, name) {
+    if (app.fileManager.isDirty) {
+        if (!await app._confirm('You have unsaved changes. Open another file anyway?', { title: 'Unsaved Changes', okText: 'Yes', cancelText: 'No', defaultCancel: true })) {
+            return;
+        }
+    }
+
+    try {
+        const result = await app.fileManager.openRecent(name);
+
+        if (result.success) {
+            await app._loadDocument(result.data);
+            app._fitToContent?.();
+            app._updateTitle();
+            app.fileManager.clearAutoSave();
+            console.log('Opened recent:', result.fileName);
         } else if (result.error) {
             app._alert('Failed to open: ' + result.error, { title: 'Open Failed' });
         }

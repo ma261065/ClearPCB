@@ -1,4 +1,5 @@
 import { updateViewportCulling } from './shape-management.js';
+import { dismissAnchorContextMenu } from './context-menu.js';
 
 /**
  * Wires up EventBus listeners (component picker) and viewport callbacks
@@ -76,6 +77,11 @@ export function setupCallbacks(app) {
     };
 
     app.viewport.onViewChanged = (view) => {
+        // A context menu is anchored to a screen position but refers to a board
+        // location; any zoom or pan (wheel, +/- keys, arrow-key pan, buttons,
+        // drag) makes it stale, so dismiss it as soon as the view moves.
+        dismissAnchorContextMenu();
+
         const zoomPercent = Math.round(app.viewport.zoom * 100);
         if (app.ui.zoomPercent) {
             app.ui.zoomPercent.textContent = `${zoomPercent}%`;
