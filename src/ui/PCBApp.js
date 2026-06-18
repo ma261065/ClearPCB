@@ -5506,6 +5506,13 @@ export default class PCBApp {
             this._closeDRCPanel();
         });
 
+        // Suppress the browser/app context menu on the DRC panel.
+        const slidePanel = document.getElementById('pcbDrcSlidePanel');
+        slidePanel?.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+        });
+
         // Keep the leader anchored to its row as the problem list scrolls.
         const body = document.querySelector('#pcbDrcSlidePanel .drc-slide-body');
         body?.addEventListener('scroll', () => {
