@@ -3077,9 +3077,9 @@ export async function openBoard3DViewer(app, opts = {}) {
 
     // ── Save Image: export the current flat 2D view as a PNG ────────────
     dom.btn2dSave?.addEventListener('click', () => {
-        const cv = dom.canvas2d;
-        if (!cv) return;
-        cv.toBlob((blob) => {
+        const b2 = board2d;
+        if (!b2) return;
+        const done = (blob) => {
             if (!blob) return;
             const side = panel.view === 'bottom' ? 'bottom' : 'top';
             const base = app._exportBaseName?.() || 'board';
@@ -3087,7 +3087,9 @@ export async function openBoard3DViewer(app, opts = {}) {
                 description: 'PNG image',
                 accept: { 'image/png': ['.png'] },
             });
-        }, 'image/png');
+        };
+        // Supersampled capture (matches the 3D Save Image quality).
+        b2.captureBlob(done, 3);
     });
 
     // ── Save Image (3D): export the current orbit view as a PNG ─────────

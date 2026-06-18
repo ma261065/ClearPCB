@@ -217,7 +217,11 @@ export class Board2D {
         const cv = this.canvas;
         const cssW = cv.clientWidth || 1;
         const cssH = cv.clientHeight || 1;
-        const dpr = (cv.ownerDocument?.defaultView || window).devicePixelRatio || 1;
+        const baseDpr = (cv.ownerDocument?.defaultView || window).devicePixelRatio || 1;
+        // During a high-res capture we supersample by rendering the backing
+        // store larger than the CSS box; the extra detail is downfiltered by
+        // the PNG encoder so edges, copper and silk read much sharper.
+        const dpr = baseDpr * (this._exportScale || 1);
         if (cv.width !== Math.round(cssW * dpr) || cv.height !== Math.round(cssH * dpr)) {
             cv.width = Math.round(cssW * dpr);
             cv.height = Math.round(cssH * dpr);
@@ -246,6 +250,35 @@ export class Board2D {
         this._drawHoles(ctx);
         this._drawSilk(ctx);
         ctx.restore();
+    }
+
+    /**
+     * Export the current 2D view as a PNG, supersampled for higher quality to
+     * match the 3D viewer's Save Image. Temporarily renders the backing store
+     * at `scale`× the screen device pixels (capped so it can't exceed the
+     * Canvas2D size limit), grabs the blob, then restores the live resolution.
+     * @param {(blob: Blob|null) => void} cb
+     * @param {number} [scale] Supersample factor over the screen DPR.
+     */
+    captureBlob(cb, scale = 3) {
+        const cv = this.canvas;
+        const cssW = cv.clientWidth || 1;
+        const cssH = cv.clientHeight || 1;
+        const baseDpr = (cv.ownerDocument?.defaultView || window).devicePixelRatio || 1;
+        // Keep each dimension within the Canvas2D limit (~8192 in some browsers,
+        // 16384 in most); pick the largest supersample that still fits.
+        const MAX_DIM = 8192;
+        const want = baseDpr * Math.max(1, scale);
+        const fit = Math.min(want, MAX_DIM / cssW, MAX_DIM / cssH);
+        this._exportScale = Math.max(1, fit / baseDpr);
+        try {
+            this.render();
+            cv.toBlob(cb, 'image/png');
+        } finally {
+            // Restore the live backing-store resolution.
+            this._exportScale = 0;
+            this.render();
+        }
     }
 
     /** Rounded board substrate with a bare-FR4 edge stroke. */
