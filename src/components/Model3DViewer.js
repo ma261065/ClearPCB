@@ -17,7 +17,8 @@ import {
     ArcballController,
     parseObjModel,
     meshToGeometry,
-    makeMaterial,
+    makeComponentMaterial,
+    makeComponentGroupMaterials,
 } from '../pcb/modules/board3d.js';
 
 export class Model3DViewer {
@@ -46,6 +47,12 @@ export class Model3DViewer {
             canvas,
             antialias: true,
             alpha: true,            // adopt the panel background
+            // meshToGeometry splits the OBJ into one draw group per material so
+            // setModel can give each a polygonOffset — that's what stops the
+            // printed markings/logos (authored coincident with the body shell)
+            // from z-fighting. NOTE: logarithmicDepthBuffer MUST stay off — it
+            // writes depth via gl_FragDepth in the shader, which bypasses
+            // glPolygonOffset and makes the offset (and thus the fix) a no-op.
         });
         renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
         renderer.setSize(w, h, false);
@@ -104,15 +111,29 @@ export class Model3DViewer {
 
         this._clearMesh();
 
-        const geo = meshToGeometry({ verts: parsed.vertices, faces: parsed.faces });
+        const geo = meshToGeometry({ verts: parsed.vertices, faces: parsed.faces }, true);
         // OBJ models are authored Z-up; the arcball world is Y-up. Stand the
         // model upright so it spins about its vertical axis.
         geo.rotateX(-Math.PI / 2);
         geo.center();
         geo.computeBoundingSphere();
 
-        this._material = makeMaterial();
-        const mesh = new THREE.Mesh(geo, this._material);
+        this._material = null;
+        let meshMaterial;
+        // meshToGeometry split the model into one draw group per material
+        // colour, preserving the OBJ's authoring order. makeComponentGroupMaterials
+        // gives each group a distinct stepped polygonOffset so coincident
+        // markings/pads on the shell don't z-fight (see that helper). The board
+        // view applies the identical fix to placed bodies.
+        const counts = geo.userData.groupVertCounts || [];
+        if (counts.length > 1) {
+            this._materials = makeComponentGroupMaterials(counts);
+            meshMaterial = this._materials;
+        } else {
+            this._material = makeComponentMaterial();
+            meshMaterial = this._material;
+        }
+        const mesh = new THREE.Mesh(geo, meshMaterial);
         this.scene.add(mesh);
         this._mesh = mesh;
 
@@ -183,6 +204,14 @@ export class Model3DViewer {
         if (this._material) {
             this._material.dispose();
             this._material = null;
+        }
+        if (this._bodyMaterial) {
+            this._bodyMaterial.dispose();
+            this._bodyMaterial = null;
+        }
+        if (this._materials) {
+            for (const m of this._materials) m.dispose();
+            this._materials = null;
         }
     }
 

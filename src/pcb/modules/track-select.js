@@ -29,7 +29,7 @@ import {
     ModifyViaCommand,
     ModifyHoleCommand,
 } from './track-commands.js';
-import { PCB_LAYERS, isLayerLocked, isViaLocked } from './layers.js';
+import { PCB_LAYERS, isLayerLocked, isViaLocked, isLayerVisible, isViaVisible } from './layers.js';
 import { showAlert } from '../../ui/modules/modal.js';
 
 const NS = 'http://www.w3.org/2000/svg';
@@ -58,8 +58,8 @@ export function hitTestTrack(app, worldPos, pxTol = HIT_TOL_PX) {
     const worldTol = pxTol / scale;
 
     // Vias first (smaller targets, should win over coincident traces).
-    // Skip them entirely when the via layers are locked.
-    if (!isViaLocked()) {
+    // Skip them entirely when the via layers are locked or hidden.
+    if (!isViaLocked() && isViaVisible()) {
         for (let i = app.vias.length - 1; i >= 0; i--) {
             const v = app.vias[i];
             const r = (v.diameter || 0.6) / 2 + worldTol;
@@ -70,8 +70,8 @@ export function hitTestTrack(app, worldPos, pxTol = HIT_TOL_PX) {
     }
 
     // Standalone non-plated holes (also small targets on the hole layer).
-    // Skip them when the hole layer is locked (read-only).
-    if (!isLayerLocked('hole')) {
+    // Skip them when the hole layer is locked (read-only) or hidden.
+    if (!isLayerLocked('hole') && isLayerVisible('hole')) {
         for (let i = (app.holes?.length || 0) - 1; i >= 0; i--) {
             const h = app.holes[i];
             const r = (h.diameter || 0.8) / 2 + worldTol;
@@ -82,11 +82,11 @@ export function hitTestTrack(app, worldPos, pxTol = HIT_TOL_PX) {
     }
 
     // Tracks: distance to any segment within (width/2 + tol). Width is
-    // per-edge, so resolve it inside the segment loop. Locked-layer tracks
-    // are not hit-testable.
+    // per-edge, so resolve it inside the segment loop. Locked- or hidden-layer
+    // tracks are not hit-testable.
     for (let i = app.tracks.length - 1; i >= 0; i--) {
         const t = app.tracks[i];
-        if (isLayerLocked(t.layer)) continue;
+        if (isLayerLocked(t.layer) || !isLayerVisible(t.layer)) continue;
         for (const [eid, e] of t.edges) {
             const a = t.nodes.get(e.from);
             const b = t.nodes.get(e.to);
@@ -114,7 +114,7 @@ export function hitTestLockedTrack(app, worldPos, pxTol = HIT_TOL_PX) {
     const scale = app.viewport?.scale || 1;
     const worldTol = pxTol / scale;
 
-    if (isViaLocked()) {
+    if (isViaLocked() && isViaVisible()) {
         for (let i = app.vias.length - 1; i >= 0; i--) {
             const v = app.vias[i];
             const r = (v.diameter || 0.6) / 2 + worldTol;
@@ -126,7 +126,7 @@ export function hitTestLockedTrack(app, worldPos, pxTol = HIT_TOL_PX) {
 
     for (let i = app.tracks.length - 1; i >= 0; i--) {
         const t = app.tracks[i];
-        if (!isLayerLocked(t.layer)) continue;
+        if (!isLayerLocked(t.layer) || !isLayerVisible(t.layer)) continue;
         for (const [eid, e] of t.edges) {
             const a = t.nodes.get(e.from);
             const b = t.nodes.get(e.to);

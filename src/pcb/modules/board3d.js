@@ -3,8 +3,10 @@
  *
  * Opens a pop-up window with a hardware-accelerated 3D view of the PCB and its
  * placed components. EasyEDA/LCSC parts render from the OBJ model carried on
- * the placement; KiCad parts fetch the same STEP models the schematic
- * component picker previews (via {@link STEPPreview}), lazily and cached.
+ * the placement; KiCad parts fetch the same WRL/STEP models the schematic
+ * component picker previews and convert them to the same coloured OBJ
+ * (via {@link resolveObjFromModelUrl}), lazily and cached, so both sources flow
+ * through one body-build pipeline ({@link parseObjModel} + objModelToMesh).
  * Components without an available model fall back to a simple extruded box
  * sized from the footprint bounds.
  *
@@ -314,7 +316,7 @@ export class ArcballController {
         this._win.removeEventListener('pointerup', this._onPointerUp);
     }
 }
-import { STEPPreview } from '../../components/STEPPreview.js';
+import { resolveObjFromModelUrl } from '../../components/model3d-source.js';
 import { getComponentLibrary } from '../../components/index.js';
 import { stringToPolylines, measureText } from './stroke-font.js';
 import { Board2D } from './board2d.js';
@@ -326,16 +328,19 @@ const BOARD_THICKNESS = 1.6;
 const FALLBACK_HEIGHT = 1.2;
 
 /** Colours (0–255 RGB triplets). */
-const COLOR_BOARD = [10, 130, 50];     // EasyEDA solder-mask green (top/bottom faces only)
-const COLOR_BOARD_EDGE = [190, 192, 122]; // bare FR4 substrate (board edges, no mask)
+// 3D lights these (ambient + directional + glint, ~1.6× gain on the up-facing
+// top), so the BASE greens are set darker than the flat 2D fill they should
+// match: lit base ≈ board2d's boardLive rgb(7,82,33) / trackTopLive rgb(18,120,52).
+const COLOR_BOARD = [6, 64, 27];       // EasyEDA solder-mask green (top/bottom faces only)
+const COLOR_BOARD_EDGE = [110, 78, 42]; // bare FR4 substrate (board edges, no mask)
 const COLOR_COMPONENT = [40, 44, 52];  // dark IC body
 const COLOR_FALLBACK = [70, 78, 90];   // generic part
 const COLOR_PAD = [201, 164, 74];      // gold
 // Tracks sit UNDER the solder mask in EasyEDA's 3D view, so they read as
 // slightly-raised green ridges (the copper tints the mask a touch brighter),
 // not the red/blue layer colours used in the flat 2D editor.
-const COLOR_TRACK_TOP = [26, 165, 70];     // top trace under mask (brighter green)
-const COLOR_TRACK_BOTTOM = [16, 142, 58];  // bottom trace under mask (slightly darker)
+const COLOR_TRACK_TOP = [14, 90, 40];      // trace under mask (brighter green)
+const COLOR_TRACK_BOTTOM = COLOR_TRACK_TOP; // copper is copper — same on both sides
 const COLOR_VIA = [184, 134, 11];          // gold plated barrel
 const COLOR_HOLE = [12, 12, 16];           // dark drilled hole
 const COLOR_SILK = [228, 228, 228];        // white silkscreen
@@ -343,10 +348,20 @@ const COLOR_SILK = [228, 228, 228];        // white silkscreen
 /** Surface heights (world Y, mm) for the thin layers on each board face. */
 const Y_TOP = BOARD_THICKNESS;             // top copper plane
 const Y_BOT = 0;                           // bottom copper plane
-const COPPER_EPS = 0.015;                  // copper (tracks) sits just proud of the face
-const PAD_EPS = 0.025;                      // pads sit just above the tracks (avoids
-                                           // coplanar z-fight where a track overlaps a pad)
-const SILK_EPS = 0.035;                    // silk sits just above the pads
+// All thin layers (copper, vias, pads, silk, text) sit EXACTLY on the board
+// face — no world-space Y steps. Earlier builds floated each layer a few µm
+// proud to dodge z-fighting, but those tiny steps shimmered at distance (the
+// projected depth difference falls below depth-buffer precision and the
+// coplanar layers flicker) and showed as visible "sides" on pads when zoomed.
+// Instead the layers are kept perfectly coplanar and separated purely in the
+// DEPTH BUFFER via per-layer polygonOffset (see makeDecalMaterial / the layer
+// materials in ThreeScene): the bias is normalized-depth, slope-scaled and
+// precision-aware, so it resolves coplanar layers deterministically at every
+// camera distance and angle — no shimmer, no steps. Kept at 0 so the old
+// `Y ± EPS` call sites collapse to the exact face plane.
+const COPPER_EPS = 0;                       // copper — coplanar with the face
+const PAD_EPS = 0;                          // pads — coplanar (depth bias beats copper)
+const SILK_EPS = 0;                         // silk — coplanar (depth bias beats pads)
 
 /* ───────────────────────────── mesh builders ────────────────────────────── */
 
@@ -715,52 +730,6 @@ function boardWithHoles(outline, holeList, yBottom, yTop, color, edgeColor) {
 }
 
 /**
- * Convert a parsed STEP geometry into a renderer mesh, positioned for a
- * placement. The model is rotated about the vertical axis by the placement
- * rotation, translated to the placement origin, and dropped so its lowest
- * point rests on the board top surface.
- *
- * @param {{vertices:Array<{x:number,y:number,z:number}>, faces:number[][]}} geom
- * @param {{x:number,y:number,rotation?:number}} pl placement
- * @returns {{verts: Array, faces: Array}|null}
- */
-function stepGeometryToMesh(geom, pl) {
-    if (!geom?.vertices?.length || !geom.faces?.length) return null;
-
-    // Find the model's minimum Z (its base) so it sits on the board.
-    let minZ = Infinity;
-    for (const v of geom.vertices) if (v.z < minZ) minZ = v.z;
-    if (!isFinite(minZ)) minZ = 0;
-
-    const theta = ((pl.rotation || 0) * Math.PI) / 180;
-    const ct = Math.cos(theta);
-    const st = Math.sin(theta);
-
-    // Bottom-side parts hang under the board (growing downward) and are
-    // mirrored; the net mirror matches the 2D pose.
-    const bottom = pl.side === 'bottom';
-    const mir = (!!pl.mirror) !== bottom;
-
-    const verts = geom.vertices.map((v) => {
-        // Mirror in the footprint-local frame (before the placement rotation),
-        // exactly as the 2D `scale(-1,1) … rotate(r)` SVG pose does. Mirroring
-        // after rotation reflects across the wrong axis for rotated parts.
-        const mx = mir ? -v.x : v.x;
-        const rx = mx * ct - v.y * st;
-        const ry = mx * st + v.y * ct;
-        const up = v.z - minZ;
-        return {
-            x: pl.x + rx,
-            y: bottom ? -up : BOARD_THICKNESS + up,
-            z: pl.y + ry,
-        };
-    });
-
-    const faces = geom.faces.map((f) => ({ idx: f, color: COLOR_COMPONENT }));
-    return { verts, faces };
-}
-
-/**
  * Parse an EasyEDA/LCSC OBJ 3D model into vertices and per-face coloured
  * triangles. EasyEDA models are authored in millimetres with Z up and the
  * body centred on the footprint origin — the same convention as KiCad STEP.
@@ -779,6 +748,9 @@ export function parseObjModel(objText) {
     const faces = [];
     let pendingMtl = null;
     let curColor = COLOR_COMPONENT;
+    // Source discriminator: the KiCad WRL/STEP→OBJ converter names materials
+    // `m_<r>_<g>_<b>`; EasyEDA OBJs use numeric names with `endmtl` blocks.
+    let kicadMaterial = false;
 
     for (const raw of objText.split('\n')) {
         const line = raw.trim();
@@ -794,6 +766,7 @@ export function parseObjModel(objText) {
             }
             case 'newmtl':
                 pendingMtl = rest;
+                if (/^m_\d+_\d+_\d+(_body)?$/.test(pendingMtl)) kicadMaterial = true;
                 if (!materials.has(pendingMtl)) materials.set(pendingMtl, null);
                 break;
             case 'Kd':
@@ -825,12 +798,12 @@ export function parseObjModel(objText) {
         }
     }
     if (!vertices.length || !faces.length) return null;
-    return { vertices, faces };
+    return { vertices, faces, source: kicadMaterial ? 'kicad' : 'easyeda' };
 }
 
 /**
  * Transform a parsed OBJ model ({@link parseObjModel}) into a placed mesh.
- * Mirrors {@link stepGeometryToMesh} but preserves per-face material colour.
+ * Preserves per-face material colour.
  *
  * @param {{vertices:Array<{x:number,y:number,z:number}>, faces:Array<{idx:number[], color:number[]}>}} parsed
  * @param {{x:number,y:number,rotation?:number,model3dPlacement?:{dx?:number,dy?:number,rotation?:number,z?:number}}} pl placement
@@ -868,7 +841,16 @@ function objModelToMesh(parsed, pl) {
     // matching footprint corner we must apply −c_rotation here. This is a no-op
     // for the common 0°/180° parts (−180≡180) and correctly 180°-reorients the
     // 90°/270° parts (e.g. a TSSOP whose pin-1 otherwise lands on the far end).
-    const spin = ((-(mp.rotation || 0)) * Math.PI) / 180;
+    //
+    // KiCad WRL/STEP models are authored yawed 180° about the vertical axis
+    // relative to EasyEDA's pin-1 convention, so their body/can otherwise lands
+    // on the opposite footprint end (e.g. the ESP32-S3-WROOM-1 metal can). Add a
+    // 180° spin for KiCad sources — a proper rotation (det +1) that reseats the
+    // body without mirroring it (text stays readable, model stays right-side up).
+    // The Y-reflection (my below) is the standard Z-up→Y-up conversion and is
+    // kept for BOTH sources; only the in-plane yaw differs.
+    const kicadYaw = parsed.source === 'kicad' ? Math.PI : 0;
+    const spin = ((-(mp.rotation || 0)) * Math.PI) / 180 + kicadYaw;
     const sct = Math.cos(spin);
     const sst = Math.sin(spin);
     // Placement rotation (orients the whole footprint on the board).
@@ -1671,10 +1653,11 @@ function buildFillMesh(fills) {
 }
 
 /**
- * Build one combined mesh for standalone vias. Each via is a gold annular pad
- * on both copper faces, a dark drilled centre, and a plated barrel through the
- * board — so it reads clearly from above (the bare barrel alone is buried in
- * the solid board and invisible).
+ * Build one combined mesh for standalone vias. Each via is a real DRILLED,
+ * plated hole: the board (and copper) is bored through at the via's drill (see
+ * rebuildSurfaces), and here we line that bore with a single gold barrel whose
+ * top/bottom rings ARE the annular pads on each face. The open centre reads as
+ * a genuine hole rather than a painted dot — matching the through-hole pads.
  * @param {Array} vias
  * @returns {{verts:Array, faces:Array}}
  */
@@ -1684,15 +1667,13 @@ function buildViaMesh(vias) {
     const yBot = Y_BOT - COPPER_EPS;
     for (const via of vias || []) {
         const ro = (via.diameter || 0.6) / 2;
-        const ri = Math.max(Math.min((via.drill || 0.3) / 2, ro - 0.02), 0.02);
-        // Plated barrel (visible from the side / through the hole).
+        // Inner radius inset just inside the bored wall so the gold barrel
+        // occludes the FR4 bore edge cleanly (no z-fighting on the wall). The
+        // board is bored at drill/2 in rebuildSurfaces; this sits a hair inside.
+        const ri = Math.max(0.05, Math.min((via.drill || 0.3) / 2 - 0.02, ro - 0.02));
+        // Single plated barrel: walls line the bore, top/bottom rings are the
+        // gold annular pads. Open centre ⇒ the drilled hole reads as a hole.
         appendMesh(mesh, tubeMesh(via.x, via.y, ri, ro, yBot, yTop, COLOR_VIA, 16));
-        // Gold annular pads proud of each face.
-        appendMesh(mesh, discMesh(via.x, via.y, ro, yTop, COLOR_VIA, 18));
-        appendMesh(mesh, discMesh(via.x, via.y, ro, yBot, COLOR_VIA, 18));
-        // Dark drilled centre sitting just above the pads so the hole reads.
-        appendMesh(mesh, discMesh(via.x, via.y, ri, yTop + 0.006, COLOR_HOLE, 14));
-        appendMesh(mesh, discMesh(via.x, via.y, ri, yBot - 0.006, COLOR_HOLE, 14));
     }
     return mesh;
 }
@@ -1850,33 +1831,86 @@ function buildTextMesh(app) {
  * @param {{verts:Array<{x:number,y:number,z:number}>, faces:Array<{idx:number[], color:number[]}>}} mesh
  * @returns {THREE.BufferGeometry}
  */
-export function meshToGeometry(mesh) {
-    const positions = [];
-    const colors = [];
+export function meshToGeometry(mesh, groupByColor = false) {
     const col = new THREE.Color();
+    if (!groupByColor) {
+        const positions = [];
+        const colors = [];
+        for (const f of mesh.faces) {
+            const idx = f.idx;
+            if (!idx || idx.length < 3) continue;
+            const c = f.color || [128, 128, 128];
+            // Our colours are authored in sRGB (0–255). three.js treats vertex
+            // colours as linear and the renderer re-encodes to sRGB on output,
+            // so uploading raw sRGB values double-brightens and desaturates them
+            // (the "washed-out" look). Convert sRGB → linear here so they render
+            // true.
+            col.setRGB(c[0] / 255, c[1] / 255, c[2] / 255, THREE.SRGBColorSpace);
+            const r = col.r, g = col.g, b = col.b;
+            for (let i = 1; i + 1 < idx.length; i++) {
+                for (const vi of [idx[0], idx[i], idx[i + 1]]) {
+                    const v = mesh.verts[vi];
+                    if (!v) continue;
+                    positions.push(v.x, v.y, v.z);
+                    colors.push(r, g, b);
+                }
+            }
+        }
+        const geo = new THREE.BufferGeometry();
+        geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+        geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+        geo.computeVertexNormals();
+        return geo;
+    }
+
+    // Grouped path: bucket triangles by face colour so each distinct material
+    // becomes its own draw group. OBJ component models (e.g. ESP32 modules)
+    // author printed markings/logos as faces sitting EXACTLY coincident with the
+    // body shell — no depth precision (not even a log buffer) can separate
+    // truly coplanar faces, but a per-group polygonOffset gives each material a
+    // deterministic depth bias so the marking reliably wins over the shell
+    // instead of z-fighting it. geo.userData.groupVertCounts lets the caller
+    // pick which group is the body (the largest) and offset accordingly.
+    const buckets = new Map();
     for (const f of mesh.faces) {
         const idx = f.idx;
         if (!idx || idx.length < 3) continue;
         const c = f.color || [128, 128, 128];
-        // Our colours are authored in sRGB (0–255). three.js treats vertex
-        // colours as linear and the renderer re-encodes to sRGB on output, so
-        // uploading raw sRGB values double-brightens and desaturates them (the
-        // "washed-out" look). Convert sRGB → linear here so they render true.
-        col.setRGB(c[0] / 255, c[1] / 255, c[2] / 255, THREE.SRGBColorSpace);
-        const r = col.r, g = col.g, b = col.b;
+        const key = `${c[0]},${c[1]},${c[2]}`;
+        let bucket = buckets.get(key);
+        if (!bucket) {
+            col.setRGB(c[0] / 255, c[1] / 255, c[2] / 255, THREE.SRGBColorSpace);
+            bucket = { lin: [col.r, col.g, col.b], pos: [] };
+            buckets.set(key, bucket);
+        }
         for (let i = 1; i + 1 < idx.length; i++) {
             for (const vi of [idx[0], idx[i], idx[i + 1]]) {
                 const v = mesh.verts[vi];
                 if (!v) continue;
-                positions.push(v.x, v.y, v.z);
-                colors.push(r, g, b);
+                bucket.pos.push(v.x, v.y, v.z);
             }
         }
     }
+    const positions = [];
+    const colors = [];
+    const groupVertCounts = [];
     const geo = new THREE.BufferGeometry();
+    let start = 0;
+    let materialIndex = 0;
+    for (const bucket of buckets.values()) {
+        const vertCount = bucket.pos.length / 3;
+        if (!vertCount) continue;
+        for (let k = 0; k < bucket.pos.length; k++) positions.push(bucket.pos[k]);
+        for (let k = 0; k < vertCount; k++) colors.push(bucket.lin[0], bucket.lin[1], bucket.lin[2]);
+        geo.addGroup(start, vertCount, materialIndex);
+        groupVertCounts.push(vertCount);
+        start += vertCount;
+        materialIndex++;
+    }
     geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
     geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
     geo.computeVertexNormals();
+    geo.userData.groupVertCounts = groupVertCounts;
     return geo;
 }
 
@@ -1892,6 +1926,73 @@ export function makeMaterial() {
 }
 
 /**
+ * Material for a component body mesh (OBJ/STEP). Same shaded look the 3D scene
+ * uses for placed bodies — exported so the standalone component preview
+ * ({@link Model3DViewer}) shades models identically to the board view.
+ */
+export function makeComponentMaterial() {
+    return makeMaterial();
+}
+
+/**
+ * Build one shaded material per geometry draw group for a component body whose
+ * geometry was split by colour ({@link meshToGeometry} with groupByColor).
+ *
+ * OBJ component models author printed markings/logos and pads EXACTLY
+ * coincident with the body shell, which z-fight (shimmer) and which no depth
+ * precision can resolve. Each group gets a DISTINCT stepped polygonOffset (in
+ * the OBJ's authoring order: shell first → furthest back, later detail pulled
+ * progressively forward) so no two coincident faces ever share a depth value.
+ * Nothing moves in screen space — KiCad's glPolygonOffset technique. Returns a
+ * material array aligned to the geometry's group materialIndex order.
+ * @param {number[]} groupVertCounts
+ * @returns {any[]}
+ */
+export function makeComponentGroupMaterials(groupVertCounts) {
+    return groupVertCounts.map((_, i) => {
+        const m = makeComponentMaterial();
+        m.polygonOffset = true;
+        m.polygonOffsetFactor = 0;
+        // Later-authored groups pulled forward (more negative = nearer).
+        m.polygonOffsetUnits = -2 * i;
+        return m;
+    });
+}
+
+/**
+ * Material for a thin board-surface layer (copper, vias, pads, silk, text).
+ * Identical look to {@link makeMaterial} but nudged in the DEPTH BUFFER via a
+ * CONSTANT polygonOffset so coplanar layers resolve deterministically with no
+ * world-space Y step (a step shimmers at distance and shows a visible "side").
+ *
+ * Two rules learned the hard way:
+ *  1. `polygonOffsetFactor` is kept at 0 (NOT slope-scaled). A non-zero factor
+ *     scales the bias by the depth SLOPE, so at grazing angles it shoves the
+ *     layer far forward — enough to poke in front of the 1.6 mm bore/edge walls
+ *     and read as a raised lip (the "tracks have depth" artifact).
+ *  2. `polygonOffsetUnits` IS stepped per layer (constant, angle-independent,
+ *     microscopic in world terms). A single shared unit value left overlapping
+ *     coplanar layers — e.g. a track under a via's annular ring — at identical
+ *     depth, so they z-fought (shimmer). Distinct units give each layer its own
+ *     depth slice: copper < via < pad < silk < text, all just above the board.
+ * @param {number} units constant depth-bias units (more negative = nearer)
+ */
+function makeDecalMaterial(units) {
+    const m = makeMaterial();
+    m.polygonOffset = true;
+    // Constant (units-only) bias — NO slope term. polygonOffset writes only a
+    // biased DEPTH value; it never moves geometry in screen space, so larger
+    // units raise nothing visually. The only risk of cranking units is
+    // depth-order bleed: a decal whose biased depth jumps in front of the
+    // near-vertical 1.6 mm bore/edge walls would draw on top of them. The units
+    // below are spaced generously to kill oblique-angle shimmer while staying
+    // far short of the walls.
+    m.polygonOffsetFactor = 0;
+    m.polygonOffsetUnits = units;
+    return m;
+}
+
+/**
  * Material for the bare board. A soft, mostly-matte solder mask: the overhead
  * point light pools into a gentle radial glow on the surface (EasyEDA style)
  * rather than a tight mirror glint, which also keeps shading cheap.
@@ -1903,6 +2004,13 @@ function makeBoardMaterial() {
         side: THREE.DoubleSide,
         roughness: 0.55,
         metalness: 0.0,
+        // Pushed slightly BACK in the depth buffer (positive offset) so the
+        // coplanar surface art (copper/silk/pads, all pulled forward) and the
+        // component-body bases that share the board's top plane reliably win the
+        // depth test against it — no z-fighting at the contact plane.
+        polygonOffset: true,
+        polygonOffsetFactor: 1,
+        polygonOffsetUnits: 1,
     });
 }
 
@@ -1952,7 +2060,7 @@ const CPCB3D_CSS = `
     z-index:2;pointer-events:none}
   .cpcb3d-spinner{position:absolute;inset:38px 0 0 0;display:none;
     flex-direction:column;align-items:center;justify-content:center;gap:14px;
-    z-index:3;background:rgba(21,24,28,.55);color:#cfd6de;font-size:13px;
+    z-index:11;background:rgba(21,24,28,.55);color:#cfd6de;font-size:13px;
     pointer-events:none}
   .cpcb3d-spinner.show{display:flex}
   .cpcb3d-spinner .cpcb3d-ring{width:38px;height:38px;border-radius:50%;
@@ -2054,9 +2162,28 @@ class ThreeScene {
         this.canvas = canvas;
         this.material = makeMaterial();
         this.boardMaterial = makeBoardMaterial();
+        // Per-layer surface materials. Each thin board layer is kept perfectly
+        // coplanar with the board face and given its own CONSTANT depth-bias
+        // slice (makeDecalMaterial) so coplanar layers never z-fight — no
+        // world-space Y step (→ no shimmer at distance, no visible pad "side")
+        // and no slope-scaled bias (→ no peter-panning over the bore/edge
+        // walls). Stack from the board up: copper < via < pad < silk < text;
+        // renderOrder (SURFACE_ORDER) matches so the paint order agrees with the
+        // depth order. Component bodies use the neutral `material`.
+        //
+        // The units are spaced widely: a polygonOffset "unit" is only the
+        // SMALLEST GUARANTEED-resolvable depth increment — at tight spacing the
+        // effective gap can collapse at oblique/far depth and the layers z-fight
+        // again (the "vias shimmer over tracks" bug). Wide constant spacing
+        // keeps every coplanar pair separated at all angles; it raises nothing
+        // visually (depth-only bias) and stays well short of the bore/edge walls.
+        this.copperMaterial = makeDecalMaterial(-16);
+        this.viaMaterial = makeDecalMaterial(-32);
+        this.padMaterial = makeDecalMaterial(-48);
+        this.silkMaterial = makeDecalMaterial(-64);
+        this.textMaterial = makeDecalMaterial(-80);
 
-        this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true,
-            logarithmicDepthBuffer: true });
+        this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
         // Two pixel-ratio tiers. Orbiting renders at the capped ratio (hi-DPI
         // displays otherwise draw 4× the pixels for no visible gain — the main
         // cause of sluggish dragging); the settled frame after interaction ends
@@ -2081,7 +2208,7 @@ class ThreeScene {
         // of the board facing the viewer is always the lit one. Ambient is kept
         // moderate so directional shading stays crisp and colours stay vivid (too
         // much flat fill washes the saturation out).
-        this.scene.add(new THREE.AmbientLight(0xffffff, 0.55));
+        this.scene.add(new THREE.AmbientLight(0xffffff, 1.1));
         this.key = /** @type {any} */ (new THREE.DirectionalLight(0xffffff, 0.85));
         this.scene.add(this.key);
 
@@ -2258,7 +2385,7 @@ class ThreeScene {
         const pos = target.clone().addScaledVector(dir, standoff);
         this.glint.position.copy(pos);
         this.key.position.copy(pos);
-        this.glint.intensity = standoff * standoff * 1.4;
+        this.glint.intensity = standoff * standoff * 1.2;
     }
 
     /**
@@ -2282,10 +2409,24 @@ class ThreeScene {
      * Add a mesh, returning the THREE.Mesh so callers can replace it later.
      * @param {{verts:Array, faces:Array}} mesh
      * @param {any} [material] optional material override
+     * @param {boolean} [groupByColor] split a component body by colour and shade
+     *   each group through a stepped polygonOffset so coincident detail faces
+     *   (markings/pads on the shell) don't z-fight. Ignored if `material` given.
      * @returns {THREE.Mesh}
      */
-    addMesh(mesh, material) {
-        const m = new THREE.Mesh(meshToGeometry(mesh), material || this.material);
+    addMesh(mesh, material, groupByColor = false) {
+        const geo = meshToGeometry(mesh, groupByColor);
+        let mat = material || this.material;
+        let owned = null;
+        if (groupByColor && !material) {
+            const counts = geo.userData.groupVertCounts || [];
+            if (counts.length > 1) {
+                owned = makeComponentGroupMaterials(counts);
+                mat = owned;
+            }
+        }
+        const m = new THREE.Mesh(geo, mat);
+        m.userData.ownedMaterials = owned;
         this.root.add(m);
         this.requestRender();
         return m;
@@ -2295,10 +2436,27 @@ class ThreeScene {
      * Swap the geometry of an existing mesh in place.
      * @param {THREE.Mesh} obj
      * @param {{verts:Array, faces:Array}} mesh
+     * @param {boolean} [groupByColor] see {@link addMesh}; rebuilds the stepped
+     *   per-group materials for the new geometry.
      */
-    replaceMesh(obj, mesh) {
+    replaceMesh(obj, mesh, groupByColor = false) {
         obj.geometry.dispose();
-        obj.geometry = meshToGeometry(mesh);
+        const geo = meshToGeometry(mesh, groupByColor);
+        obj.geometry = geo;
+        if (groupByColor) {
+            if (obj.userData.ownedMaterials) {
+                for (const mm of obj.userData.ownedMaterials) mm.dispose();
+                obj.userData.ownedMaterials = null;
+            }
+            const counts = geo.userData.groupVertCounts || [];
+            if (counts.length > 1) {
+                const owned = makeComponentGroupMaterials(counts);
+                obj.material = owned;
+                obj.userData.ownedMaterials = owned;
+            } else {
+                obj.material = this.material;
+            }
+        }
         this.requestRender();
     }
 
@@ -2310,6 +2468,10 @@ class ThreeScene {
         if (!obj) return;
         this.root.remove(obj);
         obj.geometry?.dispose();
+        if (obj.userData?.ownedMaterials) {
+            for (const mm of obj.userData.ownedMaterials) mm.dispose();
+            obj.userData.ownedMaterials = null;
+        }
         this.requestRender();
     }
 
@@ -2622,7 +2784,7 @@ export async function openBoard3DViewer(app, opts = {}) {
 
     // ── Model fetching (KiCad STEP, cached per footprint) ───────────────
     const fetcher = getComponentLibrary()?.kicadFetcher;
-    /** @type {Map<string, Promise<{vertices:Array,faces:Array}|null>>} */
+    /** @type {Map<string, Promise<string|null>>} footprint → colored OBJ text */
     const modelCache = new Map();
     const fetchModel = (footprint) => {
         if (modelCache.has(footprint)) return modelCache.get(footprint);
@@ -2630,12 +2792,13 @@ export async function openBoard3DViewer(app, opts = {}) {
             try {
                 const avail = await fetcher.checkFootprintAvailability(footprint);
                 if (!avail?.has3d || !avail.modelUrl) return null;
-                const url = fetcher.corsProxy
-                    ? `${fetcher.corsProxy}${encodeURIComponent(avail.modelUrl)}`
-                    : avail.modelUrl;
-                const res = await fetch(url);
-                if (!res.ok) return null;
-                return STEPPreview.parse(await res.text());
+                // Convert via the shared resolver so the async path produces the
+                // SAME colored OBJ (inline `newmtl`/`Kd`) the synchronous
+                // model3dObj path uses — not a flat-grey STEP mesh. This keeps
+                // KiCad bodies coloured AND routed through objModelToMesh (which
+                // applies the KiCad 180° yaw), so both paths render identically.
+                const objText = await resolveObjFromModelUrl(avail.modelUrl, fetcher.corsProxy || '');
+                return objText || null;
             } catch (err) {
                 console.warn('3D model fetch failed for', footprint, err);
                 return null;
@@ -2653,9 +2816,16 @@ export async function openBoard3DViewer(app, opts = {}) {
     /** @type {{board:THREE.Mesh|null,copper:THREE.Mesh|null,via:THREE.Mesh|null,silk:THREE.Mesh|null,text:THREE.Mesh|null,pads:THREE.Mesh|null}} */
     const surf = { board: null, copper: null, via: null, silk: null, text: null, pads: null };
     let outline = null;
-    const swapSurface = (/** @type {string} */ key, /** @type {any} */ data) => {
+    // Painting order for the coplanar board layers (all share one tiny depth
+    // bias, so where two layers overlap the depth test ties and the LATER-drawn
+    // one wins — this fixes the order: board behind, then copper, via, pad, silk
+    // and text on top). Without this the layers would paint in mesh-add order.
+    const SURFACE_ORDER = { board: 0, copper: 1, via: 2, pads: 3, silk: 4, text: 5 };
+    const swapSurface = (/** @type {string} */ key, /** @type {any} */ data, /** @type {any} */ material) => {
         scene.removeMesh(surf[key]);
-        surf[key] = data && data.faces.length ? scene.addMesh(data) : null;
+        const m = data && data.faces.length ? scene.addMesh(data, material) : null;
+        if (m) m.renderOrder = SURFACE_ORDER[key] ?? 0;
+        surf[key] = m;
     };
     rebuildSurfaces = () => {
         const w = app._boardWidth || 100;
@@ -2670,6 +2840,13 @@ export async function openBoard3DViewer(app, opts = {}) {
         for (const h of (app.holes || [])) {
             if (h.diameter > 0) drilledHoles.push({ x: h.x, z: h.y, r: h.diameter / 2, plated: !!h.plated });
         }
+        // Vias are real drilled, plated holes too — bore the board/copper at
+        // each via's drill so the open bore reads as a genuine hole (the gold
+        // barrel from buildViaMesh lines it).
+        for (const via of (app.vias || [])) {
+            const r = (via.drill || 0.3) / 2;
+            if (r > 0) drilledHoles.push({ x: via.x, z: via.y, r, plated: true });
+        }
         const boardHoles = drilledHoles.filter((ho) =>
             ho.x - ho.r > 0 && ho.x + ho.r < w &&
             ho.z - ho.r > -h && ho.z + ho.r < 0);
@@ -2677,6 +2854,7 @@ export async function openBoard3DViewer(app, opts = {}) {
         surf.board = scene.addMesh(
             boardWithHoles(outline, boardHoles, 0, BOARD_THICKNESS, COLOR_BOARD, COLOR_BOARD_EDGE),
             scene.boardMaterial);
+        if (surf.board) surf.board.renderOrder = SURFACE_ORDER.board;
         scene.positionGlint(w / 2, -h / 2, Math.max(w, h));
         // Punch the same drilled holes through the flat copper so tracks/pours
         // crossing a hole are bored out instead of lidding over an open hole.
@@ -2685,17 +2863,17 @@ export async function openBoard3DViewer(app, opts = {}) {
         const copperMesh = buildCopperMesh(app.tracks);
         appendMesh(copperMesh, buildFillMesh(app.copperFills));
         swapSurface('copper', clipMeshToOutline(
-            punchHolesInFlatMesh(copperMesh, drilledHoles), outline));
+            punchHolesInFlatMesh(copperMesh, drilledHoles), outline), scene.copperMaterial);
         const viaMesh = buildViaMesh(app.vias);
         appendMesh(viaMesh, buildHoleMesh(app.holes));
-        swapSurface('via', clipMeshToOutline(viaMesh, outline));
+        swapSurface('via', clipMeshToOutline(viaMesh, outline), scene.viaMaterial);
         swapSurface('silk', clipMeshToOutline(
-            punchHolesInFlatMesh(buildSilkMesh(app.placements), drilledHoles), outline));
+            punchHolesInFlatMesh(buildSilkMesh(app.placements), drilledHoles), outline), scene.silkMaterial);
         swapSurface('text', clipMeshToOutline(
-            punchHolesInFlatMesh(buildTextMesh(app), drilledHoles), outline));
+            punchHolesInFlatMesh(buildTextMesh(app), drilledHoles), outline), scene.textMaterial);
         const padsMesh = emptyMesh();
         for (const [, pl] of app.placements) appendMesh(padsMesh, padMesh(pl));
-        swapSurface('pads', clipMeshToOutline(padsMesh, outline));
+        swapSurface('pads', clipMeshToOutline(padsMesh, outline), scene.padMaterial);
     };
 
     // ── Component bodies (OBJ now, STEP lazily, diffed on live re-sync) ──
@@ -2715,25 +2893,29 @@ export async function openBoard3DViewer(app, opts = {}) {
             const parsed = parseObjModel(pl.model3dObj);
             body = parsed && objModelToMesh(parsed, pl);
         }
-        const mesh = scene.addMesh(body || fallbackBoxMesh(pl));
+        // Group component bodies by colour so coincident markings/pads on the
+        // shell get a stepped depth bias and don't z-fight (see addMesh).
+        const mesh = scene.addMesh(body || fallbackBoxMesh(pl), undefined, true);
         mesh.visible = partsVisible;
         bodyMeshes.set(id, mesh);
         if (body) resolved.add(id); else resolved.delete(id);
         bodySig.set(id, placementSig(pl));
     };
 
-    // Fetch + apply the KiCad STEP model for one placement (cached per footprint).
-    // Re-checks the signature before applying so a model that arrives after the
-    // component was moved/removed is not stamped onto a now-stale body.
+    // Fetch + apply the KiCad model (WRL/STEP → coloured OBJ) for one
+    // placement, cached per footprint. Re-checks the signature before applying
+    // so a model that arrives after the component was moved/removed is not
+    // stamped onto a now-stale body.
     const loadModelFor = async (/** @type {string} */ id, /** @type {any} */ pl) => {
         const footprint = pl.footprint || '';
         if (!fetcher || resolved.has(id) || !footprint.includes(':')) return;
-        const geom = await fetchModel(footprint);
+        const objText = await fetchModel(footprint);
         if (panel.closed) return;
         const obj = bodyMeshes.get(id);
-        if (geom && obj && bodySig.get(id) === placementSig(pl)) {
-            const mesh = stepGeometryToMesh(geom, pl);
-            if (mesh) { scene.replaceMesh(obj, mesh); resolved.add(id); }
+        if (objText && obj && bodySig.get(id) === placementSig(pl)) {
+            const parsed = parseObjModel(objText);
+            const mesh = parsed && objModelToMesh(parsed, pl);
+            if (mesh) { scene.replaceMesh(obj, mesh, true); resolved.add(id); }
         }
     };
 
@@ -2769,16 +2951,23 @@ export async function openBoard3DViewer(app, opts = {}) {
     };
 
         // ── Initial build ───────────────────────────────────────────────
-        // Build all board surfaces synchronously and frame the camera to the
-        // board now, then stream component bodies + STEP models asynchronously.
-        rebuildSurfaces();
-        scene.frameAll();
-        scene.resize();
-        scene.requestRender();
+        // The board surface build (rebuildSurfaces) is synchronous and blocks
+        // the thread, so a delayed spinner can never paint mid-build. Instead
+        // reveal the spinner up front (it sits above the grey cover), yield two
+        // frames so the browser actually paints it, THEN run the blocking build
+        // and stream component bodies + STEP models asynchronously.
         (async () => {
             startedAt = performance.now();
             lastYieldAt = startedAt;
-            spinnerTimer = window.setTimeout(revealSpinner, 1000);
+            revealSpinner();
+            await nextFrame();
+            await nextFrame();
+            if (panel.closed) { hideSpinner(); return; }
+
+            rebuildSurfaces();
+            scene.frameAll();
+            scene.resize();
+            scene.requestRender();
             // Fade the grey cover out once the board has rendered its first frame.
             await nextFrame();
             if (panel.closed) { hideSpinner(); return; }

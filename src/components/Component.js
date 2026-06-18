@@ -3,6 +3,23 @@ import { Text } from '../shapes/text.js';
 import { compactObjText } from './LCSCFetcher.js';
 
 /**
+ * Shrink a `~`-delimited footprint shape string for storage by rounding every
+ * decimal coordinate to 4 dp (0.1 µm). KiCad ships pad/silk positions at 6
+ * decimals (e.g. `PAD~RECT~1.2345678~-2.3456789~…`), which bloats the saved
+ * document for no visual benefit. Non-numeric tokens (RECT, top, …) and plain
+ * integers pass through untouched. Idempotent — safe to re-run at save time.
+ * @param {*} s
+ * @returns {*}
+ */
+function _compactShapeStr(s) {
+    if (typeof s !== 'string') return s;
+    return s.replace(/-?\d+\.\d+(?:[eE][-+]?\d+)?/g, (m) => {
+        const n = Math.round(parseFloat(m) * 1e4) / 1e4;
+        return Number.isFinite(n) ? String(n) : m;
+    });
+}
+
+/**
  * @typedef {{
  *   name: string,
  *   symbol: any,
@@ -1530,12 +1547,18 @@ export class Component {
                 json.def.supplier_part_numbers = this.definition.supplier_part_numbers;
             }
             // Persist footprint pad geometry so the PCB editor can render
-            // accurate footprints after save/reload.
+            // accurate footprints after save/reload. Round every coordinate to
+            // 4 dp (0.1 µm) on the way out — KiCad ships pad/silk positions at
+            // 6 decimals, which bloats the file for no visual benefit.
             if (Array.isArray(this.definition.footprintShapes) && this.definition.footprintShapes.length) {
-                json.def.footprintShapes = this.definition.footprintShapes;
+                json.def.footprintShapes = this.definition.footprintShapes.map(_compactShapeStr);
             }
             if (this.definition.footprintBBox) {
-                json.def.footprintBBox = this.definition.footprintBBox;
+                const b = this.definition.footprintBBox;
+                json.def.footprintBBox = {
+                    x: _r4(b.x), y: _r4(b.y),
+                    width: _r4(b.width), height: _r4(b.height),
+                };
             }
             if (this.definition.footprintName) {
                 json.def.footprintName = this.definition.footprintName;

@@ -81,12 +81,34 @@ export function isLayerLocked(layerId) {
 }
 
 /**
+ * True when the given layer id is currently visible (its eye toggle is on).
+ * Hidden layers are non-interactive: their objects can't be selected, hovered
+ * or dragged, mirroring how the layer group is rendered with display:none.
+ * @param {string} layerId
+ * @returns {boolean}
+ */
+export function isLayerVisible(layerId) {
+    const def = PCB_LAYERS.find(l => l.id === layerId);
+    return def ? def.visible : true;
+}
+
+/**
  * True when a through-hole via is locked. A via spans both copper layers,
  * so it is protected whenever either copper layer is locked.
  * @returns {boolean}
  */
 export function isViaLocked() {
     return isLayerLocked('top-copper') || isLayerLocked('bottom-copper');
+}
+
+/**
+ * True when a through-hole via is visible. A via spans both copper layers,
+ * so it is still shown (and hit-testable) while either copper layer is
+ * visible; it disappears only when both are hidden.
+ * @returns {boolean}
+ */
+export function isViaVisible() {
+    return isLayerVisible('top-copper') || isLayerVisible('bottom-copper');
 }
 
 /**

@@ -7,7 +7,7 @@ import { loadAndApplyTheme, toggleTheme as toggleSharedTheme, syncThemeToggleBut
 import { extractNetlist, extractComponents } from '../pcb/modules/netlist.js';
 import { generateFootprint, renderFootprint } from '../pcb/modules/footprint.js';
 import { updateGridDropdown } from './modules/viewport.js';
-import { PCB_LAYERS, PCB_OVERLAYS, PCB_COPPER_FILLS, isLayerLocked, isViaLocked, showLockedLayerBubble, isCopperFillLocked, isCopperFillVisible, saveLayerPrefs } from '../pcb/modules/layers.js';
+import { PCB_LAYERS, PCB_OVERLAYS, PCB_COPPER_FILLS, isLayerLocked, isViaLocked, isLayerVisible, isViaVisible, showLockedLayerBubble, isCopperFillLocked, isCopperFillVisible, saveLayerPrefs } from '../pcb/modules/layers.js';
 import { exportDSN, importSES } from '../pcb/modules/dsn.js';
 import { exportGerbers, buildZip } from '../pcb/modules/gerber.js';
 import { generateBOM, generatePickAndPlace } from '../pcb/modules/assembly.js';
@@ -90,7 +90,7 @@ import {
     MoveTextCommand,
     EditTextCommand,
 } from '../pcb/modules/text-commands.js';
-import { hasAny3DModel, openComponent3DFromData } from '../components/model3d-source.js';
+import { hasAny3DModel, openComponent3DFromData, buildComponent3DTitle } from '../components/model3d-source.js';
 import {
     armBoxSelect,
     maybeStartBoxSelect,
@@ -1831,6 +1831,29 @@ export default class PCBApp {
         if (this._clearancesVisible && (layerId === 'top-copper' || layerId === 'bottom-copper' || layerId === 'hole')) {
             this.showClearances(true);
         }
+        // A newly-hidden layer must not keep anything on it selected or
+        // hovered — hidden objects are non-interactive (can't be selected,
+        // dragged or deleted), mirroring the locked-layer behaviour.
+        if (!visible) {
+            const viaAffected = (layerId === 'top-copper' || layerId === 'bottom-copper') && !isViaVisible();
+            if ((this._selectedTrack && this._selectedTrack.layer === layerId) ||
+                (this._selectedVia && viaAffected)) {
+                clearTrackSelection(this);
+                this._clearProperties();
+            }
+            if (this._selectedText && this._selectedText.layer === layerId) {
+                this._selectText(null);
+                this._clearProperties();
+            }
+            if (this._selectedFill && this._selectedFill.layer === layerId) {
+                this._selectFill(null);
+            }
+            if (this._boardOutlineSelected && layerId === 'board-outline') {
+                this._selectBoardOutline(false);
+            }
+            if (hasBoxSelection(this)) clearBoxSelection(this);
+            setHoverHighlight(this, null);
+        }
         saveLayerPrefs();
     }
 
@@ -2077,8 +2100,8 @@ export default class PCBApp {
     _hitTestBoardOutline(pos) {
         if (!this._boardOutlineDrawn) return false;
         // The board outline lives on the 'board-outline' layer; don't allow
-        // selecting/hovering it while that layer is locked.
-        if (isLayerLocked('board-outline')) return false;
+        // selecting/hovering it while that layer is locked or hidden.
+        if (isLayerLocked('board-outline') || !isLayerVisible('board-outline')) return false;
         const w = this._boardWidth, h = this._boardHeight;
         // In SVG coords (Y-down), board goes from (0, -h) to (w, 0)
         const x1 = 0, y1 = -h;
@@ -2446,7 +2469,7 @@ export default class PCBApp {
             ? this.placements.get(placementOrId)
             : placementOrId;
         if (!hasAny3DModel(pl)) return;
-        const title = pl.reference ? `${pl.reference} \u2014 3D Model` : '3D Model';
+        const title = buildComponent3DTitle(pl);
         openComponent3DFromData({ data: pl, title })
             .then((ok) => {
                 if (!ok) console.warn('No renderable 3D model found for component');
@@ -2800,6 +2823,7 @@ export default class PCBApp {
                 reference: comp.reference,
                 value: comp.value || '',
                 footprint: comp.footprint || '',
+                source: comp.source || '',
                 model3dObj: comp.model3dObj || null,
                 model3dUrl: comp.model3dUrl || null,
                 model3dPlacement: fpGeom.model3d || null,
@@ -3565,7 +3589,7 @@ export default class PCBApp {
     _hitTestText(worldPos) {
         let hit = null;
         for (const t of this.texts.values()) {
-            if (isLayerLocked(t.layer)) continue;
+            if (isLayerLocked(t.layer) || !isLayerVisible(t.layer)) continue;
             if (pcbTextHitTest(t, worldPos.x, worldPos.y)) hit = t;
         }
         return hit;
@@ -5527,7 +5551,7 @@ export default class PCBApp {
         for (let i = this.copperFills.length - 1; i >= 0; i--) {
             const fill = this.copperFills[i];
             if (fill.visible === false || fill.locked) continue;
-            if (isLayerLocked(fill.layer)) continue;
+            if (isLayerLocked(fill.layer) || !isLayerVisible(fill.layer)) continue;
             if (isCopperFillLocked(fill.layer) || !isCopperFillVisible(fill.layer)) continue;
             // Only the outline edge (and its vertex nodes) selects a pour —
             // clicking the flooded interior must not, or every board click

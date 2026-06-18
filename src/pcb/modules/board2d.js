@@ -19,14 +19,18 @@ import { stringToPolylines, measureText } from './stroke-font.js';
 // Palette mirrors the 3D viewer (board3d.js) so the two previews match.
 const COL = {
     bg: 'rgb(74,76,79)',          // panel grey (3D clear colour)
-    board: 'rgb(10,130,50)',      // solder-mask green
+    board: 'rgb(8,104,40)',       // solder-mask green (bake source; 3D lights it)
+    boardLive: 'rgb(32,88,46)',   // green for the FLAT 2D preview, tuned to match
+                                  // the lit 3D board look (board3d COLOR_BOARD)
     boardEdge: 'rgb(190,192,122)',// bare FR4 edge
-    trackTop: 'rgb(26,165,70)',   // top trace under mask
-    trackBottom: 'rgb(16,142,58)',// bottom trace under mask
+    trackTop: 'rgb(26,165,70)',   // trace under mask (bake source)
+    trackBottom: 'rgb(26,165,70)',// copper is copper — same on both sides
+    trackTopLive: 'rgb(52,120,66)',   // matches the lit 3D copper (board3d
+    trackBottomLive: 'rgb(52,120,66)',// COLOR_TRACK_TOP); same on both sides
     pad: 'rgb(201,164,74)',       // gold
     via: 'rgb(184,134,11)',       // gold barrel
     hole: 'rgb(12,12,16)',        // drilled hole
-    silk: 'rgb(228,228,228)',     // white silkscreen
+    silk: 'rgb(255,255,255)',     // white silkscreen
 };
 
 // Footprint silk authored on one side moves to the opposite side when the
@@ -248,7 +252,10 @@ export class Board2D {
     _drawBoard(ctx) {
         const b = this._boardRect();
         this._roundRectPath(ctx, b.x, b.y, b.w, b.h, b.r);
-        ctx.fillStyle = COL.board;
+        // The 3D texture bake uses the brighter COL.board (its lighting tones it
+        // down); the flat 2D preview has no lighting, so it uses a darker green
+        // to land on the same on-screen tone as the lit 3D board.
+        ctx.fillStyle = this._bake ? COL.board : COL.boardLive;
         ctx.fill();
         ctx.lineWidth = Math.max(0.15, 4 / this.scale) * 0.05;
         ctx.strokeStyle = COL.boardEdge;
@@ -278,10 +285,16 @@ export class Board2D {
         const top = this.side === 'top';
         const padSide = top ? 'top' : 'bottom';
         const copperLayer = top ? 'top-copper' : 'bottom-copper';
+        // The 3D bake uses the brighter copper green (its lighting tones it down);
+        // the flat 2D preview has no lighting, so it uses a darker copper green to
+        // land on the same on-screen tone as the lit 3D board.
+        const copperCol = this._bake
+            ? (top ? COL.trackTop : COL.trackBottom)
+            : (top ? COL.trackTopLive : COL.trackBottomLive);
 
         // Copper pours first (under tracks/pads), drawn from their computed
         // polygon geometry (outer ring with holes punched, even-odd fill).
-        ctx.fillStyle = top ? COL.trackTop : COL.trackBottom;
+        ctx.fillStyle = copperCol;
         for (const fill of (d.fills || [])) {
             if (fill?.visible === false) continue;
             if (fill?.layer !== copperLayer) continue;
@@ -305,7 +318,7 @@ export class Board2D {
         }
 
         // Tracks (per-edge layer + width), drawn as stroked segments.
-        ctx.strokeStyle = top ? COL.trackTop : COL.trackBottom;
+        ctx.strokeStyle = copperCol;
         ctx.lineCap = 'round';
         ctx.lineJoin = 'round';
         for (const t of (d.tracks || [])) {
@@ -503,6 +516,117 @@ export class Board2D {
             stroke(_textSegments(t), sw);
         }
     }
+}
+
+/**
+ * Bake one fabricated board face (solder-mask green + copper + pads + vias +
+ * silk + text, in painter's order) into an offscreen canvas, for use as a 3D
+ * board-face texture (board3d.js). This is the same drawing the interactive 2D
+ * preview produces, but rendered at a fixed world→pixel scale with NO display
+ * mirror and NO pan/zoom, so the image maps 1:1 onto the board outline in 3D.
+ *
+ * Because every layer is composited by the 2D canvas (painter's algorithm),
+ * the projected face is a single opaque image on a single quad — it cannot
+ * z-fight with itself the way stacked coplanar 3D layers do.
+ *
+ * The bottom face is baked at its TRUE world X (not display-mirrored): viewing
+ * the board's underside from below in 3D mirrors it naturally.
+ *
+ * Drilled holes are NOT cut out of the image — the 3D face geometry punches the
+ * real bores, so the dark hole discs drawn here simply fall in the unsampled
+ * (punched-away) region. Vias are not bored, so their flat gold ring + dark
+ * centre come straight from this bake.
+ *
+ * @param {Document} doc       document used to create the backing canvas
+ * @param {object}   data      same shape as {@link Board2D#setData}
+ * @param {'top'|'bottom'} side which fabricated side to draw
+ * @param {number}   pxPerMm   texel density (pixels per board millimetre)
+ * @returns {{canvas:HTMLCanvasElement, originX:number, originY:number, mmW:number, mmH:number}}
+ */
+export function bakeBoardFace(doc, data, side, pxPerMm) {
+    // Borrow the Board2D draw methods without running its (event-binding)
+    // constructor: a plain object with the prototype is all the drawers need.
+    const r = /** @type {Board2D} */ (Object.create(Board2D.prototype));
+    r.data = data;
+    r.side = side;
+    r._bake = true;
+    const b = r._boardRect();
+    // Hard-cap the texture so it can never exceed a GPU's MAX_TEXTURE_SIZE. The
+    // caller's density already targets ~4k on the long edge, but a very large
+    // board on the lower density floor could push past low-end mobile limits
+    // (4096) or even desktop (16384). If the requested size would breach the cap
+    // we scale the density down so the long edge lands exactly on MAX_TEX,
+    // keeping the (uniform) px/mm used for both the canvas size and the draw
+    // transform consistent.
+    const MAX_TEX = 8192;
+    const longEdgeMm = Math.max(b.w, b.h, 1);
+    if (longEdgeMm * pxPerMm > MAX_TEX) pxPerMm = MAX_TEX / longEdgeMm;
+    r.scale = pxPerMm;
+    const cw = Math.max(1, Math.min(MAX_TEX, Math.ceil(b.w * pxPerMm)));
+    const ch = Math.max(1, Math.min(MAX_TEX, Math.ceil(b.h * pxPerMm)));
+    const canvas = doc.createElement('canvas');
+    canvas.width = cw;
+    canvas.height = ch;
+    const ctx = /** @type {CanvasRenderingContext2D} */ (canvas.getContext('2d'));
+    r.canvas = canvas;
+    r.ctx = ctx;
+    // World mm → device px: (x,y) → ((x-b.x)*px, (y-b.y)*px). No mirror; the
+    // canvas top-left maps to the board's (minX, minY) corner.
+    ctx.setTransform(pxPerMm, 0, 0, pxPerMm, -b.x * pxPerMm, -b.y * pxPerMm);
+    r._drawBoard(ctx);
+    ctx.save();
+    r._roundRectPath(ctx, b.x, b.y, b.w, b.h, b.r);
+    ctx.clip();
+    r._drawCopper(ctx);
+    r._drawHoles(ctx);
+    r._drawSilk(ctx);
+    ctx.restore();
+    return { canvas, originX: b.x, originY: b.y, mmW: b.w, mmH: b.h };
+}
+
+/**
+ * Bake a SILK-ONLY mask of one board face: white silkscreen on a pure-black
+ * background, at the SAME size/transform as {@link bakeBoardFace} so the two
+ * textures share UVs exactly. Used as an `emissiveMap` in 3D so the silkscreen
+ * glows white (reads as real white ink) without raising the emissive of the
+ * green solder mask, which would wash the board out. Black emits nothing, so
+ * only the silk lights up.
+ *
+ * @param {Document} doc
+ * @param {object}   data
+ * @param {'top'|'bottom'} side
+ * @param {number}   pxPerMm
+ * @returns {{canvas:HTMLCanvasElement, originX:number, originY:number, mmW:number, mmH:number}}
+ */
+export function bakeSilkMask(doc, data, side, pxPerMm) {
+    const r = /** @type {Board2D} */ (Object.create(Board2D.prototype));
+    r.data = data;
+    r.side = side;
+    r._bake = true;
+    const b = r._boardRect();
+    const MAX_TEX = 8192;
+    const longEdgeMm = Math.max(b.w, b.h, 1);
+    if (longEdgeMm * pxPerMm > MAX_TEX) pxPerMm = MAX_TEX / longEdgeMm;
+    r.scale = pxPerMm;
+    const cw = Math.max(1, Math.min(MAX_TEX, Math.ceil(b.w * pxPerMm)));
+    const ch = Math.max(1, Math.min(MAX_TEX, Math.ceil(b.h * pxPerMm)));
+    const canvas = doc.createElement('canvas');
+    canvas.width = cw;
+    canvas.height = ch;
+    const ctx = /** @type {CanvasRenderingContext2D} */ (canvas.getContext('2d'));
+    r.canvas = canvas;
+    r.ctx = ctx;
+    // Black everywhere (emits nothing), then only the silk drawn in its white.
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, cw, ch);
+    ctx.setTransform(pxPerMm, 0, 0, pxPerMm, -b.x * pxPerMm, -b.y * pxPerMm);
+    ctx.save();
+    r._roundRectPath(ctx, b.x, b.y, b.w, b.h, b.r);
+    ctx.clip();
+    r._drawSilk(ctx);
+    ctx.restore();
+    return { canvas, originX: b.x, originY: b.y, mmW: b.w, mmH: b.h };
 }
 
 /* ── geometry helpers (ported from gerber.js so both stay in step) ─────── */

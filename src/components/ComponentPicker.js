@@ -36,7 +36,7 @@ export class ComponentPicker {
         this.selectedCategory = 'All';
         this.searchQuery = '';
         this.isOpen = false;
-        this.searchMode = 'local';  // 'local' or 'lcsc'
+        this.searchMode = 'lcsc';  // 'local' or 'lcsc' (online is the default)
         this.lcscResults = [];
         this.kicadResults = [];
         this.isSearching = false;
@@ -53,6 +53,12 @@ export class ComponentPicker {
         this._createDOM();
         this._populateCategories();
         this._populateComponents();
+        // Online is the default search mode: hide the category filter, show the
+        // online search prompt and placeholder. The KiCad index load is deferred
+        // until the picker is actually opened/searched.
+        this.categoriesEl.style.display = 'none';
+        this.searchInput.placeholder = 'Search online (e.g., NE555, C46749)...';
+        this._showLCSCPrompt();
     }
     
     /**
@@ -67,8 +73,8 @@ export class ComponentPicker {
             </div>
             <div class="cp-body">
                 <div class="cp-mode-toggle">
-                    <button class="cp-mode-btn active" data-mode="local">Local</button>
-                    <button class="cp-mode-btn" data-mode="lcsc">Online</button>
+                    <button class="cp-mode-btn active" data-mode="lcsc">Online</button>
+                    <button class="cp-mode-btn" data-mode="local">Local</button>
                 </div>
                 <div class="cp-search">
                     <input type="text" class="cp-search-input" placeholder="Search components...">

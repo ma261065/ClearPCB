@@ -170,6 +170,19 @@ function generateFromShapes(shapes, bbox, source) {
         break;
     }
 
+    // KiCad footprints carry no EasyEDA SVGNODE outline. Their 3D model is
+    // authored at the KiCad footprint origin (raw 0,0) — the SAME origin the
+    // pads are positioned around. When we recentre the footprint on the pad
+    // bounding box below (centerX/centerY), that origin moves to footprint-local
+    // (-centerX,-centerY). Seat the model there rather than at the pad-bbox
+    // centre, so 3-sided parts (modules with pads on only some edges, e.g.
+    // ESP32-S3-WROOM-1) keep their body aligned to the copper instead of
+    // self-centring on the asymmetric pad cluster. ox=oy=0 makes the model3d
+    // dx/dy formula below resolve to dx=-centerX, dy=-centerY.
+    if (!model3dRaw && source === 'KiCad') {
+        model3dRaw = { rotation: 0, z: 0, ox: 0, oy: 0 };
+    }
+
     /**
      * Map an EasyEDA layer code to a PCB layer id for outline/silk shapes.
      * Returns null for layers we don't render (copper, etc.).

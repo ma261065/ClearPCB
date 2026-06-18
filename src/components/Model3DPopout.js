@@ -58,6 +58,10 @@ export function openModel3DPopout({ objText, title = '3D Model' }) {
     panel.appendChild(hint);
     document.body.appendChild(panel);
 
+    // Suppress the browser's native context menu on the pop-out chrome so a
+    // right-click on the window frame doesn't break the in-app interaction.
+    panel.addEventListener('contextmenu', (e) => e.preventDefault());
+
     // Centre the panel on first open (its size is set by CSS).
     const rect = panel.getBoundingClientRect();
     const left = Math.max(8, (window.innerWidth - rect.width) / 2);

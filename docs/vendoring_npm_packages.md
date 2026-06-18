@@ -91,14 +91,25 @@ Pop-Location
 | `svg2pdf.umd.min.js` | svg2pdf.js | [yWorks/svg2pdf.js](https://github.com/yWorks/svg2pdf.js) | — | ~100KB | MIT |
 | `three.module.js` | three (core only) | [mrdoob/three.js](https://github.com/mrdoob/three.js) | 0.184.0 | ~502KB | MIT |
 
-> **three.js note:** the bundle entry re-exports only the ~16 core symbols the
+> **three.js note:** the bundle entry re-exports only the core symbols the
 > 3D board viewer uses (`Scene`, `PerspectiveCamera`, `WebGLRenderer`,
-> `MeshStandardMaterial`, `PointLight`, `BufferGeometry`, etc.) so esbuild
-> tree-shakes the rest of the library. Orbit/pan/zoom is a custom Shoemake
-> arcball implemented directly in `board3d.js` (no three.js controls addon is
-> bundled). If the viewer starts using new three.js features (e.g.
-> `RoomEnvironment` / `PMREMGenerator` for full environment reflections), add
-> the symbols to the entry's export list and re-vendor.
+> `MeshStandardMaterial`, `PointLight`, `BufferGeometry`, `CanvasTexture`,
+> `LinearFilter`, `LinearMipmapLinearFilter`, etc.) so esbuild tree-shakes the
+> rest of the library. `CanvasTexture` + the two filter constants back the
+> board-face texture bake (the 2D fabricated render projected onto each board
+> face). `EquirectangularReflectionMapping` backs the procedural studio
+> environment map that gives the glossy solder mask its moving reflection — a
+> punctual light on the camera axis can't glint a flat face, so the board
+> reflects a world-fixed equirectangular env image instead. Orbit/pan/zoom is a
+> custom Shoemake arcball implemented directly in `board3d.js` (no three.js
+> controls addon is bundled). If the viewer starts using new three.js features
+> (e.g. `RoomEnvironment` / `PMREMGenerator` for prefiltered environment
+> reflections), add the symbols to the entry's export list and re-vendor. Full
+> current export list: `AmbientLight, Box3, BufferGeometry, CanvasTexture,
+> Color, DirectionalLight, DoubleSide, EquirectangularReflectionMapping,
+> Float32BufferAttribute, Group, LinearFilter, LinearMipmapLinearFilter, Mesh,
+> MeshStandardMaterial, PerspectiveCamera, PointLight, SRGBColorSpace, Scene,
+> Vector3, WebGLRenderer`.
 
 
 ## Notes

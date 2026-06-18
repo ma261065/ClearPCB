@@ -21,6 +21,27 @@ export function hasAny3DModel(data) {
 }
 
 /**
+ * Build the 3D viewer window title: `Reference - Value (SOURCE)`. Each piece is
+ * optional — a missing reference/value is dropped, and the source suffix only
+ * shows for known supplier sources (KiCad/LCSC/EasyEDA), uppercased. Falls back
+ * to '3D Model' when nothing identifying is available.
+ * @param {{reference?: string, value?: string, source?: string, _source?: string}} data
+ * @returns {string}
+ */
+export function buildComponent3DTitle(data) {
+    const ref = (data?.reference || '').trim();
+    const val = (data?.value || '').trim();
+    let base = ref && val ? `${ref} \u2014 ${val}` : (ref || val);
+    const src = (data?.source || data?._source || '').trim();
+    const label = /kicad/i.test(src) ? 'KICAD'
+        : /lcsc/i.test(src) ? 'LCSC'
+        : /easyeda/i.test(src) ? 'EASYEDA'
+        : '';
+    if (label) base = base ? `${base} (${label})` : `(${label})`;
+    return base || '3D Model';
+}
+
+/**
  * Open the model pop-out for either OBJ-backed (EasyEDA) or KiCad model-backed
  * (KiCad URL/footprint) components.
  * @param {Object} opts
@@ -102,17 +123,11 @@ async function _resolveObjFromModelUrl(modelUrl, proxyUrl) {
         if (geometry?.vertices?.length && geometry?.faces?.length) {
             // Use color-aware conversion if STEP parser found colors; otherwise plain OBJ.
             if (geometry.faceColors?.length === geometry.faces.length) {
-                console.log(`[3D] STEP: Using extracted colors (${geometry.faceColors.length} faces)`, geometry.faceColors.slice(0, 3));
                 objText = _coloredMeshToObj(geometry);
             } else {
-                console.log(`[3D] STEP: No colors found, using plain geometry`);
                 objText = _stepGeometryToObj(geometry);
             }
         }
-    }
-    
-    if (objText) {
-        console.log(`[3D] Model resolved from ${modelUrl.slice(-20)}`);
     }
 
     _modelObjCache.set(modelUrl, objText || '');
@@ -145,40 +160,42 @@ function _stepGeometryToObj(geometry) {
 /**
  * Convert a colored face mesh to OBJ text with inline materials.
  * parseObjModel supports inline `newmtl`/`Kd`/`usemtl`, so no external .mtl is needed.
- * @param {{vertices:Array<{x:number,y:number,z:number}>,faces:number[][],faceColors?:number[][]}} geometry
+ * @param {{vertices:Array<{x:number,y:number,z:number}>,faces:number[][],faceColors?:number[][],bodyFaces?:boolean[]}} geometry
  * @returns {string}
  */
 function _coloredMeshToObj(geometry) {
     const lines = [];
-    const mats = new Map();
+    const bodyFaces = geometry.bodyFaces || null;
 
     for (const v of (geometry?.vertices || [])) {
         lines.push(`v ${v.x} ${v.y} ${v.z}`);
     }
 
-    const getMatName = (c) => {
-        const color = Array.isArray(c) && c.length >= 3 ? c : [102, 102, 102];
-        const key = `${color[0]},${color[1]},${color[2]}`;
-        if (mats.has(key)) return mats.get(key);
-        const name = `m_${color[0]}_${color[1]}_${color[2]}`;
-        mats.set(key, name);
-        return name;
+    const safeColor = (c) => (Array.isArray(c) && c.length >= 3 ? c : [102, 102, 102]);
+    // Body faces (the STEP solid's largest shell) are emitted under a distinct
+    // material — same colour, "_body" suffix — so the renderer can draw them in
+    // a separate, depth-offset pass to beat coplanar z-fighting with the pads
+    // resting on them, without moving any geometry. See STEPPreview.
+    const matName = (c, body) => {
+        const col = safeColor(c);
+        return `m_${col[0]}_${col[1]}_${col[2]}${body ? '_body' : ''}`;
     };
 
-    // Declare materials first (inline in OBJ text).
-    const seen = new Set();
-    for (const color of (geometry.faceColors || [])) {
-        const safe = Array.isArray(color) && color.length >= 3 ? color : [102, 102, 102];
-        const key = `${safe[0]},${safe[1]},${safe[2]}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        const name = getMatName(safe);
+    // Declare every (colour, body) material used, inline.
+    const faceColors = geometry.faceColors || [];
+    const faceCount = (geometry?.faces || []).length;
+    const declared = new Set();
+    for (let fi = 0; fi < faceCount; fi++) {
+        const col = safeColor(faceColors[fi]);
+        const name = matName(col, !!(bodyFaces && bodyFaces[fi]));
+        if (declared.has(name)) continue;
+        declared.add(name);
         lines.push(`newmtl ${name}`);
-        lines.push(`Kd ${Math.max(0, Math.min(1, safe[0] / 255))} ${Math.max(0, Math.min(1, safe[1] / 255))} ${Math.max(0, Math.min(1, safe[2] / 255))}`);
+        lines.push(`Kd ${Math.max(0, Math.min(1, col[0] / 255))} ${Math.max(0, Math.min(1, col[1] / 255))} ${Math.max(0, Math.min(1, col[2] / 255))}`);
     }
 
     let activeMat = '';
-    for (let fi = 0; fi < (geometry?.faces || []).length; fi++) {
+    for (let fi = 0; fi < faceCount; fi++) {
         const face = geometry.faces[fi];
         if (!Array.isArray(face) || face.length < 3) continue;
         const idx = face
@@ -187,7 +204,7 @@ function _coloredMeshToObj(geometry) {
             .map(i => i + 1);
         if (idx.length < 3) continue;
 
-        const mat = getMatName((geometry.faceColors || [])[fi]);
+        const mat = matName(faceColors[fi], !!(bodyFaces && bodyFaces[fi]));
         if (mat !== activeMat) {
             lines.push(`usemtl ${mat}`);
             activeMat = mat;

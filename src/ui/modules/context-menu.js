@@ -10,7 +10,7 @@ import { ModifyShapeCommand, ModifyPropertyCommand, BatchCommand, AddShapeComman
 import { VERTEX_EPSILON, applySplitLabelRules, applySplitNetRules } from './wire.js';
 import { detachLabel } from './label-attachment.js';
 import { canDecomposeRoundedCorners, decomposeRoundedCorners } from '../../shapes/shape-decompose.js';
-import { hasAny3DModel, openComponent3DFromData } from '../../components/model3d-source.js';
+import { hasAny3DModel, openComponent3DFromData, buildComponent3DTitle } from '../../components/model3d-source.js';
 
 /**
  * @typedef {HTMLDivElement & {
@@ -738,11 +738,13 @@ export function showComponentContextMenu(app, component, clientX, clientY) {
     if (!hasAny3DModel(modelData)) return;
 
     createContextMenu([{
-        text: 'Show 3D',
+        text: '\uD83E\uDDCA Show 3D',
         onClick: async () => {
-            const title = component.reference
-                ? `${component.reference} \u2014 3D Model`
-                : '3D Model';
+            const title = buildComponent3DTitle({
+                reference: component.reference,
+                value: component.value,
+                source: modelData._source,
+            });
             try {
                 const ok = await openComponent3DFromData({ data: modelData, title });
                 if (!ok) console.warn('No renderable 3D model found for component');
