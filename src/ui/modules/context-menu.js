@@ -16,8 +16,10 @@ import { hasAny3DModel, openComponent3DFromData, buildComponent3DTitle } from '.
  * @typedef {HTMLDivElement & {
  *   _dismissHandlers?: {
  *     dismiss: (e: MouseEvent) => void,
- *     dismissOnKey: (e: KeyboardEvent) => void
- *   }
+ *     dismissOnKey: (e: KeyboardEvent) => void,
+ *     timer: ReturnType<typeof setTimeout>
+ *   },
+ *   _dismissAttached?: boolean
  * }} AnchorContextMenuEl
  */
 
@@ -34,11 +36,19 @@ function attachDismissHandlers(menu) {
     const dismissOnKey = (e) => {
         if (e.key === 'Escape') dismissAnchorContextMenu();
     };
-    setTimeout(() => {
+    // Defer attaching the global dismiss listeners so the same gesture that
+    // opened the menu doesn't immediately close it. If the menu is dismissed
+    // before this timer fires (e.g. a rapid second right-click superseding it),
+    // dismissAnchorContextMenu() clears this timer so the listeners are never
+    // attached — otherwise they would leak, closing over a detached menu node
+    // and tearing down every future menu on mousedown (before its click runs).
+    const timer = setTimeout(() => {
+        if (!menu.isConnected) return;
         document.addEventListener('mousedown', dismiss, { capture: true });
         document.addEventListener('keydown', dismissOnKey, { capture: true });
+        menu._dismissAttached = true;
     }, 0);
-    menu._dismissHandlers = { dismiss, dismissOnKey };
+    menu._dismissHandlers = { dismiss, dismissOnKey, timer };
 }
 
 function getWireSplitLabelMeta(wire) {
@@ -610,6 +620,7 @@ export function dismissAnchorContextMenu() {
     const existing = asAnchorContextMenuEl(document.querySelector('.anchor-context-menu'));
     if (existing) {
         if (existing._dismissHandlers) {
+            clearTimeout(existing._dismissHandlers.timer);
             document.removeEventListener('mousedown', existing._dismissHandlers.dismiss, { capture: true });
             document.removeEventListener('keydown', existing._dismissHandlers.dismissOnKey, { capture: true });
         }
