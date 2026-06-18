@@ -9,6 +9,7 @@ import { generateFootprint, renderFootprint } from '../pcb/modules/footprint.js'
 import { updateGridDropdown } from './modules/viewport.js';
 import { PCB_LAYERS, PCB_OVERLAYS, PCB_COPPER_FILLS, isLayerLocked, isViaLocked, isLayerVisible, isViaVisible, showLockedLayerBubble, isCopperFillLocked, isCopperFillVisible, saveLayerPrefs } from '../pcb/modules/layers.js';
 import { exportDSN, importSES } from '../pcb/modules/dsn.js';
+import { runDRC } from '../pcb/modules/drc.js';
 import { exportGerbers, buildZip } from '../pcb/modules/gerber.js';
 import { generateBOM, generatePickAndPlace } from '../pcb/modules/assembly.js';
 import { openBoard3DViewer } from '../pcb/modules/board3d.js';
@@ -342,6 +343,7 @@ export default class PCBApp {
         this._bindThemeToggle();
         loadAndApplyTheme();
         syncThemeToggleButtons(['themeToggle', 'pcbThemeToggle']);
+        this._initDRC();
 
         this._initialized = true;
     }
@@ -433,12 +435,17 @@ export default class PCBApp {
             }
             // Re-evaluate footprint culling / level-of-detail after zoom or pan.
             this._updatePcbCulling();
+            // Keep the DRC panel→marker leader anchored to the board point.
+            if (this._drcSelectedId) this._updateDRCConnector();
         };
 
         // Throttled footprint culling during an active pan (Viewport rAF).
         this.viewport.onViewportCull = () => {
             if (!this._active) return;
             this._updatePcbCulling();
+            // The viewBox moves continuously during a pan without firing
+            // onViewChanged, so keep the DRC leader anchored here too.
+            if (this._drcSelectedId) this._updateDRCConnector();
         };
 
         // Hide the clearance overlay during a pan. Its halos are transient
@@ -505,8 +512,10 @@ export default class PCBApp {
             // while we're drawing a track (the Track tool drives the
             // Properties tab so its width spinner stays visible), and
             // NOT while inline-editing text (the Properties tab hosts
-            // the text's size/rotation spinners).
-            if (!this._trackDraw && !this._textEdit) {
+            // the text's size/rotation spinners), and NOT on a right-button
+            // press (that starts a pan — dragging the board must not switch
+            // tabs, e.g. closing the Design tab's live DRC mid-pan).
+            if (!this._trackDraw && !this._textEdit && e.button !== 2) {
                 const activeTab = this.ribbon?.querySelector('.ribbon-tab.active');
                 if (activeTab instanceof HTMLElement && activeTab.dataset?.tab !== 'pcb-home') {
                     this._setActiveRibbonTab?.('pcb-home');
@@ -1657,6 +1666,12 @@ export default class PCBApp {
     _markDirty() {
         this._isDirty = true;
         /** @type {any} */ (window).app?._updateTitle?.();
+        // Keep the clearance overlay in sync after any committed edit (e.g. an
+        // undo/redo that relocates a via leaves orphaned halos otherwise).
+        this._refreshClearanceHalos?.();
+        // Re-run the design-rule check (debounced) while the Design tab is
+        // active or the problem panel is open.
+        if (this._drcShouldRun()) this._scheduleDRC();
     }
 
     /**
@@ -1714,6 +1729,13 @@ export default class PCBApp {
         this._selectedText = null;
         clearTrackSelection(this);
         this.history.clear?.();
+
+        // A new/opened document invalidates any current DRC results, so close
+        // the problem panel and clear its marker/leader.
+        this._closeDRCPanel?.();
+        this._drcSelectedId = null;
+        this._clearDRCMarker?.();
+        this._drcViolations = [];
 
         // Reset the board outline to "undrawn" so a document without board
         // dimensions (a brand-new board) prompts for them on activation, and a
@@ -1861,6 +1883,9 @@ export default class PCBApp {
             // copper, vias (hole layer) and overlays so they stay visible
             // even when a via covers the node they mark.
             'selection-overlay',
+            // DRC-overlay — design-rule violation markers (dotted leaders /
+            // rings) sit above everything else so they're always visible.
+            'drc-overlay',
         ];
 
         for (const id of zOrder) {
@@ -2057,6 +2082,14 @@ export default class PCBApp {
 
             if (tabId === 'pcb-home') {
                 this._syncPcbHomeToolHighlight?.();
+            }
+
+            // The DRC runs live only while the Design tab is active. The
+            // slide-in problem panel, however, stays open across tab switches
+            // — it's dismissed only by re-clicking the DRC button or its X.
+            this._drcActive = (tabId === 'pcb-design');
+            if (this._drcActive) {
+                this._runDRCLive();
             }
         };
 
@@ -5446,6 +5479,383 @@ export default class PCBApp {
             if (net) ghost.dataset.net = net;
             overlay.appendChild(ghost);
         }
+    }
+
+    /* ─────────────────────── Design Rule Checker ───────────────────── */
+
+    /**
+     * Wire up the DRC status button (toggle the problem dropdown) and re-run
+     * triggers (routing-rule input changes). Live evaluation itself is driven
+     * by the Design tab becoming active and by board edits via `_markDirty`.
+     */
+    _initDRC() {
+        /** @type {Array} */
+        this._drcViolations = [];
+        this._drcActive = false;
+        this._drcSelectedId = null;
+        this._drcRaf = 0;
+
+        const statusBtn = document.getElementById('pcbDrcStatus');
+        const closeBtn = document.getElementById('pcbDrcSlideClose');
+        statusBtn?.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this._toggleDRCPanel();
+        });
+        closeBtn?.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this._closeDRCPanel();
+        });
+
+        // Keep the leader anchored to its row as the problem list scrolls.
+        const body = document.querySelector('#pcbDrcSlidePanel .drc-slide-body');
+        body?.addEventListener('scroll', () => {
+            if (this._drcSelectedId) this._updateDRCConnector();
+        }, { passive: true });
+
+        // Re-run when the design rules themselves change.
+        for (const id of ['pcbClearance', 'pcbViaDiameter', 'pcbViaDrill', 'pcbRouteUnits']) {
+            const el = document.getElementById(id);
+            el?.addEventListener('change', () => { if (this._drcShouldRun()) this._runDRCLive(); });
+        }
+
+        this._updateDRCStatus({ ok: true, violations: [], counts: { errors: 0, warnings: 0 } }, true);
+    }
+
+    /** True when DRC should re-evaluate: Design tab active or panel open. */
+    _drcShouldRun() {
+        if (this._drcActive) return true;
+        const panel = document.getElementById('pcbDrcSlidePanel');
+        return !!panel && panel.classList.contains('open');
+    }
+
+    /** Debounced live re-run, coalesced to one per animation frame. */
+    _scheduleDRC() {
+        if (this._drcRaf) return;
+        this._drcRaf = requestAnimationFrame(() => {
+            this._drcRaf = 0;
+            this._runDRCLive();
+        });
+    }
+
+    /** Run the DRC engine and refresh the status indicator + problem list. */
+    _runDRCLive() {
+        const params = this._getRoutingParams();
+        let result;
+        try {
+            result = runDRC(this, {
+                clearance: params.clearance,
+                minAnnularRing: 0.05,
+            });
+        } catch (err) {
+            console.warn('[DRC] check failed', err);
+            return;
+        }
+        this._drcViolations = result.violations;
+        this._updateDRCStatus(result);
+        this._renderDRCList();
+
+        // Keep the selected marker in sync: if the violation still exists,
+        // redraw it at its (possibly moved) location; otherwise drop it.
+        if (this._drcSelectedId) {
+            const sel = this._drcViolations.find(v => v.id === this._drcSelectedId);
+            if (sel) {
+                this._drawDRCMarker(sel);
+                this._updateDRCConnector();
+            } else {
+                this._drcSelectedId = null;
+                this._clearDRCMarker();
+            }
+        }
+    }
+
+    /**
+     * Update the green-tick / red-cross status button.
+     * @param {{ok:boolean, violations:Array, counts:{errors:number, warnings:number}}} result
+     * @param {boolean} [pending]
+     */
+    _updateDRCStatus(result, pending = false) {
+        const btn = document.getElementById('pcbDrcStatus');
+        const icon = document.getElementById('pcbDrcIcon');
+        const label = document.getElementById('pcbDrcLabel');
+        if (!btn || !icon || !label) return;
+
+        btn.classList.remove('drc-status-pending', 'drc-status-ok', 'drc-status-error', 'drc-status-warn');
+
+        if (pending) {
+            btn.classList.add('drc-status-pending');
+            icon.textContent = '…';
+            label.textContent = 'Checking…';
+            return;
+        }
+
+        const { errors, warnings } = result.counts;
+        if (errors === 0 && warnings === 0) {
+            btn.classList.add('drc-status-ok');
+            icon.textContent = '✓';
+            label.textContent = 'No DRC errors';
+        } else if (errors > 0) {
+            btn.classList.add('drc-status-error');
+            icon.textContent = '✕';
+            const w = warnings > 0 ? `, ${warnings} warning${warnings === 1 ? '' : 's'}` : '';
+            label.textContent = `${errors} error${errors === 1 ? '' : 's'}${w}`;
+        } else {
+            btn.classList.add('drc-status-warn');
+            icon.textContent = '!';
+            label.textContent = `${warnings} warning${warnings === 1 ? '' : 's'}`;
+        }
+    }
+
+    /** Populate the problem dropdown; each item points to its issue on click. */
+    _renderDRCList() {
+        const list = document.getElementById('pcbDrcList');
+        const empty = document.getElementById('pcbDrcEmpty');
+        if (!list || !empty) return;
+        list.textContent = '';
+
+        const title = document.getElementById('pcbDrcSlideTitle');
+        if (title) {
+            const n = this._drcViolations.length;
+            title.textContent = n === 0
+                ? 'Design Rule Check'
+                : `Design Rule Check — ${n} problem${n === 1 ? '' : 's'}`;
+        }
+
+        if (this._drcViolations.length === 0) {
+            empty.removeAttribute('hidden');
+            empty.style.display = '';
+            return;
+        }
+        empty.setAttribute('hidden', '');
+        empty.style.display = 'none';
+
+        // Cap the rendered rows so a pathological board (thousands of
+        // violations) can't bloat the DOM and stall the UI.
+        const MAX_ROWS = 200;
+        const shown = this._drcViolations.slice(0, MAX_ROWS);
+        for (const v of shown) {
+            const li = document.createElement('li');
+            li.className = `drc-item drc-item-${v.severity === 'error' ? 'error' : 'warn'}`;
+            li.dataset.drcId = v.id;
+            if (v.id === this._drcSelectedId) li.classList.add('drc-item-active');
+
+            const dot = document.createElement('span');
+            dot.className = 'drc-item-dot';
+            const text = document.createElement('span');
+            text.className = 'drc-item-text';
+            text.textContent = v.message;
+            li.appendChild(dot);
+            li.appendChild(text);
+
+            li.addEventListener('click', () => this._selectDRCViolation(v.id));
+            list.appendChild(li);
+        }
+
+        if (this._drcViolations.length > MAX_ROWS) {
+            const more = document.createElement('li');
+            more.className = 'drc-panel-empty';
+            more.style.cursor = 'default';
+            more.textContent = `…and ${this._drcViolations.length - MAX_ROWS} more`;
+            list.appendChild(more);
+        }
+    }
+
+    _toggleDRCPanel() {
+        const panel = document.getElementById('pcbDrcSlidePanel');
+        if (!panel) return;
+        if (panel.classList.contains('open')) this._closeDRCPanel();
+        else this._openDRCPanel();
+    }
+
+    _openDRCPanel() {
+        const panel = document.getElementById('pcbDrcSlidePanel');
+        const btn = document.getElementById('pcbDrcStatus');
+        if (!panel) return;
+        panel.classList.add('open');
+        panel.setAttribute('aria-hidden', 'false');
+        btn?.setAttribute('aria-expanded', 'true');
+        btn?.classList.add('drc-status-active');
+    }
+
+    _closeDRCPanel() {
+        const panel = document.getElementById('pcbDrcSlidePanel');
+        const btn = document.getElementById('pcbDrcStatus');
+        if (!panel) return;
+        panel.classList.remove('open');
+        panel.setAttribute('aria-hidden', 'true');
+        btn?.setAttribute('aria-expanded', 'false');
+        btn?.classList.remove('drc-status-active');
+        // Closing the panel clears the on-board violation marker(s)/leader.
+        this._drcSelectedId = null;
+        this._clearDRCMarker();
+    }
+
+    /**
+     * Highlight a violation: draw a dotted marker pointing to it on the board,
+     * scroll it into view, and flag the matching list row.
+     * @param {string} id
+     */
+    _selectDRCViolation(id) {
+        const v = this._drcViolations.find(x => x.id === id);
+        if (!v) return;
+        this._drcSelectedId = id;
+
+        // Re-flag the active list row.
+        const list = document.getElementById('pcbDrcList');
+        if (list) {
+            for (const li of list.querySelectorAll('.drc-item')) {
+                li.classList.toggle('drc-item-active', li.dataset.drcId === id);
+            }
+        }
+
+        this._drawDRCMarker(v);
+        this._ensurePointVisible(v.x, v.y);
+        this._updateDRCConnector();
+    }
+
+    /** Draw the dotted marker for a violation on the DRC overlay layer. */
+    _drawDRCMarker(v) {
+        const NS = 'http://www.w3.org/2000/svg';
+        const overlay = this._getLayerGroup('drc-overlay');
+        while (overlay.firstChild) overlay.removeChild(overlay.firstChild);
+
+        const COLOR = '#ffd400';
+        const dot = (x, y, r, dash) => {
+            const c = document.createElementNS(NS, 'circle');
+            c.setAttribute('cx', String(x));
+            c.setAttribute('cy', String(y));
+            c.setAttribute('r', String(r));
+            c.setAttribute('fill', 'none');
+            c.setAttribute('stroke', COLOR);
+            c.setAttribute('stroke-width', '1.5');
+            c.setAttribute('vector-effect', 'non-scaling-stroke');
+            if (dash) c.setAttribute('stroke-dasharray', dash);
+            c.setAttribute('pointer-events', 'none');
+            overlay.appendChild(c);
+        };
+
+        // Marker location ring (always) — a dashed circle pinpointing the spot.
+        const m = v.marker || {};
+        const ringR = (m.type === 'ring') ? (m.r || 0.3) + 0.25 : 0.6;
+        dot(v.x, v.y, ringR, '3,2');
+    }
+
+    /** Remove the DRC marker overlay. */
+    _clearDRCMarker() {
+        const overlay = this._layerGroups.get('drc-overlay');
+        if (overlay) while (overlay.firstChild) overlay.removeChild(overlay.firstChild);
+        this._hideDRCConnector();
+    }
+
+    /** Lazily create the screen-space SVG used for the panel→marker leader. */
+    _ensureDRCConnector() {
+        if (this._drcConnectorSvg) return this._drcConnectorSvg;
+        const container = this.viewport?.svg?.parentElement?.parentElement; // .main-container
+        if (!container) return null;
+        const NS = 'http://www.w3.org/2000/svg';
+        const svg = document.createElementNS(NS, 'svg');
+        svg.setAttribute('class', 'drc-connector-svg');
+        svg.style.position = 'absolute';
+        svg.style.inset = '0';
+        svg.style.width = '100%';
+        svg.style.height = '100%';
+        svg.style.pointerEvents = 'none';
+        svg.style.zIndex = '60';
+        svg.style.display = 'none';
+        const line = document.createElementNS(NS, 'polyline');
+        line.setAttribute('fill', 'none');
+        line.setAttribute('stroke', '#ffd400');
+        line.setAttribute('stroke-width', '1.5');
+        line.setAttribute('stroke-dasharray', '4,3');
+        svg.appendChild(line);
+        container.appendChild(svg);
+        this._drcConnectorSvg = svg;
+        this._drcConnectorLine = line;
+        return svg;
+    }
+
+    _hideDRCConnector() {
+        if (this._drcConnectorSvg) this._drcConnectorSvg.style.display = 'none';
+    }
+
+    /**
+     * Draw the dotted leader from the selected problem row in the slide panel
+     * to its marker on the board. Recomputed on selection and on view change.
+     */
+    _updateDRCConnector() {
+        const id = this._drcSelectedId;
+        const panel = document.getElementById('pcbDrcSlidePanel');
+        const v = id ? this._drcViolations.find(x => x.id === id) : null;
+        // Only show while the panel is open and a violation is selected.
+        if (!v || !panel || !panel.classList.contains('open')) {
+            this._hideDRCConnector();
+            return;
+        }
+        const svg = this._ensureDRCConnector();
+        if (!svg || !this.viewport?.worldToScreen) return;
+
+        const row = panel.querySelector(`.drc-item[data-drc-id="${id}"]`);
+        const containerRect = svg.parentElement.getBoundingClientRect();
+        const vpSvg = this.viewport.svg;
+        const sp = this.viewport.worldToScreen({ x: v.x, y: v.y });
+        const svgRect = vpSvg.getBoundingClientRect();
+        // Marker position in container-local coordinates.
+        const ex = (svgRect.left - containerRect.left) + sp.x;
+        const ey = (svgRect.top - containerRect.top) + sp.y;        // Start point: right edge of the selected row so the leader meets the
+        // marker from the right side of the list. Clamp vertically to the
+        // scrollable body so it never spills over the header/footer when the
+        // row is scrolled out of view.
+        const body = panel.querySelector('.drc-slide-body');
+        const startRect = (row || panel).getBoundingClientRect();
+        const sx = startRect.right - containerRect.left - 16;
+        let sy = (row ? (startRect.top + startRect.height / 2) : (startRect.top + 24)) - containerRect.top;
+        let rowVisible = true;
+        if (body) {
+            const b = body.getBoundingClientRect();
+            const top = b.top - containerRect.top;
+            const bottom = b.bottom - containerRect.top;
+            // The row is "off the list" when its center sits outside the body.
+            if (row) {
+                const rowCenter = startRect.top + startRect.height / 2;
+                rowVisible = rowCenter >= b.top && rowCenter <= b.bottom;
+            }
+            sy = Math.max(top, Math.min(bottom, sy));
+        }
+
+        // Dim the leader when its row is scrolled out of view.
+        this._drcConnectorLine.setAttribute('stroke-opacity', rowVisible ? '1' : '0.3');
+        // Stop the leader at the edge of the marker ring (not its center).
+        const m = v.marker || {};
+        const ringR = (m.type === 'ring') ? (m.r || 0.3) + 0.25 : 0.6;
+        const screenR = ringR * (this.viewport.scale || 1);
+        let tx = ex, ty = ey;
+        const dx = ex - sx, dy = ey - sy;
+        const dist = Math.hypot(dx, dy);
+        if (dist > screenR) {
+            tx = ex - (dx / dist) * screenR;
+            ty = ey - (dy / dist) * screenR;
+        }
+        this._drcConnectorLine.setAttribute('points', `${sx},${sy} ${tx},${ty}`);
+        svg.style.display = '';
+    }
+
+    /**
+     * Pan (preserving zoom) so a world point is comfortably on-screen. Only
+     * moves the view if the point currently sits outside the viewport.
+     */
+    _ensurePointVisible(x, y) {
+        const vp = this.viewport;
+        if (!vp || !vp.viewBox) return;
+        const vb = vp.viewBox;
+        const margin = Math.min(vb.width, vb.height) * 0.12;
+        const inside = x >= vb.x + margin && x <= vb.x + vb.width - margin &&
+            y >= vb.y + margin && y <= vb.y + vb.height - margin;
+        if (inside) return;
+        // Needs panning: center the point on screen (never change zoom).
+        // viewBox.width/height are left untouched so the scale is preserved.
+        vb.x = x - vb.width / 2;
+        vb.y = y - vb.height / 2;
+        vp._updateViewBox?.();
+        vp._notifyViewChanged?.();
     }
 
     /**

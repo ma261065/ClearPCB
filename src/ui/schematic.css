@@ -925,6 +925,7 @@ body {
     flex: 1;
     display: flex;
     overflow: hidden;
+    position: relative;
 }
 
 .canvas-container {
@@ -2800,4 +2801,176 @@ body {
 
 /* Hide PCB net-name labels on tracks at low zoom (<200%) */
 svg.pcb-zoom-low .pcb-track-label { display: none; }
+
+/* ========================================
+   Design Rule Checker (DRC)
+   ======================================== */
+.drc-control {
+    position: relative;
+    display: inline-flex;
+}
+
+.drc-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 9px;
+    border-radius: 3px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    cursor: pointer;
+    font-size: 11px;
+    line-height: 1.3;
+    transition: background 0.12s, border-color 0.12s;
+}
+
+.drc-status:hover {
+    border-color: var(--accent-color);
+}
+
+.drc-status-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    font-size: 11px;
+    font-weight: bold;
+    line-height: 1;
+    text-align: center;
+    font-style: normal;
+    color: #fff;
+}
+
+.drc-status-pending .drc-status-icon { background: #888; }
+.drc-status-ok .drc-status-icon { background: #2ea043; }
+.drc-status-error .drc-status-icon { background: #d1242f; }
+.drc-status-warn .drc-status-icon { background: #d9a40a; }
+
+.drc-status-ok { border-color: rgba(46, 160, 67, 0.5); }
+.drc-status-error { border-color: rgba(209, 36, 47, 0.5); }
+.drc-status-warn { border-color: rgba(217, 164, 10, 0.5); }
+
+/* Pressed/toggle state: highlighted while the problem panel is open.
+   Matches the 2D/3D view toggle buttons. Scoped under .ribbon-group-items
+   button so it beats the base `.ribbon-group-items button` rule (which would
+   otherwise force `background: none`). */
+.ribbon-group-items button.drc-status-active,
+.ribbon-group-items button.drc-status-active:hover:not(:disabled) {
+    background: var(--accent-color);
+    color: #ffffff;
+    border-color: var(--accent-color);
+}
+
+/* Slide-in problem panel: anchored to the left edge of the PCB canvas,
+   slides in when the user clicks the DRC status button and stays open
+   until explicitly closed. */
+.drc-slide-panel {
+    position: absolute;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: 320px;
+    max-width: 80%;
+    z-index: 50;
+    display: flex;
+    flex-direction: column;
+    background: var(--panel-bg);
+    border-right: 1px solid var(--border-color);
+    box-shadow: 4px 0 18px rgba(0, 0, 0, 0.35);
+    transform: translateX(-100%);
+    transition: transform 0.22s ease;
+    pointer-events: none;
+}
+
+.drc-slide-panel.open {
+    transform: translateX(0);
+    pointer-events: auto;
+}
+
+.drc-slide-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border-color);
+    flex: 0 0 auto;
+}
+
+.drc-slide-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.drc-slide-close {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 18px;
+    line-height: 1;
+    cursor: pointer;
+    padding: 0 4px;
+    border-radius: 3px;
+}
+
+.drc-slide-close:hover {
+    color: var(--text-primary);
+    background: var(--btn-hover-bg, rgba(255, 255, 255, 0.08));
+}
+
+.drc-slide-body {
+    flex: 1 1 auto;
+    overflow-y: auto;
+    padding: 4px;
+}
+
+.drc-panel-empty {
+    padding: 8px 10px;
+    color: var(--text-secondary);
+    font-size: 11px;
+}
+
+.drc-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.drc-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 7px;
+    padding: 6px 9px;
+    border-radius: 3px;
+    cursor: pointer;
+    font-size: 11px;
+    line-height: 1.35;
+    color: var(--text-primary);
+}
+
+.drc-item:hover {
+    background: var(--btn-hover-bg, rgba(255, 255, 255, 0.08));
+}
+
+.drc-item.drc-item-active {
+    background: rgba(75, 156, 213, 0.18);
+}
+
+.drc-item-dot {
+    flex: 0 0 auto;
+    width: 8px;
+    height: 8px;
+    margin-top: 4px;
+    border-radius: 50%;
+}
+
+.drc-item-error .drc-item-dot { background: #d1242f; }
+.drc-item-warn .drc-item-dot { background: #d9a40a; }
+
+.drc-item-text { flex: 1 1 auto; }
+
 

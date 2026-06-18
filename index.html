@@ -347,6 +347,17 @@
                     </div>
                 </div>
                 <div class="ribbon-group">
+                    <div class="ribbon-group-title">Design Rules</div>
+                    <div class="ribbon-group-items">
+                        <div class="drc-control" id="pcbDrcControl">
+                            <button class="drc-status drc-status-pending" id="pcbDrcStatus" title="Design Rule Check — click to view problems" aria-haspopup="true" aria-expanded="false">
+                                <span class="drc-status-icon" id="pcbDrcIcon">…</span>
+                                <span class="drc-status-label" id="pcbDrcLabel">Checking…</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <div class="ribbon-group">
                     <div class="ribbon-group-title">Auto Router</div>
                     <div class="ribbon-group-items auto-router-controls">
                         <button id="pcbAutoRoute" title="Auto-route all connections">⚡ Auto Route</button>
@@ -437,6 +448,16 @@
         <div class="app-slide" data-slide="pcb">
             <div class="main-container">
                 <div class="canvas-container" id="pcbCanvasContainer" oncontextmenu="event.preventDefault()"></div>
+                <aside class="drc-slide-panel" id="pcbDrcSlidePanel" aria-hidden="true">
+                    <div class="drc-slide-header">
+                        <span class="drc-slide-title" id="pcbDrcSlideTitle">Design Rule Check</span>
+                        <button class="drc-slide-close" id="pcbDrcSlideClose" title="Close" aria-label="Close">&times;</button>
+                    </div>
+                    <div class="drc-slide-body">
+                        <div class="drc-panel-empty" id="pcbDrcEmpty">No problems found.</div>
+                        <ul class="drc-list" id="pcbDrcList"></ul>
+                    </div>
+                </aside>
             </div>
             <div class="status-bar" id="pcbStatusBar">
                 <div class="status-item">
