@@ -403,12 +403,15 @@ export default class PCBApp {
             }
         };
 
-        this.viewport.onViewChanged = () => {
+        this.viewport.onViewChanged = (view) => {
             if (!this._active) return;
             // A track context menu is anchored to a screen position but refers
             // to a board location; any zoom or pan (wheel, +/- keys, arrow-key
             // pan, buttons, drag) makes it stale, so dismiss it on view change.
-            dismissTrackContextMenu();
+            // Guard on an actual move: endPan() fires this callback even for a
+            // zero-distance right-click, which would otherwise instantly close
+            // the context menu the right-click just opened.
+            if (!view || view.scaleChanged || view.boundsChanged) dismissTrackContextMenu();
             this._updateViewportStatus();
             // Selection halo node handles are sized in screen pixels, so they
             // must be redrawn when the zoom scale changes to stay constant on
@@ -436,6 +439,23 @@ export default class PCBApp {
         this.viewport.onViewportCull = () => {
             if (!this._active) return;
             this._updatePcbCulling();
+        };
+
+        // Hide the clearance overlay during a pan. Its halos are transient
+        // non-scaling-stroke polygons that re-tessellate on every viewBox
+        // change (the dominant pan repaint cost); you can't edit mid-pan, so
+        // drop them for the gesture and restore in place on release. No
+        // recompute is needed — the geometry is in world space and pans with
+        // the viewBox.
+        this.viewport.onPanStart = () => {
+            if (!this._active || !this._clearancesVisible) return;
+            const ov = this._layerGroups.get('clearance-overlay');
+            if (ov) ov.style.display = 'none';
+        };
+        this.viewport.onPanEnd = () => {
+            if (!this._active) return;
+            const ov = this._layerGroups.get('clearance-overlay');
+            if (ov && this._clearancesVisible) ov.style.display = '';
         };
 
         // Bind mouse events for panning
@@ -687,7 +707,49 @@ export default class PCBApp {
                             compId: hit,
                             startWorld: worldPos,
                             startPos: { x: pl.x, y: pl.y },
+                            // Nets this component participates in. Only these
+                            // move during the drag, so the live ratsnest
+                            // rebuild is restricted to them (incremental mode)
+                            // instead of recomputing the whole board each frame.
+                            nets: this._netsForComponent(hit),
                         };
+                        // Defer the expensive derived overlays (copper pours +
+                        // clearance halos) until the drag ends; they're rebuilt
+                        // once in _endDrag. Live ratsnest still updates.
+                        this._deferDragOverlays = true;
+                        // Hide only the DRAGGED component's clearance halos for
+                        // the duration of the drag — its pad halos would track
+                        // the component (forcing per-frame repaints of that
+                        // geometry) and its connected-track halos would freeze
+                        // stale. Every other component's halos stay visible so
+                        // the user can still judge clearances while placing.
+                        // _endDrag rebuilds the whole overlay at the drop point.
+                        if (this._clearancesVisible) {
+                            const g = this._padHaloGroups?.get(hit);
+                            if (g) g.style.display = 'none';
+                            // Also hide the halos of the nets this component
+                            // moves: their bonded tracks/vias shift mid-drag,
+                            // so the deferred (not-recomputed) halo would
+                            // otherwise sit stranded at the old track position.
+                            const ov = this._layerGroups.get('clearance-overlay');
+                            if (ov) {
+                                for (const net of this._drag.nets) {
+                                    for (const el of ov.querySelectorAll(`.debug-clearance[data-net="${CSS.escape(net)}"]`)) {
+                                        /** @type {SVGElement} */ (el).style.display = 'none';
+                                    }
+                                }
+                                // Promote the (now-static) clearance overlay to
+                                // its own GPU compositing layer for the drag.
+                                // Otherwise every frame's board-wide mutations
+                                // (ratsnest rebuild, bonded-track re-render)
+                                // invalidate the overlapping halo geometry and
+                                // force the browser to repaint thousands of
+                                // non-scaling-stroke vectors — the real per-
+                                // frame cost. On its own layer the overlay just
+                                // composites; it never repaints.
+                                ov.style.willChange = 'transform';
+                            }
+                        }
                         svg.style.cursor = 'grabbing';
                     }
                 } else if (this._hitTestBoardOutline(worldPos)) {
@@ -830,7 +892,7 @@ export default class PCBApp {
                     this._updateHolePreview(this._screenToWorld(e));
                 }
             } else if (this._drag) {
-                this._handleDrag(e);
+                this._scheduleDragUpdate(e);
             } else if (this._groupDrag) {
                 updateGroupDrag(this, this._screenToWorld(e));
             } else if (this._textDrag) {
@@ -1093,9 +1155,9 @@ export default class PCBApp {
             // carries a 3D model.
             const compId = this._hitTestComponent(worldPos);
             const pl = compId ? this.placements.get(compId) : null;
-            if (hasAny3DModel(pl)) {
+            if (compId && hasAny3DModel(pl)) {
                 if (this.viewport.isPanning) this.viewport.endPan();
-                this._showComponent3DMenu(pl, e.clientX, e.clientY);
+                this._showComponent3DMenu(compId, e.clientX, e.clientY);
             }
         });
 
@@ -2458,13 +2520,17 @@ export default class PCBApp {
 
     /**
      * Show a small "Show 3D" context menu for a placed footprint that carries a
-     * 3D OBJ model, at the given screen position.
-     * @param {object} pl - the placement (has `model3dObj`, `reference`)
+     * 3D OBJ model, at the given screen position. Takes the component id (not a
+     * placement object) so the action resolves the *live* placement at click
+     * time — mirroring the Properties button — and never acts on a placement
+     * that was orphaned by an autosave/schematic re-sync between right-click
+     * and selecting the menu item.
+     * @param {string} compId
      * @param {number} clientX
      * @param {number} clientY
      */
-    _showComponent3DMenu(pl, clientX, clientY) {
-        if (!hasAny3DModel(pl)) return;
+    _showComponent3DMenu(compId, clientX, clientY) {
+        if (!hasAny3DModel(this.placements.get(compId))) return;
         dismissTrackContextMenu();
         const menu = document.createElement('div');
         menu.id = 'pcbTrackContextMenu';
@@ -2476,7 +2542,7 @@ export default class PCBApp {
         el.addEventListener('mouseleave', () => { el.style.background = ''; });
         el.addEventListener('click', () => {
             dismissTrackContextMenu();
-            this._openComponent3DPopout(pl);
+            this._openComponent3DPopout(compId);
         });
         menu.appendChild(el);
         menu.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -3021,10 +3087,30 @@ export default class PCBApp {
     /**
      * Rebuild the ratsnest lines from the current netlist and placements.
      */
-    _updateRatsnest() {
+    _updateRatsnest(opts) {
         // Net-based rebuild — draws guide lines between every disconnected
-        // cluster of same-net copper (pads, tracks and vias alike).
-        reconcileRatsnest(this);
+        // cluster of same-net copper (pads, tracks and vias alike). When
+        // `opts.nets` is supplied (live footprint drag) only those nets are
+        // recomputed; every other net's ratlines are left untouched.
+        reconcileRatsnest(this, opts);
+    }
+
+    /**
+     * The set of net names a placement's pads belong to (from the netlist).
+     * Used to scope the live ratsnest rebuild during a drag to just the nets
+     * that actually move with the component.
+     * @param {string} compId
+     * @returns {Set<string>}
+     */
+    _netsForComponent(compId) {
+        const nets = new Set();
+        for (const entry of (this.netlist || [])) {
+            if (!entry?.net) continue;
+            for (const pin of (entry.pins || [])) {
+                if (pin.componentId === compId) { nets.add(entry.net); break; }
+            }
+        }
+        return nets;
     }
 
     /**
@@ -3491,6 +3577,29 @@ export default class PCBApp {
     }
 
     /**
+     * Coalesce footprint-drag updates to one per animation frame.
+     *
+     * Each move re-applies the placement pose and rebuilds the WHOLE board's
+     * ratsnest (reconcileRatsnest is O(tracks+pads+vias)). Running that on
+     * every raw mousemove backs up the event queue on dense boards, so the
+     * component visibly lags the cursor — even for a part with no tracks
+     * attached, because the rebuild cost is board-wide, not per-component.
+     * Stash the latest pointer event and process a single pass per frame.
+     * @param {MouseEvent} e
+     */
+    _scheduleDragUpdate(e) {
+        this._pendingDragEvent = e;
+        if (this._dragRaf) return;
+        this._dragRaf = requestAnimationFrame(() => {
+            this._dragRaf = 0;
+            const ev = this._pendingDragEvent;
+            this._pendingDragEvent = null;
+            if (!ev || !this._active || !this._drag) return;
+            this._handleDrag(ev);
+        });
+    }
+
+    /**
      * Handle drag movement.
      * @param {MouseEvent} e
      */
@@ -3522,8 +3631,9 @@ export default class PCBApp {
         pl.y = snapY;
         applyPlacementPose(this, this._drag.compId);
 
-        // Rebuild ratsnest in real-time
-        this._updateRatsnest();
+        // Rebuild ratsnest in real-time — restricted to the dragged
+        // component's nets (incremental); the rest of the board is untouched.
+        this._updateRatsnest({ nets: this._drag.nets });
     }
 
     /**
@@ -3531,9 +3641,33 @@ export default class PCBApp {
      */
     _endDrag() {
         if (!this._drag) return;
+        // Flush any pointer move coalesced by _scheduleDragUpdate so the final
+        // resting position reflects the very last mouse position, not the one
+        // from the previous animation frame.
+        if (this._dragRaf) {
+            cancelAnimationFrame(this._dragRaf);
+            this._dragRaf = 0;
+        }
+        if (this._pendingDragEvent) {
+            const ev = this._pendingDragEvent;
+            this._pendingDragEvent = null;
+            this._handleDrag(ev);
+        }
         const { compId, startPos } = this._drag;
         const pl = this.placements.get(compId);
         this._drag = null;
+        // Drag finished — re-enable the deferred overlays so the reconcile
+        // below (or the MovePlacementCommand's) rebuilds pours + clearance
+        // halos once, at the final resting position. The clearance rebuild
+        // wipes and recreates every pad-halo group, so the dragged
+        // component's group (hidden on drag start) returns visible.
+        this._deferDragOverlays = false;
+        // Drop the GPU-layer promotion applied during the drag so the overlay
+        // returns to normal painting (avoids holding a compositing layer).
+        if (this._clearancesVisible) {
+            const ov = this._layerGroups.get('clearance-overlay');
+            if (ov) ov.style.willChange = '';
+        }
         this.viewport.svg.style.cursor = this._selectedComp ? 'grab' : 'default';
         // If the placement actually moved, push a MovePlacementCommand so the
         // drag is undoable. _handleDrag has already applied the new position;
@@ -5278,6 +5412,11 @@ export default class PCBApp {
                 el.setAttribute('vector-effect', 'non-scaling-stroke');
                 el.setAttribute('stroke-linejoin', 'round');
                 el.setAttribute('pointer-events', 'none');
+                // Tag with the source trace's net so a footprint drag can hide
+                // the halos of the nets it moves (their tracks shift mid-drag,
+                // leaving the deferred halo stranded at the old position).
+                const tnet = trace.dataset?.net;
+                if (tnet) el.dataset.net = tnet;
                 overlay.appendChild(el);
             }
         }
@@ -5295,14 +5434,16 @@ export default class PCBApp {
             if (!Number.isFinite(cx) || !Number.isFinite(cy) || !Number.isFinite(r)) continue;
             const key = `${cx.toFixed(4)},${cy.toFixed(4)}`;
             const prev = viaRingByCenter.get(key);
-            if (!prev || r > prev.r) viaRingByCenter.set(key, { cx, cy, r });
+            if (!prev || r > prev.r) viaRingByCenter.set(key, { cx, cy, r, net: via.dataset?.net || prev?.net });
         }
-        for (const { cx, cy, r } of viaRingByCenter.values()) {
+        for (const { cx, cy, r, net } of viaRingByCenter.values()) {
             const ghost = document.createElementNS(NS, 'circle');
             ghost.setAttribute('cx', String(cx));
             ghost.setAttribute('cy', String(cy));
             ghost.setAttribute('r', String(r + halo));
             styleHalo(ghost);
+            // Tag with net so a footprint drag can hide moving nets' halos.
+            if (net) ghost.dataset.net = net;
             overlay.appendChild(ghost);
         }
     }

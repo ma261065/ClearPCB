@@ -145,6 +145,8 @@ export class Viewport {
         this.onViewChanged = null;
         this.onMouseMove = null;
         this.onViewportCull = null;
+        this.onPanStart = null;
+        this.onPanEnd = null;
         
         // Event handlers (stored for cleanup)
         this.boundHandlers = {
@@ -585,6 +587,7 @@ export class Viewport {
         this.panStart = { x: clientX, y: clientY };
         this.panStartViewBox = { ...this.viewBox };
         this.svg.style.cursor = 'grabbing';
+        if (this.onPanStart) this.onPanStart();
     }
 
     /**
@@ -618,6 +621,7 @@ export class Viewport {
         if (!this.isPanning) return;
         this.isPanning = false;
         this.svg.style.cursor = '';
+        if (this.onPanEnd) this.onPanEnd();
         this._notifyViewChanged();
     }
 
@@ -683,7 +687,8 @@ export class Viewport {
                     offset: this.offset,
                     zoom: this.zoom,
                     bounds: currentBounds,
-                    scaleChanged
+                    scaleChanged,
+                    boundsChanged
                 });
             }
         });  // Execute on next frame

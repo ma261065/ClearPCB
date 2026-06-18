@@ -247,6 +247,10 @@ export class ArcballController {
     /** @param {WheelEvent} e */
     _onWheel(e) {
         if (!this.enabled) return;
+        // Ignore horizontal-wheel / tilt-wheel input: a second scroll wheel
+        // reports motion on deltaX (deltaY ~ 0), which would otherwise fall
+        // into the zoom-out branch below and jump the camera on a light touch.
+        if (Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
         e.preventDefault();
         const factor = Math.pow(0.95, this.zoomSpeed * (e.deltaY < 0 ? 1 : -1));
         const offset = this.camera.position.clone().sub(this.target);

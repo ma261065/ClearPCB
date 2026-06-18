@@ -80,7 +80,10 @@ export function setupCallbacks(app) {
         // A context menu is anchored to a screen position but refers to a board
         // location; any zoom or pan (wheel, +/- keys, arrow-key pan, buttons,
         // drag) makes it stale, so dismiss it as soon as the view moves.
-        dismissAnchorContextMenu();
+        // Guard on an actual move: endPan() fires this callback even for a
+        // zero-distance right-click, which would otherwise instantly close the
+        // context menu the right-click just opened.
+        if (view.scaleChanged || view.boundsChanged) dismissAnchorContextMenu();
 
         const zoomPercent = Math.round(app.viewport.zoom * 100);
         if (app.ui.zoomPercent) {

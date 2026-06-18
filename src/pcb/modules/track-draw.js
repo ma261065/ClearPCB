@@ -640,19 +640,35 @@ export function popTrackWaypoint(app) {
  * lifecycle and are left untouched.
  *
  * @param {object} app - PCBApp
+ * @param {{nets?: Set<string>}} [opts] - Incremental mode. When `nets` is a
+ *   Set, only those nets' ratlines are recomputed and redrawn; every other
+ *   net's ratlines are left untouched in the DOM. Used during a footprint
+ *   drag, where only the dragged component's nets move — rebuilding the whole
+ *   board's ratsnest each frame is the dominant per-frame cost on dense
+ *   boards. Omit (or pass no `nets`) for a full board-wide rebuild.
  */
-export function reconcileRatsnest(app) {
-    // The clearance overlay is derived from the rendered trace geometry, so
-    // it must be rebuilt whenever the copper changes — exactly the same set
-    // of call sites that reconcile the ratsnest (live vertex drag, drag
-    // finish, and every track/via command). Keep the two overlays in lock-
-    // step here (no-op unless the clearance overlay is currently visible).
-    app._refreshClearanceHalos?.();
+export function reconcileRatsnest(app, opts) {
+    // Incremental net filter: when present, restrict all cluster construction
+    // and ratline removal/redraw to this set of nets.
+    const onlyNets = opts?.nets instanceof Set ? opts.nets : null;
+    // During a live footprint drag the expensive derived overlays (clearance
+    // halos and copper pours) are deferred: their transient per-frame state is
+    // invisible eye-candy, and re-pouring every fill via polygon clipping (or
+    // rebuilding clearance geometry) on each frame is the single biggest cost
+    // on boards that have them. _endDrag() forces one full reconcile on drop.
+    if (!app._deferDragOverlays) {
+        // The clearance overlay is derived from the rendered trace geometry, so
+        // it must be rebuilt whenever the copper changes — exactly the same set
+        // of call sites that reconcile the ratsnest (live vertex drag, drag
+        // finish, and every track/via command). Keep the two overlays in lock-
+        // step here (no-op unless the clearance overlay is currently visible).
+        app._refreshClearanceHalos?.();
 
-    // Copper pours are derived from trace/via/pad geometry, so they must be
-    // recomputed whenever the copper changes — the same call sites that
-    // reconcile the ratsnest. (No-op when there are no fills.)
-    app._refreshFills?.();
+        // Copper pours are derived from trace/via/pad geometry, so they must be
+        // recomputed whenever the copper changes — the same call sites that
+        // reconcile the ratsnest. (No-op when there are no fills.)
+        app._refreshFills?.();
+    }
 
     const ratLayer = app._getLayerGroup?.('ratlines');
     if (!ratLayer) return;
@@ -660,6 +676,8 @@ export function reconcileRatsnest(app) {
     // Clear previously-generated ratsnest (keep autorouter failed lines).
     for (const el of [...ratLayer.children]) {
         if (el.classList?.contains('ratsnest-failed')) continue;
+        // Incremental mode: keep ratlines for nets we're not recomputing.
+        if (onlyNets && !onlyNets.has(el.dataset?.net)) continue;
         el.remove();
     }
 
@@ -677,6 +695,7 @@ export function reconcileRatsnest(app) {
     for (const track of (app.tracks || [])) {
         const net = track.net || '';
         if (!net) continue;
+        if (onlyNets && !onlyNets.has(net)) continue;
         const adj = new Map();
         for (const nid of track.nodes.keys()) adj.set(nid, []);
         for (const [eid, e] of track.edges) {
@@ -713,6 +732,7 @@ export function reconcileRatsnest(app) {
     // ── Vias ── bond every layer at their point.
     for (const via of (app.vias || [])) {
         if (!via.net) continue;
+        if (onlyNets && !onlyNets.has(via.net)) continue;
         clusters.push({ net: via.net, layer: 'all', points: [{ x: via.x, y: via.y }] });
     }
 
@@ -728,6 +748,7 @@ export function reconcileRatsnest(app) {
         for (const [pin, pad] of pl.pads) {
             const net = padNet.get(`${compId}|${pin}`);
             if (!net) continue;
+            if (onlyNets && !onlyNets.has(net)) continue;
             clusters.push({ net, layer: 'all', points: [{ x: pad.x, y: pad.y }] });
         }
     }
@@ -786,6 +807,7 @@ export function reconcileRatsnest(app) {
     for (const fill of (app.copperFills || [])) {
         const fnet = fill.net || '';
         if (!fnet) continue;
+        if (onlyNets && !onlyNets.has(fnet)) continue;
         const polys = fill._computed;
         if (!Array.isArray(polys) || polys.length === 0) continue;
         const compat = (layer) => layer === 'all' || layer === fill.layer;

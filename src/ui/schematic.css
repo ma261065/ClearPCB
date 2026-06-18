@@ -2006,6 +2006,7 @@ body {
     background: var(--bg-toolbar, #333);
     border-bottom: 1px solid var(--border-color, #555);
     cursor: move;
+    -webkit-user-select: none;
     user-select: none;
     touch-action: none;
 }
