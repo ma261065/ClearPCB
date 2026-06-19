@@ -508,6 +508,7 @@ export class SetPlacementRefVisibleCommand {
 }
 const FP_LAYER_FLIP = {
     'top-copper': 'bottom-copper', 'bottom-copper': 'top-copper',
+    'top-pad-numbers': 'bottom-pad-numbers', 'bottom-pad-numbers': 'top-pad-numbers',
     'top-silk': 'bottom-silk', 'bottom-silk': 'top-silk',
     'top-paste': 'bottom-paste', 'bottom-paste': 'top-paste',
     'top-mask': 'bottom-mask', 'bottom-mask': 'top-mask',

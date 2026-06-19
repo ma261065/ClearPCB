@@ -1472,7 +1472,7 @@ function _buildTracksFromContext(ctx) {
     return { tracks, vias };
 }
 
-function _padNet(app, componentId, pinNumber) {
+export function _padNet(app, componentId, pinNumber) {
     if (!Array.isArray(app.netlist)) return '';
     for (const entry of app.netlist) {
         if (!entry?.pins) continue;

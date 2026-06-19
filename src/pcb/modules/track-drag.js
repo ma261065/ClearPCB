@@ -37,9 +37,11 @@ import {
     _axisAlignment,
     COLLINEAR_SNAP_SCREEN_PX,
     COLLINEAR_GLOW_ANGLE_TOL,
+    collectBondedCopper,
+    _padNet,
 } from './track-draw.js';
 import { refreshTrackSelectionHalo } from './track-select.js';
-import { MoveVertexCommand, MoveViaCommand, MoveHoleCommand, CompoundCommand, ModifyTrackGraphCommand, RemoveTrackCommand, AddViaCommand, AddTrackCommand } from './track-commands.js';
+import { MoveVertexCommand, MoveViaCommand, MoveHoleCommand, CompoundCommand, ModifyTrackGraphCommand, RemoveTrackCommand, AddViaCommand, AddTrackCommand, ModifyTrackCommand, ModifyViaCommand } from './track-commands.js';
 import { pointsCollinear, collinearSnap } from '../../core/geometry.js';
 import { showAlert } from '../../ui/modules/modal.js';
 import { Via } from '../../shapes/via.js';
@@ -1300,6 +1302,50 @@ function _snapNodeAcrossNeighbour(track, nodeId, pos, threshold) {
 }
 
 /**
+ * Build the commands that give the dropped copper a pad's schematic net when
+ * a single node lands on a component pad — UNLESS the same bonded copper
+ * already reaches a DIFFERENT pin (a pad on another net), whose net is
+ * authoritative and must not be overwritten; the conflicting drop is left
+ * as-is.
+ *
+ * Returns the commands WITHOUT executing them so the caller can commit them
+ * ATOMICALLY with the node move — a single undo then restores both the
+ * position and the net. The bonded-copper scan must run while the node is in
+ * its final, on-pad position.
+ *
+ * @param {object} app
+ * @param {Track} track
+ * @param {string} nodeId - the dropped node
+ * @returns {Array} command objects (possibly empty)
+ */
+function _buildPadNetInheritCommands(app, track, nodeId) {
+    const conn = track.padConnections?.get(nodeId);
+    if (!conn) return [];
+    const padNet = _padNet(app, conn.componentId, conn.pinNumber);
+    if (!padNet) return [];                       // pad carries no schematic net
+    if ((track.net || '') === padNet) return [];  // already on the pad's net
+
+    const { tracks, vias, padNets } = collectBondedCopper(app, { track });
+    // A different pin already feeds this copper → its net is authoritative.
+    for (const pn of padNets) {
+        if (pn && pn !== padNet) return [];
+    }
+
+    const cmds = [];
+    for (const t of tracks) {
+        if ((t.net || '') !== padNet) {
+            cmds.push(new ModifyTrackCommand(app, t, { net: t.net || '' }, { net: padNet }));
+        }
+    }
+    for (const v of vias) {
+        if ((v.net || '') !== padNet) {
+            cmds.push(new ModifyViaCommand(app, v, { net: v.net || '' }, { net: padNet }));
+        }
+    }
+    return cmds;
+}
+
+/**
  * Commit the in-progress drag as a MoveVertexCommand (or a
  * CompoundCommand for a multi-node segment drag), or revert if no net
  * movement.
@@ -1352,6 +1398,12 @@ export function finishVertexDrag(app) {
         if (_tryMergeDroppedNode(app, drag)) return;
     }
 
+    // A single node dropped onto a bare pad should inherit that pad's net
+    // (unless its current net is anchored to another pin) — applied below
+    // once the move is committed.
+    const singleNodeId = (drag.mode === 'node' && drag.nodes.length === 1)
+        ? drag.nodes[0].nodeId : null;
+
     // Collect the moved nodes and snap the model back so each command's
     // execute() re-applies the move from the original position.
     const moves = [];
@@ -1376,20 +1428,25 @@ export function finishVertexDrag(app) {
         const n = drag.track.nodes.get(m.nodeId);
         if (n) { n.x = m.toX; n.y = m.toY; }
     }
+    // While the dragged node sits at its final (possibly on-pad) position,
+    // build any pad-net inheritance commands so they commit ATOMICALLY with
+    // the move — a single undo restores both the position and the net.
+    const netCmds = singleNodeId ? _buildPadNetInheritCommands(app, drag.track, singleNodeId) : [];
     const collapsed = collapseCollinearTrackNodes(app, drag.track);
     if (collapsed) {
         const after = drag.track.captureState();
         drag.track.applyState(before);
-        app.history.execute(new ModifyTrackGraphCommand(app, drag.track, before, after));
+        const all = [new ModifyTrackGraphCommand(app, drag.track, before, after), ...netCmds];
+        app.history.execute(all.length === 1 ? all[0] : new CompoundCommand(all));
         reconcileRatsnest(app);
         return;
     }
     drag.track.applyState(before);
 
-    const cmds = moves.map((m) =>
+    const moveCmds = moves.map((m) =>
         new MoveVertexCommand(app, drag.track, m.nodeId, m.fromX, m.fromY, m.toX, m.toY));
-    const cmd = cmds.length === 1 ? cmds[0] : new CompoundCommand(cmds);
-    app.history.execute(cmd);
+    const all = [...moveCmds, ...netCmds];
+    app.history.execute(all.length === 1 ? all[0] : new CompoundCommand(all));
     reconcileRatsnest(app);
 }
 

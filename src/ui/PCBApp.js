@@ -1866,7 +1866,11 @@ export default class PCBApp {
             // Copper pours sit directly beneath their copper layer so
             // tracks and pads paint on top of the flood fill.
             'bottom-fill', 'bottom-copper',
+            // Pad numbers sit just above their copper layer so a track routed
+            // to a pad never hides its number (visibility follows the copper).
+            'bottom-pad-numbers',
             'top-fill', 'top-copper',
+            'top-pad-numbers',
             'bottom-silk', 'top-silk',
             'hole',
             'ratlines',
@@ -1945,6 +1949,13 @@ export default class PCBApp {
         if (g) {
             g.style.display = visible ? '' : 'none';
         }
+        // Pad-number labels live on their own layer above each copper layer
+        // (so tracks can't hide them); keep their visibility tied to the
+        // copper side they belong to.
+        if (layerId === 'top-copper' || layerId === 'bottom-copper') {
+            const pn = this._layerGroups.get(layerId === 'bottom-copper' ? 'bottom-pad-numbers' : 'top-pad-numbers');
+            if (pn) pn.style.display = visible ? '' : 'none';
+        }
         // Clearance overlay tracks per-layer visibility — re-render so halos
         // for hidden copper/hole layers disappear too.
         if (this._clearancesVisible && (layerId === 'top-copper' || layerId === 'bottom-copper' || layerId === 'hole')) {
@@ -2022,6 +2033,19 @@ export default class PCBApp {
             // Ratlines have a real SVG layer group; toggle its display.
             const g = this._layerGroups.get('ratlines');
             if (g) g.style.display = visible ? '' : 'none';
+            // A highlighted incomplete-connection violation draws a temporary
+            // copy of its ratline only while the real ratline is hidden.
+            // Toggling ratline visibility flips that condition, so re-draw the
+            // currently shown marker to add or drop the temp ratline to match.
+            if (this._drcSelectedId) {
+                const overlay = this._layerGroups.get('drc-overlay');
+                const sel = (overlay && overlay.firstChild)
+                    ? this._drcViolations.find(x => x.id === this._drcSelectedId) : null;
+                if (sel) {
+                    this._drawDRCMarker(sel);
+                    this._updateDRCConnector();
+                }
+            }
         }
         saveLayerPrefs();
     }
@@ -5698,7 +5722,17 @@ export default class PCBApp {
                 if (this._drcCollapsedGroups.has(name)) this._drcCollapsedGroups.delete(name);
                 else this._drcCollapsedGroups.add(name);
                 this._renderDRCList();
-                if (this._drcSelectedId) this._updateDRCConnector();
+                // If the selected violation now sits in a collapsed section,
+                // stop showing its on-board marker + leader; restore them when
+                // its section is expanded again.
+                const sel = this._drcSelectedId
+                    ? this._drcViolations.find(x => x.id === this._drcSelectedId) : null;
+                if (sel && this._drcCollapsedGroups.has(groupOf(sel))) {
+                    this._clearDRCMarker();
+                } else if (sel) {
+                    this._drawDRCMarker(sel);
+                    this._updateDRCConnector();
+                }
             };
             heading.addEventListener('click', toggle);
             heading.addEventListener('keydown', (e) => {
@@ -5814,6 +5848,49 @@ export default class PCBApp {
         const m = v.marker || {};
         const ringR = (m.type === 'ring') ? (m.r || 0.3) + 0.25 : 0.6;
         dot(v.x, v.y, ringR, '3,2');
+
+        // For an incomplete-connection (ratline) violation, the actual air
+        // wire may be hidden (Ratlines overlay off, or this net's ratline
+        // toggled off). Re-draw just this one ratline on the overlay so the
+        // user can see what is unconnected — only while it stays highlighted.
+        if (m.type === 'ratline' && m.a && m.b && !this._isRatlineVisible(m.a, m.b)) {
+            const line = document.createElementNS(NS, 'line');
+            line.setAttribute('x1', String(m.a.x));
+            line.setAttribute('y1', String(m.a.y));
+            line.setAttribute('x2', String(m.b.x));
+            line.setAttribute('y2', String(m.b.y));
+            line.setAttribute('stroke', '#4488ff');
+            line.setAttribute('stroke-width', '1');
+            line.setAttribute('vector-effect', 'non-scaling-stroke');
+            line.setAttribute('pointer-events', 'none');
+            overlay.appendChild(line);
+        }
+    }
+
+    /**
+     * True when the ratline between two points is currently shown on the
+     * board. Hidden if the Ratlines overlay group is off, or if the matching
+     * ratsnest line element is individually display:none.
+     * @param {{x:number, y:number}} a
+     * @param {{x:number, y:number}} b
+     * @returns {boolean}
+     */
+    _isRatlineVisible(a, b) {
+        const layer = this._layerGroups?.get('ratlines');
+        if (!layer || layer.style.display === 'none') return false;
+        const near = (p, q) => Math.abs(p - q) < 1e-3;
+        for (const el of layer.querySelectorAll('line.ratsnest-line, line.ratsnest-failed')) {
+            if (/** @type {HTMLElement} */ (el).style.display === 'none') continue;
+            const x1 = parseFloat(el.getAttribute('x1'));
+            const y1 = parseFloat(el.getAttribute('y1'));
+            const x2 = parseFloat(el.getAttribute('x2'));
+            const y2 = parseFloat(el.getAttribute('y2'));
+            if ((near(x1, a.x) && near(y1, a.y) && near(x2, b.x) && near(y2, b.y)) ||
+                (near(x1, b.x) && near(y1, b.y) && near(x2, a.x) && near(y2, a.y))) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** Remove the DRC marker overlay. */

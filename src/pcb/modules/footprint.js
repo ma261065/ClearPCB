@@ -940,7 +940,11 @@ export function renderFootprint(fp, ref, x, y, rotation = 0) {
             numText.setAttribute('class', 'pcb-mirror-text');
             numText.setAttribute('data-mx-center', String(pad.x));
             numText.textContent = padLabel;
-            padG.appendChild(numText);
+            // Pad numbers live on a dedicated layer that sits above the copper
+            // (and any tracks routed on it) so a track connecting to the pad
+            // never hides its number. The layer flips with the footprint side.
+            const numLayerId = layerId === 'bottom-copper' ? 'bottom-pad-numbers' : 'top-pad-numbers';
+            getLayer(numLayerId).appendChild(numText);
 
             target.appendChild(padG);
         }

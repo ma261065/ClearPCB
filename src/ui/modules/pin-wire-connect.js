@@ -40,6 +40,7 @@ export function connectPinsToWires(app, pinTargets, options) {
                         componentId: ownerId,
                         pinNumber: target.pinNumber
                     });
+                    wire.invalidate?.();
                 }
                 onConnectedWire?.(wire);
                 break;

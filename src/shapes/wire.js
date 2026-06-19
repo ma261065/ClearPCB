@@ -283,6 +283,25 @@ export class Wire extends PolylineGraph {
             strokeColor = 'var(--sch-selection, #3399ff)';
         }
         super._updateElement(el, strokeColor, _fillColor, scale);
+        // Pin-connection dots: mark each wire node that lands on a component
+        // pin so it's visually clear the wire is actually connected (not just
+        // crossing/touching). Sized to match the branch junction dots.
+        if (this.pinConnections && this.pinConnections.size > 0) {
+            const NS = 'http://www.w3.org/2000/svg';
+            const r = Math.max(0.4, 2.5 / scale);
+            for (const nid of this.pinConnections.keys()) {
+                const pos = this.nodes.get(nid);
+                if (!pos) continue;
+                const c = document.createElementNS(NS, 'circle');
+                c.setAttribute('cx', pos.x);
+                c.setAttribute('cy', pos.y);
+                c.setAttribute('r', String(r));
+                c.setAttribute('fill', strokeColor);
+                c.setAttribute('stroke', 'none');
+                c.classList.add('pin-connection-dot');
+                el.appendChild(c);
+            }
+        }
         // Invalidate label text so it turns blue/normal with the wire
         if (this.labelText) this.labelText.invalidate();
     }
