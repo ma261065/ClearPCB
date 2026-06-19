@@ -34,6 +34,7 @@ import { Track } from '../../shapes/track.js';
 import { Via } from '../../shapes/via.js';
 import { renderTrack } from './track-render.js';
 import { collinearSnap, pointInPolygon } from '../../core/geometry.js';
+import { showAlert } from '../../ui/modules/modal.js';
 
 const NS = 'http://www.w3.org/2000/svg';
 
@@ -85,7 +86,7 @@ const TOGGLE_LAYERS = ['top-copper', 'bottom-copper'];
 
 /**
  * Find the nearest pad center to `worldPos` within `tolerance`.
- * @returns {{x:number, y:number, componentId:string, pinNumber:string, net:string}|null}
+ * @returns {{x:number, y:number, componentId:string, pinNumber:string, number:string, net:string}|null}
  */
 export function findNearbyPad(app, worldPos, tolerance = PAD_SNAP_TOL) {
     if (!app?.placements) return null;
@@ -107,6 +108,7 @@ export function findNearbyPad(app, worldPos, tolerance = PAD_SNAP_TOL) {
                 best = {
                     x: pad.x, y: pad.y, componentId: compId,
                     pinNumber: String(padId), number: String(pad.number ?? padId),
+                    net: '',
                 };
             }
         }
@@ -505,6 +507,24 @@ export function addTrackWaypoint(app, worldPos) {
         return;
     }
 
+    // Reject a click that lands on a pad or existing track node carrying a
+    // DIFFERENT net than the one being drawn. Every pad now has a net (real or
+    // a default `<Ref>.<Pin>`), so bonding to a foreign-net target — even just
+    // by coincident geometry — would short two nets. Mirror the vertex-drag
+    // behaviour: warn and don't place the waypoint.
+    if (ctx.net) {
+        let foreignNet = '';
+        if (snap.snapType === 'pad' && snap.pad) foreignNet = snap.pad.net || '';
+        else if (snap.snapType === 'track-node' && snap.trackNode) foreignNet = snap.trackNode.track.net || '';
+        if (foreignNet && foreignNet !== ctx.net) {
+            showAlert(
+                `Cannot connect to net "${foreignNet}" \u2014 this track is already on net "${ctx.net}".`,
+                { title: 'Net Conflict' }
+            );
+            return;
+        }
+    }
+
     ctx.points.push({ x: target.x, y: target.y });
     ctx.edgeLayers.push(ctx.currentLayer);
 
@@ -512,22 +532,17 @@ export function addTrackWaypoint(app, worldPos) {
     if (snap.snapType === 'pad') {
         const pad = snap.pad;
         if (!ctx.net) ctx.net = pad.net || '';
-        if (!ctx.net || !pad.net || ctx.net === pad.net) {
-            ctx.endPad = pad;
-            finishTrackDraw(app);
-            return;
-        }
-        // Net mismatch — leave the segment in place and let user retreat.
+        ctx.endPad = pad;
+        finishTrackDraw(app);
+        return;
     }
 
-    // Did we hit an existing same-net track node? If yes, finish.
+    // Did we hit an existing track node? If yes, finish (adopt net if none).
     if (snap.snapType === 'track-node') {
         const otherNet = snap.trackNode.track.net || '';
-        if (!ctx.net || !otherNet || ctx.net === otherNet) {
-            if (!ctx.net) ctx.net = otherNet;
-            finishTrackDraw(app);
-            return;
-        }
+        if (!ctx.net) ctx.net = otherNet;
+        finishTrackDraw(app);
+        return;
     }
 
     _renderPreview(app, ctx, target);
@@ -838,7 +853,7 @@ export function reconcileRatsnest(app, opts) {
     const netGroups = new Map();
     for (const sn of supernodes.values()) {
         if (!netGroups.has(sn.net)) netGroups.set(sn.net, []);
-        netGroups.get(sn.net).push(sn.points);
+        netGroups.get(sn.net)?.push(sn.points);
     }
 
     // ── Draw an MST of nearest-point lines for every multi-cluster net ──
@@ -1055,7 +1070,7 @@ function _clearPreviewElements(ctx) {
  * `clearTrackAxisGlow` to remove them.
  *
  * @param {object} app
- * @param {Array<{a:{x:number,y:number}, b:{x:number,y:number}, layerId:string, width?:number, collinear?:boolean}>} segments
+ * @param {Array<{a:{x:number,y:number}, b:{x:number,y:number}, layerId:string, width?:number, collinear?:boolean, frozen?:boolean, axisKind?:string|null}>} segments
  */
 export function renderTrackAxisGlow(app, segments) {
     clearTrackAxisGlow(app);
@@ -1431,7 +1446,7 @@ function _buildTracksFromContext(ctx) {
     const tracks = [];
     const transitions = []; // {x, y} points where the layer changed
     let cur = null;         // current single-layer Track being built
-    let curNodeId = null;   // last node id appended to `cur`
+    let curNodeId = '';     // last node id appended to `cur`
 
     for (let i = 0; i < pts.length - 1; i++) {
         const segLayer = segLayers[i] || ctx.currentLayer;
@@ -1517,4 +1532,6 @@ function _renderOptsFromApp(app) {
  * @property {string|null} axisLock
  * @property {SVGElement[]} previewElements
  * @property {object|null} snap
+ * @property {number} [viaDiameter]
+ * @property {number} [viaDrill]
  */

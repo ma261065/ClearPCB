@@ -17,6 +17,8 @@
  *      and invalid drills (drill ≥ diameter or non-positive).
  *   3. Incomplete connections — every remaining ratsnest line (an air wire
  *      between copper that should be joined but isn't yet) is a violation.
+ *   4. Shorted nets — two or more distinct named nets electrically bonded by
+ *      coincident copper (a track/via/pad junction tying nets together).
  *
  * Distances are edge-to-edge in millimetres. Pad shapes are treated as their
  * axis-aligned bounding box (matching the existing clearance-overlay and the
@@ -280,6 +282,88 @@ export function collectCopper(app) {
     return { pads, segments, vias };
 }
 
+/**
+ * Detect shorted nets: two or more distinct named nets electrically bonded by
+ * coincident copper. Net-agnostic union-find over pad/via/track-segment
+ * terminals (mirrors the ratsnest connectivity model, but unions ACROSS nets
+ * so cross-net bonds surface instead of being hidden). Distinct nets are taken
+ * from PAD nets (authoritative from the netlist) within each bonded component.
+ * @param {object} app - PCBApp instance.
+ * @returns {Array<{nets:string[], a:{x:number,y:number}, b:{x:number,y:number}}>}
+ */
+function detectShorts(app) {
+    const { pads, segments, vias } = collectCopper(app);
+    const normL = (l) => (l === 'both' ? 'all' : l);
+
+    /** @type {Array<{x:number,y:number,layer:string,net:string,isPad:boolean}>} */
+    const terms = [];
+    for (const p of pads) {
+        terms.push({ x: p.x, y: p.y, layer: normL(p.layer), net: p.net || '', isPad: true });
+    }
+    for (const v of vias) {
+        terms.push({ x: v.x, y: v.y, layer: 'all', net: v.net || '', isPad: false });
+    }
+    // Each track segment contributes two endpoints, bonded to each other.
+    /** @type {Array<[number,number]>} */
+    const segPairs = [];
+    for (const s of segments) {
+        const i = terms.length;
+        terms.push({ x: s.ax, y: s.ay, layer: normL(s.layer), net: s.net || '', isPad: false });
+        terms.push({ x: s.bx, y: s.by, layer: normL(s.layer), net: s.net || '', isPad: false });
+        segPairs.push([i, i + 1]);
+    }
+
+    const parent = terms.map((_, i) => i);
+    const find = (i) => { while (parent[i] !== i) { parent[i] = parent[parent[i]]; i = parent[i]; } return i; };
+    const union = (a, b) => { const ra = find(a), rb = find(b); if (ra !== rb) parent[ra] = rb; };
+
+    // 1) Bond the two endpoints of each track segment.
+    for (const [i, j] of segPairs) union(i, j);
+
+    // 2) Bond coincident, layer-compatible terminals.
+    const compat = (a, b) => a === b || a === 'all' || b === 'all';
+    const key = (x, y) => `${Math.round(x * 10000)},${Math.round(y * 10000)}`;
+    /** @type {Map<string, number[]>} */
+    const buckets = new Map();
+    for (let i = 0; i < terms.length; i++) {
+        const k = key(terms[i].x, terms[i].y);
+        let arr = buckets.get(k);
+        if (!arr) { arr = []; buckets.set(k, arr); }
+        arr.push(i);
+    }
+    for (const arr of buckets.values()) {
+        if (arr.length < 2) continue;
+        for (let a = 0; a < arr.length; a++) {
+            for (let b = a + 1; b < arr.length; b++) {
+                if (compat(terms[arr[a]].layer, terms[arr[b]].layer)) union(arr[a], arr[b]);
+            }
+        }
+    }
+
+    // Per bonded component, collect the distinct PAD nets (and a sample point
+    // for each). Two or more distinct named nets in one component = a short.
+    /** @type {Map<number, Map<string,{x:number,y:number}>>} */
+    const compNets = new Map();
+    for (let i = 0; i < terms.length; i++) {
+        const t = terms[i];
+        if (!t.isPad || !t.net) continue;
+        const r = find(i);
+        let m = compNets.get(r);
+        if (!m) { m = new Map(); compNets.set(r, m); }
+        if (!m.has(t.net)) m.set(t.net, { x: t.x, y: t.y });
+    }
+
+    const shorts = [];
+    for (const m of compNets.values()) {
+        if (m.size < 2) continue;
+        const nets = [...m.keys()].sort();
+        const a = m.get(nets[0]);
+        const b = m.get(nets[1]);
+        if (a && b) shorts.push({ nets, a, b });
+    }
+    return shorts;
+}
+
 /* ──────────────────────────── DRC runner ──────────────────────────── */
 
 let _vid = 0;
@@ -468,6 +552,20 @@ export function runDRC(app, rules = {}) {
             mx, my,
             { type: 'ratline', a: { x: rl.x1, y: rl.y1 }, b: { x: rl.x2, y: rl.y2 } },
             `unrouted|${net}|${ends}`,
+        ));
+    }
+
+    /* ---- Shorted nets (distinct nets bonded by coincident copper) ---- */
+
+    for (const sh of detectShorts(app)) {
+        const msg = sh.nets.length > 2
+            ? `Shorted nets: ${sh.nets.join(', ')}`
+            : `Shorted nets: ${sh.nets[0]} and ${sh.nets[1]}`;
+        const mx = (sh.a.x + sh.b.x) / 2, my = (sh.a.y + sh.b.y) / 2;
+        violations.push(makeViolation(
+            'short', 'error', msg, mx, my,
+            { type: 'short', a: sh.a, b: sh.b },
+            `short|${sh.nets.join('~')}`,
         ));
     }
 

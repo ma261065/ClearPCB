@@ -117,6 +117,9 @@ export class Wire extends PolylineGraph {
         /** Reference to the linked label Text shape. */
         this.labelText = null;
 
+        /** @type {Set<any>|null} Wire-name labels attached to this wire. */
+        this.attachedLabels = null;
+
         // Load pin connections from graph data
         if (options.graphNodes && options.graphEdges && options.pinConnections) {
             for (const [nid, conn] of Object.entries(options.pinConnections))

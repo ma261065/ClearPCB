@@ -621,6 +621,7 @@ export function reconcileCopperRegion(app, seedTrack) {
     const stack = [seedTrack];
     while (stack.length) {
         const t = stack.pop();
+        if (!t) continue;
         for (const [, p] of t.nodes) {
             for (const other of nodeIndex.get(key(p.x, p.y)) || []) {
                 if (!regionTracks.has(other)) {
@@ -1087,6 +1088,7 @@ function _snapSegmentDrag(track, nodes, rawDx, rawDy, threshold) {
     // delta, so the dragged segment's direction is constant during the drag).
     const startMap = new Map(nodes.map((n) => [n.nodeId, { x: n.startX, y: n.startY }]));
     // Coupled 45°/collinear candidates: full delta, smallest nudge wins.
+    /** @type {{dx:number, dy:number, nudge:number}|null} */
     let coupled = null;
     const considerCoupled = (dx, dy) => {
         const nudge = Math.hypot(dx - rawDx, dy - rawDy);
@@ -1166,7 +1168,10 @@ function _snapSegmentDrag(track, nodes, rawDx, rawDy, threshold) {
     const axisNudge = (snappedX || snappedY)
         ? Math.hypot(snappedX ? rawDx - snapX : 0, snappedY ? rawDy - snapY : 0)
         : Infinity;
-    if (coupled && coupled.nudge <= axisNudge) return { dx: coupled.dx, dy: coupled.dy };
+    // `coupled` is only assigned inside considerCoupled(); TS control-flow
+    // narrows it back to its `null` initializer here, so re-assert the type.
+    const c = /** @type {{dx:number, dy:number, nudge:number}|null} */ (coupled);
+    if (c && c.nudge <= axisNudge) return { dx: c.dx, dy: c.dy };
     return { dx: snapX, dy: snapY };
 }
 
@@ -1346,6 +1351,30 @@ function _buildPadNetInheritCommands(app, track, nodeId) {
 }
 
 /**
+ * Detect when a single node, just dropped onto a pad, would short two
+ * different nets: the target pad carries net B, but the same bonded copper is
+ * already fed by a DIFFERENT pin on net A. Every pad now carries a net (real
+ * or a default `<Ref>.<Pin>`), so bonding to a pad on a foreign net is always
+ * an illegal connection and must be rejected.
+ *
+ * @param {object} app
+ * @param {Track} track
+ * @param {string} nodeId - the dropped node
+ * @returns {{existing:string, pad:string}|null} the conflicting nets, or null
+ */
+function _padBondConflict(app, track, nodeId) {
+    const conn = track.padConnections?.get(nodeId);
+    if (!conn) return null;
+    const padNet = _padNet(app, conn.componentId, conn.pinNumber);
+    if (!padNet) return null;                       // target pad carries no net
+    const { padNets } = collectBondedCopper(app, { track });
+    for (const pn of padNets) {
+        if (pn && pn !== padNet) return { existing: pn, pad: padNet };
+    }
+    return null;
+}
+
+/**
  * Commit the in-progress drag as a MoveVertexCommand (or a
  * CompoundCommand for a multi-node segment drag), or revert if no net
  * movement.
@@ -1403,6 +1432,31 @@ export function finishVertexDrag(app) {
     // once the move is committed.
     const singleNodeId = (drag.mode === 'node' && drag.nodes.length === 1)
         ? drag.nodes[0].nodeId : null;
+
+    // Reject a drop that bonds this node to a pad whose net conflicts with a
+    // different pin already feeding the same copper — that would short two
+    // nets. Evaluate while the node is still at its on-pad drop position, then
+    // restore the original positions and pad bond(s). Gated on `moved` so a
+    // no-op click on an already-bonded node never triggers the dialog.
+    if (singleNodeId && moved) {
+        const conflict = _padBondConflict(app, drag.track, singleNodeId);
+        if (conflict) {
+            for (const nd of drag.nodes) {
+                const n = drag.track.nodes.get(nd.nodeId);
+                if (n) { n.x = nd.startX; n.y = nd.startY; }
+                if (nd.padLink) drag.track.padConnections.set(nd.nodeId, { ...nd.padLink });
+                else drag.track.padConnections.delete(nd.nodeId);
+            }
+            renderTrack(drag.track, (id) => app._getLayerGroup(id), _opts(app));
+            refreshTrackSelectionHalo(app);
+            reconcileRatsnest(app);
+            showAlert(
+                `Cannot connect to a pad on net "${conflict.pad}" \u2014 this track is already on net "${conflict.existing}".`,
+                { title: 'Net Conflict' }
+            );
+            return;
+        }
+    }
 
     // Collect the moved nodes and snap the model back so each command's
     // execute() re-applies the move from the original position.
@@ -1636,6 +1690,7 @@ export function finishViaDrag(app) {
         const n = a.track.nodes.get(a.nodeId);
         if (n) { n.x = a.startX; n.y = a.startY; }
     }
+    /** @type {Array<MoveViaCommand|MoveVertexCommand>} */
     const cmds = [new MoveViaCommand(app, drag.via, drag.startX, drag.startY, toX, toY)];
     for (const a of drag.attached) {
         cmds.push(new MoveVertexCommand(app, a.track, a.nodeId, a.startX, a.startY, toX, toY));

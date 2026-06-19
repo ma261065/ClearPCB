@@ -5683,10 +5683,16 @@ export default class PCBApp {
         empty.setAttribute('hidden', '');
         empty.style.display = 'none';
 
-        // Group violations under section headings. Incomplete connections are
-        // their own group; everything else (clearance + via ring) is Clearance.
-        const groupOf = (v) => v.rule === 'unrouted' ? 'Incomplete Connections' : 'Clearance';
-        const ORDER = ['Clearance', 'Incomplete Connections'];
+        // Group violations under section headings. Sections appear only when
+        // they have at least one violation (built from the data below), so an
+        // empty category never shows a header. Shorted nets are listed first
+        // (highest severity), then clearance, then incomplete connections.
+        const groupOf = (v) => {
+            if (v.rule === 'short') return 'Shorted Nets';
+            if (v.rule === 'unrouted') return 'Incomplete Connections';
+            return 'Clearance';
+        };
+        const ORDER = ['Shorted Nets', 'Clearance', 'Incomplete Connections'];
 
         // Cap the rendered rows so a pathological board (thousands of
         // violations) can't bloat the DOM and stall the UI.
@@ -5864,6 +5870,24 @@ export default class PCBApp {
             line.setAttribute('vector-effect', 'non-scaling-stroke');
             line.setAttribute('pointer-events', 'none');
             overlay.appendChild(line);
+        }
+
+        // For a shorted-net violation, draw a red leader between sample points
+        // of the two shorted nets plus a ring at each end so the user can see
+        // which two features are tied together.
+        if (m.type === 'short' && m.a && m.b) {
+            const line = document.createElementNS(NS, 'line');
+            line.setAttribute('x1', String(m.a.x));
+            line.setAttribute('y1', String(m.a.y));
+            line.setAttribute('x2', String(m.b.x));
+            line.setAttribute('y2', String(m.b.y));
+            line.setAttribute('stroke', '#ff3b30');
+            line.setAttribute('stroke-width', '1.5');
+            line.setAttribute('vector-effect', 'non-scaling-stroke');
+            line.setAttribute('pointer-events', 'none');
+            overlay.appendChild(line);
+            dot(m.a.x, m.a.y, 0.5, '3,2');
+            dot(m.b.x, m.b.y, 0.5, '3,2');
         }
     }
 

@@ -31,6 +31,9 @@ export function extractNetlist(schematicApp) {
 
     // Map: net name → Set of "componentId:pinNumber" (deduplicated)
     const netMap = new Map();
+    // Every pin already placed on a wire net — these keep that net and must
+    // not also receive a default single-pin net below.
+    const wiredPins = new Set();
 
     for (const shape of schematicApp.shapes) {
         if (shape.type !== 'wire' || !shape.pinConnections) continue;
@@ -45,6 +48,7 @@ export function extractNetlist(schematicApp) {
             const comp = schematicApp.components.find(c => c.id === conn.componentId);
             if (comp && comp.definition?.name === 'Net') continue;
             pinSet.add(`${conn.componentId}:${conn.pinNumber}`);
+            wiredPins.add(`${conn.componentId}:${conn.pinNumber}`);
         }
     }
 
@@ -58,6 +62,22 @@ export function extractNetlist(schematicApp) {
             pins.push({ componentId, pinNumber });
         }
         netlist.push({ net, pins });
+    }
+
+    // Default nets for unconnected pins. A pin with no wire still belongs to a
+    // net of its own, named "<Reference>.<PinNumber>" (e.g. R1.2). These are
+    // single-pin nets — they carry the pad's net identity (used for pad/track
+    // net inheritance and DRC clearance) but produce no rat line.
+    for (const comp of schematicApp.components) {
+        if (!comp.definition) continue;
+        if (comp.definition.name === 'Net' || comp.definition.name === 'NoConnect') continue;
+        const reference = comp.reference || 'U?';
+        for (const pin of (comp.symbol?.pins || [])) {
+            if (pin.number == null) continue;
+            const pinNumber = String(pin.number);
+            if (wiredPins.has(`${comp.id}:${pinNumber}`)) continue;
+            netlist.push({ net: `${reference}.${pinNumber}`, pins: [{ componentId: comp.id, pinNumber }] });
+        }
     }
 
     return netlist;
