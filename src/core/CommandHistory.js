@@ -680,6 +680,23 @@ export class DeleteComponentsCommand extends Command {
             }
             app.shapes.length = writeIdx;
         }
+        // Drop wire→pin connection records for the removed components so their
+        // on-canvas connection dots disappear (and can be restored on undo).
+        const removedIds = new Set();
+        for (const c of compsToRemove) removedIds.add(c.id);
+        this._removedPinConnections = [];
+        const dirtyWires = new Set();
+        for (const shape of app.shapes) {
+            if (shape.type !== 'wire' || shape.pinConnections.size === 0) continue;
+            for (const [nodeId, conn] of shape.pinConnections) {
+                if (removedIds.has(conn.componentId)) {
+                    this._removedPinConnections.push({ wire: shape, nodeId, conn });
+                    shape.pinConnections.delete(nodeId);
+                    dirtyWires.add(shape);
+                }
+            }
+        }
+        for (const wire of dirtyWires) wire.render(app.viewport.scale);
         app._updateSelectableItems();
         app.fileManager.setDirty(true);
     }
@@ -715,6 +732,16 @@ export class DeleteComponentsCommand extends Command {
             label.render(app.viewport.scale);
             app.viewport.addContent(label.element);
         }
+        // Restore wire→pin connection records (and their dots) removed on execute.
+        if (this._removedPinConnections?.length) {
+            const dirtyWires = new Set();
+            for (const { wire, nodeId, conn } of this._removedPinConnections) {
+                wire.pinConnections.set(nodeId, conn);
+                dirtyWires.add(wire);
+            }
+            for (const wire of dirtyWires) wire.render(app.viewport.scale);
+        }
+        this._removedPinConnections = null;
         app._updateSelectableItems();
         app.fileManager.setDirty(true);
     }
