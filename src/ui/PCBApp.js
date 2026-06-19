@@ -5494,6 +5494,8 @@ export default class PCBApp {
         this._drcActive = false;
         this._drcSelectedId = null;
         this._drcRaf = 0;
+        /** @type {Set<string>} Collapsed problem-list section headings. */
+        this._drcCollapsedGroups = new Set();
 
         const statusBtn = document.getElementById('pcbDrcStatus');
         const closeBtn = document.getElementById('pcbDrcSlideClose');
@@ -5544,6 +5546,27 @@ export default class PCBApp {
         });
     }
 
+    /**
+     * Collect the rendered ratsnest air wires (remaining + autorouter-failed)
+     * as plain segments for the DRC's incomplete-connection check.
+     * @returns {Array<{net:string, x1:number, y1:number, x2:number, y2:number}>}
+     */
+    _collectRatlines() {
+        const layer = this._getLayerGroup?.('ratlines');
+        if (!layer) return [];
+        const out = [];
+        for (const el of layer.querySelectorAll('line.ratsnest-line, line.ratsnest-failed')) {
+            out.push({
+                net: el.dataset?.net || '',
+                x1: parseFloat(el.getAttribute('x1')),
+                y1: parseFloat(el.getAttribute('y1')),
+                x2: parseFloat(el.getAttribute('x2')),
+                y2: parseFloat(el.getAttribute('y2')),
+            });
+        }
+        return out;
+    }
+
     /** Run the DRC engine and refresh the status indicator + problem list. */
     _runDRCLive() {
         const params = this._getRoutingParams();
@@ -5552,6 +5575,7 @@ export default class PCBApp {
             result = runDRC(this, {
                 clearance: params.clearance,
                 minAnnularRing: 0.05,
+                ratlines: this._collectRatlines(),
             });
         } catch (err) {
             console.warn('[DRC] check failed', err);
@@ -5635,26 +5659,72 @@ export default class PCBApp {
         empty.setAttribute('hidden', '');
         empty.style.display = 'none';
 
+        // Group violations under section headings. Incomplete connections are
+        // their own group; everything else (clearance + via ring) is Clearance.
+        const groupOf = (v) => v.rule === 'unrouted' ? 'Incomplete Connections' : 'Clearance';
+        const ORDER = ['Clearance', 'Incomplete Connections'];
+
         // Cap the rendered rows so a pathological board (thousands of
         // violations) can't bloat the DOM and stall the UI.
         const MAX_ROWS = 200;
         const shown = this._drcViolations.slice(0, MAX_ROWS);
+
+        const groups = new Map();
         for (const v of shown) {
-            const li = document.createElement('li');
-            li.className = `drc-item drc-item-${v.severity === 'error' ? 'error' : 'warn'}`;
-            li.dataset.drcId = v.id;
-            if (v.id === this._drcSelectedId) li.classList.add('drc-item-active');
+            const g = groupOf(v);
+            if (!groups.has(g)) groups.set(g, []);
+            groups.get(g).push(v);
+        }
+        const names = [...ORDER.filter(n => groups.has(n)), ...[...groups.keys()].filter(n => !ORDER.includes(n))];
 
-            const dot = document.createElement('span');
-            dot.className = 'drc-item-dot';
-            const text = document.createElement('span');
-            text.className = 'drc-item-text';
-            text.textContent = v.message;
-            li.appendChild(dot);
-            li.appendChild(text);
+        for (const name of names) {
+            const collapsed = this._drcCollapsedGroups.has(name);
+            const heading = document.createElement('li');
+            heading.className = 'drc-group-heading' + (collapsed ? ' drc-group-collapsed' : '');
+            heading.setAttribute('role', 'button');
+            heading.setAttribute('tabindex', '0');
+            heading.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
 
-            li.addEventListener('click', () => this._selectDRCViolation(v.id));
-            list.appendChild(li);
+            const chevron = document.createElement('span');
+            chevron.className = 'drc-group-chevron';
+            chevron.textContent = '▸';
+            const label = document.createElement('span');
+            label.className = 'drc-group-label';
+            label.textContent = `${name} (${groups.get(name).length})`;
+            heading.appendChild(chevron);
+            heading.appendChild(label);
+
+            const toggle = () => {
+                if (this._drcCollapsedGroups.has(name)) this._drcCollapsedGroups.delete(name);
+                else this._drcCollapsedGroups.add(name);
+                this._renderDRCList();
+                if (this._drcSelectedId) this._updateDRCConnector();
+            };
+            heading.addEventListener('click', toggle);
+            heading.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); }
+            });
+            list.appendChild(heading);
+
+            if (collapsed) continue;
+
+            for (const v of groups.get(name)) {
+                const li = document.createElement('li');
+                li.className = `drc-item drc-item-${v.severity === 'error' ? 'error' : 'warn'}`;
+                li.dataset.drcId = v.id;
+                if (v.id === this._drcSelectedId) li.classList.add('drc-item-active');
+
+                const dot = document.createElement('span');
+                dot.className = 'drc-item-dot';
+                const text = document.createElement('span');
+                text.className = 'drc-item-text';
+                text.textContent = v.message;
+                li.appendChild(dot);
+                li.appendChild(text);
+
+                li.addEventListener('click', () => this._selectDRCViolation(v.id));
+                list.appendChild(li);
+            }
         }
 
         if (this._drcViolations.length > MAX_ROWS) {

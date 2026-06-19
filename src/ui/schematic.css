@@ -2956,6 +2956,44 @@ svg.pcb-zoom-low .pcb-track-label { display: none; }
     padding: 0;
 }
 
+.drc-group-heading {
+    list-style: none;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 6px 9px 3px;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-muted);
+    border-bottom: 1px solid var(--border-color);
+    margin-bottom: 2px;
+    cursor: pointer;
+    -webkit-user-select: none;
+    user-select: none;
+}
+
+.drc-group-heading:hover {
+    color: var(--text-secondary);
+}
+
+.drc-group-chevron {
+    flex: 0 0 auto;
+    font-size: 16px;
+    line-height: 1;
+    transition: transform 0.12s ease;
+    transform: rotate(90deg);
+}
+
+.drc-group-collapsed .drc-group-chevron {
+    transform: rotate(0deg);
+}
+
+.drc-group-heading:not(:first-child) {
+    margin-top: 8px;
+}
+
 .drc-item {
     display: flex;
     align-items: flex-start;

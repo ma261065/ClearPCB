@@ -15,6 +15,8 @@
  *      layout) and skipped to avoid flooding on fine-pitch ICs.
  *   2. Via annular ring — copper ring (diameter − drill)/2 below a minimum,
  *      and invalid drills (drill ≥ diameter or non-positive).
+ *   3. Incomplete connections — every remaining ratsnest line (an air wire
+ *      between copper that should be joined but isn't yet) is a violation.
  *
  * Distances are edge-to-edge in millimetres. Pad shapes are treated as their
  * axis-aligned bounding box (matching the existing clearance-overlay and the
@@ -177,12 +179,14 @@ function layersOverlap(a, b) {
 }
 
 /**
- * Two copper features are on the same net (and thus allowed to touch) only
- * when both carry the same non-empty net name. A missing net is treated as a
- * distinct obstacle that must keep clearance from everything else.
+ * Two copper features are allowed to touch (no clearance violation) when they
+ * carry the same net name — including the case where BOTH have no net ("No
+ * Net"). Unconnected copper is not assigned to any signal, so two no-net
+ * features are not a clearance violation. A no-net feature is still kept clear
+ * of any named net.
  */
 function sameNet(a, b) {
-    return !!a && !!b && a === b;
+    return (a || '') === (b || '');
 }
 
 /**
@@ -290,7 +294,9 @@ function makeViolation(rule, severity, message, x, y, marker, key) {
 /**
  * Run all design-rule checks against the board.
  * @param {object} app - PCBApp instance.
- * @param {object} rules - { clearance, minAnnularRing }.
+ * @param {object} rules - { clearance, minAnnularRing, ratlines }. `ratlines`
+ *   is an array of { net, x1, y1, x2, y2 } air wires (remaining ratsnest),
+ *   each reported as an incomplete-connection violation.
  * @returns {{ok:boolean, violations:Array, counts:{errors:number, warnings:number}}}
  */
 export function runDRC(app, rules = {}) {
@@ -442,6 +448,27 @@ export function runDRC(app, rules = {}) {
                 `ring|${via.uid}`,
             ));
         }
+    }
+
+    /* ---- Incomplete connections (remaining ratsnest air wires) ---- */
+
+    for (const rl of (rules.ratlines || [])) {
+        if (![rl.x1, rl.y1, rl.x2, rl.y2].every(Number.isFinite)) continue;
+        const mx = (rl.x1 + rl.x2) / 2, my = (rl.y1 + rl.y2) / 2;
+        const net = rl.net || '';
+        // Stable key on the (net + unordered endpoints) so the violation keeps
+        // its id across re-runs while the air wire stays put.
+        const ends = [
+            `${Math.round(rl.x1 * 1000)},${Math.round(rl.y1 * 1000)}`,
+            `${Math.round(rl.x2 * 1000)},${Math.round(rl.y2 * 1000)}`,
+        ].sort().join('~');
+        violations.push(makeViolation(
+            'unrouted', 'error',
+            net ? `Incomplete connection on net ${net}` : 'Incomplete connection',
+            mx, my,
+            { type: 'ratline', a: { x: rl.x1, y: rl.y1 }, b: { x: rl.x2, y: rl.y2 } },
+            `unrouted|${net}|${ends}`,
+        ));
     }
 
     let errors = 0, warnings = 0;
