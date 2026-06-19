@@ -414,6 +414,9 @@ export default class PCBApp {
             // zero-distance right-click, which would otherwise instantly close
             // the context menu the right-click just opened.
             if (!view || view.scaleChanged || view.boundsChanged) dismissTrackContextMenu();
+            // The net tooltip is anchored to a screen point over hovered copper;
+            // a zoom moves that copper out from under it, so dismiss on scale change.
+            if (!view || view.scaleChanged) this._hideNetTooltip();
             this._updateViewportStatus();
             // Selection halo node handles are sized in screen pixels, so they
             // must be redrawn when the zoom scale changes to stay constant on

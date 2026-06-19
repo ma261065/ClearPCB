@@ -2954,6 +2954,8 @@ svg.pcb-zoom-low .pcb-track-label { display: none; }
     list-style: none;
     margin: 0;
     padding: 0;
+    -webkit-user-select: none;
+    user-select: none;
 }
 
 .drc-group-heading {
@@ -2966,8 +2968,10 @@ svg.pcb-zoom-low .pcb-track-label { display: none; }
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.04em;
-    color: var(--text-muted);
-    border-bottom: 1px solid var(--border-color);
+    color: #fff;
+    background: rgba(255, 255, 255, 0.05);
+    border-top: 1px solid rgba(255, 255, 255, 0.12);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.12);
     margin-bottom: 2px;
     cursor: pointer;
     -webkit-user-select: none;
@@ -2975,7 +2979,8 @@ svg.pcb-zoom-low .pcb-track-label { display: none; }
 }
 
 .drc-group-heading:hover {
-    color: var(--text-secondary);
+    color: #fff;
+    background: rgba(255, 255, 255, 0.08);
 }
 
 .drc-group-chevron {
