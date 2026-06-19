@@ -5639,6 +5639,11 @@ export default class PCBApp {
 
     /** Run the DRC engine and refresh the status indicator + problem list. */
     _runDRCLive() {
+        // Capture the currently-selected violation before the list is replaced,
+        // so a coordinate-keyed ratline that gets renumbered can be re-adopted.
+        const prevSel = this._drcSelectedId
+            ? this._drcViolations?.find(v => v.id === this._drcSelectedId)
+            : null;
         const params = this._getRoutingParams();
         let result;
         try {
@@ -5658,7 +5663,18 @@ export default class PCBApp {
         // Keep the selected marker in sync: if the violation still exists,
         // redraw it at its (possibly moved) location; otherwise drop it.
         if (this._drcSelectedId) {
-            const sel = this._drcViolations.find(v => v.id === this._drcSelectedId);
+            let sel = this._drcViolations.find(v => v.id === this._drcSelectedId);
+            // An incomplete-connection violation's id is keyed on its endpoint
+            // coordinates, so moving the connected copper renumbers it — the
+            // old id vanishes on re-run. Re-adopt the equivalent fresh ratline
+            // (same net, nearest endpoints) so the selection survives the drop.
+            if (!sel) {
+                sel = this._rematchRatlineViolation(prevSel);
+                if (sel) {
+                    this._drcSelectedId = sel.id;
+                    this._renderDRCList();
+                }
+            }
             if (sel) {
                 this._drawDRCMarker(sel);
                 this._updateDRCConnector();
@@ -5667,6 +5683,34 @@ export default class PCBApp {
                 this._clearDRCMarker();
             }
         }
+    }
+
+    /**
+     * Find the incomplete-connection violation in the freshly-computed list
+     * that corresponds to a previously-selected one whose coordinate-keyed id
+     * was renumbered (because its copper moved). Matches by net and nearest
+     * endpoints; the live drag already moved `prev.marker` to the drop point,
+     * so the closest new ratline of that net is the same connection.
+     * @param {any} prev - the previously selected violation (pre-rerun).
+     * @returns {any|null}
+     */
+    _rematchRatlineViolation(prev) {
+        const pm = prev?.marker;
+        if (!pm || pm.type !== 'ratline' || !pm.a || !pm.b) return null;
+        const net = pm.net || '';
+        const dist2 = (p, q) => (p.x - q.x) ** 2 + (p.y - q.y) ** 2;
+        let best = null, bestD = Infinity;
+        for (const v of this._drcViolations) {
+            const m = v.marker;
+            if (v.rule !== 'unrouted' || !m || m.type !== 'ratline') continue;
+            if ((m.net || '') !== net || !m.a || !m.b) continue;
+            const d = Math.min(
+                dist2(m.a, pm.a) + dist2(m.b, pm.b),
+                dist2(m.a, pm.b) + dist2(m.b, pm.a),
+            );
+            if (d < bestD) { bestD = d; best = v; }
+        }
+        return best;
     }
 
     /**
