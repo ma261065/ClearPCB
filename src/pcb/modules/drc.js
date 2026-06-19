@@ -109,6 +109,18 @@ function segmentSegmentDistance(ax, ay, bx, by, cx, cy, dx, dy) {
     return { dist: best, x: bx2, y: by2 };
 }
 
+/** Quantised coordinate key (0.1 µm grid) — coincident points share a key. */
+function coincKey(x, y) {
+    return `${Math.round(x * 10000)},${Math.round(y * 10000)}`;
+}
+
+/** True when two segments meet at a coincident endpoint (a node junction). */
+function segmentsShareEndpoint(a, b) {
+    const ka1 = coincKey(a.ax, a.ay), ka2 = coincKey(a.bx, a.by);
+    const kb1 = coincKey(b.ax, b.ay), kb2 = coincKey(b.bx, b.by);
+    return ka1 === kb1 || ka1 === kb2 || ka2 === kb1 || ka2 === kb2;
+}
+
 /**
  * Minimum distance between a segment [a,b] and an axis-aligned rect, plus the
  * approximate closest point (used to position a marker).
@@ -287,7 +299,7 @@ export function collectCopper(app) {
  * coincident copper. Net-agnostic union-find over pad/via/track-segment
  * terminals (mirrors the ratsnest connectivity model, but unions ACROSS nets
  * so cross-net bonds surface instead of being hidden). Distinct nets are taken
- * from PAD nets (authoritative from the netlist) within each bonded component.
+ * from any copper (pad/track/via net) within each bonded component.
  * @param {object} app - PCBApp instance.
  * @returns {Array<{nets:string[], a:{x:number,y:number}, b:{x:number,y:number}}>}
  */
@@ -322,11 +334,10 @@ function detectShorts(app) {
 
     // 2) Bond coincident, layer-compatible terminals.
     const compat = (a, b) => a === b || a === 'all' || b === 'all';
-    const key = (x, y) => `${Math.round(x * 10000)},${Math.round(y * 10000)}`;
     /** @type {Map<string, number[]>} */
     const buckets = new Map();
     for (let i = 0; i < terms.length; i++) {
-        const k = key(terms[i].x, terms[i].y);
+        const k = coincKey(terms[i].x, terms[i].y);
         let arr = buckets.get(k);
         if (!arr) { arr = []; buckets.set(k, arr); }
         arr.push(i);
@@ -340,13 +351,17 @@ function detectShorts(app) {
         }
     }
 
-    // Per bonded component, collect the distinct PAD nets (and a sample point
-    // for each). Two or more distinct named nets in one component = a short.
+    // Per bonded component, collect the distinct nets carried by ANY copper in
+    // it (pads, tracks and vias). Two or more distinct named nets bonded into
+    // one component = a short — including a track whose net differs from the
+    // pads it joins (e.g. a +5V↔+5V pad pair wired by a stale Net0113 track).
+    // Pads are listed first in `terms`, so a pad point is preferred as each
+    // net's sample location when one exists.
     /** @type {Map<number, Map<string,{x:number,y:number}>>} */
     const compNets = new Map();
     for (let i = 0; i < terms.length; i++) {
         const t = terms[i];
-        if (!t.isPad || !t.net) continue;
+        if (!t.net) continue;
         const r = find(i);
         let m = compNets.get(r);
         if (!m) { m = new Map(); compNets.set(r, m); }
@@ -462,6 +477,10 @@ export function runDRC(app, rules = {}) {
             if (a.trackId === b.trackId) continue;
             if (!layersOverlap(a.layer, b.layer)) continue;
             if (sameNet(a.net, b.net)) continue;
+            // Two different-net segments meeting at a shared node ARE an
+            // electrical short — reported under Shorted Nets. Don't also flag
+            // that same junction as a clearance violation (redundant noise).
+            if (segmentsShareEndpoint(a, b)) continue;
             const r = segmentSegmentDistance(a.ax, a.ay, a.bx, a.by, b.ax, b.ay, b.bx, b.by);
             const gap = r.dist - a.hw - b.hw;
             if (gap < clearance - EPS) {
@@ -550,7 +569,7 @@ export function runDRC(app, rules = {}) {
             'unrouted', 'error',
             net ? `Incomplete connection on net ${net}` : 'Incomplete connection',
             mx, my,
-            { type: 'ratline', a: { x: rl.x1, y: rl.y1 }, b: { x: rl.x2, y: rl.y2 } },
+            { type: 'ratline', net, a: { x: rl.x1, y: rl.y1 }, b: { x: rl.x2, y: rl.y2 } },
             `unrouted|${net}|${ends}`,
         ));
     }

@@ -3153,6 +3153,49 @@ export default class PCBApp {
         // `opts.nets` is supplied (live footprint drag) only those nets are
         // recomputed; every other net's ratlines are left untouched.
         reconcileRatsnest(this, opts);
+        // A highlighted incomplete-connection violation draws a temporary copy
+        // of its ratline. Reconcile just moved the real ratlines (live drag),
+        // so snap that temp copy to the fresh geometry too — it should track
+        // its endpoints exactly like a real ratline.
+        if (this._drcSelectedId) this._followDRCRatline();
+    }
+
+    /**
+     * Re-anchor the selected incomplete-connection marker's temporary ratline
+     * to the live ratsnest geometry, so it follows whatever it connects to as
+     * that copper is moved (just like a real ratline). Matches the marker to
+     * the live ratline of the same net whose endpoints are nearest its current
+     * ones, then redraws the marker.
+     */
+    _followDRCRatline() {
+        const sel = this._drcViolations?.find(v => v.id === this._drcSelectedId);
+        const m = sel?.marker;
+        if (!m || m.type !== 'ratline' || !m.a || !m.b) return;
+
+        const net = m.net || '';
+        const dist2 = (ax, ay, bx, by) => (ax - bx) ** 2 + (ay - by) ** 2;
+        let best = null, bestD = Infinity;
+        for (const r of this._collectRatlines()) {
+            if ((r.net || '') !== net) continue;
+            if (![r.x1, r.y1, r.x2, r.y2].every(Number.isFinite)) continue;
+            const dA = dist2(r.x1, r.y1, m.a.x, m.a.y) + dist2(r.x2, r.y2, m.b.x, m.b.y);
+            const dB = dist2(r.x1, r.y1, m.b.x, m.b.y) + dist2(r.x2, r.y2, m.a.x, m.a.y);
+            const d = Math.min(dA, dB);
+            if (d < bestD) {
+                bestD = d;
+                best = (dA <= dB)
+                    ? { a: { x: r.x1, y: r.y1 }, b: { x: r.x2, y: r.y2 } }
+                    : { a: { x: r.x2, y: r.y2 }, b: { x: r.x1, y: r.y1 } };
+            }
+        }
+        if (!best) return;
+
+        m.a = best.a;
+        m.b = best.b;
+        sel.x = (best.a.x + best.b.x) / 2;
+        sel.y = (best.a.y + best.b.y) / 2;
+        this._drawDRCMarker(sel);
+        this._updateDRCConnector();
     }
 
     /**
