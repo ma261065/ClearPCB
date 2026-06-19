@@ -1809,8 +1809,12 @@ function buildTextMesh(app) {
     for (const [, pl] of (app.placements || [])) {
         const ref = pl.reference;
         if (!ref || pl.refVisible === false) continue;
-        const size = 0.9;
-        const ob = pl.bounds;
+        const size = pl.refSize || 0.9;
+        const strokeW = pl.refStrokeWidth || 0.15;
+        // Anchor the designator to the body OUTLINE (not pl.bounds, which is
+        // the courtyard when present) so its rest position matches the 2D
+        // editor, which uses fp.outline.
+        const ob = pl.outline;
         const labelW = measureText(ref, size);
         const lx = ob ? ob.x + ob.width / 2 - labelW / 2 : -labelW / 2;
         const ly = ob ? ob.y - 0.8 : -2;
@@ -1818,10 +1822,47 @@ function buildTextMesh(app) {
         // placement onto the bottom face (mirrored) when the part is flipped.
         const bottom = pl.side === 'bottom';
         const y = bottom ? Y_BOT - SILK_EPS : Y_TOP + SILK_EPS;
+        // The designator's handedness must reflect only the board SIDE —
+        // readable on top even after an H/V flip, mirrored on the bottom —
+        // matching the 2D editor's `data-fp-ref` counter-mirror in
+        // applyPlacementPose(). The label's CENTRE still follows the full
+        // footprint mirror (pl.mirror XOR bottom); only the glyph run's
+        // handedness is pinned to the side, so a flipped top part stays legible.
+        const fullMir = (!!pl.mirror) !== bottom;
+        const cx = lx + labelW / 2;
         const polys = stringToPolylines(ref, 0, 0, size, false);
+        // Vertical centre of the glyph run (authored-local), used as the
+        // rotation pivot when the designator is rotated relative to the part.
+        let gMinY = Infinity, gMaxY = -Infinity;
+        for (const poly of polys) {
+            for (const p of poly) {
+                const ay = ly + p.y;
+                if (ay < gMinY) gMinY = ay;
+                if (ay > gMaxY) gMaxY = ay;
+            }
+        }
+        const cyc = Number.isFinite(gMinY) ? (gMinY + gMaxY) / 2 : ly;
+        const rdx = pl.refDx || 0, rdy = pl.refDy || 0;
+        const rref = ((pl.refRot || 0) * Math.PI) / 180;
+        const cr = Math.cos(rref), sr = Math.sin(rref);
+        const flip = !!pl.mirror;            // user-flip → ref counter-mirror
+        const mir = fullMir;                 // net footprint mirror (parent)
+        const rot = ((pl.rotation || 0) * Math.PI) / 180;
+        const ct = Math.cos(rot), st = Math.sin(rot);
+        // Exact composition matching the 2D editor:
+        //   parent(T·R·S(mir)) · translate(refDx,refDy) · [counter-mirror] · rotate(refRot,cx,cyc)
+        const refToWorld = (ax, ay) => {
+            // rotate about (cx, cyc)
+            let qx = cx + (ax - cx) * cr - (ay - cyc) * sr;
+            let qy = cyc + (ax - cx) * sr + (ay - cyc) * cr;
+            if (flip) qx = 2 * cx - qx;      // counter-mirror about cx
+            qx += rdx; qy += rdy;            // ref offset (footprint-local)
+            if (mir) qx = -qx;               // parent footprint mirror
+            return { x: pl.x + (qx * ct - qy * st), z: pl.y + (qx * st + qy * ct) };
+        };
         appendMesh(mesh, strokePolysToMesh(
-            polys, 0.15, y, COLOR_SILK,
-            (px, py) => plLocalToWorld(pl, lx + px, ly + py)));
+            polys, strokeW, y, COLOR_SILK,
+            (px, py) => refToWorld(lx + px, ly + py)));
     }
 
     return mesh;

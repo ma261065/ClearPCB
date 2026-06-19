@@ -5,7 +5,7 @@ import { bindPcbControls } from '../pcb/modules/controls.js';
 import { Viewport } from '../core/Viewport.js';
 import { loadAndApplyTheme, toggleTheme as toggleSharedTheme, syncThemeToggleButtons } from '../shared/ui/theme.js';
 import { extractNetlist, extractComponents } from '../pcb/modules/netlist.js';
-import { generateFootprint, renderFootprint } from '../pcb/modules/footprint.js';
+import { generateFootprint, renderFootprint, applyRefGeometry, REF_DEFAULT_SIZE, REF_DEFAULT_STROKE } from '../pcb/modules/footprint.js';
 import { updateGridDropdown } from './modules/viewport.js';
 import { PCB_LAYERS, PCB_OVERLAYS, PCB_COPPER_FILLS, isLayerLocked, isViaLocked, isLayerVisible, isViaVisible, showLockedLayerBubble, isCopperFillLocked, isCopperFillVisible, saveLayerPrefs } from '../pcb/modules/layers.js';
 import { exportDSN, importSES } from '../pcb/modules/dsn.js';
@@ -68,6 +68,9 @@ import {
     FlipPlacementCommand,
     SetPlacementSideCommand,
     SetPlacementRefVisibleCommand,
+    MoveRefTextCommand,
+    RotateRefTextCommand,
+    SetRefStyleCommand,
     SetBoardOutlineCommand,
     applyPlacementPose,
     applyPlacementSide,
@@ -128,6 +131,13 @@ import { createShape } from '../shapes/index.js';
  * pad/silk/text geometry. Keeps zoomed-out pan/zoom fast on large boards.
  */
 const PCB_LOD_PIXEL_THRESHOLD = 24;
+
+/**
+ * Padding (mm) added around a reference designator's tight glyph bounding box
+ * for both its selection outline and its drag grab region, so the box sits
+ * comfortably around the label instead of touching the strokes.
+ */
+const REF_BOX_PAD = 0.6;
 
 /**
  * PCB editor application.
@@ -280,6 +290,12 @@ export default class PCBApp {
         this._selectedText = null;
         /** Active text drag: { textId, startWorld, startPos } or null. */
         this._textDrag = null;
+        /** Component ID whose reference designator is currently selected, or null. */
+        this._selectedRef = null;
+        /** Active reference-text drag: { compId, startWorld, startDx, startDy } or null. */
+        this._refDrag = null;
+        /** Overlay <g> for the ref-text selection box and drag tether. */
+        this._refOverlay = null;
         /** Defaults for the Text tool (modifiable via tool options). */
         this._textDefaults = { size: 1.0, rotation: 0, layer: 'top-silk', strokeWidth: 0.15 };
         /** Last typed content for the Text tool. */
@@ -701,6 +717,28 @@ export default class PCBApp {
                 }
                 this._selectText(null);
 
+                // Reference-designator text hit-test. The label sits on the
+                // silkscreen above/around the body and can be dragged/rotated
+                // independently of the component, so test it before the body.
+                const refHit = this._hitTestRefText(worldPos);
+                if (refHit) {
+                    this._selectComponent(null);
+                    this._selectBoardOutline(false);
+                    this._selectRefText(refHit);
+                    const rpl = this.placements.get(refHit);
+                    this._refDrag = {
+                        compId: refHit,
+                        startWorld: worldPos,
+                        startDx: rpl?.refDx || 0,
+                        startDy: rpl?.refDy || 0,
+                    };
+                    this._drawRefOverlay(refHit, true);
+                    this._showRefProperties(refHit);
+                    svg.style.cursor = 'grabbing';
+                    return;
+                }
+                this._selectRefText(null);
+
                 const hit = this._hitTestComponent(worldPos);
                 if (hit) {
                     this._selectComponent(hit);
@@ -909,6 +947,8 @@ export default class PCBApp {
                 updateGroupDrag(this, this._screenToWorld(e));
             } else if (this._textDrag) {
                 this._handleTextDrag(e);
+            } else if (this._refDrag) {
+                this._handleRefDrag(e);
             } else if (this._vertexDrag) {
                 // Distinguish a press-drag (mode 1, place on mouse-up) from a
                 // click that arms move mode (mode 2, follow-the-mouse). Once the
@@ -1047,6 +1087,9 @@ export default class PCBApp {
             }
             if (this._textDrag) {
                 this._endTextDrag();
+            }
+            if (this._refDrag) {
+                this._endRefDrag();
             }
             if (this._vertexDrag) {
                 // Mode 2 (click to enter move mode): the node was pressed and
@@ -1523,6 +1566,12 @@ export default class PCBApp {
                 this._clearProperties?.();
                 return true;
             }
+            if (this._selectedRef) {
+                this._selectRefText(null);
+                this._clearProperties?.();
+                this._setActiveRibbonTab?.('pcb-home');
+                return true;
+            }
             // No active interaction: return to Home tab + select tool.
             if (this.currentTool !== 'select') {
                 this.currentTool = 'select';
@@ -1536,6 +1585,15 @@ export default class PCBApp {
         }
         // Component transform shortcuts (match the schematic editor):
         //   Space = rotate right, X = flip horizontal, Y = flip vertical.
+        if (this._selectedRef && this.placements.has(this._selectedRef)) {
+            // A selected reference designator rotates with Space; the
+            // component body shortcuts don't apply while the label is selected.
+            if (e.code === 'Space' || e.key === ' ') {
+                this._rotateRefText(this._selectedRef);
+                e.preventDefault();
+                return true;
+            }
+        }
         if (this._selectedComp && this.placements.has(this._selectedComp)) {
             if (e.code === 'Space' || e.key === ' ') {
                 this._rotateComponent(this._selectedComp, 'R');
@@ -1587,13 +1645,18 @@ export default class PCBApp {
      * following the auto grid-layout.
      */
     serialize() {
-        /** @type {Record<string, {x:number, y:number, rotation:number, mirror?:boolean, side?:string, refVisible?:boolean}>} */
+        /** @type {Record<string, {x:number, y:number, rotation:number, mirror?:boolean, side?:string, refVisible?:boolean, refDx?:number, refDy?:number, refRot?:number, refSize?:number, refStrokeWidth?:number}>} */
         const placements = {};
         for (const [id, p] of this._placementOverrides) {
             placements[id] = { x: p.x, y: p.y, rotation: p.rotation || 0 };
             if (p.mirror) placements[id].mirror = true;
             if (p.side === 'bottom') placements[id].side = 'bottom';
             if (p.refVisible === false) placements[id].refVisible = false;
+            if (p.refDx) placements[id].refDx = p.refDx;
+            if (p.refDy) placements[id].refDy = p.refDy;
+            if (p.refRot) placements[id].refRot = p.refRot;
+            if (p.refSize && p.refSize !== REF_DEFAULT_SIZE) placements[id].refSize = p.refSize;
+            if (p.refStrokeWidth && p.refStrokeWidth !== REF_DEFAULT_STROKE) placements[id].refStrokeWidth = p.refStrokeWidth;
         }
         return {
             board: {
@@ -1777,6 +1840,11 @@ export default class PCBApp {
                     mirror: !!p.mirror,
                     side: p.side === 'bottom' ? 'bottom' : 'top',
                     refVisible: p.refVisible !== false,
+                    refDx: Number(p.refDx) || 0,
+                    refDy: Number(p.refDy) || 0,
+                    refRot: ((Number(p.refRot) || 0) % 360 + 360) % 360,
+                    refSize: Number(p.refSize) || REF_DEFAULT_SIZE,
+                    refStrokeWidth: Number(p.refStrokeWidth) || REF_DEFAULT_STROKE,
                 });
             }
             if (this.placements.size) this._applyPlacementOverrides();
@@ -2859,6 +2927,12 @@ export default class PCBApp {
         for (const [, g] of this._layerGroups) {
             while (g.firstChild) g.removeChild(g.firstChild);
         }
+        // Drop any reference-text selection/overlay tied to the old placements.
+        this._refDrag = null;
+        this._selectedRef = null;
+        if (this._refOverlay) {
+            while (this._refOverlay.firstChild) this._refOverlay.removeChild(this._refOverlay.firstChild);
+        }
         this._footprintGroup = null;
         this._ratsnestGroup = null;
         this.placements.clear();
@@ -2978,6 +3052,7 @@ export default class PCBApp {
                 pasteOffsets,
                 elements,
                 bounds: fpGeom.courtyard || fpGeom.outline,
+                outline: fpGeom.outline || null,
                 reference: comp.reference,
                 value: comp.value || '',
                 footprint: comp.footprint || '',
@@ -2990,6 +3065,11 @@ export default class PCBApp {
                 mirror: !!override?.mirror,
                 side: override?.side === 'bottom' ? 'bottom' : 'top',
                 refVisible: override?.refVisible !== false,
+                refDx: override?.refDx || 0,
+                refDy: override?.refDy || 0,
+                refRot: ((override?.refRot || 0) % 360 + 360) % 360,
+                refSize: override?.refSize || REF_DEFAULT_SIZE,
+                refStrokeWidth: override?.refStrokeWidth || REF_DEFAULT_STROKE,
             });
             this._buildLodPlaceholder(comp.id);
         }
@@ -3007,7 +3087,8 @@ export default class PCBApp {
             // track re-gluing) follow the footprint's true orientation. The SVG
             // already carries the same translate+rotate transform, so this only
             // corrects the pad geometry — it does not double-rotate the render.
-            if (pl.mirror || pl.side === 'bottom' || pl.rotation) applyPlacementPose(this, comp.id);
+            if (pl.mirror || pl.side === 'bottom' || pl.rotation || pl.refDx || pl.refDy || pl.refRot) applyPlacementPose(this, comp.id);
+            if (pl.refSize !== REF_DEFAULT_SIZE || pl.refStrokeWidth !== REF_DEFAULT_STROKE) this._rerenderRef(comp.id);
         }
     }
 
@@ -3403,11 +3484,16 @@ export default class PCBApp {
                 && trackHover?.type === 'track'
                 && trackHover.track === this._selectedTrack
                 && !!hitTestTrackMidpoint(this, trackHover.track, worldPos);
+            const overRef = !overNode && !overMidpoint
+                && !!this._hitTestRefText(worldPos);
             if (overNode) {
                 this.viewport.svg.style.cursor = 'nwse-resize';
                 this._hoverNodeCursor = true;
             } else if (overMidpoint) {
                 this.viewport.svg.style.cursor = 'copy';
+                this._hoverNodeCursor = true;
+            } else if (overRef) {
+                this.viewport.svg.style.cursor = 'move';
                 this._hoverNodeCursor = true;
             } else if (this._hoverNodeCursor) {
                 this._hoverNodeCursor = false;
@@ -3525,9 +3611,17 @@ export default class PCBApp {
             pl.y = o.y;
             pl.rotation = o.rotation || 0;
             pl.mirror = !!o.mirror;
+            pl.refDx = o.refDx || 0;
+            pl.refDy = o.refDy || 0;
+            pl.refRot = ((o.refRot || 0) % 360 + 360) % 360;
+            pl.refSize = o.refSize || REF_DEFAULT_SIZE;
+            pl.refStrokeWidth = o.refStrokeWidth || REF_DEFAULT_STROKE;
             applyPlacementSide(this, compId, o.side === 'bottom' ? 'bottom' : 'top');
             applyPlacementRefVisible(this, compId, o.refVisible !== false);
             applyPlacementPose(this, compId);
+            if (pl.refSize !== REF_DEFAULT_SIZE || pl.refStrokeWidth !== REF_DEFAULT_STROKE) {
+                this._rerenderRef(compId);
+            }
         }
         this._updateRatsnest?.();
     }
@@ -3548,6 +3642,11 @@ export default class PCBApp {
             mirror: !!pl.mirror,
             side: pl.side === 'bottom' ? 'bottom' : 'top',
             refVisible: pl.refVisible !== false,
+            refDx: pl.refDx || 0,
+            refDy: pl.refDy || 0,
+            refRot: ((pl.refRot || 0) % 360 + 360) % 360,
+            refSize: pl.refSize || REF_DEFAULT_SIZE,
+            refStrokeWidth: pl.refStrokeWidth || REF_DEFAULT_STROKE,
         });
         this._markDirty();
     }
@@ -3709,15 +3808,19 @@ export default class PCBApp {
     _handleDrag(e) {
         if (!this._drag) return;
 
+        // Keep Shift-to-reverse-snap current from the live event (trackMouse
+        // only runs after this handler, so reading it here would lag a frame).
+        this.viewport.shiftHeld = e.shiftKey;
+
         const worldPos = this._screenToWorld(e);
         const dx = worldPos.x - this._drag.startWorld.x;
         const dy = worldPos.y - this._drag.startWorld.y;
         const newX = this._drag.startPos.x + dx;
         const newY = this._drag.startPos.y + dy;
 
-        // Snap to grid if enabled
+        // Snap to grid if enabled (Shift temporarily reverses the setting)
         let snapX = newX, snapY = newY;
-        if (this.viewport.snapToGrid) {
+        if (this._snapActive()) {
             const gs = this.viewport.gridSize;
             snapX = Math.round(newX / gs) * gs;
             snapY = Math.round(newY / gs) * gs;
@@ -3790,9 +3893,21 @@ export default class PCBApp {
 
     // ── Text annotations ─────────────────────────────────────────
 
+    /**
+     * Whether grid snap currently applies, honouring Shift-to-reverse the
+     * snap setting while the grid is visible — matching the schematic
+     * editor's `Viewport.getSnappedPosition`.
+     * @returns {boolean}
+     */
+    _snapActive() {
+        let snap = !!this.viewport?.snapToGrid;
+        if (this.viewport?.shiftHeld && this.viewport?.gridVisible) snap = !snap;
+        return snap;
+    }
+
     /** Snap a world point to grid if snap-to-grid is enabled. */
     _snapToGrid(p) {
-        if (!this.viewport?.snapToGrid) return { x: p.x, y: p.y };
+        if (!this._snapActive()) return { x: p.x, y: p.y };
         const gs = this.viewport.gridSize;
         return { x: Math.round(p.x / gs) * gs, y: Math.round(p.y / gs) * gs };
     }
@@ -3880,6 +3995,7 @@ export default class PCBApp {
     /** Drag an already-selected text. */
     _handleTextDrag(e) {
         if (!this._textDrag) return;
+        this.viewport.shiftHeld = e.shiftKey;
         const worldPos = this._screenToWorld(e);
         const dx = worldPos.x - this._textDrag.startWorld.x;
         const dy = worldPos.y - this._textDrag.startWorld.y;
@@ -3910,6 +4026,266 @@ export default class PCBApp {
         t.x = startPos.x; t.y = startPos.y;
         this._refreshText(t.id);
         this.history.execute(new MoveTextCommand(this, textId, startPos.x, startPos.y, x1, y1));
+    }
+
+    // ── Reference-designator move / rotate ────────────────────
+    // A component's reference (e.g. "R3") is rendered as part of its
+    // footprint but can be repositioned and rotated relative to the body,
+    // mirroring the schematic editor. The label text itself comes from the
+    // schematic, so it is never edited in place here.
+
+    /**
+     * Resolve a placement's reference-text element and its footprint-local
+     * bounding box (cached on the placement). Returns null when the footprint
+     * has no reference group. The box `{bx,by,bw,bh,cx,cy}` is authored-local,
+     * the same frame as `_worldToPlacementLocal` output and the pad offsets.
+     * @param {object} pl - placement
+     */
+    _refBox(pl) {
+        if (!pl) return null;
+        if (pl._refBox && pl._refEl?.isConnected) return pl._refBox;
+        let el = null;
+        for (const layer of (pl.elements || [])) {
+            el = layer.querySelector?.('[data-fp-ref]');
+            if (el) break;
+        }
+        if (!el) return null;
+        const bx = parseFloat(el.getAttribute('data-ref-bx'));
+        const by = parseFloat(el.getAttribute('data-ref-by'));
+        const bw = parseFloat(el.getAttribute('data-ref-bw'));
+        const bh = parseFloat(el.getAttribute('data-ref-bh'));
+        const cx = parseFloat(el.getAttribute('data-mx-center'));
+        const cy = parseFloat(el.getAttribute('data-ref-cy'));
+        if (![bx, by, bw, bh, cx, cy].every(Number.isFinite)) return null;
+        pl._refEl = el;
+        pl._refBox = { bx, by, bw, bh, cx, cy };
+        return pl._refBox;
+    }
+
+    /**
+     * Regenerate a reference designator's glyph geometry after its size or
+     * line width changed, refresh the cached layout box, and re-apply the
+     * placement pose so the new geometry picks up the current offset/rotation
+     * and mirror state.
+     * @param {string} compId
+     */
+    _rerenderRef(compId) {
+        const pl = this.placements.get(compId);
+        if (!pl) return;
+        this._refBox(pl); // resolve & cache pl._refEl
+        const el = pl._refEl;
+        if (!el) return;
+        const cxRef = parseFloat(el.getAttribute('data-mx-center'));
+        const baseY = parseFloat(el.getAttribute('data-ref-anchor-y'));
+        if (!Number.isFinite(cxRef) || !Number.isFinite(baseY)) return;
+        applyRefGeometry(el, pl.reference, cxRef, baseY,
+            pl.refSize || REF_DEFAULT_SIZE, pl.refStrokeWidth || REF_DEFAULT_STROKE);
+        pl._refBox = null; // bbox changed — invalidate cache
+        applyPlacementPose(this, compId);
+    }
+
+    /**
+     * Forward transform of an authored-local footprint point to world space,
+     * the inverse of {@link _worldToPlacementLocal}: mirror → rotate → translate.
+     * @param {object} pl - placement
+     * @param {number} lx
+     * @param {number} ly
+     * @returns {{x:number,y:number}}
+     */
+    _placementLocalToWorld(pl, lx, ly) {
+        let px = isPlacementMirrored(pl) ? -lx : lx;
+        let py = ly;
+        const rot = pl.rotation || 0;
+        if (rot) {
+            const rad = rot * Math.PI / 180;
+            const cos = Math.cos(rad), sin = Math.sin(rad);
+            const rx = px * cos - py * sin;
+            const ry = px * sin + py * cos;
+            px = rx; py = ry;
+        }
+        return { x: px + pl.x, y: py + pl.y };
+    }
+
+    /**
+     * World-space centre of a placement's reference designator, accounting
+     * for the ref offset (rotation about the centre leaves the centre fixed).
+     * @param {object} pl - placement
+     * @param {{bx:number,by:number,bw:number,bh:number,cx:number,cy:number}} box
+     */
+    _refCenterWorld(pl, box) {
+        return this._placementLocalToWorld(pl, box.cx + (pl.refDx || 0), box.cy + (pl.refDy || 0));
+    }
+
+    /**
+     * Hit-test the reference designator of every visible placement. Returns
+     * the topmost component id whose ref box contains the world point, or null.
+     * @param {{x:number,y:number}} worldPos
+     * @returns {string|null}
+     */
+    _hitTestRefText(worldPos) {
+        const MARGIN = REF_BOX_PAD; // mm — match the drawn selection box
+        let hit = null;
+        for (const [compId, pl] of this.placements) {
+            if (pl.refVisible === false) continue;
+            const box = this._refBox(pl);
+            if (!box) continue;
+            // Inverse of the ref transform: undo placement, then ref offset,
+            // then ref rotation about the box centre.
+            const local = this._worldToPlacementLocal(worldPos, pl);
+            let ax = local.x - (pl.refDx || 0);
+            let ay = local.y - (pl.refDy || 0);
+            const rr = pl.refRot || 0;
+            if (rr) {
+                const rad = -rr * Math.PI / 180;
+                const cos = Math.cos(rad), sin = Math.sin(rad);
+                const ox = ax - box.cx, oy = ay - box.cy;
+                ax = box.cx + ox * cos - oy * sin;
+                ay = box.cy + ox * sin + oy * cos;
+            }
+            if (
+                ax >= box.bx - MARGIN && ax <= box.bx + box.bw + MARGIN
+                && ay >= box.by - MARGIN && ay <= box.by + box.bh + MARGIN
+            ) {
+                hit = compId;
+            }
+        }
+        return hit;
+    }
+
+    /** Select/deselect a component's reference text. Pass null to clear. */
+    _selectRefText(compId) {
+        const next = compId || null;
+        if (this._selectedRef === next) {
+            if (next) this._drawRefOverlay(next, false);
+            return;
+        }
+        this._selectedRef = next;
+        this._drawRefOverlay(next, false);
+    }
+
+    /** Lazily create the world-space overlay group for the ref selection/tether. */
+    _ensureRefOverlay() {
+        if (!this._refOverlay || !this._refOverlay.isConnected) {
+            const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+            g.setAttribute('class', 'pcb-ref-overlay');
+            g.setAttribute('pointer-events', 'none');
+            this.viewport.addContent(g);
+            this._refOverlay = g;
+        }
+        return this._refOverlay;
+    }
+
+    /**
+     * Draw (or clear) the dashed selection box around a component's reference
+     * text, and optionally the dotted tether from the component origin to the
+     * label. Passing a null/invalid compId clears the overlay.
+     * @param {string|null} compId
+     * @param {boolean} withTether
+     */
+    _drawRefOverlay(compId, withTether) {
+        const g = this._ensureRefOverlay();
+        while (g.firstChild) g.removeChild(g.firstChild);
+        if (!compId) return;
+        const pl = this.placements.get(compId);
+        if (!pl) return;
+        const box = this._refBox(pl);
+        if (!box) return;
+        const NS = 'http://www.w3.org/2000/svg';
+        const dx = pl.refDx || 0, dy = pl.refDy || 0, rr = pl.refRot || 0;
+        const rad = rr * Math.PI / 180;
+        const cos = Math.cos(rad), sin = Math.sin(rad);
+        // Pad the tight glyph box outward a little so the selection outline
+        // (and grab region) sits comfortably around the label rather than
+        // touching the strokes.
+        const PAD = REF_BOX_PAD;
+        const x0 = box.bx - PAD, y0 = box.by - PAD;
+        const x1 = box.bx + box.bw + PAD, y1 = box.by + box.bh + PAD;
+        // Four corners of the local box → rotate about centre → +offset → world.
+        const corners = [
+            [x0, y0], [x1, y0], [x1, y1], [x0, y1],
+        ].map(([lx, ly]) => {
+            const ox = lx - box.cx, oy = ly - box.cy;
+            const rxL = box.cx + ox * cos - oy * sin + dx;
+            const ryL = box.cy + ox * sin + oy * cos + dy;
+            return this._placementLocalToWorld(pl, rxL, ryL);
+        });
+        const poly = document.createElementNS(NS, 'polygon');
+        poly.setAttribute('points', corners.map(p => `${p.x},${p.y}`).join(' '));
+        poly.setAttribute('fill', 'rgba(51,153,255,0.10)');
+        poly.setAttribute('stroke', '#3399ff');
+        poly.setAttribute('stroke-width', '1.2');
+        poly.setAttribute('stroke-dasharray', '4 3');
+        poly.setAttribute('vector-effect', 'non-scaling-stroke');
+        poly.setAttribute('pointer-events', 'none');
+        g.appendChild(poly);
+        if (withTether) {
+            const c = this._refCenterWorld(pl, box);
+            const line = document.createElementNS(NS, 'line');
+            line.setAttribute('x1', String(pl.x));
+            line.setAttribute('y1', String(pl.y));
+            line.setAttribute('x2', String(c.x));
+            line.setAttribute('y2', String(c.y));
+            line.setAttribute('stroke', '#3399ff');
+            line.setAttribute('stroke-width', '1');
+            line.setAttribute('stroke-dasharray', '3 3');
+            line.setAttribute('vector-effect', 'non-scaling-stroke');
+            line.setAttribute('pointer-events', 'none');
+            g.appendChild(line);
+        }
+    }
+
+    /** Drag an already-selected reference designator. */
+    _handleRefDrag(e) {
+        if (!this._refDrag) return;
+        const pl = this.placements.get(this._refDrag.compId);
+        if (!pl) return;
+        this.viewport.shiftHeld = e.shiftKey;
+        const localNow = this._worldToPlacementLocal(this._screenToWorld(e), pl);
+        const localStart = this._worldToPlacementLocal(this._refDrag.startWorld, pl);
+        let dx = this._refDrag.startDx + (localNow.x - localStart.x);
+        let dy = this._refDrag.startDy + (localNow.y - localStart.y);
+        if (this._snapActive()) {
+            const gs = this.viewport.gridSize || 0;
+            if (gs > 0) {
+                dx = Math.round(dx / gs) * gs;
+                dy = Math.round(dy / gs) * gs;
+            }
+        }
+        pl.refDx = dx;
+        pl.refDy = dy;
+        applyPlacementPose(this, this._refDrag.compId);
+        this._drawRefOverlay(this._refDrag.compId, true);
+    }
+
+    /** End a ref-text drag, pushing a MoveRefTextCommand if it actually moved. */
+    _endRefDrag() {
+        if (!this._refDrag) return;
+        const { compId, startDx, startDy } = this._refDrag;
+        this._refDrag = null;
+        const pl = this.placements.get(compId);
+        this.viewport.svg.style.cursor = 'default';
+        if (!pl) { this._drawRefOverlay(null, false); return; }
+        if ((pl.refDx || 0) === startDx && (pl.refDy || 0) === startDy) {
+            this._drawRefOverlay(compId, false);
+            return;
+        }
+        // Roll back, then execute so the command is the single source of truth.
+        const tx = pl.refDx || 0, ty = pl.refDy || 0;
+        pl.refDx = startDx; pl.refDy = startDy;
+        applyPlacementPose(this, compId);
+        this.history.execute(new MoveRefTextCommand(this, compId, startDx, startDy, tx, ty));
+        this._drawRefOverlay(compId, false);
+    }
+
+    /** Rotate the selected reference designator by 90° (through history). */
+    _rotateRefText(compId) {
+        const pl = this.placements.get(compId);
+        if (!pl) return;
+        const cur = ((pl.refRot || 0) % 360 + 360) % 360;
+        const next = (cur + 90) % 360;
+        this.history.execute(new RotateRefTextCommand(this, compId, cur, next));
+        this._drawRefOverlay(compId, false);
+        if (this._selectedRef === compId) this._showRefProperties(compId);
     }
 
     /** Show tool-options spinners for the Text tool. */
@@ -3984,82 +4360,58 @@ export default class PCBApp {
             ${insertRow}
         `;
         // Snapshot at first edit so undo collapses keystrokes into a
-        // single command per field.
-        let snapshot = null;
-        const onInput = (key, parse) => () => {
-            if (!snapshot) snapshot = { ...text };
-            const el = document.getElementById(`pcbPropText${key}`);
-            const v = parse(el?.value);
-            if (v === null) return;
-            const field = this._propFieldMap[key];
+        // single command per field. The field binding/commit machinery is
+        // shared with the reference-designator panel via _bindStrokeTextProps.
+        const layerApply = (model, v) => {
             // Layer change: if mirror flips (top↔bottom), the rendered
             // text reflects about its anchor x and visually jumps. Shift
             // the anchor by the text width (rotated into world space) so
             // the visible glyphs stay put.
-            if (field === 'layer') {
-                const wasBottom = typeof text.layer === 'string' && text.layer.startsWith('bottom-');
-                const willBottom = typeof v === 'string' && v.startsWith('bottom-');
-                if (wasBottom !== willBottom) {
-                    const w = measureStrokeText(text.content, text.size);
-                    const sign = willBottom ? 1 : -1; // top→bottom: +w; bottom→top: -w
-                    const rot = (text.rotation || 0) * Math.PI / 180;
-                    // SVG-Y-down with rotate(-rot): dx,dy in local frame map
-                    // to (cos(rot)*dx, -sin(rot)*dx) in world.
-                    text.x += sign * w * Math.cos(rot);
-                    text.y += sign * w * -Math.sin(rot);
-                }
+            const wasBottom = typeof model.layer === 'string' && model.layer.startsWith('bottom-');
+            const willBottom = typeof v === 'string' && v.startsWith('bottom-');
+            if (wasBottom !== willBottom) {
+                const w = measureStrokeText(model.content, model.size);
+                const sign = willBottom ? 1 : -1; // top→bottom: +w; bottom→top: -w
+                const rot = (model.rotation || 0) * Math.PI / 180;
+                // SVG-Y-down with rotate(-rot): dx,dy in local frame map
+                // to (cos(rot)*dx, -sin(rot)*dx) in world.
+                model.x += sign * w * Math.cos(rot);
+                model.y += sign * w * -Math.sin(rot);
             }
-            text[field] = v;
-            this._refreshText(text.id);
-        };
-        const onCommit = () => {
-            if (!snapshot) return;
-            const after = {};
-            for (const k of ['content', 'layer', 'size', 'rotation', 'strokeWidth', 'x', 'y']) {
-                if (snapshot[k] !== text[k]) after[k] = text[k];
-            }
-            // Roll back to snapshot first; EditTextCommand will reapply.
-            const final = { ...text };
-            Object.assign(text, snapshot);
-            this._refreshText(text.id);
-            snapshot = null;
-            if (Object.keys(after).length === 0) return;
-            // Re-apply via command for undo history.
-            Object.assign(text, final); // restore current values inside cmd
-            this.history.execute(new EditTextCommand(this, text.id, after));
-        };
-        const bindField = (key, parse) => {
-            const el = document.getElementById(`pcbPropText${key}`);
-            const handler = onInput(key, parse);
-            el?.addEventListener('input', handler);
-            // Also handle 'change' — spinner step clicks on number
-            // inputs fire 'change' in some browsers without an 'input'.
-            el?.addEventListener('change', handler);
-            el?.addEventListener('change', onCommit);
+            model.layer = v;
         };
         const num = (min) => (v) => {
             const n = parseFloat(v);
             if (!Number.isFinite(n)) return null;
             return min !== undefined ? Math.max(min, n) : n;
         };
-        bindField('Layer',   (v) => TEXT_LAYERS.includes(v) ? v : null);
-        bindField('Size',    num(0.1));
-        bindField('Rot',     (v) => {
+        const rotParse = (v) => {
             const n = parseFloat(v);
             if (!Number.isFinite(n)) return null;
             return ((n % 360) + 360) % 360;
-        });
-        bindField('LW',      num(0.01));
-        const rotEl = document.getElementById('pcbPropTextRot');
-        const wrapRot = () => {
-            const n = parseFloat(rotEl.value);
-            if (!Number.isFinite(n)) return;
-            const wrapped = ((n % 360) + 360) % 360;
-            if (wrapped !== n) rotEl.value = String(wrapped);
         };
-        rotEl?.addEventListener('input', wrapRot);
-        rotEl?.addEventListener('change', wrapRot);
-
+        this._bindStrokeTextProps(items, text, {
+            fields: [
+                { id: 'pcbPropTextLayer', field: 'layer', parse: (v) => TEXT_LAYERS.includes(v) ? v : null, apply: layerApply },
+                { id: 'pcbPropTextSize', field: 'size', parse: num(0.1) },
+                { id: 'pcbPropTextRot', field: 'rotation', parse: rotParse, wrap: true },
+                { id: 'pcbPropTextLW', field: 'strokeWidth', parse: num(0.01) },
+            ],
+            preview: (t) => this._refreshText(t.id),
+            commit: (t, snap) => {
+                const after = {};
+                for (const k of ['content', 'layer', 'size', 'rotation', 'strokeWidth', 'x', 'y']) {
+                    if (snap[k] !== t[k]) after[k] = t[k];
+                }
+                // Roll back to snapshot first; EditTextCommand will reapply.
+                const final = { ...t };
+                Object.assign(t, snap);
+                this._refreshText(t.id);
+                if (Object.keys(after).length === 0) return;
+                Object.assign(t, final); // restore current values inside cmd
+                this.history.execute(new EditTextCommand(this, t.id, after));
+            },
+        });
         // Insert-symbol dropdown: insert at caret when inline-editing,
         // otherwise append to the text via an EditTextCommand. Resets
         // to the placeholder after each selection so the same symbol
@@ -4089,10 +4441,113 @@ export default class PCBApp {
         this._setActiveRibbonTab?.('pcb-properties');
     }
 
-    /** Property panel field → text-object field mapping. */
-    get _propFieldMap() {
-        return { Content: 'content', Layer: 'layer', Size: 'size',
-                 Rot: 'rotation', LW: 'strokeWidth', X: 'x', Y: 'y' };
+    /**
+     * Shared field-binding machinery for the stroke-text style panels (Text
+     * objects and reference designators). For each spec field it wires the
+     * input/change events so edits update the model live (via spec.preview)
+     * and collapse into a single undo entry on commit (via spec.commit). A
+     * snapshot of the model is taken on the first keystroke so spec.commit
+     * can diff against the pre-edit state.
+     * @param {Element} items container holding the inputs
+     * @param {any} model object whose fields the inputs drive
+     * @param {{fields: Array<{id:string, field:string, parse:(v:string)=>any, apply?:(m:any,v:any)=>void, wrap?:boolean}>, preview:(m:any)=>void, commit:(m:any, snap:any)=>void}} spec
+     */
+    _bindStrokeTextProps(items, model, spec) {
+        let snapshot = null;
+        const onInput = (f) => () => {
+            if (!snapshot) snapshot = { ...model };
+            const el = /** @type {HTMLInputElement|HTMLSelectElement|null} */ (items.querySelector('#' + f.id));
+            const v = f.parse(el ? el.value : '');
+            if (v === null || v === undefined) return;
+            if (f.apply) f.apply(model, v); else model[f.field] = v;
+            spec.preview(model);
+        };
+        const onCommit = () => {
+            if (!snapshot) return;
+            const snap = snapshot;
+            snapshot = null;
+            spec.commit(model, snap);
+        };
+        for (const f of spec.fields) {
+            const el = /** @type {HTMLInputElement|HTMLSelectElement|null} */ (items.querySelector('#' + f.id));
+            if (!el) continue;
+            const handler = onInput(f);
+            el.addEventListener('input', handler);
+            // Spinner step clicks on number inputs fire 'change' without 'input'.
+            el.addEventListener('change', handler);
+            el.addEventListener('change', onCommit);
+            if (f.wrap) {
+                const wrapDeg = () => {
+                    const n = parseFloat(el.value);
+                    if (!Number.isFinite(n)) return;
+                    const wrapped = ((n % 360) + 360) % 360;
+                    if (wrapped !== n) el.value = String(wrapped);
+                };
+                el.addEventListener('input', wrapDeg);
+                el.addEventListener('change', wrapDeg);
+            }
+        }
+    }
+
+    /**
+     * Show the properties panel for a selected reference designator. Mirrors
+     * the Text-object panel (Type/Layer/Size/Rotation/Line W) and reuses the
+     * same field-binding helper, but the Reference string and Layer are
+     * read-only — only Size, Rotation and Line W can be edited.
+     * @param {string} compId
+     */
+    _showRefProperties(compId) {
+        const pl = this.placements.get(compId);
+        if (!pl) return;
+        const items = this._pcbPropsItems();
+        if (!items) return;
+        const silkLayer = pl.side === 'bottom' ? 'bottom-silk' : 'top-silk';
+        const size = pl.refSize || REF_DEFAULT_SIZE;
+        const lw = pl.refStrokeWidth || REF_DEFAULT_STROKE;
+        const rot = ((pl.refRot || 0) % 360 + 360) % 360;
+        items.innerHTML = `
+            <div class="prop-row"><label>Type</label><span style="font-size:11px;color:var(--text-primary)">Reference</span></div>
+            <div class="prop-row"><label>Reference</label><input type="text" id="pcbPropRefName" value="${pl.reference ?? ''}" disabled></div>
+            <div class="prop-row"><label>Layer</label><input type="text" id="pcbPropRefLayer" value="${this._layerLabel(silkLayer)}" disabled></div>
+            <div class="prop-row"><label>Size (mm)</label><input type="number" id="pcbPropRefSize" value="${size}" min="0.2" step="0.1"></div>
+            <div class="prop-row"><label>Rotation (°)</label><input type="number" id="pcbPropRefRot" value="${rot}" step="15"></div>
+            <div class="prop-row"><label>Line W (mm)</label><input type="number" id="pcbPropRefLW" value="${lw}" min="0.05" step="0.05"></div>
+        `;
+        const num = (min) => (v) => {
+            const n = parseFloat(v);
+            if (!Number.isFinite(n)) return null;
+            return min !== undefined ? Math.max(min, n) : n;
+        };
+        const rotParse = (v) => {
+            const n = parseFloat(v);
+            if (!Number.isFinite(n)) return null;
+            return ((n % 360) + 360) % 360;
+        };
+        this._bindStrokeTextProps(items, pl, {
+            fields: [
+                { id: 'pcbPropRefSize', field: 'refSize', parse: num(0.1) },
+                { id: 'pcbPropRefRot', field: 'refRot', parse: rotParse, wrap: true },
+                { id: 'pcbPropRefLW', field: 'refStrokeWidth', parse: num(0.01) },
+            ],
+            preview: () => {
+                this._rerenderRef(compId);
+                if (this._selectedRef === compId) this._drawRefOverlay(compId, true);
+            },
+            commit: (m, snap) => {
+                const before = { refSize: snap.refSize, refStrokeWidth: snap.refStrokeWidth, refRot: snap.refRot };
+                const after = { refSize: m.refSize, refStrokeWidth: m.refStrokeWidth, refRot: m.refRot };
+                const changed = before.refSize !== after.refSize
+                    || before.refStrokeWidth !== after.refStrokeWidth
+                    || before.refRot !== after.refRot;
+                // Roll back; SetRefStyleCommand will reapply for undo history.
+                Object.assign(m, before);
+                this._rerenderRef(compId);
+                if (this._selectedRef === compId) this._drawRefOverlay(compId, true);
+                if (!changed) return;
+                this.history.execute(new SetRefStyleCommand(this, compId, before, after));
+            },
+        });
+        this._setActiveRibbonTab?.('pcb-properties');
     }
 
     /**

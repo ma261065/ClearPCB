@@ -518,28 +518,49 @@ export class Board2D {
             if (pl.refVisible === false) continue;
             const ref = pl.reference;
             if (!ref) continue;
-            const size = 0.9;
-            const ob = pl.bounds;
+            const size = pl.refSize || 0.9;
+            const strokeW = pl.refStrokeWidth || 0.15;
+            const ob = pl.outline;
             const labelW = measureText(ref, size);
             const cx = ob ? ob.x + ob.width / 2 : 0;
             const lx = cx - labelW / 2;
             const ly = ob ? ob.y - 0.8 : -2;
             const strokes = stringToPolylines(ref, lx, ly, size, false);
-            // Counter-mirror the reference about its own centre when the
-            // footprint is user-flipped, exactly as the SVG editor does, so its
-            // net handedness reflects only the board side: readable on top even
-            // after an H/V flip, mirrored on the bottom.
-            const cm = (px) => (pl.mirror ? 2 * cx - px : px);
+            // Vertical centre of the glyph run (authored-local), used as the
+            // rotation pivot when the designator is moved/rotated relative to
+            // the part.
+            let gMinY = Infinity, gMaxY = -Infinity;
+            for (const seg of strokes) {
+                for (const p of seg) {
+                    if (p.y < gMinY) gMinY = p.y;
+                    if (p.y > gMaxY) gMaxY = p.y;
+                }
+            }
+            const cyc = Number.isFinite(gMinY) ? (gMinY + gMaxY) / 2 : ly;
+            const rdx = pl.refDx || 0, rdy = pl.refDy || 0;
+            const rref = ((pl.refRot || 0) * Math.PI) / 180;
+            const cr = Math.cos(rref), sr = Math.sin(rref);
+            // Compose exactly as the SVG editor / 3D view:
+            //   translate(refDx,refDy) · [counter-mirror about cx] · rotate(refRot,cx,cyc)
+            // with the parent footprint pose (mirror·rotate·translate) applied
+            // last via pose.xf(). The counter-mirror keeps the glyph run's
+            // handedness pinned to the board side after a user flip.
+            const refXf = (ax, ay) => {
+                let qx = cx + (ax - cx) * cr - (ay - cyc) * sr;
+                const qy = cyc + (ax - cx) * sr + (ay - cyc) * cr;
+                if (pl.mirror) qx = 2 * cx - qx;   // counter-mirror about cx
+                return pose.xf(qx + rdx, qy + rdy);
+            };
             const segs = [];
             for (const seg of strokes) {
                 for (let i = 1; i < seg.length; i++) {
                     segs.push([
-                        pose.xf(cm(seg[i - 1].x), seg[i - 1].y),
-                        pose.xf(cm(seg[i].x), seg[i].y),
+                        refXf(seg[i - 1].x, seg[i - 1].y),
+                        refXf(seg[i].x, seg[i].y),
                     ]);
                 }
             }
-            if (segs.length) stroke(segs, 0.15);
+            if (segs.length) stroke(segs, strokeW);
         }
 
         // Free-standing text on this silk side.
