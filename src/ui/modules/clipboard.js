@@ -185,12 +185,13 @@ export function beginPastePreview(app) {
     app.interactionState = 'placing';
     app.viewport.svg.style.cursor = 'crosshair';
 
-    // Position at current mouse so it doesn't flash at the origin
-    const mousePos = app.viewport.currentMouseWorld;
-    if (mousePos) {
-        const snapped = app.viewport.getSnappedPosition(mousePos);
-        ghost.setAttribute('transform', `translate(${snapped.x}, ${snapped.y})`);
-    }
+    // Position at current mouse so it doesn't flash at the origin,
+    // and show crosshair immediately (before the first mousemove).
+    const mousePos = app.viewport.currentMouseWorld || { x: 0, y: 0 };
+    const snapped = app.viewport.getSnappedPosition(mousePos);
+    ghost.setAttribute('transform', `translate(${snapped.x}, ${snapped.y})`);
+    app._showCrosshair?.();
+    app._updateCrosshair?.(snapped);
 }
 
 /**
@@ -300,6 +301,17 @@ export function cancelPaste(app) {
     app.pastingClipboard = false;
     app.interactionState = app.currentTool === 'select' ? 'idle' : 'toolActive';
     app.viewport.svg.style.cursor = '';
+
+    // Paste preview always owns crosshair visibility while active.
+    // On exit: hide in select mode, otherwise re-anchor to current cursor.
+    const mousePos = app.viewport.currentMouseWorld || null;
+    if (app.currentTool === 'select' && !app.isDrawing && !app.placingComponent) {
+        app._hideCrosshair?.();
+    } else if (mousePos) {
+        const snapped = app.viewport.getSnappedPosition(mousePos);
+        app._showCrosshair?.();
+        app._updateCrosshair?.(snapped);
+    }
 }
 
 /**

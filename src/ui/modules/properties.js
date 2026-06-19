@@ -88,6 +88,8 @@ export function updatePropertiesPanel(app, selection) {
 
     // Clear previous content
     panel.innerHTML = '';
+    const singleWire = selection.length === 1 && selection[0].type === 'wire' ? selection[0] : null;
+    const allLocked = selection.length > 0 && selection.every(s => s.locked);
 
     // ── Selection / Properties section ──
     {
@@ -110,8 +112,36 @@ export function updatePropertiesPanel(app, selection) {
             spacer.style.height = '6px';
             sec.content.appendChild(spacer);
 
+            // Single-wire net name lives in the same section as Locked and
+            // should appear before the lock checkbox.
+            if (singleWire) {
+                const netRow = document.createElement('div');
+                netRow.className = 'prop-row';
+                const netLbl = document.createElement('label');
+                netLbl.setAttribute('for', 'prop_net');
+                netLbl.textContent = 'Net';
+                netRow.appendChild(netLbl);
+                const netInput = document.createElement('input');
+                netInput.type = 'text';
+                netInput.id = 'prop_net';
+                netInput.value = singleWire.net || '';
+                if (allLocked) {
+                    netInput.readOnly = true;
+                    netInput.style.opacity = '0.7';
+                } else {
+                    netInput.addEventListener('change', () => {
+                        if (!netInput.value.trim()) {
+                            netInput.value = singleWire.net || 'NET1';
+                            return;
+                        }
+                        applyCommonProperty(app, 'net', netInput.value);
+                    });
+                }
+                netRow.appendChild(netInput);
+                sec.content.appendChild(netRow);
+            }
+
             const descriptors = mergeDescriptors(selection);
-            const allLocked = selection.every(s => s.locked);
 
             for (const desc of descriptors) {
                 // Add divider after locked checkbox
@@ -303,49 +333,13 @@ export function updatePropertiesPanel(app, selection) {
                 hvRow.appendChild(hvBtns);
                 sec.content.appendChild(hvRow);
             }
+
         }
 
         panel.appendChild(sec.group);
     }
 
     if (selection.length === 0) return;
-
-    const allLocked = selection.every(s => s.locked);
-
-    // ── Wire Net section (only for single wire selection) ──
-    const singleWire = selection.length === 1 && selection[0].type === 'wire' ? selection[0] : null;
-    if (singleWire) {
-        const sec = _createSection('Net');
-        const wire = singleWire;
-        const disabled = allLocked;
-
-        const netRow = document.createElement('div');
-        netRow.className = 'prop-row';
-        const netLbl = document.createElement('label');
-        netLbl.setAttribute('for', 'prop_net');
-        netLbl.textContent = 'Net';
-        netRow.appendChild(netLbl);
-        const netInput = document.createElement('input');
-        netInput.type = 'text';
-        netInput.id = 'prop_net';
-        netInput.value = wire.net || '';
-        if (disabled) {
-            netInput.readOnly = true;
-            netInput.style.opacity = '0.7';
-        } else {
-            netInput.addEventListener('change', () => {
-                if (!netInput.value.trim()) {
-                    netInput.value = wire.net || 'NET1';
-                    return;
-                }
-                applyCommonProperty(app, 'net', netInput.value);
-            });
-        }
-        netRow.appendChild(netInput);
-        sec.content.appendChild(netRow);
-
-        panel.appendChild(sec.group);
-    }
 
     // ── Clipboard section ──
     {

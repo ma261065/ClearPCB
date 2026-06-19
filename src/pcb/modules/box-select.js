@@ -191,6 +191,7 @@ function _computeEnclosed(app, bounds) {
             }
         }
     }
+    app._syncClipboardButtons?.();
 }
 
 /* ─────────────────────── highlight rendering ─────────────────────── */
@@ -244,6 +245,7 @@ export function clearBoxSelection(app) {
     s.tracks.clear();
     s.vias.clear();
     s.holes.clear();
+    app._syncClipboardButtons?.();
 }
 
 /* ─────────────────────────── group drag ─────────────────────────── */

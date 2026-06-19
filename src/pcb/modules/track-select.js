@@ -51,7 +51,7 @@ const HIT_TOL_PX = 6;
 
 /**
  * Find the topmost track/via under `worldPos` (vias preferred).
- * @returns {{type:'track', track:object}|{type:'via', via:object}|null}
+ * @returns {{type:'track', track:object}|{type:'via', via:object}|{type:'hole', hole:object}|null}
  */
 export function hitTestTrack(app, worldPos, pxTol = HIT_TOL_PX) {
     const scale = app.viewport?.scale || 1;
@@ -156,7 +156,7 @@ function _pointSegDist(p, a, b) {
 /**
  * Set the current track/via selection. Pass `null` to clear.
  * @param {object} app
- * @param {{type:'track', track:object}|{type:'via', via:object}|null} hit
+ * @param {{type:'track', track:object}|{type:'via', via:object}|{type:'hole', hole:object}|null} hit
  */
 export function selectTrackOrVia(app, hit) {
     clearTrackSelection(app);
@@ -166,6 +166,7 @@ export function selectTrackOrVia(app, hit) {
     app._hoveredTrackOrVia = null;
     if (!hit) {
         app._clearProperties?.();
+        app._syncClipboardButtons?.();
         return;
     }
     if (hit.type === 'track') {
@@ -182,6 +183,7 @@ export function selectTrackOrVia(app, hit) {
         _drawViaHalo(app, hit.via);
         _showViaProperties(app, hit.via);
     }
+    app._syncClipboardButtons?.();
 }
 
 /**
@@ -208,6 +210,7 @@ export function selectTrackSegment(app, track, edgeId) {
     _setTrackLabelsVisible(track, false);
     _drawSegmentHalo(app, track, edgeId);
     _showTrackSegmentProperties(app, track, edgeId);
+    app._syncClipboardButtons?.();
 }
 
 /** Show/hide a track's net-name labels without a full re-render. */
@@ -244,6 +247,7 @@ export function clearTrackSelection(app) {
             });
         }
     }
+    app._syncClipboardButtons?.();
 }
 
 /**
@@ -615,7 +619,7 @@ export function dismissTrackContextMenu() {
  * Intended for the select tool only (caller enforces that).
  *
  * @param {object} app
- * @param {{type:'track', track:object}|{type:'via', via:object}} hit
+ * @param {{type:'track', track:object}|{type:'via', via:object}|{type:'hole', hole:object}} hit
  * @param {number} clientX
  * @param {number} clientY
  * @param {{x:number,y:number}} [worldPos] - cursor position, used to
@@ -1024,6 +1028,7 @@ function _buildRuns(track) {
 function _showTrackProperties(app, track) {
     const items = app._pcbPropsItems?.() || document.getElementById('pcbPropsItems');
     if (!items) return;
+    app._setPcbPropsTitle?.('Track');
     const layers = new Set();
     for (const eid of track.edges.keys()) layers.add(track.getEdgeLayer(eid));
     const mixed = layers.size > 1;
@@ -1033,7 +1038,6 @@ function _showTrackProperties(app, track) {
     ).join('');
     const mixedOpt = mixed ? `<option value="" selected>Multiple</option>` : '';
     items.innerHTML = `
-        <div class="prop-row"><label>Type</label><span style="font-size:11px;color:var(--text-primary)">Track</span></div>
         <div class="prop-row"><label>Net</label><input type="text" id="pcbPropTrackNet" value="${_escape(track.net || '')}" placeholder="(unassigned)"></div>
         <div class="prop-row"><label>Layer</label><select id="pcbPropTrackLayer">${mixedOpt}${layerOpts}</select></div>
         <div class="prop-row"><label>Width (mm)</label><input type="number" id="pcbPropTrackWidth" value="${track.width}" min="0.05" step="0.05"></div>
@@ -1127,13 +1131,13 @@ function _showTrackProperties(app, track) {
 function _showTrackSegmentProperties(app, track, edgeId) {
     const items = app._pcbPropsItems?.() || document.getElementById('pcbPropsItems');
     if (!items) return;
+    app._setPcbPropsTitle?.('Track Segment');
     const currentLayer = track.getEdgeLayer(edgeId) || 'top-copper';
     const segWidth = track.getEdgeWidth(edgeId);
     const layerOpts = PCB_LAYERS.map(
         (l) => `<option value="${l.id}"${l.id === currentLayer ? ' selected' : ''}>${_escape(l.name)}</option>`
     ).join('');
     items.innerHTML = `
-        <div class="prop-row"><label>Type</label><span style="font-size:11px;color:var(--text-primary)">Track Segment</span></div>
         <div class="prop-row"><label>Net</label><input type="text" id="pcbPropTrackNet" value="${_escape(track.net || '')}" placeholder="(unassigned)"></div>
         <div class="prop-row"><label>Layer</label><select id="pcbPropSegLayer">${layerOpts}</select></div>
         <div class="prop-row"><label>Width (mm)</label><input type="number" id="pcbPropTrackWidth" value="${segWidth}" min="0.05" step="0.05"></div>
@@ -1249,8 +1253,8 @@ function _applyNetToBondedCopper(app, seed, v) {
 function _showViaProperties(app, via) {
     const items = app._pcbPropsItems?.() || document.getElementById('pcbPropsItems');
     if (!items) return;
+    app._setPcbPropsTitle?.('Via');
     items.innerHTML = `
-        <div class="prop-row"><label>Type</label><span style="font-size:11px;color:var(--text-primary)">Via</span></div>
         <div class="prop-row"><label>Net</label><input type="text" id="pcbPropViaNet" value="${_escape(via.net || '')}" placeholder="(unassigned)"></div>
         <div class="prop-row"><label>Diameter (mm)</label><input type="number" id="pcbPropViaDia" value="${via.diameter}" min="0.1" step="0.05"></div>
         <div class="prop-row"><label>Drill (mm)</label><input type="number" id="pcbPropViaDrill" value="${via.drill}" min="0.05" step="0.05"></div>
@@ -1298,8 +1302,8 @@ function _showViaProperties(app, via) {
 function _showHoleProperties(app, hole) {
     const items = app._pcbPropsItems?.() || document.getElementById('pcbPropsItems');
     if (!items) return;
+    app._setPcbPropsTitle?.('Hole');
     items.innerHTML = `
-        <div class="prop-row"><label>Type</label><span style="font-size:11px;color:var(--text-primary)">Hole</span></div>
         <div class="prop-row"><label>Diameter (mm)</label><input type="number" id="pcbPropHoleDia" value="${hole.diameter}" min="0.1" step="0.05"></div>
         <div class="prop-row"><label>Plated</label><input type="checkbox" id="pcbPropHolePlated" ${hole.plated ? 'checked' : ''}></div>
     `;

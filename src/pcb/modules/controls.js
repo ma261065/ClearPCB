@@ -23,6 +23,12 @@ export function bindPcbControls(app) {
     const gridSizeSelect = document.getElementById('pcbGridSize');
     const unitsSelect = document.getElementById('pcbUnits');
     const gridStyleSelect = document.getElementById('pcbGridStyle');
+    const copyHomeBtn = document.getElementById('pcbCopyHome');
+    const cutHomeBtn = document.getElementById('pcbCutHome');
+    const pasteHomeBtn = document.getElementById('pcbPasteHome');
+    const copyPropsBtn = document.getElementById('pcbCopyProps');
+    const cutPropsBtn = document.getElementById('pcbCutProps');
+    const pastePropsBtn = document.getElementById('pcbPasteProps');
 
     const toolBtns = [selectBtn, trackBtn, padBtn, viaBtn, holeBtn, textBtn, fillBtn];
     const validTools = new Set(['select', 'track', 'pad', 'via', 'hole', 'text', 'fill']);
@@ -84,6 +90,17 @@ export function bindPcbControls(app) {
     holeBtn?.addEventListener('click', () => setTool('hole'));
     textBtn?.addEventListener('click', () => setTool('text'));
     fillBtn?.addEventListener('click', () => setTool('fill'));
+
+    const doCopy = () => app.copySelection?.();
+    const doCut = () => app.cutSelection?.();
+    const doPaste = () => app.pasteSelection?.();
+    copyHomeBtn?.addEventListener('click', doCopy);
+    copyPropsBtn?.addEventListener('click', doCopy);
+    cutHomeBtn?.addEventListener('click', doCut);
+    cutPropsBtn?.addEventListener('click', doCut);
+    pasteHomeBtn?.addEventListener('click', doPaste);
+    pastePropsBtn?.addEventListener('click', doPaste);
+    app._syncClipboardButtons?.();
 
     // Auto Route button
     const autoRouteBtn = document.getElementById('pcbAutoRoute');

@@ -300,6 +300,12 @@ export default class PCBApp {
         this._textDefaults = { size: 1.0, rotation: 0, layer: 'top-silk', strokeWidth: 0.15 };
         /** Last typed content for the Text tool. */
         this._lastTextContent = 'Text';
+        /** In-memory PCB clipboard payload. */
+        this._pcbClipboard = null;
+        /** Monotonic paste counter (used for visible paste offsets). */
+        this._pcbPasteCount = 0;
+        /** Active paste-drop interaction (pasted items glued to cursor). */
+        this._pasteDrop = null;
 
         /**
          * Undo/redo for PCB-side edits (tracks, vias, vertex drags,
@@ -404,6 +410,282 @@ export default class PCBApp {
         const toolLabel = rawTool.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
         const layerLabel = this.activeLayer?.replace(/-/g, ' ')?.replace(/\b\w/g, c => c.toUpperCase()) || 'Top Copper';
         this.status.modeStatus.textContent = `${toolLabel} | ${layerLabel}`;
+        this._syncClipboardButtons?.();
+    }
+
+    /** Whether there is any pasteable payload on the PCB clipboard. */
+    _hasPcbClipboardData() {
+        const c = this._pcbClipboard;
+        return !!c && (
+            (c.tracks?.length || 0) > 0
+            || (c.vias?.length || 0) > 0
+            || (c.holes?.length || 0) > 0
+            || (c.texts?.length || 0) > 0
+            || (c.fills?.length || 0) > 0
+        );
+    }
+
+    /** Whether current selection can be copied/cut from PCB. */
+    _canCopyCutPcbSelection() {
+        if (hasBoxSelection(this)) {
+            const s = this._boxSel;
+            return !!s && ((s.tracks?.size || 0) > 0 || (s.vias?.size || 0) > 0 || (s.holes?.size || 0) > 0);
+        }
+        if (this._selectedComp || this._selectedRef) return false;
+        return !!(this._selectedTrack || this._selectedVia || this._selectedHole || this._selectedText || this._selectedFill);
+    }
+
+    /** Enable/disable PCB ribbon clipboard buttons to match current state. */
+    _syncClipboardButtons() {
+        const canCopyCut = this._canCopyCutPcbSelection();
+        const canPaste = this._hasPcbClipboardData();
+        for (const id of ['pcbCopyHome', 'pcbCopyProps', 'pcbCutHome', 'pcbCutProps', 'pcbPasteHome', 'pcbPasteProps']) {
+            const el = /** @type {HTMLButtonElement|null} */ (document.getElementById(id));
+            if (!el) continue;
+            if (id.includes('Paste')) el.disabled = !canPaste;
+            else el.disabled = !canCopyCut;
+        }
+    }
+
+    /**
+     * Build a clipboard payload from current PCB selection.
+     * Components/reference labels are intentionally excluded.
+     */
+    _capturePcbClipboardSelection() {
+        const payload = { tracks: [], vias: [], holes: [], texts: [], fills: [] };
+        if (hasBoxSelection(this)) {
+            const s = this._boxSel;
+            for (const t of (s?.tracks || [])) payload.tracks.push(t.toJSON());
+            for (const v of (s?.vias || [])) payload.vias.push(v.toJSON());
+            for (const h of (s?.holes || [])) payload.holes.push(h.toJSON());
+        } else if (this._selectedTrack) {
+            payload.tracks.push(this._selectedTrack.toJSON());
+        } else if (this._selectedVia) {
+            payload.vias.push(this._selectedVia.toJSON());
+        } else if (this._selectedHole) {
+            payload.holes.push(this._selectedHole.toJSON());
+        } else if (this._selectedText) {
+            payload.texts.push(serializePcbText(this._selectedText));
+        } else if (this._selectedFill) {
+            payload.fills.push(this._selectedFill.captureState());
+        }
+        if (!payload.tracks.length && !payload.vias.length && !payload.holes.length
+            && !payload.texts.length && !payload.fills.length) return null;
+        return payload;
+    }
+
+    /** Copy currently-selected PCB entities (except components). */
+    copySelection() {
+        const payload = this._capturePcbClipboardSelection();
+        if (!payload) {
+            if (this._selectedComp || this._selectedRef) {
+                this._showComponentPopup(this._selectedComp || this._selectedRef,
+                    "Components can't be copied from PCB. Copy them in the schematic editor.");
+            }
+            this._syncClipboardButtons();
+            return false;
+        }
+        this._pcbClipboard = payload;
+        this._pcbPasteCount = 0;
+        this._syncClipboardButtons();
+        return true;
+    }
+
+    /** Cut currently-selected PCB entities (copy + remove). */
+    cutSelection() {
+        if (!this.copySelection()) return false;
+        if (hasBoxSelection(this)) {
+            deleteBoxSelection(this);
+            this._syncClipboardButtons();
+            return true;
+        }
+        if (this._selectedText) {
+            this._deleteSelectedText();
+            this._syncClipboardButtons();
+            return true;
+        }
+        if (this._selectedTrack || this._selectedVia || this._selectedHole) {
+            deleteSelectedTrack(this);
+            this._syncClipboardButtons();
+            return true;
+        }
+        if (this._selectedFill) {
+            this.deleteSelectedFill();
+            this._syncClipboardButtons();
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Start cursor-glued drop mode for freshly pasted entities. The pasted
+     * objects move as one bundle with the cursor until the next left click.
+     */
+    _beginPasteDrop(payload, historyDepthBeforePaste = null) {
+        const base = this._snapToGrid(this.viewport?.currentMouseWorld || { x: 0, y: 0 });
+        const points = [];
+        for (const t of (payload.tracks || [])) {
+            for (const [, n] of t.nodes) points.push({ x: n.x, y: n.y });
+        }
+        for (const v of (payload.vias || [])) points.push({ x: v.x, y: v.y });
+        for (const h of (payload.holes || [])) points.push({ x: h.x, y: h.y });
+        for (const t of (payload.texts || [])) points.push({ x: t.x, y: t.y });
+        for (const f of (payload.fills || [])) {
+            for (const p of (f.outline || [])) points.push({ x: p.x, y: p.y });
+        }
+        const anchor = points.length
+            ? {
+                x: points.reduce((s, p) => s + p.x, 0) / points.length,
+                y: points.reduce((s, p) => s + p.y, 0) / points.length,
+            }
+            : { x: base.x, y: base.y };
+        this._pasteDrop = {
+            historyDepthBeforePaste,
+            anchorWorld: { x: anchor.x, y: anchor.y },
+            tracks: (payload.tracks || []).map((t) => {
+                const nodes = new Map();
+                for (const [nid, n] of t.nodes) nodes.set(nid, { x: n.x, y: n.y });
+                return { track: t, nodes };
+            }),
+            vias: (payload.vias || []).map((v) => ({ via: v, x: v.x, y: v.y })),
+            holes: (payload.holes || []).map((h) => ({ hole: h, x: h.x, y: h.y })),
+            texts: (payload.texts || []).map((t) => ({ text: t, x: t.x, y: t.y })),
+            fills: (payload.fills || []).map((f) => ({
+                fill: f,
+                outline: Array.isArray(f.outline)
+                    ? f.outline.map((p) => ({ x: p.x, y: p.y }))
+                    : [],
+            })),
+        };
+        if (this.viewport?.svg) this.viewport.svg.style.cursor = 'crosshair';
+        // Place immediately at the current cursor location.
+        this._updatePasteDrop(base);
+    }
+
+    /** Live-update the pasted bundle position while in paste-drop mode. */
+    _updatePasteDrop(worldPos) {
+        const pd = this._pasteDrop;
+        if (!pd) return;
+        const snap = this._snapToGrid(worldPos);
+        const dx = snap.x - pd.anchorWorld.x;
+        const dy = snap.y - pd.anchorWorld.y;
+
+        // Force a visible crosshair while a paste bundle is floating,
+        // independent of the currently selected tool.
+        this.viewport?.setCrosshair({ x: snap.x, y: snap.y });
+        if (this.viewport?.svg) this.viewport.svg.style.cursor = 'crosshair';
+
+        for (const t of pd.tracks) {
+            for (const [nid, start] of t.nodes) {
+                const n = t.track.nodes.get(nid);
+                if (!n) continue;
+                n.x = start.x + dx;
+                n.y = start.y + dy;
+            }
+            renderTrack(t.track, (id) => this._getLayerGroup(id), {
+                viaDiameter: this._getRoutingParams?.()?.viaDiameter,
+                viaDrill: this._getRoutingParams?.()?.viaDrill,
+                hideNetLabel: t.track === this._selectedTrack,
+            });
+        }
+        for (const v of pd.vias) {
+            v.via.x = v.x + dx;
+            v.via.y = v.y + dy;
+            renderVia(v.via, (id) => this._getLayerGroup(id));
+        }
+        for (const h of pd.holes) {
+            h.hole.x = h.x + dx;
+            h.hole.y = h.y + dy;
+            renderHole(h.hole, (id) => this._getLayerGroup(id));
+        }
+        for (const t of pd.texts) {
+            t.text.x = t.x + dx;
+            t.text.y = t.y + dy;
+            this._refreshText(t.text.id);
+        }
+        for (const f of pd.fills) {
+            f.fill.outline = f.outline.map((p) => ({ x: p.x + dx, y: p.y + dy }));
+            renderCopperFill(f.fill, (id) => this._getLayerGroup(id),
+                { selected: this._selectedFill === f.fill });
+            if (this._selectedFill === f.fill) this._renderFillHandles(f.fill);
+        }
+        refreshTrackSelectionHalo(this);
+    }
+
+    /** Finish paste-drop mode and keep the pasted entities at their current position. */
+    _endPasteDrop() {
+        if (!this._pasteDrop) return;
+        this._pasteDrop = null;
+        this._updateCursorForTool?.();
+        // Keep derived visuals coherent after the final drop position.
+        this._refreshFills?.();
+        reconcileRatsnest(this);
+        this._syncClipboardButtons?.();
+    }
+
+    /** Cancel paste-drop mode and remove the freshly pasted entities. */
+    _cancelPasteDrop() {
+        const pd = this._pasteDrop;
+        if (!pd) return;
+        this._pasteDrop = null;
+        const before = pd.historyDepthBeforePaste;
+        if (Number.isFinite(before) && (this.history?.undoStack?.length || 0) > before) {
+            this.history.undo();
+        }
+        this._updateCursorForTool?.();
+        this._syncClipboardButtons?.();
+    }
+
+    /** Paste the current PCB clipboard payload with a small positional offset. */
+    pasteSelection() {
+        if (!this._hasPcbClipboardData()) {
+            this._syncClipboardButtons();
+            return false;
+        }
+        const c = this._pcbClipboard;
+        this._pcbPasteCount = (this._pcbPasteCount || 0) + 1;
+        const d = 2 * this._pcbPasteCount; // mm offset per successive paste
+        const cmds = [];
+        const pasted = { tracks: [], vias: [], holes: [], texts: [], fills: [] };
+
+        for (const td of (c.tracks || [])) {
+            const json = JSON.parse(JSON.stringify(td));
+            delete json.id; delete json.i;
+            const t = createShape(json);
+            if (!(t instanceof Track)) continue;
+            for (const [, n] of t.nodes) { n.x += d; n.y += d; }
+            cmds.push(new AddTrackCommand(this, t));
+            pasted.tracks.push(t);
+        }
+        for (const vd of (c.vias || [])) {
+            const via = Via.fromJSON({ ...vd, id: undefined });
+            via.x += d; via.y += d;
+            cmds.push(new AddViaCommand(this, via));
+            pasted.vias.push(via);
+        }
+        for (const hd of (c.holes || [])) {
+            const hole = Hole.fromJSON({ ...hd, id: undefined });
+            hole.x += d; hole.y += d;
+            cmds.push(new AddHoleCommand(this, hole));
+            pasted.holes.push(hole);
+        }
+        for (const tx of (c.texts || [])) {
+            const t = createPcbText({ ...tx, id: undefined, x: (tx.x || 0) + d, y: (tx.y || 0) + d });
+            cmds.push(new AddTextCommand(this, t));
+            pasted.texts.push(t);
+        }
+        for (const fd of (c.fills || [])) {
+            const outline = Array.isArray(fd.outline) ? fd.outline.map((p) => ({ x: (p.x || 0) + d, y: (p.y || 0) + d })) : [];
+            const fill = new CopperFill({ layer: fd.layer, net: fd.net || '', outline });
+            cmds.push(new AddFillCommand(this, fill));
+            pasted.fills.push(fill);
+        }
+        if (!cmds.length) return false;
+        const depthBeforePaste = this.history?.undoStack?.length || 0;
+        this.history.execute(cmds.length === 1 ? cmds[0] : new CompoundCommand(cmds));
+        this._beginPasteDrop(pasted, depthBeforePaste);
+        this._syncClipboardButtons();
+        return true;
     }
 
     _ensureViewport() {
@@ -509,6 +791,13 @@ export default class PCBApp {
 
         svg.addEventListener('mousedown', (e) => {
             if (!this._active) return;
+            // Freshly pasted entities are glued to the cursor; the first
+            // left-click drops them at their current position.
+            if (this._pasteDrop && e.button === 0) {
+                e.preventDefault();
+                this._endPasteDrop();
+                return;
+            }
             // A floating vertex move drops on the next left-click. This covers
             // both the context-menu "Split" drag and a node/midpoint that was
             // click-armed into move mode (click to grab, move, click to place).
@@ -941,6 +1230,8 @@ export default class PCBApp {
                 } else if (this.currentTool === 'hole') {
                     this._updateHolePreview(this._screenToWorld(e));
                 }
+            } else if (this._pasteDrop) {
+                this._updatePasteDrop(this._screenToWorld(e));
             } else if (this._drag) {
                 this._scheduleDragUpdate(e);
             } else if (this._groupDrag) {
@@ -1239,6 +1530,12 @@ export default class PCBApp {
 
     _updateCursorForTool() {
         if (!this.viewport?.svg) return;
+        if (this._pasteDrop) {
+            this.viewport.svg.style.cursor = 'crosshair';
+            this._clearViaRing();
+            this._clearHoleRing();
+            return;
+        }
         const t = this.currentTool;
         this.viewport.svg.style.cursor =
             t === 'pan' ? 'grab' :
@@ -1464,6 +1761,19 @@ export default class PCBApp {
             return true;
         }
 
+        if ((e.ctrlKey || e.metaKey) && !e.shiftKey && (e.key === 'c' || e.key === 'C')) {
+            if (this.copySelection()) return true;
+            return false;
+        }
+        if ((e.ctrlKey || e.metaKey) && !e.shiftKey && (e.key === 'x' || e.key === 'X')) {
+            if (this.cutSelection()) return true;
+            return false;
+        }
+        if ((e.ctrlKey || e.metaKey) && !e.shiftKey && (e.key === 'v' || e.key === 'V')) {
+            if (this.pasteSelection()) return true;
+            return false;
+        }
+
         // Track-draw mode owns Escape + Space.
         if (this._trackDraw) {
             if (e.key === 'Escape') {
@@ -1535,6 +1845,10 @@ export default class PCBApp {
             return false;
         }
         if (e.key === 'Escape') {
+            if (this._pasteDrop) {
+                this._cancelPasteDrop();
+                return true;
+            }
             if (this._vertexDrag) {
                 cancelVertexDrag(this);
                 this.viewport.hideCrosshair();
@@ -2494,10 +2808,21 @@ export default class PCBApp {
      * Clear the properties panel to its default state.
      */
     _clearProperties() {
+        this._setPcbPropsTitle('Properties');
         const items = this._pcbPropsItems();
         if (items) {
             items.innerHTML = '<span style="font-size:11px;color:var(--text-muted)">Click an object to see its properties</span>';
         }
+        this._syncClipboardButtons?.();
+    }
+
+    /**
+     * Set the PCB Properties ribbon group title.
+     * @param {string} title
+     */
+    _setPcbPropsTitle(title) {
+        const el = document.querySelector('#pcbPropsContent .ribbon-group-title');
+        if (el) el.textContent = title || 'Properties';
     }
 
     /**
@@ -2525,9 +2850,9 @@ export default class PCBApp {
     _showBoardOutlineProperties() {
         const items = this._pcbPropsItems();
         if (!items) return;
+        this._setPcbPropsTitle('Board Outline');
 
         items.innerHTML = `
-            <div class="prop-row"><label>Type</label><span style="font-size:11px;color:var(--text-primary)">Board Outline</span></div>
             <div class="prop-row"><label>Width (mm)</label><input type="number" id="pcbPropBoardW" value="${this._boardWidth}" min="5" step="1"></div>
             <div class="prop-row"><label>Height (mm)</label><input type="number" id="pcbPropBoardH" value="${this._boardHeight}" min="5" step="1"></div>
             <div class="prop-row"><label>Corner R (mm)</label><input type="number" id="pcbPropBoardR" value="${this._boardRadius}" min="0" step="0.5"></div>
@@ -2580,6 +2905,7 @@ export default class PCBApp {
     _showComponentProperties(compId) {
         const items = this._pcbPropsItems();
         if (!items) return;
+        this._setPcbPropsTitle('Component');
 
         const pl = this.placements.get(compId);
         const name = pl?.name || pl?.reference || compId;
@@ -2587,7 +2913,6 @@ export default class PCBApp {
         const refVisible = pl?.refVisible !== false;
 
         items.innerHTML = `
-            <div class="prop-row"><label>Type</label><span style="font-size:11px;color:var(--text-primary)">Component</span></div>
             <div class="prop-row"><label>Reference</label><span style="font-size:11px;color:var(--text-primary)">${name}</span></div>
             <div class="prop-row"><input type="checkbox" id="pcbPropCompRefVis"${refVisible ? ' checked' : ''}> <span style="font-size:11px;color:var(--text-secondary)">Show Reference</span></div>
             <div class="prop-row"><label>Layer</label><select id="pcbPropCompSide">
@@ -3668,6 +3993,7 @@ export default class PCBApp {
         }
 
         this._selectedComp = compId;
+        this._syncClipboardButtons?.();
 
         if (!compId) {
             this.viewport.svg.style.cursor = 'default';
@@ -3988,6 +4314,7 @@ export default class PCBApp {
         // breaks the browser's same-target requirement for `dblclick`.
         if (prev === next || (prev && next && prev.id === next.id)) return;
         this._selectedText = next;
+        this._syncClipboardButtons?.();
         if (prev && (!next || prev.id !== next.id)) this._refreshText(prev.id);
         if (next) this._refreshText(next.id);
     }
@@ -4160,6 +4487,7 @@ export default class PCBApp {
             return;
         }
         this._selectedRef = next;
+        this._syncClipboardButtons?.();
         this._drawRefOverlay(next, false);
     }
 
@@ -4334,6 +4662,7 @@ export default class PCBApp {
     _showTextProperties(text) {
         const items = this._pcbPropsItems();
         if (!items) return;
+        this._setPcbPropsTitle('Text');
         const layerOpts = TEXT_LAYERS.map(l =>
             `<option value="${l}" ${l === text.layer ? 'selected' : ''}>${this._layerLabel(l)}</option>`
         ).join('');
@@ -4352,7 +4681,6 @@ export default class PCBApp {
                 <option value="\u00F7">÷ Divide</option>
             </select></div>` : '';
         items.innerHTML = `
-            <div class="prop-row"><label>Type</label><span style="font-size:11px;color:var(--text-primary)">Text</span></div>
             <div class="prop-row"><label>Layer</label><select id="pcbPropTextLayer">${layerOpts}</select></div>
             <div class="prop-row"><label>Size (mm)</label><input type="number" id="pcbPropTextSize" value="${text.size}" min="0.2" step="0.1"></div>
             <div class="prop-row"><label>Rotation (°)</label><input type="number" id="pcbPropTextRot" value="${text.rotation}" step="15"></div>
@@ -4501,12 +4829,12 @@ export default class PCBApp {
         if (!pl) return;
         const items = this._pcbPropsItems();
         if (!items) return;
+        this._setPcbPropsTitle('Reference');
         const silkLayer = pl.side === 'bottom' ? 'bottom-silk' : 'top-silk';
         const size = pl.refSize || REF_DEFAULT_SIZE;
         const lw = pl.refStrokeWidth || REF_DEFAULT_STROKE;
         const rot = ((pl.refRot || 0) % 360 + 360) % 360;
         items.innerHTML = `
-            <div class="prop-row"><label>Type</label><span style="font-size:11px;color:var(--text-primary)">Reference</span></div>
             <div class="prop-row"><label>Reference</label><input type="text" id="pcbPropRefName" value="${pl.reference ?? ''}" disabled></div>
             <div class="prop-row"><label>Layer</label><input type="text" id="pcbPropRefLayer" value="${this._layerLabel(silkLayer)}" disabled></div>
             <div class="prop-row"><label>Size (mm)</label><input type="number" id="pcbPropRefSize" value="${size}" min="0.2" step="0.1"></div>
@@ -6877,6 +7205,7 @@ export default class PCBApp {
         }
         const prev = this._selectedFill;
         this._selectedFill = fill || null;
+        this._syncClipboardButtons?.();
         // Re-render the previously- and newly-selected fills to update the
         // boundary highlight.
         const getGroup = (id) => this._getLayerGroup(id);
@@ -7014,6 +7343,7 @@ export default class PCBApp {
     _showFillProperties(fill) {
         const items = this._pcbPropsItems();
         if (!items || !fill) return;
+        this._setPcbPropsTitle('Copper Fill');
         const esc = (s) => String(s).replace(/[&<>"']/g, (c) => (
             { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
         ));
@@ -7022,7 +7352,6 @@ export default class PCBApp {
             ['bottom-copper', 'Bottom Copper'],
         ].map(([id, name]) => `<option value="${id}"${id === fill.layer ? ' selected' : ''}>${name}</option>`).join('');
         items.innerHTML = `
-            <div class="prop-row"><label>Type</label><span style="font-size:11px;color:var(--text-primary)">Copper Fill</span></div>
             <div class="prop-row"><label>Net</label><input type="text" id="pcbPropFillNet" placeholder="(isolated)" value="${esc(fill.net || '')}"></div>
             <div class="prop-row"><label>Layer</label><select id="pcbPropFillLayer">${layerOpts}</select></div>
         `;
