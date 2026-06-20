@@ -8425,6 +8425,7 @@ export default class PCBApp {
                 holes: this.holes,
                 texts: [...this.texts.values()],
                 fills: this.copperFills,
+                circles: this.circles,
                 boardX: this._boardX || 0,
                 boardY: this._boardY || 0,
                 boardWidth: this._boardWidth,

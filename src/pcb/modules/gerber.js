@@ -62,7 +62,7 @@ export function exportGerbers(opts) {
         placements, tracks = [], vias = [], holes = [],
         boardWidth, boardHeight, boardRadius = 0,
         boardX = 0, boardY = 0,
-        texts = [], fills = [],
+        texts = [], fills = [], circles = [],
     } = opts;
 
     // Caller's boardX/boardY describe the Y-up bottom-left corner of the
@@ -80,10 +80,10 @@ export function exportGerbers(opts) {
         r: boardRadius || 0,
     };
     const files = new Map([
-        ['board.gtl', _buildCopper(placements, tracks, vias, 'top-copper', clipBounds, texts, fills)],
-        ['board.gbl', _buildCopper(placements, tracks, vias, 'bottom-copper', clipBounds, texts, fills)],
-        ['board.gts', _buildMask(placements, vias, 'top', clipBounds)],
-        ['board.gbs', _buildMask(placements, vias, 'bottom', clipBounds)],
+        ['board.gtl', _buildCopper(placements, tracks, vias, 'top-copper', clipBounds, texts, fills, circles)],
+        ['board.gbl', _buildCopper(placements, tracks, vias, 'bottom-copper', clipBounds, texts, fills, circles)],
+        ['board.gts', _buildMask(placements, vias, 'top', clipBounds, circles)],
+        ['board.gbs', _buildMask(placements, vias, 'bottom', clipBounds, circles)],
         ['board.gtp', _buildPaste(placements, 'top', clipBounds)],
         ['board.gbp', _buildPaste(placements, 'bottom', clipBounds)],
         ['board.gto', _buildSilk(placements, 'top', clipBounds, texts)],
@@ -96,7 +96,7 @@ export function exportGerbers(opts) {
     ]);
     // Only emit the NPTH file when there are non-plated holes — an empty
     // drill file trips up some fab pre-checks.
-    const npth = _collectNonPlatedDrills(holes);
+    const npth = _collectNonPlatedDrills(holes, circles);
     if (npth.length) files.set('board-NPTH.drl', _buildDrill(npth, clipBounds, true));
     return files;
 }
@@ -146,7 +146,53 @@ const _fmtY = (mm) => String(_fx(-mm));
 
 /* ──────────────────────────── copper layers ──────────────────────────── */
 
-function _buildCopper(placements, tracks, vias, layerId, bounds, texts = [], fills = []) {
+/**
+ * Normalise a user circle's copper mode to one of the canonical values,
+ * mirroring PCBApp._normalizeCircleCopperMode (incl. legacy aliases).
+ * @param {string} mode
+ * @returns {'add'|'remove-copper'|'remove-solder-mask'|'remove-copper-mask'}
+ */
+function _circleMode(mode) {
+    const m = String(mode || 'add');
+    if (m === 'remove-copper' || m === 'remove-solder-mask' || m === 'remove-copper-mask') return m;
+    if (m === 'remove') return 'remove-copper-mask';
+    if (m === 'remove-mask') return 'remove-solder-mask';
+    return 'add';
+}
+
+/**
+ * Build the world-space point transform for a placement's pose, matching
+ * applyPlacementPose exactly: a local offset (dx,dy) is mirrored (user flip
+ * XOR bottom side), rotated by the placement angle and translated to the
+ * placement position. Footprint geometry is authored in local mm and oriented
+ * purely by this transform, so every pad/silk point must pass through it —
+ * otherwise a rotated or flipped part exports at its un-posed position.
+ * @param {object} pl
+ * @returns {(dx:number, dy:number) => {x:number, y:number}}
+ */
+function _poseXform(pl) {
+    const rot = (pl.rotation || 0) * Math.PI / 180;
+    const cos = Math.cos(rot), sin = Math.sin(rot);
+    const mx = ((!!pl.mirror) !== (pl.side === 'bottom')) ? -1 : 1;
+    const px = pl.x || 0, py = pl.y || 0;
+    return (dx, dy) => {
+        const lx = dx * mx;
+        return { x: px + lx * cos - dy * sin, y: py + lx * sin + dy * cos };
+    };
+}
+
+/**
+ * Whether a placement angle swaps a pad's width/height. Placement rotation is
+ * constrained to 90° steps, so an odd multiple of 90° turns a rectangular or
+ * oval aperture on its side.
+ * @param {number} rotation degrees
+ */
+function _orthoSwap(rotation) {
+    const r = (((rotation || 0) % 360) + 360) % 360;
+    return Math.abs(r - 90) < 0.01 || Math.abs(r - 270) < 0.01;
+}
+
+function _buildCopper(placements, tracks, vias, layerId, bounds, texts = [], fills = [], circles = []) {
     const isTop = layerId === 'top-copper';
     // Pads use the footprint/autorouter convention: 'top'|'bottom'|'both'.
     // Tracks use SVG-layer-id form: 'top-copper'|'bottom-copper'.
@@ -169,17 +215,20 @@ function _buildCopper(placements, tracks, vias, layerId, bounds, texts = [], fil
     // Pads on this layer (and on 'both').
     for (const [, pl] of placements) {
         if (!pl?.padOffsets) continue;
+        const xf = _poseXform(pl);
+        const swap = _orthoSwap(pl.rotation);
         for (const off of pl.padOffsets) {
             const padLayer = off.layer || 'top';
             if (padLayer !== 'both' && padLayer !== padSide) continue;
-            // Flash at this offset's OWN position. A footprint may have
-            // several pad offsets sharing one pad number (e.g. a thermal
-            // pad subdivided into a matrix), so the number-keyed pad map
-            // (one entry per number) cannot be used for copper placement.
-            const pos = { x: pl.x + off.dx, y: pl.y + off.dy };
+            // Flash at this offset's OWN position, rotated/mirrored by the
+            // placement pose. A footprint may have several pad offsets sharing
+            // one pad number (e.g. a thermal pad subdivided into a matrix), so
+            // the number-keyed pad map cannot be used for copper placement.
+            const pos = xf(off.dx, off.dy);
             if (!_inBoard(pos.x, pos.y, bounds)) continue;
-            const w = off.width || 1.2;
-            const h = off.height || 1.2;
+            let w = off.width || 1.2;
+            let h = off.height || 1.2;
+            if (swap) { const t = w; w = h; h = t; }
             const shape = off.shape || 'rect';
             let key, def;
             if (shape === 'ellipse') {
@@ -239,6 +288,47 @@ function _buildCopper(placements, tracks, vias, layerId, bounds, texts = [], fil
         }
     }
 
+    // User-drawn circles. Added copper (mode 'add') flashes/strokes dark on
+    // its own layer; copper removals (mode 'remove-copper'|'remove-copper-mask')
+    // and hole-layer circles (which drill through the whole board) clear the
+    // copper beneath them. Clears are collected separately and emitted in
+    // clear polarity AFTER every dark draw so they carve whatever is below.
+    /** @type {Array<{d:number, op:string}>} */
+    const clearCircleOps = [];
+    for (const c of circles) {
+        if (!c) continue;
+        const rad = Math.max(0, Number(c.radius) || 0);
+        if (rad <= 0) continue;
+        if (!_inBoard(c.x, c.y, bounds)) continue;
+        const isHole = c.layer === 'hole';
+        const onThisLayer = c.layer === layerId;
+        if (!isHole && !onThisLayer) continue;
+        const mode = _circleMode(c.copperMode);
+        const cutsCopper = isHole ||
+            (onThisLayer && (mode === 'remove-copper' || mode === 'remove-copper-mask'));
+        if (cutsCopper) {
+            const d = getAp(apKey('C', rad * 2));
+            clearCircleOps.push({ d, op: `X${_fmt(c.x)}Y${_fmtY(c.y)}D03*` });
+        } else if (onThisLayer && mode === 'add') {
+            if (c.filled) {
+                // Solid disc: flash a circular aperture.
+                const d = getAp(apKey('C', rad * 2));
+                ops.push({ d, op: `X${_fmt(c.x)}Y${_fmtY(c.y)}D03*` });
+            } else {
+                // Ring: stroke the outline with a full-circle arc (G75/G03).
+                const lw = Math.max(0.05, Number(c.lineWidth) || 0.2);
+                const d = getAp(apKey('C', lw));
+                const sx = c.x - rad;
+                const arc = `G75*\n`
+                    + `X${_fmt(sx)}Y${_fmtY(c.y)}D02*\n`
+                    + `G03*\n`
+                    + `X${_fmt(sx)}Y${_fmtY(c.y)}I${_fx(rad)}J0D01*\n`
+                    + `G01*`;
+                ops.push({ d, op: arc });
+            }
+        }
+    }
+
     // Emit file.
     let out = `G04 ClearPCB ${isTop ? 'Top' : 'Bottom'} Copper*\n` + FORMAT;
     out += '%LPD*%\n';
@@ -255,6 +345,17 @@ function _buildCopper(placements, tracks, vias, layerId, bounds, texts = [], fil
     for (const { d, op } of ops) {
         if (d !== currentD) { out += `D${d}*\n`; currentD = d; }
         out += op + '\n';
+    }
+    // Copper-removal and hole circles: flash in clear polarity so they cut
+    // the dark copper (pads, tracks, vias, pours, added circles) above.
+    if (clearCircleOps.length) {
+        out += '%LPC*%\n';
+        currentD = -1;
+        for (const { d, op } of clearCircleOps) {
+            if (d !== currentD) { out += `D${d}*\n`; currentD = d; }
+            out += op + '\n';
+        }
+        out += '%LPD*%\n';
     }
     out += 'M02*\n';
     return out;
@@ -334,6 +435,7 @@ function _buildPadLayer(placements, vias, side, bounds, opts) {
         respectPaste = false,
         respectMask = false,
         pasteApertures = false,
+        circleOpenings = [],
         title = 'Pad Layer',
     } = opts;
     /** @type {Map<string, number>} apertureKey → D-code */
@@ -350,6 +452,8 @@ function _buildPadLayer(placements, vias, side, bounds, opts) {
 
     for (const [, pl] of placements) {
         if (!pl?.padOffsets) continue;
+        const xf = _poseXform(pl);
+        const swap = _orthoSwap(pl.rotation);
         for (const off of pl.padOffsets) {
             const padLayer = off.layer || 'top';
             if (padLayer !== 'both' && padLayer !== side) continue;
@@ -362,13 +466,14 @@ function _buildPadLayer(placements, vias, side, bounds, opts) {
             // paste there would bridge solder.
             if (respectPaste && off.paste === false) continue;
             if (respectMask && off.mask === false) continue;
-            // Flash at the offset's own position (see copper loop note):
-            // duplicate-numbered offsets must each draw at their own dx/dy.
-            const pos = { x: pl.x + off.dx, y: pl.y + off.dy };
+            // Flash at the offset's own position, rotated/mirrored by the
+            // placement pose (duplicate-numbered offsets each draw at dx/dy).
+            const pos = xf(off.dx, off.dy);
             if (!_inBoard(pos.x, pos.y, bounds)) continue;
-            const w = (off.width || 1.2) + 2 * expansion;
-            const h = (off.height || 1.2) + 2 * expansion;
+            let w = (off.width || 1.2) + 2 * expansion;
+            let h = (off.height || 1.2) + 2 * expansion;
             if (w <= 0 || h <= 0) continue;
+            if (swap) { const t = w; w = h; h = t; }
             const shape = off.shape || 'rect';
             let key;
             if (shape === 'ellipse') {
@@ -387,13 +492,16 @@ function _buildPadLayer(placements, vias, side, bounds, opts) {
     if (pasteApertures) {
         for (const [, pl] of placements) {
             if (!pl?.pasteOffsets) continue;
+            const xf = _poseXform(pl);
+            const swap = _orthoSwap(pl.rotation);
             for (const off of pl.pasteOffsets) {
                 if ((off.side || 'top') !== side) continue;
-                const pos = { x: pl.x + off.dx, y: pl.y + off.dy };
+                const pos = xf(off.dx, off.dy);
                 if (!_inBoard(pos.x, pos.y, bounds)) continue;
-                const w = (off.width || 1.2) + 2 * expansion;
-                const h = (off.height || 1.2) + 2 * expansion;
+                let w = (off.width || 1.2) + 2 * expansion;
+                let h = (off.height || 1.2) + 2 * expansion;
                 if (w <= 0 || h <= 0) continue;
+                if (swap) { const t = w; w = h; h = t; }
                 const shape = off.shape || 'rect';
                 let key;
                 if (shape === 'ellipse') {
@@ -420,6 +528,14 @@ function _buildPadLayer(placements, vias, side, bounds, opts) {
         }
     }
 
+    // User-drawn mask openings (their exact diameter — no pad expansion).
+    for (const o of circleOpenings) {
+        if (!o || !(o.dia > 0)) continue;
+        if (!_inBoard(o.x, o.y, bounds)) continue;
+        const d = getAp(apKey('C', o.dia));
+        ops.push({ d, op: `X${_fmt(o.x)}Y${_fmtY(o.y)}D03*` });
+    }
+
     let out = `G04 ClearPCB ${title}*\n` + FORMAT + '%LPD*%\n';
     for (const [key, code] of apertures) {
         out += `%ADD${code}${_apertureBody(key)}*%\n`;
@@ -435,13 +551,31 @@ function _buildPadLayer(placements, vias, side, bounds, opts) {
 
 /* ──────────────────────────── soldermask ──────────────────────────── */
 
-function _buildMask(placements, vias, side, bounds) {
+function _buildMask(placements, vias, side, bounds, circles = []) {
+    // User-drawn soldermask openings: circles on this side's mask layer,
+    // copper circles flagged to also open mask (remove-solder-mask /
+    // remove-copper-mask), and hole-layer circles (a bare drilled hole has
+    // no mask in the bore). Each opens at its exact drawn diameter.
+    const maskLayer = `${side}-mask`;
+    const copperLayer = `${side}-copper`;
+    const circleOpenings = [];
+    for (const c of circles) {
+        if (!c) continue;
+        const rad = Math.max(0, Number(c.radius) || 0);
+        if (rad <= 0) continue;
+        const mode = _circleMode(c.copperMode);
+        const opens = c.layer === maskLayer
+            || c.layer === 'hole'
+            || (c.layer === copperLayer && (mode === 'remove-solder-mask' || mode === 'remove-copper-mask'));
+        if (opens) circleOpenings.push({ x: c.x, y: c.y, dia: rad * 2 });
+    }
     return _buildPadLayer(placements, vias, side, bounds, {
         expansion: MASK_EXPANSION,
         includeThruHole: true,
         includeSmd: true,
         includeVias: !TENT_VIAS,
         respectMask: true,
+        circleOpenings,
         title: side === 'top' ? 'Top Soldermask' : 'Bottom Soldermask',
     });
 }
@@ -505,63 +639,91 @@ function _buildSilk(placements, side, bounds, texts = []) {
 
     let body = '';
     for (const [, pl] of placements) {
+        const xf = _poseXform(pl);
+        // A bottom-side placement flips its silk to the opposite layer (the
+        // editor reparents the SVG via data-fp-layer, but pl.silks keeps its
+        // authored layer, so resolve the effective side here).
+        const flipSilk = pl.side === 'bottom';
         // ── Component silk shapes (offsets are in component-local mm).
         for (const s of (pl.silks || [])) {
-            if (s.layer !== wantLayer) continue;
+            let slayer = s.layer;
+            if (flipSilk) {
+                slayer = slayer === 'top-silk' ? 'bottom-silk'
+                    : slayer === 'bottom-silk' ? 'top-silk' : slayer;
+            }
+            if (slayer !== wantLayer) continue;
             const sw = Number.isFinite(s.strokeWidth) && s.strokeWidth > 0 ? s.strokeWidth : 0.12;
             const head = useAperture(sw);
             if (head) body += head;
             if (s.type === 'line') {
-                body += emitSeg(
-                    { x: pl.x + s.x1, y: pl.y + s.y1 },
-                    { x: pl.x + s.x2, y: pl.y + s.y2 },
-                );
+                body += emitSeg(xf(s.x1, s.y1), xf(s.x2, s.y2));
             } else if (s.type === 'circle') {
-                // Approximate the circle with a 32-segment polyline.
+                // Approximate the circle with a 32-segment polyline (its
+                // centre is posed; the ring itself is rotation-invariant).
                 const N = 32;
-                const cx = pl.x + s.cx, cy = pl.y + s.cy;
-                let prev = { x: cx + s.r, y: cy };
+                // Solid silk circles (e.g. polarity dots) fill as a region so
+                // the fabricated silkscreen is filled, not just an outline.
+                if (s.filled) {
+                    let ring = 'G36*\n';
+                    const p0 = xf(s.cx + s.r, s.cy);
+                    ring += `X${_fmt(p0.x)}Y${_fmtY(p0.y)}D02*\n`;
+                    for (let i = 1; i <= N; i++) {
+                        const t = (i / N) * Math.PI * 2;
+                        const p = xf(s.cx + s.r * Math.cos(t), s.cy + s.r * Math.sin(t));
+                        ring += `X${_fmt(p.x)}Y${_fmtY(p.y)}D01*\n`;
+                    }
+                    ring += 'G37*\n';
+                    body += ring;
+                }
+                let prev = xf(s.cx + s.r, s.cy);
                 for (let i = 1; i <= N; i++) {
                     const t = (i / N) * Math.PI * 2;
-                    const next = { x: cx + s.r * Math.cos(t), y: cy + s.r * Math.sin(t) };
+                    const next = xf(s.cx + s.r * Math.cos(t), s.cy + s.r * Math.sin(t));
                     body += emitSeg(prev, next);
                     prev = next;
                 }
             } else if (s.type === 'path') {
                 // Flatten the SVG path into polyline segments and emit.
                 const polys = _flattenPath(s.d);
+                // Filled silk paths (e.g. pin-1 triangles) fill as regions so
+                // they are solid on the fabricated silkscreen, not hollow.
+                if (s.filled) {
+                    for (const poly of polys) {
+                        if (poly.length < 3) continue;
+                        let ring = 'G36*\n';
+                        const p0 = xf(poly[0].x, poly[0].y);
+                        ring += `X${_fmt(p0.x)}Y${_fmtY(p0.y)}D02*\n`;
+                        for (let i = 1; i < poly.length; i++) {
+                            const p = xf(poly[i].x, poly[i].y);
+                            ring += `X${_fmt(p.x)}Y${_fmtY(p.y)}D01*\n`;
+                        }
+                        ring += 'G37*\n';
+                        body += ring;
+                    }
+                }
                 for (const poly of polys) {
                     for (let i = 1; i < poly.length; i++) {
                         body += emitSeg(
-                            { x: pl.x + poly[i - 1].x, y: pl.y + poly[i - 1].y },
-                            { x: pl.x + poly[i].x,     y: pl.y + poly[i].y },
+                            xf(poly[i - 1].x, poly[i - 1].y),
+                            xf(poly[i].x, poly[i].y),
                         );
                     }
                 }
             }
         }
 
-        // ── Reference designator (top side only).
-        if (side !== 'top') continue;
-        const ref = pl.reference;
-        if (!ref) continue;
+        // ── Reference designator. Emit on the silk side matching the
+        // component's placement side, replicating its on-screen size,
+        // position, rotation and move offset (see _refSegments).
+        const refSide = pl.side === 'bottom' ? 'bottom' : 'top';
+        if (refSide !== side) continue;
         if (!_inBoard(pl.x, pl.y, bounds)) continue;
-        const head = useAperture(0.15);
+        const refGeom = _refSegments(pl);
+        if (!refGeom) continue;
+        const head = useAperture(refGeom.strokeWidth);
         if (head) body += head;
-        // Match editor layout: centred horizontally on the outline, sitting
-        // just above its top edge. `bounds` here is the component's local
-        // courtyard/outline rect; fall back to the placement origin.
-        const size = 0.9;
-        const ob = pl.bounds;
-        const labelW = measureText(ref, size);
-        const tx = ob ? pl.x + ob.x + ob.width / 2 - labelW / 2
-                      : pl.x - labelW / 2;
-        const ty = ob ? pl.y + ob.y - 0.8 : pl.y - 2;
-        const strokes = stringToPolylines(ref, tx, ty, size, false);
-        for (const seg of strokes) {
-            for (let i = 1; i < seg.length; i++) {
-                body += emitSeg(seg[i - 1], seg[i]);
-            }
+        for (const [a, b] of refGeom.segments) {
+            body += emitSeg(a, b);
         }
     }
 
@@ -578,6 +740,78 @@ function _buildSilk(placements, side, bounds, texts = []) {
 
     out += body + 'M02*\n';
     return out;
+}
+
+/**
+ * World-space stroke segments for a placement's reference designator,
+ * replicating the editor's transform chain so the gerber matches the
+ * screen exactly: the footprint pose (translate · rotate · mirror) plus
+ * the designator's own move (refDx/refDy), rotation (refRot about its
+ * glyph centre), size (refSize) and per-side handedness. Returns null
+ * when the designator is hidden or empty.
+ *
+ * @param {object} pl  placement (see PCBApp.placements entries)
+ * @returns {{segments: Array<[{x:number,y:number},{x:number,y:number}]>, strokeWidth:number}|null}
+ */
+function _refSegments(pl) {
+    const ref = pl?.reference;
+    if (!ref || pl.refVisible === false) return null;
+    const size = Number(pl.refSize) > 0 ? pl.refSize : 0.9;
+    const strokeWidth = Number(pl.refStrokeWidth) > 0 ? pl.refStrokeWidth : 0.15;
+    // Base layout (footprint-local), identical to renderFootprint/applyRefGeometry:
+    // horizontally centred on the outline, baseline just above its top edge.
+    const ob = pl.outline;
+    const cxRef = ob ? ob.x + ob.width / 2 : 0;
+    const outlineY = ob ? ob.y : -2;
+    const baseY = outlineY - 0.8;
+    const baseX = cxRef - measureText(ref, size) / 2;
+    const polys = stringToPolylines(ref, baseX, baseY, size, false);
+    if (!polys.length) return null;
+
+    // Glyph bbox vertical centre = the pivot the editor rotates refRot about.
+    let minY = Infinity, maxY = -Infinity;
+    for (const poly of polys) for (const p of poly) {
+        if (p.y < minY) minY = p.y;
+        if (p.y > maxY) maxY = p.y;
+    }
+    const cy = Number.isFinite(minY) ? (minY + maxY) / 2 : baseY - size / 2;
+
+    const dx = pl.refDx || 0, dy = pl.refDy || 0;
+    const rr = (pl.refRot || 0) * Math.PI / 180;
+    const rc = Math.cos(rr), rs = Math.sin(rr);
+    // The ref counter-mirrors only the user flip; the footprint group already
+    // applies the full visual mirror (user flip XOR bottom side).
+    const flip = !!pl.mirror;
+    const mirrored = (!!pl.mirror) !== (pl.side === 'bottom');
+    const prot = (pl.rotation || 0) * Math.PI / 180;
+    const pc = Math.cos(prot), ps = Math.sin(prot);
+    const px = pl.x || 0, py = pl.y || 0;
+
+    const xf = (p) => {
+        let x = p.x, y = p.y;
+        // 1. rotate(refRot) about the glyph centre (cxRef, cy)
+        if (rr) {
+            const ox = x - cxRef, oy = y - cy;
+            x = cxRef + ox * rc - oy * rs;
+            y = cy + ox * rs + oy * rc;
+        }
+        // 2. counter-mirror about x = cxRef so the ref reads per side
+        if (flip) x = 2 * cxRef - x;
+        // 3. ref move offset
+        x += dx; y += dy;
+        // 4. placement mirror
+        if (mirrored) x = -x;
+        // 5. placement rotation, then 6. placement translation
+        return { x: px + x * pc - y * ps, y: py + x * ps + y * pc };
+    };
+
+    const segments = [];
+    for (const poly of polys) {
+        for (let i = 1; i < poly.length; i++) {
+            segments.push([xf(poly[i - 1]), xf(poly[i])]);
+        }
+    }
+    return { segments, strokeWidth };
 }
 
 /**
@@ -761,10 +995,16 @@ function _collectPlatedDrills(placements, vias, holes) {
 }
 
 /** Collect non-plated drills: standalone mounting/tooling holes. */
-function _collectNonPlatedDrills(holes) {
+function _collectNonPlatedDrills(holes, circles = []) {
     const out = [];
     for (const h of holes) {
         if (!h.plated && h.diameter > 0) out.push({ dia: h.diameter, x: h.x, y: h.y });
+    }
+    // Hole-layer circles drill through the board as non-plated holes.
+    for (const c of circles) {
+        if (!c || c.layer !== 'hole') continue;
+        const dia = 2 * (Number(c.radius) || 0);
+        if (dia > 0) out.push({ dia, x: c.x, y: c.y });
     }
     return out;
 }

@@ -917,12 +917,35 @@ export class Board2D {
                     stroke([[pose.xf(s.x1, s.y1), pose.xf(s.x2, s.y2)]], sw);
                 } else if (s.type === 'circle') {
                     const c = pose.xf(s.cx, s.cy);
-                    ctx.lineWidth = sw;
                     ctx.beginPath();
                     ctx.arc(c.x, c.y, s.r, 0, Math.PI * 2);
+                    // Solid silk markers (e.g. polarity dots) fill, matching the
+                    // editor and the fabricated silkscreen.
+                    if (s.filled) {
+                        ctx.fillStyle = COL.silk;
+                        ctx.fill();
+                    }
+                    ctx.lineWidth = sw;
                     ctx.stroke();
                 } else if (s.type === 'path') {
                     const polys = _flattenPath(s.d);
+                    // Filled silk paths (e.g. pin-1 triangles) render solid, not
+                    // just outlined, so the 2D view matches the fab output.
+                    if (s.filled) {
+                        ctx.fillStyle = COL.silk;
+                        ctx.beginPath();
+                        for (const poly of polys) {
+                            if (!poly.length) continue;
+                            const p0 = pose.xf(poly[0].x, poly[0].y);
+                            ctx.moveTo(p0.x, p0.y);
+                            for (let i = 1; i < poly.length; i++) {
+                                const p = pose.xf(poly[i].x, poly[i].y);
+                                ctx.lineTo(p.x, p.y);
+                            }
+                            ctx.closePath();
+                        }
+                        ctx.fill('evenodd');
+                    }
                     const segs = [];
                     for (const poly of polys) {
                         for (let i = 1; i < poly.length; i++) {
