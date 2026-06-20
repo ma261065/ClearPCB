@@ -20,7 +20,9 @@ export const PCB_LAYERS = /** @type {LayerDef[]} */ ([
     { id: 'top-mask',         name: 'Top Solder Mask',     color: '#9b59b6', edit: false, visible: true, locked: false },
     { id: 'bottom-mask',      name: 'Bottom Solder Mask',  color: '#5b3a70', edit: false, visible: true, locked: false },
     { id: 'board-outline',    name: 'Board Outline',       color: '#f1c40f', edit: false, visible: true, locked: false },
-    { id: 'document',         name: 'Document',            color: '#95a5a6', edit: false, visible: true, locked: false },
+    { id: 'top-document',     name: 'Top Document',        color: '#b0b7b8', edit: false, visible: true, locked: false },
+    { id: 'bottom-document',  name: 'Bottom Document',     color: '#7f8c8d', edit: false, visible: true, locked: false },
+    { id: 'document',         name: 'Document (Both)',     color: '#95a5a6', edit: false, visible: true, locked: false },
     { id: 'hole',             name: 'Hole',                color: '#1abc9c', edit: false, visible: true, locked: false },
 ]);
 

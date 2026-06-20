@@ -138,7 +138,7 @@ export class ShapeValidator {
             // PCB layer ids (see src/pcb/modules/layers.js)
             'top-copper', 'bottom-copper', 'top-silk', 'bottom-silk',
             'top-paste', 'bottom-paste', 'top-mask', 'bottom-mask',
-            'board-outline', 'document', 'hole',
+            'board-outline', 'top-document', 'bottom-document', 'document', 'hole',
         ];
         const {
             coerce = true,

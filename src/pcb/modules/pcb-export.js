@@ -58,6 +58,7 @@ const ARTWORK_LAYER_IDS = [
     'bottom-copper', 'top-copper',
     'bottom-silk', 'top-silk',
     'hole',
+    'bottom-document', 'top-document',
     'document',
 ];
 

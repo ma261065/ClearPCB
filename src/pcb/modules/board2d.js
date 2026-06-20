@@ -19,19 +19,237 @@ import { stringToPolylines, measureText } from './stroke-font.js';
 // Palette mirrors the 3D viewer (board3d.js) so the two previews match.
 const COL = {
     bg: 'rgb(74,76,79)',          // panel grey (3D clear colour)
-    board: 'rgb(8,104,40)',       // solder-mask green (bake source; 3D lights it)
-    boardLive: 'rgb(32,88,46)',   // green for the FLAT 2D preview, tuned to match
-                                  // the lit 3D board look (board3d COLOR_BOARD)
-    boardEdge: 'rgb(190,192,122)',// bare FR4 edge
-    trackTop: 'rgb(26,165,70)',   // trace under mask (bake source)
-    trackBottom: 'rgb(26,165,70)',// copper is copper — same on both sides
-    trackTopLive: 'rgb(52,120,66)',   // matches the lit 3D copper (board3d
-    trackBottomLive: 'rgb(52,120,66)',// COLOR_TRACK_TOP); same on both sides
-    pad: 'rgb(201,164,74)',       // gold
-    via: 'rgb(184,134,11)',       // gold barrel
+    rawBoard: 'rgb(64,44,28)',    // bare FR4 substrate (board edge + document cutouts)
+    solderMask: '',               // solder-mask coating on board faces
+    copper: '',                   // exposed copper tone
+    pad: '',                      // gold
+    via: '',                      // gold barrel
     hole: 'rgb(12,12,16)',        // drilled hole
-    silk: 'rgb(255,255,255)',     // white silkscreen
+    silk: '',                     // white silkscreen
 };
+
+const SOLDERMASK_BASE_RGB = { r: 34, g: 214, b: 62 };
+const LAYER_STYLE = {
+    board: _makeLayerStyleHSV(32, 52, 42, 255),
+    soldermask: _makeLayerStyleHSV(138, 81, 45, 120),
+    tracks: _makeLayerStyleHSV(45, 78, 84, 255),
+    vias: _makeLayerStyleHSV(43, 94, 72, 255),
+    silkscreen: _makeLayerStyleHSV(0, 0, 100, 255),
+    pads: _makeLayerStyleHSV(45, 78, 84, 255),
+};
+// Toggle solder-mask rendering on board faces.
+const SHOW_SOLDERMASK = true;
+
+function _clampByte(v, fallback) {
+    const n = Number(v);
+    if (!Number.isFinite(n)) return fallback;
+    return Math.max(0, Math.min(255, Math.round(n)));
+}
+
+function _clampAlpha(v, fallback) {
+    const n = Number(v);
+    if (!Number.isFinite(n)) return fallback;
+    return Math.max(0, Math.min(1, n));
+}
+
+function _clampUnit(v, fallback) {
+    const n = Number(v);
+    if (!Number.isFinite(n)) return fallback;
+    return Math.max(0, Math.min(1, n));
+}
+
+function _clampHue(v, fallback) {
+    const n = Number(v);
+    if (!Number.isFinite(n)) return fallback;
+    return Math.max(0, Math.min(360, Math.round(n)));
+}
+
+function _rgbToHsl(r, g, b) {
+    let rn = r / 255;
+    let gn = g / 255;
+    let bn = b / 255;
+    const max = Math.max(rn, gn, bn);
+    const min = Math.min(rn, gn, bn);
+    const l = (max + min) / 2;
+    if (max === min) return { h: 0, s: 0, l };
+    const d = max - min;
+    const s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+    let h = 0;
+    switch (max) {
+        case rn:
+            h = (gn - bn) / d + (gn < bn ? 6 : 0);
+            break;
+        case gn:
+            h = (bn - rn) / d + 2;
+            break;
+        default:
+            h = (rn - gn) / d + 4;
+            break;
+    }
+    return { h: (h / 6) * 360, s, l };
+}
+
+function _rgbToHsv(r, g, b) {
+    const rn = r / 255;
+    const gn = g / 255;
+    const bn = b / 255;
+    const max = Math.max(rn, gn, bn);
+    const min = Math.min(rn, gn, bn);
+    const d = max - min;
+    let h = 0;
+    if (d !== 0) {
+        if (max === rn) h = ((gn - bn) / d + (gn < bn ? 6 : 0)) / 6;
+        else if (max === gn) h = ((bn - rn) / d + 2) / 6;
+        else h = ((rn - gn) / d + 4) / 6;
+    }
+    const s = max === 0 ? 0 : d / max;
+    const v = max;
+    return { h: h * 360, s, v };
+}
+
+function _hsvToRgb(h, s, v) {
+    const hh = (((h % 360) + 360) % 360) / 60;
+    const c = v * s;
+    const x = c * (1 - Math.abs((hh % 2) - 1));
+    const m = v - c;
+    let rp = 0, gp = 0, bp = 0;
+    if (hh < 1) { rp = c; gp = x; bp = 0; }
+    else if (hh < 2) { rp = x; gp = c; bp = 0; }
+    else if (hh < 3) { rp = 0; gp = c; bp = x; }
+    else if (hh < 4) { rp = 0; gp = x; bp = c; }
+    else if (hh < 5) { rp = x; gp = 0; bp = c; }
+    else { rp = c; gp = 0; bp = x; }
+    return [
+        Math.round((rp + m) * 255),
+        Math.round((gp + m) * 255),
+        Math.round((bp + m) * 255),
+    ];
+}
+
+function _makeLayerStyle(r, g, b, o) {
+    const hsv = _rgbToHsv(r, g, b);
+    return { h: hsv.h, s: hsv.s, v: hsv.v, o };
+}
+
+// HSV in the panel-slider units (H 0-359, S/V 0-100) plus alpha as a byte
+// (0-255). Stored normalised: h degrees, s/v/o in 0-1.
+function _makeLayerStyleHSV(h, s, v, oByte) {
+    return { h, s: s / 100, v: v / 100, o: oByte / 255 };
+}
+
+function _hslToRgb(h, s, l) {
+    let hNorm = ((h % 360) + 360) % 360;
+    hNorm /= 360;
+    if (s === 0) {
+        const v = Math.round(l * 255);
+        return [v, v, v];
+    }
+    const hue2rgb = (p, q, t) => {
+        let tt = t;
+        if (tt < 0) tt += 1;
+        if (tt > 1) tt -= 1;
+        if (tt < 1 / 6) return p + (q - p) * 6 * tt;
+        if (tt < 1 / 2) return q;
+        if (tt < 2 / 3) return p + (q - p) * (2 / 3 - tt) * 6;
+        return p;
+    };
+    const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+    const p = 2 * l - q;
+    const r = hue2rgb(p, q, hNorm + 1 / 3);
+    const g = hue2rgb(p, q, hNorm);
+    const b = hue2rgb(p, q, hNorm - 1 / 3);
+    return [Math.round(r * 255), Math.round(g * 255), Math.round(b * 255)];
+}
+
+function _applyLayerColors() {
+    const [br, bg, bb] = _hsvToRgb(LAYER_STYLE.board.h, LAYER_STYLE.board.s, LAYER_STYLE.board.v);
+    COL.rawBoard = `rgb(${br},${bg},${bb})`;
+    const [mr, mg, mb] = _hsvToRgb(LAYER_STYLE.soldermask.h, LAYER_STYLE.soldermask.s, LAYER_STYLE.soldermask.v);
+    COL.solderMask = `rgb(${mr},${mg},${mb})`;
+    const [tr, tg, tb] = _hsvToRgb(LAYER_STYLE.tracks.h, LAYER_STYLE.tracks.s, LAYER_STYLE.tracks.v);
+    COL.copper = `rgb(${tr},${tg},${tb})`;
+    const [vr, vg, vb] = _hsvToRgb(LAYER_STYLE.vias.h, LAYER_STYLE.vias.s, LAYER_STYLE.vias.v);
+    COL.via = `rgb(${vr},${vg},${vb})`;
+    const [sr, sg, sb] = _hsvToRgb(LAYER_STYLE.silkscreen.h, LAYER_STYLE.silkscreen.s, LAYER_STYLE.silkscreen.v);
+    COL.silk = `rgb(${sr},${sg},${sb})`;
+    const [pr, pg, pb] = _hsvToRgb(LAYER_STYLE.pads.h, LAYER_STYLE.pads.s, LAYER_STYLE.pads.v);
+    COL.pad = `rgb(${pr},${pg},${pb})`;
+}
+
+function _setSolderMaskGreenness(greenness) {
+    const [curR, curG, curB] = _hsvToRgb(
+        LAYER_STYLE.soldermask.h,
+        LAYER_STYLE.soldermask.s,
+        LAYER_STYLE.soldermask.v,
+    );
+    const g = _clampByte(greenness, curG);
+    const t = SOLDERMASK_BASE_RGB.g > 0 ? g / SOLDERMASK_BASE_RGB.g : 0;
+    const r = _clampByte(SOLDERMASK_BASE_RGB.r * t, curR);
+    const b = _clampByte(SOLDERMASK_BASE_RGB.b * t, curB);
+    const hsv = _rgbToHsv(r, g, b);
+    LAYER_STYLE.soldermask.h = hsv.h;
+    LAYER_STYLE.soldermask.s = hsv.s;
+    LAYER_STYLE.soldermask.v = hsv.v;
+    _applyLayerColors();
+}
+
+export function getBoard2DSolderMaskAppearance() {
+    const [, g] = _hsvToRgb(LAYER_STYLE.soldermask.h, LAYER_STYLE.soldermask.s, LAYER_STYLE.soldermask.v);
+    return {
+        greenness: g,
+        opacity: LAYER_STYLE.soldermask.o,
+    };
+}
+
+export function setBoard2DSolderMaskAppearance({ greenness, opacity } = {}) {
+    if (greenness !== undefined) _setSolderMaskGreenness(greenness);
+    if (opacity !== undefined) {
+        LAYER_STYLE.soldermask.o = _clampAlpha(opacity, LAYER_STYLE.soldermask.o);
+        _applyLayerColors();
+    }
+    return getBoard2DSolderMaskAppearance();
+}
+
+export function getBoard2DMetalAppearance() {
+    return {
+        copperHue: Math.round(LAYER_STYLE.tracks.h),
+        padHue: Math.round(LAYER_STYLE.pads.h),
+    };
+}
+
+export function setBoard2DMetalAppearance({ copperHue, padHue } = {}) {
+    if (copperHue !== undefined) LAYER_STYLE.tracks.h = _clampHue(copperHue, LAYER_STYLE.tracks.h);
+    if (padHue !== undefined) LAYER_STYLE.pads.h = _clampHue(padHue, LAYER_STYLE.pads.h);
+    _applyLayerColors();
+    return getBoard2DMetalAppearance();
+}
+
+export function getBoard2DLayerStyles() {
+    return {
+        board: { ...LAYER_STYLE.board },
+        soldermask: { ...LAYER_STYLE.soldermask },
+        tracks: { ...LAYER_STYLE.tracks },
+        vias: { ...LAYER_STYLE.vias },
+        silkscreen: { ...LAYER_STYLE.silkscreen },
+        pads: { ...LAYER_STYLE.pads },
+    };
+}
+
+export function setBoard2DLayerStyles(patch = {}) {
+    for (const key of ['board', 'soldermask', 'tracks', 'vias', 'silkscreen', 'pads']) {
+        const next = patch[key];
+        if (!next) continue;
+        const cur = LAYER_STYLE[key];
+        if (next.h !== undefined) cur.h = _clampHue(next.h, cur.h);
+        if (next.s !== undefined) cur.s = _clampUnit(next.s, cur.s);
+        if (next.v !== undefined) cur.v = _clampUnit(next.v, cur.v);
+        if (next.o !== undefined) cur.o = _clampAlpha(next.o, cur.o);
+    }
+    _applyLayerColors();
+    return getBoard2DLayerStyles();
+}
+
+_applyLayerColors();
 
 // Footprint silk authored on one side moves to the opposite side when the
 // component is placed on the bottom (matches the editor's FP_LAYER_FLIP).
@@ -97,6 +315,18 @@ export class Board2D {
         if (side === this.side) return;
         this.side = side;
         this._needFit = true;
+        this.render();
+    }
+
+    /** @param {{greenness?:number, opacity?:number}} appearance */
+    setSolderMaskAppearance(appearance = {}) {
+        setBoard2DSolderMaskAppearance(appearance);
+        this.render();
+    }
+
+    /** @param {{copperHue?:number, padHue?:number}} appearance */
+    setMetalAppearance(appearance = {}) {
+        setBoard2DMetalAppearance(appearance);
         this.render();
     }
 
@@ -246,7 +476,10 @@ export class Board2D {
         const b = this._boardRect();
         this._roundRectPath(ctx, b.x, b.y, b.w, b.h, b.r);
         ctx.clip();
+        if (SHOW_SOLDERMASK) this._drawMaskOpenings(ctx);
         this._drawCopper(ctx);
+        if (SHOW_SOLDERMASK) this._drawSolderMask(ctx);
+        this._drawDocumentCutouts(ctx);
         this._drawHoles(ctx);
         this._drawSilk(ctx);
         ctx.restore();
@@ -285,15 +518,16 @@ export class Board2D {
     _drawBoard(ctx) {
         const b = this._boardRect();
         this._roundRectPath(ctx, b.x, b.y, b.w, b.h, b.r);
-        // The 3D texture bake uses the brighter COL.board (its lighting tones it
-        // down); the flat 2D preview has no lighting, so it uses a darker green
-        // to land on the same on-screen tone as the lit 3D board.
-        ctx.fillStyle = this._bake ? COL.board : COL.boardLive;
+        // Raw substrate base; solder mask is composited later as a topcoat.
+        ctx.save();
+        ctx.globalAlpha = LAYER_STYLE.board.o;
+        ctx.fillStyle = COL.rawBoard;
         ctx.fill();
         ctx.lineWidth = Math.max(0.15, 4 / this.scale) * 0.05;
-        ctx.strokeStyle = COL.boardEdge;
+        ctx.strokeStyle = COL.rawBoard;
         ctx.lineWidth = 0.2;
         ctx.stroke();
+        ctx.restore();
     }
 
     _roundRectPath(ctx, x, y, w, h, r) {
@@ -312,48 +546,171 @@ export class Board2D {
         ctx.closePath();
     }
 
+    /** Solder-mask openings on the active side. Drawn under copper so copper
+     * naturally shows only where it exists; elsewhere raw board is visible.
+     * Supports legacy mask-layer circles (always filled openings) and copper-
+     * layer circles using remove-solder-mask / remove-copper-mask modes. */
+    _drawMaskOpenings(ctx) {
+        const d = this.data;
+        const normalizeCopperMode = (mode) => {
+            const m = String(mode || 'add');
+            if (m === 'remove-copper' || m === 'remove-solder-mask' || m === 'remove-copper-mask') return m;
+            if (m === 'remove') return 'remove-copper-mask';
+            if (m === 'remove-mask') return 'remove-solder-mask';
+            return 'add';
+        };
+        ctx.fillStyle = COL.rawBoard;
+        ctx.strokeStyle = COL.rawBoard;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        for (const c of (d.circles || [])) {
+            if (!c || !(c.radius > 0)) continue;
+            const layer = String(c.layer || '');
+            if (layer === 'top-mask' || layer === 'bottom-mask') {
+                const side = layer === 'bottom-mask' ? 'bottom' : 'top';
+                if (side !== this.side) continue;
+                // Legacy mask-layer circles are area openings.
+                ctx.beginPath();
+                ctx.arc(c.x, c.y, c.radius, 0, Math.PI * 2);
+                ctx.fill();
+                continue;
+            }
+            if (layer !== 'top-copper' && layer !== 'bottom-copper') continue;
+            const side = layer === 'bottom-copper' ? 'bottom' : 'top';
+            if (side !== this.side) continue;
+            const mode = normalizeCopperMode(c.copperMode);
+            if (mode !== 'remove-solder-mask' && mode !== 'remove-copper-mask') continue;
+            const sw = Math.max(0.05, Number(c.lineWidth) || 0.2);
+            if (c.filled) {
+                ctx.beginPath();
+                ctx.arc(c.x, c.y, c.radius, 0, Math.PI * 2);
+                ctx.fill();
+            } else {
+                ctx.lineWidth = sw;
+                ctx.beginPath();
+                ctx.arc(c.x, c.y, c.radius, 0, Math.PI * 2);
+                ctx.stroke();
+            }
+        }
+    }
+
+    /** Solder-mask topcoat for the active side. Painted over copper, then
+     * openings are punched out so exposed regions reveal copper/raw board. */
+    _drawSolderMask(ctx) {
+        const layerCanvas = (ctx.canvas.ownerDocument?.createElement('canvas')) || document.createElement('canvas');
+        layerCanvas.width = ctx.canvas.width;
+        layerCanvas.height = ctx.canvas.height;
+        const mctx = layerCanvas.getContext('2d');
+        if (!mctx) return;
+        mctx.setTransform(ctx.getTransform());
+
+        const b = this._boardRect();
+        mctx.fillStyle = COL.solderMask;
+        this._roundRectPath(mctx, b.x, b.y, b.w, b.h, b.r);
+        mctx.save();
+        mctx.globalAlpha = LAYER_STYLE.soldermask.o;
+        mctx.fill();
+        mctx.restore();
+
+        mctx.globalCompositeOperation = 'destination-out';
+        // _drawMaskOpenings emits opaque strokes/fills; color is irrelevant for
+        // destination-out, only alpha matters.
+        this._drawMaskOpenings(mctx);
+        mctx.globalCompositeOperation = 'source-over';
+
+        ctx.save();
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.drawImage(layerCanvas, 0, 0);
+        ctx.restore();
+    }
+
+    /** Document-layer circles are board-exposure regions: they remove mask and
+     * copper visually by painting raw board after copper, before drilled holes. */
+    _drawDocumentCutouts(ctx) {
+        const d = this.data;
+        ctx.fillStyle = COL.rawBoard;
+        ctx.strokeStyle = COL.rawBoard;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        for (const c of (d.circles || [])) {
+            if (!c || !(c.radius > 0)) continue;
+            const layer = String(c.layer || '');
+            if (layer !== 'document' && layer !== 'top-document' && layer !== 'bottom-document') continue;
+            const side = layer === 'top-document' ? 'top'
+                : layer === 'bottom-document' ? 'bottom'
+                    : 'both';
+            if (side !== 'both' && side !== this.side) continue;
+            const sw = Math.max(0.05, Number(c.lineWidth) || 0.15);
+            if (c.filled) {
+                ctx.beginPath();
+                ctx.arc(c.x, c.y, c.radius, 0, Math.PI * 2);
+                ctx.fill();
+            } else {
+                ctx.lineWidth = sw;
+                ctx.beginPath();
+                ctx.arc(c.x, c.y, c.radius, 0, Math.PI * 2);
+                ctx.stroke();
+            }
+        }
+    }
+
     /** Copper for the active side: tracks, pad flashes and via barrels. */
     _drawCopper(ctx) {
         const d = this.data;
         const top = this.side === 'top';
         const padSide = top ? 'top' : 'bottom';
         const copperLayer = top ? 'top-copper' : 'bottom-copper';
-        // The 3D bake uses the brighter copper green (its lighting tones it down);
-        // the flat 2D preview has no lighting, so it uses a darker copper green to
-        // land on the same on-screen tone as the lit 3D board.
-        const copperCol = this._bake
-            ? (top ? COL.trackTop : COL.trackBottom)
-            : (top ? COL.trackTopLive : COL.trackBottomLive);
+        const copperCol = COL.copper;
+
+        const normalizeCopperMode = (mode) => {
+            const m = String(mode || 'add');
+            if (m === 'remove-copper' || m === 'remove-solder-mask' || m === 'remove-copper-mask') return m;
+            // Backward compatibility for old saved circles.
+            if (m === 'remove') return 'remove-copper-mask';
+            if (m === 'remove-mask') return 'remove-solder-mask';
+            return 'add';
+        };
+
+        // Compose copper into a dedicated transparent layer, subtracting
+        // remove-mode circles with destination-out so underlying mask/board
+        // naturally shows through where copper is removed.
+        const layerCanvas = (ctx.canvas.ownerDocument?.createElement('canvas')) || document.createElement('canvas');
+        layerCanvas.width = ctx.canvas.width;
+        layerCanvas.height = ctx.canvas.height;
+        const cctx = layerCanvas.getContext('2d');
+        if (!cctx) return;
+        cctx.setTransform(ctx.getTransform());
+        cctx.globalAlpha = LAYER_STYLE.tracks.o;
 
         // Copper pours first (under tracks/pads), drawn from their computed
         // polygon geometry (outer ring with holes punched, even-odd fill).
-        ctx.fillStyle = copperCol;
+        cctx.fillStyle = copperCol;
         for (const fill of (d.fills || [])) {
             if (fill?.visible === false) continue;
             if (fill?.layer !== copperLayer) continue;
             const polys = fill?._computed;
             if (!Array.isArray(polys) || polys.length === 0) continue;
-            ctx.beginPath();
+            cctx.beginPath();
             for (const ex of polys) {
                 const outer = ex.outer || [];
                 if (outer.length < 3) continue;
-                ctx.moveTo(outer[0].x, outer[0].y);
-                for (let i = 1; i < outer.length; i++) ctx.lineTo(outer[i].x, outer[i].y);
-                ctx.closePath();
+                cctx.moveTo(outer[0].x, outer[0].y);
+                for (let i = 1; i < outer.length; i++) cctx.lineTo(outer[i].x, outer[i].y);
+                cctx.closePath();
                 for (const h of (ex.holes || [])) {
                     if (h.length < 3) continue;
-                    ctx.moveTo(h[0].x, h[0].y);
-                    for (let i = 1; i < h.length; i++) ctx.lineTo(h[i].x, h[i].y);
-                    ctx.closePath();
+                    cctx.moveTo(h[0].x, h[0].y);
+                    for (let i = 1; i < h.length; i++) cctx.lineTo(h[i].x, h[i].y);
+                    cctx.closePath();
                 }
             }
-            ctx.fill('evenodd');
+            cctx.fill('evenodd');
         }
 
         // Tracks (per-edge layer + width), drawn as stroked segments.
-        ctx.strokeStyle = copperCol;
-        ctx.lineCap = 'round';
-        ctx.lineJoin = 'round';
+        cctx.strokeStyle = copperCol;
+        cctx.lineCap = 'round';
+        cctx.lineJoin = 'round';
         for (const t of (d.tracks || [])) {
             if (!t.edges?.size) continue;
             for (const [eid, e] of t.edges) {
@@ -363,18 +720,20 @@ export class Board2D {
                 const bb = t.nodes.get(e.to);
                 if (!a || !bb) continue;
                 const w = (t.getEdgeWidth ? t.getEdgeWidth(eid) : t.width) || 0.2;
-                ctx.lineWidth = w;
-                ctx.beginPath();
-                ctx.moveTo(a.x, a.y);
-                ctx.lineTo(bb.x, bb.y);
-                ctx.stroke();
+                cctx.lineWidth = w;
+                cctx.beginPath();
+                cctx.moveTo(a.x, a.y);
+                cctx.lineTo(bb.x, bb.y);
+                cctx.stroke();
             }
         }
 
         // Pads on this side (and 'both'), flashed at each offset position.
         // Each footprint is posed (rotated + mirrored) before flashing so the
         // pads track the component's orientation, exactly as the editor / 3D.
-        ctx.fillStyle = COL.pad;
+        cctx.save();
+        cctx.globalAlpha = LAYER_STYLE.pads.o;
+        cctx.fillStyle = COL.pad;
         for (const [, pl] of (d.placements || [])) {
             if (!pl?.padOffsets) continue;
             const pose = _placementPose(pl);
@@ -382,19 +741,77 @@ export class Board2D {
                 const layer = off.layer || 'top';
                 if (layer !== 'both' && layer !== padSide) continue;
                 const p = pose.xf(off.dx, off.dy);
-                this._fillPad(ctx, p.x, p.y, off.width || 1.2, off.height || 1.2,
+                this._fillPad(cctx, p.x, p.y, off.width || 1.2, off.height || 1.2,
                     off.shape || 'rect', pose.rad);
             }
         }
+        cctx.restore();
 
         // Vias appear on both copper layers.
-        ctx.fillStyle = COL.via;
+        cctx.save();
+        cctx.globalAlpha = LAYER_STYLE.vias.o;
+        cctx.fillStyle = COL.via;
         for (const v of (d.vias || [])) {
             const ro = (v.diameter || 0.6) / 2;
-            ctx.beginPath();
-            ctx.arc(v.x, v.y, ro, 0, Math.PI * 2);
-            ctx.fill();
+            cctx.beginPath();
+            cctx.arc(v.x, v.y, ro, 0, Math.PI * 2);
+            cctx.fill();
         }
+        cctx.restore();
+
+        // Add-copper circles.
+        for (const c of (d.circles || [])) {
+            if (!c || c.layer !== copperLayer || !(c.radius > 0)) continue;
+            const mode = normalizeCopperMode(c.copperMode);
+            if (mode !== 'add') continue;
+            const lw = Math.max(0.05, Number(c.lineWidth) || 0.2);
+            if (c.filled) {
+                cctx.fillStyle = copperCol;
+                cctx.beginPath();
+                cctx.arc(c.x, c.y, c.radius, 0, Math.PI * 2);
+                cctx.fill();
+            } else {
+                cctx.strokeStyle = copperCol;
+                cctx.lineWidth = lw;
+                cctx.beginPath();
+                cctx.arc(c.x, c.y, c.radius, 0, Math.PI * 2);
+                cctx.stroke();
+            }
+        }
+
+        // Remove-copper circles cut only the copper layer alpha.
+        // remove-solder-mask does not alter copper geometry.
+        cctx.globalCompositeOperation = 'destination-out';
+        cctx.fillStyle = '#000';
+        cctx.strokeStyle = '#000';
+        cctx.lineCap = 'round';
+        cctx.lineJoin = 'round';
+        for (const c of (d.circles || [])) {
+            if (!c || c.layer !== copperLayer || !(c.radius > 0)) continue;
+            const mode = normalizeCopperMode(c.copperMode);
+            if (mode !== 'remove-copper' && mode !== 'remove-copper-mask') continue;
+            const lw = Math.max(0.05, Number(c.lineWidth) || 0.2);
+            if (c.filled) {
+                cctx.beginPath();
+                cctx.arc(c.x, c.y, c.radius, 0, Math.PI * 2);
+                cctx.fill();
+            } else {
+                cctx.lineWidth = lw;
+                cctx.beginPath();
+                cctx.arc(c.x, c.y, c.radius, 0, Math.PI * 2);
+                cctx.stroke();
+            }
+        }
+        cctx.globalCompositeOperation = 'source-over';
+
+        // Blit composed copper layer into the main board pass.
+        ctx.save();
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.drawImage(layerCanvas, 0, 0);
+        ctx.restore();
+
+        // remove-copper-mask is naturally represented by the combination of
+        // mask opening (_drawMaskOpenings) and copper subtraction above.
     }
 
     _padPath(ctx, cx, cy, w, h, shape) {
@@ -456,6 +873,14 @@ export class Board2D {
             ctx.fillStyle = COL.bg;
             ctx.fill();
         }
+        // Free-standing circles on HOLE layer are board cutouts in preview.
+        for (const c of (d.circles || [])) {
+            if (!c || c.layer !== 'hole' || !(c.radius > 0)) continue;
+            ctx.beginPath();
+            ctx.arc(c.x, c.y, c.radius, 0, Math.PI * 2);
+            ctx.fillStyle = COL.bg;
+            ctx.fill();
+        }
     }
 
     /** Silkscreen for the active side: shapes, ref designators, free text. */
@@ -463,6 +888,8 @@ export class Board2D {
         const d = this.data;
         const top = this.side === 'top';
         const wantLayer = top ? 'top-silk' : 'bottom-silk';
+        ctx.save();
+        ctx.globalAlpha = LAYER_STYLE.silkscreen.o;
         ctx.strokeStyle = COL.silk;
         ctx.lineCap = 'round';
         ctx.lineJoin = 'round';
@@ -569,118 +996,36 @@ export class Board2D {
             const sw = Number.isFinite(t.strokeWidth) && t.strokeWidth > 0 ? t.strokeWidth : 0.15;
             stroke(_textSegments(t), sw);
         }
+
+        // Free-standing circles on this side for all non-copper, non-hole,
+        // non-mask, non-document layers. Mask circles are composited in
+        // _drawMaskOpenings(); document circles in _drawDocumentCutouts().
+        for (const c of (d.circles || [])) {
+            if (!c || !(c.radius > 0)) continue;
+            const layer = String(c.layer || 'top-silk');
+            if (layer === 'top-copper' || layer === 'bottom-copper' || layer === 'hole'
+            || layer === 'top-mask' || layer === 'bottom-mask'
+            || layer === 'document' || layer === 'top-document' || layer === 'bottom-document') continue;
+            const sideLayer = layer.startsWith('top-') ? 'top'
+                : layer.startsWith('bottom-') ? 'bottom'
+                    : 'both';
+            if (sideLayer !== 'both' && sideLayer !== this.side) continue;
+            const sw = Math.max(0.05, Number(c.lineWidth) || 0.15);
+            if (c.filled) {
+                ctx.fillStyle = COL.silk;
+                ctx.beginPath();
+                ctx.arc(c.x, c.y, c.radius, 0, Math.PI * 2);
+                ctx.fill();
+            } else {
+                ctx.strokeStyle = COL.silk;
+                ctx.lineWidth = sw;
+                ctx.beginPath();
+                ctx.arc(c.x, c.y, c.radius, 0, Math.PI * 2);
+                ctx.stroke();
+            }
+        }
+        ctx.restore();
     }
-}
-
-/**
- * Bake one fabricated board face (solder-mask green + copper + pads + vias +
- * silk + text, in painter's order) into an offscreen canvas, for use as a 3D
- * board-face texture (board3d.js). This is the same drawing the interactive 2D
- * preview produces, but rendered at a fixed world→pixel scale with NO display
- * mirror and NO pan/zoom, so the image maps 1:1 onto the board outline in 3D.
- *
- * Because every layer is composited by the 2D canvas (painter's algorithm),
- * the projected face is a single opaque image on a single quad — it cannot
- * z-fight with itself the way stacked coplanar 3D layers do.
- *
- * The bottom face is baked at its TRUE world X (not display-mirrored): viewing
- * the board's underside from below in 3D mirrors it naturally.
- *
- * Drilled holes are NOT cut out of the image — the 3D face geometry punches the
- * real bores, so the dark hole discs drawn here simply fall in the unsampled
- * (punched-away) region. Vias are not bored, so their flat gold ring + dark
- * centre come straight from this bake.
- *
- * @param {Document} doc       document used to create the backing canvas
- * @param {object}   data      same shape as {@link Board2D#setData}
- * @param {'top'|'bottom'} side which fabricated side to draw
- * @param {number}   pxPerMm   texel density (pixels per board millimetre)
- * @returns {{canvas:HTMLCanvasElement, originX:number, originY:number, mmW:number, mmH:number}}
- */
-export function bakeBoardFace(doc, data, side, pxPerMm) {
-    // Borrow the Board2D draw methods without running its (event-binding)
-    // constructor: a plain object with the prototype is all the drawers need.
-    const r = /** @type {Board2D} */ (Object.create(Board2D.prototype));
-    r.data = data;
-    r.side = side;
-    r._bake = true;
-    const b = r._boardRect();
-    // Hard-cap the texture so it can never exceed a GPU's MAX_TEXTURE_SIZE. The
-    // caller's density already targets ~4k on the long edge, but a very large
-    // board on the lower density floor could push past low-end mobile limits
-    // (4096) or even desktop (16384). If the requested size would breach the cap
-    // we scale the density down so the long edge lands exactly on MAX_TEX,
-    // keeping the (uniform) px/mm used for both the canvas size and the draw
-    // transform consistent.
-    const MAX_TEX = 8192;
-    const longEdgeMm = Math.max(b.w, b.h, 1);
-    if (longEdgeMm * pxPerMm > MAX_TEX) pxPerMm = MAX_TEX / longEdgeMm;
-    r.scale = pxPerMm;
-    const cw = Math.max(1, Math.min(MAX_TEX, Math.ceil(b.w * pxPerMm)));
-    const ch = Math.max(1, Math.min(MAX_TEX, Math.ceil(b.h * pxPerMm)));
-    const canvas = doc.createElement('canvas');
-    canvas.width = cw;
-    canvas.height = ch;
-    const ctx = /** @type {CanvasRenderingContext2D} */ (canvas.getContext('2d'));
-    r.canvas = canvas;
-    r.ctx = ctx;
-    // World mm → device px: (x,y) → ((x-b.x)*px, (y-b.y)*px). No mirror; the
-    // canvas top-left maps to the board's (minX, minY) corner.
-    ctx.setTransform(pxPerMm, 0, 0, pxPerMm, -b.x * pxPerMm, -b.y * pxPerMm);
-    r._drawBoard(ctx);
-    ctx.save();
-    r._roundRectPath(ctx, b.x, b.y, b.w, b.h, b.r);
-    ctx.clip();
-    r._drawCopper(ctx);
-    r._drawHoles(ctx);
-    r._drawSilk(ctx);
-    ctx.restore();
-    return { canvas, originX: b.x, originY: b.y, mmW: b.w, mmH: b.h };
-}
-
-/**
- * Bake a SILK-ONLY mask of one board face: white silkscreen on a pure-black
- * background, at the SAME size/transform as {@link bakeBoardFace} so the two
- * textures share UVs exactly. Used as an `emissiveMap` in 3D so the silkscreen
- * glows white (reads as real white ink) without raising the emissive of the
- * green solder mask, which would wash the board out. Black emits nothing, so
- * only the silk lights up.
- *
- * @param {Document} doc
- * @param {object}   data
- * @param {'top'|'bottom'} side
- * @param {number}   pxPerMm
- * @returns {{canvas:HTMLCanvasElement, originX:number, originY:number, mmW:number, mmH:number}}
- */
-export function bakeSilkMask(doc, data, side, pxPerMm) {
-    const r = /** @type {Board2D} */ (Object.create(Board2D.prototype));
-    r.data = data;
-    r.side = side;
-    r._bake = true;
-    const b = r._boardRect();
-    const MAX_TEX = 8192;
-    const longEdgeMm = Math.max(b.w, b.h, 1);
-    if (longEdgeMm * pxPerMm > MAX_TEX) pxPerMm = MAX_TEX / longEdgeMm;
-    r.scale = pxPerMm;
-    const cw = Math.max(1, Math.min(MAX_TEX, Math.ceil(b.w * pxPerMm)));
-    const ch = Math.max(1, Math.min(MAX_TEX, Math.ceil(b.h * pxPerMm)));
-    const canvas = doc.createElement('canvas');
-    canvas.width = cw;
-    canvas.height = ch;
-    const ctx = /** @type {CanvasRenderingContext2D} */ (canvas.getContext('2d'));
-    r.canvas = canvas;
-    r.ctx = ctx;
-    // Black everywhere (emits nothing), then only the silk drawn in its white.
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.fillStyle = '#000';
-    ctx.fillRect(0, 0, cw, ch);
-    ctx.setTransform(pxPerMm, 0, 0, pxPerMm, -b.x * pxPerMm, -b.y * pxPerMm);
-    ctx.save();
-    r._roundRectPath(ctx, b.x, b.y, b.w, b.h, b.r);
-    ctx.clip();
-    r._drawSilk(ctx);
-    ctx.restore();
-    return { canvas, originX: b.x, originY: b.y, mmW: b.w, mmH: b.h };
 }
 
 /* ── geometry helpers (ported from gerber.js so both stay in step) ─────── */

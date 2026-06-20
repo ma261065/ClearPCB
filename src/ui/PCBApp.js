@@ -94,6 +94,7 @@ import {
     MoveTextCommand,
     EditTextCommand,
 } from '../pcb/modules/text-commands.js';
+import { AddCircleCommand, RemoveCircleCommand, MoveCircleCommand, ModifyCircleCommand } from '../pcb/modules/circle-commands.js';
 import { hasAny3DModel, openComponent3DFromData, buildComponent3DTitle } from '../components/model3d-source.js';
 import {
     armBoxSelect,
@@ -238,6 +239,8 @@ export default class PCBApp {
         this.copperFills = [];
         /** Currently selected CopperFill, or null. */
         this._selectedFill = null;
+        /** Currently selected free-standing circle, or null. */
+        this._selectedCircle = null;
 
         /** True when the schematic has changed since last PCB rebuild */
         this._stale = true;
@@ -294,18 +297,38 @@ export default class PCBApp {
         this._selectedRef = null;
         /** Active reference-text drag: { compId, startWorld, startDx, startDy } or null. */
         this._refDrag = null;
+        /** Active circle drag: { circleId, startWorld, startPos } or null. */
+        this._circleDrag = null;
         /** Overlay <g> for the ref-text selection box and drag tether. */
         this._refOverlay = null;
         /** Defaults for the Text tool (modifiable via tool options). */
         this._textDefaults = { size: 1.0, rotation: 0, layer: 'top-silk', strokeWidth: 0.15 };
+        /** Defaults for the Circle tool. */
+        this._circleDefaults = { lineWidth: 0.2 };
         /** Last typed content for the Text tool. */
         this._lastTextContent = 'Text';
         /** In-memory PCB clipboard payload. */
         this._pcbClipboard = null;
         /** Monotonic paste counter (used for visible paste offsets). */
         this._pcbPasteCount = 0;
+        /** Free-standing silkscreen circles. */
+        this.circles = [];
+        /** SVG circle elements keyed by circle id for quick remove/replace. */
+        this._circleElements = new Map();
+        /** Circle currently hovered in select mode, or null. */
+        this._hoveredCircle = null;
+        /** Active in-progress circle draw interaction, or null. */
+        this._circleDraw = null;
+        /** Monotonic id counter for free-standing circles. */
+        this._circleIdCounter = 1;
         /** Active paste-drop interaction (pasted items glued to cursor). */
         this._pasteDrop = null;
+        /** Suspend live copper-fill recompute while floating paste is active. */
+        this._suspendFillRefresh = false;
+        /** Whether a fill refresh was requested while suspended. */
+        this._fillRefreshPending = false;
+        /** Suspend external 2D/3D panel refresh while floating paste is active. */
+        this._suspendBoardViewRefresh = false;
 
         /**
          * Undo/redo for PCB-side edits (tracks, vias, vertex drags,
@@ -320,7 +343,10 @@ export default class PCBApp {
             // schematic.fileManager.setDirty() \u2014 avoids triggering
             // the schematic\u2192PCB stale-sync listener that would
             // otherwise rebuild and wipe PCB-only edits.
-            onChanged: () => { this._markDirty(); },
+            onChanged: () => {
+                this._markDirty();
+                this._syncHistoryButtons?.();
+            },
         });
         /** Debug tooltip for showing raw footprintShapes data */
         this._debugTooltip = null;
@@ -411,6 +437,17 @@ export default class PCBApp {
         const layerLabel = this.activeLayer?.replace(/-/g, ' ')?.replace(/\b\w/g, c => c.toUpperCase()) || 'Top Copper';
         this.status.modeStatus.textContent = `${toolLabel} | ${layerLabel}`;
         this._syncClipboardButtons?.();
+        this._syncHistoryButtons?.();
+    }
+
+    /** Enable/disable PCB home-tab Undo/Redo buttons from history state. */
+    _syncHistoryButtons() {
+        const undoBtn = /** @type {HTMLButtonElement|null} */ (document.getElementById('pcbUndoBtn'));
+        const redoBtn = /** @type {HTMLButtonElement|null} */ (document.getElementById('pcbRedoBtn'));
+        const canUndo = !!this.history?.canUndo?.();
+        const canRedo = !!this.history?.canRedo?.();
+        if (undoBtn) undoBtn.disabled = !canUndo;
+        if (redoBtn) redoBtn.disabled = !canRedo;
     }
 
     /** Whether there is any pasteable payload on the PCB clipboard. */
@@ -511,6 +548,11 @@ export default class PCBApp {
         }
         if (this._selectedFill) {
             this.deleteSelectedFill();
+            this._syncClipboardButtons();
+            return true;
+        }
+        if (this._selectedCircle) {
+            this.deleteSelectedCircle();
             this._syncClipboardButtons();
             return true;
         }
@@ -616,9 +658,15 @@ export default class PCBApp {
     _endPasteDrop() {
         if (!this._pasteDrop) return;
         this._pasteDrop = null;
+        this._suspendFillRefresh = false;
+        this._suspendBoardViewRefresh = false;
+        if (this._fillRefreshPending) {
+            this._fillRefreshPending = false;
+            this._refreshFills?.();
+        }
+        this._board3d?.refresh?.();
         this._updateCursorForTool?.();
         // Keep derived visuals coherent after the final drop position.
-        this._refreshFills?.();
         reconcileRatsnest(this);
         this._syncClipboardButtons?.();
     }
@@ -632,6 +680,13 @@ export default class PCBApp {
         if (Number.isFinite(before) && (this.history?.undoStack?.length || 0) > before) {
             this.history.undo();
         }
+        this._suspendFillRefresh = false;
+        this._suspendBoardViewRefresh = false;
+        if (this._fillRefreshPending) {
+            this._fillRefreshPending = false;
+            this._refreshFills?.();
+        }
+        this._board3d?.refresh?.();
         this._updateCursorForTool?.();
         this._syncClipboardButtons?.();
     }
@@ -681,6 +736,9 @@ export default class PCBApp {
             pasted.fills.push(fill);
         }
         if (!cmds.length) return false;
+        this._suspendFillRefresh = true;
+        this._fillRefreshPending = false;
+        this._suspendBoardViewRefresh = true;
         const depthBeforePaste = this.history?.undoStack?.length || 0;
         this.history.execute(cmds.length === 1 ? cmds[0] : new CompoundCommand(cmds));
         this._beginPasteDrop(pasted, depthBeforePaste);
@@ -713,8 +771,8 @@ export default class PCBApp {
             // the context menu the right-click just opened.
             if (!view || view.scaleChanged || view.boundsChanged) dismissTrackContextMenu();
             // The net tooltip is anchored to a screen point over hovered copper;
-            // a zoom moves that copper out from under it, so dismiss on scale change.
-            if (!view || view.scaleChanged) this._hideNetTooltip();
+            // any pan/zoom invalidates that screen anchor, so dismiss on view move.
+            if (!view || view.scaleChanged || view.boundsChanged) this._hideNetTooltip();
             this._updateViewportStatus();
             // Selection halo node handles are sized in screen pixels, so they
             // must be redrawn when the zoom scale changes to stay constant on
@@ -727,7 +785,7 @@ export default class PCBApp {
             // Cursor crosshair (track/via tools) is sized in screen pixels
             // and spans the viewport — redraw on zoom/pan so it doesn't drift.
             if (this._lastCrosshairWorld &&
-                (this.currentTool === 'via' || this.currentTool === 'track' || this.currentTool === 'text')) {
+                (this.currentTool === 'via' || this.currentTool === 'track' || this.currentTool === 'text' || this.currentTool === 'circle')) {
                 if (this.currentTool === 'via') {
                     this._updateViaPreview(this._lastCrosshairWorld);
                 } else {
@@ -736,6 +794,10 @@ export default class PCBApp {
             }
             // Re-evaluate footprint culling / level-of-detail after zoom or pan.
             this._updatePcbCulling();
+            // The copper-removal clip rectangle is sized to the visible
+            // viewport (so its raster never blows up at high zoom); re-fit it
+            // to the new view whenever a cut is active.
+            if (this._hasCopperCuts) this._updateCopperCuts();
             // Keep the DRC panel→marker leader anchored to the board point.
             if (this._drcSelectedId) this._updateDRCConnector();
         };
@@ -744,6 +806,9 @@ export default class PCBApp {
         this.viewport.onViewportCull = () => {
             if (!this._active) return;
             this._updatePcbCulling();
+            // Keep the copper-removal clip rectangle following the viewport
+            // during a live pan (viewBox moves without firing onViewChanged).
+            if (this._hasCopperCuts) this._updateCopperCuts();
             // The viewBox moves continuously during a pan without firing
             // onViewChanged, so keep the DRC leader anchored here too.
             if (this._drcSelectedId) this._updateDRCConnector();
@@ -756,6 +821,7 @@ export default class PCBApp {
         // recompute is needed — the geometry is in world space and pans with
         // the viewBox.
         this.viewport.onPanStart = () => {
+            this._hideNetTooltip();
             if (!this._active || !this._clearancesVisible) return;
             const ov = this._layerGroups.get('clearance-overlay');
             if (ov) ov.style.display = 'none';
@@ -903,6 +969,7 @@ export default class PCBApp {
                 // Any other click drops the current fill selection (it may be
                 // re-selected below if the click lands on a fill region).
                 this._selectFill(null);
+                this._selectCircle(null);
 
                 // If a track is already selected, try to start a vertex
                 // drag on it before doing anything else — this lets the
@@ -943,6 +1010,18 @@ export default class PCBApp {
                         this._hideNetTooltip();
                         svg.style.cursor = 'grabbing';
                         return;
+                    }
+                }
+                // Same for a selected free-standing circle.
+                if (this._selectedCircle) {
+                    const selectedHit = this._hitTestCircle(worldPos);
+                    if (selectedHit && selectedHit.id === this._selectedCircle.id) {
+                        if (this._startCircleDrag(selectedHit, worldPos)) {
+                            setHoverHighlight(this, null);
+                            this._hideNetTooltip();
+                            svg.style.cursor = 'grabbing';
+                            return;
+                        }
                     }
                 }
 
@@ -988,6 +1067,23 @@ export default class PCBApp {
 
                 // Anything else clears any track selection first.
                 clearTrackSelection(this);
+
+                const circleHit = this._hitTestCircle(worldPos);
+                if (circleHit) {
+                    this._selectComponent(null);
+                    this._selectBoardOutline(false);
+                    this._selectText(null);
+                    this._selectRefText(null);
+                    this._selectFill(null);
+                    this._selectCircle(circleHit);
+                    this._showCircleProperties(circleHit);
+                    if (this._startCircleDrag(circleHit, worldPos)) {
+                        this._hideNetTooltip();
+                        svg.style.cursor = 'grabbing';
+                    }
+                    return;
+                }
+                this._selectCircle(null);
 
                 // Text hit-test (above components in z-order).
                 const textHit = this._hitTestText(worldPos);
@@ -1187,6 +1283,14 @@ export default class PCBApp {
                 this.history.execute(new AddHoleCommand(this, hole));
             }
 
+            // Left-click with circle tool: first click anchors center,
+            // second click commits radius.
+            if (e.button === 0 && this.currentTool === 'circle') {
+                const worldPos = this._screenToWorld(e);
+                if (this._circleDraw) this._finishCircleDraw(worldPos);
+                else this._startCircleDraw(worldPos);
+            }
+
             // Left-click with text tool: place a text at the cursor.
             if (e.button === 0 && this.currentTool === 'text') {
                 const worldPos = this._screenToWorld(e);
@@ -1229,6 +1333,8 @@ export default class PCBApp {
                     this._updateViaPreview(this._screenToWorld(e));
                 } else if (this.currentTool === 'hole') {
                     this._updateHolePreview(this._screenToWorld(e));
+                } else if (this.currentTool === 'circle') {
+                    this._updateCursorCrosshair(this._screenToWorld(e));
                 }
             } else if (this._pasteDrop) {
                 this._updatePasteDrop(this._screenToWorld(e));
@@ -1238,6 +1344,8 @@ export default class PCBApp {
                 updateGroupDrag(this, this._screenToWorld(e));
             } else if (this._textDrag) {
                 this._handleTextDrag(e);
+            } else if (this._circleDrag) {
+                this._handleCircleDrag(this._screenToWorld(e));
             } else if (this._refDrag) {
                 this._handleRefDrag(e);
             } else if (this._vertexDrag) {
@@ -1268,6 +1376,9 @@ export default class PCBApp {
                 if (this._fillDraw?.snap) {
                     this._updateCursorCrosshair({ x: this._fillDraw.snap.x, y: this._fillDraw.snap.y });
                 }
+            } else if (this._circleDraw) {
+                this._updateCircleDraw(this._screenToWorld(e));
+                this._updateCursorCrosshair(this._screenToWorld(e));
             } else if (this.currentTool === 'select') {
                 // A pending/active marquee owns the move; only fall back to
                 // hover hit-testing when no box-select is in progress.
@@ -1290,6 +1401,8 @@ export default class PCBApp {
             } else if (this.currentTool === 'text') {
                 this._updateCursorCrosshair(this._screenToWorld(e));
             } else if (this.currentTool === 'fill') {
+                this._updateCursorCrosshair(this._screenToWorld(e));
+            } else if (this.currentTool === 'circle') {
                 this._updateCursorCrosshair(this._screenToWorld(e));
             }
             this.viewport.trackMouse(e);
@@ -1378,6 +1491,10 @@ export default class PCBApp {
             }
             if (this._textDrag) {
                 this._endTextDrag();
+            }
+            if (this._circleDrag) {
+                this._endCircleDrag(true);
+                svg.style.cursor = 'default';
             }
             if (this._refDrag) {
                 this._endRefDrag();
@@ -1542,11 +1659,12 @@ export default class PCBApp {
             t === 'track' ? 'crosshair' :
             t === 'via' ? 'crosshair' :
             t === 'hole' ? 'crosshair' :
+            t === 'circle' ? 'crosshair' :
             t === 'text' ? this._textToolCursor() :
             'default';
         if (t !== 'via') this._clearViaRing();
         if (t !== 'hole') this._clearHoleRing();
-        if (t !== 'via' && t !== 'track' && t !== 'text' && t !== 'hole') this._clearCursorCrosshair();
+        if (t !== 'via' && t !== 'track' && t !== 'text' && t !== 'hole' && t !== 'circle') this._clearCursorCrosshair();
     }
 
     /** Crosshair + small "T" icon cursor for the text-placement tool. */
@@ -1724,6 +1842,392 @@ export default class PCBApp {
         if (this._fillDraw) cancelFillDraw(this);
     }
 
+    /** Public hook used by controls.setTool to abort an in-flight circle draw. */
+    _cancelCircleDraw() {
+        const d = this._circleDraw;
+        if (!d) return;
+        if (d.preview?.parentNode) d.preview.parentNode.removeChild(d.preview);
+        this._circleDraw = null;
+    }
+
+    _startCircleDraw(worldPos) {
+        const targetLayer = this._resolveCircleDrawLayer(this.activeLayer);
+        if (isLayerLocked(targetLayer)) return;
+        const c = this._snapToGrid(worldPos);
+        const NS = 'http://www.w3.org/2000/svg';
+        const preview = document.createElementNS(NS, 'circle');
+        preview.setAttribute('class', 'pcb-circle-preview');
+        preview.setAttribute('fill', 'none');
+        preview.setAttribute('stroke', '#66b3ff');
+        preview.setAttribute('stroke-width', '0.2');
+        preview.setAttribute('stroke-dasharray', '2 2');
+        preview.setAttribute('vector-effect', 'non-scaling-stroke');
+        preview.setAttribute('cx', String(c.x));
+        preview.setAttribute('cy', String(c.y));
+        preview.setAttribute('r', '0');
+        this._getLayerGroup('selection-overlay')?.appendChild(preview);
+        this._circleDraw = { center: c, preview, layer: targetLayer };
+    }
+
+    _resolveCircleDrawLayer(layerId) {
+        const id = String(layerId || 'top-copper');
+        // Circles drawn while paste/board-outline is the active edit layer
+        // are authored on silk instead (top/bottom preserved where possible).
+        if (id === 'top-paste' || id === 'bottom-paste' || id === 'board-outline') {
+            return id.startsWith('bottom-') ? 'bottom-silk' : 'top-silk';
+        }
+        return id;
+    }
+
+    _updateCircleDraw(worldPos) {
+        const d = this._circleDraw;
+        if (!d) return;
+        const p = this._snapToGrid(worldPos);
+        const r = Math.hypot(p.x - d.center.x, p.y - d.center.y);
+        d.preview?.setAttribute('r', String(r));
+    }
+
+    _finishCircleDraw(worldPos) {
+        const d = this._circleDraw;
+        if (!d) return;
+        const p = this._snapToGrid(worldPos);
+        const r = Math.hypot(p.x - d.center.x, p.y - d.center.y);
+        if (d.preview?.parentNode) d.preview.parentNode.removeChild(d.preview);
+        this._circleDraw = null;
+        if (!Number.isFinite(r) || r < 0.05) return;
+        const layer = d.layer || this.activeLayer;
+        const alwaysFilled = layer === 'top-mask' || layer === 'bottom-mask'
+            || layer === 'document' || layer === 'top-document' || layer === 'bottom-document';
+        const circle = {
+            id: `pcirc_${this._circleIdCounter++}`,
+            x: d.center.x,
+            y: d.center.y,
+            radius: r,
+            layer,
+            lineWidth: this._circleDefaults.lineWidth,
+            filled: alwaysFilled,
+            copperMode: 'add',
+        };
+        this.history.execute(new AddCircleCommand(this, circle));
+    }
+
+    _renderCircle(circle) {
+        this._removeCircleElement(circle.id);
+        const NS = 'http://www.w3.org/2000/svg';
+        const el = document.createElementNS(NS, 'circle');
+        const isSelected = !!(this._selectedCircle && this._selectedCircle.id === circle.id);
+        const isHovered = !!(this._hoveredCircle && this._hoveredCircle.id === circle.id);
+        const layer = String(circle.layer || 'top-silk');
+        const isHoleLayer = circle.layer === 'hole';
+        const isCopperLayer = layer === 'top-copper' || layer === 'bottom-copper';
+        const isMaskLayer = layer === 'top-mask' || layer === 'bottom-mask';
+        const isDocumentLayer = layer === 'document' || layer === 'top-document' || layer === 'bottom-document';
+        const copperMode = this._normalizeCircleCopperMode(circle.copperMode);
+        const isCopperAdd = isCopperLayer && copperMode === 'add';
+        const isCopperRemoveOnly = isCopperLayer && copperMode === 'remove-copper';
+        const isCopperRemoveSolderMask = isCopperLayer && copperMode === 'remove-solder-mask';
+        const isCopperRemoveMask = isCopperLayer && copperMode === 'remove-copper-mask';
+        // Modes that actually subtract copper. The copper itself is cut by an
+        // SVG mask (see _updateCopperCuts) so the dark canvas shows through —
+        // the circle element here is just a thin, selectable boundary ring.
+        const isCopperKnockout = isCopperRemoveOnly || isCopperRemoveMask;
+        // Editor copper colours match the track renderer (track-render.js).
+        const copperColor = layer === 'bottom-copper' ? '#3498db' : '#e74c3c';
+        const MASK_OPENING_PREVIEW = '#c9a44a';
+        const BARE_BOARD_COLOR = '#6e4e2a';
+        const CUT_RING_COLOR = '#8a929b';
+        el.setAttribute('cx', String(circle.x));
+        el.setAttribute('cy', String(circle.y));
+        el.setAttribute('r', String(circle.radius));
+        // Filled discs: added copper (track colour), mask openings and document
+        // shapes. Copper removals are never filled — the mask does the cutting.
+        const filled = isCopperLayer
+            ? isCopperAdd
+            : (!isHoleLayer && (!!circle.filled || isMaskLayer || isDocumentLayer));
+        const fillColor = isCopperAdd ? copperColor
+            : isMaskLayer ? MASK_OPENING_PREVIEW
+                : isDocumentLayer ? BARE_BOARD_COLOR
+                    : '#ffffff';
+        el.setAttribute('fill', filled ? fillColor : 'none');
+        if (filled) {
+            const fillOpacity = isCopperAdd ? '0.9'
+                : isDocumentLayer ? '1'
+                    : '0.18';
+            el.setAttribute('fill-opacity', fillOpacity);
+        }
+        // Hole-layer circles read like drilled holes: transparent bore with
+        // only a ring so the grid/background shows through.
+        const baseStroke = isHoleLayer ? '#1abc9c'
+            : isCopperAdd ? copperColor
+                : isCopperKnockout ? CUT_RING_COLOR
+                    : isCopperRemoveSolderMask ? MASK_OPENING_PREVIEW
+                        : isMaskLayer ? MASK_OPENING_PREVIEW
+                            : isDocumentLayer ? BARE_BOARD_COLOR
+                                : '#ffffff';
+        el.setAttribute('stroke', isSelected ? '#ffffff' : isHovered ? '#66ccff' : baseStroke);
+        const sw = isHoleLayer
+            ? Math.max(0.03, (Number(circle.radius) || 0) * 2 * 0.07)
+            : Math.max(0.05, Number(circle.lineWidth) || 0.2);
+        el.setAttribute('stroke-width', String(sw));
+        // A dashed ring marks copper-removal circles (the area inside is cut).
+        if (isCopperKnockout && !isSelected) {
+            el.setAttribute('stroke-dasharray', '0.6 0.45');
+        }
+        // Copper-removal boundary rings live in a knockout group stacked above
+        // the (masked) copper so the ring stays visible over the cut; all other
+        // circles stay on their own layer.
+        const targetLayer = isCopperKnockout
+            ? (layer === 'bottom-copper' ? 'bottom-copper-knockout' : 'top-copper-knockout')
+            : (circle.layer || 'top-silk');
+        this._getLayerGroup(targetLayer)?.appendChild(el);
+        this._circleElements.set(circle.id, el);
+        // Keep the copper-cut masks in sync with the current circle set.
+        this._updateCopperCuts();
+    }
+
+    _removeCircleElement(id) {
+        const el = this._circleElements.get(id);
+        if (el?.parentNode) el.parentNode.removeChild(el);
+        this._circleElements.delete(id);
+    }
+
+    /** Get (or lazily create) the shared <defs> in the editor SVG. */
+    _ensureSvgDefs() {
+        const svg = this.viewport?.svg;
+        if (!svg) return null;
+        if (this._svgDefs && this._svgDefs.isConnected) return this._svgDefs;
+        let defs = svg.querySelector('defs');
+        if (!defs) {
+            defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+            svg.insertBefore(defs, svg.firstChild);
+        }
+        this._svgDefs = defs;
+        return defs;
+    }
+
+    /**
+     * Rebuild the per-side SVG clip-paths that cut copper where "remove
+     * copper" circles sit, and apply (or clear) them on the copper + pour
+     * groups. The cut reveals the canvas behind — no board-colour fill is
+     * painted — so a track or pour passing through a removal circle reads as
+     * genuinely removed, matching the 2D/3D board views.
+     *
+     * A clip-path (not a <mask>) is used deliberately: clipping is vector and
+     * resolution-independent, so it stays exact at any zoom. A raster mask
+     * blows past the GPU's maximum texture size when zoomed in and gets
+     * silently dropped, which made the copper "fill back in".
+     */
+    _updateCopperCuts() {
+        const defs = this._ensureSvgDefs();
+        if (!defs) return;
+        const NS = 'http://www.w3.org/2000/svg';
+        // Size the outer rectangle to the visible viewport (plus a one-screen
+        // margin) rather than a fixed huge constant. The browser rasterises a
+        // clip-path at the size of its bounding box; a giant rectangle makes
+        // that raster exceed the GPU limit once zoomed in and the clip is
+        // silently dropped (copper "fills back in"). A viewport-sized rect
+        // keeps the raster ~screen-sized at any zoom. Off-screen copper that
+        // falls outside the rect is clipped away, but it is off-screen anyway.
+        const vb = this.viewport?.getVisibleBounds?.();
+        let x0, y0, x1, y1;
+        if (vb && Number.isFinite(vb.minX) && vb.maxX > vb.minX && vb.maxY > vb.minY) {
+            const mx = vb.maxX - vb.minX;
+            const my = vb.maxY - vb.minY;
+            x0 = vb.minX - mx; x1 = vb.maxX + mx;
+            y0 = vb.minY - my; y1 = vb.maxY + my;
+        } else {
+            const m = Math.max(this._boardWidth || 100, this._boardHeight || 80);
+            x0 = -m; x1 = (this._boardWidth || 100) + m;
+            y0 = -(this._boardHeight || 80) - m; y1 = m;
+        }
+        const r4 = (n) => Math.round(n * 10000) / 10000;
+        let any = false;
+        for (const side of ['top', 'bottom']) {
+            const copperLayer = `${side}-copper`;
+            const fillLayer = `${side}-fill`;
+            const clipId = `pcb-copper-cut-${side}`;
+            const cuts = (this.circles || []).filter((c) => {
+                if (!c) return false;
+                // A hole drills through the whole board, so it cuts copper on
+                // both sides regardless of its mode.
+                if (c.layer === 'hole') return (Number(c.radius) || 0) > 0;
+                if (c.layer !== copperLayer) return false;
+                const m = this._normalizeCircleCopperMode(c.copperMode);
+                return m === 'remove-copper' || m === 'remove-copper-mask';
+            });
+            const existing = defs.querySelector(`#${clipId}`);
+            if (cuts.length === 0) {
+                if (existing) existing.remove();
+                for (const lid of [copperLayer, fillLayer]) {
+                    this._layerGroups.get(lid)?.removeAttribute('clip-path');
+                }
+                continue;
+            }
+            any = true;
+            const clip = existing || document.createElementNS(NS, 'clipPath');
+            clip.setAttribute('id', clipId);
+            clip.setAttribute('clipPathUnits', 'userSpaceOnUse');
+            while (clip.firstChild) clip.removeChild(clip.firstChild);
+            // Outer rectangle keeps everything; each circle sub-path is a hole.
+            let d = `M ${r4(x0)} ${r4(y0)} L ${r4(x1)} ${r4(y0)} L ${r4(x1)} ${r4(y1)} L ${r4(x0)} ${r4(y1)} Z`;
+            for (const c of cuts) {
+                const cx = Number(c.x) || 0;
+                const cy = Number(c.y) || 0;
+                const rad = Math.max(0, Number(c.radius) || 0);
+                if (rad <= 0) continue;
+                // Two semicircle arcs trace a full circle as a closed sub-path.
+                d += ` M ${r4(cx - rad)} ${r4(cy)}`
+                    + ` a ${r4(rad)} ${r4(rad)} 0 1 0 ${r4(rad * 2)} 0`
+                    + ` a ${r4(rad)} ${r4(rad)} 0 1 0 ${r4(-rad * 2)} 0 Z`;
+            }
+            const path = document.createElementNS(NS, 'path');
+            path.setAttribute('d', d);
+            path.setAttribute('clip-rule', 'evenodd');
+            clip.appendChild(path);
+            if (!existing) defs.appendChild(clip);
+            for (const lid of [copperLayer, fillLayer]) {
+                this._layerGroups.get(lid)?.setAttribute('clip-path', `url(#${clipId})`);
+            }
+        }
+        // Remember whether any cut is active so view-change handlers know to
+        // re-fit the clip rectangle to the new viewport on pan/zoom.
+        this._hasCopperCuts = any;
+    }
+
+
+    _circleIsFilled(circle) {
+        if (!circle) return false;
+        const layer = String(circle.layer || 'top-silk');
+        const isHoleLayer = layer === 'hole';
+        if (isHoleLayer) return false;
+        const isCopperLayer = layer === 'top-copper' || layer === 'bottom-copper';
+        if (isCopperLayer) {
+            // Added copper and copper-removal circles read as solid discs for
+            // hit-testing so the whole area can be clicked to select them.
+            const m = this._normalizeCircleCopperMode(circle.copperMode);
+            if (m === 'add' || m === 'remove-copper' || m === 'remove-copper-mask') return true;
+        }
+        const isMaskLayer = layer === 'top-mask' || layer === 'bottom-mask';
+        const isDocumentLayer = layer === 'document' || layer === 'top-document' || layer === 'bottom-document';
+        return !!circle.filled || isMaskLayer || isDocumentLayer;
+    }
+
+    _circleStrokeWidth(circle) {
+        if (!circle) return 0.2;
+        const layer = String(circle.layer || 'top-silk');
+        if (layer === 'hole') {
+            return Math.max(0.03, (Number(circle.radius) || 0) * 2 * 0.07);
+        }
+        return Math.max(0.05, Number(circle.lineWidth) || 0.2);
+    }
+
+    _normalizeCircleCopperMode(mode) {
+        const m = String(mode || 'add');
+        if (m === 'remove-copper' || m === 'remove-solder-mask' || m === 'remove-copper-mask') return m;
+        // Backward compatibility for sessions/files created before copper mode
+        // split (old remove meant removing copper and mask together).
+        if (m === 'remove') return 'remove-copper-mask';
+        if (m === 'remove-mask') return 'remove-solder-mask';
+        return 'add';
+    }
+
+    _hitTestCircle(worldPos) {
+        if (!Array.isArray(this.circles) || !worldPos) return null;
+        for (let i = this.circles.length - 1; i >= 0; i--) {
+            const c = this.circles[i];
+            if (!c) continue;
+            if (isLayerLocked(c.layer) || !isLayerVisible(c.layer)) continue;
+            const dist = Math.hypot(worldPos.x - c.x, worldPos.y - c.y);
+            if (this._circleIsFilled(c)) {
+                if (dist <= c.radius) return c;
+            } else {
+                const stroke = this._circleStrokeWidth(c);
+                const tol = Math.max(0.25, stroke / 2 + 0.12);
+                const edgeDist = Math.abs(dist - c.radius);
+                if (edgeDist <= tol) return c;
+            }
+        }
+        return null;
+    }
+
+    _setCircleHover(circle) {
+        const prev = this._hoveredCircle || null;
+        const next = circle || null;
+        if (prev === next || (prev && next && prev.id === next.id)) return;
+        this._hoveredCircle = next;
+        if (prev) this._renderCircle(prev);
+        if (next) this._renderCircle(next);
+    }
+
+    _selectCircle(circle) {
+        const prev = this._selectedCircle;
+        const next = circle || null;
+        if (prev === next || (prev && next && prev.id === next.id)) return;
+        this._selectedCircle = next;
+        this._syncClipboardButtons?.();
+        // Only refresh the previous selection if it still exists in-model.
+        // Delete flow removes from `this.circles` first, then clears
+        // selection, and we must not recreate an orphan SVG element.
+        if (prev && this.circles.includes(prev)) this._renderCircle(prev);
+        if (next) this._renderCircle(next);
+    }
+
+    _startCircleDrag(circle, worldPos) {
+        if (!circle || isLayerLocked(circle.layer)) return false;
+        this._circleDrag = {
+            circleId: circle.id,
+            startWorld: { x: worldPos.x, y: worldPos.y },
+            startPos: { x: circle.x, y: circle.y },
+        };
+        return true;
+    }
+
+    _handleCircleDrag(worldPos) {
+        const d = this._circleDrag;
+        if (!d) return;
+        const c = this.circles.find(x => x.id === d.circleId);
+        if (!c) return;
+        const dx = worldPos.x - d.startWorld.x;
+        const dy = worldPos.y - d.startWorld.y;
+        const snap = this._snapToGrid({ x: d.startPos.x + dx, y: d.startPos.y + dy });
+        c.x = snap.x;
+        c.y = snap.y;
+        this._renderCircle(c);
+    }
+
+    _endCircleDrag(commit) {
+        const d = this._circleDrag;
+        this._circleDrag = null;
+        if (!d) return;
+        const c = this.circles.find(x => x.id === d.circleId);
+        if (!c) return;
+        const x1 = c.x;
+        const y1 = c.y;
+        const moved = x1 !== d.startPos.x || y1 !== d.startPos.y;
+        if (!moved) return;
+        if (!commit) {
+            c.x = d.startPos.x;
+            c.y = d.startPos.y;
+            this._renderCircle(c);
+            return;
+        }
+        // Roll back first, then execute command so history is the source of truth.
+        c.x = d.startPos.x;
+        c.y = d.startPos.y;
+        this._renderCircle(c);
+        this.history.execute(new MoveCircleCommand(this, c, d.startPos.x, d.startPos.y, x1, y1));
+    }
+
+    deleteSelectedCircle() {
+        const c = this._selectedCircle;
+        if (!c) return false;
+        if (isLayerLocked(c.layer)) return false;
+        this.history.execute(new RemoveCircleCommand(this, c));
+        this._selectCircle(null);
+        this._clearProperties?.();
+        return true;
+    }
+
     /**
      * Central keyboard handler for PCB mode. Invoked by
      * AppBootstrap's window-capture dispatcher when this app is the
@@ -1802,12 +2306,22 @@ export default class PCBApp {
             return false;
         }
 
+        // Circle-draw mode owns Escape.
+        if (this._circleDraw) {
+            if (e.key === 'Escape') {
+                this._cancelCircleDraw();
+                return true;
+            }
+            return false;
+        }
+
         // Otherwise: history, delete, selection-cancel.
         const ctrl = e.ctrlKey || e.metaKey;
         if (ctrl && !e.shiftKey && (e.key === 'z' || e.key === 'Z')) {
             if (this._vertexDrag) { cancelVertexDrag(this); this.viewport.hideCrosshair(); }
             if (this._viaDrag) cancelViaDrag(this);
             if (this._holeDrag) cancelHoleDrag(this);
+            if (this._circleDrag) this._endCircleDrag(false);
             this.history.undo();
             return true;
         }
@@ -1835,6 +2349,10 @@ export default class PCBApp {
                 this.deleteSelectedFill();
                 return true;
             }
+            if (this._selectedCircle) {
+                this.deleteSelectedCircle();
+                return true;
+            }
             // Components belong to the schematic netlist and can't be deleted
             // on the PCB — tell the user where to do it instead.
             if (this._selectedComp) {
@@ -1860,6 +2378,10 @@ export default class PCBApp {
             }
             if (this._viaDrag) { cancelViaDrag(this); return true; }
             if (this._holeDrag) { cancelHoleDrag(this); return true; }
+            if (this._circleDrag) {
+                this._endCircleDrag(false);
+                return true;
+            }
             if (hasBoxSelection(this)) {
                 clearBoxSelection(this);
                 return true;
@@ -1981,6 +2503,16 @@ export default class PCBApp {
             tracks: this.tracks.map(t => t.toJSON()),
             vias: this.vias.map(v => v.toJSON()),
             holes: this.holes.map(h => h.toJSON()),
+            circles: this.circles.map(c => ({
+                id: c.id,
+                x: c.x,
+                y: c.y,
+                radius: c.radius,
+                layer: c.layer,
+                lineWidth: c.lineWidth,
+                filled: !!c.filled,
+                copperMode: this._normalizeCircleCopperMode(c.copperMode),
+            })),
             texts: [...this.texts.values()].map(serializePcbText),
             fills: this.copperFills.map(f => f.toJSON()),
             placements,
@@ -1998,6 +2530,7 @@ export default class PCBApp {
     serializeSection() {
         const hasContent = this.tracks?.length || this.vias?.length
             || this.holes?.length
+            || this.circles?.length
             || this.texts?.size || this.copperFills?.length || this._placementOverrides.size
             || this._boardOutlineDrawn;
         return hasContent ? this.serialize() : null;
@@ -2098,9 +2631,14 @@ export default class PCBApp {
         this.tracks.length = 0;
         this.vias.length = 0;
         this.holes.length = 0;
+        for (const id of this._circleElements.keys()) this._removeCircleElement(id);
+        this.circles.length = 0;
+        this._circleIdCounter = 1;
+        this._updateCopperCuts?.();
         // Drop any existing copper pours and their SVG.
         this.copperFills.length = 0;
         this._selectedFill = null;
+        this._selectedCircle = null;
         this._clearFillHandles?.();
         this._clearFillGroups?.();
         // Drop any existing free-standing texts.
@@ -2198,6 +2736,24 @@ export default class PCBApp {
                 renderHole(hole, (id) => this._getLayerGroup(id));
             }
         }
+        if (Array.isArray(data.circles)) {
+            for (const cd of data.circles) {
+                const c = {
+                    id: String(cd.id || `pcirc_${this._circleIdCounter++}`),
+                    x: Number(cd.x) || 0,
+                    y: Number(cd.y) || 0,
+                    radius: Math.max(0.05, Number(cd.radius) || 0),
+                    layer: String(cd.layer || 'top-silk'),
+                    lineWidth: Math.max(0.05, Number(cd.lineWidth) || this._circleDefaults.lineWidth),
+                    filled: !!cd.filled,
+                    copperMode: this._normalizeCircleCopperMode(cd.copperMode),
+                };
+                this.circles.push(c);
+                this._renderCircle(c);
+                const n = /pcirc_(\d+)/.exec(c.id);
+                if (n) this._circleIdCounter = Math.max(this._circleIdCounter, Number(n[1]) + 1);
+            }
+        }
         if (Array.isArray(data.texts)) {
             for (const td of data.texts) {
                 const t = createPcbText(td);
@@ -2254,8 +2810,14 @@ export default class PCBApp {
             // Pad numbers sit just above their copper layer so a track routed
             // to a pad never hides its number (visibility follows the copper).
             'bottom-pad-numbers',
+            // Copper-removal "knockouts" (circles set to remove copper) sit
+            // above all copper/pads on that side so they visually cut the
+            // copper — a track passing through reads as removed, matching the
+            // 2D/3D board views.
+            'bottom-copper-knockout',
             'top-fill', 'top-copper',
             'top-pad-numbers',
+            'top-copper-knockout',
             'bottom-silk', 'top-silk',
             'hole',
             'ratlines',
@@ -2264,6 +2826,8 @@ export default class PCBApp {
             // enough that the detail is sub-pixel. Sits above copper/silk so the
             // block reads clearly; hidden whenever the real geometry is shown.
             'fp-lod',
+            'bottom-document',
+            'top-document',
             'document',
             // Overlays — non-editable visual aids drawn on top of everything
             // (clearance halos, etc.). Must be last in z-order.
@@ -2340,6 +2904,9 @@ export default class PCBApp {
         if (layerId === 'top-copper' || layerId === 'bottom-copper') {
             const pn = this._layerGroups.get(layerId === 'bottom-copper' ? 'bottom-pad-numbers' : 'top-pad-numbers');
             if (pn) pn.style.display = visible ? '' : 'none';
+            // Copper-removal knockouts belong to the copper they cut.
+            const ko = this._layerGroups.get(layerId === 'bottom-copper' ? 'bottom-copper-knockout' : 'top-copper-knockout');
+            if (ko) ko.style.display = visible ? '' : 'none';
         }
         // Clearance overlay tracks per-layer visibility — re-render so halos
         // for hidden copper/hole layers disappear too.
@@ -2358,6 +2925,10 @@ export default class PCBApp {
             }
             if (this._selectedText && this._selectedText.layer === layerId) {
                 this._selectText(null);
+                this._clearProperties();
+            }
+            if (this._selectedCircle && this._selectedCircle.layer === layerId) {
+                this._selectCircle(null);
                 this._clearProperties();
             }
             if (this._selectedFill && this._selectedFill.layer === layerId) {
@@ -2384,6 +2955,11 @@ export default class PCBApp {
         if (g) {
             g.style.opacity = locked ? '0.4' : '';
         }
+        // Keep copper-removal knockouts dimmed in step with their copper layer.
+        if (layerId === 'top-copper' || layerId === 'bottom-copper') {
+            const ko = this._layerGroups.get(layerId === 'bottom-copper' ? 'bottom-copper-knockout' : 'top-copper-knockout');
+            if (ko) ko.style.opacity = locked ? '0.4' : '';
+        }
         saveLayerPrefs();
         if (!locked) return;
         // A newly-locked layer must not keep anything on it selected or
@@ -2396,6 +2972,10 @@ export default class PCBApp {
         }
         if (this._selectedText && this._selectedText.layer === layerId) {
             this._selectText(null);
+            this._clearProperties();
+        }
+        if (this._selectedCircle && this._selectedCircle.layer === layerId) {
+            this._selectCircle(null);
             this._clearProperties();
         }
         if (this._boardOutlineSelected && layerId === 'board-outline') {
@@ -2971,6 +3551,137 @@ export default class PCBApp {
         this._setActiveRibbonTab?.('pcb-properties');
     }
 
+    /** Show editable properties for a selected free-standing circle. */
+    _showCircleProperties(circle) {
+        const items = this._pcbPropsItems();
+        if (!items || !circle) return;
+        this._setPcbPropsTitle('Circle');
+        const hiddenLayers = new Set([
+            'top-paste', 'bottom-paste',
+            'top-mask', 'bottom-mask',
+            'board-outline',
+            'document', 'top-document', 'bottom-document',
+        ]);
+        const currentLayer = String(circle.layer || 'top-silk');
+        const legacyCurrentOpt = hiddenLayers.has(currentLayer)
+            ? `<option value="${currentLayer}" selected hidden></option>`
+            : '';
+        const layerOpts = PCB_LAYERS
+            .filter((l) => !hiddenLayers.has(l.id))
+            .map((l) => (
+                `<option value="${l.id}"${l.id === currentLayer ? ' selected' : ''}>${l.name}</option>`
+            ));
+        const layerOptionsHtml = [legacyCurrentOpt, ...layerOpts].join('');
+        const isCopperLayer = (layerId) => layerId === 'top-copper' || layerId === 'bottom-copper';
+        const normalizeCopperMode = (mode) => this._normalizeCircleCopperMode(mode);
+        const initialCopperMode = normalizeCopperMode(circle.copperMode);
+        items.innerHTML = `
+            <div class="prop-row"><label>Line Thickness (mm)</label><input type="number" id="pcbPropCircleLineWidth" min="0.05" step="0.05" value="${Number(circle.lineWidth || this._circleDefaults.lineWidth).toFixed(2)}"></div>
+            <div class="prop-row"><label>Layer</label><select id="pcbPropCircleLayer">${layerOptionsHtml}</select></div>
+            <div class="prop-row"><input type="checkbox" id="pcbPropCircleFilled"${circle.filled ? ' checked' : ''}> <span style="font-size:11px;color:var(--text-secondary)">Filled</span></div>
+            <div class="prop-row" id="pcbPropCircleCopperModeRow"><label>Copper Mode</label><select id="pcbPropCircleCopperMode"><option value="add"${initialCopperMode === 'add' ? ' selected' : ''}>Add Copper</option><option value="remove-copper"${initialCopperMode === 'remove-copper' ? ' selected' : ''}>Remove Copper</option><option value="remove-solder-mask"${initialCopperMode === 'remove-solder-mask' ? ' selected' : ''}>Remove Solder Mask</option><option value="remove-copper-mask"${initialCopperMode === 'remove-copper-mask' ? ' selected' : ''}>Remove Copper + Mask</option></select></div>
+        `;
+
+        const snapshot = () => ({
+            x: circle.x,
+            y: circle.y,
+            radius: circle.radius,
+            layer: circle.layer,
+            lineWidth: Math.max(0.05, Number(circle.lineWidth) || this._circleDefaults.lineWidth),
+            filled: !!circle.filled,
+            copperMode: normalizeCopperMode(circle.copperMode),
+        });
+        const commit = (mutate) => {
+            const before = snapshot();
+            mutate();
+            if (circle.layer === 'top-mask' || circle.layer === 'bottom-mask'
+                || circle.layer === 'document' || circle.layer === 'top-document' || circle.layer === 'bottom-document') {
+                circle.filled = true;
+            }
+            circle.copperMode = normalizeCopperMode(circle.copperMode);
+            const after = snapshot();
+            if (JSON.stringify(before) === JSON.stringify(after)) return;
+            circle.x = before.x;
+            circle.y = before.y;
+            circle.radius = before.radius;
+            circle.layer = before.layer;
+            circle.lineWidth = before.lineWidth;
+            circle.filled = before.filled;
+            circle.copperMode = before.copperMode;
+            this.history.execute(new ModifyCircleCommand(this, circle, before, after));
+        };
+
+        const lineEl = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropCircleLineWidth'));
+        lineEl?.addEventListener('change', () => {
+            const v = Math.max(0.05, Number(lineEl.value) || this._circleDefaults.lineWidth);
+            if (Math.abs(v - (Number(circle.lineWidth) || this._circleDefaults.lineWidth)) < 1e-9) return;
+            commit(() => { circle.lineWidth = v; });
+        });
+
+        const filledEl = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropCircleFilled'));
+        const layerEl = /** @type {HTMLSelectElement|null} */ (document.getElementById('pcbPropCircleLayer'));
+        const copperModeRowEl = /** @type {HTMLDivElement|null} */ (document.getElementById('pcbPropCircleCopperModeRow'));
+        const copperModeEl = /** @type {HTMLSelectElement|null} */ (document.getElementById('pcbPropCircleCopperMode'));
+        const syncFilledAvailability = () => {
+            if (!filledEl || !layerEl) return;
+            const isHole = layerEl.value === 'hole';
+            filledEl.disabled = isHole;
+            if (isHole) filledEl.checked = false;
+        };
+        const syncCopperModeAvailability = () => {
+            if (!copperModeEl || !layerEl || !copperModeRowEl) return;
+            const copper = isCopperLayer(layerEl.value);
+            copperModeRowEl.style.display = copper ? '' : 'none';
+            copperModeEl.disabled = !copper;
+            copperModeEl.value = copper ? normalizeCopperMode(circle.copperMode) : 'add';
+        };
+        filledEl?.addEventListener('change', () => {
+            if (filledEl.disabled) {
+                filledEl.checked = false;
+                return;
+            }
+            const v = !!filledEl.checked;
+            if (v === !!circle.filled) return;
+            commit(() => { circle.filled = v; });
+        });
+        layerEl?.addEventListener('change', () => {
+            const next = layerEl.value;
+            if (next === circle.layer) return;
+            if (isLayerLocked(next)) {
+                layerEl.value = circle.layer;
+                syncFilledAvailability();
+                syncCopperModeAvailability();
+                return;
+            }
+            commit(() => {
+                circle.layer = next;
+                if (next === 'hole') circle.filled = false;
+            });
+            syncFilledAvailability();
+            syncCopperModeAvailability();
+        });
+
+        copperModeEl?.addEventListener('change', () => {
+            if (copperModeEl.disabled) return;
+            const next = normalizeCopperMode(copperModeEl.value);
+            if (next === normalizeCopperMode(circle.copperMode)) return;
+            commit(() => { circle.copperMode = next; });
+            syncCopperModeAvailability();
+        });
+
+        syncFilledAvailability();
+        syncCopperModeAvailability();
+
+        this._setActiveRibbonTab?.('pcb-properties');
+    }
+
+    /** Re-sync circle properties when undo/redo mutates the selected circle. */
+    _refreshCircleProperties(circle) {
+        if (circle && this._selectedCircle && this._selectedCircle.id === circle.id) {
+            this._showCircleProperties(circle);
+        }
+    }
+
     /**
      * Show a small "Show 3D" context menu for a placed footprint that carries a
      * 3D OBJ model, at the given screen position. Takes the component id (not a
@@ -3174,6 +3885,12 @@ export default class PCBApp {
         // Place footprints (elements distributed to correct layer groups)
         this._placeFootprints(components);
 
+        // Keep free circles above freshly placed footprint artwork. Persistent
+        // objects are re-rendered before _placeFootprints to handle empty-
+        // component boards, but on populated boards that ordering can bury
+        // circles under footprint geometry after autosave restore/sync.
+        for (const c of this.circles) this._renderCircle(c);
+
         // Draw ratsnest
         this._updateRatsnest();
 
@@ -3234,6 +3951,12 @@ export default class PCBApp {
             renderHole(h, getGroup);
         }
 
+        // Free-standing circles.
+        this._circleElements.clear();
+        for (const c of this.circles) {
+            this._renderCircle(c);
+        }
+
         // Copper pours. Their model (copperFills) survives the rebuild but
         // their SVG is wiped by _clearPCBContent, so re-pour them here. This
         // is coalesced to one recompute on the next frame, by which point any
@@ -3261,6 +3984,13 @@ export default class PCBApp {
         this._footprintGroup = null;
         this._ratsnestGroup = null;
         this.placements.clear();
+        // Drop any copper-cut clip-paths; they are rebuilt as circles re-render.
+        for (const side of ['top', 'bottom']) {
+            this._svgDefs?.querySelector(`#pcb-copper-cut-${side}`)?.remove();
+            this._layerGroups.get(`${side}-copper`)?.removeAttribute('clip-path');
+            this._layerGroups.get(`${side}-fill`)?.removeAttribute('clip-path');
+        }
+        this._hasCopperCuts = false;
     }
 
     /**
@@ -3799,6 +4529,8 @@ export default class PCBApp {
             this._updateNetTooltip(ev, hovered);
             // Hover highlight for text annotations.
             this._setTextHover(this._hitTestText(worldPos));
+            // Hover highlight for free-standing circles.
+            this._setCircleHover(this._hitTestCircle(worldPos));
             // Cursor feedback: a diagonal double-arrow (matching the
             // schematic editor's graph anchors) when the pointer is over a
             // draggable track node. Only toggle on transitions so we don't
@@ -7042,6 +7774,10 @@ export default class PCBApp {
      * parameter changes, as well as during fill editing.
      */
     _refreshFills() {
+        if (this._suspendFillRefresh) {
+            this._fillRefreshPending = true;
+            return;
+        }
         if (!this.copperFills || this.copperFills.length === 0) {
             // Nothing to pour: make sure both fill groups are empty.
             this._clearFillGroups();
@@ -7128,7 +7864,12 @@ export default class PCBApp {
             tracks: this.tracks,
             vias: this.vias,
             pads,
-            holes: this.holes,
+            holes: [
+                ...(this.holes || []),
+                ...((this.circles || [])
+                    .filter((c) => c && c.layer === 'hole' && c.radius > 0)
+                    .map((c) => ({ x: c.x, y: c.y, diameter: c.radius * 2, plated: false }))),
+            ],
             params: { clearance: Number.isFinite(params.clearance) ? params.clearance : 0.1 },
             board: (this._boardWidth > 0 && this._boardHeight > 0)
                 ? { w: this._boardWidth, h: this._boardHeight, r: this._boardRadius || 0 }

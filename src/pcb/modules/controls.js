@@ -12,6 +12,7 @@ export function bindPcbControls(app) {
     const padBtn = document.getElementById('pcbToolPad');
     const viaBtn = document.getElementById('pcbToolVia');
     const holeBtn = document.getElementById('pcbToolHole');
+    const circleBtn = document.getElementById('pcbToolCircle');
     const textBtn = document.getElementById('pcbToolText');
     const fillBtn = document.getElementById('pcbToolFill');
     const zoomOutBtn = document.getElementById('pcbZoomOut');
@@ -29,9 +30,11 @@ export function bindPcbControls(app) {
     const copyPropsBtn = document.getElementById('pcbCopyProps');
     const cutPropsBtn = document.getElementById('pcbCutProps');
     const pastePropsBtn = document.getElementById('pcbPasteProps');
+    const undoBtn = document.getElementById('pcbUndoBtn');
+    const redoBtn = document.getElementById('pcbRedoBtn');
 
-    const toolBtns = [selectBtn, trackBtn, padBtn, viaBtn, holeBtn, textBtn, fillBtn];
-    const validTools = new Set(['select', 'track', 'pad', 'via', 'hole', 'text', 'fill']);
+    const toolBtns = [selectBtn, trackBtn, padBtn, viaBtn, holeBtn, circleBtn, textBtn, fillBtn];
+    const validTools = new Set(['select', 'track', 'pad', 'via', 'hole', 'circle', 'text', 'fill']);
 
     const setToolButtonActive = (tool) => {
         for (const btn of toolBtns) {
@@ -56,6 +59,10 @@ export function bindPcbControls(app) {
         // Cancel any in-progress copper-fill outline when leaving the fill tool.
         if (app._fillDraw && nextTool !== 'fill') {
             app._cancelFillDraw?.();
+        }
+        // Cancel any in-progress circle draw when leaving the circle tool.
+        if (app._circleDraw && nextTool !== 'circle') {
+            app._cancelCircleDraw?.();
         }
         app.currentTool = nextTool;
         // Clear any component hover outline when leaving the select tool.
@@ -88,6 +95,7 @@ export function bindPcbControls(app) {
     padBtn?.addEventListener('click', () => setTool('pad'));
     viaBtn?.addEventListener('click', () => setTool('via'));
     holeBtn?.addEventListener('click', () => setTool('hole'));
+    circleBtn?.addEventListener('click', () => setTool('circle'));
     textBtn?.addEventListener('click', () => setTool('text'));
     fillBtn?.addEventListener('click', () => setTool('fill'));
 
@@ -101,6 +109,10 @@ export function bindPcbControls(app) {
     pasteHomeBtn?.addEventListener('click', doPaste);
     pastePropsBtn?.addEventListener('click', doPaste);
     app._syncClipboardButtons?.();
+
+    undoBtn?.addEventListener('click', () => app.history?.undo?.());
+    redoBtn?.addEventListener('click', () => app.history?.redo?.());
+    app._syncHistoryButtons?.();
 
     // Auto Route button
     const autoRouteBtn = document.getElementById('pcbAutoRoute');
