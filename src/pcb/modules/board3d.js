@@ -88,6 +88,11 @@ export class ArcballController {
         this._rect = domElement.getBoundingClientRect();
         this._panStartX = 0;
         this._panStartY = 0;
+        this._panDepth = 0;
+        // Stable world-space Y plane used to estimate pan depth under cursor.
+        // Keep this fixed to the board slab (set from ThreeScene) so repeated
+        // panning cannot drag the depth reference away from the board.
+        this._panPlaneY = 0;
         this._needsUpdate = false;
 
         // The viewer lives in a pop-up window, so listen on *that* window — the
@@ -117,6 +122,12 @@ export class ArcballController {
 
     handleResize() {
         this._rect = this.domElement.getBoundingClientRect();
+    }
+
+    /** @param {number} y */
+    setPanReferencePlaneY(y) {
+        const n = Number(y);
+        if (Number.isFinite(n)) this._panPlaneY = n;
     }
 
     /**
@@ -151,8 +162,21 @@ export class ArcballController {
             this._q0.copy(this.camera.quaternion);
             this._anchor.copy(this._ballPoint(e.clientX, e.clientY));
         } else {
+            const planeY = Number.isFinite(this._panPlaneY) ? this._panPlaneY : this.target.y;
+            const dyToPlane = planeY - this.target.y;
+            // Recover from pathological long-session drift without snapping on
+            // normal operation: only re-anchor when the look target has walked
+            // far from the board slab.
+            if (Math.abs(dyToPlane) > 10) {
+                this.target.y += dyToPlane;
+                this.camera.position.y += dyToPlane;
+            }
             this._panStartX = e.clientX;
             this._panStartY = e.clientY;
+            // Lock the pan scale to the depth of the board surface under the
+            // cursor at grab time so the grabbed point stays glued to the
+            // pointer for the whole drag, regardless of zoom or view angle.
+            this._panDepth = this._grabDepth(e.clientX, e.clientY);
         }
         this.domElement.setPointerCapture?.(e.pointerId);
         // Resolve the window from the canvas's CURRENT document each time: the
@@ -222,6 +246,35 @@ export class ArcballController {
     }
 
     /**
+     * World point where the cursor ray intersects the fixed pan-reference
+     * board plane (world +Y normal). Returns null when the ray is parallel to
+     * the plane or intersects behind the camera.
+     * @param {number} clientX @param {number} clientY
+     * @returns {THREE.Vector3|null}
+     */
+    _planePoint(clientX, clientY) {
+        const rect = this._rect;
+        if (!rect || !rect.height) return null;
+        const nx = ((clientX - rect.left) / rect.width) * 2 - 1;
+        const ny = -(((clientY - rect.top) / rect.height) * 2 - 1);
+        const tanHalfV = Math.tan((this.camera.fov * Math.PI) / 180 / 2);
+        const aspect = this.camera.aspect || (rect.width / rect.height);
+        const cam = this.camera.position;
+        const forward = this.target.clone().sub(cam).normalize();
+        const right = new THREE.Vector3().setFromMatrixColumn(this.camera.matrix, 0);
+        const up = new THREE.Vector3().setFromMatrixColumn(this.camera.matrix, 1);
+        const dir = forward.clone()
+            .add(right.multiplyScalar(nx * tanHalfV * aspect))
+            .add(up.multiplyScalar(ny * tanHalfV))
+            .normalize();
+        if (Math.abs(dir.y) < 1e-4) return null;
+        const planeY = Number.isFinite(this._panPlaneY) ? this._panPlaneY : this.target.y;
+        const t = (planeY - cam.y) / dir.y;
+        if (!(t > 0) || !isFinite(t)) return null;
+        return cam.clone().add(dir.multiplyScalar(t));
+    }
+
+    /**
      * Screen-space pan: shift both camera and target in the camera's right/up
      * plane so the grabbed point tracks the cursor.
      * @param {number} clientX @param {number} clientY
@@ -231,7 +284,10 @@ export class ArcballController {
         const dy = clientY - this._panStartY;
         this._panStartX = clientX;
         this._panStartY = clientY;
-        const dist = this.camera.position.distanceTo(this.target);
+        // Pan in the camera right/up plane (no forward component), so dragging
+        // does not feel like a dolly-zoom. Depth is sampled from the fixed
+        // board plane at pan-start to keep off-centre grabs tracking correctly.
+        const dist = this._panDepth || this.camera.position.distanceTo(this.target);
         const fov = (this.camera.fov * Math.PI) / 180;
         const worldPerPx = (2 * dist * Math.tan(fov / 2)) / this._rect.height;
         const right = new THREE.Vector3().setFromMatrixColumn(this.camera.matrix, 0);
@@ -242,6 +298,22 @@ export class ArcballController {
         this.target.add(move);
         this._needsUpdate = true;
         this._emit('change');
+    }
+
+    /**
+     * Forward-axis depth (camera → content) of the board surface under the
+     * cursor. Pan scales world motion by this depth so the grabbed point tracks
+     * the pointer 1:1. Intersects against the fixed pan-reference plane.
+     * @param {number} clientX @param {number} clientY @returns {number}
+     */
+    _grabDepth(clientX, clientY) {
+        const cam = this.camera.position;
+        const fallback = cam.distanceTo(this.target);
+        const hit = this._planePoint(clientX, clientY);
+        if (!hit) return fallback;
+        const forward = this.target.clone().sub(cam).normalize();
+        const depth = hit.sub(cam).dot(forward);
+        return depth > 0 && isFinite(depth) ? depth : fallback;
     }
 
     /** @param {WheelEvent} e */
@@ -328,6 +400,11 @@ import {
     getBoard2DLayerStyles,
     setBoard2DLayerStyles,
 } from './board2d.js';
+import {
+    resolvePlacementDrills,
+    resolvePadFlashes,
+    resolveSilk,
+} from './board-geometry.js';
 
 /** Finished board thickness in millimetres (standard 1.6 mm). */
 const BOARD_THICKNESS = 1.6;
@@ -1187,51 +1264,45 @@ function fallbackBoxMesh(pl) {
  * @returns {{verts: Array, faces: Array}}
  */
 function padMesh(pl) {
-    const rot = pl.rotation || 0;
-    const theta = (rot * Math.PI) / 180;
-    const ct = Math.cos(theta);
-    const st = Math.sin(theta);
     const mesh = emptyMesh();
-    for (const off of (pl.padOffsets || [])) {
-        const w = plLocalToWorld(pl, off.dx, off.dy);
-        const halfW = (off.width || 1) / 2;
-        const halfH = (off.height || 1) / 2;
-        if (off.drill > 0) {
+    for (const flash of resolvePadFlashes(new Map([[0, pl]]))) {
+        const ct = Math.cos(flash.rad);
+        const st = Math.sin(flash.rad);
+        const halfW = flash.w / 2;
+        const halfH = flash.h / 2;
+        if (flash.isThru) {
             // Plated through-hole: shape-correct copper ring on each face +
             // barrel lining the bore (inner radius inset so it occludes the
             // board's FR4 edge).
-            const ri = Math.max(0.05, off.drill / 2 - 0.02);
+            const ri = Math.max(0.05, flash.drill / 2 - 0.02);
             // Stadium slot drill (holeLength > drill): bore between the two
             // cap-centres rather than a single round hole, so the slot reads
-            // as a slot instead of being lidded over by round pad copper.
-            let slot = null;
-            if (off.slotLength > off.drill) {
-                const half = (off.slotLength - off.drill) / 2;
-                const ca = Math.cos(off.slotAngle || 0), sa = Math.sin(off.slotAngle || 0);
-                const c1 = plLocalToWorld(pl, off.dx - half * ca, off.dy - half * sa);
-                const c2 = plLocalToWorld(pl, off.dx + half * ca, off.dy + half * sa);
-                slot = { x1: c1.x, z1: c1.z, x2: c2.x, z2: c2.z };
-            }
-            const round = (off.shape === 'ellipse' || off.shape === 'oval')
+            // as a slot instead of being lidded over by round pad copper. The
+            // cap-centres come from the shared resolver, so the pad bore aligns
+            // exactly with the board slab slot (collectBoardHoles).
+            const slot = flash.slot
+                ? { x1: flash.slot.x1, z1: flash.slot.y1, x2: flash.slot.x2, z2: flash.slot.y2 }
+                : null;
+            const round = (flash.shape === 'ellipse' || flash.shape === 'oval')
                 && Math.abs(halfW - halfH) < 1e-3;
             if (round && !slot) {
                 const ro = Math.max(halfW, Math.max(0.05, ri + 0.05));
-                appendMesh(mesh, tubeMesh(w.x, w.z, ri, ro,
+                appendMesh(mesh, tubeMesh(flash.x, flash.y, ri, ro,
                     Y_BOT - PAD_EPS, Y_TOP + PAD_EPS, COLOR_PAD, 16));
             } else {
-                appendMesh(mesh, throughHolePadMesh(w.x, w.z, off.shape, halfW, halfH,
+                appendMesh(mesh, throughHolePadMesh(flash.x, flash.y, flash.shape, halfW, halfH,
                     ct, st, ri, Y_BOT - PAD_EPS, Y_TOP + PAD_EPS, COLOR_PAD, slot));
             }
             continue;
         }
-        const bottom = off.layer === 'bottom';
+        const bottom = flash.layer === 'bottom';
         const y = bottom ? Y_BOT - PAD_EPS : Y_TOP + PAD_EPS;
-        if (off.shape === 'oval') {
+        if (flash.shape === 'oval') {
             // Stadium / obround (matches the 2D footprint render): straight
             // sides with semicircular ends, NOT a pointy ellipse.
-            appendMesh(mesh, stadiumDiscMesh(w.x, w.z, halfW, halfH, ct, st, y, COLOR_PAD));
-        } else if (off.shape === 'ellipse') {
-            appendMesh(mesh, ellipseDiscMesh(w.x, w.z, halfW, halfH, ct, st, y, COLOR_PAD, 20));
+            appendMesh(mesh, stadiumDiscMesh(flash.x, flash.y, halfW, halfH, ct, st, y, COLOR_PAD));
+        } else if (flash.shape === 'ellipse') {
+            appendMesh(mesh, ellipseDiscMesh(flash.x, flash.y, halfW, halfH, ct, st, y, COLOR_PAD, 20));
         } else {
             const local = [
                 { x: -halfW, z: -halfH }, { x: halfW, z: -halfH },
@@ -1240,9 +1311,9 @@ function padMesh(pl) {
             const base = mesh.verts.length;
             for (const c of local) {
                 mesh.verts.push({
-                    x: w.x + (c.x * ct - c.z * st),
+                    x: flash.x + (c.x * ct - c.z * st),
                     y,
-                    z: w.z + (c.x * st + c.z * ct),
+                    z: flash.y + (c.x * st + c.z * ct),
                 });
             }
             mesh.faces.push({ idx: [base, base + 1, base + 2, base + 3], color: COLOR_PAD });
@@ -1696,143 +1767,6 @@ function cylinderMesh(cx, cz, r, yBottom, yTop, color, seg = 18) {
     return { verts, faces };
 }
 
-/** Rotate a placement-local (dx, dy) offset into world (x, z). */
-function plLocalToWorld(pl, lx, ly) {
-    const t = ((pl.rotation || 0) * Math.PI) / 180;
-    const ct = Math.cos(t), st = Math.sin(t);
-    // A Flip and a bottom side each mirror the footprint (together they
-    // cancel) — negate local X so pads, holes and silk land mirrored to
-    // match the 2D pose.
-    const mir = (!!pl.mirror) !== (pl.side === 'bottom');
-    const mx = mir ? -lx : lx;
-    return { x: pl.x + (mx * ct - ly * st), z: pl.y + (mx * st + ly * ct) };
-}
-
-/**
- * Flatten an SVG path `d` string into a list of polylines (`{x,y}[]`).
- * Supports the commands ClearPCB silk emits: M/L/H/V/Z and C/Q béziers
- * (sampled to short chords). Mirrors the gerber exporter's flattener.
- * @param {string} d
- * @returns {Array<Array<{x:number,y:number}>>}
- */
-function flattenSvgPath(d) {
-    if (!d) return [];
-    const tokens = d.match(/[a-zA-Z]|-?[0-9]*\.?[0-9]+(?:e[-+]?[0-9]+)?/g) || [];
-    const polys = [];
-    let poly = [];
-    let x = 0, y = 0, sx = 0, sy = 0, i = 0;
-    const num = () => parseFloat(tokens[i++]);
-    const push = () => poly.push({ x, y });
-    const isCmd = (tok) => /[a-zA-Z]/.test(tok);
-    const bezier = (x0, y0, x1, y1, x2, y2, x3, y3, steps) => {
-        for (let s = 1; s <= steps; s++) {
-            const t = s / steps, u = 1 - t;
-            poly.push({
-                x: u * u * u * x0 + 3 * u * u * t * x1 + 3 * u * t * t * x2 + t * t * t * x3,
-                y: u * u * u * y0 + 3 * u * u * t * y1 + 3 * u * t * t * y2 + t * t * t * y3,
-            });
-        }
-    };
-    // SVG elliptical arc (A/a) → sampled chords. Endpoint-to-centre
-    // parameterisation per the SVG implementation notes (F.6.5).
-    const arc = (x0, y0, rx, ry, phiDeg, largeArc, sweep, ex, ey) => {
-        rx = Math.abs(rx); ry = Math.abs(ry);
-        if (rx === 0 || ry === 0) { x = ex; y = ey; push(); return; }
-        const phi = (phiDeg * Math.PI) / 180;
-        const cp = Math.cos(phi), sp = Math.sin(phi);
-        const dx = (x0 - ex) / 2, dy = (y0 - ey) / 2;
-        const x1p = cp * dx + sp * dy;
-        const y1p = -sp * dx + cp * dy;
-        let rxs = rx * rx, rys = ry * ry;
-        const lambda = (x1p * x1p) / rxs + (y1p * y1p) / rys;
-        if (lambda > 1) {
-            const sl = Math.sqrt(lambda);
-            rx *= sl; ry *= sl; rxs = rx * rx; rys = ry * ry;
-        }
-        let denom = rxs * y1p * y1p + rys * x1p * x1p;
-        let factor = Math.sqrt(Math.max(0, (rxs * rys - denom) / denom));
-        if (largeArc === sweep) factor = -factor;
-        const cxp = (factor * rx * y1p) / ry;
-        const cyp = (-factor * ry * x1p) / rx;
-        const cx = cp * cxp - sp * cyp + (x0 + ex) / 2;
-        const cy = sp * cxp + cp * cyp + (y0 + ey) / 2;
-        const ang = (ux, uy, vx, vy) => {
-            const dot = ux * vx + uy * vy;
-            const len = Math.hypot(ux, uy) * Math.hypot(vx, vy) || 1;
-            let a = Math.acos(Math.max(-1, Math.min(1, dot / len)));
-            if (ux * vy - uy * vx < 0) a = -a;
-            return a;
-        };
-        const theta1 = ang(1, 0, (x1p - cxp) / rx, (y1p - cyp) / ry);
-        let dTheta = ang((x1p - cxp) / rx, (y1p - cyp) / ry,
-            (-x1p - cxp) / rx, (-y1p - cyp) / ry);
-        if (!sweep && dTheta > 0) dTheta -= 2 * Math.PI;
-        else if (sweep && dTheta < 0) dTheta += 2 * Math.PI;
-        const steps = Math.max(4, Math.ceil((Math.abs(dTheta) / (Math.PI * 2)) * 48));
-        for (let s = 1; s <= steps; s++) {
-            const th = theta1 + (dTheta * s) / steps;
-            const ct = Math.cos(th), st = Math.sin(th);
-            poly.push({
-                x: cp * rx * ct - sp * ry * st + cx,
-                y: sp * rx * ct + cp * ry * st + cy,
-            });
-        }
-        x = ex; y = ey;
-    };
-    while (i < tokens.length) {
-        let t = tokens[i++];
-        if (!isCmd(t)) { i--; t = 'L'; }
-        const rel = t === t.toLowerCase() && t !== 'Z' && t !== 'z';
-        const c = t.toUpperCase();
-        if (c === 'M') {
-            if (poly.length) { polys.push(poly); poly = []; }
-            x = (rel ? x : 0) + num(); y = (rel ? y : 0) + num();
-            sx = x; sy = y; push();
-            while (i < tokens.length && !isCmd(tokens[i])) {
-                x = (rel ? x : 0) + num(); y = (rel ? y : 0) + num(); push();
-            }
-        } else if (c === 'L') {
-            while (i < tokens.length && !isCmd(tokens[i])) {
-                x = (rel ? x : 0) + num(); y = (rel ? y : 0) + num(); push();
-            }
-        } else if (c === 'H') {
-            while (i < tokens.length && !isCmd(tokens[i])) { x = (rel ? x : 0) + num(); push(); }
-        } else if (c === 'V') {
-            while (i < tokens.length && !isCmd(tokens[i])) { y = (rel ? y : 0) + num(); push(); }
-        } else if (c === 'Z') {
-            x = sx; y = sy; push();
-            polys.push(poly); poly = [];
-        } else if (c === 'C') {
-            while (i < tokens.length && !isCmd(tokens[i])) {
-                const x1 = (rel ? x : 0) + num(), y1 = (rel ? y : 0) + num();
-                const x2 = (rel ? x : 0) + num(), y2 = (rel ? y : 0) + num();
-                const nx = (rel ? x : 0) + num(), ny = (rel ? y : 0) + num();
-                bezier(x, y, x1, y1, x2, y2, nx, ny, 24); x = nx; y = ny;
-            }
-        } else if (c === 'Q') {
-            while (i < tokens.length && !isCmd(tokens[i])) {
-                const x1 = (rel ? x : 0) + num(), y1 = (rel ? y : 0) + num();
-                const nx = (rel ? x : 0) + num(), ny = (rel ? y : 0) + num();
-                const cx1 = x + (2 / 3) * (x1 - x), cy1 = y + (2 / 3) * (y1 - y);
-                const cx2 = nx + (2 / 3) * (x1 - nx), cy2 = ny + (2 / 3) * (y1 - ny);
-                bezier(x, y, cx1, cy1, cx2, cy2, nx, ny, 24); x = nx; y = ny;
-            }
-        } else if (c === 'A') {
-            while (i < tokens.length && !isCmd(tokens[i])) {
-                const rx = num(), ry = num(), rot = num();
-                const large = num(), sweep = num();
-                const ex = (rel ? x : 0) + num(), ey = (rel ? y : 0) + num();
-                arc(x, y, rx, ry, rot, large !== 0, sweep !== 0, ex, ey);
-            }
-        } else {
-            // Unsupported (S/T): skip its numeric args.
-            while (i < tokens.length && !isCmd(tokens[i])) i++;
-        }
-    }
-    if (poly.length) polys.push(poly);
-    return polys;
-}
-
 /**
  * Build a mesh that strokes a list of 2D polylines as flat ribbons with
  * round joints on a single y-plane. `toWorld(px, py)` maps each polyline
@@ -2104,33 +2038,24 @@ function buildHoleMesh(holes, subtractHoles = []) {
  */
 function collectBoardHoles(placements) {
     const holes = [];
-    for (const [, pl] of placements) {
-        for (const off of pl.padOffsets || []) {
-            if (!(off.drill > 0)) continue;
-            const r = off.drill / 2;
-            if (off.slotLength > off.drill) {
-                // Stadium-shaped slot: approximate the bore as a row of
-                // overlapping round holes sampled along the slot's long axis
-                // (the circular borer handles each; together they read as a
-                // slot without new mesh maths).
-                const half = (off.slotLength - off.drill) / 2;
-                const ca = Math.cos(off.slotAngle || 0);
-                const sa = Math.sin(off.slotAngle || 0);
-                const n = Math.max(2, Math.ceil((2 * half) / Math.max(0.1, r * 0.5)));
-                for (let i = 0; i <= n; i++) {
-                    const t = -half + (2 * half) * (i / n);
-                    const w = plLocalToWorld(pl, off.dx + t * ca, off.dy + t * sa);
-                    holes.push({ x: w.x, z: w.z, r, plated: true });
-                }
-            } else {
-                const w = plLocalToWorld(pl, off.dx, off.dy);
-                holes.push({ x: w.x, z: w.z, r, plated: true });
+    for (const drill of resolvePlacementDrills(placements)) {
+        const r = drill.dia / 2;
+        if (drill.slot) {
+            // Stadium-shaped slot: approximate the bore as a row of
+            // overlapping round holes sampled along the slot's long axis
+            // (the circular borer handles each; together they read as a
+            // slot without new mesh maths). Sampling between the posed world
+            // end-caps is identical to posing samples taken in local space.
+            const dx = drill.slot.x2 - drill.x;
+            const dy = drill.slot.y2 - drill.y;
+            const len = Math.hypot(dx, dy);
+            const n = Math.max(2, Math.ceil(len / Math.max(0.1, r * 0.5)));
+            for (let i = 0; i <= n; i++) {
+                const t = i / n;
+                holes.push({ x: drill.x + dx * t, z: drill.y + dy * t, r, plated: drill.plated });
             }
-        }
-        for (const s of pl.silks || []) {
-            if (s.layer !== 'hole' || s.type !== 'circle' || !(s.r > 0)) continue;
-            const w = plLocalToWorld(pl, s.cx, s.cy);
-            holes.push({ x: w.x, z: w.z, r: s.r, plated: false });
+        } else {
+            holes.push({ x: drill.x, z: drill.y, r, plated: drill.plated });
         }
     }
     return holes;
@@ -2217,34 +2142,44 @@ function buildSilkMesh(app) {
     const placements = app?.placements || [];
     const circles = app?.circles || [];
     const mesh = emptyMesh();
-    for (const [, pl] of placements) {
-        for (const s of pl.silks || []) {
-            if (s.layer !== 'top-silk' && s.layer !== 'bottom-silk') continue;
-            // The silk's stored layer is its footprint-local side; a component
-            // flipped to the bottom moves its top silk to the bottom face (and
-            // vice versa), so XOR the placement side onto the silk side.
-            const bottom = (s.layer === 'bottom-silk') !== (pl.side === 'bottom');
-            const y = bottom ? Y_BOT - SILK_EPS : Y_TOP + SILK_EPS;
-            const sw = s.strokeWidth || 0.15;
-            if (s.type === 'line') {
-                const a = plLocalToWorld(pl, s.x1, s.y1);
-                const b = plLocalToWorld(pl, s.x2, s.y2);
-                appendMesh(mesh, ribbonMesh(a.x, a.z, b.x, b.z, sw, y, COLOR_SILK));
-                appendMesh(mesh, discMesh(a.x, a.z, sw / 2, y, COLOR_SILK, 8));
-                appendMesh(mesh, discMesh(b.x, b.z, sw / 2, y, COLOR_SILK, 8));
-            } else if (s.type === 'circle' && s.r > 0) {
-                const c = plLocalToWorld(pl, s.cx, s.cy);
-                if (s.filled) {
-                    appendMesh(mesh, discMesh(c.x, c.z, s.r, y, COLOR_SILK, 24));
-                } else {
-                    appendMesh(mesh, flatRingMesh(c.x, c.z, s.r, sw, y, COLOR_SILK, 28));
-                }
-            } else if (s.type === 'path' && s.d) {
-                const polys = flattenSvgPath(s.d);
-                appendMesh(mesh, strokePolysToMesh(
-                    polys, sw, y, COLOR_SILK,
-                    (px, py) => plLocalToWorld(pl, px, py)));
+    // Footprint silk shapes via the shared resolver. Each descriptor carries
+    // its effective side, so both faces are built from one pass. Stroke width
+    // and the `filled` flag now match the 2D preview and Gerber output (the 3D
+    // view previously defaulted stroke to 0.15 and never filled paths).
+    for (const sk of resolveSilk(placements)) {
+        const bottom = sk.side === 'bottom';
+        const y = bottom ? Y_BOT - SILK_EPS : Y_TOP + SILK_EPS;
+        if (sk.kind === 'line') {
+            appendMesh(mesh, ribbonMesh(sk.x1, sk.y1, sk.x2, sk.y2, sk.width, y, COLOR_SILK));
+            appendMesh(mesh, discMesh(sk.x1, sk.y1, sk.width / 2, y, COLOR_SILK, 8));
+            appendMesh(mesh, discMesh(sk.x2, sk.y2, sk.width / 2, y, COLOR_SILK, 8));
+        } else if (sk.kind === 'circle' && sk.r > 0) {
+            if (sk.filled) {
+                appendMesh(mesh, discMesh(sk.cx, sk.cy, sk.r, y, COLOR_SILK, 24));
+            } else {
+                appendMesh(mesh, flatRingMesh(sk.cx, sk.cy, sk.r, sk.width, y, COLOR_SILK, 28));
             }
+        } else if (sk.kind === 'path') {
+            // Filled silk paths (e.g. pin-1 triangles) render solid, matching
+            // the fab output — each subpath is triangulated as its own region
+            // (mirrors Gerber's per-poly G36 fill).
+            if (sk.filled) {
+                for (const poly of sk.polys) {
+                    if (poly.length < 3) continue;
+                    let tri = null;
+                    try { tri = triangulateWithHoles(poly, []); } catch { tri = null; }
+                    if (!tri || !tri.tris.length) continue;
+                    const base = mesh.verts.length;
+                    for (const p of tri.pts) mesh.verts.push({ x: p.x, y, z: p.y });
+                    for (const t of tri.tris) {
+                        mesh.faces.push({ idx: [base + t[0], base + t[1], base + t[2]], color: COLOR_SILK });
+                    }
+                }
+            }
+            // The resolver returns already-posed polylines, so map (x,y)→(x,z).
+            appendMesh(mesh, strokePolysToMesh(
+                sk.polys, sk.width, y, COLOR_SILK,
+                (px, py) => ({ x: px, z: py })));
         }
     }
     // Free-standing circles on any non-copper, non-hole, non-mask,
@@ -2858,6 +2793,9 @@ class ThreeScene {
         this.controls.rotateSpeed = 1.0;
         this.controls.zoomSpeed = 1.4;
         this.controls.panSpeed = 1.0;
+        // Keep pan-depth scaling tied to the board slab, not the moving camera
+        // target, so long pan/zoom sessions do not accumulate drag drift.
+        this.controls.setPanReferencePlaneY(BOARD_THICKNESS * 0.5);
         // Floor the zoom-in distance (set from board size in positionGlint) so
         // the camera can't push through the surface into the board/components.
         this.controls.minDistance = 5;
@@ -3316,9 +3254,20 @@ export async function openBoard3DViewer(app, opts = {}) {
         splitter.releasePointerCapture?.(e.pointerId);
     };
     splitter.addEventListener('pointerdown', (e) => {
+        // Resize drag is left-button only; swallow other buttons so a
+        // right-click on the divider never opens context menus underneath.
+        if (e.button !== 0) {
+            e.preventDefault();
+            e.stopPropagation();
+            return;
+        }
         dragging = true;
         splitter.setPointerCapture?.(e.pointerId);
         e.preventDefault();
+    });
+    splitter.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
     });
     window.addEventListener('pointermove', onSplitMove);
     window.addEventListener('pointerup', onSplitUp);

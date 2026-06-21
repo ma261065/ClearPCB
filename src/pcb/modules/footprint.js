@@ -7,6 +7,7 @@
  */
 
 import { stringToPolylines, measureText } from './stroke-font.js';
+import { MASK_EXPANSION } from './board-geometry.js';
 
 const NS = 'http://www.w3.org/2000/svg';
 
@@ -671,8 +672,9 @@ function generateFromShapes(shapes, bbox, source) {
 
     // Generate paste mask and solder mask shapes from pads.
     // EasyEDA doesn't store these explicitly — they're derived from pad geometry.
-    // Paste = same size as pad, Mask = pad + 0.1mm expansion.
-    const MASK_EXPANSION = 0.1;  // mm
+    // Paste = same size as pad, Mask = pad + MASK_EXPANSION per side. The
+    // expansion is shared with the Gerber export (board-geometry.js) so the
+    // editor preview matches the fabricated soldermask exactly.
     const sw = 0.1;
 
     /** Push a filled pad-shaped opening onto `silks` for the given layer. */

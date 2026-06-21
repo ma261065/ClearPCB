@@ -15,6 +15,12 @@
  */
 
 import { stringToPolylines, measureText } from './stroke-font.js';
+import {
+    placementPose as _placementPose,
+    resolvePlacementDrills,
+    resolvePadFlashes,
+    resolveSilk,
+} from './board-geometry.js';
 
 // Palette mirrors the 3D viewer (board3d.js) so the two previews match.
 const COL = {
@@ -249,34 +255,6 @@ export function setBoard2DLayerStyles(patch = {}) {
 }
 
 _applyLayerColors();
-
-// Footprint silk authored on one side moves to the opposite side when the
-// component is placed on the bottom (matches the editor's FP_LAYER_FLIP).
-const FLIP_SILK = { 'top-silk': 'bottom-silk', 'bottom-silk': 'top-silk' };
-
-/**
- * Footprint-local → world transform for a placement's pose: mirror (about the
- * footprint origin) then rotate then translate. Matches `applyPlacementPose`
- * and the editor's SVG group transform `translate … rotate … scale(-1,1)`, so
- * pads/silk land exactly where the 2D editor and 3D view draw them.
- * @param {{x?:number,y?:number,rotation?:number,mirror?:boolean,side?:string}} pl
- */
-function _placementPose(pl) {
-    const rad = ((pl.rotation || 0) * Math.PI) / 180;
-    const cos = Math.cos(rad), sin = Math.sin(rad);
-    // A user flip (mirror) and a bottom-side placement each mirror the
-    // footprint; together they cancel out.
-    const mx = ((!!pl.mirror) !== (pl.side === 'bottom')) ? -1 : 1;
-    const ox = pl.x || 0, oy = pl.y || 0;
-    return {
-        rad,
-        /** @param {number} lx @param {number} ly */
-        xf(lx, ly) {
-            const x = lx * mx;
-            return { x: ox + x * cos - ly * sin, y: oy + x * sin + ly * cos };
-        },
-    };
-}
 
 export class Board2D {
     /** @param {HTMLCanvasElement} canvas */
@@ -733,16 +711,8 @@ export class Board2D {
         cctx.save();
         cctx.globalAlpha = LAYER_STYLE.pads.o;
         cctx.fillStyle = COL.pad;
-        for (const [, pl] of (d.placements || [])) {
-            if (!pl?.padOffsets) continue;
-            const pose = _placementPose(pl);
-            for (const off of pl.padOffsets) {
-                const layer = off.layer || 'top';
-                if (layer !== 'both' && layer !== padSide) continue;
-                const p = pose.xf(off.dx, off.dy);
-                this._fillPad(cctx, p.x, p.y, off.width || 1.2, off.height || 1.2,
-                    off.shape || 'rect', pose.rad);
-            }
+        for (const flash of resolvePadFlashes(d.placements || new Map(), { side: padSide })) {
+            this._fillPad(cctx, flash.x, flash.y, flash.w, flash.h, flash.shape, flash.rad);
         }
         cctx.restore();
 
@@ -846,36 +816,26 @@ export class Board2D {
     _drawHoles(ctx) {
         const d = this.data;
         ctx.fillStyle = COL.bg;
-        for (const [, pl] of (d.placements || [])) {
-            if (!pl?.padOffsets) continue;
-            const pose = _placementPose(pl);
-            for (const off of pl.padOffsets) {
-                const drill = off.drill || 0;
-                if (drill <= 0) continue;
-                if (off.slotLength > drill) {
-                    // Stadium-shaped slot drill: a round-capped stroke of
-                    // width = drill traces the slot's long axis. Pose both
-                    // end-cap centres so rotation/mirror are applied exactly.
-                    const half = (off.slotLength - drill) / 2;
-                    const ca = Math.cos(off.slotAngle || 0);
-                    const sa = Math.sin(off.slotAngle || 0);
-                    const a = pose.xf(off.dx - half * ca, off.dy - half * sa);
-                    const b = pose.xf(off.dx + half * ca, off.dy + half * sa);
-                    ctx.save();
-                    ctx.strokeStyle = COL.bg;
-                    ctx.lineCap = 'round';
-                    ctx.lineWidth = drill;
-                    ctx.beginPath();
-                    ctx.moveTo(a.x, a.y);
-                    ctx.lineTo(b.x, b.y);
-                    ctx.stroke();
-                    ctx.restore();
-                } else {
-                    const p = pose.xf(off.dx, off.dy);
-                    ctx.beginPath();
-                    ctx.arc(p.x, p.y, drill / 2, 0, Math.PI * 2);
-                    ctx.fill();
-                }
+        // Through-hole pad drills (round + oval slot) and footprint mounting
+        // holes, posed via the shared resolver. Punch through to background so
+        // each bore reads as an open hole, not a dark disc.
+        for (const drill of resolvePlacementDrills(d.placements || new Map())) {
+            if (drill.slot) {
+                // Stadium slot: a round-capped stroke of width = bore diameter
+                // traces the slot's long axis between the two cap centres.
+                ctx.save();
+                ctx.strokeStyle = COL.bg;
+                ctx.lineCap = 'round';
+                ctx.lineWidth = drill.dia;
+                ctx.beginPath();
+                ctx.moveTo(drill.x, drill.y);
+                ctx.lineTo(drill.slot.x2, drill.slot.y2);
+                ctx.stroke();
+                ctx.restore();
+            } else {
+                ctx.beginPath();
+                ctx.arc(drill.x, drill.y, drill.dia / 2, 0, Math.PI * 2);
+                ctx.fill();
             }
         }
         for (const v of (d.vias || [])) {
@@ -884,20 +844,6 @@ export class Board2D {
             ctx.beginPath();
             ctx.arc(v.x, v.y, drill / 2, 0, Math.PI * 2);
             ctx.fill();
-        }
-        // Footprint mechanical / mounting holes are authored as 'hole'-layer
-        // circles inside the footprint's silks (same source the 3D view bores
-        // via collectBoardHoles). Punch them through to raw board.
-        for (const [, pl] of (d.placements || [])) {
-            const pose = _placementPose(pl);
-            for (const s of (pl.silks || [])) {
-                if (s.layer !== 'hole' || s.type !== 'circle' || !(s.r > 0)) continue;
-                const p = pose.xf(s.cx, s.cy);
-                ctx.beginPath();
-                ctx.arc(p.x, p.y, s.r, 0, Math.PI * 2);
-                ctx.fillStyle = COL.bg;
-                ctx.fill();
-            }
         }
         for (const h of (d.holes || [])) {
             const drill = h.diameter || 0;
@@ -938,60 +884,47 @@ export class Board2D {
             ctx.stroke();
         };
 
+        for (const sk of resolveSilk(d.placements || new Map(), this.side)) {
+            if (sk.kind === 'line') {
+                stroke([[{ x: sk.x1, y: sk.y1 }, { x: sk.x2, y: sk.y2 }]], sk.width);
+            } else if (sk.kind === 'circle') {
+                ctx.beginPath();
+                ctx.arc(sk.cx, sk.cy, sk.r, 0, Math.PI * 2);
+                // Solid silk markers (e.g. polarity dots) fill, matching the
+                // editor and the fabricated silkscreen.
+                if (sk.filled) {
+                    ctx.fillStyle = COL.silk;
+                    ctx.fill();
+                }
+                ctx.lineWidth = sk.width;
+                ctx.stroke();
+            } else if (sk.kind === 'path') {
+                // Filled silk paths (e.g. pin-1 triangles) render solid, not
+                // just outlined, so the 2D view matches the fab output.
+                if (sk.filled) {
+                    ctx.fillStyle = COL.silk;
+                    ctx.beginPath();
+                    for (const poly of sk.polys) {
+                        if (!poly.length) continue;
+                        ctx.moveTo(poly[0].x, poly[0].y);
+                        for (let i = 1; i < poly.length; i++) ctx.lineTo(poly[i].x, poly[i].y);
+                        ctx.closePath();
+                    }
+                    ctx.fill('evenodd');
+                }
+                const segs = [];
+                for (const poly of sk.polys) {
+                    for (let i = 1; i < poly.length; i++) segs.push([poly[i - 1], poly[i]]);
+                }
+                if (segs.length) stroke(segs, sk.width);
+            }
+        }
+
+        // Reference designators are posed per-placement (stroke-font geometry,
+        // not part of resolveSilk).
         for (const [, pl] of (d.placements || [])) {
             const pose = _placementPose(pl);
-            // Silk authored on one side moves to the other when the part is on
-            // the bottom; the part's pose mirrors/rotates the geometry too.
             const bottom = pl.side === 'bottom';
-            for (const s of (pl.silks || [])) {
-                const layer = bottom ? (FLIP_SILK[s.layer] || s.layer) : s.layer;
-                if (layer !== wantLayer) continue;
-                const sw = Number.isFinite(s.strokeWidth) && s.strokeWidth > 0 ? s.strokeWidth : 0.12;
-                if (s.type === 'line') {
-                    stroke([[pose.xf(s.x1, s.y1), pose.xf(s.x2, s.y2)]], sw);
-                } else if (s.type === 'circle') {
-                    const c = pose.xf(s.cx, s.cy);
-                    ctx.beginPath();
-                    ctx.arc(c.x, c.y, s.r, 0, Math.PI * 2);
-                    // Solid silk markers (e.g. polarity dots) fill, matching the
-                    // editor and the fabricated silkscreen.
-                    if (s.filled) {
-                        ctx.fillStyle = COL.silk;
-                        ctx.fill();
-                    }
-                    ctx.lineWidth = sw;
-                    ctx.stroke();
-                } else if (s.type === 'path') {
-                    const polys = _flattenPath(s.d);
-                    // Filled silk paths (e.g. pin-1 triangles) render solid, not
-                    // just outlined, so the 2D view matches the fab output.
-                    if (s.filled) {
-                        ctx.fillStyle = COL.silk;
-                        ctx.beginPath();
-                        for (const poly of polys) {
-                            if (!poly.length) continue;
-                            const p0 = pose.xf(poly[0].x, poly[0].y);
-                            ctx.moveTo(p0.x, p0.y);
-                            for (let i = 1; i < poly.length; i++) {
-                                const p = pose.xf(poly[i].x, poly[i].y);
-                                ctx.lineTo(p.x, p.y);
-                            }
-                            ctx.closePath();
-                        }
-                        ctx.fill('evenodd');
-                    }
-                    const segs = [];
-                    for (const poly of polys) {
-                        for (let i = 1; i < poly.length; i++) {
-                            segs.push([
-                                pose.xf(poly[i - 1].x, poly[i - 1].y),
-                                pose.xf(poly[i].x, poly[i].y),
-                            ]);
-                        }
-                    }
-                    if (segs.length) stroke(segs, sw);
-                }
-            }
 
             // Reference designator: it lives on the component's silk side and
             // is posed with the footprint, so on the bottom view it reads the
@@ -1112,84 +1045,4 @@ function _textSegments(t) {
         }
     }
     return out;
-}
-
-/**
- * Flatten a simple SVG path string into polylines (mm). Supports M/L/H/V/Z and
- * cubic/quadratic beziers. Mirrors gerber.js `_flattenPath`.
- * @param {string} d
- * @returns {Array<Array<{x:number,y:number}>>}
- */
-function _flattenPath(d) {
-    if (!d) return [];
-    const tokens = d.match(/[a-zA-Z]|-?[0-9]*\.?[0-9]+(?:e[-+]?[0-9]+)?/g) || [];
-    const polys = [];
-    let poly = [];
-    let x = 0, y = 0, sx = 0, sy = 0;
-    let i = 0;
-    const num = () => parseFloat(tokens[i++]);
-    const push = () => { poly.push({ x, y }); };
-    while (i < tokens.length) {
-        const tk = tokens[i++];
-        if (/[a-zA-Z]/.test(tk) === false) i--;
-        const cmd = /[a-zA-Z]/.test(tk) ? tk : 'L';
-        const rel = cmd === cmd.toLowerCase() && cmd !== 'Z' && cmd !== 'z';
-        const c = cmd.toUpperCase();
-        if (c === 'M') {
-            if (poly.length) { polys.push(poly); poly = []; }
-            const nx = num(), ny = num();
-            x = rel ? x + nx : nx; y = rel ? y + ny : ny;
-            sx = x; sy = y; push();
-            while (i < tokens.length && !/[a-zA-Z]/.test(tokens[i])) {
-                const lx = num(), ly = num();
-                x = rel ? x + lx : lx; y = rel ? y + ly : ly; push();
-            }
-        } else if (c === 'L') {
-            while (i < tokens.length && !/[a-zA-Z]/.test(tokens[i])) {
-                const lx = num(), ly = num();
-                x = rel ? x + lx : lx; y = rel ? y + ly : ly; push();
-            }
-        } else if (c === 'H') {
-            while (i < tokens.length && !/[a-zA-Z]/.test(tokens[i])) {
-                const lx = num(); x = rel ? x + lx : lx; push();
-            }
-        } else if (c === 'V') {
-            while (i < tokens.length && !/[a-zA-Z]/.test(tokens[i])) {
-                const ly = num(); y = rel ? y + ly : ly; push();
-            }
-        } else if (c === 'Z') {
-            x = sx; y = sy; push();
-            polys.push(poly); poly = [];
-        } else if (c === 'C') {
-            while (i < tokens.length && !/[a-zA-Z]/.test(tokens[i])) {
-                const x1 = (rel ? x : 0) + num(), y1 = (rel ? y : 0) + num();
-                const x2 = (rel ? x : 0) + num(), y2 = (rel ? y : 0) + num();
-                const nx = (rel ? x : 0) + num(), ny = (rel ? y : 0) + num();
-                _flattenBezier(poly, x, y, x1, y1, x2, y2, nx, ny, 16);
-                x = nx; y = ny;
-            }
-        } else if (c === 'Q') {
-            while (i < tokens.length && !/[a-zA-Z]/.test(tokens[i])) {
-                const x1 = (rel ? x : 0) + num(), y1 = (rel ? y : 0) + num();
-                const nx = (rel ? x : 0) + num(), ny = (rel ? y : 0) + num();
-                const cx1 = x + 2 / 3 * (x1 - x), cy1 = y + 2 / 3 * (y1 - y);
-                const cx2 = nx + 2 / 3 * (x1 - nx), cy2 = ny + 2 / 3 * (y1 - ny);
-                _flattenBezier(poly, x, y, cx1, cy1, cx2, cy2, nx, ny, 16);
-                x = nx; y = ny;
-            }
-        } else {
-            while (i < tokens.length && !/[a-zA-Z]/.test(tokens[i])) i++;
-        }
-    }
-    if (poly.length) polys.push(poly);
-    return polys;
-}
-
-function _flattenBezier(poly, x0, y0, x1, y1, x2, y2, x3, y3, steps) {
-    for (let s = 1; s <= steps; s++) {
-        const t = s / steps, u = 1 - t;
-        const bx = u * u * u * x0 + 3 * u * u * t * x1 + 3 * u * t * t * x2 + t * t * t * x3;
-        const by = u * u * u * y0 + 3 * u * u * t * y1 + 3 * u * t * t * y2 + t * t * t * y3;
-        poly.push({ x: bx, y: by });
-    }
 }
