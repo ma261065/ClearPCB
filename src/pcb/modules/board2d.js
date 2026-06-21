@@ -865,6 +865,20 @@ export class Board2D {
             ctx.arc(v.x, v.y, drill / 2, 0, Math.PI * 2);
             ctx.fill();
         }
+        // Footprint mechanical / mounting holes are authored as 'hole'-layer
+        // circles inside the footprint's silks (same source the 3D view bores
+        // via collectBoardHoles). Punch them through to raw board.
+        for (const [, pl] of (d.placements || [])) {
+            const pose = _placementPose(pl);
+            for (const s of (pl.silks || [])) {
+                if (s.layer !== 'hole' || s.type !== 'circle' || !(s.r > 0)) continue;
+                const p = pose.xf(s.cx, s.cy);
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, s.r, 0, Math.PI * 2);
+                ctx.fillStyle = COL.bg;
+                ctx.fill();
+            }
+        }
         for (const h of (d.holes || [])) {
             const drill = h.diameter || 0;
             if (drill <= 0) continue;

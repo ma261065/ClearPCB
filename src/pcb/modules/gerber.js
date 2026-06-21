@@ -96,7 +96,7 @@ export function exportGerbers(opts) {
     ]);
     // Only emit the NPTH file when there are non-plated holes — an empty
     // drill file trips up some fab pre-checks.
-    const npth = _collectNonPlatedDrills(holes, circles);
+    const npth = _collectNonPlatedDrills(holes, circles, placements);
     if (npth.length) files.set('board-NPTH.drl', _buildDrill(npth, clipBounds, true));
     return files;
 }
@@ -995,7 +995,7 @@ function _collectPlatedDrills(placements, vias, holes) {
 }
 
 /** Collect non-plated drills: standalone mounting/tooling holes. */
-function _collectNonPlatedDrills(holes, circles = []) {
+function _collectNonPlatedDrills(holes, circles = [], placements = new Map()) {
     const out = [];
     for (const h of holes) {
         if (!h.plated && h.diameter > 0) out.push({ dia: h.diameter, x: h.x, y: h.y });
@@ -1005,6 +1005,17 @@ function _collectNonPlatedDrills(holes, circles = []) {
         if (!c || c.layer !== 'hole') continue;
         const dia = 2 * (Number(c.radius) || 0);
         if (dia > 0) out.push({ dia, x: c.x, y: c.y });
+    }
+    // Footprint mechanical / mounting holes are authored as 'hole'-layer
+    // circles inside each footprint's silks; pose them into world space (same
+    // source the 3D view bores via collectBoardHoles).
+    for (const [, pl] of placements) {
+        const xf = _poseXform(pl);
+        for (const s of (pl.silks || [])) {
+            if (s.layer !== 'hole' || s.type !== 'circle' || !(s.r > 0)) continue;
+            const p = xf(s.cx, s.cy);
+            out.push({ dia: 2 * s.r, x: p.x, y: p.y });
+        }
     }
     return out;
 }
