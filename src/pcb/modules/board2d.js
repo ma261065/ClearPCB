@@ -279,6 +279,18 @@ export class Board2D {
         this._drag = null;
         canvas.addEventListener('pointerdown', this._onPointerDown);
         canvas.addEventListener('wheel', this._onWheel, { passive: false });
+        // Re-render when the canvas CSS box changes (window resize, split-divider
+        // drag, dock/pop-out). Without this the backing store keeps its old size
+        // and the browser stretches the bitmap. A ResizeObserver fires whether
+        // docked or torn off, and regardless of which document the canvas is in.
+        // (The 3D scene's observer watches the WebGL canvas, which is hidden in
+        // 2D mode, so it can't cover this.)
+        try {
+            this._ro = new ResizeObserver(() => {
+                if (this.canvas.clientWidth && this.canvas.clientHeight) this.render();
+            });
+            this._ro.observe(canvas);
+        } catch { this._ro = null; }
     }
 
     /** @param {object} data Same fields passed to exportGerbers. */
@@ -308,6 +320,8 @@ export class Board2D {
     }
 
     dispose() {
+        try { this._ro?.disconnect(); } catch { /* ignore */ }
+        this._ro = null;
         this.canvas.removeEventListener('pointerdown', this._onPointerDown);
         this.canvas.removeEventListener('wheel', this._onWheel);
         const w = this._dragWin;

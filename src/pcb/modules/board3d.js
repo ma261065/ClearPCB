@@ -89,11 +89,32 @@ export class ArcballController {
         this._panStartX = 0;
         this._panStartY = 0;
         this._panDepth = 0;
+        /** @type {THREE.Vector3|null} World point grabbed on the pan plane. */
+        this._panGrab = null;
         // Stable world-space Y plane used to estimate pan depth under cursor.
         // Keep this fixed to the board slab (set from ThreeScene) so repeated
         // panning cannot drag the depth reference away from the board.
         this._panPlaneY = 0;
         this._needsUpdate = false;
+
+        // ── Smoothing / inertia ──────────────────────────────────────────────
+        // Rotation momentum: a flick-and-release keeps the board coasting along
+        // the same arc and eases out, instead of stopping dead.
+        // Disabled — rotation stops immediately on release.
+        this.enableDamping = false;
+        this.dampingFactor = 0.9;            // spin velocity retained per frame
+        this._spinAxis = new THREE.Vector3(0, 1, 0); // world axis of the coast
+        this._spinVel = 0;                   // radians per frame
+        this._spinning = false;
+        this._qPrev = this._newQuat();       // orientation last rotate frame
+        // Eased zoom-to-cursor: the wheel sets a goal camera/target pair and
+        // update() glides the live rig toward it, scaling about the world point
+        // under the cursor so that point stays pinned on screen.
+        this.zoomDamping = 0.22;             // fraction of the gap closed/frame
+        /** @type {THREE.Vector3|null} */
+        this._zoomGoalCam = null;
+        /** @type {THREE.Vector3|null} */
+        this._zoomGoalTarget = null;
 
         // The viewer lives in a pop-up window, so listen on *that* window — the
         // module-global `window` is the opener and would never see the events.
@@ -156,26 +177,28 @@ export class ArcballController {
     _onPointerDown(e) {
         if (!this.enabled) return;
         this._rect = this.domElement.getBoundingClientRect();
+        // A fresh grab cancels any in-flight coast spin / zoom glide.
+        this._spinning = false;
+        this._spinVel = 0;
+        this._zoomGoalCam = null;
+        this._zoomGoalTarget = null;
         const pan = e.button === 2 || e.button === 1 || e.shiftKey;
         this._mode = pan ? 2 : 1;
         if (this._mode === 1) {
             this._q0.copy(this.camera.quaternion);
+            this._qPrev.copy(this.camera.quaternion);
             this._anchor.copy(this._ballPoint(e.clientX, e.clientY));
         } else {
-            const planeY = Number.isFinite(this._panPlaneY) ? this._panPlaneY : this.target.y;
-            const dyToPlane = planeY - this.target.y;
-            // Recover from pathological long-session drift without snapping on
-            // normal operation: only re-anchor when the look target has walked
-            // far from the board slab.
-            if (Math.abs(dyToPlane) > 10) {
-                this.target.y += dyToPlane;
-                this.camera.position.y += dyToPlane;
-            }
             this._panStartX = e.clientX;
             this._panStartY = e.clientY;
-            // Lock the pan scale to the depth of the board surface under the
-            // cursor at grab time so the grabbed point stays glued to the
-            // pointer for the whole drag, regardless of zoom or view angle.
+            // Plane-drag pan: remember the world point on the pan-reference
+            // plane under the cursor at grab time. Each move re-solves an
+            // in-plane translation that keeps this point glued to the pointer,
+            // so the look target never drifts vertically off the board and the
+            // next gesture starts clean (no snap-back jump).
+            this._panGrab = this._planePoint(e.clientX, e.clientY);
+            // Fallback scale for the rare edge-on view where the cursor ray
+            // misses the plane and screen-space panning takes over.
             this._panDepth = this._grabDepth(e.clientX, e.clientY);
         }
         this.domElement.setPointerCapture?.(e.pointerId);
@@ -197,12 +220,21 @@ export class ArcballController {
 
     /** @param {PointerEvent} e */
     _onPointerUp(e) {
+        const wasRotate = this._mode === 1;
         this._mode = 0;
         this.domElement.releasePointerCapture?.(e.pointerId);
         const win = this._activeWin || this._win;
         win.removeEventListener('pointermove', this._onPointerMove);
         win.removeEventListener('pointerup', this._onPointerUp);
-        this._emit('end');
+        // Coast: if the release ended a quick rotate flick, keep spinning and
+        // defer 'end' until the momentum decays (update() emits it) so the host
+        // keeps rendering through the glide. Otherwise settle immediately.
+        if (wasRotate && this.enableDamping && this._spinVel > 0.004) {
+            this._spinning = true;
+        } else {
+            this._spinVel = 0;
+            this._emit('end');
+        }
     }
 
     /**
@@ -230,19 +262,49 @@ export class ArcballController {
         // local frame on top of the start orientation.
         const deltaEye = this._newQuat().setFromUnitVectors(cur, this._anchor);
         const q = this._q0.clone().multiply(deltaEye);
+        // Seed coast momentum from the per-frame change in orientation so a
+        // flick-and-release keeps spinning briefly along the same arc.
+        this._seedSpin(q);
+        this._setOrientation(q);
+        this._needsUpdate = true;
+        this._emit('change');
+    }
+
+    /**
+     * Place the camera on the orbit sphere for orientation `q` (position, up and
+     * quaternion). `update()`'s lookAt re-derives the orientation from position
+     * and up, so carrying `up` with the rotation lets the board flip past the
+     * poles without the gimbal lock a fixed +Y up imposes.
+     * @param {THREE.Quaternion} q
+     */
+    _setOrientation(q) {
         const dist = this.camera.position.distanceTo(this.target);
         const offset = new THREE.Vector3(0, 0, 1).applyQuaternion(q).multiplyScalar(dist);
         this.camera.position.copy(this.target).add(offset);
-        // Carry the up-vector with the rotation. `update()` re-derives the
-        // orientation with `lookAt(target)`, which uses `camera.up`; keeping up
-        // rotated by q means lookAt reproduces this exact orientation — and,
-        // because up stays perpendicular to the view direction, the board can
-        // be flipped past the poles without the gimbal lock a fixed +Y up
-        // (OrbitControls) imposes.
         this.camera.up.set(0, 1, 0).applyQuaternion(q);
         this.camera.quaternion.copy(q);
-        this._needsUpdate = true;
-        this._emit('change');
+    }
+
+    /**
+     * Record the world-space rotation between the previous rotate frame and the
+     * new orientation `q` as the coast spin axis/velocity, then store `q` for
+     * the next frame. Velocity is clamped so a fast flick can't fling the view.
+     * @param {THREE.Quaternion} q
+     */
+    _seedSpin(q) {
+        const incr = q.clone().multiply(this._qPrev.clone().invert());
+        const v = new THREE.Vector3(incr.x, incr.y, incr.z);
+        const len = v.length();
+        let angle = 2 * Math.atan2(len, incr.w);
+        if (angle > Math.PI) angle -= 2 * Math.PI; // shortest arc
+        if (len > 1e-6 && Math.abs(angle) > 1e-5) {
+            this._spinAxis.copy(v).divideScalar(len);
+            if (angle < 0) { angle = -angle; this._spinAxis.negate(); }
+            this._spinVel = Math.min(angle, 0.12);
+        } else {
+            this._spinVel = 0;
+        }
+        this._qPrev.copy(q);
     }
 
     /**
@@ -280,6 +342,25 @@ export class ArcballController {
      * @param {number} clientX @param {number} clientY
      */
     _panBy(clientX, clientY) {
+        // Primary path: drag the board plane so the grabbed world point tracks
+        // the cursor 1:1. The translation lies in the pan-reference plane (both
+        // endpoints share planeY), so the look target keeps a constant height
+        // above the board — no vertical drift, hence no re-anchor jump.
+        if (this._panGrab) {
+            const now = this._planePoint(clientX, clientY);
+            if (now) {
+                const move = this._panGrab.clone().sub(now);
+                this.camera.position.add(move);
+                this.target.add(move);
+                this._panStartX = clientX;
+                this._panStartY = clientY;
+                this._needsUpdate = true;
+                this._emit('change');
+                return;
+            }
+        }
+        // Fallback: screen-space pan for edge-on views where the cursor ray
+        // never meets the plane.
         const dx = clientX - this._panStartX;
         const dy = clientY - this._panStartY;
         this._panStartX = clientX;
@@ -324,20 +405,82 @@ export class ArcballController {
         // into the zoom-out branch below and jump the camera on a light touch.
         if (Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
         e.preventDefault();
-        const factor = Math.pow(0.95, this.zoomSpeed * (e.deltaY < 0 ? 1 : -1));
-        const offset = this.camera.position.clone().sub(this.target);
-        let dist = offset.length() * factor;
-        dist = Math.max(this.minDistance, Math.min(this.maxDistance, dist));
-        offset.setLength(dist);
-        this.camera.position.copy(this.target).add(offset);
+        this._rect = this.domElement.getBoundingClientRect();
+        const dir = e.deltaY < 0 ? 1 : -1;   // +1 = zoom in, -1 = zoom out
+        const rawFactor = Math.pow(0.95, this.zoomSpeed * dir);
+        // Zoom about the world point under the cursor (falls back to the look
+        // target when the ray misses the board plane) so the spot under the
+        // pointer stays fixed on screen — "zoom to cursor".
+        const pivot = this._planePoint(e.clientX, e.clientY) || this.target.clone();
+        // Accumulate onto the current GOAL (not the live rig) so rapid wheel
+        // ticks compound smoothly instead of fighting the in-flight glide.
+        const goalCam = (this._zoomGoalCam || this.camera.position).clone();
+        const goalTarget = (this._zoomGoalTarget || this.target).clone();
+        // Pure multiplicative zoom moves the camera by a FRACTION OF DISTANCE,
+        // so each tick crawls when zoomed in and flies when zoomed out. Even out
+        // the feel by clamping the per-tick distance change to a band tied to the
+        // framed view size: close-up zoom keeps making real progress and far-out
+        // zoom stays calm.
+        const dist0 = goalCam.distanceTo(goalTarget) || 1;
+        const ref = Number.isFinite(this.maxDistance) ? this.maxDistance / 5 : dist0;
+        const minStep = ref * 0.05;
+        const maxStep = ref * 0.40;
+        const mag = Math.min(maxStep, Math.max(minStep, Math.abs(dist0 * rawFactor - dist0)));
+        const newDist = Math.max(
+            this.minDistance,
+            Math.min(this.maxDistance, dist0 - dir * mag),
+        );
+        const factor = newDist / dist0;      // effective scale about the pivot
+        goalCam.sub(pivot).multiplyScalar(factor).add(pivot);
+        goalTarget.sub(pivot).multiplyScalar(factor).add(pivot);
+        // Re-seat the orbit distance exactly (guards float rounding in the scale).
+        const off = goalCam.clone().sub(goalTarget).setLength(newDist);
+        goalCam.copy(goalTarget).add(off);
+        this._zoomGoalCam = goalCam;
+        this._zoomGoalTarget = goalTarget;
         this._needsUpdate = true;
+        // Kick the host's render loop; update() glides to the goal and emits
+        // 'end' once it arrives.
         this._emit('start');
         this._emit('change');
-        this._emit('end');
     }
 
     /** Keep the camera looking at the target; clamp distance. */
     update() {
+        let settling = false;
+        // ── Coast spin (rotation momentum) ──
+        if (this._spinning) {
+            const q = this.camera.quaternion.clone();
+            const dq = this._newQuat().setFromAxisAngle(this._spinAxis, this._spinVel);
+            q.premultiply(dq);                 // incremental world-space spin
+            this._setOrientation(q);
+            this._qPrev.copy(q);
+            this._spinVel *= this.dampingFactor;
+            if (this._spinVel < 0.0008) {
+                this._spinning = false;
+                this._spinVel = 0;
+                if (!this._zoomGoalCam) this._emit('end');
+            } else {
+                settling = true;
+                this._emit('change');
+            }
+        }
+        // ── Eased zoom-to-cursor glide ──
+        if (this._zoomGoalCam && this._zoomGoalTarget) {
+            this.camera.position.lerp(this._zoomGoalCam, this.zoomDamping);
+            this.target.lerp(this._zoomGoalTarget, this.zoomDamping);
+            if (this.camera.position.distanceToSquared(this._zoomGoalCam) < 1e-6
+                && this.target.distanceToSquared(this._zoomGoalTarget) < 1e-6) {
+                this.camera.position.copy(this._zoomGoalCam);
+                this.target.copy(this._zoomGoalTarget);
+                this._zoomGoalCam = null;
+                this._zoomGoalTarget = null;
+                if (!this._spinning) this._emit('end');
+            } else {
+                settling = true;
+                this._emit('change');
+            }
+        }
         const offset = this.camera.position.clone().sub(this.target);
         let dist = offset.length();
         const clamped = Math.max(this.minDistance, Math.min(this.maxDistance, dist));
@@ -348,7 +491,7 @@ export class ArcballController {
         this._ejectFromBounds();
         this.camera.lookAt(this.target);
         this._needsUpdate = false;
-        return true;
+        return settling;
     }
 
     /**
@@ -2755,6 +2898,16 @@ class ThreeScene {
         this._dprIdle = win.devicePixelRatio || 1;
         this.renderer.setPixelRatio(this._dprIdle);
         this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+        // Filmic tone mapping rolls the bright headlight highlights off into a
+        // smooth shoulder instead of hard-clipping them to white, so saturated
+        // mask greens and gold pads read richer and more "lit" (the premium
+        // viewer look). Exposure is tuned to keep overall brightness close to
+        // the previous linear output — lower it for a moodier look, raise it for
+        // a brighter one. NOTE: the vendored three build is tree-shaken and does
+        // NOT export the `ACESFilmicToneMapping` constant, so its numeric value
+        // (4) is set directly; the renderer maps 4 → "ACESFilmic".
+        this.renderer.toneMapping = 4; // THREE.ACESFilmicToneMapping
+        this.renderer.toneMappingExposure = 1.15;
         // Clear to the board grey, not the WebGL default black, so any frame the
         // canvas presents before the first scene render (or any uncovered moment)
         // is grey rather than a black flash.
@@ -2782,6 +2935,15 @@ class ThreeScene {
         // the camera distance in _updateLights so the pool stays consistent.
         this.glint = /** @type {any} */ (new THREE.PointLight(0xffffff, 1.0, 0, 2));
         this.scene.add(this.glint);
+
+        // Fixed cool fill from above-left, independent of the camera. It never
+        // moves, so it adds steady form/shading gradient and a faint cool cast
+        // that plays against the warm white headlight — the subtle two-tone
+        // "studio" modelling that reads as nicer than a single flat key. Kept
+        // low so it shapes without washing out the layer colours.
+        this.fill = /** @type {any} */ (new THREE.DirectionalLight(0xbcd2ff, 0.28));
+        this.fill.position.set(-120, 180, 90);
+        this.scene.add(this.fill);
 
         this.controls = new ArcballController(this.camera, this.renderer.domElement);
         // A true Shoemake arcball: free rotation (the board flips over the
@@ -3009,9 +3171,11 @@ class ThreeScene {
     positionGlint(_x, _z, span) {
         this.glint.distance = 0;
         this._glintMinDist = Math.max(40, span * 0.9);
-        // Stop the camera before it reaches the surface: ~12% of the board span
-        // keeps a close-up component in view without clipping into geometry.
-        this.controls.minDistance = Math.max(6, span * 0.12);
+        // Let the solid keep-out box (_ejectFromBounds) stop the camera at the
+        // actual board/component surface; keep only a tiny floor so the orbit
+        // distance never collapses to zero. A large minDistance here would wall
+        // zoom-in off well above the surface and feel like it "stops".
+        this.controls.minDistance = Math.max(1, span * 0.02);
         this._updateLights();
         this.requestRender();
     }
@@ -3797,6 +3961,7 @@ export async function openBoard3DViewer(app, opts = {}) {
             app._saveBlob?.(blob, `${base}-${side}.png`, {
                 description: 'PNG image',
                 accept: { 'image/png': ['.png'] },
+                win: panel.mode === 'popped' ? panel.popWin : window,
             });
         };
         // Supersampled capture (matches the 3D Save Image quality).
@@ -3811,6 +3976,7 @@ export async function openBoard3DViewer(app, opts = {}) {
             app._saveBlob?.(blob, `${base}-3d.png`, {
                 description: 'PNG image',
                 accept: { 'image/png': ['.png'] },
+                win: panel.mode === 'popped' ? panel.popWin : window,
             });
         });
     });

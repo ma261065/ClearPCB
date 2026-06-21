@@ -4560,6 +4560,9 @@ export default class PCBApp {
     }
 
     _hitTestPad(worldPos) {
+        const topVisible = isLayerVisible('top-copper');
+        const bottomVisible = isLayerVisible('bottom-copper');
+        if (!topVisible && !bottomVisible) return null;
         for (const [componentId, pl] of this.placements) {
             if (!pl?.padOffsets) continue;
             // For 90°/270° placement rotations the pad's footprint-local
@@ -4567,6 +4570,15 @@ export default class PCBApp {
             // hit region tracks the pad's actual on-screen extent.
             const ortho = Math.abs((pl.rotation || 0) % 180) === 90;
             for (const off of pl.padOffsets) {
+                // Respect copper-layer visibility. Through-hole pads ('both')
+                // are hover-hittable when either side is visible.
+                const padLayer = String(off.layer || 'top');
+                const onTop = padLayer === 'top' || padLayer === 'top-copper';
+                const onBottom = padLayer === 'bottom' || padLayer === 'bottom-copper';
+                const onBoth = padLayer === 'both';
+                if (onTop && !topVisible) continue;
+                if (onBottom && !bottomVisible) continue;
+                if (onBoth && !topVisible && !bottomVisible) continue;
                 const pos = pl.pads.get(off.padId);
                 if (!pos) continue;
                 const ow = off.width || 1.2;
@@ -8599,10 +8611,14 @@ export default class PCBApp {
      * @returns {Promise<boolean>}
      */
     async _saveBlob(blob, suggestedName, opts = {}) {
-        const w = /** @type {any} */ (window);
-        if (typeof w.showSaveFilePicker === 'function') {
+        // Run the save in the window that owns the user gesture. When a viewer
+        // is torn off into a pop-up, the click happens there — using the opener
+        // window's picker/anchor would have no user activation and silently fail.
+        const targetWin = /** @type {any} */ (opts.win && !opts.win.closed ? opts.win : window);
+        const targetDoc = targetWin.document || document;
+        if (typeof targetWin.showSaveFilePicker === 'function') {
             try {
-                const handle = await w.showSaveFilePicker({
+                const handle = await targetWin.showSaveFilePicker({
                     suggestedName,
                     types: opts.accept ? [{
                         description: opts.description || '',
@@ -8621,10 +8637,12 @@ export default class PCBApp {
         }
         // Fallback: anchor download (Firefox / older browsers).
         const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
+        const a = targetDoc.createElement('a');
         a.href = url;
         a.download = suggestedName;
+        (targetDoc.body || targetDoc.documentElement).appendChild(a);
         a.click();
+        a.remove();
         URL.revokeObjectURL(url);
         return true;
     }
