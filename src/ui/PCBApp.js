@@ -4088,7 +4088,7 @@ export default class PCBApp {
                 numCount.set(num, seen + 1);
                 const padId = seen === 0 ? num : `${num}#${seen + 1}`;
                 padMap.set(padId, { x: cx + pad.x, y: cy + pad.y, number: num });
-                padOffsets.push({ number: num, padId, dx: pad.x, dy: pad.y, width: pad.width, height: pad.height, drill: pad.drill || 0, layer: pad.layer, shape: pad.shape || 'rect', mask: pad.mask !== false, paste: pad.paste !== false });
+                padOffsets.push({ number: num, padId, dx: pad.x, dy: pad.y, width: pad.width, height: pad.height, drill: pad.drill || 0, slotLength: pad.slotLength || 0, slotAngle: pad.slotAngle || 0, layer: pad.layer, shape: pad.shape || 'rect', mask: pad.mask !== false, paste: pad.paste !== false });
             }
             // Paste-only stencil apertures (no copper) — e.g. a QFN exposed
             // pad's windowpane matrix. Carried separately so they reach the
@@ -7838,6 +7838,7 @@ export default class PCBApp {
     _fillContext() {
         const params = this._getRoutingParams?.() || {};
         const pads = [];
+        const footprintHoles = [];
         for (const [compId, pl] of this.placements) {
             // Orient each pad by the placement pose (rotation + mirror) so the
             // pour carves clearances at the pads' true world positions — not
@@ -7859,6 +7860,20 @@ export default class PCBApp {
                     net: this._padNetLookup(compId, off.number),
                 });
             }
+            // Footprint mounting / mechanical holes (NPTH) are authored as
+            // 'hole'-layer circles inside the footprint silks. Void the pour
+            // around them too — posed to world like the pads — so the copper
+            // pulls back exactly as it does for standalone hole objects.
+            for (const s of (pl.silks || [])) {
+                if (s.layer !== 'hole' || s.type !== 'circle' || !(s.r > 0)) continue;
+                const lx = s.cx * mx;
+                footprintHoles.push({
+                    x: pl.x + lx * cos - s.cy * sin,
+                    y: pl.y + lx * sin + s.cy * cos,
+                    diameter: s.r * 2,
+                    plated: false,
+                });
+            }
         }
         return {
             tracks: this.tracks,
@@ -7869,6 +7884,7 @@ export default class PCBApp {
                 ...((this.circles || [])
                     .filter((c) => c && c.layer === 'hole' && c.radius > 0)
                     .map((c) => ({ x: c.x, y: c.y, diameter: c.radius * 2, plated: false }))),
+                ...footprintHoles,
             ],
             params: { clearance: Number.isFinite(params.clearance) ? params.clearance : 0.1 },
             board: (this._boardWidth > 0 && this._boardHeight > 0)

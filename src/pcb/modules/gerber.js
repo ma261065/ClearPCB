@@ -982,7 +982,19 @@ function _collectPlatedDrills(placements, vias, holes) {
             if (!(off.drill > 0)) continue;
             const pos = pl.pads.get(off.padId);
             if (!pos) continue;
-            out.push({ dia: off.drill, x: pos.x, y: pos.y });
+            if (off.slotLength > off.drill) {
+                // Slotted (oval) drill → routed slot between the two posed
+                // end-cap centres, bore width = off.drill.
+                const xf = _poseXform(pl);
+                const half = (off.slotLength - off.drill) / 2;
+                const ca = Math.cos(off.slotAngle || 0);
+                const sa = Math.sin(off.slotAngle || 0);
+                const a = xf(off.dx - half * ca, off.dy - half * sa);
+                const b = xf(off.dx + half * ca, off.dy + half * sa);
+                out.push({ dia: off.drill, x: a.x, y: a.y, x2: b.x, y2: b.y });
+            } else {
+                out.push({ dia: off.drill, x: pos.x, y: pos.y });
+            }
         }
     }
     for (const v of vias) {
@@ -1032,10 +1044,12 @@ function _buildDrill(drills, bounds, nonPlated = false) {
     for (const d of drills) {
         if (!d.dia || d.dia <= 0) continue;
         if (!_inBoard(d.x, d.y, bounds)) continue;
+        const isSlot = Number.isFinite(d.x2) && Number.isFinite(d.y2);
+        if (isSlot && !_inBoard(d.x2, d.y2, bounds)) continue;
         const key = Math.round(d.dia * 1000) / 1000;
         let list = tools.get(key);
         if (!list) { list = []; tools.set(key, list); }
-        list.push({ x: d.x, y: d.y });
+        list.push(isSlot ? { x: d.x, y: d.y, x2: d.x2, y2: d.y2 } : { x: d.x, y: d.y });
     }
 
     // Header. Use decimal coordinates (universally supported); declare
@@ -1062,7 +1076,12 @@ function _buildDrill(drills, bounds, nonPlated = false) {
         out += `T${i + 1}\n`;
         for (const h of tools.get(dia)) {
             // Excellon uses Y-up like gerber; flip from our SVG-Y-down data.
-            out += `X${h.x.toFixed(3)}Y${(-h.y).toFixed(3)}\n`;
+            if (Number.isFinite(h.x2) && Number.isFinite(h.y2)) {
+                // Slot: G85 canned routed slot from start to end coordinate.
+                out += `X${h.x.toFixed(3)}Y${(-h.y).toFixed(3)}G85X${h.x2.toFixed(3)}Y${(-h.y2).toFixed(3)}\n`;
+            } else {
+                out += `X${h.x.toFixed(3)}Y${(-h.y).toFixed(3)}\n`;
+            }
         }
     });
     out += 'T0\nM30\n';

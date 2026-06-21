@@ -24,7 +24,6 @@ const COL = {
     copper: '',                   // exposed copper tone
     pad: '',                      // gold
     via: '',                      // gold barrel
-    hole: 'rgb(12,12,16)',        // drilled hole
     silk: '',                     // white silkscreen
 };
 
@@ -842,20 +841,41 @@ export class Board2D {
         }
     }
 
-    /** Drilled holes (THT pad drills, via drills) punched as dark discs. */
+    /** Drilled holes (THT pad drills, via drills) punched through to the
+     *  background so the bore reads as an open hole, not a dark disc. */
     _drawHoles(ctx) {
         const d = this.data;
-        ctx.fillStyle = COL.hole;
+        ctx.fillStyle = COL.bg;
         for (const [, pl] of (d.placements || [])) {
             if (!pl?.padOffsets) continue;
             const pose = _placementPose(pl);
             for (const off of pl.padOffsets) {
                 const drill = off.drill || 0;
                 if (drill <= 0) continue;
-                const p = pose.xf(off.dx, off.dy);
-                ctx.beginPath();
-                ctx.arc(p.x, p.y, drill / 2, 0, Math.PI * 2);
-                ctx.fill();
+                if (off.slotLength > drill) {
+                    // Stadium-shaped slot drill: a round-capped stroke of
+                    // width = drill traces the slot's long axis. Pose both
+                    // end-cap centres so rotation/mirror are applied exactly.
+                    const half = (off.slotLength - drill) / 2;
+                    const ca = Math.cos(off.slotAngle || 0);
+                    const sa = Math.sin(off.slotAngle || 0);
+                    const a = pose.xf(off.dx - half * ca, off.dy - half * sa);
+                    const b = pose.xf(off.dx + half * ca, off.dy + half * sa);
+                    ctx.save();
+                    ctx.strokeStyle = COL.bg;
+                    ctx.lineCap = 'round';
+                    ctx.lineWidth = drill;
+                    ctx.beginPath();
+                    ctx.moveTo(a.x, a.y);
+                    ctx.lineTo(b.x, b.y);
+                    ctx.stroke();
+                    ctx.restore();
+                } else {
+                    const p = pose.xf(off.dx, off.dy);
+                    ctx.beginPath();
+                    ctx.arc(p.x, p.y, drill / 2, 0, Math.PI * 2);
+                    ctx.fill();
+                }
             }
         }
         for (const v of (d.vias || [])) {

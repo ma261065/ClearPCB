@@ -762,6 +762,28 @@ function circleRing(cx, cz, r, seg) {
 }
 
 /**
+ * Sample a stadium/capsule bore (two cap-centres + radius) into a CCW polygon
+ * ring in the (x, y=z) plane — the slot equivalent of {@link circleRing}.
+ * @param {number} x1 @param {number} z1 first cap centre (world x, z)
+ * @param {number} x2 @param {number} z2 second cap centre (world x, z)
+ * @param {number} r bore radius @param {number} capSeg segments per semicircle
+ * @returns {Array<{x:number,y:number}>}
+ */
+function capsuleRing(x1, z1, x2, z2, r, capSeg = 10) {
+    const base = Math.atan2(z2 - z1, x2 - x1);
+    const ring = [];
+    for (let i = 0; i <= capSeg; i++) {
+        const a = base - Math.PI / 2 + Math.PI * (i / capSeg);
+        ring.push({ x: x2 + r * Math.cos(a), y: z2 + r * Math.sin(a) });
+    }
+    for (let i = 0; i <= capSeg; i++) {
+        const a = base + Math.PI / 2 + Math.PI * (i / capSeg);
+        ring.push({ x: x1 + r * Math.cos(a), y: z1 + r * Math.sin(a) });
+    }
+    return ring;
+}
+
+/**
  * Partition bores into connected clusters where each member overlaps or
  * touches at least one other (union-find over circle intersection). Disjoint
  * bores fall out as singleton clusters.
@@ -1179,15 +1201,26 @@ function padMesh(pl) {
             // barrel lining the bore (inner radius inset so it occludes the
             // board's FR4 edge).
             const ri = Math.max(0.05, off.drill / 2 - 0.02);
+            // Stadium slot drill (holeLength > drill): bore between the two
+            // cap-centres rather than a single round hole, so the slot reads
+            // as a slot instead of being lidded over by round pad copper.
+            let slot = null;
+            if (off.slotLength > off.drill) {
+                const half = (off.slotLength - off.drill) / 2;
+                const ca = Math.cos(off.slotAngle || 0), sa = Math.sin(off.slotAngle || 0);
+                const c1 = plLocalToWorld(pl, off.dx - half * ca, off.dy - half * sa);
+                const c2 = plLocalToWorld(pl, off.dx + half * ca, off.dy + half * sa);
+                slot = { x1: c1.x, z1: c1.z, x2: c2.x, z2: c2.z };
+            }
             const round = (off.shape === 'ellipse' || off.shape === 'oval')
                 && Math.abs(halfW - halfH) < 1e-3;
-            if (round) {
+            if (round && !slot) {
                 const ro = Math.max(halfW, Math.max(0.05, ri + 0.05));
                 appendMesh(mesh, tubeMesh(w.x, w.z, ri, ro,
                     Y_BOT - PAD_EPS, Y_TOP + PAD_EPS, COLOR_PAD, 16));
             } else {
                 appendMesh(mesh, throughHolePadMesh(w.x, w.z, off.shape, halfW, halfH,
-                    ct, st, ri, Y_BOT - PAD_EPS, Y_TOP + PAD_EPS, COLOR_PAD));
+                    ct, st, ri, Y_BOT - PAD_EPS, Y_TOP + PAD_EPS, COLOR_PAD, slot));
             }
             continue;
         }
@@ -1262,9 +1295,11 @@ function stadiumDiscMesh(cx, cz, halfW, halfH, ct, st, y, color) {
  * @param {number} ri bore (inner) radius — the visible hole edge
  * @param {number} yBottom @param {number} yTop
  * @param {number[]} color
+ * @param {{x1:number,z1:number,x2:number,z2:number}|null} [slot] stadium-slot
+ *        cap-centres (world x, z); when set the bore is a slot, not a circle
  * @returns {{verts: Array, faces: Array}}
  */
-function throughHolePadMesh(cx, cz, shape, halfW, halfH, ct, st, ri, yBottom, yTop, color) {
+function throughHolePadMesh(cx, cz, shape, halfW, halfH, ct, st, ri, yBottom, yTop, color, slot = null) {
     const toWorld = (lx, lz) => ({ x: cx + lx * ct - lz * st, y: cz + lx * st + lz * ct });
     // Outer outline in the board plane (x, y(=world z)).
     const outline = [];
@@ -1284,12 +1319,16 @@ function throughHolePadMesh(cx, cz, shape, halfW, halfH, ct, st, ri, yBottom, yT
             outline.push(toWorld(lx, lz));
         }
     }
-    // Round drill hole (rotation-invariant).
+    // Drill hole: a stadium slot when one is given, else a round bore.
     const seg = 16;
-    const hole = [];
-    for (let i = 0; i < seg; i++) {
-        const a = (i / seg) * Math.PI * 2;
-        hole.push({ x: cx + ri * Math.cos(a), y: cz + ri * Math.sin(a) });
+    const hole = slot
+        ? capsuleRing(slot.x1, slot.z1, slot.x2, slot.z2, ri)
+        : [];
+    if (!slot) {
+        for (let i = 0; i < seg; i++) {
+            const a = (i / seg) * Math.PI * 2;
+            hole.push({ x: cx + ri * Math.cos(a), y: cz + ri * Math.sin(a) });
+        }
     }
     let tri = null;
     try { tri = triangulateWithHoles(outline, [hole]); } catch { tri = null; }
@@ -1314,8 +1353,9 @@ function throughHolePadMesh(cx, cz, shape, halfW, halfH, ct, st, ri, yBottom, yT
         wall.faces.push({ idx: [i, j, n + j, n + i], color });
     }
     appendMesh(mesh, wall);
-    // Inner barrel lining the bore.
-    appendMesh(mesh, cylinderWallMesh(cx, cz, ri, yBottom, yTop, color, seg));
+    // Inner barrel lining the bore (capsule wall for slots, cylinder for round).
+    if (slot) appendMesh(mesh, polygonWallMesh(hole, yBottom, yTop, color));
+    else appendMesh(mesh, cylinderWallMesh(cx, cz, ri, yBottom, yTop, color, seg));
     return mesh;
 }
 
@@ -2067,8 +2107,25 @@ function collectBoardHoles(placements) {
     for (const [, pl] of placements) {
         for (const off of pl.padOffsets || []) {
             if (!(off.drill > 0)) continue;
-            const w = plLocalToWorld(pl, off.dx, off.dy);
-            holes.push({ x: w.x, z: w.z, r: off.drill / 2, plated: true });
+            const r = off.drill / 2;
+            if (off.slotLength > off.drill) {
+                // Stadium-shaped slot: approximate the bore as a row of
+                // overlapping round holes sampled along the slot's long axis
+                // (the circular borer handles each; together they read as a
+                // slot without new mesh maths).
+                const half = (off.slotLength - off.drill) / 2;
+                const ca = Math.cos(off.slotAngle || 0);
+                const sa = Math.sin(off.slotAngle || 0);
+                const n = Math.max(2, Math.ceil((2 * half) / Math.max(0.1, r * 0.5)));
+                for (let i = 0; i <= n; i++) {
+                    const t = -half + (2 * half) * (i / n);
+                    const w = plLocalToWorld(pl, off.dx + t * ca, off.dy + t * sa);
+                    holes.push({ x: w.x, z: w.z, r, plated: true });
+                }
+            } else {
+                const w = plLocalToWorld(pl, off.dx, off.dy);
+                holes.push({ x: w.x, z: w.z, r, plated: true });
+            }
         }
         for (const s of pl.silks || []) {
             if (s.layer !== 'hole' || s.type !== 'circle' || !(s.r > 0)) continue;

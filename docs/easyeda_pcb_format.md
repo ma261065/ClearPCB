@@ -179,7 +179,7 @@ SOLIDREGION~layer~net~pathData~type~id~locked
 ### HOLE
 
 ```
-HOLE~cx~cy~diameter~id~locked
+HOLE~cx~cy~radius~id~locked
 ```
 
 | Index | Field | Description |
@@ -187,11 +187,12 @@ HOLE~cx~cy~diameter~id~locked
 | 0 | `HOLE` | Type prefix |
 | 1 | cx | Center X (10-mil units) |
 | 2 | cy | Center Y (10-mil units) |
-| 3 | diameter | Hole diameter (10-mil units) |
+| 3 | radius | Hole **radius** (10-mil units) — NOT diameter |
 | 4 | id | Shape ID |
 | 5 | locked | Lock flag |
 
-Creates a non-plated through-hole (NPTH).
+Creates a non-plated through-hole (NPTH). Note field [3] is a radius, matching
+the PAD hole-radius convention (`EeFootprintHole.radius` in easyeda2kicad).
 
 ### TEXT
 

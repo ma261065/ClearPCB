@@ -333,6 +333,30 @@ function generateFromShapes(shapes, bbox, source) {
                 ? (parts.length > 9 ? (parseFloat(parts[9]) || 0) : 0) * 2 * S
                 : (parts.length > 10 ? (parseFloat(parts[10]) || 0) : 0) * S;
 
+            // Slotted (oval) drills: EasyEDA field [13] is the slot's full
+            // length (10-mil units) and field [14] holds the two slot end-cap
+            // centres ("x1 y1 x2 y2"). When the length exceeds the drill width
+            // the hole is a stadium-shaped slot rather than a round bore.
+            // slotAngle is the slot's long-axis orientation in footprint-local
+            // space — derived from the end-cap centres, whose orientation the
+            // (translation-only) footprint centring preserves.
+            let slotLength = 0;
+            let slotAngle = 0;
+            if (isEasyEDA && parts.length > 13) {
+                const sl = (parseFloat(parts[13]) || 0) * S;
+                if (sl > drill + 1e-6) {
+                    slotLength = sl;
+                    const pts = (parts[14] || '').trim().split(/\s+/).map(Number);
+                    if (pts.length >= 4 && pts.every(Number.isFinite)
+                        && (pts[0] !== pts[2] || pts[1] !== pts[3])) {
+                        slotAngle = Math.atan2(pts[3] - pts[1], pts[2] - pts[0]);
+                    } else if (parts.length > 11) {
+                        // Fall back to the pad rotation when endpoints are absent.
+                        slotAngle = ((parseFloat(parts[11]) || 0) * Math.PI) / 180;
+                    }
+                }
+            }
+
             // Map EasyEDA's PAD shape enum onto our internal vocabulary.
             // POLYGON pads are fairly rare; we conservatively treat them as
             // their bounding rectangle for both rendering and routing — the
@@ -349,7 +373,7 @@ function generateFromShapes(shapes, bbox, source) {
             pads.push({
                 number: num, x: cx, y: cy, width: w, height: h,
                 shape: canonicalShape,
-                drill, layer: padLayer,
+                drill, slotLength, slotAngle, layer: padLayer,
                 mask: hasMask, paste: hasPaste,
             });
 
@@ -560,17 +584,21 @@ function generateFromShapes(shapes, bbox, source) {
     // Done as a second pass so we don't disrupt the main loop
     for (const shape of shapes) {
         if (typeof shape !== 'string') continue;
-        // Format: HOLE~cx~cy~diameter~id~locked
+        // Format: HOLE~cx~cy~radius~id~locked
+        // EasyEDA field [3] is the hole RADIUS (10-mil units), matching the
+        // PAD hole-radius convention — NOT a diameter. (Confirmed against the
+        // EeFootprintHole schema in easyeda2kicad.) Treating it as a diameter
+        // bores the hole at half its true size.
         if (shape.startsWith('HOLE~') && isEasyEDA) {
             const parts = shape.split('~');
             if (parts.length < 4) continue;
             const hx = parseFloat(parts[1]) * S;
             const hy = parseFloat(parts[2]) * S;
-            const hd = parseFloat(parts[3]) * S;
-            if (Number.isFinite(hx) && Number.isFinite(hd) && hd > 0) {
-                silks.push({ type: 'circle', cx: hx, cy: hy, r: hd / 2, strokeWidth: 0.15, layer: 'hole' });
-                minX = Math.min(minX, hx - hd / 2); minY = Math.min(minY, hy - hd / 2);
-                maxX = Math.max(maxX, hx + hd / 2); maxY = Math.max(maxY, hy + hd / 2);
+            const hr = parseFloat(parts[3]) * S;
+            if (Number.isFinite(hx) && Number.isFinite(hr) && hr > 0) {
+                silks.push({ type: 'circle', cx: hx, cy: hy, r: hr, strokeWidth: 0.15, layer: 'hole' });
+                minX = Math.min(minX, hx - hr); minY = Math.min(minY, hy - hr);
+                maxX = Math.max(maxX, hx + hr); maxY = Math.max(maxY, hy + hr);
             }
         }
     }
@@ -963,12 +991,29 @@ export function renderFootprint(fp, ref, x, y, rotation = 0) {
             }
 
             if (pad.drill > 0) {
-                const hole = document.createElementNS(NS, 'circle');
-                hole.setAttribute('cx', String(pad.x));
-                hole.setAttribute('cy', String(pad.y));
-                hole.setAttribute('r', String(pad.drill / 2));
-                hole.setAttribute('fill', 'var(--pcb-drill, #1a1a2e)');
-                padG.appendChild(hole);
+                if (pad.slotLength > pad.drill) {
+                    // Stadium-shaped slot drill: a round-capped stroke of
+                    // width = drill, length = slotLength, along slotAngle.
+                    const half = (pad.slotLength - pad.drill) / 2;
+                    const ca = Math.cos(pad.slotAngle || 0);
+                    const sa = Math.sin(pad.slotAngle || 0);
+                    const slot = document.createElementNS(NS, 'line');
+                    slot.setAttribute('x1', String(pad.x - half * ca));
+                    slot.setAttribute('y1', String(pad.y - half * sa));
+                    slot.setAttribute('x2', String(pad.x + half * ca));
+                    slot.setAttribute('y2', String(pad.y + half * sa));
+                    slot.setAttribute('stroke', 'var(--pcb-drill, #1a1a2e)');
+                    slot.setAttribute('stroke-width', String(pad.drill));
+                    slot.setAttribute('stroke-linecap', 'round');
+                    padG.appendChild(slot);
+                } else {
+                    const hole = document.createElementNS(NS, 'circle');
+                    hole.setAttribute('cx', String(pad.x));
+                    hole.setAttribute('cy', String(pad.y));
+                    hole.setAttribute('r', String(pad.drill / 2));
+                    hole.setAttribute('fill', 'var(--pcb-drill, #1a1a2e)');
+                    padG.appendChild(hole);
+                }
             }
 
             const numText = document.createElementNS(NS, 'text');
