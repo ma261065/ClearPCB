@@ -23,6 +23,8 @@ import {
     cancelTrackDraw,
     toggleTrackLayer,
     resolveTrackSnap,
+    showTrackSnapMarker,
+    clearTrackSnapMarker,
     reconcileRatsnest,
 } from '../pcb/modules/track-draw.js';
 import {
@@ -95,6 +97,26 @@ import {
     EditTextCommand,
 } from '../pcb/modules/text-commands.js';
 import { AddCircleCommand, RemoveCircleCommand, MoveCircleCommand, ModifyCircleCommand } from '../pcb/modules/circle-commands.js';
+import {
+    shapeDrawClick,
+    updateShapeDrawPreview,
+    cancelShapeDraw,
+    finishPolygonDraw,
+    hitTestBoardShape,
+    setBoardShapeHover,
+    selectBoardShape,
+    deleteSelectedBoardShape,
+    startBoardShapeDrag,
+    handleBoardShapeDrag,
+    endBoardShapeDrag,
+    showBoardShapeProperties,
+    boardShapeCopperCuts,
+    serializeBoardShapes,
+    loadBoardShapes,
+    removeBoardShapeElement,
+    renderBoardShape,
+    shapeOutline,
+} from '../pcb/modules/board-shapes.js';
 import { hasAny3DModel, openComponent3DFromData, buildComponent3DTitle } from '../components/model3d-source.js';
 import {
     armBoxSelect,
@@ -321,6 +343,22 @@ export default class PCBApp {
         this._circleDraw = null;
         /** Monotonic id counter for free-standing circles. */
         this._circleIdCounter = 1;
+        /** Free-standing board shapes (rectangle / polygon / arc). */
+        this.boardShapes = [];
+        /** SVG <path> elements keyed by shape id for quick remove/replace. */
+        this._shapeElements = new Map();
+        /** Board shape currently hovered in select mode, or null. */
+        this._hoveredShape = null;
+        /** Currently selected board shape, or null. */
+        this._selectedShape = null;
+        /** Active in-progress board-shape draw interaction, or null. */
+        this._shapeDraw = null;
+        /** Active board-shape drag: { id, startWorld, before } or null. */
+        this._shapeDrag = null;
+        /** Monotonic id counter for free-standing board shapes. */
+        this._shapeIdCounter = 1;
+        /** Defaults for the Shape tools. */
+        this._shapeDefaults = { lineWidth: 0.2 };
         /** Active paste-drop interaction (pasted items glued to cursor). */
         this._pasteDrop = null;
         /** Suspend live copper-fill recompute while floating paste is active. */
@@ -556,6 +594,11 @@ export default class PCBApp {
             this._syncClipboardButtons();
             return true;
         }
+        if (this._selectedShape) {
+            deleteSelectedBoardShape(this);
+            this._syncClipboardButtons();
+            return true;
+        }
         return false;
     }
 
@@ -785,7 +828,7 @@ export default class PCBApp {
             // Cursor crosshair (track/via tools) is sized in screen pixels
             // and spans the viewport — redraw on zoom/pan so it doesn't drift.
             if (this._lastCrosshairWorld &&
-                (this.currentTool === 'via' || this.currentTool === 'track' || this.currentTool === 'text' || this.currentTool === 'circle')) {
+                (this.currentTool === 'via' || this.currentTool === 'track' || this.currentTool === 'text' || this.currentTool === 'circle' || this.currentTool === 'rect' || this.currentTool === 'polygon' || this.currentTool === 'arc')) {
                 if (this.currentTool === 'via') {
                     this._updateViaPreview(this._lastCrosshairWorld);
                 } else {
@@ -970,6 +1013,7 @@ export default class PCBApp {
                 // re-selected below if the click lands on a fill region).
                 this._selectFill(null);
                 this._selectCircle(null);
+                selectBoardShape(this, null);
 
                 // If a track is already selected, try to start a vertex
                 // drag on it before doing anything else — this lets the
@@ -1017,6 +1061,18 @@ export default class PCBApp {
                     const selectedHit = this._hitTestCircle(worldPos);
                     if (selectedHit && selectedHit.id === this._selectedCircle.id) {
                         if (this._startCircleDrag(selectedHit, worldPos)) {
+                            setHoverHighlight(this, null);
+                            this._hideNetTooltip();
+                            svg.style.cursor = 'grabbing';
+                            return;
+                        }
+                    }
+                }
+                // Same for a selected free-standing board shape.
+                if (this._selectedShape) {
+                    const selectedHit = hitTestBoardShape(this, worldPos);
+                    if (selectedHit && selectedHit.id === this._selectedShape.id) {
+                        if (startBoardShapeDrag(this, selectedHit, worldPos)) {
                             setHoverHighlight(this, null);
                             this._hideNetTooltip();
                             svg.style.cursor = 'grabbing';
@@ -1084,8 +1140,23 @@ export default class PCBApp {
                     return;
                 }
                 this._selectCircle(null);
-
-                // Text hit-test (above components in z-order).
+                const shapeHit = hitTestBoardShape(this, worldPos);
+                if (shapeHit) {
+                    this._selectComponent(null);
+                    this._selectBoardOutline(false);
+                    this._selectText(null);
+                    this._selectRefText(null);
+                    this._selectFill(null);
+                    this._selectCircle(null);
+                    selectBoardShape(this, shapeHit);
+                    showBoardShapeProperties(this, shapeHit);
+                    if (startBoardShapeDrag(this, shapeHit, worldPos)) {
+                        this._hideNetTooltip();
+                        svg.style.cursor = 'grabbing';
+                    }
+                    return;
+                }
+                selectBoardShape(this, null);
                 const textHit = this._hitTestText(worldPos);
                 if (textHit) {
                     this._selectComponent(null);
@@ -1218,6 +1289,10 @@ export default class PCBApp {
                     addTrackWaypoint(this, worldPos);
                 } else {
                     startTrackDraw(this, worldPos);
+                    // Arm press-drag detection: if the user holds and releases
+                    // away from here it's "drag mode" (release ends the track);
+                    // a release in place is "click mode" (click again to end).
+                    this._trackLeftDown = { x: e.clientX, y: e.clientY };
                 }
             }
 
@@ -1291,6 +1366,13 @@ export default class PCBApp {
                 else this._startCircleDraw(worldPos);
             }
 
+            // Left-click with a shape tool: rect = 2 clicks (corners),
+            // arc = 3 clicks (start, end, bulge), polygon = click per vertex
+            // (double-click / Enter to finish).
+            if (e.button === 0 && (this.currentTool === 'rect' || this.currentTool === 'polygon' || this.currentTool === 'arc')) {
+                shapeDrawClick(this, this.currentTool, this._screenToWorld(e));
+            }
+
             // Left-click with text tool: place a text at the cursor.
             if (e.button === 0 && this.currentTool === 'text') {
                 const worldPos = this._screenToWorld(e);
@@ -1335,6 +1417,8 @@ export default class PCBApp {
                     this._updateHolePreview(this._screenToWorld(e));
                 } else if (this.currentTool === 'circle') {
                     this._updateCursorCrosshair(this._screenToWorld(e));
+                } else if (this.currentTool === 'rect' || this.currentTool === 'polygon' || this.currentTool === 'arc') {
+                    this._updateCursorCrosshair(this._screenToWorld(e));
                 }
             } else if (this._pasteDrop) {
                 this._updatePasteDrop(this._screenToWorld(e));
@@ -1346,6 +1430,8 @@ export default class PCBApp {
                 this._handleTextDrag(e);
             } else if (this._circleDrag) {
                 this._handleCircleDrag(this._screenToWorld(e));
+            } else if (this._shapeDrag) {
+                handleBoardShapeDrag(this, this._screenToWorld(e));
             } else if (this._refDrag) {
                 this._handleRefDrag(e);
             } else if (this._vertexDrag) {
@@ -1379,6 +1465,9 @@ export default class PCBApp {
             } else if (this._circleDraw) {
                 this._updateCircleDraw(this._screenToWorld(e));
                 this._updateCursorCrosshair(this._screenToWorld(e));
+            } else if (this._shapeDraw) {
+                updateShapeDrawPreview(this, this._screenToWorld(e));
+                this._updateCursorCrosshair(this._screenToWorld(e));
             } else if (this.currentTool === 'select') {
                 // A pending/active marquee owns the move; only fall back to
                 // hover hit-testing when no box-select is in progress.
@@ -1398,11 +1487,22 @@ export default class PCBApp {
                 this._updateHolePreview(this._screenToWorld(e));
             } else if (this.currentTool === 'track') {
                 this._updateCursorCrosshair(this._screenToWorld(e));
+                // Pre-draw hover: show the yellow target circle when the
+                // cursor is over a pad or existing track node, so the user
+                // knows clicking will bond the new track there.
+                const snap = resolveTrackSnap(this, this._screenToWorld(e), {});
+                if (snap.snapType === 'pad' || snap.snapType === 'track-node') {
+                    showTrackSnapMarker(this, { x: snap.x, y: snap.y });
+                } else {
+                    clearTrackSnapMarker(this);
+                }
             } else if (this.currentTool === 'text') {
                 this._updateCursorCrosshair(this._screenToWorld(e));
             } else if (this.currentTool === 'fill') {
                 this._updateCursorCrosshair(this._screenToWorld(e));
             } else if (this.currentTool === 'circle') {
+                this._updateCursorCrosshair(this._screenToWorld(e));
+            } else if (this.currentTool === 'rect' || this.currentTool === 'polygon' || this.currentTool === 'arc') {
                 this._updateCursorCrosshair(this._screenToWorld(e));
             }
             this.viewport.trackMouse(e);
@@ -1419,6 +1519,11 @@ export default class PCBApp {
             if (this._fillDraw) {
                 e.preventDefault();
                 finishFillDraw(this);
+                return;
+            }
+            if (this._shapeDraw && this._shapeDraw.kind === 'polygon') {
+                e.preventDefault();
+                finishPolygonDraw(this);
                 return;
             }
             if (this._textEdit) return; // already editing
@@ -1496,6 +1601,10 @@ export default class PCBApp {
                 this._endCircleDrag(true);
                 svg.style.cursor = 'default';
             }
+            if (this._shapeDrag) {
+                endBoardShapeDrag(this, true);
+                svg.style.cursor = 'default';
+            }
             if (this._refDrag) {
                 this._endRefDrag();
             }
@@ -1570,6 +1679,22 @@ export default class PCBApp {
         window.addEventListener('mouseup', (e) => {
             if (!this._active) return;
             endInteraction();
+            // Left-click release just after starting a track: decide between
+            // the two draw modes.
+            //   • Released away from the start press → "drag mode": this
+            //     release is the end point, so finish the track here.
+            //   • Released roughly in place → "click mode": leave the draw
+            //     running so the next click sets the end point.
+            if (e.button === 0 && this._trackDraw && this._trackLeftDown) {
+                const dx = e.clientX - this._trackLeftDown.x;
+                const dy = e.clientY - this._trackLeftDown.y;
+                this._trackLeftDown = null;
+                if (Math.hypot(dx, dy) >= 4) {
+                    const snap = this._trackDraw.snap;
+                    if (snap) addTrackWaypoint(this, { x: snap.x, y: snap.y });
+                    if (this._trackDraw) finishTrackDraw(this);
+                }
+            }
             // Right-click release while drawing a track: if the user
             // didn't pan (movement under threshold), treat it as "finish".
             if (e.button === 2 && this._trackDraw && this._trackRightDown) {
@@ -1660,11 +1785,14 @@ export default class PCBApp {
             t === 'via' ? 'crosshair' :
             t === 'hole' ? 'crosshair' :
             t === 'circle' ? 'crosshair' :
+            t === 'rect' ? 'crosshair' :
+            t === 'polygon' ? 'crosshair' :
+            t === 'arc' ? 'crosshair' :
             t === 'text' ? this._textToolCursor() :
             'default';
         if (t !== 'via') this._clearViaRing();
         if (t !== 'hole') this._clearHoleRing();
-        if (t !== 'via' && t !== 'track' && t !== 'text' && t !== 'hole' && t !== 'circle') this._clearCursorCrosshair();
+        if (t !== 'via' && t !== 'track' && t !== 'text' && t !== 'hole' && t !== 'circle' && t !== 'rect' && t !== 'polygon' && t !== 'arc') this._clearCursorCrosshair();
     }
 
     /** Crosshair + small "T" icon cursor for the text-placement tool. */
@@ -1835,6 +1963,9 @@ export default class PCBApp {
     /** Public hook used by controls.setTool to abort an in-flight track draw. */
     _cancelTrackDraw() {
         if (this._trackDraw) cancelTrackDraw(this);
+        // Also drop the pre-draw hover snap marker (shown while hovering a
+        // bondable target before the first click).
+        clearTrackSnapMarker(this);
     }
 
     /** Public hook used by controls.setTool to abort an in-flight fill draw. */
@@ -1848,6 +1979,11 @@ export default class PCBApp {
         if (!d) return;
         if (d.preview?.parentNode) d.preview.parentNode.removeChild(d.preview);
         this._circleDraw = null;
+    }
+
+    /** Public hook used by controls.setTool to abort an in-flight shape draw. */
+    _cancelShapeDraw() {
+        cancelShapeDraw(this);
     }
 
     _startCircleDraw(worldPos) {
@@ -1911,7 +2047,7 @@ export default class PCBApp {
         this.history.execute(new AddCircleCommand(this, circle));
     }
 
-    _renderCircle(circle) {
+    _renderCircle(circle, opts = {}) {
         this._removeCircleElement(circle.id);
         const NS = 'http://www.w3.org/2000/svg';
         const el = document.createElementNS(NS, 'circle');
@@ -1981,8 +2117,18 @@ export default class PCBApp {
             : (circle.layer || 'top-silk');
         this._getLayerGroup(targetLayer)?.appendChild(el);
         this._circleElements.set(circle.id, el);
-        // Keep the copper-cut masks in sync with the current circle set.
-        this._updateCopperCuts();
+        // Keep the copper-cut masks in sync with the current circle set. This
+        // is expensive (it re-applies a clip-path to the whole copper/fill
+        // layer, re-rasterising every track/pour), so during a live drag skip
+        // it unless THIS circle is itself a copper cut — moving a silk/doc/mask
+        // circle never changes the cut geometry. Outside a drag, also run it
+        // when cuts already exist so a layer/mode change can clear a stale cut.
+        const affectsCuts = this._circleAffectsCopperCuts(circle);
+        if (opts.liveDrag) {
+            if (affectsCuts) this._updateCopperCuts();
+        } else if (affectsCuts || this._hasCopperCuts) {
+            this._updateCopperCuts();
+        }
     }
 
     _removeCircleElement(id) {
@@ -2041,6 +2187,15 @@ export default class PCBApp {
             y0 = -(this._boardHeight || 80) - m; y1 = m;
         }
         const r4 = (n) => Math.round(n * 10000) / 10000;
+        // Cache the last-applied clip path string per side. Rebuilding the
+        // clip-path <path> and re-setting the clip-path attribute invalidates
+        // the copper layer's raster, forcing a full repaint of every track and
+        // pour. Most calls (hover, re-select, dragging an unrelated element,
+        // re-render-all) produce identical geometry, so a string compare lets
+        // us skip all DOM work and the repaint it would trigger. `null` is the
+        // cleared (no-cut) state; `undefined` means "not yet computed".
+        const cache = this._copperCutCache
+            || (this._copperCutCache = { top: undefined, bottom: undefined });
         let any = false;
         for (const side of ['top', 'bottom']) {
             const copperLayer = `${side}-copper`;
@@ -2055,19 +2210,21 @@ export default class PCBApp {
                 const m = this._normalizeCircleCopperMode(c.copperMode);
                 return m === 'remove-copper' || m === 'remove-copper-mask';
             });
+            const shapeCuts = boardShapeCopperCuts(this, copperLayer);
             const existing = defs.querySelector(`#${clipId}`);
-            if (cuts.length === 0) {
-                if (existing) existing.remove();
-                for (const lid of [copperLayer, fillLayer]) {
-                    this._layerGroups.get(lid)?.removeAttribute('clip-path');
+            if (cuts.length === 0 && shapeCuts.count === 0) {
+                // Nothing to cut on this side. Only touch the DOM if we weren't
+                // already in the cleared state.
+                if (cache[side] !== null) {
+                    if (existing) existing.remove();
+                    for (const lid of [copperLayer, fillLayer]) {
+                        this._layerGroups.get(lid)?.removeAttribute('clip-path');
+                    }
+                    cache[side] = null;
                 }
                 continue;
             }
             any = true;
-            const clip = existing || document.createElementNS(NS, 'clipPath');
-            clip.setAttribute('id', clipId);
-            clip.setAttribute('clipPathUnits', 'userSpaceOnUse');
-            while (clip.firstChild) clip.removeChild(clip.firstChild);
             // Outer rectangle keeps everything; each circle sub-path is a hole.
             let d = `M ${r4(x0)} ${r4(y0)} L ${r4(x1)} ${r4(y0)} L ${r4(x1)} ${r4(y1)} L ${r4(x0)} ${r4(y1)} Z`;
             for (const c of cuts) {
@@ -2080,6 +2237,15 @@ export default class PCBApp {
                     + ` a ${r4(rad)} ${r4(rad)} 0 1 0 ${r4(rad * 2)} 0`
                     + ` a ${r4(rad)} ${r4(rad)} 0 1 0 ${r4(-rad * 2)} 0 Z`;
             }
+            // Append board-shape (rect/polygon) copper-removal sub-paths.
+            if (shapeCuts.d) d += ` ${shapeCuts.d}`;
+            // Identical geometry already applied (and the clip element still
+            // present) → skip the rebuild + re-apply, avoiding the repaint.
+            if (cache[side] === d && existing) continue;
+            const clip = existing || document.createElementNS(NS, 'clipPath');
+            clip.setAttribute('id', clipId);
+            clip.setAttribute('clipPathUnits', 'userSpaceOnUse');
+            while (clip.firstChild) clip.removeChild(clip.firstChild);
             const path = document.createElementNS(NS, 'path');
             path.setAttribute('d', d);
             path.setAttribute('clip-rule', 'evenodd');
@@ -2088,12 +2254,29 @@ export default class PCBApp {
             for (const lid of [copperLayer, fillLayer]) {
                 this._layerGroups.get(lid)?.setAttribute('clip-path', `url(#${clipId})`);
             }
+            cache[side] = d;
         }
         // Remember whether any cut is active so view-change handlers know to
         // re-fit the clip rectangle to the new viewport on pan/zoom.
         this._hasCopperCuts = any;
     }
 
+
+    /**
+     * Does this circle participate in copper-cut geometry? (Holes drill both
+     * sides; copper-removal circles cut their own side.) Mirrors the filter in
+     * `_updateCopperCuts`. Used to skip the costly cut rebuild during a live
+     * drag of a circle that has no effect on copper.
+     */
+    _circleAffectsCopperCuts(circle) {
+        if (!circle) return false;
+        if (circle.layer === 'hole') return (Number(circle.radius) || 0) > 0;
+        if (circle.layer === 'top-copper' || circle.layer === 'bottom-copper') {
+            const m = this._normalizeCircleCopperMode(circle.copperMode);
+            return m === 'remove-copper' || m === 'remove-copper-mask';
+        }
+        return false;
+    }
 
     _circleIsFilled(circle) {
         if (!circle) return false;
@@ -2192,7 +2375,7 @@ export default class PCBApp {
         const snap = this._snapToGrid({ x: d.startPos.x + dx, y: d.startPos.y + dy });
         c.x = snap.x;
         c.y = snap.y;
-        this._renderCircle(c);
+        this._renderCircle(c, { liveDrag: true });
     }
 
     _endCircleDrag(commit) {
@@ -2315,6 +2498,19 @@ export default class PCBApp {
             return false;
         }
 
+        // Shape-draw mode owns Escape (and Enter finishes a polygon).
+        if (this._shapeDraw) {
+            if (e.key === 'Escape') {
+                cancelShapeDraw(this);
+                return true;
+            }
+            if ((e.key === 'Enter') && this._shapeDraw.kind === 'polygon') {
+                finishPolygonDraw(this);
+                return true;
+            }
+            return false;
+        }
+
         // Otherwise: history, delete, selection-cancel.
         const ctrl = e.ctrlKey || e.metaKey;
         if (ctrl && !e.shiftKey && (e.key === 'z' || e.key === 'Z')) {
@@ -2322,6 +2518,7 @@ export default class PCBApp {
             if (this._viaDrag) cancelViaDrag(this);
             if (this._holeDrag) cancelHoleDrag(this);
             if (this._circleDrag) this._endCircleDrag(false);
+            if (this._shapeDrag) endBoardShapeDrag(this, false);
             this.history.undo();
             return true;
         }
@@ -2351,6 +2548,10 @@ export default class PCBApp {
             }
             if (this._selectedCircle) {
                 this.deleteSelectedCircle();
+                return true;
+            }
+            if (this._selectedShape) {
+                deleteSelectedBoardShape(this);
                 return true;
             }
             // Components belong to the schematic netlist and can't be deleted
@@ -2513,6 +2714,7 @@ export default class PCBApp {
                 filled: !!c.filled,
                 copperMode: this._normalizeCircleCopperMode(c.copperMode),
             })),
+            boardShapes: serializeBoardShapes(this),
             texts: [...this.texts.values()].map(serializePcbText),
             fills: this.copperFills.map(f => f.toJSON()),
             placements,
@@ -2531,6 +2733,7 @@ export default class PCBApp {
         const hasContent = this.tracks?.length || this.vias?.length
             || this.holes?.length
             || this.circles?.length
+            || this.boardShapes?.length
             || this.texts?.size || this.copperFills?.length || this._placementOverrides.size
             || this._boardOutlineDrawn;
         return hasContent ? this.serialize() : null;
@@ -2634,6 +2837,13 @@ export default class PCBApp {
         for (const id of this._circleElements.keys()) this._removeCircleElement(id);
         this.circles.length = 0;
         this._circleIdCounter = 1;
+        for (const id of this._shapeElements.keys()) removeBoardShapeElement(this, id);
+        this.boardShapes.length = 0;
+        this._shapeIdCounter = 1;
+        this._selectedShape = null;
+        this._hoveredShape = null;
+        this._shapeDraw = null;
+        this._shapeDrag = null;
         this._updateCopperCuts?.();
         // Drop any existing copper pours and their SVG.
         this.copperFills.length = 0;
@@ -2754,6 +2964,7 @@ export default class PCBApp {
                 if (n) this._circleIdCounter = Math.max(this._circleIdCounter, Number(n[1]) + 1);
             }
         }
+        loadBoardShapes(this, data.boardShapes);
         if (Array.isArray(data.texts)) {
             for (const td of data.texts) {
                 const t = createPcbText(td);
@@ -2931,6 +3142,10 @@ export default class PCBApp {
                 this._selectCircle(null);
                 this._clearProperties();
             }
+            if (this._selectedShape && this._selectedShape.layer === layerId) {
+                selectBoardShape(this, null);
+                this._clearProperties();
+            }
             if (this._selectedFill && this._selectedFill.layer === layerId) {
                 this._selectFill(null);
             }
@@ -2976,6 +3191,10 @@ export default class PCBApp {
         }
         if (this._selectedCircle && this._selectedCircle.layer === layerId) {
             this._selectCircle(null);
+            this._clearProperties();
+        }
+        if (this._selectedShape && this._selectedShape.layer === layerId) {
+            selectBoardShape(this, null);
             this._clearProperties();
         }
         if (this._boardOutlineSelected && layerId === 'board-outline') {
@@ -3957,6 +4176,12 @@ export default class PCBApp {
             this._renderCircle(c);
         }
 
+        // Free-standing board shapes (rectangle / polygon / arc).
+        this._shapeElements.clear();
+        for (const s of this.boardShapes) {
+            renderBoardShape(this, s);
+        }
+
         // Copper pours. Their model (copperFills) survives the rebuild but
         // their SVG is wiped by _clearPCBContent, so re-pour them here. This
         // is coalesced to one recompute on the next frame, by which point any
@@ -3990,6 +4215,9 @@ export default class PCBApp {
             this._layerGroups.get(`${side}-copper`)?.removeAttribute('clip-path');
             this._layerGroups.get(`${side}-fill`)?.removeAttribute('clip-path');
         }
+        // DOM is now in the cleared (no-cut) state; keep the path-string cache
+        // in sync so the next _updateCopperCuts re-applies cuts from scratch.
+        this._copperCutCache = { top: null, bottom: null };
         this._hasCopperCuts = false;
     }
 
@@ -4531,6 +4759,8 @@ export default class PCBApp {
             this._setTextHover(this._hitTestText(worldPos));
             // Hover highlight for free-standing circles.
             this._setCircleHover(this._hitTestCircle(worldPos));
+            // Hover highlight for free-standing board shapes.
+            setBoardShapeHover(this, hitTestBoardShape(this, worldPos));
             // Cursor feedback: a diagonal double-arrow (matching the
             // schematic editor's graph anchors) when the pointer is over a
             // draggable track node. Only toggle on transitions so we don't
@@ -8454,6 +8684,7 @@ export default class PCBApp {
                 texts: [...this.texts.values()],
                 fills: this.copperFills,
                 circles: this.circles,
+                boardShapes: (this.boardShapes || []).map(s => ({ ...s, outline: shapeOutline(s) })),
                 boardX: this._boardX || 0,
                 boardY: this._boardY || 0,
                 boardWidth: this._boardWidth,

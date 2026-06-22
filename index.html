@@ -267,7 +267,15 @@
                             <button id="pcbToolPad" class="ribbon-tool-btn" title="Place Pad">◼ Pad</button>
                             <button id="pcbToolVia" class="ribbon-tool-btn" title="Place Via">◉ Via</button>
                             <button id="pcbToolHole" class="ribbon-tool-btn" title="Place Hole">◎ Hole</button>
-                            <button id="pcbToolCircle" class="ribbon-tool-btn" title="Draw Circle">◯ Circle</button>
+                            <div class="ribbon-tool-dropdown" id="pcbToolShapesWrap">
+                                <button id="pcbToolShapes" class="ribbon-tool-btn" title="Draw Shape">◯ Circle ▾</button>
+                                <div class="ribbon-tool-menu" id="pcbToolShapesMenu" hidden>
+                                    <button class="ribbon-tool-menu-item" data-shape="circle" title="Draw Circle">◯ Circle</button>
+                                    <button class="ribbon-tool-menu-item" data-shape="arc" title="Draw Arc">◠ Arc</button>
+                                    <button class="ribbon-tool-menu-item" data-shape="rect" title="Draw Rectangle">▢ Rectangle</button>
+                                    <button class="ribbon-tool-menu-item" data-shape="polygon" title="Draw Polygon">⬠ Polygon</button>
+                                </div>
+                            </div>
                             <button id="pcbToolText" class="ribbon-tool-btn" title="Place Text">T Text</button>
                             <button id="pcbToolFill" class="ribbon-tool-btn" title="Draw Copper Fill / Pour">▦ Fill</button>
                         </div>

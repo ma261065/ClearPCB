@@ -31,6 +31,10 @@ import {
     clearTrackAxisGlow,
     showTrackSnapMarker,
     clearTrackSnapMarker,
+    nearestPointOnNet,
+    showNetGuideLine,
+    clearNetGuideLine,
+    bondedExclusion,
     snapNodeToAxis,
     snapNodeToCollinear,
     applyAxisConstraint,
@@ -46,7 +50,7 @@ import { pointsCollinear, collinearSnap } from '../../core/geometry.js';
 import { showAlert } from '../../ui/modules/modal.js';
 import { Via } from '../../shapes/via.js';
 import { Track } from '../../shapes/track.js';
-import { isLayerLocked } from './layers.js';
+import { isLayerLocked, isOverlayVisible } from './layers.js';
 
 /** Screen-px hit tolerance for selecting a Track node to drag. */
 const NODE_HIT_PX = 8;
@@ -417,6 +421,9 @@ export function startMidpointInsertDrag(app, track, edgeId) {
         grabY: mid.y,
         nodes: [{ nodeId: res.newNodeId, startX: mid.x, startY: mid.y, padLink: null }],
     };
+    // Freeze 3D board-view sync for the drag; it rebuilds once on commit
+    // rather than live from the in-flight (uncommitted) node positions.
+    app._suspendBoardViewRefresh = true;
     renderTrack(track, (id) => app._getLayerGroup(id), _opts(app));
     refreshTrackSelectionHalo(app);
     reconcileRatsnest(app);
@@ -882,7 +889,14 @@ export function startVertexDrag(app, track, worldPos, opts = {}) {
                 // drop it if the user drags away from the original pad.
                 padLink: track.padConnections.get(nodeId) || null,
             }],
+            // Copper this track is already bonded to (computed at rest, before
+            // the drag moves anything), so the live net-guide line never
+            // points back at copper the dragged end already connects to.
+            guideExclude: track.net ? bondedExclusion(app, track) : null,
         };
+        // Freeze 3D board-view sync for the drag; it rebuilds once on commit
+        // rather than live from the in-flight (uncommitted) node positions.
+        app._suspendBoardViewRefresh = true;
         return true;
     }
 
@@ -942,6 +956,9 @@ export function startVertexDrag(app, track, worldPos, opts = {}) {
             { nodeId: e.to, startX: b.x, startY: b.y, padLink: track.padConnections.get(e.to) || null },
         ],
     };
+    // Freeze 3D board-view sync for the drag; it rebuilds once on commit
+    // rather than live from the in-flight (uncommitted) node positions.
+    app._suspendBoardViewRefresh = true;
     if (graphBefore) renderTrack(track, (id) => app._getLayerGroup(id), _opts(app));
     return true;
 }
@@ -972,6 +989,7 @@ export function updateVertexDrag(app, worldPos) {
         renderTrackAxisGlowTop(app);
         refreshTrackSelectionHalo(app);
         reconcileRatsnest(app);
+        clearNetGuideLine(app);
         return;
     }
 
@@ -1065,6 +1083,20 @@ export function updateVertexDrag(app, worldPos) {
     // Keep the selection halo glued to the new geometry.
     refreshTrackSelectionHalo(app);
     reconcileRatsnest(app);
+
+    // Live guide from the dragged node to the nearest existing copper on this
+    // track's net that it isn't already connected to. Only shown when the
+    // ratlines overlay is HIDDEN — when it's visible the ratsnest already
+    // draws this connection. The track's bonded cluster (captured at drag
+    // start) is excluded so the guide skips copper the far end already reaches.
+    if (drag.track.net && !isOverlayVisible('ratlines')) {
+        const near = nearestPointOnNet(app, drag.track.net, { x: n.x, y: n.y }, {
+            ...(drag.guideExclude || {}),
+        });
+        showNetGuideLine(app, near ? { x: n.x, y: n.y } : null, near);
+    } else {
+        clearNetGuideLine(app);
+    }
 }
 
 /**
@@ -1383,8 +1415,14 @@ export function finishVertexDrag(app) {
     const drag = app._vertexDrag;
     if (!drag) return;
     app._vertexDrag = null;
+    // Re-enable 3D board-view sync and schedule one catch-up rebuild from the
+    // final state. The commit below fires its own (debounced) sync too; both
+    // collapse into a single rebuild, and no-op drops still re-sync here.
+    app._suspendBoardViewRefresh = false;
+    app._board3d?.refresh?.();
     clearTrackAxisGlow(app);
     clearTrackSnapMarker(app);
+    clearNetGuideLine(app);
 
     // Did any dragged node actually move?
     let moved = false;
@@ -1509,8 +1547,12 @@ export function cancelVertexDrag(app) {
     const drag = app._vertexDrag;
     if (!drag) return;
     app._vertexDrag = null;
+    // Re-enable 3D board-view sync and re-sync to the restored state.
+    app._suspendBoardViewRefresh = false;
+    app._board3d?.refresh?.();
     clearTrackAxisGlow(app);
     clearTrackSnapMarker(app);
+    clearNetGuideLine(app);
     if (drag.graphBefore) {
         // Roll back any bridge geometry plus the node moves in one step.
         drag.track.applyState(drag.graphBefore);

@@ -471,8 +471,10 @@ export class Board2D {
         this._drawCopper(ctx);
         if (SHOW_SOLDERMASK) this._drawSolderMask(ctx);
         this._drawDocumentCutouts(ctx);
-        this._drawHoles(ctx);
         this._drawSilk(ctx);
+        // Holes paint last so a bore/cutout reads as open through every layer —
+        // including silk, which is never printed over a drilled hole.
+        this._drawHoles(ctx);
         ctx.restore();
     }
 
@@ -875,6 +877,18 @@ export class Board2D {
             ctx.fillStyle = COL.bg;
             ctx.fill();
         }
+        // Free-standing board shapes on HOLE layer are board cutouts too.
+        for (const s of (d.boardShapes || [])) {
+            if (!s || s.layer !== 'hole') continue;
+            const outline = s.outline || [];
+            if (outline.length < 3) continue;
+            ctx.beginPath();
+            ctx.moveTo(outline[0].x, outline[0].y);
+            for (let i = 1; i < outline.length; i++) ctx.lineTo(outline[i].x, outline[i].y);
+            ctx.closePath();
+            ctx.fillStyle = COL.bg;
+            ctx.fill();
+        }
     }
 
     /** Silkscreen for the active side: shapes, ref designators, free text. */
@@ -932,6 +946,29 @@ export class Board2D {
                 }
                 if (segs.length) stroke(segs, sk.width);
             }
+        }
+
+        // Free-standing board shapes (rect/polygon/arc) on this silk side.
+        for (const s of (d.boardShapes || [])) {
+            if (!s || s.layer !== wantLayer) continue;
+            const o = s.outline || [];
+            if (o.length < 2) continue;
+            const lw = Math.max(0.05, Number(s.lineWidth) || 0.2);
+            const closed = s.kind !== 'arc';
+            if (closed && s.filled && o.length >= 3) {
+                ctx.fillStyle = COL.silk;
+                ctx.beginPath();
+                ctx.moveTo(o[0].x, o[0].y);
+                for (let i = 1; i < o.length; i++) ctx.lineTo(o[i].x, o[i].y);
+                ctx.closePath();
+                ctx.fill();
+            }
+            ctx.lineWidth = lw;
+            ctx.beginPath();
+            ctx.moveTo(o[0].x, o[0].y);
+            for (let i = 1; i < o.length; i++) ctx.lineTo(o[i].x, o[i].y);
+            if (closed) ctx.closePath();
+            ctx.stroke();
         }
 
         // Reference designators are posed per-placement (stroke-font geometry,

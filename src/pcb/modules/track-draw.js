@@ -35,6 +35,7 @@ import { Via } from '../../shapes/via.js';
 import { renderTrack } from './track-render.js';
 import { collinearSnap, pointInPolygon } from '../../core/geometry.js';
 import { showAlert } from '../../ui/modules/modal.js';
+import { isOverlayVisible } from './layers.js';
 
 const NS = 'http://www.w3.org/2000/svg';
 
@@ -435,7 +436,15 @@ export function snapNodeToCollinear(pos, neighbours, threshold) {
 export function startTrackDraw(app, worldPos) {
     const snap = resolveTrackSnap(app, worldPos);
     const startPad = snap.snapType === 'pad' ? snap.pad : null;
-    const net = startPad?.net || '';
+    // Inherit the net at draw start from the pad or track node we begin on,
+    // so the live net-guide line works for the whole draw (an unassigned
+    // track would have nothing to guide toward).
+    let net = startPad?.net || '';
+    let startTrack = null;
+    if (snap.snapType === 'track-node' && snap.trackNode) {
+        startTrack = snap.trackNode.track;
+        if (!net) net = startTrack.net || '';
+    }
     const layer = TOGGLE_LAYERS.includes(app.activeLayer) ? app.activeLayer : 'top-copper';
     const width = _getTrackWidth(app);
     const routeOpts = _renderOptsFromApp(app);
@@ -452,6 +461,11 @@ export function startTrackDraw(app, worldPos) {
         axisLock: null,                  // 'horizontal' | 'vertical' | 'diagonal' | null
         previewElements: [],             // SVG nodes owned by the current preview render
         snap,                            // most recent live snap result
+        // Copper this draw is already electrically bonded to (the start
+        // track's cluster), so the live net-guide line never points back at
+        // it. Computed once here; the in-progress track isn't in app.tracks,
+        // so the bonded set can't change mid-draw.
+        guideExclude: startTrack ? bondedExclusion(app, startTrack) : null,
         // Via geometry snapshot — captured at draw-start so the preview
         // marker and the eventually-committed Via render at the same size.
         viaDiameter: routeOpts.viaDiameter,
@@ -485,6 +499,20 @@ export function updateTrackDraw(app, worldPos) {
     }
 
     _renderPreview(app, ctx, target);
+
+    // Live guide from the trailing tip to the nearest existing copper on this
+    // track's net that it isn't already connected to. Only shown when the
+    // ratlines overlay is HIDDEN — when it's visible the ratsnest already
+    // draws this connection, so the guide would just duplicate it.
+    if (ctx.net && !isOverlayVisible('ratlines')) {
+        const near = nearestPointOnNet(app, ctx.net, target, {
+            excludePoints: ctx.points,
+            ...(ctx.guideExclude || {}),
+        });
+        showNetGuideLine(app, near ? target : null, near);
+    } else {
+        clearNetGuideLine(app);
+    }
 }
 
 /**
@@ -890,7 +918,7 @@ export function reconcileRatsnest(app, opts) {
  *
  * @param {object} app
  * @param {{track?:object, via?:object}} seed
- * @returns {{tracks:Set<object>, vias:Set<object>, padNets:Set<string>}}
+ * @returns {{tracks:Set<object>, vias:Set<object>, padNets:Set<string>, padKeys:Set<string>}}
  */
 export function collectBondedCopper(app, seed) {
     const posKey = (x, y) => `${Math.round(x * 10000)},${Math.round(y * 10000)}`;
@@ -940,7 +968,7 @@ export function collectBondedCopper(app, seed) {
         if (!pl?.pads) continue;
         for (const [pin, pad] of pl.pads) {
             const net = padNetMap.get(`${compId}|${pin}`);
-            clusters.push({ kind: 'pad', layer: 'all', points: [{ x: pad.x, y: pad.y }], padNet: net || '' });
+            clusters.push({ kind: 'pad', layer: 'all', points: [{ x: pad.x, y: pad.y }], padNet: net || '', padKey: `${compId}|${pin}` });
         }
     }
 
@@ -978,14 +1006,18 @@ export function collectBondedCopper(app, seed) {
     const tracks = new Set();
     const vias = new Set();
     const padNets = new Set();
+    const padKeys = new Set();
     for (let i = 0; i < clusters.length; i++) {
         if (!roots.has(find(i))) continue;
         const c = clusters[i];
         if (c.kind === 'track' && c.track) tracks.add(c.track);
         else if (c.kind === 'via' && c.via) vias.add(c.via);
-        else if (c.kind === 'pad' && c.padNet) padNets.add(c.padNet);
+        else if (c.kind === 'pad') {
+            if (c.padNet) padNets.add(c.padNet);
+            if (c.padKey) padKeys.add(c.padKey);
+        }
     }
-    return { tracks, vias, padNets };
+    return { tracks, vias, padNets, padKeys };
 }
 
 /**
@@ -1050,6 +1082,7 @@ function _teardownDraw(app) {
     if (!ctx) return;
     _clearPreviewElements(ctx);
     clearTrackSnapMarker(app);
+    clearNetGuideLine(app);
     app._trackDraw = null;
 }
 
@@ -1243,6 +1276,154 @@ export function clearTrackSnapMarker(app) {
     if (app._trackSnapMarker) {
         app._trackSnapMarker.remove();
         app._trackSnapMarker = null;
+    }
+}
+
+/** Closest point on segment a→b to p, clamped to the segment. */
+function _projectPointOnSegment(p, a, b) {
+    const abx = b.x - a.x, aby = b.y - a.y;
+    const len2 = abx * abx + aby * aby;
+    if (len2 < 1e-12) return { x: a.x, y: a.y };
+    let t = ((p.x - a.x) * abx + (p.y - a.y) * aby) / len2;
+    if (t < 0) t = 0; else if (t > 1) t = 1;
+    return { x: a.x + abx * t, y: a.y + aby * t };
+}
+
+/**
+ * Find the nearest point of net `net`'s existing copper (pads, vias and
+ * tracks) to `from`. Drives the live guide line drawn from the tip of a track
+ * being routed (or a node being dragged) toward the closest place it still
+ * needs to connect. Copper the trace is ALREADY electrically connected to is
+ * excluded via `excludeTracks`/`excludeVias`/`excludePadKeys` (a precomputed
+ * bonded cluster) so the guide never points back at it.
+ *
+ * @param {object} app - PCBApp
+ * @param {string} net - net name to search
+ * @param {{x:number,y:number}} from - reference point (the live tip / node)
+ * @param {object} [opts]
+ * @param {Set<object>} [opts.excludeTracks] - Tracks to skip entirely.
+ * @param {Set<object>} [opts.excludeVias] - Vias to skip entirely.
+ * @param {Set<string>} [opts.excludePadKeys] - `componentId|pinNumber` keys to
+ *   skip entirely.
+ * @param {Array<{x:number,y:number}>} [opts.excludePoints] - candidate points
+ *   coincident (within ~1µm) with any of these are skipped, so the guide
+ *   never points back at the source pad / waypoints just placed.
+ * @returns {{x:number,y:number}|null}
+ */
+export function nearestPointOnNet(app, net, from, opts = {}) {
+    if (!net || !from) return null;
+    const excludeTracks = opts.excludeTracks || null;
+    const excludeVias = opts.excludeVias || null;
+    const excludePadKeys = opts.excludePadKeys || null;
+    const excludePoints = opts.excludePoints || null;
+    const EPS2 = 1e-6; // (1e-3 mm)^2
+    const skip = (x, y) => {
+        if (!excludePoints) return false;
+        for (const q of excludePoints) {
+            const dx = x - q.x, dy = y - q.y;
+            if (dx * dx + dy * dy <= EPS2) return true;
+        }
+        return false;
+    };
+    let best = null;
+    let bestD2 = Infinity;
+    const consider = (x, y) => {
+        if (skip(x, y)) return;
+        const dx = x - from.x, dy = y - from.y;
+        const d2 = dx * dx + dy * dy;
+        if (d2 < bestD2) { bestD2 = d2; best = { x, y }; }
+    };
+
+    // Pads on the net (schematic netlist ∩ placed footprint pad positions).
+    const padKeys = new Set();
+    for (const entry of (app.netlist || [])) {
+        if (entry?.net !== net || !entry.pins) continue;
+        for (const pin of entry.pins) padKeys.add(`${pin.componentId}|${pin.pinNumber}`);
+    }
+    if (padKeys.size) {
+        for (const [compId, pl] of (app.placements || [])) {
+            if (!pl?.pads) continue;
+            for (const [pin, pad] of pl.pads) {
+                const key = `${compId}|${pin}`;
+                if (!padKeys.has(key)) continue;
+                if (excludePadKeys && excludePadKeys.has(key)) continue;
+                consider(pad.x, pad.y);
+            }
+        }
+    }
+
+    // Vias on the net.
+    for (const v of (app.vias || [])) {
+        if (v.net !== net) continue;
+        if (excludeVias && excludeVias.has(v)) continue;
+        consider(v.x, v.y);
+    }
+
+    // Tracks on the net: every node plus the nearest point on each segment.
+    for (const track of (app.tracks || [])) {
+        if (track.net !== net) continue;
+        if (excludeTracks && excludeTracks.has(track)) continue;
+        for (const [, p] of track.nodes) consider(p.x, p.y);
+        for (const [, e] of track.edges) {
+            const a = track.nodes.get(e.from);
+            const b = track.nodes.get(e.to);
+            if (!a || !b) continue;
+            const proj = _projectPointOnSegment(from, a, b);
+            consider(proj.x, proj.y);
+        }
+    }
+
+    return best;
+}
+
+/**
+ * Precompute the copper a trace seeded on `seedTrack` is already bonded to,
+ * shaped for `nearestPointOnNet`'s exclusion options. Returns null when there
+ * is no seed track. Computed once at draw/drag start and reused per frame.
+ *
+ * @param {object} app
+ * @param {object|null} seedTrack
+ * @returns {{excludeTracks:Set<object>, excludeVias:Set<object>, excludePadKeys:Set<string>}|null}
+ */
+export function bondedExclusion(app, seedTrack) {
+    if (!seedTrack) return null;
+    const { tracks, vias, padKeys } = collectBondedCopper(app, { track: seedTrack });
+    return { excludeTracks: tracks, excludeVias: vias, excludePadKeys: padKeys };
+}
+
+/**
+ * Draw a live guide line from `from` to `to` (the nearest existing copper on
+ * the active net), styled like a ratline. Replaces any previous guide. Pass a
+ * falsy endpoint, or call `clearNetGuideLine`, to remove it.
+ *
+ * @param {object} app
+ * @param {{x:number,y:number}|null} from
+ * @param {{x:number,y:number}|null} to
+ */
+export function showNetGuideLine(app, from, to) {
+    clearNetGuideLine(app);
+    if (!from || !to || !app?.viewport?.svg) return;
+    const line = document.createElementNS(NS, 'line');
+    line.setAttribute('x1', String(from.x));
+    line.setAttribute('y1', String(from.y));
+    line.setAttribute('x2', String(to.x));
+    line.setAttribute('y2', String(to.y));
+    line.setAttribute('stroke', '#4488ff');
+    line.setAttribute('stroke-width', '1');
+    line.setAttribute('vector-effect', 'non-scaling-stroke');
+    line.setAttribute('stroke-opacity', '0.9');
+    line.setAttribute('pointer-events', 'none');
+    line.classList.add('net-guide-line');
+    // Root SVG so the guide always paints above the copper.
+    app.viewport.svg.appendChild(line);
+    app._netGuideLine = line;
+}
+
+/** Remove the net guide line, if present. */
+export function clearNetGuideLine(app) {
+    if (app._netGuideLine) {
+        app._netGuideLine.remove();
+        app._netGuideLine = null;
     }
 }
 

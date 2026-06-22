@@ -548,6 +548,8 @@ import {
     resolvePadFlashes,
     resolveSilk,
 } from './board-geometry.js';
+import { shapeOutline } from './board-shapes.js';
+import { loadClipper, isClipperReady, getClipper } from './copper-fill-geom.js';
 
 /** Finished board thickness in millimetres (standard 1.6 mm). */
 const BOARD_THICKNESS = 1.6;
@@ -1150,11 +1152,15 @@ function polygonWallMesh(ring, yBottom, yTop, color) {
 function boardWithHoles(outline, holeList, yBottom, yTop, color, edgeColor) {
     if (!holeList.length) return extrudePrism(outline, yBottom, yTop, color, edgeColor);
     const seg = 48;
+    // Polygon cutouts (board shapes on the hole layer) carry an explicit ring
+    // in board (x, z) coords; circular bores are clustered as before.
+    const circleHoles = holeList.filter((h) => !h.ring);
+    const ringHoles = holeList.filter((h) => h.ring && h.ring.length >= 3);
     // Group bores that overlap/touch into clusters. A lone bore stays a clean
     // circle; an overlapping cluster becomes the true union outline, so two
     // mounting holes that overlap read as a figure-8 opening — not one big
     // enclosing circle, and not an earcut-bridged sliver.
-    const clusters = clusterOverlappingHoles(holeList);
+    const clusters = clusterOverlappingHoles(circleHoles);
     /** @type {Array<{ring:Array<{x:number,y:number}>, circle:{x:number,z:number,r:number}|null}>} */
     const bores = [];
     for (const cl of clusters) {
@@ -1171,6 +1177,10 @@ function boardWithHoles(outline, holeList, yBottom, yTop, color, edgeColor) {
             const m = mergeOverlappingHoles(cl)[0];
             bores.push({ ring: circleRing(m.x, m.z, m.r, seg), circle: { x: m.x, z: m.z, r: m.r } });
         }
+    }
+    // Polygon cutouts: each ring becomes its own bore (no clustering).
+    for (const h of ringHoles) {
+        bores.push({ ring: h.ring.map((p) => ({ x: p.x, y: p.z })), circle: null });
     }
     const outer2d = outline.map((p) => ({ x: p.x, y: p.z }));
     const holes2d = bores.map((b) => b.ring);
@@ -1201,6 +1211,119 @@ function boardWithHoles(outline, holeList, yBottom, yTop, color, edgeColor) {
     for (const b of bores) {
         if (b.circle) appendMesh(mesh, cylinderWallMesh(b.circle.x, b.circle.z, b.circle.r, yBottom, yTop, side, seg));
         else appendMesh(mesh, polygonWallMesh(b.ring, yBottom, yTop, side));
+    }
+    return mesh;
+}
+
+/** Signed area of a closed ring in the (x, z) plane (CCW → positive). */
+function _signedAreaXZ(ring) {
+    let a = 0;
+    for (let i = 0; i < ring.length; i++) {
+        const p = ring[i], q = ring[(i + 1) % ring.length];
+        a += p.x * q.z - q.x * p.z;
+    }
+    return a / 2;
+}
+
+/** Ray-cast point-in-polygon test for a ring of {x, z} points. */
+function _pointInRingXZ(x, z, ring) {
+    let inside = false;
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+        const a = ring[i], b = ring[j];
+        if (((a.z > z) !== (b.z > z)) &&
+            (x < (b.x - a.x) * (z - a.z) / (b.z - a.z) + a.x)) inside = !inside;
+    }
+    return inside;
+}
+
+/**
+ * Boolean-subtract cutout rings from the board outline (clipper difference),
+ * returning the notched region(s) as ExPolygons in (x, z). Winding is
+ * normalised so each outer matches the source outline and holes are opposite.
+ * @param {Array<{x:number,z:number}>} outline
+ * @param {Array<Array<{x:number,z:number}>>} rings cutout rings (x, z)
+ * @returns {Array<{outer:Array<{x:number,z:number}>, holes:Array<Array<{x:number,z:number}>>}>}
+ */
+function _subtractRingsFromOutline(outline, rings) {
+    if (!isClipperReady()) return [{ outer: outline, holes: [] }];
+    const C = /** @type {any} */ (getClipper());
+    const SC = 10000;
+    const toPath = (pts) => pts.map((p) => ({ X: Math.round(p.x * SC), Y: Math.round(p.z * SC) }));
+    const clip = new C.Clipper();
+    clip.AddPaths([toPath(outline)], C.PolyType.ptSubject, true);
+    clip.AddPaths(rings.map(toPath), C.PolyType.ptClip, true);
+    const tree = new C.PolyTree();
+    clip.Execute(C.ClipType.ctDifference, tree, C.PolyFillType.pftNonZero, C.PolyFillType.pftNonZero);
+    const exPolys = C.JS.PolyTreeToExPolygons(tree);
+    const want = Math.sign(_signedAreaXZ(outline)) || 1;
+    const norm = (ring, sign) => {
+        const r = ring.map((pt) => ({ x: pt.X / SC, z: pt.Y / SC }));
+        if ((Math.sign(_signedAreaXZ(r)) || 1) !== sign) r.reverse();
+        return r;
+    };
+    return exPolys.map((ex) => ({
+        outer: norm(ex.outer, want),
+        holes: (ex.holes || []).map((h) => norm(h, -want)),
+    }));
+}
+
+/**
+ * Build the board slab, boundary-crossing cutouts included. Wholly-inside
+ * bores are punched as earcut holes (the fast path); cutouts that breach the
+ * edge are subtracted from the outline with a polygon boolean so the slab is
+ * actually notched (not just left intact with copper removed). Falls back to
+ * the plain {@link boardWithHoles} path when clipper is unavailable.
+ * @param {Array<{x:number,z:number}>} outline board outer ring (x, z)
+ * @param {Array} holeList wholly-inside bores ({x,z,r} or {x,z,r,ring})
+ * @param {Array<Array<{x:number,z:number}>>} crossingRings edge-crossing cutouts
+ */
+function boardSlabWithCutouts(outline, holeList, crossingRings, yBottom, yTop, color, edgeColor) {
+    if (!crossingRings.length || !isClipperReady()) {
+        return boardWithHoles(outline, holeList, yBottom, yTop, color, edgeColor);
+    }
+    const exPolys = _subtractRingsFromOutline(outline, crossingRings);
+    const mesh = emptyMesh();
+    const seg = 48;
+    const side = edgeColor || color;
+    for (const ex of exPolys) {
+        if (!ex.outer || ex.outer.length < 3) continue;
+        // Bores for this region: wholly-inside circle/polygon holes whose centre
+        // lands here, plus any clipper-produced interior holes.
+        /** @type {Array<{ring:Array<{x:number,y:number}>, circle:{x:number,z:number,r:number}|null}>} */
+        const bores = [];
+        for (const h of holeList) {
+            if (!_pointInRingXZ(h.x, h.z, ex.outer)) continue;
+            if (h.ring && h.ring.length >= 3) bores.push({ ring: h.ring.map((p) => ({ x: p.x, y: p.z })), circle: null });
+            else if (h.r > 0) bores.push({ ring: circleRing(h.x, h.z, h.r, seg), circle: { x: h.x, z: h.z, r: h.r } });
+        }
+        for (const hr of ex.holes) {
+            if (hr.length >= 3) bores.push({ ring: hr.map((p) => ({ x: p.x, y: p.z })), circle: null });
+        }
+        // Earcut the (possibly concave) notched outer with bore rings as holes —
+        // extrudePrism's single n-gon face can't triangulate a concave notch.
+        const outer2d = ex.outer.map((p) => ({ x: p.x, y: p.z }));
+        let tri = null;
+        try { tri = triangulateWithHoles(outer2d, bores.map((b) => b.ring)); } catch { tri = null; }
+        if (!tri || !tri.tris.length) continue;
+        appendMesh(mesh, { verts: tri.pts.map((p) => ({ x: p.x, y: yTop, z: p.y })),
+            faces: tri.tris.map((t) => ({ idx: [t[0], t[1], t[2]], color })) });
+        appendMesh(mesh, { verts: tri.pts.map((p) => ({ x: p.x, y: yBottom, z: p.y })),
+            faces: tri.tris.map((t) => ({ idx: [t[2], t[1], t[0]], color })) });
+        // Outer side wall following the notched perimeter.
+        const n = ex.outer.length;
+        const wall = { verts: [], faces: [] };
+        for (const p of ex.outer) wall.verts.push({ x: p.x, y: yTop, z: p.z });
+        for (const p of ex.outer) wall.verts.push({ x: p.x, y: yBottom, z: p.z });
+        for (let i = 0; i < n; i++) {
+            const j = (i + 1) % n;
+            wall.faces.push({ idx: [i, j, n + j, n + i], color: side });
+        }
+        appendMesh(mesh, wall);
+        // Inner walls lining each bore.
+        for (const b of bores) {
+            if (b.circle) appendMesh(mesh, cylinderWallMesh(b.circle.x, b.circle.z, b.circle.r, yBottom, yTop, side, seg));
+            else appendMesh(mesh, polygonWallMesh(b.ring, yBottom, yTop, side));
+        }
     }
     return mesh;
 }
@@ -1709,7 +1832,19 @@ function clipMeshToOutline(mesh, outline) {
 function punchHolesInFlatMesh(mesh, holes, seg = 48) {
     if (!holes || !holes.length || !mesh.faces.length) return mesh;
     // Pre-build each hole as a CCW polygon ring in the (x, z) board plane.
-    const rings = holes.filter((h) => h.r > 0).map((h) => {
+    // Circular bores sample a ring; polygon cutouts carry an explicit ring.
+    const rings = holes.filter((h) => (h.r > 0) || (h.ring && h.ring.length >= 3)).map((h) => {
+        if (h.ring && h.ring.length >= 3) {
+            let pts = h.ring.map((p) => ({ x: p.x, z: p.z }));
+            // Clipper expects CCW rings (positive signed area in the x,z plane).
+            let area = 0;
+            for (let i = 0; i < pts.length; i++) {
+                const a = pts[i], b = pts[(i + 1) % pts.length];
+                area += a.x * b.z - b.x * a.z;
+            }
+            if (area < 0) pts = pts.reverse();
+            return { pts, x: h.x, z: h.z, r: h.r };
+        }
         const pts = [];
         for (let i = 0; i < seg; i++) {
             const a = (i / seg) * Math.PI * 2;
@@ -2340,6 +2475,31 @@ function buildSilkMesh(app) {
         const sw = Math.max(0.05, Number(c.lineWidth) || 0.15);
         if (c.filled) appendMesh(mesh, discMesh(c.x, c.y, c.radius, y, COLOR_SILK, 28));
         else appendMesh(mesh, flatRingMesh(c.x, c.y, c.radius, sw, y, COLOR_SILK, 32));
+    }
+    // Free-standing board shapes (rect/polygon/arc) on the silk layers.
+    for (const s of (app.boardShapes || [])) {
+        if (!s) continue;
+        const layer = String(s.layer || 'top-silk');
+        if (layer !== 'top-silk' && layer !== 'bottom-silk') continue;
+        const o = shapeOutline(s);
+        if (!o || o.length < 2) continue;
+        const bottom = layer.startsWith('bottom-');
+        const y = bottom ? Y_BOT - SILK_EPS : Y_TOP + SILK_EPS;
+        const sw = Math.max(0.05, Number(s.lineWidth) || 0.2);
+        const closed = s.kind !== 'arc';
+        if (closed && s.filled && o.length >= 3) {
+            let tri = null;
+            try { tri = triangulateWithHoles(o.map((p) => ({ x: p.x, y: p.y })), []); } catch { tri = null; }
+            if (tri && tri.tris.length) {
+                const base = mesh.verts.length;
+                for (const p of tri.pts) mesh.verts.push({ x: p.x, y, z: p.y });
+                for (const t of tri.tris) {
+                    mesh.faces.push({ idx: [base + t[0], base + t[1], base + t[2]], color: COLOR_SILK });
+                }
+            }
+        }
+        const poly = closed ? o.concat([o[0]]) : o;
+        appendMesh(mesh, strokePolysToMesh([poly], sw, y, COLOR_SILK, (px, py) => ({ x: px, z: py })));
     }
     return mesh;
 }
@@ -3500,6 +3660,7 @@ export async function openBoard3DViewer(app, opts = {}) {
         vias: app.vias,
         holes: app.holes,
         circles: app.circles,
+        boardShapes: (app.boardShapes || []).map((s) => ({ ...s, outline: shapeOutline(s) })),
         fills: app.copperFills,
         texts: [...(app.texts?.values?.() || [])],
         boardX: app._boardX || 0,
@@ -3746,6 +3907,24 @@ export async function openBoard3DViewer(app, opts = {}) {
             if (!c || c.layer !== 'hole' || !(c.radius > 0)) continue;
             drilledHoles.push({ x: c.x, z: c.y, r: c.radius, plated: false });
         }
+        // Free-standing board shapes (rect/polygon/arc) on HOLE layer are real
+        // board cutouts too — carry an explicit polygon ring plus a bounding
+        // circle (centroid + max radius) for the bbox/inside-board tests.
+        for (const s of (app.boardShapes || [])) {
+            if (!s || s.layer !== 'hole') continue;
+            const outlinePts = shapeOutline(s);
+            if (!outlinePts || outlinePts.length < 3) continue;
+            const ring = outlinePts.map((p) => ({ x: p.x, z: p.y }));
+            let cx = 0, cz = 0;
+            for (const p of ring) { cx += p.x; cz += p.z; }
+            cx /= ring.length; cz /= ring.length;
+            let rad = 0;
+            for (const p of ring) {
+                const d = Math.hypot(p.x - cx, p.z - cz);
+                if (d > rad) rad = d;
+            }
+            drilledHoles.push({ x: cx, z: cz, r: rad, ring, plated: false });
+        }
         // Vias are real drilled, plated holes too — bore the board/copper at
         // each via's drill so the open bore reads as a genuine hole (the gold
         // barrel from buildViaMesh lines it).
@@ -3753,12 +3932,33 @@ export async function openBoard3DViewer(app, opts = {}) {
             const r = (via.drill || 0.3) / 2;
             if (r > 0) drilledHoles.push({ x: via.x, z: via.y, r, plated: true });
         }
-        const boardHoles = drilledHoles.filter((ho) =>
-            ho.x - ho.r > 0 && ho.x + ho.r < w &&
-            ho.z - ho.r > -h && ho.z + ho.r < 0);
+        // Classify bores: wholly-inside ones are punched as fast earcut holes;
+        // ones that breach the board edge are subtracted from the outline with
+        // a polygon boolean so the slab is genuinely notched. Bores wholly
+        // outside the board are ignored.
+        const boardHoles = [];
+        const crossingRings = [];
+        for (const ho of drilledHoles) {
+            const inside = ho.x - ho.r > 0 && ho.x + ho.r < w &&
+                ho.z - ho.r > -h && ho.z + ho.r < 0;
+            if (inside) { boardHoles.push(ho); continue; }
+            const outside = ho.x + ho.r <= 0 || ho.x - ho.r >= w ||
+                ho.z + ho.r <= -h || ho.z - ho.r >= 0;
+            if (outside) continue;
+            if (ho.ring && ho.ring.length >= 3) {
+                crossingRings.push(ho.ring);
+            } else if (ho.r > 0) {
+                const ring = [];
+                for (let i = 0; i < 48; i++) {
+                    const a = (i / 48) * Math.PI * 2;
+                    ring.push({ x: ho.x + ho.r * Math.cos(a), z: ho.z + ho.r * Math.sin(a) });
+                }
+                crossingRings.push(ring);
+            }
+        }
         scene.removeMesh(surf.board);
         surf.board = scene.addMesh(
-            boardWithHoles(outline, boardHoles, 0, BOARD_THICKNESS, COLOR_RAW_BOARD, COLOR_RAW_BOARD),
+            boardSlabWithCutouts(outline, boardHoles, crossingRings, 0, BOARD_THICKNESS, COLOR_RAW_BOARD, COLOR_RAW_BOARD),
             scene.boardMaterial);
         if (surf.board) surf.board.renderOrder = SURFACE_ORDER.board;
         scene.positionGlint(w / 2, -h / 2, Math.max(w, h));
@@ -3895,6 +4095,13 @@ export async function openBoard3DViewer(app, opts = {}) {
             scene.frameAll();
             scene.resize();
             scene.requestRender();
+            // Polygon-boolean board notching (edge-crossing cutouts) needs
+            // clipper; if it loads after this first build, rebuild once ready.
+            if (!isClipperReady()) {
+                loadClipper().then(() => {
+                    if (!panel.closed) { rebuildSurfaces(); scene.requestRender(); }
+                }).catch(() => {});
+            }
             // Fade the grey cover out once the board has rendered its first frame.
             await nextFrame();
             if (panel.closed) { hideSpinner(); return; }
@@ -4034,6 +4241,22 @@ export async function openBoard3DViewer(app, opts = {}) {
         scene?.resize();
         if (panel.view === 'top' || panel.view === 'bottom') board2d?.resize();
     };
+    // Re-frame the active view to fit, deferred one frame in the host window so
+    // the canvas has laid out at its new size before we compute the framing.
+    const fitCurrentView = (/** @type {Window} */ w) => {
+        const host = (w && typeof w.requestAnimationFrame === 'function') ? w : window;
+        host.requestAnimationFrame(() => {
+            if (panel.closed || panel.hidden) return;
+            if (panel.view === 'top' || panel.view === 'bottom') {
+                board2d?.resize();
+                board2d?.fit();
+            } else {
+                scene?.resize();
+                scene?.frameAll();
+                scene?.requestRender();
+            }
+        });
+    };
     const dock = () => {
         if (panel.mode !== 'popped') return;
         if (pollTimer) { window.clearInterval(pollTimer); pollTimer = 0; }
@@ -4056,6 +4279,7 @@ export async function openBoard3DViewer(app, opts = {}) {
         panel.popWin = null;
         scene?.resize();
         if (panel.view === 'top' || panel.view === 'bottom') board2d?.resize();
+        fitCurrentView(window);
     };
     const popOut = () => {
         if (panel.mode === 'popped') { panel.popWin?.focus(); return; }
@@ -4091,6 +4315,7 @@ export async function openBoard3DViewer(app, opts = {}) {
         win.addEventListener('resize', onPopResize);
         scene?.resize();
         if (panel.view === 'top' || panel.view === 'bottom') board2d?.resize();
+        fitCurrentView(win);
         // Closing the pop-up with its red X should HIDE the view, not destroy
         // it — so re-opening is instant (no 3D rebuild / STEP re-fetch). Rescue
         // the host back into the main document first (pagehide fires before the

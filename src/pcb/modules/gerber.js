@@ -56,7 +56,7 @@ export function exportGerbers(opts) {
         placements, tracks = [], vias = [], holes = [],
         boardWidth, boardHeight, boardRadius = 0,
         boardX = 0, boardY = 0,
-        texts = [], fills = [], circles = [],
+        texts = [], fills = [], circles = [], boardShapes = [],
     } = opts;
 
     // Caller's boardX/boardY describe the Y-up bottom-left corner of the
@@ -80,9 +80,9 @@ export function exportGerbers(opts) {
         ['board.gbs', _buildMask(placements, vias, 'bottom', clipBounds, circles)],
         ['board.gtp', _buildPaste(placements, 'top', clipBounds)],
         ['board.gbp', _buildPaste(placements, 'bottom', clipBounds)],
-        ['board.gto', _buildSilk(placements, 'top', clipBounds, texts)],
-        ['board.gbo', _buildSilk(placements, 'bottom', clipBounds, texts)],
-        ['board.gko', _buildOutline(outlineBounds)],
+        ['board.gto', _buildSilk(placements, 'top', clipBounds, texts, boardShapes)],
+        ['board.gbo', _buildSilk(placements, 'bottom', clipBounds, texts, boardShapes)],
+        ['board.gko', _buildOutline(outlineBounds, boardShapes)],
         // Plated through-holes (pads, vias, plated standalone holes) and
         // non-plated holes go in separate Excellon files so fabs (JLCPCB,
         // etc.) can tell them apart — they key off the -PTH / -NPTH suffix.
@@ -539,7 +539,7 @@ function _buildPaste(placements, side, bounds) {
 
 /* ──────────────────────────── silkscreen ──────────────────────────── */
 
-function _buildSilk(placements, side, bounds, texts = []) {
+function _buildSilk(placements, side, bounds, texts = [], boardShapes = []) {
     // Component silk: footprint silk shapes (lines / circles / paths)
     // plus a small reference designator near each component origin.
     // `side` is 'top' or 'bottom'.
@@ -645,6 +645,28 @@ function _buildSilk(placements, side, bounds, texts = []) {
         for (const [a, b] of refGeom.segments) {
             body += emitSeg(a, b);
         }
+    }
+
+    // Free-standing board shapes (rect/polygon/arc) on this silk side.
+    for (const s of boardShapes) {
+        if (!s || s.layer !== wantLayer) continue;
+        const o = s.outline || [];
+        if (o.length < 2) continue;
+        const sw = Math.max(0.05, Number(s.lineWidth) || 0.2);
+        const head = useAperture(sw);
+        if (head) body += head;
+        const closed = s.kind !== 'arc';
+        if (closed && s.filled && o.length >= 3) {
+            let ring = 'G36*\n';
+            ring += `X${_fmt(o[0].x)}Y${_fmtY(o[0].y)}D02*\n`;
+            for (let i = 1; i < o.length; i++) {
+                ring += `X${_fmt(o[i].x)}Y${_fmtY(o[i].y)}D01*\n`;
+            }
+            ring += 'G37*\n';
+            body += ring;
+        }
+        for (let i = 1; i < o.length; i++) body += emitSeg(o[i - 1], o[i]);
+        if (closed) body += emitSeg(o[o.length - 1], o[0]);
     }
 
     // Free-standing text annotations on this silk side.
@@ -765,7 +787,7 @@ function _textSegments(t) {
 
 /* ──────────────────────────── board outline ──────────────────────────── */
 
-function _buildOutline(b) {
+function _buildOutline(b, boardShapes = []) {
     const w = b.w, h = b.h;
     const r = b.r || 0;
     const x0 = b.x || 0, y0 = b.y || 0;
@@ -799,6 +821,19 @@ function _buildOutline(b) {
         out += 'G03*\n';
         out += `X${_fmt(x0 + rad)}Y${_fmt(y0)}I${_fmt(rad)}J${_fmt(0)}D01*\n`;
         out += 'G01*\n';
+    }
+    // Free-standing board shapes on the HOLE layer are interior cutouts: draw
+    // each as a closed contour. Shape outlines are in SVG-Y-down internal
+    // coords, so flip Y into the outline file's Y-up frame (y_up = -y_int).
+    for (const s of boardShapes) {
+        if (!s || s.layer !== 'hole') continue;
+        const o = s.outline || [];
+        if (o.length < 3) continue;
+        out += `X${_fmt(o[0].x)}Y${_fmt(-o[0].y)}D02*\n`;
+        for (let i = 1; i < o.length; i++) {
+            out += `X${_fmt(o[i].x)}Y${_fmt(-o[i].y)}D01*\n`;
+        }
+        out += `X${_fmt(o[0].x)}Y${_fmt(-o[0].y)}D01*\n`;
     }
     out += 'M02*\n';
     return out;

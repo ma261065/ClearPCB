@@ -53,6 +53,11 @@ export function isClipperReady() {
     return !!_clipper;
 }
 
+/** The loaded ClipperLib namespace, or null when not yet loaded. */
+export function getClipper() {
+    return _clipper;
+}
+
 const S = (v) => Math.round(v * SCALE);
 const U = (v) => v / SCALE;
 

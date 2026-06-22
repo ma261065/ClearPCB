@@ -95,6 +95,17 @@ export function isLayerVisible(layerId) {
 }
 
 /**
+ * True when the given overlay id (e.g. 'ratlines', 'clearance') is currently
+ * visible via its eye toggle in the Overlays section.
+ * @param {string} overlayId
+ * @returns {boolean}
+ */
+export function isOverlayVisible(overlayId) {
+    const def = PCB_OVERLAYS.find(o => o.id === overlayId);
+    return def ? def.visible : true;
+}
+
+/**
  * True when a through-hole via is locked. A via spans both copper layers,
  * so it is protected whenever either copper layer is locked.
  * @returns {boolean}

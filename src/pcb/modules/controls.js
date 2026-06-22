@@ -12,7 +12,8 @@ export function bindPcbControls(app) {
     const padBtn = document.getElementById('pcbToolPad');
     const viaBtn = document.getElementById('pcbToolVia');
     const holeBtn = document.getElementById('pcbToolHole');
-    const circleBtn = document.getElementById('pcbToolCircle');
+    const shapesBtn = document.getElementById('pcbToolShapes');
+    const shapesMenu = document.getElementById('pcbToolShapesMenu');
     const textBtn = document.getElementById('pcbToolText');
     const fillBtn = document.getElementById('pcbToolFill');
     const zoomOutBtn = document.getElementById('pcbZoomOut');
@@ -33,12 +34,26 @@ export function bindPcbControls(app) {
     const undoBtn = document.getElementById('pcbUndoBtn');
     const redoBtn = document.getElementById('pcbRedoBtn');
 
-    const toolBtns = [selectBtn, trackBtn, padBtn, viaBtn, holeBtn, circleBtn, textBtn, fillBtn];
-    const validTools = new Set(['select', 'track', 'pad', 'via', 'hole', 'circle', 'text', 'fill']);
+    const toolBtns = [selectBtn, trackBtn, padBtn, viaBtn, holeBtn, shapesBtn, textBtn, fillBtn];
+    const validTools = new Set(['select', 'track', 'pad', 'via', 'hole', 'circle', 'arc', 'rect', 'polygon', 'text', 'fill']);
+    // Tools grouped under the "Shapes" dropdown button.
+    const SHAPE_TOOLS = new Set(['circle', 'arc', 'rect', 'polygon']);
+    // Label/icon shown on the Shapes button for each shape tool.
+    const SHAPE_LABELS = {
+        circle: '◯ Circle',
+        arc: '◠ Arc',
+        rect: '▢ Rectangle',
+        polygon: '⬠ Polygon',
+    };
 
     const setToolButtonActive = (tool) => {
         for (const btn of toolBtns) {
-            if (btn) btn.classList.toggle('active', btn.id === `pcbTool${tool.charAt(0).toUpperCase() + tool.slice(1)}`);
+            if (!btn) continue;
+            if (btn === shapesBtn) {
+                btn.classList.toggle('active', SHAPE_TOOLS.has(tool));
+            } else {
+                btn.classList.toggle('active', btn.id === `pcbTool${tool.charAt(0).toUpperCase() + tool.slice(1)}`);
+            }
         }
     };
 
@@ -51,9 +66,9 @@ export function bindPcbControls(app) {
 
     const setTool = (tool) => {
         const nextTool = validTools.has(tool) ? tool : 'select';
-        // Cancel any in-progress Track draw when switching away from the
-        // track tool (or even just re-selecting it).
-        if (app._trackDraw && nextTool !== 'track') {
+        // Cancel any in-progress Track draw (and drop the pre-draw hover snap
+        // marker) when switching away from the track tool.
+        if (nextTool !== 'track') {
             app._cancelTrackDraw?.();
         }
         // Cancel any in-progress copper-fill outline when leaving the fill tool.
@@ -64,7 +79,15 @@ export function bindPcbControls(app) {
         if (app._circleDraw && nextTool !== 'circle') {
             app._cancelCircleDraw?.();
         }
+        // Cancel any in-progress shape draw when switching to another tool.
+        if (app._shapeDraw && app._shapeDraw.kind !== nextTool) {
+            app._cancelShapeDraw?.();
+        }
         app.currentTool = nextTool;
+        // Reflect the active shape on the Shapes dropdown button label.
+        if (shapesBtn && SHAPE_TOOLS.has(nextTool)) {
+            shapesBtn.textContent = `${SHAPE_LABELS[nextTool]} ▾`;
+        }
         // Clear any component hover outline when leaving the select tool.
         if (nextTool !== 'select') app._hoverComponent?.(null);
         // Clear a selected reference designator when leaving the select tool.
@@ -95,9 +118,44 @@ export function bindPcbControls(app) {
     padBtn?.addEventListener('click', () => setTool('pad'));
     viaBtn?.addEventListener('click', () => setTool('via'));
     holeBtn?.addEventListener('click', () => setTool('hole'));
-    circleBtn?.addEventListener('click', () => setTool('circle'));
     textBtn?.addEventListener('click', () => setTool('text'));
     fillBtn?.addEventListener('click', () => setTool('fill'));
+
+    // Shapes dropdown: the button toggles a small menu of shape tools, and
+    // also re-activates whichever shape was last chosen so a single click
+    // picks up the current shape (matching the other tool buttons).
+    const hideShapesMenu = () => { if (shapesMenu) shapesMenu.hidden = true; };
+    const toggleShapesMenu = () => { if (shapesMenu) shapesMenu.hidden = !shapesMenu.hidden; };
+    if (shapesBtn && shapesMenu) {
+        let lastShape = 'circle';
+        shapesBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            // If the menu is already open, treat a button click as "use the
+            // current shape"; otherwise open the chooser.
+            if (!shapesMenu.hidden) {
+                hideShapesMenu();
+                return;
+            }
+            toggleShapesMenu();
+        });
+        for (const item of shapesMenu.querySelectorAll('[data-shape]')) {
+            item.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const shape = item.getAttribute('data-shape') || 'circle';
+                lastShape = shape;
+                hideShapesMenu();
+                setTool(shape);
+            });
+        }
+        // Dismiss the menu on any outside click.
+        document.addEventListener('click', (e) => {
+            if (shapesMenu.hidden) return;
+            if (e.target === shapesBtn || shapesBtn.contains(/** @type {Node} */(e.target))) return;
+            if (shapesMenu.contains(/** @type {Node} */(e.target))) return;
+            hideShapesMenu();
+        });
+        void lastShape;
+    }
 
     const doCopy = () => app.copySelection?.();
     const doCut = () => app.cutSelection?.();
