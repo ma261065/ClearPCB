@@ -4,6 +4,140 @@
  * Uses File System Access API where available, falls back to download/upload
  */
 
+import { zip, unzip, strToU8, strFromU8 } from '../../assets/vendor/fflate.module.js';
+
+// ==================== Project (de)serialisation ====================
+// .cpcb documents are ZIP containers (DEFLATE per entry) holding the project
+// split into logical files:
+//   manifest.json   — container format/version + the model index
+//   options.json     — the document envelope (version/type/created + any other
+//                       top-level option fields)
+//   schematic.json  — the schematic section (settings/shapes/components/defs),
+//                       with 3D meshes hoisted out of `defs`
+//   pcb.json         — the board section (omitted when empty)
+//   models/m*.obj    — one entry per unique 3D mesh (the bulk of the bytes)
+// Splitting the heavy, static meshes into their own entries keeps the document
+// body small and lets each part compress independently. The whole thing keeps
+// the .cpcb extension.
+
+/** Container manifest filename. */
+const _MANIFEST_NAME = 'manifest.json';
+
+/**
+ * Promise wrapper around fflate's async `zip`.
+ * @param {Record<string, Uint8Array>} files
+ * @returns {Promise<Uint8Array>}
+ */
+function _zip(files) {
+    return new Promise((resolve, reject) => {
+        zip(files, { level: 6 }, (err, data) => (err ? reject(err) : resolve(data)));
+    });
+}
+
+/**
+ * Promise wrapper around fflate's async `unzip`.
+ * @param {Uint8Array} bytes
+ * @returns {Promise<Record<string, Uint8Array>>}
+ */
+function _unzip(bytes) {
+    return new Promise((resolve, reject) => {
+        unzip(bytes, (err, data) => (err ? reject(err) : resolve(data)));
+    });
+}
+
+/**
+ * Serialise a project to a ZIP-container Blob for on-disk storage. The document
+ * is partitioned into separate entries (see file header) so the large, rarely-
+ * changing 3D meshes live apart from the editable schematic/board data.
+ * @param {any} data
+ * @returns {Promise<Blob>}
+ */
+async function _serializeProject(data) {
+    /** @type {Record<string, Uint8Array>} */
+    const files = {};
+
+    const { schematic, pcb, ...options } = data || {};
+
+    // Hoist each definition's 3D mesh into its own entry, recording the
+    // def-key → entry-path mapping in the manifest. Sequential filenames avoid
+    // unsafe characters in def keys.
+    /** @type {Record<string, string>} */
+    const models = {};
+    let sch = null;
+    if (schematic) {
+        sch = { ...schematic };
+        if (sch.defs) {
+            /** @type {Record<string, any>} */
+            const defs = {};
+            let i = 0;
+            for (const [key, def] of Object.entries(sch.defs)) {
+                if (def && /** @type {any} */ (def).model3dObj) {
+                    const entry = `models/m${i++}.obj`;
+                    files[entry] = strToU8(/** @type {any} */ (def).model3dObj);
+                    models[key] = entry;
+                    const { model3dObj, ...rest } = /** @type {any} */ (def);
+                    defs[key] = rest;
+                } else {
+                    defs[key] = def;
+                }
+            }
+            sch.defs = defs;
+        }
+    }
+
+    const manifest = { format: 'clearpcb-zip', version: 1, models };
+    files[_MANIFEST_NAME] = strToU8(JSON.stringify(manifest));
+    files['options.json'] = strToU8(JSON.stringify(options));
+    if (sch) files['schematic.json'] = strToU8(JSON.stringify(sch));
+    if (pcb) files['pcb.json'] = strToU8(JSON.stringify(pcb));
+
+    const zipped = await _zip(files);
+    return new Blob([zipped], { type: 'application/zip' });
+}
+
+/**
+ * Read a project File/Blob (ZIP container) back into the combined document
+ * object. Exported so other entry points (e.g. the PWA launch-file handler)
+ * decode documents the same way.
+ * @param {Blob} file
+ * @returns {Promise<any>}
+ */
+export async function readProjectFile(file) {
+    return _deserializeProject(file);
+}
+
+/**
+ * @param {Blob} file
+ * @returns {Promise<any>}
+ */
+async function _deserializeProject(file) {
+    const buf = await file.arrayBuffer();
+    const entries = await _unzip(new Uint8Array(buf));
+
+    /** @param {string} name */
+    const readJSON = (name) => (entries[name] ? JSON.parse(strFromU8(entries[name])) : null);
+
+    const manifest = readJSON(_MANIFEST_NAME) || {};
+    const options = readJSON('options.json') || {};
+    const schematic = readJSON('schematic.json');
+    const pcb = readJSON('pcb.json');
+
+    // Re-attach the hoisted 3D meshes onto their definitions.
+    if (schematic && schematic.defs && manifest.models) {
+        for (const [key, entry] of Object.entries(manifest.models)) {
+            const bytes = entries[/** @type {string} */ (entry)];
+            if (bytes && schematic.defs[key]) {
+                schematic.defs[key].model3dObj = strFromU8(bytes);
+            }
+        }
+    }
+
+    const doc = { ...options };
+    if (schematic) doc.schematic = schematic;
+    if (pcb) doc.pcb = pcb;
+    return doc;
+}
+
 /**
  * Briefly flash a small blue dot in the bottom-right corner to give a
  * visual confirmation that an auto-save just completed. The element is
@@ -401,8 +535,8 @@ export class FileManager {
     async saveToHandle(data, handle) {
         try {
             const writable = await handle.createWritable();
-            const json = JSON.stringify(data, null, 2);
-            await writable.write(json);
+            const blob = await _serializeProject(data);
+            await writable.write(blob);
             await writable.close();
             if (handle?.name) {
                 this.setFilePath(handle.name);
@@ -418,9 +552,8 @@ export class FileManager {
     /**
      * Save using download (fallback for all browsers)
      */
-    saveWithDownload(data) {
-        const json = JSON.stringify(data, null, 2);
-        const blob = new Blob([json], { type: 'application/json' });
+    async saveWithDownload(data) {
+        const blob = await _serializeProject(data);
         const url = URL.createObjectURL(blob);
         
         const a = document.createElement('a');
@@ -466,8 +599,7 @@ export class FileManager {
 
             const [handle] = await /** @type {any} */ (window).showOpenFilePicker(options);
             const file = await handle.getFile();
-            const text = await file.text();
-            const data = JSON.parse(text);
+            const data = await _deserializeProject(file);
             
             this.fileHandle = handle;
             this.setFileName(handle.name);
@@ -551,8 +683,7 @@ export class FileManager {
                 }
             }
             const file = await handle.getFile();
-            const text = await file.text();
-            const data = JSON.parse(text);
+            const data = await _deserializeProject(file);
 
             this.fileHandle = handle;
             this.setFileName(handle.name || name);
@@ -595,8 +726,7 @@ export class FileManager {
                 }
                 
                 try {
-                    const text = await file.text();
-                    const data = JSON.parse(text);
+                    const data = await _deserializeProject(file);
                     
                     this.fileHandle = null; // Can't save back to same file with this method
                     this.setFileName(file.name);

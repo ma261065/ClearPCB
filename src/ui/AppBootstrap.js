@@ -3,6 +3,7 @@
 import SchematicApp from './SchematicApp.js';
 import PCBApp from './PCBApp.js';
 import { ProjectDocument } from '../core/ProjectDocument.js';
+import { readProjectFile } from '../core/FileManager.js';
 
 class AppBootstrap {
     constructor() {
@@ -117,10 +118,9 @@ class AppBootstrap {
 
             const fileHandle = launchParams.files[0];
             const file = await fileHandle.getFile();
-            const text = await file.text();
 
             try {
-                const data = JSON.parse(text);
+                const data = await readProjectFile(file);
                 this._loadLaunchDocument(fileHandle, data);
             } catch (error) {
                 console.error('Failed to open file:', error);

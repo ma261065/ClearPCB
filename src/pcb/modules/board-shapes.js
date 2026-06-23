@@ -319,6 +319,102 @@ export function selectBoardShape(app, shape) {
     app._syncClipboardButtons?.();
     if (prev && app.boardShapes.includes(prev)) renderBoardShape(app, prev);
     if (next) renderBoardShape(app, next);
+    clearBoardShapeHandles(app);
+    if (next) renderBoardShapeHandles(app, next);
+}
+
+// ── Resize handles ───────────────────────────────────────────────────────────
+
+const SHAPE_HANDLE_CLASS = 'pcb-board-shape-handles';
+
+/** Draggable anchor points for a shape: rect/polygon vertices, or arc controls. */
+function shapeHandlePoints(shape) {
+    if (shape.kind === 'arc') {
+        return [
+            { key: 'start', x: shape.start.x, y: shape.start.y },
+            { key: 'end', x: shape.end.x, y: shape.end.y },
+            { key: 'bulge', x: shape.bulge.x, y: shape.bulge.y },
+        ];
+    }
+    return (shape.points || []).map((p, i) => ({ key: i, x: p.x, y: p.y }));
+}
+
+/** Draw the resize handles for the selected shape on the overlay layer. */
+export function renderBoardShapeHandles(app, shape) {
+    clearBoardShapeHandles(app);
+    if (!shape || isLayerLocked(shape.layer) || !isLayerVisible(shape.layer)) return;
+    const overlay = app._getLayerGroup?.('selection-overlay');
+    if (!overlay) return;
+    const g = document.createElementNS(NS, 'g');
+    g.setAttribute('class', SHAPE_HANDLE_CLASS);
+    for (const h of shapeHandlePoints(shape)) {
+        const isBulge = h.key === 'bulge';
+        const el = document.createElementNS(NS, isBulge ? 'circle' : 'rect');
+        if (isBulge) {
+            el.setAttribute('cx', String(r4(h.x)));
+            el.setAttribute('cy', String(r4(h.y)));
+            el.setAttribute('r', '0.3');
+            el.setAttribute('fill', '#33dd77');
+        } else {
+            el.setAttribute('x', String(r4(h.x - 0.25)));
+            el.setAttribute('y', String(r4(h.y - 0.25)));
+            el.setAttribute('width', '0.5');
+            el.setAttribute('height', '0.5');
+            el.setAttribute('fill', '#ffffff');
+        }
+        el.setAttribute('stroke', '#000000');
+        el.setAttribute('stroke-width', '0.06');
+        el.setAttribute('vector-effect', 'non-scaling-stroke');
+        el.setAttribute('data-handle', String(h.key));
+        g.appendChild(el);
+    }
+    overlay.appendChild(g);
+}
+
+/** Remove all board-shape resize handles from the overlay. */
+export function clearBoardShapeHandles(app) {
+    const overlay = app._getLayerGroup?.('selection-overlay');
+    if (!overlay) return;
+    for (const el of [...overlay.querySelectorAll('.' + SHAPE_HANDLE_CLASS)]) el.remove();
+}
+
+/** Return the handle key (vertex index, or 'start'/'end'/'bulge') near worldPos, else null. */
+export function hitTestBoardShapeVertex(app, shape, worldPos) {
+    if (!shape || !worldPos) return null;
+    const scale = app.viewport?.scale || 50;
+    const tol = Math.max(0.3, 8 / scale);
+    let bestKey = null;
+    let bestD = tol;
+    for (const h of shapeHandlePoints(shape)) {
+        const d = Math.hypot(h.x - worldPos.x, h.y - worldPos.y);
+        if (d <= bestD) { bestD = d; bestKey = h.key; }
+    }
+    return bestKey;
+}
+
+/** Apply a live vertex/anchor drag to a shape's geometry, keeping rects rectangular. */
+function applyVertexResize(shape, drag, snap) {
+    if (shape.kind === 'arc') {
+        if (drag.handle === 'start') shape.start = { x: snap.x, y: snap.y };
+        else if (drag.handle === 'end') shape.end = { x: snap.x, y: snap.y };
+        else shape.bulge = { x: snap.x, y: snap.y };
+        return;
+    }
+    if (shape.kind === 'rect' && Array.isArray(drag.before.points)
+        && drag.before.points.length === 4 && typeof drag.handle === 'number') {
+        // Keep the diagonally-opposite corner fixed; rebuild an axis-aligned rect.
+        const opp = drag.before.points[(drag.handle + 2) % 4];
+        const minx = Math.min(snap.x, opp.x), maxx = Math.max(snap.x, opp.x);
+        const miny = Math.min(snap.y, opp.y), maxy = Math.max(snap.y, opp.y);
+        shape.points = [
+            { x: minx, y: miny }, { x: maxx, y: miny },
+            { x: maxx, y: maxy }, { x: minx, y: maxy },
+        ];
+        return;
+    }
+    if (Array.isArray(shape.points) && typeof drag.handle === 'number' && shape.points[drag.handle]) {
+        shape.points[drag.handle] = { x: snap.x, y: snap.y };
+    }
 }
 
 export function deleteSelectedBoardShape(app) {
@@ -335,8 +431,12 @@ export function deleteSelectedBoardShape(app) {
 
 export function startBoardShapeDrag(app, shape, worldPos) {
     if (!shape || isLayerLocked(shape.layer)) return false;
+    // Grabbing a resize handle edits that vertex; otherwise move the whole shape.
+    const handle = hitTestBoardShapeVertex(app, shape, worldPos);
     app._shapeDrag = {
         id: shape.id,
+        mode: handle != null ? 'vertex' : 'move',
+        handle,
         startWorld: { x: worldPos.x, y: worldPos.y },
         before: cloneShapeGeometry(shape),
     };
@@ -348,6 +448,13 @@ export function handleBoardShapeDrag(app, worldPos) {
     if (!d) return;
     const s = app.boardShapes.find((x) => x.id === d.id);
     if (!s) return;
+    if (d.mode === 'vertex') {
+        const snap = app._snapToGrid(worldPos);
+        applyVertexResize(s, d, snap);
+        renderBoardShape(app, s, { liveDrag: true });
+        renderBoardShapeHandles(app, s);
+        return;
+    }
     const dx = worldPos.x - d.startWorld.x;
     const dy = worldPos.y - d.startWorld.y;
     // Snap by the shape's anchor point so the whole shape lands on the grid.
@@ -355,6 +462,7 @@ export function handleBoardShapeDrag(app, worldPos) {
     const snapped = app._snapToGrid({ x: anchor.x + dx, y: anchor.y + dy });
     applyShapeGeometry(s, translateGeometry(d.before, snapped.x - anchor.x, snapped.y - anchor.y));
     renderBoardShape(app, s, { liveDrag: true });
+    renderBoardShapeHandles(app, s);
 }
 
 export function endBoardShapeDrag(app, commit) {
@@ -368,8 +476,12 @@ export function endBoardShapeDrag(app, commit) {
     // Roll back first, then commit through history so undo is exact.
     applyShapeGeometry(s, d.before);
     renderBoardShape(app, s);
-    if (!moved || !commit) return;
+    if (!moved || !commit) {
+        renderBoardShapeHandles(app, s);
+        return;
+    }
     app.history.execute(new MoveBoardShapeCommand(app, s, d.before, after));
+    renderBoardShapeHandles(app, s);
 }
 
 // ── Draw lifecycle ───────────────────────────────────────────────────────────

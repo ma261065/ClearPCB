@@ -74,8 +74,8 @@ export function exportGerbers(opts) {
         r: boardRadius || 0,
     };
     const files = new Map([
-        ['board.gtl', _buildCopper(placements, tracks, vias, 'top-copper', clipBounds, texts, fills, circles)],
-        ['board.gbl', _buildCopper(placements, tracks, vias, 'bottom-copper', clipBounds, texts, fills, circles)],
+        ['board.gtl', _buildCopper(placements, tracks, vias, 'top-copper', clipBounds, texts, fills, circles, boardShapes)],
+        ['board.gbl', _buildCopper(placements, tracks, vias, 'bottom-copper', clipBounds, texts, fills, circles, boardShapes)],
         ['board.gts', _buildMask(placements, vias, 'top', clipBounds, circles)],
         ['board.gbs', _buildMask(placements, vias, 'bottom', clipBounds, circles)],
         ['board.gtp', _buildPaste(placements, 'top', clipBounds)],
@@ -168,7 +168,7 @@ function _poseXform(pl) {
     return placementPose(pl).xf;
 }
 
-function _buildCopper(placements, tracks, vias, layerId, bounds, texts = [], fills = [], circles = []) {
+function _buildCopper(placements, tracks, vias, layerId, bounds, texts = [], fills = [], circles = [], boardShapes = []) {
     const isTop = layerId === 'top-copper';
     // Pads use the footprint/autorouter convention: 'top'|'bottom'|'both'.
     // Tracks use SVG-layer-id form: 'top-copper'|'bottom-copper'.
@@ -292,6 +292,35 @@ function _buildCopper(placements, tracks, vias, layerId, bounds, texts = [], fil
         }
     }
 
+    // User-drawn board shapes (rect/polygon/arc) on this copper layer. Added
+    // copper fills as a dark G36 region; copper removals and hole-layer shapes
+    // clear the copper beneath them as a clear-polarity region.
+    const shapeRegion = (o) => {
+        if (!o || o.length < 3) return '';
+        let s = 'G36*\n';
+        s += `X${_fmt(o[0].x)}Y${_fmtY(o[0].y)}D02*\n`;
+        for (let i = 1; i < o.length; i++) {
+            s += `X${_fmt(o[i].x)}Y${_fmtY(o[i].y)}D01*\n`;
+        }
+        s += 'G37*\n';
+        return s;
+    };
+    let darkShapeRegions = '';
+    let clearShapeRegions = '';
+    for (const s of boardShapes) {
+        if (!s) continue;
+        const o = s.outline || [];
+        if (o.length < 3) continue;
+        const isHole = s.layer === 'hole';
+        const onThisLayer = s.layer === layerId;
+        if (!isHole && !onThisLayer) continue;
+        const mode = _circleMode(s.copperMode);
+        const cutsCopper = isHole ||
+            (onThisLayer && (mode === 'remove-copper' || mode === 'remove-copper-mask'));
+        if (cutsCopper) clearShapeRegions += shapeRegion(o);
+        else if (onThisLayer && mode === 'add') darkShapeRegions += shapeRegion(o);
+    }
+
     // Emit file.
     let out = `G04 ClearPCB ${isTop ? 'Top' : 'Bottom'} Copper*\n` + FORMAT;
     out += '%LPD*%\n';
@@ -309,15 +338,19 @@ function _buildCopper(placements, tracks, vias, layerId, bounds, texts = [], fil
         if (d !== currentD) { out += `D${d}*\n`; currentD = d; }
         out += op + '\n';
     }
+    // Added-copper board-shape regions fill in dark polarity alongside the
+    // copper above.
+    if (darkShapeRegions) out += darkShapeRegions;
     // Copper-removal and hole circles: flash in clear polarity so they cut
     // the dark copper (pads, tracks, vias, pours, added circles) above.
-    if (clearCircleOps.length) {
+    if (clearCircleOps.length || clearShapeRegions) {
         out += '%LPC*%\n';
         currentD = -1;
         for (const { d, op } of clearCircleOps) {
             if (d !== currentD) { out += `D${d}*\n`; currentD = d; }
             out += op + '\n';
         }
+        if (clearShapeRegions) out += clearShapeRegions;
         out += '%LPD*%\n';
     }
     out += 'M02*\n';

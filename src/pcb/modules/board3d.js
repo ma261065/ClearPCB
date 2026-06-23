@@ -548,7 +548,7 @@ import {
     resolvePadFlashes,
     resolveSilk,
 } from './board-geometry.js';
-import { shapeOutline } from './board-shapes.js';
+import { shapeOutline, normalizeShapeCopperMode } from './board-shapes.js';
 import { loadClipper, isClipperReady, getClipper } from './copper-fill-geom.js';
 
 /** Finished board thickness in millimetres (standard 1.6 mm). */
@@ -2083,7 +2083,7 @@ function strokePolysToMesh(polys, strokeWidth, y, color, toWorld) {
  * @param {Array} tracks
  * @returns {{verts:Array, faces:Array}}
  */
-function buildCopperMesh(tracks, circles = []) {
+function buildCopperMesh(tracks, circles = [], boardShapes = []) {
     const mesh = emptyMesh();
     for (const track of tracks || []) {
         if (!track?.edges || !track?.nodes) continue;
@@ -2113,6 +2113,24 @@ function buildCopperMesh(tracks, circles = []) {
         const lw = Math.max(0.05, Number(c.lineWidth) || 0.2);
         if (c.filled) appendMesh(mesh, discMesh(c.x, c.y, c.radius, y, color, 28));
         else appendMesh(mesh, flatRingMesh(c.x, c.y, c.radius, lw, y, color, 32));
+    }
+    // Free-standing board shapes (rect/polygon/arc) authored on copper layers.
+    for (const s of boardShapes || []) {
+        if (!s || (s.layer !== 'top-copper' && s.layer !== 'bottom-copper')) continue;
+        if (normalizeShapeCopperMode(s.copperMode) !== 'add') continue;
+        const o = shapeOutline(s);
+        if (!o || o.length < 3) continue;
+        const bottom = s.layer === 'bottom-copper';
+        const y = bottom ? Y_BOT - COPPER_EPS : Y_TOP + COPPER_EPS;
+        const color = bottom ? COLOR_COPPER_BOTTOM : COLOR_COPPER_TOP;
+        let tri = null;
+        try { tri = triangulateWithHoles(o.map((p) => ({ x: p.x, y: p.y })), []); } catch { tri = null; }
+        if (!tri || !tri.tris.length) continue;
+        const base = mesh.verts.length;
+        for (const p of tri.pts) mesh.verts.push({ x: p.x, y, z: p.y });
+        for (const t of tri.tris) {
+            mesh.faces.push({ idx: [base + t[0], base + t[1], base + t[2]], color });
+        }
     }
     return mesh;
 }
@@ -3977,7 +3995,7 @@ export async function openBoard3DViewer(app, opts = {}) {
         // the one copper surface before boring/clipping.
         const copperSubtractHoles = collectCopperSubtractHoles(app.circles);
         const copperPunchHoles = drilledHoles.concat(copperSubtractHoles);
-        const copperMesh = buildCopperMesh(app.tracks, app.circles);
+        const copperMesh = buildCopperMesh(app.tracks, app.circles, app.boardShapes);
         appendMesh(copperMesh, buildFillMesh(app.copperFills));
         swapSurface('copper', clipMeshToOutline(
             punchHolesInFlatMesh(copperMesh, copperPunchHoles), outline), scene.copperMaterial);

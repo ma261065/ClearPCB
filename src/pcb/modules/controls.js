@@ -253,9 +253,14 @@ export function bindPcbControls(app) {
     }
 
     let routeParamUnit = storedDesign?.units || 'mm';
+    // Share the unit-toggle baseline with PCBApp so loading a project's design
+    // params can keep it in sync (a stale baseline makes the unit switch
+    // early-return and leave mismatched values).
+    app._routeParamUnit = routeParamUnit;
     routerModeSelect?.addEventListener('change', saveDesignParams);
     routeUnitsSelect?.addEventListener('change', () => {
         const newUnit = routeUnitsSelect.value;
+        routeParamUnit = app._routeParamUnit || routeParamUnit;
         if (newUnit === routeParamUnit) return;
         const factor = (routeParamUnit === 'mm' && newUnit === 'inch') ? 1 / 25.4
                      : (routeParamUnit === 'inch' && newUnit === 'mm') ? 25.4 : 1;
@@ -268,6 +273,7 @@ export function bindPcbControls(app) {
             }
         }
         routeParamUnit = newUnit;
+        app._routeParamUnit = newUnit;
         saveDesignParams();
     });
 

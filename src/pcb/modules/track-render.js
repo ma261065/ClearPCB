@@ -283,6 +283,9 @@ function _makeViaCircle(cx, cy, r, fillColor) {
 /** Spacing between net-name labels along a track run, in mm. */
 const LABEL_INTERVAL_MM = 12;
 
+/** Upper bound on the net-label font (mm) so fat traces don't get huge text. */
+const MAX_LABEL_FONT_MM = 0.4;
+
 /**
  * Build a single rotated net-name `<text>` element centred on (x, y).
  * @param {number} x
@@ -331,8 +334,9 @@ function _buildNetLabels(points, netName, trackWidth) {
 
     // Font sized just inside the track width so the label reads as "on" the
     // copper. At low zoom the on-screen text shrinks below readable size and
-    // effectively disappears.
-    const fontSize = (trackWidth || 0.2) * 0.7;
+    // effectively disappears. The size scales down with the track width but is
+    // capped so fat traces (power/ground pours) don't get oversized labels.
+    const fontSize = Math.min((trackWidth || 0.2) * 0.7, MAX_LABEL_FONT_MM);
     // Approximate rendered length of the string along its baseline
     // (~0.62 em per average sans-serif glyph), plus a small margin so glyphs
     // never reach a bend.

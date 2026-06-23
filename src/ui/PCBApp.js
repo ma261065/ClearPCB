@@ -115,6 +115,8 @@ import {
     loadBoardShapes,
     removeBoardShapeElement,
     renderBoardShape,
+    renderBoardShapeHandles,
+    hitTestBoardShapeVertex,
     shapeOutline,
 } from '../pcb/modules/board-shapes.js';
 import { hasAny3DModel, openComponent3DFromData, buildComponent3DTitle } from '../components/model3d-source.js';
@@ -1071,8 +1073,9 @@ export default class PCBApp {
                 // Same for a selected free-standing board shape.
                 if (this._selectedShape) {
                     const selectedHit = hitTestBoardShape(this, worldPos);
-                    if (selectedHit && selectedHit.id === this._selectedShape.id) {
-                        if (startBoardShapeDrag(this, selectedHit, worldPos)) {
+                    const onHandle = hitTestBoardShapeVertex(this, this._selectedShape, worldPos) != null;
+                    if (onHandle || (selectedHit && selectedHit.id === this._selectedShape.id)) {
+                        if (startBoardShapeDrag(this, this._selectedShape, worldPos)) {
                             setHoverHighlight(this, null);
                             this._hideNetTooltip();
                             svg.style.cursor = 'grabbing';
@@ -2695,12 +2698,24 @@ export default class PCBApp {
             if (p.refSize && p.refSize !== REF_DEFAULT_SIZE) placements[id].refSize = p.refSize;
             if (p.refStrokeWidth && p.refStrokeWidth !== REF_DEFAULT_STROKE) placements[id].refStrokeWidth = p.refStrokeWidth;
         }
+        // Per-project design rules (track/clearance/via sizes are canonical mm;
+        // units/router record the user's display + routing preferences).
+        const routing = this._getRoutingParams();
+        const design = {
+            trackWidth: routing.trackWidth,
+            clearance: routing.clearance,
+            viaDiameter: routing.viaDiameter,
+            viaDrill: routing.viaDrill,
+            units: /** @type {HTMLSelectElement|null} */ (document.getElementById('pcbRouteUnits'))?.value || 'mm',
+            router: this._getRouterMode(),
+        };
         return {
             board: {
                 width: this._boardWidth,
                 height: this._boardHeight,
                 radius: this._boardRadius,
             },
+            design,
             tracks: this.tracks.map(t => t.toJSON()),
             vias: this.vias.map(v => v.toJSON()),
             holes: this.holes.map(h => h.toJSON()),
@@ -2883,6 +2898,11 @@ export default class PCBApp {
 
         if (!data) return;
 
+        // Restore per-project design parameters (track/clearance/via sizes,
+        // units, router) onto the ribbon inputs. Documents that predate this
+        // field simply keep the current localStorage working defaults.
+        if (data.design) this._applyProjectDesignParams(data.design);
+
         // Restore the saved board outline so it survives save/reopen and
         // autosave-recovery (the dimensions are part of the document).
         if (data.board && data.board.width > 0 && data.board.height > 0) {
@@ -2991,6 +3011,48 @@ export default class PCBApp {
         // a freshly opened/recovered board isn't immediately treated as having
         // unsaved PCB changes (which would re-trigger autosave after a save).
         this._isDirty = false;
+    }
+
+    /**
+     * Apply per-project design parameters (canonical mm) onto the ribbon
+     * inputs, converting to the document's saved display unit. Lives in this
+     * module (alongside serialize/loadFromData) so the save and restore halves
+     * can't fall out of sync if controls.js reloads independently.
+     * @param {any} design
+     */
+    _applyProjectDesignParams(design) {
+        if (!design || typeof design !== 'object') return;
+        const inputEl = (id) => /** @type {HTMLInputElement|null} */ (document.getElementById(id));
+        const units = design.units === 'inch' ? 'inch' : 'mm';
+        const unitsEl = /** @type {HTMLSelectElement|null} */ (document.getElementById('pcbRouteUnits'));
+        const routerEl = /** @type {HTMLSelectElement|null} */ (document.getElementById('pcbRouterMode'));
+        if (unitsEl) unitsEl.value = units;
+        if (routerEl && (design.router === 'pathfinder' || design.router === 'maze')) routerEl.value = design.router;
+        const fromMM = units === 'inch' ? 1 / 25.4 : 1;
+        const digits = units === 'inch' ? 4 : 3;
+        const map = { trackWidth: 'pcbTrackWidth', clearance: 'pcbClearance', viaDiameter: 'pcbViaDiameter', viaDrill: 'pcbViaDrill' };
+        for (const [key, id] of Object.entries(map)) {
+            const mmVal = Number(design[key]);
+            const el = inputEl(id);
+            if (el && Number.isFinite(mmVal) && mmVal > 0) {
+                el.value = String(Number((mmVal * fromMM).toFixed(digits)));
+                el.step = units === 'inch' ? '0.001' : '0.01';
+            }
+        }
+        // Keep the unit-toggle baseline (owned by controls.js) in sync, else a
+        // later unit switch early-returns and leaves mismatched values.
+        this._routeParamUnit = units;
+        // Mirror controls.js saveDesignParams so these also become the working
+        // defaults (key must match DESIGN_PARAMS_KEY in controls.js).
+        try {
+            /** @type {Record<string, string>} */
+            const stored = { units, router: routerEl?.value || 'maze' };
+            for (const id of ['pcbTrackWidth', 'pcbClearance', 'pcbViaDiameter', 'pcbViaDrill']) {
+                const el = inputEl(id);
+                if (el) stored[id] = el.value;
+            }
+            localStorage.setItem('clearpcb_pcb_design_params', JSON.stringify(stored));
+        } catch { /* storage unavailable — ignore */ }
     }
 
     /**
@@ -4181,6 +4243,7 @@ export default class PCBApp {
         for (const s of this.boardShapes) {
             renderBoardShape(this, s);
         }
+        if (this._selectedShape) renderBoardShapeHandles(this, this._selectedShape);
 
         // Copper pours. Their model (copperFills) survives the rebuild but
         // their SVG is wiped by _clearPCBContent, so re-pour them here. This
