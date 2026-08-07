@@ -3338,8 +3338,30 @@ export default class PCBApp {
 
         const tabs = this.ribbon.querySelectorAll('.ribbon-tab[data-tab]');
         const panels = this.ribbon.querySelectorAll('.ribbon-panel');
+        const panelsEl = /** @type {HTMLElement|null} */ (this.ribbon.querySelector('.ribbon-panels'));
+
+        const retainRibbonHeight = () => {
+            if (!panelsEl || this.ribbon.offsetParent === null) return;
+            const activePanels = Array.from(panels, panel => panel.classList.contains('active'));
+            let height = 0;
+
+            panels.forEach(panel => {
+                panels.forEach(other => other.classList.toggle('active', other === panel));
+                height = Math.max(height, panelsEl.getBoundingClientRect().height);
+            });
+
+            panels.forEach((panel, index) => panel.classList.toggle('active', activePanels[index]));
+            panelsEl.style.minHeight = `${Math.ceil(height)}px`;
+        };
+
+        window.addEventListener('resize', () => {
+            if (!panelsEl || this.ribbon.offsetParent === null) return;
+            panelsEl.style.minHeight = '';
+            requestAnimationFrame(retainRibbonHeight);
+        });
 
         const setActive = (tabId) => {
+            retainRibbonHeight();
             tabs.forEach(tab => {
                 const tabEl = /** @type {HTMLElement} */ (tab);
                 tabEl.classList.toggle('active', tabEl.dataset.tab === tabId);

@@ -108,6 +108,35 @@ export function bindRibbon(app) {
     const tabs = ribbonEl.querySelectorAll('.ribbon-tab');
     const panels = ribbonEl.querySelectorAll('.ribbon-panel');
     if (tabs.length === 0 || panels.length === 0) return;
+    const panelsEl = /** @type {HTMLElement|null} */ (ribbonEl.querySelector('.ribbon-panels'));
+
+    const retainRibbonHeight = () => {
+        if (!panelsEl) return;
+        const styles = getComputedStyle(panelsEl);
+        const panelWidth = panelsEl.clientWidth
+            - parseFloat(styles.paddingLeft)
+            - parseFloat(styles.paddingRight);
+        let height = 0;
+
+        panels.forEach(panel => {
+            const clone = /** @type {HTMLElement} */ (panel.cloneNode(true));
+            clone.style.cssText = `display:flex; position:absolute; visibility:hidden; pointer-events:none; left:0; top:0; width:${panelWidth}px; box-sizing:border-box;`;
+            panelsEl.appendChild(clone);
+            height = Math.max(height, clone.getBoundingClientRect().height);
+            clone.remove();
+        });
+
+        const retainedHeight = Math.ceil(height);
+        panelsEl.dataset.retainedHeight = String(retainedHeight);
+        panelsEl.style.minHeight = `${retainedHeight}px`;
+    };
+
+    window.addEventListener('resize', () => {
+        if (!panelsEl) return;
+        delete panelsEl.dataset.retainedHeight;
+        panelsEl.style.minHeight = '';
+        requestAnimationFrame(retainRibbonHeight);
+    });
 
     /** @type {(toolId: string|undefined|null) => void} */
     let setActiveToolButton = () => {};
@@ -123,6 +152,7 @@ export function bindRibbon(app) {
     };
 
     app._setActiveRibbonTab = (tabId) => {
+        retainRibbonHeight();
         tabs.forEach(tab => {
             const t = /** @type {HTMLElement} */ (tab);
             t.classList.toggle('active', t.dataset.tab === tabId);
