@@ -3,9 +3,9 @@ import { ModalManager } from '../../core/ModalManager.js';
 let modalCounter = 0;
 
 /**
- * @param {{ title?: string, message?: string, contentEl?: HTMLElement|null, okText?: string, cancelText?: string, showCancel?: boolean }} options
+ * @param {{ title?: string, message?: string, contentEl?: HTMLElement|null, okText?: string, cancelText?: string, showCancel?: boolean, showClose?: boolean, escapeResult?: any }} options
  */
-function buildModal({ title, message, contentEl = null, okText, cancelText, showCancel = false }) {
+function buildModal({ title, message, contentEl = null, okText, cancelText, showCancel = false, showClose = false, escapeResult = false }) {
     const overlay = document.createElement('div');
     overlay.className = 'app-modal-overlay';
     overlay.tabIndex = 0;
@@ -16,10 +16,23 @@ function buildModal({ title, message, contentEl = null, okText, cancelText, show
     modal.setAttribute('aria-modal', 'true');
 
     if (title) {
+        const headerEl = document.createElement('div');
+        headerEl.className = 'app-modal-header';
         const titleEl = document.createElement('div');
         titleEl.className = 'app-modal-title';
         titleEl.textContent = title;
-        modal.appendChild(titleEl);
+        headerEl.appendChild(titleEl);
+        if (showClose) {
+            const closeBtn = document.createElement('button');
+            closeBtn.type = 'button';
+            closeBtn.className = 'app-modal-close';
+            closeBtn.textContent = 'X';
+            closeBtn.title = 'Close without deleting the autosave';
+            closeBtn.setAttribute('aria-label', 'Close without deleting the autosave');
+            closeBtn.addEventListener('click', () => close(escapeResult));
+            headerEl.appendChild(closeBtn);
+        }
+        modal.appendChild(headerEl);
     }
 
     if (message) {
@@ -121,7 +134,7 @@ function buildModal({ title, message, contentEl = null, okText, cancelText, show
         }
 
         if (e.key === 'Escape') {
-            close(false);
+            close(escapeResult);
             return;
         }
 
@@ -195,12 +208,12 @@ export function showAlert(message, options = {}) {
 }
 
 export function showConfirm(message, options = {}) {
-    const { title = 'Confirm', okText = 'OK', cancelText = 'Cancel', defaultCancel = false } = options;
+    const { title = 'Confirm', okText = 'OK', cancelText = 'Cancel', defaultCancel = false, showClose = false, escapeResult = false } = options;
     return new Promise((resolve) => {
-        const modal = buildModal({ title, message, okText, cancelText, showCancel: true });
+        const modal = buildModal({ title, message, okText, cancelText, showCancel: true, showClose, escapeResult });
         modal.setResolver(resolve);
         document.body.appendChild(modal.overlay);
-        ModalManager.push(modal.modalId, () => modal.close(false));
+        ModalManager.push(modal.modalId, () => modal.close(escapeResult));
         setTimeout(() => {
             const target = defaultCancel && modal.cancelBtn ? modal.cancelBtn : modal.okBtn;
             target?.focus();

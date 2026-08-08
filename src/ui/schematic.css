@@ -375,6 +375,7 @@ body {
     background: var(--bg-secondary);
     padding: 4px 8px 0;
     border-top: none;
+    box-sizing: border-box;
     min-height: 56px;
     overflow: visible;
     display: flex;
@@ -1177,10 +1178,36 @@ body {
     box-shadow: 0 16px 40px rgba(0, 0, 0, 0.4);
 }
 
+.app-modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 8px;
+}
+
 .app-modal-title {
     font-size: 13px;
     font-weight: 600;
-    margin-bottom: 8px;
+}
+
+.app-modal-close {
+    background: transparent;
+    color: var(--text-secondary, #bdbdbd);
+    border: 1px solid transparent;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+    line-height: 1;
+    padding: 3px 6px;
+}
+
+.app-modal-close:hover,
+.app-modal-close:focus {
+    background: rgba(176, 0, 32, 0.15);
+    border-color: #b00020;
+    color: #ff6060;
+    outline: none;
 }
 
 .app-modal-message {

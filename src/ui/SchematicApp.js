@@ -335,9 +335,13 @@ export default class SchematicApp {
         if (index.length === 1) {
             const entry = index[0];
             const time = new Date(entry.timestamp).toLocaleString();
-            if (await this._confirm(`Recover autosaved file "${entry.fileName}" from ${time}?`, { title: 'Recover Autosave', okText: 'Yes', cancelText: 'No' })) {
+            const recoveryChoice = await this._confirm(
+                `Recover autosaved file "${entry.fileName}" from ${time}?\n\nChoosing No permanently deletes this autosave. Your last fully saved file on disk is unchanged.`,
+                { title: 'Recover Autosave', okText: 'Yes', cancelText: 'No - Delete Autosave', showClose: true, escapeResult: null },
+            );
+            if (recoveryChoice === true) {
                 await this._applyAutoSave(entry);
-            } else {
+            } else if (recoveryChoice === false) {
                 this.fileManager.clearAutoSave(entry.fileName);
             }
         } else if (index.length > 1) {

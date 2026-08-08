@@ -2821,6 +2821,10 @@ const CPCB3D_CSS = `
   .cpcb3d-bar button{background:#2c3138;color:#e6e6e6;border:1px solid #3a414a;
     border-radius:5px;padding:5px 10px;cursor:pointer;font-size:12px}
   .cpcb3d-bar button:hover{background:#3a414a}
+    .cpcb3d-bar button.cpcb3d-close{min-width:28px;padding:4px 8px;
+        color:#ff7070;border-color:#8f4141;font-size:16px;line-height:1}
+    .cpcb3d-bar button.cpcb3d-close:hover{background:#5a2525;border-color:#e05050;color:#fff}
+    .cpcb3d-host:not(.cpcb3d-docked) .cpcb3d-close{display:none}
   .cpcb3d-bar button.off{opacity:.5}
   .cpcb3d-bar .cpcb3d-sp{flex:1}
     .cpcb3d-stylewin{position:absolute;top:50px;right:10px;z-index:12;
@@ -2926,7 +2930,7 @@ function ensure3DStyles(doc) {
  *   spinner:HTMLElement, cover:HTMLElement, btnParts:HTMLElement,
  *   btnTop:HTMLElement, btnIso:HTMLElement, btnFit:HTMLElement,
  *   btn2dTop:HTMLElement, btn2dBottom:HTMLElement, btn2dSave:HTMLElement,
- *   btn3dSave:HTMLElement, btnPop:HTMLElement, styleBtn:HTMLElement,
+ *   btn3dSave:HTMLElement, btnPop:HTMLElement, btnClose:HTMLElement, styleBtn:HTMLElement,
  *   styleWin:HTMLElement, styleClose:HTMLElement, styleLayer:HTMLSelectElement,
  *   styleH:HTMLInputElement, styleS:HTMLInputElement, styleV:HTMLInputElement,
  *   styleO:HTMLInputElement, styleHVal:HTMLOutputElement,
@@ -2953,6 +2957,7 @@ function build3DHost(doc) {
     <button data-act="style" title="Open color style editor">Styles</button>
     <span class="cpcb3d-sp"></span>
     <span class="cpcb3d-status"></span>
+    <button class="cpcb3d-close" data-act="close" title="Close view" aria-label="Close view">X</button>
   </div>
   <canvas class="cpcb3d-cv"></canvas>
   <canvas class="cpcb3d-cv2d"></canvas>
@@ -3006,6 +3011,7 @@ function build3DHost(doc) {
         btn3dSave: q('[data-act="3dsave"]'),
         btnFit: q('[data-act="fit"]'),
         btnPop: q('[data-act="pop"]'),
+        btnClose: q('[data-act="close"]'),
         styleBtn: q('[data-act="style"]'),
         styleWin: q('.cpcb3d-stylewin'),
         styleClose: q('[data-act="style-close"]'),
@@ -4411,6 +4417,7 @@ export async function openBoard3DViewer(app, opts = {}) {
     panel.show = showPanel;
 
     dom.btnPop?.addEventListener('click', () => (panel.mode === 'popped' ? dock() : popOut()));
+    dom.btnClose?.addEventListener('click', hidePanel);
 
     // Honour the initial view. Opening into 2D never builds 3D (instant); the
     // 3D scene + STEP models are built lazily by ensure3D when 3D is first shown.

@@ -318,11 +318,15 @@ export async function checkAutoSave(app) {
                                (saved.data.components && saved.data.components.length > 0);
             if (hasContent) {
                 const time = new Date(saved.timestamp).toLocaleString();
-                if (await app._confirm(`Found auto-saved content from ${time}.\n\nRecover it?`, { title: 'Recover Autosave', okText: 'Yes', cancelText: 'No' })) {
+                const recoveryChoice = await app._confirm(
+                    `Found auto-saved content from ${time}.\n\nRecover it? Choosing No permanently deletes this autosave. Your last fully saved file on disk is unchanged.`,
+                    { title: 'Recover Autosave', okText: 'Yes', cancelText: 'No - Delete Autosave', showClose: true, escapeResult: null },
+                );
+                if (recoveryChoice === true) {
                     await app._loadDocument(saved.data);
                     app.fileManager.setDirty(true);
                     console.log('Recovered auto-saved content');
-                } else {
+                } else if (recoveryChoice === false) {
                     app.fileManager.clearAutoSave();
                 }
             }

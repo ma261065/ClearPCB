@@ -112,23 +112,16 @@ export function bindRibbon(app) {
 
     const retainRibbonHeight = () => {
         if (!panelsEl) return;
-        const styles = getComputedStyle(panelsEl);
-        const panelWidth = panelsEl.clientWidth
-            - parseFloat(styles.paddingLeft)
-            - parseFloat(styles.paddingRight);
+        const activePanels = Array.from(panels, panel => panel.classList.contains('active'));
         let height = 0;
 
         panels.forEach(panel => {
-            const clone = /** @type {HTMLElement} */ (panel.cloneNode(true));
-            clone.style.cssText = `display:flex; position:absolute; visibility:hidden; pointer-events:none; left:0; top:0; width:${panelWidth}px; box-sizing:border-box;`;
-            panelsEl.appendChild(clone);
-            height = Math.max(height, clone.getBoundingClientRect().height);
-            clone.remove();
+            panels.forEach(other => other.classList.toggle('active', other === panel));
+            height = Math.max(height, panelsEl.getBoundingClientRect().height);
         });
 
-        const retainedHeight = Math.ceil(height);
-        panelsEl.dataset.retainedHeight = String(retainedHeight);
-        panelsEl.style.minHeight = `${retainedHeight}px`;
+        panels.forEach((panel, index) => panel.classList.toggle('active', activePanels[index]));
+        panelsEl.style.minHeight = `${Math.ceil(height)}px`;
     };
 
     window.addEventListener('resize', () => {
