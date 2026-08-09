@@ -1141,6 +1141,21 @@ body {
     transform: rotate(45deg);
 }
 
+.prop-row input[type="checkbox"]:indeterminate {
+    background: var(--text-muted);
+    border-color: var(--text-muted);
+}
+
+.prop-row input[type="checkbox"]:indeterminate::after {
+    content: '';
+    position: absolute;
+    left: 3px;
+    top: 5px;
+    width: 5px;
+    height: 1.5px;
+    background: #fff;
+}
+
 .prop-row input[type="checkbox"]:hover {
     border-color: var(--accent-color);
 }

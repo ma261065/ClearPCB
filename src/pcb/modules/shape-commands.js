@@ -1,10 +1,9 @@
 /**
  * Undoable commands for free-standing PCB board shapes (rectangle, polygon, arc).
  *
- * Mirrors circle-commands.js but operates on the generic `app.boardShapes`
- * array. Geometry-specific behaviour lives in board-shapes.js; these commands
- * only push/splice the shape and trigger re-render + fill refresh so history is
- * the single source of truth.
+ * Operates on the generic `app.boardShapes` array. Geometry-specific behaviour
+ * lives in board-shapes.js; these commands only push/splice the shape and
+ * trigger re-render + fill refresh so history is the single source of truth.
  */
 
 import {

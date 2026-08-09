@@ -75,10 +75,6 @@ export function bindPcbControls(app) {
         if (app._fillDraw && nextTool !== 'fill') {
             app._cancelFillDraw?.();
         }
-        // Cancel any in-progress circle draw when leaving the circle tool.
-        if (app._circleDraw && nextTool !== 'circle') {
-            app._cancelCircleDraw?.();
-        }
         // Cancel any in-progress shape draw when switching to another tool.
         if (app._shapeDraw && app._shapeDraw.kind !== nextTool) {
             app._cancelShapeDraw?.();
@@ -106,6 +102,12 @@ export function bindPcbControls(app) {
             app._showHoleToolOptions?.();
         } else if (nextTool === 'fill') {
             app._showFillToolOptions?.();
+        } else if (nextTool === 'circle') {
+            app._hideToolOptions?.();
+            app._showBoardShapeToolProperties?.('circle');
+        } else if (SHAPE_TOOLS.has(nextTool)) {
+            app._hideToolOptions?.();
+            app._showBoardShapeToolProperties?.(nextTool);
         } else {
             app._hideToolOptions?.();
         }

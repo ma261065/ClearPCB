@@ -21,6 +21,7 @@ import {
     resolvePadFlashes,
     resolveSilk,
 } from './board-geometry.js';
+import { boardShapeArcGeometry, rectCornerRadius } from './board-shapes.js';
 
 // Palette mirrors the 3D viewer (board3d.js) so the two previews match.
 const COL = {
@@ -556,7 +557,7 @@ export class Board2D {
         ctx.strokeStyle = COL.rawBoard;
         ctx.lineCap = 'round';
         ctx.lineJoin = 'round';
-        for (const c of (d.circles || [])) {
+        for (const c of (d.boardShapes || []).filter((shape) => shape?.kind === 'circle')) {
             if (!c || !(c.radius > 0)) continue;
             const layer = String(c.layer || '');
             if (layer === 'top-mask' || layer === 'bottom-mask') {
@@ -582,6 +583,27 @@ export class Board2D {
                 ctx.lineWidth = sw;
                 ctx.beginPath();
                 ctx.arc(c.x, c.y, c.radius, 0, Math.PI * 2);
+                ctx.stroke();
+            }
+        }
+        for (const shape of (d.boardShapes || [])) {
+            if (!shape || shape.kind === 'circle') continue;
+            const layer = String(shape.layer || '');
+            const isMaskLayer = layer === 'top-mask' || layer === 'bottom-mask';
+            const isCopperLayer = layer === 'top-copper' || layer === 'bottom-copper';
+            const side = layer === 'bottom-mask' || layer === 'bottom-copper' ? 'bottom' : 'top';
+            if ((!isMaskLayer && !isCopperLayer) || side !== this.side) continue;
+            const mode = normalizeCopperMode(shape.copperMode);
+            if (!isMaskLayer && mode !== 'remove-solder-mask' && mode !== 'remove-copper-mask') continue;
+            const outline = shape.outline || [];
+            if (outline.length < 3) continue;
+            ctx.beginPath();
+            ctx.moveTo(outline[0].x, outline[0].y);
+            for (let i = 1; i < outline.length; i++) ctx.lineTo(outline[i].x, outline[i].y);
+            ctx.closePath();
+            if (isMaskLayer || shape.filled) ctx.fill();
+            else {
+                ctx.lineWidth = Math.max(0.05, Number(shape.lineWidth) || 0.2);
                 ctx.stroke();
             }
         }
@@ -625,7 +647,7 @@ export class Board2D {
         ctx.strokeStyle = COL.rawBoard;
         ctx.lineCap = 'round';
         ctx.lineJoin = 'round';
-        for (const c of (d.circles || [])) {
+        for (const c of (d.boardShapes || []).filter((shape) => shape?.kind === 'circle')) {
             if (!c || !(c.radius > 0)) continue;
             const layer = String(c.layer || '');
             if (layer !== 'document' && layer !== 'top-document' && layer !== 'bottom-document') continue;
@@ -662,6 +684,46 @@ export class Board2D {
             if (m === 'remove') return 'remove-copper-mask';
             if (m === 'remove-mask') return 'remove-solder-mask';
             return 'add';
+        };
+        const drawCopperShape = (shape) => {
+            const lw = Math.max(0.05, Number(shape.lineWidth) || 0.2);
+            if (shape.kind === 'circle') {
+                if (!(shape.radius > 0)) return;
+                cctx.beginPath();
+                cctx.arc(shape.x, shape.y, shape.radius, 0, Math.PI * 2);
+            } else if (shape.kind === 'arc') {
+                const arc = boardShapeArcGeometry(shape);
+                if (arc) {
+                    cctx.beginPath();
+                    cctx.arc(arc.cx, arc.cy, arc.radius, arc.startAngle, arc.endAngle, arc.counterclockwise);
+                } else {
+                    const outline = shape.outline || [];
+                    if (outline.length < 2) return;
+                    cctx.beginPath();
+                    cctx.moveTo(outline[0].x, outline[0].y);
+                    cctx.lineTo(outline[outline.length - 1].x, outline[outline.length - 1].y);
+                }
+            } else if (shape.kind === 'rect' && rectCornerRadius(shape) > 0) {
+                const points = shape.points || [];
+                if (points.length < 2) return;
+                const xs = points.map((point) => point.x);
+                const ys = points.map((point) => point.y);
+                const minX = Math.min(...xs);
+                const minY = Math.min(...ys);
+                this._roundRectPath(cctx, minX, minY, Math.max(...xs) - minX, Math.max(...ys) - minY, rectCornerRadius(shape));
+            } else {
+                const outline = shape.outline || [];
+                if (outline.length < 2) return;
+                cctx.beginPath();
+                cctx.moveTo(outline[0].x, outline[0].y);
+                for (let i = 1; i < outline.length; i++) cctx.lineTo(outline[i].x, outline[i].y);
+                cctx.closePath();
+            }
+            if (shape.filled) cctx.fill();
+            else {
+                cctx.lineWidth = lw;
+                cctx.stroke();
+            }
         };
 
         // Compose copper into a dedicated transparent layer, subtracting
@@ -744,48 +806,28 @@ export class Board2D {
         }
         cctx.restore();
 
-        // Add-copper circles.
-        for (const c of (d.circles || [])) {
-            if (!c || c.layer !== copperLayer || !(c.radius > 0)) continue;
-            const mode = normalizeCopperMode(c.copperMode);
+        // Add-copper board shapes.
+        for (const shape of (d.boardShapes || [])) {
+            if (!shape || shape.layer !== copperLayer) continue;
+            const mode = normalizeCopperMode(shape.copperMode);
             if (mode !== 'add') continue;
-            const lw = Math.max(0.05, Number(c.lineWidth) || 0.2);
-            if (c.filled) {
-                cctx.fillStyle = copperCol;
-                cctx.beginPath();
-                cctx.arc(c.x, c.y, c.radius, 0, Math.PI * 2);
-                cctx.fill();
-            } else {
-                cctx.strokeStyle = copperCol;
-                cctx.lineWidth = lw;
-                cctx.beginPath();
-                cctx.arc(c.x, c.y, c.radius, 0, Math.PI * 2);
-                cctx.stroke();
-            }
+            cctx.fillStyle = copperCol;
+            cctx.strokeStyle = copperCol;
+            drawCopperShape(shape);
         }
 
-        // Remove-copper circles cut only the copper layer alpha.
+        // Remove-copper board shapes cut only the copper layer alpha.
         // remove-solder-mask does not alter copper geometry.
         cctx.globalCompositeOperation = 'destination-out';
         cctx.fillStyle = '#000';
         cctx.strokeStyle = '#000';
         cctx.lineCap = 'round';
         cctx.lineJoin = 'round';
-        for (const c of (d.circles || [])) {
-            if (!c || c.layer !== copperLayer || !(c.radius > 0)) continue;
-            const mode = normalizeCopperMode(c.copperMode);
+        for (const shape of (d.boardShapes || [])) {
+            if (!shape || shape.layer !== copperLayer) continue;
+            const mode = normalizeCopperMode(shape.copperMode);
             if (mode !== 'remove-copper' && mode !== 'remove-copper-mask') continue;
-            const lw = Math.max(0.05, Number(c.lineWidth) || 0.2);
-            if (c.filled) {
-                cctx.beginPath();
-                cctx.arc(c.x, c.y, c.radius, 0, Math.PI * 2);
-                cctx.fill();
-            } else {
-                cctx.lineWidth = lw;
-                cctx.beginPath();
-                cctx.arc(c.x, c.y, c.radius, 0, Math.PI * 2);
-                cctx.stroke();
-            }
+            drawCopperShape(shape);
         }
         cctx.globalCompositeOperation = 'source-over';
 
@@ -870,7 +912,7 @@ export class Board2D {
             ctx.fill();
         }
         // Free-standing circles on HOLE layer are board cutouts in preview.
-        for (const c of (d.circles || [])) {
+        for (const c of (d.boardShapes || []).filter((shape) => shape?.kind === 'circle')) {
             if (!c || c.layer !== 'hole' || !(c.radius > 0)) continue;
             ctx.beginPath();
             ctx.arc(c.x, c.y, c.radius, 0, Math.PI * 2);
@@ -1041,7 +1083,7 @@ export class Board2D {
         // Free-standing circles on this side for all non-copper, non-hole,
         // non-mask, non-document layers. Mask circles are composited in
         // _drawMaskOpenings(); document circles in _drawDocumentCutouts().
-        for (const c of (d.circles || [])) {
+        for (const c of (d.boardShapes || []).filter((shape) => shape?.kind === 'circle')) {
             if (!c || !(c.radius > 0)) continue;
             const layer = String(c.layer || 'top-silk');
             if (layer === 'top-copper' || layer === 'bottom-copper' || layer === 'hole'

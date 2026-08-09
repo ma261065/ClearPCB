@@ -56,8 +56,9 @@ export function exportGerbers(opts) {
         placements, tracks = [], vias = [], holes = [],
         boardWidth, boardHeight, boardRadius = 0,
         boardX = 0, boardY = 0,
-        texts = [], fills = [], circles = [], boardShapes = [],
+        texts = [], fills = [], boardShapes = [],
     } = opts;
+    const circles = boardShapes.filter((shape) => shape?.kind === 'circle');
 
     // Caller's boardX/boardY describe the Y-up bottom-left corner of the
     // board. Internal data is SVG-Y-down, so for clipping we shift the
@@ -308,6 +309,7 @@ function _buildCopper(placements, tracks, vias, layerId, bounds, texts = [], fil
     let darkShapeRegions = '';
     let clearShapeRegions = '';
     for (const s of boardShapes) {
+        if (s?.kind === 'circle') continue;
         if (!s) continue;
         const o = s.outline || [];
         if (o.length < 3) continue;

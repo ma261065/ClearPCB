@@ -34,7 +34,7 @@ const VIA_CLASS = 'pcb-via';
  * @param {(layerId: string) => SVGGElement|null} getLayerGroup
  * @param {object} [opts]
  * @param {string} [opts.topColor='#e74c3c']
- * @param {string} [opts.bottomColor='#3498db']
+ * @param {string} [opts.bottomColor='#2479b5']
  * @param {string} [opts.viaRingColor='#b8860b']
  * @param {string} [opts.viaDrillColor='#1a1a2e']
  * @param {number} [opts.viaDiameter=0.6] - Default ring diameter (mm)
@@ -45,7 +45,7 @@ export function renderTrack(track, getLayerGroup, opts = {}) {
     removeTrackElements(track);
 
     const topColor = opts.topColor || '#e74c3c';
-    const bottomColor = opts.bottomColor || '#3498db';
+    const bottomColor = opts.bottomColor || '#2479b5';
     const viaRingColor = opts.viaRingColor || '#b8860b';
     const viaDrillColor = opts.viaDrillColor || '#1a1a2e';
     const viaDiameter = Number.isFinite(opts.viaDiameter) && opts.viaDiameter > 0

@@ -12,7 +12,7 @@
 /** All PCB layers with their display colors. */
 export const PCB_LAYERS = /** @type {LayerDef[]} */ ([
     { id: 'top-copper',       name: 'Top Copper',          color: '#e74c3c', edit: true,  visible: true, locked: false },
-    { id: 'bottom-copper',    name: 'Bottom Copper',       color: '#3498db', edit: false, visible: true, locked: false },
+    { id: 'bottom-copper',    name: 'Bottom Copper',       color: '#2479b5', edit: false, visible: true, locked: false },
     { id: 'top-silk',         name: 'Top Silk',            color: '#f0e68c', edit: false, visible: true, locked: false },
     { id: 'bottom-silk',      name: 'Bottom Silk',         color: '#a89332', edit: false, visible: true, locked: false },
     { id: 'top-paste',        name: 'Top Paste Mask',      color: '#e88dd6', edit: false, visible: true, locked: false },
@@ -45,7 +45,7 @@ export const PCB_OVERLAYS = /** @type {OverlayDef[]} */ ([
  */
 export const PCB_COPPER_FILLS = /** @type {CopperFillDef[]} */ ([
     { id: 'top-copper',    name: 'Top',    color: '#e74c3c', visible: true, locked: false },
-    { id: 'bottom-copper', name: 'Bottom', color: '#3498db', visible: true, locked: false },
+    { id: 'bottom-copper', name: 'Bottom', color: '#2479b5', visible: true, locked: false },
 ]);
 
 /**
