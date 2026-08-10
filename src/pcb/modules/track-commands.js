@@ -9,10 +9,8 @@
 import {
     renderTrack,
     renderVia,
-    renderHole,
     removeTrackElements,
     removeViaElements,
-    removeHoleElements,
 } from './track-render.js';
 import { reconcileRatsnest } from './track-draw.js';
 import { refreshTrackSelectionHalo } from './track-select.js';
@@ -331,73 +329,6 @@ export class MoveViaCommand {
     undo() { this._set(this.from); }
 }
 
-/* ──────────────────────────── holes ──────────────────────────── */
-
-export class AddHoleCommand {
-    constructor(app, hole) { this.app = app; this.hole = hole; }
-    execute() {
-        if (!this.app.holes.includes(this.hole)) this.app.holes.push(this.hole);
-        renderHole(this.hole, (id) => this.app._getLayerGroup(id));
-        this.app._refreshFills?.();
-    }
-    undo() {
-        removeHoleElements(this.hole);
-        const i = this.app.holes.indexOf(this.hole);
-        if (i >= 0) this.app.holes.splice(i, 1);
-        this.app._refreshFills?.();
-    }
-}
-
-export class RemoveHoleCommand {
-    constructor(app, hole) { this.app = app; this.hole = hole; }
-    execute() {
-        removeHoleElements(this.hole);
-        const i = this.app.holes.indexOf(this.hole);
-        if (i >= 0) this.app.holes.splice(i, 1);
-        this.app._refreshFills?.();
-    }
-    undo() {
-        if (!this.app.holes.includes(this.hole)) this.app.holes.push(this.hole);
-        renderHole(this.hole, (id) => this.app._getLayerGroup(id));
-        this.app._refreshFills?.();
-    }
-}
-
-/** Move a standalone Hole from (fromX, fromY) to (toX, toY). */
-export class MoveHoleCommand {
-    constructor(app, hole, fromX, fromY, toX, toY) {
-        this.app = app;
-        this.hole = hole;
-        this.from = { x: fromX, y: fromY };
-        this.to = { x: toX, y: toY };
-    }
-    _set(pt) {
-        this.hole.x = pt.x;
-        this.hole.y = pt.y;
-        renderHole(this.hole, (id) => this.app._getLayerGroup(id));
-        this.app._refreshFills?.();
-        refreshTrackSelectionHalo(this.app);
-    }
-    execute() { this._set(this.to); }
-    undo() { this._set(this.from); }
-}
-
-export class ModifyHoleCommand {
-    constructor(app, hole, before, after) {
-        this.app = app;
-        this.hole = hole;
-        this.before = { ...before };
-        this.after = { ...after };
-    }
-    _apply(state) {
-        Object.assign(this.hole, state);
-        renderHole(this.hole, (id) => this.app._getLayerGroup(id));
-        this.app._refreshFills?.();
-        refreshTrackSelectionHalo(this.app);
-    }
-    execute() { this._apply(this.after); }
-    undo() { this._apply(this.before); }
-}
 export class MovePlacementCommand {
     constructor(app, compId, fromX, fromY, toX, toY) {
         this.app = app;

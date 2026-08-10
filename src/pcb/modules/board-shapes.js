@@ -7,7 +7,7 @@
  * hit-test) dispatch on `shape.kind`.
  *
  * Shape object shape:
- *   common: { id, kind:'rect'|'polygon'|'arc'|'circle', layer, lineWidth, filled, copperMode }
+ *   common: { id, kind:'rect'|'polygon'|'arc'|'circle', layer, lineWidth, filled, copperMode, plated }
  *   rect:   + { cornerRadius }
  *   rect/polygon: + { points: [{x,y}, ...] }   (closed)
  *   arc:          + { start:{x,y}, end:{x,y}, bulge:{x,y} }
@@ -35,6 +35,7 @@ import { clearPcbSelectionAnchors, renderPcbSelectionAnchors } from './selection
 
 const NS = 'http://www.w3.org/2000/svg';
 const SHAPE_KINDS = new Set(['rect', 'polygon', 'arc', 'circle']);
+const HOLE_BORDER_WIDTH = 0.05;
 
 /** Round to 4 dp for compact, stable path/serialisation output. */
 const r4 = (n) => Math.round(n * 10000) / 10000;
@@ -373,7 +374,9 @@ function shapeStyle(shape) {
     const fillColor = layerColor;
     const fillOpacity = isCopperAdd ? '0.9' : isDocumentLayer ? '1' : '0.18';
     const baseStroke = isCopperRemoval ? (REMOVAL_COLORS[copperMode] || CUT_RING) : layerColor;
-    const strokeWidth = Math.max(0.05, Number(shape.lineWidth) || 0.2);
+    const strokeWidth = isHoleLayer
+        ? HOLE_BORDER_WIDTH
+        : Math.max(0.05, Number(shape.lineWidth) || 0.2);
     const targetLayer = isCopperKnockout
         ? (layer === 'bottom-copper' ? 'bottom-copper-knockout' : 'top-copper-knockout')
         : layer;
@@ -536,6 +539,9 @@ export function createBoardShapeSelectionAdapter(app, shape, id) {
         beginAnchorDrag(_anchorId, worldPos) { return startBoardShapeDrag(app, shape, worldPos); },
         updateAnchorDrag(worldPos) { handleBoardShapeDrag(app, worldPos); },
         endAnchorDrag(commit) { endBoardShapeDrag(app, commit); },
+        beginMove(worldPos) { return startBoardShapeDrag(app, shape, worldPos); },
+        updateMove(worldPos) { handleBoardShapeDrag(app, worldPos); },
+        endMove(commit) { endBoardShapeDrag(app, commit); },
         anchorColor: shapeSelectionColor(shape),
         getPosition() {
             const bounds = boardShapeBounds(shape);
@@ -801,6 +807,7 @@ export function finishShapeDraw(app) {
         lineWidth: app._shapeDefaults?.lineWidth ?? 0.2,
         filled: alwaysFilled || !!app._shapeDefaults?.filled,
         copperMode: normalizeShapeCopperMode(app._shapeDefaults?.copperMode),
+        plated: layer === 'hole' && !!app._shapeDefaults?.plated,
         cornerRadius: d.kind === 'rect' ? Math.max(0, Number(app._shapeDefaults?.cornerRadius) || 0) : undefined,
     };
 
@@ -871,6 +878,7 @@ function shapeSnapshot(shape) {
         lineWidth: Math.max(0.05, Number(shape.lineWidth) || 0.2),
         filled: !!shape.filled,
         copperMode: normalizeShapeCopperMode(shape.copperMode),
+        plated: !!shape.plated,
     };
 }
 
@@ -890,30 +898,33 @@ export function showBoardShapeToolProperties(app, kind) {
             .map((layer) => `<option value="${layer.id}"${layer.id === currentLayer ? ' selected' : ''}>${layer.name}</option>`)
             .join('');
         const initialCopperMode = normalizeShapeCopperMode(defaults.copperMode);
+        const showFill = currentLayer !== 'hole';
+        const showLineWidth = currentLayer !== 'hole';
 
         app._setPcbPropsTitle?.(`New ${shapeKindLabel(kind)}`);
         items.innerHTML = `
             <div class="prop-row"><label>Layer</label><select id="pcbToolShapeLayer">${layerOptionsHtml}</select></div>
-            <div class="prop-row"><input type="checkbox" id="pcbToolShapeFilled"${defaults.filled ? ' checked' : ''}> <span style="font-size:11px;color:var(--text-secondary)">Fill</span></div>
+            ${showFill ? `<label class="prop-row prop-toggle"><input type="checkbox" id="pcbToolShapeFilled"${defaults.filled ? ' checked' : ''}><span>Fill</span></label>` : ''}
+            ${currentLayer === 'hole' ? `<label class="prop-row prop-toggle"><input type="checkbox" id="pcbToolShapePlated"${defaults.plated ? ' checked' : ''}><span>Plated</span></label>` : ''}
             <div class="prop-row" id="pcbToolShapeCopperModeRow"><label>Copper Mode</label><select id="pcbToolShapeCopperMode"><option value="add"${initialCopperMode === 'add' ? ' selected' : ''}>Add Copper</option><option value="remove-copper"${initialCopperMode === 'remove-copper' ? ' selected' : ''}>Remove Copper</option><option value="remove-solder-mask"${initialCopperMode === 'remove-solder-mask' ? ' selected' : ''}>Remove Solder Mask</option><option value="remove-copper-mask"${initialCopperMode === 'remove-copper-mask' ? ' selected' : ''}>Remove Copper + Mask</option></select></div>
             ${kind === 'rect' ? `<div class="prop-row"><label>Corner Radius (mm)</label><input type="number" id="pcbToolShapeCornerRadius" min="0" step="0.05" value="${Math.max(0, Number(defaults.cornerRadius) || 0).toFixed(2)}"></div>` : ''}
-            <div class="prop-row" id="pcbToolShapeLineWidthRow"><label>Line Thickness (mm)</label><input type="number" id="pcbToolShapeLineWidth" min="0.05" step="0.05" value="${Math.max(0.05, Number(defaults.lineWidth) || 0.2).toFixed(2)}"></div>
+            ${showLineWidth ? `<div class="prop-row" id="pcbToolShapeLineWidthRow"><label>Line Thickness (mm)</label><input type="number" id="pcbToolShapeLineWidth" min="0.05" step="0.05" value="${Math.max(0.05, Number(defaults.lineWidth) || 0.2).toFixed(2)}"></div>` : ''}
         `;
 
         const lineEl = /** @type {HTMLInputElement|null} */ (items.querySelector('#pcbToolShapeLineWidth'));
         const lineRowEl = /** @type {HTMLDivElement|null} */ (items.querySelector('#pcbToolShapeLineWidthRow'));
     const cornerRadiusEl = /** @type {HTMLInputElement|null} */ (items.querySelector('#pcbToolShapeCornerRadius'));
         const filledEl = /** @type {HTMLInputElement|null} */ (items.querySelector('#pcbToolShapeFilled'));
+        const platedEl = /** @type {HTMLInputElement|null} */ (items.querySelector('#pcbToolShapePlated'));
         const layerEl = /** @type {HTMLSelectElement|null} */ (items.querySelector('#pcbToolShapeLayer'));
         const copperModeRowEl = /** @type {HTMLDivElement|null} */ (items.querySelector('#pcbToolShapeCopperModeRow'));
         const copperModeEl = /** @type {HTMLSelectElement|null} */ (items.querySelector('#pcbToolShapeCopperMode'));
         const syncAvailability = () => {
-            if (!lineEl || !lineRowEl || !layerEl || !filledEl || !copperModeEl || !copperModeRowEl) return;
+            if (!layerEl || !copperModeEl || !copperModeRowEl) return;
             const copper = layerEl.value === 'top-copper' || layerEl.value === 'bottom-copper';
             copperModeRowEl.style.display = copper ? '' : 'none';
             copperModeEl.disabled = !copper;
-            filledEl.disabled = layerEl.value === 'hole';
-            lineRowEl.style.display = filledEl.checked ? 'none' : '';
+            if (lineRowEl) lineRowEl.style.display = filledEl?.checked ? 'none' : '';
         };
 
         lineEl?.addEventListener('input', () => {
@@ -929,6 +940,9 @@ export function showBoardShapeToolProperties(app, kind) {
             updateShapeDrawPreview(app, app._lastCrosshairWorld || app._shapeDraw?.points.at(-1));
             syncAvailability();
         });
+        platedEl?.addEventListener('change', () => {
+            defaults.plated = !!platedEl.checked;
+        });
         layerEl?.addEventListener('change', () => {
             const next = resolveShapeDrawLayer(app, layerEl.value);
             if (isLayerLocked(next)) {
@@ -940,6 +954,7 @@ export function showBoardShapeToolProperties(app, kind) {
             if (app._shapeDraw?.kind === kind) app._shapeDraw.layer = next;
             updateShapeDrawPreview(app, app._lastCrosshairWorld || app._shapeDraw?.points.at(-1));
             syncAvailability();
+            showBoardShapeToolProperties(app, kind);
         });
         copperModeEl?.addEventListener('change', () => {
             defaults.copperMode = normalizeShapeCopperMode(copperModeEl.value);
@@ -957,32 +972,39 @@ export function applyShapeSnapshot(shape, state) {
     shape.lineWidth = state.lineWidth;
     shape.filled = !!state.filled;
     shape.copperMode = normalizeShapeCopperMode(state.copperMode);
+    shape.plated = !!state.plated;
 }
 
 export function showBoardShapeProperties(app, shape) {
     const items = app._pcbPropsItems?.();
     if (!items || !shape) return;
     syncPcbSelection(app);
-    app._setPcbPropsTitle?.(shapeKindLabel(shape.kind));
 
     const propertyTargets = () => {
         const selected = getPcbSelection(app, 'shape');
         return selected.length > 0 ? selected : [shape];
     };
     const initialTargets = propertyTargets();
+    const mixedKind = initialTargets.some((target) => target.kind !== initialTargets[0].kind);
+    app._setPcbPropsTitle?.(mixedKind ? 'Mixed' : shapeKindLabel(initialTargets[0].kind));
     const initialLineWidth = Number(initialTargets[0].lineWidth) || 0.2;
     const mixedLineWidth = initialTargets.some(
         (target) => Math.abs((Number(target.lineWidth) || 0.2) - initialLineWidth) >= 1e-9,
     );
     const mixedFill = initialTargets.some((target) => !!target.filled !== !!initialTargets[0].filled);
-    const rectTargets = initialTargets.filter((target) => target.kind === 'rect');
+    const allRectTargets = initialTargets.every((target) => target.kind === 'rect');
     const initialCornerRadius = rectCornerRadius(shape);
-    const mixedCornerRadius = rectTargets.some(
+    const mixedCornerRadius = initialTargets.some(
         (target) => Math.abs(rectCornerRadius(target) - initialCornerRadius) >= 1e-9,
     );
 
     const currentLayer = String(shape.layer || 'top-silk');
     const mixedLayer = initialTargets.some((target) => String(target.layer || 'top-silk') !== currentLayer);
+    const holeTargets = initialTargets.filter((target) => target.layer === 'hole');
+    const showFill = initialTargets.every((target) => target.layer !== 'hole');
+    const showLineWidth = initialTargets.every((target) => target.layer !== 'hole');
+    const showPlated = initialTargets.every((target) => target.layer === 'hole');
+    const mixedPlated = holeTargets.some((target) => !!target.plated !== !!holeTargets[0]?.plated);
     const legacyCurrentOpt = !mixedLayer && PROP_HIDDEN_LAYERS.has(currentLayer)
         ? `<option value="${currentLayer}" selected hidden></option>`
         : '';
@@ -991,6 +1013,7 @@ export function showBoardShapeProperties(app, shape) {
         .map((l) => `<option value="${l.id}"${!mixedLayer && l.id === currentLayer ? ' selected' : ''}>${l.name}</option>`);
     const layerOptionsHtml = [legacyCurrentOpt, ...layerOpts].join('');
     const isCopperLayer = (id) => id === 'top-copper' || id === 'bottom-copper';
+    const showCopperMode = initialTargets.every((target) => isCopperLayer(target.layer));
     const initialCopperMode = normalizeShapeCopperMode(shape.copperMode);
     const mixedCopperMode = initialTargets.some(
         (target) => normalizeShapeCopperMode(target.copperMode) !== initialCopperMode,
@@ -998,10 +1021,11 @@ export function showBoardShapeProperties(app, shape) {
 
     items.innerHTML = `
         <div class="prop-row"><label>Layer</label><select id="pcbPropShapeLayer">${mixedLayer ? '<option value="" selected disabled>Mixed</option>' : ''}${layerOptionsHtml}</select></div>
-        <div class="prop-row"><input type="checkbox" id="pcbPropShapeFilled"${shape.filled ? ' checked' : ''}> <span style="font-size:11px;color:var(--text-secondary)">Fill</span></div>
-        <div class="prop-row" id="pcbPropShapeCopperModeRow"><label>Copper Mode</label><select id="pcbPropShapeCopperMode">${mixedCopperMode ? '<option value="" selected disabled>Mixed</option>' : ''}<option value="add"${!mixedCopperMode && initialCopperMode === 'add' ? ' selected' : ''}>Add Copper</option><option value="remove-copper"${!mixedCopperMode && initialCopperMode === 'remove-copper' ? ' selected' : ''}>Remove Copper</option><option value="remove-solder-mask"${!mixedCopperMode && initialCopperMode === 'remove-solder-mask' ? ' selected' : ''}>Remove Solder Mask</option><option value="remove-copper-mask"${!mixedCopperMode && initialCopperMode === 'remove-copper-mask' ? ' selected' : ''}>Remove Copper + Mask</option></select></div>
-        ${shape.kind === 'rect' ? `<div class="prop-row"><label>Corner Radius (mm)</label><input type="number" id="pcbPropShapeCornerRadius" min="0" step="0.05" value="${mixedCornerRadius ? '' : initialCornerRadius.toFixed(2)}"${mixedCornerRadius ? ' placeholder="Mixed"' : ''}></div>` : ''}
-        <div class="prop-row" id="pcbPropShapeLineWidthRow"><label>Line Thickness (mm)</label><input type="number" id="pcbPropShapeLineWidth" min="0.05" step="0.05" value="${mixedLineWidth ? '' : initialLineWidth.toFixed(2)}"${mixedLineWidth ? ' placeholder="Mixed"' : ''}></div>
+        ${showFill ? `<label class="prop-row prop-toggle"><input type="checkbox" id="pcbPropShapeFilled"${shape.filled ? ' checked' : ''}><span>Fill</span></label>` : ''}
+        ${showPlated ? `<label class="prop-row prop-toggle"><input type="checkbox" id="pcbPropShapePlated"${!mixedPlated && holeTargets[0]?.plated ? ' checked' : ''}><span>Plated</span></label>` : ''}
+        ${showCopperMode ? `<div class="prop-row" id="pcbPropShapeCopperModeRow"><label>Copper Mode</label><select id="pcbPropShapeCopperMode">${mixedCopperMode ? '<option value="" selected disabled>Mixed</option>' : ''}<option value="add"${!mixedCopperMode && initialCopperMode === 'add' ? ' selected' : ''}>Add Copper</option><option value="remove-copper"${!mixedCopperMode && initialCopperMode === 'remove-copper' ? ' selected' : ''}>Remove Copper</option><option value="remove-solder-mask"${!mixedCopperMode && initialCopperMode === 'remove-solder-mask' ? ' selected' : ''}>Remove Solder Mask</option><option value="remove-copper-mask"${!mixedCopperMode && initialCopperMode === 'remove-copper-mask' ? ' selected' : ''}>Remove Copper + Mask</option></select></div>` : ''}
+        ${allRectTargets ? `<div class="prop-row"><label>Corner Radius (mm)</label><input type="number" id="pcbPropShapeCornerRadius" min="0" step="0.05" value="${mixedCornerRadius ? '' : initialCornerRadius.toFixed(2)}"${mixedCornerRadius ? ' placeholder="Mixed"' : ''}></div>` : ''}
+        ${showLineWidth ? `<div class="prop-row" id="pcbPropShapeLineWidthRow"><label>Line Thickness (mm)</label><input type="number" id="pcbPropShapeLineWidth" min="0.05" step="0.05" value="${mixedLineWidth ? '' : initialLineWidth.toFixed(2)}"${mixedLineWidth ? ' placeholder="Mixed"' : ''}></div>` : ''}
     `;
 
     const commit = (mutate) => {
@@ -1068,6 +1092,7 @@ export function showBoardShapeProperties(app, shape) {
     const lineRowEl = /** @type {HTMLDivElement|null} */ (document.getElementById('pcbPropShapeLineWidthRow'));
     const cornerRadiusEl = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropShapeCornerRadius'));
     const filledEl = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropShapeFilled'));
+    const platedEl = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropShapePlated'));
     const layerEl = /** @type {HTMLSelectElement|null} */ (document.getElementById('pcbPropShapeLayer'));
     const copperModeRowEl = /** @type {HTMLDivElement|null} */ (document.getElementById('pcbPropShapeCopperModeRow'));
     const copperModeEl = /** @type {HTMLSelectElement|null} */ (document.getElementById('pcbPropShapeCopperMode'));
@@ -1075,10 +1100,14 @@ export function showBoardShapeProperties(app, shape) {
         filledEl.checked = mixedFill ? false : !!shape.filled;
         filledEl.indeterminate = mixedFill;
     }
+    if (platedEl) {
+        platedEl.checked = mixedPlated ? false : !!holeTargets[0]?.plated;
+        platedEl.indeterminate = mixedPlated;
+    }
     let fillIsMixed = mixedFill;
 
     const syncCopperModeAvailability = () => {
-        if (!lineEl || !lineRowEl || !copperModeEl || !layerEl || !copperModeRowEl) return;
+        if (!copperModeEl || !layerEl || !copperModeRowEl) return;
         const targets = propertyTargets();
         const mixed = targets.some(
             (target) => normalizeShapeCopperMode(target.copperMode) !== normalizeShapeCopperMode(shape.copperMode),
@@ -1090,7 +1119,7 @@ export function showBoardShapeProperties(app, shape) {
         copperModeEl.value = mixed ? '' : normalizeShapeCopperMode(shape.copperMode);
         // A hole-layer shape is a board cutout — "Filled" doesn't apply.
         if (filledEl) filledEl.disabled = layerEl.value === 'hole';
-        lineRowEl.style.display = targets.every((target) => !!target.filled) ? 'none' : '';
+        if (lineRowEl) lineRowEl.style.display = targets.every((target) => !!target.filled) ? 'none' : '';
     };
 
     const previewLineWidth = () => {
@@ -1136,6 +1165,16 @@ export function showBoardShapeProperties(app, shape) {
         if (propertyTargets().every((target) => v === !!target.filled)) return;
         commit((target) => { target.filled = v; });
     });
+    platedEl?.addEventListener('change', () => {
+        const plated = !!platedEl.checked;
+        platedEl.indeterminate = false;
+        if (propertyTargets().filter((target) => target.layer === 'hole').every(
+            (target) => plated === !!target.plated,
+        )) return;
+        commit((target) => {
+            if (target.layer === 'hole') target.plated = plated;
+        });
+    });
     layerEl?.addEventListener('change', () => {
         const next = layerEl.value;
         if (!next || propertyTargets().every((target) => next === target.layer)) return;
@@ -1146,6 +1185,7 @@ export function showBoardShapeProperties(app, shape) {
         }
         commit((target) => { target.layer = next; });
         syncCopperModeAvailability();
+        showBoardShapeProperties(app, shape);
     });
     copperModeEl?.addEventListener('change', () => {
         if (copperModeEl.disabled) return;
@@ -1210,6 +1250,7 @@ export function serializeBoardShapes(app) {
             lineWidth: s.lineWidth,
             filled: !!s.filled,
             copperMode: normalizeShapeCopperMode(s.copperMode),
+            plated: !!s.plated,
         };
         if (s.kind === 'rect') base.cornerRadius = rectCornerRadius(s);
         if (s.kind === 'arc') {
@@ -1236,6 +1277,7 @@ export function loadBoardShapes(app, arr) {
             lineWidth: Math.max(0.05, Number(sd.lineWidth) || (app._shapeDefaults?.lineWidth ?? 0.2)),
             filled: !!sd.filled,
             copperMode: normalizeShapeCopperMode(sd.copperMode),
+            plated: !!sd.plated,
         };
         if (kind === 'rect') base.cornerRadius = Math.max(0, Number(sd.cornerRadius) || 0);
         let shape;

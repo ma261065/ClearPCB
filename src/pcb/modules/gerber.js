@@ -43,7 +43,6 @@ const SCALE = 1e6; // 4.6 fixed-point: multiply mm by 10^6
  * @param {Map<string, object>} opts.placements   componentId → placement
  * @param {Array<object>} opts.tracks             Track instances
  * @param {Array<object>} opts.vias               Via instances
- * @param {Array<object>} [opts.holes]            standalone NPTH Hole instances
  * @param {number} opts.boardWidth                mm
  * @param {number} opts.boardHeight               mm
  * @param {number} [opts.boardRadius=0]           corner radius, mm
@@ -53,7 +52,7 @@ const SCALE = 1e6; // 4.6 fixed-point: multiply mm by 10^6
  */
 export function exportGerbers(opts) {
     const {
-        placements, tracks = [], vias = [], holes = [],
+        placements, tracks = [], vias = [],
         boardWidth, boardHeight, boardRadius = 0,
         boardX = 0, boardY = 0,
         texts = [], fills = [], boardShapes = [],
@@ -84,14 +83,14 @@ export function exportGerbers(opts) {
         ['board.gto', _buildSilk(placements, 'top', clipBounds, texts, boardShapes)],
         ['board.gbo', _buildSilk(placements, 'bottom', clipBounds, texts, boardShapes)],
         ['board.gko', _buildOutline(outlineBounds, boardShapes)],
-        // Plated through-holes (pads, vias, plated standalone holes) and
+        // Plated through-holes (pads, vias, and Hole-layer circles) and
         // non-plated holes go in separate Excellon files so fabs (JLCPCB,
         // etc.) can tell them apart — they key off the -PTH / -NPTH suffix.
-        ['board-PTH.drl', _buildDrill(_collectPlatedDrills(placements, vias, holes), clipBounds)],
+        ['board-PTH.drl', _buildDrill(_collectPlatedDrills(placements, vias, circles), clipBounds)],
     ]);
     // Only emit the NPTH file when there are non-plated holes — an empty
     // drill file trips up some fab pre-checks.
-    const npth = _collectNonPlatedDrills(holes, circles, placements);
+    const npth = _collectNonPlatedDrills(circles, placements);
     if (npth.length) files.set('board-NPTH.drl', _buildDrill(npth, clipBounds, true));
     return files;
 }
@@ -876,8 +875,8 @@ function _buildOutline(b, boardShapes = []) {
 
 /* ──────────────────────────── drill ──────────────────────────── */
 
-/** Collect plated drills: through-hole pads, vias, and plated holes. */
-function _collectPlatedDrills(placements, vias, holes) {
+/** Collect plated drills: through-hole pads, vias, and plated Hole-layer circles. */
+function _collectPlatedDrills(placements, vias, circles = []) {
     const out = [];
     // Through-hole pad drills (round + oval slot), posed via the shared resolver.
     for (const drill of resolvePlacementDrills(placements)) {
@@ -891,21 +890,20 @@ function _collectPlatedDrills(placements, vias, holes) {
     for (const v of vias) {
         if (v.drill > 0) out.push({ dia: v.drill, x: v.x, y: v.y });
     }
-    for (const h of holes) {
-        if (h.plated && h.diameter > 0) out.push({ dia: h.diameter, x: h.x, y: h.y });
+    for (const circle of circles) {
+        if (circle?.layer !== 'hole' || !circle.plated) continue;
+        const dia = 2 * (Number(circle.radius) || 0);
+        if (dia > 0) out.push({ dia, x: circle.x, y: circle.y });
     }
     return out;
 }
 
-/** Collect non-plated drills: standalone mounting/tooling holes. */
-function _collectNonPlatedDrills(holes, circles = [], placements = new Map()) {
+/** Collect non-plated drills: Hole-layer circles and footprint mounting holes. */
+function _collectNonPlatedDrills(circles = [], placements = new Map()) {
     const out = [];
-    for (const h of holes) {
-        if (!h.plated && h.diameter > 0) out.push({ dia: h.diameter, x: h.x, y: h.y });
-    }
-    // Hole-layer circles drill through the board as non-plated holes.
+    // Hole-layer circles drill through the board unless explicitly plated.
     for (const c of circles) {
-        if (!c || c.layer !== 'hole') continue;
+        if (!c || c.layer !== 'hole' || c.plated) continue;
         const dia = 2 * (Number(c.radius) || 0);
         if (dia > 0) out.push({ dia, x: c.x, y: c.y });
     }

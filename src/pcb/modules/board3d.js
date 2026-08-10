@@ -983,6 +983,24 @@ function circleRing(cx, cz, r, seg) {
     return ring;
 }
 
+/** Union solid bore rings so Earcut only receives disjoint interior holes. */
+function unionBoreRings(rings) {
+    if (!isClipperReady() || !rings.length) return null;
+    const C = /** @type {any} */ (getClipper());
+    const scale = 10000;
+    const paths = rings
+        .filter((ring) => ring.length >= 3)
+        .map((ring) => ring.map((point) => ({ X: Math.round(point.x * scale), Y: Math.round(point.y * scale) })));
+    if (!paths.length) return [];
+    const clip = new C.Clipper();
+    clip.AddPaths(paths, C.PolyType.ptSubject, true);
+    const tree = new C.PolyTree();
+    clip.Execute(C.ClipType.ctUnion, tree, C.PolyFillType.pftNonZero, C.PolyFillType.pftNonZero);
+    return C.JS.PolyTreeToExPolygons(tree)
+        .map((polygon) => polygon.outer.map((point) => ({ x: point.X / scale, y: point.Y / scale })))
+        .filter((ring) => ring.length >= 3);
+}
+
 /**
  * Sample a stadium/capsule bore (two cap-centres + radius) into a CCW polygon
  * ring in the (x, y=z) plane — the slot equivalent of {@link circleRing}.
@@ -1139,6 +1157,31 @@ function polygonWallMesh(ring, yBottom, yTop, color) {
     return { verts, faces };
 }
 
+/** Append only the selected vertical segments of a polygonal bore wall. */
+function polygonWallSegmentsMesh(ring, include, yBottom, yTop, color) {
+    const mesh = emptyMesh();
+    for (let i = 0; i < ring.length; i++) {
+        const a = ring[i], b = ring[(i + 1) % ring.length];
+        if (!include(a, b)) continue;
+        const base = mesh.verts.length;
+        mesh.verts.push(
+            { x: a.x, y: yTop, z: a.y }, { x: b.x, y: yTop, z: b.y },
+            { x: b.x, y: yBottom, z: b.y }, { x: a.x, y: yBottom, z: a.y },
+        );
+        mesh.faces.push({ idx: [base, base + 1, base + 2, base + 3], color });
+    }
+    return mesh;
+}
+
+function pointToSegmentDistance(point, a, b) {
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const lengthSquared = dx * dx + dy * dy;
+    if (lengthSquared < 1e-12) return Math.hypot(point.x - a.x, point.y - a.y);
+    const t = Math.max(0, Math.min(1, ((point.x - a.x) * dx + (point.y - a.y) * dy) / lengthSquared));
+    return Math.hypot(point.x - (a.x + dx * t), point.y - (a.y + dy * t));
+}
+
 /**
  * Build the board slab with drilled holes bored clean through it, so plated
  * and mounting holes read as actual openings. Falls back to a solid prism if
@@ -1160,27 +1203,35 @@ function boardWithHoles(outline, holeList, yBottom, yTop, color, edgeColor) {
     // circle; an overlapping cluster becomes the true union outline, so two
     // mounting holes that overlap read as a figure-8 opening — not one big
     // enclosing circle, and not an earcut-bridged sliver.
-    const clusters = clusterOverlappingHoles(circleHoles);
     /** @type {Array<{ring:Array<{x:number,y:number}>, circle:{x:number,z:number,r:number}|null}>} */
     const bores = [];
-    for (const cl of clusters) {
-        if (cl.length === 1) {
-            const h = cl[0];
-            bores.push({ ring: circleRing(h.x, h.z, h.r, seg), circle: { x: h.x, z: h.z, r: h.r } });
-            continue;
+    const polygonRings = ringHoles.map((hole) => hole.ring.map((point) => ({ x: point.x, y: point.z })));
+    // A polygonal cutout can overlap a circle (or another polygon). Union all
+    // rings before Earcut sees them, because intersecting hole rings produce
+    // invalid triangulation and leave spurious board-face wedges.
+    const unioned = ringHoles.length && unionBoreRings([
+        ...circleHoles.map((hole) => circleRing(hole.x, hole.z, hole.r, seg)),
+        ...polygonRings,
+    ]);
+    if (unioned) {
+        for (const ring of unioned) bores.push({ ring, circle: null });
+    } else {
+        const clusters = clusterOverlappingHoles(circleHoles);
+        for (const cluster of clusters) {
+            if (cluster.length === 1) {
+                const hole = cluster[0];
+                bores.push({ ring: circleRing(hole.x, hole.z, hole.r, seg), circle: { x: hole.x, z: hole.z, r: hole.r } });
+                continue;
+            }
+            const ring = circleUnionRing(cluster, seg);
+            if (ring && ring.length >= 3) {
+                bores.push({ ring, circle: null });
+            } else {
+                const merged = mergeOverlappingHoles(cluster)[0];
+                bores.push({ ring: circleRing(merged.x, merged.z, merged.r, seg), circle: { x: merged.x, z: merged.z, r: merged.r } });
+            }
         }
-        const ring = circleUnionRing(cl, seg);
-        if (ring && ring.length >= 3) {
-            bores.push({ ring, circle: null });
-        } else {
-            // Degenerate cluster → fall back to the smallest enclosing circle.
-            const m = mergeOverlappingHoles(cl)[0];
-            bores.push({ ring: circleRing(m.x, m.z, m.r, seg), circle: { x: m.x, z: m.z, r: m.r } });
-        }
-    }
-    // Polygon cutouts: each ring becomes its own bore (no clustering).
-    for (const h of ringHoles) {
-        bores.push({ ring: h.ring.map((p) => ({ x: p.x, y: p.z })), circle: null });
+        for (const ring of polygonRings) bores.push({ ring, circle: null });
     }
     const outer2d = outline.map((p) => ({ x: p.x, y: p.z }));
     const holes2d = bores.map((b) => b.ring);
@@ -1236,6 +1287,40 @@ function _pointInRingXZ(x, z, ring) {
     return inside;
 }
 
+/** Boundary samples for a circular or polygonal bore. */
+function _boreBoundaryPoints(bore) {
+    if (bore.ring?.length >= 3) return bore.ring;
+    const points = [];
+    for (let index = 0; index < 24; index++) {
+        const angle = index * Math.PI * 2 / 24;
+        points.push({ x: bore.x + bore.r * Math.cos(angle), z: bore.z + bore.r * Math.sin(angle) });
+    }
+    return points;
+}
+
+/** True when a larger bore completely contains another bore's boundary. */
+function _boreContains(outer, inner) {
+    const outerArea = outer.ring?.length >= 3
+        ? Math.abs(_signedAreaXZ(outer.ring))
+        : Math.PI * outer.r * outer.r;
+    const innerArea = inner.ring?.length >= 3
+        ? Math.abs(_signedAreaXZ(inner.ring))
+        : Math.PI * inner.r * inner.r;
+    if (outerArea <= innerArea + 1e-6) return false;
+    const boundary = _boreBoundaryPoints(inner);
+    if (outer.ring?.length >= 3) {
+        return boundary.every((point) => _pointInRingXZ(point.x, point.z, outer.ring));
+    }
+    return boundary.every((point) => Math.hypot(point.x - outer.x, point.z - outer.z) <= outer.r + 1e-6);
+}
+
+/** A cutout entirely inside another cutout is already void and needs no bore. */
+function discardNestedBores(bores) {
+    return bores.filter((bore, index) => !bores.some(
+        (other, otherIndex) => otherIndex !== index && _boreContains(other, bore),
+    ));
+}
+
 /**
  * Boolean-subtract cutout rings from the board outline (clipper difference),
  * returning the notched region(s) as ExPolygons in (x, z). Winding is
@@ -1268,11 +1353,10 @@ function _subtractRingsFromOutline(outline, rings) {
 }
 
 /**
- * Build the board slab, boundary-crossing cutouts included. Wholly-inside
- * bores are punched as earcut holes (the fast path); cutouts that breach the
- * edge are subtracted from the outline with a polygon boolean so the slab is
- * actually notched (not just left intact with copper removed). Falls back to
- * the plain {@link boardWithHoles} path when clipper is unavailable.
+ * Build the board slab, boundary-crossing cutouts included. When any cutout
+ * breaches the edge, every bore is subtracted from the outline together so
+ * intersecting interior and boundary cutouts become one valid geometry.
+ * Falls back to the plain {@link boardWithHoles} path when clipper is unavailable.
  * @param {Array<{x:number,z:number}>} outline board outer ring (x, z)
  * @param {Array} holeList wholly-inside bores ({x,z,r} or {x,z,r,ring})
  * @param {Array<Array<{x:number,z:number}>>} crossingRings edge-crossing cutouts
@@ -1281,21 +1365,20 @@ function boardSlabWithCutouts(outline, holeList, crossingRings, yBottom, yTop, c
     if (!crossingRings.length || !isClipperReady()) {
         return boardWithHoles(outline, holeList, yBottom, yTop, color, edgeColor);
     }
-    const exPolys = _subtractRingsFromOutline(outline, crossingRings);
     const mesh = emptyMesh();
     const seg = 48;
     const side = edgeColor || color;
+    const allCutoutRings = crossingRings.concat(holeList.flatMap((hole) => {
+        if (hole.ring?.length >= 3) return [hole.ring];
+        return hole.r > 0 ? [circleRing(hole.x, hole.z, hole.r, seg).map((point) => ({ x: point.x, z: point.y }))] : [];
+    }));
+    const exPolys = _subtractRingsFromOutline(outline, allCutoutRings);
     for (const ex of exPolys) {
         if (!ex.outer || ex.outer.length < 3) continue;
-        // Bores for this region: wholly-inside circle/polygon holes whose centre
-        // lands here, plus any clipper-produced interior holes.
+        // Clipper has already resolved every overlap and classified each
+        // remaining interior void as an explicit hole ring.
         /** @type {Array<{ring:Array<{x:number,y:number}>, circle:{x:number,z:number,r:number}|null}>} */
         const bores = [];
-        for (const h of holeList) {
-            if (!_pointInRingXZ(h.x, h.z, ex.outer)) continue;
-            if (h.ring && h.ring.length >= 3) bores.push({ ring: h.ring.map((p) => ({ x: p.x, y: p.z })), circle: null });
-            else if (h.r > 0) bores.push({ ring: circleRing(h.x, h.z, h.r, seg), circle: { x: h.x, z: h.z, r: h.r } });
-        }
         for (const hr of ex.holes) {
             if (hr.length >= 3) bores.push({ ring: hr.map((p) => ({ x: p.x, y: p.z })), circle: null });
         }
@@ -2360,30 +2443,45 @@ function buildViaMesh(vias) {
 }
 
 /**
- * Build a combined copper mesh for plated standalone holes. The drilled bore
- * is already bored through the board slab/copper; here we line it with a gold
- * barrel so the plating reads through the bore. Non-plated holes contribute
- * nothing (the bare bored opening is all that shows).
- * @param {Array} holes
- * @param {Array<{x:number,z:number,r:number}>} [subtractHoles] additional
- *        copper-removal circle holes to apply as geometric subtraction.
- * @returns {{verts:Array, faces:Array}}
+ * Build gold barrel walls for plated Hole-layer shapes. The board opening is
+ * the union of every bore, but a wall segment is plated only when that exposed
+ * union boundary came from a plated board shape.
  */
-function buildHoleMesh(holes, subtractHoles = []) {
+function buildPlatedShapeHoleMesh(drilledHoles) {
     const mesh = emptyMesh();
-    const yTop = Y_TOP + COPPER_EPS;
-    const yBot = Y_BOT - COPPER_EPS;
-    for (const hole of holes || []) {
-        if (!hole?.plated || !(hole.diameter > 0)) continue;
-        const bore = hole.diameter / 2;
-        // A single-walled gold cylinder lining the bore — no end caps, so no
-        // copper ring shows on the board faces. Inset just inside the bored
-        // wall so the gold occludes the FR4 edge cleanly (no z-fighting).
-        const r = Math.max(0.05, bore - 0.02);
-        appendMesh(mesh, cylinderWallMesh(hole.x, hole.y, r, yBot, yTop, COLOR_VIA, 48));
+    const shapeHoles = (drilledHoles || []).filter(
+        (hole) => hole?.boardShape && Array.isArray(hole.ring) && hole.ring.length >= 3,
+    );
+    const platedRings = shapeHoles
+        .filter((hole) => hole.plated)
+        .map((hole) => hole.ring.map((point) => ({ x: point.x, y: point.z })));
+    if (!platedRings.length) return mesh;
+
+    const allRings = (drilledHoles || []).flatMap((hole) => {
+        if (Array.isArray(hole?.ring) && hole.ring.length >= 3) {
+            return [hole.ring.map((point) => ({ x: point.x, y: point.z }))];
+        }
+        return hole?.r > 0 ? [circleRing(hole.x, hole.z, hole.r, 48)] : [];
+    });
+    const unioned = unionBoreRings(allRings);
+    if (!unioned) {
+        for (const ring of platedRings) {
+            appendMesh(mesh, polygonWallMesh(ring, Y_BOT - COPPER_EPS, Y_TOP + COPPER_EPS, COLOR_VIA));
+        }
+        return mesh;
     }
-    // remove-copper / remove-copper-mask should subtract plated-hole copper too.
-    return punchHolesInFlatMesh(mesh, subtractHoles, 48);
+    const isPlatedBoundary = (a, b) => {
+        const midpoint = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+        return platedRings.some((ring) => ring.some((start, index) => {
+            const end = ring[(index + 1) % ring.length];
+            return pointToSegmentDistance(midpoint, start, end) <= 0.002;
+        }));
+    };
+    for (const ring of unioned) {
+        appendMesh(mesh, polygonWallSegmentsMesh(
+            ring, isPlatedBoundary, Y_BOT - COPPER_EPS, Y_TOP + COPPER_EPS, COLOR_VIA));
+    }
+    return mesh;
 }
 
 /**
@@ -3765,7 +3863,6 @@ export async function openBoard3DViewer(app, opts = {}) {
         placements: app.placements,
         tracks: app.tracks,
         vias: app.vias,
-        holes: app.holes,
         circles: [],
         boardShapes: (app.boardShapes || []).map((s) => ({ ...s, outline: shapeOutline(s) })),
         fills: app.copperFills,
@@ -4004,11 +4101,7 @@ export async function openBoard3DViewer(app, opts = {}) {
         outline = roundedRectOutline(0, -h, w, h, r);
         // Bore drilled holes (pad drills + mounting holes) clean through the
         // slab so they read as real openings; only holes wholly inside the board.
-        const drilledHoles = collectBoardHoles(app.placements).filter((ho) => ho.r > 0);
-        // Standalone non-plated through-holes (Hole objects).
-        for (const h of (app.holes || [])) {
-            if (h.diameter > 0) drilledHoles.push({ x: h.x, z: h.y, r: h.diameter / 2, plated: !!h.plated });
-        }
+        let drilledHoles = collectBoardHoles(app.placements).filter((ho) => ho.r > 0);
         // Free-standing circles on HOLE layer are real board cutouts.
         // Free-standing board shapes (rect/polygon/arc/circle) on HOLE layer are real
         // board cutouts too — carry an explicit polygon ring plus a bounding
@@ -4026,7 +4119,7 @@ export async function openBoard3DViewer(app, opts = {}) {
                 const d = Math.hypot(p.x - cx, p.z - cz);
                 if (d > rad) rad = d;
             }
-            drilledHoles.push({ x: cx, z: cz, r: rad, ring, plated: false });
+            drilledHoles.push({ x: cx, z: cz, r: rad, ring, plated: !!s.plated, boardShape: true });
         }
         // Vias are real drilled, plated holes too — bore the board/copper at
         // each via's drill so the open bore reads as a genuine hole (the gold
@@ -4035,6 +4128,7 @@ export async function openBoard3DViewer(app, opts = {}) {
             const r = (via.drill || 0.3) / 2;
             if (r > 0) drilledHoles.push({ x: via.x, z: via.y, r, plated: true });
         }
+        drilledHoles = discardNestedBores(drilledHoles);
         // Classify bores: wholly-inside ones are punched as fast earcut holes;
         // ones that breach the board edge are subtracted from the outline with
         // a polygon boolean so the slab is genuinely notched. Bores wholly
@@ -4086,7 +4180,7 @@ export async function openBoard3DViewer(app, opts = {}) {
         swapSurface('copper', clipMeshToOutline(
             punchHolesInFlatMesh(copperMesh, copperPunchHoles), outline), scene.copperMaterial);
         const viaMesh = buildViaMesh(app.vias);
-        appendMesh(viaMesh, buildHoleMesh(app.holes, copperSubtractHoles));
+        appendMesh(viaMesh, buildPlatedShapeHoleMesh(drilledHoles));
         const padsMesh = emptyMesh();
         for (const [, pl] of app.placements) appendMesh(padsMesh, padMesh(pl));
         const padsMeshCut = punchHolesInFlatMesh(padsMesh, copperSubtractHoles, 48);

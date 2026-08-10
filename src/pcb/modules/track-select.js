@@ -14,23 +14,33 @@
  *   - Multi-selection.
  */
 
-import { removeTrackElements, removeViaElements, renderTrack } from './track-render.js';
+import { removeTrackElements, removeViaElements, renderTrack, renderVia } from './track-render.js';
 import { reconcileRatsnest, collectBondedCopper } from './track-draw.js';
-import { hitTestTrackEdge, deleteTrackSegment, hitTestTrackNode, splitTrackNodeAndDrag, deleteTrackNode, reconcileCopperRegion } from './track-drag.js';
+import {
+    hitTestTrackEdge,
+    deleteTrackSegment,
+    hitTestTrackNode,
+    splitTrackNodeAndDrag,
+    deleteTrackNode,
+    reconcileCopperRegion,
+    startViaDrag,
+    updateViaDrag,
+    finishViaDrag,
+    cancelViaDrag,
+} from './track-drag.js';
 import {
     RemoveTrackCommand,
     RemoveViaCommand,
-    RemoveHoleCommand,
     AddTrackCommand,
     AddViaCommand,
     CompoundCommand,
     ModifyTrackCommand,
     ModifyTrackGraphCommand,
     ModifyViaCommand,
-    ModifyHoleCommand,
 } from './track-commands.js';
 import { PCB_LAYERS, isLayerLocked, isViaLocked, isLayerVisible, isViaVisible } from './layers.js';
 import { showAlert } from '../../ui/modules/modal.js';
+import { registerPcbSelectionAdapter } from './selection-registry.js';
 
 const NS = 'http://www.w3.org/2000/svg';
 const HALO_CLASS = 'pcb-track-selection';
@@ -47,11 +57,37 @@ const HALO_OPACITY_HOVER = 0.6;
 /** Pixel tolerance for hit-testing tracks (converted to world units). */
 const HIT_TOL_PX = 6;
 
+function viaBounds(via) {
+    const radius = Math.max(0, Number(via.diameter) || 0.6) / 2;
+    return { minX: via.x - radius, minY: via.y - radius, maxX: via.x + radius, maxY: via.y + radius };
+}
+
+export function createViaSelectionAdapter(app, via, id) {
+    return {
+        id,
+        kind: 'via',
+        object: via,
+        get visible() { return !isViaLocked() && isViaVisible(); },
+        getBounds() { return viaBounds(via); },
+        hitTest(point, tolerance) {
+            return Math.hypot(via.x - point.x, via.y - point.y) <= (Number(via.diameter) || 0.6) / 2 + tolerance;
+        },
+        getPosition() { return { x: via.x, y: via.y }; },
+        beginMove(worldPos) { return startViaDrag(app, via, worldPos); },
+        updateMove(worldPos) { updateViaDrag(app, worldPos); },
+        endMove(commit) { if (commit) finishViaDrag(app); else cancelViaDrag(app); },
+        invalidate() { renderVia(via, (layerId) => app._getLayerGroup(layerId)); },
+        render() { renderVia(via, (layerId) => app._getLayerGroup(layerId)); },
+    };
+}
+
+registerPcbSelectionAdapter('via', createViaSelectionAdapter);
+
 /* ──────────────────────────── hit testing ──────────────────────────── */
 
 /**
  * Find the topmost track/via under `worldPos` (vias preferred).
- * @returns {{type:'track', track:object}|{type:'via', via:object}|{type:'hole', hole:object}|null}
+ * @returns {{type:'track', track:object}|{type:'via', via:object}|null}
  */
 export function hitTestTrack(app, worldPos, pxTol = HIT_TOL_PX) {
     const scale = app.viewport?.scale || 1;
@@ -65,18 +101,6 @@ export function hitTestTrack(app, worldPos, pxTol = HIT_TOL_PX) {
             const r = (v.diameter || 0.6) / 2 + worldTol;
             if (Math.hypot(v.x - worldPos.x, v.y - worldPos.y) <= r) {
                 return { type: 'via', via: v };
-            }
-        }
-    }
-
-    // Standalone non-plated holes (also small targets on the hole layer).
-    // Skip them when the hole layer is locked (read-only) or hidden.
-    if (!isLayerLocked('hole') && isLayerVisible('hole')) {
-        for (let i = (app.holes?.length || 0) - 1; i >= 0; i--) {
-            const h = app.holes[i];
-            const r = (h.diameter || 0.8) / 2 + worldTol;
-            if (Math.hypot(h.x - worldPos.x, h.y - worldPos.y) <= r) {
-                return { type: 'hole', hole: h };
             }
         }
     }
@@ -156,7 +180,7 @@ function _pointSegDist(p, a, b) {
 /**
  * Set the current track/via selection. Pass `null` to clear.
  * @param {object} app
- * @param {{type:'track', track:object}|{type:'via', via:object}|{type:'hole', hole:object}|null} hit
+ * @param {{type:'track', track:object}|{type:'via', via:object}|null} hit
  */
 export function selectTrackOrVia(app, hit) {
     clearTrackSelection(app);
@@ -174,14 +198,10 @@ export function selectTrackOrVia(app, hit) {
         _setTrackLabelsVisible(hit.track, false);
         _drawTrackHalo(app, hit.track);
         _showTrackProperties(app, hit.track);
-    } else if (hit.type === 'hole') {
-        app._selectedHole = hit.hole;
-        _drawHoleHalo(app, hit.hole);
-        _showHoleProperties(app, hit.hole);
     } else {
         app._selectedVia = hit.via;
         _drawViaHalo(app, hit.via);
-        _showViaProperties(app, hit.via);
+        showViaProperties(app, hit.via);
     }
     app._syncClipboardButtons?.();
 }
@@ -232,7 +252,6 @@ export function clearTrackSelection(app) {
     const prev = app._selectedTrack;
     app._selectedTrack = null;
     app._selectedVia = null;
-    app._selectedHole = null;
     app._selectedSegment = null;
     _removeHalos(app, HALO_CLASS);
     if (prev) {
@@ -261,7 +280,6 @@ export function refreshTrackSelectionHalo(app) {
         _drawSegmentHalo(app, app._selectedSegment.track, app._selectedSegment.edgeId);
     } else if (app._selectedTrack) _drawTrackHalo(app, app._selectedTrack, HALO_CLASS, HALO_OPACITY_SELECTED);
     else if (app._selectedVia) _drawViaHalo(app, app._selectedVia, HALO_CLASS, HALO_OPACITY_SELECTED);
-    else if (app._selectedHole) _drawHoleHalo(app, app._selectedHole, HALO_CLASS, HALO_OPACITY_SELECTED);
 }
 
 /**
@@ -282,7 +300,6 @@ export function setHoverHighlight(app, hit) {
     const key = hit
         ? (hit.type === 'track' ? hit.track
             : hit.type === 'via' ? hit.via
-            : hit.type === 'hole' ? hit.hole
             : hit.type === 'pad' ? `pad:${hit.componentId}|${hit.pinNumber}`
             : null)
         : null;
@@ -291,21 +308,15 @@ export function setHoverHighlight(app, hit) {
     _removeHalos(app, HOVER_CLASS);
     if (!hit) return;
     if (hit.type === 'track' || hit.type === 'pad') {
-        // Highlight the whole connected copper network reachable from
-        // this seed — follows pad↔track links and stitches through any
-        // via whose position coincides with a track node (so layer
-        // changes and T-junctions all light up together).
         const seed = hit.type === 'track'
             ? { type: 'track', track: hit.track }
             : { type: 'pad', componentId: hit.componentId, pinNumber: hit.pinNumber };
         const net = _collectConnectedNet(app, seed);
         for (const track of net.tracks) {
-            if (track === app._selectedTrack) continue;
-            _drawTrackHalo(app, track, HOVER_CLASS, HALO_OPACITY_HOVER);
+            if (track !== app._selectedTrack) _drawTrackHalo(app, track, HOVER_CLASS, HALO_OPACITY_HOVER);
         }
         for (const via of net.vias) {
-            if (via === app._selectedVia) continue;
-            _drawViaHalo(app, via, HOVER_CLASS, HALO_OPACITY_HOVER);
+            if (via !== app._selectedVia) _drawViaHalo(app, via, HOVER_CLASS, HALO_OPACITY_HOVER);
         }
         for (const padKey of net.pads) {
             const [componentId, pinNumber] = padKey.split('|');
@@ -313,141 +324,82 @@ export function setHoverHighlight(app, hit) {
         }
     } else if (hit.type === 'via' && hit.via !== app._selectedVia) {
         _drawViaHalo(app, hit.via, HOVER_CLASS, HALO_OPACITY_HOVER);
-    } else if (hit.type === 'hole' && hit.hole !== app._selectedHole) {
-        _drawHoleHalo(app, hit.hole, HOVER_CLASS, HALO_OPACITY_HOVER);
     }
 }
 
-/**
- * Walk the connected-copper graph starting from a pad (or track).
- * Edges of connectivity:
- *   - Track ↔ pad via track.padConnections.
- *   - Track ↔ Via when a track node coincides (within 0.01 mm) with
- *     a Via's position. A via stitches together tracks meeting at
- *     its location regardless of layer.
- *   - Pad ↔ pad indirectly through any shared track / via chain.
- *
- * Returns sets of tracks, vias and pad-keys ("componentId|pinNumber")
- * reachable from the seed.
- */
+/** Walk the connected copper graph starting from a pad or track. */
 function _collectConnectedNet(app, seed) {
     const tracks = new Set();
     const vias = new Set();
     const pads = new Set();
-
-    // Position lookup for vias (0.01 mm bucket).
     const viaByPos = new Map();
-    for (const v of app.vias || []) {
-        viaByPos.set(_posKey(v.x, v.y), v);
-    }
+    for (const via of app.vias || []) viaByPos.set(_posKey(via.x, via.y), via);
 
-    // Resolve a net name from the seed. If we have one, pull in every
-    // track / via / pad sharing that net name up-front — that catches
-    // electrically-equivalent copper that isn't physically touching
-    // (e.g. two isolated tracks both labelled VCC, or a pad with no
-    // routed copper at all).
-    let netName = '';
-    if (seed.type === 'track') {
-        netName = seed.track.net || '';
-    } else if (seed.type === 'pad') {
-        netName = _netForPad(app, seed.componentId, seed.pinNumber);
-    }
-
+    const netName = seed.type === 'track'
+        ? seed.track.net || ''
+        : _netForPad(app, seed.componentId, seed.pinNumber);
     if (netName) {
-        for (const t of app.tracks || []) {
-            if (t.net === netName) tracks.add(t);
-        }
-        for (const v of app.vias || []) {
-            if (v.net === netName) vias.add(v);
-        }
-        // Every pad on this net (from the netlist), whether routed or not.
-        const netEntry = (app.netlist || []).find((n) => n.net === netName);
-        if (netEntry) {
-            for (const pin of netEntry.pins || []) {
-                pads.add(`${pin.componentId}|${pin.pinNumber}`);
-            }
-        }
+        for (const track of app.tracks || []) if (track.net === netName) tracks.add(track);
+        for (const via of app.vias || []) if (via.net === netName) vias.add(via);
+        const netEntry = (app.netlist || []).find((entry) => entry.net === netName);
+        for (const pin of netEntry?.pins || []) pads.add(`${pin.componentId}|${pin.pinNumber}`);
     }
 
-    // Queue of items to process. Each entry is one of:
-    //   { kind:'track', track }
-    //   { kind:'via', via }
-    //   { kind:'pad', key }   // key = "componentId|pinNumber"
     const queue = [];
     if (seed.type === 'pad') {
-        const k = `${seed.componentId}|${seed.pinNumber}`;
-        pads.add(k);
-        queue.push({ kind: 'pad', key: k });
-    } else if (seed.type === 'track') {
+        const key = `${seed.componentId}|${seed.pinNumber}`;
+        pads.add(key);
+        queue.push({ kind: 'pad', key });
+    } else {
         tracks.add(seed.track);
         queue.push({ kind: 'track', track: seed.track });
     }
-    // Seed the queue with everything we collected by net name so
-    // downstream BFS can still pick up unnamed neighbours (e.g. a stub
-    // track with no net assigned that touches a named track).
-    for (const t of tracks) queue.push({ kind: 'track', track: t });
-    for (const v of vias) queue.push({ kind: 'via', via: v });
-    for (const k of pads) queue.push({ kind: 'pad', key: k });
+    for (const track of tracks) queue.push({ kind: 'track', track });
+    for (const via of vias) queue.push({ kind: 'via', via });
+    for (const key of pads) queue.push({ kind: 'pad', key });
 
     while (queue.length) {
         const item = queue.shift();
         if (item.kind === 'pad') {
-            // Find every track that lists this pad in padConnections.
             const [componentId, pinNumber] = item.key.split('|');
-            for (const t of app.tracks || []) {
-                if (tracks.has(t)) continue;
-                for (const conn of t.padConnections?.values?.() || []) {
-                    if (conn.componentId === componentId && conn.pinNumber === pinNumber) {
-                        tracks.add(t);
-                        queue.push({ kind: 'track', track: t });
+            for (const track of app.tracks || []) {
+                if (tracks.has(track)) continue;
+                for (const connection of track.padConnections?.values?.() || []) {
+                    if (connection.componentId === componentId && connection.pinNumber === pinNumber) {
+                        tracks.add(track);
+                        queue.push({ kind: 'track', track });
                         break;
                     }
                 }
             }
         } else if (item.kind === 'track') {
-            // Add any pads this track touches.
-            for (const conn of item.track.padConnections?.values?.() || []) {
-                const k = `${conn.componentId}|${conn.pinNumber}`;
-                if (!pads.has(k)) { pads.add(k); queue.push({ kind: 'pad', key: k }); }
+            for (const connection of item.track.padConnections?.values?.() || []) {
+                const key = `${connection.componentId}|${connection.pinNumber}`;
+                if (!pads.has(key)) { pads.add(key); queue.push({ kind: 'pad', key }); }
             }
-            // Add any via whose position coincides with a node on this
-            // track — that via stitches us into the opposite layer.
-            // Also pick up any *other* track sharing a node at the same
-            // position (T-junctions between separate Track objects).
-            for (const n of item.track.nodes.values()) {
-                const k = _posKey(n.x, n.y);
-                const v = viaByPos.get(k);
-                if (v && !vias.has(v)) {
-                    vias.add(v);
-                    queue.push({ kind: 'via', via: v });
-                }
-                for (const t2 of app.tracks || []) {
-                    if (t2 === item.track || tracks.has(t2)) continue;
-                    for (const n2 of t2.nodes.values()) {
-                        if (_posKey(n2.x, n2.y) === k) {
-                            tracks.add(t2);
-                            queue.push({ kind: 'track', track: t2 });
-                            break;
-                        }
+            for (const node of item.track.nodes.values()) {
+                const key = _posKey(node.x, node.y);
+                const via = viaByPos.get(key);
+                if (via && !vias.has(via)) { vias.add(via); queue.push({ kind: 'via', via }); }
+                for (const otherTrack of app.tracks || []) {
+                    if (otherTrack === item.track || tracks.has(otherTrack)) continue;
+                    if ([...otherTrack.nodes.values()].some((otherNode) => _posKey(otherNode.x, otherNode.y) === key)) {
+                        tracks.add(otherTrack);
+                        queue.push({ kind: 'track', track: otherTrack });
                     }
                 }
             }
         } else if (item.kind === 'via') {
-            // Add any track with a node at this via's position (either layer).
-            const k = _posKey(item.via.x, item.via.y);
-            for (const t of app.tracks || []) {
-                if (tracks.has(t)) continue;
-                for (const n of t.nodes.values()) {
-                    if (_posKey(n.x, n.y) === k) {
-                        tracks.add(t);
-                        queue.push({ kind: 'track', track: t });
-                        break;
-                    }
+            const key = _posKey(item.via.x, item.via.y);
+            for (const track of app.tracks || []) {
+                if (tracks.has(track)) continue;
+                if ([...track.nodes.values()].some((node) => _posKey(node.x, node.y) === key)) {
+                    tracks.add(track);
+                    queue.push({ kind: 'track', track });
                 }
             }
         }
     }
-
     return { tracks, vias, pads };
 }
 
@@ -545,11 +497,6 @@ export function drawViaHalo(app, via, cls, opacity = HALO_OPACITY_SELECTED) {
     _drawViaHalo(app, via, cls, opacity);
 }
 
-/** Draw a selection halo over a hole using the given CSS class. */
-export function drawHoleHalo(app, hole, cls, opacity = HALO_OPACITY_SELECTED) {
-    _drawHoleHalo(app, hole, cls, opacity);
-}
-
 /** Remove every halo with the given CSS class from all layers. */
 export function removeHalosByClass(app, cls) {
     _removeHalos(app, cls);
@@ -576,10 +523,6 @@ export function deleteSelectedTrack(app) {
         const v = app._selectedVia;
         clearTrackSelection(app);
         app.history?.execute(new RemoveViaCommand(app, v));
-    } else if (app._selectedHole) {
-        const h = app._selectedHole;
-        clearTrackSelection(app);
-        app.history?.execute(new RemoveHoleCommand(app, h));
     }
 }
 
@@ -619,7 +562,7 @@ export function dismissTrackContextMenu() {
  * Intended for the select tool only (caller enforces that).
  *
  * @param {object} app
- * @param {{type:'track', track:object}|{type:'via', via:object}|{type:'hole', hole:object}} hit
+ * @param {{type:'track', track:object}|{type:'via', via:object}} hit
  * @param {number} clientX
  * @param {number} clientY
  * @param {{x:number,y:number}} [worldPos] - cursor position, used to
@@ -631,9 +574,7 @@ export function showTrackContextMenu(app, hit, clientX, clientY, worldPos) {
     // operates on it (and the user sees what they're about to act on).
     selectTrackOrVia(app, hit);
 
-    const label = hit.type === 'via' ? 'Delete via'
-        : hit.type === 'hole' ? 'Delete hole'
-        : 'Delete track';
+    const label = hit.type === 'via' ? 'Delete via' : 'Delete track';
     const items = [];
     // Node-targeted actions (Split / Delete Node) when right-clicking on
     // a track vertex — mirrors the schematic wire anchor context menu.
@@ -641,7 +582,7 @@ export function showTrackContextMenu(app, hit, clientX, clientY, worldPos) {
     if (hit.type === 'track' && worldPos) {
         nodeId = hitTestTrackNode(app, hit.track, worldPos);
     }
-    if (nodeId) {
+    if (nodeId && hit.type === 'track') {
         // Right-click landed on a vertex: show ONLY the node actions.
         const track = hit.track;
         const deg = track.degree(nodeId);
@@ -1250,7 +1191,7 @@ function _applyNetToBondedCopper(app, seed, v) {
     return true;
 }
 
-function _showViaProperties(app, via) {
+export function showViaProperties(app, via) {
     const items = app._pcbPropsItems?.() || document.getElementById('pcbPropsItems');
     if (!items) return;
     app._setPcbPropsTitle?.('Via');
@@ -1261,9 +1202,7 @@ function _showViaProperties(app, via) {
     `;
     const reRender = () => import('./track-render.js').then(({ renderVia }) => {
         renderVia(via, (id) => app._getLayerGroup(id));
-        clearTrackSelection(app);
-        app._selectedVia = via;
-        _drawViaHalo(app, via);
+        app._refreshPcbSelectionHighlights?.();
     });
     const baseline = { diameter: via.diameter, drill: via.drill, net: via.net || '' };
     const live = (key) => (e) => {
@@ -1295,46 +1234,6 @@ function _showViaProperties(app, via) {
         } else {
             netEl.value = baseline.net; // refused — restore the field
         }
-    });
-    app._setActiveRibbonTab?.('pcb-properties');
-}
-
-function _showHoleProperties(app, hole) {
-    const items = app._pcbPropsItems?.() || document.getElementById('pcbPropsItems');
-    if (!items) return;
-    app._setPcbPropsTitle?.('Hole');
-    items.innerHTML = `
-        <div class="prop-row"><label>Diameter (mm)</label><input type="number" id="pcbPropHoleDia" value="${hole.diameter}" min="0.1" step="0.05"></div>
-        <div class="prop-row"><label>Plated</label><input type="checkbox" id="pcbPropHolePlated" ${hole.plated ? 'checked' : ''}></div>
-    `;
-    const reRender = () => import('./track-render.js').then(({ renderHole }) => {
-        renderHole(hole, (id) => app._getLayerGroup(id));
-        clearTrackSelection(app);
-        app._selectedHole = hole;
-        _drawHoleHalo(app, hole);
-    });
-    const baseline = { diameter: hole.diameter };
-    const diaEl = document.getElementById('pcbPropHoleDia');
-    diaEl?.addEventListener('input', (e) => {
-        const v = parseFloat(/** @type {HTMLInputElement} */ (e.target).value);
-        if (Number.isFinite(v) && v > 0) { hole.diameter = v; reRender(); }
-    });
-    diaEl?.addEventListener('change', (e) => {
-        const v = parseFloat(/** @type {HTMLInputElement} */ (e.target).value);
-        if (!Number.isFinite(v) || v <= 0 || v === baseline.diameter) return;
-        const before = { diameter: baseline.diameter };
-        const after = { diameter: v };
-        hole.diameter = baseline.diameter;
-        app.history?.execute(new ModifyHoleCommand(app, hole, before, after));
-        baseline.diameter = v;
-    });
-    const platedEl = document.getElementById('pcbPropHolePlated');
-    platedEl?.addEventListener('change', (e) => {
-        const checked = /** @type {HTMLInputElement} */ (e.target).checked;
-        if (checked === hole.plated) return;
-        const before = { plated: hole.plated };
-        const after = { plated: checked };
-        app.history?.execute(new ModifyHoleCommand(app, hole, before, after));
     });
     app._setActiveRibbonTab?.('pcb-properties');
 }

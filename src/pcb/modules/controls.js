@@ -35,7 +35,7 @@ export function bindPcbControls(app) {
     const redoBtn = document.getElementById('pcbRedoBtn');
 
     const toolBtns = [selectBtn, trackBtn, padBtn, viaBtn, holeBtn, shapesBtn, textBtn, fillBtn];
-    const validTools = new Set(['select', 'track', 'pad', 'via', 'hole', 'circle', 'arc', 'rect', 'polygon', 'text', 'fill']);
+    const validTools = new Set(['select', 'track', 'pad', 'via', 'circle', 'arc', 'rect', 'polygon', 'text', 'fill']);
     // Tools grouped under the "Shapes" dropdown button.
     const SHAPE_TOOLS = new Set(['circle', 'arc', 'rect', 'polygon']);
     // Label/icon shown on the Shapes button for each shape tool.
@@ -98,8 +98,6 @@ export function bindPcbControls(app) {
             app._showTrackToolOptions?.();
         } else if (nextTool === 'text') {
             app._showTextToolOptions?.();
-        } else if (nextTool === 'hole') {
-            app._showHoleToolOptions?.();
         } else if (nextTool === 'fill') {
             app._showFillToolOptions?.();
         } else if (nextTool === 'circle') {
@@ -119,7 +117,10 @@ export function bindPcbControls(app) {
     trackBtn?.addEventListener('click', () => setTool('track'));
     padBtn?.addEventListener('click', () => setTool('pad'));
     viaBtn?.addEventListener('click', () => setTool('via'));
-    holeBtn?.addEventListener('click', () => setTool('hole'));
+    holeBtn?.addEventListener('click', () => {
+        app.activeLayer = 'hole';
+        setTool('circle');
+    });
     textBtn?.addEventListener('click', () => setTool('text'));
     fillBtn?.addEventListener('click', () => setTool('fill'));
 

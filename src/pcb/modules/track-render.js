@@ -145,51 +145,6 @@ export function removeViaElements(via) {
     }
 }
 
-/** CSS class applied to non-plated hole circles. */
-const HOLE_CLASS = 'pcb-hole';
-
-/**
- * Render a standalone non-plated through-hole (NPTH) on the hole layer.
- * Drawn as a dark drilled bore ringed by the hole-layer colour so it reads
- * distinctly from a (gold) plated via.
- *
- * @param {object} hole - Hole instance
- * @param {(layerId: string) => SVGGElement|null} getLayerGroup
- * @param {object} [opts]
- */
-export function renderHole(hole, getLayerGroup, opts = {}) {
-    removeHoleElements(hole);
-
-    const holeLayer = getLayerGroup('hole');
-    if (!holeLayer) return;
-
-    // Plated holes use a copper-coloured rim; non-plated use the hole-layer
-    // colour. The bore itself stays transparent either way.
-    const ringColor = hole.plated
-        ? (opts.holePlateColor || '#b8860b')
-        : (opts.holeRingColor || '#1abc9c');
-    const r = hole.diameter / 2;
-
-    // Stroked rim only — the bore is left transparent so the canvas grid
-    // (and anything beneath) shows through, like a real drilled hole.
-    const ring = _makeViaCircle(hole.x, hole.y, r, 'none');
-    ring.setAttribute('class', HOLE_CLASS);
-    ring.setAttribute('stroke', ringColor);
-    ring.setAttribute('stroke-width', String(Math.max(0.03, hole.diameter * 0.07)));
-    ring.dataset.holeId = hole.id;
-    holeLayer.appendChild(ring);
-
-    hole._svgElements = [ring];
-}
-
-/** Remove every SVG element this Hole previously created. */
-export function removeHoleElements(hole) {
-    if (hole._svgElements) {
-        for (const el of hole._svgElements) el.remove();
-        hole._svgElements = null;
-    }
-}
-
 /* ──────────────────────────── internals ──────────────────────────── */
 
 /**

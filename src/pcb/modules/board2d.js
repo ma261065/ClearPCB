@@ -903,14 +903,6 @@ export class Board2D {
             ctx.arc(v.x, v.y, drill / 2, 0, Math.PI * 2);
             ctx.fill();
         }
-        for (const h of (d.holes || [])) {
-            const drill = h.diameter || 0;
-            if (drill <= 0) continue;
-            ctx.beginPath();
-            ctx.arc(h.x, h.y, drill / 2, 0, Math.PI * 2);
-            ctx.fillStyle = COL.bg;
-            ctx.fill();
-        }
         // Free-standing circles on HOLE layer are board cutouts in preview.
         for (const c of (d.boardShapes || []).filter((shape) => shape?.kind === 'circle')) {
             if (!c || c.layer !== 'hole' || !(c.radius > 0)) continue;

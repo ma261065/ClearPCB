@@ -2885,6 +2885,19 @@ body {
     font-size: 11px;
 }
 
+[data-panel="pcb-properties"] .prop-row.prop-toggle {
+    justify-content: flex-start;
+    gap: 4px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+[data-panel="pcb-properties"] .prop-row.prop-toggle span {
+    font-size: 10px;
+    line-height: 1;
+}
+
 /* Hide PCB net-name labels on tracks at low zoom (<200%) */
 svg.pcb-zoom-low .pcb-track-label { display: none; }
 

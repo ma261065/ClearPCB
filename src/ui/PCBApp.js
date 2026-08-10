@@ -14,7 +14,7 @@ import { exportGerbers, buildZip } from '../pcb/modules/gerber.js';
 import { generateBOM, generatePickAndPlace } from '../pcb/modules/assembly.js';
 import { openBoard3DViewer } from '../pcb/modules/board3d.js';
 import { savePcbPdf, printPcb } from '../pcb/modules/pcb-export.js';import { tracksFromAutorouterResult } from '../pcb/modules/autorouter-adapter.js';
-import { renderTrack, renderVia, renderHole, removeTrackElements, removeViaElements, removeHoleElements } from '../pcb/modules/track-render.js';
+import { renderTrack, renderVia, removeTrackElements, removeViaElements } from '../pcb/modules/track-render.js';
 import {
     startTrackDraw,
     updateTrackDraw,
@@ -48,10 +48,6 @@ import {
     updateViaDrag,
     finishViaDrag,
     cancelViaDrag,
-    startHoleDrag,
-    updateHoleDrag,
-    finishHoleDrag,
-    cancelHoleDrag,
     hitTestTrackNode,
     findSplittableTrackEdge,
     splitTrackObjectAtPoint,
@@ -62,7 +58,6 @@ import {
 import {
     AddTrackCommand,
     AddViaCommand,
-    AddHoleCommand,
     RemoveTrackCommand,
     CompoundCommand,
     MovePlacementCommand,
@@ -151,7 +146,6 @@ import { measureText as measureStrokeText } from '../pcb/modules/stroke-font.js'
 import { CommandHistory } from '../core/CommandHistory.js';
 import { Track } from '../shapes/track.js';
 import { Via } from '../shapes/via.js';
-import { Hole, updateHoleIdCounter } from '../shapes/hole.js';
 import { CopperFill, updateFillIdCounter } from '../shapes/copper-fill.js';
 import { computeFillPolygons, loadClipper, isClipperReady } from '../pcb/modules/copper-fill-geom.js';
 import { renderCopperFill, fillGroupId } from '../pcb/modules/copper-fill-render.js';
@@ -164,6 +158,7 @@ import {
     cancelFillDraw,
 } from '../pcb/modules/copper-fill-draw.js';
 import { createShape } from '../shapes/index.js';
+import { AddBoardShapeCommand } from '../pcb/modules/shape-commands.js';
 
 /**
  * On-screen size (CSS px) of a footprint's bounding box below which it is
@@ -262,12 +257,6 @@ export default class PCBApp {
          * @type {Array<import('../shapes/via.js').Via>}
          */
         this.vias = [];
-
-        /**
-         * Standalone non-plated through-holes (mounting / tooling holes).
-         * @type {Array<import('../shapes/hole.js').Hole>}
-         */
-        this.holes = [];
 
         /**
          * Copper pour regions (net-aware flood fills). Each entry is a
@@ -498,7 +487,7 @@ export default class PCBApp {
         return !!c && (
             (c.tracks?.length || 0) > 0
             || (c.vias?.length || 0) > 0
-            || (c.holes?.length || 0) > 0
+            || (c.shapes?.length || 0) > 0
             || (c.texts?.length || 0) > 0
             || (c.fills?.length || 0) > 0
         );
@@ -509,10 +498,10 @@ export default class PCBApp {
         if (hasBoxSelection(this)) {
             return getPcbSelection(this, 'track').length > 0
                 || getPcbSelection(this, 'via').length > 0
-                || getPcbSelection(this, 'hole').length > 0;
+                || getPcbSelection(this, 'shape').length > 0;
         }
         if (this._selectedComp || this._selectedRef) return false;
-        return !!(this._selectedTrack || this._selectedVia || this._selectedHole || this._selectedText || this._selectedFill);
+        return !!(this._selectedTrack || this._selectedVia || this._selectedShape || this._selectedText || this._selectedFill);
     }
 
     /** Enable/disable PCB ribbon clipboard buttons to match current state. */
@@ -532,23 +521,23 @@ export default class PCBApp {
      * Components/reference labels are intentionally excluded.
      */
     _capturePcbClipboardSelection() {
-        const payload = { tracks: [], vias: [], holes: [], texts: [], fills: [] };
+        const payload = { tracks: [], vias: [], shapes: [], texts: [], fills: [] };
         if (hasBoxSelection(this)) {
             for (const track of getPcbSelection(this, 'track')) payload.tracks.push(track.toJSON());
             for (const via of getPcbSelection(this, 'via')) payload.vias.push(via.toJSON());
-            for (const hole of getPcbSelection(this, 'hole')) payload.holes.push(hole.toJSON());
+            for (const shape of getPcbSelection(this, 'shape')) payload.shapes.push(JSON.parse(JSON.stringify(shape)));
         } else if (this._selectedTrack) {
             payload.tracks.push(this._selectedTrack.toJSON());
         } else if (this._selectedVia) {
             payload.vias.push(this._selectedVia.toJSON());
-        } else if (this._selectedHole) {
-            payload.holes.push(this._selectedHole.toJSON());
+        } else if (this._selectedShape) {
+            payload.shapes.push(JSON.parse(JSON.stringify(this._selectedShape)));
         } else if (this._selectedText) {
             payload.texts.push(serializePcbText(this._selectedText));
         } else if (this._selectedFill) {
             payload.fills.push(this._selectedFill.captureState());
         }
-        if (!payload.tracks.length && !payload.vias.length && !payload.holes.length
+        if (!payload.tracks.length && !payload.vias.length && !payload.shapes.length
             && !payload.texts.length && !payload.fills.length) return null;
         return payload;
     }
@@ -583,7 +572,7 @@ export default class PCBApp {
             this._syncClipboardButtons();
             return true;
         }
-        if (this._selectedTrack || this._selectedVia || this._selectedHole) {
+        if (this._selectedTrack || this._selectedVia) {
             deleteSelectedTrack(this);
             this._syncClipboardButtons();
             return true;
@@ -617,7 +606,10 @@ export default class PCBApp {
             for (const [, n] of t.nodes) points.push({ x: n.x, y: n.y });
         }
         for (const v of (payload.vias || [])) points.push({ x: v.x, y: v.y });
-        for (const h of (payload.holes || [])) points.push({ x: h.x, y: h.y });
+        for (const shape of (payload.shapes || [])) {
+            if (shape.kind === 'circle') points.push({ x: shape.x, y: shape.y });
+            else for (const point of (shape.points || [shape.start, shape.end, shape.bulge])) if (point) points.push(point);
+        }
         for (const t of (payload.texts || [])) points.push({ x: t.x, y: t.y });
         for (const f of (payload.fills || [])) {
             for (const p of (f.outline || [])) points.push({ x: p.x, y: p.y });
@@ -637,7 +629,7 @@ export default class PCBApp {
                 return { track: t, nodes };
             }),
             vias: (payload.vias || []).map((v) => ({ via: v, x: v.x, y: v.y })),
-            holes: (payload.holes || []).map((h) => ({ hole: h, x: h.x, y: h.y })),
+            shapes: (payload.shapes || []).map((shape) => ({ shape, before: JSON.parse(JSON.stringify(shape)) })),
             texts: (payload.texts || []).map((t) => ({ text: t, x: t.x, y: t.y })),
             fills: (payload.fills || []).map((f) => ({
                 fill: f,
@@ -682,10 +674,13 @@ export default class PCBApp {
             v.via.y = v.y + dy;
             renderVia(v.via, (id) => this._getLayerGroup(id));
         }
-        for (const h of pd.holes) {
-            h.hole.x = h.x + dx;
-            h.hole.y = h.y + dy;
-            renderHole(h.hole, (id) => this._getLayerGroup(id));
+        for (const entry of pd.shapes) {
+            const shape = entry.shape;
+            const before = entry.before;
+            if (shape.kind === 'circle') { shape.x = before.x + dx; shape.y = before.y + dy; }
+            else if (shape.points) shape.points = before.points.map((point) => ({ x: point.x + dx, y: point.y + dy }));
+            else for (const key of ['start', 'end', 'bulge']) shape[key] = { x: before[key].x + dx, y: before[key].y + dy };
+            renderBoardShape(this, shape);
         }
         for (const t of pd.texts) {
             t.text.x = t.x + dx;
@@ -748,7 +743,7 @@ export default class PCBApp {
         this._pcbPasteCount = (this._pcbPasteCount || 0) + 1;
         const d = 2 * this._pcbPasteCount; // mm offset per successive paste
         const cmds = [];
-        const pasted = { tracks: [], vias: [], holes: [], texts: [], fills: [] };
+        const pasted = { tracks: [], vias: [], shapes: [], texts: [], fills: [] };
 
         for (const td of (c.tracks || [])) {
             const json = JSON.parse(JSON.stringify(td));
@@ -765,11 +760,14 @@ export default class PCBApp {
             cmds.push(new AddViaCommand(this, via));
             pasted.vias.push(via);
         }
-        for (const hd of (c.holes || [])) {
-            const hole = Hole.fromJSON({ ...hd, id: undefined });
-            hole.x += d; hole.y += d;
-            cmds.push(new AddHoleCommand(this, hole));
-            pasted.holes.push(hole);
+        for (const sd of (c.shapes || [])) {
+            const shape = JSON.parse(JSON.stringify(sd));
+            shape.id = `pshape_${this._shapeIdCounter++}`;
+            if (shape.kind === 'circle') { shape.x += d; shape.y += d; }
+            else if (shape.points) shape.points.forEach((point) => { point.x += d; point.y += d; });
+            else for (const key of ['start', 'end', 'bulge']) { shape[key].x += d; shape[key].y += d; }
+            cmds.push(new AddBoardShapeCommand(this, shape));
+            pasted.shapes.push(shape);
         }
         for (const tx of (c.texts || [])) {
             const t = createPcbText({ ...tx, id: undefined, x: (tx.x || 0) + d, y: (tx.y || 0) + d });
@@ -834,7 +832,7 @@ export default class PCBApp {
             }
             if (view?.scaleChanged) this._syncCopperRemovalHatches();
             this._scheduleRemovalHatchRender();
-            // Cursor crosshair (track/via tools) is sized in screen pixels
+            // Cursor crosshair and via previews are sized in screen pixels
             // and spans the viewport — redraw on zoom/pan so it doesn't drift.
             if (this._lastCrosshairWorld &&
                 (this.currentTool === 'via' || this.currentTool === 'track' || this.currentTool === 'text' || this.currentTool === 'circle' || this.currentTool === 'rect' || this.currentTool === 'polygon' || this.currentTool === 'arc')) {
@@ -942,15 +940,15 @@ export default class PCBApp {
             // the text's size/rotation spinners), and NOT on a right-button
             // press (that starts a pan — dragging the board must not switch
             // tabs, e.g. closing the Design tab's live DRC mid-pan).
-            const shapeToolActive = this.currentTool === 'circle' || this.currentTool === 'rect'
-                || this.currentTool === 'polygon' || this.currentTool === 'arc';
+            const propertiesToolActive = this.currentTool === 'circle'
+                || this.currentTool === 'rect' || this.currentTool === 'polygon' || this.currentTool === 'arc';
             const worldPos = e.button === 0 && this.currentTool === 'select'
                 ? this._screenToWorld(e)
                 : null;
             const selectedBoardShapeAnchor = worldPos && getPcbSelection(this, 'shape').some(
                 (shape) => hitTestBoardShapeVertex(this, shape, worldPos) != null,
             );
-            if (!this._trackDraw && !this._textEdit && !shapeToolActive
+            if (!this._trackDraw && !this._textEdit && !propertiesToolActive
                 && !selectedBoardShapeAnchor && e.button !== 2 && !e.ctrlKey && !e.metaKey) {
                 const activeTab = this.ribbon?.querySelector('.ribbon-tab.active');
                 if (activeTab instanceof HTMLElement && activeTab.dataset?.tab !== 'pcb-home') {
@@ -1113,15 +1111,6 @@ export default class PCBApp {
                         return;
                     }
                 }
-                // Same for a selected hole: clicking on it begins a drag.
-                if (this._selectedHole) {
-                    if (startHoleDrag(this, this._selectedHole, worldPos)) {
-                        setHoverHighlight(this, null);
-                        this._hideNetTooltip();
-                        svg.style.cursor = 'grabbing';
-                        return;
-                    }
-                }
                 // Same for a selected free-standing circle.
                 if (this._selectedCircle) {
                     const selectedHit = this._hitTestCircle(worldPos);
@@ -1169,11 +1158,6 @@ export default class PCBApp {
                     // one motion (no separate select-then-drag click).
                     if (trackHit.type === 'via') {
                         if (startViaDrag(this, trackHit.via, worldPos)) {
-                            this._hideNetTooltip();
-                            svg.style.cursor = 'grabbing';
-                        }
-                    } else if (trackHit.type === 'hole') {
-                        if (startHoleDrag(this, trackHit.hole, worldPos)) {
                             this._hideNetTooltip();
                             svg.style.cursor = 'grabbing';
                         }
@@ -1416,15 +1400,6 @@ export default class PCBApp {
                 }
             }
 
-            // Left-click with hole tool: place a standalone NPTH at the cursor.
-            if (e.button === 0 && this.currentTool === 'hole') {
-                const worldPos = this._screenToWorld(e);
-                const snap = this._snapToGrid(worldPos);
-                const diameter = this._getHoleDiameter();
-                const hole = new Hole({ x: snap.x, y: snap.y, diameter });
-                this.history.execute(new AddHoleCommand(this, hole));
-            }
-
             // Left-click with circle tool: first click anchors the centre,
             // second click commits the radius through the generic shape model.
             if (e.button === 0 && this.currentTool === 'circle') {
@@ -1478,8 +1453,6 @@ export default class PCBApp {
                     this._updateCursorCrosshair(this._screenToWorld(e));
                 } else if (this.currentTool === 'via') {
                     this._updateViaPreview(this._screenToWorld(e));
-                } else if (this.currentTool === 'hole') {
-                    this._updateHolePreview(this._screenToWorld(e));
                 } else if (this.currentTool === 'circle') {
                     this._updateCursorCrosshair(this._screenToWorld(e));
                 } else if (this.currentTool === 'rect' || this.currentTool === 'polygon' || this.currentTool === 'arc') {
@@ -1521,8 +1494,6 @@ export default class PCBApp {
                 this._updateVertexDragCrosshair();
             } else if (this._viaDrag) {
                 updateViaDrag(this, this._screenToWorld(e));
-            } else if (this._holeDrag) {
-                updateHoleDrag(this, this._screenToWorld(e));
             } else if (this._fillDrag) {
                 this._handleFillDrag(this._screenToWorld(e));
             } else if (this._trackDraw) {
@@ -1553,8 +1524,6 @@ export default class PCBApp {
                 }
             } else if (this.currentTool === 'via') {
                 this._updateViaPreview(this._screenToWorld(e));
-            } else if (this.currentTool === 'hole') {
-                this._updateHolePreview(this._screenToWorld(e));
             } else if (this.currentTool === 'track') {
                 this._updateCursorCrosshair(this._screenToWorld(e));
                 // Pre-draw hover: show the yellow target circle when the
@@ -1736,16 +1705,6 @@ export default class PCBApp {
                     selectTrackOrVia(this, { type: 'via', via: v });
                 }
             }
-            if (this._holeDrag) {
-                finishHoleDrag(this);
-                svg.style.cursor = 'default';
-                // Refresh the halo on the moved hole.
-                if (this._selectedHole) {
-                    const h = this._selectedHole;
-                    clearTrackSelection(this);
-                    selectTrackOrVia(this, { type: 'hole', hole: h });
-                }
-            }
             if (this._fillDrag) {
                 this._endFillDrag();
                 svg.style.cursor = 'default';
@@ -1864,7 +1823,6 @@ export default class PCBApp {
             t === 'pan' ? 'grab' :
             t === 'track' ? 'crosshair' :
             t === 'via' ? 'crosshair' :
-            t === 'hole' ? 'crosshair' :
             t === 'circle' ? 'crosshair' :
             t === 'rect' ? 'crosshair' :
             t === 'polygon' ? 'crosshair' :
@@ -1872,8 +1830,7 @@ export default class PCBApp {
             t === 'text' ? this._textToolCursor() :
             'default';
         if (t !== 'via') this._clearViaRing();
-        if (t !== 'hole') this._clearHoleRing();
-        if (t !== 'via' && t !== 'track' && t !== 'text' && t !== 'hole' && t !== 'circle' && t !== 'rect' && t !== 'polygon' && t !== 'arc') this._clearCursorCrosshair();
+        if (t !== 'via' && t !== 'track' && t !== 'text' && t !== 'circle' && t !== 'rect' && t !== 'polygon' && t !== 'arc') this._clearCursorCrosshair();
     }
 
     /** Crosshair + small "T" icon cursor for the text-placement tool. */
@@ -1983,59 +1940,6 @@ export default class PCBApp {
         this._clearCursorCrosshair();
     }
 
-    /**
-     * Hole tool default drill diameter (mm), read from the tool options
-     * spinner if present, else a sensible mounting-hole default.
-     */
-    _getHoleDiameter() {
-        const el = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbToolHoleDia'));
-        const v = el ? parseFloat(el.value) : NaN;
-        return Number.isFinite(v) && v > 0 ? v : 0.8;
-    }
-
-    /**
-     * Hole tool preview: crosshair + outlined drilled hole at the snapped
-     * cursor position.
-     */
-    _updateHolePreview(worldPos) {
-        this._updateCursorCrosshair(worldPos);
-        const svg = this.viewport?.svg;
-        if (!svg) return;
-        const snap = resolveTrackSnap(this, worldPos, {});
-        const dia = this._getHoleDiameter();
-        const scale = this.viewport.scale || 1;
-        const stroke = 1 / scale;
-        const accent = getComputedStyle(document.documentElement)
-            .getPropertyValue('--accent-color').trim() || '#0098ff';
-
-        let g = this._holeRingGroup;
-        if (!g) {
-            const NS = 'http://www.w3.org/2000/svg';
-            g = document.createElementNS(NS, 'g');
-            g.setAttribute('class', 'pcb-hole-preview');
-            g.setAttribute('pointer-events', 'none');
-            const ring = document.createElementNS(NS, 'circle');
-            ring.setAttribute('data-role', 'ring');
-            ring.setAttribute('fill', 'none');
-            g.appendChild(ring);
-            svg.appendChild(g);
-            this._holeRingGroup = g;
-        }
-        const ring = g.querySelector('[data-role="ring"]');
-        ring.setAttribute('stroke', accent);
-        ring.setAttribute('cx', String(snap.x));
-        ring.setAttribute('cy', String(snap.y));
-        ring.setAttribute('r', String(dia / 2));
-        ring.setAttribute('stroke-width', String(stroke * 1.5));
-    }
-
-    _clearHoleRing() {
-        if (this._holeRingGroup) {
-            this._holeRingGroup.remove();
-            this._holeRingGroup = null;
-        }
-    }
-
     _clearHolePreview() {
         this._clearHoleRing();
         this._clearCursorCrosshair();
@@ -2114,7 +2018,7 @@ export default class PCBApp {
         this._setPcbPropsTitle?.('New Circle');
         items.innerHTML = `
             <div class="prop-row"><label>Layer</label><select id="pcbToolCircleLayer">${layerOptionsHtml}</select></div>
-            <div class="prop-row"><input type="checkbox" id="pcbToolCircleFilled"${defaults.filled ? ' checked' : ''}> <span style="font-size:11px;color:var(--text-secondary)">Fill</span></div>
+            <label class="prop-row prop-toggle"><input type="checkbox" id="pcbToolCircleFilled"${defaults.filled ? ' checked' : ''}><span>Fill</span></label>
             <div class="prop-row" id="pcbToolCircleCopperModeRow"><label>Copper Mode</label><select id="pcbToolCircleCopperMode"><option value="add"${copperMode === 'add' ? ' selected' : ''}>Add Copper</option><option value="remove-copper"${copperMode === 'remove-copper' ? ' selected' : ''}>Remove Copper</option><option value="remove-solder-mask"${copperMode === 'remove-solder-mask' ? ' selected' : ''}>Remove Solder Mask</option><option value="remove-copper-mask"${copperMode === 'remove-copper-mask' ? ' selected' : ''}>Remove Copper + Mask</option></select></div>
             <div class="prop-row" id="pcbToolCircleLineWidthRow"><label>Line Thickness (mm)</label><input type="number" id="pcbToolCircleLineWidth" min="0.05" step="0.05" value="${Math.max(0.05, Number(defaults.lineWidth) || 0.2).toFixed(2)}"></div>
         `;
@@ -2782,7 +2686,6 @@ export default class PCBApp {
             finishSelectionInteraction(this, false);
             if (this._vertexDrag) { cancelVertexDrag(this); this.viewport.hideCrosshair(); }
             if (this._viaDrag) cancelViaDrag(this);
-            if (this._holeDrag) cancelHoleDrag(this);
             if (this._circleDrag) this._endCircleDrag(false);
             if (this._shapeDrag) {
                 endBoardShapeDrag(this, false);
@@ -2807,7 +2710,7 @@ export default class PCBApp {
                 this._deleteSelectedText();
                 return true;
             }
-            if (this._selectedTrack || this._selectedVia || this._selectedHole) {
+            if (this._selectedTrack || this._selectedVia) {
                 deleteSelectedTrack(this);
                 return true;
             }
@@ -2851,7 +2754,6 @@ export default class PCBApp {
                 return true;
             }
             if (this._viaDrag) { cancelViaDrag(this); return true; }
-            if (this._holeDrag) { cancelHoleDrag(this); return true; }
             if (this._circleDrag) {
                 this._endCircleDrag(false);
                 return true;
@@ -2866,7 +2768,7 @@ export default class PCBApp {
                 this._setActiveRibbonTab?.('pcb-home');
                 return true;
             }
-            if (this._selectedTrack || this._selectedVia || this._selectedHole) {
+            if (this._selectedTrack || this._selectedVia) {
                 clearTrackSelection(this);
                 this._clearProperties?.();
                 return true;
@@ -2988,7 +2890,6 @@ export default class PCBApp {
             design,
             tracks: this.tracks.map(t => t.toJSON()),
             vias: this.vias.map(v => v.toJSON()),
-            holes: this.holes.map(h => h.toJSON()),
             boardShapes: serializeBoardShapes(this),
             texts: [...this.texts.values()].map(serializePcbText),
             fills: this.copperFills.map(f => f.toJSON()),
@@ -3006,7 +2907,6 @@ export default class PCBApp {
      */
     serializeSection() {
         const hasContent = this.tracks?.length || this.vias?.length
-            || this.holes?.length
             || this.boardShapes?.length
             || this.texts?.size || this.copperFills?.length || this._placementOverrides.size
             || this._boardOutlineDrawn;
@@ -3104,10 +3004,8 @@ export default class PCBApp {
         // Drop any existing tracks/vias and their SVG.
         for (const t of this.tracks) removeTrackElements(t);
         for (const v of this.vias) removeViaElements(v);
-        for (const h of this.holes) removeHoleElements(h);
         this.tracks.length = 0;
         this.vias.length = 0;
-        this.holes.length = 0;
         for (const id of this._shapeElements.keys()) removeBoardShapeElement(this, id);
         this.boardShapes.length = 0;
         this._shapeIdCounter = 1;
@@ -3211,14 +3109,6 @@ export default class PCBApp {
                 const via = Via.fromJSON(vd);
                 this.vias.push(via);
                 renderVia(via, (id) => this._getLayerGroup(id));
-            }
-        }
-        if (Array.isArray(data.holes)) {
-            for (const hd of data.holes) {
-                const hole = Hole.fromJSON(hd);
-                updateHoleIdCounter(hole.id);
-                this.holes.push(hole);
-                renderHole(hole, (id) => this._getLayerGroup(id));
             }
         }
         loadBoardShapes(this, data.boardShapes);
@@ -3903,18 +3793,6 @@ export default class PCBApp {
             });
     }
 
-    _showHoleToolOptions() {
-        const dia = this._getHoleDiameter();
-        this._showToolOptions(
-            `<label>Diameter (mm) <input type="number" id="pcbToolHoleDia" value="${dia}" min="0.1" step="0.05"></label>`,
-            () => {
-                const diaEl = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbToolHoleDia'));
-                diaEl?.addEventListener('input', () => {
-                    if (this._lastCrosshairWorld) this._updateHolePreview(this._lastCrosshairWorld);
-                });
-            });
-    }
-
     /**
      * Show Fill tool options (copper-layer picker). The chosen layer becomes
      * the active layer so the next pour is drawn on it; if a pour outline is
@@ -4049,7 +3927,7 @@ export default class PCBApp {
 
         items.innerHTML = `
             <div class="prop-row"><label>Reference</label><span style="font-size:11px;color:var(--text-primary)">${name}</span></div>
-            <div class="prop-row"><input type="checkbox" id="pcbPropCompRefVis"${refVisible ? ' checked' : ''}> <span style="font-size:11px;color:var(--text-secondary)">Show Reference</span></div>
+            <label class="prop-row prop-toggle"><input type="checkbox" id="pcbPropCompRefVis"${refVisible ? ' checked' : ''}><span>Show Reference</span></label>
             <div class="prop-row"><label>Layer</label><select id="pcbPropCompSide">
                 <option value="top"${side === 'top' ? ' selected' : ''}>Top</option>
                 <option value="bottom"${side === 'bottom' ? ' selected' : ''}>Bottom</option>
@@ -4147,7 +4025,7 @@ export default class PCBApp {
         );
         items.innerHTML = `
             <div class="prop-row"><label>Layer</label><select id="pcbPropCircleLayer">${mixedLayer ? '<option value="" selected disabled>Mixed</option>' : ''}${layerOptionsHtml}</select></div>
-            <div class="prop-row"><input type="checkbox" id="pcbPropCircleFilled"${circle.filled ? ' checked' : ''}> <span style="font-size:11px;color:var(--text-secondary)">Fill</span></div>
+            <label class="prop-row prop-toggle"><input type="checkbox" id="pcbPropCircleFilled"${circle.filled ? ' checked' : ''}><span>Fill</span></label>
             <div class="prop-row" id="pcbPropCircleCopperModeRow"><label>Copper Mode</label><select id="pcbPropCircleCopperMode">${mixedCopperMode ? '<option value="" selected disabled>Mixed</option>' : ''}<option value="add"${!mixedCopperMode && initialCopperMode === 'add' ? ' selected' : ''}>Add Copper</option><option value="remove-copper"${!mixedCopperMode && initialCopperMode === 'remove-copper' ? ' selected' : ''}>Remove Copper</option><option value="remove-solder-mask"${!mixedCopperMode && initialCopperMode === 'remove-solder-mask' ? ' selected' : ''}>Remove Solder Mask</option><option value="remove-copper-mask"${!mixedCopperMode && initialCopperMode === 'remove-copper-mask' ? ' selected' : ''}>Remove Copper + Mask</option></select></div>
             <div class="prop-row" id="pcbPropCircleLineWidthRow"><label>Line Thickness (mm)</label><input type="number" id="pcbPropCircleLineWidth" min="0.05" step="0.05" value="${mixedLineWidth ? '' : initialLineWidth.toFixed(2)}"${mixedLineWidth ? ' placeholder="Mixed"' : ''}></div>
         `;
@@ -4595,11 +4473,6 @@ export default class PCBApp {
             removeViaElements(v);
             renderVia(v, getGroup);
         }
-        for (const h of this.holes) {
-            removeHoleElements(h);
-            renderHole(h, getGroup);
-        }
-
         // Free-standing board shapes (rectangle / polygon / arc / circle).
         this._shapeElements.clear();
         for (const s of this.boardShapes) {
@@ -8542,7 +8415,7 @@ export default class PCBApp {
             // Footprint mounting / mechanical holes (NPTH) are authored as
             // 'hole'-layer circles inside the footprint silks. Void the pour
             // around them too — posed to world like the pads — so the copper
-            // pulls back exactly as it does for standalone hole objects.
+            // pulls back exactly as it does for free-standing Hole-layer circles.
             for (const s of (pl.silks || [])) {
                 if (s.layer !== 'hole' || s.type !== 'circle' || !(s.r > 0)) continue;
                 const lx = s.cx * mx;
@@ -8559,10 +8432,9 @@ export default class PCBApp {
             vias: this.vias,
             pads,
             holes: [
-                ...(this.holes || []),
                 ...((this.boardShapes || [])
                     .filter((shape) => shape?.kind === 'circle' && shape.layer === 'hole' && shape.radius > 0)
-                    .map((shape) => ({ x: shape.x, y: shape.y, diameter: shape.radius * 2, plated: false }))),
+                    .map((shape) => ({ x: shape.x, y: shape.y, diameter: shape.radius * 2, plated: !!shape.plated }))),
                 ...footprintHoles,
             ],
             params: { clearance: Number.isFinite(params.clearance) ? params.clearance : 0.1 },
@@ -9117,7 +8989,6 @@ export default class PCBApp {
                 placements: this.placements,
                 tracks: this.tracks,
                 vias: this.vias,
-                holes: this.holes,
                 texts: [...this.texts.values()],
                 fills: this.copperFills,
                 circles: [],

@@ -19,8 +19,8 @@ import {
     removeBoxSelectElement,
     getBoxSelectBounds,
 } from '../../ui/modules/box-selection.js';
-import { drawTrackHalo, drawViaHalo, drawHoleHalo, removeHalosByClass } from './track-select.js';
-import { renderTrack, renderVia, renderHole } from './track-render.js';
+import { drawTrackHalo, drawViaHalo, removeHalosByClass } from './track-select.js';
+import { renderTrack, renderVia } from './track-render.js';
 import { isLayerLocked, isViaLocked } from './layers.js';
 import {
     applyShapeGeometry,
@@ -35,10 +35,8 @@ import {
     CompoundCommand,
     RemoveTrackCommand,
     RemoveViaCommand,
-    RemoveHoleCommand,
     MovePlacementCommand,
     MoveViaCommand,
-    MoveHoleCommand,
     ModifyTrackGraphCommand,
     applyPlacementPose,
 } from './track-commands.js';
@@ -57,7 +55,6 @@ const START_THRESHOLD_PX = 3;
 /** CSS classes for the multi-selection halos (distinct from single-select). */
 const TRACK_HALO_CLASS = 'pcb-box-track-sel';
 const VIA_HALO_CLASS = 'pcb-box-via-sel';
-const HOLE_HALO_CLASS = 'pcb-box-hole-sel';
 const COMP_HALO_CLASS = 'pcb-box-comp-sel';
 const SHAPE_HALO_CLASS = 'pcb-box-shape-sel';
 
@@ -213,17 +210,6 @@ function _computeEnclosed(app, bounds) {
         }
     }
 
-    // Holes: centre (± radius) inside the rectangle. Skip when the hole
-    // layer is locked (read-only).
-    if (!isLayerLocked('hole')) {
-        for (const ho of (app.holes || [])) {
-            const r = (ho.diameter || 0.8) / 2;
-            if (ho.x - r >= minX && ho.x + r <= maxX && ho.y - r >= minY && ho.y + r <= maxY) {
-                selected.push({ kind: 'hole', object: ho });
-            }
-        }
-    }
-
     // Board shapes: every outline point must lie inside the marquee.
     for (const shape of (app.boardShapes || [])) {
         if (isLayerLocked(shape.layer)) continue;
@@ -244,7 +230,6 @@ function _applyHighlights(app) {
     for (const compId of getPcbSelection(app, 'component')) _drawCompHighlight(app, compId);
     for (const track of getPcbSelection(app, 'track')) drawTrackHalo(app, track, TRACK_HALO_CLASS);
     for (const via of getPcbSelection(app, 'via')) drawViaHalo(app, via, VIA_HALO_CLASS);
-    for (const hole of getPcbSelection(app, 'hole')) drawHoleHalo(app, hole, HOLE_HALO_CLASS);
     for (const shape of getPcbSelection(app, 'shape')) _drawShapeHighlight(app, shape);
     renderPcbSelectionAnchors(app);
 }
@@ -253,7 +238,6 @@ function _applyHighlights(app) {
 function _clearHighlights(app) {
     removeHalosByClass(app, TRACK_HALO_CLASS);
     removeHalosByClass(app, VIA_HALO_CLASS);
-    removeHalosByClass(app, HOLE_HALO_CLASS);
     app._getLayerGroup?.('selection-overlay')?.querySelectorAll(
         `.${SHAPE_HALO_CLASS}, .pcb-board-shape-handles`,
     ).forEach((el) => el.remove());
@@ -273,7 +257,9 @@ function _drawShapeHighlight(app, shape) {
     halo.setAttribute('d', shapePathD(shape, { close: shape.kind !== 'arc' }));
     halo.setAttribute('fill', 'none');
     halo.setAttribute('stroke', shapeSelectionColor(shape));
-    halo.setAttribute('stroke-width', String(Math.max(0.3, (Number(shape.lineWidth) || 0.2) + 0.2)));
+    halo.setAttribute('stroke-width', String(shape.layer === 'hole'
+        ? 0.05
+        : Math.max(0.3, (Number(shape.lineWidth) || 0.2) + 0.2)));
     halo.setAttribute('stroke-linejoin', 'round');
     halo.setAttribute('pointer-events', 'none');
     overlay.appendChild(halo);
@@ -336,11 +322,6 @@ export function pointInBoxSelection(app, worldPos) {
         const r = (v.diameter || 0.6) / 2 + worldTol;
         if (Math.hypot(v.x - worldPos.x, v.y - worldPos.y) <= r) return true;
     }
-    // A selected hole.
-    for (const ho of getPcbSelection(app, 'hole')) {
-        const r = (ho.diameter || 0.8) / 2 + worldTol;
-        if (Math.hypot(ho.x - worldPos.x, ho.y - worldPos.y) <= r) return true;
-    }
     // A selected track segment.
     for (const t of getPcbSelection(app, 'track')) {
         for (const [eid, e] of t.edges) {
@@ -376,8 +357,6 @@ export function beginGroupDrag(app, worldPos) {
     }
     const vias = [];
     for (const v of getPcbSelection(app, 'via')) vias.push({ via: v, x: v.x, y: v.y });
-    const holes = [];
-    for (const ho of getPcbSelection(app, 'hole')) holes.push({ hole: ho, x: ho.x, y: ho.y });
     const tracks = [];
     for (const t of getPcbSelection(app, 'track')) {
         const nodes = new Map();
@@ -386,7 +365,7 @@ export function beginGroupDrag(app, worldPos) {
     }
     const shapes = [];
     for (const shape of getPcbSelection(app, 'shape')) shapes.push({ shape, before: cloneShapeGeometry(shape) });
-    app._groupDrag = { startWorld: { x: worldPos.x, y: worldPos.y }, comps, vias, holes, tracks, shapes };
+    app._groupDrag = { startWorld: { x: worldPos.x, y: worldPos.y }, comps, vias, tracks, shapes };
 }
 
 /** Live-update positions of every selected object during a group drag. */
@@ -413,11 +392,6 @@ export function updateGroupDrag(app, worldPos) {
         vEntry.via.y = vEntry.y + dy;
         renderVia(vEntry.via, (id) => app._getLayerGroup(id));
     }
-    for (const hEntry of (g.holes || [])) {
-        hEntry.hole.x = hEntry.x + dx;
-        hEntry.hole.y = hEntry.y + dy;
-        renderHole(hEntry.hole, (id) => app._getLayerGroup(id));
-    }
     for (const tEntry of g.tracks) {
         for (const [nid, start] of tEntry.nodes) {
             const n = tEntry.track.nodes.get(nid);
@@ -429,10 +403,8 @@ export function updateGroupDrag(app, worldPos) {
         applyShapeGeometry(entry.shape, _translateShapeGeometry(entry.before, dx, dy));
         renderBoardShape(app, entry.shape, { liveDrag: true });
     }
-    // Holes carry no net, so a holes-only drag leaves the ratsnest (and the
-    // copper pours it re-pours) untouched — matching the single-hole drag,
-    // where the fill void stays put until drop. Only reconcile when a
-    // net-bearing object (component / via / track) actually moved.
+    // Hole-layer board shapes carry no net. Only reconcile when a net-bearing
+    // object (component / via / track) actually moved.
     if (g.comps.length || g.vias.length || g.tracks.length) {
         app._updateRatsnest?.();
     }
@@ -463,11 +435,6 @@ export function endGroupDrag(app) {
     for (const v of g.vias) {
         if (v.via.x !== v.x || v.via.y !== v.y) {
             cmds.push(new MoveViaCommand(app, v.via, v.x, v.y, v.via.x, v.via.y));
-        }
-    }
-    for (const h of (g.holes || [])) {
-        if (h.hole.x !== h.x || h.hole.y !== h.y) {
-            cmds.push(new MoveHoleCommand(app, h.hole, h.x, h.y, h.hole.x, h.hole.y));
         }
     }
     for (const t of g.tracks) {
@@ -522,7 +489,6 @@ export function deleteBoxSelection(app) {
     const cmds = [];
     for (const t of getPcbSelection(app, 'track')) cmds.push(new RemoveTrackCommand(app, t));
     for (const v of getPcbSelection(app, 'via')) cmds.push(new RemoveViaCommand(app, v));
-    for (const ho of getPcbSelection(app, 'hole')) cmds.push(new RemoveHoleCommand(app, ho));
     for (const shape of getPcbSelection(app, 'shape')) cmds.push(new RemoveBoardShapeCommand(app, shape));
 
     // Clear the selection (and its halos) before mutating the model.

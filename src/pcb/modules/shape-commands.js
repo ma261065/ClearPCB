@@ -24,6 +24,7 @@ export class AddBoardShapeCommand {
         if (!this.app.boardShapes.includes(this.shape)) this.app.boardShapes.push(this.shape);
         renderBoardShape(this.app, this.shape);
         this.app._refreshFills?.();
+        this.app._board3d?.refresh?.();
     }
 
     undo() {
@@ -32,6 +33,7 @@ export class AddBoardShapeCommand {
         if (i >= 0) this.app.boardShapes.splice(i, 1);
         this.app._updateCopperCuts?.();
         this.app._refreshFills?.();
+        this.app._board3d?.refresh?.();
     }
 }
 
@@ -47,12 +49,14 @@ export class RemoveBoardShapeCommand {
         if (i >= 0) this.app.boardShapes.splice(i, 1);
         this.app._updateCopperCuts?.();
         this.app._refreshFills?.();
+        this.app._board3d?.refresh?.();
     }
 
     undo() {
         if (!this.app.boardShapes.includes(this.shape)) this.app.boardShapes.push(this.shape);
         renderBoardShape(this.app, this.shape);
         this.app._refreshFills?.();
+        this.app._board3d?.refresh?.();
     }
 }
 
@@ -68,12 +72,14 @@ export class MoveBoardShapeCommand {
         applyShapeGeometry(this.shape, this.after);
         renderBoardShape(this.app, this.shape);
         this.app._refreshFills?.();
+        this.app._board3d?.refresh?.();
     }
 
     undo() {
         applyShapeGeometry(this.shape, this.before);
         renderBoardShape(this.app, this.shape);
         this.app._refreshFills?.();
+        this.app._board3d?.refresh?.();
     }
 }
 
@@ -89,6 +95,7 @@ export class ModifyBoardShapeCommand {
         applyShapeSnapshot(this.shape, state);
         renderBoardShape(this.app, this.shape);
         this.app._refreshFills?.();
+        this.app._board3d?.refresh?.();
         refreshBoardShapeProperties(this.app, this.shape);
     }
 

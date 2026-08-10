@@ -15,6 +15,7 @@ import {
     selectBoardShape,
     showBoardShapeProperties,
 } from './board-shapes.js';
+import { clearTrackSelection, showViaProperties } from './track-select.js';
 import {
     beginGroupDrag,
     cancelGroupDrag,
@@ -24,9 +25,10 @@ import {
 } from './box-select.js';
 import { hitTestPcbSelectionAnchor } from './selection-anchors.js';
 
-const SUPPORTED_KINDS = new Set(['shape']);
+const SUPPORTED_KINDS = new Set(['shape', 'via']);
 
 function clearUnsupportedSelectionUi(app) {
+    clearTrackSelection(app);
     app._selectComponent?.(null);
     app._selectBoardOutline?.(false);
     app._selectText?.(null);
@@ -37,6 +39,7 @@ function clearUnsupportedSelectionUi(app) {
 
 function showProperties(app, entry) {
     if (entry.kind === 'shape') showBoardShapeProperties(app, entry.object);
+    else if (entry.kind === 'via') showViaProperties(app, entry.object);
 }
 
 /** Start a state-machine-owned select gesture. Returns true when consumed. */
@@ -70,8 +73,12 @@ export function beginSelectionInteraction(app, worldPos, additive) {
     if (!alreadySelected || !onlySupported) {
         setPcbSelection(app, [{ kind: entry.kind, object: entry.object }]);
     }
-    beginGroupDrag(app, worldPos);
-    app._pcbSelectionInteraction = { mode: 'move', entry };
+    if (entry.beginMove?.(worldPos)) {
+        app._pcbSelectionInteraction = { mode: 'move-adapter', entry };
+    } else {
+        beginGroupDrag(app, worldPos);
+        app._pcbSelectionInteraction = { mode: 'move', entry };
+    }
     showProperties(app, entry);
     refreshBoxSelectionHighlights(app);
     return true;
@@ -90,6 +97,11 @@ export function updateSelectionInteraction(app, worldPos) {
         updateGroupDrag(app, worldPos);
         return true;
     }
+    if (state.mode === 'move-adapter') {
+        state.entry.updateMove?.(worldPos);
+        refreshBoxSelectionHighlights(app);
+        return true;
+    }
     return false;
 }
 
@@ -102,6 +114,8 @@ export function finishSelectionInteraction(app, commit = true) {
     else if (state.mode === 'move') {
         if (commit) endGroupDrag(app);
         else cancelGroupDrag(app);
+    } else if (state.mode === 'move-adapter') {
+        state.entry.endMove?.(commit);
     }
     refreshBoxSelectionHighlights(app);
     return true;

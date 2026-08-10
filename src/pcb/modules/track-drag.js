@@ -22,7 +22,6 @@
 
 import { renderTrack } from './track-render.js';
 import { renderVia } from './track-render.js';
-import { renderHole } from './track-render.js';
 import {
     resolveTrackSnap,
     reconcileRatsnest,
@@ -45,7 +44,7 @@ import {
     _padNet,
 } from './track-draw.js';
 import { refreshTrackSelectionHalo } from './track-select.js';
-import { MoveVertexCommand, MoveViaCommand, MoveHoleCommand, CompoundCommand, ModifyTrackGraphCommand, RemoveTrackCommand, AddViaCommand, AddTrackCommand, ModifyTrackCommand, ModifyViaCommand } from './track-commands.js';
+import { MoveVertexCommand, MoveViaCommand, CompoundCommand, ModifyTrackGraphCommand, RemoveTrackCommand, AddViaCommand, AddTrackCommand, ModifyTrackCommand, ModifyViaCommand } from './track-commands.js';
 import { pointsCollinear, collinearSnap } from '../../core/geometry.js';
 import { showAlert } from '../../ui/modules/modal.js';
 import { Via } from '../../shapes/via.js';
@@ -1759,70 +1758,5 @@ export function cancelViaDrag(app) {
     for (const t of touched) {
         renderTrack(t, (id) => app._getLayerGroup(id), _opts(app, t));
     }
-    refreshTrackSelectionHalo(app);
-}
-
-/* ──────────────────────────── hole drag ──────────────────────────── */
-
-/** Screen-px hit tolerance for picking up a Hole to drag. */
-const HOLE_HIT_PX = 6;
-
-/** Hit-test a Hole against the world position (within its radius + tol). */
-function _hitHole(app, hole, worldPos, pxTol = HOLE_HIT_PX) {
-    const scale = app.viewport?.scale || 1;
-    const r = (hole.diameter || 0.8) / 2 + pxTol / scale;
-    return Math.hypot(hole.x - worldPos.x, hole.y - worldPos.y) <= r;
-}
-
-/**
- * Begin a drag on the given (already-selected) Hole if the click landed on
- * it. A hole has no copper or attached track nodes, so it simply translates.
- */
-export function startHoleDrag(app, hole, worldPos) {
-    if (!hole || isLayerLocked('hole') || !_hitHole(app, hole, worldPos)) return false;
-    app._holeDrag = { hole, startX: hole.x, startY: hole.y };
-    return true;
-}
-
-/** Update the dragged hole's position from the current mouse world pos. */
-export function updateHoleDrag(app, worldPos) {
-    const drag = app._holeDrag;
-    if (!drag) return;
-    const snap = resolveTrackSnap(app, worldPos, {});
-    if (snap.snapType === 'pad' || snap.snapType === 'track-node') {
-        showTrackSnapMarker(app, { x: snap.x, y: snap.y });
-    } else {
-        clearTrackSnapMarker(app);
-    }
-    drag.hole.x = snap.x;
-    drag.hole.y = snap.y;
-    renderHole(drag.hole, (id) => app._getLayerGroup(id));
-    refreshTrackSelectionHalo(app);
-}
-
-/** Commit the in-progress hole drag as a single history entry. */
-export function finishHoleDrag(app) {
-    const drag = app._holeDrag;
-    if (!drag) return;
-    app._holeDrag = null;
-    clearTrackSnapMarker(app);
-    const moved = Math.abs(drag.hole.x - drag.startX) > 1e-6
-        || Math.abs(drag.hole.y - drag.startY) > 1e-6;
-    if (!moved) return;
-    const toX = drag.hole.x, toY = drag.hole.y;
-    drag.hole.x = drag.startX;
-    drag.hole.y = drag.startY;
-    app.history.execute(new MoveHoleCommand(app, drag.hole, drag.startX, drag.startY, toX, toY));
-}
-
-/** Abort the in-progress hole drag and restore the original position. */
-export function cancelHoleDrag(app) {
-    const drag = app._holeDrag;
-    if (!drag) return;
-    app._holeDrag = null;
-    clearTrackSnapMarker(app);
-    drag.hole.x = drag.startX;
-    drag.hole.y = drag.startY;
-    renderHole(drag.hole, (id) => app._getLayerGroup(id));
     refreshTrackSelectionHalo(app);
 }

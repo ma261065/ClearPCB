@@ -66,7 +66,7 @@ const U = (v) => v / SCALE;
  * @property {Array} tracks        - app.tracks (PolylineGraph tracks)
  * @property {Array} vias          - app.vias (Via)
  * @property {Array<{x:number,y:number,width:number,height:number,shape:string,layer:string,net:string}>} pads
- * @property {Array<{x:number,y:number,diameter:number}>} holes - app.holes (Hole)
+ * @property {Array} boardShapes - app.boardShapes (including hole-layer cutouts)
  * @property {{clearance:number}} params
  * @property {{w:number,h:number,r:number}|null} board
  */
@@ -171,11 +171,14 @@ function collectObstacles(C, fill, ctx, clearance) {
         out.push(circlePath(C, via.x, via.y, rad));
     }
 
-    // ── Non-plated holes (no net, all layers — always void the pour) ──
-    for (const hole of (ctx.holes || [])) {
-        if (!hole) continue;
-        const rad = (hole.diameter || 0.8) / 2 + clearance;
-        out.push(circlePath(C, hole.x, hole.y, rad));
+    // ── Hole-layer board shapes (no net, all layers — always void the pour) ──
+    for (const shape of (ctx.boardShapes || [])) {
+        if (!shape || shape.layer !== 'hole') continue;
+        if (shape.kind === 'circle' && shape.radius > 0) {
+            out.push(circlePath(C, shape.x, shape.y, shape.radius + clearance));
+        } else if (Array.isArray(shape.outline) && shape.outline.length >= 3) {
+            out.push(shape.outline.map((point) => ({ X: S(point.x), Y: S(point.y) })));
+        }
     }
 
     // ── Pads (on this copper layer) ──
