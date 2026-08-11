@@ -1195,8 +1195,9 @@ export function showViaProperties(app, via) {
     const items = app._pcbPropsItems?.() || document.getElementById('pcbPropsItems');
     if (!items) return;
     app._setPcbPropsTitle?.('Via');
+    const netOptions = _netOptions(app, via.net || '');
     items.innerHTML = `
-        <div class="prop-row"><label>Net</label><input type="text" id="pcbPropViaNet" value="${_escape(via.net || '')}" placeholder="(unassigned)"></div>
+        <div class="prop-row"><label>Net</label><span class="prop-net-control"><input type="text" id="pcbPropViaNet" value="${_escape(via.net || '')}" placeholder="None"><details class="prop-net-menu"><summary aria-label="Select existing net"></summary><div>${netOptions}</div></details></span></div>
         <div class="prop-row"><label>Diameter (mm)</label><input type="number" id="pcbPropViaDia" value="${via.diameter}" min="0.1" step="0.05"></div>
         <div class="prop-row"><label>Drill (mm)</label><input type="number" id="pcbPropViaDrill" value="${via.drill}" min="0.05" step="0.05"></div>
     `;
@@ -1226,6 +1227,7 @@ export function showViaProperties(app, via) {
     drlEl?.addEventListener('input', live('drill'));
     drlEl?.addEventListener('change', commit('drill'));
     const netEl = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropViaNet'));
+    const netMenuEl = /** @type {HTMLDetailsElement|null} */ (document.querySelector('.prop-net-menu'));
     netEl?.addEventListener('change', () => {
         const v = netEl.value.trim();
         if (v === baseline.net) return;
@@ -1235,6 +1237,20 @@ export function showViaProperties(app, via) {
             netEl.value = baseline.net; // refused — restore the field
         }
     });
+    netMenuEl?.addEventListener('click', (event) => {
+        const option = /** @type {HTMLButtonElement|null} */ (event.target instanceof Element ? event.target.closest('button[data-net]') : null);
+        if (!option) return;
+        netEl.value = option.dataset.net || '';
+        netEl.dispatchEvent(new Event('change'));
+        netMenuEl.open = false;
+    });
+    netMenuEl?.addEventListener('toggle', () => {
+        if (!netMenuEl.open || !netEl) return;
+        const current = netEl.value.trim();
+        for (const option of netMenuEl.querySelectorAll('button[data-net]')) {
+            option.toggleAttribute('aria-current', option.dataset.net === current);
+        }
+    });
     app._setActiveRibbonTab?.('pcb-properties');
 }
 
@@ -1242,4 +1258,17 @@ function _escape(s) {
     return String(s).replace(/[&<>"]/g, (c) => (
         { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]
     ));
+}
+
+function _netOptions(app, current = '') {
+    const netNames = new Set((app.netlist || []).map((entry) => String(entry.net || '')).filter(Boolean));
+    for (const source of [app.tracks, app.vias, app.boardShapes, app.copperFills]) {
+        for (const item of source || []) {
+            const net = String(item?.net || '');
+            if (net) netNames.add(net);
+        }
+    }
+    const names = [...netNames].sort();
+    const selected = String(current || '');
+    return `<button type="button" data-net="">None</button>${names.map((name) => `<button type="button" data-net="${_escape(name)}"${name === selected ? ' aria-current="true"' : ''}>${_escape(name)}</button>`).join('')}`;
 }

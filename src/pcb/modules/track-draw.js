@@ -34,6 +34,7 @@ import { Track } from '../../shapes/track.js';
 import { Via } from '../../shapes/via.js';
 import { renderTrack } from './track-render.js';
 import { collinearSnap, pointInPolygon } from '../../core/geometry.js';
+import { normalizeShapeCopperMode, shapeOutline } from './board-shapes.js';
 import { showAlert } from '../../ui/modules/modal.js';
 import { isOverlayVisible } from './layers.js';
 
@@ -796,6 +797,20 @@ export function reconcileRatsnest(app, opts) {
         }
     }
 
+    // ── Additive copper shapes are net-bearing islands on their own layer.
+    // Their outline provides point-contact bonding; filled shapes additionally
+    // bond copper terminals that lie anywhere inside their area.
+    for (const shape of (app.boardShapes || [])) {
+        const net = String(shape?.net || '');
+        const layer = shape?.layer;
+        if (!net || (layer !== 'top-copper' && layer !== 'bottom-copper')) continue;
+        if (normalizeShapeCopperMode(shape.copperMode) !== 'add') continue;
+        if (onlyNets && !onlyNets.has(net)) continue;
+        const points = shapeOutline(shape);
+        if (points.length < 2) continue;
+        clusters.push({ net, layer, points, copperShape: shape });
+    }
+
     if (!clusters.length) return;
 
     // ── Union clusters that physically touch (same net, coincident point,
@@ -836,6 +851,19 @@ export function reconcileRatsnest(app, opts) {
                     else firstByLayer.set(layer, idx);
                 }
             }
+        }
+    }
+
+    // Filled copper shape interiors are conductive: join any same-net,
+    // layer-compatible terminal that lies in the shape's actual outline.
+    for (let i = 0; i < clusters.length; i++) {
+        const shape = clusters[i].copperShape;
+        if (!shape?.filled) continue;
+        const outline = clusters[i].points;
+        for (let j = 0; j < clusters.length; j++) {
+            if (i === j || clusters[j].net !== clusters[i].net) continue;
+            const compatible = clusters[j].layer === 'all' || clusters[j].layer === clusters[i].layer;
+            if (compatible && clusters[j].points.some((point) => pointInPolygon(point, outline))) union(i, j);
         }
     }
 

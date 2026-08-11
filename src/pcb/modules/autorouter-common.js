@@ -164,8 +164,8 @@ export class SpatialHash {
      * @param {string} [layer='top']
      * @param {string} [connId]
      */
-    insert(x1, y1, x2, y2, hw, net, layer = 'top', connId = undefined) {
-        const obj = { x1, y1, x2, y2, hw, net, layer, connId };
+    insert(x1, y1, x2, y2, hw, net, layer = 'top', connId = undefined, fixedCopper = false) {
+        const obj = { x1, y1, x2, y2, hw, net, layer, connId, fixedCopper };
         const minCX = Math.floor((Math.min(x1, x2) - hw) / this.cellSize);
         const maxCX = Math.floor((Math.max(x1, x2) + hw) / this.cellSize);
         const minCY = Math.floor((Math.min(y1, y2) - hw) / this.cellSize);
@@ -218,7 +218,7 @@ export class SpatialHash {
      */
     insertPad(cx, cy, w, h, net, padLayer = 'both', options = {}) {
         const hw = w / 2, hh = h / 2;
-        const obj = { cx, cy, hw, hh, net, isPad: true, layer: padLayer, isVia: !!options.isVia, connId: options.connId || undefined, shape: options.shape || 'rect' };
+        const obj = { cx, cy, hw, hh, net, isPad: true, layer: padLayer, isVia: !!options.isVia, connId: options.connId || undefined, shape: options.shape || 'rect', netName: options.netName || '', fixedCopper: !!options.fixedCopper };
         // Register in all cells the pad overlaps
         const minCX = Math.floor((cx - hw) / this.cellSize);
         const maxCX = Math.floor((cx + hw) / this.cellSize);
@@ -285,7 +285,7 @@ export class SpatialHash {
                     const objId = obj.net || obj.id;
                     if (isSet ? skipIds.has(objId) : objId === skipIds) continue;
                     // Skip same-net traces (not pads) when routing another connection of the same net
-                    if (skipNet && !obj.isPad && obj.net === skipNet) continue;
+                    if (skipNet && ((!obj.isPad && obj.net === skipNet) || (obj.fixedCopper && obj.netName === skipNet))) continue;
                     // Layer check: obstacles only block on the same layer.
                     // Pads with layer='both' block all layers; single-layer pads
                     // only block their own layer. Traces only block same layer.
@@ -328,7 +328,7 @@ export class SpatialHash {
                     const objId = obj.net || obj.id;
                     if (isSet ? skipIds.has(objId) : objId === skipIds) continue;
                     // Skip same-net traces when routing another connection of the same net
-                    if (skipNet && !obj.isPad && obj.net === skipNet) continue;
+                    if (skipNet && ((!obj.isPad && obj.net === skipNet) || (obj.fixedCopper && obj.netName === skipNet))) continue;
                     if (layer) {
                         const objLayer = obj.layer || 'both';
                         if (objLayer !== 'both' && objLayer !== layer) continue;
@@ -372,7 +372,7 @@ export class SpatialHash {
                     if (isSet ? skipIds.has(objId) : objId === skipIds) continue;
                     if (layer && obj.layer && obj.layer !== layer) continue;
                     const d = segmentToSegmentDist(ax1, ay1, ax2, ay2, obj.x1, obj.y1, obj.x2, obj.y2);
-                    if (d < obj.hw + clearance && obj.net) blocking.add(obj.net);
+                    if (d < obj.hw + clearance && obj.net && !obj.fixedCopper) blocking.add(obj.net);
                 }
             }
         }
@@ -577,12 +577,13 @@ export class SpatialHash {
  * board feature can be made router-aware simply by decomposing it into
  * segments and/or pads — no router changes required.
  *
- *   segment: { kind: 'segment', x1, y1, x2, y2, width, layer }
- *   pad:     { kind: 'pad', x, y, width, height, layer, shape }
+ *   segment: { kind: 'segment', x1, y1, x2, y2, width, layer, net? }
+ *   pad:     { kind: 'pad', x, y, width, height, layer, shape, net? }
  *
  * `layer` is 'top' | 'bottom' | 'both' (default 'both'). `shape` (pad only)
  * is 'rect' | 'ellipse' (default 'rect'). `width` on a segment is the copper
- * stroke width in mm.
+ * stroke width in mm. `net`, when present, allows the router to join
+ * same-net fixed copper while keeping it out of rip-up.
  *
  * @typedef {(
  *   {kind: 'segment', x1: number, y1: number, x2: number, y2: number, width?: number, layer?: string} |
@@ -614,12 +615,15 @@ export function insertCopperObstacles(hash, copperObstacles) {
         const layer = o.layer || 'both';
         if (o.kind === 'segment') {
             const hw = (Number.isFinite(o.width) && o.width > 0 ? o.width : 0) / 2;
-            // net=undefined, connId=undefined → hard obstacle, never ripped.
-            hash.insert(o.x1, o.y1, o.x2, o.y2, hw, undefined, layer, undefined);
+            hash.insert(o.x1, o.y1, o.x2, o.y2, hw, o.net || undefined, layer, undefined, !!o.net);
         } else {
             const w = Number.isFinite(o.width) && o.width > 0 ? o.width : 0;
             const h = Number.isFinite(o.height) && o.height > 0 ? o.height : w;
-            hash.insertPad(o.x, o.y, w, h, `copperobs_${id++}`, layer, { shape: o.shape || 'rect' });
+            hash.insertPad(o.x, o.y, w, h, `copperobs_${id++}`, layer, {
+                shape: o.shape || 'rect',
+                netName: o.net || '',
+                fixedCopper: true,
+            });
         }
     }
 }

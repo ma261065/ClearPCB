@@ -403,9 +403,9 @@ export function updateGroupDrag(app, worldPos) {
         applyShapeGeometry(entry.shape, _translateShapeGeometry(entry.before, dx, dy));
         renderBoardShape(app, entry.shape, { liveDrag: true });
     }
-    // Hole-layer board shapes carry no net. Only reconcile when a net-bearing
-    // object (component / via / track) actually moved.
-    if (g.comps.length || g.vias.length || g.tracks.length) {
+    // A named copper shape is a net-bearing terminal just like a track.
+    const movedNetShape = g.shapes?.some((entry) => !!entry.shape?.net);
+    if (g.comps.length || g.vias.length || g.tracks.length || movedNetShape) {
         app._updateRatsnest?.();
     }
     _applyHighlights(app);

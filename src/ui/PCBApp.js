@@ -7121,6 +7121,46 @@ export default class PCBApp {
             if (text.layer !== 'top-copper' && text.layer !== 'bottom-copper') continue;
             for (const seg of pcbTextObstacles(text)) copperObstacles.push(seg);
         }
+        for (const shape of this.boardShapes || []) {
+            if (!shape || (shape.layer !== 'top-copper' && shape.layer !== 'bottom-copper')) continue;
+            if (normalizeShapeCopperMode(shape.copperMode) !== 'add') continue;
+            const layer = shape.layer === 'top-copper' ? 'top' : 'bottom';
+            const net = String(shape.net || '');
+            const outline = shapeOutline(shape);
+            if (shape.filled) {
+                const bounds = boardShapeBounds(shape);
+                copperObstacles.push({
+                    kind: 'pad',
+                    x: (bounds.minX + bounds.maxX) / 2,
+                    y: (bounds.minY + bounds.maxY) / 2,
+                    width: bounds.maxX - bounds.minX,
+                    height: bounds.maxY - bounds.minY,
+                    layer,
+                    shape: shape.kind === 'circle' ? 'ellipse' : 'rect',
+                    net,
+                });
+                continue;
+            }
+            for (let i = 0; i < outline.length - 1; i++) {
+                copperObstacles.push({
+                    kind: 'segment',
+                    x1: outline[i].x,
+                    y1: outline[i].y,
+                    x2: outline[i + 1].x,
+                    y2: outline[i + 1].y,
+                    width: Math.max(0.05, Number(shape.lineWidth) || 0.2),
+                    layer,
+                    net,
+                });
+            }
+            if (shape.kind !== 'arc' && outline.length > 2) {
+                const first = outline[0], last = outline[outline.length - 1];
+                copperObstacles.push({
+                    kind: 'segment', x1: last.x, y1: last.y, x2: first.x, y2: first.y,
+                    width: Math.max(0.05, Number(shape.lineWidth) || 0.2), layer, net,
+                });
+            }
+        }
         return copperObstacles;
     }
 
@@ -7133,6 +7173,23 @@ export default class PCBApp {
         // Pad layers are already in the router's 'top'|'bottom'|'both' form
         // (set by footprint.js); no translation needed.
         const connections = [];
+        const shapeTerminalsByNet = new Map();
+        for (const shape of this.boardShapes || []) {
+            const net = String(shape?.net || '');
+            if (!net || !shape.filled || (shape.layer !== 'top-copper' && shape.layer !== 'bottom-copper')) continue;
+            if (normalizeShapeCopperMode(shape.copperMode) !== 'add') continue;
+            const bounds = boardShapeBounds(shape);
+            const terminals = shapeTerminalsByNet.get(net) || [];
+            terminals.push({
+                x: (bounds.minX + bounds.maxX) / 2,
+                y: (bounds.minY + bounds.maxY) / 2,
+                width: bounds.maxX - bounds.minX,
+                height: bounds.maxY - bounds.minY,
+                layer: shape.layer === 'top-copper' ? 'top' : 'bottom',
+                shape: shape.kind === 'circle' ? 'ellipse' : 'rect',
+            });
+            shapeTerminalsByNet.set(net, terminals);
+        }
         for (const entry of this.netlist) {
             const pads = [];
             for (const pin of entry.pins) {
@@ -7161,6 +7218,7 @@ export default class PCBApp {
                 }
                 pads.push(primary);
             }
+            pads.push(...(shapeTerminalsByNet.get(entry.net) || []));
             if (pads.length >= 2) {
                 connections.push({ net: entry.net, pads });
             }
@@ -8655,12 +8713,23 @@ export default class PCBApp {
         const esc = (s) => String(s).replace(/[&<>"']/g, (c) => (
             { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
         ));
+        const netNames = new Set((this.netlist || []).map((entry) => String(entry.net || '')).filter(Boolean));
+        for (const source of [this.tracks, this.vias, this.boardShapes, this.copperFills]) {
+            for (const item of source || []) {
+                const net = String(item?.net || '');
+                if (net) netNames.add(net);
+            }
+        }
+        const selectedNet = String(fill.net || '');
+        const netOptions = `<button type="button" data-net="">None</button>${[...netNames].sort().map((net) =>
+            `<button type="button" data-net="${esc(net)}"${net === selectedNet ? ' aria-current="true"' : ''}>${esc(net)}</button>`
+        ).join('')}`;
         const layerOpts = [
             ['top-copper', 'Top Copper'],
             ['bottom-copper', 'Bottom Copper'],
         ].map(([id, name]) => `<option value="${id}"${id === fill.layer ? ' selected' : ''}>${name}</option>`).join('');
         items.innerHTML = `
-            <div class="prop-row"><label>Net</label><input type="text" id="pcbPropFillNet" placeholder="(isolated)" value="${esc(fill.net || '')}"></div>
+            <div class="prop-row"><label>Net</label><span class="prop-net-control"><input type="text" id="pcbPropFillNet" placeholder="None" value="${esc(fill.net || '')}"><details class="prop-net-menu"><summary aria-label="Select existing net"></summary><div>${netOptions}</div></details></span></div>
             <div class="prop-row"><label>Layer</label><select id="pcbPropFillLayer">${layerOpts}</select></div>
         `;
         const commit = (mutate) => {
@@ -8671,10 +8740,25 @@ export default class PCBApp {
             this.history.execute(new ModifyFillCommand(this, fill, before, after));
         };
         const netEl = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropFillNet'));
+        const netMenuEl = /** @type {HTMLDetailsElement|null} */ (document.querySelector('.prop-net-menu'));
         netEl?.addEventListener('change', () => {
             const value = netEl.value.trim();
             if ((fill.net || '') === value) return;
             commit(() => { fill.net = value; });
+        });
+        netMenuEl?.addEventListener('click', (event) => {
+            const option = /** @type {HTMLButtonElement|null} */ (event.target instanceof Element ? event.target.closest('button[data-net]') : null);
+            if (!option) return;
+            netEl.value = option.dataset.net || '';
+            netEl.dispatchEvent(new Event('change'));
+            netMenuEl.open = false;
+        });
+        netMenuEl?.addEventListener('toggle', () => {
+            if (!netMenuEl.open || !netEl) return;
+            const current = netEl.value.trim();
+            for (const option of netMenuEl.querySelectorAll('button[data-net]')) {
+                option.toggleAttribute('aria-current', option.dataset.net === current);
+            }
         });
         const layerEl = /** @type {HTMLSelectElement|null} */ (document.getElementById('pcbPropFillLayer'));
         layerEl?.addEventListener('change', () => {
