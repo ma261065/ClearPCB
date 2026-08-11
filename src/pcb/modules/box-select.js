@@ -27,6 +27,7 @@ import {
     cloneShapeGeometry,
     boardShapeHitTest,
     renderBoardShape,
+    shapeIsFilled,
     shapeSelectionColor,
     shapeOutline,
     shapePathD,
@@ -251,6 +252,8 @@ function _clearHighlights(app) {
 }
 
 function _drawShapeHighlight(app, shape) {
+    if ((shape.kind === 'rect' || shape.kind === 'circle')
+        && shapeIsFilled(shape) && shape.layer !== 'hole') return;
     const overlay = app._getLayerGroup?.('selection-overlay');
     if (!overlay) return;
     const halo = document.createElementNS('http://www.w3.org/2000/svg', 'path');

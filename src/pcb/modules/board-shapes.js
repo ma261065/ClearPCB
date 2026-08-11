@@ -1,8 +1,7 @@
 /**
  * Free-standing PCB board shapes: rectangle, polygon, arc and circle.
  *
- * Modelled on the circle tool (see PCBApp._renderCircle and friends) but
- * generalised so the three new shapes share one code path. Shapes are plain
+ * Shapes are plain
  * objects stored in `app.boardShapes`; geometry-specific bits (path, outline,
  * hit-test) dispatch on `shape.kind`.
  *
@@ -234,12 +233,12 @@ export function shapePathD(shape, { close = false } = {}) {
         if (!g) {
             return `M ${r4(shape.start.x)} ${r4(shape.start.y)} L ${r4(shape.end.x)} ${r4(shape.end.y)}`;
         }
-        const { dir, total } = arcSweep(shape, g);
-        const largeArc = total > Math.PI ? 1 : 0;
-        const sweep = dir > 0 ? 1 : 0;
+        const cross = (shape.end.x - shape.start.x) * (shape.bulge.y - shape.start.y)
+            - (shape.end.y - shape.start.y) * (shape.bulge.x - shape.start.x);
+        const sweep = cross > 0 ? 0 : 1;
         const rad = r4(g.radius);
         let d = `M ${r4(shape.start.x)} ${r4(shape.start.y)}`
-            + ` A ${rad} ${rad} 0 ${largeArc} ${sweep} ${r4(shape.end.x)} ${r4(shape.end.y)}`;
+            + ` A ${rad} ${rad} 0 0 ${sweep} ${r4(shape.end.x)} ${r4(shape.end.y)}`;
         if (close) d += ' Z';
         return d;
     }
@@ -406,14 +405,18 @@ export function renderBoardShape(app, shape, opts = {}) {
     const isSelected = isPcbSelected(app, 'shape', shape);
     const isHovered = !!(app._hoveredShape && app._hoveredShape.id === shape.id);
     const st = shapeStyle(shape);
+    const hideFilledBorder = (shape.kind === 'rect' || shape.kind === 'circle')
+        && st.filled && !st.isHoleLayer;
     el.setAttribute('d', shapePathD(shape, { close: st.filled }));
     const canvasHatch = st.isCopperRemoval && st.filled;
     el.setAttribute('fill', st.filled
         ? (canvasHatch ? 'none' : st.isCopperRemoval ? app._ensureCopperRemovalHatch?.(shape.copperMode) || st.fillColor : st.fillColor)
         : 'none');
     if (st.filled) el.setAttribute('fill-opacity', st.isCopperRemoval ? '1' : st.fillOpacity);
-    el.setAttribute('stroke', isSelected ? shapeSelectionColor(shape) : isHovered ? shapeHoverColor(shape) : st.baseStroke);
-    el.setAttribute('stroke-width', String(st.isHoleLayer ? st.strokeWidth : st.filled ? 0.06 : st.strokeWidth));
+    el.setAttribute('stroke', hideFilledBorder
+        ? 'none'
+        : isSelected ? shapeSelectionColor(shape) : isHovered ? shapeHoverColor(shape) : st.baseStroke);
+    el.setAttribute('stroke-width', String(hideFilledBorder ? 0 : st.isHoleLayer ? st.strokeWidth : st.filled ? 0.06 : st.strokeWidth));
     el.setAttribute('stroke-linejoin', 'round');
     el.setAttribute('stroke-linecap', 'round');
     if (st.isCopperKnockout && !isSelected && !st.filled) el.setAttribute('stroke-dasharray', '0.6 0.45');

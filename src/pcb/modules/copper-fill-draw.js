@@ -18,6 +18,7 @@
 
 import { CopperFill } from '../../shapes/copper-fill.js';
 import { AddFillCommand } from './copper-fill-commands.js';
+import { setPcbSelection } from './selection-registry.js';
 
 const NS = 'http://www.w3.org/2000/svg';
 const PREVIEW_CLASS = 'pcb-fill-preview';
@@ -88,6 +89,7 @@ export function finishFillDraw(app) {
     });
     app.history.execute(new AddFillCommand(app, fill));
     // Select the new fill so the user can assign a net immediately.
+    setPcbSelection(app, [{ kind: 'fill', object: fill }]);
     app._selectFill?.(fill);
     app._showFillProperties?.(fill);
 }

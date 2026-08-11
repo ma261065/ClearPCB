@@ -25,7 +25,7 @@ import {
 } from './box-select.js';
 import { hitTestPcbSelectionAnchor } from './selection-anchors.js';
 
-const SUPPORTED_KINDS = new Set(['shape', 'via']);
+const SUPPORTED_KINDS = new Set(['shape', 'via', 'fill']);
 
 function clearUnsupportedSelectionUi(app) {
     clearTrackSelection(app);
@@ -40,6 +40,10 @@ function clearUnsupportedSelectionUi(app) {
 function showProperties(app, entry) {
     if (entry.kind === 'shape') showBoardShapeProperties(app, entry.object);
     else if (entry.kind === 'via') showViaProperties(app, entry.object);
+    else if (entry.kind === 'fill') {
+        app._selectFill?.(entry.object);
+        app._showFillProperties?.(entry.object);
+    }
 }
 
 /** Start a state-machine-owned select gesture. Returns true when consumed. */

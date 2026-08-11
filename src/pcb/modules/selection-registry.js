@@ -44,7 +44,8 @@ function entries(app) {
     for (const track of app.tracks || []) out.push(adapter(app, 'track', track));
     for (const via of app.vias || []) out.push(adapter(app, 'via', via));
     for (const shape of app.boardShapes || []) {
-        if (shape?.type !== 'fill') out.push(adapter(app, 'shape', shape));
+        if (shape?.type === 'fill') out.push(adapter(app, 'fill', shape));
+        else out.push(adapter(app, 'shape', shape));
     }
     return out;
 }
