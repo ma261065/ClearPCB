@@ -55,7 +55,6 @@ export function extractNetlist(schematicApp) {
     // Convert to array form
     const netlist = [];
     for (const [net, pinSet] of netMap) {
-        if (pinSet.size < 2) continue;  // single-pin nets have no rat lines
         const pins = [];
         for (const key of pinSet) {
             const [componentId, pinNumber] = key.split(':');

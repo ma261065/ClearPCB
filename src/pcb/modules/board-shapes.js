@@ -15,6 +15,7 @@
  */
 
 import { circumcircle, pointInPolygon, distanceToSegment } from '../../core/geometry.js';
+import { CopperFill, updateFillIdCounter } from '../../shapes/copper-fill.js';
 import { isLayerLocked, isLayerVisible, PCB_LAYERS } from './layers.js';
 import {
     AddBoardShapeCommand,
@@ -369,7 +370,7 @@ function shapeStyle(shape) {
     const filled = isHoleLayer
         ? true
         : isCopperLayer
-            ? ((isCopperAdd || isCopperRemoval) && !!shape.filled)
+            ? (isCopperRemoval || (isCopperAdd && !!shape.filled))
             : (!!shape.filled || isMaskLayer || isDocumentLayer);
     const fillColor = isHoleLayer ? 'var(--bg-canvas, #000000)' : layerColor;
     const fillOpacity = isHoleLayer || isDocumentLayer ? '1' : isCopperAdd ? '0.9' : '0.18';
@@ -391,7 +392,7 @@ export function shapeIsFilled(shape) {
     const isCopperLayer = layer === 'top-copper' || layer === 'bottom-copper';
     if (isCopperLayer) {
         const m = normalizeShapeCopperMode(shape.copperMode);
-        if (m === 'remove-copper' || m === 'remove-copper-mask') return true;
+        if (m !== 'add') return true;
         if (m === 'add') return !!shape.filled;
     }
     return !!shape.filled || isMaskOrDocLayer(layer);
@@ -1324,6 +1325,7 @@ export function boardShapeCopperCuts(app, copperLayer) {
 
 export function serializeBoardShapes(app) {
     return (app.boardShapes || []).map((s) => {
+        if (s?.type === 'fill') return s.toJSON();
         const base = {
             id: s.id,
             kind: s.kind,
@@ -1350,6 +1352,16 @@ const pt = (p) => ({ x: Number(p?.x) || 0, y: Number(p?.y) || 0 });
 export function loadBoardShapes(app, arr) {
     if (!Array.isArray(arr)) return;
     for (const sd of arr) {
+        if (sd?.type === 'fill') {
+            try {
+                const fill = CopperFill.fromJSON(sd);
+                updateFillIdCounter(fill.id);
+                app.boardShapes.push(fill);
+            } catch (err) {
+                console.warn('Skipping malformed copper fill during load:', err);
+            }
+            continue;
+        }
         const kind = SHAPE_KINDS.has(sd?.kind) ? sd.kind : null;
         if (!kind) continue;
         const base = {

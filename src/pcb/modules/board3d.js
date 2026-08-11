@@ -2200,6 +2200,7 @@ function buildCopperMesh(tracks, circles = [], boardShapes = []) {
     // Non-circular board shapes authored on copper layers. Circles use the
     // specialised disc/ring path above so unfilled rings remain hollow.
     for (const s of boardShapes || []) {
+        if (s?.type === 'fill') continue;
         if (s?.kind === 'circle') continue;
         if (!s || (s.layer !== 'top-copper' && s.layer !== 'bottom-copper')) continue;
         if (normalizeShapeCopperMode(s.copperMode) !== 'add') continue;
@@ -3864,7 +3865,9 @@ export async function openBoard3DViewer(app, opts = {}) {
         tracks: app.tracks,
         vias: app.vias,
         circles: [],
-        boardShapes: (app.boardShapes || []).map((s) => ({ ...s, outline: shapeOutline(s) })),
+        boardShapes: (app.boardShapes || [])
+            .filter((shape) => shape?.type !== 'fill')
+            .map((shape) => ({ ...shape, outline: shapeOutline(shape) })),
         fills: app.copperFills,
         texts: [...(app.texts?.values?.() || [])],
         boardX: app._boardX || 0,

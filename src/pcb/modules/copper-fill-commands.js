@@ -6,20 +6,20 @@
  * re-renders all pours via app._refreshFills().
  */
 
-/** Add a CopperFill to app.copperFills. */
+/** Add a CopperFill to the canonical app.boardShapes collection. */
 export class AddFillCommand {
     constructor(app, fill) {
         this.app = app;
         this.fill = fill;
     }
     execute() {
-        if (!this.app.copperFills.includes(this.fill)) this.app.copperFills.push(this.fill);
+        if (!this.app.boardShapes.includes(this.fill)) this.app.boardShapes.push(this.fill);
         this.app._recomputeFillsNow?.();
         this.app._updateRatsnest?.();
     }
     undo() {
-        const i = this.app.copperFills.indexOf(this.fill);
-        if (i >= 0) this.app.copperFills.splice(i, 1);
+        const i = this.app.boardShapes.indexOf(this.fill);
+        if (i >= 0) this.app.boardShapes.splice(i, 1);
         if (this.app._selectedFill === this.fill) this.app._selectFill?.(null);
         this.app._recomputeFillsNow?.();
         this.app._updateRatsnest?.();
@@ -33,14 +33,14 @@ export class RemoveFillCommand {
         this.fill = fill;
     }
     execute() {
-        const i = this.app.copperFills.indexOf(this.fill);
-        if (i >= 0) this.app.copperFills.splice(i, 1);
+        const i = this.app.boardShapes.indexOf(this.fill);
+        if (i >= 0) this.app.boardShapes.splice(i, 1);
         if (this.app._selectedFill === this.fill) this.app._selectFill?.(null);
         this.app._recomputeFillsNow?.();
         this.app._updateRatsnest?.();
     }
     undo() {
-        if (!this.app.copperFills.includes(this.fill)) this.app.copperFills.push(this.fill);
+        if (!this.app.boardShapes.includes(this.fill)) this.app.boardShapes.push(this.fill);
         this.app._recomputeFillsNow?.();
         this.app._updateRatsnest?.();
     }

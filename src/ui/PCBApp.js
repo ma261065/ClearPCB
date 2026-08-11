@@ -184,6 +184,11 @@ const REF_BOX_PAD = 0.6;
  * immediately (debounced).
  */
 export default class PCBApp {
+    /** CopperFill entries owned by the canonical board-shape collection. */
+    get copperFills() {
+        return (this.boardShapes || []).filter((shape) => shape?.type === 'fill');
+    }
+
     constructor() {
         this.ribbon = document.getElementById('ribbonPCB');
         this.themeToggle = document.getElementById('pcbThemeToggle');
@@ -258,13 +263,6 @@ export default class PCBApp {
          */
         this.vias = [];
 
-        /**
-         * Copper pour regions (net-aware flood fills). Each entry is a
-         * CopperFill (user-authored outline + layer + net); the poured
-         * copper geometry is computed live by the fill engine.
-         * @type {Array<import('../shapes/copper-fill.js').CopperFill>}
-         */
-        this.copperFills = [];
         /** Currently selected CopperFill, or null. */
         this._selectedFill = null;
         /** Currently selected free-standing circle, or null. */
@@ -336,7 +334,7 @@ export default class PCBApp {
         this._pcbClipboard = null;
         /** Monotonic paste counter (used for visible paste offsets). */
         this._pcbPasteCount = 0;
-        /** Free-standing board shapes (rectangle / polygon / arc / circle). */
+        /** Canonical board shapes, including CopperFill pour regions. */
         this.boardShapes = [];
         /** SVG <path> elements keyed by shape id for quick remove/replace. */
         this._shapeElements = new Map();
@@ -2251,7 +2249,7 @@ export default class PCBApp {
         });
     }
 
-    /** Draw filled circular removals once into a composited screen-space bitmap. */
+    /** Draw copper-removal hatches once into a composited screen-space bitmap. */
     _scheduleRemovalHatchRender() {
         if (this._removalHatchFrame) return;
         this._removalHatchFrame = requestAnimationFrame(() => {
@@ -2260,7 +2258,7 @@ export default class PCBApp {
         });
     }
 
-    /** Draw filled circular removals once into a composited screen-space bitmap. */
+    /** Draw copper-removal hatches once into a composited screen-space bitmap. */
     _renderRemovalHatches() {
         const viewport = this.viewport;
         const container = this.canvasContainer;
@@ -2294,7 +2292,7 @@ export default class PCBApp {
         const viewBox = viewport.viewBox;
         const scale = viewport.scale || 1;
         for (const shape of this.boardShapes || []) {
-            if (!shape || !shape.filled || !isLayerVisible(shape.layer)) continue;
+            if (!shape || shape.type === 'fill' || !isLayerVisible(shape.layer)) continue;
             if (shape.layer !== 'top-copper' && shape.layer !== 'bottom-copper') continue;
             const mode = normalizeShapeCopperMode(shape.copperMode);
             if (!colors[mode]) continue;
@@ -2316,13 +2314,26 @@ export default class PCBApp {
                 const tileContext = tile.getContext('2d');
                 tileContext.strokeStyle = colors[mode];
                 tileContext.lineWidth = 1.2;
-                for (let offset = -36; offset <= 36; offset += 18) {
-                    tileContext.beginPath();
-                    tileContext.moveTo(offset, 0);
-                    tileContext.lineTo(offset + 36, 36);
-                    tileContext.moveTo(offset, 36);
-                    tileContext.lineTo(offset + 36, 0);
-                    tileContext.stroke();
+                if (mode === 'remove-solder-mask') {
+                    for (let offset = 0; offset <= 36; offset += 12) {
+                        tileContext.beginPath();
+                        tileContext.moveTo(offset, 0);
+                        tileContext.lineTo(offset, 36);
+                        tileContext.moveTo(0, offset);
+                        tileContext.lineTo(36, offset);
+                        tileContext.stroke();
+                    }
+                } else {
+                    for (let offset = -36; offset <= 36; offset += 18) {
+                        tileContext.beginPath();
+                        tileContext.moveTo(offset, 0);
+                        tileContext.lineTo(offset + 36, 36);
+                        if (mode === 'remove-copper') {
+                            tileContext.moveTo(offset, 36);
+                            tileContext.lineTo(offset + 36, 0);
+                        }
+                        tileContext.stroke();
+                    }
                 }
                 pattern = context.createPattern(tile, 'repeat');
                 this._removalHatchPatterns.set(mode, pattern);
@@ -2892,7 +2903,6 @@ export default class PCBApp {
             vias: this.vias.map(v => v.toJSON()),
             boardShapes: serializeBoardShapes(this),
             texts: [...this.texts.values()].map(serializePcbText),
-            fills: this.copperFills.map(f => f.toJSON()),
             placements,
         };
     }
@@ -2908,7 +2918,7 @@ export default class PCBApp {
     serializeSection() {
         const hasContent = this.tracks?.length || this.vias?.length
             || this.boardShapes?.length
-            || this.texts?.size || this.copperFills?.length || this._placementOverrides.size
+            || this.texts?.size || this._placementOverrides.size
             || this._boardOutlineDrawn;
         return hasContent ? this.serialize() : null;
     }
@@ -3014,8 +3024,7 @@ export default class PCBApp {
         this._shapeDraw = null;
         this._shapeDrag = null;
         this._updateCopperCuts?.();
-        // Drop any existing copper pours and their SVG.
-        this.copperFills.length = 0;
+        // Copper pours live in boardShapes; clear their SVG state.
         this._selectedFill = null;
         this._clearFillHandles?.();
         this._clearFillGroups?.();
@@ -3124,7 +3133,7 @@ export default class PCBApp {
                 try {
                     const fill = CopperFill.fromJSON(fd);
                     updateFillIdCounter(fill.id);
-                    this.copperFills.push(fill);
+                    this.boardShapes.push(fill);
                 } catch (err) {
                     console.warn('Skipping malformed copper fill during load:', err);
                 }
@@ -4416,7 +4425,9 @@ export default class PCBApp {
 
         // Keep free-standing board shapes above freshly placed footprint
         // artwork after a schematic-driven rebuild.
-        for (const s of this.boardShapes) renderBoardShape(this, s);
+        for (const s of this.boardShapes) {
+            if (s.type !== 'fill') renderBoardShape(this, s);
+        }
 
         // Draw ratsnest
         this._updateRatsnest();
@@ -4473,9 +4484,10 @@ export default class PCBApp {
             removeViaElements(v);
             renderVia(v, getGroup);
         }
-        // Free-standing board shapes (rectangle / polygon / arc / circle).
+        // Free-standing board shapes; CopperFill entries render separately.
         this._shapeElements.clear();
         for (const s of this.boardShapes) {
+            if (s.type === 'fill') continue;
             renderBoardShape(this, s);
         }
         if (getPcbSelection(this).length) refreshBoxSelectionHighlights(this);
@@ -7122,6 +7134,7 @@ export default class PCBApp {
             for (const seg of pcbTextObstacles(text)) copperObstacles.push(seg);
         }
         for (const shape of this.boardShapes || []) {
+            if (shape?.type === 'fill') continue;
             if (!shape || (shape.layer !== 'top-copper' && shape.layer !== 'bottom-copper')) continue;
             if (normalizeShapeCopperMode(shape.copperMode) !== 'add') continue;
             const layer = shape.layer === 'top-copper' ? 'top' : 'bottom';
@@ -7175,6 +7188,7 @@ export default class PCBApp {
         const connections = [];
         const shapeTerminalsByNet = new Map();
         for (const shape of this.boardShapes || []) {
+            if (shape?.type === 'fill') continue;
             const net = String(shape?.net || '');
             if (!net || !shape.filled || (shape.layer !== 'top-copper' && shape.layer !== 'bottom-copper')) continue;
             if (normalizeShapeCopperMode(shape.copperMode) !== 'add') continue;
@@ -9076,7 +9090,9 @@ export default class PCBApp {
                 texts: [...this.texts.values()],
                 fills: this.copperFills,
                 circles: [],
-                boardShapes: (this.boardShapes || []).map(s => ({ ...s, outline: shapeOutline(s) })),
+                boardShapes: (this.boardShapes || [])
+                    .filter((shape) => shape?.type !== 'fill')
+                    .map((shape) => ({ ...shape, outline: shapeOutline(shape) })),
                 boardX: this._boardX || 0,
                 boardY: this._boardY || 0,
                 boardWidth: this._boardWidth,

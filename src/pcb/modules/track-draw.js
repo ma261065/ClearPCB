@@ -801,6 +801,7 @@ export function reconcileRatsnest(app, opts) {
     // Their outline provides point-contact bonding; filled shapes additionally
     // bond copper terminals that lie anywhere inside their area.
     for (const shape of (app.boardShapes || [])) {
+        if (shape?.type === 'fill') continue;
         const net = String(shape?.net || '');
         const layer = shape?.layer;
         if (!net || (layer !== 'top-copper' && layer !== 'bottom-copper')) continue;

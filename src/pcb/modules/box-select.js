@@ -212,6 +212,7 @@ function _computeEnclosed(app, bounds) {
 
     // Board shapes: every outline point must lie inside the marquee.
     for (const shape of (app.boardShapes || [])) {
+        if (shape?.type === 'fill') continue;
         if (isLayerLocked(shape.layer)) continue;
         const outline = shapeOutline(shape);
         if (outline.length > 0 && outline.every((p) => p.x >= minX && p.x <= maxX && p.y >= minY && p.y <= maxY)) {
