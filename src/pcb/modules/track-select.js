@@ -14,7 +14,7 @@
  *   - Multi-selection.
  */
 
-import { removeTrackElements, removeViaElements, renderTrack, renderVia } from './track-render.js';
+import { buildTrackLayerRuns, removeTrackElements, removeViaElements, renderTrack, renderVia } from './track-render.js';
 import { reconcileRatsnest, collectBondedCopper } from './track-draw.js';
 import {
     hitTestTrackEdge,
@@ -27,6 +27,10 @@ import {
     updateViaDrag,
     finishViaDrag,
     cancelViaDrag,
+    startVertexDrag,
+    updateVertexDrag,
+    finishVertexDrag,
+    cancelVertexDrag,
 } from './track-drag.js';
 import {
     RemoveTrackCommand,
@@ -39,8 +43,15 @@ import {
     ModifyViaCommand,
 } from './track-commands.js';
 import { PCB_LAYERS, isLayerLocked, isViaLocked, isLayerVisible, isViaVisible } from './layers.js';
+import { canRestoreTrackToSourceBoardShape, restoreTrackToSourceBoardShape } from './board-shapes.js';
 import { showAlert } from '../../ui/modules/modal.js';
-import { registerPcbSelectionAdapter } from './selection-registry.js';
+import {
+    getPcbSelection,
+    isPcbSelected,
+    registerPcbSelectionAdapter,
+    setPcbSelection,
+} from './selection-registry.js';
+import { renderPcbSelectionAnchors } from './selection-anchors.js';
 
 const NS = 'http://www.w3.org/2000/svg';
 const HALO_CLASS = 'pcb-track-selection';
@@ -56,6 +67,141 @@ const HALO_OPACITY_HOVER = 0.6;
 
 /** Pixel tolerance for hit-testing tracks (converted to world units). */
 const HIT_TOL_PX = 6;
+const COPPER_LAYERS = PCB_LAYERS.filter((layer) => layer.id === 'top-copper' || layer.id === 'bottom-copper');
+
+export function getSelectedTrack(app) {
+    return getPcbSelection(app, 'track')[0] || null;
+}
+
+export function getSelectedVia(app) {
+    return getPcbSelection(app, 'via')[0] || null;
+}
+
+function trackBounds(track) {
+    const points = [...(track?.nodes?.values?.() || [])];
+    if (!points.length) return { minX: 0, minY: 0, maxX: 0, maxY: 0 };
+    return {
+        minX: Math.min(...points.map((point) => point.x)),
+        minY: Math.min(...points.map((point) => point.y)),
+        maxX: Math.max(...points.map((point) => point.x)),
+        maxY: Math.max(...points.map((point) => point.y)),
+    };
+}
+
+function trackIsSelectable(track) {
+    for (const [edgeId] of track?.edges || []) {
+        const layer = track.getEdgeLayer(edgeId);
+        if (!isLayerLocked(layer) && isLayerVisible(layer)) return true;
+    }
+    return false;
+}
+
+function trackHitTest(track, point, tolerance) {
+    for (const [edgeId, edge] of track?.edges || []) {
+        const start = track.nodes.get(edge.from);
+        const end = track.nodes.get(edge.to);
+        if (!start || !end) continue;
+        const halfWidth = (track.getEdgeWidth(edgeId) || track.width || 0.2) / 2;
+        if (_pointSegDist(point, start, end) <= halfWidth + tolerance) return true;
+    }
+    return false;
+}
+
+/** Adapter bridge for the graph-based Track model. */
+export function createTrackSelectionAdapter(app, track, id) {
+    const beginDrag = (worldPos, options) => {
+        const started = startVertexDrag(app, track, worldPos, options);
+        if (started && app._vertexDrag) app._vertexDrag.userDragged = false;
+        return started;
+    };
+    const updateDrag = (worldPos) => {
+        const drag = app._vertexDrag;
+        if (drag && !drag.floating) {
+            const threshold = 3 / Math.max(0.01, app.viewport?.scale || 1);
+            if (Math.hypot(worldPos.x - drag.grabX, worldPos.y - drag.grabY) > threshold) {
+                drag.userDragged = true;
+            }
+        }
+        updateVertexDrag(app, worldPos);
+        app._updateVertexDragCrosshair?.();
+    };
+    const finishNodeMove = (commit, options = {}) => {
+        if (!commit) {
+            cancelVertexDrag(app);
+            return;
+        }
+        const drag = app._vertexDrag;
+        if (options.place && drag) {
+            drag.floating = false;
+            finishVertexDrag(app);
+            const selectedTrack = getSelectedTrack(app);
+            if (selectedTrack) {
+                clearTrackSelection(app);
+                selectTrackOrVia(app, { type: 'track', track: selectedTrack });
+            }
+            return;
+        }
+        if (drag?.mode === 'node' && !drag.userDragged) {
+            // Click-release enters the schematic-style floating move mode;
+            // the next left-click places this existing or inserted node.
+            drag.floating = true;
+            app._updateVertexDragCrosshair?.();
+            return { floating: true };
+        }
+        finishVertexDrag(app);
+    };
+    return {
+        id,
+        kind: 'track',
+        object: track,
+        get visible() { return trackIsSelectable(track); },
+        getBounds() { return trackBounds(track); },
+        hitTest(point, tolerance) { return trackHitTest(track, point, tolerance); },
+        getAnchors() {
+            const nodes = [...track.nodes.entries()].map(([nodeId, point]) => ({
+                id: nodeId,
+                ...point,
+                fill: HALO_COLOR,
+                stroke: '#000000',
+                sizePx: 7,
+                strokeWidthPx: 1.25,
+                cursor: 'nwse-resize',
+            }));
+            const midpoints = [...track.edges.entries()].flatMap(([edgeId, edge]) => {
+                const start = track.nodes.get(edge.from);
+                const end = track.nodes.get(edge.to);
+                return start && end ? [{
+                    id: `mid:${edgeId}`,
+                    x: (start.x + end.x) / 2,
+                    y: (start.y + end.y) / 2,
+                    round: true,
+                    fill: '#ffffff',
+                    symbol: 'plus',
+                    cursor: 'copy',
+                }] : [];
+            });
+            return [...nodes, ...midpoints];
+        },
+        beginAnchorDrag(anchorId, worldPos) {
+            return beginDrag(worldPos, { allowMidpointInsert: String(anchorId).startsWith('mid:') });
+        },
+        updateAnchorDrag(worldPos) { updateDrag(worldPos); },
+        endAnchorDrag(commit, options) { return finishNodeMove(commit, options); },
+        // The selecting click must not split a midpoint. The legacy flow
+        // requires a deliberate second click on the insertion handle.
+        beginMove(worldPos, { alreadySelected = false } = {}) {
+            // A newly selected Track consumes the first click without splitting
+            // the midpoint. Once it is active, the next click on `+` inserts.
+            return beginDrag(worldPos, { allowMidpointInsert: alreadySelected });
+        },
+        updateMove(worldPos) { updateDrag(worldPos); },
+        endMove(commit) { finishNodeMove(commit); },
+        invalidate() { renderTrack(track, (layerId) => app._getLayerGroup(layerId)); },
+        render() { renderTrack(track, (layerId) => app._getLayerGroup(layerId)); },
+    };
+}
+
+registerPcbSelectionAdapter('track', createTrackSelectionAdapter);
 
 function viaBounds(via) {
     const radius = Math.max(0, Number(via.diameter) || 0.6) / 2;
@@ -194,23 +340,24 @@ export function selectTrackOrVia(app, hit) {
         return;
     }
     if (hit.type === 'track') {
-        app._selectedTrack = hit.track;
+        setPcbSelection(app, [{ kind: 'track', object: hit.track }]);
         _setTrackLabelsVisible(hit.track, false);
         _drawTrackHalo(app, hit.track);
         _showTrackProperties(app, hit.track);
     } else {
-        app._selectedVia = hit.via;
+        setPcbSelection(app, [{ kind: 'via', object: hit.via }]);
         _drawViaHalo(app, hit.via);
         showViaProperties(app, hit.via);
     }
+    renderPcbSelectionAnchors(app);
     app._syncClipboardButtons?.();
 }
 
 /**
  * Select a single segment (one edge) of a track — the "second click"
  * refinement after the whole track is already selected. Keeps
- * `_selectedTrack` set so the existing drag/hover suppression still
- * applies, and records the focused edge in `_selectedSegment`.
+ * Records the focused edge in the explicit Track edit state so selection
+ * remains owned by the registry.
  *
  * @param {object} app
  * @param {object} track
@@ -225,11 +372,12 @@ export function selectTrackSegment(app, track, edgeId) {
         if (track) selectTrackOrVia(app, { type: 'track', track });
         return;
     }
-    app._selectedTrack = track;
-    app._selectedSegment = { track, edgeId };
+    setPcbSelection(app, [{ kind: 'track', object: track }]);
+    app._trackEdit = { track, edgeId };
     _setTrackLabelsVisible(track, false);
     _drawSegmentHalo(app, track, edgeId);
     _showTrackSegmentProperties(app, track, edgeId);
+    renderPcbSelectionAnchors(app);
     app._syncClipboardButtons?.();
 }
 
@@ -249,10 +397,8 @@ function _setTrackLabelsVisible(track, visible) {
 
 /** Remove any track/via selection halos and clear stored references. */
 export function clearTrackSelection(app) {
-    const prev = app._selectedTrack;
-    app._selectedTrack = null;
-    app._selectedVia = null;
-    app._selectedSegment = null;
+    const prev = getSelectedTrack(app);
+    app._trackEdit = null;
     _removeHalos(app, HALO_CLASS);
     if (prev) {
         // Bring the net labels back. They were hidden via display toggling,
@@ -276,10 +422,13 @@ export function clearTrackSelection(app) {
  */
 export function refreshTrackSelectionHalo(app) {
     _removeHalos(app, HALO_CLASS);
-    if (app._selectedSegment && app._selectedTrack) {
-        _drawSegmentHalo(app, app._selectedSegment.track, app._selectedSegment.edgeId);
-    } else if (app._selectedTrack) _drawTrackHalo(app, app._selectedTrack, HALO_CLASS, HALO_OPACITY_SELECTED);
-    else if (app._selectedVia) _drawViaHalo(app, app._selectedVia, HALO_CLASS, HALO_OPACITY_SELECTED);
+    const selectedTrack = getSelectedTrack(app);
+    const selectedVia = getSelectedVia(app);
+    if (app._trackEdit && selectedTrack === app._trackEdit.track) {
+        _drawSegmentHalo(app, app._trackEdit.track, app._trackEdit.edgeId);
+    } else if (selectedTrack) _drawTrackHalo(app, selectedTrack, HALO_CLASS, HALO_OPACITY_SELECTED);
+    else if (selectedVia) _drawViaHalo(app, selectedVia, HALO_CLASS, HALO_OPACITY_SELECTED);
+    renderPcbSelectionAnchors(app);
 }
 
 /**
@@ -290,7 +439,9 @@ export function refreshTrackSelectionHalo(app) {
 export function setHoverHighlight(app, hit) {
     // While a track is selected, suppress the whole-net hover highlight so
     // the selection stays the sole focus.
-    if (app._selectedTrack) {
+    const selectedTrack = getSelectedTrack(app);
+    const selectedVia = getSelectedVia(app);
+    if (selectedTrack) {
         if (app._hoveredTrackOrVia !== null) {
             app._hoveredTrackOrVia = null;
             _removeHalos(app, HOVER_CLASS);
@@ -313,16 +464,16 @@ export function setHoverHighlight(app, hit) {
             : { type: 'pad', componentId: hit.componentId, pinNumber: hit.pinNumber };
         const net = _collectConnectedNet(app, seed);
         for (const track of net.tracks) {
-            if (track !== app._selectedTrack) _drawTrackHalo(app, track, HOVER_CLASS, HALO_OPACITY_HOVER);
+            if (track !== selectedTrack) _drawTrackHalo(app, track, HOVER_CLASS, HALO_OPACITY_HOVER);
         }
         for (const via of net.vias) {
-            if (via !== app._selectedVia) _drawViaHalo(app, via, HOVER_CLASS, HALO_OPACITY_HOVER);
+            if (via !== selectedVia) _drawViaHalo(app, via, HOVER_CLASS, HALO_OPACITY_HOVER);
         }
         for (const padKey of net.pads) {
             const [componentId, pinNumber] = padKey.split('|');
             _drawSinglePadHighlight(app, componentId, pinNumber, HOVER_CLASS, HALO_OPACITY_HOVER);
         }
-    } else if (hit.type === 'via' && hit.via !== app._selectedVia) {
+    } else if (hit.type === 'via' && hit.via !== selectedVia) {
         _drawViaHalo(app, hit.via, HOVER_CLASS, HALO_OPACITY_HOVER);
     }
 }
@@ -508,19 +659,22 @@ export function removeHalosByClass(app, cls) {
  */
 export function deleteSelectedTrack(app) {
     // A single highlighted segment deletes just that edge (the rest of the
-    // track survives as its remaining connected pieces). `_selectedSegment`
-    // keeps `_selectedTrack` set too, so check the segment refinement first.
-    if (app._selectedSegment && app._selectedTrack) {
-        const { track, edgeId } = app._selectedSegment;
+    // track survives as its remaining connected pieces). The focused edge is
+    // explicit edit state, so verify its Track is still registry-selected.
+    const selectedTrack = getSelectedTrack(app);
+    if (app._trackEdit && selectedTrack === app._trackEdit.track) {
+        const { track, edgeId } = app._trackEdit;
         deleteTrackSegmentAt(app, track, edgeId);
         return;
     }
-    if (app._selectedTrack) {
-        const t = app._selectedTrack;
+    if (selectedTrack) {
+        const t = selectedTrack;
         clearTrackSelection(app);
         app.history?.execute(new RemoveTrackCommand(app, t));
-    } else if (app._selectedVia) {
-        const v = app._selectedVia;
+    } else {
+        const selectedVia = getSelectedVia(app);
+        if (!selectedVia) return;
+        const v = selectedVia;
         clearTrackSelection(app);
         app.history?.execute(new RemoveViaCommand(app, v));
     }
@@ -655,7 +809,7 @@ function _drawTrackHalo(app, track, cls = HALO_CLASS, opacity = HALO_OPACITY_SEL
     // Lay a translucent white overlay along each layer-run, at the same
     // width as the trace itself, so it brightens the copper in place
     // instead of producing an outer glow that lags behind moves.
-    const runs = _buildRuns(track);
+    const runs = buildTrackLayerRuns(track);
     for (const run of runs) {
         const parent = app._getLayerGroup(run.layer);
         if (!parent) continue;
@@ -674,7 +828,6 @@ function _drawTrackHalo(app, track, cls = HALO_CLASS, opacity = HALO_OPACITY_SEL
     _drawPadHighlights(app, track, cls, opacity);
     // Draw draggable node handles only for the SELECTION halo (not hover),
     // so the user can see the vertices they can grab.
-    if (cls === HALO_CLASS) _drawNodeHandles(app, track, cls);
 }
 
 /**
@@ -704,90 +857,6 @@ function _drawSegmentHalo(app, track, edgeId, cls = HALO_CLASS, opacity = HALO_O
         parent.appendChild(line);
     }
     _drawPadHighlights(app, track, cls, opacity);
-    if (cls === HALO_CLASS) _drawNodeHandles(app, track, cls);
-}
-
-/**
- * Draw a small square handle at each Track node so the user can see the
- * draggable vertices. Handles are sized in screen pixels (constant on
- * screen regardless of zoom) and rendered on the node's own layer.
- */
-function _drawNodeHandles(app, track, cls) {
-    if (!track.nodes?.size) return;
-    const scale = app.viewport?.scale || 1;
-    // Constant ~7px on-screen handle; clamp so it never dwarfs a thin trace.
-    const sizePx = 7;
-    const half = (sizePx / scale) / 2;
-    const strokePx = 1.25;
-    // Draw on the dedicated top-most overlay so handles sit above all
-    // copper AND any via (hole layer) that covers the node they mark.
-    const parent = app._getLayerGroup('selection-overlay');
-    if (!parent) return;
-    for (const [, n] of track.nodes) {
-        const r = document.createElementNS(NS, 'rect');
-        r.setAttribute('class', cls);
-        r.setAttribute('x', String(n.x - half));
-        r.setAttribute('y', String(n.y - half));
-        r.setAttribute('width', String(half * 2));
-        r.setAttribute('height', String(half * 2));
-        r.setAttribute('fill', HALO_COLOR);
-        r.setAttribute('fill-opacity', '0.9');
-        r.setAttribute('stroke', '#000');
-        r.setAttribute('stroke-opacity', '0.5');
-        r.setAttribute('stroke-width', String(strokePx / scale));
-        r.setAttribute('pointer-events', 'none');
-        parent.appendChild(r);
-    }
-    _drawMidpointHandles(app, track, cls, parent, scale);
-}
-
-/**
- * Draw an insertion handle at the midpoint of each segment, styled to
- * match the schematic Wire's midpoint anchor exactly: a white circle with
- * a blue stroke and a blue "+" sign (see core/ui-helpers buildPointAnchorsGroup).
- * Grabbing one inserts a new vertex and drags it. Sized in screen pixels
- * so it stays constant on screen regardless of zoom.
- */
-function _drawMidpointHandles(app, track, cls, parent, scale) {
-    if (!track.edges?.size) return;
-    const midR = 5.5 / scale;
-    const strokeW = 1 / scale;
-    const plusLen = midR * 1.1;
-    const MID_COLOR = '#1565c0';
-    for (const [, e] of track.edges) {
-        const a = track.nodes.get(e.from);
-        const b = track.nodes.get(e.to);
-        if (!a || !b) continue;
-        const cx = (a.x + b.x) / 2, cy = (a.y + b.y) / 2;
-        const g = document.createElementNS(NS, 'g');
-        g.setAttribute('class', cls);
-        g.setAttribute('pointer-events', 'none');
-
-        const circle = document.createElementNS(NS, 'circle');
-        circle.setAttribute('cx', String(cx));
-        circle.setAttribute('cy', String(cy));
-        circle.setAttribute('r', String(midR));
-        circle.setAttribute('fill', '#fff');
-        circle.setAttribute('stroke', MID_COLOR);
-        circle.setAttribute('stroke-width', String(strokeW));
-        g.appendChild(circle);
-
-        for (const [x1, y1, x2, y2] of [
-            [cx - plusLen, cy, cx + plusLen, cy],
-            [cx, cy - plusLen, cx, cy + plusLen],
-        ]) {
-            const ln = document.createElementNS(NS, 'line');
-            ln.setAttribute('x1', String(x1));
-            ln.setAttribute('y1', String(y1));
-            ln.setAttribute('x2', String(x2));
-            ln.setAttribute('y2', String(y2));
-            ln.setAttribute('stroke', MID_COLOR);
-            ln.setAttribute('stroke-width', String(strokeW * 1.5));
-            ln.setAttribute('stroke-linecap', 'round');
-            g.appendChild(ln);
-        }
-        parent.appendChild(g);
-    }
 }
 
 /**
@@ -907,63 +976,6 @@ function _drawHoleHalo(app, hole, cls = HALO_CLASS, opacity = HALO_OPACITY_SELEC
     layer.appendChild(g);
 }
 
-/**
- * Build contiguous same-layer point runs for a Track. Mirrors the logic
- * in track-render._buildLayerRuns but kept local to avoid coupling.
- */
-function _buildRuns(track) {
-    if (track.edges.size === 0) return [];
-    // Build adjacency.
-    const adj = new Map();
-    for (const nid of track.nodes.keys()) adj.set(nid, []);
-    for (const [eid, e] of track.edges) {
-        adj.get(e.from).push({ other: e.to, eid });
-        adj.get(e.to).push({ other: e.from, eid });
-    }
-    const usedEdges = new Set();
-    const runs = [];
-
-    // Start from endpoint (degree-1) nodes first, then any remaining nodes.
-    // A chain that passes THROUGH a degree-2 node must render as ONE
-    // continuous run; starting at that interior node instead would split it
-    // into two runs meeting there, doubling the round line-caps into a
-    // visible "join" blob in the halo (this is exactly the ordering used by
-    // track-render._buildLayerRuns, which this is meant to mirror).
-    const startOrder = [];
-    for (const [nid, list] of adj) if (list.length === 1) startOrder.push(nid);
-    for (const nid of adj.keys()) if (!startOrder.includes(nid)) startOrder.push(nid);
-
-    // Walk from each end / branch node along same-layer paths.
-    for (const startNid of startOrder) {
-        for (const { other, eid } of adj.get(startNid)) {
-            if (usedEdges.has(eid)) continue;
-            const layer = track.getEdgeLayer(eid);
-            const width = track.getEdgeWidth(eid);
-            const points = [track.nodes.get(startNid), track.nodes.get(other)];
-            usedEdges.add(eid);
-            // Extend forward while next edge shares the layer AND width and
-            // the current end has exactly two edges (no branch).
-            let prev = startNid, cur = other;
-            while (true) {
-                const next = (adj.get(cur) || []).find(
-                    (n) => !usedEdges.has(n.eid)
-                        && track.getEdgeLayer(n.eid) === layer
-                        && track.getEdgeWidth(n.eid) === width
-                        && n.other !== prev,
-                );
-                if (!next) break;
-                if ((adj.get(cur) || []).length !== 2) break;
-                usedEdges.add(next.eid);
-                points.push(track.nodes.get(next.other));
-                prev = cur;
-                cur = next.other;
-            }
-            runs.push({ layer, width, points });
-        }
-    }
-    return runs;
-}
-
 /* ──────────────────────────── properties panel ──────────────────────────── */
 
 function _showTrackProperties(app, track) {
@@ -974,12 +986,13 @@ function _showTrackProperties(app, track) {
     for (const eid of track.edges.keys()) layers.add(track.getEdgeLayer(eid));
     const mixed = layers.size > 1;
     const currentLayer = mixed ? '' : (layers.values().next().value || track.layer || 'top-copper');
-    const layerOpts = PCB_LAYERS.map(
+    const layerOpts = COPPER_LAYERS.map(
         (l) => `<option value="${l.id}"${l.id === currentLayer ? ' selected' : ''}>${_escape(l.name)}</option>`
     ).join('');
     const mixedOpt = mixed ? `<option value="" selected>Multiple</option>` : '';
+    const netOptions = _netOptions(app, track.net || '');
     items.innerHTML = `
-        <div class="prop-row"><label>Net</label><input type="text" id="pcbPropTrackNet" value="${_escape(track.net || '')}" placeholder="(unassigned)"></div>
+        <div class="prop-row"><label>Net</label><span class="prop-net-control"><input type="text" id="pcbPropTrackNet" value="${_escape(track.net || '')}" placeholder="None"><details class="prop-net-menu"><summary aria-label="Select existing net"></summary><div>${netOptions}</div></details></span></div>
         <div class="prop-row"><label>Layer</label><select id="pcbPropTrackLayer">${mixedOpt}${layerOpts}</select></div>
         <div class="prop-row"><label>Width (mm)</label><input type="number" id="pcbPropTrackWidth" value="${track.width}" min="0.05" step="0.05"></div>
     `;
@@ -1004,7 +1017,7 @@ function _showTrackProperties(app, track) {
                 viaDrill: app._getRoutingParams?.()?.viaDrill,
             });
             clearTrackSelection(app);
-            app._selectedTrack = track;
+            setPcbSelection(app, [{ kind: 'track', object: track }]);
             _drawTrackHalo(app, track);
             app._refreshClearanceHalos?.();
         });
@@ -1024,13 +1037,35 @@ function _showTrackProperties(app, track) {
         baseline.width = v;
     });
     const netEl = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropTrackNet'));
+    const netMenuEl = /** @type {HTMLDetailsElement|null} */ (document.querySelector('.prop-net-menu'));
     netEl?.addEventListener('change', () => {
         const v = netEl.value.trim();
         if (v === baseline.net) return;
+        if (!v && canRestoreTrackToSourceBoardShape(track)) {
+            clearTrackSelection(app);
+            if (restoreTrackToSourceBoardShape(app, track)) {
+                baseline.net = '';
+                return;
+            }
+        }
         if (_applyNetToBondedCopper(app, { track }, v)) {
             baseline.net = v;
         } else {
             netEl.value = baseline.net; // refused — restore the field
+        }
+    });
+    netMenuEl?.addEventListener('click', (event) => {
+        const option = /** @type {HTMLButtonElement|null} */ (event.target instanceof Element ? event.target.closest('button[data-net]') : null);
+        if (!option) return;
+        netEl.value = option.dataset.net || '';
+        netEl.dispatchEvent(new Event('change'));
+        netMenuEl.open = false;
+    });
+    netMenuEl?.addEventListener('toggle', () => {
+        if (!netMenuEl.open || !netEl) return;
+        const current = netEl.value.trim();
+        for (const option of netMenuEl.querySelectorAll('button[data-net]')) {
+            option.toggleAttribute('aria-current', option.dataset.net === current);
         }
     });
     const layerEl = /** @type {HTMLSelectElement|null} */ (document.getElementById('pcbPropTrackLayer'));
@@ -1075,11 +1110,12 @@ function _showTrackSegmentProperties(app, track, edgeId) {
     app._setPcbPropsTitle?.('Track Segment');
     const currentLayer = track.getEdgeLayer(edgeId) || 'top-copper';
     const segWidth = track.getEdgeWidth(edgeId);
-    const layerOpts = PCB_LAYERS.map(
+    const layerOpts = COPPER_LAYERS.map(
         (l) => `<option value="${l.id}"${l.id === currentLayer ? ' selected' : ''}>${_escape(l.name)}</option>`
     ).join('');
+    const netOptions = _netOptions(app, track.net || '');
     items.innerHTML = `
-        <div class="prop-row"><label>Net</label><input type="text" id="pcbPropTrackNet" value="${_escape(track.net || '')}" placeholder="(unassigned)"></div>
+        <div class="prop-row"><label>Net</label><span class="prop-net-control"><input type="text" id="pcbPropTrackNet" value="${_escape(track.net || '')}" placeholder="None"><details class="prop-net-menu"><summary aria-label="Select existing net"></summary><div>${netOptions}</div></details></span></div>
         <div class="prop-row"><label>Layer</label><select id="pcbPropSegLayer">${layerOpts}</select></div>
         <div class="prop-row"><label>Width (mm)</label><input type="number" id="pcbPropTrackWidth" value="${segWidth}" min="0.05" step="0.05"></div>
     `;
@@ -1113,13 +1149,35 @@ function _showTrackSegmentProperties(app, track, edgeId) {
         baseline.width = v;
     });
     const netEl = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropTrackNet'));
+    const netMenuEl = /** @type {HTMLDetailsElement|null} */ (document.querySelector('.prop-net-menu'));
     netEl?.addEventListener('change', () => {
         const v = netEl.value.trim();
         if (v === baseline.net) return;
+        if (!v && canRestoreTrackToSourceBoardShape(track)) {
+            clearTrackSelection(app);
+            if (restoreTrackToSourceBoardShape(app, track)) {
+                baseline.net = '';
+                return;
+            }
+        }
         if (_applyNetToBondedCopper(app, { track }, v)) {
             baseline.net = v;
         } else {
             netEl.value = baseline.net;
+        }
+    });
+    netMenuEl?.addEventListener('click', (event) => {
+        const option = /** @type {HTMLButtonElement|null} */ (event.target instanceof Element ? event.target.closest('button[data-net]') : null);
+        if (!option) return;
+        netEl.value = option.dataset.net || '';
+        netEl.dispatchEvent(new Event('change'));
+        netMenuEl.open = false;
+    });
+    netMenuEl?.addEventListener('toggle', () => {
+        if (!netMenuEl.open || !netEl) return;
+        const current = netEl.value.trim();
+        for (const option of netMenuEl.querySelectorAll('button[data-net]')) {
+            option.toggleAttribute('aria-current', option.dataset.net === current);
         }
     });
     const layerEl = /** @type {HTMLSelectElement|null} */ (document.getElementById('pcbPropSegLayer'));

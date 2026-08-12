@@ -14,6 +14,7 @@ import {
 } from './track-render.js';
 import { reconcileRatsnest } from './track-draw.js';
 import { refreshTrackSelectionHalo } from './track-select.js';
+import { getPcbSelection } from './selection-registry.js';
 
 function _opts(app, track) {
     return {
@@ -25,7 +26,7 @@ function _opts(app, track) {
 
 /** Net labels are hidden while a track is selected or being dragged. */
 function _shouldHideNetLabel(app, track) {
-    return !!track && (track === app._selectedTrack || track === app._vertexDrag?.track);
+    return !!track && (track === getPcbSelection(app, 'track')[0] || track === app._vertexDrag?.track);
 }
 
 /**

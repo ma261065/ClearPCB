@@ -25,7 +25,10 @@ export function createCopperFillSelectionAdapter(app, fill, id) {
         },
         beginAnchorDrag(_anchorId, worldPos) { return app._startFillDrag(fill, worldPos); },
         updateAnchorDrag(worldPos) { app._handleFillDrag(worldPos); },
-        endAnchorDrag(commit) { app._endFillDrag(commit); },
+        endAnchorDrag(commit, options = {}) {
+            if (commit && !options.moved && !options.place && app._fillDrag) return { floating: true };
+            app._endFillDrag(commit);
+        },
         beginMove(worldPos) { return app._startFillDrag(fill, worldPos); },
         updateMove(worldPos) { app._handleFillDrag(worldPos); },
         endMove(commit) { app._endFillDrag(commit); },

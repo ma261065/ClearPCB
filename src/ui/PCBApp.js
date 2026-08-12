@@ -18,6 +18,7 @@ import { renderTrack, renderVia, removeTrackElements, removeViaElements } from '
 import {
     startTrackDraw,
     updateTrackDraw,
+    refreshTrackDrawPreview,
     addTrackWaypoint,
     finishTrackDraw,
     cancelTrackDraw,
@@ -36,6 +37,8 @@ import {
     setHoverHighlight,
     showTrackContextMenu,
     refreshTrackSelectionHalo,
+    getSelectedTrack,
+    getSelectedVia,
     selectTrackSegment,
     dismissTrackContextMenu,
 } from '../pcb/modules/track-select.js';
@@ -96,6 +99,7 @@ import {
     updateShapeDrawPreview,
     cancelShapeDraw,
     finishPolygonDraw,
+    finishLineDraw,
     hitTestBoardShape,
     setBoardShapeHover,
     selectBoardShape,
@@ -119,8 +123,11 @@ import {
     normalizeShapeCopperMode,
     shapePathD,
     boardShapeBounds,
+    showBoardShapeContextMenu,
+    dismissBoardShapeContextMenu,
 } from '../pcb/modules/board-shapes.js';
 import { hitTestPcbSelectionAnchor, renderPcbSelectionAnchors } from '../pcb/modules/selection-anchors.js';
+import { refreshAxisGlow } from '../pcb/modules/axis-glow.js';
 import { hasAny3DModel, openComponent3DFromData, buildComponent3DTitle } from '../components/model3d-source.js';
 import {
     armBoxSelect,
@@ -138,7 +145,9 @@ import {
 } from '../pcb/modules/box-select.js';
 import {
     beginSelectionInteraction,
+    clearSelectionInteractionUi,
     finishSelectionInteraction,
+    placeFloatingSelectionInteraction,
     updateSelectionInteraction,
 } from '../pcb/modules/selection-interaction.js';
 import { getPcbSelection, isPcbSelected, setPcbSelection, syncPcbSelection } from '../pcb/modules/selection-registry.js';
@@ -151,6 +160,9 @@ import { computeFillPolygons, loadClipper, isClipperReady } from '../pcb/modules
 import { renderCopperFill, fillGroupId } from '../pcb/modules/copper-fill-render.js';
 import { AddFillCommand, RemoveFillCommand, ModifyFillCommand } from '../pcb/modules/copper-fill-commands.js';
 import '../pcb/modules/copper-fill-selection.js';
+import '../pcb/modules/component-selection.js';
+import '../pcb/modules/pcb-text-selection.js';
+import '../pcb/modules/ref-text-selection.js';
 import {
     startFillDraw,
     updateFillDraw,
@@ -265,7 +277,6 @@ export default class PCBApp {
         this.vias = [];
 
         /** Currently selected CopperFill, or null. */
-        this._selectedFill = null;
         /** True when the schematic has changed since last PCB rebuild */
         this._stale = true;
         /** Debounce timer for live rebuilds while PCB pane is active */
@@ -286,8 +297,6 @@ export default class PCBApp {
         this.ui = null;
 
         // ── Selection & drag state ────────────────────────────
-        /** Currently selected component ID, or null */
-        this._selectedComp = null;
         /** Component ID currently showing a hover outline, or null */
         this._hoveredComp = null;
         /** Drag state: { compId, startWorld, startPos } or null */
@@ -313,11 +322,8 @@ export default class PCBApp {
         /** SVG <g> elements keyed by text id for quick remove/replace. */
         this._textElements = new Map();
         /** Currently selected text object, or null. */
-        this._selectedText = null;
         /** Active text drag: { textId, startWorld, startPos } or null. */
         this._textDrag = null;
-        /** Component ID whose reference designator is currently selected, or null. */
-        this._selectedRef = null;
         /** Active reference-text drag: { compId, startWorld, startDx, startDy } or null. */
         this._refDrag = null;
         /** Overlay <g> for the ref-text selection box and drag tether. */
@@ -337,7 +343,6 @@ export default class PCBApp {
         /** Board shape currently hovered in select mode, or null. */
         this._hoveredShape = null;
         /** Currently selected board shape, or null. */
-        this._selectedShape = null;
         /** Active in-progress board-shape draw interaction, or null. */
         this._shapeDraw = null;
         /** Active board-shape drag: { id, startWorld, before } or null. */
@@ -489,13 +494,11 @@ export default class PCBApp {
 
     /** Whether current selection can be copied/cut from PCB. */
     _canCopyCutPcbSelection() {
-        if (hasBoxSelection(this)) {
-            return getPcbSelection(this, 'track').length > 0
-                || getPcbSelection(this, 'via').length > 0
-                || getPcbSelection(this, 'shape').length > 0;
-        }
-        if (this._selectedComp || this._selectedRef) return false;
-        return !!(this._selectedTrack || this._selectedVia || this._selectedShape || this._selectedText || this._selectedFill);
+        return getPcbSelection(this, 'track').length > 0
+            || getPcbSelection(this, 'via').length > 0
+            || getPcbSelection(this, 'shape').length > 0
+            || getPcbSelection(this, 'text').length > 0
+            || getPcbSelection(this, 'fill').length > 0;
     }
 
     /** Enable/disable PCB ribbon clipboard buttons to match current state. */
@@ -516,21 +519,11 @@ export default class PCBApp {
      */
     _capturePcbClipboardSelection() {
         const payload = { tracks: [], vias: [], shapes: [], texts: [], fills: [] };
-        if (hasBoxSelection(this)) {
-            for (const track of getPcbSelection(this, 'track')) payload.tracks.push(track.toJSON());
-            for (const via of getPcbSelection(this, 'via')) payload.vias.push(via.toJSON());
-            for (const shape of getPcbSelection(this, 'shape')) payload.shapes.push(JSON.parse(JSON.stringify(shape)));
-        } else if (this._selectedTrack) {
-            payload.tracks.push(this._selectedTrack.toJSON());
-        } else if (this._selectedVia) {
-            payload.vias.push(this._selectedVia.toJSON());
-        } else if (this._selectedShape) {
-            payload.shapes.push(JSON.parse(JSON.stringify(this._selectedShape)));
-        } else if (this._selectedText) {
-            payload.texts.push(serializePcbText(this._selectedText));
-        } else if (this._selectedFill) {
-            payload.fills.push(this._selectedFill.captureState());
-        }
+        for (const track of getPcbSelection(this, 'track')) payload.tracks.push(track.toJSON());
+        for (const via of getPcbSelection(this, 'via')) payload.vias.push(via.toJSON());
+        for (const shape of getPcbSelection(this, 'shape')) payload.shapes.push(JSON.parse(JSON.stringify(shape)));
+        for (const text of getPcbSelection(this, 'text')) payload.texts.push(serializePcbText(text));
+        for (const fill of getPcbSelection(this, 'fill')) payload.fills.push(fill.captureState());
         if (!payload.tracks.length && !payload.vias.length && !payload.shapes.length
             && !payload.texts.length && !payload.fills.length) return null;
         return payload;
@@ -540,8 +533,9 @@ export default class PCBApp {
     copySelection() {
         const payload = this._capturePcbClipboardSelection();
         if (!payload) {
-            if (this._selectedComp || this._selectedRef) {
-                this._showComponentPopup(this._selectedComp || this._selectedRef,
+            const componentId = getPcbSelection(this, 'component')[0] || getPcbSelection(this, 'reftext')[0];
+            if (componentId) {
+                this._showComponentPopup(componentId,
                     "Components can't be copied from PCB. Copy them in the schematic editor.");
             }
             this._syncClipboardButtons();
@@ -556,32 +550,9 @@ export default class PCBApp {
     /** Cut currently-selected PCB entities (copy + remove). */
     cutSelection() {
         if (!this.copySelection()) return false;
-        if (hasBoxSelection(this)) {
-            deleteBoxSelection(this);
-            this._syncClipboardButtons();
-            return true;
-        }
-        if (this._selectedText) {
-            this._deleteSelectedText();
-            this._syncClipboardButtons();
-            return true;
-        }
-        if (this._selectedTrack || this._selectedVia) {
-            deleteSelectedTrack(this);
-            this._syncClipboardButtons();
-            return true;
-        }
-        if (this._selectedFill) {
-            this.deleteSelectedFill();
-            this._syncClipboardButtons();
-            return true;
-        }
-        if (this._selectedShape) {
-            deleteSelectedBoardShape(this);
-            this._syncClipboardButtons();
-            return true;
-        }
-        return false;
+        const deleted = deleteBoxSelection(this);
+        this._syncClipboardButtons();
+        return deleted;
     }
 
     /**
@@ -655,7 +626,7 @@ export default class PCBApp {
             renderTrack(t.track, (id) => this._getLayerGroup(id), {
                 viaDiameter: this._getRoutingParams?.()?.viaDiameter,
                 viaDrill: this._getRoutingParams?.()?.viaDrill,
-                hideNetLabel: t.track === this._selectedTrack,
+                hideNetLabel: t.track === getSelectedTrack(this),
             });
         }
         for (const v of pd.vias) {
@@ -679,8 +650,8 @@ export default class PCBApp {
         for (const f of pd.fills) {
             f.fill.outline = f.outline.map((p) => ({ x: p.x + dx, y: p.y + dy }));
             renderCopperFill(f.fill, (id) => this._getLayerGroup(id),
-                { selected: this._selectedFill === f.fill });
-            if (this._selectedFill === f.fill) this._renderFillHandles(f.fill);
+                { selected: isPcbSelected(this, 'fill', f.fill) });
+            if (isPcbSelected(this, 'fill', f.fill)) renderPcbSelectionAnchors(this);
         }
         refreshTrackSelectionHalo(this);
     }
@@ -812,19 +783,23 @@ export default class PCBApp {
             // must be redrawn when the zoom scale changes to stay constant on
             // screen. (Pan doesn't change scale, so skip the churn then.)
             const sc = this.viewport?.scale || 1;
-            if (sc !== this._lastHaloScale && (this._selectedTrack || this._selectedVia)) {
+            if (sc !== this._lastHaloScale && (getSelectedTrack(this) || getSelectedVia(this))) {
                 this._lastHaloScale = sc;
                 refreshTrackSelectionHalo(this);
             }
             if (view?.scaleChanged && getPcbSelection(this).length) {
                 refreshBoxSelectionHighlights(this);
             }
+            if (view?.scaleChanged) {
+                refreshAxisGlow(this);
+                refreshTrackDrawPreview(this);
+            }
             if (view?.scaleChanged) this._syncCopperRemovalHatches();
             this._scheduleRemovalHatchRender();
             // Cursor crosshair and via previews are sized in screen pixels
             // and spans the viewport — redraw on zoom/pan so it doesn't drift.
             if (this._lastCrosshairWorld &&
-                (this.currentTool === 'via' || this.currentTool === 'track' || this.currentTool === 'text' || this.currentTool === 'circle' || this.currentTool === 'rect' || this.currentTool === 'polygon' || this.currentTool === 'arc')) {
+                (this.currentTool === 'via' || this.currentTool === 'track' || this.currentTool === 'text' || this.currentTool === 'line' || this.currentTool === 'circle' || this.currentTool === 'rect' || this.currentTool === 'polygon' || this.currentTool === 'arc')) {
                 if (this.currentTool === 'via') {
                     this._updateViaPreview(this._lastCrosshairWorld);
                 } else {
@@ -904,22 +879,12 @@ export default class PCBApp {
                 this._endPasteDrop();
                 return;
             }
-            // A floating vertex move drops on the next left-click. This covers
-            // both the context-menu "Split" drag and a node/midpoint that was
-            // click-armed into move mode (click to grab, move, click to place).
-            // Consume that click here so it commits instead of starting a new
-            // interaction.
-            if (this._vertexDrag?.floating && e.button === 0) {
-                this._vertexDrag.floating = false;
-                this._vertexDragDownScreen = null;
-                finishVertexDrag(this);
+            // A click-release anchor move follows the pointer until the next
+            // left-click places it. The shared selection controller owns the
+            // lifecycle for Tracks and generic board-shape midpoint inserts.
+            if (e.button === 0 && placeFloatingSelectionInteraction(this)) {
                 this.viewport.hideCrosshair();
                 svg.style.cursor = 'default';
-                if (this._selectedTrack) {
-                    const t = this._selectedTrack;
-                    clearTrackSelection(this);
-                    selectTrackOrVia(this, { type: 'track', track: t });
-                }
                 return;
             }
             // Switch ribbon back to Home tab on canvas click — but NOT
@@ -929,7 +894,7 @@ export default class PCBApp {
             // the text's size/rotation spinners), and NOT on a right-button
             // press (that starts a pan — dragging the board must not switch
             // tabs, e.g. closing the Design tab's live DRC mid-pan).
-            const propertiesToolActive = this.currentTool === 'circle'
+            const propertiesToolActive = this.currentTool === 'line' || this.currentTool === 'circle'
                 || this.currentTool === 'rect' || this.currentTool === 'polygon' || this.currentTool === 'arc';
             const worldPos = e.button === 0 && this.currentTool === 'select'
                 ? this._screenToWorld(e)
@@ -1003,7 +968,7 @@ export default class PCBApp {
                     const shapeHit = hitTestBoardShape(this, worldPos);
                     if (shapeHit) {
                         const hasMultiSelection = hasBoxSelection(this);
-                        const previousShape = this._selectedShape;
+                        const previousShape = getPcbSelection(this, 'shape')[0] || null;
                         if (!hasMultiSelection && previousShape?.id === shapeHit.id) {
                             selectBoardShape(this, null);
                             return;
@@ -1054,8 +1019,9 @@ export default class PCBApp {
 
                 // Continue interacting with an already-selected fill: grab a
                 // vertex or drag the whole region without re-clicking.
-                if (this._selectedFill) {
-                    if (this._startFillDrag(this._selectedFill, worldPos, e)) {
+                const selectedFill = getPcbSelection(this, 'fill')[0] || null;
+                if (selectedFill) {
+                    if (this._startFillDrag(selectedFill, worldPos, e)) {
                         setHoverHighlight(this, null);
                         this._hideNetTooltip();
                         svg.style.cursor = 'grabbing';
@@ -1070,8 +1036,9 @@ export default class PCBApp {
                 // If a track is already selected, try to start a vertex
                 // drag on it before doing anything else — this lets the
                 // user grab a node or bend a segment without re-clicking.
-                if (this._selectedTrack) {
-                    if (startVertexDrag(this, this._selectedTrack, worldPos)) {
+                const selectedTrack = getSelectedTrack(this);
+                if (selectedTrack) {
+                    if (startVertexDrag(this, selectedTrack, worldPos)) {
                         // A pure click (no drag) on a segment of the already-
                         // selected track refines the selection down to just
                         // that segment on mouse-up. Node grabs and drags are
@@ -1091,8 +1058,9 @@ export default class PCBApp {
                 }
                 // Same for a selected via: clicking on the via begins a
                 // drag without losing the selection.
-                if (this._selectedVia) {
-                    if (startViaDrag(this, this._selectedVia, worldPos)) {
+                const selectedVia = getSelectedVia(this);
+                if (selectedVia) {
+                    if (startViaDrag(this, selectedVia, worldPos)) {
                         setHoverHighlight(this, null);
                         this._hideNetTooltip();
                         svg.style.cursor = 'grabbing';
@@ -1100,11 +1068,12 @@ export default class PCBApp {
                     }
                 }
                 // Same for a selected free-standing board shape.
-                if (this._selectedShape) {
+                const selectedShape = getPcbSelection(this, 'shape')[0] || null;
+                if (selectedShape) {
                     const selectedHit = hitTestBoardShape(this, worldPos);
-                    const onHandle = hitTestBoardShapeVertex(this, this._selectedShape, worldPos) != null;
-                    if (onHandle || (selectedHit && selectedHit.id === this._selectedShape.id)) {
-                        if (startBoardShapeDrag(this, this._selectedShape, worldPos)) {
+                    const onHandle = hitTestBoardShapeVertex(this, selectedShape, worldPos) != null;
+                    if (onHandle || (selectedHit && selectedHit.id === selectedShape.id)) {
+                        if (startBoardShapeDrag(this, selectedShape, worldPos)) {
                             setHoverHighlight(this, null);
                             this._hideNetTooltip();
                             svg.style.cursor = 'grabbing';
@@ -1118,8 +1087,8 @@ export default class PCBApp {
                 // deselected or replaced. Tidy away any redundant collinear
                 // waypoints first — e.g. a node added by double-click but
                 // never moved is collinear by definition and is removed here.
-                if (this._selectedTrack) {
-                    commitCollinearCleanup(this, this._selectedTrack);
+                if (selectedTrack) {
+                    commitCollinearCleanup(this, selectedTrack);
                 }
 
                 const trackHit = hitTestTrack(this, worldPos);
@@ -1274,10 +1243,11 @@ export default class PCBApp {
                     this._selectBoardOutline(true);
                     this._showBoardOutlineProperties();
                 } else if (this._hitTestFill(worldPos)) {
+                    const fillHit = this._hitTestFill(worldPos);
                     this._selectComponent(null);
                     this._selectBoardOutline(false);
-                    this._selectFill(this._hitTestFill(worldPos));
-                    this._showFillProperties(this._selectedFill);
+                    this._selectFill(fillHit);
+                    this._showFillProperties(fillHit);
                 } else {
                     this._selectComponent(null);
                     this._selectBoardOutline(false);
@@ -1359,10 +1329,9 @@ export default class PCBApp {
                 }
             }
 
-            // Left-click with a shape tool: circle/rect = 2 clicks,
-            // arc = 3 clicks (start, end, bulge), polygon = click per vertex
-            // (double-click / Enter to finish).
-            if (e.button === 0 && ['circle', 'rect', 'polygon', 'arc'].includes(this.currentTool)) {
+            // Left-click with a shape tool: circle/rect = 2 clicks, arc = 3
+            // clicks, and Line/Polygon accept vertices until double-click or Enter.
+            if (e.button === 0 && ['line', 'circle', 'rect', 'polygon', 'arc'].includes(this.currentTool)) {
                 shapeDrawClick(this, this.currentTool, this._screenToWorld(e));
             }
 
@@ -1406,7 +1375,7 @@ export default class PCBApp {
                     this._updateCursorCrosshair(this._screenToWorld(e));
                 } else if (this.currentTool === 'via') {
                     this._updateViaPreview(this._screenToWorld(e));
-                } else if (this.currentTool === 'circle') {
+                } else if (this.currentTool === 'line' || this.currentTool === 'circle') {
                     this._updateCursorCrosshair(this._screenToWorld(e));
                 } else if (this.currentTool === 'rect' || this.currentTool === 'polygon' || this.currentTool === 'arc') {
                     this._updateCursorCrosshair(this._screenToWorld(e));
@@ -1490,7 +1459,7 @@ export default class PCBApp {
                 this._updateCursorCrosshair(this._screenToWorld(e));
             } else if (this.currentTool === 'fill') {
                 this._updateCursorCrosshair(this._screenToWorld(e));
-            } else if (this.currentTool === 'circle') {
+            } else if (this.currentTool === 'line' || this.currentTool === 'circle') {
                 this._updateCursorCrosshair(this._screenToWorld(e));
             } else if (this.currentTool === 'rect' || this.currentTool === 'polygon' || this.currentTool === 'arc') {
                 this._updateCursorCrosshair(this._screenToWorld(e));
@@ -1514,6 +1483,11 @@ export default class PCBApp {
             if (this._shapeDraw && this._shapeDraw.kind === 'polygon') {
                 e.preventDefault();
                 finishPolygonDraw(this);
+                return;
+            }
+            if (this._shapeDraw && this._shapeDraw.kind === 'line') {
+                e.preventDefault();
+                finishLineDraw(this);
                 return;
             }
             if (this._textEdit) return; // already editing
@@ -1566,7 +1540,7 @@ export default class PCBApp {
         // central window-capture listener via handleKeyDown() below —
         // no per-instance event registration here.
 
-        const endInteraction = () => {
+        const endInteraction = (button = 0) => {
             if (!this._active) return;
             if (this.viewport.isPanning) {
                 this.viewport.endPan();
@@ -1574,7 +1548,11 @@ export default class PCBApp {
                 // to 'grab' / default — text tool wants the T+crosshair).
                 this._updateCursorForTool?.();
             }
-            if (finishSelectionInteraction(this, true)) {
+            // Right/middle mouse drags pan the canvas. Releasing either must
+            // leave an armed or active anchor drag untouched.
+            if (button !== 0) return;
+            const finishedSelectionInteraction = finishSelectionInteraction(this, true);
+            if (finishedSelectionInteraction) {
                 this._clearCursorCrosshair();
                 svg.style.cursor = 'default';
             }
@@ -1596,7 +1574,7 @@ export default class PCBApp {
             if (this._textDrag) {
                 this._endTextDrag();
             }
-            if (this._shapeDrag) {
+            if (this._shapeDrag && !finishedSelectionInteraction) {
                 endBoardShapeDrag(this, true);
                 this._clearCursorCrosshair();
                 refreshBoxSelectionHighlights(this);
@@ -1605,7 +1583,7 @@ export default class PCBApp {
             if (this._refDrag) {
                 this._endRefDrag();
             }
-            if (this._vertexDrag) {
+            if (this._vertexDrag && !finishedSelectionInteraction) {
                 // Mode 2 (click to enter move mode): the node was pressed and
                 // released without dragging. Instead of committing, keep the
                 // drag alive as a floating node that follows the mouse and is
@@ -1630,8 +1608,9 @@ export default class PCBApp {
                     this.viewport.hideCrosshair();
                     svg.style.cursor = 'default';
                     // Refresh the halo on the (possibly reshaped) selected track.
-                    if (this._selectedTrack) {
-                        const t = this._selectedTrack;
+                    const selectedTrack = getSelectedTrack(this);
+                    if (selectedTrack) {
+                        const t = selectedTrack;
                         clearTrackSelection(this);
                         if (segmentClick && t.edges?.has(segEdgeId)) {
                             selectTrackSegment(this, t, segEdgeId);
@@ -1646,13 +1625,14 @@ export default class PCBApp {
                 finishViaDrag(this);
                 svg.style.cursor = 'default';
                 // Refresh the halo on the moved via.
-                if (this._selectedVia) {
-                    const v = this._selectedVia;
+                const selectedVia = getSelectedVia(this);
+                if (selectedVia) {
+                    const v = selectedVia;
                     clearTrackSelection(this);
                     selectTrackOrVia(this, { type: 'via', via: v });
                 }
             }
-            if (this._fillDrag) {
+            if (this._fillDrag && !finishedSelectionInteraction) {
                 this._endFillDrag();
                 svg.style.cursor = 'default';
             }
@@ -1665,7 +1645,7 @@ export default class PCBApp {
         // matches the schematic editor's mouse model.
         window.addEventListener('mouseup', (e) => {
             if (!this._active) return;
-            endInteraction();
+            endInteraction(e.button);
             // Left-click release just after starting a track: decide between
             // the two draw modes.
             //   • Released away from the start press → "drag mode": this
@@ -1712,6 +1692,7 @@ export default class PCBApp {
 
         svg.addEventListener('contextmenu', (e) => {
             e.preventDefault();
+            dismissBoardShapeContextMenu();
             // Track/via context menu — select tool only, and never while
             // drawing a track (right-click finishes the draw in that mode,
             // so there's no clash).
@@ -1724,6 +1705,12 @@ export default class PCBApp {
                 // viewport in panning state behind the menu.
                 if (this.viewport.isPanning) this.viewport.endPan();
                 showTrackContextMenu(this, hit, e.clientX, e.clientY, worldPos);
+                return;
+            }
+            const shape = hitTestBoardShape(this, worldPos);
+            if (shape) {
+                if (this.viewport.isPanning) this.viewport.endPan();
+                showBoardShapeContextMenu(this, shape, e.clientX, e.clientY, worldPos);
                 return;
             }
             // Otherwise, offer "Show 3D" when right-clicking a footprint that
@@ -1770,6 +1757,7 @@ export default class PCBApp {
             t === 'pan' ? 'grab' :
             t === 'track' ? 'crosshair' :
             t === 'via' ? 'crosshair' :
+            t === 'line' ? 'crosshair' :
             t === 'circle' ? 'crosshair' :
             t === 'rect' ? 'crosshair' :
             t === 'polygon' ? 'crosshair' :
@@ -1777,7 +1765,7 @@ export default class PCBApp {
             t === 'text' ? this._textToolCursor() :
             'default';
         if (t !== 'via') this._clearViaRing();
-        if (t !== 'via' && t !== 'track' && t !== 'text' && t !== 'circle' && t !== 'rect' && t !== 'polygon' && t !== 'arc') this._clearCursorCrosshair();
+        if (t !== 'via' && t !== 'track' && t !== 'text' && t !== 'line' && t !== 'circle' && t !== 'rect' && t !== 'polygon' && t !== 'arc') this._clearCursorCrosshair();
     }
 
     /** Crosshair + small "T" icon cursor for the text-placement tool. */
@@ -2245,14 +2233,18 @@ export default class PCBApp {
             return false;
         }
 
-        // Shape-draw mode owns Escape (and Enter finishes a polygon).
+        // Shape-draw mode owns Escape (and Enter finishes a Line or Polygon).
         if (this._shapeDraw) {
             if (e.key === 'Escape') {
                 cancelShapeDraw(this);
                 return true;
             }
-            if ((e.key === 'Enter') && this._shapeDraw.kind === 'polygon') {
+            if (e.key === 'Enter' && this._shapeDraw.kind === 'polygon') {
                 finishPolygonDraw(this);
+                return true;
+            }
+            if (e.key === 'Enter' && this._shapeDraw.kind === 'line') {
+                finishLineDraw(this);
                 return true;
             }
             return false;
@@ -2276,34 +2268,21 @@ export default class PCBApp {
             return true;
         }
         if (e.key === 'Delete' || e.key === 'Backspace') {
-            // Box multi-selection: delete the enclosed tracks/vias as one
-            // undoable action. Components are kept (they belong to the
-            // schematic netlist and are never deleted on the PCB).
-            if (hasBoxSelection(this)) {
-                deleteBoxSelection(this);
-                return true;
-            }
-            if (this._selectedText) {
-                this._deleteSelectedText();
-                return true;
-            }
-            if (this._selectedTrack || this._selectedVia) {
+            // A focused Track segment is a Track-specific edit state rather
+            // than a selection kind, so it retains its narrower delete path.
+            if (this._trackEdit && getSelectedTrack(this) === this._trackEdit.track) {
                 deleteSelectedTrack(this);
                 return true;
             }
-            if (this._selectedFill) {
-                this.deleteSelectedFill();
-                return true;
-            }
-            if (this._selectedShape) {
-                deleteSelectedBoardShape(this);
+            if (deleteBoxSelection(this)) {
                 return true;
             }
             // Components belong to the schematic netlist and can't be deleted
             // on the PCB — tell the user where to do it instead.
-            if (this._selectedComp) {
+            const componentId = getPcbSelection(this, 'component')[0] || getPcbSelection(this, 'reftext')[0];
+            if (componentId) {
                 this._showComponentPopup(
-                    this._selectedComp, 'Delete components from the schematic editor');
+                    componentId, 'Delete components from the schematic editor');
                 return true;
             }
             return false;
@@ -2329,25 +2308,26 @@ export default class PCBApp {
             if (this._viaDrag) { cancelViaDrag(this); return true; }
             if (hasBoxSelection(this)) {
                 clearBoxSelection(this);
+                clearSelectionInteractionUi(this);
                 return true;
             }
-            if (this._selectedText) {
+            if (getPcbSelection(this, 'text').length) {
                 this._selectText(null);
                 this._clearProperties?.();
                 this._setActiveRibbonTab?.('pcb-home');
                 return true;
             }
-            if (this._selectedTrack || this._selectedVia) {
+            if (getSelectedTrack(this) || getSelectedVia(this)) {
                 clearTrackSelection(this);
                 this._clearProperties?.();
                 return true;
             }
-            if (this._selectedFill) {
+            if (getPcbSelection(this, 'fill').length) {
                 this._selectFill(null);
                 this._clearProperties?.();
                 return true;
             }
-            if (this._selectedRef) {
+            if (getPcbSelection(this, 'reftext').length) {
                 this._selectRefText(null);
                 this._clearProperties?.();
                 this._setActiveRibbonTab?.('pcb-home');
@@ -2366,31 +2346,33 @@ export default class PCBApp {
         }
         // Component transform shortcuts (match the schematic editor):
         //   Space = rotate right, X = flip horizontal, Y = flip vertical.
-        if (this._selectedRef && this.placements.has(this._selectedRef)) {
+        const selectedRef = getPcbSelection(this, 'reftext')[0] || null;
+        const selectedComponent = getPcbSelection(this, 'component')[0] || null;
+        if (selectedRef && this.placements.has(selectedRef)) {
             // A selected reference designator rotates with Space; the
             // component body shortcuts don't apply while the label is selected.
             if (e.code === 'Space' || e.key === ' ') {
-                this._rotateRefText(this._selectedRef);
+                this._rotateRefText(selectedRef);
                 e.preventDefault();
                 return true;
             }
         }
-        if (this._selectedComp && this.placements.has(this._selectedComp)) {
+        if (selectedComponent && this.placements.has(selectedComponent)) {
             if (e.code === 'Space' || e.key === ' ') {
-                this._rotateComponent(this._selectedComp, 'R');
-                this._showComponentProperties(this._selectedComp);
+                this._rotateComponent(selectedComponent, 'R');
+                this._showComponentProperties(selectedComponent);
                 e.preventDefault();
                 return true;
             }
             if (e.key === 'x' || e.key === 'X') {
-                this._flipComponent(this._selectedComp, 'H');
-                this._showComponentProperties(this._selectedComp);
+                this._flipComponent(selectedComponent, 'H');
+                this._showComponentProperties(selectedComponent);
                 e.preventDefault();
                 return true;
             }
             if (e.key === 'y' || e.key === 'Y') {
-                this._flipComponent(this._selectedComp, 'V');
-                this._showComponentProperties(this._selectedComp);
+                this._flipComponent(selectedComponent, 'V');
+                this._showComponentProperties(selectedComponent);
                 e.preventDefault();
                 return true;
             }
@@ -2577,19 +2559,15 @@ export default class PCBApp {
         for (const id of this._shapeElements.keys()) removeBoardShapeElement(this, id);
         this.boardShapes.length = 0;
         this._shapeIdCounter = 1;
-        this._selectedShape = null;
         this._hoveredShape = null;
         this._shapeDraw = null;
         this._shapeDrag = null;
         this._updateCopperCuts?.();
         // Copper pours live in boardShapes; clear their SVG state.
-        this._selectedFill = null;
-        this._clearFillHandles?.();
         this._clearFillGroups?.();
         // Drop any existing free-standing texts.
         for (const id of this._textElements.keys()) this._removeTextElement(id);
         this.texts.clear();
-        this._selectedText = null;
         clearTrackSelection(this);
         this.history.clear?.();
 
@@ -2666,7 +2644,7 @@ export default class PCBApp {
                     renderTrack(track, (id) => this._getLayerGroup(id), {
                         viaDiameter: this._getRoutingParams?.()?.viaDiameter,
                         viaDrill: this._getRoutingParams?.()?.viaDrill,
-                        hideNetLabel: track === this._selectedTrack,
+                        hideNetLabel: track === getSelectedTrack(this),
                     });
                 }
             }
@@ -2889,20 +2867,25 @@ export default class PCBApp {
                     && item.layer === layerId,
             );
             const viaAffected = (layerId === 'top-copper' || layerId === 'bottom-copper') && !isViaVisible();
-            if ((this._selectedTrack && this._selectedTrack.layer === layerId) ||
-                (this._selectedVia && viaAffected)) {
+            const selectedTrack = getSelectedTrack(this);
+            const selectedVia = getSelectedVia(this);
+            if ((selectedTrack && selectedTrack.layer === layerId) ||
+                (selectedVia && viaAffected)) {
                 clearTrackSelection(this);
                 this._clearProperties();
             }
-            if (this._selectedText && this._selectedText.layer === layerId) {
+            const selectedText = getPcbSelection(this, 'text')[0] || null;
+            if (selectedText && selectedText.layer === layerId) {
                 this._selectText(null);
                 this._clearProperties();
             }
-            if (this._selectedShape && this._selectedShape.layer === layerId) {
+            const selectedShape = getPcbSelection(this, 'shape')[0] || null;
+            if (selectedShape && selectedShape.layer === layerId) {
                 selectBoardShape(this, null);
                 this._clearProperties();
             }
-            if (this._selectedFill && this._selectedFill.layer === layerId) {
+            const selectedFill = getPcbSelection(this, 'fill')[0] || null;
+            if (selectedFill && selectedFill.layer === layerId) {
                 this._selectFill(null);
             }
             if (this._boardOutlineSelected && layerId === 'board-outline') {
@@ -2941,16 +2924,20 @@ export default class PCBApp {
         // A newly-locked layer must not keep anything on it selected or
         // hovered — locked objects are read-only.
         const viaAffected = layerId === 'top-copper' || layerId === 'bottom-copper';
-        if ((this._selectedTrack && this._selectedTrack.layer === layerId) ||
-            (this._selectedVia && viaAffected)) {
+        const selectedTrack = getSelectedTrack(this);
+        const selectedVia = getSelectedVia(this);
+        if ((selectedTrack && selectedTrack.layer === layerId) ||
+            (selectedVia && viaAffected)) {
             clearTrackSelection(this);
             this._clearProperties();
         }
-        if (this._selectedText && this._selectedText.layer === layerId) {
+        const selectedText = getPcbSelection(this, 'text')[0] || null;
+        if (selectedText && selectedText.layer === layerId) {
             this._selectText(null);
             this._clearProperties();
         }
-        if (this._selectedShape && this._selectedShape.layer === layerId) {
+        const selectedShape = getPcbSelection(this, 'shape')[0] || null;
+        if (selectedShape && selectedShape.layer === layerId) {
             selectBoardShape(this, null);
             this._clearProperties();
         }
@@ -3737,6 +3724,10 @@ export default class PCBApp {
         this._renderPersistentObjects();
 
         if (components.length === 0) {
+            // Persistent copper shapes can carry nets without any schematic
+            // components. Their SVG was restored above, so rebuild their
+            // ratlines before this component-less-board early return.
+            this._updateRatsnest();
             this._setStatus('No components in schematic');
             return;
         }
@@ -3801,7 +3792,7 @@ export default class PCBApp {
             renderTrack(t, getGroup, {
                 viaDiameter: routeParams?.viaDiameter,
                 viaDrill: routeParams?.viaDrill,
-                hideNetLabel: t === this._selectedTrack || t === this._vertexDrag?.track,
+                hideNetLabel: t === getSelectedTrack(this) || t === this._vertexDrag?.track,
             });
         }
         for (const v of this.vias) {
@@ -3836,7 +3827,6 @@ export default class PCBApp {
         }
         // Drop any reference-text selection/overlay tied to the old placements.
         this._refDrag = null;
-        this._selectedRef = null;
         if (this._refOverlay) {
             while (this._refOverlay.firstChild) this._refOverlay.removeChild(this._refOverlay.firstChild);
         }
@@ -4057,7 +4047,8 @@ export default class PCBApp {
                            b.maxY >= minY && b.minY <= maxY;
             // Never collapse the actively-selected footprint — keep it editable.
             const px = Math.max(b.maxX - b.minX, b.maxY - b.minY) * scale;
-            const far = inView && px < PCB_LOD_PIXEL_THRESHOLD && compId !== this._selectedComp;
+            const far = inView && px < PCB_LOD_PIXEL_THRESHOLD
+                && compId !== getPcbSelection(this, 'component')[0];
 
             // Detail (real geometry) is visible only when in view AND not far.
             const detailHidden = !inView || far;
@@ -4402,20 +4393,22 @@ export default class PCBApp {
                 && !!hitTestTrackNode(this, trackHover.track, worldPos);
             const overMidpoint = !overNode
                 && trackHover?.type === 'track'
-                && trackHover.track === this._selectedTrack
+                && trackHover.track === getSelectedTrack(this)
                 && !!hitTestTrackMidpoint(this, trackHover.track, worldPos);
+            const overCopper = !overNode && !overMidpoint
+                && (trackHover?.type === 'track' || trackHover?.type === 'via');
             const overRef = !overNode && !overMidpoint
                 && !!this._hitTestRefText(worldPos);
             const selectedAnchor = hitTestPcbSelectionAnchor(this, worldPos, ['shape']);
-            const shapeIsSelected = !!shapeHover && (
-                shapeHover.id === this._selectedShape?.id
-                || isPcbSelected(this, 'shape', shapeHover)
-            );
+            const shapeIsSelected = !!shapeHover && isPcbSelected(this, 'shape', shapeHover);
             if (overNode) {
                 this.viewport.svg.style.cursor = 'nwse-resize';
                 this._hoverNodeCursor = true;
             } else if (overMidpoint) {
                 this.viewport.svg.style.cursor = 'copy';
+                this._hoverNodeCursor = true;
+            } else if (overCopper) {
+                this.viewport.svg.style.cursor = 'pointer';
                 this._hoverNodeCursor = true;
             } else if (overRef) {
                 this.viewport.svg.style.cursor = 'move';
@@ -4508,8 +4501,8 @@ export default class PCBApp {
     _updateNetTooltip(e, hovered) {
         // Skip when nothing is hovered or the hovered item is selected.
         const isSelected = hovered
-            && ((hovered.type === 'track' && hovered.track === this._selectedTrack)
-                || (hovered.type === 'via' && hovered.via === this._selectedVia));
+            && ((hovered.type === 'track' && hovered.track === getSelectedTrack(this))
+                || (hovered.type === 'via' && hovered.via === getSelectedVia(this)));
         if (!hovered || isSelected) {
             this._hideNetTooltip();
             return;
@@ -4600,9 +4593,11 @@ export default class PCBApp {
      * @param {string|null} compId
      */
     _selectComponent(compId) {
+        const previousCompId = getPcbSelection(this, 'component')[0] || null;
+        if (previousCompId === compId) return;
         // Remove old selection highlight
-        if (this._selectedComp) {
-            const oldPl = this.placements.get(this._selectedComp);
+        if (previousCompId) {
+            const oldPl = this.placements.get(previousCompId);
             if (oldPl?.elements) {
                 for (const el of oldPl.elements) {
                     el.querySelector('.pcb-selection-highlight')?.remove();
@@ -4610,7 +4605,7 @@ export default class PCBApp {
             }
         }
 
-        this._selectedComp = compId;
+        setPcbSelection(this, compId ? [{ kind: 'component', object: compId }] : []);
         this._syncClipboardButtons?.();
 
         if (!compId) {
@@ -4645,6 +4640,48 @@ export default class PCBApp {
         this._updatePcbCulling();
     }
 
+    _beginComponentDrag(compId, worldPos) {
+        const pl = this.placements.get(compId);
+        if (!pl) return false;
+        setHoverHighlight(this, null);
+        this._hoverComponent(null);
+        this._hideNetTooltip();
+        this._drag = {
+            compId,
+            startWorld: worldPos,
+            startPos: { x: pl.x, y: pl.y },
+            nets: this._netsForComponent(compId),
+        };
+        this._deferDragOverlays = true;
+        if (this._clearancesVisible) {
+            const group = this._padHaloGroups?.get(compId);
+            if (group) group.style.display = 'none';
+            const overlay = this._layerGroups.get('clearance-overlay');
+            if (overlay) {
+                for (const net of this._drag.nets) {
+                    for (const element of overlay.querySelectorAll(`.debug-clearance[data-net="${CSS.escape(net)}"]`)) {
+                        /** @type {SVGElement} */ (element).style.display = 'none';
+                    }
+                }
+                overlay.style.willChange = 'transform';
+            }
+        }
+        return true;
+    }
+
+    _updateComponentDrag(worldPos) {
+        if (!this._drag) return;
+        const newX = this._drag.startPos.x + worldPos.x - this._drag.startWorld.x;
+        const newY = this._drag.startPos.y + worldPos.y - this._drag.startWorld.y;
+        const gridSize = this.viewport.gridSize;
+        const pl = this.placements.get(this._drag.compId);
+        if (!pl) return;
+        pl.x = this._snapActive() ? Math.round(newX / gridSize) * gridSize : newX;
+        pl.y = this._snapActive() ? Math.round(newY / gridSize) * gridSize : newY;
+        applyPlacementPose(this, this._drag.compId);
+        this._updateRatsnest({ nets: this._drag.nets });
+    }
+
     /**
      * Hover highlight for a component under the select-tool cursor: a faint
      * dashed outline over the footprint's bounds, matching the selection box
@@ -4655,7 +4692,7 @@ export default class PCBApp {
      * @param {string|null} compId
      */
     _hoverComponent(compId) {
-        if (compId === this._selectedComp) compId = null;
+        if (compId === getPcbSelection(this, 'component')[0]) compId = null;
         if (this._hoveredComp === compId) return;
         if (this._hoveredComp) {
             const oldPl = this.placements.get(this._hoveredComp);
@@ -4818,7 +4855,7 @@ export default class PCBApp {
             const ov = this._layerGroups.get('clearance-overlay');
             if (ov) ov.style.willChange = '';
         }
-        this.viewport.svg.style.cursor = this._selectedComp ? 'grab' : 'default';
+        this.viewport.svg.style.cursor = getPcbSelection(this, 'component').length ? 'grab' : 'default';
         // If the placement actually moved, push a MovePlacementCommand so the
         // drag is undoable. _handleDrag has already applied the new position;
         // construct the command with execute=no-op by passing identical
@@ -4864,7 +4901,7 @@ export default class PCBApp {
         this._removeTextElement(text.id);
         const layerG = this._getLayerGroup(text.layer);
         if (!layerG) return;
-        const isSel = this._selectedText?.id === text.id;
+        const isSel = isPcbSelected(this, 'text', text);
         const isHover = !isSel && this._hoveredText?.id === text.id;
         // While inline-editing, render the text in white so it doesn't
         // disappear against same-coloured tracks/pads on the layer.
@@ -4925,16 +4962,39 @@ export default class PCBApp {
 
     /** Select/deselect a text. Pass null to clear. */
     _selectText(text) {
-        const prev = this._selectedText;
+        const prev = getPcbSelection(this, 'text')[0] || null;
         const next = text || null;
         // No-op when selection doesn't change — important because
         // _refreshText removes & re-creates the SVG element, which
         // breaks the browser's same-target requirement for `dblclick`.
         if (prev === next || (prev && next && prev.id === next.id)) return;
-        this._selectedText = next;
+        setPcbSelection(this, next ? [{ kind: 'text', object: next }] : []);
         this._syncClipboardButtons?.();
         if (prev && (!next || prev.id !== next.id)) this._refreshText(prev.id);
         if (next) this._refreshText(next.id);
+    }
+
+    _beginTextDrag(text, worldPos) {
+        if (!text || !this.texts.has(text.id)) return false;
+        this._textDrag = {
+            textId: text.id,
+            startWorld: worldPos,
+            startPos: { x: text.x, y: text.y },
+        };
+        return true;
+    }
+
+    _updateTextDrag(worldPos) {
+        if (!this._textDrag) return;
+        const text = this.texts.get(this._textDrag.textId);
+        if (!text) return;
+        const snap = this._snapToGrid({
+            x: this._textDrag.startPos.x + worldPos.x - this._textDrag.startWorld.x,
+            y: this._textDrag.startPos.y + worldPos.y - this._textDrag.startWorld.y,
+        });
+        text.x = snap.x;
+        text.y = snap.y;
+        this._refreshText(text.id);
     }
 
     /** Drag an already-selected text. */
@@ -5099,14 +5159,49 @@ export default class PCBApp {
 
     /** Select/deselect a component's reference text. Pass null to clear. */
     _selectRefText(compId) {
+        const prev = getPcbSelection(this, 'reftext')[0] || null;
         const next = compId || null;
-        if (this._selectedRef === next) {
+        if (prev === next) {
             if (next) this._drawRefOverlay(next, false);
             return;
         }
-        this._selectedRef = next;
+        setPcbSelection(this, next ? [{ kind: 'reftext', object: next }] : []);
         this._syncClipboardButtons?.();
         this._drawRefOverlay(next, false);
+    }
+
+    _beginRefTextDrag(compId, worldPos) {
+        const pl = this.placements.get(compId);
+        if (!pl) return false;
+        this._refDrag = {
+            compId,
+            startWorld: worldPos,
+            startDx: pl.refDx || 0,
+            startDy: pl.refDy || 0,
+        };
+        this._drawRefOverlay(compId, true);
+        return true;
+    }
+
+    _updateRefTextDrag(worldPos) {
+        if (!this._refDrag) return;
+        const pl = this.placements.get(this._refDrag.compId);
+        if (!pl) return;
+        const localNow = this._worldToPlacementLocal(worldPos, pl);
+        const localStart = this._worldToPlacementLocal(this._refDrag.startWorld, pl);
+        let dx = this._refDrag.startDx + localNow.x - localStart.x;
+        let dy = this._refDrag.startDy + localNow.y - localStart.y;
+        if (this._snapActive()) {
+            const gridSize = this.viewport.gridSize || 0;
+            if (gridSize > 0) {
+                dx = Math.round(dx / gridSize) * gridSize;
+                dy = Math.round(dy / gridSize) * gridSize;
+            }
+        }
+        pl.refDx = dx;
+        pl.refDy = dy;
+        applyPlacementPose(this, this._refDrag.compId);
+        this._drawRefOverlay(this._refDrag.compId, true);
     }
 
     /** Lazily create the world-space overlay group for the ref selection/tether. */
@@ -5231,7 +5326,7 @@ export default class PCBApp {
         const next = (cur + 90) % 360;
         this.history.execute(new RotateRefTextCommand(this, compId, cur, next));
         this._drawRefOverlay(compId, false);
-        if (this._selectedRef === compId) this._showRefProperties(compId);
+        if (isPcbSelected(this, 'reftext', compId)) this._showRefProperties(compId);
     }
 
     /** Show tool-options spinners for the Text tool. */
@@ -5477,7 +5572,7 @@ export default class PCBApp {
             ],
             preview: () => {
                 this._rerenderRef(compId);
-                if (this._selectedRef === compId) this._drawRefOverlay(compId, true);
+                if (isPcbSelected(this, 'reftext', compId)) this._drawRefOverlay(compId, true);
             },
             commit: (m, snap) => {
                 const before = { refSize: snap.refSize, refStrokeWidth: snap.refStrokeWidth, refRot: snap.refRot };
@@ -5488,7 +5583,7 @@ export default class PCBApp {
                 // Roll back; SetRefStyleCommand will reapply for undo history.
                 Object.assign(m, before);
                 this._rerenderRef(compId);
-                if (this._selectedRef === compId) this._drawRefOverlay(compId, true);
+                if (isPcbSelected(this, 'reftext', compId)) this._drawRefOverlay(compId, true);
                 if (!changed) return;
                 this.history.execute(new SetRefStyleCommand(this, compId, before, after));
             },
@@ -5501,8 +5596,9 @@ export default class PCBApp {
      * Delete-key handler. Returns true if it consumed the keystroke.
      */
     _deleteSelectedText() {
-        if (!this._selectedText) return false;
-        const id = this._selectedText.id;
+        const text = getPcbSelection(this, 'text')[0] || null;
+        if (!text) return false;
+        const id = text.id;
         this.history.execute(new RemoveTextCommand(this, id));
         this._clearProperties?.();
         return true;
@@ -5608,7 +5704,7 @@ export default class PCBApp {
 
         // Surface the Properties panel for this text so the user can
         // tweak size/rotation/etc. mid-edit without leaving edit mode.
-        this._selectedText = text;
+        this._selectText(text);
         this._showTextProperties(text);
         const keepVisible = () => {
             const st = this._textEdit;
@@ -5881,8 +5977,8 @@ export default class PCBApp {
             } else {
                 this.history.execute(new RemoveTextCommand(this, text.id));
             }
-            if (this._selectedText?.id === text.id) {
-                this._selectedText = null;
+            if (isPcbSelected(this, 'text', text)) {
+                this._selectText(null);
                 this._clearProperties?.();
             }
             this._exitTextTool();
@@ -7771,12 +7867,12 @@ export default class PCBApp {
                 fill._computed = null;
             }
             renderCopperFill(fill, (id) => this._getLayerGroup(id), {
-                selected: fill === this._selectedFill,
+                selected: isPcbSelected(this, 'fill', fill),
             });
         }
-        if (this._selectedFill) {
-            if (isPcbSelected(this, 'fill', this._selectedFill)) renderPcbSelectionAnchors(this);
-            else this._renderFillHandles(this._selectedFill);
+        const selectedFill = getPcbSelection(this, 'fill')[0] || null;
+        if (selectedFill) {
+            if (isPcbSelected(this, 'fill', selectedFill)) renderPcbSelectionAnchors(this);
         }
         // Pours just recomputed — let any open 3D/2D view pick up the fresh
         // geometry (its rebuild reads fill._computed).
@@ -7876,7 +7972,8 @@ export default class PCBApp {
     _onCopperFillLockChanged(copperLayerId, locked) {
         const g = this._layerGroups.get(fillGroupId(copperLayerId));
         if (g) g.style.opacity = locked ? '0.4' : '';
-        if (locked && this._selectedFill && this._selectedFill.layer === copperLayerId) {
+        const selectedFill = getPcbSelection(this, 'fill')[0] || null;
+        if (locked && selectedFill && selectedFill.layer === copperLayerId) {
             this._selectFill(null);
             this._clearProperties?.();
         }
@@ -7904,12 +8001,13 @@ export default class PCBApp {
 
     /** Select (or clear) the active pour and refresh its highlight. */
     _selectFill(fill) {
-        if (this._selectedFill === fill) {
-            if (fill) this._renderFillHandles(fill);
+        const prev = getPcbSelection(this, 'fill')[0] || null;
+        if (prev === fill) {
+            if (fill) renderPcbSelectionAnchors(this);
             return;
         }
-        const prev = this._selectedFill;
-        this._selectedFill = fill || null;
+        const next = fill || null;
+        setPcbSelection(this, next ? [{ kind: 'fill', object: next }] : []);
         this._syncClipboardButtons?.();
         // Re-render the previously- and newly-selected fills to update the
         // boundary highlight.
@@ -7917,44 +8015,11 @@ export default class PCBApp {
         if (prev) {
             renderCopperFill(prev, getGroup, { selected: false });
         }
-        this._clearFillHandles();
-        if (this._selectedFill) {
-            renderCopperFill(this._selectedFill, getGroup,
+        if (next) {
+            renderCopperFill(next, getGroup,
                 { selected: true });
-            if (isPcbSelected(this, 'fill', this._selectedFill)) renderPcbSelectionAnchors(this);
-            else this._renderFillHandles(this._selectedFill);
+            if (isPcbSelected(this, 'fill', next)) renderPcbSelectionAnchors(this);
         }
-    }
-
-    /** Draw draggable vertex handles for the selected pour on the overlay. */
-    _renderFillHandles(fill) {
-        this._clearFillHandles();
-        if (!fill || !isCopperFillVisible(fill.layer)) return;
-        const NS = 'http://www.w3.org/2000/svg';
-        const overlay = this._getLayerGroup('selection-overlay');
-        const g = document.createElementNS(NS, 'g');
-        g.setAttribute('class', 'pcb-fill-handles');
-        for (let i = 0; i < fill.outline.length; i++) {
-            const p = fill.outline[i];
-            const r = document.createElementNS(NS, 'rect');
-            r.setAttribute('x', String(p.x - 0.25));
-            r.setAttribute('y', String(p.y - 0.25));
-            r.setAttribute('width', '0.5');
-            r.setAttribute('height', '0.5');
-            r.setAttribute('fill', '#ffffff');
-            r.setAttribute('stroke', '#000000');
-            r.setAttribute('stroke-width', '0.06');
-            r.setAttribute('data-vertex', String(i));
-            g.appendChild(r);
-        }
-        overlay.appendChild(g);
-    }
-
-    /** Remove the pour vertex handles from the overlay. */
-    _clearFillHandles() {
-        const overlay = this._layerGroups.get('selection-overlay');
-        if (!overlay) return;
-        for (const el of [...overlay.querySelectorAll('.pcb-fill-handles')]) el.remove();
     }
 
     /**
@@ -8012,7 +8077,6 @@ export default class PCBApp {
         renderCopperFill(fd.fill, (id) => this._getLayerGroup(id),
             { selected: true });
         if (isPcbSelected(this, 'fill', fd.fill)) renderPcbSelectionAnchors(this);
-        else this._renderFillHandles(fd.fill);
         this._refreshFills();
     }
 
@@ -8036,10 +8100,11 @@ export default class PCBApp {
 
     /** Delete the selected pour (Delete/Backspace). */
     deleteSelectedFill() {
-        if (!this._selectedFill) return false;
-        if (this._selectedFill.locked || isLayerLocked(this._selectedFill.layer)
-            || isCopperFillLocked(this._selectedFill.layer)) return false;
-        this.history.execute(new RemoveFillCommand(this, this._selectedFill));
+        const fill = getPcbSelection(this, 'fill')[0] || null;
+        if (!fill) return false;
+        if (fill.locked || isLayerLocked(fill.layer)
+            || isCopperFillLocked(fill.layer)) return false;
+        this.history.execute(new RemoveFillCommand(this, fill));
         return true;
     }
 
@@ -8116,7 +8181,7 @@ export default class PCBApp {
      * ModifyFillCommand undo/redo). Simply re-renders if this pour is shown.
      */
     _refreshFillProperties(fill) {
-        if (fill && this._selectedFill === fill) this._showFillProperties(fill);
+        if (fill && isPcbSelected(this, 'fill', fill)) this._showFillProperties(fill);
     }
 
     /**

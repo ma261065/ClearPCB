@@ -50,6 +50,7 @@ import { showAlert } from '../../ui/modules/modal.js';
 import { Via } from '../../shapes/via.js';
 import { Track } from '../../shapes/track.js';
 import { isLayerLocked, isOverlayVisible } from './layers.js';
+import { getPcbSelection } from './selection-registry.js';
 
 /** Screen-px hit tolerance for selecting a Track node to drag. */
 const NODE_HIT_PX = 8;
@@ -72,7 +73,7 @@ function _opts(app, track = app._vertexDrag?.track) {
     return {
         viaDiameter: app._getRoutingParams?.()?.viaDiameter,
         viaDrill: app._getRoutingParams?.()?.viaDrill,
-        hideNetLabel: !!track && (track === app._selectedTrack || track === app._vertexDrag?.track),
+        hideNetLabel: !!track && (track === getPcbSelection(app, 'track')[0] || track === app._vertexDrag?.track),
     };
 }
 

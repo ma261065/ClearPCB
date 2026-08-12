@@ -56,7 +56,7 @@ export function renderTrack(track, getLayerGroup, opts = {}) {
     if (track.edges.size === 0) return;
 
     // Build per-layer polyline runs by walking contiguous same-layer paths.
-    const runs = _buildLayerRuns(track);
+    const runs = buildTrackLayerRuns(track);
 
     const created = [];
     for (const run of runs) {
@@ -157,7 +157,7 @@ export function removeViaElements(via) {
  * degree-≤1 endpoint, breaking runs at any node whose adjacent edges
  * change layer.
  */
-function _buildLayerRuns(track) {
+export function buildTrackLayerRuns(track) {
     const runs = [];
     if (track.edges.size === 0) return runs;
 

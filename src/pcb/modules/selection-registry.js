@@ -7,7 +7,7 @@
 
 import { SelectionManager } from '../../core/SelectionManager.js';
 
-const keyFor = (kind, object) => `${kind}:${kind === 'component' ? object : object.id}`;
+const keyFor = (kind, object) => `${kind}:${kind === 'component' || kind === 'reftext' ? object : object.id}`;
 const adapterFactories = new Map();
 
 /** Register a factory implementing the SelectionManager shape contract. */
@@ -46,6 +46,10 @@ function entries(app) {
     for (const shape of app.boardShapes || []) {
         if (shape?.type === 'fill') out.push(adapter(app, 'fill', shape));
         else out.push(adapter(app, 'shape', shape));
+    }
+    for (const text of app.texts?.values?.() || []) out.push(adapter(app, 'text', text));
+    for (const [componentId, placement] of app.placements || []) {
+        if (placement?.refVisible !== false) out.push(adapter(app, 'reftext', componentId));
     }
     return out;
 }
@@ -97,7 +101,15 @@ export function hitTestPcbSelection(app, point, kind = null) {
 export function hitTestPcbSelectionEntry(app, point, kinds) {
     syncPcbSelection(app);
     const allowed = new Set(kinds);
-    return manager(app).hitTest(point, true).find((item) => allowed.has(item.kind)) || null;
+    const hits = manager(app).hitTest(point, true).filter((item) => allowed.has(item.kind));
+    // Copper targets have always won when they overlap graphics or pads.
+    // Keep that established PCB picking order as tracks join the registry.
+    return hits.find((item) => item.kind === 'via')
+        || hits.find((item) => item.kind === 'track')
+        || hits.find((item) => item.kind === 'text')
+        || hits.find((item) => item.kind === 'reftext')
+        || hits[0]
+        || null;
 }
 
 export function hasPcbSelection(app) {

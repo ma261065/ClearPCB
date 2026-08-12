@@ -35,11 +35,12 @@ export function bindPcbControls(app) {
     const redoBtn = document.getElementById('pcbRedoBtn');
 
     const toolBtns = [selectBtn, trackBtn, padBtn, viaBtn, holeBtn, shapesBtn, textBtn, fillBtn];
-    const validTools = new Set(['select', 'track', 'pad', 'via', 'circle', 'arc', 'rect', 'polygon', 'text', 'fill']);
+    const validTools = new Set(['select', 'track', 'pad', 'via', 'line', 'circle', 'arc', 'rect', 'polygon', 'text', 'fill']);
     // Tools grouped under the "Shapes" dropdown button.
-    const SHAPE_TOOLS = new Set(['circle', 'arc', 'rect', 'polygon']);
+    const SHAPE_TOOLS = new Set(['line', 'circle', 'arc', 'rect', 'polygon']);
     // Label/icon shown on the Shapes button for each shape tool.
     const SHAPE_LABELS = {
+        line: '/ Line',
         circle: '◯ Circle',
         arc: '◠ Arc',
         rect: '▢ Rectangle',

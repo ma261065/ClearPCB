@@ -6,6 +6,8 @@
  * re-renders all pours via app._refreshFills().
  */
 
+import { isPcbSelected } from './selection-registry.js';
+
 /** Add a CopperFill to the canonical app.boardShapes collection. */
 export class AddFillCommand {
     constructor(app, fill) {
@@ -20,7 +22,7 @@ export class AddFillCommand {
     undo() {
         const i = this.app.boardShapes.indexOf(this.fill);
         if (i >= 0) this.app.boardShapes.splice(i, 1);
-        if (this.app._selectedFill === this.fill) this.app._selectFill?.(null);
+        if (isPcbSelected(this.app, 'fill', this.fill)) this.app._selectFill?.(null);
         this.app._recomputeFillsNow?.();
         this.app._updateRatsnest?.();
     }
@@ -35,7 +37,7 @@ export class RemoveFillCommand {
     execute() {
         const i = this.app.boardShapes.indexOf(this.fill);
         if (i >= 0) this.app.boardShapes.splice(i, 1);
-        if (this.app._selectedFill === this.fill) this.app._selectFill?.(null);
+        if (isPcbSelected(this.app, 'fill', this.fill)) this.app._selectFill?.(null);
         this.app._recomputeFillsNow?.();
         this.app._updateRatsnest?.();
     }

@@ -3,7 +3,7 @@
  *
  * Mirrors the Track drawing flow but produces a simple closed polygon
  * (the pour region). The committed region is wrapped in a CopperFill and
- * pushed onto app.copperFills via AddFillCommand; the actual poured
+ * added to the canonical app.boardShapes collection via AddFillCommand; the actual poured
  * copper geometry is then computed live by the fill engine.
  *
  * Lifecycle (driven from PCBApp mouse/key handlers):

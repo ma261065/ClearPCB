@@ -7,6 +7,7 @@
  */
 
 import { serializePcbText } from './pcb-text.js';
+import { isPcbSelected } from './selection-registry.js';
 
 /** Add a text to app.texts and render it. */
 export class AddTextCommand {
@@ -21,7 +22,7 @@ export class AddTextCommand {
     undo() {
         this.app._removeTextElement(this.text.id);
         this.app.texts.delete(this.text.id);
-        if (this.app._selectedText?.id === this.text.id) {
+        if (isPcbSelected(this.app, 'text', this.text)) {
             this.app._selectText(null);
         }
     }
@@ -35,9 +36,10 @@ export class RemoveTextCommand {
         this.snapshot = serializePcbText(app.texts.get(textId));
     }
     execute() {
+        const text = this.app.texts.get(this.snapshot.id);
         this.app._removeTextElement(this.snapshot.id);
         this.app.texts.delete(this.snapshot.id);
-        if (this.app._selectedText?.id === this.snapshot.id) {
+        if (text && isPcbSelected(this.app, 'text', text)) {
             this.app._selectText(null);
         }
     }

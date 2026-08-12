@@ -37,6 +37,13 @@ import { collinearSnap, pointInPolygon } from '../../core/geometry.js';
 import { normalizeShapeCopperMode, shapeOutline } from './board-shapes.js';
 import { showAlert } from '../../ui/modules/modal.js';
 import { isOverlayVisible } from './layers.js';
+import {
+    clearAxisGlow,
+    makeAxisGlowCenterline,
+    makeAxisGlowHalo,
+    renderAxisGlow,
+    renderAxisGlowTop,
+} from './axis-glow.js';
 
 const NS = 'http://www.w3.org/2000/svg';
 
@@ -48,14 +55,6 @@ const PREVIEW_CLASS = 'pcb-track-preview';
  * while dragging a degree-2 waypoint between its two neighbours.
  */
 export const COLLINEAR_SNAP_SCREEN_PX = 15;
-
-/**
- * Glow colour shown when two incident segments are collinear (any angle).
- * Okabe–Ito blue — sits on the blue–yellow axis so it stays distinct from
- * the yellow/magenta axis glows for red–green colourblind users. Paired
- * with a DOTTED line style so it never relies on hue alone.
- */
-const COLLINEAR_GLOW_COLOR = '#0072B2';
 
 /**
  * Angle tolerance (normalized cross product ≈ sine of the corner angle)
@@ -514,6 +513,13 @@ export function updateTrackDraw(app, worldPos) {
     } else {
         clearNetGuideLine(app);
     }
+}
+
+/** Rebuild the active rubber-band preview after a viewport-scale change. */
+export function refreshTrackDrawPreview(app) {
+    const ctx = app._trackDraw;
+    if (!ctx?.snap) return;
+    _renderPreview(app, ctx, { x: ctx.snap.x, y: ctx.snap.y });
 }
 
 /**
@@ -1121,152 +1127,19 @@ function _clearPreviewElements(ctx) {
     ctx.previewElements = [];
 }
 
-/**
- * Draw H/V/45° and collinear glow underlays for a set of live segments.
- * Each segment carries a `collinear` flag (set upstream by
- * `_incidentSegments` when it belongs to a degree-2 node whose two edges
- * are collinear — i.e. would fuse on release): those are drawn GREEN.
- * Remaining segments are drawn in their H/V/45° accent colour, or skipped
- * if not axis-aligned. Glow elements are tracked on `app._trackAxisGlow`
- * and replaced on each call — pass an empty array or call
- * `clearTrackAxisGlow` to remove them.
- *
- * @param {object} app
- * @param {Array<{a:{x:number,y:number}, b:{x:number,y:number}, layerId:string, width?:number, collinear?:boolean, frozen?:boolean, axisKind?:string|null}>} segments
- */
+/** Shared Track and generic-shape H/V/45 glow renderer. */
 export function renderTrackAxisGlow(app, segments) {
-    clearTrackAxisGlow(app);
-    if (!segments || !segments.length) return;
-    // Resolve each segment to a colour + dash style and stash it so the
-    // matching white centerlines can be drawn ON TOP of the track in a
-    // second pass (renderTrackAxisGlowTop), after renderTrack runs.
-    const resolved = [];
-    const els = [];
-    for (const seg of segments) {
-        let color;
-        if (seg.collinear) {
-            color = COLLINEAR_GLOW_COLOR;
-        } else if (seg.frozen) {
-            // A translated segment can't change its own orientation, so it
-            // gets no axis glow on its own — only via a collinear pull above.
-            continue;
-        } else {
-            // The segment model already classified this edge against the
-            // exact post-snap geometry; the glow renders that decision and
-            // never re-derives it, so glow and snap stay in lock-step.
-            const align = seg.axisKind !== undefined ? seg.axisKind : _axisAlignment(seg.a, seg.b);
-            if (!align) continue;
-            color = _alignColor(align);
-        }
-        const dashKind = _glowDashKind(seg);
-        const parent = app._getLayerGroup(seg.layerId);
-        if (!parent) continue;
-        // Solid colour halo UNDER the track — only the outer ring shows, so
-        // the track copper keeps its true colour (no tint).
-        const halo = _makeGlowHalo(app, seg, color);
-        parent.appendChild(halo);
-        els.push(halo);
-        resolved.push({ seg, dashKind });
-    }
-    app._trackAxisGlow = els;
-    app._axisGlowResolved = resolved;
-    // Draw the centerlines now in case the track is already rendered; the
-    // standard flow re-draws them after renderTrack via renderTrackAxisGlowTop.
-    renderTrackAxisGlowTop(app);
+    renderAxisGlow(app, segments);
 }
 
-/**
- * Second pass: draw the thin white patterned centerlines (solid / dashed /
- * dotted) for the segments resolved by the last `renderTrackAxisGlow`.
- * Call this AFTER `renderTrack` so the centerlines sit on top of the copper.
- */
+/** Re-render Track-style patterned centerlines after copper redraw. */
 export function renderTrackAxisGlowTop(app) {
-    if (app._trackAxisGlowTop) {
-        for (const el of app._trackAxisGlowTop) el.remove();
-    }
-    const tops = [];
-    for (const { seg, dashKind } of (app._axisGlowResolved || [])) {
-        const parent = app._getLayerGroup(seg.layerId);
-        if (!parent) continue;
-        const line = _makeGlowCenterline(app, seg, dashKind);
-        parent.appendChild(line);
-        tops.push(line);
-    }
-    app._trackAxisGlowTop = tops;
+    renderAxisGlowTop(app);
 }
 
-/**
- * Build the solid colour halo (track width + outer ring) for a glow
- * segment. Drawn UNDER the track so only its outer ring is visible.
- */
-function _makeGlowHalo(app, seg, color) {
-    const scale = app.viewport?.scale || 1;
-    const trackW = seg.width || _getTrackWidth(app);
-    // Halo extends a fixed screen-pixel ring beyond each track edge, so the
-    // glow thickness looks the same at any zoom.
-    const ring = 5 / scale;
-    const line = document.createElementNS(NS, 'line');
-    line.setAttribute('class', PREVIEW_CLASS);
-    line.setAttribute('x1', String(seg.a.x));
-    line.setAttribute('y1', String(seg.a.y));
-    line.setAttribute('x2', String(seg.b.x));
-    line.setAttribute('y2', String(seg.b.y));
-    line.setAttribute('stroke', color);
-    line.setAttribute('stroke-width', String(trackW + ring * 2));
-    line.setAttribute('stroke-linecap', 'round');
-    line.setAttribute('stroke-opacity', '0.7');
-    line.setAttribute('pointer-events', 'none');
-    return line;
-}
-
-/**
- * Build the thin white patterned centerline for a glow segment. White (not
- * the halo colour) so the dash/dot gaps read clearly against the halo, and
- * thin enough to sit on the track without tinting it.
- */
-function _makeGlowCenterline(app, seg, dashKind) {
-    const scale = app.viewport?.scale || 1;
-    const line = document.createElementNS(NS, 'line');
-    line.setAttribute('class', PREVIEW_CLASS);
-    line.setAttribute('x1', String(seg.a.x));
-    line.setAttribute('y1', String(seg.a.y));
-    line.setAttribute('x2', String(seg.b.x));
-    line.setAttribute('y2', String(seg.b.y));
-    line.setAttribute('stroke', '#ffffff');
-    line.setAttribute('stroke-width', String(1.5 / scale));
-    line.setAttribute('stroke-linecap', dashKind === 'dotted' ? 'round' : 'butt');
-    _applyGlowDash(app, line, dashKind);
-    line.setAttribute('stroke-opacity', '0.95');
-    line.setAttribute('pointer-events', 'none');
-    return line;
-}
-
-/**
- * Apply a dash pattern for the given style. The pattern is sized in fixed
- * SCREEN pixels (converted to world units via the viewport scale) so dashes
- * and dots look the same on screen at any zoom level.
- */
-function _applyGlowDash(app, line, dashKind) {
-    const scale = app.viewport?.scale || 1;
-    const px = (n) => n / scale; // screen px -> world units
-    if (dashKind === 'dotted') {
-        // Tiny dash + round cap = round dot, spaced 6px.
-        line.setAttribute('stroke-dasharray', `${px(0.01)} ${px(6)}`);
-    } else if (dashKind === 'dashed') {
-        line.setAttribute('stroke-dasharray', `${px(8)} ${px(6)}`);
-    } else {
-        line.removeAttribute('stroke-dasharray');
-    }
-}
-
-/** Remove any axis-alignment glow underlays created by `renderTrackAxisGlow`. */
+/** Remove shared Track/generic-shape H/V/45 glow overlays. */
 export function clearTrackAxisGlow(app) {
-    for (const key of ['_trackAxisGlow', '_trackAxisGlowTop']) {
-        const els = app[key];
-        if (els) for (const el of els) el.remove();
-        app[key] = null;
-    }
-    app._axisGlowResolved = null;
+    clearAxisGlow(app);
 }
 
 /**
@@ -1485,7 +1358,7 @@ function _renderPreview(app, ctx, livePt) {
         const dashKind = align === 'd' ? 'dashed' : 'solid';
         const seg = { a, b, width: ctx.width || _getTrackWidth(app) };
         // Solid colour halo UNDER the polyline.
-        const halo = _makeGlowHalo(app, seg, _alignColor(align));
+        const halo = makeAxisGlowHalo(app, seg, _alignColor(align));
         parent.appendChild(halo);
         ctx.previewElements.push(halo);
         return { seg, dashKind, parent };
@@ -1520,7 +1393,7 @@ function _renderPreview(app, ctx, livePt) {
 
     // White patterned centerline ON TOP of the preview polyline.
     if (axisGlow) {
-        const line = _makeGlowCenterline(app, axisGlow.seg, axisGlow.dashKind);
+        const line = makeAxisGlowCenterline(app, axisGlow.seg, axisGlow.dashKind);
         axisGlow.parent.appendChild(line);
         ctx.previewElements.push(line);
     }
@@ -1608,14 +1481,6 @@ function _alignColor(kind) {
     if (kind === 'h') return '#E69F00';
     if (kind === 'v') return '#E69F00';
     return '#CC79A7'; // 45°
-}
-
-/** Stroke-dash style per glow kind: solid H/V, dashed 45°, dotted collinear. */
-function _glowDashKind(seg) {
-    if (seg.collinear) return 'dotted';
-    const align = seg.axisKind !== undefined ? seg.axisKind : _axisAlignment(seg.a, seg.b);
-    if (align === 'd') return 'dashed';
-    return 'solid';
 }
 
 /**

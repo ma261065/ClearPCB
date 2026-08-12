@@ -51,6 +51,7 @@ const SHORT_KEYS = {
     pts: 'points', n: 'net',
     nd: 'graphNodes', ed: 'graphEdges', pc: 'pinConnections', wl: 'wireLabel',
     el: 'edgeLayers', ew: 'edgeWidths', bg: 'edgeBulges', pdc: 'padConnections',
+    sbs: 'sourceBoardShape',
     r: 'radius', w: 'width', h: 'height', cr: 'cornerRadius',
     f: 'fill', fc: 'fillColor', fa: 'fillAlpha', cl: 'closed', ir: 'isRect',
     sp: 'startPoint', ep: 'endPoint', bp: 'bulgePoint',

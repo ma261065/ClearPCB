@@ -42,6 +42,9 @@ import {
     applyPlacementPose,
 } from './track-commands.js';
 import { MoveBoardShapeCommand, RemoveBoardShapeCommand } from './shape-commands.js';
+import { MoveTextCommand, RemoveTextCommand } from './text-commands.js';
+import { ModifyFillCommand, RemoveFillCommand } from './copper-fill-commands.js';
+import { pcbTextBounds, pcbTextHitTest } from './pcb-text.js';
 import { clearPcbSelectionAnchors, renderPcbSelectionAnchors } from './selection-anchors.js';
 import {
     clearPcbSelection,
@@ -77,16 +80,12 @@ export function hasBoxSelection(app) {
  */
 export function armBoxSelect(app, screen, world) {
     app._boxSelectArm = { screen, world };
-    app._pcbSelectionInteraction = { mode: 'marquee-armed' };
     app._refreshPcbSelectionHighlights = () => refreshBoxSelectionHighlights(app);
 }
 
 /** Discard a pending (not-yet-started) box-select arm. */
 export function disarmBoxSelect(app) {
     app._boxSelectArm = null;
-    if (app._pcbSelectionInteraction?.mode === 'marquee-armed') {
-        app._pcbSelectionInteraction = null;
-    }
 }
 
 /** True while a marquee is actively being dragged. */
@@ -117,7 +116,6 @@ export function maybeStartBoxSelect(app, e, worldPos) {
     // Threshold crossed — begin the marquee. Clear any prior single
     // selection so the new box selection is the only highlighted thing.
     app._boxSelectActive = true;
-    app._pcbSelectionInteraction = { mode: 'marquee' };
     app.drag = { start: { x: arm.world.x, y: arm.world.y } };
     clearBoxSelection(app);
     createBoxSelectElement(app);
@@ -137,17 +135,11 @@ function _updateMarquee(app, worldPos) {
 export function finishBoxSelect(app) {
     if (!app._boxSelectActive) {
         app._boxSelectArm = null;
-        if (app._pcbSelectionInteraction?.mode === 'marquee-armed') {
-            app._pcbSelectionInteraction = null;
-        }
         return false;
     }
     removeBoxSelectElement(app);
     app._boxSelectActive = false;
     app._boxSelectArm = null;
-    if (app._pcbSelectionInteraction?.mode === 'marquee') {
-        app._pcbSelectionInteraction = null;
-    }
     app.drag = null;
     return hasBoxSelection(app);
 }
@@ -220,6 +212,19 @@ function _computeEnclosed(app, bounds) {
             selected.push({ kind: 'shape', object: shape });
         }
     }
+    for (const text of app.texts?.values?.() || []) {
+        const bounds = pcbTextBounds(text);
+        if (bounds.minX >= minX && bounds.maxX <= maxX && bounds.minY >= minY && bounds.maxY <= maxY) {
+            selected.push({ kind: 'text', object: text });
+        }
+    }
+    for (const fill of (app.boardShapes || [])) {
+        if (fill?.type !== 'fill' || fill.locked || fill.visible === false) continue;
+        if (isLayerLocked(fill.layer)) continue;
+        if (fill.outline?.length && fill.outline.every((point) => (
+            point.x >= minX && point.x <= maxX && point.y >= minY && point.y <= maxY
+        ))) selected.push({ kind: 'fill', object: fill });
+    }
     setPcbSelection(app, selected);
     app._syncClipboardButtons?.();
 }
@@ -230,9 +235,14 @@ function _computeEnclosed(app, bounds) {
 function _applyHighlights(app) {
     _clearHighlights(app);
     for (const compId of getPcbSelection(app, 'component')) _drawCompHighlight(app, compId);
-    for (const track of getPcbSelection(app, 'track')) drawTrackHalo(app, track, TRACK_HALO_CLASS);
+    const selectedTrack = getPcbSelection(app, 'track')[0] || null;
+    for (const track of getPcbSelection(app, 'track')) {
+        if (track !== selectedTrack) drawTrackHalo(app, track, TRACK_HALO_CLASS);
+    }
     for (const via of getPcbSelection(app, 'via')) drawViaHalo(app, via, VIA_HALO_CLASS);
     for (const shape of getPcbSelection(app, 'shape')) _drawShapeHighlight(app, shape);
+    for (const text of getPcbSelection(app, 'text')) app._refreshText?.(text.id);
+    if (getPcbSelection(app, 'fill').length) app._refreshFills?.();
     renderPcbSelectionAnchors(app);
 }
 
@@ -339,6 +349,12 @@ export function pointInBoxSelection(app, worldPos) {
     for (const shape of getPcbSelection(app, 'shape')) {
         if (boardShapeHitTest(shape, worldPos, worldTol)) return true;
     }
+    for (const text of getPcbSelection(app, 'text')) {
+        if (pcbTextHitTest(text, worldPos.x, worldPos.y)) return true;
+    }
+    for (const fill of getPcbSelection(app, 'fill')) {
+        if (fill.distanceToEdge(worldPos.x, worldPos.y) <= Math.max(0.6, worldTol)) return true;
+    }
     return false;
 }
 
@@ -369,7 +385,11 @@ export function beginGroupDrag(app, worldPos) {
     }
     const shapes = [];
     for (const shape of getPcbSelection(app, 'shape')) shapes.push({ shape, before: cloneShapeGeometry(shape) });
-    app._groupDrag = { startWorld: { x: worldPos.x, y: worldPos.y }, comps, vias, tracks, shapes };
+    const texts = [];
+    for (const text of getPcbSelection(app, 'text')) texts.push({ text, x: text.x, y: text.y });
+    const fills = [];
+    for (const fill of getPcbSelection(app, 'fill')) fills.push({ fill, before: fill.captureState() });
+    app._groupDrag = { startWorld: { x: worldPos.x, y: worldPos.y }, comps, vias, tracks, shapes, texts, fills };
 }
 
 /** Live-update positions of every selected object during a group drag. */
@@ -407,6 +427,16 @@ export function updateGroupDrag(app, worldPos) {
         applyShapeGeometry(entry.shape, _translateShapeGeometry(entry.before, dx, dy));
         renderBoardShape(app, entry.shape, { liveDrag: true });
     }
+    for (const entry of (g.texts || [])) {
+        entry.text.x = entry.x + dx;
+        entry.text.y = entry.y + dy;
+        app._refreshText?.(entry.text.id);
+    }
+    for (const entry of (g.fills || [])) {
+        entry.fill.applyState(entry.before);
+        entry.fill.move(dx, dy);
+    }
+    if (g.fills?.length) app._refreshFills?.();
     // A named copper shape is a net-bearing terminal just like a track.
     const movedNetShape = g.shapes?.some((entry) => !!entry.shape?.net);
     if (g.comps.length || g.vias.length || g.tracks.length || movedNetShape) {
@@ -453,6 +483,17 @@ export function endGroupDrag(app) {
             cmds.push(new MoveBoardShapeCommand(app, entry.shape, entry.before, after));
         }
     }
+    for (const entry of (g.texts || [])) {
+        if (entry.text.x !== entry.x || entry.text.y !== entry.y) {
+            cmds.push(new MoveTextCommand(app, entry.text.id, entry.x, entry.y, entry.text.x, entry.text.y));
+        }
+    }
+    for (const entry of (g.fills || [])) {
+        const after = entry.fill.captureState();
+        if (JSON.stringify(after) !== JSON.stringify(entry.before)) {
+            cmds.push(new ModifyFillCommand(app, entry.fill, entry.before, after));
+        }
+    }
     if (cmds.length === 0) {
         app._updateRatsnest?.();
         _applyHighlights(app);
@@ -473,6 +514,13 @@ export function cancelGroupDrag(app) {
         applyShapeGeometry(entry.shape, entry.before);
         renderBoardShape(app, entry.shape);
     }
+    for (const entry of (g.texts || [])) {
+        entry.text.x = entry.x;
+        entry.text.y = entry.y;
+        app._refreshText?.(entry.text.id);
+    }
+    for (const entry of (g.fills || [])) entry.fill.applyState(entry.before);
+    if (g.fills?.length) app._refreshFills?.();
     _applyHighlights(app);
 }
 
@@ -494,6 +542,8 @@ export function deleteBoxSelection(app) {
     for (const t of getPcbSelection(app, 'track')) cmds.push(new RemoveTrackCommand(app, t));
     for (const v of getPcbSelection(app, 'via')) cmds.push(new RemoveViaCommand(app, v));
     for (const shape of getPcbSelection(app, 'shape')) cmds.push(new RemoveBoardShapeCommand(app, shape));
+    for (const text of getPcbSelection(app, 'text')) cmds.push(new RemoveTextCommand(app, text.id));
+    for (const fill of getPcbSelection(app, 'fill')) cmds.push(new RemoveFillCommand(app, fill));
 
     // Clear the selection (and its halos) before mutating the model.
     clearBoxSelection(app);

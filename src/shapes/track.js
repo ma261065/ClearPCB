@@ -54,6 +54,8 @@ export class Track extends PolylineGraph {
      * @param {object} [options.edgeWidths] - Map of edgeId → width (mm)
      * @param {object} [options.padConnections] - Map of nodeId →
      *   { componentId, pinNumber }
+    * @param {object|null} [options.sourceBoardShape] - Original generic
+    *   board shape when this Track was created by shape conversion.
      * @param {object} [options.graphNodes] - Forwarded to PolylineGraph
      * @param {object} [options.graphEdges] - Forwarded to PolylineGraph
      * @param {Array<{x:number,y:number}>} [options.points] - Forwarded
@@ -69,6 +71,9 @@ export class Track extends PolylineGraph {
 
         // Default layer fallback for edges with no explicit assignment.
         this.layer = options.layer || DEFAULT_LAYER;
+        this.sourceBoardShape = options.sourceBoardShape
+            ? JSON.parse(JSON.stringify(options.sourceBoardShape))
+            : null;
 
         // Pad connections (mirror of Wire.pinConnections).
         this.padConnections = new Map();
@@ -158,6 +163,7 @@ export class Track extends PolylineGraph {
             lineWidth: this.lineWidth,
             visible: this.visible,
             locked: this.locked,
+            sourceBoardShape: this.sourceBoardShape,
         });
         for (const [id, p] of this.nodes) c.nodes.set(id, { x: p.x, y: p.y });
         for (const [id, e] of this.edges) c.edges.set(id, this._cloneEdge(e));
@@ -172,6 +178,9 @@ export class Track extends PolylineGraph {
         s.net = this.net;
         s.width = this.width;
         s.layer = this.layer;
+        s.sourceBoardShape = this.sourceBoardShape
+            ? JSON.parse(JSON.stringify(this.sourceBoardShape))
+            : null;
         s.padConnections = {};
         for (const [nid, conn] of this.padConnections) s.padConnections[nid] = { ...conn };
         return s;
@@ -183,6 +192,9 @@ export class Track extends PolylineGraph {
         if ('net' in state) this.net = state.net || '';
         if (Number.isFinite(state.width) && state.width > 0) this.width = state.width;
         if (typeof state.layer === 'string') this.layer = state.layer;
+        this.sourceBoardShape = state.sourceBoardShape
+            ? JSON.parse(JSON.stringify(state.sourceBoardShape))
+            : null;
         this.padConnections = new Map();
         if (state.padConnections) {
             for (const [nid, conn] of Object.entries(state.padConnections)) {
@@ -216,6 +228,7 @@ export class Track extends PolylineGraph {
         if (this.net) json.n = this.net;
         if (this.width !== 0.2) json.w = this.width;
         if (this.layer) json.l = this.layer;
+        if (this.sourceBoardShape) json.sbs = this.sourceBoardShape;
         if (this.padConnections.size > 0) {
             json.pdc = {};
             for (const [nid, conn] of this.padConnections) {
