@@ -76,6 +76,28 @@ expect('horizontal snap shows the Track halo and solid centerline', hasTrackStyl
 expect('vertical snap shows the Track halo and solid centerline', hasTrackStyleGlow({ x: 10.1, y: 5 }, false));
 expect('diagonal snap shows the Track halo and dashed centerline', hasTrackStyleGlow({ x: 5, y: 5.1 }, true));
 
+{
+    const overlay = element('g');
+    const shape = {
+        id: 'line_segment_drag',
+        kind: 'line',
+        layer: 'top-copper',
+        lineWidth: 0.2,
+        points: [{ x: 0, y: 0 }, { x: 10, y: 0 }],
+    };
+    const app = {
+        boardShapes: [shape],
+        viewport: { scale: 10, setCrosshair() {} },
+        _snapToGrid(value) { return value; },
+        _getLayerGroup() { return overlay; },
+        _shapeElements: new Map(),
+    };
+    startBoardShapeDrag(app, shape, { x: 5, y: 0 });
+    handleBoardShapeDrag(app, { x: 5, y: 3 });
+    expect('translating a horizontal Line segment shows no orientation halo',
+        !app._axisGlowHalos?.length && !app._axisGlowTop?.length);
+}
+
 function haloForScale(scale) {
     return makeAxisGlowHalo({ viewport: { scale } }, {
         a: { x: 0, y: 0 }, b: { x: 10, y: 0 }, width: 0.2,

@@ -15,6 +15,7 @@ globalThis.document = {
 const { Track } = await import('./src/shapes/track.js');
 const {
     canRestoreTrackToSourceBoardShape,
+    convertBoardLineToTrack,
     restoreTrackToSourceBoardShape,
 } = await import('./src/pcb/modules/board-shapes.js');
 
@@ -80,6 +81,50 @@ function appFor(track) {
     expect('source-derived Track restoration succeeds', restoreTrackToSourceBoardShape(app, track));
     expect('source-derived restoration preserves original id and style',
         app.boardShapes[0]?.id === sourceBoardShape.id && app.boardShapes[0]?.lineWidth === 0.25);
+}
+
+{
+    const line = {
+        id: 'pshape_converted',
+        kind: 'line',
+        layer: 'top-copper',
+        lineWidth: 0.3,
+        copperMode: 'add',
+        net: '',
+        points: [{ x: 0, y: 1 }, { x: 6, y: 1 }],
+    };
+    const app = appFor(null);
+    app.tracks = [];
+    app.boardShapes = [line];
+    const track = convertBoardLineToTrack(app, line, 'N');
+    expect('a property-assigned Line converts to a Track', !!track && app.tracks[0] === track);
+    expect('a converted Line Track remains restorable', canRestoreTrackToSourceBoardShape(track));
+    expect('clearing a converted Line Track restores the Line', restoreTrackToSourceBoardShape(app, track));
+    expect('restored converted Line keeps its original id', app.boardShapes[0]?.id === line.id);
+}
+
+{
+    const sourceBoardShape = {
+        id: 'pshape_edited',
+        kind: 'line',
+        layer: 'top-copper',
+        lineWidth: 0.2,
+        copperMode: 'add',
+        net: '',
+        points: [{ x: 0, y: 0 }, { x: 4, y: 0 }],
+    };
+    const track = new Track({
+        net: 'N',
+        layer: 'top-copper',
+        width: 0.2,
+        points: [{ x: 0, y: 0 }, { x: 2, y: 1 }, { x: 4, y: 0 }],
+        sourceBoardShape,
+    });
+    const app = appFor(track);
+    expect('an edited source-derived simple Track can restore', canRestoreTrackToSourceBoardShape(track));
+    expect('edited source-derived Track restoration succeeds', restoreTrackToSourceBoardShape(app, track));
+    expect('edited source-derived restoration keeps its edited points',
+        app.boardShapes[0]?.points?.length === 3 && app.boardShapes[0]?.points[1]?.y === 1);
 }
 
 {

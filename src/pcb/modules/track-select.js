@@ -1054,6 +1054,12 @@ function _showTrackProperties(app, track) {
             netEl.value = baseline.net; // refused — restore the field
         }
     });
+    netEl?.addEventListener('input', () => {
+        // The properties panel can be rebuilt before a blur emits `change`.
+        // Commit the empty transition immediately so a simple Track restores
+        // to its source Line as soon as its Net is cleared.
+        if (!netEl.value.trim() && baseline.net) netEl.dispatchEvent(new Event('change'));
+    });
     netMenuEl?.addEventListener('click', (event) => {
         const option = /** @type {HTMLButtonElement|null} */ (event.target instanceof Element ? event.target.closest('button[data-net]') : null);
         if (!option) return;
@@ -1165,6 +1171,9 @@ function _showTrackSegmentProperties(app, track, edgeId) {
         } else {
             netEl.value = baseline.net;
         }
+    });
+    netEl?.addEventListener('input', () => {
+        if (!netEl.value.trim() && baseline.net) netEl.dispatchEvent(new Event('change'));
     });
     netMenuEl?.addEventListener('click', (event) => {
         const option = /** @type {HTMLButtonElement|null} */ (event.target instanceof Element ? event.target.closest('button[data-net]') : null);

@@ -13,6 +13,8 @@ export function bindPcbControls(app) {
     const viaBtn = document.getElementById('pcbToolVia');
     const holeBtn = document.getElementById('pcbToolHole');
     const shapesBtn = document.getElementById('pcbToolShapes');
+    const shapesArrowBtn = document.getElementById('pcbToolShapesArrow');
+    const shapesWrap = document.getElementById('pcbToolShapesWrap');
     const shapesMenu = document.getElementById('pcbToolShapesMenu');
     const textBtn = document.getElementById('pcbToolText');
     const fillBtn = document.getElementById('pcbToolFill');
@@ -38,13 +40,13 @@ export function bindPcbControls(app) {
     const validTools = new Set(['select', 'track', 'pad', 'via', 'line', 'circle', 'arc', 'rect', 'polygon', 'text', 'fill']);
     // Tools grouped under the "Shapes" dropdown button.
     const SHAPE_TOOLS = new Set(['line', 'circle', 'arc', 'rect', 'polygon']);
-    // Label/icon shown on the Shapes button for each shape tool.
-    const SHAPE_LABELS = {
-        line: '/ Line',
-        circle: '◯ Circle',
-        arc: '◠ Arc',
-        rect: '▢ Rectangle',
-        polygon: '⬠ Polygon',
+    // Icon shown beside the stable Shapes dropdown label.
+    const SHAPE_ICONS = {
+        line: '/',
+        circle: '◯',
+        arc: '◠',
+        rect: '▢',
+        polygon: '⬠',
     };
 
     const setToolButtonActive = (tool) => {
@@ -52,6 +54,7 @@ export function bindPcbControls(app) {
             if (!btn) continue;
             if (btn === shapesBtn) {
                 btn.classList.toggle('active', SHAPE_TOOLS.has(tool));
+                shapesWrap?.classList.toggle('active', SHAPE_TOOLS.has(tool));
             } else {
                 btn.classList.toggle('active', btn.id === `pcbTool${tool.charAt(0).toUpperCase() + tool.slice(1)}`);
             }
@@ -81,9 +84,10 @@ export function bindPcbControls(app) {
             app._cancelShapeDraw?.();
         }
         app.currentTool = nextTool;
-        // Reflect the active shape on the Shapes dropdown button label.
+        // Reflect the active shape through its icon while retaining the
+        // consistent Shapes button label.
         if (shapesBtn && SHAPE_TOOLS.has(nextTool)) {
-            shapesBtn.textContent = `${SHAPE_LABELS[nextTool]} ▾`;
+            shapesBtn.textContent = `${SHAPE_ICONS[nextTool]} Shapes`;
         }
         // Clear any component hover outline when leaving the select tool.
         if (nextTool !== 'select') app._hoverComponent?.(null);
@@ -128,37 +132,43 @@ export function bindPcbControls(app) {
     // Shapes dropdown: the button toggles a small menu of shape tools, and
     // also re-activates whichever shape was last chosen so a single click
     // picks up the current shape (matching the other tool buttons).
-    const hideShapesMenu = () => { if (shapesMenu) shapesMenu.hidden = true; };
-    const toggleShapesMenu = () => { if (shapesMenu) shapesMenu.hidden = !shapesMenu.hidden; };
-    if (shapesBtn && shapesMenu) {
+    const hideShapesMenu = () => {
+        if (shapesMenu) shapesMenu.hidden = true;
+        shapesArrowBtn?.setAttribute('aria-expanded', 'false');
+    };
+    const toggleShapesMenu = () => {
+        if (!shapesMenu) return;
+        shapesMenu.hidden = !shapesMenu.hidden;
+        shapesArrowBtn?.setAttribute('aria-expanded', String(!shapesMenu.hidden));
+    };
+    if (shapesBtn && shapesArrowBtn && shapesMenu) {
         let lastShape = 'circle';
-        shapesBtn.addEventListener('click', (e) => {
+        const selectShape = (shape) => {
+            lastShape = shape;
+            hideShapesMenu();
+            setTool(shape);
+        };
+        shapesBtn.addEventListener('click', () => {
+            selectShape(SHAPE_TOOLS.has(app.currentTool) ? app.currentTool : lastShape);
+        });
+        shapesArrowBtn.addEventListener('click', (e) => {
             e.stopPropagation();
-            // If the menu is already open, treat a button click as "use the
-            // current shape"; otherwise open the chooser.
-            if (!shapesMenu.hidden) {
-                hideShapesMenu();
-                return;
-            }
             toggleShapesMenu();
         });
         for (const item of shapesMenu.querySelectorAll('[data-shape]')) {
             item.addEventListener('click', (e) => {
                 e.stopPropagation();
                 const shape = item.getAttribute('data-shape') || 'circle';
-                lastShape = shape;
-                hideShapesMenu();
-                setTool(shape);
+                selectShape(shape);
             });
         }
         // Dismiss the menu on any outside click.
         document.addEventListener('click', (e) => {
             if (shapesMenu.hidden) return;
-            if (e.target === shapesBtn || shapesBtn.contains(/** @type {Node} */(e.target))) return;
+            if (shapesWrap?.contains(/** @type {Node} */(e.target))) return;
             if (shapesMenu.contains(/** @type {Node} */(e.target))) return;
             hideShapesMenu();
         });
-        void lastShape;
     }
 
     const doCopy = () => app.copySelection?.();

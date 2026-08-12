@@ -27,10 +27,7 @@ import {
     cloneShapeGeometry,
     boardShapeHitTest,
     renderBoardShape,
-    shapeIsFilled,
-    shapeSelectionColor,
     shapeOutline,
-    shapePathD,
 } from './board-shapes.js';
 import {
     CompoundCommand,
@@ -60,7 +57,6 @@ const START_THRESHOLD_PX = 3;
 const TRACK_HALO_CLASS = 'pcb-box-track-sel';
 const VIA_HALO_CLASS = 'pcb-box-via-sel';
 const COMP_HALO_CLASS = 'pcb-box-comp-sel';
-const SHAPE_HALO_CLASS = 'pcb-box-shape-sel';
 
 /* ───────────────────────────── state ───────────────────────────── */
 
@@ -240,7 +236,6 @@ function _applyHighlights(app) {
         if (track !== selectedTrack) drawTrackHalo(app, track, TRACK_HALO_CLASS);
     }
     for (const via of getPcbSelection(app, 'via')) drawViaHalo(app, via, VIA_HALO_CLASS);
-    for (const shape of getPcbSelection(app, 'shape')) _drawShapeHighlight(app, shape);
     for (const text of getPcbSelection(app, 'text')) app._refreshText?.(text.id);
     if (getPcbSelection(app, 'fill').length) app._refreshFills?.();
     renderPcbSelectionAnchors(app);
@@ -250,33 +245,13 @@ function _applyHighlights(app) {
 function _clearHighlights(app) {
     removeHalosByClass(app, TRACK_HALO_CLASS);
     removeHalosByClass(app, VIA_HALO_CLASS);
-    app._getLayerGroup?.('selection-overlay')?.querySelectorAll(
-        `.${SHAPE_HALO_CLASS}, .pcb-board-shape-handles`,
-    ).forEach((el) => el.remove());
+    app._getLayerGroup?.('selection-overlay')?.querySelectorAll('.pcb-board-shape-handles')?.forEach((el) => el.remove());
     clearPcbSelectionAnchors(app);
     for (const [, pl] of app.placements) {
         if (pl.elements) {
             for (const el of pl.elements) el.querySelector(`.${COMP_HALO_CLASS}`)?.remove();
         }
     }
-}
-
-function _drawShapeHighlight(app, shape) {
-    if ((shape.kind === 'rect' || shape.kind === 'circle')
-        && shapeIsFilled(shape) && shape.layer !== 'hole') return;
-    const overlay = app._getLayerGroup?.('selection-overlay');
-    if (!overlay) return;
-    const halo = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-    halo.setAttribute('class', SHAPE_HALO_CLASS);
-    halo.setAttribute('d', shapePathD(shape, { close: shape.kind !== 'arc' }));
-    halo.setAttribute('fill', 'none');
-    halo.setAttribute('stroke', shapeSelectionColor(shape));
-    halo.setAttribute('stroke-width', String(shape.layer === 'hole'
-        ? 0.05
-        : Math.max(0.3, (Number(shape.lineWidth) || 0.2) + 0.2)));
-    halo.setAttribute('stroke-linejoin', 'round');
-    halo.setAttribute('pointer-events', 'none');
-    overlay.appendChild(halo);
 }
 
 /** Add a translucent rect over a component's footprint bounds. */
@@ -300,8 +275,10 @@ function _drawCompHighlight(app, compId) {
 
 /** Clear the multi-selection and remove its halos. */
 export function clearBoxSelection(app) {
+    const selectedTextIds = getPcbSelection(app, 'text').map((text) => text.id);
     _clearHighlights(app);
     clearPcbSelection(app);
+    for (const textId of selectedTextIds) app._refreshText?.(textId);
     app._syncClipboardButtons?.();
 }
 

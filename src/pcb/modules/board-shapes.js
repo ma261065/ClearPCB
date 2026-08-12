@@ -94,7 +94,7 @@ function trackMatchesSourceBoardShape(track) {
 }
 
 function simpleTrackLinePoints(track) {
-    if (!track || track.sourceBoardShape || track.nodes.size < 2
+    if (!track || track.nodes.size < 2
         || track.edges.size !== track.nodes.size - 1 || track.padConnections.size) return null;
     const adjacency = new Map([...track.nodes.keys()].map((nodeId) => [nodeId, []]));
     for (const [edgeId, edge] of track.edges) {
@@ -933,11 +933,12 @@ function clearPolygonAxisIndicators(app) {
     clearAxisGlow(app);
 }
 
-function renderPolygonAxisIndicators(app, shape, indices) {
+function renderPolygonAxisIndicators(app, shape, indices, excludedSegments = []) {
     if (!['line', 'polygon'].includes(shape.kind) || !shape.points?.length) {
         clearAxisGlow(app);
         return;
     }
+    const excluded = new Set(excludedSegments);
     const seen = new Set();
     const segments = [];
     for (const index of (Array.isArray(indices) ? indices : [indices])) {
@@ -950,6 +951,12 @@ function renderPolygonAxisIndicators(app, shape, indices) {
             const key = [index, neighbourIndex].sort((a, b) => a - b).join(':');
             if (seen.has(key)) continue;
             seen.add(key);
+            const segmentIndex = shape.kind === 'line'
+                ? Math.min(index, neighbourIndex)
+                : neighbourIndex === (index + shape.points.length - 1) % shape.points.length
+                    ? neighbourIndex
+                    : index;
+            if (excluded.has(segmentIndex)) continue;
             const neighbour = shape.points[neighbourIndex];
             const axis = polygonAxisKind(point, neighbour);
             if (!axis) continue;
@@ -1124,7 +1131,9 @@ export function handleBoardShapeDrag(app, worldPos) {
         normalizeBoardPolylineKind(s);
         renderBoardShape(app, s, { liveDrag: true });
         renderBoardShapeHandles(app, s);
-        if (['line', 'polygon'].includes(s.kind)) renderPolygonAxisIndicators(app, s, [firstIndex, secondIndex]);
+        if (['line', 'polygon'].includes(s.kind)) {
+            renderPolygonAxisIndicators(app, s, [firstIndex, secondIndex], [d.segment]);
+        }
         app._updateRatsnest?.();
         return;
     }
