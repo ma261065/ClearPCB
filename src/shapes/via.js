@@ -28,8 +28,13 @@ export function updateViaIdCounter(id) {
     const m = id.match(/^via_(\d+)$/);
     if (m) {
         const n = parseInt(m[1], 10);
-        if (Number.isFinite(n) && n >= viaIdCounter) viaIdCounter = n + 1;
+        if (Number.isFinite(n) && n > viaIdCounter) viaIdCounter = n;
     }
+}
+
+/** Issue the next unused generated Via ID. */
+export function nextViaId() {
+    return `via_${++viaIdCounter}`;
 }
 
 export class Via {
@@ -44,7 +49,8 @@ export class Via {
      *   for standalone vias such as ground-plane stitches)
      */
     constructor(options = {}) {
-        this.id = options.id || `via_${++viaIdCounter}`;
+        this.id = options.id || nextViaId();
+        updateViaIdCounter(this.id);
         this.type = 'via';
         this.x = Number(options.x) || 0;
         this.y = Number(options.y) || 0;

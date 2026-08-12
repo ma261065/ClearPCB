@@ -2,28 +2,27 @@
  * PCB layer definitions and hover-expandable layer panel.
  *
  * Each layer has a unique id, display name, color, and
- * edit/visible state.  The panel auto-expands on hover,
- * shows a color swatch, name, edit pencil (radio), and
- * visibility eye (toggle) for every layer.
+ * visibility and lock state. The panel auto-expands on hover and shows a
+ * color swatch, name, lock toggle, and visibility eye for every layer.
  */
 
-/** @typedef {{id: string, name: string, color: string, edit: boolean, visible: boolean, locked: boolean}} LayerDef */
+/** @typedef {{id: string, name: string, color: string, visible: boolean, locked: boolean}} LayerDef */
 
 /** All PCB layers with their display colors. */
 export const PCB_LAYERS = /** @type {LayerDef[]} */ ([
-    { id: 'top-copper',       name: 'Top Copper',          color: '#e74c3c', edit: true,  visible: true, locked: false },
-    { id: 'bottom-copper',    name: 'Bottom Copper',       color: '#2479b5', edit: false, visible: true, locked: false },
-    { id: 'top-silk',         name: 'Top Silk',            color: '#f0e68c', edit: false, visible: true, locked: false },
-    { id: 'bottom-silk',      name: 'Bottom Silk',         color: '#a89332', edit: false, visible: true, locked: false },
-    { id: 'top-paste',        name: 'Top Paste Mask',      color: '#e88dd6', edit: false, visible: true, locked: false },
-    { id: 'bottom-paste',     name: 'Bottom Paste Mask',   color: '#8d5e87', edit: false, visible: true, locked: false },
-    { id: 'top-mask',         name: 'Top Solder Mask',     color: '#9b59b6', edit: false, visible: true, locked: false },
-    { id: 'bottom-mask',      name: 'Bottom Solder Mask',  color: '#5b3a70', edit: false, visible: true, locked: false },
-    { id: 'board-outline',    name: 'Board Outline',       color: '#f1c40f', edit: false, visible: true, locked: false },
-    { id: 'top-document',     name: 'Top Document',        color: '#b0b7b8', edit: false, visible: true, locked: false },
-    { id: 'bottom-document',  name: 'Bottom Document',     color: '#7f8c8d', edit: false, visible: true, locked: false },
-    { id: 'document',         name: 'Document (Both)',     color: '#95a5a6', edit: false, visible: true, locked: false },
-    { id: 'hole',             name: 'Hole',                color: '#1abc9c', edit: false, visible: true, locked: false },
+    { id: 'top-copper',       name: 'Top Copper',          color: '#e74c3c', visible: true, locked: false },
+    { id: 'bottom-copper',    name: 'Bottom Copper',       color: '#2479b5', visible: true, locked: false },
+    { id: 'top-silk',         name: 'Top Silk',            color: '#f0e68c', visible: true, locked: false },
+    { id: 'bottom-silk',      name: 'Bottom Silk',         color: '#a89332', visible: true, locked: false },
+    { id: 'top-paste',        name: 'Top Paste Mask',      color: '#e88dd6', visible: true, locked: false },
+    { id: 'bottom-paste',     name: 'Bottom Paste Mask',   color: '#8d5e87', visible: true, locked: false },
+    { id: 'top-mask',         name: 'Top Solder Mask',     color: '#9b59b6', visible: true, locked: false },
+    { id: 'bottom-mask',      name: 'Bottom Solder Mask',  color: '#5b3a70', visible: true, locked: false },
+    { id: 'board-outline',    name: 'Board Outline',       color: '#f1c40f', visible: true, locked: false },
+    { id: 'top-document',     name: 'Top Document',        color: '#b0b7b8', visible: true, locked: false },
+    { id: 'bottom-document',  name: 'Bottom Document',     color: '#7f8c8d', visible: true, locked: false },
+    { id: 'document',         name: 'Document (Both)',     color: '#95a5a6', visible: true, locked: false },
+    { id: 'hole',             name: 'Hole',                color: '#1abc9c', visible: true, locked: false },
 ]);
 
 /**
@@ -125,7 +124,7 @@ export function isViaVisible() {
 }
 
 /**
- * Persistence of per-session layer-panel state (eye/lock/pencil) in
+ * Persistence of per-session layer-panel state (eye/lock) in
  * localStorage. These are UI preferences, deliberately kept out of the saved
  * document — they survive reloads but aren't part of the file.
  */
@@ -140,7 +139,7 @@ function _writeLayerPrefs() {
             overlays: {},
         };
         for (const l of PCB_LAYERS) {
-            data.layers[l.id] = { visible: l.visible, locked: l.locked, edit: l.edit };
+            data.layers[l.id] = { visible: l.visible, locked: l.locked };
         }
         for (const f of PCB_COPPER_FILLS) {
             data.fills[f.id] = { visible: f.visible, locked: f.locked };
@@ -171,22 +170,11 @@ export function loadLayerPrefs() {
     if (!data) return;
 
     if (data.layers) {
-        let anyEdit = false;
         for (const l of PCB_LAYERS) {
             const s = data.layers[l.id];
             if (!s) continue;
             if (typeof s.visible === 'boolean') l.visible = s.visible;
             if (typeof s.locked === 'boolean') l.locked = s.locked;
-            if (typeof s.edit === 'boolean') l.edit = s.edit;
-            if (l.edit) anyEdit = true;
-        }
-        // Never restore into a state with no editable layer (e.g. the saved
-        // edit layer is now locked); fall back to the first unlocked layer.
-        const editLayer = PCB_LAYERS.find(l => l.edit);
-        if (!anyEdit || (editLayer && editLayer.locked)) {
-            for (const l of PCB_LAYERS) l.edit = false;
-            const firstFree = PCB_LAYERS.find(l => !l.locked) || PCB_LAYERS[0];
-            if (firstFree) firstFree.edit = true;
         }
     }
     if (data.fills) {
@@ -204,11 +192,6 @@ export function loadLayerPrefs() {
         }
     }
 }
-
-// SVG icon paths (inline, no external deps)
-const PENCIL_SVG = `<svg width="20" height="20" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <path d="M8.5 1.5l2 2L4 10H2v-2L8.5 1.5z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/>
-</svg>`;
 
 const EYE_OPEN_SVG = `<svg width="20" height="20" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
   <path d="M1 7s2.5-4 6-4 6 4 6 4-2.5 4-6 4-6-4-6-4z" stroke="currentColor" stroke-width="1.1"/>
@@ -241,11 +224,9 @@ const PIN_SVG = `<svg width="28" height="28" viewBox="3.5 0.5 7 13" fill="none" 
  */
 export function buildLayerPanel(app) {
     const panel = document.getElementById('pcbLayerPanel');
-    const triggerLabel = document.getElementById('pcbLayerLabel');
-    const triggerSwatch = document.getElementById('pcbLayerSwatch');
     if (!panel) return;
 
-    // Restore persisted eye/lock/pencil state before rendering the rows.
+    // Restore persisted eye/lock state before rendering the rows.
     loadLayerPrefs();
 
     panel.innerHTML = '';
@@ -272,8 +253,6 @@ export function buildLayerPanel(app) {
         // making the items below appear indented under it.
         heading.style.gridColumn = '1 / span 2';
         row.appendChild(heading);
-        // empty pencil col
-        row.appendChild(document.createElement('span'));
         // lock col: a master lock button when requested, else an empty spacer
         let lockBtn = null;
         if (withLock) {
@@ -340,8 +319,7 @@ export function buildLayerPanel(app) {
         }
     });
 
-    // Master lock: lock or unlock every layer at once. If locking would leave
-    // the active edit layer locked, hand editing to the next unlocked layer.
+    // Master lock: lock or unlock every layer at once.
     let allLayersLocked = PCB_LAYERS.every(l => l.locked);
     const syncMasterLock = () => {
         if (!layersMasterLock) return;
@@ -354,7 +332,6 @@ export function buildLayerPanel(app) {
         e.stopPropagation();
         allLayersLocked = !allLayersLocked;
         syncMasterLock();
-        const editLayer = PCB_LAYERS.find(l => l.edit);
         for (const layer of PCB_LAYERS) {
             layer.locked = allLayersLocked;
             app._onLayerLockChanged?.(layer.id, allLayersLocked);
@@ -367,15 +344,11 @@ export function buildLayerPanel(app) {
             lockBtn.innerHTML = allLayersLocked ? LOCK_CLOSED_SVG : LOCK_OPEN_SVG;
             lockBtn.title = allLayersLocked ? 'Unlock layer' : 'Lock layer';
         }
-        // Locking everything would leave the edit layer locked; move editing on.
-        if (allLayersLocked && editLayer) {
-            _advanceEditLayerFromLocked(app, editLayer.id);
-        }
     });
 
     for (const layer of PCB_LAYERS) {
         const row = document.createElement('div');
-        row.className = 'pcb-layer-row section-layers' + (layer.edit ? ' active-edit' : '');
+        row.className = 'pcb-layer-row section-layers';
         row.dataset.layerId = layer.id;
 
         // Color swatch
@@ -391,17 +364,6 @@ export function buildLayerPanel(app) {
         name.style.color = layer.color;
         row.appendChild(name);
 
-        // Edit button (pencil) — radio behavior
-        const editBtn = document.createElement('button');
-        editBtn.className = 'pcb-layer-btn edit-btn' + (layer.edit ? ' active' : '');
-        editBtn.innerHTML = PENCIL_SVG;
-        editBtn.title = 'Edit on this layer';
-        editBtn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            _setEditLayer(app, layer.id);
-        });
-        row.appendChild(editBtn);
-
         // Lock button (padlock) — toggle. A locked layer renders dimmed
         // so it's visually distinct from the editable layers.
         const lockBtn = document.createElement('button');
@@ -414,12 +376,6 @@ export function buildLayerPanel(app) {
             lockBtn.classList.toggle('active', layer.locked);
             lockBtn.innerHTML = layer.locked ? LOCK_CLOSED_SVG : LOCK_OPEN_SVG;
             lockBtn.title = layer.locked ? 'Unlock layer' : 'Lock layer';
-            // Locking the active edit layer would leave you unable to draw, so
-            // move the active layer down one (looping at the bottom) to the
-            // next unlocked layer.
-            if (layer.locked && layer.edit) {
-                _advanceEditLayerFromLocked(app, layer.id);
-            }
             app._onLayerLockChanged?.(layer.id, layer.locked);
             // Keep the master lock in sync with the per-row states.
             allLayersLocked = PCB_LAYERS.every(l => l.locked);
@@ -440,9 +396,6 @@ export function buildLayerPanel(app) {
             app._onLayerVisibilityChanged?.(layer.id, layer.visible);
         });
         row.appendChild(visBtn);
-
-        // Click row = set edit layer
-        row.addEventListener('click', () => _setEditLayer(app, layer.id));
 
         panel.appendChild(row);
     }
@@ -515,9 +468,6 @@ export function buildLayerPanel(app) {
             name.textContent = f.name;
             name.style.color = f.color;
             row.appendChild(name);
-
-            // Empty pencil column — copper fill isn't its own edit layer.
-            row.appendChild(document.createElement('span'));
 
             // Lock button (padlock) — toggle.
             const lockBtn = document.createElement('button');
@@ -599,7 +549,6 @@ export function buildLayerPanel(app) {
             name.style.color = ov.color;
             row.appendChild(name);
 
-            // Empty pencil column — overlays aren't editable layers.
             row.appendChild(document.createElement('span'));
             // Empty lock column — overlays can't be locked.
             row.appendChild(document.createElement('span'));
@@ -621,74 +570,7 @@ export function buildLayerPanel(app) {
         }
     }
 
-    // Set initial trigger display
-    _syncTrigger(triggerLabel, triggerSwatch);
 }
-
-/**
- * The active edit layer just got locked. Advance the active layer downward
- * through the PCB layer list (wrapping from bottom back to top) to the next
- * unlocked layer, so the user is never left editing a locked layer.
- * @param {object} app
- * @param {string} lockedLayerId
- */
-function _advanceEditLayerFromLocked(app, lockedLayerId) {
-    const n = PCB_LAYERS.length;
-    const start = PCB_LAYERS.findIndex(l => l.id === lockedLayerId);
-    if (start < 0) return;
-    for (let step = 1; step <= n; step++) {
-        const cand = PCB_LAYERS[(start + step) % n];
-        if (!cand.locked) {
-            _setEditLayer(app, cand.id);
-            return;
-        }
-    }
-    // Every layer is locked — nothing to switch to; leave as-is.
-}
-
-/**
- * Set the active edit layer (radio behavior — only one at a time).
- * @param {object} app
- * @param {string} layerId
- */
-function _setEditLayer(app, layerId) {
-    const panel = document.getElementById('pcbLayerPanel');
-    if (!panel) return;
-
-    // A locked layer can't be made the active edit layer — you can't draw
-    // on something that's locked. Nudge the user with a speech bubble.
-    if (isLayerLocked(layerId)) {
-        showLockedLayerBubble(app, layerId);
-        return;
-    }
-
-    for (const layer of PCB_LAYERS) {
-        layer.edit = layer.id === layerId;
-    }
-
-    // Update all row highlights and pencil buttons
-    for (const row of panel.querySelectorAll('.pcb-layer-row')) {
-        const rid = /** @type {HTMLElement} */ (row).dataset.layerId;
-        row.classList.toggle('active-edit', rid === layerId);
-        const editBtn = row.querySelector('.edit-btn');
-        if (editBtn) editBtn.classList.toggle('active', rid === layerId);
-    }
-
-    // Update trigger
-    _syncTrigger(
-        document.getElementById('pcbLayerLabel'),
-        document.getElementById('pcbLayerSwatch')
-    );
-
-    // Notify app
-    const active = PCB_LAYERS.find(l => l.id === layerId);
-    if (active) {
-        app.activeLayer = active.id;
-        app._setPcbStatus?.();
-    }
-    saveLayerPrefs();
-}
-
 /**
  * Show a small speech bubble explaining why a locked layer/object can't be
  * selected. Anchors to the layer's row in the panel by default, or to a given
@@ -761,16 +643,4 @@ export function showLockedLayerBubble(app, layerId, anchor) {
         bubble.classList.remove('pcb-locked-bubble-show');
         bubble.style.display = 'none';
     }, 2400);
-}
-
-/**
- * Sync the trigger button to show the current edit layer.
- * @param {HTMLElement|null} label
- * @param {HTMLElement|null} swatch
- */
-function _syncTrigger(label, swatch) {
-    const active = PCB_LAYERS.find(l => l.edit);
-    if (!active) return;
-    if (label) label.textContent = active.name;
-    if (swatch) swatch.style.background = active.color;
 }

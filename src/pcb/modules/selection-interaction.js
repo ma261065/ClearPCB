@@ -33,7 +33,7 @@ export function clearSelectionInteractionUi(app) {
     selectBoardShape(app, null);
 }
 
-function showProperties(app, entry) {
+function showSingleProperties(app, entry) {
     if (entry.kind === 'component') {
         app._selectComponent?.(entry.object);
         app._showComponentProperties?.(entry.object);
@@ -52,9 +52,40 @@ function showProperties(app, entry) {
     }
 }
 
+/** Show Properties for the current registry selection without collapsing it. */
+export function showPcbSelectionProperties(app) {
+    const selected = getPcbSelectionEntries(app);
+    if (!selected.length) {
+        app._clearProperties?.();
+        return;
+    }
+    if (selected.length === 1) {
+        showSingleProperties(app, selected[0]);
+        return;
+    }
+    const kinds = new Set(selected.map((entry) => entry.kind));
+    // Shapes and vias already expose batch-safe property panels. Other
+    // families retain single-object editors, so show a neutral summary rather
+    // than silently reducing the registry selection to the last clicked item.
+    if (kinds.size === 1 && selected[0].kind === 'shape') {
+        showBoardShapeProperties(app, selected[0].object);
+    } else if (kinds.size === 1 && selected[0].kind === 'via') {
+        showViaProperties(app, selected[0].object);
+    } else {
+        app._showPcbMultiSelectionProperties?.(selected);
+    }
+}
+
 /** Start a state-machine-owned select gesture. Returns true when consumed. */
 export function beginSelectionInteraction(app, worldPos, additive) {
     app._lastPointerWorld = worldPos;
+    const selected = getPcbSelectionEntries(app);
+    // A selected shape's anchor used to preempt the shared group-drag path.
+    // This made Ctrl+A depend on the exact pixel grabbed: a vertex moved one
+    // shape while its body moved the whole selection. Let PCBApp route every
+    // multi-selection drag through beginGroupDrag before inspecting anchors.
+    if (!additive && selected.length > 1) return false;
+
     const selectedAnchor = hitTestPcbSelectionAnchor(app, worldPos, SUPPORTED_KINDS);
     if (selectedAnchor?.adapter.beginAnchorDrag?.(selectedAnchor.anchorId, worldPos)) {
         app._pcbSelectionInteraction = {
@@ -63,7 +94,7 @@ export function beginSelectionInteraction(app, worldPos, additive) {
             moved: false,
             ...selectedAnchor,
         };
-        showProperties(app, selectedAnchor.adapter);
+        showPcbSelectionProperties(app);
         return true;
     }
 
@@ -73,17 +104,13 @@ export function beginSelectionInteraction(app, worldPos, additive) {
     if (additive) {
         togglePcbSelection(app, entry.kind, entry.object);
         const selected = getPcbSelectionEntries(app);
-        const lead = selected.find((item) => item.kind === entry.kind)
-            || selected.find((item) => SUPPORTED_KINDS.has(item.kind));
-        if (lead) showProperties(app, lead);
-        else app._clearProperties?.();
+        showPcbSelectionProperties(app);
         refreshBoxSelectionHighlights(app);
         return true;
     }
 
-    const selected = getPcbSelectionEntries(app);
     // Let PCBApp's marquee path move the complete set when a selected member
-    // is clicked. Explicit anchor drags above still edit only that member.
+    // is clicked.
     if (selected.length > 1 && selected.some((item) => item.id === entry.id)) return false;
 
     clearSelectionInteractionUi(app);
@@ -98,7 +125,7 @@ export function beginSelectionInteraction(app, worldPos, additive) {
         beginGroupDrag(app, worldPos);
         app._pcbSelectionInteraction = { mode: 'move', entry };
     }
-    showProperties(app, entry);
+    showPcbSelectionProperties(app);
     refreshBoxSelectionHighlights(app);
     return true;
 }

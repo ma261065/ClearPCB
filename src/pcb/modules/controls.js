@@ -96,13 +96,16 @@ export function bindPcbControls(app) {
         setToolButtonActive(nextTool);
         app._updateCursorForTool?.();
         app._setPcbStatus?.();
-        // Show per-tool options group (Home tab).
+        // Shape-like drawing tools configure themselves through Properties.
         if (nextTool === 'via') {
-            app._showViaToolOptions?.();
+            app._hideToolOptions?.();
+            app._showViaToolProperties?.();
         } else if (nextTool === 'track') {
-            app._showTrackToolOptions?.();
+            app._hideToolOptions?.();
+            app._showTrackDrawProperties?.();
         } else if (nextTool === 'text') {
-            app._showTextToolOptions?.();
+            app._hideToolOptions?.();
+            app._showTextToolProperties?.();
         } else if (nextTool === 'fill') {
             app._showFillToolOptions?.();
         } else if (nextTool === 'circle') {

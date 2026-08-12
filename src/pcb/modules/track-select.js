@@ -1261,31 +1261,46 @@ function _applyNetToBondedCopper(app, seed, v) {
 export function showViaProperties(app, via) {
     const items = app._pcbPropsItems?.() || document.getElementById('pcbPropsItems');
     if (!items) return;
+    const selectedVias = getPcbSelection(app, 'via');
+    const vias = selectedVias.includes(via) && selectedVias.length ? selectedVias : [via];
+    const mixedDiameter = vias.some((target) => target.diameter !== via.diameter);
+    const mixedDrill = vias.some((target) => target.drill !== via.drill);
     app._setPcbPropsTitle?.('Via');
     const netOptions = _netOptions(app, via.net || '');
     items.innerHTML = `
         <div class="prop-row"><label>Net</label><span class="prop-net-control"><input type="text" id="pcbPropViaNet" value="${_escape(via.net || '')}" placeholder="None"><details class="prop-net-menu"><summary aria-label="Select existing net"></summary><div>${netOptions}</div></details></span></div>
-        <div class="prop-row"><label>Diameter (mm)</label><input type="number" id="pcbPropViaDia" value="${via.diameter}" min="0.1" step="0.05"></div>
-        <div class="prop-row"><label>Drill (mm)</label><input type="number" id="pcbPropViaDrill" value="${via.drill}" min="0.05" step="0.05"></div>
+        <div class="prop-row"><label>Diameter (mm)</label><input type="number" id="pcbPropViaDia" value="${mixedDiameter ? '' : via.diameter}" placeholder="${mixedDiameter ? 'Mixed' : ''}" min="0.1" step="0.05"></div>
+        <div class="prop-row"><label>Drill (mm)</label><input type="number" id="pcbPropViaDrill" value="${mixedDrill ? '' : via.drill}" placeholder="${mixedDrill ? 'Mixed' : ''}" min="0.05" step="0.05"></div>
     `;
     const reRender = () => import('./track-render.js').then(({ renderVia }) => {
-        renderVia(via, (id) => app._getLayerGroup(id));
+        for (const target of vias) renderVia(target, (id) => app._getLayerGroup(id));
         app._refreshPcbSelectionHighlights?.();
     });
-    const baseline = { diameter: via.diameter, drill: via.drill, net: via.net || '' };
+    const baseline = new Map(vias.map((target) => [target, {
+        diameter: target.diameter,
+        drill: target.drill,
+        net: target.net || '',
+    }]));
     const live = (key) => (e) => {
         const v = parseFloat(/** @type {HTMLInputElement} */ (e.target).value);
-        if (Number.isFinite(v) && v > 0) { via[key] = v; reRender(); }
+        if (Number.isFinite(v) && v > 0) {
+            for (const target of vias) target[key] = v;
+            reRender();
+        }
     };
     const commit = (key) => (e) => {
         const v = parseFloat(/** @type {HTMLInputElement} */ (e.target).value);
         if (!Number.isFinite(v) || v <= 0) return;
-        if (v === baseline[key]) return;
-        const before = { [key]: baseline[key] };
-        const after = { [key]: v };
-        via[key] = baseline[key];
-        app.history?.execute(new ModifyViaCommand(app, via, before, after));
-        baseline[key] = v;
+        const cmds = [];
+        for (const target of vias) {
+            const beforeValue = baseline.get(target)[key];
+            if (v === beforeValue) continue;
+            cmds.push(new ModifyViaCommand(app, target, { [key]: beforeValue }, { [key]: v }));
+            target[key] = beforeValue;
+        }
+        if (!cmds.length) return;
+        app.history?.execute(cmds.length === 1 ? cmds[0] : new CompoundCommand(cmds));
+        for (const target of vias) baseline.get(target)[key] = v;
     };
     const diaEl = document.getElementById('pcbPropViaDia');
     diaEl?.addEventListener('input', live('diameter'));
@@ -1297,11 +1312,12 @@ export function showViaProperties(app, via) {
     const netMenuEl = /** @type {HTMLDetailsElement|null} */ (document.querySelector('.prop-net-menu'));
     netEl?.addEventListener('change', () => {
         const v = netEl.value.trim();
-        if (v === baseline.net) return;
+        const netBaseline = baseline.get(via).net;
+        if (v === netBaseline) return;
         if (_applyNetToBondedCopper(app, { via }, v)) {
-            baseline.net = v;
+            baseline.get(via).net = v;
         } else {
-            netEl.value = baseline.net; // refused — restore the field
+            netEl.value = netBaseline; // refused — restore the field
         }
     });
     netMenuEl?.addEventListener('click', (event) => {

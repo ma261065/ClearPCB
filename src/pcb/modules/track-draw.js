@@ -439,13 +439,13 @@ export function startTrackDraw(app, worldPos) {
     // Inherit the net at draw start from the pad or track node we begin on,
     // so the live net-guide line works for the whole draw (an unassigned
     // track would have nothing to guide toward).
-    let net = startPad?.net || '';
+    let net = String(app._trackToolNet || '').trim() || startPad?.net || '';
     let startTrack = null;
     if (snap.snapType === 'track-node' && snap.trackNode) {
         startTrack = snap.trackNode.track;
         if (!net) net = startTrack.net || '';
     }
-    const layer = TOGGLE_LAYERS.includes(app.activeLayer) ? app.activeLayer : 'top-copper';
+    const layer = TOGGLE_LAYERS.includes(app._trackToolLayer) ? app._trackToolLayer : 'top-copper';
     const width = _getTrackWidth(app);
     const routeOpts = _renderOptsFromApp(app);
 
@@ -472,8 +472,9 @@ export function startTrackDraw(app, worldPos) {
         viaDrill: routeOpts.viaDrill,
     };
     app._trackDraw = ctx;
+    app.viewport?.setCrosshair({ x: snap.x, y: snap.y });
     _renderPreview(app, ctx, ctx.points[0]);
-    app._showTrackDrawToolOptions?.(ctx);
+    app._showTrackDrawProperties?.();
     return ctx;
 }
 
@@ -498,6 +499,7 @@ export function updateTrackDraw(app, worldPos) {
         clearTrackSnapMarker(app);
     }
 
+    app.viewport?.setCrosshair(target);
     _renderPreview(app, ctx, target);
 
     // Live guide from the trailing tip to the nearest existing copper on this
@@ -638,8 +640,8 @@ export function finishTrackDraw(app) {
     }
 
     _teardownDraw(app);
-    // Track tool is still selected — show its idle options (width).
-    app._showTrackToolOptions?.();
+    // Track tool is still selected — restore its draw settings.
+    app._showTrackDrawProperties?.();
 }
 
 /**
@@ -647,7 +649,7 @@ export function finishTrackDraw(app) {
  */
 export function cancelTrackDraw(app) {
     _teardownDraw(app);
-    app._showTrackToolOptions?.();
+    app._showTrackDrawProperties?.();
 }
 
 /**
@@ -1118,6 +1120,7 @@ function _teardownDraw(app) {
     _clearPreviewElements(ctx);
     clearTrackSnapMarker(app);
     clearNetGuideLine(app);
+    app.viewport?.hideCrosshair();
     app._trackDraw = null;
 }
 

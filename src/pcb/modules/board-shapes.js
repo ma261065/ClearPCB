@@ -525,7 +525,8 @@ function geomAnchor(geom) {
     return geom.points ? geom.points[0] : geom.start || geom;
 }
 
-function translateGeometry(geom, dx, dy) {
+/** Translate a geometry snapshot without changing its dimensions or curvature. */
+export function translateShapeGeometry(geom, dx, dy) {
     if (geom.points) {
         return { points: geom.points.map((p) => ({ x: p.x + dx, y: p.y + dy })) };
     }
@@ -1128,6 +1129,7 @@ export function handleBoardShapeDrag(app, worldPos) {
         const { dx, dy } = snapPolylineSegmentDrag(app, s, { ...d.before, startWorld: d.startWorld }, d.segment, worldPos);
         s.points[firstIndex] = { x: points[firstIndex].x + dx, y: points[firstIndex].y + dy };
         s.points[secondIndex] = { x: points[secondIndex].x + dx, y: points[secondIndex].y + dy };
+        app.viewport?.setCrosshair(s.points[firstIndex]);
         normalizeBoardPolylineKind(s);
         renderBoardShape(app, s, { liveDrag: true });
         renderBoardShapeHandles(app, s);
@@ -1142,7 +1144,7 @@ export function handleBoardShapeDrag(app, worldPos) {
     // Snap by the shape's anchor point so the whole shape lands on the grid.
     const anchor = geomAnchor(d.before);
     const snapped = app._snapToGrid({ x: anchor.x + dx, y: anchor.y + dy });
-    applyShapeGeometry(s, translateGeometry(d.before, snapped.x - anchor.x, snapped.y - anchor.y));
+    applyShapeGeometry(s, translateShapeGeometry(d.before, snapped.x - anchor.x, snapped.y - anchor.y));
     app.viewport?.setCrosshair(snapped);
     renderBoardShape(app, s, { liveDrag: true });
     renderBoardShapeHandles(app, s);

@@ -27,7 +27,7 @@ const PREVIEW_CLASS = 'pcb-fill-preview';
 const CLOSE_TOL = 0.6;
 
 function copperLayer(app) {
-    return app.activeLayer === 'bottom-copper' ? 'bottom-copper' : 'top-copper';
+    return app._fillToolLayer === 'bottom-copper' ? 'bottom-copper' : 'top-copper';
 }
 
 function snap(app, world) {

@@ -28,6 +28,7 @@ import {
     boardShapeHitTest,
     renderBoardShape,
     shapeOutline,
+    translateShapeGeometry,
 } from './board-shapes.js';
 import {
     CompoundCommand,
@@ -295,19 +296,11 @@ export function pointInBoxSelection(app, worldPos) {
     // so the user doesn't have to click dead-centre to grab the group.
     const worldTol = 6 / (app.viewport?.scale || 1);
 
-    // A selected component: pointer within a pad's reach (matches the
-    // single-select 10 mm tolerance feel by reusing pad proximity).
-    for (const compId of getPcbSelection(app, 'component')) {
-        const pl = app.placements.get(compId);
-        if (!pl) continue;
-        if (pl.bounds) {
-            const b = pl.bounds;
-            if (worldPos.x >= pl.x + b.x && worldPos.x <= pl.x + b.x + b.width &&
-                worldPos.y >= pl.y + b.y && worldPos.y <= pl.y + b.y + b.height) {
-                return true;
-            }
-        }
-    }
+    // Reuse PCBApp's pose-aware component picker. Placement bounds live in
+    // local coordinates, so a simple translated rectangle misses rotated or
+    // mirrored footprints and breaks Ctrl+A group dragging from their body.
+    const componentHit = app._hitTestComponent?.(worldPos);
+    if (componentHit && getPcbSelection(app, 'component').includes(componentHit)) return true;
     // A selected via.
     for (const v of getPcbSelection(app, 'via')) {
         const r = (v.diameter || 0.6) / 2 + worldTol;
@@ -401,7 +394,7 @@ export function updateGroupDrag(app, worldPos) {
         renderTrack(tEntry.track, (id) => app._getLayerGroup(id), _trackOpts(app, tEntry.track));
     }
     for (const entry of (g.shapes || [])) {
-        applyShapeGeometry(entry.shape, _translateShapeGeometry(entry.before, dx, dy));
+        applyShapeGeometry(entry.shape, translateShapeGeometry(entry.before, dx, dy));
         renderBoardShape(app, entry.shape, { liveDrag: true });
     }
     for (const entry of (g.texts || [])) {
@@ -420,15 +413,6 @@ export function updateGroupDrag(app, worldPos) {
         app._updateRatsnest?.();
     }
     _applyHighlights(app);
-}
-
-function _translateShapeGeometry(geometry, dx, dy) {
-    if (geometry.points) return { points: geometry.points.map((p) => ({ x: p.x + dx, y: p.y + dy })) };
-    return {
-        start: { x: geometry.start.x + dx, y: geometry.start.y + dy },
-        end: { x: geometry.end.x + dx, y: geometry.end.y + dy },
-        bulge: { x: geometry.bulge.x + dx, y: geometry.bulge.y + dy },
-    };
 }
 
 /** Commit a group drag as one undoable compound command. */

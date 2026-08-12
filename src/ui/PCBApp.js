@@ -146,6 +146,7 @@ import {
 import {
     beginSelectionInteraction,
     clearSelectionInteractionUi,
+    showPcbSelectionProperties,
     finishSelectionInteraction,
     placeFloatingSelectionInteraction,
     updateSelectionInteraction,
@@ -154,7 +155,7 @@ import { getPcbSelection, isPcbSelected, setPcbSelection, syncPcbSelection } fro
 import { measureText as measureStrokeText } from '../pcb/modules/stroke-font.js';
 import { CommandHistory } from '../core/CommandHistory.js';
 import { Track } from '../shapes/track.js';
-import { Via } from '../shapes/via.js';
+import { Via, resetViaIdCounter } from '../shapes/via.js';
 import { CopperFill, updateFillIdCounter } from '../shapes/copper-fill.js';
 import { computeFillPolygons, loadClipper, isClipperReady } from '../pcb/modules/copper-fill-geom.js';
 import { renderCopperFill, fillGroupId } from '../pcb/modules/copper-fill-render.js';
@@ -500,6 +501,40 @@ export default class PCBApp {
             || getPcbSelection(this, 'text').length > 0
             || getPcbSelection(this, 'fill').length > 0;
     }
+    /** Select every currently visible, unlocked PCB object. */
+    _selectAllPcb() {
+        window.getSelection?.()?.removeAllRanges();
+        const selected = [];
+        for (const [componentId] of this.placements) {
+            selected.push({ kind: 'component', object: componentId });
+        }
+        for (const track of this.tracks) {
+            if (!isLayerLocked(track.layer) && isLayerVisible(track.layer)) {
+                selected.push({ kind: 'track', object: track });
+            }
+        }
+        if (!isViaLocked() && isViaVisible()) {
+            for (const via of this.vias) selected.push({ kind: 'via', object: via });
+        }
+        for (const shape of this.boardShapes) {
+            if (shape?.type === 'fill') {
+                if (!shape.locked && shape.visible !== false && !isLayerLocked(shape.layer) && isLayerVisible(shape.layer)) {
+                    selected.push({ kind: 'fill', object: shape });
+                }
+            } else if (shape && !isLayerLocked(shape.layer) && isLayerVisible(shape.layer)) {
+                selected.push({ kind: 'shape', object: shape });
+            }
+        }
+        for (const text of this.texts.values()) {
+            if (!isLayerLocked(text.layer) && isLayerVisible(text.layer)) {
+                selected.push({ kind: 'text', object: text });
+            }
+        }
+        setPcbSelection(this, selected);
+        refreshBoxSelectionHighlights(this);
+        showPcbSelectionProperties(this);
+        this._syncClipboardButtons();
+    }
 
     /** Enable/disable PCB ribbon clipboard buttons to match current state. */
     _syncClipboardButtons() {
@@ -551,6 +586,7 @@ export default class PCBApp {
     cutSelection() {
         if (!this.copySelection()) return false;
         const deleted = deleteBoxSelection(this);
+        if (deleted) this._clearProperties();
         this._syncClipboardButtons();
         return deleted;
     }
@@ -894,7 +930,8 @@ export default class PCBApp {
             // the text's size/rotation spinners), and NOT on a right-button
             // press (that starts a pan — dragging the board must not switch
             // tabs, e.g. closing the Design tab's live DRC mid-pan).
-            const propertiesToolActive = this.currentTool === 'line' || this.currentTool === 'circle'
+            const propertiesToolActive = this.currentTool === 'track' || this.currentTool === 'via'
+                || this.currentTool === 'line' || this.currentTool === 'circle'
                 || this.currentTool === 'rect' || this.currentTool === 'polygon' || this.currentTool === 'arc';
             const worldPos = e.button === 0 && this.currentTool === 'select'
                 ? this._screenToWorld(e)
@@ -1142,11 +1179,7 @@ export default class PCBApp {
                     this._selectBoardOutline(false);
                     this._selectText(textHit);
                     this._showTextProperties(textHit);
-                    this._textDrag = {
-                        textId: textHit.id,
-                        startWorld: worldPos,
-                        startPos: { x: textHit.x, y: textHit.y },
-                    };
+                    this._beginTextDrag(textHit, worldPos);
                     svg.style.cursor = 'grabbing';
                     return;
                 }
@@ -1264,7 +1297,7 @@ export default class PCBApp {
             if (e.button === 0 && this.currentTool === 'track') {
                 const worldPos = this._screenToWorld(e);
                 // Can't draw on a locked layer.
-                if (!this._trackDraw && isLayerLocked(this.activeLayer)) return;
+                if (!this._trackDraw && isLayerLocked(this._trackToolLayer || 'top-copper')) return;
                 if (this._trackDraw) {
                     addTrackWaypoint(this, worldPos);
                 } else {
@@ -1279,6 +1312,7 @@ export default class PCBApp {
             // Left-click with fill tool: start a new pour region or add a vertex.
             if (e.button === 0 && this.currentTool === 'fill') {
                 const worldPos = this._screenToWorld(e);
+                if (!this._fillDraw && isLayerLocked(this._fillToolLayer || 'top-copper')) return;
                 if (this._fillDraw) {
                     addFillWaypoint(this, worldPos);
                 } else {
@@ -1295,11 +1329,12 @@ export default class PCBApp {
                 const p = this._getRoutingParams?.() || {};
                 const diameter = Number.isFinite(p.viaDiameter) && p.viaDiameter > 0 ? p.viaDiameter : 0.6;
                 const drill = Number.isFinite(p.viaDrill) && p.viaDrill > 0 ? p.viaDrill : 0.3;
+                const selectedNet = String(this._viaToolNet || '').trim();
 
                 if (snap.snapType === 'pad' || snap.snapType === 'track-node') {
                     // Landed on an existing pad / track node: attach the via
                     // there and inherit that net (the via sits on a node).
-                    const net = snap.pad?.net || snap.trackNode?.track?.net || '';
+                    const net = selectedNet || snap.pad?.net || snap.trackNode?.track?.net || '';
                     const via = new Via({ x: snap.x, y: snap.y, diameter, drill, net });
                     this.history.execute(new AddViaCommand(this, via));
                 } else {
@@ -1309,7 +1344,7 @@ export default class PCBApp {
                     if (split) {
                         const via = new Via({
                             x: split.px, y: split.py, diameter, drill,
-                            net: split.track.net || '',
+                            net: selectedNet || split.track.net || '',
                         });
                         const parts = splitTrackObjectAtPoint(
                             split.track, split.edgeId, { x: split.px, y: split.py });
@@ -1323,7 +1358,7 @@ export default class PCBApp {
                         }
                     } else {
                         // Empty space: a standalone via with no net assignment.
-                        const via = new Via({ x: snap.x, y: snap.y, diameter, drill, net: '' });
+                        const via = new Via({ x: snap.x, y: snap.y, diameter, drill, net: selectedNet });
                         this.history.execute(new AddViaCommand(this, via));
                     }
                 }
@@ -1339,11 +1374,7 @@ export default class PCBApp {
             if (e.button === 0 && this.currentTool === 'text') {
                 const worldPos = this._screenToWorld(e);
                 const snap = this._snapToGrid(worldPos);
-                // Place on the active edit layer if it can carry text,
-                // else fall back to the tool-options default.
-                const layer = TEXT_LAYERS.includes(this.activeLayer)
-                    ? this.activeLayer
-                    : this._textDefaults.layer;
+                const layer = this._textDefaults.layer;
                 // Don't place text on a locked layer.
                 if (isLayerLocked(layer)) return;
                 const text = createPcbText({
@@ -1563,11 +1594,7 @@ export default class PCBApp {
             // Finish (or discard) a marquee box-select. Safe to call even
             // when nothing was armed — it just clears the pending state.
             const completedBoxSelection = finishBoxSelect(this);
-            const selectedShapes = getPcbSelection(this, 'shape');
-            if (completedBoxSelection && selectedShapes.length) {
-                const leadShape = selectedShapes[0];
-                if (leadShape) showBoardShapeProperties(this, leadShape);
-            }
+            if (completedBoxSelection) showPcbSelectionProperties(this);
             if (this._drag) {
                 this._endDrag();
             }
@@ -2204,6 +2231,10 @@ export default class PCBApp {
             if (this.pasteSelection()) return true;
             return false;
         }
+        if ((e.ctrlKey || e.metaKey) && !e.shiftKey && (e.key === 'a' || e.key === 'A')) {
+            this._selectAllPcb();
+            return true;
+        }
 
         // Track-draw mode owns Escape + Space.
         if (this._trackDraw) {
@@ -2556,6 +2587,7 @@ export default class PCBApp {
         for (const v of this.vias) removeViaElements(v);
         this.tracks.length = 0;
         this.vias.length = 0;
+        resetViaIdCounter();
         for (const id of this._shapeElements.keys()) removeBoardShapeElement(this, id);
         this.boardShapes.length = 0;
         this._shapeIdCounter = 1;
@@ -2811,9 +2843,6 @@ export default class PCBApp {
         for (const ov of PCB_OVERLAYS) {
             this._onOverlayVisibilityChanged(ov.id, ov.visible);
         }
-        // Match the active draw layer to the restored edit (pencil) layer.
-        const editLayer = PCB_LAYERS.find(l => l.edit);
-        if (editLayer) this.activeLayer = editLayer.id;
     }
 
     /**
@@ -3055,6 +3084,8 @@ export default class PCBApp {
                 panelEl.classList.toggle('active', panelEl.dataset.panel === tabId);
             });
 
+            this._syncClipboardButtons?.();
+
             if (tabId === 'pcb-home') {
                 this._syncPcbHomeToolHighlight?.();
             }
@@ -3272,88 +3303,24 @@ export default class PCBApp {
     }
 
     /**
-     * Show live editable options for an in-progress Track draw
-     * (currently just track width). Replaces the old Properties-tab UI.
-     * @param {object} ctx - the _trackDraw context
-     */
-    _showTrackDrawToolOptions(ctx) {
-        if (!ctx) return;
-        this._showToolOptions(
-            `<label>Width (mm) <input type="number" id="pcbToolTrackWidth" value="${ctx.width}" min="0.05" step="0.05"></label>`,
-            () => {
-                const wEl = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbToolTrackWidth'));
-                wEl?.addEventListener('input', () => {
-                    const v = parseFloat(wEl.value);
-                    if (Number.isFinite(v) && v > 0) {
-                        ctx.width = v;
-                        const last = ctx.points[ctx.points.length - 1];
-                        const live = ctx.snap ? { x: ctx.snap.x, y: ctx.snap.y } : last;
-                        updateTrackDraw(this, live);
-                    }
-                });
-            });
-    }
-
-    /**
-     * Show idle Track tool options (width spinner only). Used when the
-     * track tool is selected but no draw is in progress; edits write
-     * back to the routing-params input so the next draw picks them up.
-     */
-    _showTrackToolOptions() {
-        const p = this._getRoutingParams?.() || {};
-        const w = Number.isFinite(p.trackWidth) && p.trackWidth > 0 ? p.trackWidth : 0.2;
-        this._showToolOptions(
-            `<label>Width (mm) <input type="number" id="pcbToolTrackWidth" value="${w}" min="0.05" step="0.05"></label>`,
-            () => {
-                const wEl = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbToolTrackWidth'));
-                const src = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbTrackWidth'));
-                wEl?.addEventListener('input', () => {
-                    if (src) src.value = wEl.value;
-                });
-            });
-    }
-
-    /**
-     * Show live editable options for the Via tool (diameter / drill).
-     */
-    _showViaToolOptions() {
-        const p = this._getRoutingParams?.() || {};
-        const dia = Number.isFinite(p.viaDiameter) && p.viaDiameter > 0 ? p.viaDiameter : 0.6;
-        const drill = Number.isFinite(p.viaDrill) && p.viaDrill > 0 ? p.viaDrill : 0.3;
-        this._showToolOptions(
-            `<label>Diameter (mm) <input type="number" id="pcbToolViaDia" value="${dia}" min="0.1" step="0.05"></label>
-             <label>Drill (mm) <input type="number" id="pcbToolViaDrill" value="${drill}" min="0.05" step="0.05"></label>`,
-            () => {
-                const diaEl = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbToolViaDia'));
-                const drillEl = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbToolViaDrill'));
-                const srcDia = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbViaDiameter'));
-                const srcDrill = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbViaDrill'));
-                diaEl?.addEventListener('input', () => {
-                    if (srcDia) srcDia.value = diaEl.value;
-                    if (this._lastCrosshairWorld) this._updateViaPreview(this._lastCrosshairWorld);
-                });
-                drillEl?.addEventListener('input', () => {
-                    if (srcDrill) srcDrill.value = drillEl.value;
-                    if (this._lastCrosshairWorld) this._updateViaPreview(this._lastCrosshairWorld);
-                });
-            });
-    }
-
-    /**
-     * Show Fill tool options (copper-layer picker). The chosen layer becomes
-     * the active layer so the next pour is drawn on it; if a pour outline is
-     * already in progress, retarget it live.
+    * Show Fill tool options (copper-layer picker). If a pour outline is
+    * already in progress, retarget it live.
      */
     _showFillToolOptions() {
-        const cur = this.activeLayer === 'bottom-copper' ? 'bottom-copper' : 'top-copper';
+        const cur = this._fillToolLayer === 'bottom-copper' ? 'bottom-copper' : 'top-copper';
         const opt = (id, name) => `<option value="${id}"${id === cur ? ' selected' : ''}>${name}</option>`;
         this._showToolOptions(
             `<label>Layer <select id="pcbToolFillLayer">${opt('top-copper', 'Top Copper')}${opt('bottom-copper', 'Bottom Copper')}</select></label>`,
             () => {
                 const el = /** @type {HTMLSelectElement|null} */ (document.getElementById('pcbToolFillLayer'));
                 el?.addEventListener('change', () => {
-                    this.activeLayer = el.value === 'bottom-copper' ? 'bottom-copper' : 'top-copper';
-                    if (this._fillDraw) this._fillDraw.layer = this.activeLayer;
+                    const next = el.value === 'bottom-copper' ? 'bottom-copper' : 'top-copper';
+                    if (isLayerLocked(next)) {
+                        el.value = this._fillToolLayer || 'top-copper';
+                        return;
+                    }
+                    this._fillToolLayer = next;
+                    if (this._fillDraw) this._fillDraw.layer = this._fillToolLayer;
                 });
             });
     }
@@ -3390,13 +3357,124 @@ export default class PCBApp {
         return document.getElementById('pcbPropsItems');
     }
 
-    /**
-     * Show live editable properties for an in-progress Track draw.
-     * @deprecated Track-draw options now live in the Home tab Tool
-     * Options group (see _showTrackDrawToolOptions). Kept as a no-op
-     * for backwards compat with anything still calling it.
-     */
-    _showTrackDrawProperties() { /* no-op */ }
+    /** Build the shared editable Net dropdown used by PCB tool properties. */
+    _toolNetOptions(current = '') {
+        const escape = (value) => String(value).replace(/[&<>"']/g, (char) => (
+            { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]
+        ));
+        const netNames = new Set((this.netlist || []).map((entry) => String(entry.net || '')).filter(Boolean));
+        for (const source of [this.tracks, this.vias, this.boardShapes, this.copperFills]) {
+            for (const item of source || []) {
+                const net = String(item?.net || '');
+                if (net) netNames.add(net);
+            }
+        }
+        const selected = String(current || '');
+        const options = `<button type="button" data-net="">None</button>${[...netNames].sort().map((net) =>
+            `<button type="button" data-net="${escape(net)}"${net === selected ? ' aria-current="true"' : ''}>${escape(net)}</button>`
+        ).join('')}`;
+        return { escape, options };
+    }
+
+    /** Bind an editable Net input and its picker menu to a tool-setting callback. */
+    _bindToolNetControl(items, inputId, onChange) {
+        const netEl = /** @type {HTMLInputElement|null} */ (items.querySelector(`#${inputId}`));
+        const menuEl = /** @type {HTMLDetailsElement|null} */ (items.querySelector('.prop-net-menu'));
+        netEl?.addEventListener('change', () => onChange(netEl.value.trim()));
+        menuEl?.addEventListener('click', (event) => {
+            const option = /** @type {HTMLButtonElement|null} */ (event.target instanceof Element ? event.target.closest('button[data-net]') : null);
+            if (!option || !netEl) return;
+            netEl.value = option.dataset.net || '';
+            netEl.dispatchEvent(new Event('change'));
+            menuEl.open = false;
+        });
+        menuEl?.addEventListener('toggle', () => {
+            if (!menuEl.open || !netEl) return;
+            const current = netEl.value.trim();
+            for (const option of menuEl.querySelectorAll('button[data-net]')) {
+                option.toggleAttribute('aria-current', option.dataset.net === current);
+            }
+        });
+    }
+
+    /** Show Track draw defaults and live draw settings in Properties. */
+    _showTrackDrawProperties() {
+        const items = this._pcbPropsItems();
+        if (!items) return;
+        const ctx = this._trackDraw;
+        const p = this._getRoutingParams?.() || {};
+        const width = ctx?.width || (Number.isFinite(p.trackWidth) && p.trackWidth > 0 ? p.trackWidth : 0.2);
+        const layer = ctx?.currentLayer || (this._trackToolLayer === 'bottom-copper' ? 'bottom-copper' : 'top-copper');
+        const net = ctx?.net ?? String(this._trackToolNet || '');
+        const { escape, options } = this._toolNetOptions(net);
+        this._setPcbPropsTitle('New Track');
+        items.innerHTML = `
+            <div class="prop-row"><label>Net</label><span class="prop-net-control"><input type="text" id="pcbPropTrackToolNet" value="${escape(net)}" placeholder="None"><details class="prop-net-menu"><summary aria-label="Select existing net"></summary><div>${options}</div></details></span></div>
+            <div class="prop-row"><label>Layer</label><select id="pcbPropTrackToolLayer"><option value="top-copper"${layer === 'top-copper' ? ' selected' : ''}>Top Copper</option><option value="bottom-copper"${layer === 'bottom-copper' ? ' selected' : ''}>Bottom Copper</option></select></div>
+            <div class="prop-row"><label>Width (mm)</label><input type="number" id="pcbPropTrackToolWidth" value="${width}" min="0.05" step="0.05"></div>
+        `;
+        const layerEl = /** @type {HTMLSelectElement|null} */ (items.querySelector('#pcbPropTrackToolLayer'));
+        const widthEl = /** @type {HTMLInputElement|null} */ (items.querySelector('#pcbPropTrackToolWidth'));
+        const routeWidthEl = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbTrackWidth'));
+        this._bindToolNetControl(items, 'pcbPropTrackToolNet', (next) => {
+            this._trackToolNet = next;
+            if (ctx) {
+                ctx.net = next;
+                const last = ctx.points[ctx.points.length - 1];
+                updateTrackDraw(this, ctx.snap ? { x: ctx.snap.x, y: ctx.snap.y } : last);
+            }
+        });
+        layerEl?.addEventListener('change', () => {
+            const next = layerEl.value === 'bottom-copper' ? 'bottom-copper' : 'top-copper';
+            if (isLayerLocked(next)) {
+                layerEl.value = layer;
+                return;
+            }
+            this._trackToolLayer = next;
+            if (ctx) ctx.currentLayer = next;
+        });
+        widthEl?.addEventListener('input', () => {
+            const next = parseFloat(widthEl.value);
+            if (!Number.isFinite(next) || next <= 0) return;
+            if (routeWidthEl) routeWidthEl.value = String(next);
+            if (!ctx) return;
+            ctx.width = next;
+            const last = ctx.points[ctx.points.length - 1];
+            updateTrackDraw(this, ctx.snap ? { x: ctx.snap.x, y: ctx.snap.y } : last);
+        });
+        this._setActiveRibbonTab?.('pcb-properties');
+    }
+
+    /** Show Via placement defaults in Properties. */
+    _showViaToolProperties() {
+        const items = this._pcbPropsItems();
+        if (!items) return;
+        const p = this._getRoutingParams?.() || {};
+        const diameter = Number.isFinite(p.viaDiameter) && p.viaDiameter > 0 ? p.viaDiameter : 0.6;
+        const drill = Number.isFinite(p.viaDrill) && p.viaDrill > 0 ? p.viaDrill : 0.3;
+        const net = String(this._viaToolNet || '');
+        const { escape, options } = this._toolNetOptions(net);
+        this._setPcbPropsTitle('New Via');
+        items.innerHTML = `
+            <div class="prop-row"><label>Net</label><span class="prop-net-control"><input type="text" id="pcbPropViaToolNet" value="${escape(net)}" placeholder="None"><details class="prop-net-menu"><summary aria-label="Select existing net"></summary><div>${options}</div></details></span></div>
+            <div class="prop-row"><label>Diameter (mm)</label><input type="number" id="pcbPropViaToolDiameter" value="${diameter}" min="0.1" step="0.05"></div>
+            <div class="prop-row"><label>Drill (mm)</label><input type="number" id="pcbPropViaToolDrill" value="${drill}" min="0.05" step="0.05"></div>
+        `;
+        const diameterEl = /** @type {HTMLInputElement|null} */ (items.querySelector('#pcbPropViaToolDiameter'));
+        const drillEl = /** @type {HTMLInputElement|null} */ (items.querySelector('#pcbPropViaToolDrill'));
+        const routeDiameterEl = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbViaDiameter'));
+        const routeDrillEl = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbViaDrill'));
+        this._bindToolNetControl(items, 'pcbPropViaToolNet', (next) => { this._viaToolNet = next; });
+        diameterEl?.addEventListener('input', () => {
+            if (routeDiameterEl) routeDiameterEl.value = diameterEl.value;
+            if (this._lastCrosshairWorld) this._updateViaPreview(this._lastCrosshairWorld);
+        });
+        drillEl?.addEventListener('input', () => {
+            if (routeDrillEl) routeDrillEl.value = drillEl.value;
+            if (this._lastCrosshairWorld) this._updateViaPreview(this._lastCrosshairWorld);
+        });
+        this._setActiveRibbonTab?.('pcb-properties');
+    }
 
     /** Show Properties-tab defaults for a board shape being created. */
     _showBoardShapeToolProperties(kind) {
@@ -4981,6 +5059,7 @@ export default class PCBApp {
             startWorld: worldPos,
             startPos: { x: text.x, y: text.y },
         };
+        this.viewport?.setCrosshair({ x: text.x, y: text.y + text.size * 0.313 + text.strokeWidth / 2 });
         return true;
     }
 
@@ -4994,6 +5073,7 @@ export default class PCBApp {
         });
         text.x = snap.x;
         text.y = snap.y;
+        this.viewport?.setCrosshair({ x: snap.x, y: snap.y + text.size * 0.313 + text.strokeWidth / 2 });
         this._refreshText(text.id);
     }
 
@@ -5001,18 +5081,7 @@ export default class PCBApp {
     _handleTextDrag(e) {
         if (!this._textDrag) return;
         this.viewport.shiftHeld = e.shiftKey;
-        const worldPos = this._screenToWorld(e);
-        const dx = worldPos.x - this._textDrag.startWorld.x;
-        const dy = worldPos.y - this._textDrag.startWorld.y;
-        const snap = this._snapToGrid({
-            x: this._textDrag.startPos.x + dx,
-            y: this._textDrag.startPos.y + dy,
-        });
-        const t = this.texts.get(this._textDrag.textId);
-        if (!t) return;
-        t.x = snap.x;
-        t.y = snap.y;
-        this._refreshText(t.id);
+        this._updateTextDrag(this._screenToWorld(e));
     }
 
     /** End a text drag, pushing a MoveTextCommand if it actually moved. */
@@ -5020,6 +5089,7 @@ export default class PCBApp {
         if (!this._textDrag) return;
         const { textId, startPos } = this._textDrag;
         this._textDrag = null;
+        this.viewport?.hideCrosshair();
         this.viewport.svg.style.cursor = 'default';
         const t = this.texts.get(textId);
         if (!t) return;
@@ -5329,28 +5399,41 @@ export default class PCBApp {
         if (isPcbSelected(this, 'reftext', compId)) this._showRefProperties(compId);
     }
 
-    /** Show tool-options spinners for the Text tool. */
-    _showTextToolOptions() {
+    /** Show Text drawing defaults in Properties. */
+    _showTextToolProperties() {
         const d = this._textDefaults;
-        this._showToolOptions(`
-            <label style="display:flex;align-items:center;gap:4px;font-size:11px">Size
-              <input type="number" id="pcbTextSize" value="${d.size}" min="0.2" max="20" step="0.1" style="width:50px">
-            </label>
-            <label style="display:flex;align-items:center;gap:4px;font-size:11px">Line W
-              <input type="number" id="pcbTextLW" value="${d.strokeWidth}" min="0.05" max="2" step="0.05" style="width:55px">
-            </label>
-        `, () => {
-            const s = document.getElementById('pcbTextSize');
-            const lw = document.getElementById('pcbTextLW');
-            s?.addEventListener('input', () => {
-                const v = parseFloat(s.value);
-                if (Number.isFinite(v) && v > 0) this._textDefaults.size = v;
-            });
-            lw?.addEventListener('input', () => {
-                const v = parseFloat(lw.value);
-                if (Number.isFinite(v) && v > 0) this._textDefaults.strokeWidth = v;
-            });
+        const items = this._pcbPropsItems();
+        if (!items) return;
+        const layerOpts = TEXT_LAYERS.map(layer =>
+            `<option value="${layer}"${layer === d.layer ? ' selected' : ''}>${this._layerLabel(layer)}</option>`
+        ).join('');
+        this._setPcbPropsTitle('New Text');
+        items.innerHTML = `
+            <div class="prop-row"><label>Layer</label><select id="pcbPropTextToolLayer">${layerOpts}</select></div>
+            <div class="prop-row"><label>Size (mm)</label><input type="number" id="pcbPropTextToolSize" value="${d.size}" min="0.2" max="20" step="0.1"></div>
+            <div class="prop-row"><label>Rotation (°)</label><input type="number" id="pcbPropTextToolRot" value="${d.rotation}" step="15"></div>
+            <div class="prop-row"><label>Line W (mm)</label><input type="number" id="pcbPropTextToolLW" value="${d.strokeWidth}" min="0.05" max="2" step="0.05"></div>
+        `;
+        const layerEl = /** @type {HTMLSelectElement|null} */ (items.querySelector('#pcbPropTextToolLayer'));
+        const sizeEl = /** @type {HTMLInputElement|null} */ (items.querySelector('#pcbPropTextToolSize'));
+        const rotationEl = /** @type {HTMLInputElement|null} */ (items.querySelector('#pcbPropTextToolRot'));
+        const lineWidthEl = /** @type {HTMLInputElement|null} */ (items.querySelector('#pcbPropTextToolLW'));
+        layerEl?.addEventListener('change', () => {
+            if (TEXT_LAYERS.includes(layerEl.value)) this._textDefaults.layer = layerEl.value;
         });
+        sizeEl?.addEventListener('input', () => {
+            const size = parseFloat(sizeEl.value);
+            if (Number.isFinite(size) && size > 0) this._textDefaults.size = size;
+        });
+        rotationEl?.addEventListener('input', () => {
+            const rotation = parseFloat(rotationEl.value);
+            if (Number.isFinite(rotation)) this._textDefaults.rotation = ((rotation % 360) + 360) % 360;
+        });
+        lineWidthEl?.addEventListener('input', () => {
+            const lineWidth = parseFloat(lineWidthEl.value);
+            if (Number.isFinite(lineWidth) && lineWidth > 0) this._textDefaults.strokeWidth = lineWidth;
+        });
+        this._setActiveRibbonTab?.('pcb-properties');
     }
 
     _layerLabel(layer) {
@@ -6001,6 +6084,24 @@ export default class PCBApp {
      */
     _exitTextTool() {
         this._setActiveRibbonTab?.('pcb-home');
+    }
+
+    /** Show a non-destructive Properties state for unsupported batch edits. */
+    _showPcbMultiSelectionProperties(entries) {
+        const items = this._pcbPropsItems();
+        if (!items) return;
+        const labels = {
+            component: 'Components',
+            fill: 'Copper Fills',
+            reftext: 'References',
+            text: 'Text',
+            track: 'Tracks',
+        };
+        const kinds = [...new Set(entries.map((entry) => labels[entry.kind] || entry.kind))];
+        this._setPcbPropsTitle(`${entries.length} Selected`);
+        items.innerHTML = `<span class="props-placeholder">${kinds.join(', ')}</span>`;
+        this._setActiveRibbonTab?.('pcb-properties');
+        this._syncClipboardButtons?.();
     }
 
     // ── Auto Router ───────────────────────────────────────────────

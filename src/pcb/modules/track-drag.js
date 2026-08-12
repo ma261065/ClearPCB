@@ -897,6 +897,7 @@ export function startVertexDrag(app, track, worldPos, opts = {}) {
         // Freeze 3D board-view sync for the drag; it rebuilds once on commit
         // rather than live from the in-flight (uncommitted) node positions.
         app._suspendBoardViewRefresh = true;
+        app.viewport?.setCrosshair({ x: n.x, y: n.y });
         return true;
     }
 
@@ -959,6 +960,7 @@ export function startVertexDrag(app, track, worldPos, opts = {}) {
     // Freeze 3D board-view sync for the drag; it rebuilds once on commit
     // rather than live from the in-flight (uncommitted) node positions.
     app._suspendBoardViewRefresh = true;
+    app.viewport?.setCrosshair({ x: a.x, y: a.y });
     if (graphBefore) renderTrack(track, (id) => app._getLayerGroup(id), _opts(app));
     return true;
 }
@@ -984,6 +986,8 @@ export function updateVertexDrag(app, worldPos) {
             n.y = nd.startY + dy;
             if (nd.padLink) drag.track.padConnections.delete(nd.nodeId);
         }
+        const anchor = drag.track.nodes.get(drag.nodes[0]?.nodeId);
+        if (anchor) app.viewport?.setCrosshair({ x: anchor.x, y: anchor.y });
         renderTrackAxisGlow(app, _incidentSegments(drag.track, drag.nodes));
         renderTrack(drag.track, (id) => app._getLayerGroup(id), _opts(app));
         renderTrackAxisGlowTop(app);
@@ -1066,6 +1070,8 @@ export function updateVertexDrag(app, worldPos) {
         n.x = snapped.x;
         n.y = snapped.y;
     }
+
+    app.viewport?.setCrosshair({ x: n.x, y: n.y });
 
     // If the user landed on a pad, record/replace the pad connection.
     if (snap.snapType === 'pad' && snap.pad) {
@@ -1415,6 +1421,7 @@ export function finishVertexDrag(app) {
     const drag = app._vertexDrag;
     if (!drag) return;
     app._vertexDrag = null;
+    app.viewport?.hideCrosshair();
     // Re-enable 3D board-view sync and schedule one catch-up rebuild from the
     // final state. The commit below fires its own (debounced) sync too; both
     // collapse into a single rebuild, and no-op drops still re-sync here.
@@ -1547,6 +1554,7 @@ export function cancelVertexDrag(app) {
     const drag = app._vertexDrag;
     if (!drag) return;
     app._vertexDrag = null;
+    app.viewport?.hideCrosshair();
     // Re-enable 3D board-view sync and re-sync to the restored state.
     app._suspendBoardViewRefresh = false;
     app._board3d?.refresh?.();
@@ -1612,6 +1620,7 @@ export function startViaDrag(app, via, worldPos) {
         startY: via.y,
         attached,
     };
+    app.viewport?.setCrosshair({ x: via.x, y: via.y });
     return true;
 }
 
@@ -1674,6 +1683,7 @@ export function updateViaDrag(app, worldPos) {
         if (snapped) pos = { x: snapped.x, y: snapped.y };
     }
 
+    app.viewport?.setCrosshair(pos);
     drag.via.x = pos.x;
     drag.via.y = pos.y;
     // Drag attached track nodes in lock-step.
@@ -1712,6 +1722,7 @@ export function finishViaDrag(app) {
     const drag = app._viaDrag;
     if (!drag) return;
     app._viaDrag = null;
+    app.viewport?.hideCrosshair();
     clearTrackAxisGlow(app);
     clearTrackSnapMarker(app);
     const moved = Math.abs(drag.via.x - drag.startX) > 1e-6
@@ -1746,6 +1757,7 @@ export function cancelViaDrag(app) {
     const drag = app._viaDrag;
     if (!drag) return;
     app._viaDrag = null;
+    app.viewport?.hideCrosshair();
     clearTrackAxisGlow(app);
     clearTrackSnapMarker(app);
     drag.via.x = drag.startX;
