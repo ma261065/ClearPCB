@@ -17,6 +17,7 @@ import {
     cancelGroupDrag,
     endGroupDrag,
     refreshBoxSelectionHighlights,
+    scheduleBoxSelectionHighlights,
     updateGroupDrag,
 } from './box-select.js';
 import { hitTestPcbSelectionAnchor } from './selection-anchors.js';
@@ -142,7 +143,7 @@ export function updateSelectionInteraction(app, worldPos) {
             }
         }
         state.adapter.updateAnchorDrag?.(worldPos);
-        refreshBoxSelectionHighlights(app);
+        scheduleBoxSelectionHighlights(app);
         return true;
     }
     if (state.mode === 'move') {
@@ -151,7 +152,7 @@ export function updateSelectionInteraction(app, worldPos) {
     }
     if (state.mode === 'move-adapter') {
         state.entry.updateMove?.(worldPos);
-        refreshBoxSelectionHighlights(app);
+        scheduleBoxSelectionHighlights(app);
         return true;
     }
     return false;

@@ -41,6 +41,7 @@ import {
     ModifyTrackCommand,
     ModifyTrackGraphCommand,
     ModifyViaCommand,
+    ModifyViasCommand,
 } from './track-commands.js';
 import { PCB_LAYERS, isLayerLocked, isViaLocked, isLayerVisible, isViaVisible } from './layers.js';
 import { canRestoreTrackToSourceBoardShape, restoreTrackToSourceBoardShape } from './board-shapes.js';
@@ -56,6 +57,7 @@ import { renderPcbSelectionAnchors } from './selection-anchors.js';
 const NS = 'http://www.w3.org/2000/svg';
 const HALO_CLASS = 'pcb-track-selection';
 const HOVER_CLASS = 'pcb-track-hover';
+const VIA_BATCH_HALO_CLASS = 'pcb-box-via-sel';
 
 /** Halo stroke colour — translucent white overlays the trace so the
  *  underlying copper colour still reads through. Kept low-opacity so a
@@ -422,6 +424,17 @@ export function clearTrackSelection(app) {
  */
 export function refreshTrackSelectionHalo(app) {
     _removeHalos(app, HALO_CLASS);
+    const selectedVias = getPcbSelection(app, 'via');
+    if (selectedVias.length > 1) {
+        _removeHalos(app, VIA_BATCH_HALO_CLASS);
+        for (const via of selectedVias) _drawViaHalo(app, via, VIA_BATCH_HALO_CLASS, HALO_OPACITY_SELECTED);
+        renderPcbSelectionAnchors(app);
+        return;
+    }
+    // A previous batch refresh can leave its Via-specific overlay behind.
+    // It is only valid for a multi-selection; otherwise a larger old ring
+    // masks the freshly resized single-selection halo when the Via shrinks.
+    if (getPcbSelection(app).length === 1) _removeHalos(app, VIA_BATCH_HALO_CLASS);
     const selectedTrack = getSelectedTrack(app);
     const selectedVia = getSelectedVia(app);
     if (app._trackEdit && selectedTrack === app._trackEdit.track) {
@@ -1258,6 +1271,51 @@ function _applyNetToBondedCopper(app, seed, v) {
     return true;
 }
 
+/** Apply a net to all selected vias and the copper bonded to each of them. */
+function _applyNetToSelectedVias(app, vias, v) {
+    const tracks = new Set();
+    const bondedVias = new Set();
+    const padNets = new Set();
+    for (const via of vias) {
+        const group = collectBondedCopper(app, { via });
+        for (const track of group.tracks) tracks.add(track);
+        for (const bondedVia of group.vias) bondedVias.add(bondedVia);
+        for (const padNet of group.padNets) if (padNet) padNets.add(padNet);
+    }
+    const conflict = [...padNets].find((padNet) => padNet !== v);
+    if (conflict !== undefined) {
+        showAlert(
+            `This copper is connected to a pad on net "${conflict}" (assigned by the schematic). ` +
+            `Rename the net in the schematic instead of editing the via.`,
+            { title: 'Net Assigned by Schematic' },
+        );
+        return false;
+    }
+    const commands = [];
+    for (const track of tracks) {
+        if ((track.net || '') !== v) {
+            commands.push(new ModifyTrackCommand(app, track, { net: track.net || '' }, { net: v }));
+        }
+    }
+    const viaChanges = [...bondedVias]
+        .filter((bondedVia) => (bondedVia.net || '') !== v)
+        .map((bondedVia) => ({
+            via: bondedVia,
+            before: { net: bondedVia.net || '' },
+            after: { net: v },
+        }));
+    if (viaChanges.length === 1) {
+        const change = viaChanges[0];
+        commands.push(new ModifyViaCommand(app, change.via, change.before, change.after));
+    } else if (viaChanges.length > 1) {
+        commands.push(new ModifyViasCommand(app, viaChanges));
+    }
+    if (commands.length) {
+        app.history?.execute(commands.length === 1 ? commands[0] : new CompoundCommand(commands));
+    }
+    return true;
+}
+
 export function showViaProperties(app, via) {
     const items = app._pcbPropsItems?.() || document.getElementById('pcbPropsItems');
     if (!items) return;
@@ -1265,42 +1323,81 @@ export function showViaProperties(app, via) {
     const vias = selectedVias.includes(via) && selectedVias.length ? selectedVias : [via];
     const mixedDiameter = vias.some((target) => target.diameter !== via.diameter);
     const mixedDrill = vias.some((target) => target.drill !== via.drill);
+    const mixedNet = vias.some((target) => (target.net || '') !== (via.net || ''));
+    const limits = () => ({
+        minDiameter: Math.max(...vias.map((target) => target.drill)),
+        maxDrill: Math.min(...vias.map((target) => target.diameter)),
+    });
+    const { minDiameter, maxDrill } = limits();
     app._setPcbPropsTitle?.('Via');
     const netOptions = _netOptions(app, via.net || '');
     items.innerHTML = `
-        <div class="prop-row"><label>Net</label><span class="prop-net-control"><input type="text" id="pcbPropViaNet" value="${_escape(via.net || '')}" placeholder="None"><details class="prop-net-menu"><summary aria-label="Select existing net"></summary><div>${netOptions}</div></details></span></div>
-        <div class="prop-row"><label>Diameter (mm)</label><input type="number" id="pcbPropViaDia" value="${mixedDiameter ? '' : via.diameter}" placeholder="${mixedDiameter ? 'Mixed' : ''}" min="0.1" step="0.05"></div>
-        <div class="prop-row"><label>Drill (mm)</label><input type="number" id="pcbPropViaDrill" value="${mixedDrill ? '' : via.drill}" placeholder="${mixedDrill ? 'Mixed' : ''}" min="0.05" step="0.05"></div>
+        <div class="prop-row"><label>Net</label><span class="prop-net-control"><input type="text" id="pcbPropViaNet" value="${mixedNet ? '' : _escape(via.net || '')}" placeholder="${mixedNet ? 'Mixed' : 'None'}"><details class="prop-net-menu"><summary aria-label="Select existing net"></summary><div>${netOptions}</div></details></span></div>
+        <div class="prop-row"><label>Diameter (mm)</label><input type="number" id="pcbPropViaDia" value="${mixedDiameter ? '' : via.diameter}" placeholder="${mixedDiameter ? 'Mixed' : ''}" min="${minDiameter}" step="0.05"></div>
+        <div class="prop-row"><label>Drill (mm)</label><input type="number" id="pcbPropViaDrill" value="${mixedDrill ? '' : via.drill}" placeholder="${mixedDrill ? 'Mixed' : ''}" min="0.05" max="${maxDrill}" step="0.05"></div>
     `;
-    const reRender = () => import('./track-render.js').then(({ renderVia }) => {
-        for (const target of vias) renderVia(target, (id) => app._getLayerGroup(id));
-        app._refreshPcbSelectionHighlights?.();
-    });
+    let renderFrame = null;
+    const reRender = () => {
+        if (renderFrame !== null) return;
+        renderFrame = requestAnimationFrame(() => {
+            renderFrame = null;
+            for (const target of vias) renderVia(target, (id) => app._getLayerGroup(id));
+            // renderVia replaces the circles that the existing selection halo
+            // was painted above, so rebuild that overlay after the redraw.
+            refreshTrackSelectionHalo(app);
+        });
+    };
+    const cancelLiveRender = () => {
+        if (renderFrame === null) return;
+        cancelAnimationFrame(renderFrame);
+        renderFrame = null;
+    };
     const baseline = new Map(vias.map((target) => [target, {
         diameter: target.diameter,
         drill: target.drill,
         net: target.net || '',
     }]));
+    const validValue = (key, value) => {
+        const current = limits();
+        return key === 'diameter'
+            ? Math.max(value, current.minDiameter)
+            : Math.min(value, current.maxDrill);
+    };
+    const updateLimits = () => {
+        const current = limits();
+        if (diaEl) diaEl.min = String(current.minDiameter);
+        if (drlEl) drlEl.max = String(current.maxDrill);
+    };
     const live = (key) => (e) => {
-        const v = parseFloat(/** @type {HTMLInputElement} */ (e.target).value);
+        const input = /** @type {HTMLInputElement} */ (e.target);
+        const raw = parseFloat(input.value);
+        const v = validValue(key, raw);
         if (Number.isFinite(v) && v > 0) {
+            input.value = String(v);
             for (const target of vias) target[key] = v;
+            updateLimits();
             reRender();
         }
     };
     const commit = (key) => (e) => {
-        const v = parseFloat(/** @type {HTMLInputElement} */ (e.target).value);
+        const input = /** @type {HTMLInputElement} */ (e.target);
+        const v = validValue(key, parseFloat(input.value));
         if (!Number.isFinite(v) || v <= 0) return;
-        const cmds = [];
+        input.value = String(v);
+        const changes = [];
         for (const target of vias) {
             const beforeValue = baseline.get(target)[key];
             if (v === beforeValue) continue;
-            cmds.push(new ModifyViaCommand(app, target, { [key]: beforeValue }, { [key]: v }));
+            changes.push({ via: target, before: { [key]: beforeValue }, after: { [key]: v } });
             target[key] = beforeValue;
         }
-        if (!cmds.length) return;
-        app.history?.execute(cmds.length === 1 ? cmds[0] : new CompoundCommand(cmds));
+        if (!changes.length) return;
+        cancelLiveRender();
+        app.history?.execute(changes.length === 1
+            ? new ModifyViaCommand(app, changes[0].via, changes[0].before, changes[0].after)
+            : new ModifyViasCommand(app, changes));
         for (const target of vias) baseline.get(target)[key] = v;
+        updateLimits();
     };
     const diaEl = document.getElementById('pcbPropViaDia');
     diaEl?.addEventListener('input', live('diameter'));
@@ -1312,12 +1409,11 @@ export function showViaProperties(app, via) {
     const netMenuEl = /** @type {HTMLDetailsElement|null} */ (document.querySelector('.prop-net-menu'));
     netEl?.addEventListener('change', () => {
         const v = netEl.value.trim();
-        const netBaseline = baseline.get(via).net;
-        if (v === netBaseline) return;
-        if (_applyNetToBondedCopper(app, { via }, v)) {
-            baseline.get(via).net = v;
+        if (vias.every((target) => (target.net || '') === v)) return;
+        if (_applyNetToSelectedVias(app, vias, v)) {
+            for (const target of vias) baseline.get(target).net = target.net || '';
         } else {
-            netEl.value = netBaseline; // refused — restore the field
+            netEl.value = mixedNet ? '' : baseline.get(via).net; // refused — restore the field
         }
     });
     netMenuEl?.addEventListener('click', (event) => {

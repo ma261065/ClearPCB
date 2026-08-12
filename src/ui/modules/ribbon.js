@@ -337,12 +337,10 @@ export function bindRibbon(app) {
     setActiveToolButton(app.currentTool);
 
     updateRibbonState(app, app.selection.getSelection());
-    updateShapePanelOptions(app, app.selection.getSelection(), app.currentTool);
 
     // Event-driven updates
     app.eventBus.on('selectionChanged', (shapes) => {
         updateRibbonState(app, shapes);
-        updateShapePanelOptions(app, shapes, app.currentTool);
         
         if (shapes.length > 0) {
             app._setActiveRibbonTab?.('properties');
@@ -351,9 +349,9 @@ export function bindRibbon(app) {
         }
     });
 
-    // Update ribbon when tool changes (e.g. enable Fill/Line Width for shapes)
+    // Tool changes refresh the Properties panel's drawing defaults.
     app.eventBus.on('toolChanged', (toolId) => {
-        updateShapePanelOptions(app, app.selection.getSelection(), toolId);
+        app._updatePropertiesPanel?.(app.selection.getSelection());
         updateNetToolButton();
         updatenetStyleMenuState();
     });
@@ -369,83 +367,9 @@ export function bindRibbon(app) {
 export function updateShapePanelOptions(app, selection, toolIdArg) {
     const container = document.getElementById('ribbonShapeOptions');
     if (!container) return;
-
-    const toolId = toolIdArg || app.currentTool || 'select';
-    const hasSelection = selection && selection.length > 0;
-
-    // When items are selected, the Properties tab handles editing.
-    // This panel shows tool-default options only when drawing (no selection).
-    if (hasSelection) {
-        container.innerHTML = '';
-        return;
-    }
-
-    const toolSupportsLineWidth = ['line', 'rect', 'circle', 'arc', 'polygon'].includes(toolId);
-    const toolSupportsFill = ['rect', 'circle', 'polygon', 'arc', 'line'].includes(toolId);
-    const toolSupportsFontSize = ['text', 'net'].includes(toolId);
-
-    if (!toolSupportsLineWidth && !toolSupportsFill && !toolSupportsFontSize) {
-        container.innerHTML = '';
-        return;
-    }
-
+    // Drawing defaults are rendered in the Properties tab so Home remains
+    // focused on commands and tools rather than object-specific settings.
     container.innerHTML = '';
-
-    if (toolSupportsLineWidth) {
-        const label = document.createElement('label');
-        label.textContent = 'Line width ';
-        const input = document.createElement('input');
-        input.type = 'number';
-        input.id = 'ribbonShapeLineWidth';
-        input.step = '0.05';
-        input.min = '0.05';
-        input.max = '5';
-        input.value = app.toolOptions?.lineWidth ?? 0.2;
-        input.addEventListener('change', () => {
-            const v = parseFloat(input.value);
-            if (!Number.isNaN(v)) app.toolOptions.lineWidth = v;
-        });
-        label.appendChild(input);
-        container.appendChild(label);
-    }
-
-    if (toolSupportsFill) {
-        const label = document.createElement('label');
-        const input = document.createElement('input');
-        input.type = 'checkbox';
-        input.id = 'ribbonShapeFill';
-        input.checked = !!(app.toolOptions && app.toolOptions.fill);
-        input.addEventListener('change', () => {
-            app.toolOptions.fill = input.checked;
-        });
-        label.appendChild(input);
-        label.append(' Fill');
-        container.appendChild(label);
-    }
-
-    if (toolSupportsFontSize) {
-        const label = document.createElement('label');
-        label.textContent = toolId === 'text' ? 'Label size ' : 'Text size ';
-        const input = document.createElement('input');
-        input.type = 'number';
-        input.id = 'ribbonShapeFontSize';
-        input.step = '0.5';
-        input.min = '0.5';
-        input.max = '50';
-        if (toolId === 'net') {
-            input.value = app.toolOptions?.netFontSize ?? 1.4;
-        } else {
-            input.value = app.toolOptions?.fontSize ?? 2.0;
-        }
-        input.addEventListener('change', () => {
-            const v = parseFloat(input.value);
-            if (Number.isNaN(v)) return;
-            if (toolId === 'net') app.toolOptions.netFontSize = v;
-            else app.toolOptions.fontSize = v;
-        });
-        label.appendChild(input);
-        container.appendChild(label);
-    }
 }
 
 /**

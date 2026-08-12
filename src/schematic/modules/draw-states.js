@@ -1335,6 +1335,7 @@ export const toolActiveState = {
             });
             attachLabelToTarget(shape, attach?.target || null, attach?.snapPos || null, { isNewLabel: true });
             app.addShape(shape);
+            app.selection.select(shape);
             app._startTextEdit?.(shape);
             app.interactionState = 'toolActive';
             app.renderShapes(true);

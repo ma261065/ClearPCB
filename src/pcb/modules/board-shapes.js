@@ -1632,6 +1632,7 @@ export function showBoardShapeToolProperties(app, kind) {
                 return;
             }
             app.activeLayer = next;
+            app._setPcbStatus?.();
             if (app._shapeDraw?.kind === kind) app._shapeDraw.layer = next;
             updateShapeDrawPreview(app, app._lastCrosshairWorld || app._shapeDraw?.points.at(-1));
             syncAvailability();

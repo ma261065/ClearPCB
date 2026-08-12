@@ -7,6 +7,7 @@ import { loadAndApplyTheme, toggleTheme as toggleSharedTheme, syncThemeToggleBut
 import { extractNetlist, extractComponents } from '../pcb/modules/netlist.js';
 import { generateFootprint, renderFootprint, applyRefGeometry, REF_DEFAULT_SIZE, REF_DEFAULT_STROKE } from '../pcb/modules/footprint.js';
 import { updateGridDropdown } from './modules/viewport.js';
+import { setToolCursor } from './modules/cursor.js';
 import { PCB_LAYERS, PCB_OVERLAYS, PCB_COPPER_FILLS, isLayerLocked, isViaLocked, isLayerVisible, isViaVisible, showLockedLayerBubble, isCopperFillLocked, isCopperFillVisible, saveLayerPrefs } from '../pcb/modules/layers.js';
 import { exportDSN, importSES } from '../pcb/modules/dsn.js';
 import { runDRC } from '../pcb/modules/drc.js';
@@ -212,6 +213,7 @@ export default class PCBApp {
             gridSnap: document.getElementById('pcbGridSnap'),
             viewportInfo: document.getElementById('pcbViewportInfo'),
             zoomPercent: document.getElementById('pcbZoomPercent'),
+            tipStatus: document.getElementById('pcbStatusTip'),
             modeStatus: document.getElementById('pcbModeStatus'),
             docTitle: document.getElementById('pcbDocTitle')
         };
@@ -466,6 +468,11 @@ export default class PCBApp {
         const rawTool = this.currentTool || 'select';
         const toolLabel = rawTool.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
         const layerLabel = this.activeLayer?.replace(/-/g, ' ')?.replace(/\b\w/g, c => c.toUpperCase()) || 'Top Copper';
+        const showHoleTip = rawTool === 'circle' && this.activeLayer === 'hole';
+        if (this.status.tipStatus) {
+            this.status.tipStatus.hidden = !showHoleTip;
+            this.status.tipStatus.textContent = showHoleTip ? 'Tip: A hole is just a circle on the hole layer' : '';
+        }
         this.status.modeStatus.textContent = `${toolLabel} | ${layerLabel}`;
         this._syncClipboardButtons?.();
         this._syncHistoryButtons?.();
@@ -1780,35 +1787,16 @@ export default class PCBApp {
             return;
         }
         const t = this.currentTool;
+        if (['line', 'circle', 'rect', 'polygon', 'arc', 'text', 'track', 'via'].includes(t)) {
+            setToolCursor(this, t, this.viewport.svg);
+            if (t !== 'via') this._clearViaRing();
+            return;
+        }
         this.viewport.svg.style.cursor =
             t === 'pan' ? 'grab' :
-            t === 'track' ? 'crosshair' :
-            t === 'via' ? 'crosshair' :
-            t === 'line' ? 'crosshair' :
-            t === 'circle' ? 'crosshair' :
-            t === 'rect' ? 'crosshair' :
-            t === 'polygon' ? 'crosshair' :
-            t === 'arc' ? 'crosshair' :
-            t === 'text' ? this._textToolCursor() :
             'default';
         if (t !== 'via') this._clearViaRing();
         if (t !== 'via' && t !== 'track' && t !== 'text' && t !== 'line' && t !== 'circle' && t !== 'rect' && t !== 'polygon' && t !== 'arc') this._clearCursorCrosshair();
-    }
-
-    /** Crosshair + small "T" icon cursor for the text-placement tool. */
-    _textToolCursor() {
-        const stroke = '#ffffff';
-        // Same shape as the schematic editor: white crosshair with a
-        // little glyph drawn in the upper-right quadrant.
-        const svgMarkup = `<?xml version="1.0" encoding="UTF-8"?>` +
-            `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="-4 -6 26 26">` +
-                `<path d="M 0 8 H 16 M 8 0 V 16" fill="none" stroke="${stroke}" stroke-width="1" stroke-linecap="round"/>` +
-                `<g transform="translate(10 -2)">` +
-                    `<path d="M 1 1 H 7 M 4 1 V 7" fill="none" stroke="${stroke}" stroke-width="1.4" stroke-linecap="round"/>` +
-                `</g>` +
-            `</svg>`;
-        const encoded = encodeURIComponent(svgMarkup).replace(/'/g, '%27').replace(/"/g, '%22');
-        return `url("data:image/svg+xml,${encoded}") 16 18, crosshair`;
     }
 
     /**
@@ -3457,8 +3445,8 @@ export default class PCBApp {
         this._setPcbPropsTitle('New Via');
         items.innerHTML = `
             <div class="prop-row"><label>Net</label><span class="prop-net-control"><input type="text" id="pcbPropViaToolNet" value="${escape(net)}" placeholder="None"><details class="prop-net-menu"><summary aria-label="Select existing net"></summary><div>${options}</div></details></span></div>
-            <div class="prop-row"><label>Diameter (mm)</label><input type="number" id="pcbPropViaToolDiameter" value="${diameter}" min="0.1" step="0.05"></div>
-            <div class="prop-row"><label>Drill (mm)</label><input type="number" id="pcbPropViaToolDrill" value="${drill}" min="0.05" step="0.05"></div>
+            <div class="prop-row"><label>Diameter (mm)</label><input type="number" id="pcbPropViaToolDiameter" value="${diameter}" min="${drill}" step="0.05"></div>
+            <div class="prop-row"><label>Drill (mm)</label><input type="number" id="pcbPropViaToolDrill" value="${drill}" min="0.05" max="${diameter}" step="0.05"></div>
         `;
         const diameterEl = /** @type {HTMLInputElement|null} */ (items.querySelector('#pcbPropViaToolDiameter'));
         const drillEl = /** @type {HTMLInputElement|null} */ (items.querySelector('#pcbPropViaToolDrill'));
@@ -3466,10 +3454,20 @@ export default class PCBApp {
         const routeDrillEl = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbViaDrill'));
         this._bindToolNetControl(items, 'pcbPropViaToolNet', (next) => { this._viaToolNet = next; });
         diameterEl?.addEventListener('input', () => {
+            const next = parseFloat(diameterEl.value);
+            if (Number.isFinite(next) && next > 0 && next < parseFloat(drillEl?.value || '0')) {
+                diameterEl.value = drillEl.value;
+            }
+            if (drillEl) drillEl.max = diameterEl.value;
             if (routeDiameterEl) routeDiameterEl.value = diameterEl.value;
             if (this._lastCrosshairWorld) this._updateViaPreview(this._lastCrosshairWorld);
         });
         drillEl?.addEventListener('input', () => {
+            const next = parseFloat(drillEl.value);
+            if (Number.isFinite(next) && next > parseFloat(diameterEl?.value || '0')) {
+                drillEl.value = diameterEl.value;
+            }
+            if (diameterEl) diameterEl.min = drillEl.value;
             if (routeDrillEl) routeDrillEl.value = drillEl.value;
             if (this._lastCrosshairWorld) this._updateViaPreview(this._lastCrosshairWorld);
         });

@@ -1456,6 +1456,10 @@ body {
     text-align: right;
 }
 
+.pcb-status-tip {
+    margin-right: 48px;
+}
+
 .status-spacer {
     flex: 1;
 }

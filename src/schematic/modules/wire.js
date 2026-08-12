@@ -612,7 +612,9 @@ export function finishWireDrawing(app, worldPos) {
         graphNodes, graphEdges, pinConnections: pinConns,
         color: WIRE_COLOR, lineWidth: WIRE_WIDTH,
     };
+    const toolNetName = String(app.toolOptions?.wireNet || '').trim();
     if (wireNetName) wireOpts.net = wireNetName;
+    else if (toolNetName) wireOpts.net = toolNetName;
     const wire = new Wire(wireOpts);
 
     // Snapshot all existing wires before any mutations

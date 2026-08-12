@@ -162,6 +162,9 @@ export function onToolSelected(app, tool) {
     app._setActiveToolButton?.(tool);
     app._updateShapePanelOptions(app.selection.getSelection(), tool);
     app._updatePropertiesPanel(app.selection.getSelection());
+    if (tool === 'wire' || tool === 'noconnect' || tool === 'line' || tool === 'rect' || tool === 'circle' || tool === 'arc' || tool === 'polygon' || tool === 'text' || tool === 'net') {
+        app._setActiveRibbonTab?.('properties');
+    }
 }
 
 /**

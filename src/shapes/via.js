@@ -56,8 +56,9 @@ export class Via {
         this.y = Number(options.y) || 0;
         this.diameter = Number.isFinite(options.diameter) && options.diameter > 0
             ? options.diameter : 0.6;
-        this.drill = Number.isFinite(options.drill) && options.drill > 0
+        const drill = Number.isFinite(options.drill) && options.drill > 0
             ? options.drill : 0.3;
+        this.drill = Math.min(drill, this.diameter);
         this.net = typeof options.net === 'string' ? options.net : '';
         this.selected = false;
         this.locked = !!options.locked;
@@ -100,8 +101,12 @@ export class Via {
     applyState(state) {
         if (Number.isFinite(state.x)) this.x = state.x;
         if (Number.isFinite(state.y)) this.y = state.y;
-        if (Number.isFinite(state.diameter) && state.diameter > 0) this.diameter = state.diameter;
-        if (Number.isFinite(state.drill) && state.drill > 0) this.drill = state.drill;
+        const diameter = Number.isFinite(state.diameter) && state.diameter > 0
+            ? state.diameter : this.diameter;
+        const drill = Number.isFinite(state.drill) && state.drill > 0
+            ? state.drill : this.drill;
+        this.diameter = diameter;
+        this.drill = Math.min(drill, diameter);
         if (typeof state.net === 'string') this.net = state.net;
         if (typeof state.locked === 'boolean') this.locked = state.locked;
         if (typeof state.visible === 'boolean') this.visible = state.visible;

@@ -304,12 +304,35 @@ export class ModifyViaCommand {
         this.after = { ...after };
     }
     _apply(state) {
-        Object.assign(this.via, state);
+        this.via.applyState(state);
         renderVia(this.via, (id) => this.app._getLayerGroup(id));
         reconcileRatsnest(this.app);
+        refreshTrackSelectionHalo(this.app);
     }
     execute() { this._apply(this.after); }
     undo() { this._apply(this.before); }
+}
+
+/** Apply the same property edit to several vias with one derived refresh. */
+export class ModifyViasCommand {
+    constructor(app, changes) {
+        this.app = app;
+        this.changes = changes.map(({ via, before, after }) => ({
+            via,
+            before: { ...before },
+            after: { ...after },
+        }));
+    }
+    _apply(stateKey) {
+        for (const change of this.changes) change.via.applyState(change[stateKey]);
+        for (const change of this.changes) {
+            renderVia(change.via, (id) => this.app._getLayerGroup(id));
+        }
+        reconcileRatsnest(this.app);
+        refreshTrackSelectionHalo(this.app);
+    }
+    execute() { this._apply('after'); }
+    undo() { this._apply('before'); }
 }
 
 /** Move a standalone Via from (fromX, fromY) to (toX, toY). */

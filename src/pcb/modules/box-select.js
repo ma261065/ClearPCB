@@ -101,7 +101,7 @@ export function isBoxSelecting(app) {
  */
 export function maybeStartBoxSelect(app, e, worldPos) {
     if (app._boxSelectActive) {
-        _updateMarquee(app, worldPos);
+        _scheduleMarqueeUpdate(app, worldPos);
         return true;
     }
     const arm = app._boxSelectArm;
@@ -120,6 +120,28 @@ export function maybeStartBoxSelect(app, e, worldPos) {
     return true;
 }
 
+/** Coalesce expensive marquee containment work to one update per frame. */
+function _scheduleMarqueeUpdate(app, worldPos) {
+    app._boxSelectPendingWorld = worldPos;
+    if (app._boxSelectFrame !== undefined) return;
+    app._boxSelectFrame = requestAnimationFrame(() => {
+        app._boxSelectFrame = undefined;
+        const pending = app._boxSelectPendingWorld;
+        app._boxSelectPendingWorld = null;
+        if (pending && app._boxSelectActive) _updateMarquee(app, pending);
+    });
+}
+
+function _flushMarqueeUpdate(app) {
+    if (app._boxSelectFrame !== undefined) {
+        cancelAnimationFrame(app._boxSelectFrame);
+        app._boxSelectFrame = undefined;
+    }
+    const pending = app._boxSelectPendingWorld;
+    app._boxSelectPendingWorld = null;
+    if (pending && app._boxSelectActive) _updateMarquee(app, pending);
+}
+
 /** Update the marquee rect + recompute the enclosed set + redraw halos. */
 function _updateMarquee(app, worldPos) {
     updateBoxSelectElement(app, worldPos);
@@ -134,6 +156,7 @@ export function finishBoxSelect(app) {
         app._boxSelectArm = null;
         return false;
     }
+    _flushMarqueeUpdate(app);
     removeBoxSelectElement(app);
     app._boxSelectActive = false;
     app._boxSelectArm = null;
@@ -145,6 +168,15 @@ export function finishBoxSelect(app) {
 export function refreshBoxSelectionHighlights(app) {
     app._refreshPcbSelectionHighlights = () => refreshBoxSelectionHighlights(app);
     if (hasBoxSelection(app)) _applyHighlights(app);
+}
+
+/** Schedule one selection-overlay rebuild for the current animation frame. */
+export function scheduleBoxSelectionHighlights(app) {
+    if (app._boxHighlightFrame !== undefined) return;
+    app._boxHighlightFrame = requestAnimationFrame(() => {
+        app._boxHighlightFrame = undefined;
+        refreshBoxSelectionHighlights(app);
+    });
 }
 
 /** Toggle one board shape in the active PCB multi-selection. */

@@ -74,6 +74,133 @@ function _createSection(title) {
     return { group, content };
 }
 
+/** Collect existing electrical net names for editable wire suggestions. */
+function wireNetNames(app) {
+    return [...new Set((app.shapes || [])
+        .filter((shape) => shape?.type === 'wire' || shape?.type === 'net')
+        .map((shape) => String(shape.net || '').trim())
+        .filter(Boolean))]
+        .sort((a, b) => a.localeCompare(b));
+}
+
+/** Append an editable Net field with suggestions from the current schematic. */
+function appendWireNetField(app, content, id, value, onChange, { allowAuto = false } = {}) {
+    const row = document.createElement('div');
+    row.className = 'prop-row';
+    const label = document.createElement('label');
+    label.setAttribute('for', id);
+    label.textContent = 'Net';
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.id = id;
+    input.value = value || '';
+    if (allowAuto) input.placeholder = 'Auto';
+    const listId = `${id}_options`;
+    input.setAttribute('list', listId);
+    const list = document.createElement('datalist');
+    list.id = listId;
+    for (const net of wireNetNames(app)) {
+        const option = document.createElement('option');
+        option.value = net;
+        list.appendChild(option);
+    }
+    input.addEventListener('change', () => onChange(input.value.trim()));
+    row.append(label, input, list);
+    content.appendChild(row);
+}
+
+const NEW_SHAPE_TOOLS = new Map([
+    ['line', 'Line'],
+    ['rect', 'Rectangle'],
+    ['circle', 'Circle'],
+    ['arc', 'Arc'],
+    ['polygon', 'Polygon'],
+    ['text', 'Text'],
+    ['net', 'Net'],
+    ['wire', 'Wire'],
+    ['noconnect', 'No Connect'],
+]);
+
+/** Render drawing defaults in Properties before a geometric shape is placed. */
+function renderNewShapeProperties(app, panel, tool) {
+    const label = NEW_SHAPE_TOOLS.get(tool);
+    if (!label) return false;
+
+    const sec = _createSection(`New ${label}`);
+    if (tool === 'wire') {
+        appendWireNetField(app, sec.content, 'prop_newWireNet', app.toolOptions?.wireNet, (net) => {
+            app.toolOptions.wireNet = net;
+        }, { allowAuto: true });
+        panel.appendChild(sec.group);
+        return true;
+    }
+    if (tool === 'noconnect') {
+        panel.appendChild(sec.group);
+        return true;
+    }
+    if (tool === 'text' || tool === 'net') {
+        const fontSizeRow = document.createElement('div');
+        fontSizeRow.className = 'prop-row';
+        const fontSizeLabel = document.createElement('label');
+        fontSizeLabel.setAttribute('for', 'prop_newShapeFontSize');
+        fontSizeLabel.textContent = tool === 'text' ? 'Label size' : 'Text size';
+        const fontSizeInput = document.createElement('input');
+        fontSizeInput.type = 'number';
+        fontSizeInput.id = 'prop_newShapeFontSize';
+        fontSizeInput.min = '0.5';
+        fontSizeInput.max = '50';
+        fontSizeInput.step = '0.5';
+        const optionKey = tool === 'text' ? 'fontSize' : 'netFontSize';
+        fontSizeInput.value = String(app.toolOptions?.[optionKey] ?? (tool === 'text' ? 2 : 1.4));
+        fontSizeInput.addEventListener('change', () => {
+            const value = Number(fontSizeInput.value);
+            if (!Number.isFinite(value)) return;
+            app.toolOptions[optionKey] = Math.min(50, Math.max(0.5, value));
+            fontSizeInput.value = String(app.toolOptions[optionKey]);
+        });
+        fontSizeRow.append(fontSizeLabel, fontSizeInput);
+        sec.content.appendChild(fontSizeRow);
+        panel.appendChild(sec.group);
+        return true;
+    }
+
+    const lineWidthRow = document.createElement('div');
+    lineWidthRow.className = 'prop-row';
+    const lineWidthLabel = document.createElement('label');
+    lineWidthLabel.setAttribute('for', 'prop_newShapeLineWidth');
+    lineWidthLabel.textContent = 'Line width';
+    const lineWidthInput = document.createElement('input');
+    lineWidthInput.type = 'number';
+    lineWidthInput.id = 'prop_newShapeLineWidth';
+    lineWidthInput.min = '0.05';
+    lineWidthInput.max = '5';
+    lineWidthInput.step = '0.05';
+    lineWidthInput.value = String(app.toolOptions?.lineWidth ?? 0.2);
+    lineWidthInput.addEventListener('change', () => {
+        const value = Number(lineWidthInput.value);
+        if (!Number.isFinite(value)) return;
+        app.toolOptions.lineWidth = Math.min(5, Math.max(0.05, value));
+        lineWidthInput.value = String(app.toolOptions.lineWidth);
+    });
+    lineWidthRow.append(lineWidthLabel, lineWidthInput);
+    sec.content.appendChild(lineWidthRow);
+
+    const fillRow = document.createElement('div');
+    fillRow.className = 'prop-row';
+    const fillLabel = document.createElement('label');
+    const fillInput = document.createElement('input');
+    fillInput.type = 'checkbox';
+    fillInput.id = 'prop_newShapeFill';
+    fillInput.checked = !!app.toolOptions?.fill;
+    fillInput.addEventListener('change', () => { app.toolOptions.fill = fillInput.checked; });
+    fillLabel.append(fillInput, ' Fill');
+    fillRow.appendChild(fillLabel);
+    sec.content.appendChild(fillRow);
+
+    panel.appendChild(sec.group);
+    return true;
+}
+
 // ── panel rendering ──────────────────────────────────────────────
 
 /**
@@ -88,6 +215,7 @@ export function updatePropertiesPanel(app, selection) {
 
     // Clear previous content
     panel.innerHTML = '';
+    if (selection.length === 0 && renderNewShapeProperties(app, panel, app.currentTool)) return;
     const singleWire = selection.length === 1 && selection[0].type === 'wire' ? selection[0] : null;
     const allLocked = selection.length > 0 && selection.every(s => s.locked);
 
@@ -115,30 +243,22 @@ export function updatePropertiesPanel(app, selection) {
             // Single-wire net name lives in the same section as Locked and
             // should appear before the lock checkbox.
             if (singleWire) {
-                const netRow = document.createElement('div');
-                netRow.className = 'prop-row';
-                const netLbl = document.createElement('label');
-                netLbl.setAttribute('for', 'prop_net');
-                netLbl.textContent = 'Net';
-                netRow.appendChild(netLbl);
-                const netInput = document.createElement('input');
-                netInput.type = 'text';
-                netInput.id = 'prop_net';
-                netInput.value = singleWire.net || '';
                 if (allLocked) {
-                    netInput.readOnly = true;
-                    netInput.style.opacity = '0.7';
+                    appendWireNetField(app, sec.content, 'prop_net', singleWire.net, () => {});
+                    const netInput = /** @type {HTMLInputElement|null} */ (sec.content.querySelector('#prop_net'));
+                    if (netInput) {
+                        netInput.readOnly = true;
+                        netInput.style.opacity = '0.7';
+                    }
                 } else {
-                    netInput.addEventListener('change', () => {
-                        if (!netInput.value.trim()) {
-                            netInput.value = singleWire.net || 'NET1';
+                    appendWireNetField(app, sec.content, 'prop_net', singleWire.net, (net) => {
+                        if (!net) {
+                            app._updatePropertiesPanel?.(selection);
                             return;
                         }
-                        applyCommonProperty(app, 'net', netInput.value);
+                        applyCommonProperty(app, 'net', net);
                     });
                 }
-                netRow.appendChild(netInput);
-                sec.content.appendChild(netRow);
             }
 
             const descriptors = mergeDescriptors(selection);

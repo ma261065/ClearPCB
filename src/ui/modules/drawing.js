@@ -85,6 +85,7 @@ export function finishDrawing(app, worldPos) {
     const shape = createShapeFromDrawing(app);
     if (shape) {
         app.addShape(shape);
+        app.selection.select(shape);
         if (shape.type === 'text') {
             app._startTextEdit?.(shape);
         }
@@ -142,6 +143,7 @@ export function finishPolygon(app) {
             shape.isRect = true;
         }
         app.addShape(shape);
+        app.selection.select(shape);
     }
     cancelDrawing(app);
 }
@@ -188,6 +190,7 @@ export function finishLine(app) {
                 shape.isRect = true;
             }
             app.addShape(shape);
+            app.selection.select(shape);
         } else {
             const shape = new Line({
                 points: pts,
@@ -196,6 +199,7 @@ export function finishLine(app) {
                 fill: app.toolOptions.fill,
             });
             app.addShape(shape);
+            app.selection.select(shape);
         }
     }
     cancelDrawing(app);
