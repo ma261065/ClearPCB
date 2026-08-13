@@ -548,7 +548,7 @@ import {
     resolvePadFlashes,
     resolveSilk,
 } from './board-geometry.js';
-import { shapeOutline, normalizeShapeCopperMode } from './board-shapes.js';
+import { circleFilledRadius, shapeOutline, normalizeShapeCopperMode } from './board-shapes.js';
 import { loadClipper, isClipperReady, getClipper } from './copper-fill-geom.js';
 
 /** Finished board thickness in millimetres (standard 1.6 mm). */
@@ -2194,7 +2194,7 @@ function buildCopperMesh(tracks, circles = [], boardShapes = []) {
         const y = bottom ? Y_BOT - COPPER_EPS : Y_TOP + COPPER_EPS;
         const color = bottom ? COLOR_COPPER_BOTTOM : COLOR_COPPER_TOP;
         const lw = Math.max(0.05, Number(c.lineWidth) || 0.2);
-        if (c.filled) appendMesh(mesh, discMesh(c.x, c.y, c.radius, y, color, 28));
+        if (c.filled) appendMesh(mesh, discMesh(c.x, c.y, circleFilledRadius(c), y, color, 28));
         else appendMesh(mesh, flatRingMesh(c.x, c.y, c.radius, lw, y, color, 32));
     }
     // Non-circular board shapes authored on copper layers. Circles use the
@@ -2205,10 +2205,14 @@ function buildCopperMesh(tracks, circles = [], boardShapes = []) {
         if (!s || (s.layer !== 'top-copper' && s.layer !== 'bottom-copper')) continue;
         if (normalizeShapeCopperMode(s.copperMode) !== 'add') continue;
         const o = shapeOutline(s);
-        if (!o || o.length < 3) continue;
+        if (!o || o.length < (s.filled ? 3 : 2)) continue;
         const bottom = s.layer === 'bottom-copper';
         const y = bottom ? Y_BOT - COPPER_EPS : Y_TOP + COPPER_EPS;
         const color = bottom ? COLOR_COPPER_BOTTOM : COLOR_COPPER_TOP;
+        if (!s.filled) {
+            appendFlatStroke(mesh, o, s.kind !== 'line' && s.kind !== 'arc', Math.max(0.05, Number(s.lineWidth) || 0.2), y, color);
+            continue;
+        }
         let tri = null;
         try { tri = triangulateWithHoles(o.map((p) => ({ x: p.x, y: p.y })), []); } catch { tri = null; }
         if (!tri || !tri.tris.length) continue;
@@ -2268,6 +2272,45 @@ function strokeOutlineHoles(outline, closed, width) {
     return holes;
 }
 
+/** Append a flat round-joined stroke for an open or closed sampled outline. */
+function appendFlatStroke(mesh, outline, closed, width, y, color) {
+    const segmentCount = closed ? outline.length : outline.length - 1;
+    for (let index = 0; index < segmentCount; index++) {
+        const start = outline[index];
+        const end = outline[(index + 1) % outline.length];
+        appendMesh(mesh, ribbonMesh(start.x, start.y, end.x, end.y, width, y, color));
+    }
+    for (const point of outline) appendMesh(mesh, discMesh(point.x, point.y, width / 2, y, color, 10));
+}
+
+/** Approximate a stroked circle with bounded convex annular sectors. */
+function circleStrokeHoles(circle, segments = 24) {
+    const radius = Math.max(0.05, Number(circle.radius) || 0);
+    const halfWidth = Math.max(0.05, Number(circle.lineWidth) || 0.2) / 2;
+    const outerRadius = radius + halfWidth;
+    const innerRadius = Math.max(0, radius - halfWidth);
+    const holes = [];
+    for (let index = 0; index < segments; index++) {
+        const startAngle = index / segments * Math.PI * 2;
+        const endAngle = (index + 1) / segments * Math.PI * 2;
+        const midAngle = (startAngle + endAngle) / 2;
+        const midRadius = (outerRadius + innerRadius) / 2;
+        const boundRadius = Math.hypot(halfWidth, outerRadius * Math.sin(Math.PI / segments));
+        holes.push({
+            x: circle.x + midRadius * Math.cos(midAngle),
+            z: circle.y + midRadius * Math.sin(midAngle),
+            r: boundRadius,
+            ring: [
+                { x: circle.x + innerRadius * Math.cos(startAngle), z: circle.y + innerRadius * Math.sin(startAngle) },
+                { x: circle.x + outerRadius * Math.cos(startAngle), z: circle.y + outerRadius * Math.sin(startAngle) },
+                { x: circle.x + outerRadius * Math.cos(endAngle), z: circle.y + outerRadius * Math.sin(endAngle) },
+                { x: circle.x + innerRadius * Math.cos(endAngle), z: circle.y + innerRadius * Math.sin(endAngle) },
+            ],
+        });
+    }
+    return holes;
+}
+
 function collectCopperSubtractHoles(boardShapes = []) {
     const holes = [];
     for (const c of boardShapes || []) {
@@ -2276,7 +2319,11 @@ function collectCopperSubtractHoles(boardShapes = []) {
         if (!(c.radius > 0)) continue;
         const mode = normalizeCopperCircleMode(c.copperMode);
         if (mode !== 'remove-copper' && mode !== 'remove-copper-mask') continue;
-        holes.push({ x: c.x, z: c.y, r: c.radius });
+        if (c.filled) {
+            holes.push({ x: c.x, z: c.y, r: circleFilledRadius(c) });
+        } else {
+            holes.push(...circleStrokeHoles(c));
+        }
     }
     for (const shape of boardShapes || []) {
         if (!shape || shape.kind === 'circle') continue;
@@ -2287,7 +2334,7 @@ function collectCopperSubtractHoles(boardShapes = []) {
         if (shape.filled && outline.length >= 3) {
             holes.push({ ring: outline.map((point) => ({ x: point.x, z: point.y })) });
         } else if (!shape.filled && outline.length >= 2) {
-            holes.push(...strokeOutlineHoles(outline, shape.kind !== 'arc', Math.max(0.05, Number(shape.lineWidth) || 0.2)));
+            holes.push(...strokeOutlineHoles(outline, shape.kind !== 'line' && shape.kind !== 'arc', Math.max(0.05, Number(shape.lineWidth) || 0.2)));
         }
     }
     return holes;
@@ -2308,7 +2355,7 @@ function collectMaskOpeningHoles(boardShapes = [], side = 'top') {
         if (layer === 'top-mask' || layer === 'bottom-mask') {
             const cSide = layer === 'bottom-mask' ? 'bottom' : 'top';
             if (cSide !== side) continue;
-            holes.push({ x: c.x, z: c.y, r: c.radius });
+            holes.push({ x: c.x, z: c.y, r: circleFilledRadius(c) });
             continue;
         }
         if (layer !== 'top-copper' && layer !== 'bottom-copper') continue;
@@ -2316,8 +2363,11 @@ function collectMaskOpeningHoles(boardShapes = [], side = 'top') {
         if (cSide !== side) continue;
         const mode = normalizeCopperCircleMode(c.copperMode);
         if (mode !== 'remove-solder-mask' && mode !== 'remove-copper-mask') continue;
-        const lw = Math.max(0.05, Number(c.lineWidth) || 0.2);
-        holes.push({ x: c.x, z: c.y, r: c.filled ? c.radius : Math.max(0.05, c.radius + lw / 2) });
+        if (c.filled) {
+            holes.push({ x: c.x, z: c.y, r: c.radius });
+        } else {
+            holes.push(...circleStrokeHoles(c));
+        }
     }
     for (const shape of boardShapes || []) {
         if (!shape || shape.kind === 'circle') continue;
@@ -2328,9 +2378,16 @@ function collectMaskOpeningHoles(boardShapes = [], side = 'top') {
         if ((!isMaskLayer && !isCopperLayer) || shapeSide !== side) continue;
         const mode = normalizeShapeCopperMode(shape.copperMode);
         if (!isMaskLayer && (mode !== 'remove-solder-mask' && mode !== 'remove-copper-mask')) continue;
-        if (!isMaskLayer && !shape.filled) continue;
         const ring = shapeOutline(shape);
-        if (ring.length >= 3) holes.push({ ring: ring.map((point) => ({ x: point.x, z: point.y })) });
+        if (shape.filled || isMaskLayer) {
+            if (ring.length >= 3) holes.push({ ring: ring.map((point) => ({ x: point.x, z: point.y })) });
+        } else if (ring.length >= 2) {
+            holes.push(...strokeOutlineHoles(
+                ring,
+                shape.kind !== 'line' && shape.kind !== 'arc',
+                Math.max(0.05, Number(shape.lineWidth) || 0.2),
+            ));
+        }
     }
     return holes;
 }
@@ -2546,7 +2603,7 @@ function buildMaskOpeningMesh(boardShapes = []) {
         const bottom = layer === 'bottom-copper';
         const y = bottom ? Y_BOT - COPPER_EPS : Y_TOP + COPPER_EPS;
         const lw = Math.max(0.05, Number(c.lineWidth) || 0.2);
-        if (c.filled) appendMesh(mesh, discMesh(c.x, c.y, c.radius, y, COLOR_RAW_BOARD, 28));
+        if (c.filled) appendMesh(mesh, discMesh(c.x, c.y, circleFilledRadius(c), y, COLOR_RAW_BOARD, 28));
         else appendMesh(mesh, flatRingMesh(c.x, c.y, c.radius, lw, y, COLOR_RAW_BOARD, 32));
     }
     for (const shape of boardShapes || []) {
@@ -2557,11 +2614,23 @@ function buildMaskOpeningMesh(boardShapes = []) {
         if (!isMaskLayer && !isCopperLayer) continue;
         const mode = normalizeShapeCopperMode(shape.copperMode);
         if (!isMaskLayer && (mode !== 'remove-solder-mask' && mode !== 'remove-copper-mask')) continue;
-        if (!isMaskLayer && !shape.filled) continue;
         const outline = shapeOutline(shape);
-        if (outline.length < 3) continue;
         const bottom = layer === 'bottom-mask' || layer === 'bottom-copper';
         const y = bottom ? Y_BOT - COPPER_EPS : Y_TOP + COPPER_EPS;
+        if (!shape.filled && !isMaskLayer) {
+            if (outline.length >= 2) {
+                appendFlatStroke(
+                    mesh,
+                    outline,
+                    shape.kind !== 'line' && shape.kind !== 'arc',
+                    Math.max(0.05, Number(shape.lineWidth) || 0.2),
+                    y,
+                    COLOR_RAW_BOARD,
+                );
+            }
+            continue;
+        }
+        if (outline.length < 3) continue;
         let tri = null;
         try { tri = triangulateWithHoles(outline.map((point) => ({ x: point.x, y: point.y })), []); } catch { tri = null; }
         if (!tri?.tris?.length) continue;

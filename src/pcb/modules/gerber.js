@@ -31,6 +31,7 @@ import {
     MASK_EXPANSION,
     TENT_VIAS,
 } from './board-geometry.js';
+import { circleFilledRadius } from './board-shapes.js';
 
 const FORMAT = '%FSLAX46Y46*%\n%MOMM*%\n';
 const SCALE = 1e6; // 4.6 fixed-point: multiply mm by 10^6
@@ -260,7 +261,7 @@ function _buildCopper(placements, tracks, vias, layerId, bounds, texts = [], fil
     const clearCircleOps = [];
     for (const c of circles) {
         if (!c) continue;
-        const rad = Math.max(0, Number(c.radius) || 0);
+        const rad = circleFilledRadius(c);
         if (rad <= 0) continue;
         if (!_inBoard(c.x, c.y, bounds)) continue;
         const isHole = c.layer === 'hole';
@@ -270,8 +271,20 @@ function _buildCopper(placements, tracks, vias, layerId, bounds, texts = [], fil
         const cutsCopper = isHole ||
             (onThisLayer && (mode === 'remove-copper' || mode === 'remove-copper-mask'));
         if (cutsCopper) {
-            const d = getAp(apKey('C', rad * 2));
-            clearCircleOps.push({ d, op: `X${_fmt(c.x)}Y${_fmtY(c.y)}D03*` });
+            if (isHole || c.filled) {
+                const d = getAp(apKey('C', rad * 2));
+                clearCircleOps.push({ d, op: `X${_fmt(c.x)}Y${_fmtY(c.y)}D03*` });
+            } else {
+                const lw = Math.max(0.05, Number(c.lineWidth) || 0.2);
+                const d = getAp(apKey('C', lw));
+                const sx = c.x - rad;
+                const arc = `G75*\n`
+                    + `X${_fmt(sx)}Y${_fmtY(c.y)}D02*\n`
+                    + `G03*\n`
+                    + `X${_fmt(sx)}Y${_fmtY(c.y)}I${_fx(rad)}J0D01*\n`
+                    + `G01*`;
+                clearCircleOps.push({ d, op: arc });
+            }
         } else if (onThisLayer && mode === 'add') {
             if (c.filled) {
                 // Solid disc: flash a circular aperture.
@@ -292,9 +305,8 @@ function _buildCopper(placements, tracks, vias, layerId, bounds, texts = [], fil
         }
     }
 
-    // User-drawn board shapes (rect/polygon/arc) on this copper layer. Added
-    // copper fills as a dark G36 region; copper removals and hole-layer shapes
-    // clear the copper beneath them as a clear-polarity region.
+    // User-drawn board shapes on this copper layer. Filled shapes use G36
+    // regions; unfilled shapes use their configured stroke width.
     const shapeRegion = (o) => {
         if (!o || o.length < 3) return '';
         let s = 'G36*\n';
@@ -307,18 +319,27 @@ function _buildCopper(placements, tracks, vias, layerId, bounds, texts = [], fil
     };
     let darkShapeRegions = '';
     let clearShapeRegions = '';
+    /** @type {Array<{d:number, op:string}>} */
+    const clearShapeStrokeOps = [];
     for (const s of boardShapes) {
         if (s?.kind === 'circle') continue;
         if (!s) continue;
         const o = s.outline || [];
-        if (o.length < 3) continue;
+        if (o.length < (s.filled || s.layer === 'hole' ? 3 : 2)) continue;
         const isHole = s.layer === 'hole';
         const onThisLayer = s.layer === layerId;
         if (!isHole && !onThisLayer) continue;
         const mode = _circleMode(s.copperMode);
         const cutsCopper = isHole ||
             (onThisLayer && (mode === 'remove-copper' || mode === 'remove-copper-mask'));
-        if (cutsCopper) clearShapeRegions += shapeRegion(o);
+        if (!s.filled && !isHole) {
+            const d = getAp(apKey('C', Math.max(0.05, Number(s.lineWidth) || 0.2)));
+            const op = `X${_fmt(o[0].x)}Y${_fmtY(o[0].y)}D02*\n`
+            + o.slice(1).map((point) => `X${_fmt(point.x)}Y${_fmtY(point.y)}D01*`).join('\n')
+            + (s.kind === 'line' || s.kind === 'arc' ? '' : `\nX${_fmt(o[0].x)}Y${_fmtY(o[0].y)}D01*`);
+            if (cutsCopper) clearShapeStrokeOps.push({ d, op });
+            else if (onThisLayer && mode === 'add') ops.push({ d, op });
+        } else if (cutsCopper) clearShapeRegions += shapeRegion(o);
         else if (onThisLayer && mode === 'add') darkShapeRegions += shapeRegion(o);
     }
 
@@ -344,10 +365,14 @@ function _buildCopper(placements, tracks, vias, layerId, bounds, texts = [], fil
     if (darkShapeRegions) out += darkShapeRegions;
     // Copper-removal and hole circles: flash in clear polarity so they cut
     // the dark copper (pads, tracks, vias, pours, added circles) above.
-    if (clearCircleOps.length || clearShapeRegions) {
+    if (clearCircleOps.length || clearShapeStrokeOps.length || clearShapeRegions) {
         out += '%LPC*%\n';
         currentD = -1;
         for (const { d, op } of clearCircleOps) {
+            if (d !== currentD) { out += `D${d}*\n`; currentD = d; }
+            out += op + '\n';
+        }
+        for (const { d, op } of clearShapeStrokeOps) {
             if (d !== currentD) { out += `D${d}*\n`; currentD = d; }
             out += op + '\n';
         }
@@ -534,7 +559,7 @@ function _buildMask(placements, vias, side, bounds, circles = []) {
     const circleOpenings = [];
     for (const c of circles) {
         if (!c) continue;
-        const rad = Math.max(0, Number(c.radius) || 0);
+        const rad = circleFilledRadius(c);
         if (rad <= 0) continue;
         const mode = _circleMode(c.copperMode);
         const opens = c.layer === maskLayer

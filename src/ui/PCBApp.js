@@ -946,8 +946,10 @@ export default class PCBApp {
             const selectedBoardShapeAnchor = worldPos && getPcbSelection(this, 'shape').some(
                 (shape) => hitTestBoardShapeVertex(this, shape, worldPos) != null,
             );
+            const selectedPcbEntity = worldPos && pointInBoxSelection(this, worldPos);
             if (!this._trackDraw && !this._textEdit && !propertiesToolActive
-                && !selectedBoardShapeAnchor && e.button !== 2 && !e.ctrlKey && !e.metaKey) {
+                && !selectedBoardShapeAnchor && !selectedPcbEntity
+                && e.button !== 2 && !e.ctrlKey && !e.metaKey) {
                 const activeTab = this.ribbon?.querySelector('.ribbon-tab.active');
                 if (activeTab instanceof HTMLElement && activeTab.dataset?.tab !== 'pcb-home') {
                     this._setActiveRibbonTab?.('pcb-home');
@@ -1934,7 +1936,7 @@ export default class PCBApp {
         const colors = {
             'remove-copper': '#5f6770',
             'remove-solder-mask': '#8a6923',
-            'remove-copper-mask': '#7c3b4c',
+            'remove-copper-mask': '#245f9e',
         };
         const color = colors[mode] || '#8a929b';
         const id = `pcb-copper-removal-hatch-${String(mode || 'remove-copper').replace(/[^a-z-]/g, '')}`;
@@ -2020,7 +2022,7 @@ export default class PCBApp {
         const colors = {
             'remove-copper': '#5f6770',
             'remove-solder-mask': '#8a6923',
-            'remove-copper-mask': '#7c3b4c',
+            'remove-copper-mask': '#245f9e',
         };
         this._removalHatchPatterns ||= new Map();
         const viewBox = viewport.viewBox;
@@ -2030,6 +2032,7 @@ export default class PCBApp {
             if (shape.layer !== 'top-copper' && shape.layer !== 'bottom-copper') continue;
             const mode = normalizeShapeCopperMode(shape.copperMode);
             if (!colors[mode]) continue;
+            if (!shape.filled) continue;
             const bounds = boardShapeBounds(shape);
             if (!bounds || bounds.maxX < viewBox.x || bounds.maxY < viewBox.y
                 || bounds.minX > viewBox.x + viewBox.width || bounds.minY > viewBox.y + viewBox.height) continue;

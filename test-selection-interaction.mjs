@@ -1,6 +1,7 @@
 /** Headless regression tests for shared PCB selection interaction state. */
 
 globalThis.window = { addEventListener() {} };
+globalThis.requestAnimationFrame = (callback) => callback();
 
 const {
     finishSelectionInteraction,

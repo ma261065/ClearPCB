@@ -21,7 +21,7 @@ import {
     resolvePadFlashes,
     resolveSilk,
 } from './board-geometry.js';
-import { boardShapeArcGeometry, rectCornerRadius } from './board-shapes.js';
+import { boardShapeArcGeometry, circleFilledRadius, rectCornerRadius } from './board-shapes.js';
 
 // Palette mirrors the 3D viewer (board3d.js) so the two previews match.
 const COL = {
@@ -565,7 +565,7 @@ export class Board2D {
                 if (side !== this.side) continue;
                 // Legacy mask-layer circles are area openings.
                 ctx.beginPath();
-                ctx.arc(c.x, c.y, c.radius, 0, Math.PI * 2);
+                ctx.arc(c.x, c.y, circleFilledRadius(c), 0, Math.PI * 2);
                 ctx.fill();
                 continue;
             }
@@ -577,12 +577,12 @@ export class Board2D {
             const sw = Math.max(0.05, Number(c.lineWidth) || 0.2);
             if (c.filled) {
                 ctx.beginPath();
-                ctx.arc(c.x, c.y, c.radius, 0, Math.PI * 2);
+                ctx.arc(c.x, c.y, circleFilledRadius(c), 0, Math.PI * 2);
                 ctx.fill();
             } else {
                 ctx.lineWidth = sw;
                 ctx.beginPath();
-                ctx.arc(c.x, c.y, c.radius, 0, Math.PI * 2);
+                ctx.arc(c.x, c.y, circleFilledRadius(c), 0, Math.PI * 2);
                 ctx.stroke();
             }
         }
@@ -658,7 +658,7 @@ export class Board2D {
             const sw = Math.max(0.05, Number(c.lineWidth) || 0.15);
             if (c.filled) {
                 ctx.beginPath();
-                ctx.arc(c.x, c.y, c.radius, 0, Math.PI * 2);
+                ctx.arc(c.x, c.y, circleFilledRadius(c), 0, Math.PI * 2);
                 ctx.fill();
             } else {
                 ctx.lineWidth = sw;
@@ -690,7 +690,7 @@ export class Board2D {
             if (shape.kind === 'circle') {
                 if (!(shape.radius > 0)) return;
                 cctx.beginPath();
-                cctx.arc(shape.x, shape.y, shape.radius, 0, Math.PI * 2);
+                cctx.arc(shape.x, shape.y, circleFilledRadius(shape), 0, Math.PI * 2);
             } else if (shape.kind === 'arc') {
                 const arc = boardShapeArcGeometry(shape);
                 if (arc) {
@@ -704,13 +704,22 @@ export class Board2D {
                     cctx.lineTo(outline[outline.length - 1].x, outline[outline.length - 1].y);
                 }
             } else if (shape.kind === 'rect' && rectCornerRadius(shape) > 0) {
-                const points = shape.points || [];
-                if (points.length < 2) return;
-                const xs = points.map((point) => point.x);
-                const ys = points.map((point) => point.y);
-                const minX = Math.min(...xs);
-                const minY = Math.min(...ys);
-                this._roundRectPath(cctx, minX, minY, Math.max(...xs) - minX, Math.max(...ys) - minY, rectCornerRadius(shape));
+                if (shape.filled) {
+                    const outline = shape.outline || [];
+                    if (outline.length < 3) return;
+                    cctx.beginPath();
+                    cctx.moveTo(outline[0].x, outline[0].y);
+                    for (let index = 1; index < outline.length; index++) cctx.lineTo(outline[index].x, outline[index].y);
+                    cctx.closePath();
+                } else {
+                    const points = shape.points || [];
+                    if (points.length < 2) return;
+                    const xs = points.map((point) => point.x);
+                    const ys = points.map((point) => point.y);
+                    const minX = Math.min(...xs);
+                    const minY = Math.min(...ys);
+                    this._roundRectPath(cctx, minX, minY, Math.max(...xs) - minX, Math.max(...ys) - minY, rectCornerRadius(shape));
+                }
             } else {
                 const outline = shape.outline || [];
                 if (outline.length < 2) return;
@@ -1089,7 +1098,7 @@ export class Board2D {
             if (c.filled) {
                 ctx.fillStyle = COL.silk;
                 ctx.beginPath();
-                ctx.arc(c.x, c.y, c.radius, 0, Math.PI * 2);
+                ctx.arc(c.x, c.y, circleFilledRadius(c), 0, Math.PI * 2);
                 ctx.fill();
             } else {
                 ctx.strokeStyle = COL.silk;
