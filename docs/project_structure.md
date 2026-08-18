@@ -53,6 +53,7 @@ clearpcb/
 │                               # check-via-on-pad, regression, debug-pf-*)
 └── docs/
     ├── project_structure.md
+  ├── clearpcb_file_format.md
     ├── autorouter.md
     ├── easyeda_pcb_format.md
     ├── netname_wirelabel_contract.md
@@ -79,6 +80,26 @@ clearpcb/
 - Track / SVG-group ids use the long form: `'top-copper' | 'bottom-copper'`.
 
 ## PCB Data Model
+
+### Board-Shape Geometry Contract
+
+`resolveBoardShapeGeometry()` in `src/pcb/modules/board-shapes.js` is the
+single source of truth for generic PCB shape semantics across lines,
+rectangles, polygons, arcs, and circles. It resolves:
+
+- normalized line width and copper mode;
+- centerline geometry and whether it is closed;
+- filled-area geometry expanded through the outside half of the outline;
+- circle centerline and outer radii;
+- stroke polygons used by copper-removal clipping;
+- layer policies that force fillable mask, document, and hole shapes to areas
+  while lines remain strokes.
+
+The SVG editor, Canvas 2D preview, Three.js board view, and Gerber exporter
+consume this descriptor. Backends may choose native output primitives (for
+example a Canvas arc, triangulated Three.js mesh, or Gerber circle aperture),
+but must not independently reinterpret `filled`, `lineWidth`, shape closure,
+radius expansion, or copper-mode aliases.
 
 ### Tracks and Vias
 

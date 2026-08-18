@@ -599,18 +599,72 @@ export function shapeOutline(shape) {
     return (shape.points || []).map((p) => ({ x: p.x, y: p.y }));
 }
 
+/**
+ * Resolve one generic PCB shape into renderer-neutral geometry.
+ * Backends choose how to rasterize/triangulate/emit these semantics; they must
+ * not reinterpret fill expansion, stroke closure, width, or copper mode.
+ */
+export function resolveBoardShapeGeometry(shape, options = {}) {
+    const kind = String(shape?.kind || 'line');
+    const lineWidth = Math.max(0.05, Number(shape?.lineWidth) || 0.2);
+    const layerForcesArea = shape?.layer === 'hole' || isMaskOrDocLayer(String(shape?.layer || ''));
+    const filled = kind !== 'line' && (options.filled ?? (!!shape?.filled || layerForcesArea));
+    const normalized = filled === !!shape?.filled ? shape : { ...shape, filled };
+    const centerlineShape = shape?.filled ? { ...shape, filled: false } : shape;
+    let centerline = [];
+    if (kind === 'arc') centerline = arcSamples(centerlineShape);
+    else if (kind === 'circle') centerline = circleOutline(centerlineShape);
+    else if (kind === 'rect') centerline = roundedRectOutline(centerlineShape);
+    else centerline = (shape?.points || []).map((point) => ({ x: point.x, y: point.y }));
+    const areaOutline = filled ? shapeOutline(normalized) : null;
+    const centerlineClosed = kind === 'circle' || kind === 'rect' || kind === 'polygon';
+    const radius = kind === 'circle' ? Math.max(0.05, Number(shape?.radius) || 0) : null;
+    return {
+        kind,
+        lineWidth,
+        filled,
+        copperMode: normalizeShapeCopperMode(shape?.copperMode),
+        centerline,
+        centerlineClosed,
+        areaOutline,
+        strokeOutlines: filled ? [] : shapeStrokeOutlines(centerlineShape),
+        path: areaOutline || centerline,
+        pathClosed: filled || centerlineClosed,
+        circle: radius == null ? null : {
+            x: Number(shape?.x) || 0,
+            y: Number(shape?.y) || 0,
+            radius,
+            outerRadius: radius + lineWidth / 2,
+        },
+    };
+}
+
+/** Convert resolved board-shape geometry into SVG path data. */
+export function boardShapeGeometryPathD(geometry) {
+    if (geometry.circle) {
+        const radius = geometry.filled ? geometry.circle.outerRadius : geometry.circle.radius;
+        const x = r4(geometry.circle.x);
+        const y = r4(geometry.circle.y);
+        const rad = r4(radius);
+        return `M ${r4(geometry.circle.x - radius)} ${y}`
+            + ` A ${rad} ${rad} 0 1 0 ${r4(geometry.circle.x + radius)} ${y}`
+            + ` A ${rad} ${rad} 0 1 0 ${r4(geometry.circle.x - radius)} ${y} Z`;
+    }
+    if (!geometry.path.length) return '';
+    let d = `M ${r4(geometry.path[0].x)} ${r4(geometry.path[0].y)}`;
+    for (let index = 1; index < geometry.path.length; index++) {
+        d += ` L ${r4(geometry.path[index].x)} ${r4(geometry.path[index].y)}`;
+    }
+    if (geometry.pathClosed) d += ' Z';
+    return d;
+}
+
 /** Outline edges as [p, q] pairs (closed for rect/polygon, open for arcs/lines). */
 function shapeSegments(shape) {
-    if (shape.kind === 'arc') {
-        const s = arcSamples(shape);
-        const segs = [];
-        for (let i = 0; i < s.length - 1; i++) segs.push([s[i], s[i + 1]]);
-        return segs;
-    }
-    const pts = shapeOutline(shape);
+    const geometry = resolveBoardShapeGeometry(shape);
+    const pts = geometry.centerline;
     const segs = [];
-    const closed = shape.kind !== 'line';
-    for (let i = 0; i < pts.length - (closed ? 0 : 1); i++) {
+    for (let i = 0; i < pts.length - (geometry.centerlineClosed ? 0 : 1); i++) {
         segs.push([pts[i], pts[(i + 1) % pts.length]]);
     }
     return segs;
@@ -618,10 +672,9 @@ function shapeSegments(shape) {
 
 /** Bounds including the visible line width, for shared selection queries. */
 export function boardShapeBounds(shape) {
-    const outline = shapeOutline(shape);
-    const halfWidth = shape.filled
-        ? 0
-        : Math.max(0.05, Number(shape.lineWidth) || 0.2) / 2;
+    const geometry = resolveBoardShapeGeometry(shape);
+    const outline = geometry.path;
+    const halfWidth = geometry.filled ? 0 : geometry.lineWidth / 2;
     if (!outline.length) return { minX: 0, minY: 0, maxX: 0, maxY: 0 };
     let minX = outline[0].x, maxX = outline[0].x;
     let minY = outline[0].y, maxY = outline[0].y;
@@ -635,8 +688,9 @@ export function boardShapeBounds(shape) {
 /** Shared point hit test for board shapes and their selection adapter. */
 export function boardShapeHitTest(shape, worldPos, tolerance = 0) {
     if (!shape || !worldPos) return false;
-    if (shapeIsFilled(shape) && pointInPolygon(worldPos, shapeOutline(shape))) return true;
-    const edgeTolerance = Math.max(tolerance, (Number(shape.lineWidth) || 0.2) / 2 + 0.12);
+    const geometry = resolveBoardShapeGeometry(shape);
+    if (geometry.filled && pointInPolygon(worldPos, geometry.areaOutline)) return true;
+    const edgeTolerance = Math.max(tolerance, geometry.lineWidth / 2 + 0.12);
     return shapeSegments(shape).some(([a, b]) => distanceToSegment(worldPos, a, b) <= edgeTolerance);
 }
 
@@ -780,9 +834,9 @@ function shapeStyle(shape) {
     const layer = String(shape.layer || 'top-silk');
     const isHoleLayer = layer === 'hole';
     const isCopperLayer = layer === 'top-copper' || layer === 'bottom-copper';
-    const isMaskLayer = layer === 'top-mask' || layer === 'bottom-mask';
     const isDocumentLayer = layer === 'document' || layer === 'top-document' || layer === 'bottom-document';
-    const copperMode = normalizeShapeCopperMode(shape.copperMode);
+    const baseGeometry = resolveBoardShapeGeometry(shape);
+    const copperMode = baseGeometry.copperMode;
     const isCopperAdd = isCopperLayer && copperMode === 'add';
     const isCopperRemoveOnly = isCopperLayer && copperMode === 'remove-copper';
     const isCopperRemoveSolderMask = isCopperLayer && copperMode === 'remove-solder-mask';
@@ -791,23 +845,16 @@ function shapeStyle(shape) {
     const isCopperKnockout = isCopperRemoveOnly || isCopperRemoveMask;
     const layerColor = shapeLayerColor(shape);
     const copperColor = layerColor;
-    const filled = shape.kind === 'line'
-        ? false
-        : isHoleLayer
-        ? true
-        : isCopperLayer
-            ? !!shape.filled
-            : (!!shape.filled || isMaskLayer || isDocumentLayer);
+    const geometry = baseGeometry;
+    const filled = geometry.filled;
     const fillColor = isHoleLayer ? 'var(--bg-canvas, #000000)' : layerColor;
     const fillOpacity = isHoleLayer || isDocumentLayer ? '1' : isCopperAdd ? '0.9' : '0.18';
     const baseStroke = isCopperRemoval ? (REMOVAL_COLORS[copperMode] || CUT_RING) : layerColor;
-    const strokeWidth = isHoleLayer
-        ? HOLE_BORDER_WIDTH
-        : Math.max(0.05, Number(shape.lineWidth) || 0.2);
+    const strokeWidth = isHoleLayer ? HOLE_BORDER_WIDTH : geometry.lineWidth;
     const targetLayer = isCopperKnockout
         ? (layer === 'bottom-copper' ? 'bottom-copper-knockout' : 'top-copper-knockout')
         : layer;
-    return { filled, fillColor, fillOpacity, baseStroke, strokeWidth, isHoleLayer, isCopperRemoval, isCopperKnockout, targetLayer };
+    return { filled, fillColor, fillOpacity, baseStroke, strokeWidth, isHoleLayer, isCopperRemoval, isCopperKnockout, targetLayer, geometry };
 }
 
 /** True when a shape reads as a solid region for hit-testing. */
@@ -816,11 +863,7 @@ export function shapeIsFilled(shape) {
     const layer = String(shape.layer || 'top-silk');
     // A hole-layer shape is a board cutout — its whole interior is clickable.
     if (layer === 'hole') return true;
-    const isCopperLayer = layer === 'top-copper' || layer === 'bottom-copper';
-    if (isCopperLayer) {
-        return !!shape.filled;
-    }
-    return !!shape.filled || isMaskOrDocLayer(layer);
+    return resolveBoardShapeGeometry(shape).filled;
 }
 
 // ── Render ───────────────────────────────────────────────────────────────────
@@ -831,7 +874,7 @@ export function renderBoardShape(app, shape, opts = {}) {
     const isSelected = isPcbSelected(app, 'shape', shape);
     const isHovered = !!(app._hoveredShape && app._hoveredShape.id === shape.id);
     const st = shapeStyle(shape);
-    path.setAttribute('d', shapePathD(shape, { close: st.filled }));
+    path.setAttribute('d', boardShapeGeometryPathD(st.geometry));
     const canvasHatch = st.isCopperRemoval && st.filled;
     path.setAttribute('fill', st.filled
         ? (canvasHatch ? 'none' : st.isCopperRemoval ? app._ensureCopperRemovalHatch?.(shape.copperMode) || st.fillColor : st.fillColor)
@@ -2179,9 +2222,10 @@ export function boardShapeCopperCuts(app, copperLayer) {
         } else {
             continue;
         }
-        if (s.kind === 'circle' && !s.filled && s.layer !== 'hole') {
-            const radius = Math.max(0.05, Number(s.radius) || 0);
-            const halfWidth = Math.max(0.05, Number(s.lineWidth) || 0.2) / 2;
+        const geometry = resolveBoardShapeGeometry(s);
+        if (geometry.circle && !geometry.filled) {
+            const radius = geometry.circle.radius;
+            const halfWidth = geometry.lineWidth / 2;
             for (const ringRadius of [radius + halfWidth, Math.max(0, radius - halfWidth)]) {
                 const outline = circleOutline({ ...s, radius: ringRadius });
                 if (outline.length < 3) continue;
@@ -2192,7 +2236,7 @@ export function boardShapeCopperCuts(app, copperLayer) {
             count++;
             continue;
         }
-        const outlines = !s.filled && s.layer !== 'hole' ? shapeStrokeOutlines(s) : [shapeOutline(s)];
+        const outlines = geometry.filled ? [geometry.areaOutline] : geometry.strokeOutlines;
         if (!outlines.length || outlines.some((outline) => outline.length < 3)) continue;
         for (const outline of outlines) {
             d += ` M ${r4(outline[0].x)} ${r4(outline[0].y)}`;

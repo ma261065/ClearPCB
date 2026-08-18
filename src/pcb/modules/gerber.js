@@ -31,7 +31,7 @@ import {
     MASK_EXPANSION,
     TENT_VIAS,
 } from './board-geometry.js';
-import { circleFilledRadius } from './board-shapes.js';
+import { resolveBoardShapeGeometry } from './board-shapes.js';
 
 const FORMAT = '%FSLAX46Y46*%\n%MOMM*%\n';
 const SCALE = 1e6; // 4.6 fixed-point: multiply mm by 10^6
@@ -77,8 +77,8 @@ export function exportGerbers(opts) {
     const files = new Map([
         ['board.gtl', _buildCopper(placements, tracks, vias, 'top-copper', clipBounds, texts, fills, circles, boardShapes)],
         ['board.gbl', _buildCopper(placements, tracks, vias, 'bottom-copper', clipBounds, texts, fills, circles, boardShapes)],
-        ['board.gts', _buildMask(placements, vias, 'top', clipBounds, circles)],
-        ['board.gbs', _buildMask(placements, vias, 'bottom', clipBounds, circles)],
+        ['board.gts', _buildMask(placements, vias, 'top', clipBounds, boardShapes)],
+        ['board.gbs', _buildMask(placements, vias, 'bottom', clipBounds, boardShapes)],
         ['board.gtp', _buildPaste(placements, 'top', clipBounds)],
         ['board.gbp', _buildPaste(placements, 'bottom', clipBounds)],
         ['board.gto', _buildSilk(placements, 'top', clipBounds, texts, boardShapes)],
@@ -140,20 +140,6 @@ const _fmt = (mm) => String(_fx(mm));
 const _fmtY = (mm) => String(_fx(-mm));
 
 /* ──────────────────────────── copper layers ──────────────────────────── */
-
-/**
- * Normalise a user circle's copper mode to one of the canonical values,
- * mirroring PCBApp._normalizeCircleCopperMode (incl. legacy aliases).
- * @param {string} mode
- * @returns {'add'|'remove-copper'|'remove-solder-mask'|'remove-copper-mask'}
- */
-function _circleMode(mode) {
-    const m = String(mode || 'add');
-    if (m === 'remove-copper' || m === 'remove-solder-mask' || m === 'remove-copper-mask') return m;
-    if (m === 'remove') return 'remove-copper-mask';
-    if (m === 'remove-mask') return 'remove-solder-mask';
-    return 'add';
-}
 
 /**
  * Build the world-space point transform for a placement's pose, matching
@@ -261,22 +247,22 @@ function _buildCopper(placements, tracks, vias, layerId, bounds, texts = [], fil
     const clearCircleOps = [];
     for (const c of circles) {
         if (!c) continue;
-        const rad = circleFilledRadius(c);
+        const isHole = c.layer === 'hole';
+        const geometry = resolveBoardShapeGeometry(c);
+        const rad = geometry.filled ? geometry.circle.outerRadius : geometry.circle.radius;
         if (rad <= 0) continue;
         if (!_inBoard(c.x, c.y, bounds)) continue;
-        const isHole = c.layer === 'hole';
         const onThisLayer = c.layer === layerId;
         if (!isHole && !onThisLayer) continue;
-        const mode = _circleMode(c.copperMode);
+        const mode = geometry.copperMode;
         const cutsCopper = isHole ||
             (onThisLayer && (mode === 'remove-copper' || mode === 'remove-copper-mask'));
         if (cutsCopper) {
-            if (isHole || c.filled) {
+            if (geometry.filled) {
                 const d = getAp(apKey('C', rad * 2));
                 clearCircleOps.push({ d, op: `X${_fmt(c.x)}Y${_fmtY(c.y)}D03*` });
             } else {
-                const lw = Math.max(0.05, Number(c.lineWidth) || 0.2);
-                const d = getAp(apKey('C', lw));
+                const d = getAp(apKey('C', geometry.lineWidth));
                 const sx = c.x - rad;
                 const arc = `G75*\n`
                     + `X${_fmt(sx)}Y${_fmtY(c.y)}D02*\n`
@@ -286,14 +272,13 @@ function _buildCopper(placements, tracks, vias, layerId, bounds, texts = [], fil
                 clearCircleOps.push({ d, op: arc });
             }
         } else if (onThisLayer && mode === 'add') {
-            if (c.filled) {
+            if (geometry.filled) {
                 // Solid disc: flash a circular aperture.
                 const d = getAp(apKey('C', rad * 2));
                 ops.push({ d, op: `X${_fmt(c.x)}Y${_fmtY(c.y)}D03*` });
             } else {
                 // Ring: stroke the outline with a full-circle arc (G75/G03).
-                const lw = Math.max(0.05, Number(c.lineWidth) || 0.2);
-                const d = getAp(apKey('C', lw));
+                const d = getAp(apKey('C', geometry.lineWidth));
                 const sx = c.x - rad;
                 const arc = `G75*\n`
                     + `X${_fmt(sx)}Y${_fmtY(c.y)}D02*\n`
@@ -324,19 +309,20 @@ function _buildCopper(placements, tracks, vias, layerId, bounds, texts = [], fil
     for (const s of boardShapes) {
         if (s?.kind === 'circle') continue;
         if (!s) continue;
-        const o = s.outline || [];
-        if (o.length < (s.filled || s.layer === 'hole' ? 3 : 2)) continue;
         const isHole = s.layer === 'hole';
+        const geometry = resolveBoardShapeGeometry(s);
+        const o = geometry.path;
+        if (o.length < (geometry.filled ? 3 : 2)) continue;
         const onThisLayer = s.layer === layerId;
         if (!isHole && !onThisLayer) continue;
-        const mode = _circleMode(s.copperMode);
+        const mode = geometry.copperMode;
         const cutsCopper = isHole ||
             (onThisLayer && (mode === 'remove-copper' || mode === 'remove-copper-mask'));
-        if (!s.filled && !isHole) {
-            const d = getAp(apKey('C', Math.max(0.05, Number(s.lineWidth) || 0.2)));
+        if (!geometry.filled) {
+            const d = getAp(apKey('C', geometry.lineWidth));
             const op = `X${_fmt(o[0].x)}Y${_fmtY(o[0].y)}D02*\n`
             + o.slice(1).map((point) => `X${_fmt(point.x)}Y${_fmtY(point.y)}D01*`).join('\n')
-            + (s.kind === 'line' || s.kind === 'arc' ? '' : `\nX${_fmt(o[0].x)}Y${_fmtY(o[0].y)}D01*`);
+            + (geometry.centerlineClosed ? `\nX${_fmt(o[0].x)}Y${_fmtY(o[0].y)}D01*` : '');
             if (cutsCopper) clearShapeStrokeOps.push({ d, op });
             else if (onThisLayer && mode === 'add') ops.push({ d, op });
         } else if (cutsCopper) clearShapeRegions += shapeRegion(o);
@@ -457,7 +443,7 @@ function _buildPadLayer(placements, vias, side, bounds, opts) {
         respectPaste = false,
         respectMask = false,
         pasteApertures = false,
-        circleOpenings = [],
+        shapeOpenings = [],
         title = 'Pad Layer',
     } = opts;
     /** @type {Map<string, number>} apertureKey → D-code */
@@ -526,12 +512,45 @@ function _buildPadLayer(placements, vias, side, bounds, opts) {
         }
     }
 
-    // User-drawn mask openings (their exact diameter — no pad expansion).
-    for (const o of circleOpenings) {
-        if (!o || !(o.dia > 0)) continue;
-        if (!_inBoard(o.x, o.y, bounds)) continue;
-        const d = getAp(apKey('C', o.dia));
-        ops.push({ d, op: `X${_fmt(o.x)}Y${_fmtY(o.y)}D03*` });
+    let shapeRegions = '';
+    for (const opening of shapeOpenings) {
+        const geometry = opening?.geometry;
+        if (!geometry) continue;
+        if (geometry.circle) {
+            if (!_inBoard(geometry.circle.x, geometry.circle.y, bounds)) continue;
+            if (geometry.filled) {
+                const d = getAp(apKey('C', geometry.circle.outerRadius * 2));
+                ops.push({ d, op: `X${_fmt(geometry.circle.x)}Y${_fmtY(geometry.circle.y)}D03*` });
+            } else {
+                const d = getAp(apKey('C', geometry.lineWidth));
+                const startX = geometry.circle.x - geometry.circle.radius;
+                ops.push({ d, op: `G75*\n`
+                    + `X${_fmt(startX)}Y${_fmtY(geometry.circle.y)}D02*\n`
+                    + `G03*\n`
+                    + `X${_fmt(startX)}Y${_fmtY(geometry.circle.y)}I${_fx(geometry.circle.radius)}J0D01*\n`
+                    + 'G01*' });
+            }
+            continue;
+        }
+        if (geometry.path.length < (geometry.filled ? 3 : 2)) continue;
+        if (geometry.filled) {
+            shapeRegions += 'G36*\n';
+            shapeRegions += `X${_fmt(geometry.path[0].x)}Y${_fmtY(geometry.path[0].y)}D02*\n`;
+            for (const point of geometry.path.slice(1)) {
+                shapeRegions += `X${_fmt(point.x)}Y${_fmtY(point.y)}D01*\n`;
+            }
+            shapeRegions += 'G37*\n';
+        } else {
+            const d = getAp(apKey('C', geometry.lineWidth));
+            let op = `X${_fmt(geometry.path[0].x)}Y${_fmtY(geometry.path[0].y)}D02*\n`;
+            op += geometry.path.slice(1)
+                .map((point) => `X${_fmt(point.x)}Y${_fmtY(point.y)}D01*`)
+                .join('\n');
+            if (geometry.centerlineClosed) {
+                op += `\nX${_fmt(geometry.path[0].x)}Y${_fmtY(geometry.path[0].y)}D01*`;
+            }
+            ops.push({ d, op });
+        }
     }
 
     let out = `G04 ClearPCB ${title}*\n` + FORMAT + '%LPD*%\n';
@@ -543,29 +562,31 @@ function _buildPadLayer(placements, vias, side, bounds, opts) {
         if (d !== currentD) { out += `D${d}*\n`; currentD = d; }
         out += op + '\n';
     }
+    out += shapeRegions;
     out += 'M02*\n';
     return out;
 }
 
 /* ──────────────────────────── soldermask ──────────────────────────── */
 
-function _buildMask(placements, vias, side, bounds, circles = []) {
+function _buildMask(placements, vias, side, bounds, boardShapes = []) {
     // User-drawn soldermask openings: circles on this side's mask layer,
     // copper circles flagged to also open mask (remove-solder-mask /
     // remove-copper-mask), and hole-layer circles (a bare drilled hole has
     // no mask in the bore). Each opens at its exact drawn diameter.
     const maskLayer = `${side}-mask`;
     const copperLayer = `${side}-copper`;
-    const circleOpenings = [];
-    for (const c of circles) {
-        if (!c) continue;
-        const rad = circleFilledRadius(c);
-        if (rad <= 0) continue;
-        const mode = _circleMode(c.copperMode);
-        const opens = c.layer === maskLayer
-            || c.layer === 'hole'
-            || (c.layer === copperLayer && (mode === 'remove-solder-mask' || mode === 'remove-copper-mask'));
-        if (opens) circleOpenings.push({ x: c.x, y: c.y, dia: rad * 2 });
+    const shapeOpenings = [];
+    for (const shape of boardShapes) {
+        if (!shape || shape.type === 'fill') continue;
+        const geometry = resolveBoardShapeGeometry(shape);
+        const mode = geometry.copperMode;
+        const forceFilled = shape.layer === maskLayer || shape.layer === 'hole';
+        const opens = forceFilled
+            || (shape.layer === copperLayer && (mode === 'remove-solder-mask' || mode === 'remove-copper-mask'));
+        if (opens) shapeOpenings.push({
+            geometry,
+        });
     }
     return _buildPadLayer(placements, vias, side, bounds, {
         expansion: MASK_EXPANSION,
@@ -573,7 +594,7 @@ function _buildMask(placements, vias, side, bounds, circles = []) {
         includeSmd: true,
         includeVias: !TENT_VIAS,
         respectMask: true,
-        circleOpenings,
+        shapeOpenings,
         title: side === 'top' ? 'Top Soldermask' : 'Bottom Soldermask',
     });
 }
@@ -709,13 +730,12 @@ function _buildSilk(placements, side, bounds, texts = [], boardShapes = []) {
     // Free-standing board shapes (rect/polygon/arc) on this silk side.
     for (const s of boardShapes) {
         if (!s || s.layer !== wantLayer) continue;
-        const o = s.outline || [];
+        const geometry = resolveBoardShapeGeometry(s);
+        const o = geometry.path;
         if (o.length < 2) continue;
-        const sw = Math.max(0.05, Number(s.lineWidth) || 0.2);
-        const head = useAperture(sw);
+        const head = useAperture(geometry.filled ? 0.06 : geometry.lineWidth);
         if (head) body += head;
-        const closed = s.kind !== 'arc';
-        if (closed && s.filled && o.length >= 3) {
+        if (geometry.filled && o.length >= 3) {
             let ring = 'G36*\n';
             ring += `X${_fmt(o[0].x)}Y${_fmtY(o[0].y)}D02*\n`;
             for (let i = 1; i < o.length; i++) {
@@ -725,7 +745,7 @@ function _buildSilk(placements, side, bounds, texts = [], boardShapes = []) {
             body += ring;
         }
         for (let i = 1; i < o.length; i++) body += emitSeg(o[i - 1], o[i]);
-        if (closed) body += emitSeg(o[o.length - 1], o[0]);
+        if (geometry.pathClosed) body += emitSeg(o[o.length - 1], o[0]);
     }
 
     // Free-standing text annotations on this silk side.
@@ -886,7 +906,7 @@ function _buildOutline(b, boardShapes = []) {
     // coords, so flip Y into the outline file's Y-up frame (y_up = -y_int).
     for (const s of boardShapes) {
         if (!s || s.layer !== 'hole') continue;
-        const o = s.outline || [];
+        const o = resolveBoardShapeGeometry(s).path;
         if (o.length < 3) continue;
         out += `X${_fmt(o[0].x)}Y${_fmt(-o[0].y)}D02*\n`;
         for (let i = 1; i < o.length; i++) {

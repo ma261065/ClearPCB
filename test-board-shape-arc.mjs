@@ -14,11 +14,13 @@ const {
     boardShapeArcGeometry,
     boardShapeCopperCuts,
     circleFilledRadius,
+    resolveBoardShapeGeometry,
     shapeOutline,
     shapePathD,
     shapeIsFilled,
     shapeDrawClick,
 } = await import('./src/pcb/modules/board-shapes.js');
+const { exportGerbers } = await import('./src/pcb/modules/gerber.js');
 
 let failures = 0;
 function check(name, condition) {
@@ -145,5 +147,61 @@ const filledPolygonOutline = shapeOutline(filledPolygon);
 check('filled polygon reaches outside its outline',
     Math.min(...filledPolygonOutline.map((point) => point.x)) < -0.199
     && Math.max(...filledPolygonOutline.map((point) => point.x)) > 10.199);
+
+for (const shape of [
+    { ...removalRect, kind: 'line', points: removalRect.points.slice(0, 2) },
+    removalRect,
+    { ...removalRect, kind: 'polygon' },
+    removalArc,
+    removalCircle,
+]) {
+    const stroke = resolveBoardShapeGeometry(shape);
+    const area = resolveBoardShapeGeometry(shape, { filled: true });
+    check(`${shape.kind} resolver owns width and mode`,
+        stroke.lineWidth === shape.lineWidth && stroke.copperMode === 'remove-copper');
+    check(`${shape.kind} resolver separates centerline and area`,
+        stroke.areaOutline === null
+        && (shape.kind === 'line' ? area.areaOutline === null : area.areaOutline.length >= 3));
+}
+check('circle resolver exposes centerline and outer radii',
+    resolveBoardShapeGeometry(removalCircle, { filled: true }).circle.radius === 3
+    && resolveBoardShapeGeometry(removalCircle, { filled: true }).circle.outerRadius === 3.2);
+for (const layer of ['top-mask', 'document', 'hole']) {
+    const geometry = resolveBoardShapeGeometry({ ...removalRect, layer, filled: false });
+    check(`${layer} area policy is owned by the resolver`, geometry.filled && geometry.areaOutline.length >= 3);
+}
+
+const maskGerber = (shape) => exportGerbers({
+    placements: new Map(),
+    tracks: [],
+    vias: [],
+    boardWidth: 50,
+    boardHeight: 40,
+    boardShapes: [shape],
+}).get('board.gts');
+const maskDiameter = (gerber) => Number(/%ADD\d+C,([\d.]+)\*%/.exec(gerber)?.[1]);
+const filledMaskCircle = { ...removalCircle, y: -5, filled: true, copperMode: 'remove-solder-mask' };
+const filledCopperMaskCircle = { ...filledMaskCircle, copperMode: 'remove-copper-mask' };
+const maskOnlyGerber = maskGerber(filledMaskCircle);
+const copperMaskGerber = maskGerber(filledCopperMaskCircle);
+check('filled mask-removal modes emit the same outer circle diameter',
+    approx(maskDiameter(maskOnlyGerber), 6.4)
+    && approx(maskDiameter(copperMaskGerber), 6.4));
+check('filled mask-removal circles emit one area without a ring command',
+    !maskOnlyGerber.includes('G03*') && !copperMaskGerber.includes('G03*'));
+check('filled rectangle mask removal emits an area region',
+    maskGerber({
+        ...removalRect,
+        points: removalRect.points.map((point) => ({ x: point.x, y: point.y - 10 })),
+        filled: true,
+        copperMode: 'remove-solder-mask',
+    }).includes('G36*'));
+const strokedRectMask = maskGerber({
+    ...removalRect,
+    points: removalRect.points.map((point) => ({ x: point.x, y: point.y - 10 })),
+    copperMode: 'remove-solder-mask',
+});
+check('unfilled rectangle mask removal emits a width stroke',
+    approx(maskDiameter(strokedRectMask), 0.4) && !strokedRectMask.includes('G36*'));
 
 if (failures) process.exit(1);

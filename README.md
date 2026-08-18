@@ -109,7 +109,8 @@ clearpcb/
 │   └── version.json            # App version number
 │
 └── docs/
-    └── project_structure.md    # (legacy — see this README)
+  ├── clearpcb_file_format.md # Canonical project JSON format
+  └── project_structure.md    # Detailed ownership and architecture notes
 ```
 
 ## Architecture

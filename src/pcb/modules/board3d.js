@@ -548,11 +548,12 @@ import {
     resolvePadFlashes,
     resolveSilk,
 } from './board-geometry.js';
-import { circleFilledRadius, shapeOutline, normalizeShapeCopperMode } from './board-shapes.js';
+import { resolveBoardShapeGeometry } from './board-shapes.js';
 import { loadClipper, isClipperReady, getClipper } from './copper-fill-geom.js';
 
 /** Finished board thickness in millimetres (standard 1.6 mm). */
 const BOARD_THICKNESS = 1.6;
+const FILLED_CIRCLE_SEGMENTS = 48;
 
 /** Default body height (mm) for fallback component boxes with no STEP model. */
 const FALLBACK_HEIGHT = 1.2;
@@ -2188,14 +2189,13 @@ function buildCopperMesh(tracks, circles = [], boardShapes = []) {
     for (const c of circles || []) {
         if (!c || (c.layer !== 'top-copper' && c.layer !== 'bottom-copper')) continue;
         if (!(c.radius > 0)) continue;
-        const mode = normalizeCopperCircleMode(c.copperMode);
-        if (mode !== 'add') continue;
+        const geometry = resolveBoardShapeGeometry(c);
+        if (geometry.copperMode !== 'add') continue;
         const bottom = c.layer === 'bottom-copper';
         const y = bottom ? Y_BOT - COPPER_EPS : Y_TOP + COPPER_EPS;
         const color = bottom ? COLOR_COPPER_BOTTOM : COLOR_COPPER_TOP;
-        const lw = Math.max(0.05, Number(c.lineWidth) || 0.2);
-        if (c.filled) appendMesh(mesh, discMesh(c.x, c.y, circleFilledRadius(c), y, color, 28));
-        else appendMesh(mesh, flatRingMesh(c.x, c.y, c.radius, lw, y, color, 32));
+        if (geometry.filled) appendMesh(mesh, discMesh(c.x, c.y, geometry.circle.outerRadius, y, color, FILLED_CIRCLE_SEGMENTS));
+        else appendMesh(mesh, flatRingMesh(c.x, c.y, geometry.circle.radius, geometry.lineWidth, y, color, 32));
     }
     // Non-circular board shapes authored on copper layers. Circles use the
     // specialised disc/ring path above so unfilled rings remain hollow.
@@ -2203,14 +2203,15 @@ function buildCopperMesh(tracks, circles = [], boardShapes = []) {
         if (s?.type === 'fill') continue;
         if (s?.kind === 'circle') continue;
         if (!s || (s.layer !== 'top-copper' && s.layer !== 'bottom-copper')) continue;
-        if (normalizeShapeCopperMode(s.copperMode) !== 'add') continue;
-        const o = shapeOutline(s);
-        if (!o || o.length < (s.filled ? 3 : 2)) continue;
+        const geometry = resolveBoardShapeGeometry(s);
+        if (geometry.copperMode !== 'add') continue;
+        const o = geometry.path;
+        if (!o || o.length < (geometry.filled ? 3 : 2)) continue;
         const bottom = s.layer === 'bottom-copper';
         const y = bottom ? Y_BOT - COPPER_EPS : Y_TOP + COPPER_EPS;
         const color = bottom ? COLOR_COPPER_BOTTOM : COLOR_COPPER_TOP;
-        if (!s.filled) {
-            appendFlatStroke(mesh, o, s.kind !== 'line' && s.kind !== 'arc', Math.max(0.05, Number(s.lineWidth) || 0.2), y, color);
+        if (!geometry.filled) {
+            appendFlatStroke(mesh, o, geometry.centerlineClosed, geometry.lineWidth, y, color);
             continue;
         }
         let tri = null;
@@ -2223,15 +2224,6 @@ function buildCopperMesh(tracks, circles = [], boardShapes = []) {
         }
     }
     return mesh;
-}
-
-function normalizeCopperCircleMode(mode) {
-    const m = String(mode || 'add');
-    if (m === 'remove-copper' || m === 'remove-solder-mask' || m === 'remove-copper-mask') return m;
-    // Backward compatibility for pre-split files.
-    if (m === 'remove') return 'remove-copper-mask';
-    if (m === 'remove-mask') return 'remove-solder-mask';
-    return 'add';
 }
 
 /**
@@ -2285,8 +2277,9 @@ function appendFlatStroke(mesh, outline, closed, width, y, color) {
 
 /** Approximate a stroked circle with bounded convex annular sectors. */
 function circleStrokeHoles(circle, segments = 24) {
-    const radius = Math.max(0.05, Number(circle.radius) || 0);
-    const halfWidth = Math.max(0.05, Number(circle.lineWidth) || 0.2) / 2;
+    const geometry = resolveBoardShapeGeometry(circle);
+    const radius = geometry.circle.radius;
+    const halfWidth = geometry.lineWidth / 2;
     const outerRadius = radius + halfWidth;
     const innerRadius = Math.max(0, radius - halfWidth);
     const holes = [];
@@ -2317,10 +2310,10 @@ function collectCopperSubtractHoles(boardShapes = []) {
         if (c?.kind !== 'circle') continue;
         if (!c || (c.layer !== 'top-copper' && c.layer !== 'bottom-copper')) continue;
         if (!(c.radius > 0)) continue;
-        const mode = normalizeCopperCircleMode(c.copperMode);
-        if (mode !== 'remove-copper' && mode !== 'remove-copper-mask') continue;
-        if (c.filled) {
-            holes.push({ x: c.x, z: c.y, r: circleFilledRadius(c) });
+        const geometry = resolveBoardShapeGeometry(c);
+        if (geometry.copperMode !== 'remove-copper' && geometry.copperMode !== 'remove-copper-mask') continue;
+        if (geometry.filled) {
+            holes.push({ x: c.x, z: c.y, r: geometry.circle.outerRadius });
         } else {
             holes.push(...circleStrokeHoles(c));
         }
@@ -2328,13 +2321,13 @@ function collectCopperSubtractHoles(boardShapes = []) {
     for (const shape of boardShapes || []) {
         if (!shape || shape.kind === 'circle') continue;
         if (shape.layer !== 'top-copper' && shape.layer !== 'bottom-copper') continue;
-        const mode = normalizeShapeCopperMode(shape.copperMode);
-        if (mode !== 'remove-copper' && mode !== 'remove-copper-mask') continue;
-        const outline = shapeOutline(shape);
-        if (shape.filled && outline.length >= 3) {
+        const geometry = resolveBoardShapeGeometry(shape);
+        if (geometry.copperMode !== 'remove-copper' && geometry.copperMode !== 'remove-copper-mask') continue;
+        const outline = geometry.path;
+        if (geometry.filled && outline.length >= 3) {
             holes.push({ ring: outline.map((point) => ({ x: point.x, z: point.y })) });
-        } else if (!shape.filled && outline.length >= 2) {
-            holes.push(...strokeOutlineHoles(outline, shape.kind !== 'line' && shape.kind !== 'arc', Math.max(0.05, Number(shape.lineWidth) || 0.2)));
+        } else if (!geometry.filled && outline.length >= 2) {
+            holes.push(...strokeOutlineHoles(outline, geometry.centerlineClosed, geometry.lineWidth));
         }
     }
     return holes;
@@ -2355,16 +2348,17 @@ function collectMaskOpeningHoles(boardShapes = [], side = 'top') {
         if (layer === 'top-mask' || layer === 'bottom-mask') {
             const cSide = layer === 'bottom-mask' ? 'bottom' : 'top';
             if (cSide !== side) continue;
-            holes.push({ x: c.x, z: c.y, r: circleFilledRadius(c) });
+            const geometry = resolveBoardShapeGeometry(c);
+            holes.push({ x: c.x, z: c.y, r: geometry.circle.outerRadius });
             continue;
         }
         if (layer !== 'top-copper' && layer !== 'bottom-copper') continue;
         const cSide = layer === 'bottom-copper' ? 'bottom' : 'top';
         if (cSide !== side) continue;
-        const mode = normalizeCopperCircleMode(c.copperMode);
-        if (mode !== 'remove-solder-mask' && mode !== 'remove-copper-mask') continue;
-        if (c.filled) {
-            holes.push({ x: c.x, z: c.y, r: c.radius });
+        const geometry = resolveBoardShapeGeometry(c);
+        if (geometry.copperMode !== 'remove-solder-mask' && geometry.copperMode !== 'remove-copper-mask') continue;
+        if (geometry.filled) {
+            holes.push({ x: c.x, z: c.y, r: geometry.circle.outerRadius });
         } else {
             holes.push(...circleStrokeHoles(c));
         }
@@ -2376,16 +2370,16 @@ function collectMaskOpeningHoles(boardShapes = [], side = 'top') {
         const isCopperLayer = layer === 'top-copper' || layer === 'bottom-copper';
         const shapeSide = layer === 'bottom-mask' || layer === 'bottom-copper' ? 'bottom' : 'top';
         if ((!isMaskLayer && !isCopperLayer) || shapeSide !== side) continue;
-        const mode = normalizeShapeCopperMode(shape.copperMode);
-        if (!isMaskLayer && (mode !== 'remove-solder-mask' && mode !== 'remove-copper-mask')) continue;
-        const ring = shapeOutline(shape);
-        if (shape.filled || isMaskLayer) {
+        const geometry = resolveBoardShapeGeometry(shape);
+        if (!isMaskLayer && (geometry.copperMode !== 'remove-solder-mask' && geometry.copperMode !== 'remove-copper-mask')) continue;
+        const ring = geometry.path;
+        if (geometry.filled) {
             if (ring.length >= 3) holes.push({ ring: ring.map((point) => ({ x: point.x, z: point.y })) });
         } else if (ring.length >= 2) {
             holes.push(...strokeOutlineHoles(
                 ring,
-                shape.kind !== 'line' && shape.kind !== 'arc',
-                Math.max(0.05, Number(shape.lineWidth) || 0.2),
+                geometry.centerlineClosed,
+                geometry.lineWidth,
             ));
         }
     }
@@ -2592,19 +2586,19 @@ function buildMaskOpeningMesh(boardShapes = []) {
         if (!c || !(c.radius > 0)) continue;
         const layer = String(c.layer || '');
         if (layer === 'top-mask' || layer === 'bottom-mask') {
+            const geometry = resolveBoardShapeGeometry(c);
             const bottom = layer === 'bottom-mask';
             const y = bottom ? Y_BOT - COPPER_EPS : Y_TOP + COPPER_EPS;
-            appendMesh(mesh, discMesh(c.x, c.y, c.radius, y, COLOR_RAW_BOARD, 28));
+            appendMesh(mesh, discMesh(c.x, c.y, geometry.circle.outerRadius, y, COLOR_RAW_BOARD, FILLED_CIRCLE_SEGMENTS));
             continue;
         }
         if (layer !== 'top-copper' && layer !== 'bottom-copper') continue;
-        const mode = normalizeCopperCircleMode(c.copperMode);
-        if (mode !== 'remove-solder-mask' && mode !== 'remove-copper-mask') continue;
+        const geometry = resolveBoardShapeGeometry(c);
+        if (geometry.copperMode !== 'remove-solder-mask' && geometry.copperMode !== 'remove-copper-mask') continue;
         const bottom = layer === 'bottom-copper';
         const y = bottom ? Y_BOT - COPPER_EPS : Y_TOP + COPPER_EPS;
-        const lw = Math.max(0.05, Number(c.lineWidth) || 0.2);
-        if (c.filled) appendMesh(mesh, discMesh(c.x, c.y, circleFilledRadius(c), y, COLOR_RAW_BOARD, 28));
-        else appendMesh(mesh, flatRingMesh(c.x, c.y, c.radius, lw, y, COLOR_RAW_BOARD, 32));
+        if (geometry.filled) appendMesh(mesh, discMesh(c.x, c.y, geometry.circle.outerRadius, y, COLOR_RAW_BOARD, FILLED_CIRCLE_SEGMENTS));
+        else appendMesh(mesh, flatRingMesh(c.x, c.y, geometry.circle.radius, geometry.lineWidth, y, COLOR_RAW_BOARD, 32));
     }
     for (const shape of boardShapes || []) {
         if (!shape || shape.kind === 'circle') continue;
@@ -2612,18 +2606,18 @@ function buildMaskOpeningMesh(boardShapes = []) {
         const isMaskLayer = layer === 'top-mask' || layer === 'bottom-mask';
         const isCopperLayer = layer === 'top-copper' || layer === 'bottom-copper';
         if (!isMaskLayer && !isCopperLayer) continue;
-        const mode = normalizeShapeCopperMode(shape.copperMode);
-        if (!isMaskLayer && (mode !== 'remove-solder-mask' && mode !== 'remove-copper-mask')) continue;
-        const outline = shapeOutline(shape);
+        const geometry = resolveBoardShapeGeometry(shape);
+        if (!isMaskLayer && (geometry.copperMode !== 'remove-solder-mask' && geometry.copperMode !== 'remove-copper-mask')) continue;
+        const outline = geometry.path;
         const bottom = layer === 'bottom-mask' || layer === 'bottom-copper';
         const y = bottom ? Y_BOT - COPPER_EPS : Y_TOP + COPPER_EPS;
-        if (!shape.filled && !isMaskLayer) {
+        if (!geometry.filled) {
             if (outline.length >= 2) {
                 appendFlatStroke(
                     mesh,
                     outline,
-                    shape.kind !== 'line' && shape.kind !== 'arc',
-                    Math.max(0.05, Number(shape.lineWidth) || 0.2),
+                    geometry.centerlineClosed,
+                    geometry.lineWidth,
                     y,
                     COLOR_RAW_BOARD,
                 );
@@ -2657,20 +2651,20 @@ function buildDocumentCutoutMesh(circles = []) {
         const side = layer === 'top-document' ? 'top'
             : layer === 'bottom-document' ? 'bottom'
                 : 'both';
-        const sw = Math.max(0.05, Number(c.lineWidth) || 0.15);
-        if (c.filled) {
+        const geometry = resolveBoardShapeGeometry(c);
+        if (geometry.filled) {
             if (side === 'both' || side === 'top') {
-                appendMesh(mesh, discMesh(c.x, c.y, c.radius, Y_TOP + SILK_EPS, COLOR_RAW_BOARD, 28));
+                appendMesh(mesh, discMesh(c.x, c.y, geometry.circle.outerRadius, Y_TOP + SILK_EPS, COLOR_RAW_BOARD, FILLED_CIRCLE_SEGMENTS));
             }
             if (side === 'both' || side === 'bottom') {
-                appendMesh(mesh, discMesh(c.x, c.y, c.radius, Y_BOT - SILK_EPS, COLOR_RAW_BOARD, 28));
+                appendMesh(mesh, discMesh(c.x, c.y, geometry.circle.outerRadius, Y_BOT - SILK_EPS, COLOR_RAW_BOARD, FILLED_CIRCLE_SEGMENTS));
             }
         } else {
             if (side === 'both' || side === 'top') {
-                appendMesh(mesh, flatRingMesh(c.x, c.y, c.radius, sw, Y_TOP + SILK_EPS, COLOR_RAW_BOARD, 32));
+                appendMesh(mesh, flatRingMesh(c.x, c.y, geometry.circle.radius, geometry.lineWidth, Y_TOP + SILK_EPS, COLOR_RAW_BOARD, 32));
             }
             if (side === 'both' || side === 'bottom') {
-                appendMesh(mesh, flatRingMesh(c.x, c.y, c.radius, sw, Y_BOT - SILK_EPS, COLOR_RAW_BOARD, 32));
+                appendMesh(mesh, flatRingMesh(c.x, c.y, geometry.circle.radius, geometry.lineWidth, Y_BOT - SILK_EPS, COLOR_RAW_BOARD, 32));
             }
         }
     }
@@ -2741,22 +2735,21 @@ function buildSilkMesh(app) {
         if (!(c.radius > 0)) continue;
         const bottom = layer.startsWith('bottom-');
         const y = bottom ? Y_BOT - SILK_EPS : Y_TOP + SILK_EPS;
-        const sw = Math.max(0.05, Number(c.lineWidth) || 0.15);
-        if (c.filled) appendMesh(mesh, discMesh(c.x, c.y, c.radius, y, COLOR_SILK, 28));
-        else appendMesh(mesh, flatRingMesh(c.x, c.y, c.radius, sw, y, COLOR_SILK, 32));
+        const geometry = resolveBoardShapeGeometry(c);
+        if (geometry.filled) appendMesh(mesh, discMesh(c.x, c.y, geometry.circle.outerRadius, y, COLOR_SILK, FILLED_CIRCLE_SEGMENTS));
+        else appendMesh(mesh, flatRingMesh(c.x, c.y, geometry.circle.radius, geometry.lineWidth, y, COLOR_SILK, 32));
     }
     // Free-standing board shapes (rect/polygon/arc) on the silk layers.
     for (const s of (app.boardShapes || [])) {
         if (!s) continue;
         const layer = String(s.layer || 'top-silk');
         if (layer !== 'top-silk' && layer !== 'bottom-silk') continue;
-        const o = shapeOutline(s);
+        const geometry = resolveBoardShapeGeometry(s);
+        const o = geometry.path;
         if (!o || o.length < 2) continue;
         const bottom = layer.startsWith('bottom-');
         const y = bottom ? Y_BOT - SILK_EPS : Y_TOP + SILK_EPS;
-        const sw = Math.max(0.05, Number(s.lineWidth) || 0.2);
-        const closed = s.kind !== 'arc';
-        if (closed && s.filled && o.length >= 3) {
+        if (geometry.filled && o.length >= 3) {
             let tri = null;
             try { tri = triangulateWithHoles(o.map((p) => ({ x: p.x, y: p.y })), []); } catch { tri = null; }
             if (tri && tri.tris.length) {
@@ -2767,8 +2760,14 @@ function buildSilkMesh(app) {
                 }
             }
         }
-        const poly = closed ? o.concat([o[0]]) : o;
-        appendMesh(mesh, strokePolysToMesh([poly], sw, y, COLOR_SILK, (px, py) => ({ x: px, z: py })));
+        const poly = geometry.pathClosed ? o.concat([o[0]]) : o;
+        appendMesh(mesh, strokePolysToMesh(
+            [poly],
+            geometry.filled ? 0.06 : geometry.lineWidth,
+            y,
+            COLOR_SILK,
+            (px, py) => ({ x: px, z: py }),
+        ));
     }
     return mesh;
 }
@@ -3935,8 +3934,7 @@ export async function openBoard3DViewer(app, opts = {}) {
         vias: app.vias,
         circles: [],
         boardShapes: (app.boardShapes || [])
-            .filter((shape) => shape?.type !== 'fill')
-            .map((shape) => ({ ...shape, outline: shapeOutline(shape) })),
+            .filter((shape) => shape?.type !== 'fill'),
         fills: app.copperFills,
         texts: [...(app.texts?.values?.() || [])],
         boardX: app._boardX || 0,
@@ -4180,7 +4178,7 @@ export async function openBoard3DViewer(app, opts = {}) {
         // circle (centroid + max radius) for the bbox/inside-board tests.
         for (const s of (app.boardShapes || [])) {
             if (!s || s.layer !== 'hole') continue;
-            const outlinePts = shapeOutline(s);
+            const outlinePts = resolveBoardShapeGeometry(s).path;
             if (!outlinePts || outlinePts.length < 3) continue;
             const ring = outlinePts.map((p) => ({ x: p.x, z: p.y }));
             let cx = 0, cz = 0;

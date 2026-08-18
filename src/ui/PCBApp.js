@@ -122,7 +122,8 @@ import {
     shapeLayerColor,
     shapeSelectionColor,
     normalizeShapeCopperMode,
-    shapePathD,
+    resolveBoardShapeGeometry,
+    boardShapeGeometryPathD,
     boardShapeBounds,
     showBoardShapeContextMenu,
     dismissBoardShapeContextMenu,
@@ -2030,13 +2031,14 @@ export default class PCBApp {
         for (const shape of this.boardShapes || []) {
             if (!shape || shape.type === 'fill' || !isLayerVisible(shape.layer)) continue;
             if (shape.layer !== 'top-copper' && shape.layer !== 'bottom-copper') continue;
-            const mode = normalizeShapeCopperMode(shape.copperMode);
+            const geometry = resolveBoardShapeGeometry(shape);
+            const mode = geometry.copperMode;
             if (!colors[mode]) continue;
-            if (!shape.filled) continue;
+            if (!geometry.filled) continue;
             const bounds = boardShapeBounds(shape);
             if (!bounds || bounds.maxX < viewBox.x || bounds.maxY < viewBox.y
                 || bounds.minX > viewBox.x + viewBox.width || bounds.minY > viewBox.y + viewBox.height) continue;
-            const path = shapePathD(shape, { close: true });
+            const path = boardShapeGeometryPathD(geometry);
             if (!path) continue;
             context.save();
             context.setTransform(dpr * scale, 0, 0, dpr * scale, -viewBox.x * dpr * scale, -viewBox.y * dpr * scale);

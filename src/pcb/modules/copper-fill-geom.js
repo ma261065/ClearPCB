@@ -27,6 +27,8 @@
  * computed island is kept for now.
  */
 
+import { resolveBoardShapeGeometry } from './board-shapes.js';
+
 const SCALE = 10000;            // 0.1 µm integer resolution
 const ARC_TOL = 0.01 * SCALE;   // offset arc flattening tolerance (scaled mm)
 const CIRCLE_SEGMENTS = 48;     // points used for via / round-pad discs
@@ -174,10 +176,25 @@ function collectObstacles(C, fill, ctx, clearance) {
     // ── Hole-layer board shapes (no net, all layers — always void the pour) ──
     for (const shape of (ctx.boardShapes || [])) {
         if (!shape || shape.layer !== 'hole') continue;
-        if (shape.kind === 'circle' && shape.radius > 0) {
-            out.push(circlePath(C, shape.x, shape.y, shape.radius + clearance));
-        } else if (Array.isArray(shape.outline) && shape.outline.length >= 3) {
-            out.push(shape.outline.map((point) => ({ X: S(point.x), Y: S(point.y) })));
+        const geometry = resolveBoardShapeGeometry(shape);
+        if (geometry.circle) {
+            const radius = geometry.filled ? geometry.circle.outerRadius : geometry.circle.radius;
+            out.push(circlePath(C, geometry.circle.x, geometry.circle.y,
+                radius + (geometry.filled ? 0 : geometry.lineWidth / 2) + clearance));
+        } else if (geometry.filled && geometry.path.length >= 3) {
+            out.push(...offsetClosedPath(C, geometry.path, clearance));
+        } else if (geometry.centerline.length >= 2) {
+            const segmentCount = geometry.centerlineClosed
+                ? geometry.centerline.length
+                : geometry.centerline.length - 1;
+            for (let index = 0; index < segmentCount; index++) {
+                out.push(...offsetOpenSegment(
+                    C,
+                    geometry.centerline[index],
+                    geometry.centerline[(index + 1) % geometry.centerline.length],
+                    geometry.lineWidth / 2 + clearance,
+                ));
+            }
         }
     }
 
@@ -212,6 +229,16 @@ function offsetOpenSegment(C, a, b, delta) {
     const co = new C.ClipperOffset(2, ARC_TOL);
     co.AddPath([{ X: S(a.x), Y: S(a.y) }, { X: S(b.x), Y: S(b.y) }],
         C.JoinType.jtRound, C.EndType.etOpenRound);
+    const sol = new C.Paths();
+    co.Execute(sol, delta * SCALE);
+    return sol;
+}
+
+function offsetClosedPath(C, points, delta) {
+    const path = points.map((point) => ({ X: S(point.x), Y: S(point.y) }));
+    if (delta <= 0) return [path];
+    const co = new C.ClipperOffset(2, ARC_TOL);
+    co.AddPath(path, C.JoinType.jtRound, C.EndType.etClosedPolygon);
     const sol = new C.Paths();
     co.Execute(sol, delta * SCALE);
     return sol;
