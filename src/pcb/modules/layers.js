@@ -47,6 +47,27 @@ export const PCB_COPPER_FILLS = /** @type {CopperFillDef[]} */ ([
     { id: 'bottom-copper', name: 'Bottom', color: '#2479b5', visible: true, locked: false },
 ]);
 
+export function pcbLayerColor(layerId) {
+    return PCB_LAYERS.find((layer) => layer.id === layerId)?.color || '#ffffff';
+}
+
+function lightenColor(color, amount) {
+    const channels = color.match(/[\da-f]{2}/gi);
+    if (!channels || channels.length !== 3) return color;
+    return `#${channels.map((channel) => {
+        const value = parseInt(channel, 16);
+        return Math.round(value + (255 - value) * amount).toString(16).padStart(2, '0');
+    }).join('')}`;
+}
+
+export function pcbLayerSelectionColor(layerId) {
+    return lightenColor(pcbLayerColor(layerId), 0.35);
+}
+
+export function pcbLayerHoverColor(layerId) {
+    return lightenColor(pcbLayerColor(layerId), 0.18);
+}
+
 /**
  * True when the copper pour on the given copper layer is hidden via the
  * Copper Fill section's eye toggle.

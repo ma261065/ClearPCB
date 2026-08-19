@@ -1,11 +1,15 @@
 globalThis.document = {
     createElementNS() {
+        const attributes = new Map();
         return {
-            setAttribute() {},
-            removeAttribute() {},
+            setAttribute(name, value) { attributes.set(name, String(value)); },
+            getAttribute(name) { return attributes.get(name) ?? null; },
+            removeAttribute(name) { attributes.delete(name); },
             parentNode: null,
         };
     },
+    getElementById() { return null; },
+    querySelector() { return null; },
 };
 globalThis.window = { addEventListener() {} };
 
@@ -14,13 +18,21 @@ const {
     boardShapeArcGeometry,
     boardShapeCopperCuts,
     circleFilledRadius,
+    finishLineDraw,
+    finishShapeDrawAtPoint,
     resolveBoardShapeGeometry,
+    renderBoardShape,
     shapeOutline,
     shapePathD,
     shapeIsFilled,
+    shapeSelectionColor,
     shapeDrawClick,
+    showBoardShapeProperties,
 } = await import('./src/pcb/modules/board-shapes.js');
 const { exportGerbers } = await import('./src/pcb/modules/gerber.js');
+const { pcbTextPolylines, pcbTextSegments } = await import('./src/pcb/modules/pcb-text.js');
+const { pcbLayerSelectionColor } = await import('./src/pcb/modules/layers.js');
+const { computeFillPolygons, loadClipper } = await import('./src/pcb/modules/copper-fill-geom.js');
 
 let failures = 0;
 function check(name, condition) {
@@ -44,10 +56,39 @@ const app = {
 };
 
 shapeDrawClick(app, 'arc', { x: 0, y: 0 });
+check('PCB shape ghost matches schematic preview styling',
+    app._shapeDraw.preview.getAttribute('stroke') === 'var(--sch-symbol-outline, #ffffff)'
+    && app._shapeDraw.preview.getAttribute('stroke-width') === '1'
+    && app._shapeDraw.preview.getAttribute('opacity') === '0.6'
+    && app._shapeDraw.preview.getAttribute('stroke-dasharray') === null);
 shapeDrawClick(app, 'arc', { x: 10, y: 0 });
 shapeDrawClick(app, 'arc', { x: 8, y: 3 });
 const drawn = app.boardShapes[0];
 check('drawn bulge is projected to the chord bisector', approx(drawn.bulge.x, 5) && approx(drawn.bulge.y, 3));
+
+app.boardShapes = [];
+shapeDrawClick(app, 'line', { x: 0, y: 0 });
+shapeDrawClick(app, 'line', { x: 10, y: 0 });
+app._lastCrosshairWorld = { x: 20, y: 5 };
+finishShapeDrawAtPoint(app, app._lastCrosshairWorld);
+check('finishing a line commits the current cursor endpoint',
+    app.boardShapes.length === 1
+    && app.boardShapes[0].points.length === 3
+    && approx(app.boardShapes[0].points[2].x, 20)
+    && approx(app.boardShapes[0].points[2].y, 5));
+
+for (const [kind, placedPoints, finalPoint] of [
+    ['rect', [{ x: 0, y: 0 }], { x: 8, y: 4 }],
+    ['circle', [{ x: 0, y: 0 }], { x: 3, y: 4 }],
+    ['polygon', [{ x: 0, y: 0 }, { x: 8, y: 0 }], { x: 4, y: 5 }],
+    ['arc', [{ x: 0, y: 0 }, { x: 10, y: 0 }], { x: 8, y: 3 }],
+]) {
+    app.boardShapes = [];
+    app._shapeDraw = null;
+    for (const point of placedPoints) shapeDrawClick(app, kind, point);
+    const finished = finishShapeDrawAtPoint(app, finalPoint);
+    check(`right-click commits current point and finishes ${kind}`, finished && app.boardShapes.length === 1);
+}
 
 const arc = {
     id: 'arc_1',
@@ -136,11 +177,35 @@ check('rounded rectangle display uses circular arcs', roundedPath.includes(' A 2
 const roundedRectCuts = boardShapeCopperCuts({ boardShapes: [roundedRemovalRect] }, 'top-copper');
 check('rounded rectangle removal uses concentric outline cuts', roundedRectCuts.count === 1 && roundedRectCuts.d.split(' M ').length === 3);
 
+const propertyItems = { innerHTML: '' };
+const propertyTabs = [];
+showBoardShapeProperties({
+    boardShapes: [roundedRemovalRect],
+    placements: new Map(), tracks: [], vias: [], texts: new Map(),
+    viewport: { scale: 1 },
+    _pcbPropsItems() { return propertyItems; },
+    _setPcbPropsTitle() {},
+    _setActiveRibbonTab(tab) { propertyTabs.push(tab); },
+}, roundedRemovalRect);
+check('existing rectangle populates the PCB Properties panel',
+    propertyItems.innerHTML.includes('pcbPropShapeLayer')
+    && propertyTabs.at(-1) === 'pcb-properties');
+
 const filledRoundedRect = { ...roundedRemovalRect, filled: true };
 const filledRectOutline = shapeOutline(filledRoundedRect);
 check('filled rounded rectangle reaches outside its outline',
     Math.min(...filledRectOutline.map((point) => point.x)) < -0.199
     && Math.max(...filledRectOutline.map((point) => point.x)) > 10.199);
+let renderedFilledShape = null;
+const selectedFilledRect = { ...filledRoundedRect, copperMode: 'add' };
+renderBoardShape({
+    boardShapes: [selectedFilledRect],
+    _shapeElements: new Map(),
+    _pcbSelection: { isSelected() { return true; } },
+    _getLayerGroup() { return { appendChild(element) { renderedFilledShape = element; } }; },
+}, selectedFilledRect, { skipCopperUpdate: true });
+check('selected filled shape changes its interior color',
+    renderedFilledShape?.getAttribute('fill') === shapeSelectionColor(selectedFilledRect));
 
 const filledPolygon = { ...removalRect, kind: 'polygon', filled: true };
 const filledPolygonOutline = shapeOutline(filledPolygon);
@@ -203,5 +268,66 @@ const strokedRectMask = maskGerber({
 });
 check('unfilled rectangle mask removal emits a width stroke',
     approx(maskDiameter(strokedRectMask), 0.4) && !strokedRectMask.includes('G36*'));
+
+const copperText = {
+    id: 'text_1',
+    content: 'I',
+    x: 10,
+    y: -10,
+    size: 2,
+    rotation: 0,
+    layer: 'top-copper',
+    strokeWidth: 0.3,
+};
+const topTextPoints = pcbTextPolylines(copperText).flat();
+const bottomTextPoints = pcbTextPolylines({ ...copperText, layer: 'bottom-copper' }).flat();
+check('shared PCB text geometry mirrors bottom copper only',
+    topTextPoints.length === bottomTextPoints.length
+    && approx(topTextPoints[0].x - copperText.x, -(bottomTextPoints[0].x - copperText.x)));
+check('shared PCB text segments feed output backends', pcbTextSegments(copperText).length > 0);
+const copperTextGerber = exportGerbers({
+    placements: new Map(),
+    tracks: [],
+    vias: [],
+    boardWidth: 50,
+    boardHeight: 40,
+    texts: [copperText],
+}).get('board.gtl');
+check('top-copper text is emitted as copper', copperTextGerber.includes('C,0.3*%'));
+check('selected PCB objects share their layer-derived color',
+    shapeSelectionColor({ layer: 'top-copper' }) === pcbLayerSelectionColor('top-copper')
+    && shapeSelectionColor(copperText) === pcbLayerSelectionColor('top-copper'));
+
+const clipper = await loadClipper();
+const testFill = {
+    layer: 'top-copper',
+    net: 'GND',
+    outline: [{ x: -10, y: -20 }, { x: 20, y: -20 }, { x: 20, y: 10 }, { x: -10, y: 10 }],
+};
+const fillHoles = (context) => computeFillPolygons(testFill, {
+    tracks: [], vias: [], pads: [], boardShapes: [], texts: [], fills: [],
+    params: { clearance: 0.5 }, board: null,
+    ...context,
+}, clipper).reduce((count, polygon) => count + polygon.holes.length, 0);
+const copperRect = {
+    ...removalRect,
+    points: removalRect.points.map((point) => ({ x: point.x, y: point.y - 10 })),
+    filled: true,
+    copperMode: 'add',
+};
+check('unassigned copper shapes receive fill clearance', fillHoles({ boardShapes: [copperRect] }) > 0);
+check('foreign-net copper shapes receive fill clearance',
+    fillHoles({ boardShapes: [{ ...copperRect, net: 'VCC' }] }) > 0);
+check('same-net copper shapes merge into the fill',
+    fillHoles({ boardShapes: [{ ...copperRect, net: 'GND' }] }) === 0);
+check('copper-removal shapes are not copper clearance obstacles',
+    fillHoles({ boardShapes: [{ ...copperRect, copperMode: 'remove-copper' }] }) === 0);
+check('copper text receives fill clearance', fillHoles({ texts: [copperText] }) > 0);
+const overlappingFill = {
+    type: 'fill', layer: 'top-copper', net: 'VCC',
+    outline: [{ x: 0, y: -15 }, { x: 10, y: -15 }, { x: 10, y: -5 }, { x: 0, y: -5 }],
+};
+check('foreign-net copper fills receive fill clearance', fillHoles({ fills: [overlappingFill] }) > 0);
+check('same-net copper fills merge', fillHoles({ fills: [{ ...overlappingFill, net: 'GND' }] }) === 0);
 
 if (failures) process.exit(1);

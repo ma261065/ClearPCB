@@ -322,7 +322,10 @@ export class SelectionManager {
      * Internal clear without notification
      */
     _clearSelection() {
-        for (const id of this.selected) {
+        const selectedIds = [...this.selected];
+        this.selected.clear();
+        this._selectionCache = null;
+        for (const id of selectedIds) {
             const shape = this._getShape(id);
             if (shape) {
                 shape.selected = false;
@@ -330,8 +333,6 @@ export class SelectionManager {
                 this._invalidateLinkedSelectionVisuals(shape);
             }
         }
-        this.selected.clear();
-        this._selectionCache = null;
     }
     
     /**

@@ -32,6 +32,7 @@ import {
     TENT_VIAS,
 } from './board-geometry.js';
 import { resolveBoardShapeGeometry } from './board-shapes.js';
+import { pcbTextSegments } from './pcb-text.js';
 
 const FORMAT = '%FSLAX46Y46*%\n%MOMM*%\n';
 const SCALE = 1e6; // 4.6 fixed-point: multiply mm by 10^6
@@ -229,7 +230,7 @@ function _buildCopper(placements, tracks, vias, layerId, bounds, texts = [], fil
         const sw = Number.isFinite(t.strokeWidth) && t.strokeWidth > 0 ? t.strokeWidth : 0.15;
         const key = apKey('C', sw);
         const d = getAp(key);
-        const segs = _textSegments(t);
+        const segs = pcbTextSegments(t);
         for (const [a, b] of segs) {
             const clipped = _clipSegment(a.x, a.y, b.x, b.y, bounds);
             if (!clipped) continue;
@@ -754,7 +755,7 @@ function _buildSilk(placements, side, bounds, texts = [], boardShapes = []) {
         const sw = Number.isFinite(t.strokeWidth) && t.strokeWidth > 0 ? t.strokeWidth : 0.15;
         const head = useAperture(sw);
         if (head) body += head;
-        for (const [a, b] of _textSegments(t)) {
+        for (const [a, b] of pcbTextSegments(t)) {
             body += emitSeg(a, b);
         }
     }
@@ -834,35 +835,6 @@ function _refSegments(pl) {
     }
     return { segments, strokeWidth };
 }
-
-/**
- * Convert a free-standing PCB text into world-space line segments,
- * applying its rotation about the anchor (x,y). Rotation matches the
- * editor: positive degrees = CCW in SVG-Y-down (i.e. CW in gerber Y-up).
- * @param {{content:string, x:number, y:number, size:number, rotation:number}} t
- * @returns {Array<[{x:number,y:number}, {x:number,y:number}]>}
- */
-function _textSegments(t) {
-    const polys = stringToPolylines(t.content, 0, 0, t.size, false);
-    const rad = (t.rotation || 0) * Math.PI / 180;
-    // Editor renders with transform rotate(-rotation) in SVG-Y-down so
-    // positive degrees feel CCW visually. Replicate here.
-    const cos = Math.cos(-rad), sin = Math.sin(-rad);
-    const mirror = typeof t.layer === 'string' && t.layer.startsWith('bottom-') ? -1 : 1;
-    const out = [];
-    for (const poly of polys) {
-        for (let i = 1; i < poly.length; i++) {
-            const a = poly[i - 1], b = poly[i];
-            const ax = a.x * mirror, bx = b.x * mirror;
-            out.push([
-                { x: t.x + ax * cos - a.y * sin, y: t.y + ax * sin + a.y * cos },
-                { x: t.x + bx * cos - b.y * sin, y: t.y + bx * sin + b.y * cos },
-            ]);
-        }
-    }
-    return out;
-}
-
 
 /* ──────────────────────────── board outline ──────────────────────────── */
 

@@ -18,6 +18,7 @@ export class AddTextCommand {
     execute() {
         this.app.texts.set(this.text.id, this.text);
         this.app._renderText(this.text);
+        this.app._refreshFills?.();
     }
     undo() {
         this.app._removeTextElement(this.text.id);
@@ -25,6 +26,7 @@ export class AddTextCommand {
         if (isPcbSelected(this.app, 'text', this.text)) {
             this.app._selectText(null);
         }
+        this.app._refreshFills?.();
     }
     get description() { return `Add text "${this.text.content}"`; }
 }
@@ -42,11 +44,13 @@ export class RemoveTextCommand {
         if (text && isPcbSelected(this.app, 'text', text)) {
             this.app._selectText(null);
         }
+        this.app._refreshFills?.();
     }
     undo() {
         const text = { ...this.snapshot };
         this.app.texts.set(text.id, text);
         this.app._renderText(text);
+        this.app._refreshFills?.();
     }
     get description() { return `Delete text "${this.snapshot.content}"`; }
 }
@@ -66,6 +70,7 @@ export class MoveTextCommand {
         if (!t) return;
         t.x = x; t.y = y;
         this.app._refreshText(this.id);
+        this.app._refreshFills?.();
     }
     get description() { return 'Move text'; }
 }
@@ -94,6 +99,7 @@ export class EditTextCommand {
         if (!t) return;
         Object.assign(t, patch);
         this.app._refreshText(this.id);
+        this.app._refreshFills?.();
     }
     get description() { return 'Edit text'; }
 }

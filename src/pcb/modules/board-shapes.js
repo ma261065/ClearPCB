@@ -24,7 +24,7 @@ import {
     projectOntoChordBisector,
 } from '../../core/geometry.js';
 import { CopperFill, updateFillIdCounter } from '../../shapes/copper-fill.js';
-import { isLayerLocked, isLayerVisible, PCB_LAYERS } from './layers.js';
+import { isLayerLocked, isLayerVisible, PCB_LAYERS, pcbLayerColor, pcbLayerHoverColor, pcbLayerSelectionColor } from './layers.js';
 import {
     AddBoardShapeCommand,
     RemoveBoardShapeCommand,
@@ -805,29 +805,17 @@ const REMOVAL_COLORS = {
 
 /** Base display color for the shape's PCB layer. */
 export function shapeLayerColor(shape) {
-    return PCB_LAYERS.find((layer) => layer.id === shape?.layer)?.color || '#ffffff';
+    return pcbLayerColor(shape?.layer);
 }
 
 /** Selection is a lighter version of the owning layer, not a fixed side color. */
 export function shapeSelectionColor(shape) {
-    const color = shapeLayerColor(shape);
-    const channels = color.match(/[\da-f]{2}/gi);
-    if (!channels || channels.length !== 3) return color;
-    return `#${channels.map((channel) => {
-        const value = parseInt(channel, 16);
-        return Math.round(value + (255 - value) * 0.35).toString(16).padStart(2, '0');
-    }).join('')}`;
+    return pcbLayerSelectionColor(shape?.layer);
 }
 
 /** Hover is a subtle lightening of the owning layer color. */
 export function shapeHoverColor(shape) {
-    const color = shapeLayerColor(shape);
-    const channels = color.match(/[\da-f]{2}/gi);
-    if (!channels || channels.length !== 3) return color;
-    return `#${channels.map((channel) => {
-        const value = parseInt(channel, 16);
-        return Math.round(value + (255 - value) * 0.18).toString(16).padStart(2, '0');
-    }).join('')}`;
+    return pcbLayerHoverColor(shape?.layer);
 }
 
 function shapeStyle(shape) {
@@ -876,13 +864,18 @@ export function renderBoardShape(app, shape, opts = {}) {
     const st = shapeStyle(shape);
     path.setAttribute('d', boardShapeGeometryPathD(st.geometry));
     const canvasHatch = st.isCopperRemoval && st.filled;
+    const interactionColor = isSelected
+        ? shapeSelectionColor(shape)
+        : isHovered ? shapeHoverColor(shape) : null;
     path.setAttribute('fill', st.filled
-        ? (canvasHatch ? 'none' : st.isCopperRemoval ? app._ensureCopperRemovalHatch?.(shape.copperMode) || st.fillColor : st.fillColor)
+        ? (canvasHatch ? 'none' : interactionColor || (st.isCopperRemoval
+            ? app._ensureCopperRemovalHatch?.(shape.copperMode) || st.fillColor
+            : st.fillColor))
         : 'none');
     if (st.filled) path.setAttribute('fill-opacity', st.isCopperRemoval ? '1' : st.fillOpacity);
     const alternatingRemovalStroke = st.isCopperRemoval && !st.filled;
     path.setAttribute('stroke', alternatingRemovalStroke ? st.baseStroke
-        : isSelected ? shapeSelectionColor(shape) : isHovered ? shapeHoverColor(shape) : st.baseStroke);
+        : interactionColor || st.baseStroke);
     path.setAttribute('stroke-width', String(st.isHoleLayer ? st.strokeWidth : st.filled ? 0.06 : st.strokeWidth));
     path.setAttribute('stroke-linejoin', 'round');
     path.setAttribute('stroke-linecap', 'round');
@@ -1319,8 +1312,9 @@ export function deleteSelectedBoardShape(app) {
     if (!s) return false;
     if (isLayerLocked(s.layer)) return false;
     app.history.execute(new RemoveBoardShapeCommand(app, s));
-    selectBoardShape(app, null);
+    setPcbSelection(app, []);
     app._clearProperties?.();
+    app._setActiveRibbonTab?.('pcb-home');
     return true;
 }
 
@@ -1572,9 +1566,9 @@ export function resolveShapeDrawLayer(app, layerId) {
 function makePreview(app) {
     const preview = document.createElementNS(NS, 'path');
     preview.setAttribute('class', 'pcb-shape-preview');
-    preview.setAttribute('stroke', '#66b3ff');
-    preview.setAttribute('stroke-width', '0.2');
-    preview.setAttribute('stroke-dasharray', '2 2');
+    preview.setAttribute('stroke', 'var(--sch-symbol-outline, #ffffff)');
+    preview.setAttribute('stroke-width', '1');
+    preview.setAttribute('opacity', '0.6');
     preview.setAttribute('vector-effect', 'non-scaling-stroke');
     preview.setAttribute('stroke-linejoin', 'round');
     app._getLayerGroup('selection-overlay')?.appendChild(preview);
@@ -1683,6 +1677,16 @@ export function finishPolygonDraw(app) {
 /** Finish a multi-click open Line (Enter / double-click). */
 export function finishLineDraw(app) {
     if (app._shapeDraw && app._shapeDraw.kind === 'line') finishShapeDraw(app);
+}
+
+/** Commit the pending cursor point and finish the active shape when complete. */
+export function finishShapeDrawAtPoint(app, worldPos) {
+    const kind = app._shapeDraw?.kind;
+    if (!kind || !worldPos) return false;
+    shapeDrawClick(app, kind, worldPos);
+    if (app._shapeDraw?.kind === 'line') finishLineDraw(app);
+    else if (app._shapeDraw?.kind === 'polygon') finishPolygonDraw(app);
+    return !app._shapeDraw;
 }
 
 /** Commit the in-progress draw into a board shape. */

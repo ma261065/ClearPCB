@@ -28,6 +28,7 @@
  */
 
 import { resolveBoardShapeGeometry } from './board-shapes.js';
+import { pcbTextSegments } from './pcb-text.js';
 
 const SCALE = 10000;            // 0.1 µm integer resolution
 const ARC_TOL = 0.01 * SCALE;   // offset arc flattening tolerance (scaled mm)
@@ -173,29 +174,34 @@ function collectObstacles(C, fill, ctx, clearance) {
         out.push(circlePath(C, via.x, via.y, rad));
     }
 
-    // ── Hole-layer board shapes (no net, all layers — always void the pour) ──
+    // ── Board shapes: holes always void; foreign/unassigned added copper on
+    // this layer receives clearance. Same-net copper merges into the pour. ──
     for (const shape of (ctx.boardShapes || [])) {
-        if (!shape || shape.layer !== 'hole') continue;
+        if (!shape || shape.type === 'fill') continue;
         const geometry = resolveBoardShapeGeometry(shape);
-        if (geometry.circle) {
-            const radius = geometry.filled ? geometry.circle.outerRadius : geometry.circle.radius;
-            out.push(circlePath(C, geometry.circle.x, geometry.circle.y,
-                radius + (geometry.filled ? 0 : geometry.lineWidth / 2) + clearance));
-        } else if (geometry.filled && geometry.path.length >= 3) {
-            out.push(...offsetClosedPath(C, geometry.path, clearance));
-        } else if (geometry.centerline.length >= 2) {
-            const segmentCount = geometry.centerlineClosed
-                ? geometry.centerline.length
-                : geometry.centerline.length - 1;
-            for (let index = 0; index < segmentCount; index++) {
-                out.push(...offsetOpenSegment(
-                    C,
-                    geometry.centerline[index],
-                    geometry.centerline[(index + 1) % geometry.centerline.length],
-                    geometry.lineWidth / 2 + clearance,
-                ));
-            }
+        const isHole = shape.layer === 'hole';
+        const isCopper = shape.layer === fill.layer && geometry.copperMode === 'add';
+        if (!isHole && (!isCopper || sameNet(shape.net || ''))) continue;
+        out.push(...resolvedShapeObstaclePaths(C, geometry, clearance));
+    }
+
+    // PCB text has no net assignment, so copper-layer text always receives
+    // clearance from a pour on that layer.
+    for (const text of (ctx.texts || [])) {
+        if (!text || text.layer !== fill.layer) continue;
+        const width = Math.max(0.05, Number(text.strokeWidth) || 0.15);
+        for (const [start, end] of pcbTextSegments(text)) {
+            out.push(...offsetOpenSegment(C, start, end, width / 2 + clearance));
         }
+    }
+
+    // Other pours are copper too. Different/unassigned nets keep clearance;
+    // same-net pours may overlap and merge.
+    for (const otherFill of (ctx.fills || [])) {
+        if (!otherFill || otherFill === fill || otherFill.layer !== fill.layer) continue;
+        if (sameNet(otherFill.net || '')) continue;
+        if (!Array.isArray(otherFill.outline) || otherFill.outline.length < 3) continue;
+        out.push(...offsetClosedPath(C, otherFill.outline, clearance));
     }
 
     // ── Pads (on this copper layer) ──
@@ -213,6 +219,30 @@ function collectObstacles(C, fill, ctx, clearance) {
     }
 
     return out;
+}
+
+function resolvedShapeObstaclePaths(C, geometry, clearance) {
+    if (geometry.circle) {
+        const radius = geometry.filled
+            ? geometry.circle.outerRadius
+            : geometry.circle.radius + geometry.lineWidth / 2;
+        return [circlePath(C, geometry.circle.x, geometry.circle.y, radius + clearance)];
+    }
+    if (geometry.filled && geometry.path.length >= 3) {
+        return offsetClosedPath(C, geometry.path, clearance);
+    }
+    const paths = [];
+    const points = geometry.centerline;
+    const segmentCount = geometry.centerlineClosed ? points.length : points.length - 1;
+    for (let index = 0; index < segmentCount; index++) {
+        paths.push(...offsetOpenSegment(
+            C,
+            points[index],
+            points[(index + 1) % points.length],
+            geometry.lineWidth / 2 + clearance,
+        ));
+    }
+    return paths;
 }
 
 /** Does a pad's layer ('top'|'bottom'|'both') belong to the fill copper layer? */

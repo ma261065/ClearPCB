@@ -549,6 +549,7 @@ import {
     resolveSilk,
 } from './board-geometry.js';
 import { resolveBoardShapeGeometry } from './board-shapes.js';
+import { pcbTextPolylines } from './pcb-text.js';
 import { loadClipper, isClipperReady, getClipper } from './copper-fill-geom.js';
 
 /** Finished board thickness in millimetres (standard 1.6 mm). */
@@ -2167,7 +2168,7 @@ function strokePolysToMesh(polys, strokeWidth, y, color, toWorld) {
  * @param {Array} tracks
  * @returns {{verts:Array, faces:Array}}
  */
-function buildCopperMesh(tracks, circles = [], boardShapes = []) {
+function buildCopperMesh(tracks, circles = [], boardShapes = [], texts = []) {
     const mesh = emptyMesh();
     for (const track of tracks || []) {
         if (!track?.edges || !track?.nodes) continue;
@@ -2222,6 +2223,19 @@ function buildCopperMesh(tracks, circles = [], boardShapes = []) {
         for (const t of tri.tris) {
             mesh.faces.push({ idx: [base + t[0], base + t[1], base + t[2]], color });
         }
+    }
+    for (const text of texts?.values?.() || texts || []) {
+        if (text.layer !== 'top-copper' && text.layer !== 'bottom-copper') continue;
+        const bottom = text.layer === 'bottom-copper';
+        const y = bottom ? Y_BOT - COPPER_EPS : Y_TOP + COPPER_EPS;
+        const color = bottom ? COLOR_COPPER_BOTTOM : COLOR_COPPER_TOP;
+        appendMesh(mesh, strokePolysToMesh(
+            pcbTextPolylines(text),
+            text.strokeWidth || 0.15,
+            y,
+            color,
+            (x, z) => ({ x, z }),
+        ));
     }
     return mesh;
 }
@@ -2785,22 +2799,16 @@ function buildTextMesh(app) {
     // ── Free-standing text annotations (app.texts) ──────────────────────
     for (const [, t] of (app.texts || [])) {
         if (!t?.content) continue;
+        if (t.layer === 'top-copper' || t.layer === 'bottom-copper') continue;
         const bottom = typeof t.layer === 'string' && t.layer.startsWith('bottom-');
-        const copper = t.layer === 'top-copper' || t.layer === 'bottom-copper';
-        const eps = copper ? COPPER_EPS : SILK_EPS;
-        const y = bottom ? Y_BOT - eps : Y_TOP + eps;
-        const color = copper ? (bottom ? COLOR_COPPER_BOTTOM : COLOR_COPPER_TOP) : COLOR_SILK;
-        const mirror = bottom ? -1 : 1;
-        const rad = (-(t.rotation || 0) * Math.PI) / 180;
-        const cos = Math.cos(rad), sin = Math.sin(rad);
-        // Mirror local X (bottom side), rotate, then translate — matching
-        // renderPcbText's `translate(x,y) rotate(-rot) scale(mirror,1)`.
-        const toWorld = (px, py) => {
-            const mx = px * mirror;
-            return { x: t.x + mx * cos - py * sin, z: t.y + mx * sin + py * cos };
-        };
-        const polys = stringToPolylines(t.content, 0, 0, t.size || 1, false);
-        appendMesh(mesh, strokePolysToMesh(polys, t.strokeWidth || 0.15, y, color, toWorld));
+        const y = bottom ? Y_BOT - SILK_EPS : Y_TOP + SILK_EPS;
+        appendMesh(mesh, strokePolysToMesh(
+            pcbTextPolylines(t),
+            t.strokeWidth || 0.15,
+            y,
+            COLOR_SILK,
+            (x, z) => ({ x, z }),
+        ));
     }
 
     // ── Component reference designators (silk) ──────────────────────────
@@ -4245,7 +4253,7 @@ export async function openBoard3DViewer(app, opts = {}) {
         const circleShapes = (app.boardShapes || []).filter((shape) => shape?.kind === 'circle');
         const copperSubtractHoles = collectCopperSubtractHoles(app.boardShapes || []);
         const copperPunchHoles = drilledHoles.concat(copperSubtractHoles);
-        const copperMesh = buildCopperMesh(app.tracks, circleShapes, app.boardShapes);
+        const copperMesh = buildCopperMesh(app.tracks, circleShapes, app.boardShapes, app.texts);
         appendMesh(copperMesh, buildFillMesh(app.copperFills));
         swapSurface('copper', clipMeshToOutline(
             punchHolesInFlatMesh(copperMesh, copperPunchHoles), outline), scene.copperMaterial);

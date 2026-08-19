@@ -22,6 +22,7 @@ import {
     resolveSilk,
 } from './board-geometry.js';
 import { resolveBoardShapeGeometry } from './board-shapes.js';
+import { pcbTextSegments } from './pcb-text.js';
 
 function traceBoardShape(context, geometry) {
     context.beginPath();
@@ -706,6 +707,31 @@ export class Board2D {
             }
         }
 
+        // Add-copper board shapes and text belong to the same copper surface
+        // as tracks. Draw them before pad/via faces, matching the 3D surface
+        // order so overlaps do not leave a later-painted seam.
+        for (const shape of (d.boardShapes || [])) {
+            if (!shape || shape.layer !== copperLayer) continue;
+            const geometry = resolveBoardShapeGeometry(shape);
+            if (geometry.copperMode !== 'add') continue;
+            cctx.fillStyle = copperCol;
+            cctx.strokeStyle = copperCol;
+            drawCopperShape(shape, geometry);
+        }
+        cctx.strokeStyle = copperCol;
+        cctx.lineCap = 'round';
+        cctx.lineJoin = 'round';
+        for (const text of (d.texts || [])) {
+            if (text.layer !== copperLayer) continue;
+            cctx.lineWidth = Number(text.strokeWidth) > 0 ? text.strokeWidth : 0.15;
+            cctx.beginPath();
+            for (const [start, end] of pcbTextSegments(text)) {
+                cctx.moveTo(start.x, start.y);
+                cctx.lineTo(end.x, end.y);
+            }
+            cctx.stroke();
+        }
+
         // Pads on this side (and 'both'), flashed at each offset position.
         // Each footprint is posed (rotated + mirrored) before flashing so the
         // pads track the component's orientation, exactly as the editor / 3D.
@@ -728,16 +754,6 @@ export class Board2D {
             cctx.fill();
         }
         cctx.restore();
-
-        // Add-copper board shapes.
-        for (const shape of (d.boardShapes || [])) {
-            if (!shape || shape.layer !== copperLayer) continue;
-            const geometry = resolveBoardShapeGeometry(shape);
-            if (geometry.copperMode !== 'add') continue;
-            cctx.fillStyle = copperCol;
-            cctx.strokeStyle = copperCol;
-            drawCopperShape(shape, geometry);
-        }
 
         // Remove-copper board shapes cut only the copper layer alpha.
         // remove-solder-mask does not alter copper geometry.
@@ -970,38 +986,9 @@ export class Board2D {
         for (const t of (d.texts || [])) {
             if (t.layer !== wantLayer) continue;
             const sw = Number.isFinite(t.strokeWidth) && t.strokeWidth > 0 ? t.strokeWidth : 0.15;
-            stroke(_textSegments(t), sw);
+            stroke(pcbTextSegments(t), sw);
         }
 
         ctx.restore();
     }
-}
-
-/* ── geometry helpers (ported from gerber.js so both stay in step) ─────── */
-
-/**
- * Free PCB text → world-space segments, applying rotation about its anchor and
- * mirroring bottom-side text. Mirrors gerber.js `_textSegments`.
- * @param {{content:string,x:number,y:number,size:number,rotation:number,layer:string}} t
- * @returns {Array<Array<{x:number,y:number}>>}
- */
-function _textSegments(t) {
-    const polys = stringToPolylines(t.content, 0, 0, t.size, false);
-    const rad = (t.rotation || 0) * Math.PI / 180;
-    const cos = Math.cos(-rad), sin = Math.sin(-rad);
-    const mirror = typeof t.layer === 'string' && t.layer.startsWith('bottom-') ? -1 : 1;
-    const out = /** @type {{x:number,y:number}[][]} */ ([]);
-    for (const poly of polys) {
-        for (let i = 1; i < poly.length; i++) {
-            const a = poly[i - 1], b = poly[i];
-            const ax = a.x * mirror, bx = b.x * mirror;
-            /** @type {{x:number,y:number}[]} */
-            const seg = [
-                { x: t.x + ax * cos - a.y * sin, y: t.y + ax * sin + a.y * cos },
-                { x: t.x + bx * cos - b.y * sin, y: t.y + bx * sin + b.y * cos },
-            ];
-            out.push(seg);
-        }
-    }
-    return out;
 }

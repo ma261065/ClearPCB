@@ -543,5 +543,7 @@ export function deleteBoxSelection(app) {
 
     if (cmds.length === 0) return false;
     app.history?.execute(cmds.length === 1 ? cmds[0] : new CompoundCommand(cmds));
+    app._clearProperties?.();
+    app._setActiveRibbonTab?.('pcb-home');
     return true;
 }

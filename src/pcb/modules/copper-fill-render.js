@@ -11,6 +11,8 @@
  * tracks and pads paint on top of the pour.
  */
 
+import { pcbLayerSelectionColor } from './layers.js';
+
 const NS = 'http://www.w3.org/2000/svg';
 
 /** Map a copper layer id to its fill layer-group id. */
@@ -64,7 +66,7 @@ export function renderCopperFill(fill, getLayerGroup, opts = {}) {
         poly.setAttribute('class', 'pcb-fill-outline');
         poly.setAttribute('points', fill.outline.map((p) => `${p.x},${p.y}`).join(' '));
         poly.setAttribute('fill', 'none');
-        poly.setAttribute('stroke', opts.selected ? '#ffffff' : color);
+        poly.setAttribute('stroke', opts.selected ? pcbLayerSelectionColor(fill.layer) : color);
         poly.setAttribute('stroke-width', opts.selected ? '0.18' : '0.12');
         poly.setAttribute('stroke-dasharray', '0.6,0.4');
         poly.setAttribute('stroke-opacity', opts.selected ? '1' : '0.8');

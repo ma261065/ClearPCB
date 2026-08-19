@@ -171,6 +171,32 @@ export function serializePcbText(text) {
     };
 }
 
+/** World-space stroke polylines shared by 2D, 3D, Gerber, and hit consumers. */
+export function pcbTextPolylines(text) {
+    const localPolylines = stringToPolylines(text.content, 0, 0, text.size, false);
+    const radians = (-(text.rotation || 0) * Math.PI) / 180;
+    const cosine = Math.cos(radians);
+    const sine = Math.sin(radians);
+    const mirror = isBottomLayer(text.layer) ? -1 : 1;
+    return localPolylines.map((polyline) => polyline.map((point) => {
+        const x = point.x * mirror;
+        return {
+            x: text.x + x * cosine - point.y * sine,
+            y: text.y + x * sine + point.y * cosine,
+        };
+    }));
+}
+
+export function pcbTextSegments(text) {
+    const segments = [];
+    for (const polyline of pcbTextPolylines(text)) {
+        for (let index = 1; index < polyline.length; index++) {
+            segments.push([polyline[index - 1], polyline[index]]);
+        }
+    }
+    return segments;
+}
+
 /**
  * Decompose a copper text into the autorouter's native segment obstacles,
  * one per stroked-glyph line, so the router treats the text as real copper
