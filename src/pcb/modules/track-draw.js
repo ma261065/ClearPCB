@@ -692,12 +692,10 @@ export function popTrackWaypoint(app) {
  * lifecycle and are left untouched.
  *
  * @param {object} app - PCBApp
- * @param {{nets?: Set<string>}} [opts] - Incremental mode. When `nets` is a
- *   Set, only those nets' ratlines are recomputed and redrawn; every other
- *   net's ratlines are left untouched in the DOM. Used during a footprint
- *   drag, where only the dragged component's nets move — rebuilding the whole
- *   board's ratsnest each frame is the dominant per-frame cost on dense
- *   boards. Omit (or pass no `nets`) for a full board-wide rebuild.
+ * @param {{nets?: Set<string>, skipFillRefresh?:boolean}} [opts] - Incremental
+ *   mode can restrict ratline work to `nets`. `skipFillRefresh` is used after
+ *   a fill recompute to consume its new geometry without scheduling another
+ *   fill pass.
  */
 export function reconcileRatsnest(app, opts) {
     // Incremental net filter: when present, restrict all cluster construction
@@ -719,7 +717,7 @@ export function reconcileRatsnest(app, opts) {
         // Copper pours are derived from trace/via/pad geometry, so they must be
         // recomputed whenever the copper changes — the same call sites that
         // reconcile the ratsnest. (No-op when there are no fills.)
-        app._refreshFills?.();
+        if (!opts?.skipFillRefresh) app._refreshFills?.();
     }
 
     const ratLayer = app._getLayerGroup?.('ratlines');

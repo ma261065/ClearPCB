@@ -670,6 +670,7 @@ export function renderBoardShape(app, shape, opts = {}) {
     el.setAttribute('stroke-linejoin', 'round');
     el.setAttribute('stroke-linecap', 'round');
     if (st.isCopperKnockout && !isSelected && !st.filled) el.setAttribute('stroke-dasharray', '0.6 0.45');
+    el.dataset.boardShapeLayer = shape.layer || '';
     app._getLayerGroup(st.targetLayer)?.appendChild(el);
     app._shapeElements.set(shape.id, el);
     app._scheduleRemovalHatchRender?.();

@@ -2516,11 +2516,14 @@ function buildViaMesh(vias) {
 function buildPlatedShapeHoleMesh(drilledHoles) {
     const mesh = emptyMesh();
     const shapeHoles = (drilledHoles || []).filter(
-        (hole) => hole?.boardShape && Array.isArray(hole.ring) && hole.ring.length >= 3,
+        (hole) => hole?.boardShape &&
+            ((Array.isArray(hole.ring) && hole.ring.length >= 3) || hole.r > 0),
     );
     const platedRings = shapeHoles
         .filter((hole) => hole.plated)
-        .map((hole) => hole.ring.map((point) => ({ x: point.x, y: point.z })));
+        .map((hole) => Array.isArray(hole.ring) && hole.ring.length >= 3
+            ? hole.ring.map((point) => ({ x: point.x, y: point.z }))
+            : circleRing(hole.x, hole.z, hole.r, 48));
     if (!platedRings.length) return mesh;
 
     const allRings = (drilledHoles || []).flatMap((hole) => {
@@ -4264,15 +4267,16 @@ export async function openBoard3DViewer(app, opts = {}) {
         const circleShapes = (app.boardShapes || []).filter((shape) => shape?.kind === 'circle');
         const copperSubtractHoles = collectCopperSubtractHoles(app.boardShapes || []);
         const copperPunchHoles = drilledHoles.concat(copperSubtractHoles);
+        const boardShapeHoles = drilledHoles.filter((hole) => hole.boardShape);
         const copperMesh = buildCopperMesh(app.tracks, circleShapes, app.boardShapes, app.texts);
         appendMesh(copperMesh, buildFillMesh(app.copperFills));
         swapSurface('copper', clipMeshToOutline(
             punchHolesInFlatMesh(copperMesh, copperPunchHoles), outline), scene.copperMaterial);
-        const viaMesh = buildViaMesh(app.vias);
+        const viaMesh = punchHolesInFlatMesh(buildViaMesh(app.vias), boardShapeHoles);
         appendMesh(viaMesh, buildPlatedShapeHoleMesh(drilledHoles));
         const padsMesh = emptyMesh();
         for (const [, pl] of app.placements) appendMesh(padsMesh, padMesh(pl));
-        const padsMeshCut = punchHolesInFlatMesh(padsMesh, copperSubtractHoles, 48);
+        const padsMeshCut = punchHolesInFlatMesh(padsMesh, copperPunchHoles, 48);
         swapSurface('via', clipMeshToOutline(viaMesh, outline), scene.viaMaterial);
         swapSurface('pads', clipMeshToOutline(padsMeshCut, outline), scene.padMaterial);
         if (SHOW_SOLDERMASK) {

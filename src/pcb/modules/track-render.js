@@ -118,13 +118,14 @@ export function renderVia(via, getLayerGroup, opts = {}) {
     ring.setAttribute('fill-opacity', '0.9');
     ring.dataset.viaId = via.id;
     if (via.net) ring.dataset.net = via.net;
-    holeLayer.appendChild(ring);
+    const firstHoleShape = holeLayer.querySelector('[data-board-shape-layer="hole"]');
+    holeLayer.insertBefore(ring, firstHoleShape);
 
     const drill = _makeViaCircle(via.x, via.y, via.drill / 2, drillColor);
     drill.setAttribute('class', VIA_CLASS);
     drill.dataset.viaId = via.id;
     if (via.net) drill.dataset.net = via.net;
-    holeLayer.appendChild(drill);
+    holeLayer.insertBefore(drill, firstHoleShape);
 
     via._svgElements = [ring, drill];
 }

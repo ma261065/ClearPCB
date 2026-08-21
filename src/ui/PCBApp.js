@@ -2764,7 +2764,7 @@ export default class PCBApp {
     _createLayerGroups() {
         if (this._layerGroups.size > 0) return;  // already created
 
-        // Layer z-order (bottom to top): outline, masks, paste, copper, silk, holes, rats, doc
+        // Layer z-order (bottom to top): outline, masks, paste, copper, silk, doc, holes, rats
         const zOrder = [
             'board-outline',
             'bottom-mask', 'top-mask',
@@ -2784,8 +2784,6 @@ export default class PCBApp {
             'top-pad-numbers',
             'top-copper-knockout',
             'bottom-silk', 'top-silk',
-            'hole',
-            'ratlines',
             // Level-of-detail placeholders: one solid rect per footprint, shown
             // (in place of the footprint's full geometry) when zoomed out far
             // enough that the detail is sub-pixel. Sits above copper/silk so the
@@ -2794,6 +2792,10 @@ export default class PCBApp {
             'bottom-document',
             'top-document',
             'document',
+            // Board cutouts must cover every board-art layer, including
+            // document shapes and vias that share this group.
+            'hole',
+            'ratlines',
             // Overlays — non-editable visual aids drawn on top of everything
             // (clearance halos, etc.). Must be last in z-order.
             'clearance-overlay',
@@ -7974,6 +7976,10 @@ export default class PCBApp {
         if (selectedFill) {
             if (isPcbSelected(this, 'fill', selectedFill)) renderPcbSelectionAnchors(this);
         }
+        // Ratline connectivity uses each fill's computed islands. Reconcile
+        // after committing them so same-net copper shapes joined by a pour do
+        // not retain a stale air wire.
+        reconcileRatsnest(this, { skipFillRefresh: true });
         // Pours just recomputed — let any open 3D/2D view pick up the fresh
         // geometry (its rebuild reads fill._computed).
         this._board3d?.refresh?.();
@@ -8025,6 +8031,7 @@ export default class PCBApp {
             vias: this.vias,
             texts: this.texts.values(),
             pads,
+            boardShapes: this.boardShapes,
             holes: [
                 ...((this.boardShapes || [])
                     .filter((shape) => shape?.kind === 'circle' && shape.layer === 'hole' && shape.radius > 0)
