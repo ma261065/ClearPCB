@@ -4186,7 +4186,18 @@ export async function openBoard3DViewer(app, opts = {}) {
         // circle (centroid + max radius) for the bbox/inside-board tests.
         for (const s of (app.boardShapes || [])) {
             if (!s || s.layer !== 'hole') continue;
-            const outlinePts = resolveBoardShapeGeometry(s).path;
+            const geometry = resolveBoardShapeGeometry(s);
+            if (geometry.circle) {
+                drilledHoles.push({
+                    x: geometry.circle.x,
+                    z: geometry.circle.y,
+                    r: geometry.circle.outerRadius,
+                    plated: !!s.plated,
+                    boardShape: true,
+                });
+                continue;
+            }
+            const outlinePts = geometry.path;
             if (!outlinePts || outlinePts.length < 3) continue;
             const ring = outlinePts.map((p) => ({ x: p.x, z: p.y }));
             let cx = 0, cz = 0;

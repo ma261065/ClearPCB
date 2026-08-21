@@ -878,7 +878,19 @@ function _buildOutline(b, boardShapes = []) {
     // coords, so flip Y into the outline file's Y-up frame (y_up = -y_int).
     for (const s of boardShapes) {
         if (!s || s.layer !== 'hole') continue;
-        const o = resolveBoardShapeGeometry(s).path;
+        const geometry = resolveBoardShapeGeometry(s);
+        if (geometry.circle) {
+            const { x, y, outerRadius: radius } = geometry.circle;
+            if (radius <= 0) continue;
+            const startX = x - radius;
+            out += 'G75*\n';
+            out += `X${_fmt(startX)}Y${_fmt(-y)}D02*\n`;
+            out += 'G03*\n';
+            out += `X${_fmt(startX)}Y${_fmt(-y)}I${_fmt(radius)}J0D01*\n`;
+            out += 'G01*\n';
+            continue;
+        }
+        const o = geometry.path;
         if (o.length < 3) continue;
         out += `X${_fmt(o[0].x)}Y${_fmt(-o[0].y)}D02*\n`;
         for (let i = 1; i < o.length; i++) {
