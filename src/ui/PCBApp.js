@@ -101,7 +101,6 @@ import {
     cancelShapeDraw,
     finishPolygonDraw,
     finishLineDraw,
-    finishShapeDrawAtPoint,
     hitTestBoardShape,
     setBoardShapeHover,
     selectBoardShape,
@@ -123,8 +122,7 @@ import {
     shapeLayerColor,
     shapeSelectionColor,
     normalizeShapeCopperMode,
-    resolveBoardShapeGeometry,
-    boardShapeGeometryPathD,
+    shapePathD,
     boardShapeBounds,
     showBoardShapeContextMenu,
     dismissBoardShapeContextMenu,
@@ -948,10 +946,8 @@ export default class PCBApp {
             const selectedBoardShapeAnchor = worldPos && getPcbSelection(this, 'shape').some(
                 (shape) => hitTestBoardShapeVertex(this, shape, worldPos) != null,
             );
-            const selectedPcbEntity = worldPos && pointInBoxSelection(this, worldPos);
             if (!this._trackDraw && !this._textEdit && !propertiesToolActive
-                && !selectedBoardShapeAnchor && !selectedPcbEntity
-                && e.button !== 2 && !e.ctrlKey && !e.metaKey) {
+                && !selectedBoardShapeAnchor && e.button !== 2 && !e.ctrlKey && !e.metaKey) {
                 const activeTab = this.ribbon?.querySelector('.ribbon-tab.active');
                 if (activeTab instanceof HTMLElement && activeTab.dataset?.tab !== 'pcb-home') {
                     this._setActiveRibbonTab?.('pcb-home');
@@ -973,13 +969,6 @@ export default class PCBApp {
             }
             if (e.button === 2 && this._fillDraw) {
                 this._fillRightDown = { x: e.clientX, y: e.clientY };
-            }
-            if (e.button === 2 && this._shapeDraw) {
-                this._shapeRightDown = {
-                    x: e.clientX,
-                    y: e.clientY,
-                    world: this._screenToWorld(e),
-                };
             }
             if (e.button === 2 && this._showDebugTooltip && this._debugTooltipVisible) {
                 if (this._debugTooltipPinned) {
@@ -1727,15 +1716,6 @@ export default class PCBApp {
                 this._fillRightDown = null;
                 if (Math.hypot(dx, dy) < 4) finishFillDraw(this);
             }
-            // Right-click release while drawing an open line: finish at the
-            // last committed vertex. A right-drag remains a pan gesture.
-            if (e.button === 2 && this._shapeRightDown) {
-                const dx = e.clientX - this._shapeRightDown.x;
-                const dy = e.clientY - this._shapeRightDown.y;
-                const finalWorld = this._shapeRightDown.world;
-                this._shapeRightDown = null;
-                if (Math.hypot(dx, dy) < 4) finishShapeDrawAtPoint(this, finalWorld);
-            }
         });
 
         // No mouseleave handler: leaving the canvas must NOT end an active
@@ -1954,7 +1934,7 @@ export default class PCBApp {
         const colors = {
             'remove-copper': '#5f6770',
             'remove-solder-mask': '#8a6923',
-            'remove-copper-mask': '#245f9e',
+            'remove-copper-mask': '#7c3b4c',
         };
         const color = colors[mode] || '#8a929b';
         const id = `pcb-copper-removal-hatch-${String(mode || 'remove-copper').replace(/[^a-z-]/g, '')}`;
@@ -2040,7 +2020,7 @@ export default class PCBApp {
         const colors = {
             'remove-copper': '#5f6770',
             'remove-solder-mask': '#8a6923',
-            'remove-copper-mask': '#245f9e',
+            'remove-copper-mask': '#7c3b4c',
         };
         this._removalHatchPatterns ||= new Map();
         const viewBox = viewport.viewBox;
@@ -2048,31 +2028,25 @@ export default class PCBApp {
         for (const shape of this.boardShapes || []) {
             if (!shape || shape.type === 'fill' || !isLayerVisible(shape.layer)) continue;
             if (shape.layer !== 'top-copper' && shape.layer !== 'bottom-copper') continue;
-            const geometry = resolveBoardShapeGeometry(shape);
-            const mode = geometry.copperMode;
+            const mode = normalizeShapeCopperMode(shape.copperMode);
             if (!colors[mode]) continue;
-            if (!geometry.filled) continue;
-            const hatchColor = isPcbSelected(this, 'shape', shape)
-                ? shapeSelectionColor(shape)
-                : this._hoveredShape?.id === shape.id ? shapeHoverColor(shape) : colors[mode];
-            const patternKey = `${mode}:${hatchColor}`;
             const bounds = boardShapeBounds(shape);
             if (!bounds || bounds.maxX < viewBox.x || bounds.maxY < viewBox.y
                 || bounds.minX > viewBox.x + viewBox.width || bounds.minY > viewBox.y + viewBox.height) continue;
-            const path = boardShapeGeometryPathD(geometry);
+            const path = shapePathD(shape, { close: true });
             if (!path) continue;
             context.save();
             context.setTransform(dpr * scale, 0, 0, dpr * scale, -viewBox.x * dpr * scale, -viewBox.y * dpr * scale);
             context.beginPath();
             context.clip(new Path2D(path));
             context.setTransform(dpr, 0, 0, dpr, 0, 0);
-            let pattern = this._removalHatchPatterns.get(patternKey);
+            let pattern = this._removalHatchPatterns.get(mode);
             if (!pattern) {
                 const tile = document.createElement('canvas');
                 tile.width = 36;
                 tile.height = 36;
                 const tileContext = tile.getContext('2d');
-                tileContext.strokeStyle = hatchColor;
+                tileContext.strokeStyle = colors[mode];
                 tileContext.lineWidth = 1.2;
                 if (mode === 'remove-solder-mask') {
                     for (let offset = 0; offset <= 36; offset += 12) {
@@ -2096,7 +2070,7 @@ export default class PCBApp {
                     }
                 }
                 pattern = context.createPattern(tile, 'repeat');
-                this._removalHatchPatterns.set(patternKey, pattern);
+                this._removalHatchPatterns.set(mode, pattern);
             }
             context.fillStyle = pattern;
             context.fillRect(0, 0, rect.width, rect.height);
@@ -3287,7 +3261,7 @@ export default class PCBApp {
         const outline = this._getLayerGroup('board-outline').querySelector('.pcb-board-outline');
         if (!outline) return;
         if (selected) {
-            outline.setAttribute('stroke', shapeSelectionColor({ layer: 'board-outline' }));
+            outline.setAttribute('stroke', '#ffffff');
             outline.setAttribute('stroke-width', '0.4');
             outline.setAttribute('stroke-dasharray', '1.5,0.8');
         } else {
@@ -5009,8 +4983,8 @@ export default class PCBApp {
         // disappear against same-coloured tracks/pads on the layer.
         const isEditing = this._textEdit?.text?.id === text.id;
         const isLight = document.documentElement.getAttribute('data-theme') === 'light';
-        const selColor = shapeSelectionColor(text);
-        const hoverColor = shapeHoverColor(text);
+        const selColor = isLight ? '#000000' : '#ffffff';
+        const hoverColor = isLight ? '#555555' : '#aaaaaa';
         const editColor = isLight ? '#000000' : '#ffffff';
         const strokeOverride = isEditing ? editColor
             : isSel ? selColor
@@ -5099,6 +5073,7 @@ export default class PCBApp {
         text.y = snap.y;
         this.viewport?.setCrosshair({ x: snap.x, y: snap.y + text.size * 0.313 + text.strokeWidth / 2 });
         this._refreshText(text.id);
+        this._refreshFills();
     }
 
     /** Drag an already-selected text. */
@@ -8048,9 +8023,7 @@ export default class PCBApp {
         return {
             tracks: this.tracks,
             vias: this.vias,
-            boardShapes: this.boardShapes,
-            texts: [...this.texts.values()],
-            fills: this.copperFills,
+            texts: this.texts.values(),
             pads,
             holes: [
                 ...((this.boardShapes || [])

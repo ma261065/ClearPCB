@@ -1,16 +1,12 @@
 /** Headless regression tests for shared PCB selection interaction state. */
 
 globalThis.window = { addEventListener() {} };
-globalThis.requestAnimationFrame = (callback) => callback();
-const { SelectionManager } = await import('./src/core/SelectionManager.js');
 
 const {
     finishSelectionInteraction,
     placeFloatingSelectionInteraction,
     updateSelectionInteraction,
 } = await import('./src/pcb/modules/selection-interaction.js');
-const { deleteBoxSelection } = await import('./src/pcb/modules/box-select.js');
-const { setPcbSelection } = await import('./src/pcb/modules/selection-registry.js');
 
 let failures = 0;
 
@@ -21,46 +17,6 @@ function expect(name, condition) {
     }
     failures++;
     console.error(`FAIL: ${name}`);
-}
-
-{
-    const text = {
-        id: 'text-delete', content: 'X', x: 0, y: 0, size: 1,
-        rotation: 0, layer: 'top-silk', strokeWidth: 0.15,
-    };
-    const calls = [];
-    const app = {
-        placements: new Map(), tracks: [], vias: [], boardShapes: [], texts: new Map([[text.id, text]]),
-        viewport: { scale: 1 },
-        history: { execute(command) { command.execute(); } },
-        _removeTextElement() {},
-        _refreshFills() {},
-        _syncClipboardButtons() {},
-        _clearProperties() { calls.push('clear'); },
-        _setActiveRibbonTab(tab) { calls.push(`tab:${tab}`); },
-    };
-    setPcbSelection(app, [{ kind: 'text', object: text }]);
-    const deleted = deleteBoxSelection(app);
-    expect('deleting selected PCB objects closes Properties',
-        deleted && !app.texts.has(text.id) && calls.join('|') === 'clear|tab:pcb-home');
-}
-
-{
-    const observedSelectionStates = [];
-    const manager = new SelectionManager();
-    const shape = {
-        id: 'shape:clear-order',
-        selected: false,
-        getBounds() { return { minX: 0, minY: 0, maxX: 1, maxY: 1 }; },
-        hitTest() { return false; },
-        invalidate() { observedSelectionStates.push(manager.isSelected(this.id)); },
-    };
-    manager.setShapes([shape]);
-    manager.select(shape.id);
-    observedSelectionStates.length = 0;
-    manager.clearSelection();
-    expect('deselected objects invalidate after registry selection clears',
-        observedSelectionStates.length === 1 && observedSelectionStates[0] === false);
 }
 
 {

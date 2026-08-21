@@ -25,6 +25,17 @@ export const PCB_LAYERS = /** @type {LayerDef[]} */ ([
     { id: 'hole',             name: 'Hole',                color: '#1abc9c', visible: true, locked: false },
 ]);
 
+/** Return a lighter selection color derived from a PCB layer's display color. */
+export function pcbLayerSelectionColor(layerId) {
+    const color = PCB_LAYERS.find((layer) => layer.id === layerId)?.color || '#ffffff';
+    const channels = color.match(/[\da-f]{2}/gi);
+    if (!channels || channels.length !== 3) return color;
+    return `#${channels.map((channel) => {
+        const value = parseInt(channel, 16);
+        return Math.round(value + (255 - value) * 0.35).toString(16).padStart(2, '0');
+    }).join('')}`;
+}
+
 /**
  * Overlays — non-editable visual aids (clearance halos, etc.). Rendered in
  * a separate section of the layer panel with its own master eye toggle.
@@ -46,27 +57,6 @@ export const PCB_COPPER_FILLS = /** @type {CopperFillDef[]} */ ([
     { id: 'top-copper',    name: 'Top',    color: '#e74c3c', visible: true, locked: false },
     { id: 'bottom-copper', name: 'Bottom', color: '#2479b5', visible: true, locked: false },
 ]);
-
-export function pcbLayerColor(layerId) {
-    return PCB_LAYERS.find((layer) => layer.id === layerId)?.color || '#ffffff';
-}
-
-function lightenColor(color, amount) {
-    const channels = color.match(/[\da-f]{2}/gi);
-    if (!channels || channels.length !== 3) return color;
-    return `#${channels.map((channel) => {
-        const value = parseInt(channel, 16);
-        return Math.round(value + (255 - value) * amount).toString(16).padStart(2, '0');
-    }).join('')}`;
-}
-
-export function pcbLayerSelectionColor(layerId) {
-    return lightenColor(pcbLayerColor(layerId), 0.35);
-}
-
-export function pcbLayerHoverColor(layerId) {
-    return lightenColor(pcbLayerColor(layerId), 0.18);
-}
 
 /**
  * True when the copper pour on the given copper layer is hidden via the

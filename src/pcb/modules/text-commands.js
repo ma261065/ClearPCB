@@ -23,10 +23,10 @@ export class AddTextCommand {
     undo() {
         this.app._removeTextElement(this.text.id);
         this.app.texts.delete(this.text.id);
+        this.app._refreshFills?.();
         if (isPcbSelected(this.app, 'text', this.text)) {
             this.app._selectText(null);
         }
-        this.app._refreshFills?.();
     }
     get description() { return `Add text "${this.text.content}"`; }
 }
@@ -41,10 +41,10 @@ export class RemoveTextCommand {
         const text = this.app.texts.get(this.snapshot.id);
         this.app._removeTextElement(this.snapshot.id);
         this.app.texts.delete(this.snapshot.id);
+        this.app._refreshFills?.();
         if (text && isPcbSelected(this.app, 'text', text)) {
             this.app._selectText(null);
         }
-        this.app._refreshFills?.();
     }
     undo() {
         const text = { ...this.snapshot };

@@ -438,7 +438,11 @@ export function updateGroupDrag(app, worldPos) {
         entry.fill.applyState(entry.before);
         entry.fill.move(dx, dy);
     }
-    if (g.fills?.length) app._refreshFills?.();
+    const movedShapeAffectsFill = g.shapes?.some((entry) => entry.shape?.layer === 'hole'
+        || entry.shape?.layer === 'top-copper' || entry.shape?.layer === 'bottom-copper');
+    const movedTextAffectsFill = g.texts?.some((entry) => entry.text?.layer === 'top-copper'
+        || entry.text?.layer === 'bottom-copper');
+    if (g.fills?.length || movedShapeAffectsFill || movedTextAffectsFill) app._refreshFills?.();
     // A named copper shape is a net-bearing terminal just like a track.
     const movedNetShape = g.shapes?.some((entry) => !!entry.shape?.net);
     if (g.comps.length || g.vias.length || g.tracks.length || movedNetShape) {
@@ -513,7 +517,11 @@ export function cancelGroupDrag(app) {
         app._refreshText?.(entry.text.id);
     }
     for (const entry of (g.fills || [])) entry.fill.applyState(entry.before);
-    if (g.fills?.length) app._refreshFills?.();
+    const movedShapeAffectsFill = g.shapes?.some((entry) => entry.shape?.layer === 'hole'
+        || entry.shape?.layer === 'top-copper' || entry.shape?.layer === 'bottom-copper');
+    const movedTextAffectsFill = g.texts?.some((entry) => entry.text?.layer === 'top-copper'
+        || entry.text?.layer === 'bottom-copper');
+    if (g.fills?.length || movedShapeAffectsFill || movedTextAffectsFill) app._refreshFills?.();
     _applyHighlights(app);
 }
 
@@ -543,7 +551,5 @@ export function deleteBoxSelection(app) {
 
     if (cmds.length === 0) return false;
     app.history?.execute(cmds.length === 1 ? cmds[0] : new CompoundCommand(cmds));
-    app._clearProperties?.();
-    app._setActiveRibbonTab?.('pcb-home');
     return true;
 }
