@@ -1914,7 +1914,7 @@ function clipMeshToOutline(mesh, outline) {
  * @param {number} [seg] polygon segments per hole
  * @returns {{verts:Array, faces:Array}}
  */
-function punchHolesInFlatMesh(mesh, holes, seg = 48) {
+export function punchHolesInFlatMesh(mesh, holes, seg = 48) {
     if (!holes || !holes.length || !mesh.faces.length) return mesh;
     // Pre-build each hole as a CCW polygon ring in the (x, z) board plane.
     // Circular bores sample a ring; polygon cutouts carry an explicit ring.
@@ -1928,14 +1928,14 @@ function punchHolesInFlatMesh(mesh, holes, seg = 48) {
                 area += a.x * b.z - b.x * a.z;
             }
             if (area < 0) pts = pts.reverse();
-            return { pts, x: h.x, z: h.z, r: h.r };
+            return { pts, x: h.x, z: h.z, r: h.r, y: h.y };
         }
         const pts = [];
         for (let i = 0; i < seg; i++) {
             const a = (i / seg) * Math.PI * 2;
             pts.push({ x: h.x + h.r * Math.cos(a), z: h.z + h.r * Math.sin(a) });
         }
-        return { pts, x: h.x, z: h.z, r: h.r };
+        return { pts, x: h.x, z: h.z, r: h.r, y: h.y };
     });
     if (!rings.length) return mesh;
 
@@ -2015,6 +2015,7 @@ function punchHolesInFlatMesh(mesh, holes, seg = 48) {
                 { x: v2.x, y: v2.y, z: v2.z },
             ]];
             for (const ring of rings) {
+                if (Number.isFinite(ring.y) && Math.abs(pieces[0][0].y - ring.y) > 1e-6) continue;
                 const next = [];
                 for (const piece of pieces) {
                     if (overlapsCircle(piece, ring)) subtractRing(piece, ring, next);
@@ -2318,7 +2319,7 @@ function circleStrokeHoles(circle, segments = 24) {
     return holes;
 }
 
-function collectCopperSubtractHoles(boardShapes = []) {
+export function collectCopperSubtractHoles(boardShapes = []) {
     const holes = [];
     for (const c of boardShapes || []) {
         if (c?.kind !== 'circle') continue;
@@ -2326,10 +2327,11 @@ function collectCopperSubtractHoles(boardShapes = []) {
         if (!(c.radius > 0)) continue;
         const geometry = resolveBoardShapeGeometry(c);
         if (geometry.copperMode !== 'remove-copper' && geometry.copperMode !== 'remove-copper-mask') continue;
+        const y = c.layer === 'bottom-copper' ? Y_BOT - COPPER_EPS : Y_TOP + COPPER_EPS;
         if (geometry.filled) {
-            holes.push({ x: c.x, z: c.y, r: geometry.circle.outerRadius });
+            holes.push({ x: c.x, z: c.y, r: geometry.circle.outerRadius, y });
         } else {
-            holes.push(...circleStrokeHoles(c));
+            holes.push(...circleStrokeHoles(c).map((hole) => ({ ...hole, y })));
         }
     }
     for (const shape of boardShapes || []) {
@@ -2337,11 +2339,13 @@ function collectCopperSubtractHoles(boardShapes = []) {
         if (shape.layer !== 'top-copper' && shape.layer !== 'bottom-copper') continue;
         const geometry = resolveBoardShapeGeometry(shape);
         if (geometry.copperMode !== 'remove-copper' && geometry.copperMode !== 'remove-copper-mask') continue;
+        const y = shape.layer === 'bottom-copper' ? Y_BOT - COPPER_EPS : Y_TOP + COPPER_EPS;
         const outline = geometry.path;
         if (geometry.filled && outline.length >= 3) {
-            holes.push({ ring: outline.map((point) => ({ x: point.x, z: point.y })) });
+            holes.push({ ring: outline.map((point) => ({ x: point.x, z: point.y })), y });
         } else if (!geometry.filled && outline.length >= 2) {
-            holes.push(...strokeOutlineHoles(outline, geometry.centerlineClosed, geometry.lineWidth));
+            holes.push(...strokeOutlineHoles(outline, geometry.centerlineClosed, geometry.lineWidth)
+                .map((hole) => ({ ...hole, y })));
         }
     }
     return holes;

@@ -26,6 +26,7 @@ import {
     applyShapeGeometry,
     cloneShapeGeometry,
     boardShapeHitTest,
+    normalizeShapeCopperMode,
     renderBoardShape,
     shapeOutline,
     translateShapeGeometry,
@@ -391,7 +392,23 @@ export function beginGroupDrag(app, worldPos) {
     for (const text of getPcbSelection(app, 'text')) texts.push({ text, x: text.x, y: text.y });
     const fills = [];
     for (const fill of getPcbSelection(app, 'fill')) fills.push({ fill, before: fill.captureState() });
-    app._groupDrag = { startWorld: { x: worldPos.x, y: worldPos.y }, comps, vias, tracks, shapes, texts, fills };
+    const ratsnestNets = new Set();
+    for (const component of comps) {
+        for (const net of app._netsForComponent?.(component.id) || []) ratsnestNets.add(net);
+    }
+    for (const entry of vias) if (entry.via.net) ratsnestNets.add(entry.via.net);
+    for (const entry of tracks) if (entry.track.net) ratsnestNets.add(entry.track.net);
+    for (const entry of shapes) {
+        const shape = entry.shape;
+        if (shape.net && normalizeShapeCopperMode(shape.copperMode) === 'add') ratsnestNets.add(shape.net);
+    }
+    app._groupDrag = {
+        startWorld: { x: worldPos.x, y: worldPos.y },
+        comps, vias, tracks, shapes, texts, fills,
+        ratsnestNets,
+        previousDeferDragOverlays: !!app._deferDragOverlays,
+    };
+    app._deferDragOverlays = true;
 }
 
 /** Live-update positions of every selected object during a group drag. */
@@ -438,16 +455,7 @@ export function updateGroupDrag(app, worldPos) {
         entry.fill.applyState(entry.before);
         entry.fill.move(dx, dy);
     }
-    const movedShapeAffectsFill = g.shapes?.some((entry) => entry.shape?.layer === 'hole'
-        || entry.shape?.layer === 'top-copper' || entry.shape?.layer === 'bottom-copper');
-    const movedTextAffectsFill = g.texts?.some((entry) => entry.text?.layer === 'top-copper'
-        || entry.text?.layer === 'bottom-copper');
-    if (g.fills?.length || movedShapeAffectsFill || movedTextAffectsFill) app._refreshFills?.();
-    // A named copper shape is a net-bearing terminal just like a track.
-    const movedNetShape = g.shapes?.some((entry) => !!entry.shape?.net);
-    if (g.comps.length || g.vias.length || g.tracks.length || movedNetShape) {
-        app._updateRatsnest?.();
-    }
+    if (g.ratsnestNets.size) app._updateRatsnest?.({ nets: g.ratsnestNets });
     _applyHighlights(app);
 }
 
@@ -456,6 +464,7 @@ export function endGroupDrag(app) {
     const g = app._groupDrag;
     app._groupDrag = null;
     if (!g) return;
+    app._deferDragOverlays = g.previousDeferDragOverlays;
     const cmds = [];
     for (const c of g.comps) {
         const pl = app.placements.get(c.id);
@@ -507,6 +516,7 @@ export function cancelGroupDrag(app) {
     const g = app._groupDrag;
     app._groupDrag = null;
     if (!g) return;
+    app._deferDragOverlays = g.previousDeferDragOverlays;
     for (const entry of (g.shapes || [])) {
         applyShapeGeometry(entry.shape, entry.before);
         renderBoardShape(app, entry.shape);

@@ -54,7 +54,7 @@ const COL = {
 const SOLDERMASK_BASE_RGB = { r: 34, g: 214, b: 62 };
 const LAYER_STYLE = {
     board: _makeLayerStyleHSV(32, 52, 42, 255),
-    soldermask: _makeLayerStyleHSV(138, 81, 45, 120),
+    soldermask: _makeLayerStyleHSV(138, 81, 45, 192),
     tracks: _makeLayerStyleHSV(45, 78, 84, 255),
     vias: _makeLayerStyleHSV(43, 94, 72, 255),
     silkscreen: _makeLayerStyleHSV(0, 0, 100, 255),

@@ -650,7 +650,7 @@ export function resolveBoardShapeGeometry(shape) {
 // ── Render ───────────────────────────────────────────────────────────────────
 
 export function renderBoardShape(app, shape, opts = {}) {
-    removeBoardShapeElement(app, shape.id);
+    removeBoardShapeElement(app, shape.id, { skipHatchUpdate: true });
     const el = document.createElementNS(NS, 'path');
     const isSelected = isPcbSelected(app, 'shape', shape);
     const isHovered = !!(app._hoveredShape && app._hoveredShape.id === shape.id);
@@ -673,7 +673,7 @@ export function renderBoardShape(app, shape, opts = {}) {
     el.dataset.boardShapeLayer = shape.layer || '';
     app._getLayerGroup(st.targetLayer)?.appendChild(el);
     app._shapeElements.set(shape.id, el);
-    app._scheduleRemovalHatchRender?.();
+    if (!opts.liveDrag || st.isCopperRemoval) app._scheduleRemovalHatchRender?.();
     // Rebuilding the copper-cut clip-path re-rasterises the whole copper/fill
     // layer (every track + pour), so during a live drag skip it unless THIS
     // shape is itself a copper cut. Outside a drag, also run it when cuts
@@ -703,11 +703,11 @@ export function shapeAffectsCopperCuts(shape) {
     return false;
 }
 
-export function removeBoardShapeElement(app, id) {
+export function removeBoardShapeElement(app, id, opts = {}) {
     const el = app._shapeElements.get(id);
     if (el?.parentNode) el.parentNode.removeChild(el);
     app._shapeElements.delete(id);
-    app._scheduleRemovalHatchRender?.();
+    if (!opts.skipHatchUpdate) app._scheduleRemovalHatchRender?.();
 }
 
 // ── Hit-test / hover / selection ─────────────────────────────────────────────
@@ -1106,6 +1106,12 @@ export function startBoardShapeDrag(app, shape, worldPos, anchorId = null) {
         segment = polygonSegmentIndexAt(shape, worldPos, Math.max(0.3, 8 / Math.max(0.01, app.viewport?.scale || 1)));
         if (segment != null) mode = 'segment';
     }
+    const net = String(shape.net || '');
+    const ratsnestNets = net
+        && (shape.layer === 'top-copper' || shape.layer === 'bottom-copper')
+        && normalizeShapeCopperMode(shape.copperMode) === 'add'
+        ? new Set([net])
+        : null;
     app._shapeDrag = {
         id: shape.id,
         mode,
@@ -1114,7 +1120,10 @@ export function startBoardShapeDrag(app, shape, worldPos, anchorId = null) {
         startWorld: { x: worldPos.x, y: worldPos.y },
         before,
         beforeState,
+        ratsnestNets,
+        previousDeferDragOverlays: !!app._deferDragOverlays,
     };
+    app._deferDragOverlays = true;
     const vertex = handle != null
         ? shapeHandlePoints(shape).find((point) => point.key === handle)
         : null;
@@ -1144,7 +1153,7 @@ export function handleBoardShapeDrag(app, worldPos) {
         renderBoardShape(app, s, { liveDrag: true });
         renderBoardShapeHandles(app, s);
         if (['line', 'polygon'].includes(s.kind)) renderPolygonAxisIndicators(app, s, d.handle);
-        app._updateRatsnest?.();
+        if (d.ratsnestNets) app._updateRatsnest?.({ nets: d.ratsnestNets });
         return;
     }
     if (d.mode === 'segment' && ['line', 'polygon'].includes(s.kind) && d.segment != null) {
@@ -1161,7 +1170,7 @@ export function handleBoardShapeDrag(app, worldPos) {
         if (['line', 'polygon'].includes(s.kind)) {
             renderPolygonAxisIndicators(app, s, [firstIndex, secondIndex], [d.segment]);
         }
-        app._updateRatsnest?.();
+        if (d.ratsnestNets) app._updateRatsnest?.({ nets: d.ratsnestNets });
         return;
     }
     const dx = worldPos.x - d.startWorld.x;
@@ -1173,7 +1182,7 @@ export function handleBoardShapeDrag(app, worldPos) {
     app.viewport?.setCrosshair(snapped);
     renderBoardShape(app, s, { liveDrag: true });
     renderBoardShapeHandles(app, s);
-    app._updateRatsnest?.();
+    if (d.ratsnestNets) app._updateRatsnest?.({ nets: d.ratsnestNets });
 }
 
 export function endBoardShapeDrag(app, commit) {
@@ -1182,6 +1191,7 @@ export function endBoardShapeDrag(app, commit) {
     app.viewport?.hideCrosshair();
     clearPolygonAxisIndicators(app);
     if (!d) return;
+    app._deferDragOverlays = d.previousDeferDragOverlays;
     const s = app.boardShapes.find((x) => x.id === d.id);
     if (!s) return;
     const target = d.joinTarget?.shape;

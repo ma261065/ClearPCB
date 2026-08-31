@@ -5,6 +5,7 @@ globalThis.window = { addEventListener() {} };
 const {
     applyShapeGeometry,
     cloneShapeGeometry,
+    startBoardShapeDrag,
     translateShapeGeometry,
 } = await import('./src/pcb/modules/board-shapes.js');
 
@@ -54,5 +55,22 @@ for (const test of cases) {
     applyShapeGeometry(test.shape, translated);
     expect(`${test.name} shape applies translated geometry`, cloneShapeGeometry(test.shape), test.expected);
 }
+
+const additiveShape = {
+    id: 'additive', kind: 'rect', layer: 'bottom-copper', copperMode: 'add', net: 'GND',
+    points: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }, { x: 0, y: 10 }],
+};
+const dragApp = {
+    _deferDragOverlays: false,
+    viewport: { scale: 1, setCrosshair() {} },
+};
+startBoardShapeDrag(dragApp, additiveShape, { x: 5, y: 5 });
+expect('additive copper drag defers derived overlays', dragApp._deferDragOverlays, true);
+expect('additive copper drag restricts ratsnest to its net',
+    [...dragApp._shapeDrag.ratsnestNets], ['GND']);
+
+const removalShape = { ...additiveShape, id: 'removal', copperMode: 'remove-copper' };
+startBoardShapeDrag(dragApp, removalShape, { x: 5, y: 5 });
+expect('removal copper drag skips ratsnest reconciliation', dragApp._shapeDrag.ratsnestNets, null);
 
 if (failures) process.exitCode = 1;
