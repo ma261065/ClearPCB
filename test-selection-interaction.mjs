@@ -1,12 +1,16 @@
 /** Headless regression tests for shared PCB selection interaction state. */
 
 globalThis.window = { addEventListener() {} };
+globalThis.document = { getElementById() { return null; } };
+globalThis.requestAnimationFrame = (callback) => { callback(); return 1; };
 
 const {
     finishSelectionInteraction,
     placeFloatingSelectionInteraction,
     updateSelectionInteraction,
 } = await import('./src/pcb/modules/selection-interaction.js');
+const { createTrackSelectionAdapter } = await import('./src/pcb/modules/track-select.js');
+const { Track } = await import('./src/shapes/track.js');
 
 let failures = 0;
 
@@ -102,6 +106,38 @@ function expect(name, condition) {
 
     finishSelectionInteraction(app, true);
     expect('a dragged fill anchor commits on mouse-up', committed && app._pcbSelectionInteraction === null);
+}
+
+{
+    const track = new Track({ points: [{ x: 0, y: 0 }, { x: 10, y: 0 }] });
+    const edgeId = track.edges.keys().next().value;
+    const app = {
+        tracks: [track],
+        vias: [],
+        placements: new Map(),
+        boardShapes: [],
+        texts: new Map(),
+        viewport: {
+            scale: 10,
+            setCrosshair() {},
+            hideCrosshair() {},
+        },
+        _layerGroups: new Map(),
+        _getLayerGroup() { return null; },
+        _pcbPropsItems() { return null; },
+    };
+    const adapter = createTrackSelectionAdapter(app, track, `track:${track.id}`);
+    const segmentPoint = { x: 2.5, y: 0 };
+
+    expect('first Track click starts the segment interaction',
+        adapter.beginMove(segmentPoint, { alreadySelected: false }));
+    adapter.endMove(true);
+    expect('first Track click retains whole-track selection', !app._trackEdit);
+
+    expect('second Track click starts the segment interaction',
+        adapter.beginMove(segmentPoint, { alreadySelected: true }));
+    adapter.endMove(true);
+    expect('second Track click refines to the clicked segment', app._trackEdit?.edgeId === edgeId);
 }
 
 if (failures) process.exitCode = 1;

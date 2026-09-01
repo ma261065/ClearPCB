@@ -15,6 +15,7 @@ globalThis.window = { addEventListener() {} };
 
 const {
     applyBoardShapeVertexResize,
+    boardShapeLineWidthMinimum,
     boardShapeArcGeometry,
     boardShapeCopperCuts,
     circleFilledRadius,
@@ -124,23 +125,11 @@ const cuts = boardShapeCopperCuts({ boardShapes: [removalArc] }, 'top-copper');
 check('unfilled copper-removal arc produces a stroked copper cut', cuts.count === 1 && cuts.d.split(' L ').length > 80);
 const arcCenterline = shapeOutline(removalArc);
 const filledArcOutline = shapeOutline({ ...removalArc, filled: true });
-const filledArcGeometry = boardShapeArcGeometry(removalArc);
-check('filled arc reaches outside its curved outline',
-    Math.min(...filledArcOutline.map((point) => point.x)) < Math.min(...arcCenterline.map((point) => point.x))
-    || Math.max(...filledArcOutline.map((point) => point.x)) > Math.max(...arcCenterline.map((point) => point.x))
-    || Math.min(...filledArcOutline.map((point) => point.y)) < Math.min(...arcCenterline.map((point) => point.y))
-    || Math.max(...filledArcOutline.map((point) => point.y)) > Math.max(...arcCenterline.map((point) => point.y)));
-check('filled arc uses one concentric curve without chord jogs',
-    filledArcOutline.length === 49
-    && filledArcGeometry
-    && approx(Math.hypot(
-        filledArcOutline[0].x - filledArcGeometry.cx,
-        filledArcOutline[0].y - filledArcGeometry.cy,
-    ), filledArcGeometry.radius + removalArc.lineWidth / 2)
-    && approx(Math.hypot(
-        filledArcOutline.at(-1).x - filledArcGeometry.cx,
-        filledArcOutline.at(-1).y - filledArcGeometry.cy,
-    ), filledArcGeometry.radius + removalArc.lineWidth / 2));
+check('filled arc keeps the same outline centerline',
+    filledArcOutline.length === arcCenterline.length
+    && filledArcOutline.every((point, index) => (
+        approx(point.x, arcCenterline[index].x) && approx(point.y, arcCenterline[index].y)
+    )));
 
 const removalCircle = {
     id: 'circle_1',
@@ -190,12 +179,36 @@ showBoardShapeProperties({
 check('existing rectangle populates the PCB Properties panel',
     propertyItems.innerHTML.includes('pcbPropShapeLayer')
     && propertyTabs.at(-1) === 'pcb-properties');
+const holeLinePropertyItems = { innerHTML: '' };
+showBoardShapeProperties({
+    boardShapes: [{ ...removalRect, kind: 'line', layer: 'hole', points: removalRect.points.slice(0, 2) }],
+    placements: new Map(), tracks: [], vias: [], texts: new Map(),
+    viewport: { scale: 1 },
+    _pcbPropsItems() { return holeLinePropertyItems; },
+    _setPcbPropsTitle() {}, _setActiveRibbonTab() {},
+}, { ...removalRect, kind: 'line', layer: 'hole', points: removalRect.points.slice(0, 2) });
+check('hole-layer Line properties include line thickness',
+    holeLinePropertyItems.innerHTML.includes('pcbPropShapeLineWidth')
+    && holeLinePropertyItems.innerHTML.includes('min="0.8"'));
+check('hole-layer Line width minimum is 0.8 mm',
+    boardShapeLineWidthMinimum({ kind: 'line', layer: 'hole' }) === 0.8
+    && boardShapeLineWidthMinimum({ kind: 'line', layer: 'top-copper' }) === 0.05);
+const holeRectPropertyItems = { innerHTML: '' };
+const holeRect = { ...removalRect, layer: 'hole' };
+showBoardShapeProperties({
+    boardShapes: [holeRect], placements: new Map(), tracks: [], vias: [], texts: new Map(),
+    viewport: { scale: 1 },
+    _pcbPropsItems() { return holeRectPropertyItems; },
+    _setPcbPropsTitle() {}, _setActiveRibbonTab() {},
+}, holeRect);
+check('other hole-layer shape properties omit line thickness',
+    !holeRectPropertyItems.innerHTML.includes('pcbPropShapeLineWidth'));
 
 const filledRoundedRect = { ...roundedRemovalRect, filled: true };
 const filledRectOutline = shapeOutline(filledRoundedRect);
-check('filled rounded rectangle reaches outside its outline',
-    Math.min(...filledRectOutline.map((point) => point.x)) < -0.199
-    && Math.max(...filledRectOutline.map((point) => point.x)) > 10.199);
+check('filled rounded rectangle keeps the same outline centerline',
+    Math.min(...filledRectOutline.map((point) => point.x)) === 0
+    && Math.max(...filledRectOutline.map((point) => point.x)) === 10);
 let renderedFilledShape = null;
 const selectedFilledRect = { ...filledRoundedRect, copperMode: 'add' };
 renderBoardShape({
@@ -206,12 +219,16 @@ renderBoardShape({
 }, selectedFilledRect, { skipCopperUpdate: true });
 check('selected filled shape changes its interior color',
     renderedFilledShape?.getAttribute('fill') === shapeSelectionColor(selectedFilledRect));
+check('filled shape interior matches outline opacity',
+    renderedFilledShape?.getAttribute('fill-opacity') === '1');
+check('filled shape keeps its configured visible outline width',
+    renderedFilledShape?.getAttribute('stroke-width') === String(selectedFilledRect.lineWidth));
 
 const filledPolygon = { ...removalRect, kind: 'polygon', filled: true };
 const filledPolygonOutline = shapeOutline(filledPolygon);
-check('filled polygon reaches outside its outline',
-    Math.min(...filledPolygonOutline.map((point) => point.x)) < -0.199
-    && Math.max(...filledPolygonOutline.map((point) => point.x)) > 10.199);
+check('filled polygon keeps the same outline centerline',
+    Math.min(...filledPolygonOutline.map((point) => point.x)) === 0
+    && Math.max(...filledPolygonOutline.map((point) => point.x)) === 10);
 
 for (const shape of [
     { ...removalRect, kind: 'line', points: removalRect.points.slice(0, 2) },
@@ -294,6 +311,18 @@ const copperTextGerber = exportGerbers({
     texts: [copperText],
 }).get('board.gtl');
 check('top-copper text is emitted as copper', copperTextGerber.includes('C,0.3*%'));
+const holeSlotFiles = exportGerbers({
+    placements: new Map(), tracks: [], vias: [],
+    boardWidth: 50, boardHeight: 40,
+    boardShapes: [{
+        kind: 'line', layer: 'hole', lineWidth: 0.8,
+        points: [{ x: 5, y: -5 }, { x: 15, y: -5 }],
+    }],
+});
+const holeSlotDrill = holeSlotFiles.get('board-NPTH.drl') || '';
+check('hole-layer line emits a non-plated routed slot',
+    holeSlotDrill.includes('T1C0.800')
+    && holeSlotDrill.includes('X5.000Y5.000G85X15.000Y5.000'));
 check('selected PCB objects share their layer-derived color',
     shapeSelectionColor({ layer: 'top-copper' }) === pcbLayerSelectionColor('top-copper')
     && shapeSelectionColor(copperText) === pcbLayerSelectionColor('top-copper'));

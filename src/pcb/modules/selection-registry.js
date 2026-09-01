@@ -78,6 +78,7 @@ export function clearPcbSelection(app) {
     manager(app).clearSelection();
 }
 
+/** @param {string|null} [kind] */
 export function getPcbSelection(app, kind = null) {
     return manager(app).getSelection()
         .filter((item) => !kind || item.kind === kind)
@@ -90,6 +91,7 @@ export function getPcbSelectionEntries(app) {
 }
 
 /** Hit test an adapter kind through the shared selection ordering rules. */
+/** @param {string|null} [kind] */
 export function hitTestPcbSelection(app, point, kind = null) {
     syncPcbSelection(app);
     const hits = manager(app).hitTest(point, true);

@@ -111,6 +111,7 @@ function trackHitTest(track, point, tolerance) {
 
 /** Adapter bridge for the graph-based Track model. */
 export function createTrackSelectionAdapter(app, track, id) {
+    let segmentClickEdgeId = null;
     const beginDrag = (worldPos, options) => {
         const started = startVertexDrag(app, track, worldPos, options);
         if (started && app._vertexDrag) app._vertexDrag.userDragged = false;
@@ -194,10 +195,24 @@ export function createTrackSelectionAdapter(app, track, id) {
         beginMove(worldPos, { alreadySelected = false } = {}) {
             // A newly selected Track consumes the first click without splitting
             // the midpoint. Once it is active, the next click on `+` inserts.
-            return beginDrag(worldPos, { allowMidpointInsert: alreadySelected });
+            segmentClickEdgeId = null;
+            const started = beginDrag(worldPos, { allowMidpointInsert: alreadySelected });
+            if (started && alreadySelected && app._vertexDrag?.mode === 'segment') {
+                segmentClickEdgeId = app._vertexDrag.edgeId;
+            }
+            return started;
         },
         updateMove(worldPos) { updateDrag(worldPos); },
-        endMove(commit) { finishNodeMove(commit); },
+        endMove(commit) {
+            const refineEdgeId = commit && !app._vertexDrag?.userDragged
+                ? segmentClickEdgeId
+                : null;
+            segmentClickEdgeId = null;
+            finishNodeMove(commit);
+            if (refineEdgeId && track.edges?.has(refineEdgeId)) {
+                selectTrackSegment(app, track, refineEdgeId);
+            }
+        },
         invalidate() { renderTrack(track, (layerId) => app._getLayerGroup(layerId)); },
         render() { renderTrack(track, (layerId) => app._getLayerGroup(layerId)); },
     };

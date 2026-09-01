@@ -1619,7 +1619,9 @@ export function startViaDrag(app, via, worldPos) {
         startX: via.x,
         startY: via.y,
         attached,
+        previousDeferDragOverlays: !!app._deferDragOverlays,
     };
+    app._deferDragOverlays = true;
     app.viewport?.setCrosshair({ x: via.x, y: via.y });
     return true;
 }
@@ -1722,6 +1724,7 @@ export function finishViaDrag(app) {
     const drag = app._viaDrag;
     if (!drag) return;
     app._viaDrag = null;
+    app._deferDragOverlays = drag.previousDeferDragOverlays;
     app.viewport?.hideCrosshair();
     clearTrackAxisGlow(app);
     clearTrackSnapMarker(app);
@@ -1757,6 +1760,7 @@ export function cancelViaDrag(app) {
     const drag = app._viaDrag;
     if (!drag) return;
     app._viaDrag = null;
+    app._deferDragOverlays = drag.previousDeferDragOverlays;
     app.viewport?.hideCrosshair();
     clearTrackAxisGlow(app);
     clearTrackSnapMarker(app);

@@ -101,6 +101,7 @@ import {
     cancelShapeDraw,
     finishPolygonDraw,
     finishLineDraw,
+    finishShapeDrawAtPoint,
     hitTestBoardShape,
     setBoardShapeHover,
     selectBoardShape,
@@ -460,6 +461,13 @@ export default class PCBApp {
     }
 
     deactivate() {
+        if (this._shapeDraw) {
+            this._cancelShapeDraw();
+            this.currentTool = 'select';
+            this._updateCursorForTool?.();
+            this._setPcbStatus?.();
+            this._hideToolOptions?.();
+        }
         this._active = false;
     }
 
@@ -969,6 +977,9 @@ export default class PCBApp {
             }
             if (e.button === 2 && this._fillDraw) {
                 this._fillRightDown = { x: e.clientX, y: e.clientY };
+            }
+            if (e.button === 2 && this._shapeDraw) {
+                this._shapeRightDown = { x: e.clientX, y: e.clientY };
             }
             if (e.button === 2 && this._showDebugTooltip && this._debugTooltipVisible) {
                 if (this._debugTooltipPinned) {
@@ -1715,6 +1726,16 @@ export default class PCBApp {
                 const dy = e.clientY - this._fillRightDown.y;
                 this._fillRightDown = null;
                 if (Math.hypot(dx, dy) < 4) finishFillDraw(this);
+            }
+            // A stationary right-click finishes PCB shape drawing at the
+            // cursor; a right-drag remains viewport panning.
+            if (e.button === 2 && this._shapeDraw && this._shapeRightDown) {
+                const dx = e.clientX - this._shapeRightDown.x;
+                const dy = e.clientY - this._shapeRightDown.y;
+                this._shapeRightDown = null;
+                if (Math.hypot(dx, dy) < 4) {
+                    finishShapeDrawAtPoint(this, this._screenToWorld(e));
+                }
             }
         });
 
@@ -3041,6 +3062,9 @@ export default class PCBApp {
         const tabs = this.ribbon.querySelectorAll('.ribbon-tab[data-tab]');
         const panels = this.ribbon.querySelectorAll('.ribbon-panel');
         const panelsEl = /** @type {HTMLElement|null} */ (this.ribbon.querySelector('.ribbon-panels'));
+        let activeTabId = /** @type {HTMLElement|null} */ (
+            this.ribbon.querySelector('.ribbon-tab.active')
+        )?.dataset.tab || null;
 
         const retainRibbonHeight = () => {
             if (!panelsEl || this.ribbon.offsetParent === null) return;
@@ -3063,6 +3087,13 @@ export default class PCBApp {
         });
 
         const setActive = (tabId) => {
+            if (this._shapeDraw && activeTabId !== tabId) {
+                this._cancelShapeDraw();
+                this.currentTool = 'select';
+                this._updateCursorForTool?.();
+                this._setPcbStatus?.();
+                this._hideToolOptions?.();
+            }
             retainRibbonHeight();
             tabs.forEach(tab => {
                 const tabEl = /** @type {HTMLElement} */ (tab);
@@ -3073,6 +3104,7 @@ export default class PCBApp {
                 const panelEl = /** @type {HTMLElement} */ (panel);
                 panelEl.classList.toggle('active', panelEl.dataset.panel === tabId);
             });
+            activeTabId = tabId;
 
             this._syncClipboardButtons?.();
 
@@ -3095,6 +3127,17 @@ export default class PCBApp {
             tab.addEventListener('click', () => {
                 const tabEl = /** @type {HTMLElement} */ (tab);
                 if (!tabEl.dataset.tab) return;
+                const currentTab = /** @type {HTMLElement|null} */ (
+                    this.ribbon.querySelector('.ribbon-tab.active')
+                )?.dataset.tab || null;
+                if (currentTab !== tabEl.dataset.tab
+                    && (this._shapeDraw || ['line', 'circle', 'rect', 'polygon', 'arc'].includes(this.currentTool))) {
+                    this._cancelShapeDraw();
+                    this.currentTool = 'select';
+                    this._updateCursorForTool?.();
+                    this._setPcbStatus?.();
+                    this._hideToolOptions?.();
+                }
                 setActive(tabEl.dataset.tab);
             });
         });

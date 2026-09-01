@@ -229,7 +229,7 @@ function resolvedShapeObstaclePaths(C, geometry, clearance) {
         return [circlePath(C, geometry.circle.x, geometry.circle.y, radius + clearance)];
     }
     if (geometry.filled && geometry.path.length >= 3) {
-        return offsetClosedPath(C, geometry.path, clearance);
+        return offsetClosedPath(C, geometry.path, geometry.lineWidth / 2 + clearance);
     }
     const paths = [];
     const points = geometry.centerline;

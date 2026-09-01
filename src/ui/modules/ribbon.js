@@ -10,6 +10,7 @@ import { bindRecentsDropdown } from './recents.js';
 export function bindRibbon(app) {
     const HOME_TAB_ID = 'home';
     const SELECT_TOOL_ID = 'select';
+    const DRAWING_TOOL_IDS = new Set(['wire', 'line', 'rect', 'circle', 'arc', 'polygon']);
 
     // Auto-blur ribbon selects after change so focus border doesn't stick
     document.querySelector('.ribbon')?.addEventListener('change', (e) => {
@@ -162,7 +163,16 @@ export function bindRibbon(app) {
 
     tabs.forEach(tab => {
         const t = /** @type {HTMLElement} */ (tab);
-        tab.addEventListener('click', () => app._setActiveRibbonTab(t.dataset.tab));
+        tab.addEventListener('click', () => {
+            const currentTab = /** @type {HTMLElement|null} */ (
+                ribbonEl.querySelector('.ribbon-tab.active')
+            )?.dataset.tab || null;
+            if (currentTab !== t.dataset.tab && DRAWING_TOOL_IDS.has(app.currentTool)) {
+                if (app.currentTool === 'wire') app._cancelWireDrawing?.();
+                app._onToolSelected?.(SELECT_TOOL_ID);
+            }
+            app._setActiveRibbonTab(t.dataset.tab);
+        });
     });
     app._setActiveRibbonTab(HOME_TAB_ID);
 

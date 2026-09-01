@@ -27,8 +27,7 @@ import { pcbTextSegments } from './pcb-text.js';
 function traceBoardShape(context, geometry) {
     context.beginPath();
     if (geometry.circle) {
-        const radius = geometry.filled ? geometry.circle.outerRadius : geometry.circle.radius;
-        context.arc(geometry.circle.x, geometry.circle.y, radius, 0, Math.PI * 2);
+        context.arc(geometry.circle.x, geometry.circle.y, geometry.circle.radius, 0, Math.PI * 2);
         return true;
     }
     if (geometry.path.length < 2) return false;
@@ -579,7 +578,8 @@ export class Board2D {
             if (!isMaskLayer && mode !== 'remove-solder-mask' && mode !== 'remove-copper-mask') continue;
             if (!traceBoardShape(ctx, geometry)) continue;
             if (geometry.filled) ctx.fill();
-            else { ctx.lineWidth = geometry.lineWidth; ctx.stroke(); }
+            ctx.lineWidth = geometry.lineWidth;
+            ctx.stroke();
         }
     }
 
@@ -632,7 +632,8 @@ export class Board2D {
             const geometry = resolveBoardShapeGeometry(shape);
             if (!traceBoardShape(ctx, geometry)) continue;
             if (geometry.filled) ctx.fill();
-            else { ctx.lineWidth = geometry.lineWidth; ctx.stroke(); }
+            ctx.lineWidth = geometry.lineWidth;
+            ctx.stroke();
         }
     }
 
@@ -647,7 +648,8 @@ export class Board2D {
         const drawCopperShape = (shape, geometry = resolveBoardShapeGeometry(shape)) => {
             if (!traceBoardShape(cctx, geometry)) return;
             if (geometry.filled) cctx.fill();
-            else { cctx.lineWidth = geometry.lineWidth; cctx.stroke(); }
+            cctx.lineWidth = geometry.lineWidth;
+            cctx.stroke();
         };
 
         // Compose copper into a dedicated transparent layer, subtracting
@@ -848,7 +850,17 @@ export class Board2D {
             const geometry = resolveBoardShapeGeometry(s);
             if (!traceBoardShape(ctx, geometry)) continue;
             ctx.fillStyle = COL.bg;
-            ctx.fill();
+            if (geometry.filled) {
+                ctx.fill();
+            } else {
+                ctx.save();
+                ctx.strokeStyle = COL.bg;
+                ctx.lineCap = 'round';
+                ctx.lineJoin = 'round';
+                ctx.lineWidth = geometry.lineWidth;
+                ctx.stroke();
+                ctx.restore();
+            }
         }
     }
 
@@ -918,7 +930,7 @@ export class Board2D {
                 ctx.fillStyle = COL.silk;
                 ctx.fill();
             }
-            ctx.lineWidth = geometry.filled ? 0.06 : geometry.lineWidth;
+            ctx.lineWidth = geometry.lineWidth;
             ctx.stroke();
         }
 

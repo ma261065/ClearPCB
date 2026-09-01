@@ -88,11 +88,11 @@ export function exportGerbers(opts) {
         // Plated through-holes (pads, vias, and Hole-layer circles) and
         // non-plated holes go in separate Excellon files so fabs (JLCPCB,
         // etc.) can tell them apart — they key off the -PTH / -NPTH suffix.
-        ['board-PTH.drl', _buildDrill(_collectPlatedDrills(placements, vias, circles), clipBounds)],
+        ['board-PTH.drl', _buildDrill(_collectPlatedDrills(placements, vias, boardShapes), clipBounds)],
     ]);
     // Only emit the NPTH file when there are non-plated holes — an empty
     // drill file trips up some fab pre-checks.
-    const npth = _collectNonPlatedDrills(circles, placements);
+    const npth = _collectNonPlatedDrills(boardShapes, placements);
     if (npth.length) files.set('board-NPTH.drl', _buildDrill(npth, clipBounds, true));
     return files;
 }
@@ -319,15 +319,20 @@ function _buildCopper(placements, tracks, vias, layerId, bounds, texts = [], fil
         const mode = geometry.copperMode;
         const cutsCopper = isHole ||
             (onThisLayer && (mode === 'remove-copper' || mode === 'remove-copper-mask'));
-        if (!geometry.filled) {
-            const d = getAp(apKey('C', geometry.lineWidth));
-            const op = `X${_fmt(o[0].x)}Y${_fmtY(o[0].y)}D02*\n`
+        const d = getAp(apKey('C', geometry.lineWidth));
+        const op = `X${_fmt(o[0].x)}Y${_fmtY(o[0].y)}D02*\n`
             + o.slice(1).map((point) => `X${_fmt(point.x)}Y${_fmtY(point.y)}D01*`).join('\n')
-            + (geometry.centerlineClosed ? `\nX${_fmt(o[0].x)}Y${_fmtY(o[0].y)}D01*` : '');
+            + (geometry.pathClosed ? `\nX${_fmt(o[0].x)}Y${_fmtY(o[0].y)}D01*` : '');
+        if (!geometry.filled) {
             if (cutsCopper) clearShapeStrokeOps.push({ d, op });
             else if (onThisLayer && mode === 'add') ops.push({ d, op });
-        } else if (cutsCopper) clearShapeRegions += shapeRegion(o);
-        else if (onThisLayer && mode === 'add') darkShapeRegions += shapeRegion(o);
+        } else if (cutsCopper) {
+            clearShapeRegions += shapeRegion(o);
+            clearShapeStrokeOps.push({ d, op });
+        } else if (onThisLayer && mode === 'add') {
+            darkShapeRegions += shapeRegion(o);
+            ops.push({ d, op });
+        }
     }
 
     // Emit file.
@@ -541,17 +546,16 @@ function _buildPadLayer(placements, vias, side, bounds, opts) {
                 shapeRegions += `X${_fmt(point.x)}Y${_fmtY(point.y)}D01*\n`;
             }
             shapeRegions += 'G37*\n';
-        } else {
-            const d = getAp(apKey('C', geometry.lineWidth));
-            let op = `X${_fmt(geometry.path[0].x)}Y${_fmtY(geometry.path[0].y)}D02*\n`;
-            op += geometry.path.slice(1)
-                .map((point) => `X${_fmt(point.x)}Y${_fmtY(point.y)}D01*`)
-                .join('\n');
-            if (geometry.centerlineClosed) {
-                op += `\nX${_fmt(geometry.path[0].x)}Y${_fmtY(geometry.path[0].y)}D01*`;
-            }
-            ops.push({ d, op });
         }
+        const d = getAp(apKey('C', geometry.lineWidth));
+        let op = `X${_fmt(geometry.path[0].x)}Y${_fmtY(geometry.path[0].y)}D02*\n`;
+        op += geometry.path.slice(1)
+            .map((point) => `X${_fmt(point.x)}Y${_fmtY(point.y)}D01*`)
+            .join('\n');
+        if (geometry.pathClosed) {
+            op += `\nX${_fmt(geometry.path[0].x)}Y${_fmtY(geometry.path[0].y)}D01*`;
+        }
+        ops.push({ d, op });
     }
 
     let out = `G04 ClearPCB ${title}*\n` + FORMAT + '%LPD*%\n';
@@ -904,8 +908,8 @@ function _buildOutline(b, boardShapes = []) {
 
 /* ──────────────────────────── drill ──────────────────────────── */
 
-/** Collect plated drills: through-hole pads, vias, and plated Hole-layer circles. */
-function _collectPlatedDrills(placements, vias, circles = []) {
+/** Collect plated drills: through-hole pads, vias, and plated Hole-layer shapes. */
+function _collectPlatedDrills(placements, vias, boardShapes = []) {
     const out = [];
     // Through-hole pad drills (round + oval slot), posed via the shared resolver.
     for (const drill of resolvePlacementDrills(placements)) {
@@ -919,19 +923,22 @@ function _collectPlatedDrills(placements, vias, circles = []) {
     for (const v of vias) {
         if (v.drill > 0) out.push({ dia: v.drill, x: v.x, y: v.y });
     }
-    for (const circle of circles) {
+    for (const circle of boardShapes) {
+        if (circle?.kind !== 'circle') continue;
         if (circle?.layer !== 'hole' || !circle.plated) continue;
         const dia = 2 * (Number(circle.radius) || 0);
         if (dia > 0) out.push({ dia, x: circle.x, y: circle.y });
     }
+    out.push(..._collectBoardShapeSlots(boardShapes, true));
     return out;
 }
 
-/** Collect non-plated drills: Hole-layer circles and footprint mounting holes. */
-function _collectNonPlatedDrills(circles = [], placements = new Map()) {
+/** Collect non-plated drills: Hole-layer shapes and footprint mounting holes. */
+function _collectNonPlatedDrills(boardShapes = [], placements = new Map()) {
     const out = [];
     // Hole-layer circles drill through the board unless explicitly plated.
-    for (const c of circles) {
+    for (const c of boardShapes) {
+        if (c?.kind !== 'circle') continue;
         if (!c || c.layer !== 'hole' || c.plated) continue;
         const dia = 2 * (Number(c.radius) || 0);
         if (dia > 0) out.push({ dia, x: c.x, y: c.y });
@@ -942,7 +949,30 @@ function _collectNonPlatedDrills(circles = [], placements = new Map()) {
         if (drill.plated) continue;
         out.push({ dia: drill.dia, x: drill.x, y: drill.y });
     }
+    out.push(..._collectBoardShapeSlots(boardShapes, false));
     return out;
+}
+
+/** Convert each segment of a Hole-layer Line into a round-ended routed slot. */
+function _collectBoardShapeSlots(boardShapes, plated) {
+    const slots = [];
+    for (const shape of boardShapes) {
+        if (!shape || shape.kind !== 'line' || shape.layer !== 'hole' || !!shape.plated !== plated) continue;
+        const geometry = resolveBoardShapeGeometry(shape);
+        for (let index = 1; index < geometry.centerline.length; index++) {
+            const start = geometry.centerline[index - 1];
+            const end = geometry.centerline[index];
+            if (Math.hypot(end.x - start.x, end.y - start.y) <= 1e-9) continue;
+            slots.push({
+                dia: geometry.lineWidth,
+                x: start.x,
+                y: start.y,
+                x2: end.x,
+                y2: end.y,
+            });
+        }
+    }
+    return slots;
 }
 
 /**

@@ -1918,7 +1918,12 @@ export function punchHolesInFlatMesh(mesh, holes, seg = 48) {
     if (!holes || !holes.length || !mesh.faces.length) return mesh;
     // Pre-build each hole as a CCW polygon ring in the (x, z) board plane.
     // Circular bores sample a ring; polygon cutouts carry an explicit ring.
-    const rings = holes.filter((h) => (h.r > 0) || (h.ring && h.ring.length >= 3)).map((h) => {
+    const rings = holes.filter((h) => {
+        if (h.ring && h.ring.length >= 3) {
+            return h.ring.every((point) => Number.isFinite(point.x) && Number.isFinite(point.z));
+        }
+        return Number.isFinite(h.x) && Number.isFinite(h.z) && Number.isFinite(h.r) && h.r > 0;
+    }).map((h) => {
         if (h.ring && h.ring.length >= 3) {
             let pts = h.ring.map((p) => ({ x: p.x, z: p.z }));
             // Clipper expects CCW rings (positive signed area in the x,z plane).
@@ -2224,6 +2229,7 @@ function buildCopperMesh(tracks, circles = [], boardShapes = [], texts = []) {
         for (const t of tri.tris) {
             mesh.faces.push({ idx: [base + t[0], base + t[1], base + t[2]], color });
         }
+        appendFlatStroke(mesh, o, geometry.pathClosed, geometry.lineWidth, y, color);
     }
     for (const text of texts?.values?.() || texts || []) {
         if (text.layer !== 'top-copper' && text.layer !== 'bottom-copper') continue;
@@ -2343,6 +2349,8 @@ export function collectCopperSubtractHoles(boardShapes = []) {
         const outline = geometry.path;
         if (geometry.filled && outline.length >= 3) {
             holes.push({ ring: outline.map((point) => ({ x: point.x, z: point.y })), y });
+            holes.push(...strokeOutlineHoles(outline, geometry.pathClosed, geometry.lineWidth)
+                .map((hole) => ({ ...hole, y })));
         } else if (!geometry.filled && outline.length >= 2) {
             holes.push(...strokeOutlineHoles(outline, geometry.centerlineClosed, geometry.lineWidth)
                 .map((hole) => ({ ...hole, y })));
@@ -2392,7 +2400,10 @@ function collectMaskOpeningHoles(boardShapes = [], side = 'top') {
         if (!isMaskLayer && (geometry.copperMode !== 'remove-solder-mask' && geometry.copperMode !== 'remove-copper-mask')) continue;
         const ring = geometry.path;
         if (geometry.filled) {
-            if (ring.length >= 3) holes.push({ ring: ring.map((point) => ({ x: point.x, z: point.y })) });
+            if (ring.length >= 3) {
+                holes.push({ ring: ring.map((point) => ({ x: point.x, z: point.y })) });
+                holes.push(...strokeOutlineHoles(ring, geometry.pathClosed, geometry.lineWidth));
+            }
         } else if (ring.length >= 2) {
             holes.push(...strokeOutlineHoles(
                 ring,
@@ -2652,6 +2663,7 @@ function buildMaskOpeningMesh(boardShapes = []) {
         const base = mesh.verts.length;
         for (const point of tri.pts) mesh.verts.push({ x: point.x, y, z: point.y });
         for (const face of tri.tris) mesh.faces.push({ idx: [base + face[0], base + face[1], base + face[2]], color: COLOR_RAW_BOARD });
+        appendFlatStroke(mesh, outline, geometry.pathClosed, geometry.lineWidth, y, COLOR_RAW_BOARD);
     }
     return mesh;
 }
@@ -2784,7 +2796,7 @@ function buildSilkMesh(app) {
         const poly = geometry.pathClosed ? o.concat([o[0]]) : o;
         appendMesh(mesh, strokePolysToMesh(
             [poly],
-            geometry.filled ? 0.06 : geometry.lineWidth,
+            geometry.lineWidth,
             y,
             COLOR_SILK,
             (px, py) => ({ x: px, z: py }),
@@ -4205,7 +4217,24 @@ export async function openBoard3DViewer(app, opts = {}) {
                 continue;
             }
             const outlinePts = geometry.path;
-            if (!outlinePts || outlinePts.length < 3) continue;
+            if (!outlinePts || outlinePts.length < 2) continue;
+            if (!geometry.filled) {
+                for (let index = 1; index < outlinePts.length; index++) {
+                    const start = outlinePts[index - 1];
+                    const end = outlinePts[index];
+                    if (Math.hypot(end.x - start.x, end.y - start.y) <= 1e-9) continue;
+                    const ring = capsuleRing(start.x, start.y, end.x, end.y, geometry.lineWidth / 2)
+                        .map((point) => ({ x: point.x, z: point.y }));
+                    let cx = 0, cz = 0;
+                    for (const point of ring) { cx += point.x; cz += point.z; }
+                    cx /= ring.length; cz /= ring.length;
+                    let rad = 0;
+                    for (const point of ring) rad = Math.max(rad, Math.hypot(point.x - cx, point.z - cz));
+                    drilledHoles.push({ x: cx, z: cz, r: rad, ring, plated: !!s.plated, boardShape: true });
+                }
+                continue;
+            }
+            if (outlinePts.length < 3) continue;
             const ring = outlinePts.map((p) => ({ x: p.x, z: p.y }));
             let cx = 0, cz = 0;
             for (const p of ring) { cx += p.x; cz += p.z; }

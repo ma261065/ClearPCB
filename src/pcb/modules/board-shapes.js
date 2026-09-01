@@ -96,11 +96,14 @@ function trackMatchesSourceBoardShape(track) {
 function simpleTrackLinePoints(track) {
     if (!track || track.nodes.size < 2
         || track.edges.size !== track.nodes.size - 1 || track.padConnections.size) return null;
+    /** @type {Map<string, Array<{edgeId:string, nodeId:string}>>} */
     const adjacency = new Map([...track.nodes.keys()].map((nodeId) => [nodeId, []]));
     for (const [edgeId, edge] of track.edges) {
-        if (!adjacency.has(edge.from) || !adjacency.has(edge.to)) return null;
-        adjacency.get(edge.from).push({ edgeId, nodeId: edge.to });
-        adjacency.get(edge.to).push({ edgeId, nodeId: edge.from });
+        const fromEdges = adjacency.get(edge.from);
+        const toEdges = adjacency.get(edge.to);
+        if (!fromEdges || !toEdges) return null;
+        fromEdges.push({ edgeId, nodeId: edge.to });
+        toEdges.push({ edgeId, nodeId: edge.from });
     }
     const endpoints = [...adjacency].filter(([, edges]) => edges.length === 1).map(([nodeId]) => nodeId);
     if (endpoints.length !== 2 || [...adjacency.values()].some((edges) => edges.length < 1 || edges.length > 2)) return null;
@@ -200,6 +203,48 @@ function normAngle(a) {
     let v = a % (2 * Math.PI);
     if (v < 0) v += 2 * Math.PI;
     return v;
+}
+
+function arcChordFrame(start, end) {
+    const dx = end.x - start.x;
+    const dy = end.y - start.y;
+    const length = Math.hypot(dx, dy);
+    if (length < 1e-9) return null;
+    return {
+        midpoint: { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 },
+        normal: { x: -dy / length, y: dx / length },
+        length,
+    };
+}
+
+function projectArcBulge(start, end, point) {
+    const frame = arcChordFrame(start, end);
+    if (!frame) return { ...point };
+    const offset = (point.x - frame.midpoint.x) * frame.normal.x
+        + (point.y - frame.midpoint.y) * frame.normal.y;
+    const clamped = Math.max(-frame.length / 2, Math.min(frame.length / 2, offset));
+    return {
+        x: frame.midpoint.x + frame.normal.x * clamped,
+        y: frame.midpoint.y + frame.normal.y * clamped,
+    };
+}
+
+function arcBulgeRatio(shape) {
+    const frame = arcChordFrame(shape.start, shape.end);
+    if (!frame) return 0;
+    const offset = (shape.bulge.x - frame.midpoint.x) * frame.normal.x
+        + (shape.bulge.y - frame.midpoint.y) * frame.normal.y;
+    return Math.max(-0.5, Math.min(0.5, offset / frame.length));
+}
+
+function arcBulgeFromRatio(start, end, ratio) {
+    const frame = arcChordFrame(start, end);
+    if (!frame) return { ...start };
+    const offset = ratio * frame.length;
+    return {
+        x: frame.midpoint.x + frame.normal.x * offset,
+        y: frame.midpoint.y + frame.normal.y * offset,
+    };
 }
 
 /** Circumcircle-derived centre/radius for an arc, or null when collinear. */
@@ -398,6 +443,84 @@ function circleOutline(shape, segments = 48) {
     return points;
 }
 
+export function circleFilledRadius(shape) {
+    const radius = Math.max(0.05, Number(shape?.radius) || 0);
+    const halfWidth = Math.max(0.05, Number(shape?.lineWidth) || 0.2) / 2;
+    return radius + halfWidth;
+}
+
+function offsetClosedOutline(points, distance) {
+    if (!Array.isArray(points) || points.length < 3 || Math.abs(distance) < 1e-9) {
+        return (points || []).map((point) => ({ ...point }));
+    }
+    let area = 0;
+    for (let index = 0; index < points.length; index++) {
+        const current = points[index];
+        const next = points[(index + 1) % points.length];
+        area += current.x * next.y - next.x * current.y;
+    }
+    const orientation = area >= 0 ? 1 : -1;
+    const normals = points.map((point, index) => {
+        const next = points[(index + 1) % points.length];
+        const dx = next.x - point.x;
+        const dy = next.y - point.y;
+        const length = Math.hypot(dx, dy) || 1;
+        return { x: orientation * dy / length, y: orientation * -dx / length };
+    });
+    return points.map((point, index) => {
+        const previousNormal = normals[(index + points.length - 1) % points.length];
+        const nextNormal = normals[index];
+        const mx = previousNormal.x + nextNormal.x;
+        const my = previousNormal.y + nextNormal.y;
+        const magnitude = Math.hypot(mx, my);
+        if (magnitude < 1e-9) {
+            return { x: point.x + nextNormal.x * distance, y: point.y + nextNormal.y * distance };
+        }
+        const ux = mx / magnitude;
+        const uy = my / magnitude;
+        const denominator = ux * nextNormal.x + uy * nextNormal.y;
+        const scale = Math.abs(denominator) < 1e-9 ? distance : distance / denominator;
+        return { x: point.x + ux * scale, y: point.y + uy * scale };
+    });
+}
+
+function arcOutlineAtOffset(shape, offset) {
+    const geometry = arcGeom(shape);
+    if (!geometry) return [{ ...shape.start }, { ...shape.end }];
+    const { a1, dir, total } = arcSweep(shape, geometry);
+    const radius = Math.max(0.001, geometry.radius + offset);
+    const points = [];
+    for (let index = 0; index <= 48; index++) {
+        const angle = a1 + dir * total * (index / 48);
+        points.push({
+            x: geometry.cx + radius * Math.cos(angle),
+            y: geometry.cy + radius * Math.sin(angle),
+        });
+    }
+    return points;
+}
+
+function filledShapeOutline(shape, offset) {
+    if (shape.kind === 'arc') return arcOutlineAtOffset(shape, offset);
+    if (shape.kind === 'circle') return circleOutline({ ...shape, radius: Math.max(0.05, shape.radius + offset), filled: false });
+    if (shape.kind === 'rect') {
+        const bounds = rectBounds(shape);
+        if (!bounds) return [];
+        return roundedRectOutline({
+            ...shape,
+            points: [
+                { x: bounds.minX - offset, y: bounds.minY - offset },
+                { x: bounds.maxX + offset, y: bounds.minY - offset },
+                { x: bounds.maxX + offset, y: bounds.maxY + offset },
+                { x: bounds.minX - offset, y: bounds.maxY + offset },
+            ],
+            cornerRadius: Math.max(0, rectCornerRadius(shape) + offset),
+            filled: false,
+        });
+    }
+    return offsetClosedOutline(shape.points || [], offset);
+}
+
 /** Outline points used for fill hit-testing, copper cuts and bounds. */
 export function shapeOutline(shape) {
     if (shape.kind === 'arc') return arcSamples(shape);
@@ -480,13 +603,13 @@ export function shapePathD(shape, { close = false } = {}) {
         const { minX, maxX, minY, maxY } = bounds;
         return `M ${r4(minX + radius)} ${r4(minY)}`
             + ` L ${r4(maxX - radius)} ${r4(minY)}`
-            + ` Q ${r4(maxX)} ${r4(minY)} ${r4(maxX)} ${r4(minY + radius)}`
+            + ` A ${r4(radius)} ${r4(radius)} 0 0 1 ${r4(maxX)} ${r4(minY + radius)}`
             + ` L ${r4(maxX)} ${r4(maxY - radius)}`
-            + ` Q ${r4(maxX)} ${r4(maxY)} ${r4(maxX - radius)} ${r4(maxY)}`
+            + ` A ${r4(radius)} ${r4(radius)} 0 0 1 ${r4(maxX - radius)} ${r4(maxY)}`
             + ` L ${r4(minX + radius)} ${r4(maxY)}`
-            + ` Q ${r4(minX)} ${r4(maxY)} ${r4(minX)} ${r4(maxY - radius)}`
+            + ` A ${r4(radius)} ${r4(radius)} 0 0 1 ${r4(minX)} ${r4(maxY - radius)}`
             + ` L ${r4(minX)} ${r4(minY + radius)}`
-            + ` Q ${r4(minX)} ${r4(minY)} ${r4(minX + radius)} ${r4(minY)} Z`;
+            + ` A ${r4(radius)} ${r4(radius)} 0 0 1 ${r4(minX + radius)} ${r4(minY)} Z`;
     }
     const pts = shape.points || [];
     if (!pts.length) return '';
@@ -589,15 +712,9 @@ function shapeStyle(shape) {
     const isCopperKnockout = isCopperRemoveOnly || isCopperRemoveMask;
     const layerColor = shapeLayerColor(shape);
     const copperColor = layerColor;
-    const filled = shape.kind === 'line'
-        ? false
-        : isHoleLayer
-        ? true
-        : isCopperLayer
-            ? (isCopperRemoval || (isCopperAdd && !!shape.filled))
-            : (!!shape.filled || isMaskLayer || isDocumentLayer);
+    const filled = shapeIsFilled(shape);
     const fillColor = isHoleLayer ? 'var(--bg-canvas, #000000)' : layerColor;
-    const fillOpacity = isHoleLayer || isDocumentLayer ? '1' : isCopperAdd ? '0.9' : '0.18';
+    const fillOpacity = '1';
     const baseStroke = isCopperRemoval ? (REMOVAL_COLORS[copperMode] || CUT_RING) : layerColor;
     const strokeWidth = isHoleLayer
         ? HOLE_BORDER_WIDTH
@@ -616,30 +733,49 @@ export function shapeIsFilled(shape) {
     if (layer === 'hole') return true;
     const isCopperLayer = layer === 'top-copper' || layer === 'bottom-copper';
     if (isCopperLayer) {
-        const m = normalizeShapeCopperMode(shape.copperMode);
-        if (m !== 'add') return true;
-        if (m === 'add') return !!shape.filled;
+        return !!shape.filled;
     }
     return !!shape.filled || isMaskOrDocLayer(layer);
+}
+
+/** Minimum manufacturable outline/slot width for a board shape. */
+export function boardShapeLineWidthMinimum(shape) {
+    return shape?.kind === 'line' && shape?.layer === 'hole' ? 0.8 : 0.05;
+}
+
+function normalizedBoardShapeLineWidth(shape, value) {
+    const minimum = boardShapeLineWidthMinimum(shape);
+    return Math.max(minimum, Number(value) || Math.max(0.2, minimum));
 }
 
 /**
  * Resolve a board shape into the common geometry contract consumed by the
  * 2D/3D previews, Gerber exporter, and copper-fill engine.
  */
-export function resolveBoardShapeGeometry(shape) {
+export function resolveBoardShapeGeometry(shape, options = {}) {
     const lineWidth = Math.max(0.05, Number(shape?.lineWidth) || 0.2);
-    const filled = shapeIsFilled(shape);
-    const centerline = shapeOutline(shape);
+    const filled = options.filled ?? shapeIsFilled(shape);
+    const centerlineShape = { ...shape, filled: false };
+    const centerline = shape?.kind === 'arc'
+        ? arcSamples(shape)
+        : shape?.kind === 'circle'
+            ? circleOutline(centerlineShape)
+            : shape?.kind === 'rect'
+                ? roundedRectOutline(centerlineShape)
+                : (shape?.points || []).map((point) => ({ ...point }));
     const centerlineClosed = shape?.kind === 'rect' || shape?.kind === 'polygon';
     const radius = Math.max(0.05, Number(shape?.radius) || 0);
+    const areaOutline = filled && shape?.kind !== 'line'
+        ? centerline.map((point) => ({ ...point }))
+        : null;
     return {
         path: shape?.kind === 'circle' ? [] : centerline,
         pathClosed: filled || centerlineClosed,
         centerline,
         centerlineClosed,
+        areaOutline,
         circle: shape?.kind === 'circle'
-            ? { x: shape.x, y: shape.y, radius, outerRadius: radius }
+            ? { x: shape.x, y: shape.y, radius, outerRadius: filled ? radius + lineWidth / 2 : radius }
             : null,
         filled,
         lineWidth,
@@ -655,22 +791,24 @@ export function renderBoardShape(app, shape, opts = {}) {
     const isSelected = isPcbSelected(app, 'shape', shape);
     const isHovered = !!(app._hoveredShape && app._hoveredShape.id === shape.id);
     const st = shapeStyle(shape);
-    const hideFilledBorder = (shape.kind === 'rect' || shape.kind === 'circle')
-        && st.filled && !st.isHoleLayer;
     el.setAttribute('d', shapePathD(shape, { close: st.filled }));
     const canvasHatch = st.isCopperRemoval && st.filled;
     el.setAttribute('fill', st.filled
-        ? (canvasHatch ? 'none' : st.isCopperRemoval ? app._ensureCopperRemovalHatch?.(shape.copperMode) || st.fillColor : st.fillColor)
+        ? (canvasHatch
+            ? 'none'
+            : st.isCopperRemoval
+                ? app._ensureCopperRemovalHatch?.(shape.copperMode) || st.fillColor
+                : isSelected
+                    ? shapeSelectionColor(shape)
+                    : isHovered ? shapeHoverColor(shape) : st.fillColor)
         : 'none');
     if (st.filled) el.setAttribute('fill-opacity', st.isCopperRemoval ? '1' : st.fillOpacity);
-    el.setAttribute('stroke', hideFilledBorder
-        ? 'none'
-        : isSelected ? shapeSelectionColor(shape) : isHovered ? shapeHoverColor(shape) : st.baseStroke);
-    el.setAttribute('stroke-width', String(hideFilledBorder ? 0 : st.isHoleLayer ? st.strokeWidth : st.filled ? 0.06 : st.strokeWidth));
+    el.setAttribute('stroke', isSelected ? shapeSelectionColor(shape) : isHovered ? shapeHoverColor(shape) : st.baseStroke);
+    el.setAttribute('stroke-width', String(st.strokeWidth));
     el.setAttribute('stroke-linejoin', 'round');
     el.setAttribute('stroke-linecap', 'round');
     if (st.isCopperKnockout && !isSelected && !st.filled) el.setAttribute('stroke-dasharray', '0.6 0.45');
-    el.dataset.boardShapeLayer = shape.layer || '';
+    el.setAttribute('data-board-shape-layer', shape.layer || '');
     app._getLayerGroup(st.targetLayer)?.appendChild(el);
     app._shapeElements.set(shape.id, el);
     if (!opts.liveDrag || st.isCopperRemoval) app._scheduleRemovalHatchRender?.();
@@ -797,7 +935,7 @@ export function getBoardShapeAnchors(shape) {
 /** Move one anchor through the existing geometry and rendering path. */
 export function moveBoardShapeAnchor(app, shape, anchorId, worldPos) {
     const before = cloneShapeGeometry(shape);
-    applyVertexResize(shape, { before, handle: anchorId }, app._snapToGrid(worldPos));
+    applyBoardShapeVertexResize(shape, { before, handle: anchorId }, app._snapToGrid(worldPos));
     renderBoardShape(app, shape, { liveDrag: true });
 }
 
@@ -863,12 +1001,17 @@ export function hitTestBoardShapeVertex(app, shape, worldPos) {
     return bestKey;
 }
 
-/** Apply a live vertex/anchor drag to a shape's geometry, keeping rects rectangular. */
-function applyVertexResize(shape, drag, snap) {
+/** Apply a live vertex/anchor drag to a shape's geometry, keeping shape invariants. */
+export function applyBoardShapeVertexResize(shape, drag, snap) {
     if (shape.kind === 'arc') {
-        if (drag.handle === 'start') shape.start = { x: snap.x, y: snap.y };
-        else if (drag.handle === 'end') shape.end = { x: snap.x, y: snap.y };
-        else shape.bulge = { x: snap.x, y: snap.y };
+        if (drag.handle === 'start' || drag.handle === 'end') {
+            const ratio = arcBulgeRatio(drag.before || shape);
+            if (drag.handle === 'start') shape.start = { x: snap.x, y: snap.y };
+            else shape.end = { x: snap.x, y: snap.y };
+            shape.bulge = arcBulgeFromRatio(shape.start, shape.end, ratio);
+        } else {
+            shape.bulge = projectArcBulge(shape.start, shape.end, snap);
+        }
         return;
     }
     if (shape.kind === 'circle') {
@@ -1140,7 +1283,7 @@ export function handleBoardShapeDrag(app, worldPos) {
         const snap = ['line', 'polygon'].includes(s.kind) && typeof d.handle === 'number'
             ? polygonVertexSnap(app, d.before, d.handle, worldPos, d.beforeState.kind !== 'line')
             : app._snapToGrid(worldPos);
-        applyVertexResize(s, d, snap);
+        applyBoardShapeVertexResize(s, d, snap);
         if (s.kind === 'polygon') normalizeBoardPolylineKind(s);
         else if (s.kind === 'line') closeBoardLineIfCoincident(s, d.handle);
         if (s.kind === 'line') {
@@ -1335,9 +1478,9 @@ export function resolveShapeDrawLayer(app, layerId) {
 function makePreview(app) {
     const preview = document.createElementNS(NS, 'path');
     preview.setAttribute('class', 'pcb-shape-preview');
-    preview.setAttribute('stroke', '#66b3ff');
-    preview.setAttribute('stroke-width', '0.2');
-    preview.setAttribute('stroke-dasharray', '2 2');
+    preview.setAttribute('stroke', 'var(--sch-symbol-outline, #ffffff)');
+    preview.setAttribute('stroke-width', '1');
+    preview.setAttribute('opacity', '0.6');
     preview.setAttribute('vector-effect', 'non-scaling-stroke');
     preview.setAttribute('stroke-linejoin', 'round');
     app._getLayerGroup('selection-overlay')?.appendChild(preview);
@@ -1402,7 +1545,8 @@ export function updateShapeDrawPreview(app, worldPos) {
         if (d.points.length === 1) {
             dstr = `M ${d.points[0].x} ${d.points[0].y} L ${p.x} ${p.y}`;
         } else {
-            dstr = shapePathD({ kind: 'arc', start: d.points[0], end: d.points[1], bulge: p });
+            const bulge = projectArcBulge(d.points[0], d.points[1], p);
+            dstr = shapePathD({ kind: 'arc', start: d.points[0], end: d.points[1], bulge });
         }
     } else if (d.kind === 'polygon') {
         const pts = [...d.points, p];
@@ -1440,6 +1584,24 @@ export function finishLineDraw(app) {
     if (app._shapeDraw && app._shapeDraw.kind === 'line') finishShapeDraw(app);
 }
 
+/** Commit the cursor position as the final point and finish the active shape. */
+export function finishShapeDrawAtPoint(app, worldPos) {
+    const draw = app._shapeDraw;
+    if (!draw || !worldPos) return false;
+    const point = app._snapToGrid(worldPos);
+    if (draw.kind === 'line' || draw.kind === 'polygon') {
+        draw.points.push({ x: point.x, y: point.y });
+    } else if ((draw.kind === 'rect' || draw.kind === 'circle') && draw.points.length === 1) {
+        draw.points.push({ x: point.x, y: point.y });
+    } else if (draw.kind === 'arc' && draw.points.length === 2) {
+        draw.points.push({ x: point.x, y: point.y });
+    } else {
+        return false;
+    }
+    finishShapeDraw(app);
+    return true;
+}
+
 /** Commit the in-progress draw into a board shape. */
 export function finishShapeDraw(app) {
     const d = app._shapeDraw;
@@ -1453,7 +1615,10 @@ export function finishShapeDraw(app) {
         id: `pshape_${app._shapeIdCounter++}`,
         kind: d.kind,
         layer,
-        lineWidth: app._shapeDefaults?.lineWidth ?? 0.2,
+        lineWidth: normalizedBoardShapeLineWidth(
+            { kind: d.kind, layer },
+            app._shapeDefaults?.lineWidth,
+        ),
         filled: d.kind === 'line' ? false : alwaysFilled || !!app._shapeDefaults?.filled,
         copperMode: normalizeShapeCopperMode(app._shapeDefaults?.copperMode),
         plated: layer === 'hole' && !!app._shapeDefaults?.plated,
@@ -1491,14 +1656,14 @@ export function finishShapeDraw(app) {
         const [s, e, b] = d.points;
         if (!s || !e || !b) return;
         if (Math.hypot(e.x - s.x, e.y - s.y) < 0.05) return;
-        shape = { ...base, filled: false, start: { ...s }, end: { ...e }, bulge: { ...b } };
+        shape = { ...base, filled: false, start: { ...s }, end: { ...e }, bulge: projectArcBulge(s, e, b) };
     } else if (d.kind === 'polygon') {
         const pts = dedupePoints(d.points);
         if (pts.length < 3) return;
         shape = { ...base, points: pts };
     }
     if (!shape) return;
-    if (canConvertBoardLineToTrack(shape)) {
+    if ('points' in shape && canConvertBoardLineToTrack(shape)) {
         // A named copper Line is routing intent, so enter the Track model
         // directly instead of creating a transient generic shape first.
         const track = new Track({
@@ -1582,7 +1747,7 @@ function shapeSnapshot(shape) {
  * Show Properties-tab controls for the active board-shape tool. These edit
  * creation defaults (and an unfinished draw), rather than a saved shape.
  * @param {object} app
- * @param {'rect'|'polygon'|'arc'} kind
+ * @param {'line'|'circle'|'rect'|'polygon'|'arc'} kind
  */
 export function showBoardShapeToolProperties(app, kind) {
         const items = app._pcbPropsItems?.();
@@ -1597,7 +1762,12 @@ export function showBoardShapeToolProperties(app, kind) {
         const initialNet = String(defaults.net || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;');
         const toolNetOptions = netOptions(app, defaults.net);
         const showFill = currentLayer !== 'hole' && kind !== 'line';
-        const showLineWidth = currentLayer !== 'hole';
+        const showLineWidth = currentLayer !== 'hole' || kind === 'line';
+        const lineWidthMinimum = boardShapeLineWidthMinimum({ kind, layer: currentLayer });
+        const toolLineWidth = normalizedBoardShapeLineWidth(
+            { kind, layer: currentLayer },
+            defaults.lineWidth,
+        );
 
         app._setPcbPropsTitle?.(`New ${shapeKindLabel(kind)}`);
         items.innerHTML = `
@@ -1607,7 +1777,7 @@ export function showBoardShapeToolProperties(app, kind) {
             <div class="prop-row" id="pcbToolShapeCopperModeRow"><label>Copper Mode</label><select id="pcbToolShapeCopperMode"><option value="add"${initialCopperMode === 'add' ? ' selected' : ''}>Add Copper</option><option value="remove-copper"${initialCopperMode === 'remove-copper' ? ' selected' : ''}>Remove Copper</option><option value="remove-solder-mask"${initialCopperMode === 'remove-solder-mask' ? ' selected' : ''}>Remove Solder Mask</option><option value="remove-copper-mask"${initialCopperMode === 'remove-copper-mask' ? ' selected' : ''}>Remove Copper + Mask</option></select></div>
             <div class="prop-row" id="pcbToolShapeNetRow"><label>Net</label><span class="prop-net-control"><input type="text" id="pcbToolShapeNet" value="${initialNet}" placeholder="None"><details class="prop-net-menu"><summary aria-label="Select existing net"></summary><div>${toolNetOptions}</div></details></span></div>
             ${kind === 'rect' ? `<div class="prop-row"><label>Corner Radius (mm)</label><input type="number" id="pcbToolShapeCornerRadius" min="0" step="0.05" value="${Math.max(0, Number(defaults.cornerRadius) || 0).toFixed(2)}"></div>` : ''}
-            ${showLineWidth ? `<div class="prop-row" id="pcbToolShapeLineWidthRow"><label>Line Thickness (mm)</label><input type="number" id="pcbToolShapeLineWidth" min="0.05" step="0.05" value="${Math.max(0.05, Number(defaults.lineWidth) || 0.2).toFixed(2)}"></div>` : ''}
+            ${showLineWidth ? `<div class="prop-row" id="pcbToolShapeLineWidthRow"><label>Line Thickness (mm)</label><input type="number" id="pcbToolShapeLineWidth" min="${lineWidthMinimum}" step="0.05" value="${toolLineWidth.toFixed(2)}"></div>` : ''}
         `;
 
         const lineEl = /** @type {HTMLInputElement|null} */ (items.querySelector('#pcbToolShapeLineWidth'));
@@ -1631,7 +1801,11 @@ export function showBoardShapeToolProperties(app, kind) {
         };
 
         lineEl?.addEventListener('input', () => {
-            defaults.lineWidth = Math.max(0.05, Number(lineEl.value) || 0.2);
+            defaults.lineWidth = normalizedBoardShapeLineWidth(
+                { kind, layer: layerEl?.value || currentLayer },
+                lineEl.value,
+            );
+            if (Number(lineEl.value) < defaults.lineWidth) lineEl.value = defaults.lineWidth.toFixed(2);
             updateShapeDrawPreview(app, app._lastCrosshairWorld || app._shapeDraw?.points.at(-1));
         });
         cornerRadiusEl?.addEventListener('input', () => {
@@ -1651,7 +1825,7 @@ export function showBoardShapeToolProperties(app, kind) {
         });
         netMenuEl?.addEventListener('click', (event) => {
             const option = /** @type {HTMLButtonElement|null} */ (event.target instanceof Element ? event.target.closest('button[data-net]') : null);
-            if (!option) return;
+            if (!option || !netEl) return;
             netEl.value = option.dataset.net || '';
             netEl.dispatchEvent(new Event('change'));
             netMenuEl.open = false;
@@ -1706,9 +1880,10 @@ export function showBoardShapeProperties(app, shape) {
     const initialTargets = propertyTargets();
     const mixedKind = initialTargets.some((target) => target.kind !== initialTargets[0].kind);
     app._setPcbPropsTitle?.(mixedKind ? 'Mixed' : shapeKindLabel(initialTargets[0].kind));
-    const initialLineWidth = Number(initialTargets[0].lineWidth) || 0.2;
+    const lineWidthMinimum = Math.max(...initialTargets.map((target) => boardShapeLineWidthMinimum(target)));
+    const initialLineWidth = normalizedBoardShapeLineWidth(initialTargets[0], initialTargets[0].lineWidth);
     const mixedLineWidth = initialTargets.some(
-        (target) => Math.abs((Number(target.lineWidth) || 0.2) - initialLineWidth) >= 1e-9,
+        (target) => Math.abs(normalizedBoardShapeLineWidth(target, target.lineWidth) - initialLineWidth) >= 1e-9,
     );
     const mixedFill = initialTargets.some((target) => !!target.filled !== !!initialTargets[0].filled);
     const allRectTargets = initialTargets.every((target) => target.kind === 'rect');
@@ -1721,7 +1896,9 @@ export function showBoardShapeProperties(app, shape) {
     const mixedLayer = initialTargets.some((target) => String(target.layer || 'top-silk') !== currentLayer);
     const holeTargets = initialTargets.filter((target) => target.layer === 'hole');
     const showFill = initialTargets.every((target) => target.layer !== 'hole' && target.kind !== 'line');
-    const showLineWidth = initialTargets.every((target) => target.layer !== 'hole');
+    const showLineWidth = initialTargets.every(
+        (target) => target.layer !== 'hole' || target.kind === 'line',
+    );
     const showPlated = initialTargets.every((target) => target.layer === 'hole');
     const mixedPlated = holeTargets.some((target) => !!target.plated !== !!holeTargets[0]?.plated);
     const legacyCurrentOpt = !mixedLayer && PROP_HIDDEN_LAYERS.has(currentLayer)
@@ -1751,7 +1928,7 @@ export function showBoardShapeProperties(app, shape) {
         ${showCopperMode ? `<div class="prop-row" id="pcbPropShapeCopperModeRow"><label>Copper Mode</label><select id="pcbPropShapeCopperMode">${mixedCopperMode ? '<option value="" selected disabled>Mixed</option>' : ''}<option value="add"${!mixedCopperMode && initialCopperMode === 'add' ? ' selected' : ''}>Add Copper</option><option value="remove-copper"${!mixedCopperMode && initialCopperMode === 'remove-copper' ? ' selected' : ''}>Remove Copper</option><option value="remove-solder-mask"${!mixedCopperMode && initialCopperMode === 'remove-solder-mask' ? ' selected' : ''}>Remove Solder Mask</option><option value="remove-copper-mask"${!mixedCopperMode && initialCopperMode === 'remove-copper-mask' ? ' selected' : ''}>Remove Copper + Mask</option></select></div>` : ''}
         ${showNet ? `<div class="prop-row"><label>Net</label><span class="prop-net-control"><input type="text" id="pcbPropShapeNet" value="${mixedNet ? '' : initialNet.replace(/&/g, '&amp;').replace(/"/g, '&quot;')}" placeholder="${mixedNet ? 'Mixed' : 'None'}"><details class="prop-net-menu"><summary aria-label="Select existing net"></summary><div>${shapeNetOptions}</div></details></span></div>` : ''}
         ${allRectTargets ? `<div class="prop-row"><label>Corner Radius (mm)</label><input type="number" id="pcbPropShapeCornerRadius" min="0" step="0.05" value="${mixedCornerRadius ? '' : initialCornerRadius.toFixed(2)}"${mixedCornerRadius ? ' placeholder="Mixed"' : ''}></div>` : ''}
-        ${showLineWidth ? `<div class="prop-row" id="pcbPropShapeLineWidthRow"><label>Line Thickness (mm)</label><input type="number" id="pcbPropShapeLineWidth" min="0.05" step="0.05" value="${mixedLineWidth ? '' : initialLineWidth.toFixed(2)}"${mixedLineWidth ? ' placeholder="Mixed"' : ''}></div>` : ''}
+        ${showLineWidth ? `<div class="prop-row" id="pcbPropShapeLineWidthRow"><label>Line Thickness (mm)</label><input type="number" id="pcbPropShapeLineWidth" min="${lineWidthMinimum}" step="0.05" value="${mixedLineWidth ? '' : initialLineWidth.toFixed(2)}"${mixedLineWidth ? ' placeholder="Mixed"' : ''}></div>` : ''}
     `;
 
     const commit = (mutate) => {
@@ -1852,8 +2029,10 @@ export function showBoardShapeProperties(app, shape) {
 
     const previewLineWidth = () => {
         if (!lineEl || !Number.isFinite(lineEl.valueAsNumber)) return;
-        const v = Math.max(0.05, lineEl.valueAsNumber);
         const targets = propertyTargets();
+        const minimum = Math.max(...targets.map((target) => boardShapeLineWidthMinimum(target)));
+        const v = Math.max(minimum, lineEl.valueAsNumber);
+        if (lineEl.valueAsNumber < v) lineEl.value = v.toFixed(2);
         if (targets.every((target) => Math.abs(v - (Number(target.lineWidth) || 0.2)) < 1e-9)) return;
         lineWidthBefore ||= targets.map((target) => ({ target, state: shapeSnapshot(target) }));
         for (const target of targets) {
@@ -1911,7 +2090,10 @@ export function showBoardShapeProperties(app, shape) {
             syncCopperModeAvailability();
             return;
         }
-        commit((target) => { target.layer = next; });
+        commit((target) => {
+            target.layer = next;
+            target.lineWidth = normalizedBoardShapeLineWidth(target, target.lineWidth);
+        });
         syncCopperModeAvailability();
         showBoardShapeProperties(app, shape);
     });
@@ -1936,7 +2118,7 @@ export function showBoardShapeProperties(app, shape) {
     });
     netMenuEl?.addEventListener('click', (event) => {
         const option = /** @type {HTMLButtonElement|null} */ (event.target instanceof Element ? event.target.closest('button[data-net]') : null);
-        if (!option) return;
+        if (!option || !netEl) return;
         netEl.value = option.dataset.net || '';
         netEl.dispatchEvent(new Event('change'));
         netMenuEl.open = false;
@@ -1964,6 +2146,12 @@ export function refreshBoardShapeProperties(app, shape) {
 export function boardShapeCopperCuts(app, copperLayer) {
     let d = '';
     let count = 0;
+    const appendLoop = (points) => {
+        if (points.length < 3) return;
+        d += ` M ${r4(points[0].x)} ${r4(points[0].y)}`;
+        for (let index = 1; index < points.length; index++) d += ` L ${r4(points[index].x)} ${r4(points[index].y)}`;
+        d += ' Z';
+    };
     for (const s of (app.boardShapes || [])) {
         if (!s) continue;
         // A hole-layer shape is a board cutout — it removes copper on both
@@ -1977,11 +2165,29 @@ export function boardShapeCopperCuts(app, copperLayer) {
         } else {
             continue;
         }
-        const outline = shapeOutline(s);
-        if (outline.length < 3) continue;
-        d += ` M ${r4(outline[0].x)} ${r4(outline[0].y)}`;
-        for (let i = 1; i < outline.length; i++) d += ` L ${r4(outline[i].x)} ${r4(outline[i].y)}`;
-        d += ' Z';
+        const geometry = resolveBoardShapeGeometry(s);
+        if (geometry.filled) {
+            const outline = geometry.circle
+                ? circleOutline({ ...s, radius: geometry.circle.outerRadius, filled: false })
+                : geometry.areaOutline || [];
+            if (outline.length < 3) continue;
+            appendLoop(outline);
+        } else if (s.kind === 'circle') {
+            const halfWidth = geometry.lineWidth / 2;
+            appendLoop(circleOutline({ ...s, radius: s.radius + halfWidth, filled: false }));
+            appendLoop(circleOutline({ ...s, radius: Math.max(0.001, s.radius - halfWidth), filled: false }).reverse());
+        } else if (s.kind === 'arc') {
+            const halfWidth = geometry.lineWidth / 2;
+            appendLoop([
+                ...arcOutlineAtOffset(s, halfWidth),
+                ...arcOutlineAtOffset(s, -halfWidth).reverse(),
+            ]);
+        } else if (geometry.centerlineClosed) {
+            appendLoop(filledShapeOutline(s, geometry.lineWidth / 2));
+            appendLoop(filledShapeOutline(s, -geometry.lineWidth / 2).reverse());
+        } else {
+            continue;
+        }
         count++;
     }
     return { count, d };
