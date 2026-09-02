@@ -47,25 +47,30 @@ export function joinableAnchors(shape) {
     }
     // Polyline: real graph nodes only (skip the 'copy'/midpoint handles).
     return shape.getAnchors()
-        .filter(a => !a.midpoint)
+        .filter(a => !a.midpoint && shape.degree(a.id) === 1)
         .map(a => ({ id: a.id, x: a.x, y: a.y }));
 }
 
 /**
- * Find the joinable endpoint of any *other* shape nearest to `worldPos`,
- * within `tolerance`. Used to drive the snap highlight and the merge on drop.
+ * Find the nearest joinable endpoint to `worldPos`, including the opposite
+ * endpoint of the dragged open polyline. Used to drive snap and merge on drop.
  * Pure (takes the shapes array directly) so it is reusable by any editor.
  * @param {Array<any>} shapes All shapes to consider.
  * @param {{x:number,y:number}} worldPos Probe position (the dragged anchor).
  * @param {number} tolerance Max snap distance in world units.
- * @param {any} dragShape The shape being dragged (excluded from targets).
+ * @param {any} dragShape The shape being dragged.
+ * @param {string|null} dragAnchorId The dragged endpoint, for self-join exclusion.
  * @returns {{shape:any, anchorId:string, x:number, y:number, dist:number}|null}
  */
-export function findJoinTarget(shapes, worldPos, tolerance, dragShape) {
+export function findJoinTarget(shapes, worldPos, tolerance, dragShape, dragAnchorId = null) {
     let best = null;
     for (const shape of shapes) {
-        if (shape === dragShape || !isJoinable(shape)) continue;
+        if (!isJoinable(shape)) continue;
+        const selfJoin = shape === dragShape;
+        if (selfJoin && (shape.type !== 'polyline'
+            || !dragAnchorId || shape.degree(dragAnchorId) !== 1)) continue;
         for (const a of joinableAnchors(shape)) {
+            if (selfJoin && a.id === dragAnchorId) continue;
             const d = Math.hypot(a.x - worldPos.x, a.y - worldPos.y);
             if (d <= tolerance && (!best || d < best.dist)) {
                 best = { shape, anchorId: a.id, x: a.x, y: a.y, dist: d };
@@ -121,6 +126,9 @@ function detectAndMarkClosed(poly) {
         if (poly.degree(nid) !== 2) return;
     }
     poly.closed = true;
+    if (typeof poly.isAxisAlignedRect === 'function' && poly.isAxisAlignedRect()) {
+        poly.isRect = true;
+    }
 }
 
 /**

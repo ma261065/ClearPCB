@@ -19,6 +19,7 @@ const {
     updatePolylineSegmentDrag,
 } = await import('./src/schematic/modules/polyline-segment-drag.js');
 const { clearShapeSegmentSelection } = await import('./src/schematic/modules/shape-management.js');
+const { idleState } = await import('./src/schematic/modules/draw-states.js');
 
 let failures = 0;
 function expect(name, condition) {
@@ -62,7 +63,7 @@ function appFor(shape) {
 
 const cases = [
     ['line', createLine({ points: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 20, y: 0 }] })],
-    ['rectangle', createRect({ x: 0, y: 0, width: 10, height: 10 })],
+    ['rectangle', createRect({ x: 0, y: 0, width: 10, height: 10, cornerRadius: 2 })],
     ['polygon', createPolygon({ points: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 5, y: 10 }] })],
 ];
 
@@ -103,7 +104,17 @@ for (const [name, shape] of cases) {
         || (shape.nodes.get(untouchedNodeId).x === untouchedBefore.x
             && shape.nodes.get(untouchedNodeId).y === untouchedBefore.y));
     expect(`${name} segment remains refined after movement`, app._selectedShapeSegment?.edgeId === edgeId);
-    if (name === 'rectangle') expect('rectangle segment movement converts it to a polygon', !shape.isRect);
+    if (name === 'rectangle') expect('rectangle segment movement preserves its corner radius',
+        shape.isRect && shape.cornerRadius === 2);
+}
+
+{
+    const shape = createRect({ x: 0, y: 0, width: 10, height: 10, cornerRadius: 2 });
+    const app = appFor(shape);
+    app.selection.select(shape);
+    tryBeginPolylineSegmentDrag(app, shape, { x: 3, y: 0 }, true, 0.1);
+    updatePolylineSegmentDrag(app, { x: 4, y: 2 });
+    expect('skewing a rectangle segment converts it to a polygon', !shape.isRect);
 }
 
 {
@@ -124,6 +135,36 @@ for (const [name, shape] of cases) {
     expect('schematic clone preserves segment width overrides',
         clone.getEdgeAttr(selectedEdgeId, 'width') === 0.6
         && clone.getEdgeAttr(otherEdgeId, 'width') === 0.2);
+}
+
+{
+    const shape = createRect({ x: 0, y: 0, width: 10, height: 10, cornerRadius: 0 });
+    const [selectedNodeId, otherNodeId] = [...shape.nodes.keys()];
+    shape.setNodeCornerRadius(selectedNodeId, 2);
+    expect('schematic node radius changes only the selected node',
+        shape.nodeCornerRadius(selectedNodeId) === 2
+        && shape.nodeCornerRadius(otherNodeId) === 0);
+    const state = shape.captureState();
+    shape.setNodeCornerRadius(selectedNodeId, 3);
+    shape.applyState(state);
+    expect('schematic node radius survives undo snapshots', shape.nodeCornerRadius(selectedNodeId) === 2);
+    expect('schematic clone preserves node radius', shape.clone().nodeCornerRadius(selectedNodeId) === 2);
+    expect('schematic node radius is serialized by stable node id', shape.toJSON().ncr?.[selectedNodeId] === 2);
+}
+
+{
+    const shape = createRect({ x: 0, y: 0, width: 10, height: 10 });
+    const app = appFor(shape);
+    app.selection.select(shape);
+    const nodeId = shape.nodes.keys().next().value;
+    const pending = { shape, anchorId: nodeId, screenPos: { x: 0, y: 0 }, snapped: { x: 0, y: 0 } };
+    app.pendingAnchorDrag = pending;
+    app.renderShapes = () => {};
+    app._updatePropertiesPanel = () => {};
+    idleState.click(app, { preventDefault() {} }, { worldPos: shape.nodes.get(nodeId) });
+    expect('schematic Node properties preserve pending click-release movement',
+        app.pendingAnchorDrag === pending
+        && app._selectedShapeNode?.nodeId === nodeId);
 }
 
 {

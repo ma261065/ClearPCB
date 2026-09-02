@@ -32,6 +32,11 @@ function manager(app) {
                     }
                     app._setPcbStatus?.();
                 }
+                const node = app._selectedBoardShapeNode;
+                const nodeStillSelected = node && selected.some(
+                    (item) => item.kind === 'shape' && item.object?.id === node.shapeId,
+                );
+                if (node && !nodeStillSelected) app._selectedBoardShapeNode = null;
             },
         });
     }

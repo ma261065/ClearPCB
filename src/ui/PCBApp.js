@@ -347,6 +347,8 @@ export default class PCBApp {
         this._shapeElements = new Map();
         /** Board shape currently hovered in select mode, or null. */
         this._hoveredShape = null;
+        /** Refined board-shape node selection for per-corner properties. */
+        this._selectedBoardShapeNode = null;
         /** Currently selected board shape, or null. */
         /** Active in-progress board-shape draw interaction, or null. */
         this._shapeDraw = null;
@@ -485,7 +487,8 @@ export default class PCBApp {
         const showSegmentTip = rawTool === 'select'
             && selectedShape.length === 1
             && ['line', 'rect', 'polygon'].includes(selectedShape[0]?.kind)
-            && this._selectedBoardShapeSegment?.shapeId !== selectedShape[0]?.id;
+            && this._selectedBoardShapeSegment?.shapeId !== selectedShape[0]?.id
+            && this._selectedBoardShapeNode?.shapeId !== selectedShape[0]?.id;
         const showHoleTip = rawTool === 'circle' && this.activeLayer === 'hole';
         if (this.status.tipStatus) {
             this.status.tipStatus.hidden = !showHoleTip && !showSegmentTip;
@@ -3197,7 +3200,7 @@ export default class PCBApp {
                     </div>
                     <div style="flex:1">
                         <label style="font-size:11px;color:var(--text-secondary)">Corner R (mm)</label>
-                        <input class="app-modal-input" id="boardDlgRadius" type="number" value="${this._boardRadius}" min="0" step="0.5" style="margin-top:2px">
+                        <input class="app-modal-input" id="boardDlgRadius" type="number" value="${Number(this._boardRadius).toFixed(2)}" min="0" step="0.5" style="margin-top:2px">
                     </div>
                 </div>
                 <div class="app-modal-actions">
@@ -3210,6 +3213,12 @@ export default class PCBApp {
         const heightInput = /** @type {HTMLInputElement} */ (overlay.querySelector('#boardDlgHeight'));
         const radiusInput = /** @type {HTMLInputElement} */ (overlay.querySelector('#boardDlgRadius'));
         const okBtn = overlay.querySelector('#boardDlgOk');
+
+        radiusInput?.addEventListener('input', () => {
+            if (Number.isFinite(radiusInput.valueAsNumber)) {
+                radiusInput.value = Math.max(0, radiusInput.valueAsNumber).toFixed(2);
+            }
+        });
 
         setTimeout(() => widthInput?.focus(), 50);
 
@@ -3566,7 +3575,7 @@ export default class PCBApp {
         items.innerHTML = `
             <div class="prop-row"><label>Width (mm)</label><input type="number" id="pcbPropBoardW" value="${this._boardWidth}" min="5" step="1"></div>
             <div class="prop-row"><label>Height (mm)</label><input type="number" id="pcbPropBoardH" value="${this._boardHeight}" min="5" step="1"></div>
-            <div class="prop-row"><label>Corner R (mm)</label><input type="number" id="pcbPropBoardR" value="${this._boardRadius}" min="0" step="0.5"></div>
+            <div class="prop-row"><label>Corner R (mm)</label><input type="number" id="pcbPropBoardR" value="${Number(this._boardRadius).toFixed(2)}" min="0" step="0.5"></div>
         `;
 
         // Live editing: apply changes immediately for visual feedback, but
@@ -3588,6 +3597,7 @@ export default class PCBApp {
             this._boardWidth = Math.max(5, parseFloat(wEl?.value) || 100);
             this._boardHeight = Math.max(5, parseFloat(hEl?.value) || 80);
             this._boardRadius = Math.max(0, parseFloat(rEl?.value) || 0);
+            if (rEl) rEl.value = this._boardRadius.toFixed(2);
             this._drawBoardOutline();
         };
         const onCommit = () => {

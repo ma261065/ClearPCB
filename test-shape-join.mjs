@@ -28,7 +28,7 @@ globalThis.document = {
 
 const { Polyline } = await import('./src/shapes/polyline.js');
 const { Arc } = await import('./src/shapes/arc.js');
-const { joinShapes, joinableAnchors, isJoinable } = await import('./src/shapes/shape-join.js');
+const { findJoinTarget, joinShapes, joinableAnchors, isJoinable } = await import('./src/shapes/shape-join.js');
 const { createShape } = await import('./src/shapes/index.js');
 const { arcFromBulge, distanceToArcEdge, arcEdgeBounds } = await import('./src/shapes/arc-edge.js');
 const { bulgeRatio } = await import('./src/core/geometry.js');
@@ -138,6 +138,25 @@ console.log('joinShapes closing a loop');
     ok('triangle merged to 3 nodes', merged && merged.nodes.size === 3);
     ok('triangle merged to 3 edges', merged && merged.edges.size === 3);
     ok('loop marked closed', merged && merged.closed === true);
+}
+
+console.log('self-join closes a four-edge line');
+{
+    const line = new Polyline({
+        points: [
+            { x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 },
+            { x: 0, y: 10 }, { x: 0, y: 0 },
+        ],
+    });
+    const endpoints = joinableAnchors(line);
+    const draggedEndpoint = endpoints[1];
+    const target = findJoinTarget([line], draggedEndpoint, 0.01, line, draggedEndpoint.id);
+    const merged = target && joinShapes(line, draggedEndpoint.id, target.shape, target.anchorId);
+    ok('opposite endpoint is available as a self-join target', target?.anchorId === endpoints[0].id);
+    ok('self-join preserves four rectangle nodes', merged?.nodes.size === 4);
+    ok('self-join preserves four rectangle edges', merged?.edges.size === 4);
+    ok('self-joined rectangle is closed', merged?.closed === true);
+    ok('self-joined axis-aligned loop is a rectangle', merged?.isRect === true);
 }
 
 // ── 7. Bulge apex handle: drag sets edge curvature ──

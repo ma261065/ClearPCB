@@ -178,6 +178,7 @@ export class Polyline extends PolylineGraph {
             closed: this.closed, fill: this.fill,
             fillColor: this.fillColor, fillAlpha: this.fillAlpha,
             isRect: this.isRect, cornerRadius: this.cornerRadius,
+            nodeCornerRadii: { ...this.nodeCornerRadii },
             graphNodes, graphEdges, edgeBulges, edgeWidths,
         });
     }

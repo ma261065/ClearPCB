@@ -400,6 +400,8 @@ Every entry contains:
 | `copperMode` | string | Copper/mask operation; see below. |
 | `plated` | boolean | Plating flag for hole-layer shapes. |
 | `net` | string | Net name; empty when unassigned. |
+| `cornerRadius` | number | Default corner radius in mm for rectangle and polygon nodes. |
+| `nodeCornerRadii` | object | Optional vertex-index to corner-radius overrides. |
 
 Geometry depends on `kind`:
 
@@ -415,6 +417,7 @@ Geometry depends on `kind`:
 
 For a filled shape, the active area includes the outer half of `lineWidth`.
 For an unfilled shape, only the centred stroke is active.
+Each entry in `nodeCornerRadii` overrides `cornerRadius` for that indexed point.
 
 #### Copper Modes
 
@@ -533,6 +536,7 @@ The schematic shape loader expands these compact keys to constructor fields:
 | `pdc` | `padConnections` | `sbs` | `sourceBoardShape` |
 | `r` | `radius` | `w` | `width` |
 | `h` | `height` | `cr` | `cornerRadius` |
+| `ncr` | `nodeCornerRadii` |  |  |
 | `f` | `fill` | `fc` | `fillColor` |
 | `fa` | `fillAlpha` | `cl` | `closed` |
 | `ir` | `isRect` | `sp` | `startPoint` |

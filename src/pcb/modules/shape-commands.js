@@ -13,6 +13,7 @@ import {
     applyShapeSnapshot,
     refreshBoardShapeProperties,
 } from './board-shapes.js';
+import { renderPcbSelectionAnchors } from './selection-anchors.js';
 
 export class AddBoardShapeCommand {
     constructor(app, shape) {
@@ -72,20 +73,21 @@ export class MoveBoardShapeCommand {
         this.after = after;
     }
 
-    execute() {
-        applyShapeGeometry(this.shape, this.after);
+    _apply(geometry) {
+        applyShapeGeometry(this.shape, geometry);
         renderBoardShape(this.app, this.shape);
         this.app._refreshFills?.();
         this.app._updateRatsnest?.();
         this.app._board3d?.refresh?.();
+        renderPcbSelectionAnchors(this.app);
+    }
+
+    execute() {
+        this._apply(this.after);
     }
 
     undo() {
-        applyShapeGeometry(this.shape, this.before);
-        renderBoardShape(this.app, this.shape);
-        this.app._refreshFills?.();
-        this.app._updateRatsnest?.();
-        this.app._board3d?.refresh?.();
+        this._apply(this.before);
     }
 }
 
@@ -104,7 +106,7 @@ export class ModifyBoardShapeCommand {
         this.app._updateRatsnest?.();
         this.app._board3d?.refresh?.();
         refreshBoardShapeProperties(this.app, this.shape);
-        this.app._refreshPcbSelectionHighlights?.();
+        renderPcbSelectionAnchors(this.app);
     }
 
     execute() {

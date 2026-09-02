@@ -69,6 +69,7 @@ export class PolylineGraph extends Shape {
      * @param {object} [options.graphEdges] - Edge map {id: {from,to} | [from,to]}
      * @param {Array<{x:number,y:number}>} [options.points] - Simple point array (auto-converted to graph)
      * @param {number} [options.cornerRadius=0] - Corner rounding radius
+    * @param {object} [options.nodeCornerRadii] - Per-node corner-radius overrides
      */
     constructor(options = {}) {
         super(options);
@@ -83,6 +84,7 @@ export class PolylineGraph extends Shape {
         this.fill = options.fill !== undefined ? options.fill : false;
         this.fillAlpha = options.fillAlpha ?? 0.3;
         this.cornerRadius = options.cornerRadius || 0;
+        this.nodeCornerRadii = { ...(options.nodeCornerRadii || {}) };
 
         // Initialise from graph format
         if (options.graphNodes && options.graphEdges) {
@@ -163,6 +165,42 @@ export class PolylineGraph extends Shape {
             current = next.otherNode;
         }
         return points;
+    }
+
+    /** Ordered node IDs for a simple open/closed shape without branches. */
+    getOrderedNodeIds() {
+        if (this.nodes.size === 0) return [];
+        let startId = null;
+        for (const nodeId of this.nodes.keys()) {
+            if (this.degree(nodeId) === 1) { startId = nodeId; break; }
+        }
+        if (!startId) startId = this.nodes.keys().next().value;
+        const nodeIds = [];
+        const visited = new Set();
+        let current = startId;
+        let previousEdge = null;
+        while (current && !visited.has(current)) {
+            nodeIds.push(current);
+            visited.add(current);
+            const edges = this.incidentEdges(current);
+            const next = edges.find((edge) => edge.edgeId !== previousEdge && !visited.has(edge.otherNode));
+            if (!next) break;
+            previousEdge = next.edgeId;
+            current = next.otherNode;
+        }
+        return nodeIds;
+    }
+
+    nodeCornerRadius(nodeId) {
+        return Math.max(0, Number(this.nodeCornerRadii?.[nodeId] ?? this.cornerRadius) || 0);
+    }
+
+    setNodeCornerRadius(nodeId, radius) {
+        if (!this.nodes.has(nodeId)) return;
+        const value = Math.max(0, Number(radius) || 0);
+        if (Math.abs(value - this.cornerRadius) < 1e-9) delete this.nodeCornerRadii[nodeId];
+        else this.nodeCornerRadii[nodeId] = value;
+        this.invalidate();
     }
 
     /** @returns {boolean} Whether any edge carries a non-zero bulge (is an arc). */
@@ -962,7 +1000,7 @@ export class PolylineGraph extends Shape {
      * @returns {object}
      */
     captureState() {
-        const s = { nodes: {}, edges: {}, closed: this.closed, type: this.type, fill: this.fill, fillAlpha: this.fillAlpha, cornerRadius: this.cornerRadius };
+        const s = { nodes: {}, edges: {}, closed: this.closed, type: this.type, fill: this.fill, fillAlpha: this.fillAlpha, cornerRadius: this.cornerRadius, nodeCornerRadii: { ...this.nodeCornerRadii } };
         for (const [id, p] of this.nodes) s.nodes[id] = { x: p.x, y: p.y };
         for (const [id, e] of this.edges) s.edges[id] = this._cloneEdge(e);
         return s;
@@ -991,6 +1029,7 @@ export class PolylineGraph extends Shape {
         if ('fill' in state) this.fill = state.fill;
         if ('fillAlpha' in state) this.fillAlpha = state.fillAlpha;
         if ('cornerRadius' in state) this.cornerRadius = state.cornerRadius;
+        if ('nodeCornerRadii' in state) this.nodeCornerRadii = { ...(state.nodeCornerRadii || {}) };
         this.invalidate();
     }
 
@@ -1053,7 +1092,8 @@ export class PolylineGraph extends Shape {
         const hasEdgeWidths = [...this.edges.keys()].some(
             (edgeId) => this.getEdgeAttr(edgeId, 'width') !== this.lineWidth,
         );
-        const r = this.cornerRadius || 0;
+        const r = Math.max(this.cornerRadius || 0,
+            ...Object.values(this.nodeCornerRadii || {}).map(Number).filter(Number.isFinite));
 
         // Rounded-corner path rendering for shapes with cornerRadius
         // Only use path rendering for simple chains (no branching). Bulged
@@ -1063,9 +1103,11 @@ export class PolylineGraph extends Shape {
             const pts = this.getOrderedPoints();
             const hasBranches = this.getJunctionNodes().length > 0;
             if (pts && pts.length >= 3 && pts.length === this.nodes.size && !hasBranches) {
+                const nodeIds = this.getOrderedNodeIds();
+                const radii = nodeIds.map((nodeId) => this.nodeCornerRadius(nodeId));
                 const pathData = this.closed
-                    ? this._buildRoundedPath(pts, r)
-                    : this._buildRoundedOpenPath(pts, r);
+                    ? this._buildRoundedPath(pts, radii)
+                    : this._buildRoundedOpenPath(pts, radii);
 
                 // Fill path
                 if (this.fill) {
@@ -1178,10 +1220,10 @@ export class PolylineGraph extends Shape {
      * Build an SVG path string with rounded corners for a closed polygon.
      * Each corner is replaced with a quadratic bezier arc.
      * @param {Array<{x:number,y:number}>} pts - Ordered vertices
-     * @param {number} r - Corner radius
+    * @param {number|Array<number>} radius - Corner radius per node, or a shared radius
      * @returns {string} SVG path data
      */
-    _buildRoundedPath(pts, r) {
+    _buildRoundedPath(pts, radius) {
         const n = pts.length;
         if (n < 3) return '';
 
@@ -1199,7 +1241,7 @@ export class PolylineGraph extends Shape {
 
             // Clamp radius to half of shortest adjacent edge
             const maxR = Math.min(len1, len2) / 2;
-            const cr = Math.min(r, maxR);
+            const cr = Math.min(Array.isArray(radius) ? radius[i] || 0 : radius, maxR);
 
             if (cr < 0.01 || len1 < 0.01 || len2 < 0.01) {
                 // No rounding possible at this corner
@@ -1227,10 +1269,10 @@ export class PolylineGraph extends Shape {
      * Build an SVG path string with rounded corners for an open polyline.
      * First and last points are not rounded.
      * @param {Array<{x:number,y:number}>} pts
-     * @param {number} r
+    * @param {number|Array<number>} radius
      * @returns {string}
      */
-    _buildRoundedOpenPath(pts, r) {
+    _buildRoundedOpenPath(pts, radius) {
         const n = pts.length;
         if (n < 3) return `M ${pts[0].x} ${pts[0].y} L ${pts[1].x} ${pts[1].y}`;
 
@@ -1247,7 +1289,7 @@ export class PolylineGraph extends Shape {
             const len2 = Math.hypot(dx2, dy2);
 
             const maxR = Math.min(len1, len2) / 2;
-            const cr = Math.min(r, maxR);
+            const cr = Math.min(Array.isArray(radius) ? radius[i] || 0 : radius, maxR);
 
             if (cr < 0.01 || len1 < 0.01 || len2 < 0.01) {
                 parts.push(`L ${curr.x} ${curr.y}`);
@@ -1311,6 +1353,13 @@ export class PolylineGraph extends Shape {
         else json.f = false;
         if (this.fillAlpha !== 0.3) json.fa = this.fillAlpha;
         if (this.cornerRadius) json.cr = this.cornerRadius;
+        const nodeCornerRadii = {};
+        for (const [nodeId, radius] of Object.entries(this.nodeCornerRadii || {})) {
+            if (this.nodes.has(nodeId) && Math.abs(radius - this.cornerRadius) >= 1e-9) {
+                nodeCornerRadii[nodeId] = radius;
+            }
+        }
+        if (Object.keys(nodeCornerRadii).length) json.ncr = nodeCornerRadii;
         return json;
     }
 }

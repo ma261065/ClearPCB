@@ -1187,6 +1187,7 @@ export const idleState = {
             const selectedShapeSegment = app._selectedShapeSegment?.shapeId === hitShape.id
                 ? { ...app._selectedShapeSegment }
                 : null;
+            app._selectedShapeNode = null;
             const segmentCandidateMatches = app._shapeSegmentClickCandidate?.shapeId === hitShape.id
                 && app._shapeSegmentClickCandidate.edgeId === hitSegmentEdgeId;
             app._pendingShapeSegmentToggle = wasSelected && hitShape.type === 'polyline'
@@ -1252,6 +1253,20 @@ export const idleState = {
         if (app.skipClickSelection) { app.skipClickSelection = false; return; }
         if (app.didDrag) { app.didDrag = false; return; }
 
+        const pendingNode = app.pendingAnchorDrag;
+        if (pendingNode?.shape?.type === 'polyline'
+            && pendingNode.shape.nodes?.has(pendingNode.anchorId)
+            && app.selection.getSelection().length === 1
+            && app.selection.getSelection()[0] === pendingNode.shape) {
+            app._selectedShapeSegment = null;
+            app._selectedShapeNode = { shapeId: pendingNode.shape.id, nodeId: pendingNode.anchorId };
+            app.renderShapes(true);
+            app._updateShapeSelectionTip?.();
+            app._updatePropertiesPanel?.(app.selection.getSelection());
+            event.preventDefault();
+            return;
+        }
+
         if (pendingSegmentToggle
             && app.selection.getSelection().length === 1
             && app.selection.getSelection()[0] === pendingSegmentToggle.shape) {
@@ -1262,6 +1277,7 @@ export const idleState = {
                 || !pendingSegmentToggle.segmentCandidateMatches
                 ? null
                 : { shapeId: pendingSegmentToggle.shape.id, edgeId: pendingSegmentToggle.edgeId };
+            app._selectedShapeNode = null;
             app._shapeSegmentClickCandidate = pendingSegmentToggle.edgeId
                 ? { shapeId: pendingSegmentToggle.shape.id, edgeId: pendingSegmentToggle.edgeId }
                 : null;
@@ -1868,7 +1884,7 @@ export const anchorDragState = {
                 : !!(app.drag.shape.nodes && app.drag.shape.nodes.has(app.drag.anchorId));
             if (isJoinSource) {
                 const joinTol = SNAP_SCREEN_PX / app.viewport.scale;
-                const jt = findJoinTarget(app.shapes, anchorPos, joinTol, app.drag.shape);
+                const jt = findJoinTarget(app.shapes, anchorPos, joinTol, app.drag.shape, app.drag.anchorId);
                 if (jt) {
                     anchorPos = { x: jt.x, y: jt.y };
                     app.drag.joinTarget = jt;

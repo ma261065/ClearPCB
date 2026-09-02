@@ -123,6 +123,8 @@ export default class SchematicApp {
         });
         /** Refined edge selection for a line, rectangle, or polygon. */
         this._selectedShapeSegment = null;
+        /** Refined node selection for per-corner properties. */
+        this._selectedShapeNode = null;
         this._updateSelectableItems();
 
         // ── Tool / drawing state ─────────────────────────────────────
@@ -935,6 +937,9 @@ export default class SchematicApp {
         if (shapes.length !== 1 || shapes[0]?.id !== this._selectedShapeSegment?.shapeId) {
             clearShapeSegmentSelection(this);
         }
+        if (shapes.length !== 1 || shapes[0]?.id !== this._selectedShapeNode?.shapeId) {
+            this._selectedShapeNode = null;
+        }
         this._updateShapeSelectionTip();
         this.eventBus.emit('selectionChanged', shapes);
     }
@@ -946,7 +951,8 @@ export default class SchematicApp {
         const show = this.currentTool === 'select'
             && selected.length === 1
             && selected[0]?.type === 'polyline'
-            && !this._selectedShapeSegment;
+            && !this._selectedShapeSegment
+            && !this._selectedShapeNode;
         tip.hidden = !show;
         tip.textContent = show ? 'Tip: Click again to select a segment' : '';
     }

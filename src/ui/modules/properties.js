@@ -223,10 +223,17 @@ export function updatePropertiesPanel(app, selection) {
         && selection[0].edges?.has(app._selectedShapeSegment.edgeId)
         ? { shape: selection[0], edgeId: app._selectedShapeSegment.edgeId }
         : null;
+    const selectedNode = selection.length === 1
+        && selection[0].type === 'polyline'
+        && app._selectedShapeNode?.shapeId === selection[0].id
+        && selection[0].nodes?.has(app._selectedShapeNode.nodeId)
+        ? { shape: selection[0], nodeId: app._selectedShapeNode.nodeId }
+        : null;
     const singlePolyline = selection.length === 1 && selection[0].type === 'polyline'
         ? selection[0]
         : null;
     let polylineWidthBefore = null;
+    let nodeRadiusBefore = null;
     const previewPolylineWidth = (value) => {
         if (!singlePolyline) return;
         polylineWidthBefore ||= singlePolyline.captureState();
@@ -242,7 +249,7 @@ export function updatePropertiesPanel(app, selection) {
 
     // ── Selection / Properties section ──
     {
-        const label = selectedSegment ? 'Segment' : headerLabel(selection);
+        const label = selectedNode ? 'Node' : selectedSegment ? 'Segment' : headerLabel(selection);
         const sec = _createSection(label);
 
         const countEl = document.createElement('div');
@@ -282,9 +289,11 @@ export function updatePropertiesPanel(app, selection) {
                 }
             }
 
-            const descriptors = selectedSegment
-                ? mergeDescriptors(selection).filter((desc) => desc.key === 'lineWidth')
-                : mergeDescriptors(selection);
+            const descriptors = selectedNode
+                ? [{ key: 'cornerRadius', label: 'Corner radius', type: 'number', min: 0, max: 25, step: 0.5 }]
+                : selectedSegment
+                    ? mergeDescriptors(selection).filter((desc) => desc.key === 'lineWidth')
+                    : mergeDescriptors(selection);
 
             for (const desc of descriptors) {
                 // Add divider after locked checkbox
@@ -333,14 +342,18 @@ export function updatePropertiesPanel(app, selection) {
 
                     const values = desc.key === 'lineWidth' && selectedSegment
                         ? [selectedSegment.shape.getEdgeAttr(selectedSegment.edgeId, 'width')]
-                        : selection.map(s => s[desc.key]).filter(v => typeof v === 'number');
+                        : desc.key === 'cornerRadius' && selectedNode
+                            ? [selectedNode.shape.nodeCornerRadius(selectedNode.nodeId)]
+                            : selection.map(s => s[desc.key]).filter(v => typeof v === 'number');
                     if (values.length === 0) {
                         input.value = '';
                         input.placeholder = '—';
                     } else {
                         const first = values[0];
                         const allSame = values.every(v => Math.abs(v - first) < 1e-6);
-                        input.value = allSame ? first : '';
+                        input.value = allSame
+                            ? (desc.key === 'cornerRadius' ? Number(first).toFixed(2) : first)
+                            : '';
                         if (!allSame) input.placeholder = '—';
                     }
 
@@ -349,7 +362,8 @@ export function updatePropertiesPanel(app, selection) {
                         if (Number.isNaN(v)) return;
                         if (desc.min != null && v < desc.min) v = desc.min;
                         if (desc.max != null && v > desc.max) v = desc.max;
-                        if (parseFloat(input.value) !== v) input.value = v;
+                        if (desc.key === 'cornerRadius') input.value = v.toFixed(2);
+                        else if (parseFloat(input.value) !== v) input.value = v;
                         if (desc.key === 'lineWidth' && singlePolyline) {
                             const before = polylineWidthBefore || singlePolyline.captureState();
                             previewPolylineWidth(v);
@@ -357,6 +371,15 @@ export function updatePropertiesPanel(app, selection) {
                             singlePolyline.applyState(before);
                             polylineWidthBefore = null;
                             app.history.execute(new ModifyShapeCommand(app, singlePolyline, before, after));
+                            app.fileManager.setDirty(true);
+                            app._updatePropertiesPanel?.(selection);
+                        } else if (desc.key === 'cornerRadius' && selectedNode) {
+                            const before = nodeRadiusBefore || selectedNode.shape.captureState();
+                            selectedNode.shape.setNodeCornerRadius(selectedNode.nodeId, v);
+                            const after = selectedNode.shape.captureState();
+                            selectedNode.shape.applyState(before);
+                            nodeRadiusBefore = null;
+                            app.history.execute(new ModifyShapeCommand(app, selectedNode.shape, before, after));
                             app.fileManager.setDirty(true);
                             app._updatePropertiesPanel?.(selection);
                         } else {
@@ -369,8 +392,12 @@ export function updatePropertiesPanel(app, selection) {
                         if (Number.isNaN(v)) return;
                         if (desc.min != null && v < desc.min) v = desc.min;
                         if (desc.max != null && v > desc.max) v = desc.max;
+                        if (desc.key === 'cornerRadius') input.value = v.toFixed(2);
                         if (desc.key === 'lineWidth' && singlePolyline) {
                             previewPolylineWidth(v);
+                        } else if (desc.key === 'cornerRadius' && selectedNode) {
+                            nodeRadiusBefore ||= selectedNode.shape.captureState();
+                            selectedNode.shape.setNodeCornerRadius(selectedNode.nodeId, v);
                         } else for (const item of selection) {
                             if (desc.key in item) {
                                 item[desc.key] = v;

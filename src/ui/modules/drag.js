@@ -302,9 +302,8 @@ export function commitAnchorDrag(app, dragShape, beforeState, anchorWireStates =
 //  Anchor drag resolution 
 
 /**
- * Commit a cross-shape join: the dragged shape's endpoint was dropped onto
- * another joinable shape's endpoint. Builds a single merged Polyline and
- * replaces the two originals as one undoable batch.
+ * Commit an endpoint join. Builds a single merged Polyline and replaces the
+ * original shape or shapes as one undoable batch.
  *
  * Pure-geometry merge lives in shapes/shape-join.js so the PCB editor can
  * reuse it; this function only handles the schematic command/selection glue.
@@ -328,7 +327,10 @@ export function commitShapeJoin(app, dragShape, dragAnchorId, joinTarget, before
     if (beforeState) app._applyShapeState(dragShape, beforeState);
 
     const batch = new BatchCommand('Join shapes');
-    batch.add(new DeleteShapesCommand(app, [dragShape, joinTarget.shape]));
+    const originals = joinTarget.shape === dragShape
+        ? [dragShape]
+        : [dragShape, joinTarget.shape];
+    batch.add(new DeleteShapesCommand(app, originals));
     batch.add(new AddShapeCommand(app, merged));
     app.history.execute(batch);
 

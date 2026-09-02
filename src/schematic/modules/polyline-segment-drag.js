@@ -40,7 +40,7 @@ export function updatePolylineSegmentDrag(app, worldPos) {
     firstNode.y = first.y + dy;
     secondNode.x = second.x + dx;
     secondNode.y = second.y + dy;
-    if (shape.isRect && (dx !== 0 || dy !== 0)) shape.isRect = false;
+    if (shape.isRect && (dx !== 0 || dy !== 0) && !shape.isAxisAlignedRect()) shape.isRect = false;
     shape.invalidate();
     app.didDrag = dx !== 0 || dy !== 0;
     return app.didDrag;

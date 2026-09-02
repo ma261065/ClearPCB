@@ -35,7 +35,8 @@ export function canDecomposeRoundedCorners(shape) {
     return !!shape
         && shape.type === 'polyline'
         && shape.closed === true
-        && (shape.cornerRadius || 0) > 0
+        && ((shape.cornerRadius || 0) > 0
+            || Object.values(shape.nodeCornerRadii || {}).some((radius) => Number(radius) > 0))
         && typeof shape.getOrderedPoints === 'function'
         && !(typeof shape._hasBulgedEdges === 'function' && shape._hasBulgedEdges());
 }
@@ -53,7 +54,7 @@ export function decomposeRoundedCorners(shape) {
     const pts = shape.getOrderedPoints();
     if (!pts || pts.length < 3) return null;
 
-    const r = shape.cornerRadius;
+    const nodeIds = shape.getOrderedNodeIds?.() || [];
     const n = pts.length;
 
     const graphNodes = {};
@@ -78,7 +79,8 @@ export function decomposeRoundedCorners(shape) {
         const len2 = Math.hypot(dx2, dy2);
 
         // Same setback clamp as the rounded-corner renderer.
-        const cr = Math.min(r, Math.min(len1, len2) / 2);
+        const radius = nodeIds[i] ? shape.nodeCornerRadius(nodeIds[i]) : shape.cornerRadius;
+        const cr = Math.min(radius, Math.min(len1, len2) / 2);
 
         // Unit edge directions away from the corner.
         const u1x = dx1 / len1, u1y = dy1 / len1;
