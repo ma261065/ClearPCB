@@ -231,6 +231,14 @@ function resolvedShapeObstaclePaths(C, geometry, clearance) {
     if (geometry.filled && geometry.path.length >= 3) {
         return offsetClosedPath(C, geometry.path, geometry.lineWidth / 2 + clearance);
     }
+    if (geometry.strokeSegments?.length) {
+        const paths = [];
+        for (const segment of geometry.strokeSegments) {
+            paths.push(...offsetOpenSegment(
+                C, segment.start, segment.end, segment.lineWidth / 2 + clearance));
+        }
+        return paths;
+    }
     const paths = [];
     const points = geometry.centerline;
     const segmentCount = geometry.centerlineClosed ? points.length : points.length - 1;

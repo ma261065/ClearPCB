@@ -324,8 +324,15 @@ function _buildCopper(placements, tracks, vias, layerId, bounds, texts = [], fil
             + o.slice(1).map((point) => `X${_fmt(point.x)}Y${_fmtY(point.y)}D01*`).join('\n')
             + (geometry.pathClosed ? `\nX${_fmt(o[0].x)}Y${_fmtY(o[0].y)}D01*` : '');
         if (!geometry.filled) {
-            if (cutsCopper) clearShapeStrokeOps.push({ d, op });
-            else if (onThisLayer && mode === 'add') ops.push({ d, op });
+            const strokeOps = geometry.strokeSegments?.length
+                ? geometry.strokeSegments.map((segment) => ({
+                    d: getAp(apKey('C', segment.lineWidth)),
+                    op: `X${_fmt(segment.start.x)}Y${_fmtY(segment.start.y)}D02*\n`
+                        + `X${_fmt(segment.end.x)}Y${_fmtY(segment.end.y)}D01*`,
+                }))
+                : [{ d, op }];
+            if (cutsCopper) clearShapeStrokeOps.push(...strokeOps);
+            else if (onThisLayer && mode === 'add') ops.push(...strokeOps);
         } else if (cutsCopper) {
             clearShapeRegions += shapeRegion(o);
             clearShapeStrokeOps.push({ d, op });
@@ -547,15 +554,24 @@ function _buildPadLayer(placements, vias, side, bounds, opts) {
             }
             shapeRegions += 'G37*\n';
         }
-        const d = getAp(apKey('C', geometry.lineWidth));
-        let op = `X${_fmt(geometry.path[0].x)}Y${_fmtY(geometry.path[0].y)}D02*\n`;
-        op += geometry.path.slice(1)
-            .map((point) => `X${_fmt(point.x)}Y${_fmtY(point.y)}D01*`)
-            .join('\n');
-        if (geometry.pathClosed) {
-            op += `\nX${_fmt(geometry.path[0].x)}Y${_fmtY(geometry.path[0].y)}D01*`;
+        if (!geometry.filled && geometry.strokeSegments?.length) {
+            for (const segment of geometry.strokeSegments) {
+                const d = getAp(apKey('C', segment.lineWidth));
+                const op = `X${_fmt(segment.start.x)}Y${_fmtY(segment.start.y)}D02*\n`
+                    + `X${_fmt(segment.end.x)}Y${_fmtY(segment.end.y)}D01*`;
+                ops.push({ d, op });
+            }
+        } else {
+            const d = getAp(apKey('C', geometry.lineWidth));
+            let op = `X${_fmt(geometry.path[0].x)}Y${_fmtY(geometry.path[0].y)}D02*\n`;
+            op += geometry.path.slice(1)
+                .map((point) => `X${_fmt(point.x)}Y${_fmtY(point.y)}D01*`)
+                .join('\n');
+            if (geometry.pathClosed) {
+                op += `\nX${_fmt(geometry.path[0].x)}Y${_fmtY(geometry.path[0].y)}D01*`;
+            }
+            ops.push({ d, op });
         }
-        ops.push({ d, op });
     }
 
     let out = `G04 ClearPCB ${title}*\n` + FORMAT + '%LPD*%\n';

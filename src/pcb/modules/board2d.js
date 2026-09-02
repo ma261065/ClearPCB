@@ -39,6 +39,24 @@ function traceBoardShape(context, geometry) {
     return true;
 }
 
+function drawBoardShape(context, geometry) {
+    if (!geometry.filled && geometry.strokeSegments?.length) {
+        for (const segment of geometry.strokeSegments) {
+            context.beginPath();
+            context.moveTo(segment.start.x, segment.start.y);
+            context.lineTo(segment.end.x, segment.end.y);
+            context.lineWidth = segment.lineWidth;
+            context.stroke();
+        }
+        return true;
+    }
+    if (!traceBoardShape(context, geometry)) return false;
+    if (geometry.filled) context.fill();
+    context.lineWidth = geometry.lineWidth;
+    context.stroke();
+    return true;
+}
+
 // Palette mirrors the 3D viewer (board3d.js) so the two previews match.
 const COL = {
     bg: 'rgb(74,76,79)',          // panel grey (3D clear colour)
@@ -576,10 +594,7 @@ export class Board2D {
             const geometry = resolveBoardShapeGeometry(shape);
             const mode = geometry.copperMode;
             if (!isMaskLayer && mode !== 'remove-solder-mask' && mode !== 'remove-copper-mask') continue;
-            if (!traceBoardShape(ctx, geometry)) continue;
-            if (geometry.filled) ctx.fill();
-            ctx.lineWidth = geometry.lineWidth;
-            ctx.stroke();
+            if (!drawBoardShape(ctx, geometry)) continue;
         }
     }
 
@@ -630,10 +645,7 @@ export class Board2D {
                     : 'both';
             if (side !== 'both' && side !== this.side) continue;
             const geometry = resolveBoardShapeGeometry(shape);
-            if (!traceBoardShape(ctx, geometry)) continue;
-            if (geometry.filled) ctx.fill();
-            ctx.lineWidth = geometry.lineWidth;
-            ctx.stroke();
+            if (!drawBoardShape(ctx, geometry)) continue;
         }
     }
 
@@ -646,10 +658,7 @@ export class Board2D {
         const copperCol = COL.copper;
 
         const drawCopperShape = (shape, geometry = resolveBoardShapeGeometry(shape)) => {
-            if (!traceBoardShape(cctx, geometry)) return;
-            if (geometry.filled) cctx.fill();
-            cctx.lineWidth = geometry.lineWidth;
-            cctx.stroke();
+            drawBoardShape(cctx, geometry);
         };
 
         // Compose copper into a dedicated transparent layer, subtracting
@@ -848,17 +857,16 @@ export class Board2D {
         for (const s of (d.boardShapes || [])) {
             if (!s || s.type === 'fill' || s.layer !== 'hole') continue;
             const geometry = resolveBoardShapeGeometry(s);
-            if (!traceBoardShape(ctx, geometry)) continue;
             ctx.fillStyle = COL.bg;
             if (geometry.filled) {
+                if (!traceBoardShape(ctx, geometry)) continue;
                 ctx.fill();
             } else {
                 ctx.save();
                 ctx.strokeStyle = COL.bg;
                 ctx.lineCap = 'round';
                 ctx.lineJoin = 'round';
-                ctx.lineWidth = geometry.lineWidth;
-                ctx.stroke();
+                drawBoardShape(ctx, geometry);
                 ctx.restore();
             }
         }
@@ -925,13 +933,8 @@ export class Board2D {
         for (const s of (d.boardShapes || [])) {
             if (!s || s.type === 'fill' || s.layer !== wantLayer) continue;
             const geometry = resolveBoardShapeGeometry(s);
-            if (!traceBoardShape(ctx, geometry)) continue;
-            if (geometry.filled) {
-                ctx.fillStyle = COL.silk;
-                ctx.fill();
-            }
-            ctx.lineWidth = geometry.lineWidth;
-            ctx.stroke();
+            ctx.fillStyle = COL.silk;
+            if (!drawBoardShape(ctx, geometry)) continue;
         }
 
         // Reference designators are posed per-placement (stroke-font geometry,

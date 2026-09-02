@@ -1,5 +1,5 @@
 import { setCheckboxState } from './ui-utils.js';
-import { ModifyPropertyCommand } from '../../core/CommandHistory.js';
+import { ModifyPropertyCommand, ModifyShapeCommand } from '../../core/CommandHistory.js';
 import { rotateNetOrientation } from '../../shapes/net.js';
 import { adaptShortcutText } from './platform-keys.js';
 import { canDecomposeRoundedCorners } from '../../shapes/shape-decompose.js';
@@ -217,11 +217,32 @@ export function updatePropertiesPanel(app, selection) {
     panel.innerHTML = '';
     if (selection.length === 0 && renderNewShapeProperties(app, panel, app.currentTool)) return;
     const singleWire = selection.length === 1 && selection[0].type === 'wire' ? selection[0] : null;
+    const selectedSegment = selection.length === 1
+        && selection[0].type === 'polyline'
+        && app._selectedShapeSegment?.shapeId === selection[0].id
+        && selection[0].edges?.has(app._selectedShapeSegment.edgeId)
+        ? { shape: selection[0], edgeId: app._selectedShapeSegment.edgeId }
+        : null;
+    const singlePolyline = selection.length === 1 && selection[0].type === 'polyline'
+        ? selection[0]
+        : null;
+    let polylineWidthBefore = null;
+    const previewPolylineWidth = (value) => {
+        if (!singlePolyline) return;
+        polylineWidthBefore ||= singlePolyline.captureState();
+        if (selectedSegment) {
+            singlePolyline.setEdgeAttr(selectedSegment.edgeId, 'width', value);
+        } else {
+            singlePolyline.lineWidth = value;
+            for (const edge of singlePolyline.edges.values()) delete edge.width;
+            singlePolyline.invalidate();
+        }
+    };
     const allLocked = selection.length > 0 && selection.every(s => s.locked);
 
     // ── Selection / Properties section ──
     {
-        const label = headerLabel(selection);
+        const label = selectedSegment ? 'Segment' : headerLabel(selection);
         const sec = _createSection(label);
 
         const countEl = document.createElement('div');
@@ -261,7 +282,9 @@ export function updatePropertiesPanel(app, selection) {
                 }
             }
 
-            const descriptors = mergeDescriptors(selection);
+            const descriptors = selectedSegment
+                ? mergeDescriptors(selection).filter((desc) => desc.key === 'lineWidth')
+                : mergeDescriptors(selection);
 
             for (const desc of descriptors) {
                 // Add divider after locked checkbox
@@ -308,7 +331,9 @@ export function updatePropertiesPanel(app, selection) {
                     if (desc.max != null) input.max = desc.max;
                     if (desc.step != null) input.step = desc.step;
 
-                    const values = selection.map(s => s[desc.key]).filter(v => typeof v === 'number');
+                    const values = desc.key === 'lineWidth' && selectedSegment
+                        ? [selectedSegment.shape.getEdgeAttr(selectedSegment.edgeId, 'width')]
+                        : selection.map(s => s[desc.key]).filter(v => typeof v === 'number');
                     if (values.length === 0) {
                         input.value = '';
                         input.placeholder = '—';
@@ -325,7 +350,18 @@ export function updatePropertiesPanel(app, selection) {
                         if (desc.min != null && v < desc.min) v = desc.min;
                         if (desc.max != null && v > desc.max) v = desc.max;
                         if (parseFloat(input.value) !== v) input.value = v;
-                        applyCommonProperty(app, desc.key, v);
+                        if (desc.key === 'lineWidth' && singlePolyline) {
+                            const before = polylineWidthBefore || singlePolyline.captureState();
+                            previewPolylineWidth(v);
+                            const after = singlePolyline.captureState();
+                            singlePolyline.applyState(before);
+                            polylineWidthBefore = null;
+                            app.history.execute(new ModifyShapeCommand(app, singlePolyline, before, after));
+                            app.fileManager.setDirty(true);
+                            app._updatePropertiesPanel?.(selection);
+                        } else {
+                            applyCommonProperty(app, desc.key, v);
+                        }
                     });
                     // Real-time preview while dragging spinner
                     input.addEventListener('input', () => {
@@ -333,7 +369,9 @@ export function updatePropertiesPanel(app, selection) {
                         if (Number.isNaN(v)) return;
                         if (desc.min != null && v < desc.min) v = desc.min;
                         if (desc.max != null && v > desc.max) v = desc.max;
-                        for (const item of selection) {
+                        if (desc.key === 'lineWidth' && singlePolyline) {
+                            previewPolylineWidth(v);
+                        } else for (const item of selection) {
                             if (desc.key in item) {
                                 item[desc.key] = v;
                                 item.invalidate?.();

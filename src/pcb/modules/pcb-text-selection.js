@@ -13,7 +13,7 @@ export function createPcbTextSelectionAdapter(app, text, id) {
         getPosition() { return { x: text.x, y: text.y }; },
         beginMove(worldPos) { return app._beginTextDrag(text, worldPos); },
         updateMove(worldPos) { app._updateTextDrag(worldPos); },
-        endMove(commit) { if (commit) app._endTextDrag(); },
+        endMove(commit) { app._endTextDrag(commit); },
         invalidate() { app._refreshText(text.id); },
         render() { renderPcbText(text); },
     };

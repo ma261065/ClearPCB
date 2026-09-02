@@ -77,6 +77,9 @@ export function handleEscape(app) {
     switch (app.interactionState) {
         case 'segmentDrag':
             // Revert bridge insertions from segment drag start.
+            if (app.drag?.shape?.type === 'polyline' && app.drag.beforeState) {
+                app._applyShapeState(app.drag.shape, app.drag.beforeState);
+            }
             if (app.drag?.wireStates) {
                 for (const [wire, beforeState] of app.drag.wireStates) {
                     app._applyShapeState(wire, beforeState);

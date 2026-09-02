@@ -290,10 +290,20 @@ export function updateTitle(app) {
     // Format: ClearPCB (•mike.json) or ClearPCB (mike.json)
     const title = `ClearPCB (${dirty}${app.fileManager.fileName})`;
     document.title = title;
+    const path = app.fileManager.filePath || app.fileManager.fileName;
+    const autoSaveSize = app.fileManager.autoSaveSize;
+    const formattedSize = Number.isFinite(autoSaveSize)
+        ? autoSaveSize < 1024
+            ? `${autoSaveSize} B`
+            : autoSaveSize < 1024 * 1024
+                ? `${(autoSaveSize / 1024).toFixed(1)} KB`
+                : `${(autoSaveSize / (1024 * 1024)).toFixed(1)} MB`
+        : 'None';
+    const tooltip = `${path}\nAutosave size: ${formattedSize}`;
 
     if (app.ui.docTitle) {
         app.ui.docTitle.textContent = `${dirty}${app.fileManager.fileName}`;
-        app.ui.docTitle.title = app.fileManager.filePath || app.fileManager.fileName;
+        app.ui.docTitle.title = tooltip;
     }
 
     // Mirror the filename into the PCB editor's status bar so both editors
@@ -301,7 +311,7 @@ export function updateTitle(app) {
     const pcbDocTitle = document.getElementById('pcbDocTitle');
     if (pcbDocTitle) {
         pcbDocTitle.textContent = `${dirty}${app.fileManager.fileName}`;
-        pcbDocTitle.title = app.fileManager.filePath || app.fileManager.fileName;
+        pcbDocTitle.title = tooltip;
     }
 }
 

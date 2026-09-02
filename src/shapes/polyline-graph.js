@@ -1050,13 +1050,16 @@ export class PolylineGraph extends Shape {
         el.textContent = '';
 
         const sw = this._getEffectiveStrokeWidth(scale);
+        const hasEdgeWidths = [...this.edges.keys()].some(
+            (edgeId) => this.getEdgeAttr(edgeId, 'width') !== this.lineWidth,
+        );
         const r = this.cornerRadius || 0;
 
         // Rounded-corner path rendering for shapes with cornerRadius
         // Only use path rendering for simple chains (no branching). Bulged
         // (arc) edges are incompatible with the corner-rounding builder, so
         // fall through to the per-edge renderer below when any are present.
-        if (r > 0 && !this._hasBulgedEdges()) {
+        if (r > 0 && !this._hasBulgedEdges() && !hasEdgeWidths) {
             const pts = this.getOrderedPoints();
             const hasBranches = this.getJunctionNodes().length > 0;
             if (pts && pts.length >= 3 && pts.length === this.nodes.size && !hasBranches) {
@@ -1132,11 +1135,13 @@ export class PolylineGraph extends Shape {
             const a = this.nodes.get(e.from), b = this.nodes.get(e.to);
             if (!a || !b) continue;
             const bulge = this.getEdgeAttr(eid, 'bulge') || 0;
+            const edgeWidth = Math.max(Number(this.getEdgeAttr(eid, 'width')) || this.lineWidth,
+                1 / scale);
             if (bulge) {
                 const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
                 path.setAttribute('d', arcEdgePathD(a, b, bulge));
                 path.setAttribute('stroke', strokeColor);
-                path.setAttribute('stroke-width', String(sw));
+                path.setAttribute('stroke-width', String(edgeWidth));
                 path.setAttribute('stroke-linecap', 'round');
                 path.setAttribute('fill', 'none');
                 el.appendChild(path);
@@ -1145,7 +1150,7 @@ export class PolylineGraph extends Shape {
                 ln.setAttribute('x1', a.x); ln.setAttribute('y1', a.y);
                 ln.setAttribute('x2', b.x); ln.setAttribute('y2', b.y);
                 ln.setAttribute('stroke', strokeColor);
-                ln.setAttribute('stroke-width', String(sw));
+                ln.setAttribute('stroke-width', String(edgeWidth));
                 ln.setAttribute('stroke-linecap', 'round');
                 ln.setAttribute('fill', 'none');
                 el.appendChild(ln);
@@ -1265,9 +1270,10 @@ export class PolylineGraph extends Shape {
     /**
      * Rebuild anchor handle overlays.
      * @param {number} scale
+     * @param {boolean} [visuallySelected]
      */
-    _updateAnchors(scale) {
-        if (!this.selected) {
+    _updateAnchors(scale, visuallySelected = this.selected) {
+        if (!visuallySelected) {
             if (this.anchorsGroup) { this.anchorsGroup.remove(); this.anchorsGroup = null; this._anchorRects = null; }
             return;
         }

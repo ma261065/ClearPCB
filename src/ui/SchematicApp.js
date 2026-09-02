@@ -52,7 +52,8 @@ import {
     commandDeleteShapesInternal,
     commandRestoreShapesInternal,
     removeShapeInternal,
-    renderShapes
+    renderShapes,
+    clearShapeSegmentSelection,
 } from '../schematic/modules/shape-management.js';
 
 // Shape construction uses createShape() from shapes/index.js.
@@ -111,6 +112,7 @@ export default class SchematicApp {
         // fileManager already created above
         this.fileManager.onDirtyChanged = () => this._updateTitle();
         this.fileManager.onFileNameChanged = () => this._updateTitle();
+        this.fileManager.onAutoSaveChanged = () => this._updateTitle();
 
         // Shape/selection state
         this.shapes = [];
@@ -119,6 +121,8 @@ export default class SchematicApp {
             getScale: () => this.viewport?.scale,
             onSelectionChanged: (shapes) => this._onSelectionChanged(shapes)
         });
+        /** Refined edge selection for a line, rectangle, or polygon. */
+        this._selectedShapeSegment = null;
         this._updateSelectableItems();
 
         // ── Tool / drawing state ─────────────────────────────────────
@@ -928,7 +932,23 @@ export default class SchematicApp {
      * @param {Array} shapes - The currently selected shapes.
      */
     _onSelectionChanged(shapes) {
+        if (shapes.length !== 1 || shapes[0]?.id !== this._selectedShapeSegment?.shapeId) {
+            clearShapeSegmentSelection(this);
+        }
+        this._updateShapeSelectionTip();
         this.eventBus.emit('selectionChanged', shapes);
+    }
+
+    _updateShapeSelectionTip() {
+        const tip = document.getElementById('schematicStatusTip');
+        if (!tip) return;
+        const selected = this.selection.getSelection();
+        const show = this.currentTool === 'select'
+            && selected.length === 1
+            && selected[0]?.type === 'polyline'
+            && !this._selectedShapeSegment;
+        tip.hidden = !show;
+        tip.textContent = show ? 'Tip: Click again to select a segment' : '';
     }
 
     /**

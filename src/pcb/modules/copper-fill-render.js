@@ -32,6 +32,7 @@ function layerColor(layer) {
  * @param {object} [opts]
  * @param {boolean} [opts.selected]
  * @param {boolean} [opts.visible] - global fill visibility
+ * @param {boolean} [opts.outlineOnly] - omit computed copper during live outline edits
  */
 export function renderCopperFill(fill, getLayerGroup, opts = {}) {
     removeCopperFillElements(fill, getLayerGroup);
@@ -47,7 +48,7 @@ export function renderCopperFill(fill, getLayerGroup, opts = {}) {
     const color = layerColor(fill.layer);
 
     // ── Poured copper polygons (outer + holes, even-odd) ──
-    const d = computedPathD(fill._computed);
+    const d = opts.outlineOnly ? '' : computedPathD(fill._computed);
     if (d) {
         const path = document.createElementNS(NS, 'path');
         path.setAttribute('class', 'pcb-fill-copper');

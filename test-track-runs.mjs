@@ -1,7 +1,19 @@
 /** Headless regression tests for shared Track render/selection layer runs. */
 
-import { Track } from './src/shapes/track.js';
-import { buildTrackLayerRuns } from './src/pcb/modules/track-render.js';
+globalThis.window = { addEventListener() {} };
+globalThis.document = {
+    createElementNS: () => ({
+        dataset: {},
+        classList: { contains: () => false },
+        setAttribute() {},
+        remove() {},
+    }),
+    getElementById: () => null,
+};
+
+const { Track } = await import('./src/shapes/track.js');
+const { buildTrackLayerRuns } = await import('./src/pcb/modules/track-render.js');
+const { collectBondedCopper, reconcileRatsnest } = await import('./src/pcb/modules/track-draw.js');
 
 let failures = 0;
 
@@ -56,6 +68,57 @@ function expect(name, condition) {
     const runs = buildTrackLayerRuns(track);
     expect('a branch produces a through-run and a separate branch run', runs.length === 2);
     expect('a branch retains all three edges', runs.reduce((count, run) => count + run.points.length - 1, 0) === 3);
+}
+
+function connectivityApp(viaY) {
+    const track = new Track({
+        points: [{ x: 0, y: 0 }, { x: 10, y: 0 }],
+        layer: 'top-copper',
+        width: 0.2,
+        net: 'GND',
+    });
+    const via = { x: 5, y: viaY, diameter: 0.6, net: 'GND' };
+    const children = [];
+    let drcFollowCount = 0;
+    let drcFollowSawRatline = false;
+    return {
+        track,
+        via,
+        children,
+        drcFollowCount: () => drcFollowCount,
+        drcFollowSawRatline: () => drcFollowSawRatline,
+        app: {
+            tracks: [track],
+            vias: [via],
+            netlist: [],
+            placements: new Map(),
+            boardShapes: [],
+            copperFills: [],
+            _getLayerGroup: () => ({ children, appendChild: (element) => children.push(element) }),
+            _followDRCRatline() {
+                drcFollowCount++;
+                drcFollowSawRatline = children.length > 0;
+            },
+        },
+    };
+}
+
+{
+    const { app, track, via, children } = connectivityApp(0);
+    reconcileRatsnest(app);
+    const bonded = collectBondedCopper(app, { track });
+    expect('a via overlapping a track midpoint removes the ratline', children.length === 0);
+    expect('bonded copper includes a via overlapping a track midpoint', bonded.vias.has(via));
+}
+
+{
+    const { app, track, via, children, drcFollowCount, drcFollowSawRatline } = connectivityApp(0.401);
+    reconcileRatsnest(app);
+    const bonded = collectBondedCopper(app, { track });
+    expect('a via beyond the combined copper radii retains the ratline', children.length === 1);
+    expect('bonded copper excludes a separated via', !bonded.vias.has(via));
+    expect('ratsnest rebuild updates the selected DRC ratline follower', drcFollowCount() === 1);
+    expect('DRC ratline follower runs after current geometry is drawn', drcFollowSawRatline());
 }
 
 if (failures) process.exitCode = 1;

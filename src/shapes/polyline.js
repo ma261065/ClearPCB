@@ -26,6 +26,7 @@ export class Polyline extends PolylineGraph {
      */
     static edgeAttributes = {
         bulge: { prop: 'edgeBulges', json: 'bg', default: () => 0 },
+        width: { prop: 'edgeWidths', json: 'ew', default: (shape) => shape.lineWidth },
     };
 
     constructor(options = {}) {
@@ -47,6 +48,12 @@ export class Polyline extends PolylineGraph {
         // Apply per-edge attributes (bulge) from constructor options. Must run
         // after the graph is loaded by super().
         this._initEdgeAttributes(options);
+        const providedWidths = options.edgeWidths;
+        for (const [edgeId, edge] of this.edges) {
+            if (!providedWidths || !Object.prototype.hasOwnProperty.call(providedWidths, edgeId)) {
+                delete edge.width;
+            }
+        }
     }
 
     /**
@@ -142,6 +149,7 @@ export class Polyline extends PolylineGraph {
     captureState() {
         const s = super.captureState();
         s.isRect = this.isRect;
+        s.lineWidth = this.lineWidth;
         return s;
     }
 
@@ -149,6 +157,7 @@ export class Polyline extends PolylineGraph {
     applyState(state) {
         super.applyState(state);
         if ('isRect' in state) this.isRect = state.isRect;
+        if ('lineWidth' in state) this.lineWidth = state.lineWidth;
         this._rectAxisCache = null;
     }
 
@@ -157,9 +166,11 @@ export class Polyline extends PolylineGraph {
         for (const [id, p] of this.nodes) graphNodes[id] = { x: p.x, y: p.y };
         const graphEdges = {};
         const edgeBulges = {};
+        const edgeWidths = {};
         for (const [id, e] of this.edges) {
             graphEdges[id] = { from: e.from, to: e.to };
             if (e.bulge) edgeBulges[id] = e.bulge;
+            if (e.width !== this.lineWidth) edgeWidths[id] = e.width;
         }
         return new Polyline({
             color: this.color, lineWidth: this.lineWidth,
@@ -167,7 +178,7 @@ export class Polyline extends PolylineGraph {
             closed: this.closed, fill: this.fill,
             fillColor: this.fillColor, fillAlpha: this.fillAlpha,
             isRect: this.isRect, cornerRadius: this.cornerRadius,
-            graphNodes, graphEdges, edgeBulges,
+            graphNodes, graphEdges, edgeBulges, edgeWidths,
         });
     }
 

@@ -104,6 +104,7 @@ export class ModifyBoardShapeCommand {
         this.app._updateRatsnest?.();
         this.app._board3d?.refresh?.();
         refreshBoardShapeProperties(this.app, this.shape);
+        this.app._refreshPcbSelectionHighlights?.();
     }
 
     execute() {

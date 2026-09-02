@@ -188,9 +188,10 @@ export class Shape {
      * Create or update the SVG element for this shape.
      * Applies selection/hover colouring and rebuilds anchor handles.
      * @param {number} scale - Current viewport scale (pixels per mm).
+    * @param {{suppressSelection?: boolean}} [options]
      * @returns {SVGElement} The root SVG element representing this shape.
      */
-    render(scale) {
+    render(scale, options = {}) {
         if (!this.element) {
             this.element = this._createElement();
             // Store reference to shape on the element for easy lookup
@@ -212,8 +213,10 @@ export class Shape {
         const attachedLabels = /** @type {any} */ (this).attachedLabels;
         const attachedActive = attachedLabels instanceof Set
             && Array.from(attachedLabels).some(label => label?.selected || label?.hovered);
+        const visuallySelected = this.selected && !options.suppressSelection;
+        const visuallyHovered = this.hovered && !options.suppressSelection;
         
-        if (this.selected) {
+        if (visuallySelected) {
             strokeColor = '#e94560';
             fillColor = '#e94560';
             
@@ -222,7 +225,7 @@ export class Shape {
             if (this.element.parentNode && this.element.nextSibling) {
                 this.element.parentNode.appendChild(this.element);
             }
-        } else if (this.hovered) {
+        } else if (visuallyHovered) {
             strokeColor = 'var(--sch-selection, #3399ff)';
             fillColor = this.type === 'text'
                 ? 'var(--sch-selection, #3399ff)'
@@ -234,7 +237,7 @@ export class Shape {
         
         // Update element
         this._updateElement(this.element, strokeColor, fillColor, scale);
-        if (this.hovered && !this.selected) {
+        if (visuallyHovered && !visuallySelected) {
             this.element.setAttribute('stroke-opacity', '0.35');
             if (this.type === 'text') {
                 this.element.setAttribute('fill-opacity', '0.35');
@@ -247,7 +250,7 @@ export class Shape {
         }
         
         // Update anchor handles
-        this._updateAnchors(scale);
+        this._updateAnchors(scale, visuallySelected);
         
         this._dirty = false;
         this._lastScale = scale;
@@ -280,10 +283,11 @@ export class Shape {
      * Uses a fast path when handle count is unchanged (drag), and a full
      * rebuild otherwise. Adds a lock icon near the primary anchor when locked.
      * @param {number} scale - Current viewport scale (pixels per mm).
+     * @param {boolean} [visuallySelected]
      */
-    _updateAnchors(scale) {
+    _updateAnchors(scale, visuallySelected = this.selected) {
         // Only show anchors when selected
-        if (!this.selected) {
+        if (!visuallySelected) {
             if (this.anchorsGroup) {
                 this.anchorsGroup.remove();
                 this.anchorsGroup = null;

@@ -4,6 +4,7 @@ import { Text } from '../../shapes/text.js';
 import { detachLabel, syncAttachedLabels } from '../../ui/modules/label-attachment.js';
 import { VERTEX_EPSILON } from './wire.js';
 import { connectComponentPinsToWires as _connectComponentPinsToWires, connectPinsToWires } from '../../ui/modules/pin-wire-connect.js';
+import { arcEdgePathD } from '../../shapes/arc-edge.js';
 
 /**
  * Adds a shape to the canvas via an undoable `AddShapeCommand`.
@@ -313,7 +314,9 @@ export function renderShapes(app, force = false) {
     for (const shape of app.shapes) {
         if (shape._culled) continue; // skip off-screen
         if (force || shape._dirty || shape.selected || shape.hovered) {
-            shape.render(scale);
+            shape.render(scale, {
+                suppressSelection: app._selectedShapeSegment?.shapeId === shape.id,
+            });
         } else if (shape._lastScale !== scale && shape.element) {
             // Only stroke-width changed on zoom or force — fast-path update
             const sw = shape._getEffectiveStrokeWidth(scale);
@@ -348,6 +351,47 @@ export function renderShapes(app, force = false) {
             }
         }
     }
+    renderShapeSegmentSelection(app);
+}
+
+/** Render the refined edge of a selected schematic polyline above the shape. */
+export function renderShapeSegmentSelection(app) {
+    app._shapeSegmentSelectionElement?.remove?.();
+    app._shapeSegmentSelectionElement = null;
+    const selected = app._selectedShapeSegment;
+    const shape = selected ? app.shapes.find((candidate) => candidate.id === selected.shapeId) : null;
+    if (!shape || !shape.selected || shape.type !== 'polyline') return;
+    const edge = shape.edges?.get(selected.edgeId);
+    const first = edge ? shape.nodes?.get(edge.from) : null;
+    const second = edge ? shape.nodes?.get(edge.to) : null;
+    if (!first || !second) return;
+    const NS = 'http://www.w3.org/2000/svg';
+    const bulge = shape.getEdgeAttr?.(selected.edgeId, 'bulge') || 0;
+    const element = document.createElementNS(NS, bulge ? 'path' : 'line');
+    if (bulge) {
+        element.setAttribute('d', arcEdgePathD(first, second, bulge));
+        element.setAttribute('fill', 'none');
+    } else {
+        element.setAttribute('x1', String(first.x));
+        element.setAttribute('y1', String(first.y));
+        element.setAttribute('x2', String(second.x));
+        element.setAttribute('y2', String(second.y));
+    }
+    element.setAttribute('class', 'schematic-shape-segment-selection');
+    element.setAttribute('stroke', '#e94560');
+    element.setAttribute('stroke-width', '5');
+    element.setAttribute('stroke-linecap', 'round');
+    element.setAttribute('vector-effect', 'non-scaling-stroke');
+    element.setAttribute('pointer-events', 'none');
+    app.viewport.contentLayer.appendChild(element);
+    app._shapeSegmentSelectionElement = element;
+}
+
+/** Clear refined schematic segment state and its independent SVG overlay. */
+export function clearShapeSegmentSelection(app) {
+    app._selectedShapeSegment = null;
+    app._shapeSegmentSelectionElement?.remove?.();
+    app._shapeSegmentSelectionElement = null;
 }
 
 /**

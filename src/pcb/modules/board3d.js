@@ -2218,7 +2218,7 @@ function buildCopperMesh(tracks, circles = [], boardShapes = [], texts = []) {
         const y = bottom ? Y_BOT - COPPER_EPS : Y_TOP + COPPER_EPS;
         const color = bottom ? COLOR_COPPER_BOTTOM : COLOR_COPPER_TOP;
         if (!geometry.filled) {
-            appendFlatStroke(mesh, o, geometry.centerlineClosed, geometry.lineWidth, y, color);
+            appendResolvedFlatStroke(mesh, geometry, y, color);
             continue;
         }
         let tri = null;
@@ -2294,6 +2294,16 @@ function appendFlatStroke(mesh, outline, closed, width, y, color) {
         appendMesh(mesh, ribbonMesh(start.x, start.y, end.x, end.y, width, y, color));
     }
     for (const point of outline) appendMesh(mesh, discMesh(point.x, point.y, width / 2, y, color, 10));
+}
+
+function appendResolvedFlatStroke(mesh, geometry, y, color) {
+    if (geometry.strokeSegments?.length) {
+        for (const segment of geometry.strokeSegments) {
+            appendFlatStroke(mesh, [segment.start, segment.end], false, segment.lineWidth, y, color);
+        }
+        return;
+    }
+    appendFlatStroke(mesh, geometry.path, geometry.centerlineClosed, geometry.lineWidth, y, color);
 }
 
 /** Approximate a stroked circle with bounded convex annular sectors. */
@@ -2405,11 +2415,15 @@ function collectMaskOpeningHoles(boardShapes = [], side = 'top') {
                 holes.push(...strokeOutlineHoles(ring, geometry.pathClosed, geometry.lineWidth));
             }
         } else if (ring.length >= 2) {
-            holes.push(...strokeOutlineHoles(
-                ring,
-                geometry.centerlineClosed,
-                geometry.lineWidth,
-            ));
+            if (geometry.strokeSegments?.length) {
+                for (const segment of geometry.strokeSegments) {
+                    holes.push(...strokeOutlineHoles(
+                        [segment.start, segment.end], false, segment.lineWidth));
+                }
+            } else {
+                holes.push(...strokeOutlineHoles(
+                    ring, geometry.centerlineClosed, geometry.lineWidth));
+            }
         }
     }
     return holes;
@@ -2645,14 +2659,7 @@ function buildMaskOpeningMesh(boardShapes = []) {
         const y = bottom ? Y_BOT - COPPER_EPS : Y_TOP + COPPER_EPS;
         if (!geometry.filled) {
             if (outline.length >= 2) {
-                appendFlatStroke(
-                    mesh,
-                    outline,
-                    geometry.centerlineClosed,
-                    geometry.lineWidth,
-                    y,
-                    COLOR_RAW_BOARD,
-                );
+                appendResolvedFlatStroke(mesh, geometry, y, COLOR_RAW_BOARD);
             }
             continue;
         }
@@ -2793,14 +2800,18 @@ function buildSilkMesh(app) {
                 }
             }
         }
-        const poly = geometry.pathClosed ? o.concat([o[0]]) : o;
-        appendMesh(mesh, strokePolysToMesh(
-            [poly],
-            geometry.lineWidth,
-            y,
-            COLOR_SILK,
-            (px, py) => ({ x: px, z: py }),
-        ));
+        if (!geometry.filled && geometry.strokeSegments?.length) {
+            appendResolvedFlatStroke(mesh, geometry, y, COLOR_SILK);
+        } else {
+            const poly = geometry.pathClosed ? o.concat([o[0]]) : o;
+            appendMesh(mesh, strokePolysToMesh(
+                [poly],
+                geometry.lineWidth,
+                y,
+                COLOR_SILK,
+                (px, py) => ({ x: px, z: py }),
+            ));
+        }
     }
     return mesh;
 }
@@ -4219,11 +4230,15 @@ export async function openBoard3DViewer(app, opts = {}) {
             const outlinePts = geometry.path;
             if (!outlinePts || outlinePts.length < 2) continue;
             if (!geometry.filled) {
-                for (let index = 1; index < outlinePts.length; index++) {
-                    const start = outlinePts[index - 1];
-                    const end = outlinePts[index];
+                const segments = geometry.strokeSegments?.length
+                    ? geometry.strokeSegments
+                    : outlinePts.slice(1).map((end, index) => ({
+                        start: outlinePts[index], end, lineWidth: geometry.lineWidth,
+                    }));
+                for (const segment of segments) {
+                    const { start, end } = segment;
                     if (Math.hypot(end.x - start.x, end.y - start.y) <= 1e-9) continue;
-                    const ring = capsuleRing(start.x, start.y, end.x, end.y, geometry.lineWidth / 2)
+                    const ring = capsuleRing(start.x, start.y, end.x, end.y, segment.lineWidth / 2)
                         .map((point) => ({ x: point.x, z: point.y }));
                     let cx = 0, cz = 0;
                     for (const point of ring) { cx += point.x; cz += point.z; }

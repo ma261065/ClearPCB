@@ -19,6 +19,20 @@ function manager(app) {
     if (!app._pcbSelection) {
         app._pcbSelection = new SelectionManager({
             getScale: () => app.viewport?.scale || 1,
+            onSelectionChanged: (selected) => {
+                const segment = app._selectedBoardShapeSegment;
+                const segmentStillSelected = segment && selected.some(
+                    (item) => item.kind === 'shape' && item.object?.id === segment.shapeId,
+                );
+                if (segment && !segmentStillSelected) {
+                    app._selectedBoardShapeSegment = null;
+                    const overlay = app._getLayerGroup?.('selection-overlay');
+                    for (const element of [...(overlay?.querySelectorAll?.('.pcb-shape-segment-selection') || [])]) {
+                        element.remove();
+                    }
+                    app._setPcbStatus?.();
+                }
+            },
         });
     }
     return app._pcbSelection;

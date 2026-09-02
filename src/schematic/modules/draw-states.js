@@ -26,6 +26,7 @@ import { collapseRedundantWirePoints } from './wire.js';
 import { Text } from '../../shapes/text.js';
 import { attachLabelToTarget, detachLabel, refreshLabelAttachmentOffset, getLabelAttachmentAnchorPoint, getLabelDropHotspot } from '../../ui/modules/label-attachment.js';
 import { findJoinTarget, isJoinable } from '../../shapes/shape-join.js';
+import { tryBeginPolylineSegmentDrag, updatePolylineSegmentDrag } from './polyline-segment-drag.js';
 // ─── Constants ─────────────────────────────────────────────────────
 
 const DRAWING_TOOLS = new Set(['line', 'rect', 'circle', 'polygon']);
@@ -703,6 +704,14 @@ function handleDragEnd(app) {
         for (const wire of app.shapes) {
             if (wire.type === 'wire') collapseRedundantWirePoints(app, wire);
         }
+    } else if (app.drag.mode === 'segment' && app.drag.shape?.type === 'polyline') {
+        if (app.didDrag) {
+            const shape = app.drag.shape;
+            const before = app.drag.beforeState;
+            const after = app._captureShapeState(shape);
+            app._applyShapeState(shape, before);
+            app.history.execute(new ModifyShapeCommand(app, shape, before, after));
+        }
     } else if (app.drag.mode === 'segment' && app.drag.wireStates) {
         if (app.didDrag) commitSegmentDrag(app, app.drag.shape, app.drag.wireStates, app.drag.ncLinks, app.drag.labelBefore);
         else revertSegmentDragIfNoMove(app, app.drag.wireStates);
@@ -1104,6 +1113,9 @@ export const idleState = {
             const anchorId = shape.hitTestAnchor(worldPos, app.viewport.scale);
             if (!anchorId) continue;
 
+            app._selectedShapeSegment = null;
+            app._updateShapeSelectionTip?.();
+
             if (shape.type === 'wire' && shape.edges.size <= 1 && shape.nodes.has(anchorId)) {
                 const pos = shape.nodes.get(anchorId);
                 let atJunction = false;
@@ -1131,6 +1143,11 @@ export const idleState = {
         let hitShape = app.selection.hitTest(worldPos);
 
         if (hitShape) {
+            const wasSelected = hitShape.selected;
+            const segmentTolerance = SNAP_SCREEN_PX / app.viewport.scale;
+            const hitSegmentEdgeId = hitShape.type === 'polyline'
+                ? hitShape.hitTestEdge(worldPos, segmentTolerance)
+                : null;
             // Ctrl/Cmd: add to selection if unselected, cycle stacked if already selected
             if (isAdditiveSelectionModifier(event)) {
                 if (hitShape.selected) {
@@ -1147,6 +1164,9 @@ export const idleState = {
 
             if (!hitShape.selected) {
                 app.selection.select(hitShape, false);
+                app._shapeSegmentClickCandidate = hitSegmentEdgeId
+                    ? { shapeId: hitShape.id, edgeId: hitSegmentEdgeId }
+                    : null;
                 app.renderShapes(true);
                 // The "+" insertion handles only appear once the shape is
                 // selected. If this selecting click happened to land on one,
@@ -1163,6 +1183,31 @@ export const idleState = {
             }
 
             if (hitShape.locked) { event.preventDefault(); return; }
+
+            const selectedShapeSegment = app._selectedShapeSegment?.shapeId === hitShape.id
+                ? { ...app._selectedShapeSegment }
+                : null;
+            const segmentCandidateMatches = app._shapeSegmentClickCandidate?.shapeId === hitShape.id
+                && app._shapeSegmentClickCandidate.edgeId === hitSegmentEdgeId;
+            app._pendingShapeSegmentToggle = wasSelected && hitShape.type === 'polyline'
+                ? {
+                    shape: hitShape,
+                    edgeId: hitSegmentEdgeId,
+                    hadSegment: !!selectedShapeSegment,
+                    segmentCandidateMatches,
+                }
+                : null;
+
+            if (selectedShapeSegment && tryBeginPolylineSegmentDrag(app, hitShape, worldPos, true,
+                segmentTolerance)) {
+                app.viewport.svg.style.cursor = 'move';
+                app.renderShapes(true);
+                event.preventDefault();
+                return;
+            }
+
+            app._selectedShapeSegment = null;
+            app._updateShapeSelectionTip?.();
 
             // Wire segment drag
             if (tryBeginWireSegmentDrag(app, hitShape, worldPos)) {
@@ -1201,9 +1246,29 @@ export const idleState = {
     },
 
     click(app, event, { worldPos }) {
+        const pendingSegmentToggle = app._pendingShapeSegmentToggle;
+        app._pendingShapeSegmentToggle = null;
         if (app.viewport.isPanning) return;
         if (app.skipClickSelection) { app.skipClickSelection = false; return; }
         if (app.didDrag) { app.didDrag = false; return; }
+
+        if (pendingSegmentToggle
+            && app.selection.getSelection().length === 1
+            && app.selection.getSelection()[0] === pendingSegmentToggle.shape) {
+            app._shapeSegmentSelectionElement?.remove();
+            app._shapeSegmentSelectionElement = null;
+            app._selectedShapeSegment = pendingSegmentToggle.hadSegment
+                || !pendingSegmentToggle.edgeId
+                || !pendingSegmentToggle.segmentCandidateMatches
+                ? null
+                : { shapeId: pendingSegmentToggle.shape.id, edgeId: pendingSegmentToggle.edgeId };
+            app._shapeSegmentClickCandidate = pendingSegmentToggle.edgeId
+                ? { shapeId: pendingSegmentToggle.shape.id, edgeId: pendingSegmentToggle.edgeId }
+                : null;
+            app.renderShapes(true);
+            app._updateShapeSelectionTip?.();
+            app._updatePropertiesPanel?.(app.selection.getSelection());
+        }
 
         // If a non-Home ribbon tab is showing, switch back to Home
         const activeTab = (document.getElementById('ribbonSchematic') || document).querySelector('.ribbon-tab.active');
@@ -1855,6 +1920,13 @@ export const segmentDragState = {
 
         const wire = app.drag.shape;
         const dragEdgeId = app.drag.edgeId;
+
+        if (wire.type === 'polyline') {
+            updatePolylineSegmentDrag(app, worldPos);
+            app.renderShapes(false);
+            if (app.didDrag) app.fileManager.setDirty(true);
+            return;
+        }
 
         const mouseDelta = getReusablePoint(app, '_dragSegmentMouseDeltaScratch');
         mouseDelta.x = worldPos.x - app.drag.startWorldPos.x;

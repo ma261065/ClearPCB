@@ -352,10 +352,12 @@ export class FileManager {
         this.autoSavePrefix = 'clearpcb_autosave_';
         this.autoSaveInterval = 10000; // 10 seconds
         this.autoSaveTimer = null;
+        this.autoSaveSize = null;
         
         // Callbacks
         this.onDirtyChanged = null;
         this.onFileNameChanged = null;
+        this.onAutoSaveChanged = null;
     }
     
     /**
@@ -783,6 +785,8 @@ export class FileManager {
                 data: data
             });
             localStorage.setItem(key, json);
+            this.autoSaveSize = new TextEncoder().encode(json).byteLength;
+            this.onAutoSaveChanged?.(this.autoSaveSize);
             // Update autosave index
             let index = [];
             try {
@@ -853,6 +857,8 @@ export class FileManager {
             }
             const json = localStorage.getItem(key);
             if (!json) return null;
+            this.autoSaveSize = new TextEncoder().encode(json).byteLength;
+            this.onAutoSaveChanged?.(this.autoSaveSize);
             const saved = JSON.parse(json);
             return {
                 timestamp: saved.timestamp,
@@ -889,6 +895,11 @@ export class FileManager {
             index = [];
         }
         localStorage.setItem(this.autoSavePrefix + 'index', JSON.stringify(index));
+        const clearedCurrent = !fileName || fileName === this.fileName;
+        if (clearedCurrent) {
+            this.autoSaveSize = null;
+            this.onAutoSaveChanged?.(null);
+        }
     }
     
     // ==================== New Document ====================

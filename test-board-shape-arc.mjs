@@ -18,6 +18,7 @@ const {
     boardShapeLineWidthMinimum,
     boardShapeArcGeometry,
     boardShapeCopperCuts,
+    boardShapeRemovalPathD,
     circleFilledRadius,
     finishLineDraw,
     finishShapeDrawAtPoint,
@@ -179,6 +180,17 @@ showBoardShapeProperties({
 check('existing rectangle populates the PCB Properties panel',
     propertyItems.innerHTML.includes('pcbPropShapeLayer')
     && propertyTabs.at(-1) === 'pcb-properties');
+let segmentTitle = '';
+showBoardShapeProperties({
+    boardShapes: [roundedRemovalRect],
+    placements: new Map(), tracks: [], vias: [], texts: new Map(),
+    viewport: { scale: 1 },
+    _selectedBoardShapeSegment: { shapeId: roundedRemovalRect.id, segment: 0 },
+    _pcbPropsItems() { return propertyItems; },
+    _setPcbPropsTitle(title) { segmentTitle = title; },
+    _setActiveRibbonTab() {},
+}, roundedRemovalRect);
+check('selected PCB segment uses the Segment Properties title', segmentTitle === 'Segment');
 const holeLinePropertyItems = { innerHTML: '' };
 showBoardShapeProperties({
     boardShapes: [{ ...removalRect, kind: 'line', layer: 'hole', points: removalRect.points.slice(0, 2) }],
@@ -223,6 +235,27 @@ check('filled shape interior matches outline opacity',
     renderedFilledShape?.getAttribute('fill-opacity') === '1');
 check('filled shape keeps its configured visible outline width',
     renderedFilledShape?.getAttribute('stroke-width') === String(selectedFilledRect.lineWidth));
+
+let renderedRemovalShape = null;
+renderBoardShape({
+    boardShapes: [removalCircle],
+    _shapeElements: new Map(),
+    _getLayerGroup() { return { appendChild(element) { renderedRemovalShape = element; } }; },
+}, removalCircle, { skipCopperUpdate: true });
+check('copper-removal shape uses a thin outline independent of line width',
+    renderedRemovalShape?.getAttribute('stroke-width') === '1'
+    && renderedRemovalShape?.getAttribute('vector-effect') === 'non-scaling-stroke');
+check('copper-removal display outline does not change physical cut width',
+    resolveBoardShapeGeometry(removalCircle).lineWidth === removalCircle.lineWidth);
+check('copper-removal outline follows the outside of its configured width',
+    boardShapeRemovalPathD(removalCircle).includes('M 8.2 5')
+    && renderedRemovalShape?.getAttribute('d').includes('M 8.2 5'));
+const removalLine = { ...removalRect, kind: 'line', points: removalRect.points.slice(0, 2) };
+const removalLinePath = boardShapeRemovalPathD(removalLine);
+check('open copper-removal Line has a closed width-aware perimeter', removalLinePath.endsWith('Z'));
+const removalLineCuts = boardShapeCopperCuts({ boardShapes: [removalLine] }, 'top-copper');
+check('open copper-removal Line clip uses its width-aware perimeter',
+    removalLineCuts.count === 1 && removalLineCuts.d.includes(removalLinePath));
 
 const filledPolygon = { ...removalRect, kind: 'polygon', filled: true };
 const filledPolygonOutline = shapeOutline(filledPolygon);

@@ -10,6 +10,11 @@ const {
     updateSelectionInteraction,
 } = await import('./src/pcb/modules/selection-interaction.js');
 const { createTrackSelectionAdapter } = await import('./src/pcb/modules/track-select.js');
+const {
+    clearPcbSelection,
+    registerPcbSelectionAdapter,
+    setPcbSelection,
+} = await import('./src/pcb/modules/selection-registry.js');
 const { Track } = await import('./src/shapes/track.js');
 
 let failures = 0;
@@ -21,6 +26,30 @@ function expect(name, condition) {
     }
     failures++;
     console.error(`FAIL: ${name}`);
+}
+
+{
+    let removed = 0;
+    const shape = { id: 'shape-segment' };
+    registerPcbSelectionAdapter('shape', (_app, object, id) => ({
+        id, kind: 'shape', object, visible: true,
+        getBounds() { return { minX: 0, minY: 0, maxX: 1, maxY: 1 }; },
+        hitTest() { return false; },
+        invalidate() {},
+    }));
+    const app = {
+        placements: new Map(), tracks: [], vias: [], boardShapes: [shape], texts: new Map(),
+        viewport: { scale: 1 },
+        _getLayerGroup() {
+            return { querySelectorAll() { return [{ remove() { removed++; } }]; } };
+        },
+        _setPcbStatus() {},
+    };
+    setPcbSelection(app, [{ kind: 'shape', object: shape }]);
+    app._selectedBoardShapeSegment = { shapeId: shape.id, segment: 0 };
+    clearPcbSelection(app);
+    expect('PCB shape deselection clears refined segment state', app._selectedBoardShapeSegment === null);
+    expect('PCB shape deselection removes refined segment highlight', removed === 1);
 }
 
 {
@@ -50,6 +79,25 @@ function expect(name, condition) {
     expect('placement click is consumed', placeFloatingSelectionInteraction(app));
     expect('placement clears the shared interaction', app._pcbSelectionInteraction === null);
     expect('placement reaches the adapter', endCalls[1]?.place === true);
+}
+
+{
+    let endOptions = null;
+    const app = {
+        viewport: { scale: 10 },
+        _pcbSelectionInteraction: {
+            mode: 'move-adapter',
+            startWorld: { x: 0, y: 0 },
+            moved: false,
+            entry: {
+                updateMove() {},
+                endMove(_commit, options) { endOptions = options; },
+            },
+        },
+    };
+    updateSelectionInteraction(app, { x: 1, y: 0 });
+    finishSelectionInteraction(app, true);
+    expect('PCB move adapter receives movement threshold result', endOptions?.moved === true);
 }
 
 {

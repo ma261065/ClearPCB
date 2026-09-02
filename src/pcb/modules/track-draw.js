@@ -733,7 +733,7 @@ export function reconcileRatsnest(app, opts) {
 
     const posKey = (x, y) => `${Math.round(x * 10000)},${Math.round(y * 10000)}`;
 
-    /** @type {Array<{net:string, layer:string, points:Array<{x:number,y:number}>}>} */
+    /** @type {Array<{net:string, layer:string, points:Array<{x:number,y:number}>, segments?:Array<{a:{x:number,y:number},b:{x:number,y:number},radius:number}>, viaRadius?:number}>} */
     const clusters = [];
 
     // ── Tracks: one cluster per connected component ──
@@ -750,13 +750,15 @@ export function reconcileRatsnest(app, opts) {
         for (const nid of track.nodes.keys()) adj.set(nid, []);
         for (const [eid, e] of track.edges) {
             const layer = track.getEdgeLayer(eid);
-            adj.get(e.from)?.push({ to: e.to, layer });
-            adj.get(e.to)?.push({ to: e.from, layer });
+            adj.get(e.from)?.push({ to: e.to, layer, edgeId: eid });
+            adj.get(e.to)?.push({ to: e.from, layer, edgeId: eid });
         }
         const seen = new Set();
         for (const start of track.nodes.keys()) {
             if (seen.has(start)) continue;
             const points = [];
+            const segments = [];
+            const componentEdges = new Set();
             const layers = new Set();
             const stack = [start];
             while (stack.length) {
@@ -767,14 +769,23 @@ export function reconcileRatsnest(app, opts) {
                 if (p) points.push({ x: p.x, y: p.y });
                 for (const m of adj.get(n) || []) {
                     layers.add(m.layer);
+                    componentEdges.add(m.edgeId);
                     stack.push(m.to);
                 }
             }
             if (points.length) {
+                for (const edgeId of componentEdges) {
+                    const edge = track.edges.get(edgeId);
+                    const a = edge ? track.nodes.get(edge.from) : null;
+                    const b = edge ? track.nodes.get(edge.to) : null;
+                    if (!a || !b) continue;
+                    const width = track.getEdgeWidth?.(edgeId) || track.width || 0.2;
+                    segments.push({ a, b, radius: width / 2 });
+                }
                 // A clean component is single-layer; if somehow mixed, fall
                 // back to 'all' so it bonds freely (no false disconnect).
                 const layer = layers.size === 1 ? [...layers][0] : 'all';
-                clusters.push({ net, layer, points });
+                clusters.push({ net, layer, points, segments });
             }
         }
     }
@@ -783,7 +794,12 @@ export function reconcileRatsnest(app, opts) {
     for (const via of (app.vias || [])) {
         if (!via.net) continue;
         if (onlyNets && !onlyNets.has(via.net)) continue;
-        clusters.push({ net: via.net, layer: 'all', points: [{ x: via.x, y: via.y }] });
+        clusters.push({
+            net: via.net,
+            layer: 'all',
+            points: [{ x: via.x, y: via.y }],
+            viaRadius: (via.diameter || 0.6) / 2,
+        });
     }
 
     // ── Pads (net from the schematic netlist) ── treated as all-layer bonds.
@@ -860,6 +876,10 @@ export function reconcileRatsnest(app, opts) {
             }
         }
     }
+
+    // A via bonds wherever its annular copper physically overlaps a same-net
+    // trace, even when its centre is not an explicit Track node.
+    _unionViaTrackOverlaps(clusters, union, true);
 
     // Filled copper shape interiors are conductive: join any same-net,
     // layer-compatible terminal that lies in the shape's actual outline.
@@ -938,6 +958,11 @@ export function reconcileRatsnest(app, opts) {
             ratLayer.appendChild(line);
         }
     }
+
+    // A selected incomplete-connection DRC marker targets one of these
+    // derived lines. Re-anchor it after every rebuild, including callers that
+    // invoke reconcileRatsnest directly during track/via/group movement.
+    app._followDRCRatline?.();
 }
 
 /**
@@ -959,7 +984,7 @@ export function collectBondedCopper(app, seed) {
     const posKey = (x, y) => `${Math.round(x * 10000)},${Math.round(y * 10000)}`;
     const compatible = (a, b) => a === b || a === 'all' || b === 'all';
 
-    /** @type {Array<{kind:string, layer:string, points:Array<{x,y}>, track?:object, via?:object, padNet?:string}>} */
+    /** @type {Array<{kind:string, layer:string, points:Array<{x,y}>, track?:object, via?:object, padNet?:string, padKey?:string, segments?:Array<{a:{x:number,y:number},b:{x:number,y:number},radius:number}>, viaRadius?:number}>} */
     const clusters = [];
 
     // Track connected-components (each single-layer per the via/node invariant).
@@ -968,13 +993,15 @@ export function collectBondedCopper(app, seed) {
         for (const nid of track.nodes.keys()) adj.set(nid, []);
         for (const [eid, e] of track.edges) {
             const layer = track.getEdgeLayer(eid);
-            adj.get(e.from)?.push({ to: e.to, layer });
-            adj.get(e.to)?.push({ to: e.from, layer });
+            adj.get(e.from)?.push({ to: e.to, layer, edgeId: eid });
+            adj.get(e.to)?.push({ to: e.from, layer, edgeId: eid });
         }
         const seen = new Set();
         for (const start of track.nodes.keys()) {
             if (seen.has(start)) continue;
             const points = [];
+            const segments = [];
+            const componentEdges = new Set();
             const layers = new Set();
             const stack = [start];
             while (stack.length) {
@@ -983,17 +1010,35 @@ export function collectBondedCopper(app, seed) {
                 seen.add(n);
                 const p = track.nodes.get(n);
                 if (p) points.push({ x: p.x, y: p.y });
-                for (const m of adj.get(n) || []) { layers.add(m.layer); stack.push(m.to); }
+                for (const m of adj.get(n) || []) {
+                    layers.add(m.layer);
+                    componentEdges.add(m.edgeId);
+                    stack.push(m.to);
+                }
             }
             if (!points.length) continue;
+            for (const edgeId of componentEdges) {
+                const edge = track.edges.get(edgeId);
+                const a = edge ? track.nodes.get(edge.from) : null;
+                const b = edge ? track.nodes.get(edge.to) : null;
+                if (!a || !b) continue;
+                const width = track.getEdgeWidth?.(edgeId) || track.width || 0.2;
+                segments.push({ a, b, radius: width / 2 });
+            }
             const layer = layers.size === 1 ? [...layers][0] : 'all';
-            clusters.push({ kind: 'track', layer, points, track });
+            clusters.push({ kind: 'track', layer, points, track, segments });
         }
     }
 
     // Vias and pads bond every layer at their point.
     for (const via of (app.vias || [])) {
-        clusters.push({ kind: 'via', layer: 'all', points: [{ x: via.x, y: via.y }], via });
+        clusters.push({
+            kind: 'via',
+            layer: 'all',
+            points: [{ x: via.x, y: via.y }],
+            via,
+            viaRadius: (via.diameter || 0.6) / 2,
+        });
     }
     const padNetMap = new Map();
     for (const entry of (app.netlist || [])) {
@@ -1028,6 +1073,7 @@ export function collectBondedCopper(app, seed) {
             }
         }
     }
+    _unionViaTrackOverlaps(clusters, union, false);
 
     // Find the root of the seed's cluster(s).
     const roots = new Set();
@@ -1190,6 +1236,63 @@ function _projectPointOnSegment(p, a, b) {
     let t = ((p.x - a.x) * abx + (p.y - a.y) * aby) / len2;
     if (t < 0) t = 0; else if (t > 1) t = 1;
     return { x: a.x + abx * t, y: a.y + aby * t };
+}
+
+/** Spatially join vias to physically-overlapping stroked Track segments. */
+function _unionViaTrackOverlaps(clusters, union, requireSameNet) {
+    const cellSize = 2;
+    const cells = new Map();
+    const cellKey = (x, y) => `${x},${y}`;
+
+    for (let clusterIndex = 0; clusterIndex < clusters.length; clusterIndex++) {
+        const cluster = clusters[clusterIndex];
+        if (!cluster.segments?.length) continue;
+        for (const segment of cluster.segments) {
+            const record = { clusterIndex, segment };
+            const minX = Math.floor((Math.min(segment.a.x, segment.b.x) - segment.radius) / cellSize);
+            const maxX = Math.floor((Math.max(segment.a.x, segment.b.x) + segment.radius) / cellSize);
+            const minY = Math.floor((Math.min(segment.a.y, segment.b.y) - segment.radius) / cellSize);
+            const maxY = Math.floor((Math.max(segment.a.y, segment.b.y) + segment.radius) / cellSize);
+            for (let x = minX; x <= maxX; x++) {
+                for (let y = minY; y <= maxY; y++) {
+                    const key = cellKey(x, y);
+                    if (!cells.has(key)) cells.set(key, []);
+                    cells.get(key).push(record);
+                }
+            }
+        }
+    }
+
+    for (let viaIndex = 0; viaIndex < clusters.length; viaIndex++) {
+        const via = clusters[viaIndex];
+        if (!Number.isFinite(via.viaRadius)) continue;
+        const centre = via.points[0];
+        const minX = Math.floor((centre.x - via.viaRadius) / cellSize);
+        const maxX = Math.floor((centre.x + via.viaRadius) / cellSize);
+        const minY = Math.floor((centre.y - via.viaRadius) / cellSize);
+        const maxY = Math.floor((centre.y + via.viaRadius) / cellSize);
+        const candidates = new Set();
+        for (let x = minX; x <= maxX; x++) {
+            for (let y = minY; y <= maxY; y++) {
+                for (const record of cells.get(cellKey(x, y)) || []) candidates.add(record);
+            }
+        }
+        const bondedClusters = new Set();
+        for (const record of candidates) {
+            const trackIndex = record.clusterIndex;
+            if (bondedClusters.has(trackIndex)) continue;
+            const track = clusters[trackIndex];
+            if (requireSameNet && via.net !== track.net) continue;
+            const nearest = _projectPointOnSegment(centre, record.segment.a, record.segment.b);
+            const dx = centre.x - nearest.x;
+            const dy = centre.y - nearest.y;
+            const reach = via.viaRadius + record.segment.radius;
+            if (dx * dx + dy * dy <= reach * reach + 1e-12) {
+                union(viaIndex, trackIndex);
+                bondedClusters.add(trackIndex);
+            }
+        }
+    }
 }
 
 /**

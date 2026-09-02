@@ -114,14 +114,23 @@ export function beginSelectionInteraction(app, worldPos, additive) {
     // is clicked.
     if (selected.length > 1 && selected.some((item) => item.id === entry.id)) return false;
 
+    const selectedSegment = entry.kind === 'shape'
+        && app._selectedBoardShapeSegment?.shapeId === entry.object?.id
+        ? { ...app._selectedBoardShapeSegment }
+        : null;
     clearSelectionInteractionUi(app);
     const onlySupported = selected.length > 0 && selected.every((item) => SUPPORTED_KINDS.has(item.kind));
     const alreadySelected = selected.some((item) => item.id === entry.id);
     if (!alreadySelected || !onlySupported) {
         setPcbSelection(app, [{ kind: entry.kind, object: entry.object }]);
     }
-    if (entry.beginMove?.(worldPos, { alreadySelected })) {
-        app._pcbSelectionInteraction = { mode: 'move-adapter', entry };
+    if (entry.beginMove?.(worldPos, { alreadySelected, selectedSegment })) {
+        app._pcbSelectionInteraction = {
+            mode: 'move-adapter',
+            entry,
+            startWorld: { x: worldPos.x, y: worldPos.y },
+            moved: false,
+        };
     } else {
         beginGroupDrag(app, worldPos);
         app._pcbSelectionInteraction = { mode: 'move', entry };
@@ -151,6 +160,12 @@ export function updateSelectionInteraction(app, worldPos) {
         return true;
     }
     if (state.mode === 'move-adapter') {
+        if (!state.moved) {
+            const threshold = 3 / Math.max(0.01, app.viewport?.scale || 1);
+            if (Math.hypot(worldPos.x - state.startWorld.x, worldPos.y - state.startWorld.y) > threshold) {
+                state.moved = true;
+            }
+        }
         state.entry.updateMove?.(worldPos);
         scheduleBoxSelectionHighlights(app);
         return true;
@@ -174,7 +189,7 @@ export function finishSelectionInteraction(app, commit = true) {
         if (commit) endGroupDrag(app);
         else cancelGroupDrag(app);
     } else if (state.mode === 'move-adapter') {
-        state.entry.endMove?.(commit);
+        state.entry.endMove?.(commit, { moved: state.moved, startWorld: state.startWorld });
     }
     app._pcbSelectionInteraction = null;
     refreshBoxSelectionHighlights(app);

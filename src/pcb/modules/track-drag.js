@@ -61,6 +61,17 @@ const VIA_NODE_EPS = 1e-4;
 /** World-space tolerance for treating two dropped nodes as coincident. */
 const NODE_MERGE_EPS = 1e-3;
 
+function _beginVertexDragOverlayDeferral(app) {
+    const previous = !!app._deferDragOverlays;
+    app._deferDragOverlays = true;
+    return previous;
+}
+
+function _endVertexDragOverlayDeferral(app, drag, refresh) {
+    app._deferDragOverlays = drag.previousDeferDragOverlays;
+    if (refresh) reconcileRatsnest(app);
+}
+
 /** True if any standalone Via sits on `(x, y)`. */
 function _viaAtPoint(app, x, y) {
     for (const via of (app.vias || [])) {
@@ -378,6 +389,7 @@ export function splitTrackNodeAndDrag(app, track, nodeId) {
         grabX: pos.x,
         grabY: pos.y,
         nodes: [{ nodeId: newNodeId, startX: pos.x, startY: pos.y, padLink: null }],
+        previousDeferDragOverlays: _beginVertexDragOverlayDeferral(app),
     };
     renderTrack(track, (id) => app._getLayerGroup(id), _opts(app));
     refreshTrackSelectionHalo(app);
@@ -420,6 +432,7 @@ export function startMidpointInsertDrag(app, track, edgeId) {
         grabX: mid.x,
         grabY: mid.y,
         nodes: [{ nodeId: res.newNodeId, startX: mid.x, startY: mid.y, padLink: null }],
+        previousDeferDragOverlays: _beginVertexDragOverlayDeferral(app),
     };
     // Freeze 3D board-view sync for the drag; it rebuilds once on commit
     // rather than live from the in-flight (uncommitted) node positions.
@@ -893,6 +906,7 @@ export function startVertexDrag(app, track, worldPos, opts = {}) {
             // the drag moves anything), so the live net-guide line never
             // points back at copper the dragged end already connects to.
             guideExclude: track.net ? bondedExclusion(app, track) : null,
+            previousDeferDragOverlays: _beginVertexDragOverlayDeferral(app),
         };
         // Freeze 3D board-view sync for the drag; it rebuilds once on commit
         // rather than live from the in-flight (uncommitted) node positions.
@@ -956,6 +970,7 @@ export function startVertexDrag(app, track, worldPos, opts = {}) {
             { nodeId: e.from, startX: a.x, startY: a.y, padLink: track.padConnections.get(e.from) || null },
             { nodeId: e.to, startX: b.x, startY: b.y, padLink: track.padConnections.get(e.to) || null },
         ],
+        previousDeferDragOverlays: _beginVertexDragOverlayDeferral(app),
     };
     // Freeze 3D board-view sync for the drag; it rebuilds once on commit
     // rather than live from the in-flight (uncommitted) node positions.
@@ -1450,6 +1465,7 @@ export function finishVertexDrag(app) {
             renderTrack(drag.track, (id) => app._getLayerGroup(id), _opts(app, drag.track));
             refreshTrackSelectionHalo(app);
             reconcileRatsnest(app);
+            _endVertexDragOverlayDeferral(app, drag, false);
             return;
         }
         // Dissolve any waypoints the drag made redundant before snapshotting.
@@ -1457,7 +1473,7 @@ export function finishVertexDrag(app) {
         const after = drag.track.captureState();
         drag.track.applyState(drag.graphBefore);
         app.history.execute(new ModifyTrackGraphCommand(app, drag.track, drag.graphBefore, after));
-        reconcileRatsnest(app);
+        _endVertexDragOverlayDeferral(app, drag, true);
         return;
     }
 
@@ -1469,7 +1485,10 @@ export function finishVertexDrag(app) {
     // displacement when one is dragged onto the other, so a `moved`-only gate
     // would never fuse them.
     if (drag.mode === 'node' && drag.nodes.length === 1 && (moved || drag.snapTargetNode)) {
-        if (_tryMergeDroppedNode(app, drag)) return;
+        if (_tryMergeDroppedNode(app, drag)) {
+            _endVertexDragOverlayDeferral(app, drag, true);
+            return;
+        }
     }
 
     // A single node dropped onto a bare pad should inherit that pad's net
@@ -1495,6 +1514,7 @@ export function finishVertexDrag(app) {
             renderTrack(drag.track, (id) => app._getLayerGroup(id), _opts(app));
             refreshTrackSelectionHalo(app);
             reconcileRatsnest(app);
+            _endVertexDragOverlayDeferral(app, drag, false);
             showAlert(
                 `Cannot connect to a pad on net "${conflict.pad}" \u2014 this track is already on net "${conflict.existing}".`,
                 { title: 'Net Conflict' }
@@ -1515,7 +1535,10 @@ export function finishVertexDrag(app) {
         n.x = nd.startX;
         n.y = nd.startY;
     }
-    if (!moves.length) return;
+    if (!moves.length) {
+        _endVertexDragOverlayDeferral(app, drag, false);
+        return;
+    }
 
     // Build a 'before' snapshot at the original positions, re-apply the
     // move, then dissolve any waypoints the move made redundant (collinear
@@ -1537,7 +1560,7 @@ export function finishVertexDrag(app) {
         drag.track.applyState(before);
         const all = [new ModifyTrackGraphCommand(app, drag.track, before, after), ...netCmds];
         app.history.execute(all.length === 1 ? all[0] : new CompoundCommand(all));
-        reconcileRatsnest(app);
+        _endVertexDragOverlayDeferral(app, drag, true);
         return;
     }
     drag.track.applyState(before);
@@ -1546,7 +1569,7 @@ export function finishVertexDrag(app) {
         new MoveVertexCommand(app, drag.track, m.nodeId, m.fromX, m.fromY, m.toX, m.toY));
     const all = [...moveCmds, ...netCmds];
     app.history.execute(all.length === 1 ? all[0] : new CompoundCommand(all));
-    reconcileRatsnest(app);
+    _endVertexDragOverlayDeferral(app, drag, true);
 }
 
 /** Abort the in-progress drag and restore the original node position(s). */
@@ -1567,6 +1590,7 @@ export function cancelVertexDrag(app) {
         renderTrack(drag.track, (id) => app._getLayerGroup(id), _opts(app, drag.track));
         refreshTrackSelectionHalo(app);
         reconcileRatsnest(app);
+        _endVertexDragOverlayDeferral(app, drag, false);
         return;
     }
     for (const nd of (drag.nodes || [])) {
@@ -1579,6 +1603,7 @@ export function cancelVertexDrag(app) {
     renderTrack(drag.track, (id) => app._getLayerGroup(id), _opts(app, drag.track));
     refreshTrackSelectionHalo(app);
     reconcileRatsnest(app);
+    _endVertexDragOverlayDeferral(app, drag, false);
 }
 
 /* ──────────────────────────── via drag ──────────────────────────── */
