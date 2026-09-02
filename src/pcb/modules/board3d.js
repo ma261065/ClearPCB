@@ -1363,7 +1363,7 @@ function _subtractRingsFromOutline(outline, rings) {
  * @param {Array} holeList wholly-inside bores ({x,z,r} or {x,z,r,ring})
  * @param {Array<Array<{x:number,z:number}>>} crossingRings edge-crossing cutouts
  */
-function boardSlabWithCutouts(outline, holeList, crossingRings, yBottom, yTop, color, edgeColor) {
+export function boardSlabWithCutouts(outline, holeList, crossingRings, yBottom, yTop, color, edgeColor) {
     if (!crossingRings.length || !isClipperReady()) {
         return boardWithHoles(outline, holeList, yBottom, yTop, color, edgeColor);
     }
@@ -1905,7 +1905,7 @@ function clipMeshToOutline(mesh, outline) {
  * Subtract drilled holes from a flat (single y-plane) mesh so copper, silk and
  * text are bored through exactly where the board substrate is — otherwise a
  * track or pad lid floats over an open hole. Each hole is approximated by a
- * convex polygon ring; every face triangle that overlaps a hole is replaced by
+ * convex polygon pieces; every face triangle that overlaps a hole is replaced by
  * the convex pieces of `triangle \ holePolygon` (the standard convex-difference
  * decomposition: the part outside edge i but inside edges 0..i-1, unioned over
  * all edges). Triangles clear of every hole pass straight through.
@@ -1923,24 +1923,40 @@ export function punchHolesInFlatMesh(mesh, holes, seg = 48) {
             return h.ring.every((point) => Number.isFinite(point.x) && Number.isFinite(point.z));
         }
         return Number.isFinite(h.x) && Number.isFinite(h.z) && Number.isFinite(h.r) && h.r > 0;
-    }).map((h) => {
+    }).flatMap((h) => {
         if (h.ring && h.ring.length >= 3) {
             let pts = h.ring.map((p) => ({ x: p.x, z: p.z }));
-            // Clipper expects CCW rings (positive signed area in the x,z plane).
+            // Half-plane subtraction expects CCW convex rings. Rounded polygons
+            // can be concave, so decompose those into convex triangles first.
             let area = 0;
             for (let i = 0; i < pts.length; i++) {
                 const a = pts[i], b = pts[(i + 1) % pts.length];
                 area += a.x * b.z - b.x * a.z;
             }
             if (area < 0) pts = pts.reverse();
-            return { pts, x: h.x, z: h.z, r: h.r, y: h.y };
+            let direction = 0;
+            let convex = true;
+            for (let i = 0; i < pts.length; i++) {
+                const a = pts[i], b = pts[(i + 1) % pts.length], c = pts[(i + 2) % pts.length];
+                const cross = (b.x - a.x) * (c.z - b.z) - (b.z - a.z) * (c.x - b.x);
+                if (Math.abs(cross) <= 1e-9) continue;
+                const sign = Math.sign(cross);
+                if (direction && sign !== direction) { convex = false; break; }
+                direction = sign;
+            }
+            if (convex) return [{ pts, x: h.x, z: h.z, r: h.r, y: h.y }];
+            const indices = earcut(pts.flatMap((point) => [point.x, point.z]));
+            return Array.from({ length: indices.length / 3 }, (_, index) => ({
+                pts: [pts[indices[index * 3]], pts[indices[index * 3 + 1]], pts[indices[index * 3 + 2]]],
+                x: h.x, z: h.z, r: h.r, y: h.y,
+            }));
         }
         const pts = [];
         for (let i = 0; i < seg; i++) {
             const a = (i / seg) * Math.PI * 2;
             pts.push({ x: h.x + h.r * Math.cos(a), z: h.z + h.r * Math.sin(a) });
         }
-        return { pts, x: h.x, z: h.z, r: h.r, y: h.y };
+        return [{ pts, x: h.x, z: h.z, r: h.r, y: h.y }];
     });
     if (!rings.length) return mesh;
 
