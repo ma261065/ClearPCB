@@ -916,6 +916,8 @@ const REMOVAL_COLORS = {
     'remove-solder-mask': '#8a6923',
     'remove-copper-mask': '#7c3b4c',
 };
+const HOLE_HOVER_COLOR = '#28524c';
+const HOLE_SELECTION_COLOR = '#8b98a6';
 
 /** Base display color for the shape's PCB layer. */
 export function shapeLayerColor(shape) {
@@ -924,6 +926,7 @@ export function shapeLayerColor(shape) {
 
 /** Selection is a lighter version of the owning layer, not a fixed side color. */
 export function shapeSelectionColor(shape) {
+    if (shape?.layer === 'hole') return HOLE_SELECTION_COLOR;
     const color = shapeLayerColor(shape);
     const channels = color.match(/[\da-f]{2}/gi);
     if (!channels || channels.length !== 3) return color;
@@ -935,6 +938,7 @@ export function shapeSelectionColor(shape) {
 
 /** Hover is a subtle lightening of the owning layer color. */
 export function shapeHoverColor(shape) {
+    if (shape?.layer === 'hole') return HOLE_HOVER_COLOR;
     const color = shapeLayerColor(shape);
     const channels = color.match(/[\da-f]{2}/gi);
     if (!channels || channels.length !== 3) return color;

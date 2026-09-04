@@ -948,13 +948,16 @@ export default class SchematicApp {
         const tip = document.getElementById('schematicStatusTip');
         if (!tip) return;
         const selected = this.selection.getSelection();
-        const show = this.currentTool === 'select'
+        const showOverlap = this.currentTool === 'select' && this._overlapHitCount > 1;
+        const showSegment = this.currentTool === 'select'
             && selected.length === 1
             && selected[0]?.type === 'polyline'
             && !this._selectedShapeSegment
             && !this._selectedShapeNode;
-        tip.hidden = !show;
-        tip.textContent = show ? 'Tip: Click again to select a segment' : '';
+        tip.hidden = !showOverlap && !showSegment;
+        tip.textContent = showOverlap
+            ? 'Tip: Ctrl+click to select overlapping objects'
+            : showSegment ? 'Tip: Click again to select a segment' : '';
     }
 
     /**

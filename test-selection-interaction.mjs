@@ -6,12 +6,14 @@ globalThis.requestAnimationFrame = (callback) => { callback(); return 1; };
 
 const {
     finishSelectionInteraction,
+    beginSelectionInteraction,
     placeFloatingSelectionInteraction,
     updateSelectionInteraction,
 } = await import('./src/pcb/modules/selection-interaction.js');
 const { createTrackSelectionAdapter } = await import('./src/pcb/modules/track-select.js');
 const {
     clearPcbSelection,
+    hitTestPcbSelectionEntry,
     registerPcbSelectionAdapter,
     setPcbSelection,
 } = await import('./src/pcb/modules/selection-registry.js');
@@ -26,6 +28,54 @@ function expect(name, condition) {
     }
     failures++;
     console.error(`FAIL: ${name}`);
+}
+
+{
+    registerPcbSelectionAdapter('shape', (_app, object, id) => ({
+        id, kind: 'shape', object, visible: true,
+        getBounds() { return { minX: 0, minY: 0, maxX: 10, maxY: 10 }; },
+        hitTest() { return true; },
+        invalidate() {},
+    }));
+    registerPcbSelectionAdapter('via', (_app, object, id) => ({
+        id, kind: 'via', object, visible: true,
+        getBounds() { return { minX: 0, minY: 0, maxX: 10, maxY: 10 }; },
+        hitTest() { return true; },
+        invalidate() {},
+    }));
+    const hole = { id: 'hole-shape', layer: 'hole' };
+    const via = { id: 'overlapping-via' };
+    const app = {
+        placements: new Map(), tracks: [], vias: [via], boardShapes: [hole], texts: new Map(),
+        viewport: { scale: 1 },
+    };
+    const hit = hitTestPcbSelectionEntry(app, { x: 5, y: 5 }, ['shape', 'via']);
+    expect('hole shape owns clicks across its filled hit area', hit?.object === hole);
+}
+
+{
+    const top = { id: 'top-object' };
+    const below = { id: 'below-object' };
+    const factory = (_app, object, id) => ({
+        id, kind: 'shape', object, visible: true,
+        getBounds() { return { minX: 0, minY: 0, maxX: 10, maxY: 10 }; },
+        hitTest() { return true; },
+        invalidate() {},
+    });
+    registerPcbSelectionAdapter('shape', factory);
+    const app = {
+        placements: new Map(), tracks: [], vias: [], boardShapes: [below, top], texts: new Map(),
+        viewport: { scale: 1 },
+        _syncClipboardButtons() {}, _setPcbStatus() {},
+        _selectComponent() {}, _selectBoardOutline() {}, _selectText() {}, _selectRefText() {}, _selectFill() {},
+        _clearProperties() {}, _showPcbMultiSelectionProperties() {},
+        _getLayerGroup() { return null; },
+    };
+    setPcbSelection(app, [{ kind: 'shape', object: top }]);
+    expect('Ctrl-click consumes an overlapping PCB selection',
+        beginSelectionInteraction(app, { x: 5, y: 5 }, true));
+    expect('Ctrl-click cycles to the next overlapping PCB object',
+        app._pcbSelection.getSelection()[0]?.object === below);
 }
 
 {

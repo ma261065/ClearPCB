@@ -3,6 +3,7 @@
 import {
     getPcbSelection,
     getPcbSelectionEntries,
+    getPcbSelectionHits,
     hitTestPcbSelectionEntry,
     setPcbSelection,
     togglePcbSelection,
@@ -103,8 +104,15 @@ export function beginSelectionInteraction(app, worldPos, additive) {
     if (!entry) return false;
 
     if (additive) {
-        togglePcbSelection(app, entry.kind, entry.object);
-        const selected = getPcbSelectionEntries(app);
+        const alreadySelected = selected.some((item) => item.id === entry.id);
+        if (alreadySelected) {
+            const hits = getPcbSelectionHits(app, worldPos, SUPPORTED_KINDS);
+            const index = hits.findIndex((item) => item.id === entry.id);
+            const next = hits[(index + 1) % hits.length];
+            if (next) setPcbSelection(app, [{ kind: next.kind, object: next.object }]);
+        } else {
+            togglePcbSelection(app, entry.kind, entry.object);
+        }
         showPcbSelectionProperties(app);
         refreshBoxSelectionHighlights(app);
         return true;

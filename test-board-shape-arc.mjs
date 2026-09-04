@@ -25,6 +25,7 @@ const {
     resolveBoardShapeGeometry,
     renderBoardShape,
     shapeOutline,
+    shapeHoverColor,
     shapePathD,
     shapeIsFilled,
     shapeSelectionColor,
@@ -369,6 +370,9 @@ check('hole-layer line emits a non-plated routed slot',
 check('selected PCB objects share their layer-derived color',
     shapeSelectionColor({ layer: 'top-copper' }) === pcbLayerSelectionColor('top-copper')
     && shapeSelectionColor(copperText) === pcbLayerSelectionColor('top-copper'));
+check('hole hover and selection use distinct muted colors',
+    shapeHoverColor({ layer: 'hole' }) === '#28524c'
+    && shapeSelectionColor({ layer: 'hole' }) === '#8b98a6');
 
 const clipper = await loadClipper();
 const testFill = {

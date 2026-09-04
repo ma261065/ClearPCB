@@ -33,6 +33,11 @@ export function setupCallbacks(app) {
             lastHoverUpdate = now;
 
             if (!app.viewport.isPanning && app.interactionState === 'idle') {
+                const overlapHitCount = app.selection.hitTest(world, true).length;
+                if (overlapHitCount !== app._overlapHitCount) {
+                    app._overlapHitCount = overlapHitCount;
+                    app._updateShapeSelectionTip?.();
+                }
                 const hit = app.selection.hitTest(world);
                 const hoveredChanged = app.selection.setHovered(hit);
 

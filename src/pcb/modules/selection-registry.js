@@ -109,6 +109,15 @@ export function getPcbSelectionEntries(app) {
     return manager(app).getSelection();
 }
 
+/** Return all visible selection hits in display order. */
+export function getPcbSelectionHits(app, point, kinds = null) {
+    syncPcbSelection(app);
+    const hits = manager(app).hitTest(point, true);
+    if (!kinds) return hits;
+    const allowed = kinds instanceof Set ? kinds : new Set(kinds);
+    return hits.filter((item) => allowed.has(item.kind));
+}
+
 /** Hit test an adapter kind through the shared selection ordering rules. */
 /** @param {string|null} [kind] */
 export function hitTestPcbSelection(app, point, kind = null) {
@@ -120,12 +129,14 @@ export function hitTestPcbSelection(app, point, kind = null) {
 
 /** Return the topmost adapter belonging to one of the requested kinds. */
 export function hitTestPcbSelectionEntry(app, point, kinds) {
-    syncPcbSelection(app);
-    const allowed = new Set(kinds);
-    const hits = manager(app).hitTest(point, true).filter((item) => allowed.has(item.kind));
+    const hits = getPcbSelectionHits(app, point, kinds);
+    // Hole shapes render as filled board cutouts and hover across their full
+    // area, so give that same full area priority for click selection.
+    const holeShape = hits.find((item) => item.kind === 'shape' && item.object?.layer === 'hole');
     // Copper targets have always won when they overlap graphics or pads.
     // Keep that established PCB picking order as tracks join the registry.
-    return hits.find((item) => item.kind === 'via')
+    return holeShape
+        || hits.find((item) => item.kind === 'via')
         || hits.find((item) => item.kind === 'track')
         || hits.find((item) => item.kind === 'text')
         || hits.find((item) => item.kind === 'reftext')

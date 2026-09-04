@@ -154,7 +154,7 @@ import {
     placeFloatingSelectionInteraction,
     updateSelectionInteraction,
 } from '../pcb/modules/selection-interaction.js';
-import { getPcbSelection, isPcbSelected, setPcbSelection, syncPcbSelection } from '../pcb/modules/selection-registry.js';
+import { getPcbSelection, getPcbSelectionHits, isPcbSelected, setPcbSelection, syncPcbSelection } from '../pcb/modules/selection-registry.js';
 import { measureText as measureStrokeText } from '../pcb/modules/stroke-font.js';
 import { CommandHistory } from '../core/CommandHistory.js';
 import { Track } from '../shapes/track.js';
@@ -347,6 +347,8 @@ export default class PCBApp {
         this._shapeElements = new Map();
         /** Board shape currently hovered in select mode, or null. */
         this._hoveredShape = null;
+        /** Number of selectable PCB objects under the pointer. */
+        this._overlapHitCount = 0;
         /** Refined board-shape node selection for per-corner properties. */
         this._selectedBoardShapeNode = null;
         /** Currently selected board shape, or null. */
@@ -490,9 +492,12 @@ export default class PCBApp {
             && this._selectedBoardShapeSegment?.shapeId !== selectedShape[0]?.id
             && this._selectedBoardShapeNode?.shapeId !== selectedShape[0]?.id;
         const showHoleTip = rawTool === 'circle' && this.activeLayer === 'hole';
+        const showOverlapTip = rawTool === 'select' && this._overlapHitCount > 1;
         if (this.status.tipStatus) {
-            this.status.tipStatus.hidden = !showHoleTip && !showSegmentTip;
-            this.status.tipStatus.textContent = showHoleTip
+            this.status.tipStatus.hidden = !showOverlapTip && !showHoleTip && !showSegmentTip;
+            this.status.tipStatus.textContent = showOverlapTip
+                ? 'Tip: Ctrl+click to select overlapping objects'
+                : showHoleTip
                 ? 'Tip: A hole is just a circle on the hole layer'
                 : showSegmentTip ? 'Tip: Click again to select a segment' : '';
         }
@@ -4542,6 +4547,11 @@ export default class PCBApp {
             // Hover highlight for free-standing board shapes.
             const shapeHover = hitTestBoardShape(this, worldPos);
             setBoardShapeHover(this, shapeHover);
+            const overlapHitCount = getPcbSelectionHits(this, worldPos).length;
+            if (overlapHitCount !== this._overlapHitCount) {
+                this._overlapHitCount = overlapHitCount;
+                this._setPcbStatus();
+            }
             // Cursor feedback: a diagonal double-arrow (matching the
             // schematic editor's graph anchors) when the pointer is over a
             // draggable track node. Only toggle on transitions so we don't
