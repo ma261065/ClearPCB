@@ -13,6 +13,12 @@
 import { PolylineGraph, COLLINEAR_EPSILON } from './polyline-graph.js';
 export { COLLINEAR_EPSILON };
 
+/** Default wire stroke color. */
+export const WIRE_COLOR = '#00cc66';
+
+/** Default wire stroke width (world units). */
+export const WIRE_WIDTH = 0.25;
+
 /** Default font size for the wire label text (mm). */
 const WIRE_LABEL_FONT_SIZE = 1.4;
 
@@ -87,7 +93,7 @@ export class Wire extends PolylineGraph {
     /* ──────────────────────── constructor ──────────────────────── */
 
     constructor(options = {}) {
-        super(options);
+        super({ color: WIRE_COLOR, lineWidth: WIRE_WIDTH, ...options });
         this.type = 'wire';
 
         // Wire-specific: pin connections
@@ -318,6 +324,8 @@ export class Wire extends PolylineGraph {
      */
     toJSON() {
         const json = { ...super.toJSON(), type: 'wire' };
+        delete json.c;
+        delete json.f;
         json.wl = this.wireLabel;
         if (this.pinConnections.size > 0) {
             json.pc = {};

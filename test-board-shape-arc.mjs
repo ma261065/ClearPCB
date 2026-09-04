@@ -250,6 +250,16 @@ check('copper-removal display outline does not change physical cut width',
 check('copper-removal outline follows the outside of its configured width',
     boardShapeRemovalPathD(removalCircle).includes('M 8.2 5')
     && renderedRemovalShape?.getAttribute('d').includes('M 8.2 5'));
+let renderedHoleCircle = null;
+const holeCircle = { ...removalCircle, layer: 'hole' };
+renderBoardShape({
+    boardShapes: [holeCircle],
+    _shapeElements: new Map(),
+    _pcbSelection: { isSelected() { return false; } },
+    _getLayerGroup() { return { appendChild(element) { renderedHoleCircle = element; } }; },
+}, holeCircle, { skipCopperUpdate: true });
+check('hole-layer circle display reaches the physical cutout edge',
+    renderedHoleCircle?.getAttribute('d').includes('M 8.2 5'));
 const removalLine = { ...removalRect, kind: 'line', points: removalRect.points.slice(0, 2) };
 const removalLinePath = boardShapeRemovalPathD(removalLine);
 check('open copper-removal Line has a closed width-aware perimeter', removalLinePath.endsWith('Z'));
@@ -371,6 +381,19 @@ const fillHoles = (context) => computeFillPolygons(testFill, {
     params: { clearance: 0.5 }, board: null,
     ...context,
 }, clipper).reduce((count, polygon) => count + polygon.holes.length, 0);
+const pointInPath = (point, path) => {
+    let inside = false;
+    for (let i = 0, j = path.length - 1; i < path.length; j = i++) {
+        const a = path[i], b = path[j];
+        if ((a.y > point.y) !== (b.y > point.y)
+            && point.x < (b.x - a.x) * (point.y - a.y) / (b.y - a.y) + a.x) inside = !inside;
+    }
+    return inside;
+};
+const fillContains = (polygons, point) => polygons.some((polygon) => (
+    pointInPath(point, polygon.outer)
+    && !polygon.holes.some((hole) => pointInPath(point, hole))
+));
 const copperRect = {
     ...removalRect,
     points: removalRect.points.map((point) => ({ x: point.x, y: point.y - 10 })),
@@ -382,6 +405,19 @@ check('foreign-net copper shapes receive fill clearance',
     fillHoles({ boardShapes: [{ ...copperRect, net: 'VCC' }] }) > 0);
 check('same-net copper shapes merge into the fill',
     fillHoles({ boardShapes: [{ ...copperRect, net: 'GND' }] }) === 0);
+const unfilledCopperCircle = {
+    ...removalCircle,
+    y: -5,
+    copperMode: 'add',
+};
+const circleFill = computeFillPolygons(testFill, {
+    tracks: [], vias: [], pads: [], boardShapes: [unfilledCopperCircle], texts: [], fills: [],
+    params: { clearance: 0.5 }, board: null,
+}, clipper);
+check('unfilled additive circle preserves pour inside its ring',
+    fillContains(circleFill, { x: 5, y: -5 }));
+check('unfilled additive circle clears the pour around its stroke',
+    !fillContains(circleFill, { x: 8, y: -5 }));
 check('copper-removal shapes are not copper clearance obstacles',
     fillHoles({ boardShapes: [{ ...copperRect, copperMode: 'remove-copper' }] }) === 0);
 check('copper text receives fill clearance', fillHoles({ texts: [copperText] }) > 0);

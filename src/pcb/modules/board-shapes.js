@@ -1069,7 +1069,7 @@ export function renderBoardShape(app, shape, opts = {}) {
         && app._selectedBoardShapeSegment?.shapeId !== shape.id;
     const st = shapeStyle(shape);
     if (!renderAsSegments) {
-        el.setAttribute('d', st.isCopperRemoval
+        el.setAttribute('d', st.isCopperRemoval || st.isHoleLayer
             ? boardShapeRemovalPathD(shape)
             : shapePathD(shape, { close: st.filled }));
     }
@@ -1106,7 +1106,7 @@ export function renderBoardShape(app, shape, opts = {}) {
             segmentEl.setAttribute('fill', 'none');
             segmentEl.setAttribute('stroke', logicalSegment === selectedSegment
                 ? shapeSelectionColor(shape)
-                : el.getAttribute('stroke'));
+                : el.getAttribute('stroke') || st.baseStroke);
             segmentEl.setAttribute('stroke-width', String(segment.lineWidth));
             segmentEl.setAttribute('stroke-linejoin', 'round');
             segmentEl.setAttribute('stroke-linecap', 'round');

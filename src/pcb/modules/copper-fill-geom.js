@@ -223,10 +223,21 @@ function collectObstacles(C, fill, ctx, clearance) {
 
 function resolvedShapeObstaclePaths(C, geometry, clearance) {
     if (geometry.circle) {
-        const radius = geometry.filled
-            ? geometry.circle.outerRadius
-            : geometry.circle.radius + geometry.lineWidth / 2;
-        return [circlePath(C, geometry.circle.x, geometry.circle.y, radius + clearance)];
+        if (geometry.filled) {
+            return [circlePath(
+                C, geometry.circle.x, geometry.circle.y,
+                geometry.circle.outerRadius + clearance,
+            )];
+        }
+        const halfObstacleWidth = geometry.lineWidth / 2 + clearance;
+        const outer = circlePath(
+            C, geometry.circle.x, geometry.circle.y,
+            geometry.circle.radius + halfObstacleWidth,
+        );
+        const innerRadius = geometry.circle.radius - halfObstacleWidth;
+        return innerRadius > 0
+            ? [outer, circlePath(C, geometry.circle.x, geometry.circle.y, innerRadius).reverse()]
+            : [outer];
     }
     if (geometry.filled && geometry.path.length >= 3) {
         return offsetClosedPath(C, geometry.path, geometry.lineWidth / 2 + clearance);

@@ -23,7 +23,7 @@
 
 import { Wire, COLLINEAR_EPSILON as _SHAPE_COLLINEAR_EPSILON } from '../../shapes/index.js';
 import { Text } from '../../shapes/text.js';
-import { freeWireLabel, nextWireLabel, bumpWireLabelCounter, freeNetName, bumpNetNameCounter, nextNetName } from '../../shapes/wire.js';
+import { freeWireLabel, nextWireLabel, bumpWireLabelCounter, freeNetName, bumpNetNameCounter, nextNetName, WIRE_COLOR, WIRE_WIDTH } from '../../shapes/wire.js';
 import { BatchCommand, AddShapeCommand, ModifyShapeCommand, DeleteShapesCommand } from '../../core/CommandHistory.js';
 import { distanceToSegment, pointsMatch, pointsCollinear, segmentsCollinear, collinearSnap } from '../../core/geometry.js';
 import { applyStickyConnections } from '../../ui/modules/sticky-wires.js';
@@ -71,11 +71,7 @@ export const PIN_DEPART_RATIO = 2;
 
 // ── Appearance ──
 
-/** Default wire stroke color. */
-export const WIRE_COLOR = '#00cc66';
-
-/** Default wire stroke width (world units). */
-export const WIRE_WIDTH = 0.25;
+export { WIRE_COLOR, WIRE_WIDTH };
 
 /** Maximum iterations for pairwise merge loop. */
 const MAX_MERGE_ITERATIONS = 50;
