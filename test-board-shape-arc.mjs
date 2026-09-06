@@ -371,8 +371,8 @@ check('selected PCB objects share their layer-derived color',
     shapeSelectionColor({ layer: 'top-copper' }) === pcbLayerSelectionColor('top-copper')
     && shapeSelectionColor(copperText) === pcbLayerSelectionColor('top-copper'));
 check('hole hover and selection use distinct muted colors',
-    shapeHoverColor({ layer: 'hole' }) === '#28524c'
-    && shapeSelectionColor({ layer: 'hole' }) === '#8b98a6');
+    shapeHoverColor({ layer: 'hole' }) === '#54948b'
+    && shapeSelectionColor({ layer: 'hole' }) === '#78aba3');
 
 const clipper = await loadClipper();
 const testFill = {

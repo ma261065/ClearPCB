@@ -916,8 +916,19 @@ const REMOVAL_COLORS = {
     'remove-solder-mask': '#8a6923',
     'remove-copper-mask': '#7c3b4c',
 };
-const HOLE_HOVER_COLOR = '#28524c';
-const HOLE_SELECTION_COLOR = '#8b98a6';
+// Holes use a muted teal feedback base so they read distinctly from copper,
+// but hover/selection lighten it in the same direction as every other layer.
+const HOLE_FEEDBACK_BASE = '#2f7d72';
+
+/** Lighten a hex color toward white by the given fraction (0..1). */
+function lightenColor(color, fraction) {
+    const channels = color.match(/[\da-f]{2}/gi);
+    if (!channels || channels.length !== 3) return color;
+    return `#${channels.map((channel) => {
+        const value = parseInt(channel, 16);
+        return Math.round(value + (255 - value) * fraction).toString(16).padStart(2, '0');
+    }).join('')}`;
+}
 
 /** Base display color for the shape's PCB layer. */
 export function shapeLayerColor(shape) {
@@ -926,26 +937,14 @@ export function shapeLayerColor(shape) {
 
 /** Selection is a lighter version of the owning layer, not a fixed side color. */
 export function shapeSelectionColor(shape) {
-    if (shape?.layer === 'hole') return HOLE_SELECTION_COLOR;
-    const color = shapeLayerColor(shape);
-    const channels = color.match(/[\da-f]{2}/gi);
-    if (!channels || channels.length !== 3) return color;
-    return `#${channels.map((channel) => {
-        const value = parseInt(channel, 16);
-        return Math.round(value + (255 - value) * 0.35).toString(16).padStart(2, '0');
-    }).join('')}`;
+    const base = shape?.layer === 'hole' ? HOLE_FEEDBACK_BASE : shapeLayerColor(shape);
+    return lightenColor(base, 0.35);
 }
 
 /** Hover is a subtle lightening of the owning layer color. */
 export function shapeHoverColor(shape) {
-    if (shape?.layer === 'hole') return HOLE_HOVER_COLOR;
-    const color = shapeLayerColor(shape);
-    const channels = color.match(/[\da-f]{2}/gi);
-    if (!channels || channels.length !== 3) return color;
-    return `#${channels.map((channel) => {
-        const value = parseInt(channel, 16);
-        return Math.round(value + (255 - value) * 0.18).toString(16).padStart(2, '0');
-    }).join('')}`;
+    const base = shape?.layer === 'hole' ? HOLE_FEEDBACK_BASE : shapeLayerColor(shape);
+    return lightenColor(base, 0.18);
 }
 
 function shapeStyle(shape) {

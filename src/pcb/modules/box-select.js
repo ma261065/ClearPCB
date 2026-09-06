@@ -271,7 +271,9 @@ function _applyHighlights(app) {
     }
     for (const via of getPcbSelection(app, 'via')) drawViaHalo(app, via, VIA_HALO_CLASS);
     for (const text of getPcbSelection(app, 'text')) app._refreshText?.(text.id);
-    if (getPcbSelection(app, 'fill').length) app._refreshFills?.();
+    // Selection highlight only — re-render pours from cached geometry rather
+    // than triggering a full Clipper recompute.
+    if (getPcbSelection(app, 'fill').length) app._rerenderFills?.();
     renderPcbSelectionAnchors(app);
 }
 

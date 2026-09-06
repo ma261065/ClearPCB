@@ -109,10 +109,15 @@ export function getPcbSelectionEntries(app) {
     return manager(app).getSelection();
 }
 
-/** Return all visible selection hits in display order. */
-export function getPcbSelectionHits(app, point, kinds = null) {
-    syncPcbSelection(app);
-    const hits = manager(app).hitTest(point, true);
+/**
+ * Return all visible selection hits in display order.
+ * Pass `{ sync: false }` on read-only hot paths (e.g. hover overlap counting)
+ * to reuse the last-synced adapter list instead of rebuilding one per call.
+ */
+export function getPcbSelectionHits(app, point, kinds = null, { sync = true } = {}) {
+    const mgr = manager(app);
+    if (sync || mgr.shapes.length === 0) syncPcbSelection(app);
+    const hits = mgr.hitTest(point, true);
     if (!kinds) return hits;
     const allowed = kinds instanceof Set ? kinds : new Set(kinds);
     return hits.filter((item) => allowed.has(item.kind));

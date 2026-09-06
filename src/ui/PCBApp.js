@@ -1905,21 +1905,25 @@ export default class PCBApp {
         const drill = Number.isFinite(p.viaDrill) && p.viaDrill > 0 ? p.viaDrill : 0.3;
         const scale = this.viewport.scale || 1;
         const stroke = 1 / scale;
-        const accent = getComputedStyle(document.documentElement)
-            .getPropertyValue('--accent-color').trim() || '#0098ff';
 
         let g = this._viaRingGroup;
         if (!g) {
             const NS = 'http://www.w3.org/2000/svg';
+            // Read the accent color once per preview group; getComputedStyle
+            // forces a style resolve and this runs on every mousemove.
+            const accent = getComputedStyle(document.documentElement)
+                .getPropertyValue('--accent-color').trim() || '#0098ff';
             g = document.createElementNS(NS, 'g');
             g.setAttribute('class', 'pcb-via-preview');
             g.setAttribute('pointer-events', 'none');
             const ring = document.createElementNS(NS, 'circle');
             ring.setAttribute('data-role', 'ring');
             ring.setAttribute('fill', 'none');
+            ring.setAttribute('stroke', accent);
             const hole = document.createElementNS(NS, 'circle');
             hole.setAttribute('data-role', 'hole');
             hole.setAttribute('fill', 'none');
+            hole.setAttribute('stroke', accent);
             g.appendChild(ring);
             g.appendChild(hole);
             svg.appendChild(g);
@@ -1927,7 +1931,6 @@ export default class PCBApp {
         }
         const ring = g.querySelector('[data-role="ring"]');
         const hole = g.querySelector('[data-role="hole"]');
-        for (const el of [ring, hole]) el.setAttribute('stroke', accent);
         ring.setAttribute('cx', String(snap.x));
         ring.setAttribute('cy', String(snap.y));
         ring.setAttribute('r', String(dia / 2));
@@ -4547,7 +4550,9 @@ export default class PCBApp {
             // Hover highlight for free-standing board shapes.
             const shapeHover = hitTestBoardShape(this, worldPos);
             setBoardShapeHover(this, shapeHover);
-            const overlapHitCount = getPcbSelectionHits(this, worldPos).length;
+            // Read-only overlap count: skip the per-frame adapter-list rebuild
+            // and reuse the last-synced entries (structural edits resync).
+            const overlapHitCount = getPcbSelectionHits(this, worldPos, null, { sync: false }).length;
             if (overlapHitCount !== this._overlapHitCount) {
                 this._overlapHitCount = overlapHitCount;
                 this._setPcbStatus();
@@ -4568,23 +4573,20 @@ export default class PCBApp {
                 && !!this._hitTestRefText(worldPos);
             const selectedAnchor = hitTestPcbSelectionAnchor(this, worldPos, ['shape']);
             const shapeIsSelected = !!shapeHover && isPcbSelected(this, 'shape', shapeHover);
-            if (overNode) {
-                this.viewport.svg.style.cursor = 'nwse-resize';
-                this._hoverNodeCursor = true;
-            } else if (overMidpoint) {
-                this.viewport.svg.style.cursor = 'copy';
-                this._hoverNodeCursor = true;
-            } else if (overCopper) {
-                this.viewport.svg.style.cursor = 'pointer';
-                this._hoverNodeCursor = true;
-            } else if (overRef) {
-                this.viewport.svg.style.cursor = 'move';
-                this._hoverNodeCursor = true;
-            } else if (selectedAnchor) {
-                this.viewport.svg.style.cursor = selectedAnchor.anchor.cursor || 'move';
-                this._hoverNodeCursor = true;
-            } else if (shapeHover) {
-                this.viewport.svg.style.cursor = shapeIsSelected ? 'move' : 'pointer';
+            const hoverCursor = overNode ? 'nwse-resize'
+                : overMidpoint ? 'copy'
+                : overCopper ? 'pointer'
+                : overRef ? 'move'
+                : selectedAnchor ? (selectedAnchor.anchor.cursor || 'move')
+                : shapeHover ? (shapeIsSelected ? 'move' : 'pointer')
+                : null;
+            if (hoverCursor) {
+                // Compare against the live inline value so we skip redundant
+                // writes without a private cache that other cursor-setting
+                // paths (drag 'grabbing', tool crosshair) could leave stale.
+                if (this.viewport.svg.style.cursor !== hoverCursor) {
+                    this.viewport.svg.style.cursor = hoverCursor;
+                }
                 this._hoverNodeCursor = true;
             } else if (this._hoverNodeCursor) {
                 this._hoverNodeCursor = false;
@@ -8033,6 +8035,22 @@ export default class PCBApp {
         };
         if (typeof requestAnimationFrame === 'function') requestAnimationFrame(run);
         else setTimeout(run, 0);
+    }
+
+    /**
+     * Re-render existing pour geometry (e.g. to reflect selection state)
+     * without recomputing polygons. Selection/highlight changes don't alter
+     * geometry, so reuse each fill's cached `_computed` instead of re-running
+     * Clipper across every pour.
+     */
+    _rerenderFills() {
+        if (this._deferDragOverlays) return;
+        if (!this.copperFills || this.copperFills.length === 0) return;
+        for (const fill of this.copperFills) {
+            renderCopperFill(fill, (id) => this._getLayerGroup(id), {
+                selected: isPcbSelected(this, 'fill', fill),
+            });
+        }
     }
 
     /** Remove all rendered pour geometry from both fill layer groups. */
