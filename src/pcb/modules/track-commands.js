@@ -710,6 +710,7 @@ export class SetBoardOutlineCommand {
         this.app._boardHeight = s.height;
         this.app._boardRadius = s.radius;
         this.app._drawBoardOutline?.();
+        this.app._syncBoardOutlineInputs?.();
     }
     execute() { this._apply(this.after); }
     undo() { this._apply(this.before); }

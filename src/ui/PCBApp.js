@@ -113,6 +113,10 @@ import {
 } from '../pcb/modules/copper-fill-draw.js';
 import { createShape } from '../shapes/index.js';
 import { AddBoardShapeCommand } from '../pcb/modules/shape-commands.js';
+import {
+    beginBoardOutlineResize, updateBoardOutlineResize, endBoardOutlineResize,
+    renderBoardOutlineHandles, hitTestBoardOutlineHandle,
+} from '../pcb/modules/board-outline-resize.js';
 
 /**
  * On-screen size (CSS px) of a footprint's bounding box below which it is
@@ -231,6 +235,7 @@ export default class PCBApp {
         this._boardOutlineDrawn = false;
         /** Whether the board outline is currently selected */
         this._boardOutlineSelected = false;
+        this._boardOutlineResize = null;
         /** Board dimensions in mm */
         this._boardWidth = 100;
         this._boardHeight = 80;
@@ -800,6 +805,7 @@ export default class PCBApp {
                 refreshBoxSelectionHighlights(this);
             }
             if (view?.scaleChanged) {
+                renderBoardOutlineHandles(this);
                 refreshAxisGlow(this);
                 refreshTrackDrawPreview(this);
             }
@@ -909,6 +915,11 @@ export default class PCBApp {
             const worldPos = e.button === 0 && this.currentTool === 'select'
                 ? this._screenToWorld(e)
                 : null;
+            if (worldPos && beginBoardOutlineResize(this, worldPos)) {
+                e.preventDefault();
+                svg.style.cursor = hitTestBoardOutlineHandle(this, worldPos)?.cursor || 'nesw-resize';
+                return;
+            }
             const selectedBoardShapeAnchor = worldPos && getPcbSelection(this, 'shape').some(
                 (shape) => hitTestBoardShapeVertex(this, shape, worldPos) != null,
             );
@@ -1390,6 +1401,8 @@ export default class PCBApp {
                 } else if (this.currentTool === 'rect' || this.currentTool === 'polygon' || this.currentTool === 'arc') {
                     this._updateCursorCrosshair(this._screenToWorld(e));
                 }
+            } else if (this._boardOutlineResize) {
+                updateBoardOutlineResize(this, this._screenToWorld(e));
             } else if (this._pasteDrop) {
                 this._updatePasteDrop(this._screenToWorld(e));
             } else if (updateSelectionInteraction(this, this._screenToWorld(e))) {
@@ -1561,6 +1574,12 @@ export default class PCBApp {
             // Right/middle mouse drags pan the canvas. Releasing either must
             // leave an armed or active anchor drag untouched.
             if (button !== 0) return;
+            if (this._boardOutlineResize) {
+                if (worldPos) updateBoardOutlineResize(this, worldPos);
+                endBoardOutlineResize(this);
+                svg.style.cursor = 'default';
+                return;
+            }
             const finishedSelectionInteraction = finishSelectionInteraction(this, true, worldPos);
             if (finishedSelectionInteraction) {
                 this._clearCursorCrosshair();
@@ -2313,6 +2332,11 @@ export default class PCBApp {
             return false;
         }
         if (e.key === 'Escape') {
+            if (this._boardOutlineResize) {
+                endBoardOutlineResize(this, false);
+                this.viewport.svg.style.cursor = 'default';
+                return true;
+            }
             if (finishSelectionInteraction(this, false)) {
                 this._clearCursorCrosshair();
                 return true;
@@ -3049,6 +3073,7 @@ export default class PCBApp {
 
         const wasDrawn = this._boardOutlineDrawn;
         this._boardOutlineDrawn = true;
+        this._selectBoardOutline(this._boardOutlineSelected);
 
         // Fit view to board only on first draw
         if (!wasDrawn && this.viewport) {
@@ -3100,7 +3125,9 @@ export default class PCBApp {
      * Set board outline selection state.
      */
     _selectBoardOutline(selected) {
+        if (!selected && this._boardOutlineResize) endBoardOutlineResize(this, false);
         this._boardOutlineSelected = selected;
+        renderBoardOutlineHandles(this);
         const outline = this._getLayerGroup('board-outline').querySelector('.pcb-board-outline');
         if (!outline) return;
         if (selected) {
@@ -3322,6 +3349,17 @@ export default class PCBApp {
         showBoardShapeToolProperties(this, kind);
     }
 
+    _syncBoardOutlineInputs() {
+        for (const [id, value] of [
+            ['pcbPropBoardW', this._boardWidth],
+            ['pcbPropBoardH', this._boardHeight],
+            ['pcbPropBoardR', this._boardRadius],
+        ]) {
+            const input = /** @type {HTMLInputElement|null} */ (document.getElementById(id));
+            if (input) input.value = Number(value).toFixed(2);
+        }
+    }
+
     /**
      * Show board outline properties and switch to Properties tab.
      */
@@ -3331,8 +3369,8 @@ export default class PCBApp {
         this._setPcbPropsTitle('Board Outline');
 
         items.innerHTML = `
-            <div class="prop-row"><label>Width (mm)</label><input type="number" id="pcbPropBoardW" value="${this._boardWidth}" min="5" step="1"></div>
-            <div class="prop-row"><label>Height (mm)</label><input type="number" id="pcbPropBoardH" value="${this._boardHeight}" min="5" step="1"></div>
+            <div class="prop-row"><label>Width (mm)</label><input type="number" id="pcbPropBoardW" value="${Number(this._boardWidth).toFixed(2)}" min="5" step="1"></div>
+            <div class="prop-row"><label>Height (mm)</label><input type="number" id="pcbPropBoardH" value="${Number(this._boardHeight).toFixed(2)}" min="5" step="1"></div>
             <div class="prop-row"><label>Corner R (mm)</label><input type="number" id="pcbPropBoardR" value="${Number(this._boardRadius).toFixed(2)}" min="0" step="0.5"></div>
         `;
 
