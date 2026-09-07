@@ -1045,10 +1045,13 @@ function _teardownDraw(app) {
     app._trackDraw = null;
 }
 
-function _clearPreviewElements(ctx) {
-    if (!ctx.previewElements) return;
-    for (const el of ctx.previewElements) el.remove();
+function _clearPreviewElements(ctx, keepCached = false) {
+    for (const el of ctx.previewElements || []) el.remove();
     ctx.previewElements = [];
+    if (!keepCached) {
+        for (const element of ctx.previewCache?.values() || []) element.remove();
+        ctx.previewCache?.clear();
+    }
 }
 
 /** Shared Track and generic-shape H/V/45 glow renderer. */
@@ -1311,7 +1314,9 @@ export function clearNetGuideLine(app) {
 }
 
 function _renderPreview(app, ctx, livePt) {
-    _clearPreviewElements(ctx);
+    _clearPreviewElements(ctx, true);
+    const used = new Set();
+    ctx.previewCache ??= new Map();
 
     // Build the full point list: committed points + live cursor.
     // Each segment has its own layer:
@@ -1319,7 +1324,10 @@ function _renderPreview(app, ctx, livePt) {
     //   edgeLayers[i] for i < committed-edges, currentLayer for the
     //   trailing rubber-band.
     const allPts = ctx.points.concat([livePt]);
-    if (allPts.length < 2) return;
+    if (allPts.length < 2) {
+        _clearPreviewElements(ctx);
+        return;
+    }
 
     const segLayers = ctx.edgeLayers.concat([ctx.currentLayer]);
     const width = String(ctx.width || _getTrackWidth(app));
@@ -1354,7 +1362,7 @@ function _renderPreview(app, ctx, livePt) {
             const layerId = segLayers[runStart];
             const parent = app._getLayerGroup(layerId);
             if (parent) {
-                const poly = document.createElementNS(NS, 'polyline');
+                const poly = _previewElement(ctx, `run:${runStart}`, 'polyline', used);
                 poly.setAttribute('class', PREVIEW_CLASS);
                 poly.setAttribute('fill', 'none');
                 poly.setAttribute('stroke', _layerColor(layerId));
@@ -1366,7 +1374,6 @@ function _renderPreview(app, ctx, livePt) {
                 const slice = allPts.slice(runStart, i + 1);
                 poly.setAttribute('points', slice.map((p) => `${p.x},${p.y}`).join(' '));
                 parent.appendChild(poly);
-                ctx.previewElements.push(poly);
             }
             runStart = i;
         }
@@ -1390,14 +1397,29 @@ function _renderPreview(app, ctx, livePt) {
         for (let i = 1; i < segLayers.length; i++) {
             if (segLayers[i] !== segLayers[i - 1]) {
                 const p = allPts[i];
-                _appendPreviewVia(ctx, holeLayer, p, viaDia, viaDrill);
+                _appendPreviewVia(ctx, holeLayer, p, viaDia, viaDrill, i, used);
             }
         }
     }
+    for (const [key, element] of ctx.previewCache) {
+        if (used.has(key)) continue;
+        element.remove();
+        ctx.previewCache.delete(key);
+    }
 }
 
-function _appendPreviewVia(ctx, holeLayer, p, viaDia, viaDrill) {
-    const ring = document.createElementNS(NS, 'circle');
+function _previewElement(ctx, key, tag, used) {
+    used.add(key);
+    let element = ctx.previewCache.get(key);
+    if (!element) {
+        element = document.createElementNS(NS, tag);
+        ctx.previewCache.set(key, element);
+    }
+    return element;
+}
+
+function _appendPreviewVia(ctx, holeLayer, p, viaDia, viaDrill, index, used) {
+    const ring = _previewElement(ctx, `via:${index}:ring`, 'circle', used);
     ring.setAttribute('class', PREVIEW_CLASS);
     ring.setAttribute('cx', String(p.x));
     ring.setAttribute('cy', String(p.y));
@@ -1406,9 +1428,8 @@ function _appendPreviewVia(ctx, holeLayer, p, viaDia, viaDrill) {
     ring.setAttribute('fill-opacity', '0.9');
     ring.setAttribute('pointer-events', 'none');
     holeLayer.appendChild(ring);
-    ctx.previewElements.push(ring);
 
-    const drill = document.createElementNS(NS, 'circle');
+    const drill = _previewElement(ctx, `via:${index}:drill`, 'circle', used);
     drill.setAttribute('class', PREVIEW_CLASS);
     drill.setAttribute('cx', String(p.x));
     drill.setAttribute('cy', String(p.y));
@@ -1416,7 +1437,6 @@ function _appendPreviewVia(ctx, holeLayer, p, viaDia, viaDrill) {
     drill.setAttribute('fill', '#1a1a2e');
     drill.setAttribute('pointer-events', 'none');
     holeLayer.appendChild(drill);
-    ctx.previewElements.push(drill);
 }
 
 /**
@@ -1587,6 +1607,7 @@ function _renderOptsFromApp(app) {
  * @property {object|null} endPad
  * @property {string|null} axisLock
  * @property {SVGElement[]} previewElements
+ * @property {Map<string, SVGElement>} [previewCache]
  * @property {object|null} snap
  * @property {number} [viaDiameter]
  * @property {number} [viaDrill]
