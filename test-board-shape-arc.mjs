@@ -31,6 +31,7 @@ const {
     shapeSelectionColor,
     shapeDrawClick,
     showBoardShapeProperties,
+    updateShapeDrawPreview,
 } = await import('./src/pcb/modules/board-shapes.js');
 const { exportGerbers } = await import('./src/pcb/modules/gerber.js');
 const { pcbTextPolylines, pcbTextSegments } = await import('./src/pcb/modules/pcb-text.js');
@@ -47,6 +48,19 @@ function check(name, condition) {
 }
 
 const approx = (a, b) => Math.abs(a - b) < 1e-9;
+for (const layer of ['hole', 'top-copper', 'top-mask']) {
+    const preview = document.createElementNS();
+    preview.setAttribute('fill-opacity', '1');
+    updateShapeDrawPreview({
+        _shapeDraw: { kind: 'line', layer, points: [{ x: 0, y: 0 }, { x: 10, y: 0 }], preview },
+        _shapeDefaults: { filled: true },
+        _snapToGrid: (point) => point,
+    }, { x: 10, y: 5 });
+    check(`${layer} line preview stays unfilled between its endpoints`,
+        preview.getAttribute('fill') === 'none'
+        && preview.getAttribute('fill-opacity') === null
+        && preview.getAttribute('d') === 'M 0 0 L 10 0 L 10 5');
+}
 const app = {
     boardShapes: [],
     _shapeDefaults: {},
@@ -264,6 +278,21 @@ check('hole-layer circle display reaches the physical cutout edge',
 const removalLine = { ...removalRect, kind: 'line', points: removalRect.points.slice(0, 2) };
 const removalLinePath = boardShapeRemovalPathD(removalLine);
 check('open copper-removal Line has a closed width-aware perimeter', removalLinePath.endsWith('Z'));
+let renderedHoleLine = null;
+const holeLine = { ...removalLine, layer: 'hole' };
+renderBoardShape({
+    boardShapes: [holeLine],
+    _shapeElements: new Map(),
+    _pcbSelection: { isSelected() { return false; } },
+    _getLayerGroup() { return { appendChild(element) { renderedHoleLine = element; } }; },
+}, holeLine, { skipCopperUpdate: true });
+check('hole-layer line fills its slot with the canvas background like other cutouts',
+    renderedHoleLine?.getAttribute('fill') === 'var(--bg-canvas, #000000)'
+    && renderedHoleLine?.getAttribute('fill') === renderedHoleCircle?.getAttribute('fill')
+    && renderedHoleLine?.getAttribute('fill-opacity') === '1');
+check('hole-layer line retains its width-aware perimeter and thin border',
+    renderedHoleLine?.getAttribute('d') === boardShapeRemovalPathD(holeLine)
+    && renderedHoleLine?.getAttribute('stroke-width') === renderedHoleCircle?.getAttribute('stroke-width'));
 const removalLineCuts = boardShapeCopperCuts({ boardShapes: [removalLine] }, 'top-copper');
 check('open copper-removal Line clip uses its width-aware perimeter',
     removalLineCuts.count === 1 && removalLineCuts.d.includes(removalLinePath));

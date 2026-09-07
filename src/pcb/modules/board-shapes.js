@@ -962,7 +962,7 @@ function shapeStyle(shape) {
     const isCopperKnockout = isCopperRemoveOnly || isCopperRemoveMask;
     const layerColor = shapeLayerColor(shape);
     const copperColor = layerColor;
-    const filled = shapeIsFilled(shape);
+    const filled = isHoleLayer || shapeIsFilled(shape);
     const fillColor = isHoleLayer ? 'var(--bg-canvas, #000000)' : layerColor;
     const fillOpacity = '1';
     const baseStroke = isCopperRemoval ? (REMOVAL_COLORS[copperMode] || CUT_RING) : layerColor;
@@ -1982,8 +1982,9 @@ export function updateShapeDrawPreview(app, worldPos) {
             filled: !!app._shapeDefaults?.filled,
             copperMode: app._shapeDefaults?.copperMode,
         });
-        d.preview.setAttribute('fill', st.filled ? st.fillColor : 'none');
-        if (st.filled) d.preview.setAttribute('fill-opacity', st.fillOpacity);
+        const previewFilled = d.kind !== 'line' && st.filled;
+        d.preview.setAttribute('fill', previewFilled ? st.fillColor : 'none');
+        if (previewFilled) d.preview.setAttribute('fill-opacity', st.fillOpacity);
         else d.preview.removeAttribute('fill-opacity');
     }
 }
