@@ -4322,9 +4322,11 @@ export default class PCBApp {
                 && !!this._hitTestRefText(worldPos);
             const selectedAnchor = hitTestPcbSelectionAnchor(this, worldPos, ['shape']);
             const shapeIsSelected = !!shapeHover && isPcbSelected(this, 'shape', shapeHover);
+            const copperIsSelected = (trackHover?.type === 'track' && isPcbSelected(this, 'track', trackHover.track))
+                || (trackHover?.type === 'via' && isPcbSelected(this, 'via', trackHover.via));
             const hoverCursor = overNode ? 'nwse-resize'
                 : overMidpoint ? 'copy'
-                : overCopper ? 'pointer'
+                : overCopper ? (copperIsSelected ? 'move' : 'pointer')
                 : overRef ? 'move'
                 : selectedAnchor ? (selectedAnchor.anchor.cursor || 'move')
                 : shapeHover ? (shapeIsSelected ? 'move' : 'pointer')
