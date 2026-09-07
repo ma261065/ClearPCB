@@ -21,7 +21,7 @@ assert.deepEqual(seen3D, [], 'Flat-view edits must not rebuild 3D');
 sync.flush('3d');
 assert.deepEqual(seen3D, [10], 'Switching back catches up once with current data');
 sync.flush('3d');
-assert.deepEqual(seen3D, [10], 'A pending timer after the switch must not rebuild again');
+assert.deepEqual(seen3D, [10], 'A pending frame after the switch must not rebuild again');
 sourceRevision = 11;
 sync.invalidate();
 sync.flush('3d');
@@ -56,43 +56,44 @@ assert.equal(reentrantCalls, 2, 'Invalidation during a refresh must survive for 
 console.log('PASS: visible-view refresh, deferred 3D catch-up, coalescing, retry, and reentrant invalidation');
 
 const source = readFileSync(new URL('./src/pcb/modules/board3d.js', import.meta.url), 'utf8');
-const scheduleStart = source.indexOf('    let syncTimer = 0;');
+const scheduleStart = source.indexOf('    let syncFrame = 0;');
 const scheduleEnd = source.indexOf('    // Public hook', scheduleStart);
 assert.ok(scheduleStart >= 0 && scheduleEnd > scheduleStart);
-const timers = new Map();
+const cleanup = source.match(/if \(syncFrame\) \{ window.cancelAnimationFrame\(syncFrame\); syncFrame = 0; \}/);
+assert.ok(cleanup, 'Closing the view must cancel the pending animation frame');
+const frames = new Map();
 const panel = { closed: false, hidden: false, view: '3d' };
 const app = { _suspendBoardViewRefresh: false };
-let timerCount = 0;
+let frameCount = 0;
 let revision = 0;
 const refreshed = [];
 const scheduledSync = createBoardViewSync({
     refresh3D() { refreshed.push(revision); },
     refresh2D() {},
 });
-const schedule = new Function('window', 'panel', 'app', 'viewSync', 'surfaceBuilder',
-    `${source.slice(scheduleStart, scheduleEnd)}\nreturn scheduleSync;`)(
+const { schedule, cancel } = new Function('window', 'panel', 'app', 'viewSync', 'surfaceBuilder',
+    `${source.slice(scheduleStart, scheduleEnd)}\nreturn { schedule: scheduleSync, cancel() { ${cleanup[0]} } };`)(
     {
-        setTimeout(callback, delay) {
-            assert.equal(delay, 300);
-            timers.set(++timerCount, callback);
-            return timerCount;
+        requestAnimationFrame(callback) {
+            frames.set(++frameCount, callback);
+            return frameCount;
         },
-        clearTimeout(timer) { timers.delete(timer); },
+        cancelAnimationFrame(frame) { frames.delete(frame); },
     },
     panel, app, scheduledSync, { invalidate() {} },
 );
-const fireTimer = () => {
-    assert.equal(timers.size, 1);
-    const [timer, callback] = timers.entries().next().value;
-    timers.delete(timer);
+const fireFrame = () => {
+    assert.equal(frames.size, 1);
+    const [frame, callback] = frames.entries().next().value;
+    frames.delete(frame);
     callback();
 };
 for (revision = 1; revision <= 10; revision++) schedule();
-assert.equal(timerCount, 10, 'Each edit must restart the debounce');
-assert.equal(timers.size, 1, 'A burst must retain only the last timer');
+assert.equal(frameCount, 1, 'A burst must reuse the queued animation frame');
+assert.equal(frames.size, 1, 'A burst must queue only one frame');
 assert.deepEqual(refreshed, []);
-fireTimer();
-assert.deepEqual(refreshed, [revision], 'The debounce must refresh the latest state');
+fireFrame();
+assert.deepEqual(refreshed, [revision], 'The next frame must refresh the latest state');
 app.copperFills = [{}];
 for (const [target, property] of [[panel, 'hidden'], [panel, 'closed'],
     ...['_suspendBoardViewRefresh', '_deferDragOverlays', '_suspendFillRefresh',
@@ -100,24 +101,32 @@ for (const [target, property] of [[panel, 'hidden'], [panel, 'closed'],
     schedule();
     target[property] = true;
     const refreshCount = refreshed.length;
-    fireTimer();
+    fireFrame();
     assert.equal(refreshed.length, refreshCount, 'Visibility and suspension must be rechecked at execution');
     schedule();
-    assert.equal(timers.size, 0, 'Hidden or suspended requests must not queue timers');
+    assert.equal(frames.size, 0, 'Hidden or suspended requests must not queue frames');
     target[property] = false;
     schedule();
-    fireTimer();
+    fireFrame();
     assert.equal(refreshed.length, refreshCount + 1);
 }
 schedule();
 app._fillRefreshScheduled = true;
 const beforePour = refreshed.length;
-fireTimer();
-assert.equal(refreshed.length, beforePour, 'A pour queued during the debounce must prevent stale 3D work');
+fireFrame();
+assert.equal(refreshed.length, beforePour, 'A pour queued before the frame must prevent stale 3D work');
 revision++;
 app._fillRefreshScheduled = false;
 schedule();
-fireTimer();
+fireFrame();
 assert.equal(refreshed.length, beforePour + 1);
 assert.equal(refreshed.at(-1), revision);
-console.log('PASS: restored 300ms debounce, burst coalescing, and drag/pour/visibility guards');
+schedule();
+const beforeCancel = refreshed.length;
+cancel();
+assert.equal(frames.size, 0, 'Close must remove the queued frame');
+assert.equal(refreshed.length, beforeCancel, 'Cancellation must not refresh');
+schedule();
+fireFrame();
+assert.equal(refreshed.length, beforeCancel + 1, 'Cancellation must clear the pending frame handle');
+console.log('PASS: next-frame coalescing, drag/pour/visibility guards, and cancellation');

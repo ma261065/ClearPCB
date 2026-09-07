@@ -3480,13 +3480,13 @@ export async function openBoard3DViewer(app, opts = {}) {
                 maskCoat: scene.maskCoatMaterial, documentCutouts: scene.documentCutoutMaterial,
                 silk: scene.silkMaterial, text: scene.textMaterial };
             for (const key of Object.keys(surf)) swapSurface(key, result[key], materials[key]);
+            if (syncComponentBodies) syncBodies();
             scene.positionGlint(w / 2, -h / 2, Math.max(w, h));
             if (!hasSurfaces) { hasSurfaces = true; scene.frameAll(); }
-            if (syncComponentBodies) syncBodies();
             scene.requestRender();
+            finishRebuildTiming(timingStart);
             return true;
         } catch (error) {
-            finishRebuildTiming(timingStart);
             console.warn('3D surface build failed', error);
             viewSync.invalidate();
             setStatus('3D update failed');
@@ -3685,12 +3685,12 @@ export async function openBoard3DViewer(app, opts = {}) {
         scene?.requestRender();
     });
 
-    // ── Live sync: mirror 2D edits into the 3D view (debounced) ─────────
+    // ── Live sync: mirror 2D edits into the 3D view ─────────────────────
     // PCB edits run through app.history; wrap its onChanged so every committed
-    // edit schedules a rebuild. Debounced so a burst of edits (or a drag that
-    // commits many sub-steps) collapses into one rebuild after things settle.
+    // edit schedules a rebuild. Coalesce notifications into the next frame;
+    // drag and pour guards defer rebuilding until the board is ready.
     // Refresh the visible renderer; defer hidden 3D work until it is shown.
-    let syncTimer = 0;
+    let syncFrame = 0;
     const canSync = () => !panel.closed && !panel.hidden
         && !app._suspendBoardViewRefresh && !app._deferDragOverlays
         && !app._suspendFillRefresh && !app._fillRefreshScheduled
@@ -3698,13 +3698,12 @@ export async function openBoard3DViewer(app, opts = {}) {
     const scheduleSync = () => {
         surfaceBuilder.invalidate();
         viewSync.invalidate();
-        if (!canSync()) return;
-        if (syncTimer) window.clearTimeout(syncTimer);
-        syncTimer = window.setTimeout(() => {
-            syncTimer = 0;
+        if (!canSync() || syncFrame) return;
+        syncFrame = window.requestAnimationFrame(() => {
+            syncFrame = 0;
             if (!canSync()) return;
             viewSync.flush(panel.view);
-        }, 300);
+        });
     };
     // Public hook so non-history edits (e.g. a schematic-driven re-sync that
     // adds/removes components) can refresh the 3D view too. PCB-side edits go
@@ -3826,15 +3825,15 @@ export async function openBoard3DViewer(app, opts = {}) {
         if (panel.closed) return;
         panel.closed = true;
         if (pollTimer) { window.clearInterval(pollTimer); pollTimer = 0; }
-        if (syncTimer) { window.clearTimeout(syncTimer); syncTimer = 0; }
+        if (syncFrame) { window.cancelAnimationFrame(syncFrame); syncFrame = 0; }
         surfaceBuilder.dispose();
         if (slideTimer) { window.clearTimeout(slideTimer); slideTimer = 0; }
         // Unhook the live-sync wrapper (only if nothing re-wrapped after us).
         if (app.history && app.history.onChanged === onHistoryChanged) {
             app.history.onChanged = prevOnChanged;
         }
-        window.removeEventListener('pointermove', onSplitMove);
         window.removeEventListener('mouseup', onTimingMouseUp, true);
+        window.removeEventListener('pointermove', onSplitMove);
         window.removeEventListener('pointerup', onSplitUp);
         hideSpinner();
         scene?.dispose();
