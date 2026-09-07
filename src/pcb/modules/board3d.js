@@ -1447,6 +1447,21 @@ export function punchHolesInFlatMesh(mesh, holes, seg = 48) {
     };
     // piece \ ringPoly → push the resulting convex sub-pieces onto `out`.
     const subtractRing = (piece, ring, out) => {
+        const separatedByEdge = (polygon, other) => {
+            const area = polygonAreaXZ(polygon);
+            if (area === 0) return false;
+            const orientation = area > 0 ? 1 : -1;
+            return polygon.some((start, index) => {
+                const end = polygon[(index + 1) % polygon.length];
+                const edgeLength = Math.hypot(end.x - start.x, end.z - start.z);
+                if (edgeLength <= 1e-9) return false;
+                return other.every((point) => orientation * dist(start, end, point) < -1e-9 * edgeLength);
+            });
+        };
+        if (separatedByEdge(ring.pts, piece) || separatedByEdge(piece, ring.pts)) {
+            out.push(piece);
+            return;
+        }
         const m = ring.pts.length;
         let inside = piece; // part still inside edges processed so far
         for (let i = 0; i < m; i++) {
@@ -3917,15 +3932,17 @@ export async function openBoard3DViewer(app, opts = {}) {
     // commits many sub-steps) collapses into one rebuild after things settle.
     // Refresh the visible renderer; defer hidden 3D work until it is shown.
     let syncTimer = 0;
+    const canSync = () => !panel.closed && !panel.hidden
+        && !app._suspendBoardViewRefresh && !app._deferDragOverlays
+        && !app._suspendFillRefresh && !app._fillRefreshScheduled
+        && !(app._fillRefreshPending && app.copperFills?.length);
     const scheduleSync = () => {
         viewSync.invalidate();
-        if (panel.closed || panel.hidden) return;
-        if (app._suspendBoardViewRefresh) return;
+        if (!canSync()) return;
         if (syncTimer) window.clearTimeout(syncTimer);
         syncTimer = window.setTimeout(() => {
             syncTimer = 0;
-            if (panel.closed || panel.hidden) return;
-            if (app._suspendBoardViewRefresh) return;
+            if (!canSync()) return;
             viewSync.flush(panel.view);
         }, 300);
     };
