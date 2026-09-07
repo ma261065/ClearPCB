@@ -363,6 +363,8 @@ export class FileManager {
         this.autoSaveInterval = 10000; // 10 seconds
         this.autoSaveTimer = null;
         this.autoSaveSize = null;
+        /** @type {{revision:number, fileName:string}|null} */
+        this._lastAutoSave = null;
         
         // Callbacks
         this.onDirtyChanged = null;
@@ -394,6 +396,7 @@ export class FileManager {
      * Set the current file name
      */
     setFileName(name) {
+        if (name !== this.fileName) this._lastAutoSave = null;
         this.fileName = name;
         if (this.onFileNameChanged) {
             this.onFileNameChanged(name);
@@ -758,8 +761,14 @@ export class FileManager {
         this.autoSaveTimer = setInterval(() => {
             if (this.loading) return;
             const dirty = this.isDirty || (typeof isDirtyFn === 'function' && isDirtyFn());
-            if (dirty) {
-                this.autoSaveToStorage(getDataFn());
+            if (!dirty) return;
+            const snapshot = { revision: this.revision, fileName: this.fileName };
+            if (this._lastAutoSave?.revision === snapshot.revision
+                && this._lastAutoSave.fileName === snapshot.fileName) return;
+            try {
+                if (this.autoSaveToStorage(getDataFn())) this._lastAutoSave = snapshot;
+            } catch (error) {
+                this._reportAutoSaveFailure(error);
             }
         }, this.autoSaveInterval);
     }
@@ -778,6 +787,7 @@ export class FileManager {
      * Save to localStorage
      */
     autoSaveToStorage(data) {
+        this._lastAutoSave = null;
         try {
             const key = this.autoSavePrefix + encodeURIComponent(this.fileName || 'untitled');
             const json = JSON.stringify({
@@ -810,17 +820,21 @@ export class FileManager {
             // Reset failure-backoff state on success.
             this._autoSaveBackoffMs = 0;
             if (this._autoSaveErrorNotified) this._autoSaveErrorNotified = false;
+            return true;
         } catch (err) {
-            console.error('Auto-save failed:', err);
-            // Notify the user once per failure streak so they know their
-            // work isn't being backed up (storage full, private mode, …).
-            if (!this._autoSaveErrorNotified) {
-                this._autoSaveErrorNotified = true;
-                try {
-                    globalThis.bootstrap?.schematicApp?._setStatus?.(
-                        'Auto-save failed: storage full or unavailable');
-                } catch { /* status bar may not exist */ }
-            }
+            this._reportAutoSaveFailure(err);
+            return false;
+        }
+    }
+
+    _reportAutoSaveFailure(error) {
+        console.error('Auto-save failed:', error);
+        if (!this._autoSaveErrorNotified) {
+            this._autoSaveErrorNotified = true;
+            try {
+                globalThis.bootstrap?.schematicApp?._setStatus?.(
+                    'Auto-save failed: could not serialize or store the project');
+            } catch { /* status bar may not exist */ }
         }
     }
     
@@ -898,6 +912,7 @@ export class FileManager {
         localStorage.setItem(this.autoSavePrefix + 'index', JSON.stringify(index));
         const clearedCurrent = !fileName || fileName === this.fileName;
         if (clearedCurrent) {
+            this._lastAutoSave = null;
             this.autoSaveSize = null;
             this.onAutoSaveChanged?.(null);
         }
