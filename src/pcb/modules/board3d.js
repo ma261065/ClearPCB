@@ -1,4 +1,5 @@
 import { ArcballController } from '../../shared/3d/ArcballController.js';
+import { createBoardViewSync } from './board-view-sync.js';
 import { parseObjModel, meshToGeometry, makeMaterial, makeComponentMaterial, makeComponentGroupMaterials, COLOR_COMPONENT } from '../../shared/3d/model-rendering.js';
 export { ArcballController } from '../../shared/3d/ArcballController.js';
 export { parseObjModel, meshToGeometry, makeMaterial, makeComponentMaterial, makeComponentGroupMaterials } from '../../shared/3d/model-rendering.js';
@@ -3453,6 +3454,10 @@ export async function openBoard3DViewer(app, opts = {}) {
     // ── View mode (3D ⇄ flat 2D top/bottom) ─────────────────────────────
     // One shared sliding panel hosts both views; `panel.view` decides which
     // canvas (WebGL vs 2D) is shown and which toolbar button is highlighted.
+    const viewSync = createBoardViewSync({
+        refresh3D: () => { rebuildSurfaces(); syncBodies(); },
+        refresh2D: () => { board2d?.setData(boardData()); },
+    });
     const applyView = (/** @type {'3d'|'top'|'bottom'} */ view) => {
         panel.view = view;
         if (view === 'top' || view === 'bottom') {
@@ -3473,7 +3478,9 @@ export async function openBoard3DViewer(app, opts = {}) {
             // first time, so a 2D→3D switch on an already-built scene doesn't
             // flash grey over the live view.
             if (!build3DStarted) dom.cover?.classList.remove('hide');
+            const alreadyStarted = build3DStarted;
             ensure3D();
+            if (alreadyStarted && !panel.hidden && !panel.closed && !app._suspendBoardViewRefresh) viewSync.flush('3d');
             scene?.resize();
             scene?.requestRender();
             if (dom.hint) dom.hint.textContent =
@@ -3908,10 +3915,10 @@ export async function openBoard3DViewer(app, opts = {}) {
     // PCB edits run through app.history; wrap its onChanged so every committed
     // edit schedules a rebuild. Debounced so a burst of edits (or a drag that
     // commits many sub-steps) collapses into one rebuild after things settle.
-    // Surfaces (copper/via/silk/text/pads/board) always rebuild — they are cheap
-    // merged meshes; component bodies only rebuild for placements that changed.
+    // Refresh the visible renderer; defer hidden 3D work until it is shown.
     let syncTimer = 0;
     const scheduleSync = () => {
+        viewSync.invalidate();
         if (panel.closed || panel.hidden) return;
         if (app._suspendBoardViewRefresh) return;
         if (syncTimer) window.clearTimeout(syncTimer);
@@ -3919,12 +3926,7 @@ export async function openBoard3DViewer(app, opts = {}) {
             syncTimer = 0;
             if (panel.closed || panel.hidden) return;
             if (app._suspendBoardViewRefresh) return;
-            rebuildSurfaces();
-            syncBodies();
-            // Keep the flat 2D view in step with edits when it is the one showing.
-            if (board2d && (panel.view === 'top' || panel.view === 'bottom')) {
-                board2d.setData(boardData());
-            }
+            viewSync.flush(panel.view);
         }, 300);
     };
     // Public hook so non-history edits (e.g. a schematic-driven re-sync that
