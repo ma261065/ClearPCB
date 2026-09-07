@@ -332,6 +332,7 @@ export function runDRC(app, rules = {}) {
         violations.push(v);
     };
 
+    const copperDistance = createCopperDistanceChecker(clearance);
     for (const [first, second] of spatialPairs([...pads, ...segments, ...vias, ...areas], featureBounds, clearance)) {
         if (!layersOverlap(first.layer, second.layer) || sameNet(first.net, second.net)) continue;
         if (first.kind === 'pad' && second.kind === 'pad' && first.componentId === second.componentId) continue;
@@ -451,19 +452,52 @@ function containsCopper(feature, point) {
     return pointInPolygon(point, feature.outline);
 }
 
-function copperDistance(first, second) {
-    const firstEdges = featureEdges(first), secondEdges = featureEdges(second);
-    for (const [point] of firstEdges) if (containsCopper(second, point)) return { dist: 0, ...point };
-    for (const [point] of secondEdges) if (containsCopper(first, point)) return { dist: 0, ...point };
-    let nearest = { dist: Infinity, x: 0, y: 0 };
-    for (const [start, end] of firstEdges) {
-        for (const [otherStart, otherEnd] of secondEdges) {
-            const candidate = segmentSegmentDistance(start.x, start.y, end.x, end.y,
-                otherStart.x, otherStart.y, otherEnd.x, otherEnd.y);
-            if (candidate.dist < nearest.dist) nearest = candidate;
+/** A checker owns one immutable DRC snapshot; gaps beyond clearance may return Infinity. */
+export function createCopperDistanceChecker(clearance = Infinity) {
+    const cache = new WeakMap();
+    const boundary = (feature) => {
+        let result = cache.get(feature);
+        if (!result) {
+            result = {
+                bounds: featureBounds(feature),
+                edges: featureEdges(feature).map(([start, end]) => ({
+                    start, end,
+                    minX: Math.min(start.x, end.x), maxX: Math.max(start.x, end.x),
+                    minY: Math.min(start.y, end.y), maxY: Math.max(start.y, end.y),
+                })),
+            };
+            cache.set(feature, result);
         }
-    }
+        return result;
+    };
+    const contains = (feature, bounds, point) => point.x >= bounds.minX && point.x <= bounds.maxX
+        && point.y >= bounds.minY && point.y <= bounds.maxY && containsCopper(feature, point);
     const radius = (feature) => feature.kind === 'via' ? feature.r : feature.kind === 'track' ? feature.hw : 0;
-    nearest.dist = Math.max(0, nearest.dist - radius(first) - radius(second));
-    return nearest;
+    return (first, second) => {
+        const firstBoundary = boundary(first), secondBoundary = boundary(second);
+        for (const edge of firstBoundary.edges) {
+            if (contains(second, secondBoundary.bounds, edge.start)) return { dist: 0, ...edge.start };
+        }
+        for (const edge of secondBoundary.edges) {
+            if (contains(first, firstBoundary.bounds, edge.start)) return { dist: 0, ...edge.start };
+        }
+        const combinedRadius = radius(first) + radius(second);
+        let limit = clearance + combinedRadius + EPS;
+        let nearest = { dist: Infinity, x: 0, y: 0 };
+        for (const edge of firstBoundary.edges) {
+            for (const other of secondBoundary.edges) {
+                const gapX = Math.max(0, edge.minX - other.maxX, other.minX - edge.maxX);
+                const gapY = Math.max(0, edge.minY - other.maxY, other.minY - edge.maxY);
+                if (gapX > limit || gapY > limit || gapX * gapX + gapY * gapY > limit * limit) continue;
+                const candidate = segmentSegmentDistance(edge.start.x, edge.start.y, edge.end.x, edge.end.y,
+                    other.start.x, other.start.y, other.end.x, other.end.y);
+                if (candidate.dist < nearest.dist) {
+                    nearest = candidate;
+                    limit = Math.min(limit, nearest.dist + EPS);
+                }
+            }
+        }
+        nearest.dist = Math.max(0, nearest.dist - combinedRadius);
+        return nearest;
+    };
 }

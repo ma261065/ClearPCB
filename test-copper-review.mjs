@@ -126,7 +126,7 @@ assert.equal(runDRC(drcApp).ok, true);
 drcApp.copperFills[0]._computed[0].holes = [];
 assert.equal(runDRC(drcApp).ok, false);
 drcApp.copperFills[0]._computed = null;
-assert.equal(runDRC(drcApp).violations.some((violation) => violation.id === 'fill-pending|f1'), true);
+assert.equal(runDRC(drcApp).violations.some((violation) => violation.id === 'drc:fill-pending|f1'), true);
 drcApp.copperFills = [];
 drcApp.texts = fillApp.texts;
 const textSegment = collectCopper(drcApp).segments[0];
