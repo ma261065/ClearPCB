@@ -78,7 +78,7 @@ import {
     hasBoxSelection,
     pointInBoxSelection,
     beginGroupDrag,
-    updateGroupDrag,
+    scheduleGroupDrag,
     endGroupDrag,
     cancelGroupDrag,
     deleteBoxSelection,
@@ -1398,7 +1398,7 @@ export default class PCBApp {
             } else if (this._drag) {
                 this._scheduleDragUpdate(e);
             } else if (this._groupDrag) {
-                updateGroupDrag(this, this._screenToWorld(e));
+                scheduleGroupDrag(this, this._screenToWorld(e));
             } else if (this._textDrag) {
                 this._handleTextDrag(e);
             } else if (this._shapeDrag) {

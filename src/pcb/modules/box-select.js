@@ -406,6 +406,7 @@ export function beginGroupDrag(app, worldPos) {
     }
     app._groupDrag = {
         startWorld: { x: worldPos.x, y: worldPos.y },
+        lastDx: 0, lastDy: 0,
         comps, vias, tracks, shapes, texts, fills,
         ratsnestNets,
         previousDeferDragOverlays: !!app._deferDragOverlays,
@@ -414,6 +415,20 @@ export function beginGroupDrag(app, worldPos) {
 }
 
 /** Live-update positions of every selected object during a group drag. */
+export function scheduleGroupDrag(app, worldPos) {
+    const drag = app._groupDrag;
+    if (!drag) return;
+    drag.pendingWorld = { x: worldPos.x, y: worldPos.y };
+    if (drag.frame) return;
+    drag.frame = window.requestAnimationFrame(() => {
+        drag.frame = 0;
+        if (app._groupDrag !== drag) return;
+        const pending = drag.pendingWorld;
+        drag.pendingWorld = null;
+        if (pending) updateGroupDrag(app, pending);
+    });
+}
+
 export function updateGroupDrag(app, worldPos) {
     const g = app._groupDrag;
     if (!g) return;
@@ -425,6 +440,9 @@ export function updateGroupDrag(app, worldPos) {
         dx = Math.round(dx / gs) * gs;
         dy = Math.round(dy / gs) * gs;
     }
+    if (dx === g.lastDx && dy === g.lastDy) return;
+    g.lastDx = dx;
+    g.lastDy = dy;
 
     for (const c of g.comps) {
         const pl = app.placements.get(c.id);
@@ -465,8 +483,12 @@ export function updateGroupDrag(app, worldPos) {
 /** Commit a group drag as one undoable compound command. */
 export function endGroupDrag(app) {
     const g = app._groupDrag;
-    app._groupDrag = null;
     if (!g) return;
+    if (g.frame) window.cancelAnimationFrame(g.frame);
+    g.frame = 0;
+    if (g.pendingWorld) updateGroupDrag(app, g.pendingWorld);
+    g.pendingWorld = null;
+    app._groupDrag = null;
     app._deferDragOverlays = g.previousDeferDragOverlays;
     const cmds = [];
     for (const c of g.comps) {
@@ -519,6 +541,9 @@ export function cancelGroupDrag(app) {
     const g = app._groupDrag;
     app._groupDrag = null;
     if (!g) return;
+    if (g.frame) window.cancelAnimationFrame(g.frame);
+    g.frame = 0;
+    g.pendingWorld = null;
     app._deferDragOverlays = g.previousDeferDragOverlays;
     for (const entry of g.comps || []) {
         const placement = app.placements.get(entry.id);

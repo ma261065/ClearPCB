@@ -41,6 +41,29 @@ function expect(name, actual, expected) {
     }
 }
 
+{
+    const text = { id: 'snapped-text', x: 10, y: 20 };
+    let redraws = 0;
+    const app = {
+        placements: new Map(), texts: new Map([[text.id, text]]),
+        viewport: { snapToGrid: true, gridSize: 1 },
+        _refreshText() { redraws++; },
+        _groupDrag: {
+            startWorld: { x: 0, y: 0 }, lastDx: 0, lastDy: 0,
+            comps: [], vias: [], tracks: [], shapes: [], fills: [],
+            texts: [{ text, x: text.x, y: text.y }], ratsnestNets: new Set(),
+        },
+    };
+    updateGroupDrag(app, { x: 0.1, y: 0.2 });
+    expect('group drag skips movement inside the starting grid cell', redraws, 0);
+    updateGroupDrag(app, { x: 1.1, y: 2.1 });
+    expect('group drag renders a changed snapped position', redraws, 1);
+    updateGroupDrag(app, { x: 1.2, y: 2.2 });
+    expect('group drag does not redraw an unchanged snapped position', redraws, 1);
+    updateGroupDrag(app, { x: 2.1, y: 3.1 });
+    expect('group drag continues rendering subsequent movement', [redraws, text.x, text.y], [2, 12, 23]);
+}
+
 const cases = [
     {
         name: 'Line',
