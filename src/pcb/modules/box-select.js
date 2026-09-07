@@ -19,7 +19,7 @@ import {
     removeBoxSelectElement,
     getBoxSelectBounds,
 } from '../../ui/modules/box-selection.js';
-import { drawTrackHalo, drawViaHalo, removeHalosByClass } from './track-select.js';
+import { drawTrackHalo, drawViaHalo, refreshTrackSelectionHalo, removeHalosByClass } from './track-select.js';
 import { renderTrack, renderVia } from './track-render.js';
 import { isLayerLocked, isViaLocked } from './layers.js';
 import {
@@ -458,6 +458,7 @@ export function updateGroupDrag(app, worldPos) {
         entry.fill.move(dx, dy);
     }
     if (g.ratsnestNets.size) app._updateRatsnest?.({ nets: g.ratsnestNets });
+    refreshTrackSelectionHalo(app);
     _applyHighlights(app);
 }
 
