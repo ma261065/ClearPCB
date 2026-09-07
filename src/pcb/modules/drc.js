@@ -28,6 +28,8 @@ import { resolveCopperPads } from './copper-model.js';
 import { collectCopperArtwork } from './copper-artwork.js';
 import { spatialPairs } from '../../core/spatial-pairs.js';
 import { pointInPolygon } from '../../core/geometry.js';
+import { circleCircleDistance, circleSegmentDistance } from './circle-clearance.js';
+import { arcPoint, arcSegmentDistance, arcArcDistance, arcCircleDistance, containsArcInterior } from './arc-clearance.js';
 
 /** Minimum acceptable via annular ring (mm) when not otherwise specified. */
 const DEFAULT_MIN_ANNULAR_RING = 0.05;
@@ -125,7 +127,7 @@ function sameNet(a, b) {
 /**
  * Collect every copper primitive from the board into flat arrays.
  * @param {object} app - PCBApp instance.
- * @returns {{pads:Array, segments:Array, vias:Array, areas:Array}}
+ * @returns {{pads:Array, segments:Array, vias:Array, areas:Array, circles:Array, arcs:Array}}
  */
 export function collectCopper(app) {
     const pads = [];
@@ -180,7 +182,7 @@ export function collectCopper(app) {
 
     const artwork = collectCopperArtwork(app);
     segments.push(...artwork.segments);
-    return { pads, segments, vias, areas: artwork.areas };
+    return { pads, segments, vias, areas: artwork.areas, circles: artwork.circles, arcs: artwork.arcs };
 }
 
 /**
@@ -291,7 +293,7 @@ export function runDRC(app, rules = {}) {
     const minRing = Number.isFinite(rules.minAnnularRing) && rules.minAnnularRing > 0
         ? rules.minAnnularRing : DEFAULT_MIN_ANNULAR_RING;
 
-    const { pads, segments, vias, areas } = collectCopper(app);
+    const { pads, segments, vias, areas, circles, arcs } = collectCopper(app);
     const violations = [];
     for (const fill of app.copperFills || (app.boardShapes || []).filter((shape) => shape.type === 'fill')) {
         if (fill._computed != null) continue;
@@ -333,7 +335,7 @@ export function runDRC(app, rules = {}) {
     };
 
     const copperDistance = createCopperDistanceChecker(clearance);
-    for (const [first, second] of spatialPairs([...pads, ...segments, ...vias, ...areas], featureBounds, clearance)) {
+    for (const [first, second] of spatialPairs([...pads, ...segments, ...vias, ...areas, ...circles, ...arcs], featureBounds, clearance)) {
         if (!layersOverlap(first.layer, second.layer) || sameNet(first.net, second.net)) continue;
         if (first.kind === 'pad' && second.kind === 'pad' && first.componentId === second.componentId) continue;
         if (first.trackId && first.trackId === second.trackId) continue;
@@ -420,6 +422,15 @@ function featureAnchor(f) {
 }
 
 function featureBounds(feature) {
+    if (feature.kind === 'arc') {
+        const radius = feature.radius + feature.hw;
+        return { minX: feature.x - radius, maxX: feature.x + radius,
+            minY: feature.y - radius, maxY: feature.y + radius };
+    }
+    if (feature.kind === 'circle') return {
+        minX: feature.x - feature.outerRadius, maxX: feature.x + feature.outerRadius,
+        minY: feature.y - feature.outerRadius, maxY: feature.y + feature.outerRadius,
+    };
     if (feature.kind === 'track') return {
         minX: Math.min(feature.ax, feature.bx) - feature.hw, maxX: Math.max(feature.ax, feature.bx) + feature.hw,
         minY: Math.min(feature.ay, feature.by) - feature.hw, maxY: Math.max(feature.ay, feature.by) + feature.hw,
@@ -446,6 +457,7 @@ function featureEdges(feature) {
 }
 
 function containsCopper(feature, point) {
+    if (feature.kind === 'arc') return containsArcInterior(feature, point);
     if (feature.kind === 'area') return pointInPolygon(point, feature.outer)
         && !feature.holes.some((hole) => pointInPolygon(point, hole));
     if (feature.kind !== 'pad') return false;
@@ -473,7 +485,64 @@ export function createCopperDistanceChecker(clearance = Infinity) {
     const contains = (feature, bounds, point) => point.x >= bounds.minX && point.x <= bounds.maxX
         && point.y >= bounds.minY && point.y <= bounds.maxY && containsCopper(feature, point);
     const radius = (feature) => feature.kind === 'via' ? feature.r : feature.kind === 'track' ? feature.hw : 0;
+    const chord = (arc) => [arcPoint(arc, arc.startAngle), arcPoint(arc, arc.endAngle)];
+    const chordFeature = (arc) => {
+        const [start, end] = chord(arc);
+        return { kind: 'track', ax: start.x, ay: start.y, bx: end.x, by: end.y, hw: arc.hw };
+    };
+    const arcDistance = (arc, other) => {
+        const start = arcPoint(arc, arc.startAngle);
+        if (containsCopper(other, start)) return { dist: 0, ...start };
+        let candidates = [];
+        if (other.kind === 'arc') {
+            const otherStart = arcPoint(other, other.startAngle);
+            if (containsArcInterior(arc, otherStart)) return { dist: 0, ...otherStart };
+            candidates.push(arcArcDistance(arc, other));
+            if (arc.filled) candidates.push(arcDistance(other, chordFeature(arc)));
+            if (other.filled) candidates.push(arcDistance(arc, chordFeature(other)));
+        } else if (other.kind === 'circle') {
+            const anchor = { x: other.x + other.outerRadius, y: other.y };
+            if (containsArcInterior(arc, anchor)) return { dist: 0, ...anchor };
+            candidates.push(arcCircleDistance(arc, other));
+            if (arc.filled) {
+                const [first, second] = chord(arc);
+                candidates.push(circleSegmentDistance(other, first, second, arc.hw));
+            }
+        } else {
+            for (const edge of boundary(other).edges) {
+                if (containsArcInterior(arc, edge.start)) return { dist: 0, ...edge.start };
+                candidates.push(arcSegmentDistance(arc, edge.start, edge.end, radius(other)));
+                if (arc.filled) {
+                    const [first, second] = chord(arc);
+                    const distance = segmentSegmentDistance(first.x, first.y, second.x, second.y,
+                        edge.start.x, edge.start.y, edge.end.x, edge.end.y);
+                    distance.dist = Math.max(0, distance.dist - arc.hw - radius(other));
+                    candidates.push(distance);
+                }
+            }
+        }
+        return candidates.reduce((best, candidate) => candidate.dist < best.dist ? candidate : best,
+            { dist: Infinity, x: 0, y: 0 });
+    };
     return (first, second) => {
+        if (first.kind === 'arc') return arcDistance(first, second);
+        if (second.kind === 'arc') return arcDistance(second, first);
+        if (first.kind === 'circle' || second.kind === 'circle') {
+            const circle = first.kind === 'circle' ? first : second;
+            const other = circle === first ? second : first;
+            if (other.kind === 'circle') return circleCircleDistance(circle, other);
+            if (other.kind === 'via') return circleCircleDistance(circle,
+                { x: other.x, y: other.y, innerRadius: 0, outerRadius: other.r });
+            const otherBoundary = boundary(other);
+            const anchor = { x: circle.x + circle.outerRadius, y: circle.y };
+            if (contains(other, otherBoundary.bounds, anchor)) return { dist: 0, ...anchor };
+            let nearest = { dist: Infinity, x: 0, y: 0 };
+            for (const edge of otherBoundary.edges) {
+                const candidate = circleSegmentDistance(circle, edge.start, edge.end, radius(other));
+                if (candidate.dist < nearest.dist) nearest = candidate;
+            }
+            return nearest;
+        }
         const firstBoundary = boundary(first), secondBoundary = boundary(second);
         for (const edge of firstBoundary.edges) {
             if (contains(second, secondBoundary.bounds, edge.start)) return { dist: 0, ...edge.start };

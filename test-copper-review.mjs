@@ -99,6 +99,27 @@ for (const fixture of clearanceCases) {
 }
 const contains = (polygons, point) => polygons.some((polygon) => pointInPolygon(point, polygon.outer)
     && !polygon.holes.some((hole) => pointInPolygon(point, hole)));
+for (const clearance of [0.1, 0.5, 1.67]) {
+    for (const layer of ['top-copper', 'bottom-copper']) {
+        const target = board();
+        target._getRoutingParams = () => ({ clearance });
+        const circle = { id: 'pshape_4', kind: 'circle', layer, filled: false, copperMode: 'add',
+            net: '', x: 44.45, y: -55.88, radius: 16.51, lineWidth: 5.1 };
+        target.boardShapes = [circle];
+        const pour = new CopperFill({ net: 'GND', layer, outline: rectangle(10, -90, 80, -20) });
+        target.copperFills = [pour];
+        pour._computed = computeFillPolygons(pour, buildFillContext(target), clipper);
+        assert.equal(contains(pour._computed, { x: circle.x, y: circle.y }), true,
+            'A hollow circle must retain copper poured inside its ring');
+        assert.equal(contains(pour._computed, { x: 12, y: -55.88 }), true,
+            'A hollow circle must retain copper poured outside its ring');
+        const result = runDRC(target, { clearance });
+        assert.equal(result.ok, true, `Hollow circle ${layer}, clearance ${clearance}: ${JSON.stringify(result.violations)}`);
+        circle.x += 0.1;
+        assert.equal(runDRC(target, { clearance }).violations.some((violation) => violation.rule === 'clearance'), true,
+            'Moving the circle into an unchanged pour must still fail clearance');
+    }
+}
 assert.equal(contains(computeFillPolygons(first, context, clipper), { x: 7, y: 5 }), false);
 assert.equal(contains(computeFillPolygons(second, context, clipper), { x: 7, y: 5 }), false);
 assert.equal(contains(computeFillPolygons(first, context, clipper), { x: 2, y: 5 }), true);

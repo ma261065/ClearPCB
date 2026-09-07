@@ -1,8 +1,8 @@
-import { resolveBoardShapeGeometry } from './board-shapes.js';
+import { resolveBoardShapeGeometry, boardShapeArcGeometry } from './board-shapes.js';
 import { pcbTextSegments } from './pcb-text.js';
 
 export function collectCopperArtwork(app) {
-    const segments = [], areas = [];
+    const segments = [], areas = [], circles = [], arcs = [];
     const isCopper = (layer) => layer === 'top-copper' || layer === 'bottom-copper';
     const layerName = (layer) => layer === 'bottom-copper' ? 'bottom' : 'top';
     const stroke = (start, end, width, meta, index) => segments.push({
@@ -21,6 +21,20 @@ export function collectCopperArtwork(app) {
         if (geometry.copperMode !== 'add') continue;
         const meta = { keyId: `shape:${shape.id}`, net: shape.net || '', layer: layerName(shape.layer), label: 'Copper shape' };
         const points = geometry.centerline;
+        const arc = boardShapeArcGeometry(shape);
+        if (arc) {
+            arcs.push({ ...meta, kind: 'arc', uid: meta.keyId, x: arc.cx, y: arc.cy,
+                radius: arc.radius, startAngle: arc.startAngle, endAngle: arc.endAngle,
+                hw: geometry.lineWidth / 2, filled: geometry.filled });
+            continue;
+        }
+        if (geometry.circle) {
+            circles.push({ ...meta, kind: 'circle', uid: meta.keyId,
+                x: geometry.circle.x, y: geometry.circle.y,
+                outerRadius: geometry.circle.radius + geometry.lineWidth / 2,
+                innerRadius: geometry.filled ? 0 : Math.max(0, geometry.circle.radius - geometry.lineWidth / 2) });
+            continue;
+        }
         if (geometry.filled && geometry.areaOutline?.length >= 3) {
             areas.push({ ...meta, kind: 'area', uid: meta.keyId, outer: geometry.areaOutline, holes: [],
                 x: points[0].x, y: points[0].y });
@@ -44,5 +58,5 @@ export function collectCopperArtwork(app) {
                 outer: polygon.outer, holes: polygon.holes || [], x: polygon.outer[0].x, y: polygon.outer[0].y });
         }
     }
-    return { segments, areas };
+    return { segments, areas, circles, arcs };
 }

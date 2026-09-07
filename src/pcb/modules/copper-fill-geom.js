@@ -27,7 +27,7 @@
  * computed island is kept for now.
  */
 
-import { resolveBoardShapeGeometry } from './board-shapes.js';
+import { resolveBoardShapeGeometry, boardShapeArcGeometry } from './board-shapes.js';
 import { pcbTextSegments } from './pcb-text.js';
 import { padCopperOutline } from './copper-model.js';
 
@@ -189,7 +189,10 @@ function collectObstacles(C, fill, ctx, clearance) {
         const isHole = shape.layer === 'hole';
         const isCopper = shape.layer === fill.layer && geometry.copperMode === 'add';
         if (!isHole && (!isCopper || sameNet(shape.net || ''))) continue;
-        out.push(...resolvedShapeObstaclePaths(C, geometry, clearance));
+        const arc = boardShapeArcGeometry(shape);
+        const halfStep = arc ? Math.abs(arc.endAngle - arc.startAngle) / (2 * (geometry.centerline.length - 1)) : 0;
+        const chordError = arc ? 2 * arc.radius * Math.sin(halfStep / 2) ** 2 : 0;
+        out.push(...resolvedShapeObstaclePaths(C, geometry, clearance + chordError));
     }
 
     // PCB text has no net assignment, so copper-layer text always receives
