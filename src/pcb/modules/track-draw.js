@@ -37,7 +37,7 @@ import { Via } from '../../shapes/via.js';
 import { renderTrack } from './track-render.js';
 import { collinearSnap, pointInPolygon, distanceToSegment } from '../../core/geometry.js';
 import { normalizeShapeCopperMode, shapeOutline } from './board-shapes.js';
-import { resolveTrackContactGeometry } from './track-contact-geometry.js';
+import { resolveTrackContactGeometry, copperShapesTouch } from './track-contact-geometry.js';
 import { showAlert } from '../../ui/modules/modal.js';
 import { isOverlayVisible } from './layers.js';
 import {
@@ -832,6 +832,15 @@ export function reconcileRatsnest(app, opts) {
     // trace, even when its centre is not an explicit Track node.
     _unionViaTrackOverlaps(clusters, union, true);
 
+    for (let first = 0; first < clusters.length; first++) {
+        if (!clusters[first].copperShape) continue;
+        for (let second = first + 1; second < clusters.length; second++) {
+            if (!clusters[second].copperShape || clusters[first].net !== clusters[second].net
+                || clusters[first].layer !== clusters[second].layer || find(first) === find(second)) continue;
+            if (copperShapesTouch(clusters[first].copperShape, clusters[second].copperShape)) union(first, second);
+        }
+    }
+
     // Filled copper shape interiors are conductive: join any same-net,
     // layer-compatible terminal that lies in the shape's actual outline.
     for (let i = 0; i < clusters.length; i++) {
@@ -992,19 +1001,20 @@ function _closestPair(A, B) {
  * @param {Array<Array<{x:number,y:number}>>} nodes
  * @returns {Array<{x1:number,y1:number,x2:number,y2:number}>}
  */
-function _clusterMST(nodes) {
+export function _clusterMST(nodes) {
     const n = nodes.length;
     const edges = [];
     if (n < 2) return edges;
     const inTree = new Uint8Array(n);
     const best = new Float64Array(n).fill(Infinity);
-    const bestFrom = new Int32Array(n).fill(-1);
+    /** @type {Array<{x1:number,y1:number,x2:number,y2:number,d2:number} | undefined>} */
+    const bestPairs = new Array(n);
     inTree[0] = 1;
     const relax = (k) => {
         for (let i = 0; i < n; i++) {
             if (inTree[i]) continue;
-            const d2 = _closestPair(nodes[k], nodes[i]).d2;
-            if (d2 < best[i]) { best[i] = d2; bestFrom[i] = k; }
+            const pair = _closestPair(nodes[k], nodes[i]);
+            if (pair.d2 < best[i]) { best[i] = pair.d2; bestPairs[i] = pair; }
         }
     };
     relax(0);
@@ -1015,7 +1025,8 @@ function _clusterMST(nodes) {
         }
         if (b === -1) break;
         inTree[b] = 1;
-        const pair = _closestPair(nodes[bestFrom[b]], nodes[b]);
+        const pair = bestPairs[b];
+        if (!pair) break;
         edges.push({ x1: pair.x1, y1: pair.y1, x2: pair.x2, y2: pair.y2 });
         relax(b);
     }
