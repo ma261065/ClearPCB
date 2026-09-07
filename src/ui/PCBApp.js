@@ -433,7 +433,7 @@ export default class PCBApp {
         if (this.status.tipStatus) {
             this.status.tipStatus.hidden = !showOverlapTip && !showHoleTip && !showSegmentTip;
             this.status.tipStatus.textContent = showOverlapTip
-                ? 'Tip: Ctrl+click to select overlapping objects'
+                ? 'Tip: Shift+Click to cycle overlapping objects; Ctrl+Click for multi-selection'
                 : showHoleTip
                 ? 'Tip: A hole is just a circle on the hole layer'
                 : showSegmentTip ? 'Tip: Click again to select a segment' : '';
@@ -968,7 +968,7 @@ export default class PCBApp {
                 // Rectangle, arc, and circle selection is owned by the shared
                 // adapter controller. Other PCB entities stay on their legacy
                 // paths until their adapters implement the same contract.
-                if (beginSelectionInteraction(this, worldPos, additiveSelection)) {
+                if (beginSelectionInteraction(this, worldPos, additiveSelection, e.shiftKey)) {
                     setHoverHighlight(this, null);
                     this._hoverComponent(null);
                     this._hideNetTooltip();
@@ -1549,7 +1549,7 @@ export default class PCBApp {
         // central window-capture listener via handleKeyDown() below —
         // no per-instance event registration here.
 
-        const endInteraction = (button = 0) => {
+        const endInteraction = (button = 0, worldPos = null) => {
             if (!this._active) return;
             if (this.viewport.isPanning) {
                 this.viewport.endPan();
@@ -1560,7 +1560,7 @@ export default class PCBApp {
             // Right/middle mouse drags pan the canvas. Releasing either must
             // leave an armed or active anchor drag untouched.
             if (button !== 0) return;
-            const finishedSelectionInteraction = finishSelectionInteraction(this, true);
+            const finishedSelectionInteraction = finishSelectionInteraction(this, true, worldPos);
             if (finishedSelectionInteraction) {
                 this._clearCursorCrosshair();
                 svg.style.cursor = 'default';
@@ -1659,7 +1659,7 @@ export default class PCBApp {
                     setTimeout(() => { this._suppressNextContextMenu = false; }, 0);
                 }
             }
-            endInteraction(e.button);
+            endInteraction(e.button, this._screenToWorld(e));
             // Left-click release just after starting a track: decide between
             // the two draw modes.
             //   • Released away from the start press → "drag mode": this

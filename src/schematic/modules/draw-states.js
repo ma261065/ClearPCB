@@ -1106,6 +1106,23 @@ export const idleState = {
         app.didDrag = false;
         if (app.pendingAnchorDrag && !app.drag) app.pendingAnchorDrag = null;
 
+        if (event.shiftKey && app.selection.hitTest(worldPos)) {
+            app._overlapCyclePress = { screenPos, worldPos, snapped, additive: isAdditiveSelectionModifier(event) };
+            app.interactionState = 'overlapCycle';
+            event.preventDefault();
+            return;
+        }
+        if (isAdditiveSelectionModifier(event)) {
+            const hit = app.selection.hitTest(worldPos);
+            if (hit) {
+                app.selection.toggle(hit);
+                app.renderShapes(true);
+                app.skipClickSelection = true;
+                event.preventDefault();
+                return;
+            }
+        }
+
         // Anchor drag on selected shapes
         const selectedShapes = app.selection.getSelection();
         for (const shape of selectedShapes) {
@@ -1148,20 +1165,6 @@ export const idleState = {
             const hitSegmentEdgeId = hitShape.type === 'polyline'
                 ? hitShape.hitTestEdge(worldPos, segmentTolerance)
                 : null;
-            // Ctrl/Cmd: add to selection if unselected, cycle stacked if already selected
-            if (isAdditiveSelectionModifier(event)) {
-                if (hitShape.selected) {
-                    const nextShape = getNextCycleHitShape(app, worldPos);
-                    if (nextShape) selectOnlyShapeAndRender(app, nextShape);
-                } else {
-                    app.selection.toggle(hitShape);
-                    app.renderShapes(true);
-                }
-                app.skipClickSelection = true;
-                event.preventDefault();
-                return;
-            }
-
             if (!hitShape.selected) {
                 app.selection.select(hitShape, false);
                 app._shapeSegmentClickCandidate = hitSegmentEdgeId
@@ -2053,8 +2056,44 @@ export const placingState = {
 
 // ─── State table ───────────────────────────────────────────────────
 
+export const overlapCycleState = {
+    mousemove(app, event, positions) {
+        const press = app._overlapCyclePress;
+        if (!press) return;
+        if (Math.hypot(positions.screenPos.x - press.screenPos.x, positions.screenPos.y - press.screenPos.y) <= DRAG_THRESHOLD_PX) return;
+        app._overlapCyclePress = null;
+        app.interactionState = 'idle';
+        idleState.mousedown(app, { button: 0, shiftKey: false, ctrlKey: false, metaKey: false,
+            preventDefault() { event.preventDefault(); } }, press);
+        STATE_TABLE[app.interactionState]?.mousemove?.(app, event, positions);
+    },
+    mouseup(app, event, positions) {
+        if (event.button !== 0) return;
+        const press = app._overlapCyclePress;
+        if (!press) return;
+        if (Math.hypot(positions.screenPos.x - press.screenPos.x, positions.screenPos.y - press.screenPos.y) > DRAG_THRESHOLD_PX) {
+            overlapCycleState.mousemove(app, event, positions);
+            STATE_TABLE[app.interactionState]?.mouseup?.(app, event, positions);
+            return;
+        }
+        app._overlapCyclePress = null;
+        app.interactionState = 'idle';
+        const next = getNextCycleHitShape(app, press.worldPos);
+        if (next) {
+            const hits = app.selection.hitTest(press.worldPos, true);
+            const keep = press.additive ? app.selection.getSelection().filter((item) => !hits.includes(item)) : [];
+            app.selection.clearSelection();
+            for (const item of [...keep, next]) app.selection.select(item, true);
+            app.renderShapes(true);
+        }
+        app.skipClickSelection = true;
+        event.preventDefault();
+    },
+};
+
 export const STATE_TABLE = {
     idle: idleState,
+    overlapCycle: overlapCycleState,
     toolActive: toolActiveState,
     drawing: drawingState,
     moveDrag: moveDragState,

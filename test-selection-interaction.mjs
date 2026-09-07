@@ -1,7 +1,8 @@
 /** Headless regression tests for shared PCB selection interaction state. */
 
 globalThis.window = { addEventListener() {} };
-globalThis.document = { getElementById() { return null; } };
+globalThis.document = { getElementById() { return null; },
+    createElementNS() { return { setAttribute() {}, getAttribute() { return null; }, appendChild() {}, remove() {} }; } };
 globalThis.requestAnimationFrame = (callback) => { callback(); return 1; };
 
 const {
@@ -56,15 +57,21 @@ function expect(name, condition) {
 {
     const top = { id: 'top-object' };
     const below = { id: 'below-object' };
+    const unrelated = { id: 'unrelated-object' };
+    let moves = 0;
     const factory = (_app, object, id) => ({
         id, kind: 'shape', object, visible: true,
         getBounds() { return { minX: 0, minY: 0, maxX: 10, maxY: 10 }; },
-        hitTest() { return true; },
+        hitTest() { return object !== unrelated; },
+        beginMove() { return true; },
+        updateMove() { moves++; },
+        endMove() {},
         invalidate() {},
     });
     registerPcbSelectionAdapter('shape', factory);
     const app = {
-        placements: new Map(), tracks: [], vias: [], boardShapes: [below, top], texts: new Map(),
+        placements: new Map(), tracks: [], vias: [], boardShapes: [below, top, unrelated], texts: new Map(),
+        _shapeElements: new Map(),
         viewport: { scale: 1 },
         _syncClipboardButtons() {}, _setPcbStatus() {},
         _selectComponent() {}, _selectBoardOutline() {}, _selectText() {}, _selectRefText() {}, _selectFill() {},
@@ -74,8 +81,35 @@ function expect(name, condition) {
     setPcbSelection(app, [{ kind: 'shape', object: top }]);
     expect('Ctrl-click consumes an overlapping PCB selection',
         beginSelectionInteraction(app, { x: 5, y: 5 }, true));
-    expect('Ctrl-click cycles to the next overlapping PCB object',
+    expect('Ctrl-click removes a selected PCB object', app._pcbSelection.count === 0);
+    beginSelectionInteraction(app, { x: 5, y: 5 }, true);
+    expect('Ctrl-click adds an unselected PCB object', app._pcbSelection.getSelection()[0]?.object === top);
+    beginSelectionInteraction(app, { x: 5, y: 5 }, false, true);
+    expect('Shift press leaves selection unchanged', app._pcbSelection.getSelection()[0]?.object === top);
+    finishSelectionInteraction(app, true);
+    expect('Shift-click cycles to the next overlapping PCB object',
         app._pcbSelection.getSelection()[0]?.object === below);
+    beginSelectionInteraction(app, { x: 5, y: 5 }, false, true);
+    finishSelectionInteraction(app, true);
+    expect('Shift-click wraps the overlap stack', app._pcbSelection.getSelection()[0]?.object === top);
+    beginSelectionInteraction(app, { x: 5, y: 5 }, false, true);
+    finishSelectionInteraction(app, false);
+    expect('Escape cancels pending overlap cycling', app._pcbSelection.getSelection()[0]?.object === top);
+    beginSelectionInteraction(app, { x: 5, y: 5 }, false, true);
+    updateSelectionInteraction(app, { x: 9, y: 5 });
+    expect('Shift-drag promotes normal movement without cycling', moves === 1
+        && app._pcbSelection.getSelection()[0]?.object === top);
+    finishSelectionInteraction(app, true);
+    beginSelectionInteraction(app, { x: 5, y: 5 }, false, true);
+    finishSelectionInteraction(app, true, { x: 9, y: 5 });
+    expect('A distant release without mousemove becomes a drag, not a cycle', moves === 2
+        && app._pcbSelection.getSelection()[0]?.object === top);
+    setPcbSelection(app, [{ kind: 'shape', object: top }, { kind: 'shape', object: unrelated }]);
+    beginSelectionInteraction(app, { x: 5, y: 5 }, true, true);
+    finishSelectionInteraction(app, true);
+    const selectedObjects = app._pcbSelection.getSelection().map((item) => item.object);
+    expect('Ctrl+Shift cycling preserves unrelated selected objects', selectedObjects.includes(below)
+        && selectedObjects.includes(unrelated) && !selectedObjects.includes(top));
 }
 
 {

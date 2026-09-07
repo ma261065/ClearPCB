@@ -972,7 +972,7 @@ export default class SchematicApp {
             && !this._selectedShapeNode;
         tip.hidden = !showOverlap && !showSegment;
         tip.textContent = showOverlap
-            ? 'Tip: Ctrl+click to select overlapping objects'
+            ? 'Tip: Shift+Click to cycle overlapping objects; Ctrl+Click for multi-selection'
             : showSegment ? 'Tip: Click again to select a segment' : '';
     }
 

@@ -79,9 +79,21 @@ export function showPcbSelectionProperties(app) {
 }
 
 /** Start a state-machine-owned select gesture. Returns true when consumed. */
-export function beginSelectionInteraction(app, worldPos, additive) {
+export function beginSelectionInteraction(app, worldPos, additive, cycle = false) {
     app._lastPointerWorld = worldPos;
     const selected = getPcbSelectionEntries(app);
+    if (cycle || additive) {
+        const entry = hitTestPcbSelectionEntry(app, worldPos, SUPPORTED_KINDS);
+        if (!entry) return false;
+        if (cycle) {
+            app._pcbSelectionInteraction = { mode: 'cycle', startWorld: { ...worldPos }, additive };
+        } else {
+            togglePcbSelection(app, entry.kind, entry.object);
+            showPcbSelectionProperties(app);
+            refreshBoxSelectionHighlights(app);
+        }
+        return true;
+    }
     // A selected shape's anchor used to preempt the shared group-drag path.
     // This made Ctrl+A depend on the exact pixel grabbed: a vertex moved one
     // shape while its body moved the whole selection. Let PCBApp route every
@@ -102,21 +114,6 @@ export function beginSelectionInteraction(app, worldPos, additive) {
 
     const entry = hitTestPcbSelectionEntry(app, worldPos, SUPPORTED_KINDS);
     if (!entry) return false;
-
-    if (additive) {
-        const alreadySelected = selected.some((item) => item.id === entry.id);
-        if (alreadySelected) {
-            const hits = getPcbSelectionHits(app, worldPos, SUPPORTED_KINDS);
-            const index = hits.findIndex((item) => item.id === entry.id);
-            const next = hits[(index + 1) % hits.length];
-            if (next) setPcbSelection(app, [{ kind: next.kind, object: next.object }]);
-        } else {
-            togglePcbSelection(app, entry.kind, entry.object);
-        }
-        showPcbSelectionProperties(app);
-        refreshBoxSelectionHighlights(app);
-        return true;
-    }
 
     // Let PCBApp's marquee path move the complete set when a selected member
     // is clicked.
@@ -152,6 +149,23 @@ export function beginSelectionInteraction(app, worldPos, additive) {
 export function updateSelectionInteraction(app, worldPos) {
     const state = app._pcbSelectionInteraction;
     if (!state) return false;
+    if (state.mode === 'cycle') {
+        const threshold = 3 / Math.max(0.01, app.viewport?.scale || 1);
+        if (Math.hypot(worldPos.x - state.startWorld.x, worldPos.y - state.startWorld.y) <= threshold) return true;
+        app._pcbSelectionInteraction = null;
+        if (!beginSelectionInteraction(app, state.startWorld, false)) {
+            const entry = hitTestPcbSelectionEntry(app, state.startWorld, SUPPORTED_KINDS);
+            if (!entry) return true;
+            if (getPcbSelectionEntries(app).some((item) => item.id === entry.id)) {
+                beginGroupDrag(app, state.startWorld);
+                app._pcbSelectionInteraction = { mode: 'move' };
+            } else {
+                setPcbSelection(app, [{ kind: entry.kind, object: entry.object }]);
+                beginSelectionInteraction(app, state.startWorld, false);
+            }
+        }
+        return updateSelectionInteraction(app, worldPos);
+    }
     if (state.mode === 'anchor' || state.mode === 'floating-anchor') {
         if (state.mode === 'anchor' && !state.moved) {
             const threshold = 3 / Math.max(0.01, app.viewport?.scale || 1);
@@ -182,10 +196,23 @@ export function updateSelectionInteraction(app, worldPos) {
 }
 
 /** Finish the active supported-entity pointer state. */
-export function finishSelectionInteraction(app, commit = true) {
+export function finishSelectionInteraction(app, commit = true, worldPos = null) {
+    if (commit && worldPos && app._pcbSelectionInteraction?.mode === 'cycle') updateSelectionInteraction(app, worldPos);
     const state = app._pcbSelectionInteraction;
     if (!state) return false;
-    if (state.mode === 'anchor') {
+    if (state.mode === 'cycle') {
+        if (commit) {
+            const selected = getPcbSelectionEntries(app);
+            const hits = getPcbSelectionHits(app, state.startWorld, SUPPORTED_KINDS);
+            const index = hits.findIndex((hit) => selected.some((item) => item.id === hit.id));
+            const next = hits[(index + 1) % hits.length];
+            if (next) {
+                const keep = state.additive ? selected.filter((item) => !hits.some((hit) => hit.id === item.id)) : [];
+                setPcbSelection(app, [...keep, next].map(({ kind, object }) => ({ kind, object })));
+                showPcbSelectionProperties(app);
+            }
+        }
+    } else if (state.mode === 'anchor') {
         const result = state.adapter.endAnchorDrag?.(commit, { moved: state.moved });
         if (commit && result?.floating) {
             state.mode = 'floating-anchor';
