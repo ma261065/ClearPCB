@@ -66,6 +66,7 @@ import { shapeDrawClick, updateShapeDrawPreview, cancelShapeDraw, finishPolygonD
 import { hitTestPcbSelectionAnchor, renderPcbSelectionAnchors } from '../pcb/modules/selection-anchors.js';
 import { refreshAxisGlow } from '../pcb/modules/axis-glow.js';
 import { buildFillContext } from '../pcb/modules/fill-context.js';
+import { scheduleFillRefresh } from '../pcb/modules/fill-refresh.js';
 import { hasAny3DModel, openComponent3DFromData, buildComponent3DTitle } from '../components/model3d-source.js';
 import {
     armBoxSelect,
@@ -7766,23 +7767,7 @@ export default class PCBApp {
      * parameter changes, as well as during fill editing.
      */
     _refreshFills() {
-        if (this._deferDragOverlays || this._suspendFillRefresh) {
-            this._fillRefreshPending = true;
-            return;
-        }
-        if (!this.copperFills || this.copperFills.length === 0) {
-            // Nothing to pour: make sure both fill groups are empty.
-            this._clearFillGroups();
-            return;
-        }
-        if (this._fillRefreshScheduled) return;
-        this._fillRefreshScheduled = true;
-        const run = () => {
-            this._fillRefreshScheduled = false;
-            this._recomputeFillsNow();
-        };
-        if (typeof requestAnimationFrame === 'function') requestAnimationFrame(run);
-        else setTimeout(run, 0);
+        return scheduleFillRefresh(this);
     }
 
     /**

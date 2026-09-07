@@ -778,6 +778,7 @@ export function reconcileRatsnest(app, opts) {
     // rebuilding clearance geometry) on each frame is the single biggest cost
     // on boards that have them. _endDrag() forces one full reconcile on drop.
     if (!app._deferDragOverlays) {
+        if (!opts?.skipFillRefresh && app._refreshFills?.() === true) return;
         // The clearance overlay is derived from the rendered trace geometry, so
         // it must be rebuilt whenever the copper changes — exactly the same set
         // of call sites that reconcile the ratsnest (live vertex drag, drag
@@ -785,10 +786,6 @@ export function reconcileRatsnest(app, opts) {
         // step here (no-op unless the clearance overlay is currently visible).
         app._refreshClearanceHalos?.();
 
-        // Copper pours are derived from trace/via/pad geometry, so they must be
-        // recomputed whenever the copper changes — the same call sites that
-        // reconcile the ratsnest. (No-op when there are no fills.)
-        if (!opts?.skipFillRefresh) app._refreshFills?.();
     }
 
     const ratLayer = app._getLayerGroup?.('ratlines');
