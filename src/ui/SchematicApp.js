@@ -5,6 +5,7 @@ import { globalEventBus } from '../core/EventBus.js';
 import { CommandHistory } from '../core/CommandHistory.js';
 import { SelectionManager } from '../core/SelectionManager.js';
 import { FileManager } from '../core/FileManager.js';
+import { repairDuplicateTrackIds, validateProject } from '../core/project-format.js';
 import { storageManager } from '../core/StorageManager.js';
 import { pointsMatch } from '../core/geometry.js';
 import { ComponentPicker } from '../components/ComponentPicker.js';
@@ -385,24 +386,39 @@ export default class SchematicApp {
     async _applyAutoSave(entry) {
         const saved = this.fileManager.loadAutoSave(entry.fileName);
         if (saved && saved.data) {
-            if (this._initComplete) {
-                await this._loadDocument(saved.data);
-            } else {
-                this.shapes = [];
-                this.components = [];
-                this.ui = /** @type {any} */ ({});
-                this._pendingAutoLoad = saved.data;
+            try {
+                const recovery = repairDuplicateTrackIds(saved.data);
+                if (recovery.count) {
+                    const accepted = await this._confirm(
+                        `This autosave contains ${recovery.count} duplicate PCB track ID(s). Recover by assigning unique IDs? All tracks and their geometry will be retained.`,
+                        { title: 'Repair Autosave', okText: 'Repair and Recover', cancelText: 'Cancel' },
+                    );
+                    if (!accepted) return;
+                }
+                validateProject(recovery.data);
+                if (this._initComplete) {
+                    await this._loadDocument(recovery.data);
+                } else {
+                    this.shapes = [];
+                    this.components = [];
+                    this.ui = /** @type {any} */ ({});
+                    this._pendingAutoLoad = recovery.data;
+                }
+                if (saved.fileName) this.fileManager.setFileName(saved.fileName);
+                // Restore the original file handle (persisted in IndexedDB) so that
+                // "Save"/Ctrl+S writes back to the same file instead of prompting
+                // for a name. The write-permission grant is re-requested lazily on
+                // the next save (which carries a user gesture).
+                if (saved.fileName) {
+                    try { await this.fileManager.restoreFileHandle(saved.fileName); } catch {}
+                }
+                this.fileManager.setDirty(true);
+                console.log('Recovered auto-saved content');
+            } catch (error) {
+                console.error('Autosave recovery failed:', error);
+                await this._alert(`Could not recover the autosave: ${error.message}\n\nThe stored autosave has not been deleted.`,
+                    { title: 'Autosave Recovery Failed' });
             }
-            if (saved.fileName) this.fileManager.setFileName(saved.fileName);
-            // Restore the original file handle (persisted in IndexedDB) so that
-            // "Save"/Ctrl+S writes back to the same file instead of prompting
-            // for a name. The write-permission grant is re-requested lazily on
-            // the next save (which carries a user gesture).
-            if (saved.fileName) {
-                try { await this.fileManager.restoreFileHandle(saved.fileName); } catch {}
-            }
-            this.fileManager.setDirty(true);
-            console.log('Recovered auto-saved content');
         }
     }
 

@@ -1,5 +1,28 @@
 const record = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 
+export function repairDuplicateTrackIds(data) {
+    const tracks = data?.pcb?.tracks;
+    if (!Array.isArray(tracks)) return { data, count: 0 };
+    const seen = new Set();
+    const duplicates = [];
+    tracks.forEach((track, index) => {
+        if (!track?.id) return;
+        if (seen.has(track.id)) duplicates.push(index);
+        seen.add(track.id);
+    });
+    if (!duplicates.length) return { data, count: 0 };
+    for (const shape of data.schematic?.shapes || []) if (shape?.id) seen.add(shape.id);
+    const repaired = structuredClone(data);
+    let next = 1;
+    for (const index of duplicates) {
+        while (seen.has(`shape_${next}`)) next++;
+        const id = `shape_${next++}`;
+        repaired.pcb.tracks[index].id = id;
+        seen.add(id);
+    }
+    return { data: repaired, count: duplicates.length };
+}
+
 export function validateProject(data) {
     if (!record(data) || data.type !== 'clearpcb-project' || data.version !== '2.0') {
         throw new Error('Unsupported ClearPCB project format or version.');

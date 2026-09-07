@@ -54,6 +54,7 @@ export class Shape {
      */
     constructor(options = {}) {
         this.id = options.id || `shape_${++shapeIdCounter}`;
+        if (options.id) updateIdCounter(this.id);
         this.type = 'shape';
         
         // Validate and apply common properties
