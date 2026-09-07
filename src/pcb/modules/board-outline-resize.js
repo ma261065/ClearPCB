@@ -92,7 +92,6 @@ export function endBoardOutlineResize(app, commit = true) {
         app._drawBoardOutline();
     } else if (changed) {
         app.history.execute(new SetBoardOutlineCommand(app, drag.before, after));
-        app._refreshFills?.();
     }
     app._showBoardOutlineProperties?.();
     app._board3d?.refresh?.();

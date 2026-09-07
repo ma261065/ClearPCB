@@ -16,11 +16,16 @@ assert.ok(syncStart >= 0 && syncEnd > syncStart);
 const syncInputs = new Function(`return ({ ${source.slice(syncStart, syncEnd)} })._syncBoardOutlineInputs;`)();
 let redraws = 0;
 let fills = 0;
+const fillDimensions = [];
 const app = {
     _boardOutlineSelected: true, _boardOutlineDrawn: true,
     _boardWidth: 100, _boardHeight: 80, _boardRadius: 3,
     viewport: { scale: 10, snapToGrid: true, gridSize: 1 },
-    _drawBoardOutline() { redraws++; }, _refreshFills() { fills++; },
+    _drawBoardOutline() { redraws++; },
+    _refreshFills() {
+        fills++;
+        fillDimensions.push([this._boardWidth, this._boardHeight, this._boardRadius]);
+    },
     _syncBoardOutlineInputs: syncInputs,
     history: { execute(command) { commands.push(command); command.execute(); } },
 };
@@ -37,11 +42,16 @@ assert.equal(redraws, 1);
 endBoardOutlineResize(app);
 assert.equal(commands.length, 1);
 assert.equal(fills, 1);
+assert.deepEqual(fillDimensions, [[110, 85, 3]], 'Commit refreshes pours once with the new dimensions');
 assert.equal(app._suspendBoardViewRefresh, false);
 commands[0].undo();
+assert.equal(fills, 2, 'Undo refreshes pours once');
+assert.deepEqual(fillDimensions.at(-1), [100, 80, 3], 'Undo refresh uses the restored dimensions');
 assert.deepEqual([app._boardWidth, app._boardHeight], [100, 80]);
 assert.deepEqual([...inputs.values()].map(input => input.value), ['100.00', '80.00'], 'Undo updates the dimension spinners');
 commands[0].execute();
+assert.equal(fills, 3, 'Redo refreshes pours once');
+assert.deepEqual(fillDimensions.at(-1), [110, 85, 3], 'Redo refresh uses the reapplied dimensions');
 assert.deepEqual([app._boardWidth, app._boardHeight], [110, 85]);
 assert.deepEqual([...inputs.values()].map(input => input.value), ['110.00', '85.00'], 'Redo updates the dimension spinners');
 assert.ok(beginBoardOutlineResize(app, { x: 110, y: -42.5 }));
@@ -50,6 +60,7 @@ assert.deepEqual([app._boardWidth, app._boardHeight], [5, 85]);
 assert.deepEqual([...inputs.values()].map(input => input.value), ['5.00', '85.00'], 'Spinners reflect minimum size and the unchanged axis');
 endBoardOutlineResize(app, false);
 assert.deepEqual([app._boardWidth, app._boardHeight], [110, 85]);
+assert.equal(fills, 3, 'Cancelled preview does not trigger another pour rebuild');
 assert.equal(commands.length, 1);
 assert.ok(beginBoardOutlineResize(app, { x: 55, y: -85 }));
 updateBoardOutlineResize(app, { x: 90, y: -95 });
