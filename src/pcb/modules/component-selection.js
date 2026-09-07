@@ -1,4 +1,4 @@
-import { registerPcbSelectionAdapter } from './selection-registry.js';
+import { registerPcbSelectionAdapter, getComponentSelectionHit } from './selection-registry.js';
 
 function boundsForPlacement(placement) {
     const bounds = placement?.bounds;
@@ -34,7 +34,7 @@ export function createComponentSelectionAdapter(app, componentId, id) {
         object: componentId,
         get visible() { return app.placements?.has(componentId); },
         getBounds() { return boundsForPlacement(app.placements?.get(componentId)); },
-        hitTest(point) { return app._hitTestComponent(point) === componentId; },
+        hitTest(point) { return getComponentSelectionHit(app, point) === componentId; },
         getPosition() {
             const placement = app.placements?.get(componentId);
             return { x: placement?.x || 0, y: placement?.y || 0 };

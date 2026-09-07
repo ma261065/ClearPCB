@@ -9,6 +9,17 @@ import { SelectionManager } from '../../core/SelectionManager.js';
 
 const keyFor = (kind, object) => `${kind}:${kind === 'component' || kind === 'reftext' ? object : object.id}`;
 const adapterFactories = new Map();
+const hitQueries = new WeakMap();
+
+export function getComponentSelectionHit(app, point) {
+    const query = hitQueries.get(app);
+    if (!query || query.point !== point) return app._hitTestComponent(point);
+    if (!query.componentResolved) {
+        query.component = app._hitTestComponent(point);
+        query.componentResolved = true;
+    }
+    return query.component;
+}
 
 /** Register a factory implementing the SelectionManager shape contract. */
 export function registerPcbSelectionAdapter(kind, factory) {
@@ -117,7 +128,16 @@ export function getPcbSelectionEntries(app) {
 export function getPcbSelectionHits(app, point, kinds = null, { sync = true } = {}) {
     const mgr = manager(app);
     if (sync || mgr.shapes.length === 0) syncPcbSelection(app);
-    const hits = mgr.hitTest(point, true);
+    mgr._invalidateHitTestCache();
+    const previous = hitQueries.get(app);
+    hitQueries.set(app, { point, componentResolved: false, component: null });
+    let hits;
+    try {
+        hits = mgr.hitTest(point, true);
+    } finally {
+        if (previous) hitQueries.set(app, previous);
+        else hitQueries.delete(app);
+    }
     if (!kinds) return hits;
     const allowed = kinds instanceof Set ? kinds : new Set(kinds);
     return hits.filter((item) => allowed.has(item.kind));
@@ -126,8 +146,7 @@ export function getPcbSelectionHits(app, point, kinds = null, { sync = true } = 
 /** Hit test an adapter kind through the shared selection ordering rules. */
 /** @param {string|null} [kind] */
 export function hitTestPcbSelection(app, point, kind = null) {
-    syncPcbSelection(app);
-    const hits = manager(app).hitTest(point, true);
+    const hits = getPcbSelectionHits(app, point);
     const hit = kind ? hits.find((item) => item.kind === kind) : hits[0];
     return hit?.object || null;
 }
