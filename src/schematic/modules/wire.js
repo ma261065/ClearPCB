@@ -24,10 +24,11 @@
 import { Wire, COLLINEAR_EPSILON as _SHAPE_COLLINEAR_EPSILON } from '../../shapes/index.js';
 import { Text } from '../../shapes/text.js';
 import { freeWireLabel, nextWireLabel, bumpWireLabelCounter, freeNetName, bumpNetNameCounter, nextNetName, WIRE_COLOR, WIRE_WIDTH } from '../../shapes/wire.js';
-import { BatchCommand, AddShapeCommand, ModifyShapeCommand, DeleteShapesCommand } from '../../core/CommandHistory.js';
+import { BatchCommand, AddShapeCommand, ModifyShapeCommand, DeleteShapesCommand } from './commands.js';
 import { distanceToSegment, pointsMatch, pointsCollinear, segmentsCollinear, collinearSnap } from '../../core/geometry.js';
 import { applyStickyConnections } from '../../ui/modules/sticky-wires.js';
 import { attachLabelToTarget, getLabelDropHotspot } from '../../ui/modules/label-attachment.js';
+import { VERTEX_EPSILON } from './wire-constants.js';
 
 // --- Constants ---
 
@@ -46,7 +47,7 @@ export const COLLINEAR_EPSILON = _SHAPE_COLLINEAR_EPSILON;
 export const ANGLE_TOL = 0.05;
 
 /** Tolerance for vertex coincidence checks (world units). */
-export const VERTEX_EPSILON = 0.15;
+export { VERTEX_EPSILON };
 
 /** Tolerance for pin snap detection during drawing (world units). */
 export const PIN_SNAP_TOL = 1.5;

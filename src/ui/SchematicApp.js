@@ -1394,8 +1394,12 @@ export default class SchematicApp {
      * @param {Object} data
      * @returns {Promise<void>}
      */
-    async loadSection(data) {
-        await FileTools.loadDocument(this, data);
+    prepareSection(data) {
+        return FileTools.prepareDocument(this, data);
+    }
+
+    async loadSection(data, prepared) {
+        await FileTools.loadDocument(this, data, prepared);
     }
 
     /**

@@ -15,6 +15,7 @@ import {
 import { reconcileRatsnest } from './track-draw.js';
 import { refreshTrackSelectionHalo } from './track-select.js';
 import { getPcbSelection } from './selection-registry.js';
+import { batchDerivedUpdates } from '../../core/DerivedUpdates.js';
 
 function _opts(app, track) {
     return {
@@ -722,12 +723,26 @@ export class SetBoardOutlineCommand {
 export class CompoundCommand {
     constructor(commands) {
         this.commands = Array.isArray(commands) ? commands.slice() : [];
+        this.app = this.commands.find((command) => command.app)?.app;
     }
     execute() {
-        for (const c of this.commands) c.execute();
+        batchDerivedUpdates(this.app, () => {
+            const applied = [];
+            try {
+                for (const command of this.commands) {
+                    command.execute();
+                    applied.push(command);
+                }
+            } catch (error) {
+                for (const command of applied.reverse()) command.undo();
+                throw error;
+            }
+        });
     }
     undo() {
-        for (let i = this.commands.length - 1; i >= 0; i--) this.commands[i].undo();
+        batchDerivedUpdates(this.app, () => {
+            for (let index = this.commands.length - 1; index >= 0; index--) this.commands[index].undo();
+        });
     }
 }
 

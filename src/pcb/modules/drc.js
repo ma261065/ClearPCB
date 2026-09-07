@@ -20,11 +20,14 @@
  *   4. Shorted nets — two or more distinct named nets electrically bonded by
  *      coincident copper (a track/via/pad junction tying nets together).
  *
- * Distances are edge-to-edge in millimetres. Pad shapes are treated as their
- * axis-aligned bounding box (matching the existing clearance-overlay and the
- * offline clearance tools) — a slightly conservative approximation for
- * rounded/oval pads, which is the safe direction for a checker.
+ * Distances are edge-to-edge in millimetres. Pads use the same posed,
+ * conservative polygon outlines as the copper-pour clearance engine.
  */
+
+import { resolveCopperPads } from './copper-model.js';
+import { collectCopperArtwork } from './copper-artwork.js';
+import { spatialPairs } from '../../core/spatial-pairs.js';
+import { pointInPolygon } from '../../core/geometry.js';
 
 /** Minimum acceptable via annular ring (mm) when not otherwise specified. */
 const DEFAULT_MIN_ANNULAR_RING = 0.05;
@@ -33,20 +36,6 @@ const DEFAULT_MIN_ANNULAR_RING = 0.05;
 const EPS = 1e-4;
 
 /* ───────────────────────── Geometry helpers ───────────────────────── */
-
-/** Distance from a point to an axis-aligned rectangle (0 if inside). */
-function pointRectDistance(px, py, cx, cy, hw, hh) {
-    const dx = Math.max(0, Math.abs(px - cx) - hw);
-    const dy = Math.max(0, Math.abs(py - cy) - hh);
-    return Math.hypot(dx, dy);
-}
-
-/** Distance between two axis-aligned rectangles (0 if overlapping). */
-function rectRectDistance(ax, ay, ahw, ahh, bx, by, bhw, bhh) {
-    const dx = Math.max(0, Math.abs(ax - bx) - (ahw + bhw));
-    const dy = Math.max(0, Math.abs(ay - by) - (ahh + bhh));
-    return Math.hypot(dx, dy);
-}
 
 /** Closest point on segment [a,b] to point p, returned as {x,y}. */
 function closestOnSegment(px, py, ax, ay, bx, by) {
@@ -57,12 +46,6 @@ function closestOnSegment(px, py, ax, ay, bx, by) {
     let t = ((px - ax) * dx + (py - ay) * dy) / lenSq;
     t = Math.max(0, Math.min(1, t));
     return { x: ax + t * dx, y: ay + t * dy };
-}
-
-/** Distance from point p to segment [a,b]. */
-function pointSegmentDistance(px, py, ax, ay, bx, by) {
-    const c = closestOnSegment(px, py, ax, ay, bx, by);
-    return Math.hypot(px - c.x, py - c.y);
 }
 
 /**
@@ -114,70 +97,6 @@ function coincKey(x, y) {
     return `${Math.round(x * 10000)},${Math.round(y * 10000)}`;
 }
 
-/** True when two segments meet at a coincident endpoint (a node junction). */
-function segmentsShareEndpoint(a, b) {
-    const ka1 = coincKey(a.ax, a.ay), ka2 = coincKey(a.bx, a.by);
-    const kb1 = coincKey(b.ax, b.ay), kb2 = coincKey(b.bx, b.by);
-    return ka1 === kb1 || ka1 === kb2 || ka2 === kb1 || ka2 === kb2;
-}
-
-/**
- * Minimum distance between a segment [a,b] and an axis-aligned rect, plus the
- * approximate closest point (used to position a marker).
- * @returns {{dist:number, x:number, y:number}}
- */
-function segmentRectDistance(ax, ay, bx, by, cx, cy, hw, hh) {
-    const left = cx - hw, right = cx + hw, top = cy - hh, bottom = cy + hh;
-    const corners = [
-        [left, top], [right, top], [right, bottom], [left, bottom],
-    ];
-    // Segment intersects the rect → 0.
-    const insideA = ax >= left && ax <= right && ay >= top && ay <= bottom;
-    const insideB = bx >= left && bx <= right && by >= top && by <= bottom;
-    if (insideA && insideB) {
-        // Whole segment inside the rect → its midpoint is inside the overlap.
-        return { dist: 0, x: (ax + bx) / 2, y: (ay + by) / 2 };
-    }
-    if (insideA) return { dist: 0, x: ax, y: ay };
-    if (insideB) return { dist: 0, x: bx, y: by };
-    for (let i = 0; i < 4; i++) {
-        const [c1x, c1y] = corners[i];
-        const [c2x, c2y] = corners[(i + 1) % 4];
-        const hit = segmentsIntersectionPoint(ax, ay, bx, by, c1x, c1y, c2x, c2y);
-        if (hit) {
-            return { dist: 0, x: hit.x, y: hit.y };
-        }
-    }
-    // Closest of: endpoints→rect, and rect corners→segment.
-    let best = Infinity;
-    let mx = cx, my = cy;
-    const considerPointRect = (px, py) => {
-        const ddx = Math.max(0, Math.abs(px - cx) - hw);
-        const ddy = Math.max(0, Math.abs(py - cy) - hh);
-        const dist = Math.hypot(ddx, ddy);
-        if (dist < best) {
-            best = dist;
-            // closest point on rect boundary to (px,py)
-            const qx = Math.max(left, Math.min(right, px));
-            const qy = Math.max(top, Math.min(bottom, py));
-            mx = (px + qx) / 2;
-            my = (py + qy) / 2;
-        }
-    };
-    considerPointRect(ax, ay);
-    considerPointRect(bx, by);
-    for (const [qx, qy] of corners) {
-        const c = closestOnSegment(qx, qy, ax, ay, bx, by);
-        const dist = Math.hypot(qx - c.x, qy - c.y);
-        if (dist < best) {
-            best = dist;
-            mx = (qx + c.x) / 2;
-            my = (qy + c.y) / 2;
-        }
-    }
-    return { dist: best, x: mx, y: my };
-}
-
 /* ───────────────────── Copper primitive collection ───────────────── */
 
 /** Normalize a track edge layer ('top-copper') to 'top' / 'bottom'. */
@@ -206,48 +125,16 @@ function sameNet(a, b) {
 /**
  * Collect every copper primitive from the board into flat arrays.
  * @param {object} app - PCBApp instance.
- * @returns {{pads:Array, segments:Array, vias:Array}}
+ * @returns {{pads:Array, segments:Array, vias:Array, areas:Array}}
  */
 export function collectCopper(app) {
     const pads = [];
     const segments = [];
     const vias = [];
 
-    // Build a (componentId|pinNumber) → net lookup from the netlist.
-    const padNet = new Map();
-    for (const entry of (app.netlist || [])) {
-        for (const pin of (entry.pins || [])) {
-            padNet.set(`${pin.componentId}|${pin.pinNumber}`, entry.net || '');
-        }
-    }
-
-    // Pads from placed footprints.
-    for (const [componentId, pl] of (app.placements || new Map())) {
-        if (!pl?.padOffsets) continue;
-        const ortho = Math.abs((pl.rotation || 0) % 180) === 90;
-        for (const off of pl.padOffsets) {
-            const pos = pl.pads?.get(off.padId);
-            if (!pos) continue;
-            const ow = off.width || 1.2;
-            const oh = off.height || 1.2;
-            // 90°/270° placements swap width/height in world space.
-            const hw = (ortho ? oh : ow) / 2;
-            const hh = (ortho ? ow : oh) / 2;
-            const layer = off.layer || 'top'; // 'top' | 'bottom' | 'both'
-            pads.push({
-                kind: 'pad',
-                componentId,
-                pin: off.number,
-                uid: `pad:${componentId}.${off.number}`,
-                label: `${pl.reference || pl.name || componentId}.${off.number}`,
-                x: pos.x,
-                y: pos.y,
-                hw,
-                hh,
-                layer,
-                net: padNet.get(`${componentId}|${off.number}`) || '',
-            });
-        }
+    for (const pad of resolveCopperPads(app)) {
+        pads.push({ ...pad, kind: 'pad', pin: pad.number,
+            uid: `pad:${pad.componentId}.${pad.padId}`, label: `${pad.reference}.${pad.number}` });
     }
 
     // Track segments (per edge — each edge carries its own layer/width).
@@ -291,7 +178,9 @@ export function collectCopper(app) {
         });
     }
 
-    return { pads, segments, vias };
+    const artwork = collectCopperArtwork(app);
+    segments.push(...artwork.segments);
+    return { pads, segments, vias, areas: artwork.areas };
 }
 
 /**
@@ -303,8 +192,7 @@ export function collectCopper(app) {
  * @param {object} app - PCBApp instance.
  * @returns {Array<{nets:string[], a:{x:number,y:number}, b:{x:number,y:number}}>}
  */
-function detectShorts(app) {
-    const { pads, segments, vias } = collectCopper(app);
+function detectShorts({ pads, segments, vias }) {
     const normL = (l) => (l === 'both' ? 'all' : l);
 
     /** @type {Array<{x:number,y:number,layer:string,net:string,isPad:boolean}>} */
@@ -403,8 +291,14 @@ export function runDRC(app, rules = {}) {
     const minRing = Number.isFinite(rules.minAnnularRing) && rules.minAnnularRing > 0
         ? rules.minAnnularRing : DEFAULT_MIN_ANNULAR_RING;
 
-    const { pads, segments, vias } = collectCopper(app);
+    const { pads, segments, vias, areas } = collectCopper(app);
     const violations = [];
+    for (const fill of app.copperFills || (app.boardShapes || []).filter((shape) => shape.type === 'fill')) {
+        if (fill._computed != null) continue;
+        const point = fill.outline?.[0] || { x: 0, y: 0 };
+        violations.push(makeViolation('fill', 'error', 'Copper pour has not been computed.',
+            point.x, point.y, null, `fill-pending|${fill.id}`));
+    }
 
     const fmt = (n) => `${n.toFixed(3)} mm`;
 
@@ -438,92 +332,13 @@ export function runDRC(app, rules = {}) {
         violations.push(v);
     };
 
-    /* ---- Clearance: every unordered pair of copper features ---- */
-
-    // Pad ↔ Pad (skip pairs within the same footprint).
-    for (let i = 0; i < pads.length; i++) {
-        for (let j = i + 1; j < pads.length; j++) {
-            const a = pads[i], b = pads[j];
-            if (a.componentId === b.componentId) continue;
-            if (!layersOverlap(a.layer, b.layer)) continue;
-            if (sameNet(a.net, b.net)) continue;
-            const gap = rectRectDistance(a.x, a.y, a.hw, a.hh, b.x, b.y, b.hw, b.hh);
-            if (gap < clearance - EPS) {
-                const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
-                addClearance(gap, mx, my, a.label, b.label, a, b);
-            }
-        }
-    }
-
-    // Track ↔ Pad.
-    for (const seg of segments) {
-        for (const pad of pads) {
-            if (!layersOverlap(seg.layer, pad.layer)) continue;
-            if (sameNet(seg.net, pad.net)) continue;
-            const r = segmentRectDistance(seg.ax, seg.ay, seg.bx, seg.by, pad.x, pad.y, pad.hw, pad.hh);
-            const gap = r.dist - seg.hw;
-            if (gap < clearance - EPS) {
-                addClearance(Math.max(0, gap), r.x, r.y, seg.label, pad.label, seg, pad);
-            }
-        }
-    }
-
-    // Track ↔ Track.
-    for (let i = 0; i < segments.length; i++) {
-        for (let j = i + 1; j < segments.length; j++) {
-            const a = segments[i], b = segments[j];
-            // Edges of the same track legitimately meet at shared nodes; their
-            // internal geometry is defined by the track, so skip self-pairs.
-            if (a.trackId === b.trackId) continue;
-            if (!layersOverlap(a.layer, b.layer)) continue;
-            if (sameNet(a.net, b.net)) continue;
-            // Two different-net segments meeting at a shared node ARE an
-            // electrical short — reported under Shorted Nets. Don't also flag
-            // that same junction as a clearance violation (redundant noise).
-            if (segmentsShareEndpoint(a, b)) continue;
-            const r = segmentSegmentDistance(a.ax, a.ay, a.bx, a.by, b.ax, b.ay, b.bx, b.by);
-            const gap = r.dist - a.hw - b.hw;
-            if (gap < clearance - EPS) {
-                addClearance(Math.max(0, gap), r.x, r.y, a.label, b.label, a, b);
-            }
-        }
-    }
-
-    // Via ↔ Pad.
-    for (const via of vias) {
-        for (const pad of pads) {
-            if (sameNet(via.net, pad.net)) continue;
-            const d = pointRectDistance(via.x, via.y, pad.x, pad.y, pad.hw, pad.hh);
-            const gap = d - via.r;
-            if (gap < clearance - EPS) {
-                addClearance(Math.max(0, gap), via.x, via.y, via.label, pad.label, via, pad);
-            }
-        }
-    }
-
-    // Via ↔ Track.
-    for (const via of vias) {
-        for (const seg of segments) {
-            if (sameNet(via.net, seg.net)) continue;
-            const d = pointSegmentDistance(via.x, via.y, seg.ax, seg.ay, seg.bx, seg.by);
-            const gap = d - via.r - seg.hw;
-            if (gap < clearance - EPS) {
-                addClearance(Math.max(0, gap), via.x, via.y, via.label, seg.label, via, seg);
-            }
-        }
-    }
-
-    // Via ↔ Via.
-    for (let i = 0; i < vias.length; i++) {
-        for (let j = i + 1; j < vias.length; j++) {
-            const a = vias[i], b = vias[j];
-            if (sameNet(a.net, b.net)) continue;
-            const d = Math.hypot(a.x - b.x, a.y - b.y);
-            const gap = d - a.r - b.r;
-            if (gap < clearance - EPS) {
-                const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
-                addClearance(Math.max(0, gap), mx, my, a.label, b.label, a, b);
-            }
+    for (const [first, second] of spatialPairs([...pads, ...segments, ...vias, ...areas], featureBounds, clearance)) {
+        if (!layersOverlap(first.layer, second.layer) || sameNet(first.net, second.net)) continue;
+        if (first.kind === 'pad' && second.kind === 'pad' && first.componentId === second.componentId) continue;
+        if (first.trackId && first.trackId === second.trackId) continue;
+        const distance = copperDistance(first, second);
+        if (distance.dist < clearance - EPS) {
+            addClearance(distance.dist, distance.x, distance.y, first.label, second.label, first, second);
         }
     }
 
@@ -576,7 +391,7 @@ export function runDRC(app, rules = {}) {
 
     /* ---- Shorted nets (distinct nets bonded by coincident copper) ---- */
 
-    for (const sh of detectShorts(app)) {
+    for (const sh of detectShorts({ pads, segments, vias })) {
         const msg = sh.nets.length > 2
             ? `Shorted nets: ${sh.nets.join(', ')}`
             : `Shorted nets: ${sh.nets[0]} and ${sh.nets[1]}`;
@@ -601,4 +416,54 @@ function featureAnchor(f) {
     if (!f) return { x: 0, y: 0 };
     if (f.kind === 'track') return { x: (f.ax + f.bx) / 2, y: (f.ay + f.by) / 2 };
     return { x: f.x, y: f.y };
+}
+
+function featureBounds(feature) {
+    if (feature.kind === 'track') return {
+        minX: Math.min(feature.ax, feature.bx) - feature.hw, maxX: Math.max(feature.ax, feature.bx) + feature.hw,
+        minY: Math.min(feature.ay, feature.by) - feature.hw, maxY: Math.max(feature.ay, feature.by) + feature.hw,
+    };
+    if (feature.kind === 'area' || feature.kind === 'pad') {
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        for (const point of feature.outer || feature.outline) {
+            minX = Math.min(minX, point.x); minY = Math.min(minY, point.y);
+            maxX = Math.max(maxX, point.x); maxY = Math.max(maxY, point.y);
+        }
+        return { minX, minY, maxX, maxY };
+    }
+    const halfWidth = feature.kind === 'via' ? feature.r : feature.hw;
+    const halfHeight = feature.kind === 'via' ? feature.r : feature.hh;
+    return { minX: feature.x - halfWidth, maxX: feature.x + halfWidth,
+        minY: feature.y - halfHeight, maxY: feature.y + halfHeight };
+}
+
+function featureEdges(feature) {
+    if (feature.kind === 'track') return [[{ x: feature.ax, y: feature.ay }, { x: feature.bx, y: feature.by }]];
+    if (feature.kind === 'via') return [[{ x: feature.x, y: feature.y }, { x: feature.x, y: feature.y }]];
+    const rings = feature.kind === 'area' ? [feature.outer, ...feature.holes] : [feature.outline];
+    return rings.flatMap((ring) => ring.map((point, index) => [point, ring[(index + 1) % ring.length]]));
+}
+
+function containsCopper(feature, point) {
+    if (feature.kind === 'area') return pointInPolygon(point, feature.outer)
+        && !feature.holes.some((hole) => pointInPolygon(point, hole));
+    if (feature.kind !== 'pad') return false;
+    return pointInPolygon(point, feature.outline);
+}
+
+function copperDistance(first, second) {
+    const firstEdges = featureEdges(first), secondEdges = featureEdges(second);
+    for (const [point] of firstEdges) if (containsCopper(second, point)) return { dist: 0, ...point };
+    for (const [point] of secondEdges) if (containsCopper(first, point)) return { dist: 0, ...point };
+    let nearest = { dist: Infinity, x: 0, y: 0 };
+    for (const [start, end] of firstEdges) {
+        for (const [otherStart, otherEnd] of secondEdges) {
+            const candidate = segmentSegmentDistance(start.x, start.y, end.x, end.y,
+                otherStart.x, otherStart.y, otherEnd.x, otherEnd.y);
+            if (candidate.dist < nearest.dist) nearest = candidate;
+        }
+    }
+    const radius = (feature) => feature.kind === 'via' ? feature.r : feature.kind === 'track' ? feature.hw : 0;
+    nearest.dist = Math.max(0, nearest.dist - radius(first) - radius(second));
+    return nearest;
 }

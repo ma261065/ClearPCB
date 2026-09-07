@@ -135,14 +135,22 @@ class AppBootstrap {
                 return;
             }
 
-            this.switchMode('schematic');
-
-            this.schematicApp.fileManager.fileHandle = fileHandle;
-            this.schematicApp.fileManager.setFileName(fileHandle.name);
-            this.schematicApp.fileManager.setFilePath(fileHandle.name);
-            await this.schematicApp._loadDocument(data);
-            this.schematicApp._fitToContent?.();
-            this.schematicApp.fileManager.setDirty(false);
+            const app = this.schematicApp;
+            if (app.fileManager.saving || app.fileManager.loading) {
+                app._alert('Wait for the current file operation to finish.', { title: 'Open Failed' });
+                return;
+            }
+            if ((this.project?.isDirty ?? app.fileManager.isDirty)
+                && !await app._confirm('You have unsaved changes. Open another file anyway?',
+                    { title: 'Unsaved Changes', okText: 'Yes', cancelText: 'No', defaultCancel: true })) return;
+            try {
+                await app._loadDocument(data);
+                await app.fileManager.adoptOpen({ handle: fileHandle, fileName: fileHandle.name });
+                this.switchMode('schematic');
+                app._fitToContent?.();
+            } catch (error) {
+                app._alert('Failed to open file: ' + error.message, { title: 'Open Failed' });
+            }
         };
 
         void tryLoad();

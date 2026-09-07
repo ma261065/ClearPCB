@@ -1,4 +1,5 @@
 import { FileManager } from './FileManager.js';
+import { validateProject } from './project-format.js';
 
 /**
  * Neutral owner of the single ClearPCB project document.
@@ -43,6 +44,7 @@ export class ProjectDocument {
      */
     registerView(name, view, opts = {}) {
         this.views.set(name, view);
+        view.onDocumentChanged = () => this.fileManager.touch();
         if (opts.isUiHost) this.uiHost = view;
         if (opts.lifecycle) this._lifecycle = { ...this._lifecycle, ...opts.lifecycle };
         return view;
@@ -108,8 +110,30 @@ export class ProjectDocument {
      * @returns {Promise<void>}
      */
     async load(data) {
-        await this.schematic?.loadSection?.(data);
-        this.pcb?.loadSection?.(data?.pcb || null);
+        if (this.fileManager.saving) throw new Error('Wait for the current save to finish.');
+        if (this.fileManager.loading) throw new Error('A project is already being loaded.');
+        validateProject(data);
+        this.fileManager.loading = true;
+        try {
+            const previous = structuredClone(this.serialize());
+            const dirty = this.fileManager.isDirty;
+            const pcbDirty = this.pcb?.isSectionDirty?.();
+            const prepared = await this.schematic?.prepareSection?.(data);
+            const pcbPrepared = await this.pcb?.prepareSection?.(data.pcb || null);
+            this.fileManager.touch();
+            try {
+                await this.schematic?.loadSection?.(data, prepared);
+                await this.pcb?.loadSection?.(data.pcb || null, pcbPrepared);
+            } catch (error) {
+                await this.schematic?.loadSection?.(previous);
+                await this.pcb?.loadSection?.(previous.pcb || null);
+                this.fileManager.setDirty(dirty);
+                if (pcbDirty) this.pcb?._markDirty?.();
+                throw error;
+            }
+        } finally {
+            this.fileManager.loading = false;
+        }
     }
 
     /**

@@ -519,6 +519,22 @@ export function cancelGroupDrag(app) {
     app._groupDrag = null;
     if (!g) return;
     app._deferDragOverlays = g.previousDeferDragOverlays;
+    for (const entry of g.comps || []) {
+        const placement = app.placements.get(entry.id);
+        if (!placement) continue;
+        placement.x = entry.x;
+        placement.y = entry.y;
+        applyPlacementPose(app, entry.id);
+    }
+    for (const entry of g.vias || []) {
+        entry.via.x = entry.x;
+        entry.via.y = entry.y;
+        renderVia(entry.via, (id) => app._getLayerGroup(id));
+    }
+    for (const entry of g.tracks || []) {
+        entry.track.applyState(entry.before);
+        renderTrack(entry.track, (id) => app._getLayerGroup(id), _trackOpts(app, entry.track));
+    }
     for (const entry of (g.shapes || [])) {
         applyShapeGeometry(entry.shape, entry.before);
         renderBoardShape(app, entry.shape);
@@ -533,7 +549,10 @@ export function cancelGroupDrag(app) {
         || entry.shape?.layer === 'top-copper' || entry.shape?.layer === 'bottom-copper');
     const movedTextAffectsFill = g.texts?.some((entry) => entry.text?.layer === 'top-copper'
         || entry.text?.layer === 'bottom-copper');
-    if (g.fills?.length || movedShapeAffectsFill || movedTextAffectsFill) app._refreshFills?.();
+    if (g.comps?.length || g.vias?.length || g.tracks?.length || g.fills?.length
+        || movedShapeAffectsFill || movedTextAffectsFill) app._refreshFills?.();
+    app._updateRatsnest?.();
+    app._board3d?.refresh?.();
     _applyHighlights(app);
 }
 

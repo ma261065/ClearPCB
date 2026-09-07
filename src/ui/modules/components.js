@@ -1,5 +1,5 @@
 import { Component } from '../../components/index.js';
-import { AddComponentCommand, TransformComponentCommand } from '../../core/CommandHistory.js';
+import { AddComponentCommand, TransformComponentCommand } from '../../schematic/modules/commands.js';
 import { needsValueDialog, showValueDialog } from './value-dialog.js';
 
 /**

@@ -1,4 +1,4 @@
-import { VERTEX_EPSILON } from './wire.js';
+import { VERTEX_EPSILON } from '../../schematic/modules/wire-constants.js';
 
 export const PIN_ATTACH_TOL = VERTEX_EPSILON;
 

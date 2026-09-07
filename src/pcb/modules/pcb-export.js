@@ -74,7 +74,9 @@ function listArtworkLayers(app) {
     const out = [];
     for (const id of ARTWORK_LAYER_IDS) {
         const g = app._layerGroups?.get(id);
-        const populated = !!(g && g.childNodes.length);
+        const fill = id === 'top-copper' ? app._layerGroups?.get('top-fill')
+            : id === 'bottom-copper' ? app._layerGroups?.get('bottom-fill') : null;
+        const populated = !!(g?.childNodes.length || fill?.childNodes.length);
         const m = meta.get(id);
         out.push({ id, name: m?.name || id, color: m?.color || '#888', populated });
     }
@@ -92,8 +94,9 @@ function listArtworkLayers(app) {
  */
 function getArtworkBoundsMm(app, layers) {
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    for (const id of ARTWORK_LAYER_IDS) {
-        if (layers && !layers.has(id)) continue;
+    for (const id of [...ARTWORK_LAYER_IDS, 'top-fill', 'bottom-fill']) {
+        const owner = id === 'top-fill' ? 'top-copper' : id === 'bottom-fill' ? 'bottom-copper' : id;
+        if (layers && !layers.has(owner)) continue;
         const g = app._layerGroups?.get(id);
         if (!g || !g.childNodes.length) continue;
         let bb;
@@ -140,16 +143,20 @@ function forceMono(root, color) {
  * @param {PdfExportOptions} [opts]
  * @returns {{svgNode: SVGSVGElement, widthMm: number, heightMm: number}}
  */
-function clonePcbViewportForExport(app, opts) {
+export function clonePcbViewportForExport(app, opts) {
     const layers = opts?.layers || null;
     const mono = !!opts?.mono;
     const invert = !!opts?.invert;
 
     const originalSvg = app.viewport.svg;
-    const svgNode = /** @type {SVGSVGElement} */ (originalSvg.cloneNode(true));
-
-    // Crop to the real artwork (measured from the live DOM, in world mm).
-    const b = getArtworkBoundsMm(app, layers || undefined);
+    let svgNode, b;
+    app._uncullAllPlacements?.();
+    try {
+        svgNode = /** @type {SVGSVGElement} */ (originalSvg.cloneNode(true));
+        b = getArtworkBoundsMm(app, layers || undefined);
+    } finally {
+        app._updatePcbCulling?.();
+    }
     const m = EXPORT_MARGIN_MM;
     const vbX = b.x - m;
     const vbY = b.y - m;
@@ -175,18 +182,21 @@ function clonePcbViewportForExport(app, opts) {
         '#paperOutlineLayer',
         '[data-layer="ratlines"]',
         '[data-layer="clearance-overlay"]',
+        '.pcb-box-track-sel',
+        '.pcb-box-via-sel',
+        '.pcb-box-comp-sel',
     ];
     for (const sel of dropSelectors) {
         svgNode.querySelectorAll(sel).forEach((el) => el.remove());
     }
-
-    // Drop any artwork layer the user excluded.
-    if (layers) {
-        for (const id of ARTWORK_LAYER_IDS) {
-            if (layers.has(id)) continue;
-            svgNode.querySelectorAll(`[data-layer="${id}"]`).forEach((el) => el.remove());
-        }
+    const artwork = new Set(ARTWORK_LAYER_IDS);
+    for (const group of svgNode.querySelectorAll('[data-layer]')) {
+        const id = group.getAttribute('data-layer');
+        const owner = id === 'top-fill' ? 'top-copper' : id === 'bottom-fill' ? 'bottom-copper' : id;
+        if (!artwork.has(owner) || (layers && !layers.has(owner))) group.remove();
     }
+    svgNode.querySelectorAll('.culled').forEach((element) => element.classList.remove('culled'));
+    svgNode.querySelectorAll('.pcb-fp-lod').forEach((element) => element.remove());
 
     // Strip transient selection / hover halos.
     svgNode.querySelectorAll('.pcb-track-selection, .pcb-track-hover')

@@ -72,6 +72,25 @@ clearpcb/
   switching, platform launch hooks).
 - `src/easyeda/*` is import-only (read EasyEDA files into our model).
 
+## Extracted Services
+
+- `core/CommandHistory.js` contains only the history engine and base command.
+  Schematic commands are in `schematic/modules/commands.js`.
+- `shared/3d/ArcballController.js` and `shared/3d/model-rendering.js` serve both
+  component previews and the board viewer without importing PCB code.
+- `pcb/modules/project-state.js` owns PCB serialization, detached preparation,
+  restoration and project design parameters.
+- `pcb/modules/copper-model.js` resolves physical pad geometry and logical nets;
+  `copper-connectivity.js` owns common cluster construction and positional unions.
+- `pcb/modules/fill-context.js` supplies reusable collections to copper pours;
+  `copper-artwork.js` resolves DRC artwork primitives.
+- `core/DerivedUpdates.js` batches derived callbacks; `core/spatial-pairs.js`
+  supplies the DRC broad phase.
+
+`node tools/test.mjs` runs every root `test-*.mjs` in an isolated process.
+`node tools/regression.mjs` also runs the autorouter baseline. See
+[review-fixes.md](review-fixes.md) for the review mapping and verification limits.
+
 ## Coordinate & Layer Conventions
 
 - All PCB coordinates are stored in **mm** with **SVG-Y-down** semantics.

@@ -1,3 +1,4 @@
+import { ArcballController } from '../shared/3d/ArcballController.js';
 /**
  * Model3DViewer — compact interactive THREE.js viewer for a single component
  * OBJ model. Reuses the exact rendering pipeline that drives the PCB board
@@ -14,12 +15,11 @@
 
 import * as THREE from '../../assets/vendor/three.module.js';
 import {
-    ArcballController,
     parseObjModel,
     meshToGeometry,
     makeComponentMaterial,
     makeComponentGroupMaterials,
-} from '../pcb/modules/board3d.js';
+} from '../shared/3d/model-rendering.js';
 
 export class Model3DViewer {
     /**

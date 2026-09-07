@@ -1,3 +1,5 @@
+import { buildCopperClusters, unionCoincidentClusters } from './copper-connectivity.js';
+import { deferDerivedUpdate } from '../../core/DerivedUpdates.js';
 /**
  * Interactive Track drawing for the PCB editor (Phase 2).
  *
@@ -33,8 +35,8 @@
 import { Track } from '../../shapes/track.js';
 import { Via } from '../../shapes/via.js';
 import { renderTrack } from './track-render.js';
-import { collinearSnap, pointInPolygon } from '../../core/geometry.js';
-import { normalizeShapeCopperMode, shapeOutline } from './board-shapes.js';
+import { collinearSnap, pointInPolygon, distanceToSegment } from '../../core/geometry.js';
+import { normalizeShapeCopperMode, shapeOutline, resolveBoardShapeGeometry } from './board-shapes.js';
 import { showAlert } from '../../ui/modules/modal.js';
 import { isOverlayVisible } from './layers.js';
 import {
@@ -424,6 +426,71 @@ export function snapNodeToCollinear(pos, neighbours, threshold) {
 
 /* ──────────────────────────── lifecycle ──────────────────────────── */
 
+function shapeCopperContains(shape, point) {
+    const geometry = resolveBoardShapeGeometry(shape);
+    if (geometry.copperMode !== 'add') return false;
+    if (geometry.circle) {
+        const distance = Math.hypot(point.x - geometry.circle.x, point.y - geometry.circle.y);
+        return geometry.filled ? distance <= geometry.circle.outerRadius
+            : Math.abs(distance - geometry.circle.radius) <= geometry.lineWidth / 2;
+    }
+    if (geometry.areaOutline && pointInPolygon(point, geometry.areaOutline)) return true;
+    if (geometry.strokeSegments.length) {
+        return geometry.strokeSegments.some(({ start, end, lineWidth }) =>
+            distanceToSegment(point, start, end) <= lineWidth / 2);
+    }
+    const points = geometry.centerline;
+    const count = points.length - (geometry.pathClosed ? 0 : 1);
+    for (let index = 0; index < count; index++) {
+        if (distanceToSegment(point, points[index], points[(index + 1) % points.length])
+            <= geometry.lineWidth / 2) return true;
+    }
+    return false;
+}
+
+export function resolveTrackDrawSnap(app, worldPos, options = {}) {
+    const snap = resolveTrackSnap(app, worldPos, options);
+    const layer = app._trackDraw?.currentLayer || app._trackToolLayer || 'top-copper';
+    if (!TOGGLE_LAYERS.includes(layer)) return { ...snap, contactNets: [], copperContact: false };
+    const shapes = (app.boardShapes || []).filter((shape) => shape.layer === layer && shape.visible !== false);
+    const contactsAt = (point) => shapes.filter((shape) => shape.type === 'fill'
+        ? (shape._computed || []).some((polygon) => pointInPolygon(point, polygon.outer)
+            && !(polygon.holes || []).some((hole) => pointInPolygon(point, hole)))
+        : shapeCopperContains(shape, point));
+    const hardSnap = snap.snapType === 'pad' || snap.snapType === 'track-node';
+    let target = { x: snap.x, y: snap.y };
+    let via = null;
+    if (!hardSnap) {
+        const tolerance = TRACK_SNAP_SCREEN_PX / (app.viewport?.scale || 1);
+        let nearest = Infinity;
+        for (const candidate of app.vias || []) {
+            if (candidate.visible === false) continue;
+            const distance = Math.hypot(worldPos.x - candidate.x, worldPos.y - candidate.y);
+            if (distance <= Math.max(tolerance, candidate.diameter / 2) && distance < nearest) {
+                nearest = distance;
+                via = candidate;
+            }
+        }
+        if (via) target = { x: via.x, y: via.y };
+        else if (contactsAt(worldPos).length) target = { ...worldPos };
+    }
+    const contacts = contactsAt(target);
+    const vias = (app.vias || []).filter((candidate) => candidate.visible !== false
+        && Math.hypot(target.x - candidate.x, target.y - candidate.y) <= candidate.diameter / 2);
+    const sourceNet = snap.pad?.net || snap.trackNode?.track.net || '';
+    const contactNets = [...new Set([sourceNet, ...contacts.map((shape) => shape.net), ...vias.map((item) => item.net)]
+        .map((net) => String(net || '').trim()).filter(Boolean))];
+    return { ...snap, ...target, contactNets, copperContact: contacts.length > 0 || vias.length > 0 };
+}
+
+function trackContactConflict(net, contactNets) {
+    const nets = [...new Set([net, ...contactNets].filter(Boolean))];
+    if (nets.length < 2) return false;
+    showAlert(`Cannot connect different nets: ${nets.map((name) => `"${name}"`).join(', ')}.`,
+        { title: 'Net Conflict' });
+    return true;
+}
+
 /**
  * Begin a new track. Resolves snap at the click point and seeds the
  * draw context with the first anchor. If the click landed on a pad,
@@ -434,7 +501,7 @@ export function snapNodeToCollinear(pos, neighbours, threshold) {
  * @returns {object} the draw context (also stored on app._trackDraw)
  */
 export function startTrackDraw(app, worldPos) {
-    const snap = resolveTrackSnap(app, worldPos);
+    const snap = resolveTrackDrawSnap(app, worldPos);
     const startPad = snap.snapType === 'pad' ? snap.pad : null;
     // Inherit the net at draw start from the pad or track node we begin on,
     // so the live net-guide line works for the whole draw (an unassigned
@@ -445,6 +512,8 @@ export function startTrackDraw(app, worldPos) {
         startTrack = snap.trackNode.track;
         if (!net) net = startTrack.net || '';
     }
+    if (trackContactConflict(net, snap.contactNets)) return null;
+    if (!net) net = snap.contactNets[0] || '';
     const layer = TOGGLE_LAYERS.includes(app._trackToolLayer) ? app._trackToolLayer : 'top-copper';
     const width = _getTrackWidth(app);
     const routeOpts = _renderOptsFromApp(app);
@@ -487,13 +556,13 @@ export function updateTrackDraw(app, worldPos) {
     if (!ctx) return;
 
     const last = ctx.points[ctx.points.length - 1];
-    const snap = resolveTrackSnap(app, worldPos, { lastPt: last, net: ctx.net });
+    const snap = resolveTrackDrawSnap(app, worldPos, { lastPt: last, net: ctx.net });
     ctx.snap = snap;
     ctx.axisLock = null;
     const target = { x: snap.x, y: snap.y };
 
     // Yellow target circle when locked onto a hard snap (pad / track node).
-    if (snap.snapType === 'pad' || snap.snapType === 'track-node') {
+    if (snap.snapType === 'pad' || snap.snapType === 'track-node' || snap.copperContact) {
         showTrackSnapMarker(app, target);
     } else {
         clearTrackSnapMarker(app);
@@ -534,8 +603,10 @@ export function addTrackWaypoint(app, worldPos) {
     if (!ctx) return;
 
     const last = ctx.points[ctx.points.length - 1];
-    const snap = resolveTrackSnap(app, worldPos, { lastPt: last, net: ctx.net });
+    const snap = resolveTrackDrawSnap(app, worldPos, { lastPt: last, net: ctx.net });
     const target = { x: snap.x, y: snap.y };
+
+    if (trackContactConflict(ctx.net, snap.contactNets)) return;
 
     // Ignore zero-length waypoints (double click on same spot).
     if (Math.hypot(target.x - last.x, target.y - last.y) < 1e-6) {
@@ -544,24 +615,7 @@ export function addTrackWaypoint(app, worldPos) {
         return;
     }
 
-    // Reject a click that lands on a pad or existing track node carrying a
-    // DIFFERENT net than the one being drawn. Every pad now has a net (real or
-    // a default `<Ref>.<Pin>`), so bonding to a foreign-net target — even just
-    // by coincident geometry — would short two nets. Mirror the vertex-drag
-    // behaviour: warn and don't place the waypoint.
-    if (ctx.net) {
-        let foreignNet = '';
-        if (snap.snapType === 'pad' && snap.pad) foreignNet = snap.pad.net || '';
-        else if (snap.snapType === 'track-node' && snap.trackNode) foreignNet = snap.trackNode.track.net || '';
-        if (foreignNet && foreignNet !== ctx.net) {
-            showAlert(
-                `Cannot connect to net "${foreignNet}" \u2014 this track is already on net "${ctx.net}".`,
-                { title: 'Net Conflict' }
-            );
-            return;
-        }
-    }
-
+    if (!ctx.net) ctx.net = snap.contactNets[0] || '';
     ctx.points.push({ x: target.x, y: target.y });
     ctx.edgeLayers.push(ctx.currentLayer);
 
@@ -578,6 +632,11 @@ export function addTrackWaypoint(app, worldPos) {
     if (snap.snapType === 'track-node') {
         const otherNet = snap.trackNode.track.net || '';
         if (!ctx.net) ctx.net = otherNet;
+        finishTrackDraw(app);
+        return;
+    }
+
+    if (snap.copperContact) {
         finishTrackDraw(app);
         return;
     }
@@ -698,6 +757,7 @@ export function popTrackWaypoint(app) {
  *   fill pass.
  */
 export function reconcileRatsnest(app, opts) {
+    if (deferDerivedUpdate(app, 'ratsnest', () => reconcileRatsnest(app))) return;
     // Incremental net filter: when present, restrict all cluster construction
     // and ratline removal/redraw to this set of nets.
     const onlyNets = opts?.nets instanceof Set ? opts.nets : null;
@@ -731,93 +791,7 @@ export function reconcileRatsnest(app, opts) {
         el.remove();
     }
 
-    const posKey = (x, y) => `${Math.round(x * 10000)},${Math.round(y * 10000)}`;
-
-    /** @type {Array<{net:string, layer:string, points:Array<{x:number,y:number}>, segments?:Array<{a:{x:number,y:number},b:{x:number,y:number},radius:number}>, viaRadius?:number}>} */
-    const clusters = [];
-
-    // ── Tracks: one cluster per connected component ──
-    // Each component is single-layer (the via/node invariant keeps the two
-    // layers at a via on SEPARATE coincident nodes with no edge between
-    // them), so we tag the cluster with that layer. Connectivity across
-    // layers then requires an explicit bond (via / pad), not bare
-    // coincidence — so deleting a via correctly disconnects the layers.
-    for (const track of (app.tracks || [])) {
-        const net = track.net || '';
-        if (!net) continue;
-        if (onlyNets && !onlyNets.has(net)) continue;
-        const adj = new Map();
-        for (const nid of track.nodes.keys()) adj.set(nid, []);
-        for (const [eid, e] of track.edges) {
-            const layer = track.getEdgeLayer(eid);
-            adj.get(e.from)?.push({ to: e.to, layer, edgeId: eid });
-            adj.get(e.to)?.push({ to: e.from, layer, edgeId: eid });
-        }
-        const seen = new Set();
-        for (const start of track.nodes.keys()) {
-            if (seen.has(start)) continue;
-            const points = [];
-            const segments = [];
-            const componentEdges = new Set();
-            const layers = new Set();
-            const stack = [start];
-            while (stack.length) {
-                const n = stack.pop();
-                if (seen.has(n)) continue;
-                seen.add(n);
-                const p = track.nodes.get(n);
-                if (p) points.push({ x: p.x, y: p.y });
-                for (const m of adj.get(n) || []) {
-                    layers.add(m.layer);
-                    componentEdges.add(m.edgeId);
-                    stack.push(m.to);
-                }
-            }
-            if (points.length) {
-                for (const edgeId of componentEdges) {
-                    const edge = track.edges.get(edgeId);
-                    const a = edge ? track.nodes.get(edge.from) : null;
-                    const b = edge ? track.nodes.get(edge.to) : null;
-                    if (!a || !b) continue;
-                    const width = track.getEdgeWidth?.(edgeId) || track.width || 0.2;
-                    segments.push({ a, b, radius: width / 2 });
-                }
-                // A clean component is single-layer; if somehow mixed, fall
-                // back to 'all' so it bonds freely (no false disconnect).
-                const layer = layers.size === 1 ? [...layers][0] : 'all';
-                clusters.push({ net, layer, points, segments });
-            }
-        }
-    }
-
-    // ── Vias ── bond every layer at their point.
-    for (const via of (app.vias || [])) {
-        if (!via.net) continue;
-        if (onlyNets && !onlyNets.has(via.net)) continue;
-        clusters.push({
-            net: via.net,
-            layer: 'all',
-            points: [{ x: via.x, y: via.y }],
-            viaRadius: (via.diameter || 0.6) / 2,
-        });
-    }
-
-    // ── Pads (net from the schematic netlist) ── treated as all-layer bonds.
-    const padNet = new Map();
-    for (const entry of (app.netlist || [])) {
-        for (const pin of entry.pins) {
-            padNet.set(`${pin.componentId}|${pin.pinNumber}`, entry.net);
-        }
-    }
-    for (const [compId, pl] of (app.placements || [])) {
-        if (!pl?.pads) continue;
-        for (const [pin, pad] of pl.pads) {
-            const net = padNet.get(`${compId}|${pin}`);
-            if (!net) continue;
-            if (onlyNets && !onlyNets.has(net)) continue;
-            clusters.push({ net, layer: 'all', points: [{ x: pad.x, y: pad.y }] });
-        }
-    }
+    const clusters = buildCopperClusters(app, onlyNets).filter((cluster) => cluster.net);
 
     // ── Additive copper shapes are net-bearing islands on their own layer.
     // Their outline provides point-contact bonding; filled shapes additionally
@@ -844,38 +818,7 @@ export function reconcileRatsnest(app, opts) {
     const find = (i) => { while (parent[i] !== i) { parent[i] = parent[parent[i]]; i = parent[i]; } return i; };
     const union = (a, b) => { const ra = find(a), rb = find(b); if (ra !== rb) parent[ra] = rb; };
 
-    const byPos = new Map();
-    for (let i = 0; i < clusters.length; i++) {
-        for (const p of clusters[i].points) {
-            const k = posKey(p.x, p.y);
-            if (!byPos.has(k)) byPos.set(k, []);
-            byPos.get(k).push(i);
-        }
-    }
-    for (const idxs of byPos.values()) {
-        // Within each position, group same-net clusters. An all-layer bond
-        // (via/pad) fuses every cluster of that net here; otherwise only
-        // clusters sharing the same copper layer fuse.
-        const byNet = new Map();
-        for (const idx of idxs) {
-            const net = clusters[idx].net;
-            if (!byNet.has(net)) byNet.set(net, []);
-            byNet.get(net).push(idx);
-        }
-        for (const group of byNet.values()) {
-            const hasBond = group.some((idx) => clusters[idx].layer === 'all');
-            if (hasBond) {
-                for (let j = 1; j < group.length; j++) union(group[0], group[j]);
-            } else {
-                const firstByLayer = new Map();
-                for (const idx of group) {
-                    const layer = clusters[idx].layer;
-                    if (firstByLayer.has(layer)) union(firstByLayer.get(layer), idx);
-                    else firstByLayer.set(layer, idx);
-                }
-            }
-        }
-    }
+    unionCoincidentClusters(clusters, union, true);
 
     // A via bonds wherever its annular copper physically overlaps a same-net
     // trace, even when its centre is not an explicit Track node.
@@ -981,98 +924,13 @@ export function reconcileRatsnest(app, opts) {
  * @returns {{tracks:Set<object>, vias:Set<object>, padNets:Set<string>, padKeys:Set<string>}}
  */
 export function collectBondedCopper(app, seed) {
-    const posKey = (x, y) => `${Math.round(x * 10000)},${Math.round(y * 10000)}`;
-    const compatible = (a, b) => a === b || a === 'all' || b === 'all';
-
-    /** @type {Array<{kind:string, layer:string, points:Array<{x,y}>, track?:object, via?:object, padNet?:string, padKey?:string, segments?:Array<{a:{x:number,y:number},b:{x:number,y:number},radius:number}>, viaRadius?:number}>} */
-    const clusters = [];
-
-    // Track connected-components (each single-layer per the via/node invariant).
-    for (const track of (app.tracks || [])) {
-        const adj = new Map();
-        for (const nid of track.nodes.keys()) adj.set(nid, []);
-        for (const [eid, e] of track.edges) {
-            const layer = track.getEdgeLayer(eid);
-            adj.get(e.from)?.push({ to: e.to, layer, edgeId: eid });
-            adj.get(e.to)?.push({ to: e.from, layer, edgeId: eid });
-        }
-        const seen = new Set();
-        for (const start of track.nodes.keys()) {
-            if (seen.has(start)) continue;
-            const points = [];
-            const segments = [];
-            const componentEdges = new Set();
-            const layers = new Set();
-            const stack = [start];
-            while (stack.length) {
-                const n = stack.pop();
-                if (seen.has(n)) continue;
-                seen.add(n);
-                const p = track.nodes.get(n);
-                if (p) points.push({ x: p.x, y: p.y });
-                for (const m of adj.get(n) || []) {
-                    layers.add(m.layer);
-                    componentEdges.add(m.edgeId);
-                    stack.push(m.to);
-                }
-            }
-            if (!points.length) continue;
-            for (const edgeId of componentEdges) {
-                const edge = track.edges.get(edgeId);
-                const a = edge ? track.nodes.get(edge.from) : null;
-                const b = edge ? track.nodes.get(edge.to) : null;
-                if (!a || !b) continue;
-                const width = track.getEdgeWidth?.(edgeId) || track.width || 0.2;
-                segments.push({ a, b, radius: width / 2 });
-            }
-            const layer = layers.size === 1 ? [...layers][0] : 'all';
-            clusters.push({ kind: 'track', layer, points, track, segments });
-        }
-    }
-
-    // Vias and pads bond every layer at their point.
-    for (const via of (app.vias || [])) {
-        clusters.push({
-            kind: 'via',
-            layer: 'all',
-            points: [{ x: via.x, y: via.y }],
-            via,
-            viaRadius: (via.diameter || 0.6) / 2,
-        });
-    }
-    const padNetMap = new Map();
-    for (const entry of (app.netlist || [])) {
-        for (const pin of entry.pins) padNetMap.set(`${pin.componentId}|${pin.pinNumber}`, entry.net);
-    }
-    for (const [compId, pl] of (app.placements || [])) {
-        if (!pl?.pads) continue;
-        for (const [pin, pad] of pl.pads) {
-            const net = padNetMap.get(`${compId}|${pin}`);
-            clusters.push({ kind: 'pad', layer: 'all', points: [{ x: pad.x, y: pad.y }], padNet: net || '', padKey: `${compId}|${pin}` });
-        }
-    }
+    const clusters = buildCopperClusters(app);
 
     // Union-find with layer-aware coincidence (mirrors reconcileRatsnest).
     const parent = clusters.map((_, i) => i);
     const find = (i) => { while (parent[i] !== i) { parent[i] = parent[parent[i]]; i = parent[i]; } return i; };
     const union = (a, b) => { const ra = find(a), rb = find(b); if (ra !== rb) parent[ra] = rb; };
-    const byPos = new Map();
-    for (let i = 0; i < clusters.length; i++) {
-        for (const p of clusters[i].points) {
-            const k = posKey(p.x, p.y);
-            if (!byPos.has(k)) byPos.set(k, []);
-            byPos.get(k).push(i);
-        }
-    }
-    for (const idxs of byPos.values()) {
-        for (let a = 0; a < idxs.length; a++) {
-            for (let b = a + 1; b < idxs.length; b++) {
-                if (compatible(clusters[idxs[a]].layer, clusters[idxs[b]].layer)) {
-                    union(idxs[a], idxs[b]);
-                }
-            }
-        }
-    }
+    unionCoincidentClusters(clusters, union);
     _unionViaTrackOverlaps(clusters, union, false);
 
     // Find the root of the seed's cluster(s).

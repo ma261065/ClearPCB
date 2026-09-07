@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Autorouter regression gate.
 //
-// Runs the geometry smoke test plus a full clearance check on test-board.json
+// Runs all root regression tests plus a full clearance check on test-board.json
 // and asserts against the documented baseline. Exits 0 if all checks pass,
 // nonzero on any regression. Intended to be run before committing autorouter
 // changes.
@@ -73,10 +73,10 @@ function softCheck(cond, msg) {
 console.log('=== ClearPCB Autorouter Regression Gate ===');
 
 // 1. Geometry primitive smoke test
-console.log('\n--- [1/2] geometry primitive smoke (test-aabb.mjs) ---');
+console.log('\n--- [1/2] isolated regression suite ---');
 {
-    const r = run(process.execPath, ['test-aabb.mjs']);
-    hardCheck(r.code === 0, 'test-aabb.mjs exits cleanly');
+    const r = run(process.execPath, ['tools/test.mjs']);
+    hardCheck(r.code === 0, 'regression suite exits cleanly');
 }
 
 // 2. Full clearance regression on test-board.json

@@ -1,6 +1,7 @@
 // @ts-nocheck — PCBApp uses loosely-typed Maps and nullable viewport access throughout
 // PCBApp.js - PCB Editor Application
 
+import { serializePcb, preparePcb, loadPcb, applyProjectDesignParams } from '../pcb/modules/project-state.js';
 import { bindPcbControls } from '../pcb/modules/controls.js';
 import { Viewport } from '../core/Viewport.js';
 import { loadAndApplyTheme, toggleTheme as toggleSharedTheme, syncThemeToggleButtons } from '../shared/ui/theme.js';
@@ -16,33 +17,8 @@ import { generateBOM, generatePickAndPlace } from '../pcb/modules/assembly.js';
 import { openBoard3DViewer } from '../pcb/modules/board3d.js';
 import { savePcbPdf, printPcb } from '../pcb/modules/pcb-export.js';import { tracksFromAutorouterResult } from '../pcb/modules/autorouter-adapter.js';
 import { renderTrack, renderVia, removeTrackElements, removeViaElements } from '../pcb/modules/track-render.js';
-import {
-    startTrackDraw,
-    updateTrackDraw,
-    refreshTrackDrawPreview,
-    addTrackWaypoint,
-    finishTrackDraw,
-    cancelTrackDraw,
-    toggleTrackLayer,
-    resolveTrackSnap,
-    showTrackSnapMarker,
-    clearTrackSnapMarker,
-    reconcileRatsnest,
-} from '../pcb/modules/track-draw.js';
-import {
-    hitTestTrack,
-    hitTestLockedTrack,
-    selectTrackOrVia,
-    clearTrackSelection,
-    deleteSelectedTrack,
-    setHoverHighlight,
-    showTrackContextMenu,
-    refreshTrackSelectionHalo,
-    getSelectedTrack,
-    getSelectedVia,
-    selectTrackSegment,
-    dismissTrackContextMenu,
-} from '../pcb/modules/track-select.js';
+import { startTrackDraw, updateTrackDraw, refreshTrackDrawPreview, addTrackWaypoint, finishTrackDraw, cancelTrackDraw, toggleTrackLayer, resolveTrackSnap, showTrackSnapMarker, clearTrackSnapMarker, reconcileRatsnest } from '../pcb/modules/track-draw.js';
+import { hitTestTrack, hitTestLockedTrack, selectTrackOrVia, clearTrackSelection, deleteSelectedTrack, setHoverHighlight, showTrackContextMenu, refreshTrackSelectionHalo, getSelectedTrack, getSelectedVia, selectTrackSegment, dismissTrackContextMenu } from '../pcb/modules/track-select.js';
 import {
     startVertexDrag,
     updateVertexDrag,
@@ -79,58 +55,17 @@ import {
     placementTransform,
     isPlacementMirrored,
 } from '../pcb/modules/track-commands.js';
-import {
-    createPcbText,
-    renderPcbText,
-    pcbTextHitTest,
-    pcbTextBounds,
-    pcbTextObstacles,
-    serializePcbText,
-    textColorForLayer,
-    TEXT_LAYERS,
-} from '../pcb/modules/pcb-text.js';
+import { createPcbText, renderPcbText, pcbTextHitTest, pcbTextObstacles, serializePcbText, TEXT_LAYERS } from '../pcb/modules/pcb-text.js';
 import {
     AddTextCommand,
     RemoveTextCommand,
     MoveTextCommand,
     EditTextCommand,
 } from '../pcb/modules/text-commands.js';
-import {
-    shapeDrawClick,
-    updateShapeDrawPreview,
-    cancelShapeDraw,
-    finishPolygonDraw,
-    finishLineDraw,
-    finishShapeDrawAtPoint,
-    hitTestBoardShape,
-    setBoardShapeHover,
-    selectBoardShape,
-    deleteSelectedBoardShape,
-    startBoardShapeDrag,
-    handleBoardShapeDrag,
-    endBoardShapeDrag,
-    showBoardShapeProperties,
-    showBoardShapeToolProperties,
-    boardShapeCopperCuts,
-    serializeBoardShapes,
-    loadBoardShapes,
-    removeBoardShapeElement,
-    renderBoardShape,
-    renderBoardShapeHandles,
-    hitTestBoardShapeVertex,
-    shapeOutline,
-    shapeHoverColor,
-    shapeLayerColor,
-    shapeSelectionColor,
-    normalizeShapeCopperMode,
-    shapePathD,
-    boardShapeRemovalPathD,
-    boardShapeBounds,
-    showBoardShapeContextMenu,
-    dismissBoardShapeContextMenu,
-} from '../pcb/modules/board-shapes.js';
+import { shapeDrawClick, updateShapeDrawPreview, cancelShapeDraw, finishPolygonDraw, finishLineDraw, finishShapeDrawAtPoint, hitTestBoardShape, setBoardShapeHover, selectBoardShape, startBoardShapeDrag, handleBoardShapeDrag, endBoardShapeDrag, showBoardShapeProperties, showBoardShapeToolProperties, boardShapeCopperCuts, renderBoardShape, hitTestBoardShapeVertex, shapeOutline, normalizeShapeCopperMode, boardShapeRemovalPathD, boardShapeBounds, showBoardShapeContextMenu, dismissBoardShapeContextMenu } from '../pcb/modules/board-shapes.js';
 import { hitTestPcbSelectionAnchor, renderPcbSelectionAnchors } from '../pcb/modules/selection-anchors.js';
 import { refreshAxisGlow } from '../pcb/modules/axis-glow.js';
+import { buildFillContext } from '../pcb/modules/fill-context.js';
 import { hasAny3DModel, openComponent3DFromData, buildComponent3DTitle } from '../components/model3d-source.js';
 import {
     armBoxSelect,
@@ -144,6 +79,7 @@ import {
     beginGroupDrag,
     updateGroupDrag,
     endGroupDrag,
+    cancelGroupDrag,
     deleteBoxSelection,
 } from '../pcb/modules/box-select.js';
 import {
@@ -158,8 +94,8 @@ import { getPcbSelection, getPcbSelectionHits, isPcbSelected, setPcbSelection, s
 import { measureText as measureStrokeText } from '../pcb/modules/stroke-font.js';
 import { CommandHistory } from '../core/CommandHistory.js';
 import { Track } from '../shapes/track.js';
-import { Via, resetViaIdCounter } from '../shapes/via.js';
-import { CopperFill, updateFillIdCounter } from '../shapes/copper-fill.js';
+import { Via } from '../shapes/via.js';
+import { CopperFill } from '../shapes/copper-fill.js';
 import { computeFillPolygons, loadClipper, isClipperReady } from '../pcb/modules/copper-fill-geom.js';
 import { renderCopperFill, fillGroupId } from '../pcb/modules/copper-fill-render.js';
 import { AddFillCommand, RemoveFillCommand, ModifyFillCommand } from '../pcb/modules/copper-fill-commands.js';
@@ -2335,6 +2271,11 @@ export default class PCBApp {
         // Otherwise: history, delete, selection-cancel.
         const ctrl = e.ctrlKey || e.metaKey;
         if (ctrl && !e.shiftKey && (e.key === 'z' || e.key === 'Z')) {
+            if (this._groupDrag) {
+                cancelGroupDrag(this);
+                this._pcbSelectionInteraction = null;
+                return true;
+            }
             finishSelectionInteraction(this, false);
             if (this._vertexDrag) { cancelVertexDrag(this); this.viewport.hideCrosshair(); }
             if (this._viaDrag) cancelViaDrag(this);
@@ -2372,6 +2313,11 @@ export default class PCBApp {
         if (e.key === 'Escape') {
             if (finishSelectionInteraction(this, false)) {
                 this._clearCursorCrosshair();
+                return true;
+            }
+            if (this._groupDrag) {
+                cancelGroupDrag(this);
+                this.viewport.svg.style.cursor = 'default';
                 return true;
             }
             if (this._pasteDrop) {
@@ -2490,43 +2436,7 @@ export default class PCBApp {
      * following the auto grid-layout.
      */
     serialize() {
-        /** @type {Record<string, {x:number, y:number, rotation:number, mirror?:boolean, side?:string, refVisible?:boolean, refDx?:number, refDy?:number, refRot?:number, refSize?:number, refStrokeWidth?:number}>} */
-        const placements = {};
-        for (const [id, p] of this._placementOverrides) {
-            placements[id] = { x: p.x, y: p.y, rotation: p.rotation || 0 };
-            if (p.mirror) placements[id].mirror = true;
-            if (p.side === 'bottom') placements[id].side = 'bottom';
-            if (p.refVisible === false) placements[id].refVisible = false;
-            if (p.refDx) placements[id].refDx = p.refDx;
-            if (p.refDy) placements[id].refDy = p.refDy;
-            if (p.refRot) placements[id].refRot = p.refRot;
-            if (p.refSize && p.refSize !== REF_DEFAULT_SIZE) placements[id].refSize = p.refSize;
-            if (p.refStrokeWidth && p.refStrokeWidth !== REF_DEFAULT_STROKE) placements[id].refStrokeWidth = p.refStrokeWidth;
-        }
-        // Per-project design rules (track/clearance/via sizes are canonical mm;
-        // units/router record the user's display + routing preferences).
-        const routing = this._getRoutingParams();
-        const design = {
-            trackWidth: routing.trackWidth,
-            clearance: routing.clearance,
-            viaDiameter: routing.viaDiameter,
-            viaDrill: routing.viaDrill,
-            units: /** @type {HTMLSelectElement|null} */ (document.getElementById('pcbRouteUnits'))?.value || 'mm',
-            router: this._getRouterMode(),
-        };
-        return {
-            board: {
-                width: this._boardWidth,
-                height: this._boardHeight,
-                radius: this._boardRadius,
-            },
-            design,
-            tracks: this.tracks.map(t => t.toJSON()),
-            vias: this.vias.map(v => v.toJSON()),
-            boardShapes: serializeBoardShapes(this),
-            texts: [...this.texts.values()].map(serializePcbText),
-            placements,
-        };
+        return serializePcb(this);
     }
 
     // ── ProjectDocument view interface ────────────────────────────────
@@ -2549,8 +2459,12 @@ export default class PCBApp {
      * Restore this editor's slice of the document.
      * @param {object|null} data The PCB section (or null to clear).
      */
-    loadSection(data) {
-        this.loadFromData(data || null);
+    prepareSection(data) {
+        return preparePcb(data);
+    }
+
+    loadSection(data, prepared) {
+        loadPcb(this, data || null, prepared);
     }
 
     /**
@@ -2587,6 +2501,7 @@ export default class PCBApp {
      */
     _markDirty() {
         this._isDirty = true;
+        this.onDocumentChanged?.();
         /** @type {any} */ (window).app?._updateTitle?.();
         // Keep the clearance overlay in sync after any committed edit (e.g. an
         // undo/redo that relocates a via leaves orphaned halos otherwise).
@@ -2629,143 +2544,7 @@ export default class PCBApp {
      * @param {{tracks?: Array, vias?: Array}|null} data
      */
     loadFromData(data) {
-        // Need a viewport in place before we can render into layer
-        // groups (autosave-recovery may call this before the user has
-        // ever activated the PCB tab).
-        this._ensureViewport();
-        // Drop any existing tracks/vias and their SVG.
-        for (const t of this.tracks) removeTrackElements(t);
-        for (const v of this.vias) removeViaElements(v);
-        this.tracks.length = 0;
-        this.vias.length = 0;
-        resetViaIdCounter();
-        for (const id of this._shapeElements.keys()) removeBoardShapeElement(this, id);
-        this.boardShapes.length = 0;
-        this._shapeIdCounter = 1;
-        this._hoveredShape = null;
-        this._shapeDraw = null;
-        this._shapeDrag = null;
-        this._updateCopperCuts?.();
-        // Copper pours live in boardShapes; clear their SVG state.
-        this._clearFillGroups?.();
-        // Drop any existing free-standing texts.
-        for (const id of this._textElements.keys()) this._removeTextElement(id);
-        this.texts.clear();
-        clearTrackSelection(this);
-        this.history.clear?.();
-
-        // A new/opened document invalidates any current DRC results, so close
-        // the problem panel and clear its marker/leader.
-        this._closeDRCPanel?.();
-        this._drcSelectedId = null;
-        this._clearDRCMarker?.();
-        this._drcViolations = [];
-
-        // Reset the board outline to "undrawn" so a document without board
-        // dimensions (a brand-new board) prompts for them on activation, and a
-        // loaded document gets a clean slate before its outline is restored.
-        this._selectBoardOutline?.(false);
-        this._getLayerGroup('board-outline')
-            ?.querySelector('.pcb-board-outline')?.remove();
-        this._boardOutlineDrawn = false;
-        this._boardWidth = 100;
-        this._boardHeight = 80;
-        this._boardRadius = 0;
-
-        // Restore manual footprint position overrides. These are applied when
-        // _placeFootprints rebuilds the placements from the schematic; if
-        // placements already exist (sync ran first), re-apply immediately.
-        this._placementOverrides.clear();
-
-        if (!data) return;
-
-        // Restore per-project design parameters (track/clearance/via sizes,
-        // units, router) onto the ribbon inputs. Documents that predate this
-        // field simply keep the current localStorage working defaults.
-        if (data.design) this._applyProjectDesignParams(data.design);
-
-        // Restore the saved board outline so it survives save/reopen and
-        // autosave-recovery (the dimensions are part of the document).
-        if (data.board && data.board.width > 0 && data.board.height > 0) {
-            this._boardWidth = data.board.width;
-            this._boardHeight = data.board.height;
-            this._boardRadius = data.board.radius || 0;
-            this._drawBoardOutline();
-        }
-
-        if (data.placements && typeof data.placements === 'object') {
-            for (const [id, p] of Object.entries(data.placements)) {
-                if (!p) continue;
-                this._placementOverrides.set(id, {
-                    x: Number(p.x) || 0,
-                    y: Number(p.y) || 0,
-                    rotation: Number(p.rotation) || 0,
-                    mirror: !!p.mirror,
-                    side: p.side === 'bottom' ? 'bottom' : 'top',
-                    refVisible: p.refVisible !== false,
-                    refDx: Number(p.refDx) || 0,
-                    refDy: Number(p.refDy) || 0,
-                    refRot: ((Number(p.refRot) || 0) % 360 + 360) % 360,
-                    refSize: Number(p.refSize) || REF_DEFAULT_SIZE,
-                    refStrokeWidth: Number(p.refStrokeWidth) || REF_DEFAULT_STROKE,
-                });
-            }
-            if (this.placements.size) this._applyPlacementOverrides();
-        }
-
-        if (Array.isArray(data.tracks)) {
-            for (const td of data.tracks) {
-                let track;
-                try {
-                    track = createShape(td);
-                } catch (err) {
-                    console.warn('Skipping malformed track during load:', err);
-                    continue;
-                }
-                if (track instanceof Track) {
-                    this.tracks.push(track);
-                    renderTrack(track, (id) => this._getLayerGroup(id), {
-                        viaDiameter: this._getRoutingParams?.()?.viaDiameter,
-                        viaDrill: this._getRoutingParams?.()?.viaDrill,
-                        hideNetLabel: track === getSelectedTrack(this),
-                    });
-                }
-            }
-        }
-        if (Array.isArray(data.vias)) {
-            for (const vd of data.vias) {
-                const via = Via.fromJSON(vd);
-                this.vias.push(via);
-                renderVia(via, (id) => this._getLayerGroup(id));
-            }
-        }
-        loadBoardShapes(this, data.boardShapes);
-        if (Array.isArray(data.texts)) {
-            for (const td of data.texts) {
-                const t = createPcbText(td);
-                this.texts.set(t.id, t);
-                this._renderText(t);
-            }
-        }
-        if (Array.isArray(data.fills)) {
-            for (const fd of data.fills) {
-                try {
-                    const fill = CopperFill.fromJSON(fd);
-                    updateFillIdCounter(fill.id);
-                    this.boardShapes.push(fill);
-                } catch (err) {
-                    console.warn('Skipping malformed copper fill during load:', err);
-                }
-            }
-        }
-        // Re-evaluate ratlines once the model is in place.
-        reconcileRatsnest(this);
-        // Compute and render the pours now that obstacles are loaded.
-        this._refreshFills();
-        // Loading a document is not a user edit — start from a clean slate so
-        // a freshly opened/recovered board isn't immediately treated as having
-        // unsaved PCB changes (which would re-trigger autosave after a save).
-        this._isDirty = false;
+        return loadPcb(this, data);
     }
 
     /**
@@ -2776,38 +2555,7 @@ export default class PCBApp {
      * @param {any} design
      */
     _applyProjectDesignParams(design) {
-        if (!design || typeof design !== 'object') return;
-        const inputEl = (id) => /** @type {HTMLInputElement|null} */ (document.getElementById(id));
-        const units = design.units === 'inch' ? 'inch' : 'mm';
-        const unitsEl = /** @type {HTMLSelectElement|null} */ (document.getElementById('pcbRouteUnits'));
-        const routerEl = /** @type {HTMLSelectElement|null} */ (document.getElementById('pcbRouterMode'));
-        if (unitsEl) unitsEl.value = units;
-        if (routerEl && (design.router === 'pathfinder' || design.router === 'maze')) routerEl.value = design.router;
-        const fromMM = units === 'inch' ? 1 / 25.4 : 1;
-        const digits = units === 'inch' ? 4 : 3;
-        const map = { trackWidth: 'pcbTrackWidth', clearance: 'pcbClearance', viaDiameter: 'pcbViaDiameter', viaDrill: 'pcbViaDrill' };
-        for (const [key, id] of Object.entries(map)) {
-            const mmVal = Number(design[key]);
-            const el = inputEl(id);
-            if (el && Number.isFinite(mmVal) && mmVal > 0) {
-                el.value = String(Number((mmVal * fromMM).toFixed(digits)));
-                el.step = units === 'inch' ? '0.001' : '0.01';
-            }
-        }
-        // Keep the unit-toggle baseline (owned by controls.js) in sync, else a
-        // later unit switch early-returns and leaves mismatched values.
-        this._routeParamUnit = units;
-        // Mirror controls.js saveDesignParams so these also become the working
-        // defaults (key must match DESIGN_PARAMS_KEY in controls.js).
-        try {
-            /** @type {Record<string, string>} */
-            const stored = { units, router: routerEl?.value || 'maze' };
-            for (const id of ['pcbTrackWidth', 'pcbClearance', 'pcbViaDiameter', 'pcbViaDrill']) {
-                const el = inputEl(id);
-                if (el) stored[id] = el.value;
-            }
-            localStorage.setItem('clearpcb_pcb_design_params', JSON.stringify(stored));
-        } catch { /* storage unavailable — ignore */ }
+        return applyProjectDesignParams(this, design);
     }
 
     /**
@@ -4258,7 +4006,7 @@ export default class PCBApp {
         const b = pl.bounds;
         if (!b) return null;
         const rot = pl.rotation || 0;
-        const mx = pl.mirror ? -1 : 1;
+        const mx = isPlacementMirrored(pl) ? -1 : 1;
         const sig = `${pl.x}|${pl.y}|${rot}|${mx}`;
         if (pl._cullSig === sig && pl._cullBounds) return pl._cullBounds;
         const rad = rot * Math.PI / 180;
@@ -7397,6 +7145,7 @@ export default class PCBApp {
 
     /** Run the DRC engine and refresh the status indicator + problem list. */
     _runDRCLive() {
+        if (this._deferDragOverlays || this._suspendFillRefresh || this._fillRefreshScheduled) return;
         // Capture the currently-selected violation before the list is replaced,
         // so a coordinate-keyed ratline that gets renumbered can be re-adopted.
         const prevSel = this._drcSelectedId
@@ -8017,8 +7766,7 @@ export default class PCBApp {
      * parameter changes, as well as during fill editing.
      */
     _refreshFills() {
-        if (this._deferDragOverlays) return;
-        if (this._suspendFillRefresh) {
+        if (this._deferDragOverlays || this._suspendFillRefresh) {
             this._fillRefreshPending = true;
             return;
         }
@@ -8067,6 +7815,11 @@ export default class PCBApp {
      * recompute is deferred.
      */
     _recomputeFillsNow() {
+        if (this._deferDragOverlays || this._suspendFillRefresh) {
+            this._fillRefreshPending = true;
+            return;
+        }
+        this._fillRefreshPending = false;
         if (!this.copperFills || this.copperFills.length === 0) {
             this._clearFillGroups();
             return;
@@ -8096,6 +7849,7 @@ export default class PCBApp {
         // after committing them so same-net copper shapes joined by a pour do
         // not retain a stale air wire.
         reconcileRatsnest(this, { skipFillRefresh: true });
+        if (this._drcShouldRun()) this._scheduleDRC();
         // Pours just recomputed — let any open 3D/2D view pick up the fresh
         // geometry (its rebuild reads fill._computed).
         this._board3d?.refresh?.();
@@ -8103,62 +7857,7 @@ export default class PCBApp {
 
     /** Build the obstacle/parameter context for the fill geometry engine. */
     _fillContext() {
-        const params = this._getRoutingParams?.() || {};
-        const pads = [];
-        const footprintHoles = [];
-        for (const [compId, pl] of this.placements) {
-            // Orient each pad by the placement pose (rotation + mirror) so the
-            // pour carves clearances at the pads' true world positions — not
-            // their unrotated footprint-local offsets.
-            const rad = ((pl.rotation || 0) * Math.PI) / 180;
-            const cos = Math.cos(rad), sin = Math.sin(rad);
-            const mx = isPlacementMirrored(pl) ? -1 : 1;
-            // A 90°/270° rotation swaps a rectangular pad's width and height.
-            const ortho = Math.abs(((pl.rotation || 0) % 180)) === 90;
-            for (const off of (pl.padOffsets || [])) {
-                const lx = off.dx * mx;
-                pads.push({
-                    x: pl.x + lx * cos - off.dy * sin,
-                    y: pl.y + lx * sin + off.dy * cos,
-                    width: (ortho ? off.height : off.width) || 0,
-                    height: (ortho ? off.width : off.height) || 0,
-                    shape: off.shape || 'rect',
-                    layer: off.layer || 'top',
-                    net: this._padNetLookup(compId, off.number),
-                });
-            }
-            // Footprint mounting / mechanical holes (NPTH) are authored as
-            // 'hole'-layer circles inside the footprint silks. Void the pour
-            // around them too — posed to world like the pads — so the copper
-            // pulls back exactly as it does for free-standing Hole-layer circles.
-            for (const s of (pl.silks || [])) {
-                if (s.layer !== 'hole' || s.type !== 'circle' || !(s.r > 0)) continue;
-                const lx = s.cx * mx;
-                footprintHoles.push({
-                    x: pl.x + lx * cos - s.cy * sin,
-                    y: pl.y + lx * sin + s.cy * cos,
-                    diameter: s.r * 2,
-                    plated: false,
-                });
-            }
-        }
-        return {
-            tracks: this.tracks,
-            vias: this.vias,
-            texts: this.texts.values(),
-            pads,
-            boardShapes: this.boardShapes,
-            holes: [
-                ...((this.boardShapes || [])
-                    .filter((shape) => shape?.kind === 'circle' && shape.layer === 'hole' && shape.radius > 0)
-                    .map((shape) => ({ x: shape.x, y: shape.y, diameter: shape.radius * 2, plated: !!shape.plated }))),
-                ...footprintHoles,
-            ],
-            params: { clearance: Number.isFinite(params.clearance) ? params.clearance : 0.1 },
-            board: (this._boardWidth > 0 && this._boardHeight > 0)
-                ? { w: this._boardWidth, h: this._boardHeight, r: this._boardRadius || 0 }
-                : null,
-        };
+        return buildFillContext(this);
     }
 
     /** Resolve a pad's net from the netlist (componentId + pad number). */

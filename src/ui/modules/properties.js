@@ -1,5 +1,5 @@
 import { setCheckboxState } from './ui-utils.js';
-import { ModifyPropertyCommand, ModifyShapeCommand } from '../../core/CommandHistory.js';
+import { ModifyPropertyCommand, ModifyShapeCommand } from '../../schematic/modules/commands.js';
 import { rotateNetOrientation } from '../../shapes/net.js';
 import { adaptShortcutText } from './platform-keys.js';
 import { canDecomposeRoundedCorners } from '../../shapes/shape-decompose.js';

@@ -1777,6 +1777,7 @@ export function endBoardShapeDrag(app, commit) {
     if (!moved || !commit) {
         renderBoardShapeHandles(app, s);
         renderBoardShapeSegmentSelection(app);
+        app._refreshFills?.();
         return;
     }
     const kindChanged = afterState.kind !== d.beforeState.kind;
@@ -2720,7 +2721,7 @@ export function serializeBoardShapes(app) {
 
 const pt = (p) => ({ x: Number(p?.x) || 0, y: Number(p?.y) || 0 });
 
-export function loadBoardShapes(app, arr) {
+export function loadBoardShapes(app, arr, { render = true, strict = false } = {}) {
     if (!Array.isArray(arr)) return;
     for (const sd of arr) {
         if (sd?.type === 'fill') {
@@ -2729,12 +2730,16 @@ export function loadBoardShapes(app, arr) {
                 updateFillIdCounter(fill.id);
                 app.boardShapes.push(fill);
             } catch (err) {
+                if (strict) throw err;
                 console.warn('Skipping malformed copper fill during load:', err);
             }
             continue;
         }
         const kind = SHAPE_KINDS.has(sd?.kind) ? sd.kind : null;
-        if (!kind) continue;
+        if (!kind) {
+            if (strict) throw new Error(`Unknown board shape kind: ${sd?.kind}`);
+            continue;
+        }
         const base = {
             id: String(sd.id || `pshape_${app._shapeIdCounter++}`),
             kind,
@@ -2767,11 +2772,14 @@ export function loadBoardShapes(app, arr) {
             shape = { ...base, x: Number(sd.x) || 0, y: Number(sd.y) || 0, radius };
         } else {
             const pts = Array.isArray(sd.points) ? sd.points.map(pt) : [];
-            if (pts.length < (kind === 'line' ? 2 : 3)) continue;
+            if (pts.length < (kind === 'line' ? 2 : 3)) {
+                if (strict) throw new Error(`Insufficient points in board shape: ${sd.id}`);
+                continue;
+            }
             shape = { ...base, points: pts };
         }
         app.boardShapes.push(shape);
-        renderBoardShape(app, shape);
+        if (render) renderBoardShape(app, shape);
         const n = /pshape_(\d+)/.exec(shape.id);
         if (n) app._shapeIdCounter = Math.max(app._shapeIdCounter, Number(n[1]) + 1);
     }

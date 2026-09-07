@@ -1,0 +1,1 @@
+export const VERTEX_EPSILON = 0.15;

@@ -6,7 +6,7 @@
  * junction / segment deletion logic are co-located and easy to find.
  */
 
-import { ModifyShapeCommand, ModifyPropertyCommand, BatchCommand, AddShapeCommand, DeleteShapesCommand } from '../../core/CommandHistory.js';
+import { ModifyShapeCommand, ModifyPropertyCommand, BatchCommand, AddShapeCommand, DeleteShapesCommand } from '../../schematic/modules/commands.js';
 import { VERTEX_EPSILON, applySplitLabelRules, applySplitNetRules } from './wire.js';
 import { detachLabel } from './label-attachment.js';
 import { canDecomposeRoundedCorners, decomposeRoundedCorners } from '../../shapes/shape-decompose.js';

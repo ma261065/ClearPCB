@@ -29,10 +29,14 @@
 
 import { resolveBoardShapeGeometry } from './board-shapes.js';
 import { pcbTextSegments } from './pcb-text.js';
+import { padCopperOutline } from './copper-model.js';
 
 const SCALE = 10000;            // 0.1 µm integer resolution
 const ARC_TOL = 0.01 * SCALE;   // offset arc flattening tolerance (scaled mm)
 const CIRCLE_SEGMENTS = 48;     // points used for via / round-pad discs
+const ROUNDING_MARGIN = 2 / SCALE;
+const MAX_ARC_CHORD_ERROR = 2.25 * ARC_TOL / SCALE;
+const OFFSET_MARGIN = MAX_ARC_CHORD_ERROR + ROUNDING_MARGIN;
 
 let _clipper = null;
 let _clipperPromise = null;
@@ -70,6 +74,9 @@ const U = (v) => v / SCALE;
  * @property {Array} vias          - app.vias (Via)
  * @property {Array<{x:number,y:number,width:number,height:number,shape:string,layer:string,net:string}>} pads
  * @property {Array} boardShapes - app.boardShapes (including hole-layer cutouts)
+ * @property {Array} texts
+ * @property {Array} fills
+ * @property {Array<{x:number,y:number,dia:number}>} holes
  * @property {{clearance:number}} params
  * @property {{w:number,h:number,r:number}|null} board
  */
@@ -205,6 +212,10 @@ function collectObstacles(C, fill, ctx, clearance) {
     }
 
     // ── Pads (on this copper layer) ──
+    for (const hole of ctx.holes || []) {
+        out.push(circlePath(C, hole.x, hole.y, hole.dia / 2 + clearance));
+    }
+
     // Other-net pads are voided solid (pad + clearance). Same-net pads get a
     // plus-shaped thermal relief: the clearance ring is voided too, but four
     // spokes are left as copper so the pour stays tied to the pad.
@@ -236,7 +247,7 @@ function resolvedShapeObstaclePaths(C, geometry, clearance) {
         );
         const innerRadius = geometry.circle.radius - halfObstacleWidth;
         return innerRadius > 0
-            ? [outer, circlePath(C, geometry.circle.x, geometry.circle.y, innerRadius).reverse()]
+            ? [outer, circlePath(C, geometry.circle.x, geometry.circle.y, innerRadius, false).reverse()]
             : [outer];
     }
     if (geometry.filled && geometry.path.length >= 3) {
@@ -279,7 +290,7 @@ function offsetOpenSegment(C, a, b, delta) {
     co.AddPath([{ X: S(a.x), Y: S(a.y) }, { X: S(b.x), Y: S(b.y) }],
         C.JoinType.jtRound, C.EndType.etOpenRound);
     const sol = new C.Paths();
-    co.Execute(sol, delta * SCALE);
+    co.Execute(sol, (delta + OFFSET_MARGIN) * SCALE);
     return sol;
 }
 
@@ -289,38 +300,25 @@ function offsetClosedPath(C, points, delta) {
     const co = new C.ClipperOffset(2, ARC_TOL);
     co.AddPath(path, C.JoinType.jtRound, C.EndType.etClosedPolygon);
     const sol = new C.Paths();
-    co.Execute(sol, delta * SCALE);
+    co.Execute(sol, (delta + OFFSET_MARGIN) * SCALE);
     return sol;
 }
 
-/** A regular polygon approximating a circle (scaled int path). */
-function circlePath(C, cx, cy, r) {
+/** Enclose circular obstacles; keep their inner voids inside the exact circle. */
+function circlePath(C, cx, cy, r, enclose = true) {
     const path = [];
+    const radius = enclose ? (r + ROUNDING_MARGIN) / Math.cos(Math.PI / CIRCLE_SEGMENTS)
+        : Math.max(0, r - ROUNDING_MARGIN);
     for (let i = 0; i < CIRCLE_SEGMENTS; i++) {
         const a = (i / CIRCLE_SEGMENTS) * Math.PI * 2;
-        path.push({ X: S(cx + r * Math.cos(a)), Y: S(cy + r * Math.sin(a)) });
+        path.push({ X: S(cx + radius * Math.cos(a)), Y: S(cy + radius * Math.sin(a)) });
     }
     return path;
 }
 
-/**
- * Pad obstacle outline expanded by `clearance` (Minkowski sum of the pad
- * with a disc). Mirrors the clearance-halo geometry:
- *   - round / circle / ellipse → ellipse inflated by clearance
- *   - oval (stadium)           → rounded rect, corner r = min(hw,hh)+clearance
- *   - rect / default           → rounded rect, corner r = clearance
- */
+/** Expand the same conservative pad outline used by DRC. */
 function padObstaclePaths(C, pad, clearance) {
-    const hw = (pad.width || 0) / 2;
-    const hh = (pad.height || 0) / 2;
-    const shape = pad.shape || 'rect';
-    const cx = pad.x, cy = pad.y;
-    if (shape === 'round' || shape === 'circle' || shape === 'ellipse') {
-        return [ellipsePath(C, cx, cy, hw + clearance, hh + clearance)];
-    }
-    const cornerR = (shape === 'oval' ? Math.min(hw, hh) : 0) + clearance;
-    return [roundedRectPath(C, cx - hw - clearance, cy - hh - clearance,
-        (hw + clearance) * 2, (hh + clearance) * 2, cornerR)];
+    return offsetClosedPath(C, pad.outline || padCopperOutline(pad), clearance);
 }
 
 /** Thermal spoke width (mm) for same-net pad connections. */
@@ -354,16 +352,6 @@ function thermalReliefPaths(C, pad, clearance) {
     clip.Execute(C.ClipType.ctDifference, sol,
         C.PolyFillType.pftNonZero, C.PolyFillType.pftNonZero);
     return sol;
-}
-
-/** Ellipse polygon (scaled int path). */
-function ellipsePath(C, cx, cy, rx, ry) {
-    const path = [];
-    for (let i = 0; i < CIRCLE_SEGMENTS; i++) {
-        const a = (i / CIRCLE_SEGMENTS) * Math.PI * 2;
-        path.push({ X: S(cx + rx * Math.cos(a)), Y: S(cy + ry * Math.sin(a)) });
-    }
-    return path;
 }
 
 /** Rounded-rectangle polygon (scaled int path). x,y = top-left, w,h size. */

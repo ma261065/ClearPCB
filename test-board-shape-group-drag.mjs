@@ -18,6 +18,7 @@ const {
     boardShapeSegmentWidth,
     cloneShapeGeometry,
     createBoardShapeSelectionAdapter,
+    endBoardShapeDrag,
     handleBoardShapeDrag,
     resolveBoardShapeGeometry,
     serializeBoardShapes,
@@ -27,6 +28,7 @@ const {
     startBoardShapeDrag,
     translateShapeGeometry,
 } = await import('./src/pcb/modules/board-shapes.js');
+const { updateGroupDrag, endGroupDrag, cancelGroupDrag } = await import('./src/pcb/modules/box-select.js');
 
 let failures = 0;
 
@@ -66,6 +68,46 @@ const cases = [
         expected: { start: { x: 6, y: -1 }, end: { x: 8, y: -1 }, bulge: { x: 7, y: 1 } },
     },
 ];
+
+for (const test of cases) {
+    for (const commit of [true, false]) {
+        const shape = { ...structuredClone(test.shape), id: `deferred-${test.name}`, layer: 'top-copper' };
+        const before = cloneShapeGeometry(shape);
+        const refreshes = [];
+        const app = {
+            boardShapes: [shape], placements: new Map(), tracks: [], vias: [], texts: new Map(),
+            _deferDragOverlays: false, _shapeElements: new Map(), _layerGroups: new Map(),
+            _getLayerGroup() { return null; },
+            _snapToGrid(point) { return point; },
+            _refreshFills() { refreshes.push(this._deferDragOverlays); },
+            viewport: { scale: 100, setCrosshair() {}, hideCrosshair() {} },
+            history: { execute(command) { command.execute(); } },
+        };
+        startBoardShapeDrag(app, shape, { x: 1, y: 2 });
+        handleBoardShapeDrag(app, { x: 6, y: -1 });
+        expect(`${test.name} defers fill refresh while moving`, refreshes, []);
+        endBoardShapeDrag(app, commit);
+        expect(`${test.name} refreshes after ${commit ? 'completion' : 'cancellation'}`, refreshes, [false]);
+        expect(`${test.name} finishes with the expected geometry`, cloneShapeGeometry(shape),
+            commit ? translateShapeGeometry(before, 5, -3) : before);
+
+        refreshes.length = 0;
+        const groupBefore = cloneShapeGeometry(shape);
+        app._groupDrag = {
+            startWorld: { x: 0, y: 0 }, previousDeferDragOverlays: false,
+            comps: [], tracks: [], vias: [], texts: [], fills: [], ratsnestNets: new Set(),
+            shapes: [{ shape, before: groupBefore }],
+        };
+        app._deferDragOverlays = true;
+        updateGroupDrag(app, { x: 3, y: 4 });
+        expect(`${test.name} group defers fill refresh while moving`, refreshes, []);
+        if (commit) endGroupDrag(app);
+        else cancelGroupDrag(app);
+        expect(`${test.name} group refreshes after ${commit ? 'completion' : 'cancellation'}`, refreshes, [false]);
+        expect(`${test.name} group finishes with expected geometry`, cloneShapeGeometry(shape),
+            commit ? translateShapeGeometry(groupBefore, 3, 4) : groupBefore);
+    }
+}
 
 for (const test of cases) {
     const snapshot = cloneShapeGeometry(test.shape);

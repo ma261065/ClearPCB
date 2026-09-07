@@ -3,6 +3,15 @@ import { Component, updateComponentIdCounter } from '../../components/index.js';
 import { createNetText } from './shape-management.js';
 import { attachLabelToTarget } from '../../ui/modules/label-attachment.js';
 import { importEasyEDASchematic } from '../../easyeda/schematic-importer.js';
+import { createShape, bumpWireLabelCounter } from '../../shapes/index.js';
+import { bumpNetNameCounter } from '../../shapes/wire.js';
+import { validateProject } from '../../core/project-format.js';
+
+function canReplaceDocument(app) {
+    if (!app.fileManager.saving && !app.fileManager.loading) return true;
+    app._alert('Wait for the current file operation to finish.', { title: 'File Operation In Progress' });
+    return false;
+}
 
 /**
  * Serializes the entire document (shapes, components, settings, paper size,
@@ -68,7 +77,24 @@ export function serializeDocument(app) {
  * @param {object} app - Application state.
  * @param {object} data - Previously serialized document.
  */
-export async function loadDocument(app, data) {
+export function prepareDocument(app, data) {
+    validateProject(data);
+    const schematic = data.schematic;
+    const shapes = (schematic.shapes || []).filter((item) => (item.fk || item.fieldKey) !== 'net')
+        .map((item) => ({ data: item, shape: createShape(item) }));
+    const components = (schematic.components || []).map((item) => {
+        const name = item.dn || item.definitionName;
+        const embedded = item.def || item.definition || schematic.defs?.[name];
+        const component = createComponentFromData(app, { ...item, def: embedded });
+        if (!component) throw new Error(`Missing component definition: ${name}`);
+        return component;
+    });
+    for (const { shape } of shapes) shape.render(app.viewport.scale);
+    for (const component of components) component.createSymbolElement();
+    return { shapes, components };
+}
+
+export async function loadDocument(app, data, prepared = prepareDocument(app, data)) {
     app.selection.clearSelection();
     if (app.textEdit?.shape) app._endTextEdit(false);
     app._clearAllShapes();
@@ -81,10 +107,9 @@ export async function loadDocument(app, data) {
     const shapes = sch.shapes;
     const components = sch.components;
     const settings = sch.settings;
-    const defs = sch.defs;
 
     if (shapes && Array.isArray(shapes)) {
-        for (const shapeData of shapes) {
+        for (const { data: shapeData, shape } of prepared.shapes) {
             const compId = shapeData.cid || shapeData.componentId;
             const fieldKey = shapeData.fk || shapeData.fieldKey;
 
@@ -97,8 +122,9 @@ export async function loadDocument(app, data) {
                 updateIdCounter(shapeData.id);
             }
 
-            const shape = app._createShapeFromData(shapeData);
             if (shape) {
+                if (shape.type === 'wire') bumpWireLabelCounter(shape.wireLabel);
+                if (shape.net) bumpNetNameCounter(shape.net);
                 // Preserve component field linkage for re-linking after components load
                 if (compId && fieldKey) {
                     shape._pendingComponentId = compId;
@@ -111,23 +137,12 @@ export async function loadDocument(app, data) {
         }
     }
 
-    // Resolve deduplicated definitions from top-level map
-    if (defs && components) {
-        for (const compData of components) {
-            const dn = compData.dn || compData.definitionName;
-            if (!compData.def && !compData.definition && dn && defs[dn]) {
-                compData.def = defs[dn];
-            }
-        }
-    }
-
     if (components && Array.isArray(components)) {
-        for (const compData of components) {
-            if (compData.id) updateComponentIdCounter(compData.id);
-            const component = app._createComponentFromData(compData);
+        for (const component of prepared.components) {
+            updateComponentIdCounter(component.id);
             if (component) {
                 app.components.push(component);
-                const element = component.createSymbolElement();
+                const element = component.element;
                 app.viewport.addComponentContent(element);
                 
                 // Re-link field texts from loaded shapes
@@ -227,31 +242,14 @@ export async function loadDocument(app, data) {
 export function createComponentFromData(app, data) {
     const dn = data.dn || data.definitionName;
     const def_data = data.def || data.definition;
-    let def = app.componentLibrary.getDefinition(dn);
+    let def = def_data ? structuredClone(def_data) : app.componentLibrary.getDefinition(dn);
+    if (def_data && (!def._source || def._source === 'Built-in')) def._source = 'Project';
 
-    if (!def && def_data) {
-        try {
-            console.log('Adding embedded definition from saved file:', dn);
-
-            if (!def_data.symbol && (def_data.graphics || def_data.pins)) {
-                console.log('Reconstructing symbol object for:', dn);
-                def_data.symbol = {
-                    width: def_data.width || 10,
-                    height: def_data.height || 10,
-                    origin: def_data.origin || { x: 5, y: 5 },
-                    graphics: def_data.graphics || [],
-                    pins: def_data.pins || []
-                };
-            }
-
-            app.componentLibrary.addDefinition(def_data, def_data._source || 'User');
-            def = app.componentLibrary.getDefinition(dn);
-            if (def) {
-                console.log('Successfully loaded embedded definition:', dn);
-            }
-        } catch (e) {
-            console.warn('Failed to add embedded definition:', dn, e);
-        }
+    if (def_data && !def.symbol && (def.graphics || def.pins)) {
+        def.symbol = {
+            width: def.width || 10, height: def.height || 10,
+            origin: def.origin || { x: 5, y: 5 }, graphics: def.graphics || [], pins: def.pins || [],
+        };
     }
 
     if (!def) {
@@ -386,12 +384,14 @@ export async function loadVersion(app) {
  * @param {object} app - Application state.
  */
 export async function newFile(app) {
-    if (app.fileManager.isDirty) {
+    if (!canReplaceDocument(app)) return;
+    if (app.project?.isDirty ?? app.fileManager.isDirty) {
         if (!await app._confirm('You have unsaved changes. Create new document anyway?', { title: 'Unsaved Changes', okText: 'Yes', cancelText: 'No', defaultCancel: true })) {
             return;
         }
     }
 
+    if (!canReplaceDocument(app)) return;
     app.selection.clearSelection();
     if (app.textEdit?.shape) app._endTextEdit(false);
     app._clearAllShapes();
@@ -434,7 +434,7 @@ export async function saveFile(app) {
         // Saving writes the WHOLE document, so every section is now clean.
         // Clear per-view dirty flags (e.g. the PCB's) too, otherwise they
         // keep re-triggering autosave and the unsaved warning after a save.
-        app.project?.markAllSectionsClean?.();
+        if (result.clean) app.project?.markAllSectionsClean?.();
         app._updateTitle();
         app._showSaveToast?.('Saved');
         console.log('Saved:', result.fileName);
@@ -456,7 +456,7 @@ export async function saveFileAs(app) {
 
     if (result.success) {
         // Saving writes the WHOLE document, so every section is now clean.
-        app.project?.markAllSectionsClean?.();
+        if (result.clean) app.project?.markAllSectionsClean?.();
         app._updateTitle();
         app._showSaveToast?.('Saved');
         console.log('Saved as:', result.fileName);
@@ -473,7 +473,8 @@ export async function saveFileAs(app) {
  * @param {object} app - Application state.
  */
 export async function openFile(app) {
-    if (app.fileManager.isDirty) {
+    if (!canReplaceDocument(app)) return;
+    if (app.project?.isDirty ?? app.fileManager.isDirty) {
         if (!await app._confirm('You have unsaved changes. Open another file anyway?', { title: 'Unsaved Changes', okText: 'Yes', cancelText: 'No', defaultCancel: true })) {
             return;
         }
@@ -484,6 +485,7 @@ export async function openFile(app) {
 
         if (result.success) {
             await app._loadDocument(result.data);
+            await app.fileManager.adoptOpen(result);
             app._fitToContent?.();
             app._updateTitle();
             app.fileManager.clearAutoSave();
@@ -504,7 +506,8 @@ export async function openFile(app) {
  * @param {string} name - The recents entry / file name to reopen.
  */
 export async function openRecentFile(app, name) {
-    if (app.fileManager.isDirty) {
+    if (!canReplaceDocument(app)) return;
+    if (app.project?.isDirty ?? app.fileManager.isDirty) {
         if (!await app._confirm('You have unsaved changes. Open another file anyway?', { title: 'Unsaved Changes', okText: 'Yes', cancelText: 'No', defaultCancel: true })) {
             return;
         }
@@ -515,6 +518,7 @@ export async function openRecentFile(app, name) {
 
         if (result.success) {
             await app._loadDocument(result.data);
+            await app.fileManager.adoptOpen(result);
             app._fitToContent?.();
             app._updateTitle();
             app.fileManager.clearAutoSave();
@@ -533,7 +537,8 @@ export async function openRecentFile(app, name) {
  * @param {object} app - Application state.
  */
 export async function importEasyEDA(app) {
-    if (app.fileManager.isDirty) {
+    if (!canReplaceDocument(app)) return;
+    if (app.project?.isDirty ?? app.fileManager.isDirty) {
         if (!await app._confirm('You have unsaved changes. Import anyway?', { title: 'Unsaved Changes', okText: 'Yes', cancelText: 'No', defaultCancel: true })) {
             return;
         }
@@ -553,6 +558,8 @@ export async function importEasyEDA(app) {
 
         await app._loadDocument(doc);
         app._fitToContent?.();
+        app.fileManager.fileHandle = null;
+        app.fileManager.setFilePath(null);
         app.fileManager.setFileName('imported.cpcb');
         app.fileManager.setDirty(true);
         app._updateTitle();

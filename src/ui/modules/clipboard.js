@@ -1,7 +1,7 @@
 /**
  * Clipboard module — copy, cut, paste for shapes and components
  */
-import { DeleteShapesCommand, DeleteComponentsCommand, BatchCommand, PasteCommand } from '../../core/CommandHistory.js';
+import { DeleteShapesCommand, DeleteComponentsCommand, BatchCommand, PasteCommand } from '../../schematic/modules/commands.js';
 import { Component } from '../../components/Component.js';
 import { createShape } from '../../shapes/index.js';
 

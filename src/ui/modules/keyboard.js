@@ -1,5 +1,5 @@
 import { clearDragState } from './mouse.js';
-import { ModifyPropertyCommand, MoveShapesCommand } from '../../core/CommandHistory.js';
+import { ModifyPropertyCommand, MoveShapesCommand } from '../../schematic/modules/commands.js';
 import { rotateNetOrientation } from '../../shapes/net.js';
 import { resolveWireSnapPosition, PIN_SNAP_TOL } from './wire.js';
 import { updateToolGhost } from './tool.js';

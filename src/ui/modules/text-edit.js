@@ -1,5 +1,5 @@
 import { ModalManager } from '../../core/ModalManager.js';
-import { ModifyShapeCommand } from '../../core/CommandHistory.js';
+import { ModifyShapeCommand } from '../../schematic/modules/commands.js';
 import { freeWireLabel, bumpWireLabelCounter, freeNetName, bumpNetNameCounter } from '../../shapes/wire.js';
 import { validateNetNameAtPoint } from './net-validation.js';
 
