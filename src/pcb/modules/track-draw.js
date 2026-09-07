@@ -36,7 +36,8 @@ import { Track } from '../../shapes/track.js';
 import { Via } from '../../shapes/via.js';
 import { renderTrack } from './track-render.js';
 import { collinearSnap, pointInPolygon, distanceToSegment } from '../../core/geometry.js';
-import { normalizeShapeCopperMode, shapeOutline, resolveBoardShapeGeometry } from './board-shapes.js';
+import { normalizeShapeCopperMode, shapeOutline } from './board-shapes.js';
+import { resolveTrackContactGeometry } from './track-contact-geometry.js';
 import { showAlert } from '../../ui/modules/modal.js';
 import { isOverlayVisible } from './layers.js';
 import {
@@ -426,8 +427,9 @@ export function snapNodeToCollinear(pos, neighbours, threshold) {
 
 /* ──────────────────────────── lifecycle ──────────────────────────── */
 
-function shapeCopperContains(shape, point) {
-    const geometry = resolveBoardShapeGeometry(shape);
+function shapeCopperContains(contact, point) {
+    const { geometry, bounds } = contact;
+    if (point.x < bounds.minX || point.x > bounds.maxX || point.y < bounds.minY || point.y > bounds.maxY) return false;
     if (geometry.copperMode !== 'add') return false;
     if (geometry.circle) {
         const distance = Math.hypot(point.x - geometry.circle.x, point.y - geometry.circle.y);
@@ -453,13 +455,16 @@ export function resolveTrackDrawSnap(app, worldPos, options = {}) {
     const layer = app._trackDraw?.currentLayer || app._trackToolLayer || 'top-copper';
     if (!TOGGLE_LAYERS.includes(layer)) return { ...snap, contactNets: [], copperContact: false };
     const shapes = (app.boardShapes || []).filter((shape) => shape.layer === layer && shape.visible !== false);
+    const geometry = new Map(shapes.filter((shape) => shape.type !== 'fill')
+        .map((shape) => [shape, resolveTrackContactGeometry(shape)]));
     const contactsAt = (point) => shapes.filter((shape) => shape.type === 'fill'
         ? (shape._computed || []).some((polygon) => pointInPolygon(point, polygon.outer)
             && !(polygon.holes || []).some((hole) => pointInPolygon(point, hole)))
-        : shapeCopperContains(shape, point));
+        : shapeCopperContains(geometry.get(shape), point));
     const hardSnap = snap.snapType === 'pad' || snap.snapType === 'track-node';
     let target = { x: snap.x, y: snap.y };
     let via = null;
+    let contacts = null;
     if (!hardSnap) {
         const tolerance = TRACK_SNAP_SCREEN_PX / (app.viewport?.scale || 1);
         let nearest = Infinity;
@@ -472,9 +477,15 @@ export function resolveTrackDrawSnap(app, worldPos, options = {}) {
             }
         }
         if (via) target = { x: via.x, y: via.y };
-        else if (contactsAt(worldPos).length) target = { ...worldPos };
+        else {
+            const rawContacts = contactsAt(worldPos);
+            if (rawContacts.length || (target.x === worldPos.x && target.y === worldPos.y)) {
+                contacts = rawContacts;
+                if (rawContacts.length) target = { ...worldPos };
+            }
+        }
     }
-    const contacts = contactsAt(target);
+    contacts ??= contactsAt(target);
     const vias = (app.vias || []).filter((candidate) => candidate.visible !== false
         && Math.hypot(target.x - candidate.x, target.y - candidate.y) <= candidate.diameter / 2);
     const sourceNet = snap.pad?.net || snap.trackNode?.track.net || '';

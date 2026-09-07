@@ -76,4 +76,52 @@ explicit._trackToolNet = 'VCC';
 explicit.vias.push(via(0, 'GND'));
 assert.equal(startTrackDraw(explicit, { x: 0, y: 0 }), null);
 
+const { resolveTrackContactGeometry } = await import('./src/pcb/modules/track-contact-geometry.js');
+const cachedShape = shape(0, 'GND');
+const cached = resolveTrackContactGeometry(cachedShape);
+for (let index = 0; index < 1000; index++) {
+    assert.equal(resolveTrackContactGeometry(cachedShape), cached);
+}
+cachedShape.net = 'VCC';
+assert.equal(resolveTrackContactGeometry(cachedShape), cached);
+cachedShape.points = cachedShape.points.map((point) => ({ ...point }));
+assert.equal(resolveTrackContactGeometry(cachedShape), cached);
+
+for (const mutate of [
+    (item) => { item.points[0].x -= 1; },
+    (item) => { item.lineWidth = 1; },
+    (item) => { item.filled = false; },
+    (item) => { item.cornerRadius = 0.5; },
+    (item) => { item.nodeCornerRadii = { 0: 0.25 }; },
+    (item) => { item.nodeCornerRadii[0] = 0.75; },
+    (item) => { item.segmentWidths = { 0: 2 }; },
+    (item) => { item.segmentWidths[0] = 3; },
+    (item) => { item.copperMode = 'remove-copper'; },
+]) {
+    const before = resolveTrackContactGeometry(cachedShape);
+    mutate(cachedShape);
+    const after = resolveTrackContactGeometry(cachedShape);
+    assert.notEqual(after, before);
+    assert.equal(resolveTrackContactGeometry(cachedShape), after);
+}
+
+const moving = board();
+const movingShape = shape(0, 'GND');
+moving.boardShapes.push(movingShape);
+assert.deepEqual(resolveTrackDrawSnap(moving, { x: 0, y: 0 }).contactNets, ['GND']);
+for (const point of movingShape.points) point.x += 20;
+assert.deepEqual(resolveTrackDrawSnap(moving, { x: 0, y: 0 }).contactNets, []);
+assert.deepEqual(resolveTrackDrawSnap(moving, { x: 20, y: 0 }).contactNets, ['GND']);
+for (const point of movingShape.points) point.x -= 20;
+movingShape.net = 'VCC';
+assert.deepEqual(resolveTrackDrawSnap(moving, { x: 0, y: 0 }).contactNets, ['VCC']);
+assert.deepEqual(resolveTrackDrawSnap(moving, { x: 10000, y: 10000 }).contactNets, []);
+
+const wideStroke = board();
+wideStroke.boardShapes.push(shape(0, 'GND', { kind: 'line', filled: false,
+    points: [{ x: 0, y: 0 }, { x: 10, y: 0 }], segmentWidths: { 0: 4 } }));
+assert.deepEqual(resolveTrackDrawSnap(wideStroke, { x: 5, y: 1.5 }).contactNets, ['GND']);
+wideStroke.boardShapes[0].segmentWidths[0] = 0.2;
+assert.deepEqual(resolveTrackDrawSnap(wideStroke, { x: 5, y: 1.5 }).contactNets, []);
+
 console.log('Track copper contact regressions passed.');
