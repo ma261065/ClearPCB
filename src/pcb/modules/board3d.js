@@ -3047,11 +3047,30 @@ export async function openBoard3DViewer(app, opts = {}) {
     let partsVisible = true;
     dom.btnParts?.classList.toggle('active', partsVisible);
     const surfaceBuilder = createSurfaceBuilder();
-    let rebuildSurfaces = async () => false;
+    let rebuildSurfaces = async (syncComponentBodies = false) => false;
     let syncBodies = () => {};
     const setStatus = (/** @type {string} */ text) => {
         if (dom.status && !panel.closed) dom.status.textContent = text;
     };
+    let timingMouseUpAt = null;
+    const onTimingMouseUp = (event) => {
+        if (event.button !== 0 || !app._active || panel.closed || panel.hidden || panel.view !== '3d') return;
+        if (!(app._viaDrag || app._vertexDrag || app._drag || app._groupDrag
+            || app._shapeDrag || app._textDrag || app._refDrag || app._fillDrag
+            || app._pcbSelectionInteraction || app._trackDraw)) return;
+        const now = performance.now();
+        timingMouseUpAt = Number.isFinite(event.timeStamp) && event.timeStamp >= 0 && event.timeStamp <= now
+            ? event.timeStamp : now;
+    };
+    const finishRebuildTiming = (startedAt) => {
+        if (startedAt === null || startedAt !== timingMouseUpAt) return;
+        const elapsed = performance.now() - startedAt;
+        timingMouseUpAt = null;
+        if (!panel.closed && !panel.hidden && panel.view === '3d') {
+            setStatus(`Mouse-up -> 3D: ${elapsed.toFixed(0)} ms [cebd3f0 + reuse]`);
+        }
+    };
+    window.addEventListener('mouseup', onTimingMouseUp, true);
 
     // ── Flat 2D board preview (board2d.js) ──────────────────────────────
     // The 2D side views do NOT use the 3D renderer: they draw the board the way
@@ -3179,7 +3198,7 @@ export async function openBoard3DViewer(app, opts = {}) {
     // One shared sliding panel hosts both views; `panel.view` decides which
     // canvas (WebGL vs 2D) is shown and which toolbar button is highlighted.
     const viewSync = createBoardViewSync({
-        refresh3D: () => { rebuildSurfaces(); syncBodies(); },
+        refresh3D: () => { rebuildSurfaces(true); },
         refresh2D: () => { board2d?.setData(boardData()); },
     });
     const applyView = (/** @type {'3d'|'top'|'bottom'} */ view) => {
@@ -3293,12 +3312,15 @@ export async function openBoard3DViewer(app, opts = {}) {
         silk: 7,
         text: 8,
     };
+    const appliedSurfaceBuffers = new Map();
     const swapSurface = (/** @type {string} */ key, /** @type {any} */ data, /** @type {any} */ material) => {
         if (!scene) return;
+        if (appliedSurfaceBuffers.has(key) && appliedSurfaceBuffers.get(key) === data) return;
         scene.removeMesh(surf[key]);
         const m = data && data.position.length ? scene.addMesh(surfaceGeometry(data), material) : null;
         if (m) m.renderOrder = SURFACE_ORDER[key] ?? 0;
         surf[key] = m;
+        appliedSurfaceBuffers.set(key, data);
     };
     const surfaceGeometry = (data) => {
         const geometry = new THREE.BufferGeometry();
@@ -3308,7 +3330,8 @@ export async function openBoard3DViewer(app, opts = {}) {
         return geometry;
     };
     let hasSurfaces = false;
-    rebuildSurfaces = async () => {
+    rebuildSurfaces = async (syncComponentBodies = false) => {
+        const timingStart = timingMouseUpAt;
         try {
             const w = app._boardWidth || 100;
             const h = app._boardHeight || 80;
@@ -3457,9 +3480,11 @@ export async function openBoard3DViewer(app, opts = {}) {
             for (const key of Object.keys(surf)) swapSurface(key, result[key], materials[key]);
             scene.positionGlint(w / 2, -h / 2, Math.max(w, h));
             if (!hasSurfaces) { hasSurfaces = true; scene.frameAll(); }
+            if (syncComponentBodies) syncBodies();
             scene.requestRender();
             return true;
         } catch (error) {
+            finishRebuildTiming(timingStart);
             console.warn('3D surface build failed', error);
             viewSync.invalidate();
             setStatus('3D update failed');
@@ -3807,6 +3832,7 @@ export async function openBoard3DViewer(app, opts = {}) {
             app.history.onChanged = prevOnChanged;
         }
         window.removeEventListener('pointermove', onSplitMove);
+        window.removeEventListener('mouseup', onTimingMouseUp, true);
         window.removeEventListener('pointerup', onSplitUp);
         hideSpinner();
         scene?.dispose();

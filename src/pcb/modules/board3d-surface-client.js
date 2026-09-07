@@ -1,3 +1,5 @@
+import { surfaceInputsEqual } from './board3d-surface-equality.js';
+
 export function createSurfaceBuilder(createWorker = () => new Worker(
     new URL('./board3d-surface-worker.js', import.meta.url), { type: 'module' },
 )) {
@@ -7,6 +9,7 @@ export function createSurfaceBuilder(createWorker = () => new Worker(
     let active = null;
     let pending = null;
     let disposed = false;
+    let cache = new Map();
 
     const fail = (error) => {
         worker?.terminate();
@@ -19,6 +22,15 @@ export function createSurfaceBuilder(createWorker = () => new Worker(
         if (active || !pending || disposed) return;
         active = pending;
         pending = null;
+        if (!Object.keys(active.surfaces).length) {
+            const completed = active;
+            active = null;
+            cache = new Map([...completed.inputs].map(([key, input]) => [key, {
+                input, buffers: completed.reused[key],
+            }]));
+            completed.resolve(completed.reused);
+            return;
+        }
         try {
             if (!worker) {
                 worker = createWorker();
@@ -28,7 +40,13 @@ export function createSurfaceBuilder(createWorker = () => new Worker(
                     active = null;
                     if (completed.revision !== revision) completed.resolve(null);
                     else if (data.error) completed.reject(new Error(data.error));
-                    else completed.resolve(data.surfaces);
+                    else {
+                        const result = { ...completed.reused, ...data.surfaces };
+                        cache = new Map([...completed.inputs].map(([key, input]) => [key, {
+                            input, buffers: result[key],
+                        }]));
+                        completed.resolve(result);
+                    }
                     send();
                 };
                 worker.onerror = (event) => fail(new Error(event.message || '3D geometry worker failed'));
@@ -49,8 +67,22 @@ export function createSurfaceBuilder(createWorker = () => new Worker(
             if (disposed) return Promise.resolve(null);
             revision++;
             pending?.resolve(null);
+            const changed = {};
+            const reused = {};
+            const inputs = new Map();
+            for (const [key, surface] of Object.entries(surfaces)) {
+                const previous = cache.get(key);
+                if (previous && surfaceInputsEqual(previous.input, surface)) {
+                    inputs.set(key, previous.input);
+                    reused[key] = previous.buffers;
+                } else {
+                    const snapshot = structuredClone(surface);
+                    inputs.set(key, snapshot);
+                    changed[key] = snapshot;
+                }
+            }
             return new Promise((resolve, reject) => {
-                pending = { id: ++nextId, revision, surfaces, resolve, reject };
+                pending = { id: ++nextId, revision, surfaces: changed, reused, inputs, resolve, reject };
                 send();
             });
         },
@@ -61,6 +93,7 @@ export function createSurfaceBuilder(createWorker = () => new Worker(
             active?.resolve(null);
             pending?.resolve(null);
             active = pending = null;
+            cache.clear();
         },
     };
 }
