@@ -1,4 +1,4 @@
-import { registerPcbSelectionAdapter } from './selection-registry.js';
+import { registerPcbSelectionAdapter, getRefTextSelectionHit } from './selection-registry.js';
 
 function boundsForRefText(app, componentId) {
     const placement = app.placements?.get(componentId);
@@ -38,7 +38,7 @@ export function createRefTextSelectionAdapter(app, componentId, id) {
         object: componentId,
         get visible() { return app.placements?.get(componentId)?.refVisible !== false; },
         getBounds() { return boundsForRefText(app, componentId); },
-        hitTest(point) { return app._hitTestRefText(point) === componentId; },
+        hitTest(point) { return getRefTextSelectionHit(app, point) === componentId; },
         getPosition() {
             const placement = app.placements?.get(componentId);
             const box = app._refBox?.(placement);

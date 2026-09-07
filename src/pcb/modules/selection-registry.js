@@ -12,13 +12,18 @@ const adapterFactories = new Map();
 const hitQueries = new WeakMap();
 
 export function getComponentSelectionHit(app, point) {
+    return getQueryHit(app, point, '_hitTestComponent');
+}
+
+export function getRefTextSelectionHit(app, point) {
+    return getQueryHit(app, point, '_hitTestRefText');
+}
+
+function getQueryHit(app, point, method) {
     const query = hitQueries.get(app);
-    if (!query || query.point !== point) return app._hitTestComponent(point);
-    if (!query.componentResolved) {
-        query.component = app._hitTestComponent(point);
-        query.componentResolved = true;
-    }
-    return query.component;
+    if (!query || query.point !== point) return app[method](point);
+    if (!query.results.has(method)) query.results.set(method, app[method](point));
+    return query.results.get(method);
 }
 
 /** Register a factory implementing the SelectionManager shape contract. */
@@ -31,6 +36,10 @@ function manager(app) {
         app._pcbSelection = new SelectionManager({
             getScale: () => app.viewport?.scale || 1,
             onSelectionChanged: (selected) => {
+                if (app._refOverlay) {
+                    const reference = selected.find((item) => item.kind === 'reftext');
+                    app._drawRefOverlay?.(reference?.object || null, false);
+                }
                 const segment = app._selectedBoardShapeSegment;
                 const segmentStillSelected = segment && selected.some(
                     (item) => item.kind === 'shape' && item.object?.id === segment.shapeId,
@@ -130,7 +139,7 @@ export function getPcbSelectionHits(app, point, kinds = null, { sync = true } = 
     if (sync || mgr.shapes.length === 0) syncPcbSelection(app);
     mgr._invalidateHitTestCache();
     const previous = hitQueries.get(app);
-    hitQueries.set(app, { point, componentResolved: false, component: null });
+    hitQueries.set(app, { point, results: new Map() });
     let hits;
     try {
         hits = mgr.hitTest(point, true);
