@@ -4287,7 +4287,8 @@ export default class PCBApp {
             const worldPos = this._screenToWorld(ev);
             this._hoverBoardOutline(this._hitTestBoardOutline(worldPos));
             // Hover highlight for the component body under the cursor.
-            this._hoverComponent(this._hitTestComponent(worldPos));
+            const componentHover = this._hitTestComponent(worldPos);
+            this._hoverComponent(componentHover);
             // Hover highlight for tracks/vias.
             const trackHover = hitTestTrack(this, worldPos);
             const hovered = this._hitTestPad(worldPos) || trackHover;
@@ -4295,7 +4296,8 @@ export default class PCBApp {
             // Net-name tooltip for the hovered pad/track/via.
             this._updateNetTooltip(ev, hovered);
             // Hover highlight for text annotations.
-            this._setTextHover(this._hitTestText(worldPos));
+            const textHover = this._hitTestText(worldPos);
+            this._setTextHover(textHover);
             // Hover highlight for free-standing board shapes.
             const shapeHover = hitTestBoardShape(this, worldPos);
             setBoardShapeHover(this, shapeHover);
@@ -4330,6 +4332,8 @@ export default class PCBApp {
                 : overRef ? 'move'
                 : selectedAnchor ? (selectedAnchor.anchor.cursor || 'move')
                 : shapeHover ? (shapeIsSelected ? 'move' : 'pointer')
+                : textHover ? (isPcbSelected(this, 'text', textHover) ? 'move' : 'pointer')
+                : componentHover ? (isPcbSelected(this, 'component', componentHover) ? 'move' : 'pointer')
                 : null;
             if (hoverCursor) {
                 // Compare against the live inline value so we skip redundant
