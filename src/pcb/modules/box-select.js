@@ -21,7 +21,7 @@ import {
 } from '../../ui/modules/box-selection.js';
 import { drawTrackHalo, drawViaHalo, refreshTrackSelectionHalo, removeHalosByClass } from './track-select.js';
 import { renderTrack, renderVia } from './track-render.js';
-import { isLayerLocked, isViaLocked } from './layers.js';
+import { isLayerLocked, isLayerVisible, isViaLocked, isCopperFillLocked, isCopperFillVisible } from './layers.js';
 import {
     applyShapeGeometry,
     cloneShapeGeometry,
@@ -250,7 +250,8 @@ function _computeEnclosed(app, bounds) {
     }
     for (const fill of (app.boardShapes || [])) {
         if (fill?.type !== 'fill' || fill.locked || fill.visible === false) continue;
-        if (isLayerLocked(fill.layer)) continue;
+        if (isLayerLocked(fill.layer) || !isLayerVisible(fill.layer)
+            || isCopperFillLocked(fill.layer) || !isCopperFillVisible(fill.layer)) continue;
         if (fill.outline?.length && fill.outline.every((point) => (
             point.x >= minX && point.x <= maxX && point.y >= minY && point.y <= maxY
         ))) selected.push({ kind: 'fill', object: fill });
@@ -393,7 +394,11 @@ export function beginGroupDrag(app, worldPos) {
     const texts = [];
     for (const text of getPcbSelection(app, 'text')) texts.push({ text, x: text.x, y: text.y });
     const fills = [];
-    for (const fill of getPcbSelection(app, 'fill')) fills.push({ fill, before: fill.captureState() });
+    for (const fill of getPcbSelection(app, 'fill')) {
+        if (fill.locked || fill.visible === false || isLayerLocked(fill.layer) || !isLayerVisible(fill.layer)
+            || isCopperFillLocked(fill.layer) || !isCopperFillVisible(fill.layer)) continue;
+        fills.push({ fill, before: fill.captureState() });
+    }
     const ratsnestNets = new Set();
     for (const component of comps) {
         for (const net of app._netsForComponent?.(component.id) || []) ratsnestNets.add(net);

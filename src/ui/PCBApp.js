@@ -91,7 +91,7 @@ import {
     placeFloatingSelectionInteraction,
     updateSelectionInteraction,
 } from '../pcb/modules/selection-interaction.js';
-import { getPcbSelection, getPcbSelectionHits, isPcbSelected, setPcbSelection, syncPcbSelection } from '../pcb/modules/selection-registry.js';
+import { getPcbSelection, getPcbSelectionEntries, getPcbSelectionHits, isPcbSelected, setPcbSelection, syncPcbSelection } from '../pcb/modules/selection-registry.js';
 import { measureText as measureStrokeText } from '../pcb/modules/stroke-font.js';
 import { CommandHistory } from '../core/CommandHistory.js';
 import { Track } from '../shapes/track.js';
@@ -490,7 +490,8 @@ export default class PCBApp {
         }
         for (const shape of this.boardShapes) {
             if (shape?.type === 'fill') {
-                if (!shape.locked && shape.visible !== false && !isLayerLocked(shape.layer) && isLayerVisible(shape.layer)) {
+                if (!shape.locked && shape.visible !== false && !isLayerLocked(shape.layer) && isLayerVisible(shape.layer)
+                    && !isCopperFillLocked(shape.layer) && isCopperFillVisible(shape.layer)) {
                     selected.push({ kind: 'fill', object: shape });
                 }
             } else if (shape && !isLayerLocked(shape.layer) && isLayerVisible(shape.layer)) {
@@ -7886,10 +7887,15 @@ export default class PCBApp {
     _onCopperFillLockChanged(copperLayerId, locked) {
         const g = this._layerGroups.get(fillGroupId(copperLayerId));
         if (g) g.style.opacity = locked ? '0.4' : '';
-        const selectedFill = getPcbSelection(this, 'fill')[0] || null;
-        if (locked && selectedFill && selectedFill.layer === copperLayerId) {
-            this._selectFill(null);
-            this._clearProperties?.();
+        if (locked) {
+            const selected = getPcbSelectionEntries(this);
+            const remaining = selected.filter(entry => entry.kind !== 'fill' || entry.object.layer !== copperLayerId);
+            if (remaining.length !== selected.length) {
+                setPcbSelection(this, remaining);
+                refreshBoxSelectionHighlights(this);
+                showPcbSelectionProperties(this);
+                this._syncClipboardButtons();
+            }
         }
         saveLayerPrefs();
     }
