@@ -162,7 +162,13 @@ export function punchHolesInFlatMesh(mesh, holes, seg = 48) {
             pts.push({ x: h.x + h.r * Math.cos(a), z: h.z + h.r * Math.sin(a) });
         }
         return [{ pts, x: h.x, z: h.z, r: h.r, y: h.y }];
-    });
+    }).map((ring) => ({
+        ...ring,
+        minX: Math.min(...ring.pts.map(point => point.x)),
+        maxX: Math.max(...ring.pts.map(point => point.x)),
+        minZ: Math.min(...ring.pts.map(point => point.z)),
+        maxZ: Math.max(...ring.pts.map(point => point.z)),
+    }));
     if (!rings.length) return mesh;
 
     // Signed area-ish test against the directed edge P→Q in the (x,z) plane;
@@ -197,6 +203,25 @@ export function punchHolesInFlatMesh(mesh, holes, seg = 48) {
         }
         return res;
     };
+    const triangleHasArea = (first, second, third) => {
+        const edgeX = second.x - first.x;
+        const edgeY = second.y - first.y;
+        const edgeZ = second.z - first.z;
+        const otherX = third.x - first.x;
+        const otherY = third.y - first.y;
+        const otherZ = third.z - first.z;
+        return Math.hypot(
+            edgeY * otherZ - edgeZ * otherY,
+            edgeZ * otherX - edgeX * otherZ,
+            edgeX * otherY - edgeY * otherX,
+        ) > 1e-12;
+    };
+    const polygonHasArea = (polygon) => {
+        for (let index = 1; index + 1 < polygon.length; index++) {
+            if (triangleHasArea(polygon[0], polygon[index], polygon[index + 1])) return true;
+        }
+        return false;
+    };
     // piece \ ringPoly → push the resulting convex sub-pieces onto `out`.
     const subtractRing = (piece, ring, out) => {
         const separatedByEdge = (polygon, other) => {
@@ -207,7 +232,8 @@ export function punchHolesInFlatMesh(mesh, holes, seg = 48) {
                 const end = polygon[(index + 1) % polygon.length];
                 const edgeLength = Math.hypot(end.x - start.x, end.z - start.z);
                 if (edgeLength <= 1e-9) return false;
-                return other.every((point) => orientation * dist(start, end, point) < -1e-9 * edgeLength);
+                return other.every((point) => orientation * dist(start, end, point) <= 0)
+                    && other.some((point) => orientation * dist(start, end, point) < -1e-9 * edgeLength);
             });
         };
         if (separatedByEdge(ring.pts, piece) || separatedByEdge(piece, ring.pts)) {
@@ -220,20 +246,20 @@ export function punchHolesInFlatMesh(mesh, holes, seg = 48) {
             const P = ring.pts[i];
             const Q = ring.pts[(i + 1) % m];
             const outer = clipHalf(inside, P, Q, false);
-            if (outer.length >= 3) out.push(outer);
+            if (polygonHasArea(outer)) out.push(outer);
             inside = clipHalf(inside, P, Q, true);
-            if (inside.length < 3) return; // fully consumed by the hole
+            if (!polygonHasArea(inside)) return; // fully consumed by the hole
         }
         // Whatever remains `inside` every edge is the hole interior → dropped.
     };
-    const overlapsCircle = (piece, ring) => {
+    const overlapsBounds = (piece, ring) => {
         let minx = Infinity, maxx = -Infinity, minz = Infinity, maxz = -Infinity;
         for (const p of piece) {
             if (p.x < minx) minx = p.x; if (p.x > maxx) maxx = p.x;
             if (p.z < minz) minz = p.z; if (p.z > maxz) maxz = p.z;
         }
-        return !(minx > ring.x + ring.r || maxx < ring.x - ring.r ||
-            minz > ring.z + ring.r || maxz < ring.z - ring.r);
+        return !(minx > ring.maxX || maxx < ring.minX ||
+            minz > ring.maxZ || maxz < ring.minZ);
     };
 
     const out = emptyMesh();
@@ -260,7 +286,7 @@ export function punchHolesInFlatMesh(mesh, holes, seg = 48) {
                     && Math.abs(pieces[0][0].y - ring.y) > 1e-6) continue;
                 const next = [];
                 for (const piece of pieces) {
-                    if (overlapsCircle(piece, ring)) subtractRing(piece, ring, next);
+                    if (overlapsBounds(piece, ring)) subtractRing(piece, ring, next);
                     else next.push(piece);
                 }
                 pieces = next;
@@ -268,6 +294,7 @@ export function punchHolesInFlatMesh(mesh, holes, seg = 48) {
             }
             for (const piece of pieces) {
                 for (let k = 1; k + 1 < piece.length; k++) {
+                    if (!triangleHasArea(piece[0], piece[k], piece[k + 1])) continue;
                     emitTri({ ...piece[0] }, { ...piece[k] }, { ...piece[k + 1] }, f.color);
                 }
             }

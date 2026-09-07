@@ -65,7 +65,7 @@ import {
     resolvePadFlashes,
     resolveSilk,
 } from './board-geometry.js';
-import { resolveBoardShapeGeometry } from './board-shapes.js';
+import { boardShapeFilledRemovalOutlines, resolveBoardShapeGeometry } from './board-shapes.js';
 import { pcbTextPolylines } from './pcb-text.js';
 import { loadClipper, isClipperReady, getClipper } from './copper-fill-geom.js';
 
@@ -3380,17 +3380,19 @@ export async function openBoard3DViewer(app, opts = {}) {
                     }
                     continue;
                 }
-                if (outlinePts.length < 3) continue;
-                const ring = outlinePts.map((p) => ({ x: p.x, z: p.y }));
-                let cx = 0, cz = 0;
-                for (const p of ring) { cx += p.x; cz += p.z; }
-                cx /= ring.length; cz /= ring.length;
-                let rad = 0;
-                for (const p of ring) {
-                    const d = Math.hypot(p.x - cx, p.z - cz);
-                    if (d > rad) rad = d;
+                for (const outline of boardShapeFilledRemovalOutlines(s)) {
+                    if (outline.length < 3) continue;
+                    const ring = outline.map((point) => ({ x: point.x, z: point.y }));
+                    let cx = 0, cz = 0;
+                    for (const point of ring) { cx += point.x; cz += point.z; }
+                    cx /= ring.length; cz /= ring.length;
+                    let rad = 0;
+                    for (const point of ring) {
+                        const distance = Math.hypot(point.x - cx, point.z - cz);
+                        if (distance > rad) rad = distance;
+                    }
+                    drilledHoles.push({ x: cx, z: cz, r: rad, ring, plated: !!s.plated, boardShape: true });
                 }
-                drilledHoles.push({ x: cx, z: cz, r: rad, ring, plated: !!s.plated, boardShape: true });
             }
             // Vias are real drilled, plated holes too — bore the board/copper at
             // each via's drill so the open bore reads as a genuine hole (the gold

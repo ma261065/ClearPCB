@@ -21,7 +21,7 @@ import {
     resolvePadFlashes,
     resolveSilk,
 } from './board-geometry.js';
-import { resolveBoardShapeGeometry } from './board-shapes.js';
+import { boardShapeFilledRemovalOutlines, resolveBoardShapeGeometry } from './board-shapes.js';
 import { pcbTextSegments } from './pcb-text.js';
 
 function traceBoardShape(context, geometry) {
@@ -859,8 +859,10 @@ export class Board2D {
             const geometry = resolveBoardShapeGeometry(s);
             ctx.fillStyle = COL.bg;
             if (geometry.filled) {
-                if (!traceBoardShape(ctx, geometry)) continue;
-                ctx.fill();
+                for (const outline of boardShapeFilledRemovalOutlines(s)) {
+                    if (!traceBoardShape(ctx, { path: outline, pathClosed: true })) continue;
+                    ctx.fill();
+                }
             } else {
                 ctx.save();
                 ctx.strokeStyle = COL.bg;

@@ -18,6 +18,7 @@ const {
     boardShapeLineWidthMinimum,
     boardShapeArcGeometry,
     boardShapeCopperCuts,
+    boardShapeFilledRemovalOutlines,
     boardShapeRemovalPathD,
     circleFilledRadius,
     finishLineDraw,
@@ -36,6 +37,8 @@ const {
 const { exportGerbers } = await import('./src/pcb/modules/gerber.js');
 const { pcbTextPolylines, pcbTextSegments } = await import('./src/pcb/modules/pcb-text.js');
 const { pcbLayerSelectionColor } = await import('./src/pcb/modules/layers.js');
+const { flattenSvgPath } = await import('./src/pcb/modules/board-geometry.js');
+const { Board2D } = await import('./src/pcb/modules/board2d.js');
 const { computeFillPolygons, loadClipper } = await import('./src/pcb/modules/copper-fill-geom.js');
 
 let failures = 0;
@@ -48,6 +51,43 @@ function check(name, condition) {
 }
 
 const approx = (a, b) => Math.abs(a - b) < 1e-9;
+const bananaPoints = [
+    { x: 0, y: 0 }, { x: 0, y: 12 }, { x: 16, y: 20 },
+    { x: -4, y: 20 }, { x: -6, y: 12 },
+];
+for (const reversed of [false, true]) {
+    const banana = {
+        kind: 'polygon', layer: 'hole', filled: true, lineWidth: 2,
+        points: reversed ? [...bananaPoints].reverse() : bananaPoints,
+        nodeCornerRadii: reversed ? { 0: 3, 1: 3 } : { 3: 3, 4: 3 },
+    };
+    const centerline = shapeOutline(banana);
+    const removal = flattenSvgPath(boardShapeRemovalPathD(banana)).flat();
+    const previewPoints = [];
+    const context = {
+        beginPath() {}, closePath() {}, fill() {},
+        moveTo(x, y) { previewPoints.push({ x, y }); },
+        lineTo(x, y) { previewPoints.push({ x, y }); },
+    };
+    Board2D.prototype._drawHoles.call({ data: { boardShapes: [banana] } }, context);
+    const contours = boardShapeFilledRemovalOutlines(banana).flat();
+    check(`2D hole preview uses physical rounded contours (${reversed ? 'reversed' : 'forward'})`,
+        JSON.stringify(previewPoints) === JSON.stringify(contours)
+        && contours.length > centerline.length
+        && contours.every(point => removal.some(other =>
+            Math.hypot(point.x - other.x, point.y - other.y) < 0.0001)));
+    const margin = banana.lineWidth / 2 + 0.002;
+    const minX = Math.min(...centerline.map(point => point.x)) - margin;
+    const maxX = Math.max(...centerline.map(point => point.x)) + margin;
+    const minY = Math.min(...centerline.map(point => point.y)) - margin;
+    const maxY = Math.max(...centerline.map(point => point.y)) + margin;
+    check(`rounded hole polygon has no miter spikes (${reversed ? 'reversed' : 'forward'})`,
+        removal.length > centerline.length && removal.every(point =>
+            point.x >= minX && point.x <= maxX && point.y >= minY && point.y <= maxY));
+    check(`filled copper removal shares the rounded hole outline (${reversed ? 'reversed' : 'forward'})`,
+        boardShapeRemovalPathD({ ...banana, layer: 'top-copper', copperMode: 'remove-copper' })
+            === boardShapeRemovalPathD(banana));
+}
 for (const layer of ['hole', 'top-copper', 'top-mask']) {
     const preview = document.createElementNS();
     preview.setAttribute('fill-opacity', '1');

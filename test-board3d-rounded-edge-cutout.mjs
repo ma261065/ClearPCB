@@ -3,7 +3,7 @@ globalThis.localStorage = { getItem() { return null; }, removeItem() {} };
 globalThis.window = { addEventListener() {}, dispatchEvent() {} };
 globalThis.document = { body: { contains() { return false; } } };
 
-const { resolveBoardShapeGeometry } = await import('./src/pcb/modules/board-shapes.js');
+const { boardShapeFilledRemovalOutlines } = await import('./src/pcb/modules/board-shapes.js');
 const { boardSlabWithCutouts, punchHolesInFlatMesh } = await import('./src/pcb/modules/board3d.js');
 const { loadClipper } = await import('./src/pcb/modules/copper-fill-geom.js');
 
@@ -23,7 +23,7 @@ const shape = {
         { x: 36.83, y: -30.48 },
     ],
 };
-const ring = resolveBoardShapeGeometry(shape).path.map((point) => ({ x: point.x, z: point.y }));
+const ring = boardShapeFilledRemovalOutlines(shape)[0].map((point) => ({ x: point.x, z: point.y }));
 const board = [
     { x: 0, z: -80 }, { x: 100, z: -80 },
     { x: 100, z: 0 }, { x: 0, z: 0 },

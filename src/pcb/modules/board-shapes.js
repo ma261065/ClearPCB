@@ -15,6 +15,7 @@
  */
 
 import { circumcircle, pointInPolygon, distanceToSegment } from '../../core/geometry.js';
+import ClipperLib from '../../../assets/vendor/clipper.esm.js';
 import { CopperFill, updateFillIdCounter } from '../../shapes/copper-fill.js';
 import { isLayerLocked, isLayerVisible, PCB_LAYERS } from './layers.js';
 import {
@@ -759,15 +760,34 @@ function outlinePathD(points) {
     return d + ' Z';
 }
 
+export function boardShapeFilledRemovalOutlines(shape) {
+    const geometry = resolveBoardShapeGeometry(shape);
+    const halfWidth = geometry.lineWidth / 2;
+    if (shape.kind === 'circle') {
+        return [circleOutline({ ...shape,
+            radius: geometry.circle?.outerRadius ?? shape.radius + halfWidth, filled: false })];
+    }
+    const scale = 10000;
+    const path = shapeOutline(shape).map((point) => ({
+        X: Math.round(point.x * scale), Y: Math.round(point.y * scale),
+    }));
+    if (path.length < 3) return [];
+    if (!ClipperLib.Clipper.Orientation(path)) path.reverse();
+    const offset = new ClipperLib.ClipperOffset(2, 0.001 * scale);
+    offset.AddPath(path, ClipperLib.JoinType.jtRound, ClipperLib.EndType.etClosedPolygon);
+    const outlines = [];
+    offset.Execute(outlines, halfWidth * scale);
+    return outlines.map((outline) => outline.map((point) => ({
+        x: point.X / scale, y: point.Y / scale,
+    })));
+}
+
 /** Compound path for the physical area removed by a copper-mode shape. */
 export function boardShapeRemovalPathD(shape) {
     const geometry = resolveBoardShapeGeometry(shape);
     const halfWidth = geometry.lineWidth / 2;
     if (geometry.filled) {
-        const outline = shape.kind === 'circle'
-            ? circleOutline({ ...shape, radius: geometry.circle?.outerRadius ?? shape.radius + halfWidth, filled: false })
-            : offsetClosedOutline(shapeOutline(shape), halfWidth);
-        return outlinePathD(outline);
+        return boardShapeFilledRemovalOutlines(shape).map(outlinePathD).join(' ');
     }
     if (shape.kind === 'circle') {
         const outer = circleOutline({ ...shape, radius: shape.radius + halfWidth, filled: false });
