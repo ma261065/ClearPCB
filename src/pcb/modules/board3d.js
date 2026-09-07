@@ -1,5 +1,7 @@
+export { punchHolesInFlatMesh } from './board3d-mesh-ops.js';
 import { ArcballController } from '../../shared/3d/ArcballController.js';
 import { createBoardViewSync } from './board-view-sync.js';
+import { createSurfaceBuilder } from './board3d-surface-client.js';
 import { parseObjModel, meshToGeometry, makeMaterial, makeComponentMaterial, makeComponentGroupMaterials, COLOR_COMPONENT } from '../../shared/3d/model-rendering.js';
 export { ArcballController } from '../../shared/3d/ArcballController.js';
 export { parseObjModel, meshToGeometry, makeMaterial, makeComponentMaterial, makeComponentGroupMaterials } from '../../shared/3d/model-rendering.js';
@@ -1251,278 +1253,6 @@ function appendMesh(dst, src) {
     }
 }
 
-/** Signed area of a closed polygon in the x–z plane; its sign is the winding. */
-function polygonAreaXZ(poly) {
-    let a = 0;
-    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
-        a += poly[j].x * poly[i].z - poly[i].x * poly[j].z;
-    }
-    return a / 2;
-}
-
-/**
- * Clip every triangle of `mesh` to the vertical prism of the convex board
- * `outline` (Sutherland–Hodgman in the x–z plane, with y linearly interpolated
- * at each new edge crossing). Geometry that overhangs the board edge is trimmed
- * exactly at the boundary instead of being dropped or left floating. The board
- * outline is convex (a rounded rectangle), so each clipped triangle stays a
- * single convex polygon that fan-triangulates cleanly.
- * @param {{verts:Array<{x:number,y:number,z:number}>, faces:Array<{idx:number[],color:number[]}>}} mesh
- * @param {Array<{x:number,z:number}>} outline
- * @returns {{verts:Array, faces:Array}}
- */
-function clipMeshToOutline(mesh, outline) {
-    if (!outline || outline.length < 3) return mesh;
-    const orient = polygonAreaXZ(outline) >= 0 ? 1 : -1;
-    const edges = [];
-    for (let i = 0, j = outline.length - 1; i < outline.length; j = i++) {
-        edges.push({
-            ax: outline[j].x, az: outline[j].z,
-            bx: outline[i].x, bz: outline[i].z,
-        });
-    }
-    // Signed distance of (px,pz) to a clip edge; ≥0 means on the inside.
-    const side = (e, px, pz) =>
-        orient * ((e.bx - e.ax) * (pz - e.az) - (e.bz - e.az) * (px - e.ax));
-
-    const out = emptyMesh();
-    const emitTri = (a, b, c, color) => {
-        const base = out.verts.length;
-        out.verts.push(a, b, c);
-        out.faces.push({ idx: [base, base + 1, base + 2], color });
-    };
-
-    for (const f of mesh.faces) {
-        const idx = f.idx;
-        if (!idx || idx.length < 3) continue;
-        // Fan-triangulate the (possibly quad) face, then clip each triangle.
-        for (let t = 1; t + 1 < idx.length; t++) {
-            const v0 = mesh.verts[idx[0]];
-            const v1 = mesh.verts[idx[t]];
-            const v2 = mesh.verts[idx[t + 1]];
-            if (!v0 || !v1 || !v2) continue;
-            // Fast path: a triangle wholly inside every edge passes through.
-            let allIn = true;
-            for (const e of edges) {
-                if (side(e, v0.x, v0.z) < 0 || side(e, v1.x, v1.z) < 0 ||
-                    side(e, v2.x, v2.z) < 0) { allIn = false; break; }
-            }
-            if (allIn) {
-                emitTri({ ...v0 }, { ...v1 }, { ...v2 }, f.color);
-                continue;
-            }
-            // Sutherland–Hodgman: clip the triangle against each outline edge.
-            let poly = [
-                { x: v0.x, y: v0.y, z: v0.z },
-                { x: v1.x, y: v1.y, z: v1.z },
-                { x: v2.x, y: v2.y, z: v2.z },
-            ];
-            for (const e of edges) {
-                if (poly.length === 0) break;
-                const next = [];
-                for (let k = 0; k < poly.length; k++) {
-                    const S = poly[(k + poly.length - 1) % poly.length];
-                    const E = poly[k];
-                    const dS = side(e, S.x, S.z);
-                    const dE = side(e, E.x, E.z);
-                    if (dE >= 0) {
-                        if (dS < 0) {
-                            const u = dS / (dS - dE);
-                            next.push({
-                                x: S.x + u * (E.x - S.x),
-                                y: S.y + u * (E.y - S.y),
-                                z: S.z + u * (E.z - S.z),
-                            });
-                        }
-                        next.push(E);
-                    } else if (dS >= 0) {
-                        const u = dS / (dS - dE);
-                        next.push({
-                            x: S.x + u * (E.x - S.x),
-                            y: S.y + u * (E.y - S.y),
-                            z: S.z + u * (E.z - S.z),
-                        });
-                    }
-                }
-                poly = next;
-            }
-            for (let k = 1; k + 1 < poly.length; k++) {
-                emitTri(poly[0], poly[k], poly[k + 1], f.color);
-            }
-        }
-    }
-    return out;
-}
-
-/**
- * Subtract drilled holes from a flat (single y-plane) mesh so copper, silk and
- * text are bored through exactly where the board substrate is — otherwise a
- * track or pad lid floats over an open hole. Each hole is approximated by a
- * convex polygon pieces; every face triangle that overlaps a hole is replaced by
- * the convex pieces of `triangle \ holePolygon` (the standard convex-difference
- * decomposition: the part outside edge i but inside edges 0..i-1, unioned over
- * all edges). Triangles clear of every hole pass straight through.
- * @param {{verts:Array, faces:Array}} mesh flat planar mesh (constant-ish y)
- * @param {Array<{x:number,z:number,r:number}>} holes drilled holes (board plane)
- * @param {number} [seg] polygon segments per hole
- * @returns {{verts:Array, faces:Array}}
- */
-export function punchHolesInFlatMesh(mesh, holes, seg = 48) {
-    if (!holes || !holes.length || !mesh.faces.length) return mesh;
-    // Pre-build each hole as a CCW polygon ring in the (x, z) board plane.
-    // Circular bores sample a ring; polygon cutouts carry an explicit ring.
-    const rings = holes.filter((h) => {
-        if (h.ring && h.ring.length >= 3) {
-            return h.ring.every((point) => Number.isFinite(point.x) && Number.isFinite(point.z));
-        }
-        return Number.isFinite(h.x) && Number.isFinite(h.z) && Number.isFinite(h.r) && h.r > 0;
-    }).flatMap((h) => {
-        if (h.ring && h.ring.length >= 3) {
-            let pts = h.ring.map((p) => ({ x: p.x, z: p.z }));
-            // Half-plane subtraction expects CCW convex rings. Rounded polygons
-            // can be concave, so decompose those into convex triangles first.
-            let area = 0;
-            for (let i = 0; i < pts.length; i++) {
-                const a = pts[i], b = pts[(i + 1) % pts.length];
-                area += a.x * b.z - b.x * a.z;
-            }
-            if (area < 0) pts = pts.reverse();
-            let direction = 0;
-            let convex = true;
-            for (let i = 0; i < pts.length; i++) {
-                const a = pts[i], b = pts[(i + 1) % pts.length], c = pts[(i + 2) % pts.length];
-                const cross = (b.x - a.x) * (c.z - b.z) - (b.z - a.z) * (c.x - b.x);
-                if (Math.abs(cross) <= 1e-9) continue;
-                const sign = Math.sign(cross);
-                if (direction && sign !== direction) { convex = false; break; }
-                direction = sign;
-            }
-            if (convex) return [{ pts, x: h.x, z: h.z, r: h.r, y: h.y }];
-            const indices = earcut(pts.flatMap((point) => [point.x, point.z]));
-            return Array.from({ length: indices.length / 3 }, (_, index) => ({
-                pts: [pts[indices[index * 3]], pts[indices[index * 3 + 1]], pts[indices[index * 3 + 2]]],
-                x: h.x, z: h.z, r: h.r, y: h.y,
-            }));
-        }
-        const pts = [];
-        for (let i = 0; i < seg; i++) {
-            const a = (i / seg) * Math.PI * 2;
-            pts.push({ x: h.x + h.r * Math.cos(a), z: h.z + h.r * Math.sin(a) });
-        }
-        return [{ pts, x: h.x, z: h.z, r: h.r, y: h.y }];
-    });
-    if (!rings.length) return mesh;
-
-    // Signed area-ish test against the directed edge P→Q in the (x,z) plane;
-    // ≥0 is the polygon interior side (rings are CCW, so interior is left).
-    const dist = (P, Q, R) =>
-        (Q.x - P.x) * (R.z - P.z) - (Q.z - P.z) * (R.x - P.x);
-    const lerp = (S, E, dS, dE) => {
-        const u = dS / (dS - dE);
-        return {
-            x: S.x + u * (E.x - S.x),
-            y: S.y + u * (E.y - S.y),
-            z: S.z + u * (E.z - S.z),
-        };
-    };
-    // Sutherland–Hodgman clip of a convex polygon against one half-plane.
-    // keepInside=true keeps the interior side of edge P→Q, false the exterior.
-    const clipHalf = (poly, P, Q, keepInside) => {
-        const res = [];
-        const n = poly.length;
-        const s = keepInside ? 1 : -1;
-        for (let k = 0; k < n; k++) {
-            const S = poly[(k + n - 1) % n];
-            const E = poly[k];
-            const dS = s * dist(P, Q, S);
-            const dE = s * dist(P, Q, E);
-            if (dE >= 0) {
-                if (dS < 0) res.push(lerp(S, E, dS, dE));
-                res.push(E);
-            } else if (dS >= 0) {
-                res.push(lerp(S, E, dS, dE));
-            }
-        }
-        return res;
-    };
-    // piece \ ringPoly → push the resulting convex sub-pieces onto `out`.
-    const subtractRing = (piece, ring, out) => {
-        const separatedByEdge = (polygon, other) => {
-            const area = polygonAreaXZ(polygon);
-            if (area === 0) return false;
-            const orientation = area > 0 ? 1 : -1;
-            return polygon.some((start, index) => {
-                const end = polygon[(index + 1) % polygon.length];
-                const edgeLength = Math.hypot(end.x - start.x, end.z - start.z);
-                if (edgeLength <= 1e-9) return false;
-                return other.every((point) => orientation * dist(start, end, point) < -1e-9 * edgeLength);
-            });
-        };
-        if (separatedByEdge(ring.pts, piece) || separatedByEdge(piece, ring.pts)) {
-            out.push(piece);
-            return;
-        }
-        const m = ring.pts.length;
-        let inside = piece; // part still inside edges processed so far
-        for (let i = 0; i < m; i++) {
-            const P = ring.pts[i];
-            const Q = ring.pts[(i + 1) % m];
-            const outer = clipHalf(inside, P, Q, false);
-            if (outer.length >= 3) out.push(outer);
-            inside = clipHalf(inside, P, Q, true);
-            if (inside.length < 3) return; // fully consumed by the hole
-        }
-        // Whatever remains `inside` every edge is the hole interior → dropped.
-    };
-    const overlapsCircle = (piece, ring) => {
-        let minx = Infinity, maxx = -Infinity, minz = Infinity, maxz = -Infinity;
-        for (const p of piece) {
-            if (p.x < minx) minx = p.x; if (p.x > maxx) maxx = p.x;
-            if (p.z < minz) minz = p.z; if (p.z > maxz) maxz = p.z;
-        }
-        return !(minx > ring.x + ring.r || maxx < ring.x - ring.r ||
-            minz > ring.z + ring.r || maxz < ring.z - ring.r);
-    };
-
-    const out = emptyMesh();
-    const emitTri = (a, b, c, color) => {
-        const base = out.verts.length;
-        out.verts.push(a, b, c);
-        out.faces.push({ idx: [base, base + 1, base + 2], color });
-    };
-    for (const f of mesh.faces) {
-        const idx = f.idx;
-        if (!idx || idx.length < 3) continue;
-        for (let t = 1; t + 1 < idx.length; t++) {
-            const v0 = mesh.verts[idx[0]];
-            const v1 = mesh.verts[idx[t]];
-            const v2 = mesh.verts[idx[t + 1]];
-            if (!v0 || !v1 || !v2) continue;
-            let pieces = [[
-                { x: v0.x, y: v0.y, z: v0.z },
-                { x: v1.x, y: v1.y, z: v1.z },
-                { x: v2.x, y: v2.y, z: v2.z },
-            ]];
-            for (const ring of rings) {
-                if (Number.isFinite(ring.y) && Math.abs(pieces[0][0].y - ring.y) > 1e-6) continue;
-                const next = [];
-                for (const piece of pieces) {
-                    if (overlapsCircle(piece, ring)) subtractRing(piece, ring, next);
-                    else next.push(piece);
-                }
-                pieces = next;
-                if (!pieces.length) break;
-            }
-            for (const piece of pieces) {
-                for (let k = 1; k + 1 < piece.length; k++) {
-                    emitTri({ ...piece[0] }, { ...piece[k] }, { ...piece[k + 1] }, f.color);
-                }
-            }
-        }
-    }
-    return out;
-}
-
 /** Flat filled disc on the y-plane (used for round trace end-caps / pads). */
 function discMesh(cx, cz, r, y, color, seg = 14) {
     const verts = [{ x: cx, y, z: cz }];
@@ -1936,28 +1666,6 @@ function buildMaskFaceMesh(outline, y, reverse = false) {
             color: COLOR_SOLDERMASK,
         });
     }
-    return mesh;
-}
-
-/**
- * Build the solder-mask coating surfaces above copper, with openings removed
- * so exposed regions reveal copper (or raw board if copper is absent).
- * @param {Array<{x:number,z:number}>} outline
- * @param {Array} circles
- * @param {Array<{x:number,z:number,r:number}>} drilledHoles
- * @returns {{verts:Array, faces:Array}}
- */
-function buildMaskCoatMesh(outline, boardShapes = [], drilledHoles = []) {
-    const mesh = emptyMesh();
-
-    const topFace = buildMaskFaceMesh(outline, Y_TOP + COPPER_EPS, false);
-    const topHoles = drilledHoles.concat(collectMaskOpeningHoles(boardShapes, 'top'));
-    appendMesh(mesh, punchHolesInFlatMesh(topFace, topHoles, 48));
-
-    const bottomFace = buildMaskFaceMesh(outline, Y_BOT - COPPER_EPS, true);
-    const bottomHoles = drilledHoles.concat(collectMaskOpeningHoles(boardShapes, 'bottom'));
-    appendMesh(mesh, punchHolesInFlatMesh(bottomFace, bottomHoles, 48));
-
     return mesh;
 }
 
@@ -3038,7 +2746,7 @@ class ThreeScene {
 
     /**
      * Add a mesh, returning the THREE.Mesh so callers can replace it later.
-     * @param {{verts:Array, faces:Array}} mesh
+    * @param {{verts:Array, faces:Array}|THREE.BufferGeometry} mesh
      * @param {any} [material] optional material override
      * @param {boolean} [groupByColor] split a component body by colour and shade
      *   each group through a stepped polygonOffset so coincident detail faces
@@ -3046,7 +2754,7 @@ class ThreeScene {
      * @returns {THREE.Mesh}
      */
     addMesh(mesh, material, groupByColor = false) {
-        const geo = meshToGeometry(mesh, groupByColor);
+        const geo = mesh instanceof THREE.BufferGeometry ? mesh : meshToGeometry(mesh, groupByColor);
         let mat = material || this.material;
         let owned = null;
         if (groupByColor && !material) {
@@ -3292,7 +3000,7 @@ export async function openBoard3DViewer(app, opts = {}) {
     window.addEventListener('pointermove', onSplitMove);
     window.addEventListener('pointerup', onSplitUp);
 
-    // ── Spinner / cover (the 3D build blocks the thread; armed in ensure3D) ─
+    // ── Spinner / cover (armed in ensure3D) ───────────────────────────
     let startedAt = 0;
     let spinnerShown = false;
     let lastYieldAt = 0;
@@ -3338,7 +3046,8 @@ export async function openBoard3DViewer(app, opts = {}) {
     const bodyMeshes = new Map();
     let partsVisible = true;
     dom.btnParts?.classList.toggle('active', partsVisible);
-    let rebuildSurfaces = () => {};
+    const surfaceBuilder = createSurfaceBuilder();
+    let rebuildSurfaces = async () => false;
     let syncBodies = () => {};
     const setStatus = (/** @type {string} */ text) => {
         if (dom.status && !panel.closed) dom.status.textContent = text;
@@ -3567,7 +3276,6 @@ export async function openBoard3DViewer(app, opts = {}) {
         silk: null,
         text: null,
     };
-    let outline = null;
     // Painting order for the coplanar board layers (all share one tiny depth
     // bias, so where two layers overlap the depth test ties and the LATER-drawn
     // one wins — this fixes the order: board behind, then mask openings,
@@ -3586,150 +3294,177 @@ export async function openBoard3DViewer(app, opts = {}) {
         text: 8,
     };
     const swapSurface = (/** @type {string} */ key, /** @type {any} */ data, /** @type {any} */ material) => {
+        if (!scene) return;
         scene.removeMesh(surf[key]);
-        const m = data && data.faces.length ? scene.addMesh(data, material) : null;
+        const m = data && data.position.length ? scene.addMesh(surfaceGeometry(data), material) : null;
         if (m) m.renderOrder = SURFACE_ORDER[key] ?? 0;
         surf[key] = m;
     };
-    rebuildSurfaces = () => {
-        const w = app._boardWidth || 100;
-        const h = app._boardHeight || 80;
-        const r = app._boardRadius || 0;
-        // PCB world: X∈[0,w], Z(=pcb y)∈[-h,0].
-        outline = roundedRectOutline(0, -h, w, h, r);
-        // Bore drilled holes (pad drills + mounting holes) clean through the
-        // slab so they read as real openings; only holes wholly inside the board.
-        let drilledHoles = collectBoardHoles(app.placements).filter((ho) => ho.r > 0);
-        // Free-standing circles on HOLE layer are real board cutouts.
-        // Free-standing board shapes (rect/polygon/arc/circle) on HOLE layer are real
-        // board cutouts too — carry an explicit polygon ring plus a bounding
-        // circle (centroid + max radius) for the bbox/inside-board tests.
-        for (const s of (app.boardShapes || [])) {
-            if (!s || s.layer !== 'hole') continue;
-            const geometry = resolveBoardShapeGeometry(s);
-            if (geometry.circle) {
-                drilledHoles.push({
-                    x: geometry.circle.x,
-                    z: geometry.circle.y,
-                    r: geometry.circle.outerRadius,
-                    plated: !!s.plated,
-                    boardShape: true,
-                });
-                continue;
-            }
-            const outlinePts = geometry.path;
-            if (!outlinePts || outlinePts.length < 2) continue;
-            if (!geometry.filled) {
-                const segments = geometry.strokeSegments?.length
-                    ? geometry.strokeSegments
-                    : outlinePts.slice(1).map((end, index) => ({
-                        start: outlinePts[index], end, lineWidth: geometry.lineWidth,
-                    }));
-                for (const segment of segments) {
-                    const { start, end } = segment;
-                    if (Math.hypot(end.x - start.x, end.y - start.y) <= 1e-9) continue;
-                    const ring = capsuleRing(start.x, start.y, end.x, end.y, segment.lineWidth / 2)
-                        .map((point) => ({ x: point.x, z: point.y }));
-                    let cx = 0, cz = 0;
-                    for (const point of ring) { cx += point.x; cz += point.z; }
-                    cx /= ring.length; cz /= ring.length;
-                    let rad = 0;
-                    for (const point of ring) rad = Math.max(rad, Math.hypot(point.x - cx, point.z - cz));
-                    drilledHoles.push({ x: cx, z: cz, r: rad, ring, plated: !!s.plated, boardShape: true });
+    const surfaceGeometry = (data) => {
+        const geometry = new THREE.BufferGeometry();
+        for (const key of ['position', 'normal', 'color']) {
+            geometry.setAttribute(key, new THREE.Float32BufferAttribute(data[key], 3));
+        }
+        return geometry;
+    };
+    let hasSurfaces = false;
+    rebuildSurfaces = async () => {
+        try {
+            const w = app._boardWidth || 100;
+            const h = app._boardHeight || 80;
+            const r = app._boardRadius || 0;
+            // PCB world: X∈[0,w], Z(=pcb y)∈[-h,0].
+            const outline = roundedRectOutline(0, -h, w, h, r);
+            // Bore drilled holes (pad drills + mounting holes) clean through the
+            // slab so they read as real openings; only holes wholly inside the board.
+            let drilledHoles = collectBoardHoles(app.placements).filter((ho) => ho.r > 0);
+            // Free-standing circles on HOLE layer are real board cutouts.
+            // Free-standing board shapes (rect/polygon/arc/circle) on HOLE layer are real
+            // board cutouts too — carry an explicit polygon ring plus a bounding
+            // circle (centroid + max radius) for the bbox/inside-board tests.
+            for (const s of (app.boardShapes || [])) {
+                if (!s || s.layer !== 'hole') continue;
+                const geometry = resolveBoardShapeGeometry(s);
+                if (geometry.circle) {
+                    drilledHoles.push({
+                        x: geometry.circle.x,
+                        z: geometry.circle.y,
+                        r: geometry.circle.outerRadius,
+                        plated: !!s.plated,
+                        boardShape: true,
+                    });
+                    continue;
                 }
-                continue;
-            }
-            if (outlinePts.length < 3) continue;
-            const ring = outlinePts.map((p) => ({ x: p.x, z: p.y }));
-            let cx = 0, cz = 0;
-            for (const p of ring) { cx += p.x; cz += p.z; }
-            cx /= ring.length; cz /= ring.length;
-            let rad = 0;
-            for (const p of ring) {
-                const d = Math.hypot(p.x - cx, p.z - cz);
-                if (d > rad) rad = d;
-            }
-            drilledHoles.push({ x: cx, z: cz, r: rad, ring, plated: !!s.plated, boardShape: true });
-        }
-        // Vias are real drilled, plated holes too — bore the board/copper at
-        // each via's drill so the open bore reads as a genuine hole (the gold
-        // barrel from buildViaMesh lines it).
-        for (const via of (app.vias || [])) {
-            const r = (via.drill || 0.3) / 2;
-            if (r > 0) drilledHoles.push({ x: via.x, z: via.y, r, plated: true });
-        }
-        drilledHoles = discardNestedBores(drilledHoles);
-        // Classify bores: wholly-inside ones are punched as fast earcut holes;
-        // ones that breach the board edge are subtracted from the outline with
-        // a polygon boolean so the slab is genuinely notched. Bores wholly
-        // outside the board are ignored.
-        const boardHoles = [];
-        const crossingRings = [];
-        for (const ho of drilledHoles) {
-            const inside = ho.x - ho.r > 0 && ho.x + ho.r < w &&
-                ho.z - ho.r > -h && ho.z + ho.r < 0;
-            if (inside) { boardHoles.push(ho); continue; }
-            const outside = ho.x + ho.r <= 0 || ho.x - ho.r >= w ||
-                ho.z + ho.r <= -h || ho.z - ho.r >= 0;
-            if (outside) continue;
-            if (ho.ring && ho.ring.length >= 3) {
-                crossingRings.push(ho.ring);
-            } else if (ho.r > 0) {
-                const ring = [];
-                for (let i = 0; i < 48; i++) {
-                    const a = (i / 48) * Math.PI * 2;
-                    ring.push({ x: ho.x + ho.r * Math.cos(a), z: ho.z + ho.r * Math.sin(a) });
+                const outlinePts = geometry.path;
+                if (!outlinePts || outlinePts.length < 2) continue;
+                if (!geometry.filled) {
+                    const segments = geometry.strokeSegments?.length
+                        ? geometry.strokeSegments
+                        : outlinePts.slice(1).map((end, index) => ({
+                            start: outlinePts[index], end, lineWidth: geometry.lineWidth,
+                        }));
+                    for (const segment of segments) {
+                        const { start, end } = segment;
+                        if (Math.hypot(end.x - start.x, end.y - start.y) <= 1e-9) continue;
+                        const ring = capsuleRing(start.x, start.y, end.x, end.y, segment.lineWidth / 2)
+                            .map((point) => ({ x: point.x, z: point.y }));
+                        let cx = 0, cz = 0;
+                        for (const point of ring) { cx += point.x; cz += point.z; }
+                        cx /= ring.length; cz /= ring.length;
+                        let rad = 0;
+                        for (const point of ring) rad = Math.max(rad, Math.hypot(point.x - cx, point.z - cz));
+                        drilledHoles.push({ x: cx, z: cz, r: rad, ring, plated: !!s.plated, boardShape: true });
+                    }
+                    continue;
                 }
-                crossingRings.push(ring);
+                if (outlinePts.length < 3) continue;
+                const ring = outlinePts.map((p) => ({ x: p.x, z: p.y }));
+                let cx = 0, cz = 0;
+                for (const p of ring) { cx += p.x; cz += p.z; }
+                cx /= ring.length; cz /= ring.length;
+                let rad = 0;
+                for (const p of ring) {
+                    const d = Math.hypot(p.x - cx, p.z - cz);
+                    if (d > rad) rad = d;
+                }
+                drilledHoles.push({ x: cx, z: cz, r: rad, ring, plated: !!s.plated, boardShape: true });
             }
+            // Vias are real drilled, plated holes too — bore the board/copper at
+            // each via's drill so the open bore reads as a genuine hole (the gold
+            // barrel from buildViaMesh lines it).
+            for (const via of (app.vias || [])) {
+                const r = (via.drill || 0.3) / 2;
+                if (r > 0) drilledHoles.push({ x: via.x, z: via.y, r, plated: true });
+            }
+            drilledHoles = discardNestedBores(drilledHoles);
+            // Classify bores: wholly-inside ones are punched as fast earcut holes;
+            // ones that breach the board edge are subtracted from the outline with
+            // a polygon boolean so the slab is genuinely notched. Bores wholly
+            // outside the board are ignored.
+            const boardHoles = [];
+            const crossingRings = [];
+            for (const ho of drilledHoles) {
+                const inside = ho.x - ho.r > 0 && ho.x + ho.r < w &&
+                    ho.z - ho.r > -h && ho.z + ho.r < 0;
+                if (inside) { boardHoles.push(ho); continue; }
+                const outside = ho.x + ho.r <= 0 || ho.x - ho.r >= w ||
+                    ho.z + ho.r <= -h || ho.z - ho.r >= 0;
+                if (outside) continue;
+                if (ho.ring && ho.ring.length >= 3) {
+                    crossingRings.push(ho.ring);
+                } else if (ho.r > 0) {
+                    const ring = [];
+                    for (let i = 0; i < 48; i++) {
+                        const a = (i / 48) * Math.PI * 2;
+                        ring.push({ x: ho.x + ho.r * Math.cos(a), z: ho.z + ho.r * Math.sin(a) });
+                    }
+                    crossingRings.push(ring);
+                }
+            }
+            const surfaces = {
+                board: { parts: [{ mesh: boardSlabWithCutouts(outline, boardHoles, crossingRings,
+                    0, BOARD_THICKNESS, COLOR_RAW_BOARD, COLOR_RAW_BOARD) }] },
+            };
+            const addSurface = (key, parts) => { surfaces[key] = { parts, outline }; };
+            if (SHOW_SOLDERMASK) {
+                // Solder-mask openings are raw-board cutouts drawn beneath copper, so
+                // copper naturally appears only where geometry exists above them.
+                addSurface('maskOpenings', [{ mesh: buildMaskOpeningMesh(app.boardShapes || []), holes: drilledHoles }]);
+            }
+            // Punch the same drilled holes through the flat copper so tracks/pours
+            // crossing a hole are bored out instead of lidding over an open hole.
+            // Copper remove circles are also treated as geometric subtractions.
+            // Copper pours sit on the same plane as tracks, so combine both into
+            // the one copper surface before boring/clipping.
+            const circleShapes = (app.boardShapes || []).filter((shape) => shape?.kind === 'circle');
+            const copperSubtractHoles = collectCopperSubtractHoles(app.boardShapes || []);
+            const copperPunchHoles = drilledHoles.concat(copperSubtractHoles);
+            const boardShapeHoles = drilledHoles.filter((hole) => hole.boardShape);
+            const copperMesh = buildCopperMesh(app.tracks, circleShapes, app.boardShapes, app.texts);
+            appendMesh(copperMesh, buildFillMesh(app.copperFills));
+            addSurface('copper', [{ mesh: copperMesh, holes: copperPunchHoles }]);
+            const padsMesh = emptyMesh();
+            for (const [, pl] of app.placements) appendMesh(padsMesh, padMesh(pl));
+            addSurface('via', [
+                { mesh: buildViaMesh(app.vias), holes: boardShapeHoles },
+                { mesh: buildPlatedShapeHoleMesh(drilledHoles) },
+            ]);
+            addSurface('pads', [{ mesh: padsMesh, holes: copperPunchHoles }]);
+            if (SHOW_SOLDERMASK) {
+                addSurface('maskCoat', [
+                    { mesh: buildMaskFaceMesh(outline, Y_TOP + COPPER_EPS, false),
+                        holes: drilledHoles.concat(collectMaskOpeningHoles(app.boardShapes || [], 'top')) },
+                    { mesh: buildMaskFaceMesh(outline, Y_BOT - COPPER_EPS, true),
+                        holes: drilledHoles.concat(collectMaskOpeningHoles(app.boardShapes || [], 'bottom')) },
+                ]);
+            }
+            // Document-layer circles expose raw board material above mask/copper.
+            addSurface('documentCutouts', [{ mesh: buildDocumentCutoutMesh(circleShapes), holes: drilledHoles }]);
+            addSurface('silk', [{ mesh: buildSilkMesh(app), holes: drilledHoles }]);
+            addSurface('text', [{ mesh: buildTextMesh(app), holes: drilledHoles }]);
+            const result = await surfaceBuilder.build(surfaces);
+            if (!result || panel.closed || !scene) return false;
+            if (panel.hidden || panel.view !== '3d'
+                || app._deferDragOverlays || app._suspendFillRefresh || app._fillRefreshScheduled
+                || app._suspendBoardViewRefresh || (app._fillRefreshPending && app.copperFills?.length)) {
+                viewSync.invalidate();
+                return false;
+            }
+            const materials = { board: scene.boardMaterial, maskOpenings: scene.maskOpeningMaterial,
+                copper: scene.copperMaterial, via: scene.viaMaterial, pads: scene.padMaterial,
+                maskCoat: scene.maskCoatMaterial, documentCutouts: scene.documentCutoutMaterial,
+                silk: scene.silkMaterial, text: scene.textMaterial };
+            for (const key of Object.keys(surf)) swapSurface(key, result[key], materials[key]);
+            scene.positionGlint(w / 2, -h / 2, Math.max(w, h));
+            if (!hasSurfaces) { hasSurfaces = true; scene.frameAll(); }
+            scene.requestRender();
+            return true;
+        } catch (error) {
+            console.warn('3D surface build failed', error);
+            viewSync.invalidate();
+            setStatus('3D update failed');
+            return false;
         }
-        scene.removeMesh(surf.board);
-        surf.board = scene.addMesh(
-            boardSlabWithCutouts(outline, boardHoles, crossingRings, 0, BOARD_THICKNESS, COLOR_RAW_BOARD, COLOR_RAW_BOARD),
-            scene.boardMaterial);
-        if (surf.board) surf.board.renderOrder = SURFACE_ORDER.board;
-        scene.positionGlint(w / 2, -h / 2, Math.max(w, h));
-        if (SHOW_SOLDERMASK) {
-            // Solder-mask openings are raw-board cutouts drawn beneath copper, so
-            // copper naturally appears only where geometry exists above them.
-            swapSurface('maskOpenings', clipMeshToOutline(
-                punchHolesInFlatMesh(buildMaskOpeningMesh(app.boardShapes || []), drilledHoles), outline), scene.maskOpeningMaterial);
-        } else {
-            swapSurface('maskOpenings', null, scene.maskOpeningMaterial);
-        }
-        // Punch the same drilled holes through the flat copper so tracks/pours
-        // crossing a hole are bored out instead of lidding over an open hole.
-        // Copper remove circles are also treated as geometric subtractions.
-        // Copper pours sit on the same plane as tracks, so combine both into
-        // the one copper surface before boring/clipping.
-        const circleShapes = (app.boardShapes || []).filter((shape) => shape?.kind === 'circle');
-        const copperSubtractHoles = collectCopperSubtractHoles(app.boardShapes || []);
-        const copperPunchHoles = drilledHoles.concat(copperSubtractHoles);
-        const boardShapeHoles = drilledHoles.filter((hole) => hole.boardShape);
-        const copperMesh = buildCopperMesh(app.tracks, circleShapes, app.boardShapes, app.texts);
-        appendMesh(copperMesh, buildFillMesh(app.copperFills));
-        swapSurface('copper', clipMeshToOutline(
-            punchHolesInFlatMesh(copperMesh, copperPunchHoles), outline), scene.copperMaterial);
-        const viaMesh = punchHolesInFlatMesh(buildViaMesh(app.vias), boardShapeHoles);
-        appendMesh(viaMesh, buildPlatedShapeHoleMesh(drilledHoles));
-        const padsMesh = emptyMesh();
-        for (const [, pl] of app.placements) appendMesh(padsMesh, padMesh(pl));
-        const padsMeshCut = punchHolesInFlatMesh(padsMesh, copperPunchHoles, 48);
-        swapSurface('via', clipMeshToOutline(viaMesh, outline), scene.viaMaterial);
-        swapSurface('pads', clipMeshToOutline(padsMeshCut, outline), scene.padMaterial);
-        if (SHOW_SOLDERMASK) {
-            swapSurface('maskCoat', clipMeshToOutline(
-                buildMaskCoatMesh(outline, app.boardShapes || [], drilledHoles), outline), scene.maskCoatMaterial);
-        } else {
-            swapSurface('maskCoat', null, scene.maskCoatMaterial);
-        }
-        // Document-layer circles expose raw board material above mask/copper.
-        swapSurface('documentCutouts', clipMeshToOutline(
-            punchHolesInFlatMesh(buildDocumentCutoutMesh(circleShapes), drilledHoles), outline), scene.documentCutoutMaterial);
-        swapSurface('silk', clipMeshToOutline(
-            punchHolesInFlatMesh(buildSilkMesh(app), drilledHoles), outline), scene.silkMaterial);
-        swapSurface('text', clipMeshToOutline(
-            punchHolesInFlatMesh(buildTextMesh(app), drilledHoles), outline), scene.textMaterial);
     };
 
     // ── Component bodies (OBJ now, STEP lazily, diffed on live re-sync) ──
@@ -3807,11 +3542,8 @@ export async function openBoard3DViewer(app, opts = {}) {
     };
 
         // ── Initial build ───────────────────────────────────────────────
-        // The board surface build (rebuildSurfaces) is synchronous and blocks
-        // the thread, so a delayed spinner can never paint mid-build. Instead
-        // reveal the spinner up front (it sits above the grey cover), yield two
-        // frames so the browser actually paints it, THEN run the blocking build
-        // and stream component bodies + STEP models asynchronously.
+        // Reveal the spinner before preparing the worker input, then stream
+        // component bodies and STEP models after the surfaces are ready.
         (async () => {
             startedAt = performance.now();
             lastYieldAt = startedAt;
@@ -3820,8 +3552,8 @@ export async function openBoard3DViewer(app, opts = {}) {
             await nextFrame();
             if (panel.closed) { hideSpinner(); return; }
 
-            rebuildSurfaces();
-            scene.frameAll();
+            await rebuildSurfaces();
+            if (panel.closed) return;
             scene.resize();
             scene.requestRender();
             // Polygon-boolean board notching (edge-crossing cutouts) needs
@@ -3937,6 +3669,7 @@ export async function openBoard3DViewer(app, opts = {}) {
         && !app._suspendFillRefresh && !app._fillRefreshScheduled
         && !(app._fillRefreshPending && app.copperFills?.length);
     const scheduleSync = () => {
+        surfaceBuilder.invalidate();
         viewSync.invalidate();
         if (!canSync()) return;
         if (syncTimer) window.clearTimeout(syncTimer);
@@ -4067,6 +3800,7 @@ export async function openBoard3DViewer(app, opts = {}) {
         panel.closed = true;
         if (pollTimer) { window.clearInterval(pollTimer); pollTimer = 0; }
         if (syncTimer) { window.clearTimeout(syncTimer); syncTimer = 0; }
+        surfaceBuilder.dispose();
         if (slideTimer) { window.clearTimeout(slideTimer); slideTimer = 0; }
         // Unhook the live-sync wrapper (only if nothing re-wrapped after us).
         if (app.history && app.history.onChanged === onHistoryChanged) {

@@ -69,7 +69,7 @@ const scheduledSync = createBoardViewSync({
     refresh3D() { refreshed.push(revision); },
     refresh2D() {},
 });
-const schedule = new Function('window', 'panel', 'app', 'viewSync',
+const schedule = new Function('window', 'panel', 'app', 'viewSync', 'surfaceBuilder',
     `${source.slice(scheduleStart, scheduleEnd)}\nreturn scheduleSync;`)(
     {
         setTimeout(callback, delay) {
@@ -79,7 +79,7 @@ const schedule = new Function('window', 'panel', 'app', 'viewSync',
         },
         clearTimeout(timer) { timers.delete(timer); },
     },
-    panel, app, scheduledSync,
+    panel, app, scheduledSync, { invalidate() {} },
 );
 const fireTimer = () => {
     assert.equal(timers.size, 1);
