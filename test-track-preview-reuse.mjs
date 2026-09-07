@@ -6,6 +6,7 @@ function element(tag) {
         tag, attributes: new Map(), children: [], parentNode: null,
         setAttribute(name, value) { this.attributes.set(name, value); },
         getAttribute(name) { return this.attributes.get(name); },
+        removeAttribute(name) { this.attributes.delete(name); },
         appendChild(child) {
             child.remove();
             this.children.push(child);
@@ -72,12 +73,38 @@ assert.equal(first.parentNode, layers.get('bottom-copper'));
 
 ctx.snap = { x: 6, y: 0 };
 refreshTrackDrawPreview(app);
-assert.equal(ctx.previewElements.length, 2);
-assert.deepEqual(layers.get('bottom-copper').children, [ctx.previewElements[0], first, ctx.previewElements[1]]);
+const halo = ctx.previewCache.get('axis:halo');
+const centerline = ctx.previewCache.get('axis:centerline');
+assert.ok(halo && centerline);
+assert.deepEqual(layers.get('bottom-copper').children, [halo, first, centerline]);
+const alignedAllocations = allocations;
+for (let frame = 0; frame < 100; frame++) {
+    ctx.snap = frame % 3 === 0 ? { x: 6, y: 6 } : frame % 3 === 1 ? { x: 0, y: 6 } : { x: 6, y: 0 };
+    refreshTrackDrawPreview(app);
+    assert.equal(ctx.previewCache.get('axis:halo'), halo);
+    assert.equal(ctx.previewCache.get('axis:centerline'), centerline);
+    assert.equal(centerline.getAttribute('stroke-dasharray'), frame % 3 === 0 ? '0.08 0.06' : undefined);
+    assert.equal(halo.getAttribute('x2'), String(ctx.snap.x));
+    assert.equal(halo.getAttribute('y2'), String(ctx.snap.y));
+    assert.deepEqual(layers.get('bottom-copper').children, [halo, first, centerline]);
+}
+assert.equal(allocations, alignedAllocations, 'Aligned cursor motion must reuse both glow lines');
 app.viewport.scale = 50;
 refreshTrackDrawPreview(app);
 assert.equal(layers.get('bottom-copper').children.length, 3);
 assert.equal(ctx.previewCache.get('run:0'), first);
+assert.equal(centerline.getAttribute('stroke-width'), '0.03');
+assert.equal(centerline.getAttribute('stroke-dasharray'), '0.16 0.12');
+toggleTrackLayer(app);
+assert.deepEqual(layers.get('top-copper').children, [halo, first, centerline]);
+assert.equal(layers.get('bottom-copper').children.length, 0);
+ctx.snap = { x: 6, y: 2 };
+refreshTrackDrawPreview(app);
+assert.equal(halo.parentNode, null);
+assert.equal(centerline.parentNode, null);
+assert.equal(ctx.previewCache.size, 1);
+ctx.snap = { x: 6, y: 0 };
+refreshTrackDrawPreview(app);
 cancelTrackDraw(app);
 assert.equal(app._trackDraw, null);
 assert.equal(ctx.previewCache.size, 0);

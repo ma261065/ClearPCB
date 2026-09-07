@@ -73,13 +73,12 @@ export function clearAxisGlow(app) {
     app._axisGlowResolved = null;
 }
 
-export function makeAxisGlowHalo(app, segment, color) {
+export function makeAxisGlowHalo(app, segment, color, line = document.createElementNS(NS, 'line')) {
     const scale = Math.max(0.01, app.viewport?.scale || 1);
     const width = segment.width || 0.2;
     // The ring grows with copper width, with a 4px-per-side floor so fine
     // tracks retain a visible cue when zoomed out.
     const ring = Math.max(4 / scale, width * 0.25);
-    const line = document.createElementNS(NS, 'line');
     line.setAttribute('class', 'pcb-track-preview');
     line.setAttribute('x1', String(segment.a.x));
     line.setAttribute('y1', String(segment.a.y));
@@ -93,9 +92,8 @@ export function makeAxisGlowHalo(app, segment, color) {
     return line;
 }
 
-export function makeAxisGlowCenterline(app, segment, dashKind) {
+export function makeAxisGlowCenterline(app, segment, dashKind, line = document.createElementNS(NS, 'line')) {
     const scale = app.viewport?.scale || 1;
-    const line = document.createElementNS(NS, 'line');
     line.setAttribute('class', 'pcb-track-preview');
     line.setAttribute('x1', String(segment.a.x));
     line.setAttribute('y1', String(segment.a.y));
@@ -106,6 +104,7 @@ export function makeAxisGlowCenterline(app, segment, dashKind) {
     line.setAttribute('stroke-linecap', dashKind === 'dotted' ? 'round' : 'butt');
     if (dashKind === 'dotted') line.setAttribute('stroke-dasharray', `${0.01 / scale} ${6 / scale}`);
     else if (dashKind === 'dashed') line.setAttribute('stroke-dasharray', `${8 / scale} ${6 / scale}`);
+    else line.removeAttribute('stroke-dasharray');
     line.setAttribute('stroke-opacity', '0.95');
     line.setAttribute('pointer-events', 'none');
     return line;

@@ -1347,9 +1347,9 @@ function _renderPreview(app, ctx, livePt) {
         const dashKind = align === 'd' ? 'dashed' : 'solid';
         const seg = { a, b, width: ctx.width || _getTrackWidth(app) };
         // Solid colour halo UNDER the polyline.
-        const halo = makeAxisGlowHalo(app, seg, _alignColor(align));
+        const halo = makeAxisGlowHalo(app, seg, _alignColor(align),
+            _previewElement(ctx, 'axis:halo', 'line', used));
         parent.appendChild(halo);
-        ctx.previewElements.push(halo);
         return { seg, dashKind, parent };
     })();
 
@@ -1381,9 +1381,9 @@ function _renderPreview(app, ctx, livePt) {
 
     // White patterned centerline ON TOP of the preview polyline.
     if (axisGlow) {
-        const line = makeAxisGlowCenterline(app, axisGlow.seg, axisGlow.dashKind);
+        const line = makeAxisGlowCenterline(app, axisGlow.seg, axisGlow.dashKind,
+            _previewElement(ctx, 'axis:centerline', 'line', used));
         axisGlow.parent.appendChild(line);
-        ctx.previewElements.push(line);
     }
 
     // Implicit-via markers: any committed anchor where adjacent committed
