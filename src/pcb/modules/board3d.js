@@ -1868,42 +1868,6 @@ function buildMaskOpeningMesh(boardShapes = []) {
 }
 
 /**
- * Build a mesh of board-exposure cutouts from document-layer circles. These
- * are drawn above mask + copper so they visually remove both and expose raw
- * board material on top and bottom faces.
- * @param {Array} circles
- * @returns {{verts:Array, faces:Array}}
- */
-function buildDocumentCutoutMesh(circles = []) {
-    const mesh = emptyMesh();
-    for (const c of circles || []) {
-        if (!c || !(c.radius > 0)) continue;
-        const layer = String(c.layer || '');
-        if (layer !== 'document' && layer !== 'top-document' && layer !== 'bottom-document') continue;
-        const side = layer === 'top-document' ? 'top'
-            : layer === 'bottom-document' ? 'bottom'
-                : 'both';
-        const geometry = resolveBoardShapeGeometry(c);
-        if (geometry.filled) {
-            if (side === 'both' || side === 'top') {
-                appendMesh(mesh, discMesh(c.x, c.y, geometry.circle.outerRadius, Y_TOP + SILK_EPS, COLOR_RAW_BOARD, FILLED_CIRCLE_SEGMENTS));
-            }
-            if (side === 'both' || side === 'bottom') {
-                appendMesh(mesh, discMesh(c.x, c.y, geometry.circle.outerRadius, Y_BOT - SILK_EPS, COLOR_RAW_BOARD, FILLED_CIRCLE_SEGMENTS));
-            }
-        } else {
-            if (side === 'both' || side === 'top') {
-                appendMesh(mesh, flatRingMesh(c.x, c.y, geometry.circle.radius, geometry.lineWidth, Y_TOP + SILK_EPS, COLOR_RAW_BOARD, 32));
-            }
-            if (side === 'both' || side === 'bottom') {
-                appendMesh(mesh, flatRingMesh(c.x, c.y, geometry.circle.radius, geometry.lineWidth, Y_BOT - SILK_EPS, COLOR_RAW_BOARD, 32));
-            }
-        }
-    }
-    return mesh;
-}
-
-/**
  * Build one combined silkscreen mesh (lines, circle outlines/fills and
  * flattened SVG paths) from all component placements, dropped onto the top
  * or bottom face as appropriate. Stroke-font text is handled separately by
@@ -1957,13 +1921,13 @@ function buildSilkMesh(app) {
     }
     // Free-standing circles on any non-copper, non-hole, non-mask,
     // non-document layer. Mask-layer circles are composited by
-    // buildMaskOpeningMesh(); document circles by buildDocumentCutoutMesh().
+    // buildMaskOpeningMesh(); document graphics are design-only.
     for (const c of circles || []) {
         if (!c) continue;
         const layer = String(c.layer || 'top-silk');
         if (layer === 'top-copper' || layer === 'bottom-copper' || layer === 'hole'
             || layer === 'top-mask' || layer === 'bottom-mask'
-            || layer === 'document' || layer === 'top-document' || layer === 'bottom-document') continue;
+            || layer === 'top-document' || layer === 'bottom-document') continue;
         if (!(c.radius > 0)) continue;
         const bottom = layer.startsWith('bottom-');
         const y = bottom ? Y_BOT - SILK_EPS : Y_TOP + SILK_EPS;
@@ -2022,6 +1986,7 @@ function buildTextMesh(app) {
     for (const [, t] of (app.texts || [])) {
         if (!t?.content) continue;
         if (t.layer === 'top-copper' || t.layer === 'bottom-copper') continue;
+        if (t.layer === 'top-document' || t.layer === 'bottom-document') continue;
         const bottom = typeof t.layer === 'string' && t.layer.startsWith('bottom-');
         const y = bottom ? Y_BOT - SILK_EPS : Y_TOP + SILK_EPS;
         appendMesh(mesh, strokePolysToMesh(
@@ -2449,7 +2414,6 @@ class ThreeScene {
         this.maskCoatMaterial.transparent = true;
         this.maskCoatMaterial.opacity = LAYER_STYLE.soldermask.o;
         this.maskCoatMaterial.depthWrite = false;
-        this.documentCutoutMaterial = makeDecalMaterial(-56);
         this.silkMaterial = makeDecalMaterial(-64);
         this.textMaterial = makeDecalMaterial(-80);
 
@@ -3283,7 +3247,7 @@ export async function openBoard3DViewer(app, opts = {}) {
     // can swap it without disturbing the camera or the component bodies. Every
     // surface is clipped to the board outline so copper/via/silk/text/pads that
     // overhang the edge are trimmed at the boundary rather than floating.
-    /** @type {{board:THREE.Mesh|null,maskOpenings:THREE.Mesh|null,copper:THREE.Mesh|null,via:THREE.Mesh|null,pads:THREE.Mesh|null,maskCoat:THREE.Mesh|null,documentCutouts:THREE.Mesh|null,silk:THREE.Mesh|null,text:THREE.Mesh|null}} */
+    /** @type {{board:THREE.Mesh|null,maskOpenings:THREE.Mesh|null,copper:THREE.Mesh|null,via:THREE.Mesh|null,pads:THREE.Mesh|null,maskCoat:THREE.Mesh|null,silk:THREE.Mesh|null,text:THREE.Mesh|null}} */
     const surf = {
         board: null,
         maskOpenings: null,
@@ -3291,14 +3255,13 @@ export async function openBoard3DViewer(app, opts = {}) {
         via: null,
         pads: null,
         maskCoat: null,
-        documentCutouts: null,
         silk: null,
         text: null,
     };
     // Painting order for the coplanar board layers (all share one tiny depth
     // bias, so where two layers overlap the depth test ties and the LATER-drawn
     // one wins — this fixes the order: board behind, then mask openings,
-    // copper, via, pad, copper cutouts, document cutouts, silk and text on top).
+    // copper, via, pad, mask coat, silk and text on top).
     // Without this the layers would
     // paint in mesh-add order.
     const SURFACE_ORDER = {
@@ -3308,7 +3271,6 @@ export async function openBoard3DViewer(app, opts = {}) {
         via: 3,
         pads: 4,
         maskCoat: 5,
-        documentCutouts: 6,
         silk: 7,
         text: 8,
     };
@@ -3464,7 +3426,6 @@ export async function openBoard3DViewer(app, opts = {}) {
                 ]);
             }
             // Document-layer circles expose raw board material above mask/copper.
-            addSurface('documentCutouts', [{ mesh: buildDocumentCutoutMesh(circleShapes), holes: drilledHoles }]);
             addSurface('silk', [{ mesh: buildSilkMesh(app), holes: drilledHoles }]);
             addSurface('text', [{ mesh: buildTextMesh(app), holes: drilledHoles }]);
             const result = await surfaceBuilder.build(surfaces);
@@ -3477,7 +3438,7 @@ export async function openBoard3DViewer(app, opts = {}) {
             }
             const materials = { board: scene.boardMaterial, maskOpenings: scene.maskOpeningMaterial,
                 copper: scene.copperMaterial, via: scene.viaMaterial, pads: scene.padMaterial,
-                maskCoat: scene.maskCoatMaterial, documentCutouts: scene.documentCutoutMaterial,
+                maskCoat: scene.maskCoatMaterial,
                 silk: scene.silkMaterial, text: scene.textMaterial };
             for (const key of Object.keys(surf)) swapSurface(key, result[key], materials[key]);
             if (syncComponentBodies) syncBodies();

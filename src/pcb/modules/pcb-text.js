@@ -6,7 +6,7 @@
  * export are visually identical.
  *
  * Each text lives on a single layer (top-silk / bottom-silk /
- * top-copper / bottom-copper). Attributes:
+ * top-copper / bottom-copper / top-document / bottom-document). Attributes:
  *   - content      string  the displayed text
  *   - x, y         number  baseline-left in board mm (SVG-Y-down)
  *   - size         number  cap height in mm
@@ -23,7 +23,7 @@ import { PCB_LAYERS } from './layers.js';
 const NS = 'http://www.w3.org/2000/svg';
 
 /** Layers on which text may be placed. */
-export const TEXT_LAYERS = ['top-silk', 'bottom-silk', 'top-copper', 'bottom-copper'];
+export const TEXT_LAYERS = ['top-silk', 'bottom-silk', 'top-copper', 'bottom-copper', 'top-document', 'bottom-document'];
 
 /** True if the given text layer id is a bottom-side layer. */
 export function isBottomLayer(layer) {

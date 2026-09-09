@@ -505,7 +505,6 @@ export class Board2D {
         if (SHOW_SOLDERMASK) this._drawMaskOpenings(ctx);
         this._drawCopper(ctx);
         if (SHOW_SOLDERMASK) this._drawSolderMask(ctx);
-        this._drawDocumentCutouts(ctx);
         this._drawSilk(ctx);
         // Holes paint last so a bore/cutout reads as open through every layer —
         // including silk, which is never printed over a drilled hole.
@@ -626,27 +625,6 @@ export class Board2D {
         ctx.setTransform(1, 0, 0, 1, 0, 0);
         ctx.drawImage(layerCanvas, 0, 0);
         ctx.restore();
-    }
-
-    /** Document-layer shapes are board-exposure regions: they remove mask and
-     * copper visually by painting raw board after copper, before drilled holes. */
-    _drawDocumentCutouts(ctx) {
-        const d = this.data;
-        ctx.fillStyle = COL.rawBoard;
-        ctx.strokeStyle = COL.rawBoard;
-        ctx.lineCap = 'round';
-        ctx.lineJoin = 'round';
-        for (const shape of (d.boardShapes || [])) {
-            if (!shape || shape.type === 'fill') continue;
-            const layer = String(shape.layer || '');
-            if (layer !== 'document' && layer !== 'top-document' && layer !== 'bottom-document') continue;
-            const side = layer === 'top-document' ? 'top'
-                : layer === 'bottom-document' ? 'bottom'
-                    : 'both';
-            if (side !== 'both' && side !== this.side) continue;
-            const geometry = resolveBoardShapeGeometry(shape);
-            if (!drawBoardShape(ctx, geometry)) continue;
-        }
     }
 
     /** Copper for the active side: tracks, pad flashes and via barrels. */

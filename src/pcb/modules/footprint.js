@@ -270,10 +270,15 @@ function generateFromShapes(shapes, bbox, source) {
         if (code === 8) return 'bottom-mask';
         if (code === 10) return 'board-outline';
         if (code === 11) return 'hole';            // multi-layer → render on hole layer
-        if (code === 12) return 'document';
-        if (code === 13 || code === 14) return 'document'; // fabrication → document
+        if (code === 12 || code === 13) return 'top-document';
+        if (code === 14) return 'bottom-document';
         // Layers 99/100/101 are EasyEDA Pro assembly/3D layers — not rendered
         return null;
+    };
+
+    const appendShape = (graphic, code) => {
+        silks.push(graphic);
+        if (code === 12) silks.push({ ...graphic, layer: 'bottom-document' });
     };
 
     for (const shape of shapes) {
@@ -474,7 +479,7 @@ function generateFromShapes(shapes, bbox, source) {
                 const x2 = coords[i + 2], y2 = coords[i + 3];
                 if (!Number.isFinite(x1) || !Number.isFinite(y1) ||
                     !Number.isFinite(x2) || !Number.isFinite(y2)) continue;
-                silks.push({ type: 'line', x1, y1, x2, y2, strokeWidth: sw, layer: silkLayer });
+                appendShape({ type: 'line', x1, y1, x2, y2, strokeWidth: sw, layer: silkLayer }, parseInt(parts[2], 10));
                 minX = Math.min(minX, x1, x2); minY = Math.min(minY, y1, y2);
                 maxX = Math.max(maxX, x1, x2); maxY = Math.max(maxY, y1, y2);
             }
@@ -501,7 +506,7 @@ function generateFromShapes(shapes, bbox, source) {
             const filled = sw >= 2 * r && r > 0;
 
             if (Number.isFinite(cx2) && Number.isFinite(r) && r > 0) {
-                silks.push({ type: 'circle', cx: cx2, cy: cy2, r, strokeWidth: sw, layer: silkLayer, filled });
+                appendShape({ type: 'circle', cx: cx2, cy: cy2, r, strokeWidth: sw, layer: silkLayer, filled }, layerCode);
                 minX = Math.min(minX, cx2 - r); minY = Math.min(minY, cy2 - r);
                 maxX = Math.max(maxX, cx2 + r); maxY = Math.max(maxY, cy2 + r);
             }
@@ -521,7 +526,7 @@ function generateFromShapes(shapes, bbox, source) {
             const pathData = parts[4] || '';
             // Scale path coordinates to mm at parse time
             const scaledPath = _scalePath(pathData, S);
-            silks.push({ type: 'path', d: scaledPath, strokeWidth: sw, layer: silkLayer });
+            appendShape({ type: 'path', d: scaledPath, strokeWidth: sw, layer: silkLayer }, parseInt(parts[2], 10));
             updateBoundsFromPath(pathData, S);
             continue;
         }
@@ -542,10 +547,10 @@ function generateFromShapes(shapes, bbox, source) {
 
             if (Number.isFinite(rx) && Number.isFinite(rw)) {
                 // Emit 4 lines for the rectangle
-                silks.push({ type: 'line', x1: rx, y1: ry, x2: rx + rw, y2: ry, strokeWidth: sw, layer: silkLayer });
-                silks.push({ type: 'line', x1: rx + rw, y1: ry, x2: rx + rw, y2: ry + rh, strokeWidth: sw, layer: silkLayer });
-                silks.push({ type: 'line', x1: rx + rw, y1: ry + rh, x2: rx, y2: ry + rh, strokeWidth: sw, layer: silkLayer });
-                silks.push({ type: 'line', x1: rx, y1: ry + rh, x2: rx, y2: ry, strokeWidth: sw, layer: silkLayer });
+                appendShape({ type: 'line', x1: rx, y1: ry, x2: rx + rw, y2: ry, strokeWidth: sw, layer: silkLayer }, layerCode);
+                appendShape({ type: 'line', x1: rx + rw, y1: ry, x2: rx + rw, y2: ry + rh, strokeWidth: sw, layer: silkLayer }, layerCode);
+                appendShape({ type: 'line', x1: rx + rw, y1: ry + rh, x2: rx, y2: ry + rh, strokeWidth: sw, layer: silkLayer }, layerCode);
+                appendShape({ type: 'line', x1: rx, y1: ry + rh, x2: rx, y2: ry, strokeWidth: sw, layer: silkLayer }, layerCode);
                 minX = Math.min(minX, rx); minY = Math.min(minY, ry);
                 maxX = Math.max(maxX, rx + rw); maxY = Math.max(maxY, ry + rh);
             }
@@ -567,7 +572,7 @@ function generateFromShapes(shapes, bbox, source) {
             const regionType = (parts[4] || '').trim().toLowerCase();
             const filled = regionType === 'solid';
             const scaledPath = _scalePath(pathData, S);
-            silks.push({ type: 'path', d: scaledPath, strokeWidth: 0.15 * S, layer: silkLayer, filled });
+            appendShape({ type: 'path', d: scaledPath, strokeWidth: 0.15 * S, layer: silkLayer, filled }, layerCode);
             updateBoundsFromPath(pathData, S);
             continue;
         }
@@ -872,7 +877,8 @@ export function renderFootprint(fp, ref, x, y, rotation = 0) {
         'bottom-paste': '#8d5e87',
         'top-mask': '#9b59b6',
         'bottom-mask': '#5b3a70',
-        'document': '#95a5a6',
+        'top-document': '#b0b7b8',
+        'bottom-document': '#7f8c8d',
         'board-outline': '#f1c40f',
         'hole': '#1abc9c',
     };

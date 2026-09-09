@@ -33,9 +33,9 @@ From the official EasyEDA PCB format docs:
 | 9 | Ratlines | — | `ratlines` |
 | 10 | BoardOutline | Edge.Cuts | `board-outline` |
 | 11 | Multi-Layer | Eco1.User | `hole` (for shapes) / `both` (for PADs) |
-| 12 | Document | Dwgs.User | `document` |
-| 13 | — | F.Fab | `document` (fabrication) |
-| 14 | — | B.Fab | `document` (fabrication) |
+| 12 | Document | Dwgs.User | Copies on `top-document` and `bottom-document` |
+| 13 | — | F.Fab | `top-document` |
+| 14 | — | B.Fab | `bottom-document` |
 | 21–24 | Inner1–Inner4 | In1.Cu–In4.Cu | (not mapped) |
 
 ### EasyEDA Pro Extended Layers
@@ -44,11 +44,15 @@ These are **not in the official EasyEDA Standard spec** but appear in EasyEDA Pr
 
 | ID | Name | ClearPCB Layer |
 |----|------|----------------|
-| 99 | ComponentShapeLayer | `document` |
-| 100 | LeadShapeLayer | `document` |
-| 101 | ComponentMarkingLayer | `document` |
+| 99 | ComponentShapeLayer | (not rendered) |
+| 100 | LeadShapeLayer | (not rendered) |
+| 101 | ComponentMarkingLayer | (not rendered) |
 
-> **Note:** The KiCad importer maps 99/100/101 to F.SilkS, but this is a KiCad-specific decision (KiCad doesn't have equivalent layers). We map them to `document` and let the user toggle visibility.
+Document graphics are design references, not copper or solder-mask openings.
+ClearPCB retains them in the editor and PDF/print exports, but excludes them
+from fabricated-board previews and Gerbers. Layer 12 is duplicated for every
+supported graphic type; layers 13 and 14 remain side-specific. EasyEDA Pro
+layers 99/100/101 are currently skipped by the footprint parser.
 
 ### EasyEDA Pro Layer Differences
 

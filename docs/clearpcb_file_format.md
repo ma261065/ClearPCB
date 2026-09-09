@@ -515,8 +515,12 @@ Common persisted layer IDs are:
 - `top-mask`, `bottom-mask`
 - `top-paste`, `bottom-paste`
 - `hole`
-- `document`, `top-document`, `bottom-document`
+- `top-document`, `bottom-document`
 - `board-outline`
+
+Document layers contain design/reference graphics. They are available in the PCB
+editor and PDF/print exports, but do not alter copper, solder mask, or the board
+substrate and are excluded from fabricated-board previews and Gerbers.
 
 Pad side values are shorter: `top`, `bottom`, or `both`.
 

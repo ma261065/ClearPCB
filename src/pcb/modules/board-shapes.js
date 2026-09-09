@@ -193,10 +193,9 @@ export function convertBoardLineToTrack(app, shape, net = shape?.net) {
     return track;
 }
 
-function isMaskOrDocLayer(layer) {
+function isMaskLayer(layer) {
     const l = String(layer || '');
-    return l === 'top-mask' || l === 'bottom-mask'
-        || l === 'document' || l === 'top-document' || l === 'bottom-document';
+    return l === 'top-mask' || l === 'bottom-mask';
 }
 
 // ── Geometry ────────────────────────────────────────────────────────────────
@@ -972,7 +971,6 @@ function shapeStyle(shape) {
     const isHoleLayer = layer === 'hole';
     const isCopperLayer = layer === 'top-copper' || layer === 'bottom-copper';
     const isMaskLayer = layer === 'top-mask' || layer === 'bottom-mask';
-    const isDocumentLayer = layer === 'document' || layer === 'top-document' || layer === 'bottom-document';
     const copperMode = normalizeShapeCopperMode(shape.copperMode);
     const isCopperAdd = isCopperLayer && copperMode === 'add';
     const isCopperRemoveOnly = isCopperLayer && copperMode === 'remove-copper';
@@ -1007,7 +1005,7 @@ export function shapeIsFilled(shape) {
     if (isCopperLayer) {
         return !!shape.filled;
     }
-    return !!shape.filled || isMaskOrDocLayer(layer);
+    return !!shape.filled || isMaskLayer(layer);
 }
 
 /** Minimum manufacturable outline/slot width for a board shape. */
@@ -2053,7 +2051,7 @@ export function finishShapeDraw(app) {
     app._shapeDraw = null;
 
     const layer = d.layer || app.activeLayer;
-    const alwaysFilled = isMaskOrDocLayer(layer);
+    const alwaysFilled = isMaskLayer(layer);
     const base = {
         id: `pshape_${app._shapeIdCounter++}`,
         kind: d.kind,
@@ -2145,7 +2143,6 @@ const PROP_HIDDEN_LAYERS = new Set([
     'top-paste', 'bottom-paste',
     'top-mask', 'bottom-mask',
     'board-outline',
-    'document', 'top-document', 'bottom-document',
 ]);
 
 function netOptions(app, current = '') {
@@ -2406,7 +2403,7 @@ export function showBoardShapeProperties(app, shape) {
         const before = propertyTargets().map((target) => ({ target, state: shapeSnapshot(target) }));
         for (const { target } of before) {
             mutate(target);
-            if (isMaskOrDocLayer(target.layer)) target.filled = true;
+            if (isMaskLayer(target.layer)) target.filled = true;
             target.copperMode = normalizeShapeCopperMode(target.copperMode);
         }
         const changed = before.filter(({ target, state }) => JSON.stringify(state) !== JSON.stringify(shapeSnapshot(target)));

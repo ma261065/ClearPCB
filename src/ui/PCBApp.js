@@ -97,7 +97,7 @@ import { CommandHistory } from '../core/CommandHistory.js';
 import { Track } from '../shapes/track.js';
 import { Via } from '../shapes/via.js';
 import { CopperFill } from '../shapes/copper-fill.js';
-import { computeFillPolygons, loadClipper, isClipperReady } from '../pcb/modules/copper-fill-geom.js';
+import { computeFillPolygons, loadClipper, isClipperReady, boardShapeClearanceOutlines } from '../pcb/modules/copper-fill-geom.js';
 import { renderCopperFill, fillGroupId } from '../pcb/modules/copper-fill-render.js';
 import { AddFillCommand, RemoveFillCommand, ModifyFillCommand } from '../pcb/modules/copper-fill-commands.js';
 import '../pcb/modules/copper-fill-selection.js';
@@ -2628,7 +2628,6 @@ export default class PCBApp {
             'fp-lod',
             'bottom-document',
             'top-document',
-            'document',
             // Board cutouts must cover every board-art layer, including
             // document shapes and vias that share this group.
             'hole',
@@ -3597,12 +3596,14 @@ export default class PCBApp {
     }
 
     _bindThemeToggle() {
+        window.addEventListener('clearpcb-theme-changed', () => {
+            this.viewport?.updateTheme?.();
+        });
         if (!this.themeToggle) return;
 
         this.themeToggle.addEventListener('click', () => {
             const newTheme = toggleSharedTheme();
             syncThemeToggleButtons(['themeToggle', 'pcbThemeToggle'], newTheme);
-            this.viewport?.updateTheme?.();
         });
     }
 
@@ -5336,6 +5337,8 @@ export default class PCBApp {
             case 'bottom-silk':   return 'Bottom Silk';
             case 'top-copper':    return 'Top Copper';
             case 'bottom-copper': return 'Bottom Copper';
+            case 'top-document':  return 'Top Document';
+            case 'bottom-document': return 'Bottom Document';
             default:              return layer;
         }
     }
@@ -6724,7 +6727,7 @@ export default class PCBApp {
 
     /**
      * Toggle a faint ghost halo showing the clearance band around every
-     * pad, via, and trace. The halo width equals the **Clearance** value
+    * pad, via, trace, and copper/hole shape. The halo width equals the **Clearance** value
      * from the routing tab — i.e. the minimum copper-to-copper gap any
      * other net's copper must keep from this object's edge.
      *
@@ -7073,6 +7076,18 @@ export default class PCBApp {
                 const tnet = trace.dataset?.net;
                 if (tnet) el.dataset.net = tnet;
                 overlay.appendChild(el);
+            }
+        }
+
+        for (const shape of this.boardShapes || []) {
+            if (!shape || !isLayerVisible(shape.layer)) continue;
+            for (const outline of boardShapeClearanceOutlines(shape, halo)) {
+                const element = document.createElementNS(NS, 'polygon');
+                styleHalo(element);
+                element.setAttribute('points', outline.map(point => `${point.x},${point.y}`).join(' '));
+                element.setAttribute('data-shape-id', shape.id);
+                if (shape.net) element.dataset.net = shape.net;
+                overlay.appendChild(element);
             }
         }
 

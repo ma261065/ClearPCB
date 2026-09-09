@@ -560,6 +560,7 @@ const FP_LAYER_FLIP = {
     'top-silk': 'bottom-silk', 'bottom-silk': 'top-silk',
     'top-paste': 'bottom-paste', 'bottom-paste': 'top-paste',
     'top-mask': 'bottom-mask', 'bottom-mask': 'top-mask',
+    'top-document': 'bottom-document', 'bottom-document': 'top-document',
 };
 const flipShortLayer = (l) => (l === 'top' ? 'bottom' : l === 'bottom' ? 'top' : l);
 

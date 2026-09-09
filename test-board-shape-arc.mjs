@@ -361,9 +361,15 @@ for (const shape of [
 check('circle resolver exposes centerline and outer radii',
     resolveBoardShapeGeometry(removalCircle, { filled: true }).circle.radius === 3
     && resolveBoardShapeGeometry(removalCircle, { filled: true }).circle.outerRadius === 3.2);
-for (const layer of ['top-mask', 'document', 'hole']) {
+for (const layer of ['top-mask', 'hole']) {
     const geometry = resolveBoardShapeGeometry({ ...removalRect, layer, filled: false });
     check(`${layer} area policy is owned by the resolver`, geometry.filled && geometry.areaOutline.length >= 3);
+}
+for (const layer of ['top-document', 'bottom-document']) {
+    const outline = resolveBoardShapeGeometry({ ...removalRect, layer, filled: false });
+    const filled = resolveBoardShapeGeometry({ ...removalRect, layer, filled: true });
+    check(`${layer} honors the graphic fill setting`, !outline.filled && outline.areaOutline === null
+        && filled.filled && filled.areaOutline.length >= 3);
 }
 
 const maskGerber = (shape) => exportGerbers({

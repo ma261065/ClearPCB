@@ -7,6 +7,10 @@ import { loadAndApplyTheme, toggleTheme as toggleSharedTheme, syncThemeToggleBut
  * @param {object} app - Application state.
  */
 export function bindThemeToggle(app) {
+    window.addEventListener('clearpcb-theme-changed', () => {
+        app.viewport?.updateTheme();
+        updateComponentColors(app);
+    });
     const themeToggle = document.getElementById('themeToggle');
     if (!themeToggle) return;
 
@@ -25,10 +29,6 @@ export function bindThemeToggle(app) {
 export function toggleTheme(app) {
     const newTheme = toggleSharedTheme();
     syncThemeToggleButtons(['themeToggle', 'pcbThemeToggle'], newTheme);
-
-    app.viewport.updateTheme();
-
-    updateComponentColors(app);
 }
 
 /**

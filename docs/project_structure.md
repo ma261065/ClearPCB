@@ -111,7 +111,7 @@ rectangles, polygons, arcs, and circles. It resolves:
 - filled-area geometry expanded through the outside half of the outline;
 - circle centerline and outer radii;
 - stroke polygons used by copper-removal clipping;
-- layer policies that force fillable mask, document, and hole shapes to areas
+- layer policies that force fillable mask and hole shapes to areas, while document graphics honor their fill setting
   while lines remain strokes.
 
 The SVG editor, Canvas 2D preview, Three.js board view, and Gerber exporter

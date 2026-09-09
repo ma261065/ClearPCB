@@ -28,6 +28,7 @@
  */
 
 import { resolveBoardShapeGeometry, boardShapeArcGeometry } from './board-shapes.js';
+import ClipperLib from '../../../assets/vendor/clipper.esm.js';
 import { pcbTextSegments } from './pcb-text.js';
 import { padCopperOutline } from './copper-model.js';
 
@@ -189,10 +190,7 @@ function collectObstacles(C, fill, ctx, clearance) {
         const isHole = shape.layer === 'hole';
         const isCopper = shape.layer === fill.layer && geometry.copperMode === 'add';
         if (!isHole && (!isCopper || sameNet(shape.net || ''))) continue;
-        const arc = boardShapeArcGeometry(shape);
-        const halfStep = arc ? Math.abs(arc.endAngle - arc.startAngle) / (2 * (geometry.centerline.length - 1)) : 0;
-        const chordError = arc ? 2 * arc.radius * Math.sin(halfStep / 2) ** 2 : 0;
-        out.push(...resolvedShapeObstaclePaths(C, geometry, clearance + chordError));
+        out.push(...shapeObstaclePaths(C, shape, clearance, geometry));
     }
 
     // PCB text has no net assignment, so copper-layer text always receives
@@ -233,6 +231,28 @@ function collectObstacles(C, fill, ctx, clearance) {
     }
 
     return out;
+}
+
+function shapeObstaclePaths(C, shape, clearance, geometry = resolveBoardShapeGeometry(shape)) {
+    const arc = boardShapeArcGeometry(shape);
+    const halfStep = arc ? Math.abs(arc.endAngle - arc.startAngle) / (2 * (geometry.centerline.length - 1)) : 0;
+    const chordError = arc ? 2 * arc.radius * Math.sin(halfStep / 2) ** 2 : 0;
+    return resolvedShapeObstaclePaths(C, geometry, clearance + chordError);
+}
+
+export function boardShapeClearanceOutlines(shape, clearance) {
+    if (!shape || shape.type === 'fill') return [];
+    const geometry = resolveBoardShapeGeometry(shape);
+    if (shape.layer !== 'hole' && (!['top-copper', 'bottom-copper'].includes(shape.layer)
+        || geometry.copperMode !== 'add')) return [];
+    const paths = shapeObstaclePaths(ClipperLib, shape, clearance, geometry);
+    if (!paths.length) return [];
+    const clipper = new ClipperLib.Clipper();
+    clipper.AddPaths(paths, ClipperLib.PolyType.ptSubject, true);
+    const result = new ClipperLib.Paths();
+    clipper.Execute(ClipperLib.ClipType.ctUnion, result,
+        ClipperLib.PolyFillType.pftNonZero, ClipperLib.PolyFillType.pftNonZero);
+    return result.map(path => path.map(point => ({ x: point.X / SCALE, y: point.Y / SCALE })));
 }
 
 function resolvedShapeObstaclePaths(C, geometry, clearance) {

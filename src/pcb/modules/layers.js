@@ -21,7 +21,6 @@ export const PCB_LAYERS = /** @type {LayerDef[]} */ ([
     { id: 'board-outline',    name: 'Board Outline',       color: '#f1c40f', visible: true, locked: false },
     { id: 'top-document',     name: 'Top Document',        color: '#b0b7b8', visible: true, locked: false },
     { id: 'bottom-document',  name: 'Bottom Document',     color: '#7f8c8d', visible: true, locked: false },
-    { id: 'document',         name: 'Document (Both)',     color: '#95a5a6', visible: true, locked: false },
     { id: 'hole',             name: 'Hole',                color: '#1abc9c', visible: true, locked: false },
 ]);
 
@@ -241,6 +240,7 @@ export function buildLayerPanel(app) {
     loadLayerPrefs();
 
     panel.innerHTML = '';
+    const panelLayers = PCB_LAYERS;
 
     // ---- Helpers --------------------------------------------------------
     /**
@@ -310,14 +310,14 @@ export function buildLayerPanel(app) {
         layersHeading.insertBefore(pinBtn, layersHeading.firstChild);
     }
 
-    let allLayersVisible = PCB_LAYERS.every(l => l.visible);
+    let allLayersVisible = panelLayers.every(l => l.visible);
     layersMasterEye.classList.toggle('active', allLayersVisible);
     layersMasterEye.innerHTML = allLayersVisible ? EYE_OPEN_SVG : EYE_CLOSED_SVG;
     layersMasterEye.addEventListener('click', () => {
         allLayersVisible = !allLayersVisible;
         layersMasterEye.classList.toggle('active', allLayersVisible);
         layersMasterEye.innerHTML = allLayersVisible ? EYE_OPEN_SVG : EYE_CLOSED_SVG;
-        for (const layer of PCB_LAYERS) {
+        for (const layer of panelLayers) {
             layer.visible = allLayersVisible;
             app._onLayerVisibilityChanged?.(layer.id, allLayersVisible);
         }
@@ -331,7 +331,7 @@ export function buildLayerPanel(app) {
     });
 
     // Master lock: lock or unlock every layer at once.
-    let allLayersLocked = PCB_LAYERS.every(l => l.locked);
+    let allLayersLocked = panelLayers.every(l => l.locked);
     const syncMasterLock = () => {
         if (!layersMasterLock) return;
         layersMasterLock.classList.toggle('active', allLayersLocked);
@@ -343,7 +343,7 @@ export function buildLayerPanel(app) {
         e.stopPropagation();
         allLayersLocked = !allLayersLocked;
         syncMasterLock();
-        for (const layer of PCB_LAYERS) {
+        for (const layer of panelLayers) {
             layer.locked = allLayersLocked;
             app._onLayerLockChanged?.(layer.id, allLayersLocked);
         }
@@ -357,7 +357,7 @@ export function buildLayerPanel(app) {
         }
     });
 
-    for (const layer of PCB_LAYERS) {
+    for (const layer of panelLayers) {
         const row = document.createElement('div');
         row.className = 'pcb-layer-row section-layers';
         row.dataset.layerId = layer.id;
@@ -389,7 +389,7 @@ export function buildLayerPanel(app) {
             lockBtn.title = layer.locked ? 'Unlock layer' : 'Lock layer';
             app._onLayerLockChanged?.(layer.id, layer.locked);
             // Keep the master lock in sync with the per-row states.
-            allLayersLocked = PCB_LAYERS.every(l => l.locked);
+            allLayersLocked = panelLayers.every(l => l.locked);
             syncMasterLock();
         });
         row.appendChild(lockBtn);
@@ -405,6 +405,9 @@ export function buildLayerPanel(app) {
             visBtn.classList.toggle('active', layer.visible);
             visBtn.innerHTML = layer.visible ? EYE_OPEN_SVG : EYE_CLOSED_SVG;
             app._onLayerVisibilityChanged?.(layer.id, layer.visible);
+            allLayersVisible = panelLayers.every(layer => layer.visible);
+            layersMasterEye.classList.toggle('active', allLayersVisible);
+            layersMasterEye.innerHTML = allLayersVisible ? EYE_OPEN_SVG : EYE_CLOSED_SVG;
         });
         row.appendChild(visBtn);
 
@@ -560,7 +563,6 @@ export function buildLayerPanel(app) {
             name.style.color = ov.color;
             row.appendChild(name);
 
-            row.appendChild(document.createElement('span'));
             // Empty lock column — overlays can't be locked.
             row.appendChild(document.createElement('span'));
 
@@ -574,6 +576,9 @@ export function buildLayerPanel(app) {
                 visBtn.classList.toggle('active', ov.visible);
                 visBtn.innerHTML = ov.visible ? EYE_OPEN_SVG : EYE_CLOSED_SVG;
                 app._onOverlayVisibilityChanged?.(ov.id, ov.visible);
+                allOverlaysVisible = PCB_OVERLAYS.every(overlay => overlay.visible);
+                overlaysMasterEye.classList.toggle('active', allOverlaysVisible);
+                overlaysMasterEye.innerHTML = allOverlaysVisible ? EYE_OPEN_SVG : EYE_CLOSED_SVG;
             });
             row.appendChild(visBtn);
 

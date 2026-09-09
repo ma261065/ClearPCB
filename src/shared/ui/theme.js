@@ -28,6 +28,7 @@ export function applyTheme(theme) {
 export function setTheme(theme) {
     localStorage.setItem(THEME_STORAGE_KEY, theme);
     applyTheme(theme);
+    window.dispatchEvent(new CustomEvent('clearpcb-theme-changed', { detail: theme }));
 }
 
 /**

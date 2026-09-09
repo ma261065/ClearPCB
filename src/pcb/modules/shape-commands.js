@@ -14,6 +14,15 @@ import {
     refreshBoardShapeProperties,
 } from './board-shapes.js';
 import { renderPcbSelectionAnchors } from './selection-anchors.js';
+import { getPcbSelectionEntries, setPcbSelection } from './selection-registry.js';
+
+function deselectRemovedShape(app, shape) {
+    const selected = getPcbSelectionEntries(app);
+    const remaining = selected.filter((entry) => entry.kind !== 'shape' || entry.object.id !== shape.id);
+    if (remaining.length === selected.length) return;
+    setPcbSelection(app, remaining);
+    renderPcbSelectionAnchors(app);
+}
 
 export class AddBoardShapeCommand {
     constructor(app, shape) {
@@ -30,6 +39,7 @@ export class AddBoardShapeCommand {
     }
 
     undo() {
+        deselectRemovedShape(this.app, this.shape);
         removeBoardShapeElement(this.app, this.shape.id);
         const i = this.app.boardShapes.indexOf(this.shape);
         if (i >= 0) this.app.boardShapes.splice(i, 1);
@@ -47,6 +57,7 @@ export class RemoveBoardShapeCommand {
     }
 
     execute() {
+        deselectRemovedShape(this.app, this.shape);
         removeBoardShapeElement(this.app, this.shape.id);
         const i = this.app.boardShapes.indexOf(this.shape);
         if (i >= 0) this.app.boardShapes.splice(i, 1);

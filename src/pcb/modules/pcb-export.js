@@ -59,7 +59,6 @@ const ARTWORK_LAYER_IDS = [
     'bottom-silk', 'top-silk',
     'hole',
     'bottom-document', 'top-document',
-    'document',
 ];
 
 /**
