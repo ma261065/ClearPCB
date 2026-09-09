@@ -435,9 +435,12 @@ export default class PCBApp {
             && this._selectedBoardShapeNode?.shapeId !== selectedShape[0]?.id;
         const showHoleTip = rawTool === 'circle' && this.activeLayer === 'hole';
         const showOverlapTip = rawTool === 'select' && this._overlapHitCount > 1;
+        const showTrackTip = rawTool === 'track';
         if (this.status.tipStatus) {
-            this.status.tipStatus.hidden = !showOverlapTip && !showHoleTip && !showSegmentTip;
-            this.status.tipStatus.textContent = showOverlapTip
+            this.status.tipStatus.hidden = !showOverlapTip && !showHoleTip && !showSegmentTip && !showTrackTip;
+            this.status.tipStatus.textContent = showTrackTip
+                ? 'Tip: Press SPACE to insert a via and switch to the other layer'
+                : showOverlapTip
                 ? 'Tip: Shift+Click to cycle overlapping objects; Ctrl+Click for multi-selection'
                 : showHoleTip
                 ? 'Tip: A hole is just a circle on the hole layer'
@@ -898,6 +901,13 @@ export default class PCBApp {
             // left-click places it. The shared selection controller owns the
             // lifecycle for Tracks and generic board-shape midpoint inserts.
             if (e.button === 0 && placeFloatingSelectionInteraction(this)) {
+                this.viewport.hideCrosshair();
+                svg.style.cursor = 'default';
+                return;
+            }
+            if (e.button === 0 && this._vertexDrag?.floating) {
+                finishVertexDrag(this);
+                this._vertexDragDownScreen = null;
                 this.viewport.hideCrosshair();
                 svg.style.cursor = 'default';
                 return;

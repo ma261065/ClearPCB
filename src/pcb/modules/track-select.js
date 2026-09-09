@@ -768,7 +768,7 @@ export function showTrackContextMenu(app, hit, clientX, clientY, worldPos) {
         // Right-click landed on a vertex: show ONLY the node actions.
         const track = hit.track;
         const deg = track.degree(nodeId);
-        if (deg === 2) {
+        if (deg >= 2) {
             items.push({
                 text: 'Split',
                 onClick: () => splitTrackNodeAndDrag(app, track, nodeId),

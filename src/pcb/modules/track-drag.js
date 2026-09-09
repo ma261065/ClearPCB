@@ -368,7 +368,7 @@ export function commitCollinearCleanup(app, track) {
  * @returns {boolean}
  */
 export function splitTrackNodeAndDrag(app, track, nodeId) {
-    if (!track?.nodes?.has(nodeId) || track.degree(nodeId) !== 2) return false;
+    if (!track?.nodes?.has(nodeId) || track.degree(nodeId) < 2) return false;
     const pos = track.nodes.get(nodeId);
     if (!pos) return false;
 
