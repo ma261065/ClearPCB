@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Autorouter regression gate.
 //
-// Runs all root regression tests plus a full clearance check on test-board.json
+// Runs all tests/ regression scripts plus a full clearance check on test-board.json
 // and asserts against the documented baseline. Exits 0 if all checks pass,
 // nonzero on any regression. Intended to be run before committing autorouter
 // changes.

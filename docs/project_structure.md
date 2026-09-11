@@ -48,6 +48,7 @@ clearpcb/
 │                               # pin-wire-connect, net-validation, …)
 ├── workers/
 │   └── cors-proxy.js
+├── tests/                      # Isolated headless regression scripts (test-*.mjs)
 ├── tools/                      # Node-side benchmarks + DRC sanity tools
 │                               # (autorouter-benchmark, check-clearance-*,
 │                               # check-via-on-pad, regression, debug-pf-*)
@@ -87,7 +88,7 @@ clearpcb/
 - `core/DerivedUpdates.js` batches derived callbacks; `core/spatial-pairs.js`
   supplies the DRC broad phase.
 
-`node tools/test.mjs` runs every root `test-*.mjs` in an isolated process.
+`node tools/test.mjs` runs every `tests/test-*.mjs` in an isolated process.
 `node tools/regression.mjs` also runs the autorouter baseline. See
 [review-fixes.md](review-fixes.md) for the review mapping and verification limits.
 

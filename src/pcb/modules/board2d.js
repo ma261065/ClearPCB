@@ -40,6 +40,17 @@ function traceBoardShape(context, geometry) {
 }
 
 function drawBoardShape(context, geometry) {
+    if (geometry.physicalContours) {
+        context.beginPath();
+        for (const contour of geometry.physicalContours) {
+            if (!contour.length) continue;
+            context.moveTo(contour[0].x, contour[0].y);
+            for (const point of contour.slice(1)) context.lineTo(point.x, point.y);
+            context.closePath();
+        }
+        context.fill('evenodd');
+        return true;
+    }
     if (!geometry.filled && geometry.strokeSegments?.length) {
         for (const segment of geometry.strokeSegments) {
             context.beginPath();

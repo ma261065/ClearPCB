@@ -3,18 +3,54 @@
  * snap-to-grid dropdowns/checkboxes, and zoom/fit/reset buttons.
  * @param {object} app - Application state.
  */
+export function serializeGridSettings(viewport) {
+    if (!viewport) return undefined;
+    return {
+        gridSize: viewport.gridSize,
+        gridStyle: viewport.gridStyle,
+        units: viewport.units,
+        gridVisible: viewport.gridVisible,
+        snapToGrid: viewport.snapToGrid,
+    };
+}
+
+export function restoreGridSettings(app, settings) {
+    if (!settings || !app.viewport) return;
+    const viewport = app.viewport;
+    if (['mm', 'inch', 'mil'].includes(settings.units)) viewport.setUnits(settings.units);
+    if (Number.isFinite(settings.gridSize) && settings.gridSize > 0 && settings.gridSize <= 1000) {
+        viewport.setGridSize(settings.gridSize);
+    }
+    if (settings.gridStyle === 'lines' || settings.gridStyle === 'dots') viewport.setGridStyle(settings.gridStyle);
+    if (typeof settings.gridVisible === 'boolean') viewport.setGridVisible(settings.gridVisible);
+    if (typeof settings.snapToGrid === 'boolean') viewport.snapToGrid = settings.snapToGrid;
+    if (!viewport.gridVisible) viewport.snapToGrid = false;
+    const ui = app.ui || {};
+    if (ui.units) ui.units.value = viewport.units;
+    if (ui.gridStyle) ui.gridStyle.value = viewport.gridStyle;
+    if (ui.showGrid) ui.showGrid.checked = viewport.gridVisible;
+    if (ui.snapToGrid) {
+        ui.snapToGrid.checked = viewport.snapToGrid;
+        ui.snapToGrid.disabled = !viewport.gridVisible;
+    }
+    if (ui.gridSize) updateGridDropdown(app, true);
+}
+
 export function bindViewportControls(app) {
     app.ui.gridSize.addEventListener('change', (e) => {
         app.viewport.setGridSize(parseFloat(e.target.value));
+        app.fileManager.setDirty(true);
     });
 
     app.ui.gridStyle.addEventListener('change', (e) => {
         app.viewport.setGridStyle(e.target.value);
+        app.fileManager.setDirty(true);
     });
 
     app.ui.units.addEventListener('change', (e) => {
         app.viewport.setUnits(e.target.value);
         app._updateGridDropdown();
+        app.fileManager.setDirty(true);
     });
 
     // Sync initial snap-to-grid disabled state
@@ -31,10 +67,12 @@ export function bindViewportControls(app) {
             app.ui.snapToGrid.checked = false;
             app.viewport.snapToGrid = false;
         }
+        app.fileManager.setDirty(true);
     });
 
     app.ui.snapToGrid.addEventListener('change', (e) => {
         app.viewport.snapToGrid = e.target.checked;
+        app.fileManager.setDirty(true);
     });
 
     document.getElementById('zoomFit').addEventListener('click', () => {
@@ -59,7 +97,7 @@ export function bindViewportControls(app) {
  * and selects the closest match to the current grid size.
  * @param {object} app - Application state.
  */
-export function updateGridDropdown(app) {
+export function updateGridDropdown(app, preserveSize = false) {
     const options = app.viewport.getGridOptions();
     const currentValue = app.viewport.gridSize;
 
@@ -81,9 +119,17 @@ export function updateGridDropdown(app) {
             closestIdx = i;
         }
     }
+    if (preserveSize && closestDiff > 1e-9) {
+        const option = document.createElement('option');
+        option.value = String(currentValue);
+        option.textContent = `${Number(currentValue.toFixed(6))} mm`;
+        app.ui.gridSize.appendChild(option);
+        app.ui.gridSize.value = String(currentValue);
+        return;
+    }
     app.ui.gridSize.selectedIndex = closestIdx;
 
-    app.viewport.setGridSize(options[closestIdx].value);
+    if (!preserveSize) app.viewport.setGridSize(options[closestIdx].value);
 }
 
 /**

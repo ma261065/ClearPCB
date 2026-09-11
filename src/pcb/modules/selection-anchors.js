@@ -40,6 +40,17 @@ export function renderPcbSelectionAnchors(app) {
         const group = document.createElementNS(NS, 'g');
         group.setAttribute('class', HANDLE_CLASS);
         group.setAttribute('data-selection-id', adapter.id);
+        const editPath = adapter.getEditPath?.();
+        if (editPath) {
+            const path = document.createElementNS(NS, 'path');
+            path.setAttribute('d', editPath);
+            path.setAttribute('fill', 'none');
+            path.setAttribute('stroke', adapter.anchorColor || '#ffffff');
+            path.setAttribute('stroke-width', '1');
+            path.setAttribute('vector-effect', 'non-scaling-stroke');
+            path.setAttribute('pointer-events', 'none');
+            group.appendChild(path);
+        }
         for (const anchor of adapter.getAnchors()) {
             if (anchor.hidden) continue;
             const isMidpoint = anchor.symbol === 'plus';

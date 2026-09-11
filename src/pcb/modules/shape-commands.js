@@ -87,6 +87,7 @@ export class MoveBoardShapeCommand {
     _apply(geometry) {
         applyShapeGeometry(this.shape, geometry);
         renderBoardShape(this.app, this.shape);
+        if (this.shape.kind === 'circle') refreshBoardShapeProperties(this.app, this.shape);
         this.app._refreshFills?.();
         this.app._updateRatsnest?.();
         this.app._board3d?.refresh?.();

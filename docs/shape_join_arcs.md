@@ -90,6 +90,6 @@ The data model, geometry, join logic, and bulge handle all live in the shared
 
 ## Tests
 
-[`test-shape-join.mjs`](../test-shape-join.mjs) validates the geometry, bulge
+[`tests/test-shape-join.mjs`](../tests/test-shape-join.mjs) validates the geometry, bulge
 serialisation round-trip, clone, join (incl. loop closing), the bulge handle,
-and `cleanGraph` arc preservation headlessly: `node test-shape-join.mjs`.
+and `cleanGraph` arc preservation headlessly: `node tests/test-shape-join.mjs`.

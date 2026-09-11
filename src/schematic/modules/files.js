@@ -6,6 +6,7 @@ import { importEasyEDASchematic } from '../../easyeda/schematic-importer.js';
 import { createShape, bumpWireLabelCounter } from '../../shapes/index.js';
 import { bumpNetNameCounter } from '../../shapes/wire.js';
 import { validateProject } from '../../core/project-format.js';
+import { serializeGridSettings, restoreGridSettings } from '../../ui/modules/viewport.js';
 
 function canReplaceDocument(app) {
     if (!app.fileManager.saving && !app.fileManager.loading) return true;
@@ -46,8 +47,7 @@ export function serializeDocument(app) {
         created: new Date().toISOString(),
         schematic: {
             settings: {
-                gridSize: app.viewport.gridSize,
-                units: app.viewport.units,
+                ...serializeGridSettings(app.viewport),
                 paperSize: app.viewport.paperSizeKey || null,
                 paperOrientation: app.viewport.paperSize
                     ? (app.viewport.paperSize.width >= app.viewport.paperSize.height ? 'landscape' : 'portrait')
@@ -172,21 +172,7 @@ export async function loadDocument(app, data, prepared = prepareDocument(app, da
     }
 
     if (settings) {
-        if (Number.isFinite(settings.gridSize) && settings.gridSize > 0 && settings.gridSize <= 1000) {
-            app.viewport.setGridSize(settings.gridSize);
-            if (app.ui.gridSize) {
-                app.ui.gridSize.value = settings.gridSize;
-            }
-        }
-        if (settings.units === 'mm' || settings.units === 'inch' || settings.units === 'mil') {
-            app.viewport.setUnits(settings.units);
-            if (app.ui.units) {
-                app.ui.units.value = settings.units;
-            }
-            if (typeof app._updateGridDropdown === 'function') {
-                app._updateGridDropdown();
-            }
-        }
+        restoreGridSettings(app, settings);
         // Restore paper size, orientation, and title block from file
         if (settings.paperSize && typeof settings.paperSize === 'string') {
             const paperSelect = /** @type {HTMLSelectElement|null} */ (document.getElementById('paperSize'));

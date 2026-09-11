@@ -8,6 +8,7 @@ import { Track } from '../../shapes/track.js';
 import { Via, resetViaIdCounter, updateViaIdCounter } from '../../shapes/via.js';
 import { CopperFill, updateFillIdCounter } from '../../shapes/copper-fill.js';
 import { createShape } from '../../shapes/index.js';
+import { serializeGridSettings, restoreGridSettings } from '../../ui/modules/viewport.js';
 
 /** @param {any} app */
 export function serializePcb(app) {
@@ -42,6 +43,7 @@ export function serializePcb(app) {
             radius: app._boardRadius,
         },
         design,
+        settings: serializeGridSettings(app.viewport),
         tracks: app.tracks.map(t => t.toJSON()),
         vias: app.vias.map(v => v.toJSON()),
         boardShapes: serializeBoardShapes(app),
@@ -123,6 +125,7 @@ export function loadPcb(app, data, prepared = preparePcb(data)) {
     // units, router) onto the ribbon inputs. Documents that predate this
     // field simply keep the current localStorage working defaults.
     if (data.design) app._applyProjectDesignParams(data.design);
+    restoreGridSettings(app, data.settings);
 
     // Restore the saved board outline so it survives save/reopen and
     // autosave-recovery (the dimensions are part of the document).

@@ -381,6 +381,7 @@ export function bindPcbControls(app) {
             vp.snapToGrid = false;
         }
         syncViewToggles();
+        app._markDirty?.();
     });
 
     snapToGridInput?.addEventListener('change', (e) => {
@@ -388,6 +389,7 @@ export function bindPcbControls(app) {
         if (!vp || !vp.gridVisible) return;
         vp.snapToGrid = !!e.target.checked;
         syncViewToggles();
+        app._markDirty?.();
     });
 
     setTool(app.currentTool || 'select');
@@ -406,12 +408,14 @@ export function bindPcbControls(app) {
         const vp = ensureViewport();
         if (!vp) return;
         vp.setGridSize(parseFloat(/** @type {HTMLSelectElement} */ (e.target).value));
+        app._markDirty?.();
     });
 
     gridStyleSelect?.addEventListener('change', (e) => {
         const vp = ensureViewport();
         if (!vp) return;
         vp.setGridStyle(/** @type {HTMLSelectElement} */ (e.target).value);
+        app._markDirty?.();
     });
 
     unitsSelect?.addEventListener('change', (e) => {
@@ -419,6 +423,7 @@ export function bindPcbControls(app) {
         if (!vp) return;
         vp.setUnits(/** @type {HTMLSelectElement} */ (e.target).value);
         app._updateGridDropdown?.();
+        app._markDirty?.();
     });
 
     app.syncPcbViewToggles = syncViewToggles;

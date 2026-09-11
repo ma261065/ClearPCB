@@ -75,6 +75,9 @@ A project always has a schematic envelope. `ProjectDocument` adds the optional
 | Field | Type | Description |
 | --- | --- | --- |
 | `gridSize` | number | Grid spacing in model units. Must be positive. |
+| `gridStyle` | string | `"lines"` or `"dots"`. |
+| `gridVisible` | boolean | Whether the grid is shown. |
+| `snapToGrid` | boolean | Whether snapping is enabled; disabled when the grid is hidden. |
 | `units` | string | Display units: `"mm"`, `"inch"`, or legacy `"mil"`. |
 | `paperSize` | string or null | Paper preset key, such as `"A4"`; `null` means no paper. |
 | `paperOrientation` | string or null | `"landscape"` or `"portrait"`. |
@@ -83,6 +86,12 @@ A project always has a schematic envelope. `ProjectDocument` adds the optional
 | `titleBlockData` | object | User-entered title-block values. |
 
 ### Common Schematic Shape Keys
+
+The PCB section also stores `settings` with `gridSize`, `gridStyle`,
+`gridVisible`, `snapToGrid`, and `units`, independently of the schematic.
+These settings are included in project saves and autorecovery, even for an
+empty PCB whose viewport has been initialized. Older files without these
+fields retain the editor's current defaults.
 
 Every entry in `schematic.shapes` has `id` and `type`. Shape subclasses extend
 this compact base:
@@ -395,13 +404,15 @@ Every entry contains:
 | `id` | string | Shape ID. |
 | `kind` | string | `line`, `rect`, `polygon`, `arc`, or `circle`. |
 | `layer` | string | PCB layer ID. |
-| `lineWidth` | number | Centreline stroke width in mm. |
+| `geometryVersion` | number | `1` for centreline paths; circles use `2` to store the outer radius. |
+| `lineWidth` | number | Stroke width in mm; centred on lines, arcs, rectangles and polygons, inward for circles. |
 | `filled` | boolean | Whether the enclosed area is active. |
 | `copperMode` | string | Copper/mask operation; see below. |
 | `plated` | boolean | Plating flag for hole-layer shapes. |
 | `net` | string | Net name; empty when unassigned. |
 | `cornerRadius` | number | Default corner radius in mm for rectangle and polygon nodes. |
 | `nodeCornerRadii` | object | Optional vertex-index to corner-radius overrides. |
+| `nodeFlatJoins` | object | Optional vertex-index to `true` map suppressing pointed miters at edited rectangle/polygon nodes; round segment caps remain visible. The field name is retained for compatibility. |
 
 Geometry depends on `kind`:
 
@@ -415,9 +426,26 @@ Geometry depends on `kind`:
 ]
 ```
 
-For a filled shape, the active area includes the outer half of `lineWidth`.
-For an unfilled shape, only the centred stroke is active.
+Lines, arcs, rectangles and polygons store centreline coordinates. Their strokes
+extend half the width on each side of the path. Nodes and midpoint handles sit
+on the editing path, independent of thickness; corner radii remain independent
+of thickness too. Crossings are allowed and centred strokes are unioned. Filled
+polygons use the even-odd fill rule in addition to the centred stroke.
+
+Circles continue to store the outer radius, with thickness extending inward.
+Circle records without `geometryVersion: 2` have half the old stroke width added
+to their radius on load; new saves use version 2 to avoid repeating conversion.
+Rectangle and polygon coordinates are loaded unchanged, including interim
+version 2 records; their paths now receive centred strokes and `strokeSide` is
+ignored. New saves use version 1 for non-circle shapes.
+Rectangles and polygons without corner radii use sharp miter joins and round
+segment caps. Set `cornerRadius` or `nodeCornerRadii` for rounded corners.
 Each entry in `nodeCornerRadii` overrides `cornerRadius` for that indexed point.
+Dragging a sharp rectangle/polygon node suppresses pointed miters at that node
+and its two neighbours, whose angles also change during the drag. Round segment
+caps provide the visible ends, including for existing `nodeFlatJoins` records.
+This persists after release and through save/load; other corners retain their
+existing joins.
 
 #### Copper Modes
 

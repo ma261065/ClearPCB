@@ -33,7 +33,7 @@ Run the newly added focused regressions:
 node tools/test.mjs project-lifecycle copper-review
 ```
 
-Run all root regressions, or include the existing heavier autorouter baseline:
+Run all regressions in `tests/`, or include the existing heavier autorouter baseline:
 
 ```sh
 node tools/test.mjs

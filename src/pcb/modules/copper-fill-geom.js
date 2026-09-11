@@ -256,6 +256,14 @@ export function boardShapeClearanceOutlines(shape, clearance) {
 }
 
 function resolvedShapeObstaclePaths(C, geometry, clearance) {
+    if (geometry.physicalContours) {
+        const offset = new C.ClipperOffset(2, ARC_TOL);
+        offset.AddPaths(geometry.physicalContours.map((contour) => contour.map((point) => ({ X: S(point.x), Y: S(point.y) }))),
+            C.JoinType.jtRound, C.EndType.etClosedPolygon);
+        const result = new C.Paths();
+        offset.Execute(result, (clearance + OFFSET_MARGIN) * SCALE);
+        return result;
+    }
     if (geometry.circle) {
         if (geometry.filled) {
             return [circlePath(

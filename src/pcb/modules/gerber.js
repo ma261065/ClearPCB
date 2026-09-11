@@ -37,6 +37,18 @@ import { pcbTextSegments } from './pcb-text.js';
 const FORMAT = '%FSLAX46Y46*%\n%MOMM*%\n';
 const SCALE = 1e6; // 4.6 fixed-point: multiply mm by 10^6
 
+function _shapeContourRegion(contours) {
+    let body = '';
+    for (const contour of contours) {
+        if (contour.length < 3) continue;
+        const start = contour[0];
+        body += `X${_fmt(start.x)}Y${_fmtY(start.y)}D02*\n`;
+        for (const point of [...contour.slice(1), start]) {
+            body += `X${_fmt(point.x)}Y${_fmtY(point.y)}D01*\n`;
+        }
+    }
+    return body ? `G36*\n${body}G37*\n` : '';
+}
 
 /**
  * Build all gerber/drill files for the current board state.
@@ -319,6 +331,12 @@ function _buildCopper(placements, tracks, vias, layerId, bounds, texts = [], fil
         const mode = geometry.copperMode;
         const cutsCopper = isHole ||
             (onThisLayer && (mode === 'remove-copper' || mode === 'remove-copper-mask'));
+        if (geometry.physicalContours) {
+            const region = _shapeContourRegion(geometry.physicalContours);
+            if (cutsCopper) clearShapeRegions += region;
+            else if (onThisLayer && mode === 'add') darkShapeRegions += region;
+            continue;
+        }
         const d = getAp(apKey('C', geometry.lineWidth));
         const op = `X${_fmt(o[0].x)}Y${_fmtY(o[0].y)}D02*\n`
             + o.slice(1).map((point) => `X${_fmt(point.x)}Y${_fmtY(point.y)}D01*`).join('\n')
@@ -529,6 +547,10 @@ function _buildPadLayer(placements, vias, side, bounds, opts) {
     for (const opening of shapeOpenings) {
         const geometry = opening?.geometry;
         if (!geometry) continue;
+        if (geometry.physicalContours) {
+            shapeRegions += _shapeContourRegion(geometry.physicalContours);
+            continue;
+        }
         if (geometry.circle) {
             if (!_inBoard(geometry.circle.x, geometry.circle.y, bounds)) continue;
             if (geometry.filled) {
@@ -756,6 +778,10 @@ function _buildSilk(placements, side, bounds, texts = [], boardShapes = []) {
         if (o.length < 2) continue;
         const head = useAperture(geometry.filled ? 0.06 : geometry.lineWidth);
         if (head) body += head;
+        if (geometry.physicalContours) {
+            body += _shapeContourRegion(geometry.physicalContours);
+            continue;
+        }
         if (geometry.filled && o.length >= 3) {
             let ring = 'G36*\n';
             ring += `X${_fmt(o[0].x)}Y${_fmtY(o[0].y)}D02*\n`;

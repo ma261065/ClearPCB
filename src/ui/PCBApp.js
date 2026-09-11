@@ -392,7 +392,7 @@ export default class PCBApp {
         this.viewport?._onResize?.();
         this._updateViewportStatus();
         this.syncPcbViewToggles?.();
-        this._updateGridDropdown();
+        updateGridDropdown(this, true);
 
         // Rebuild if schematic changed while we were away
         if (this._stale) this._syncFromSchematic();
@@ -2487,7 +2487,7 @@ export default class PCBApp {
         const hasContent = this.tracks?.length || this.vias?.length
             || this.boardShapes?.length
             || this.texts?.size || this._placementOverrides.size
-            || this._boardOutlineDrawn;
+            || this._boardOutlineDrawn || this.viewport;
         return hasContent ? this.serialize() : null;
     }
 
