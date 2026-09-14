@@ -175,6 +175,28 @@ owning the other.
   receive the app object as their first argument. No classes, no
   singletons.
 
+## Importing PCB pictures
+
+In the PCB editor, choose **Home > Image**. Select a
+PNG or JPEG, choose top/bottom silk or copper, then set the width in millimetres,
+resolution and threshold. The preview shows the resulting monochrome artwork.
+Invert selects light pixels instead of dark ones; transparent pixels stay empty.
+Mirroring is optional and is not applied automatically for bottom layers.
+
+Import creates one image object centred in the current view. Drag it as a whole;
+resize with its four corner handles or the Width/Height fields in Properties.
+Resizing preserves aspect ratio. Properties also moves the image between top/bottom
+silk and copper layers. The internal pixels are not editable shapes.
+One undo removes the entire import. Artwork
+is saved with the board and included in Gerber output; copper artwork can be
+assigned a net. Copper import adds copper only, not a solder-mask opening.
+
+Images are decoded locally without uploading. Limits are 20 MB, 40 megapixels,
+512 pixels on the processed long edge, 0.1 mm minimum output pixel size, and
+2,000 internal artwork regions per image. Reduce resolution for complex pictures. The minimum pixel
+size is a conversion limit, not a guarantee of manufacturability; check your
+fabricator's silk/copper width and clearance requirements.
+
 ## Keyboard shortcuts
 
 | Key | Action |

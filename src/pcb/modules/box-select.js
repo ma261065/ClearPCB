@@ -531,6 +531,9 @@ export function endGroupDrag(app) {
         }
     }
     if (cmds.length === 0) {
+        if (!app._deferDragOverlays && (g.comps.length || g.vias.length || g.tracks.length)) {
+            app._refreshClearanceHalos?.();
+        }
         app._updateRatsnest?.();
         _applyHighlights(app);
         return;
@@ -582,6 +585,9 @@ export function cancelGroupDrag(app) {
         || entry.text?.layer === 'bottom-copper');
     if (g.comps?.length || g.vias?.length || g.tracks?.length || g.fills?.length
         || movedShapeAffectsFill || movedTextAffectsFill) app._refreshFills?.();
+    if (!app._deferDragOverlays && (g.comps?.length || g.vias?.length || g.tracks?.length)) {
+        app._refreshClearanceHalos?.();
+    }
     app._updateRatsnest?.();
     app._board3d?.refresh?.();
     _applyHighlights(app);

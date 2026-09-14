@@ -1,9 +1,11 @@
 /** Shared adapter-driven anchor rendering and hit testing for PCB selection. */
 
 import { getPcbSelectionEntries } from './selection-registry.js';
+import { ROTATION_CURSOR } from './rotation-handle.js';
 
 const HANDLE_CLASS = 'pcb-selection-anchors';
 const NS = 'http://www.w3.org/2000/svg';
+const ROTATION_ICON_URL = new URL('../../../assets/icons/RotateIcon.svg', import.meta.url).href;
 
 function anchorId(anchor) {
     return anchor.id ?? anchor.key;
@@ -20,7 +22,9 @@ export function hitTestPcbSelectionAnchor(app, point, kinds = null) {
     for (const adapter of getPcbSelectionEntries(app)) {
         if (!adapter.visible || (allowed && !allowed.has(adapter.kind))) continue;
         for (const anchor of adapter.getAnchors?.() || []) {
-            if (Math.hypot(anchor.x - point.x, anchor.y - point.y) <= tolerance) {
+            if (anchor.symbol === 'rotate' && app._rotationHandleDrag) continue;
+            const hitRadius = Math.max(tolerance, (anchor.sizePx || 8) / (2 * Math.max(0.01, app.viewport?.scale || 1)));
+            if (Math.hypot(anchor.x - point.x, anchor.y - point.y) <= hitRadius) {
                 return { adapter, anchor, anchorId: anchorId(anchor) };
             }
         }
@@ -52,8 +56,9 @@ export function renderPcbSelectionAnchors(app) {
             group.appendChild(path);
         }
         for (const anchor of adapter.getAnchors()) {
-            if (anchor.hidden) continue;
+            if (anchor.hidden || (anchor.symbol === 'rotate' && app._rotationHandleDrag)) continue;
             const isMidpoint = anchor.symbol === 'plus';
+            const isRotation = anchor.symbol === 'rotate';
             const handleSize = isMidpoint ? 11 / scale : (anchor.sizePx || 8) / scale;
             const half = handleSize / 2;
             const anchorColor = isMidpoint ? '#1565c0' : (anchor.stroke || adapter.anchorColor || '#3399ff');
@@ -73,8 +78,25 @@ export function renderPcbSelectionAnchors(app) {
             handle.setAttribute('stroke-width', String((anchor.strokeWidthPx || 1) / scale));
             handle.setAttribute('vector-effect', 'non-scaling-stroke');
             handle.setAttribute('data-anchor-id', String(anchorId(anchor)));
-            handle.style.cursor = anchor.cursor || 'move';
+            handle.style.cursor = app._rotationHandleDrag ? ROTATION_CURSOR : (anchor.cursor || 'move');
+            if (isRotation) {
+                const title = document.createElementNS(NS, 'title');
+                title.textContent = 'Rotate';
+                handle.appendChild(title);
+                handle.setAttribute('aria-label', 'Rotate');
+            }
             group.appendChild(handle);
+            if (isRotation) {
+                const icon = document.createElementNS(NS, 'image');
+                icon.setAttribute('href', ROTATION_ICON_URL);
+                icon.setAttribute('x', '-9');
+                icon.setAttribute('y', '-9');
+                icon.setAttribute('width', '18');
+                icon.setAttribute('height', '18');
+                icon.setAttribute('transform', `translate(${anchor.x} ${anchor.y}) scale(${1 / scale})`);
+                icon.setAttribute('pointer-events', 'none');
+                group.appendChild(icon);
+            }
             if (isMidpoint) {
                 const plusSize = half * 1.1;
                 for (const [x1, y1, x2, y2] of [

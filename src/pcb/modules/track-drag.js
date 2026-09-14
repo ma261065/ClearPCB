@@ -69,6 +69,7 @@ function _beginVertexDragOverlayDeferral(app) {
 
 function _endVertexDragOverlayDeferral(app, drag, refresh) {
     app._deferDragOverlays = drag.previousDeferDragOverlays;
+    if (!app._deferDragOverlays) app._refreshClearanceHalos?.();
     if (refresh) reconcileRatsnest(app);
 }
 
@@ -1800,5 +1801,6 @@ export function cancelViaDrag(app) {
     for (const t of touched) {
         renderTrack(t, (id) => app._getLayerGroup(id), _opts(app, t));
     }
+    if (!app._deferDragOverlays) app._refreshClearanceHalos?.();
     refreshTrackSelectionHalo(app);
 }

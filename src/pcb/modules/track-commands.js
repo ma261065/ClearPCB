@@ -15,7 +15,12 @@ import {
 import { reconcileRatsnest } from './track-draw.js';
 import { refreshTrackSelectionHalo } from './track-select.js';
 import { getPcbSelection } from './selection-registry.js';
-import { batchDerivedUpdates } from '../../core/DerivedUpdates.js';
+import { batchDerivedUpdates, deferDerivedUpdate } from '../../core/DerivedUpdates.js';
+
+function refreshEditedTrackClearance(app) {
+    if (deferDerivedUpdate(app, 'clearance', () => refreshEditedTrackClearance(app))) return;
+    if (!app._deferDragOverlays) app._refreshClearanceHalos?.();
+}
 
 function _opts(app, track) {
     return {
@@ -150,6 +155,7 @@ export function applyPlacementPose(app, compId) {
         }
     }
     repositionPadConnectedNodes(app, compId);
+    refreshEditedTrackClearance(app);
 }
 
 /** Add a freshly-built Track to app.tracks and render it. Optionally
@@ -168,6 +174,7 @@ export class AddTrackCommand {
             if (!this.app.vias.includes(v)) this.app.vias.push(v);
             renderVia(v, (id) => this.app._getLayerGroup(id));
         }
+        refreshEditedTrackClearance(this.app);
         reconcileRatsnest(this.app);
     }
     undo() {
@@ -179,6 +186,7 @@ export class AddTrackCommand {
         removeTrackElements(this.track);
         const i = this.app.tracks.indexOf(this.track);
         if (i >= 0) this.app.tracks.splice(i, 1);
+        refreshEditedTrackClearance(this.app);
         reconcileRatsnest(this.app);
     }
 }
@@ -193,11 +201,13 @@ export class RemoveTrackCommand {
         removeTrackElements(this.track);
         const i = this.app.tracks.indexOf(this.track);
         if (i >= 0) this.app.tracks.splice(i, 1);
+        refreshEditedTrackClearance(this.app);
         reconcileRatsnest(this.app);
     }
     undo() {
         if (!this.app.tracks.includes(this.track)) this.app.tracks.push(this.track);
         renderTrack(this.track, (id) => this.app._getLayerGroup(id), _opts(this.app, this.track));
+        refreshEditedTrackClearance(this.app);
         reconcileRatsnest(this.app);
     }
 }
@@ -216,6 +226,7 @@ export class ModifyTrackCommand {
     _apply(state) {
         Object.assign(this.track, state);
         renderTrack(this.track, (id) => this.app._getLayerGroup(id), _opts(this.app, this.track));
+        refreshEditedTrackClearance(this.app);
         reconcileRatsnest(this.app);
     }
     execute() { this._apply(this.after); }
@@ -237,6 +248,7 @@ export class MoveVertexCommand {
         n.x = pt.x;
         n.y = pt.y;
         renderTrack(this.track, (id) => this.app._getLayerGroup(id), _opts(this.app, this.track));
+        refreshEditedTrackClearance(this.app);
         reconcileRatsnest(this.app);
         refreshTrackSelectionHalo(this.app);
     }
@@ -260,6 +272,7 @@ export class ModifyTrackGraphCommand {
     _apply(state) {
         this.track.applyState(state);
         renderTrack(this.track, (id) => this.app._getLayerGroup(id), _opts(this.app, this.track));
+        refreshEditedTrackClearance(this.app);
         reconcileRatsnest(this.app);
         refreshTrackSelectionHalo(this.app);
     }
@@ -272,12 +285,14 @@ export class AddViaCommand {
     execute() {
         if (!this.app.vias.includes(this.via)) this.app.vias.push(this.via);
         renderVia(this.via, (id) => this.app._getLayerGroup(id));
+        refreshEditedTrackClearance(this.app);
         reconcileRatsnest(this.app);
     }
     undo() {
         removeViaElements(this.via);
         const i = this.app.vias.indexOf(this.via);
         if (i >= 0) this.app.vias.splice(i, 1);
+        refreshEditedTrackClearance(this.app);
         reconcileRatsnest(this.app);
     }
 }
@@ -288,11 +303,13 @@ export class RemoveViaCommand {
         removeViaElements(this.via);
         const i = this.app.vias.indexOf(this.via);
         if (i >= 0) this.app.vias.splice(i, 1);
+        refreshEditedTrackClearance(this.app);
         reconcileRatsnest(this.app);
     }
     undo() {
         if (!this.app.vias.includes(this.via)) this.app.vias.push(this.via);
         renderVia(this.via, (id) => this.app._getLayerGroup(id));
+        refreshEditedTrackClearance(this.app);
         reconcileRatsnest(this.app);
     }
 }
@@ -307,6 +324,7 @@ export class ModifyViaCommand {
     _apply(state) {
         this.via.applyState(state);
         renderVia(this.via, (id) => this.app._getLayerGroup(id));
+        refreshEditedTrackClearance(this.app);
         reconcileRatsnest(this.app);
         refreshTrackSelectionHalo(this.app);
     }
@@ -329,6 +347,7 @@ export class ModifyViasCommand {
         for (const change of this.changes) {
             renderVia(change.via, (id) => this.app._getLayerGroup(id));
         }
+        refreshEditedTrackClearance(this.app);
         reconcileRatsnest(this.app);
         refreshTrackSelectionHalo(this.app);
     }
@@ -348,6 +367,7 @@ export class MoveViaCommand {
         this.via.x = pt.x;
         this.via.y = pt.y;
         renderVia(this.via, (id) => this.app._getLayerGroup(id));
+        refreshEditedTrackClearance(this.app);
         refreshTrackSelectionHalo(this.app);
     }
     execute() { this._set(this.to); }

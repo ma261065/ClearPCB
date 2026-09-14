@@ -1,0 +1,15 @@
+import assert from 'node:assert/strict';
+globalThis.window = { addEventListener() {} };
+const { pcbTextClearanceOutlines } = await import('../src/pcb/modules/copper-fill-geom.js');
+const text = { content: 'O', x: 0, y: 0, size: 5, strokeWidth: 0.2, rotation: 0, layer: 'top-copper' };
+const contours = pcbTextClearanceOutlines(text, 0.1);
+assert.ok(contours.length >= 2, 'Glyph clearance preserves the open centre of O');
+const extent = paths => Math.max(...paths.flat().map(point => point.x));
+assert.ok(extent(pcbTextClearanceOutlines(text, 0.3)) > extent(contours));
+assert.deepEqual(pcbTextClearanceOutlines({ ...text, layer: 'top-silk' }, 0.1), []);
+assert.deepEqual(pcbTextClearanceOutlines({ ...text, content: '' }, 0.1), []);
+const rotated = pcbTextClearanceOutlines({ ...text, rotation: 90 }, 0.1);
+assert.ok(Math.abs(Math.max(...rotated.flat().map(point => -point.y)) - extent(contours)) < 0.03);
+const bottom = pcbTextClearanceOutlines({ ...text, layer: 'bottom-copper' }, 0.1);
+assert.ok(Math.abs(Math.max(...bottom.flat().map(point => -point.x)) - extent(contours)) < 0.03);
+console.log('PASS text glyph clearance, holes, rotation, mirroring and non-copper exclusion');

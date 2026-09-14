@@ -88,6 +88,7 @@ import {
     clearSelectionInteractionUi,
     showPcbSelectionProperties,
     finishSelectionInteraction,
+    selectionInteractionCursor,
     placeFloatingSelectionInteraction,
     updateSelectionInteraction,
 } from '../pcb/modules/selection-interaction.js';
@@ -97,7 +98,8 @@ import { CommandHistory } from '../core/CommandHistory.js';
 import { Track } from '../shapes/track.js';
 import { Via } from '../shapes/via.js';
 import { CopperFill } from '../shapes/copper-fill.js';
-import { computeFillPolygons, loadClipper, isClipperReady, boardShapeClearanceOutlines } from '../pcb/modules/copper-fill-geom.js';
+import { computeFillPolygons, loadClipper, isClipperReady, boardShapeClearanceOutlines, pcbTextClearanceOutlines } from '../pcb/modules/copper-fill-geom.js';
+import { bindPictureRefreshHold, schedulePictureCopperRefresh } from '../pcb/modules/picture-refresh.js';
 import { renderCopperFill, fillGroupId } from '../pcb/modules/copper-fill-render.js';
 import { AddFillCommand, RemoveFillCommand, ModifyFillCommand } from '../pcb/modules/copper-fill-commands.js';
 import '../pcb/modules/copper-fill-selection.js';
@@ -686,6 +688,7 @@ export default class PCBApp {
         this._board3d?.refresh?.();
         this._updateCursorForTool?.();
         // Keep derived visuals coherent after the final drop position.
+        this._refreshClearanceHalos();
         reconcileRatsnest(this);
         this._syncClipboardButtons?.();
     }
@@ -707,6 +710,7 @@ export default class PCBApp {
         }
         this._board3d?.refresh?.();
         this._updateCursorForTool?.();
+        this._refreshClearanceHalos();
         this._syncClipboardButtons?.();
     }
 
@@ -847,22 +851,8 @@ export default class PCBApp {
             if (this._drcSelectedId) this._updateDRCConnector();
         };
 
-        // Hide the clearance overlay during a pan. Its halos are transient
-        // non-scaling-stroke polygons that re-tessellate on every viewBox
-        // change (the dominant pan repaint cost); you can't edit mid-pan, so
-        // drop them for the gesture and restore in place on release. No
-        // recompute is needed — the geometry is in world space and pans with
-        // the viewBox.
         this.viewport.onPanStart = () => {
             this._hideNetTooltip();
-            if (!this._active || !this._clearancesVisible) return;
-            const ov = this._layerGroups.get('clearance-overlay');
-            if (ov) ov.style.display = 'none';
-        };
-        this.viewport.onPanEnd = () => {
-            if (!this._active) return;
-            const ov = this._layerGroups.get('clearance-overlay');
-            if (ov && this._clearancesVisible) ov.style.display = '';
         };
 
         // Bind mouse events for panning
@@ -994,7 +984,7 @@ export default class PCBApp {
                     setHoverHighlight(this, null);
                     this._hoverComponent(null);
                     this._hideNetTooltip();
-                    if (this._pcbSelectionInteraction) svg.style.cursor = 'grabbing';
+                    if (this._pcbSelectionInteraction) svg.style.cursor = selectionInteractionCursor(this);
                     return;
                 }
 
@@ -1416,9 +1406,7 @@ export default class PCBApp {
             } else if (this._pasteDrop) {
                 this._updatePasteDrop(this._screenToWorld(e));
             } else if (updateSelectionInteraction(this, this._screenToWorld(e))) {
-                svg.style.cursor = this._pcbSelectionInteraction?.mode === 'circle-anchor'
-                    ? (this._pcbSelectionInteraction.anchorKey === 'radius' ? 'ew-resize' : 'move')
-                    : 'grabbing';
+                svg.style.cursor = selectionInteractionCursor(this);
             } else if (this._drag) {
                 this._scheduleDragUpdate(e);
             } else if (this._groupDrag) {
@@ -3696,6 +3684,7 @@ export default class PCBApp {
             // Persistent copper shapes can carry nets without any schematic
             // components. Their SVG was restored above, so rebuild their
             // ratlines before this component-less-board early return.
+            this._refreshClearanceHalos();
             this._updateRatsnest();
             this._setStatus('No components in schematic');
             return;
@@ -3714,6 +3703,7 @@ export default class PCBApp {
         }
 
         // Draw ratsnest
+        this._refreshClearanceHalos();
         this._updateRatsnest();
 
         // Only fit-to-content on the first sync so we don't
@@ -4372,11 +4362,12 @@ export default class PCBApp {
                 && (trackHover?.type === 'track' || trackHover?.type === 'via');
             const overRef = !overNode && !overMidpoint
                 && !!this._hitTestRefText(worldPos);
-            const selectedAnchor = hitTestPcbSelectionAnchor(this, worldPos, ['shape']);
+            const selectedAnchor = hitTestPcbSelectionAnchor(this, worldPos, ['shape', 'text']);
             const shapeIsSelected = !!shapeHover && isPcbSelected(this, 'shape', shapeHover);
             const copperIsSelected = (trackHover?.type === 'track' && isPcbSelected(this, 'track', trackHover.track))
                 || (trackHover?.type === 'via' && isPcbSelected(this, 'via', trackHover.via));
-            const hoverCursor = overNode ? 'nwse-resize'
+            const hoverCursor = selectedAnchor?.anchor.symbol === 'rotate' ? 'grab'
+                : overNode ? 'nwse-resize'
                 : overMidpoint ? 'copy'
                 : overCopper ? (copperIsSelected ? 'move' : 'pointer')
                 : overRef ? 'move'
@@ -4817,11 +4808,7 @@ export default class PCBApp {
         const { compId, startPos } = this._drag;
         const pl = this.placements.get(compId);
         this._drag = null;
-        // Drag finished — re-enable the deferred overlays so the reconcile
-        // below (or the MovePlacementCommand's) rebuilds pours + clearance
-        // halos once, at the final resting position. The clearance rebuild
-        // wipes and recreates every pad-halo group, so the dragged
-        // component's group (hidden on drag start) returns visible.
+        // Restore overlays before the placement command refreshes clearance.
         this._deferDragOverlays = false;
         // Drop the GPU-layer promotion applied during the drag so the overlay
         // returns to normal painting (avoids holding a compositing layer).
@@ -4842,6 +4829,7 @@ export default class PCBApp {
             // is correct without double-rendering.
             this.history.execute(cmd);
         } else {
+            this._refreshClearanceHalos();
             this._updateRatsnest();
         }
     }
@@ -4891,6 +4879,8 @@ export default class PCBApp {
         const el = renderPcbText(text, strokeOverride);
         layerG.appendChild(el);
         this._textElements.set(text.id, el);
+        this._refreshBoardShapeClearance(text);
+        if (isSel) renderPcbSelectionAnchors(this);
         // If this text is being inline-edited, keep the editing
         // box/caret transform in sync with any property changes
         // (rotation, size, layer mirror) that just re-rendered it.
@@ -5316,7 +5306,7 @@ export default class PCBApp {
         items.innerHTML = `
             <div class="prop-row"><label>Layer</label><select id="pcbPropTextToolLayer">${layerOpts}</select></div>
             <div class="prop-row"><label>Size (mm)</label><input type="number" id="pcbPropTextToolSize" value="${d.size}" min="0.2" max="20" step="0.1"></div>
-            <div class="prop-row"><label>Rotation (°)</label><input type="number" id="pcbPropTextToolRot" value="${d.rotation}" step="15"></div>
+            <div class="prop-row"><label>Rotation (°)</label><input type="number" id="pcbPropTextToolRot" data-number-format="rotation" value="${Math.round(d.rotation) % 360}" step="1"></div>
             <div class="prop-row"><label>Line W (mm)</label><input type="number" id="pcbPropTextToolLW" value="${d.strokeWidth}" min="0.05" max="2" step="0.05"></div>
         `;
         const layerEl = /** @type {HTMLSelectElement|null} */ (items.querySelector('#pcbPropTextToolLayer'));
@@ -5332,7 +5322,10 @@ export default class PCBApp {
         });
         rotationEl?.addEventListener('input', () => {
             const rotation = parseFloat(rotationEl.value);
-            if (Number.isFinite(rotation)) this._textDefaults.rotation = ((rotation % 360) + 360) % 360;
+            if (Number.isFinite(rotation)) {
+                this._textDefaults.rotation = ((Math.round(rotation) % 360) + 360) % 360;
+                rotationEl.value = String(this._textDefaults.rotation);
+            }
         });
         lineWidthEl?.addEventListener('input', () => {
             const lineWidth = parseFloat(lineWidthEl.value);
@@ -5386,7 +5379,7 @@ export default class PCBApp {
         items.innerHTML = `
             <div class="prop-row"><label>Layer</label><select id="pcbPropTextLayer">${layerOpts}</select></div>
             <div class="prop-row"><label>Size (mm)</label><input type="number" id="pcbPropTextSize" value="${text.size}" min="0.2" step="0.1"></div>
-            <div class="prop-row"><label>Rotation (°)</label><input type="number" id="pcbPropTextRot" value="${text.rotation}" step="15"></div>
+            <div class="prop-row"><label>Rotation (°)</label><input type="number" id="pcbPropTextRot" data-number-format="rotation" value="${Math.round(text.rotation) % 360}" step="1"></div>
             <div class="prop-row"><label>Line W (mm)</label><input type="number" id="pcbPropTextLW" value="${text.strokeWidth}" min="0.05" step="0.05"></div>
             ${insertRow}
         `;
@@ -5419,7 +5412,7 @@ export default class PCBApp {
         const rotParse = (v) => {
             const n = parseFloat(v);
             if (!Number.isFinite(n)) return null;
-            return ((n % 360) + 360) % 360;
+            return ((Math.round(n) % 360) + 360) % 360;
         };
         this._bindStrokeTextProps(items, text, {
             fields: [
@@ -5491,6 +5484,7 @@ export default class PCBApp {
             const v = f.parse(el ? el.value : '');
             if (v === null || v === undefined) return;
             if (f.apply) f.apply(model, v); else model[f.field] = v;
+            if (typeof model.content === 'string') schedulePictureCopperRefresh(this, model);
             spec.preview(model);
         };
         const onCommit = () => {
@@ -5502,6 +5496,7 @@ export default class PCBApp {
         for (const f of spec.fields) {
             const el = /** @type {HTMLInputElement|HTMLSelectElement|null} */ (items.querySelector('#' + f.id));
             if (!el) continue;
+            bindPictureRefreshHold(this, el);
             const handler = onInput(f);
             el.addEventListener('input', handler);
             // Spinner step clicks on number inputs fire 'change' without 'input'.
@@ -5511,7 +5506,7 @@ export default class PCBApp {
                 const wrapDeg = () => {
                     const n = parseFloat(el.value);
                     if (!Number.isFinite(n)) return;
-                    const wrapped = ((n % 360) + 360) % 360;
+                    const wrapped = ((Math.round(n) % 360) + 360) % 360;
                     if (wrapped !== n) el.value = String(wrapped);
                 };
                 el.addEventListener('input', wrapDeg);
@@ -5541,7 +5536,7 @@ export default class PCBApp {
             <div class="prop-row"><label>Reference</label><input type="text" id="pcbPropRefName" value="${pl.reference ?? ''}" disabled></div>
             <div class="prop-row"><label>Layer</label><input type="text" id="pcbPropRefLayer" value="${this._layerLabel(silkLayer)}" disabled></div>
             <div class="prop-row"><label>Size (mm)</label><input type="number" id="pcbPropRefSize" value="${size}" min="0.2" step="0.1"></div>
-            <div class="prop-row"><label>Rotation (°)</label><input type="number" id="pcbPropRefRot" value="${rot}" step="15"></div>
+            <div class="prop-row"><label>Rotation (°)</label><input type="number" id="pcbPropRefRot" data-number-format="rotation" value="${rot}" step="15"></div>
             <div class="prop-row"><label>Line W (mm)</label><input type="number" id="pcbPropRefLW" value="${lw}" min="0.05" step="0.05"></div>
         `;
         const num = (min) => (v) => {
@@ -6039,6 +6034,7 @@ export default class PCBApp {
             if (!this._ratsnestGroup) {
                 this._ratsnestGroup = this._getLayerGroup('ratlines');
             }
+            this._refreshClearanceHalos();
             this._updateRatsnest();
 
             // Fit viewport to board bounds
@@ -6761,8 +6757,16 @@ export default class PCBApp {
         while (overlay.firstChild) overlay.removeChild(overlay.firstChild);
 
         if (show === undefined) show = !this._clearancesVisible;
+        this._boardShapeClearanceCache ??= new Map();
+        const shapeIds = new Set([...(this.boardShapes || []), ...(this.texts?.values() || [])].map(shape => shape.id));
+        for (const id of this._boardShapeClearanceCache.keys()) {
+            if (!shapeIds.has(id)) this._boardShapeClearanceCache.delete(id);
+        }
         this._clearancesVisible = !!show;
-        if (!this._clearancesVisible) return;
+        if (!this._clearancesVisible) {
+            this._boardShapeClearanceCache.clear();
+            return;
+        }
 
         const params = this._getRoutingParams();
         const halo = params.clearance;
@@ -7090,16 +7094,9 @@ export default class PCBApp {
         }
 
         for (const shape of this.boardShapes || []) {
-            if (!shape || !isLayerVisible(shape.layer)) continue;
-            for (const outline of boardShapeClearanceOutlines(shape, halo)) {
-                const element = document.createElementNS(NS, 'polygon');
-                styleHalo(element);
-                element.setAttribute('points', outline.map(point => `${point.x},${point.y}`).join(' '));
-                element.setAttribute('data-shape-id', shape.id);
-                if (shape.net) element.dataset.net = shape.net;
-                overlay.appendChild(element);
-            }
+            if (shape) this._refreshBoardShapeClearance(shape);
         }
+        for (const text of this.texts?.values() || []) this._refreshBoardShapeClearance(text);
 
         // Vias: drawn as circles with class 'pcb-routed-via' (legacy/animation)
         // or 'pcb-via' (model-driven) on the 'hole' layer. Two elements share
@@ -7824,6 +7821,63 @@ export default class PCBApp {
      * after any operation that adds, removes, or relocates traces/vias so the
      * halos stay in sync (rip-ups in particular leave orphaned halos otherwise).
      */
+    _refreshBoardShapeClearance(shape) {
+        if (!this._clearancesVisible) return;
+        const overlay = this._getLayerGroup('clearance-overlay');
+        if (!overlay) return;
+        this._boardShapeClearanceCache ??= new Map();
+        const previous = this._boardShapeClearanceCache.get(shape.id);
+        if (this._pictureCopperRefreshPending && this._pendingShapeClearances?.has(shape.id)) {
+            for (const element of previous?.elements || []) {
+                element.parentNode?.removeChild(element);
+            }
+            return;
+        }
+        const clearance = this._getRoutingParams().clearance;
+        const layer = this._layerGroups.get(shape.layer);
+        const visible = !!layer && layer.style.display !== 'none';
+        const isText = typeof shape.content === 'string';
+        const points = shape.points || (shape.kind === 'circle' || isText ? [{ x: shape.x, y: shape.y }]
+            : shape.kind === 'arc' ? [shape.start, shape.end, shape.bulge] : []);
+        const style = JSON.stringify([shape.kind, shape.layer, visible, clearance, shape.net, shape.radius,
+            shape.lineWidth, shape.segmentWidths, shape.filled, shape.copperMode,
+            shape.cornerRadius, shape.nodeCornerRadii, shape.nodeFlatJoins,
+            shape.content, shape.size, shape.strokeWidth, shape.rotation]);
+        if (previous && previous.style === style && previous.artwork === shape.artwork
+            && points.length && points.length === previous.points.length) {
+            const dx = points[0].x - previous.points[0].x;
+            const dy = points[0].y - previous.points[0].y;
+            if (points.every((point, index) => Math.abs(point.x - previous.points[index].x - dx) < 1e-9
+                && Math.abs(point.y - previous.points[index].y - dy) < 1e-9)) {
+                for (const element of previous.elements) {
+                    element.setAttribute('transform', `translate(${dx} ${dy})`);
+                    if (element.parentNode !== overlay) overlay.appendChild(element);
+                }
+                return;
+            }
+        }
+        for (const element of previous?.elements || []) {
+            if (element.parentNode === overlay) overlay.removeChild(element);
+        }
+        const elements = [];
+        if (visible) for (const outline of (isText ? pcbTextClearanceOutlines(shape, clearance) : boardShapeClearanceOutlines(shape, clearance))) {
+            const element = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+            element.setAttribute('class', 'debug-clearance');
+            element.setAttribute('fill', 'none');
+            element.setAttribute('stroke', 'rgba(255, 255, 255, 0.55)');
+            element.setAttribute('stroke-width', '1');
+            element.setAttribute('vector-effect', 'non-scaling-stroke');
+            element.setAttribute('pointer-events', 'none');
+            element.setAttribute('points', outline.map(point => `${point.x},${point.y}`).join(' '));
+            element.setAttribute('data-shape-id', shape.id);
+            if (shape.net) element.dataset.net = shape.net;
+            overlay.appendChild(element);
+            elements.push(element);
+        }
+        this._boardShapeClearanceCache.set(shape.id, { style, artwork: shape.artwork,
+            points: points.map(point => ({ x: point.x, y: point.y })), elements });
+    }
+
     _refreshClearanceHalos() {
         if (this._clearancesVisible) this.showClearances(true);
     }

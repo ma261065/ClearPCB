@@ -15,6 +15,7 @@ import {
 } from './board-shapes.js';
 import { renderPcbSelectionAnchors } from './selection-anchors.js';
 import { getPcbSelectionEntries, setPcbSelection } from './selection-registry.js';
+import { cancelPictureCopperRefresh, schedulePictureCopperRefresh } from './picture-refresh.js';
 
 function deselectRemovedShape(app, shape) {
     const selected = getPcbSelectionEntries(app);
@@ -86,11 +87,9 @@ export class MoveBoardShapeCommand {
 
     _apply(geometry) {
         applyShapeGeometry(this.shape, geometry);
+        schedulePictureCopperRefresh(this.app);
         renderBoardShape(this.app, this.shape);
-        if (this.shape.kind === 'circle') refreshBoardShapeProperties(this.app, this.shape);
-        this.app._refreshFills?.();
-        this.app._updateRatsnest?.();
-        this.app._board3d?.refresh?.();
+        if (this.shape.kind === 'circle' || this.shape.kind === 'image') refreshBoardShapeProperties(this.app, this.shape);
         renderPcbSelectionAnchors(this.app);
     }
 
@@ -112,10 +111,22 @@ export class ModifyBoardShapeCommand {
     }
 
     _apply(state) {
+        const affectsCopper = this.shape.kind !== 'image'
+            || this.shape.layer.endsWith('copper') || state.layer.endsWith('copper');
+        const geometryEdit = this.shape.layer === state.layer && (this.shape.net || '') === (state.net || '');
+        if (affectsCopper && !geometryEdit) cancelPictureCopperRefresh(this.app);
         applyShapeSnapshot(this.shape, state);
-        renderBoardShape(this.app, this.shape);
-        this.app._refreshFills?.();
-        this.app._updateRatsnest?.();
+        if (affectsCopper && geometryEdit) schedulePictureCopperRefresh(this.app, this.shape);
+        renderBoardShape(this.app, this.shape, {
+            skipCopperUpdate: !affectsCopper,
+            liveDrag: !affectsCopper || geometryEdit,
+        });
+        if (affectsCopper) {
+            if (!geometryEdit) {
+                this.app._refreshFills?.();
+                this.app._updateRatsnest?.();
+            }
+        }
         this.app._board3d?.refresh?.();
         refreshBoardShapeProperties(this.app, this.shape);
         renderPcbSelectionAnchors(this.app);

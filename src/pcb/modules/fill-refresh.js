@@ -2,6 +2,7 @@ import { isClipperReady } from './copper-fill-geom.js';
 
 /** True when the scheduled pour pass will also reconcile the ratsnest. */
 export function scheduleFillRefresh(app) {
+    if (app._pictureCopperRefreshPending) return true;
     if (app._deferDragOverlays || app._suspendFillRefresh) {
         app._fillRefreshPending = true;
         return false;
@@ -14,6 +15,7 @@ export function scheduleFillRefresh(app) {
     app._fillRefreshScheduled = true;
     const run = () => {
         app._fillRefreshScheduled = false;
+        if (app._pictureCopperRefreshPending) return;
         app._recomputeFillsNow();
     };
     if (typeof requestAnimationFrame === 'function') requestAnimationFrame(run);

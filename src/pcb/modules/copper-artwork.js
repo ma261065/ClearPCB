@@ -1,5 +1,6 @@
 import { resolveBoardShapeGeometry, boardShapeArcGeometry } from './board-shapes.js';
 import { pcbTextSegments } from './pcb-text.js';
+import { pictureRegions } from './picture-raster.js';
 
 export function collectCopperArtwork(app) {
     const segments = [], areas = [], circles = [], arcs = [];
@@ -20,6 +21,11 @@ export function collectCopperArtwork(app) {
         const geometry = resolveBoardShapeGeometry(shape);
         if (geometry.copperMode !== 'add') continue;
         const meta = { keyId: `shape:${shape.id}`, net: shape.net || '', layer: layerName(shape.layer), label: 'Copper shape' };
+        if (shape.kind === 'image') {
+            pictureRegions(shape).forEach(({ outer, holes }, index) => areas.push({ ...meta, kind: 'area',
+                uid: `${meta.keyId}:${index}`, outer, holes, x: outer[0].x, y: outer[0].y }));
+            continue;
+        }
         const points = geometry.centerline;
         const arc = boardShapeArcGeometry(shape);
         if (arc) {

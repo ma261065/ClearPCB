@@ -402,7 +402,7 @@ Every entry contains:
 | Field | Type | Description |
 | --- | --- | --- |
 | `id` | string | Shape ID. |
-| `kind` | string | `line`, `rect`, `polygon`, `arc`, or `circle`. |
+| `kind` | string | `line`, `rect`, `polygon`, `arc`, `circle`, or `image`. |
 | `layer` | string | PCB layer ID. |
 | `geometryVersion` | number | `1` for centreline paths; circles use `2` to store the outer radius. |
 | `lineWidth` | number | Stroke width in mm; centred on lines, arcs, rectangles and polygons, inward for circles. |
@@ -425,6 +425,24 @@ Geometry depends on `kind`:
   { "kind": "circle", "x": 5, "y": 5, "radius": 3 }
 ]
 ```
+
+Image records are single objects with `kind: "image"`, an optional `name`, and
+four rectangular `points` in source-corner order (top-left, top-right,
+bottom-right, bottom-left before rotation). The bounding box is selectable,
+including transparent areas. Only top/bottom silk and copper layers are supported.
+Images are always filled; `lineWidth` does not expand their artwork.
+
+The `artwork` field stores `{ width, height, rectangles }`: integer raster
+dimensions (1 to 512 pixels each), and 1 to 2,000 nonoverlapping pixel-space runs
+`{ x, y, width, height }` wholly inside that raster. These runs are internal data,
+not independently editable board shapes. Pixel coordinates map to world space
+using points 0, 1 and 3 as the origin and horizontal/vertical axes. Moving or
+resizing changes only `points`; artwork is unchanged. Original PNG/JPEG bytes
+are not stored. The processed artwork is sufficient for rendering and Gerber export.
+At import (or first use after loading), runs are unioned into continuous outer
+and hole outlines. These outlines and their hole-aware triangulation are cached
+in memory, not serialized. Moving and resizing only transform the cached geometry;
+zooming does not repeat the union. This avoids internal run-edge rendering seams.
 
 Lines, arcs, rectangles and polygons store centreline coordinates. Their strokes
 extend half the width on each side of the path. Nodes and midpoint handles sit

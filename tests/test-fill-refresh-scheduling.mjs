@@ -65,7 +65,7 @@ try {
     flush();
     assert.equal(app.counts.pours, 1);
     assert.equal(app.counts.rebuilds, 1);
-    assert.equal(app.counts.halos, 1);
+    assert.equal(app.counts.halos, 0, 'Pour and connectivity updates do not own clearance rendering');
     assert.equal(app.counts.lines, 0);
     assert.ok(app.copperFills[0]._computed.length);
 
@@ -79,10 +79,16 @@ try {
     assert.equal(app.counts.pours, 2);
 
     const noFills = board();
+    const targeted = board();
+    scheduleFillRefresh(targeted);
+    flush();
+    assert.equal(targeted.counts.pours, 1);
+    assert.equal(targeted.counts.rebuilds, 1, 'Targeted halo updates still reconcile pour connectivity');
+    assert.equal(targeted.counts.halos, 0, 'Pour completion does not rebuild already updated clearance');
     noFills.copperFills = [];
     reconcileRatsnest(noFills);
     assert.equal(noFills.counts.rebuilds, 1);
-    assert.equal(noFills.counts.halos, 1);
+    assert.equal(noFills.counts.halos, 0, 'Connectivity without pours also leaves clearance untouched');
     assert.equal(frames.length, 0);
 
     const drag = board();
@@ -120,6 +126,22 @@ try {
     assert.equal(interrupted.counts.rebuilds, 1);
 
     const removed = board();
+    const editing = board();
+    reconcileRatsnest(editing);
+    editing._pictureCopperRefreshPending = true;
+    flush();
+    assert.equal(editing.counts.pours, 0, 'An already queued pour cannot run during a property edit');
+    assert.equal(scheduleFillRefresh(editing), true);
+    reconcileRatsnest(editing, { skipFillRefresh: true });
+    assert.equal(frames.length, 0);
+    assert.equal(editing.counts.halos, 0);
+    assert.equal(editing.counts.rebuilds, 0);
+    editing._pictureCopperRefreshPending = false;
+    reconcileRatsnest(editing);
+    flush();
+    assert.equal(editing.counts.pours, 1);
+    assert.equal(editing.counts.halos, 0);
+
     reconcileRatsnest(removed);
     removed.copperFills = [];
     reconcileRatsnest(removed);

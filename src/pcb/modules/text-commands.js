@@ -8,6 +8,7 @@
 
 import { serializePcbText } from './pcb-text.js';
 import { isPcbSelected } from './selection-registry.js';
+import { schedulePictureCopperRefresh } from './picture-refresh.js';
 
 /** Add a text to app.texts and render it. */
 export class AddTextCommand {
@@ -17,13 +18,13 @@ export class AddTextCommand {
     }
     execute() {
         this.app.texts.set(this.text.id, this.text);
+        schedulePictureCopperRefresh(this.app, this.text);
         this.app._renderText(this.text);
-        this.app._refreshFills?.();
     }
     undo() {
         this.app._removeTextElement(this.text.id);
         this.app.texts.delete(this.text.id);
-        this.app._refreshFills?.();
+        schedulePictureCopperRefresh(this.app, this.text);
         if (isPcbSelected(this.app, 'text', this.text)) {
             this.app._selectText(null);
         }
@@ -41,7 +42,7 @@ export class RemoveTextCommand {
         const text = this.app.texts.get(this.snapshot.id);
         this.app._removeTextElement(this.snapshot.id);
         this.app.texts.delete(this.snapshot.id);
-        this.app._refreshFills?.();
+        schedulePictureCopperRefresh(this.app, this.snapshot);
         if (text && isPcbSelected(this.app, 'text', text)) {
             this.app._selectText(null);
         }
@@ -49,8 +50,8 @@ export class RemoveTextCommand {
     undo() {
         const text = { ...this.snapshot };
         this.app.texts.set(text.id, text);
+        schedulePictureCopperRefresh(this.app, text);
         this.app._renderText(text);
-        this.app._refreshFills?.();
     }
     get description() { return `Delete text "${this.snapshot.content}"`; }
 }
@@ -69,8 +70,8 @@ export class MoveTextCommand {
         const t = this.app.texts.get(this.id);
         if (!t) return;
         t.x = x; t.y = y;
+        schedulePictureCopperRefresh(this.app);
         this.app._refreshText(this.id);
-        this.app._refreshFills?.();
     }
     get description() { return 'Move text'; }
 }
@@ -98,8 +99,12 @@ export class EditTextCommand {
         const t = this.app.texts.get(this.id);
         if (!t) return;
         Object.assign(t, patch);
+        schedulePictureCopperRefresh(this.app, t);
         this.app._refreshText(this.id);
-        this.app._refreshFills?.();
+        if ('rotation' in patch && isPcbSelected(this.app, 'text', t)) {
+            const input = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropTextRot'));
+            if (input) input.value = String(Math.round(t.rotation) % 360);
+        }
     }
     get description() { return 'Edit text'; }
 }

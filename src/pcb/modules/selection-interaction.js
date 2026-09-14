@@ -21,9 +21,17 @@ import {
     scheduleBoxSelectionHighlights,
     scheduleGroupDrag,
 } from './box-select.js';
-import { hitTestPcbSelectionAnchor } from './selection-anchors.js';
+import { hitTestPcbSelectionAnchor, renderPcbSelectionAnchors } from './selection-anchors.js';
+import { ROTATION_CURSOR } from './rotation-handle.js';
 
 const SUPPORTED_KINDS = new Set(['component', 'shape', 'track', 'via', 'fill', 'text', 'reftext']);
+
+export function selectionInteractionCursor(app) {
+    if (app._rotationHandleDrag) return ROTATION_CURSOR;
+    const state = app._pcbSelectionInteraction;
+    return state?.mode === 'circle-anchor'
+        ? (state.anchorKey === 'radius' ? 'ew-resize' : 'move') : 'grabbing';
+}
 
 export function clearSelectionInteractionUi(app) {
     clearTrackSelection(app);
@@ -109,6 +117,10 @@ export function beginSelectionInteraction(app, worldPos, additive, cycle = false
             ...selectedAnchor,
         };
         showPcbSelectionProperties(app);
+        if (app._rotationHandleDrag) {
+            renderPcbSelectionAnchors(app);
+            if (app.viewport?.svg) app.viewport.svg.style.cursor = selectionInteractionCursor(app);
+        }
         return true;
     }
 
@@ -124,11 +136,8 @@ export function beginSelectionInteraction(app, worldPos, additive, cycle = false
         ? { ...app._selectedBoardShapeSegment }
         : null;
     clearSelectionInteractionUi(app);
-    const onlySupported = selected.length > 0 && selected.every((item) => SUPPORTED_KINDS.has(item.kind));
     const alreadySelected = selected.some((item) => item.id === entry.id);
-    if (!alreadySelected || !onlySupported) {
-        setPcbSelection(app, [{ kind: entry.kind, object: entry.object }]);
-    }
+    setPcbSelection(app, [{ kind: entry.kind, object: entry.object }]);
     if (entry.beginMove?.(worldPos, { alreadySelected, selectedSegment })) {
         app._pcbSelectionInteraction = {
             mode: 'move-adapter',
@@ -213,6 +222,7 @@ export function finishSelectionInteraction(app, commit = true, worldPos = null) 
             }
         }
     } else if (state.mode === 'anchor') {
+        if (commit && worldPos && state.anchor?.symbol === 'rotate') state.adapter.updateAnchorDrag?.(worldPos);
         const result = state.adapter.endAnchorDrag?.(commit, { moved: state.moved });
         if (commit && result?.floating) {
             state.mode = 'floating-anchor';
@@ -228,6 +238,7 @@ export function finishSelectionInteraction(app, commit = true, worldPos = null) 
     }
     app._pcbSelectionInteraction = null;
     refreshBoxSelectionHighlights(app);
+    if (state.anchor?.symbol === 'rotate' && app.viewport?.svg) app.viewport.svg.style.cursor = 'default';
     return true;
 }
 

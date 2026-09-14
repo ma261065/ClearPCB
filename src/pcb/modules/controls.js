@@ -1,6 +1,7 @@
 import { updateGridDropdown } from '../../ui/modules/viewport.js';
 import { PCB_LAYERS, buildLayerPanel } from './layers.js';
 import { bindRecentsDropdown } from '../../ui/modules/recents.js';
+import { showPictureImport } from './picture-import.js';
 
 /**
  * Binds PCB-specific UI controls for tools and layers.
@@ -9,7 +10,7 @@ import { bindRecentsDropdown } from '../../ui/modules/recents.js';
 export function bindPcbControls(app) {
     const selectBtn = document.getElementById('pcbToolSelect');
     const trackBtn = document.getElementById('pcbToolTrack');
-    const padBtn = document.getElementById('pcbToolPad');
+    const imageBtn = document.getElementById('pcbImportImage');
     const viaBtn = document.getElementById('pcbToolVia');
     const holeBtn = document.getElementById('pcbToolHole');
     const shapesBtn = document.getElementById('pcbToolShapes');
@@ -36,7 +37,7 @@ export function bindPcbControls(app) {
     const undoBtn = document.getElementById('pcbUndoBtn');
     const redoBtn = document.getElementById('pcbRedoBtn');
 
-    const toolBtns = [selectBtn, trackBtn, padBtn, viaBtn, holeBtn, shapesBtn, textBtn, fillBtn];
+    const toolBtns = [selectBtn, trackBtn, viaBtn, holeBtn, shapesBtn, textBtn, fillBtn];
     const validTools = new Set(['select', 'track', 'pad', 'via', 'line', 'circle', 'arc', 'rect', 'polygon', 'text', 'fill']);
     // Tools grouped under the "Shapes" dropdown button.
     const SHAPE_TOOLS = new Set(['line', 'circle', 'arc', 'rect', 'polygon']);
@@ -123,7 +124,7 @@ export function bindPcbControls(app) {
 
     selectBtn?.addEventListener('click', () => setTool('select'));
     trackBtn?.addEventListener('click', () => setTool('track'));
-    padBtn?.addEventListener('click', () => setTool('pad'));
+    imageBtn?.addEventListener('click', () => showPictureImport(app));
     viaBtn?.addEventListener('click', () => setTool('via'));
     holeBtn?.addEventListener('click', () => {
         app.activeLayer = 'hole';

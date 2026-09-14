@@ -180,6 +180,7 @@ export function loadPcb(app, data, prepared = preparePcb(data)) {
         app._renderText(text);
     }
     // Re-evaluate ratlines once the model is in place.
+    app._refreshClearanceHalos?.();
     reconcileRatsnest(app);
     // Compute and render the pours now that obstacles are loaded.
     app._refreshFills();

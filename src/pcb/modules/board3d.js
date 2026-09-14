@@ -1,4 +1,5 @@
 export { punchHolesInFlatMesh } from './board3d-mesh-ops.js';
+import { pictureTriangles } from './picture-raster.js';
 import { ArcballController } from '../../shared/3d/ArcballController.js';
 import { createBoardViewSync } from './board-view-sync.js';
 import { createSurfaceBuilder } from './board3d-surface-client.js';
@@ -1388,6 +1389,16 @@ function strokePolysToMesh(polys, strokeWidth, y, color, toWorld) {
  * @param {Array} tracks
  * @returns {{verts:Array, faces:Array}}
  */
+export function imageArtworkMesh(shape, elevation, color) {
+    const mesh = emptyMesh();
+    for (const contour of pictureTriangles(shape)) {
+        const base = mesh.verts.length;
+        for (const point of contour) mesh.verts.push({ x: point.x, y: elevation, z: point.y });
+        mesh.faces.push({ idx: [base, base + 1, base + 2], color });
+    }
+    return mesh;
+}
+
 function buildCopperMesh(tracks, circles = [], boardShapes = [], texts = []) {
     const mesh = emptyMesh();
     for (const track of tracks || []) {
@@ -1431,6 +1442,10 @@ function buildCopperMesh(tracks, circles = [], boardShapes = [], texts = []) {
         const bottom = s.layer === 'bottom-copper';
         const y = bottom ? Y_BOT - COPPER_EPS : Y_TOP + COPPER_EPS;
         const color = bottom ? COLOR_COPPER_BOTTOM : COLOR_COPPER_TOP;
+        if (s.kind === 'image') {
+            appendMesh(mesh, imageArtworkMesh(s, y, color));
+            continue;
+        }
         if (!geometry.filled) {
             appendResolvedFlatStroke(mesh, geometry, y, color);
             continue;
@@ -1945,6 +1960,10 @@ function buildSilkMesh(app) {
         if (!o || o.length < 2) continue;
         const bottom = layer.startsWith('bottom-');
         const y = bottom ? Y_BOT - SILK_EPS : Y_TOP + SILK_EPS;
+        if (s.kind === 'image') {
+            appendMesh(mesh, imageArtworkMesh(s, y, COLOR_SILK));
+            continue;
+        }
         if (geometry.filled && o.length >= 3) {
             let tri = null;
             try { tri = triangulateWithHoles(o.map((p) => ({ x: p.x, y: p.y })), []); } catch { tri = null; }
@@ -3653,6 +3672,7 @@ export async function openBoard3DViewer(app, opts = {}) {
     // Refresh the visible renderer; defer hidden 3D work until it is shown.
     let syncFrame = 0;
     const canSync = () => !panel.closed && !panel.hidden
+        && !app._pictureCopperRefreshPending
         && !app._suspendBoardViewRefresh && !app._deferDragOverlays
         && !app._suspendFillRefresh && !app._fillRefreshScheduled
         && !(app._fillRefreshPending && app.copperFills?.length);

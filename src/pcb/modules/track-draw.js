@@ -431,6 +431,11 @@ function shapeCopperContains(contact, point) {
     const { geometry, bounds } = contact;
     if (point.x < bounds.minX || point.x > bounds.maxX || point.y < bounds.minY || point.y > bounds.maxY) return false;
     if (geometry.copperMode !== 'add') return false;
+    if (contact.inputs.kind === 'image') {
+        return geometry.physicalContours.some(contour => contour.some((start, index) =>
+            distanceToSegment(point, start, contour[(index + 1) % contour.length]) <= 1e-7))
+            || geometry.physicalContours.filter(contour => pointInPolygon(point, contour)).length % 2 === 1;
+    }
     if (geometry.circle) {
         const distance = Math.hypot(point.x - geometry.circle.x, point.y - geometry.circle.y);
         return geometry.filled ? distance <= geometry.circle.outerRadius
@@ -703,8 +708,10 @@ export function finishTrackDraw(app) {
                 // Render lazily to avoid a hard import cycle.
                 import('./track-render.js').then(({ renderVia }) => {
                     renderVia(v, (id) => app._getLayerGroup(id));
+                    app._refreshClearanceHalos?.();
                 });
             }
+            app._refreshClearanceHalos?.();
             reconcileRatsnest(app);
         }
     }
@@ -768,6 +775,7 @@ export function popTrackWaypoint(app) {
  *   fill pass.
  */
 export function reconcileRatsnest(app, opts) {
+    if (app._pictureCopperRefreshPending) return;
     if (deferDerivedUpdate(app, 'ratsnest', () => reconcileRatsnest(app))) return;
     // Incremental net filter: when present, restrict all cluster construction
     // and ratline removal/redraw to this set of nets.
@@ -779,13 +787,6 @@ export function reconcileRatsnest(app, opts) {
     // on boards that have them. _endDrag() forces one full reconcile on drop.
     if (!app._deferDragOverlays) {
         if (!opts?.skipFillRefresh && app._refreshFills?.() === true) return;
-        // The clearance overlay is derived from the rendered trace geometry, so
-        // it must be rebuilt whenever the copper changes — exactly the same set
-        // of call sites that reconcile the ratsnest (live vertex drag, drag
-        // finish, and every track/via command). Keep the two overlays in lock-
-        // step here (no-op unless the clearance overlay is currently visible).
-        app._refreshClearanceHalos?.();
-
     }
 
     const ratLayer = app._getLayerGroup?.('ratlines');

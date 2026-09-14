@@ -246,6 +246,17 @@ export function boardShapeClearanceOutlines(shape, clearance) {
     if (shape.layer !== 'hole' && (!['top-copper', 'bottom-copper'].includes(shape.layer)
         || geometry.copperMode !== 'add')) return [];
     const paths = shapeObstaclePaths(ClipperLib, shape, clearance, geometry);
+    return mergeClearancePaths(paths);
+}
+
+export function pcbTextClearanceOutlines(text, clearance) {
+    if (!['top-copper', 'bottom-copper'].includes(text.layer)) return [];
+    const paths = pcbTextSegments(text).flatMap(([start, end]) =>
+        offsetOpenSegment(ClipperLib, start, end, text.strokeWidth / 2 + clearance));
+    return mergeClearancePaths(paths);
+}
+
+function mergeClearancePaths(paths) {
     if (!paths.length) return [];
     const clipper = new ClipperLib.Clipper();
     clipper.AddPaths(paths, ClipperLib.PolyType.ptSubject, true);

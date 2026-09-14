@@ -4,6 +4,7 @@ import SchematicApp from './SchematicApp.js';
 import PCBApp from './PCBApp.js';
 import { ProjectDocument } from '../core/ProjectDocument.js';
 import { readProjectFile } from '../core/FileManager.js';
+import { installNumberInputFormatting } from '../core/number-inputs.js';
 
 class AppBootstrap {
     constructor() {
@@ -19,6 +20,7 @@ class AppBootstrap {
     }
 
     async initialize() {
+        installNumberInputFormatting();
         this._registerServiceWorker();
 
         this.pcbApp = new PCBApp();

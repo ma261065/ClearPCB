@@ -1,4 +1,5 @@
 import { resolveBoardShapeGeometry } from './board-shapes.js';
+import { pictureTriangles } from './picture-raster.js';
 import { distanceToSegment, pointInPolygon } from '../../core/geometry.js';
 
 const cache = new WeakMap();
@@ -50,6 +51,15 @@ export function copperShapesTouch(first, second) {
     if (firstBounds.maxX + tolerance < secondBounds.minX || secondBounds.maxX + tolerance < firstBounds.minX
         || firstBounds.maxY + tolerance < secondBounds.minY || secondBounds.maxY + tolerance < firstBounds.minY) return false;
     const firstGeometry = firstContact.geometry, secondGeometry = secondContact.geometry;
+    const regions = (shape, geometry) => shape.kind === 'image'
+        ? pictureTriangles(shape).map(contour => ({ ...geometry, centerline: contour, areaOutline: contour, lineWidth: 0 }))
+        : [geometry];
+    return regions(first, firstGeometry).some(firstRegion =>
+        regions(second, secondGeometry).some(secondRegion => copperGeometryTouches(firstRegion, secondRegion)));
+}
+
+function copperGeometryTouches(firstGeometry, secondGeometry) {
+    const tolerance = 1e-7;
     const segments = (geometry) => {
         if (geometry.strokeSegments.length) return geometry.strokeSegments;
         const points = geometry.centerline;
