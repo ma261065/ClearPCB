@@ -31,7 +31,7 @@ export async function prepareFabricationSnapshot(app) {
         placements, tracks, vias: app.vias.map(via => ({ id: via.id, x: via.x, y: via.y,
             diameter: via.diameter, drill: via.drill, net: via.net })),
         texts: structuredClone([...app.texts.values()]), fills,
-        boardShapes: serializeBoardShapes({ boardShapes: app.boardShapes.filter(shape => shape.type !== 'fill') }, { compactArtwork: false }),
+        boardShapes: serializeBoardShapes({ boardShapes: app.boardShapes.filter(shape => shape.type !== 'fill') }, { compactArtwork: false, roundGeometry: false }),
         boardX: app._boardX || 0, boardY: app._boardY || 0,
         boardWidth: app._boardWidth, boardHeight: app._boardHeight, boardRadius: app._boardRadius,
     };

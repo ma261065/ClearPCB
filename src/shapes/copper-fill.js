@@ -15,6 +15,7 @@
  */
 
 let fillIdCounter = 0;
+const round4 = value => Math.round(value * 10000) / 10000;
 
 /** Reset the fill ID counter (for testing / new-document). */
 export function resetFillIdCounter() {
@@ -144,7 +145,7 @@ export class CopperFill {
             type: 'fill',
             id: this.id,
             l: this.layer,
-            pts: this.outline.map((p) => [p.x, p.y]),
+            pts: this.outline.map((p) => [round4(p.x), round4(p.y)]),
         };
         if (this.net) out.n = this.net;
         if (this.locked) out.lk = true;

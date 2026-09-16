@@ -94,7 +94,7 @@ export function validatePictureArtwork(artwork) {
     }
 }
 
-export function validatePicturePoints(points) {
+export function validatePicturePoints(points, { coordinateTolerance = 0 } = {}) {
     if (!Array.isArray(points) || points.length !== 4
         || !points.every(point => point && Number.isFinite(point.x) && Number.isFinite(point.y))) {
         throw new Error('Invalid image bounding points.');
@@ -103,9 +103,13 @@ export function validatePicturePoints(points) {
     const vertical = { x: points[3].x - points[0].x, y: points[3].y - points[0].y };
     const width = Math.hypot(horizontal.x, horizontal.y);
     const height = Math.hypot(vertical.x, vertical.y);
+    const edgeError = 2 * Math.SQRT2 * coordinateTolerance;
+    const dotTolerance = 1e-6 * width * height + edgeError * (width + height) + edgeError * edgeError;
+    const closureTolerance = 1e-6 * Math.max(width, height) + 2 * edgeError;
     if (width < 1e-9 || height < 1e-9
-        || Math.abs(horizontal.x * vertical.x + horizontal.y * vertical.y) > 1e-6 * width * height
-        || Math.hypot(points[2].x - points[1].x - vertical.x, points[2].y - points[1].y - vertical.y) > 1e-6 * Math.max(width, height)) {
+        || Math.abs(horizontal.x * vertical.y - horizontal.y * vertical.x) <= 1e-12 * width * height
+        || Math.abs(horizontal.x * vertical.x + horizontal.y * vertical.y) > dotTolerance
+        || Math.hypot(points[2].x - points[1].x - vertical.x, points[2].y - points[1].y - vertical.y) > closureTolerance) {
         throw new Error('Image bounds must form a nonempty rectangle.');
     }
 }

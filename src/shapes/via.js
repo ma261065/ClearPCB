@@ -16,6 +16,7 @@
  */
 
 let viaIdCounter = 0;
+const round4 = value => Math.round(value * 10000) / 10000;
 
 /** Reset the via ID counter (for testing / new-document). */
 export function resetViaIdCounter() {
@@ -117,10 +118,10 @@ export class Via {
         const out = {
             type: 'via',
             id: this.id,
-            x: this.x,
-            y: this.y,
-            d: this.diameter,
-            dr: this.drill,
+            x: round4(this.x),
+            y: round4(this.y),
+            d: round4(this.diameter),
+            dr: round4(this.drill),
         };
         if (this.net) out.n = this.net;
         if (this.locked) out.lk = true;

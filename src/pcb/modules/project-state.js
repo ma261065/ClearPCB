@@ -10,44 +10,50 @@ import { CopperFill, updateFillIdCounter } from '../../shapes/copper-fill.js';
 import { createShape } from '../../shapes/index.js';
 import { serializeGridSettings, restoreGridSettings } from '../../ui/modules/viewport.js';
 
+const round4 = value => Number.isFinite(value) ? Math.round(value * 10000) / 10000 : value;
+
 /** @param {any} app */
 export function serializePcb(app) {
     /** @type {Record<string, {x:number, y:number, rotation:number, mirror?:boolean, side?:string, refVisible?:boolean, refDx?:number, refDy?:number, refRot?:number, refSize?:number, refStrokeWidth?:number}>} */
     const placements = {};
     for (const [id, p] of app._placementOverrides) {
-        placements[id] = { x: p.x, y: p.y, rotation: p.rotation || 0 };
+        placements[id] = { x: round4(p.x), y: round4(p.y), rotation: round4(p.rotation || 0) };
         if (p.mirror) placements[id].mirror = true;
         if (p.side === 'bottom') placements[id].side = 'bottom';
         if (p.refVisible === false) placements[id].refVisible = false;
-        if (p.refDx) placements[id].refDx = p.refDx;
-        if (p.refDy) placements[id].refDy = p.refDy;
-        if (p.refRot) placements[id].refRot = p.refRot;
-        if (p.refSize && p.refSize !== REF_DEFAULT_SIZE) placements[id].refSize = p.refSize;
-        if (p.refStrokeWidth && p.refStrokeWidth !== REF_DEFAULT_STROKE) placements[id].refStrokeWidth = p.refStrokeWidth;
+        if (p.refDx) placements[id].refDx = round4(p.refDx);
+        if (p.refDy) placements[id].refDy = round4(p.refDy);
+        if (p.refRot) placements[id].refRot = round4(p.refRot);
+        if (p.refSize && p.refSize !== REF_DEFAULT_SIZE) placements[id].refSize = round4(p.refSize);
+        if (p.refStrokeWidth && p.refStrokeWidth !== REF_DEFAULT_STROKE) placements[id].refStrokeWidth = round4(p.refStrokeWidth);
     }
     // Per-project design rules (track/clearance/via sizes are canonical mm;
     // units/router record the user's display + routing preferences).
     const routing = app._getRoutingParams();
     const design = {
-        trackWidth: routing.trackWidth,
-        clearance: routing.clearance,
-        viaDiameter: routing.viaDiameter,
-        viaDrill: routing.viaDrill,
+        trackWidth: round4(routing.trackWidth),
+        clearance: round4(routing.clearance),
+        viaDiameter: round4(routing.viaDiameter),
+        viaDrill: round4(routing.viaDrill),
         units: /** @type {HTMLSelectElement|null} */ (document.getElementById('pcbRouteUnits'))?.value || 'mm',
         router: app._getRouterMode(),
     };
     return {
         board: {
-            width: app._boardWidth,
-            height: app._boardHeight,
-            radius: app._boardRadius,
+            width: round4(app._boardWidth),
+            height: round4(app._boardHeight),
+            radius: round4(app._boardRadius),
         },
         design,
         settings: serializeGridSettings(app.viewport),
         tracks: app.tracks.map(t => t.toJSON()),
         vias: app.vias.map(v => v.toJSON()),
         boardShapes: serializeBoardShapes(app),
-        texts: [...app.texts.values()].map(serializePcbText),
+        texts: [...app.texts.values()].map(text => {
+            const saved = serializePcbText(text);
+            return { ...saved, x: round4(saved.x), y: round4(saved.y), size: round4(saved.size),
+                rotation: round4(saved.rotation), strokeWidth: round4(saved.strokeWidth) };
+        }),
         placements,
     };
 }

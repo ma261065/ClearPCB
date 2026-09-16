@@ -3145,42 +3145,45 @@ export function boardShapeCopperCuts(app, copperLayer) {
 
 // ── Serialisation ────────────────────────────────────────────────────────────
 
-export function serializeBoardShapes(app, { compactArtwork = true } = {}) {
+export function serializeBoardShapes(app, { compactArtwork = true, roundGeometry = true } = {}) {
     const artworkIndices = new Map();
     return (app.boardShapes || []).map((s, index) => {
         if (s?.type === 'fill') return s.toJSON();
+        const number = value => roundGeometry && Number.isFinite(value) ? r4(value) : value;
+        const point = value => ({ x: number(value.x), y: number(value.y) });
+        const numbers = values => Object.fromEntries(Object.entries(values).map(([key, value]) => [key, number(value)]));
         const base = {
             id: s.id,
             geometryVersion: s.kind === 'circle' ? 2 : 1,
             kind: s.kind,
             layer: s.layer,
-            lineWidth: s.lineWidth,
+            lineWidth: number(s.lineWidth),
             filled: !!s.filled,
             copperMode: normalizeShapeCopperMode(s.copperMode),
             plated: !!s.plated,
             net: String(s.net || ''),
         };
-        if (Object.keys(s.segmentWidths || {}).length) base.segmentWidths = { ...s.segmentWidths };
-        if (Object.keys(s.nodeCornerRadii || {}).length) base.nodeCornerRadii = { ...s.nodeCornerRadii };
+        if (Object.keys(s.segmentWidths || {}).length) base.segmentWidths = numbers(s.segmentWidths);
+        if (Object.keys(s.nodeCornerRadii || {}).length) base.nodeCornerRadii = numbers(s.nodeCornerRadii);
         if (Object.keys(s.nodeFlatJoins || {}).length) base.nodeFlatJoins = { ...s.nodeFlatJoins };
-        if (s.kind === 'rect') base.cornerRadius = rectCornerRadius(s);
-        else if (s.kind === 'polygon') base.cornerRadius = polygonCornerRadius(s);
+        if (s.kind === 'rect') base.cornerRadius = number(rectCornerRadius(s));
+        else if (s.kind === 'polygon') base.cornerRadius = number(polygonCornerRadius(s));
         if (s.kind === 'arc') {
-            return { ...base, start: { ...s.start }, end: { ...s.end }, bulge: { ...s.bulge } };
+            return { ...base, start: point(s.start), end: point(s.end), bulge: point(s.bulge) };
         }
         if (s.kind === 'circle') {
-            return { ...base, x: s.x, y: s.y, radius: s.radius };
+            return { ...base, x: number(s.x), y: number(s.y), radius: number(s.radius) };
         }
         if (s.kind === 'image') {
-            if (!compactArtwork) return { ...base, name: s.name, artwork: structuredClone(s.artwork), points: s.points.map(pt) };
+            if (!compactArtwork) return { ...base, name: s.name, artwork: structuredClone(s.artwork), points: s.points.map(point) };
             const encoded = encodePictureArtwork(s.artwork);
             const key = JSON.stringify(encoded);
             const previous = artworkIndices.get(key);
             const artwork = previous === undefined ? encoded : { encoding: 'reference-v1', index: previous };
             if (previous === undefined) artworkIndices.set(key, index);
-            return { ...base, name: s.name, artwork, points: s.points.map(pt) };
+            return { ...base, name: s.name, artwork, points: s.points.map(point) };
         }
-        return { ...base, points: (s.points || []).map((p) => ({ x: p.x, y: p.y })) };
+        return { ...base, points: (s.points || []).map(point) };
     });
 }
 
@@ -3250,7 +3253,7 @@ export function loadBoardShapes(app, arr, { render = true, strict = false } = {}
         }
         if (kind === 'image') {
             try {
-                validatePicturePoints(sd.points);
+                validatePicturePoints(sd.points, { coordinateTolerance: 0.00005 });
                 if (!PICTURE_LAYERS.includes(shape.layer)) throw new Error('Invalid image layer.');
                 if (sd.artwork?.encoding === 'reference-v1') {
                     if (!Number.isInteger(sd.artwork.index) || sd.artwork.index >= index || !loadedArtwork.has(sd.artwork.index)) {

@@ -45,6 +45,12 @@ A project always has a schematic envelope. `ProjectDocument` adds the optional
   where it matters.
 - Many schematic objects use compact keys. Defaults are usually omitted.
 - Shape and component coordinates are generally rounded to four decimal places.
+  PCB via positions and diameters, fill outlines, and board-shape
+  coordinates, radii and stroke widths follow this convention on save, including
+  image placement points. Free-standing text, footprint placement and reference-text
+  geometry, board dimensions, and routing design dimensions also use four decimals.
+  Image source artwork remains lossless. Save-time rounding does not
+  mutate live geometry or apply to detached fabrication snapshots.
 - IDs are opaque strings. Readers must not infer object type solely from an ID
   prefix.
 - Boolean fields omitted from compact objects take their documented default.
@@ -450,8 +456,11 @@ array of flat `x,y` sequences, one per ring. Each of `invert`, `flipHorizontal`,
 and `flipVertical` occupies two bits of `flags`, starting at the low bits:
 `0` means absent, `1` means false, `3` means true; `2` is invalid.
 Coordinates are not rounded or quantized. Full JSON numeric precision survives
-save/load, including fractional source-pixel positions and radii. Transforms
-and each image's four board-space points remain independent of its artwork.
+save/load, including fractional source-pixel positions and radii. Each image's
+four board-space points are saved to four decimal places independently of its artwork.
+On load, rectangle validation allows the bounded error from rounding each coordinate
+by at most 0.00005 mm. This preserves rounded rotated images without accepting
+empty bounds or distortion beyond the rounding allowance and numeric tolerance.
 Loaded duplicates are independently editable. Only persistence uses this encoding;
 renderers and fabrication snapshots consume the decoded geometry described below.
 Legacy uncompressed artwork is not supported and is rejected when loading a
