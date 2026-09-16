@@ -439,10 +439,50 @@ not independently editable board shapes. Pixel coordinates map to world space
 using points 0, 1 and 3 as the origin and horizontal/vertical axes. Moving or
 resizing changes only `points`; artwork is unchanged. Original PNG/JPEG bytes
 are not stored. The processed artwork is sufficient for rendering and Gerber export.
-At import (or first use after loading), runs are unioned into continuous outer
-and hole outlines. These outlines and their hole-aware triangulation are cached
+Artwork also accepts optional boolean `invert`, `flipHorizontal`, and
+`flipVertical` settings, all defaulting to false. Flips reflect the source runs
+within the raster bounds along the image's local axes, before rotation into world
+space. Inversion complements the filled artwork within the full raster rectangle.
+The source runs remain unchanged, so each setting is reversible. An inverted
+solid image may have no visible artwork while retaining its selectable bounds.
+On first polygon-geometry use, runs are unioned into continuous outer
+and hole outlines. Triangulation is deferred until triangles are requested. Both are cached
 in memory, not serialized. Moving and resizing only transform the cached geometry;
 zooming does not repeat the union. This avoids internal run-edge rendering seams.
+
+Traced images instead store `{ width, height, contours }`, with 1..2048
+source dimensions (rectangle artwork remains limited to 1..512).
+Each contour is a closed ring (closure implicit) of at least
+three finite `{ x, y }` points within the source bounds; coordinates may be
+fractional. The limit is 2,000 rings and 50,000 points in total. Rings use even-odd
+fill, independent of winding, so nested rings preserve holes and islands.
+`rectangles` and `contours` are mutually exclusive. The same optional invert/flip
+flags apply to either representation. ImageTracerJS and VTracer fitted curves are flattened
+with a maximum 0.125-source-pixel chord deviation and stored as contours; no library
+objects, SVG markup, or original image bytes are persisted. Older ClearPCB versions
+without contour-image support cannot load these new traced image records.
+
+Halftone images store `{ width, height, circles }`, with 1..2048 source dimensions
+and 1..20,000 circles. Each circle is `{ x, y, radius }` in source-pixel coordinates;
+all values must be finite, radius must be positive, and the entire circle must lie
+within the source bounds. `rectangles`, `contours` and `circles` are mutually exclusive.
+The contour point budget does not apply to circles. Circle areas are unioned, not
+even-odd XORed; optional invert/flip flags have the same meaning as for rectangle
+and contour images. Circles are drawn natively in the import preview, SVG editor and
+2D viewer; native paths are cached by artwork identity. Detailed 2D halftones also
+use a resolution-aware bitmap cache (at most 2048 pixels per side), with native
+curves at higher zoom. The 3D viewer builds separated, non-inverted circles directly
+as meshes. Inverted overlapping circles retain a polygon fallback. Polygon outlines
+(0.125-source-pixel chord tolerance, at least 12 sides) are generated only for
+consumers that need them. Triangulation is separately lazy. These caches and world
+transforms are never stored in the project. Pour obstacles and DRC clearance use
+the image's four `points` as one rotated rectangular boundary, independent of the
+internal artwork representation. Actual copper output and contact geometry retain
+the artwork, including holes and gaps. Dot size is computed from grayscale
+cell averages at import; the source photo, dot-size setting and sampling grid are
+not persisted. Existing contour-based halftones still load unchanged. Older versions
+without circle-artwork support cannot load the new records. This representation
+is internal to an image and is distinct from standalone board circle objects.
 
 Lines, arcs, rectangles and polygons store centreline coordinates. Their strokes
 extend half the width on each side of the path. Nodes and midpoint handles sit

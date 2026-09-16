@@ -31,23 +31,49 @@ import {
     MASK_EXPANSION,
     TENT_VIAS,
 } from './board-geometry.js';
-import { resolveBoardShapeGeometry } from './board-shapes.js';
+import { resolveBoardShapeGeometry, boardShapeFilledRemovalOutlines } from './board-shapes.js';
 import { pcbTextSegments } from './pcb-text.js';
+import ClipperLib from '../../../assets/vendor/clipper.esm.js';
+import earcut from '../../../assets/vendor/earcut.module.js';
 
 const FORMAT = '%FSLAX46Y46*%\n%MOMM*%\n';
 const SCALE = 1e6; // 4.6 fixed-point: multiply mm by 10^6
 
 function _shapeContourRegion(contours) {
-    let body = '';
-    for (const contour of contours) {
-        if (contour.length < 3) continue;
+    const clipper = new ClipperLib.Clipper();
+    clipper.AddPaths(contours.filter(contour => contour.length >= 3).map(contour => contour.map(point => ({
+        X: _fx(point.x), Y: _fx(point.y),
+    }))), ClipperLib.PolyType.ptSubject, true);
+    const tree = new ClipperLib.PolyTree();
+    clipper.Execute(ClipperLib.ClipType.ctUnion, tree,
+        ClipperLib.PolyFillType.pftEvenOdd, ClipperLib.PolyFillType.pftEvenOdd);
+    const emit = contour => {
+        let body = 'G36*\n';
         const start = contour[0];
-        body += `X${_fmt(start.x)}Y${_fmtY(start.y)}D02*\n`;
+        body += `X${start.X}Y${-start.Y}D02*\n`;
         for (const point of [...contour.slice(1), start]) {
-            body += `X${_fmt(point.x)}Y${_fmtY(point.y)}D01*\n`;
+            body += `X${point.X}Y${-point.Y}D01*\n`;
+        }
+        return body + 'G37*\n';
+    };
+    let body = '';
+    for (const region of ClipperLib.JS.PolyTreeToExPolygons(tree)) {
+        if (!region.holes.length) {
+            body += emit(region.outer);
+            continue;
+        }
+        const points = [...region.outer];
+        const holes = [];
+        for (const hole of region.holes) {
+            holes.push(points.length);
+            for (const point of hole) points.push(point);
+        }
+        const triangles = earcut(points.flatMap(point => [point.X, point.Y]), holes, 2);
+        for (let index = 0; index < triangles.length; index += 3) {
+            body += emit(triangles.slice(index, index + 3).map(vertex => points[vertex]));
         }
     }
-    return body ? `G36*\n${body}G37*\n` : '';
+    return body;
 }
 
 /**
@@ -125,10 +151,11 @@ function _inBoard(x, y, b) {
  * the outline gerber defines the actual cut, so a tiny corner overrun is
  * harmless.
  */
-function _clipSegment(x1, y1, x2, y2, b) {
+function _clipSegment(x1, y1, x2, y2, b, strokeWidth = 0) {
     if (!b || !b.w || !b.h) return [x1, y1, x2, y2];
-    const x0 = b.x || 0, y0 = b.y || 0;
-    const xMax = x0 + b.w, yMax = y0 + b.h;
+    const margin = strokeWidth / 2;
+    const x0 = (b.x || 0) - margin, y0 = (b.y || 0) - margin;
+    const xMax = (b.x || 0) + b.w + margin, yMax = (b.y || 0) + b.h + margin;
     let t0 = 0, t1 = 1;
     const dx = x2 - x1, dy = y2 - y1;
     const p = [-dx, dx, -dy, dy];
@@ -244,7 +271,7 @@ function _buildCopper(placements, tracks, vias, layerId, bounds, texts = [], fil
         const d = getAp(key);
         const segs = pcbTextSegments(t);
         for (const [a, b] of segs) {
-            const clipped = _clipSegment(a.x, a.y, b.x, b.y, bounds);
+            const clipped = _clipSegment(a.x, a.y, b.x, b.y, bounds, sw);
             if (!clipped) continue;
             ops.push({ d, op: `X${_fmt(clipped[0])}Y${_fmtY(clipped[1])}D02*` });
             ops.push({ d, op: `X${_fmt(clipped[2])}Y${_fmtY(clipped[3])}D01*` });
@@ -264,7 +291,6 @@ function _buildCopper(placements, tracks, vias, layerId, bounds, texts = [], fil
         const geometry = resolveBoardShapeGeometry(c);
         const rad = geometry.filled ? geometry.circle.outerRadius : geometry.circle.radius;
         if (rad <= 0) continue;
-        if (!_inBoard(c.x, c.y, bounds)) continue;
         const onThisLayer = c.layer === layerId;
         if (!isHole && !onThisLayer) continue;
         const mode = geometry.copperMode;
@@ -312,6 +338,7 @@ function _buildCopper(placements, tracks, vias, layerId, bounds, texts = [], fil
         for (let i = 1; i < o.length; i++) {
             s += `X${_fmt(o[i].x)}Y${_fmtY(o[i].y)}D01*\n`;
         }
+        s += `X${_fmt(o[0].x)}Y${_fmtY(o[0].y)}D01*\n`;
         s += 'G37*\n';
         return s;
     };
@@ -366,10 +393,8 @@ function _buildCopper(placements, tracks, vias, layerId, bounds, texts = [], fil
     for (const [key, code] of apertures) {
         out += `%ADD${code}${_apertureBody(key)}*%\n`;
     }
-    // Copper pours: emit BEFORE the pad/track/via flashes so the cleared
-    // gaps (holes = obstacle + clearance) are carved first and the dark
-    // flashes that follow restore the obstacle copper, leaving the annular
-    // clearance ring intact. Regions don't use apertures (G36 fill mode).
+    // Pour regions omit their holes without clearing previously emitted islands.
+    // Pads, tracks and vias are added afterward; explicit cutouts are applied last.
     out += _buildFillRegions(fills, layerId);
     out += '%LPD*%\n';
     let currentD = -1;
@@ -403,21 +428,11 @@ function _buildCopper(placements, tracks, vias, layerId, bounds, texts = [], fil
 /**
  * Emit copper-pour polygons for `layerId` as gerber G36/G37 regions. Each
  * pour's last-computed geometry is a list of ExPolygons {outer, holes} in
- * world mm (SVG-Y-down). Outer contours fill in dark polarity (LPD); holes
- * clear in LPC. Returns '' when there is nothing to emit.
+ * world mm (SVG-Y-down). Hole-bearing polygons are triangulated into dark
+ * regions so their holes cannot erase other islands. Returns '' for no fills.
  */
 function _buildFillRegions(fills, layerId) {
     if (!Array.isArray(fills) || !fills.length) return '';
-    const ringD = (ring, op) => {
-        if (!ring || ring.length < 3) return '';
-        let s = 'G36*\n';
-        s += `X${_fmt(ring[0].x)}Y${_fmtY(ring[0].y)}D02*\n`;
-        for (let i = 1; i < ring.length; i++) {
-            s += `X${_fmt(ring[i].x)}Y${_fmtY(ring[i].y)}D01*\n`;
-        }
-        s += 'G37*\n';
-        return s;
-    };
     let out = '';
     for (const f of fills) {
         if (f.layer !== layerId) continue;
@@ -426,11 +441,7 @@ function _buildFillRegions(fills, layerId) {
         if (!Array.isArray(polys) || !polys.length) continue;
         for (const poly of polys) {
             out += '%LPD*%\n';
-            out += ringD(poly.outer);
-            if (Array.isArray(poly.holes) && poly.holes.length) {
-                out += '%LPC*%\n';
-                for (const hole of poly.holes) out += ringD(hole);
-            }
+            out += _shapeContourRegion([poly.outer || [], ...(poly.holes || [])]);
         }
     }
     return out;
@@ -574,6 +585,7 @@ function _buildPadLayer(placements, vias, side, bounds, opts) {
             for (const point of geometry.path.slice(1)) {
                 shapeRegions += `X${_fmt(point.x)}Y${_fmtY(point.y)}D01*\n`;
             }
+            shapeRegions += `X${_fmt(geometry.path[0].x)}Y${_fmtY(geometry.path[0].y)}D01*\n`;
             shapeRegions += 'G37*\n';
         }
         if (!geometry.filled && geometry.strokeSegments?.length) {
@@ -693,7 +705,7 @@ function _buildSilk(placements, side, bounds, texts = [], boardShapes = []) {
     };
 
     const emitSeg = (a, b) => {
-        const clipped = _clipSegment(a.x, a.y, b.x, b.y, bounds);
+        const clipped = _clipSegment(a.x, a.y, b.x, b.y, bounds, currentApertureW);
         if (!clipped) return '';
         return `X${_fmt(clipped[0])}Y${_fmtY(clipped[1])}D02*\n`
              + `X${_fmt(clipped[2])}Y${_fmtY(clipped[3])}D01*\n`;
@@ -743,6 +755,7 @@ function _buildSilk(placements, side, bounds, texts = [], boardShapes = []) {
                         for (let i = 1; i < poly.length; i++) {
                             ring += `X${_fmt(poly[i].x)}Y${_fmtY(poly[i].y)}D01*\n`;
                         }
+                        ring += `X${_fmt(poly[0].x)}Y${_fmtY(poly[0].y)}D01*\n`;
                         ring += 'G37*\n';
                         body += ring;
                     }
@@ -774,6 +787,17 @@ function _buildSilk(placements, side, bounds, texts = [], boardShapes = []) {
     for (const s of boardShapes) {
         if (!s || s.layer !== wantLayer) continue;
         const geometry = resolveBoardShapeGeometry(s);
+        if (geometry.circle) {
+            const { x, y, radius, outerRadius } = geometry.circle;
+            body += useAperture(geometry.filled ? outerRadius * 2 : geometry.lineWidth);
+            if (geometry.filled) {
+                body += `X${_fmt(x)}Y${_fmtY(y)}D03*\n`;
+            } else {
+                body += `G75*\nX${_fmt(x - radius)}Y${_fmtY(y)}D02*\nG03*\n`
+                    + `X${_fmt(x - radius)}Y${_fmtY(y)}I${_fmt(radius)}J0D01*\nG01*\n`;
+            }
+            continue;
+        }
         const o = geometry.path;
         if (o.length < 2) continue;
         const head = useAperture(geometry.filled ? 0.06 : geometry.lineWidth);
@@ -782,12 +806,20 @@ function _buildSilk(placements, side, bounds, texts = [], boardShapes = []) {
             body += _shapeContourRegion(geometry.physicalContours);
             continue;
         }
+        if (!geometry.filled && geometry.strokeSegments.length) {
+            for (const segment of geometry.strokeSegments) {
+                body += useAperture(segment.lineWidth);
+                body += emitSeg(segment.start, segment.end);
+            }
+            continue;
+        }
         if (geometry.filled && o.length >= 3) {
             let ring = 'G36*\n';
             ring += `X${_fmt(o[0].x)}Y${_fmtY(o[0].y)}D02*\n`;
             for (let i = 1; i < o.length; i++) {
                 ring += `X${_fmt(o[i].x)}Y${_fmtY(o[i].y)}D01*\n`;
             }
+            ring += `X${_fmt(o[0].x)}Y${_fmtY(o[0].y)}D01*\n`;
             ring += 'G37*\n';
             body += ring;
         }
@@ -936,13 +968,35 @@ function _buildOutline(b, boardShapes = []) {
             out += 'G01*\n';
             continue;
         }
-        const o = geometry.path;
-        if (o.length < 3) continue;
-        out += `X${_fmt(o[0].x)}Y${_fmt(-o[0].y)}D02*\n`;
-        for (let i = 1; i < o.length; i++) {
-            out += `X${_fmt(o[i].x)}Y${_fmt(-o[i].y)}D01*\n`;
+        let contours = geometry.filled ? boardShapeFilledRemovalOutlines(s) : geometry.physicalContours;
+        if (!contours) {
+            const strokes = geometry.strokeSegments.length
+                ? geometry.strokeSegments.map(segment => ({ points: [segment.start, segment.end], width: segment.lineWidth }))
+                : [{ points: geometry.centerline, width: geometry.lineWidth }];
+            const paths = [];
+            for (const stroke of strokes) {
+                const offset = new ClipperLib.ClipperOffset(10, 0.001 * SCALE);
+                offset.AddPath(stroke.points.map(point => ({ X: _fx(point.x), Y: _fx(point.y) })),
+                    ClipperLib.JoinType.jtRound, geometry.centerlineClosed
+                        ? ClipperLib.EndType.etClosedLine : ClipperLib.EndType.etOpenRound);
+                const expanded = [];
+                offset.Execute(expanded, stroke.width * SCALE / 2);
+                paths.push(...expanded);
+            }
+            const union = new ClipperLib.Clipper();
+            union.AddPaths(paths, ClipperLib.PolyType.ptSubject, true);
+            const merged = [];
+            union.Execute(ClipperLib.ClipType.ctUnion, merged,
+                ClipperLib.PolyFillType.pftNonZero, ClipperLib.PolyFillType.pftNonZero);
+            contours = merged.map(path => path.map(point => ({ x: point.X / SCALE, y: point.Y / SCALE })));
         }
-        out += `X${_fmt(o[0].x)}Y${_fmt(-o[0].y)}D01*\n`;
+        for (const contour of contours) {
+            if (contour.length < 3) continue;
+            out += `X${_fmt(contour[0].x)}Y${_fmtY(contour[0].y)}D02*\n`;
+            for (const point of [...contour.slice(1), contour[0]]) {
+                out += `X${_fmt(point.x)}Y${_fmtY(point.y)}D01*\n`;
+            }
+        }
     }
     out += 'M02*\n';
     return out;
@@ -1001,12 +1055,14 @@ function _collectBoardShapeSlots(boardShapes, plated) {
     for (const shape of boardShapes) {
         if (!shape || shape.kind !== 'line' || shape.layer !== 'hole' || !!shape.plated !== plated) continue;
         const geometry = resolveBoardShapeGeometry(shape);
-        for (let index = 1; index < geometry.centerline.length; index++) {
-            const start = geometry.centerline[index - 1];
-            const end = geometry.centerline[index];
+        const segments = geometry.strokeSegments.length ? geometry.strokeSegments
+            : geometry.centerline.slice(1).map((end, index) => ({
+                start: geometry.centerline[index], end, lineWidth: geometry.lineWidth,
+            }));
+        for (const { start, end, lineWidth } of segments) {
             if (Math.hypot(end.x - start.x, end.y - start.y) <= 1e-9) continue;
             slots.push({
-                dia: geometry.lineWidth,
+                dia: lineWidth,
                 x: start.x,
                 y: start.y,
                 x2: end.x,

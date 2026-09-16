@@ -36,7 +36,7 @@ import {
     syncPcbSelection,
 } from './selection-registry.js';
 import { clearPcbSelectionAnchors, renderPcbSelectionAnchors } from './selection-anchors.js';
-import { pictureContours, resizePicturePoints, validatePictureArtwork, validatePicturePoints, PICTURE_LAYERS } from './picture-raster.js';
+import { pictureContours, pictureCirclePathD, canDrawPictureCircles, resizePicturePoints, validatePictureArtwork, validatePicturePoints, PICTURE_LAYERS } from './picture-raster.js';
 import { bindPictureRefreshHold, schedulePictureCopperRefresh } from './picture-refresh.js';
 import { rotationHandleAnchor, pointerRotation, rotatedImagePoints } from './rotation-handle.js';
 
@@ -796,6 +796,10 @@ export function boardShapeFilledRemovalOutlines(shape) {
 
 /** Compound path for the physical area removed by a copper-mode shape. */
 export function boardShapeRemovalPathD(shape) {
+    if (shape.kind === 'image') {
+        const circles = pictureCirclePathD(shape);
+        if (circles !== null) return circles;
+    }
     const geometry = resolveBoardShapeGeometry(shape);
     if (geometry.physicalContours) return geometry.physicalContours.map(outlinePathD).join(' ');
     const halfWidth = geometry.lineWidth / 2;
@@ -1092,7 +1096,10 @@ export function resolveBoardShapeGeometry(shape, options = {}) {
         centerline,
         centerlineClosed,
         areaOutline,
-        physicalContours: shape?.kind === 'image' ? pictureContours(shape) : closedShapeContours(shape, filled, lineWidth),
+        image: shape?.kind === 'image' ? shape : null,
+        get physicalContours() {
+            return shape?.kind === 'image' ? pictureContours(shape) : closedShapeContours(shape, filled, lineWidth);
+        },
         circle: shape?.kind === 'circle'
             ? { x: shape.x, y: shape.y, radius: radius - lineWidth / 2, outerRadius: radius }
             : null,
@@ -1153,6 +1160,7 @@ export function renderBoardShape(app, shape, opts = {}) {
         el.setAttribute('stroke', 'none');
     }
     if (st.isCopperKnockout && !isSelected && !st.filled) el.setAttribute('stroke-dasharray', '0.6 0.45');
+    if (shape.kind === 'image' && canDrawPictureCircles(shape.artwork)) el.setAttribute('fill-rule', 'nonzero');
     el.setAttribute('data-board-shape-layer', shape.layer || '');
     if (renderAsSegments) {
         if (st.filled) {
@@ -2340,6 +2348,7 @@ function syncNetMenuSelection(menu, input) {
 function shapeSnapshot(shape) {
     return {
         kind: shape.kind,
+        ...(shape.kind === 'image' ? { artwork: shape.artwork } : {}),
         geom: cloneShapeGeometry(shape),
         cornerRadius: shape.kind === 'rect' ? rectCornerRadius(shape) : polygonCornerRadius(shape),
         nodeCornerRadii: { ...(shape.nodeCornerRadii || {}) },
@@ -2470,6 +2479,7 @@ export function showBoardShapeToolProperties(app, kind) {
 /** Write a full snapshot back onto a shape (used by ModifyBoardShapeCommand). */
 export function applyShapeSnapshot(shape, state) {
     if (state.kind) shape.kind = state.kind;
+    if (shape.kind === 'image' && state.artwork) shape.artwork = state.artwork;
     applyShapeGeometry(shape, state.geom);
     if (Object.keys(state.nodeFlatJoins || {}).length) shape.nodeFlatJoins = { ...state.nodeFlatJoins };
     else delete shape.nodeFlatJoins;
@@ -2504,6 +2514,9 @@ function showImageProperties(app, shape, items) {
         <div class="prop-row"><label>Width (mm)</label><input id="pcbPropImageWidth" type="number" min="0.1" max="500" step="0.1" value="${width.toFixed(2)}"></div>
         <div class="prop-row"><label>Height (mm)</label><input id="pcbPropImageHeight" type="number" min="0.1" max="500" step="0.1" value="${height.toFixed(2)}"></div>
         <div class="prop-row"><label>Rotation (°)</label><input id="pcbPropImageRot" type="number" step="1" data-number-format="rotation" value="${Math.round(rotation) % 360}"></div>
+        <div class="prop-row"><label for="pcbPropImageInvert">Invert</label><input id="pcbPropImageInvert" type="checkbox"${shape.artwork.invert ? ' checked' : ''}></div>
+        <div class="prop-row"><label for="pcbPropImageFlipHorizontal">Flip Horizontal</label><input id="pcbPropImageFlipHorizontal" type="checkbox"${shape.artwork.flipHorizontal ? ' checked' : ''}></div>
+        <div class="prop-row"><label for="pcbPropImageFlipVertical">Flip Vertical</label><input id="pcbPropImageFlipVertical" type="checkbox"${shape.artwork.flipVertical ? ' checked' : ''}></div>
         ${shape.layer.endsWith('copper') ? `<div class="prop-row"><label>Net</label><select id="pcbPropImageNet"><option value="">Unassigned</option>${imageNetOptions}</select></div>` : ''}`;
     const commit = mutate => {
         const before = shapeSnapshot(shape);
@@ -2514,6 +2527,16 @@ function showImageProperties(app, shape, items) {
         else showImageProperties(app, shape, items);
     };
     const layerInput = /** @type {HTMLSelectElement} */ (document.getElementById('pcbPropImageLayer'));
+    for (const [id, property] of [
+        ['pcbPropImageInvert', 'invert'],
+        ['pcbPropImageFlipHorizontal', 'flipHorizontal'],
+        ['pcbPropImageFlipVertical', 'flipVertical'],
+    ]) {
+        const input = /** @type {HTMLInputElement|null} */ (document.getElementById(id));
+        input?.addEventListener('change', () => commit(() => {
+            shape.artwork = { ...shape.artwork, [property]: input.checked };
+        }));
+    }
     layerInput?.addEventListener('change', () => {
         if (!PICTURE_LAYERS.includes(layerInput.value) || isLayerLocked(layerInput.value)) return;
         commit(() => { shape.layer = layerInput.value; });

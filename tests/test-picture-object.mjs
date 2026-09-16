@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { pictureShape, pictureContours, resizePicturePoints, validatePictureArtwork } from '../src/pcb/modules/picture-raster.js';
+import { pictureShape, pictureContours, resizePicturePoints, validatePictureArtwork, MAX_PICTURE_REGIONS } from '../src/pcb/modules/picture-raster.js';
 
 const raster = { width: 4, height: 2, rectangles: [{ x: 0, y: 0, width: 1, height: 2 }, { x: 3, y: 0, width: 1, height: 2 }] };
 const image = pictureShape(raster, { widthMm: 4, layer: 'top-silk' });
@@ -15,6 +15,16 @@ assert.ok(pictureContours({ ...image, points: resized }).some(contour =>
 assert.deepEqual(image.artwork, raster, 'Resize never alters the pixel artwork');
 assert.notEqual(image.artwork.rectangles, raster.rectangles);
 assert.throws(() => validatePictureArtwork({ ...raster, rectangles: [{ x: 3, y: 0, width: 2, height: 1 }] }));
+assert.throws(() => validatePictureArtwork({ ...raster, rectangles: [] }),
+    /Image artwork is empty: no pixels remain after conversion/);
+const detailedArtwork = { width: 100, height: 100, rectangles: Array.from({ length: MAX_PICTURE_REGIONS }, (_, index) => ({
+    x: (index % 50) * 2, y: Math.floor(index / 50) * 2, width: 1, height: 1,
+})) };
+assert.doesNotThrow(() => validatePictureArtwork(detailedArtwork));
+detailedArtwork.rectangles.push({ x: 0, y: 80, width: 1, height: 1 });
+assert.throws(() => validatePictureArtwork(detailedArtwork),
+    { message: `Image artwork has ${MAX_PICTURE_REGIONS + 1} rectangles; the limit is ${MAX_PICTURE_REGIONS}. Reduce resolution or adjust the threshold to simplify the artwork.` });
+assert.throws(() => validatePictureArtwork({ ...raster, width: 513 }), /Invalid image artwork data/);
 console.log('PASS single image object, internal artwork contours and proportional resizing');
 
 globalThis.window = { addEventListener() {} };

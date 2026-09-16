@@ -9,22 +9,6 @@ import { SelectionManager } from '../../core/SelectionManager.js';
 
 const keyFor = (kind, object) => `${kind}:${kind === 'component' || kind === 'reftext' ? object : object.id}`;
 const adapterFactories = new Map();
-const hitQueries = new WeakMap();
-
-export function getComponentSelectionHit(app, point) {
-    return getQueryHit(app, point, '_hitTestComponent');
-}
-
-export function getRefTextSelectionHit(app, point) {
-    return getQueryHit(app, point, '_hitTestRefText');
-}
-
-function getQueryHit(app, point, method) {
-    const query = hitQueries.get(app);
-    if (!query || query.point !== point) return app[method](point);
-    if (!query.results.has(method)) query.results.set(method, app[method](point));
-    return query.results.get(method);
-}
 
 /** Register a factory implementing the SelectionManager shape contract. */
 export function registerPcbSelectionAdapter(kind, factory) {
@@ -36,10 +20,6 @@ function manager(app) {
         app._pcbSelection = new SelectionManager({
             getScale: () => app.viewport?.scale || 1,
             onSelectionChanged: (selected) => {
-                if (app._refOverlay) {
-                    const reference = selected.find((item) => item.kind === 'reftext');
-                    app._drawRefOverlay?.(reference?.object || null, false);
-                }
                 const segment = app._selectedBoardShapeSegment;
                 const segmentStillSelected = segment && selected.some(
                     (item) => item.kind === 'shape' && item.object?.id === segment.shapeId,
@@ -129,47 +109,23 @@ export function getPcbSelectionEntries(app) {
     return manager(app).getSelection();
 }
 
-/**
- * Return all visible selection hits in display order.
- * Pass `{ sync: false }` on read-only hot paths (e.g. hover overlap counting)
- * to reuse the last-synced adapter list instead of rebuilding one per call.
- */
-export function getPcbSelectionHits(app, point, kinds = null, { sync = true } = {}) {
-    const mgr = manager(app);
-    if (sync || mgr.shapes.length === 0) syncPcbSelection(app);
-    mgr._invalidateHitTestCache();
-    const previous = hitQueries.get(app);
-    hitQueries.set(app, { point, results: new Map() });
-    let hits;
-    try {
-        hits = mgr.hitTest(point, true);
-    } finally {
-        if (previous) hitQueries.set(app, previous);
-        else hitQueries.delete(app);
-    }
-    if (!kinds) return hits;
-    const allowed = kinds instanceof Set ? kinds : new Set(kinds);
-    return hits.filter((item) => allowed.has(item.kind));
-}
-
 /** Hit test an adapter kind through the shared selection ordering rules. */
 /** @param {string|null} [kind] */
 export function hitTestPcbSelection(app, point, kind = null) {
-    const hits = getPcbSelectionHits(app, point);
+    syncPcbSelection(app);
+    const hits = manager(app).hitTest(point, true);
     const hit = kind ? hits.find((item) => item.kind === kind) : hits[0];
     return hit?.object || null;
 }
 
 /** Return the topmost adapter belonging to one of the requested kinds. */
 export function hitTestPcbSelectionEntry(app, point, kinds) {
-    const hits = getPcbSelectionHits(app, point, kinds);
-    // Hole shapes render as filled board cutouts and hover across their full
-    // area, so give that same full area priority for click selection.
-    const holeShape = hits.find((item) => item.kind === 'shape' && item.object?.layer === 'hole');
+    syncPcbSelection(app);
+    const allowed = new Set(kinds);
+    const hits = manager(app).hitTest(point, true).filter((item) => allowed.has(item.kind));
     // Copper targets have always won when they overlap graphics or pads.
     // Keep that established PCB picking order as tracks join the registry.
-    return holeShape
-        || hits.find((item) => item.kind === 'via')
+    return hits.find((item) => item.kind === 'via')
         || hits.find((item) => item.kind === 'track')
         || hits.find((item) => item.kind === 'text')
         || hits.find((item) => item.kind === 'reftext')

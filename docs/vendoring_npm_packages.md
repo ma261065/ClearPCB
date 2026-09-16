@@ -90,6 +90,57 @@ Pop-Location
 | `jspdf.umd.min.js` | jspdf | [MrRio/jsPDF](https://github.com/MrRio/jsPDF) | — | ~500KB | MIT |
 | `svg2pdf.umd.min.js` | svg2pdf.js | [yWorks/svg2pdf.js](https://github.com/yWorks/svg2pdf.js) | — | ~100KB | MIT |
 | `three.module.js` | three (core only) | [mrdoob/three.js](https://github.com/mrdoob/three.js) | 0.184.0 | ~502KB | MIT |
+| `imagetracer.js` | imagetracerjs | [jankovicsandras/imagetracerjs](https://github.com/jankovicsandras/imagetracerjs/tree/1.2.6) | 1.2.6 | ~47KB | Unlicense |
+| `vtracer_wasm.js` + `vtracer_wasm_bg.wasm` | @visioncortex/vtracer | [visioncortex/vtracer](https://github.com/visioncortex/vtracer/tree/1.0.0-alpha.4) | 1.0.0-alpha.4 | ~15KB + 653KB | MIT OR Apache-2.0; dependency notices included |
+
+ImageTracerJS is downloaded from the upstream `1.2.6` tag's
+`imagetracer_v1.2.6.js` rather than bundled from npm. The full upstream license is
+retained in the file. Local changes: add `// @ts-nocheck`, remove the enclosing
+IIFE and AMD/CommonJS/global export dispatch, and use `export default new
+ImageTracer()`. The importer dynamically loads the tracing adapter only in trace
+mode; existing image rendering does not load the tracer.
+
+### VTracer Trial
+
+The matching generated loader and WASM were downloaded from
+`https://cdn.jsdelivr.net/npm/@visioncortex/vtracer@1.0.0-alpha.4/pkg/`
+(`vtracer_wasm.js` and `vtracer_wasm_bg.wasm`). This is a vendoring-time
+download only: the app fetches its own local WASM asset, never the CDN.
+The binary is unchanged. Upstream SHA-256 hashes (hex):
+
+- Loader, before adaptation: `e1855e9bb29d785344f672abdc692ca90ffa7ed863b9186b51c4e95a2a7dc17d`
+- WASM: `63716b70497b7468ef97545b50f5f34b8bbb7acde2d7b00deb4eb40781446d45`
+
+Local loader changes: remove the declaration-file reference, add `@ts-nocheck`,
+replace CommonJS exports with ES exports, and replace the synchronous Node `fs`
+bootstrap with a cached async initializer. It loads via `new URL(..., import.meta.url)`
+and `WebAssembly.instantiate` on an ArrayBuffer, so servers need not provide the
+WASM streaming MIME type. Failed initialization is retryable. No Rust installation,
+Node runtime, or build step is required to use ClearPCB. Browser WebAssembly support
+must be enabled; load/compile failures disable Import and are shown in the dialog.
+
+The adapter selects binary clustering, spline fitting, absolute SVG commands,
+four decimal places, and no SVG command optimization. Black foreground is supplied
+from ClearPCB's white-material mask. SVG is parsed as an inert document and flattened
+through the shared path parser with 0.125-source-pixel curve tolerance. Nothing from
+the generated SVG is inserted into the live DOM or stored in the project.
+
+`assets/vendor/vtracer-NOTICES.txt` retains upstream and dependency licence texts;
+`vtracer-notice-sources.json` pins the collected crate archives and checksums.
+The npm archive omits its WASM build lockfile. The notice set is therefore a
+conservative reconstruction from the tagged core lockfile, binding versions embedded
+in the WASM, and compatible binding transitives, **not a verified binary SBOM**.
+It includes some build-time and optional decoder crates not necessarily linked into
+the binary. All collected crate declarations offer permissive terms (MIT, Apache,
+BSD, Zlib, Unicode, or public-domain alternatives); do not describe the entire bundle
+as MIT-only. WASM producers identify Rust 1.95.0 and wasm-bindgen 0.2.126.
+
+Regenerate the pinned notices with `node tools/vendor-vtracer-notices.mjs` (network
+access and `tar` required). Bootstrapping a new notice manifest additionally uses
+Python's `tomllib` or pip's bundled `tomli`. For a future production replacement,
+prefer an upstream WASM lockfile or a locally reproducible Rust build and regenerate
+the dependency inventory from that exact build. Headless coverage:
+`node tools/test.mjs picture-vtracing picture-tracing-dialog`.
 
 > **three.js note:** the bundle entry re-exports only the core symbols the
 > 3D board viewer uses (`Scene`, `PerspectiveCamera`, `WebGLRenderer`,

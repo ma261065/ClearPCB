@@ -94,8 +94,8 @@ function wire(net, connections) {
         }
     }
     shapes.push({
-        type: 'wire', id: `shape_${++wireCounter}`, lw: 0.254,
-        nd, ed, pc, wl: `W${String(wireCounter).padStart(4, '0')}`, n: net,
+        type: 'wire', id: `shape_${++wireCounter}`, c: '#008000', lw: 0.254,
+        nd, ed, pc, wl: `W${String(wireCounter).padStart(4, '0')}`, n: net, f: false,
     });
 }
 

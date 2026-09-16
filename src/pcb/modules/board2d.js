@@ -23,6 +23,7 @@ import {
 } from './board-geometry.js';
 import { boardShapeFilledRemovalOutlines, resolveBoardShapeGeometry } from './board-shapes.js';
 import { pcbTextSegments } from './pcb-text.js';
+import { drawPictureCached } from './picture-raster.js';
 
 function traceBoardShape(context, geometry) {
     context.beginPath();
@@ -40,6 +41,10 @@ function traceBoardShape(context, geometry) {
 }
 
 function drawBoardShape(context, geometry) {
+    if (geometry.image) {
+        drawPictureCached(context, geometry.image);
+        return true;
+    }
     if (geometry.physicalContours) {
         context.beginPath();
         for (const contour of geometry.physicalContours) {

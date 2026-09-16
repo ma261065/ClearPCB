@@ -27,7 +27,7 @@
  * computed island is kept for now.
  */
 
-import { resolveBoardShapeGeometry, boardShapeArcGeometry } from './board-shapes.js';
+import { resolveBoardShapeGeometry, boardShapeArcGeometry, normalizeShapeCopperMode } from './board-shapes.js';
 import ClipperLib from '../../../assets/vendor/clipper.esm.js';
 import { pcbTextSegments } from './pcb-text.js';
 import { padCopperOutline } from './copper-model.js';
@@ -186,6 +186,12 @@ function collectObstacles(C, fill, ctx, clearance) {
     // this layer receives clearance. Same-net copper merges into the pour. ──
     for (const shape of (ctx.boardShapes || [])) {
         if (!shape || shape.type === 'fill') continue;
+        if (shape.layer !== 'hole' && shape.layer !== fill.layer) continue;
+        if (shape.kind === 'image') {
+            if (normalizeShapeCopperMode(shape.copperMode) !== 'add' || sameNet(shape.net || '')) continue;
+            out.push(...offsetClosedPath(C, shape.points, clearance + OFFSET_MARGIN));
+            continue;
+        }
         const geometry = resolveBoardShapeGeometry(shape);
         const isHole = shape.layer === 'hole';
         const isCopper = shape.layer === fill.layer && geometry.copperMode === 'add';
@@ -242,6 +248,11 @@ function shapeObstaclePaths(C, shape, clearance, geometry = resolveBoardShapeGeo
 
 export function boardShapeClearanceOutlines(shape, clearance) {
     if (!shape || shape.type === 'fill') return [];
+    if (shape.layer !== 'hole' && !['top-copper', 'bottom-copper'].includes(shape.layer)) return [];
+    if (shape.kind === 'image') {
+        if (normalizeShapeCopperMode(shape.copperMode) !== 'add') return [];
+        return mergeClearancePaths(offsetClosedPath(ClipperLib, shape.points, clearance + OFFSET_MARGIN));
+    }
     const geometry = resolveBoardShapeGeometry(shape);
     if (shape.layer !== 'hole' && (!['top-copper', 'bottom-copper'].includes(shape.layer)
         || geometry.copperMode !== 'add')) return [];

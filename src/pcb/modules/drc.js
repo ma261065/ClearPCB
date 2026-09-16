@@ -180,7 +180,7 @@ export function collectCopper(app) {
         });
     }
 
-    const artwork = collectCopperArtwork(app);
+    const artwork = collectCopperArtwork(app, { pictureBounds: true });
     segments.push(...artwork.segments);
     return { pads, segments, vias, areas: artwork.areas, circles: artwork.circles, arcs: artwork.arcs };
 }

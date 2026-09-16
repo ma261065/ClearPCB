@@ -21,7 +21,7 @@ const { copperShapesTouch } = await import('../src/pcb/modules/track-contact-geo
 const { resolveTrackDrawSnap } = await import('../src/pcb/modules/track-draw.js');
 
 const data = new Uint8ClampedArray(3 * 3 * 4);
-for (let index = 0; index < 9; index++) data.set(index === 4 ? [255, 255, 255, 255] : [0, 0, 0, 255], index * 4);
+for (let index = 0; index < 9; index++) data.set(index === 4 ? [0, 0, 0, 255] : [255, 255, 255, 255], index * 4);
 const raster = rasterizePicture({ data, width: 3, height: 3 });
 for (const layer of ['top-silk', 'bottom-silk', 'top-copper', 'bottom-copper']) {
     const image = { ...pictureShape(raster, { widthMm: 3, layer }), id: 'pshape_1' };

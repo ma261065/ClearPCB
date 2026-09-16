@@ -1,5 +1,5 @@
 export { punchHolesInFlatMesh } from './board3d-mesh-ops.js';
-import { pictureTriangles } from './picture-raster.js';
+import { pictureTriangles, pictureCirclesDisjoint } from './picture-raster.js';
 import { ArcballController } from '../../shared/3d/ArcballController.js';
 import { createBoardViewSync } from './board-view-sync.js';
 import { createSurfaceBuilder } from './board3d-surface-client.js';
@@ -1391,6 +1391,29 @@ function strokePolysToMesh(polys, strokeWidth, y, color, toWorld) {
  */
 export function imageArtworkMesh(shape, elevation, color) {
     const mesh = emptyMesh();
+    const { artwork, points } = shape;
+    if (!artwork.invert && pictureCirclesDisjoint(artwork)) {
+        const origin = points[0];
+        const horizontal = { x: (points[1].x - origin.x) / artwork.width, y: (points[1].y - origin.y) / artwork.width };
+        const vertical = { x: (points[3].x - origin.x) / artwork.height, y: (points[3].y - origin.y) / artwork.height };
+        for (const circle of artwork.circles) {
+            const base = mesh.verts.length;
+            const column = artwork.flipHorizontal ? artwork.width - circle.x : circle.x;
+            const row = artwork.flipVertical ? artwork.height - circle.y : circle.y;
+            const steps = Math.max(12, Math.ceil(Math.PI / Math.acos(1 - Math.min(0.125 / circle.radius, 1))));
+            for (let index = 0; index < steps; index++) {
+                const angle = index * Math.PI * 2 / steps;
+                const sourceX = column + circle.radius * Math.cos(angle);
+                const sourceY = row + circle.radius * Math.sin(angle);
+                mesh.verts.push({ x: origin.x + horizontal.x * sourceX + vertical.x * sourceY,
+                    y: elevation, z: origin.y + horizontal.y * sourceX + vertical.y * sourceY });
+            }
+            for (let index = 1; index < steps - 1; index++) {
+                mesh.faces.push({ idx: [base, base + index, base + index + 1], color });
+            }
+        }
+        return mesh;
+    }
     for (const contour of pictureTriangles(shape)) {
         const base = mesh.verts.length;
         for (const point of contour) mesh.verts.push({ x: point.x, y: elevation, z: point.y });

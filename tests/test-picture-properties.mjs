@@ -6,15 +6,16 @@ const fields = new Map();
 const items = { html: '', set innerHTML(html) {
     this.html = html;
     fields.clear();
-    for (const match of html.matchAll(/id="([^"]+)"/g)) {
+    for (const match of html.matchAll(/<[^>]*\bid="([^"]+)"[^>]*>/g)) {
         const listeners = new Map();
-        fields.set(match[1], { value: '',
+        fields.set(match[1], { value: '', checked: /\schecked(?:\s|>)/.test(match[0]),
             get valueAsNumber() { return this.value === '' ? NaN : Number(this.value); },
             addEventListener(name, listener) {
                 if (!listeners.has(name)) listeners.set(name, []);
                 listeners.get(name).push(listener);
             },
             input(value) { this.value = value; for (const listener of listeners.get('input') || []) listener(); },
+            toggle(checked) { this.checked = checked; for (const listener of listeners.get('change') || []) listener(); },
             change(value) { this.value = value; for (const listener of listeners.get('change') || []) listener(); } });
     }
 } };
@@ -75,7 +76,7 @@ app.history.undo();
 assert.deepEqual(cloneShapeGeometry(image), before);
 console.log('PASS image Properties controls, proportional dimensions, layer/net changes, drag and resize undo');
 const artwork = image.artwork;
-assert.ok(items.html.includes('id="pcbPropImageRot" type="number" step="15"'));
+assert.ok(items.html.includes('id="pcbPropImageRot" type="number" step="1"'));
 fields.get('pcbPropImageRot').change('90');
 assert.ok(Math.abs(image.points[0].x + 1) < 1e-9);
 assert.ok(Math.abs(image.points[0].y - 2) < 1e-9, 'Positive rotation matches text counterclockwise convention');
@@ -224,3 +225,28 @@ try {
     globalThis.clearTimeout = originalClearTimeout;
 }
 console.log('PASS copper image spinner burst and undo defer one derived refresh');
+for (const [id, property] of [
+    ['pcbPropImageInvert', 'invert'],
+    ['pcbPropImageFlipHorizontal', 'flipHorizontal'],
+    ['pcbPropImageFlipVertical', 'flipVertical'],
+]) {
+    const originalArtwork = image.artwork;
+    const originalGeometry = cloneShapeGeometry(image);
+    const depth = app.history.undoStack.length;
+    assert.equal(fields.get(id).checked, false);
+    fields.get(id).toggle(true);
+    assert.equal(image.artwork[property], true);
+    assert.notEqual(image.artwork, originalArtwork);
+    assert.equal(image.artwork.rectangles, originalArtwork.rectangles);
+    assert.equal(fields.get(id).checked, true);
+    assert.equal(app.history.undoStack.length, depth + 1);
+    assert.deepEqual(cloneShapeGeometry(image), originalGeometry);
+    app.history.undo();
+    assert.equal(image.artwork, originalArtwork);
+    assert.equal(fields.get(id).checked, false);
+    app.history.redo();
+    assert.equal(fields.get(id).checked, true);
+    fields.get(id).toggle(false);
+    assert.equal(image.artwork[property], false);
+}
+console.log('PASS image invert and flip checkboxes, immutable artwork, stable bounds and undo/redo');

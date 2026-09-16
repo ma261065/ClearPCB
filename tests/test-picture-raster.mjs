@@ -2,10 +2,11 @@ import assert from 'node:assert/strict';
 import { rasterizePicture, pictureShape, pictureContours } from '../src/pcb/modules/picture-raster.js';
 
 const data = new Uint8ClampedArray([
-    0, 0, 0, 255, 0, 0, 0, 255, 255, 255, 255, 255,
-    0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 0,
+    255, 255, 255, 255, 255, 255, 255, 255, 0, 0, 0, 255,
+    255, 255, 255, 255, 255, 255, 255, 255, 0, 0, 0, 0,
 ]);
 const raster = rasterizePicture({ width: 3, height: 2, data });
+assert.deepEqual([...raster.mask], [1, 1, 0, 1, 1, 0], 'White pixels create material; black and transparent pixels remain empty');
 assert.deepEqual(raster.rectangles, [{ x: 0, y: 0, width: 2, height: 2 }]);
 assert.deepEqual([...rasterizePicture({ width: 3, height: 2, data }, { invert: true }).mask], [0, 0, 1, 0, 0, 0]);
 assert.equal(rasterizePicture({ width: 3, height: 2, data }, { threshold: 255 }).mask[5], 0);

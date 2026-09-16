@@ -272,7 +272,12 @@ export function resolveSilk(placements, side = null) {
  * `poly` (the start point is assumed already present).
  * @param {Array<{x:number,y:number}>} poly
  */
-function sampleBezier(poly, x0, y0, x1, y1, x2, y2, x3, y3, steps) {
+function sampleBezier(poly, x0, y0, x1, y1, x2, y2, x3, y3, steps, tolerance) {
+    if (tolerance > 0) {
+        const curvature = 6 * Math.max(Math.hypot(x0 - 2 * x1 + x2, y0 - 2 * y1 + y2),
+            Math.hypot(x1 - 2 * x2 + x3, y1 - 2 * y2 + y3));
+        steps = Math.max(1, Math.ceil(Math.sqrt(curvature / (8 * tolerance))));
+    }
     for (let s = 1; s <= steps; s++) {
         const t = s / steps, u = 1 - t;
         poly.push({
@@ -342,9 +347,10 @@ function sampleArc(poly, x0, y0, rx, ry, phiDeg, largeArc, sweep, ex, ey) {
  * 24 for smoother curves).
  * @param {string} d
  * @param {number} [bezierSteps=16]
+ * @param {number} [bezierTolerance=0] Optional maximum curve/chord deviation in path units.
  * @returns {Array<Array<{x:number,y:number}>>}
  */
-export function flattenSvgPath(d, bezierSteps = 16) {
+export function flattenSvgPath(d, bezierSteps = 16, bezierTolerance = 0) {
     if (!d) return [];
     const tokens = d.match(/[a-zA-Z]|-?[0-9]*\.?[0-9]+(?:e[-+]?[0-9]+)?/g) || [];
     const polys = [];
@@ -382,7 +388,7 @@ export function flattenSvgPath(d, bezierSteps = 16) {
                 const x1 = (rel ? x : 0) + num(), y1 = (rel ? y : 0) + num();
                 const x2 = (rel ? x : 0) + num(), y2 = (rel ? y : 0) + num();
                 const nx = (rel ? x : 0) + num(), ny = (rel ? y : 0) + num();
-                sampleBezier(poly, x, y, x1, y1, x2, y2, nx, ny, bezierSteps);
+                sampleBezier(poly, x, y, x1, y1, x2, y2, nx, ny, bezierSteps, bezierTolerance);
                 x = nx; y = ny;
             }
         } else if (c === 'Q') {
@@ -392,7 +398,7 @@ export function flattenSvgPath(d, bezierSteps = 16) {
                 // Quadratic → cubic.
                 const cx1 = x + (2 / 3) * (x1 - x), cy1 = y + (2 / 3) * (y1 - y);
                 const cx2 = nx + (2 / 3) * (x1 - nx), cy2 = ny + (2 / 3) * (y1 - ny);
-                sampleBezier(poly, x, y, cx1, cy1, cx2, cy2, nx, ny, bezierSteps);
+                sampleBezier(poly, x, y, cx1, cy1, cx2, cy2, nx, ny, bezierSteps, bezierTolerance);
                 x = nx; y = ny;
             }
         } else if (c === 'A') {

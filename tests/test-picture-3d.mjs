@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import Clipper from '../assets/vendor/clipper.esm.js';
 import { pictureShape } from '../src/pcb/modules/picture-raster.js';
 import { pointInPolygon } from '../src/core/geometry.js';
 
@@ -27,3 +28,24 @@ const ringMesh = imageArtworkMesh(ring, 1, '#ffffff');
 assert.ok(ringMesh.faces.every(face => !pointInPolygon({ x: 0, y: 0 },
     face.idx.map(index => ({ x: ringMesh.verts[index].x, y: ringMesh.verts[index].z })))));
 console.log('PASS merged image hole stays open in 3D triangulation');
+const dots = pictureShape({ width: 1000, height: 500, circles: Array.from({ length: 20000 }, (_, index) => ({
+    x: index % 200 * 5 + 2.5, y: Math.floor(index / 200) * 5 + 2.5, radius: 2,
+})) }, { widthMm: 100, layer: 'top-silk', center: { x: 50, y: 25 } });
+const originalExecute = Clipper.Clipper.prototype.Execute;
+try {
+    Clipper.Clipper.prototype.Execute = () => { throw new Error('3D separated dots must not run polygon union'); };
+    const mesh = imageArtworkMesh(dots, -1, '#ffffff');
+    assert.equal(mesh.verts.length, 20000 * 12);
+    assert.equal(mesh.faces.length, 20000 * 10);
+    assert.ok(mesh.verts.every(vertex => vertex.y === -1));
+    assert.ok(mesh.faces.every(face => face.idx.every(index => Math.floor(index / 12) === Math.floor(face.idx[0] / 12))),
+        'Triangles never bridge between dots');
+    const flipped = { ...dots, artwork: { ...dots.artwork, flipHorizontal: true, flipVertical: true },
+        points: [{ x: 10, y: 20 }, { x: 10, y: 120 }, { x: -40, y: 120 }, { x: -40, y: 20 }] };
+    const rotated = imageArtworkMesh(flipped, 1, '#ffffff');
+    assert.ok(Math.abs(rotated.verts[0].x - (-39.75)) < 1e-9);
+    assert.ok(Math.abs(rotated.verts[0].z - 119.95) < 1e-9);
+} finally {
+    Clipper.Clipper.prototype.Execute = originalExecute;
+}
+console.log('PASS 20000-dot direct 3D mesh bypasses Clipper and preserves gaps, flips and rotation');

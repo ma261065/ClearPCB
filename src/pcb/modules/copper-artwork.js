@@ -1,8 +1,8 @@
-import { resolveBoardShapeGeometry, boardShapeArcGeometry } from './board-shapes.js';
+import { resolveBoardShapeGeometry, boardShapeArcGeometry, normalizeShapeCopperMode } from './board-shapes.js';
 import { pcbTextSegments } from './pcb-text.js';
 import { pictureRegions } from './picture-raster.js';
 
-export function collectCopperArtwork(app) {
+export function collectCopperArtwork(app, { pictureBounds = false } = {}) {
     const segments = [], areas = [], circles = [], arcs = [];
     const isCopper = (layer) => layer === 'top-copper' || layer === 'bottom-copper';
     const layerName = (layer) => layer === 'bottom-copper' ? 'bottom' : 'top';
@@ -18,14 +18,19 @@ export function collectCopperArtwork(app) {
     }
     for (const shape of app.boardShapes || []) {
         if (!isCopper(shape.layer) || shape.type === 'fill') continue;
-        const geometry = resolveBoardShapeGeometry(shape);
-        if (geometry.copperMode !== 'add') continue;
+        if (normalizeShapeCopperMode(shape.copperMode) !== 'add') continue;
         const meta = { keyId: `shape:${shape.id}`, net: shape.net || '', layer: layerName(shape.layer), label: 'Copper shape' };
         if (shape.kind === 'image') {
+            if (pictureBounds) {
+                areas.push({ ...meta, label: 'Copper image', kind: 'area', uid: meta.keyId,
+                    outer: shape.points.map(point => ({ ...point })), holes: [], x: shape.points[0].x, y: shape.points[0].y });
+                continue;
+            }
             pictureRegions(shape).forEach(({ outer, holes }, index) => areas.push({ ...meta, kind: 'area',
                 uid: `${meta.keyId}:${index}`, outer, holes, x: outer[0].x, y: outer[0].y }));
             continue;
         }
+        const geometry = resolveBoardShapeGeometry(shape);
         const points = geometry.centerline;
         const arc = boardShapeArcGeometry(shape);
         if (arc) {

@@ -1,5 +1,5 @@
 import { clearDragState } from './mouse.js';
-import { ModifyPropertyCommand, MoveShapesCommand } from '../../schematic/modules/commands.js';
+import { ModifyPropertyCommand, MoveShapesCommand } from '../../core/CommandHistory.js';
 import { rotateNetOrientation } from '../../shapes/net.js';
 import { resolveWireSnapPosition, PIN_SNAP_TOL } from './wire.js';
 import { updateToolGhost } from './tool.js';
@@ -75,11 +75,6 @@ export function handleEscape(app) {
 
     // 2. Cancel an in-progress drag.
     switch (app.interactionState) {
-        case 'overlapCycle':
-            app._overlapCyclePress = null;
-            app.interactionState = 'idle';
-            app.skipClickSelection = true;
-            return;
         case 'segmentDrag':
             // Revert bridge insertions from segment drag start.
             if (app.drag?.shape?.type === 'polyline' && app.drag.beforeState) {
