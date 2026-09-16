@@ -21,7 +21,7 @@ import { commitAnchorDrag, clearDragState, commitMoveDrag, commitSegmentDrag, re
 import { detectTJunction, showAnchorContextMenu, showSegmentContextMenu, showLabelContextMenu, showComponentContextMenu } from '../../ui/modules/context-menu.js';
 import { hasAny3DModel } from '../../components/model3d-source.js';
 import { updateToolGhost } from '../../ui/modules/tool.js';
-import { ModifyShapeCommand } from '../../core/CommandHistory.js';
+import { ModifyShapeCommand } from './commands.js';
 import { collapseRedundantWirePoints } from './wire.js';
 import { Text } from '../../shapes/text.js';
 import { attachLabelToTarget, detachLabel, refreshLabelAttachmentOffset, getLabelAttachmentAnchorPoint, getLabelDropHotspot } from '../../ui/modules/label-attachment.js';

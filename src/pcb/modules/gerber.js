@@ -22,7 +22,7 @@
  * which is the modern standard for sub-micron precision in mm.
  */
 
-import { stringToPolylines, measureText } from './stroke-font.js';
+import { resolveReferenceText } from './reference-text.js';
 import {
     orthoSwap as _orthoSwap,
     resolvePlacementDrills,
@@ -30,50 +30,40 @@ import {
     resolveSilk,
     MASK_EXPANSION,
     TENT_VIAS,
+    padFlashOutline,
 } from './board-geometry.js';
 import { resolveBoardShapeGeometry, boardShapeFilledRemovalOutlines } from './board-shapes.js';
 import { pcbTextSegments } from './pcb-text.js';
 import ClipperLib from '../../../assets/vendor/clipper.esm.js';
-import earcut from '../../../assets/vendor/earcut.module.js';
+import { regionFillContours } from './region-geometry.js';
 
 const FORMAT = '%FSLAX46Y46*%\n%MOMM*%\n';
 const SCALE = 1e6; // 4.6 fixed-point: multiply mm by 10^6
 
+function padOperation(flash, getAp) {
+    let width = flash.w, height = flash.h;
+    const angle = ((flash.rotation || 0) % 180 + 180) % 180;
+    const round = ['ellipse', 'circle', 'round'].includes(flash.shape);
+    if ((round && Math.abs(width - height) > 1e-9)
+        || (!round && Math.min(angle, Math.abs(angle - 90), 180 - angle) > 1e-9)) {
+        return { d: getAp('C:0.0010'), op: _shapeContourRegion([padFlashOutline(flash)]).trimEnd() };
+    }
+    if (_orthoSwap(flash.rotation)) [width, height] = [height, width];
+    const key = round ? `C:${width.toFixed(4)}`
+        : `${flash.shape === 'oval' ? 'O' : 'R'}:${width.toFixed(4)}x${height.toFixed(4)}`;
+    return { d: getAp(key), op: `X${_fmt(flash.x)}Y${_fmtY(flash.y)}D03*` };
+}
+
 function _shapeContourRegion(contours) {
-    const clipper = new ClipperLib.Clipper();
-    clipper.AddPaths(contours.filter(contour => contour.length >= 3).map(contour => contour.map(point => ({
-        X: _fx(point.x), Y: _fx(point.y),
-    }))), ClipperLib.PolyType.ptSubject, true);
-    const tree = new ClipperLib.PolyTree();
-    clipper.Execute(ClipperLib.ClipType.ctUnion, tree,
-        ClipperLib.PolyFillType.pftEvenOdd, ClipperLib.PolyFillType.pftEvenOdd);
-    const emit = contour => {
+    return regionFillContours(contours).map(contour => {
         let body = 'G36*\n';
         const start = contour[0];
-        body += `X${start.X}Y${-start.Y}D02*\n`;
+        body += `X${_fmt(start.x)}Y${_fmtY(start.y)}D02*\n`;
         for (const point of [...contour.slice(1), start]) {
-            body += `X${point.X}Y${-point.Y}D01*\n`;
+            body += `X${_fmt(point.x)}Y${_fmtY(point.y)}D01*\n`;
         }
         return body + 'G37*\n';
-    };
-    let body = '';
-    for (const region of ClipperLib.JS.PolyTreeToExPolygons(tree)) {
-        if (!region.holes.length) {
-            body += emit(region.outer);
-            continue;
-        }
-        const points = [...region.outer];
-        const holes = [];
-        for (const hole of region.holes) {
-            holes.push(points.length);
-            for (const point of hole) points.push(point);
-        }
-        const triangles = earcut(points.flatMap(point => [point.X, point.Y]), holes, 2);
-        for (let index = 0; index < triangles.length; index += 3) {
-            body += emit(triangles.slice(index, index + 3).map(vertex => points[vertex]));
-        }
-    }
-    return body;
+    }).join('');
 }
 
 /**
@@ -217,25 +207,11 @@ function _buildCopper(placements, tracks, vias, layerId, bounds, texts = [], fil
 
     // Pads on this layer (and on 'both').
     for (const flash of resolvePadFlashes(placements, { side: padSide })) {
-        if (!_inBoard(flash.x, flash.y, bounds)) continue;
-        let w = flash.w;
-        let h = flash.h;
-        if (_orthoSwap(flash.rotation)) { const t = w; w = h; h = t; }
-        let key;
-        if (flash.shape === 'ellipse') {
-            key = apKey('C', Math.max(w, h));
-        } else if (flash.shape === 'oval') {
-            key = apKey('O', w, h);
-        } else {
-            key = apKey('R', w, h);
-        }
-        const d = getAp(key);
-        ops.push({ d, op: `X${_fmt(flash.x)}Y${_fmtY(flash.y)}D03*` });
+        ops.push(padOperation(flash, getAp));
     }
 
     // Vias (drawn as circular flashes on both copper layers).
     for (const v of vias) {
-        if (!_inBoard(v.x, v.y, bounds)) continue;
         const key = apKey('C', v.diameter);
         const d = getAp(key);
         ops.push({ d, op: `X${_fmt(v.x)}Y${_fmtY(v.y)}D03*` });
@@ -250,7 +226,7 @@ function _buildCopper(placements, tracks, vias, layerId, bounds, texts = [], fil
             const a = t.nodes.get(e.from);
             const b = t.nodes.get(e.to);
             if (!a || !b) continue;
-            const clipped = _clipSegment(a.x, a.y, b.x, b.y, bounds);
+            const clipped = _clipSegment(a.x, a.y, b.x, b.y, bounds, t.getEdgeWidth ? t.getEdgeWidth(eid) : t.width);
             if (!clipped) continue;
             // Aperture is per-edge: each segment may have its own width.
             const w = t.getEdgeWidth ? t.getEdgeWidth(eid) : t.width;
@@ -507,45 +483,18 @@ function _buildPadLayer(placements, vias, side, bounds, opts) {
         // bridge solder.
         if (respectPaste && flash.paste === false) continue;
         if (respectMask && flash.mask === false) continue;
-        if (!_inBoard(flash.x, flash.y, bounds)) continue;
-        let w = flash.w;
-        let h = flash.h;
-        if (_orthoSwap(flash.rotation)) { const t = w; w = h; h = t; }
-        let key;
-        if (flash.shape === 'ellipse') {
-            key = apKey('C', Math.max(w, h));
-        } else if (flash.shape === 'oval') {
-            key = apKey('O', w, h);
-        } else {
-            key = apKey('R', w, h);
-        }
-        const d = getAp(key);
-        ops.push({ d, op: `X${_fmt(flash.x)}Y${_fmtY(flash.y)}D03*` });
+        ops.push(padOperation(flash, getAp));
     }
 
     // Standalone paste apertures (no copper) — windowpane stencil openings.
     if (pasteApertures) {
         for (const flash of resolvePadFlashes(placements, { side, source: 'paste', expansion })) {
-            if (!_inBoard(flash.x, flash.y, bounds)) continue;
-            let w = flash.w;
-            let h = flash.h;
-            if (_orthoSwap(flash.rotation)) { const t = w; w = h; h = t; }
-            let key;
-            if (flash.shape === 'ellipse') {
-                key = apKey('C', Math.max(w, h));
-            } else if (flash.shape === 'oval') {
-                key = apKey('O', w, h);
-            } else {
-                key = apKey('R', w, h);
-            }
-            const d = getAp(key);
-            ops.push({ d, op: `X${_fmt(flash.x)}Y${_fmtY(flash.y)}D03*` });
+            ops.push(padOperation(flash, getAp));
         }
     }
 
     if (includeVias) {
         for (const v of vias) {
-            if (!_inBoard(v.x, v.y, bounds)) continue;
             const dia = (v.diameter || 0.6) + 2 * expansion;
             if (dia <= 0) continue;
             const key = apKey('C', dia);
@@ -748,17 +697,7 @@ function _buildSilk(placements, side, bounds, texts = [], boardShapes = []) {
                 // Filled silk paths (e.g. pin-1 triangles) fill as regions so
                 // they are solid on the fabricated silkscreen, not hollow.
                 if (sk.filled) {
-                    for (const poly of sk.polys) {
-                        if (poly.length < 3) continue;
-                        let ring = 'G36*\n';
-                        ring += `X${_fmt(poly[0].x)}Y${_fmtY(poly[0].y)}D02*\n`;
-                        for (let i = 1; i < poly.length; i++) {
-                            ring += `X${_fmt(poly[i].x)}Y${_fmtY(poly[i].y)}D01*\n`;
-                        }
-                        ring += `X${_fmt(poly[0].x)}Y${_fmtY(poly[0].y)}D01*\n`;
-                        ring += 'G37*\n';
-                        body += ring;
-                    }
+                    body += _shapeContourRegion(sk.polys);
                 }
                 for (const poly of sk.polys) {
                     for (let i = 1; i < poly.length; i++) {
@@ -768,18 +707,14 @@ function _buildSilk(placements, side, bounds, texts = [], boardShapes = []) {
             }
         }
 
-        // ── Reference designator. Emit on the silk side matching the
-        // component's placement side, replicating its on-screen size,
-        // position, rotation and move offset (see _refSegments).
         const refSide = pl.side === 'bottom' ? 'bottom' : 'top';
         if (refSide !== side) continue;
-        if (!_inBoard(pl.x, pl.y, bounds)) continue;
-        const refGeom = _refSegments(pl);
-        if (!refGeom) continue;
-        const head = useAperture(refGeom.strokeWidth);
+        const reference = resolveReferenceText(pl);
+        if (!reference) continue;
+        const head = useAperture(reference.strokeWidth);
         if (head) body += head;
-        for (const [a, b] of refGeom.segments) {
-            body += emitSeg(a, b);
+        for (const poly of reference.polylines) {
+            for (let index = 1; index < poly.length; index++) body += emitSeg(poly[index - 1], poly[index]);
         }
     }
 
@@ -840,78 +775,6 @@ function _buildSilk(placements, side, bounds, texts = [], boardShapes = []) {
 
     out += body + 'M02*\n';
     return out;
-}
-
-/**
- * World-space stroke segments for a placement's reference designator,
- * replicating the editor's transform chain so the gerber matches the
- * screen exactly: the footprint pose (translate · rotate · mirror) plus
- * the designator's own move (refDx/refDy), rotation (refRot about its
- * glyph centre), size (refSize) and per-side handedness. Returns null
- * when the designator is hidden or empty.
- *
- * @param {object} pl  placement (see PCBApp.placements entries)
- * @returns {{segments: Array<[{x:number,y:number},{x:number,y:number}]>, strokeWidth:number}|null}
- */
-function _refSegments(pl) {
-    const ref = pl?.reference;
-    if (!ref || pl.refVisible === false) return null;
-    const size = Number(pl.refSize) > 0 ? pl.refSize : 0.9;
-    const strokeWidth = Number(pl.refStrokeWidth) > 0 ? pl.refStrokeWidth : 0.15;
-    // Base layout (footprint-local), identical to renderFootprint/applyRefGeometry:
-    // horizontally centred on the outline, baseline just above its top edge.
-    const ob = pl.outline;
-    const cxRef = ob ? ob.x + ob.width / 2 : 0;
-    const outlineY = ob ? ob.y : -2;
-    const baseY = outlineY - 0.8;
-    const baseX = cxRef - measureText(ref, size) / 2;
-    const polys = stringToPolylines(ref, baseX, baseY, size, false);
-    if (!polys.length) return null;
-
-    // Glyph bbox vertical centre = the pivot the editor rotates refRot about.
-    let minY = Infinity, maxY = -Infinity;
-    for (const poly of polys) for (const p of poly) {
-        if (p.y < minY) minY = p.y;
-        if (p.y > maxY) maxY = p.y;
-    }
-    const cy = Number.isFinite(minY) ? (minY + maxY) / 2 : baseY - size / 2;
-
-    const dx = pl.refDx || 0, dy = pl.refDy || 0;
-    const rr = (pl.refRot || 0) * Math.PI / 180;
-    const rc = Math.cos(rr), rs = Math.sin(rr);
-    // The ref counter-mirrors only the user flip; the footprint group already
-    // applies the full visual mirror (user flip XOR bottom side).
-    const flip = !!pl.mirror;
-    const mirrored = (!!pl.mirror) !== (pl.side === 'bottom');
-    const prot = (pl.rotation || 0) * Math.PI / 180;
-    const pc = Math.cos(prot), ps = Math.sin(prot);
-    const px = pl.x || 0, py = pl.y || 0;
-
-    const xf = (p) => {
-        let x = p.x, y = p.y;
-        // 1. rotate(refRot) about the glyph centre (cxRef, cy)
-        if (rr) {
-            const ox = x - cxRef, oy = y - cy;
-            x = cxRef + ox * rc - oy * rs;
-            y = cy + ox * rs + oy * rc;
-        }
-        // 2. counter-mirror about x = cxRef so the ref reads per side
-        if (flip) x = 2 * cxRef - x;
-        // 3. ref move offset
-        x += dx; y += dy;
-        // 4. placement mirror
-        if (mirrored) x = -x;
-        // 5. placement rotation, then 6. placement translation
-        return { x: px + x * pc - y * ps, y: py + x * ps + y * pc };
-    };
-
-    const segments = [];
-    for (const poly of polys) {
-        for (let i = 1; i < poly.length; i++) {
-            segments.push([xf(poly[i - 1]), xf(poly[i])]);
-        }
-    }
-    return { segments, strokeWidth };
 }
 
 /* ──────────────────────────── board outline ──────────────────────────── */

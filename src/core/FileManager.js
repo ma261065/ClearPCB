@@ -117,7 +117,10 @@ async function _deserializeProject(file) {
     /** @param {string} name */
     const readJSON = (name) => (entries[name] ? JSON.parse(strFromU8(entries[name])) : null);
 
-    const manifest = readJSON(_MANIFEST_NAME) || {};
+    const manifest = readJSON(_MANIFEST_NAME);
+    if (manifest?.format !== 'clearpcb-zip' || manifest.version !== 1) {
+        throw new Error('Invalid or unsupported project manifest.');
+    }
     const options = readJSON('options.json') || {};
     const schematic = readJSON('schematic.json');
     const pcb = readJSON('pcb.json');
@@ -347,12 +350,17 @@ export class FileManager {
         this.fileName = 'untitled.cpcb';
         this.filePath = null;
         this.isDirty = false;
+        this.revision = 0;
+        this.saving = false;
+        this.loading = false;
         
         // Auto-save key prefix for localStorage
         this.autoSavePrefix = 'clearpcb_autosave_';
         this.autoSaveInterval = 10000; // 10 seconds
         this.autoSaveTimer = null;
         this.autoSaveSize = null;
+        /** @type {{revision:number,fileName:string}|null} */
+        this._lastAutoSave = null;
         
         // Callbacks
         this.onDirtyChanged = null;
@@ -371,6 +379,7 @@ export class FileManager {
      * Mark document as modified
      */
     setDirty(dirty = true) {
+        if (dirty) this.touch();
         if (this.isDirty !== dirty) {
             this.isDirty = dirty;
             if (this.onDirtyChanged) {
@@ -378,7 +387,11 @@ export class FileManager {
             }
         }
     }
-    
+
+    touch() {
+        this.revision++;
+    }
+
     /**
      * Set the current file name
      */
@@ -410,8 +423,33 @@ export class FileManager {
      * Save to current file (or Save As if no file)
      */
     async save(data) {
-        let oldFileName = this.fileName;
-        let result;
+        return this._save(data, false);
+    }
+
+    async _save(data, saveAs) {
+        if (this.saving || this.loading) return { success: false, error: 'A file operation is already in progress.' };
+        this.saving = true;
+        const revision = this.revision;
+        const oldFileName = this.fileName;
+        try {
+            const snapshot = structuredClone(data);
+            const result = await (saveAs ? this._saveAsCurrent(snapshot) : this._saveCurrent(snapshot));
+            if (!result.success) return result;
+            const clean = this.revision === revision;
+            this.setDirty(!clean);
+            if (clean) {
+                this.clearAutoSave(this.fileName);
+                if (oldFileName === 'untitled.cpcb' && oldFileName !== this.fileName) this.clearAutoSave(oldFileName);
+            }
+            return { ...result, clean };
+        } catch (err) {
+            return { success: false, error: err instanceof Error ? err.message : String(err) };
+        } finally {
+            this.saving = false;
+        }
+    }
+
+    async _saveCurrent(data) {
         if (this.fileHandle) {
             // A handle restored from IndexedDB (e.g. after autosave recovery)
             // may have lost its write grant across the reload. Re-request it
@@ -420,44 +458,26 @@ export class FileManager {
             // the user actually denies access.
             const allowed = await this._ensureWritePermission(this.fileHandle);
             if (allowed) {
-                // Ensure fileName is up to date
-                if (this.fileHandle.name) this.setFileName(this.fileHandle.name);
-                result = await this.saveToHandle(data, this.fileHandle);
-            } else {
-                result = await this.saveAs(data);
+                const result = await this.saveToHandle(data, this.fileHandle);
+                if (result.success && this.fileHandle.name) {
+                    this.setFileName(this.fileHandle.name);
+                    this.setFilePath(this.fileHandle.name);
+                }
+                return result;
             }
-        } else {
-            result = await this.saveAs(data);
         }
-        // Clear autosave after successful save — no recovery needed
-        if (result && result.success) {
-            this.clearAutoSave(this.fileName);
-        }
-        // If the file name changed from untitled.cpcb, delete the old autosave
-        if (oldFileName && oldFileName !== this.fileName && oldFileName === 'untitled.cpcb') {
-            this.clearAutoSave('untitled.cpcb');
-        }
-        return result;
+        return this._saveAsCurrent(data);
     }
     
     /**
      * Save As - always prompts for location
      */
     async saveAs(data) {
-        if (this.hasFileSystemAccess()) {
-            const result = await this.saveWithFilePicker(data);
-            // If the file name changed from untitled.cpcb, delete the old autosave
-            if (this.fileName !== 'untitled.cpcb') {
-                this.clearAutoSave('untitled.cpcb');
-            }
-            return result;
-        } else {
-            const result = await this.saveWithDownload(data);
-            if (this.fileName !== 'untitled.cpcb') {
-                this.clearAutoSave('untitled.cpcb');
-            }
-            return result;
-        }
+        return this._save(data, true);
+    }
+
+    async _saveAsCurrent(data) {
+        return this.hasFileSystemAccess() ? this.saveWithFilePicker(data) : this.saveWithDownload(data);
     }
     
     /**
@@ -474,12 +494,12 @@ export class FileManager {
             };
 
             const handle = await /** @type {any} */ (window).showSaveFilePicker(options);
-            await this.saveToHandle(data, handle);
+            const result = await this.saveToHandle(data, handle);
+            if (!result.success) return result;
             
             this.fileHandle = handle;
             this.setFileName(handle.name);
             this.setFilePath(handle.name);
-            this.setDirty(false);
             // Persist the handle + recents metadata in one record so it survives
             // a reload (autosave recovery) and shows in the Open ▾ list.
             await this._recordRecent(handle.name, handle.name, handle);
@@ -540,10 +560,6 @@ export class FileManager {
             const blob = await _serializeProject(data);
             await writable.write(blob);
             await writable.close();
-            if (handle?.name) {
-                this.setFilePath(handle.name);
-            }
-            this.setDirty(false);
             return { success: true, fileName: handle.name };
         } catch (err) {
             console.error('Save failed:', err);
@@ -565,8 +581,7 @@ export class FileManager {
         a.click();
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
-        
-        this.setDirty(false);
+
         return { success: true, fileName: this.fileName };
     }
     
@@ -576,15 +591,15 @@ export class FileManager {
      * Open file picker and load
      */
     async open() {
-        if (this.hasFileSystemAccess()) {
-            const result = await this.openWithFilePicker();
-            if (result && result.fileName) this.setFileName(result.fileName);
-            return result;
-        } else {
-            const result = await this.openWithInput();
-            if (result && result.fileName) this.setFileName(result.fileName);
-            return result;
-        }
+        return this.hasFileSystemAccess() ? this.openWithFilePicker() : this.openWithInput();
+    }
+
+    async adoptOpen(result) {
+        this.fileHandle = result.handle || null;
+        this.setFileName(result.fileName);
+        this.setFilePath(result.filePath || result.fileName);
+        this.setDirty(false);
+        await this._recordRecent(this.fileName, this.filePath ?? undefined, this.fileHandle);
     }
     
     /**
@@ -602,18 +617,8 @@ export class FileManager {
             const [handle] = await /** @type {any} */ (window).showOpenFilePicker(options);
             const file = await handle.getFile();
             const data = await _deserializeProject(file);
-            
-            this.fileHandle = handle;
-            this.setFileName(handle.name);
-            this.setFilePath(handle.name);
-            this.setDirty(false);
-            // Persist the handle + recents metadata in one record so it survives
-            // a reload (autosave recovery) and shows in the Open ▾ list.
-            await this._recordRecent(handle.name, handle.name, handle);
-            // Immediately autosave the opened document
-            this.autoSaveToStorage(data);
-            
-            return { success: true, data, fileName: handle.name };
+
+            return { success: true, data, fileName: handle.name, handle };
         } catch (err) {
             if (err.name === 'AbortError') {
                 return { success: false, cancelled: true };
@@ -662,7 +667,7 @@ export class FileManager {
      * (re)request read permission. Mirrors {@link openWithFilePicker}'s result
      * shape so callers can run the same load pipeline.
      * @param {string} name The recents entry / handle key.
-     * @returns {Promise<{success:boolean, data?:any, fileName?:string, error?:string, missingHandle?:boolean}>}
+    * @returns {Promise<{success:boolean, data?:any, fileName?:string, handle?:any, error?:string, missingHandle?:boolean}>}
      */
     async openRecent(name) {
         if (!name) return { success: false, error: 'No file specified' };
@@ -687,15 +692,7 @@ export class FileManager {
             const file = await handle.getFile();
             const data = await _deserializeProject(file);
 
-            this.fileHandle = handle;
-            this.setFileName(handle.name || name);
-            this.setFilePath(handle.name || name);
-            this.setDirty(false);
-            await this._recordRecent(this.fileName, this.filePath, handle);
-            // Immediately autosave the opened document
-            this.autoSaveToStorage(data);
-
-            return { success: true, data, fileName: this.fileName };
+            return { success: true, data, fileName: handle.name || name, handle };
         } catch (err) {
             if (err && err.name === 'NotFoundError') {
                 // The file was moved or deleted — drop the dead recent.
@@ -729,15 +726,8 @@ export class FileManager {
                 
                 try {
                     const data = await _deserializeProject(file);
-                    
-                    this.fileHandle = null; // Can't save back to same file with this method
-                    this.setFileName(file.name);
-                    this.setFilePath(file.name);
-                    this.setDirty(false);
-                    // Immediately autosave the opened document
-                    this.autoSaveToStorage(data);
-                    
-                    resolve({ success: true, data, fileName: file.name });
+
+                    resolve({ success: true, data, fileName: file.name, handle: null });
                 } catch (err) {
                     console.error('Open failed:', err);
                     resolve({ success: false, error: err.message });
@@ -756,9 +746,16 @@ export class FileManager {
     startAutoSave(getDataFn, isDirtyFn) {
         this.stopAutoSave();
         this.autoSaveTimer = setInterval(() => {
-            const dirty = this.isDirty || (typeof isDirtyFn === 'function' && isDirtyFn());
-            if (dirty) {
-                this.autoSaveToStorage(getDataFn());
+            if (this.loading) return;
+            try {
+                const dirty = this.isDirty || (typeof isDirtyFn === 'function' && isDirtyFn());
+                if (!dirty) return;
+                const snapshot = { revision: this.revision, fileName: this.fileName };
+                if (this._lastAutoSave?.revision === snapshot.revision
+                    && this._lastAutoSave.fileName === snapshot.fileName) return;
+                this.autoSaveToStorage(getDataFn(), snapshot);
+            } catch (err) {
+                console.error('Auto-save snapshot failed:', err);
             }
         }, this.autoSaveInterval);
     }
@@ -776,12 +773,12 @@ export class FileManager {
     /**
      * Save to localStorage
      */
-    autoSaveToStorage(data) {
+    autoSaveToStorage(data, snapshot = { revision: this.revision, fileName: this.fileName }) {
         try {
-            const key = this.autoSavePrefix + encodeURIComponent(this.fileName || 'untitled');
+            const key = this.autoSavePrefix + encodeURIComponent(snapshot.fileName || 'untitled');
             const json = JSON.stringify({
                 timestamp: Date.now(),
-                fileName: this.fileName,
+                fileName: snapshot.fileName,
                 data: data
             });
             localStorage.setItem(key, json);
@@ -792,13 +789,14 @@ export class FileManager {
             try {
                 index = JSON.parse(localStorage.getItem(this.autoSavePrefix + 'index')) || [];
             } catch {}
-            const existing = index.find(i => i.fileName === this.fileName);
+            const existing = index.find(i => i.fileName === snapshot.fileName);
             if (!existing) {
-                index.push({ fileName: this.fileName, key, timestamp: Date.now() });
+                index.push({ fileName: snapshot.fileName, key, timestamp: Date.now() });
             } else {
                 existing.timestamp = Date.now();
             }
             localStorage.setItem(this.autoSavePrefix + 'index', JSON.stringify(index));
+            this._lastAutoSave = snapshot;
             console.log('Auto-saved to localStorage');
             _flashAutoSaveIndicator();
             // Keep the file handle (if any) persisted in its recents record so
@@ -896,6 +894,7 @@ export class FileManager {
         }
         localStorage.setItem(this.autoSavePrefix + 'index', JSON.stringify(index));
         const clearedCurrent = !fileName || fileName === this.fileName;
+        if (!fileName || fileName === this._lastAutoSave?.fileName) this._lastAutoSave = null;
         if (clearedCurrent) {
             this.autoSaveSize = null;
             this.onAutoSaveChanged?.(null);
@@ -908,6 +907,7 @@ export class FileManager {
      * Start a new document
      */
     newDocument() {
+        this.touch();
         this.fileHandle = null;
         this.setFileName('untitled.cpcb');
         this.setFilePath(null);

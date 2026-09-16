@@ -20,12 +20,13 @@
  *   4. Shorted nets — two or more distinct named nets electrically bonded by
  *      coincident copper (a track/via/pad junction tying nets together).
  *
- * Distances are edge-to-edge in millimetres. Pads use the same posed,
- * conservative polygon outlines as the copper-pour clearance engine.
+ * Distances are edge-to-edge in millimetres. Pads use posed physical outlines;
+ * copper-removal artwork is subtracted per layer before clearance and shorts.
  */
 
 import { resolveCopperPads } from './copper-model.js';
 import { collectCopperArtwork } from './copper-artwork.js';
+import { subtractCopperArtwork } from './copper-removal.js';
 import { spatialPairs } from '../../core/spatial-pairs.js';
 import { pointInPolygon } from '../../core/geometry.js';
 import { circleCircleDistance, circleSegmentDistance } from './circle-clearance.js';
@@ -134,7 +135,7 @@ export function collectCopper(app) {
     const segments = [];
     const vias = [];
 
-    for (const pad of resolveCopperPads(app)) {
+    for (const pad of resolveCopperPads(app, { physical: true })) {
         pads.push({ ...pad, kind: 'pad', pin: pad.number,
             uid: `pad:${pad.componentId}.${pad.padId}`, label: `${pad.reference}.${pad.number}` });
     }
@@ -180,7 +181,7 @@ export function collectCopper(app) {
         });
     }
 
-    const artwork = collectCopperArtwork(app, { pictureBounds: true });
+    const artwork = collectCopperArtwork(app);
     segments.push(...artwork.segments);
     return { pads, segments, vias, areas: artwork.areas, circles: artwork.circles, arcs: artwork.arcs };
 }
@@ -335,9 +336,12 @@ export function runDRC(app, rules = {}) {
     };
 
     const copperDistance = createCopperDistanceChecker(clearance);
-    for (const [first, second] of spatialPairs([...pads, ...segments, ...vias, ...areas, ...circles, ...arcs], featureBounds, clearance)) {
+    const originalCopper = [...pads, ...segments, ...vias, ...areas, ...circles, ...arcs];
+    const remainingCopper = subtractCopperArtwork(originalCopper, app.boardShapes, featureBounds);
+    for (const [first, second] of spatialPairs(remainingCopper, featureBounds, clearance)) {
         if (!layersOverlap(first.layer, second.layer) || sameNet(first.net, second.net)) continue;
-        if (first.kind === 'pad' && second.kind === 'pad' && first.componentId === second.componentId) continue;
+        if ((first.originalKind || first.kind) === 'pad' && (second.originalKind || second.kind) === 'pad'
+            && first.componentId === second.componentId) continue;
         if (first.trackId && first.trackId === second.trackId) continue;
         const distance = copperDistance(first, second);
         if (distance.dist < clearance - EPS) {
@@ -394,7 +398,9 @@ export function runDRC(app, rules = {}) {
 
     /* ---- Shorted nets (distinct nets bonded by coincident copper) ---- */
 
-    for (const sh of detectShorts({ pads, segments, vias })) {
+    const shorts = remainingCopper === originalCopper ? detectShorts({ pads, segments, vias })
+        : detectRemainingShorts(remainingCopper, copperDistance);
+    for (const sh of shorts) {
         const msg = sh.nets.length > 2
             ? `Shorted nets: ${sh.nets.join(', ')}`
             : `Shorted nets: ${sh.nets[0]} and ${sh.nets[1]}`;
@@ -412,6 +418,47 @@ export function runDRC(app, rules = {}) {
     }
 
     return { ok: violations.length === 0, violations, counts: { errors, warnings } };
+}
+
+function detectRemainingShorts(features, distance) {
+    const parent = new Map(features.map(feature => [feature, feature]));
+    const find = feature => {
+        let root = feature;
+        while (parent.get(root) !== root) root = parent.get(root);
+        while (parent.get(feature) !== root) {
+            const next = parent.get(feature);
+            parent.set(feature, root);
+            feature = next;
+        }
+        return root;
+    };
+    const union = (first, second) => parent.set(find(first), find(second));
+    for (const [first, second] of spatialPairs(features, featureBounds, EPS)) {
+        if (layersOverlap(first.layer, second.layer) && distance(first, second).dist <= EPS) union(first, second);
+    }
+    const barrels = new Map();
+    for (const feature of features) {
+        const source = feature.source;
+        if (!source || source.layer !== 'both' || !(source.drill > 0)) continue;
+        const bore = source.slot ? { kind: 'track', ax: source.slot.x1, ay: source.slot.y1,
+            bx: source.slot.x2, by: source.slot.y2, hw: source.drill / 2 }
+            : { kind: 'circle', x: source.x, y: source.y,
+                innerRadius: source.drill / 2, outerRadius: source.drill / 2 };
+        if (distance(feature, bore).dist > EPS) continue;
+        if (barrels.has(source)) union(feature, barrels.get(source));
+        else barrels.set(source, feature);
+    }
+    const groups = new Map();
+    for (const feature of features) {
+        if (!feature.net) continue;
+        const root = find(feature);
+        if (!groups.has(root)) groups.set(root, new Map());
+        groups.get(root).set(feature.net, featureAnchor(feature));
+    }
+    return [...groups.values()].filter(group => group.size > 1).map(group => {
+        const nets = [...group.keys()].sort();
+        return { nets, a: group.get(nets[0]), b: group.get(nets[1]) };
+    });
 }
 
 /** A representative anchor point for a copper feature (for marker leaders). */

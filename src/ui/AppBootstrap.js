@@ -40,13 +40,13 @@ class AppBootstrap {
         /** @type {any} */ (window).app = new SchematicApp(this.project);
         this.schematicApp = /** @type {any} */ (window).app;
 
+        this._bindModeTabs();
         await this.schematicApp._recoverAutoSave?.();
 
         // Both views are registered — start project-driven autosave so
         // edits in EITHER editor are captured into the one document.
         this.project.startAutoSave();
 
-        this._bindModeTabs();
         this._setupLaunchQueue();
     }
 
@@ -84,6 +84,7 @@ class AppBootstrap {
     }
 
     switchMode(mode) {
+        if (this.project.fileManager.loading) return;
         const isPcb = mode === 'pcb';
 
         this.modeTabs.forEach(tab => {

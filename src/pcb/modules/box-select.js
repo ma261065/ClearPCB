@@ -49,6 +49,7 @@ import {
     clearPcbSelection,
     getPcbSelection,
     hasPcbSelection,
+    refreshPcbReferenceOverlay,
     setPcbSelection,
     togglePcbSelection,
 } from './selection-registry.js';
@@ -168,7 +169,8 @@ export function finishBoxSelect(app) {
 /** Redraw the current marquee selection after an externally-driven edit. */
 export function refreshBoxSelectionHighlights(app) {
     app._refreshPcbSelectionHighlights = () => refreshBoxSelectionHighlights(app);
-    if (hasBoxSelection(app)) _applyHighlights(app);
+    refreshTrackSelectionHalo(app);
+    _applyHighlights(app);
 }
 
 /** Schedule one selection-overlay rebuild for the current animation frame. */
@@ -275,6 +277,7 @@ function _applyHighlights(app) {
     // Selection highlight only — re-render pours from cached geometry rather
     // than triggering a full Clipper recompute.
     if (getPcbSelection(app, 'fill').length) app._rerenderFills?.();
+    refreshPcbReferenceOverlay(app);
     renderPcbSelectionAnchors(app);
 }
 
@@ -284,7 +287,7 @@ function _clearHighlights(app) {
     removeHalosByClass(app, VIA_HALO_CLASS);
     app._getLayerGroup?.('selection-overlay')?.querySelectorAll('.pcb-board-shape-handles')?.forEach((el) => el.remove());
     clearPcbSelectionAnchors(app);
-    for (const [, pl] of app.placements) {
+    for (const [, pl] of app.placements || []) {
         if (pl.elements) {
             for (const el of pl.elements) el.querySelector(`.${COMP_HALO_CLASS}`)?.remove();
         }

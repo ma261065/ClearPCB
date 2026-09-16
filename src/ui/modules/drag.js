@@ -10,7 +10,7 @@
  * responsibility  the state machine or keyboard handler owns that.
  */
 
-import { MoveShapesCommand, ModifyShapeCommand, DeleteShapesCommand, AddShapeCommand, BatchCommand } from '../../core/CommandHistory.js';
+import { MoveShapesCommand, ModifyShapeCommand, DeleteShapesCommand, AddShapeCommand, BatchCommand } from '../../schematic/modules/commands.js';
 import { reconcileWires, reconcileWiresWithUndo, refreshWireConnections, refreshNoConnectConnection, collapseRedundantWirePoints, buildWireDiffBatch } from './wire.js';
 import { validateNetNameAtPoint } from './net-validation.js';
 import { connectNetToWires, disconnectNetFromWires, connectComponentPinsToWires } from './shape-management.js';
@@ -428,13 +428,6 @@ export function commitSegmentDrag(app, dragShape, wireStates, ncLinks = null, la
             app.history.undo();
             app.history.redoStack.pop();
 
-            // Net reconnects are applied outside command history during move.
-            // After undo restores positions, rebuild net->wire attachments so
-            // connectivity matches the restored geometry.
-            for (const netShape of movedNets) {
-                disconnectNetFromWires(app, netShape);
-                connectNetToWires(app, netShape);
-            }
             for (const rw of app.shapes) {
                 if (rw.type === 'wire') refreshWireConnections(app, rw);
             }

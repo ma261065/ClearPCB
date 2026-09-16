@@ -1,4 +1,4 @@
-import { placementPose } from './board-geometry.js';
+import { placementPose, padFlashOutline } from './board-geometry.js';
 
 export function padCopperOutline(pad) {
     const halfWidth = pad.width / 2, halfHeight = pad.height / 2;
@@ -26,7 +26,9 @@ export function padCopperOutline(pad) {
     });
 }
 
-export function resolveCopperPads(app) {
+export function resolveCopperPads(app, { physical = false } = {}) {
+    const outline = physical ? pad => padFlashOutline({ x: pad.x, y: pad.y,
+        w: pad.width, h: pad.height, shape: pad.shape }, 1e-4) : padCopperOutline;
     const nets = new Map();
     for (const entry of app.netlist || []) {
         for (const pin of entry.pins || []) nets.set(`${pin.componentId}|${pin.pinNumber}`, entry.net || '');
@@ -43,12 +45,18 @@ export function resolveCopperPads(app) {
                 const worldWidth = Math.abs(pose.cos) * width + Math.abs(pose.sin) * height;
                 const worldHeight = Math.abs(pose.sin) * width + Math.abs(pose.cos) * height;
                 const layer = offset.drill > 0 ? 'both' : offset.layer || 'top';
+                const halfSlot = Math.max(0, ((offset.slotLength || 0) - (offset.drill || 0)) / 2);
+                const angle = (offset.slotAngle || 0) * Math.PI / 180;
+                const slotStart = pose.xf(offset.dx - halfSlot * Math.cos(angle), offset.dy - halfSlot * Math.sin(angle));
+                const slotEnd = pose.xf(offset.dx + halfSlot * Math.cos(angle), offset.dy + halfSlot * Math.sin(angle));
                 pads.push({
                     ...point, componentId, padId: String(offset.padId ?? offset.number), number: String(offset.number),
+                    drill: offset.drill || 0,
+                    slot: halfSlot > 0 ? { x1: slotStart.x, y1: slotStart.y, x2: slotEnd.x, y2: slotEnd.y } : null,
                     net: nets.get(`${componentId}|${offset.number}`) || '', layer,
                     width: worldWidth, height: worldHeight, hw: worldWidth / 2, hh: worldHeight / 2,
                     shape: offset.shape || 'rect', reference: placement.reference || placement.name || componentId,
-                    outline: padCopperOutline({ x: offset.dx, y: offset.dy, width, height, shape: offset.shape })
+                    outline: outline({ x: offset.dx, y: offset.dy, width, height, shape: offset.shape })
                         .map((vertex) => pose.xf(vertex.x, vertex.y)),
                 });
             }
@@ -63,7 +71,7 @@ export function resolveCopperPads(app) {
             }
         }
     }
-    for (const pad of pads) pad.outline ||= padCopperOutline(pad);
+    for (const pad of pads) pad.outline ||= outline(pad);
     return pads;
 }
 

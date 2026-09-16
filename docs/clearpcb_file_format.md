@@ -432,7 +432,33 @@ bottom-right, bottom-left before rotation). The bounding box is selectable,
 including transparent areas. Only top/bottom silk and copper layers are supported.
 Images are always filled; `lineWidth` does not expand their artwork.
 
-The `artwork` field stores `{ width, height, rectangles }`: integer raster
+New saves and autosaves encode `artwork` losslessly using the smaller of:
+
+- `{ "encoding": "tuples-v1", "data": [...] }` for small payloads.
+- `{ "encoding": "deflate-tuples-v1", "bytes": N, "data": "..." }` for
+  raw-DEFLATE compressed UTF-8 tuple JSON, stored as base64. `bytes` is the
+  uncompressed byte length, limited to 8 MiB during decoding.
+- `{ "encoding": "reference-v1", "index": N }` for identical artwork already
+  stored by an earlier image in the same `boardShapes` array. The index is
+  zero-based and must refer to a successfully decoded earlier image. References
+  are rebuilt on every serialization, so deletion and reordering remain safe.
+
+The tuple payload is `[width, height, kind, flags, geometry]`. `kind` is `0`
+for rectangles, `1` for contours, or `2` for circles. Rectangle geometry is a
+flat sequence of `x,y,width,height`; circles use `x,y,radius`; contours are an
+array of flat `x,y` sequences, one per ring. Each of `invert`, `flipHorizontal`,
+and `flipVertical` occupies two bits of `flags`, starting at the low bits:
+`0` means absent, `1` means false, `3` means true; `2` is invalid.
+Coordinates are not rounded or quantized. Full JSON numeric precision survives
+save/load, including fractional source-pixel positions and radii. Transforms
+and each image's four board-space points remain independent of its artwork.
+Loaded duplicates are independently editable. Only persistence uses this encoding;
+renderers and fabrication snapshots consume the decoded geometry described below.
+Legacy uncompressed artwork is not supported and is rejected when loading a
+project. Older app versions without these encoding tags cannot read compacted
+image records.
+
+Decoded rectangle artwork is `{ width, height, rectangles }`: integer raster
 dimensions (1 to 512 pixels each), and 1 to 2,000 nonoverlapping pixel-space runs
 `{ x, y, width, height }` wholly inside that raster. These runs are internal data,
 not independently editable board shapes. Pixel coordinates map to world space
@@ -480,7 +506,7 @@ the image's four `points` as one rotated rectangular boundary, independent of th
 internal artwork representation. Actual copper output and contact geometry retain
 the artwork, including holes and gaps. Dot size is computed from grayscale
 cell averages at import; the source photo, dot-size setting and sampling grid are
-not persisted. Existing contour-based halftones still load unchanged. Older versions
+not persisted. Contour-based halftones use the same compact storage encodings. Older versions
 without circle-artwork support cannot load the new records. This representation
 is internal to an image and is distinct from standalone board circle objects.
 

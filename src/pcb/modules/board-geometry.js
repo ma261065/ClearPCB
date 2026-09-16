@@ -267,6 +267,34 @@ export function resolveSilk(placements, side = null) {
     return out;
 }
 
+export function padFlashOutline(flash, tolerance = 0.001) {
+    const halfWidth = flash.w / 2;
+    const halfHeight = flash.h / 2;
+    const cosine = Math.cos(flash.rad || 0), sine = Math.sin(flash.rad || 0);
+    const transform = (x, y) => ({ x: flash.x + x * cosine - y * sine,
+        y: flash.y + x * sine + y * cosine });
+    if (!['ellipse', 'oval', 'circle', 'round'].includes(flash.shape)) {
+        return [[-halfWidth, -halfHeight], [halfWidth, -halfHeight],
+            [halfWidth, halfHeight], [-halfWidth, halfHeight]].map(([x, y]) => transform(x, y));
+    }
+    const radius = Math.min(halfWidth, halfHeight);
+    const maxRadius = Math.max(halfWidth, halfHeight);
+    const steps = Math.max(16, Math.ceil(Math.PI / Math.acos(1 - Math.min(tolerance / maxRadius, 1)) / 4) * 4);
+    return Array.from({ length: steps }, (_, index) => {
+        const angle = index * 2 * Math.PI / steps;
+        const horizontal = Math.cos(angle), vertical = Math.sin(angle);
+        return flash.shape === 'oval'
+            ? transform(Math.sign(horizontal) * (halfWidth - radius) + radius * horizontal,
+                Math.sign(vertical) * (halfHeight - radius) + radius * vertical)
+            : transform(halfWidth * horizontal, halfHeight * vertical);
+    });
+}
+
+export function resolvePadMaskOpenings(placements, side) {
+    return resolvePadFlashes(placements, { side, expansion: MASK_EXPANSION })
+        .filter(flash => flash.mask);
+}
+
 /**
  * Sample a cubic bézier into `steps` chords, pushing points 1..steps onto
  * `poly` (the start point is assumed already present).

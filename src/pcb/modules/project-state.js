@@ -68,6 +68,8 @@ export function preparePcb(data) {
 
 /** @param {any} app */
 export function loadPcb(app, data, prepared = preparePcb(data)) {
+    const render = app._active !== false;
+    if (!render) app._stale = true;
     // Need a viewport in place before we can render into layer
     // groups (autosave-recovery may call this before the user has
     // ever activated the PCB tab).
@@ -133,7 +135,8 @@ export function loadPcb(app, data, prepared = preparePcb(data)) {
         app._boardWidth = data.board.width;
         app._boardHeight = data.board.height;
         app._boardRadius = data.board.radius || 0;
-        app._drawBoardOutline();
+        if (render) app._drawBoardOutline();
+        else app._boardOutlineDrawn = true;
     }
 
     if (data.placements && typeof data.placements === 'object') {
@@ -153,12 +156,12 @@ export function loadPcb(app, data, prepared = preparePcb(data)) {
                 refStrokeWidth: Number(p.refStrokeWidth) || REF_DEFAULT_STROKE,
             });
         }
-        if (app.placements.size) app._applyPlacementOverrides();
+        if (render && app.placements.size) app._applyPlacementOverrides();
     }
 
     for (const track of prepared.tracks) {
         app.tracks.push(track);
-        renderTrack(track, (id) => app._getLayerGroup(id), {
+        if (render) renderTrack(track, (id) => app._getLayerGroup(id), {
             viaDiameter: app._getRoutingParams?.()?.viaDiameter,
             viaDrill: app._getRoutingParams?.()?.viaDrill,
             hideNetLabel: track === getSelectedTrack(app),
@@ -167,23 +170,25 @@ export function loadPcb(app, data, prepared = preparePcb(data)) {
     for (const via of prepared.vias) {
         updateViaIdCounter(via.id);
         app.vias.push(via);
-        renderVia(via, (id) => app._getLayerGroup(id));
+        if (render) renderVia(via, (id) => app._getLayerGroup(id));
     }
     app._shapeIdCounter = prepared.shapeIdCounter;
     for (const shape of prepared.boardShapes) {
         app.boardShapes.push(shape);
         if (shape.type === 'fill') updateFillIdCounter(shape.id);
-        else renderBoardShape(app, shape);
+        else if (render) renderBoardShape(app, shape);
     }
     for (const text of prepared.texts) {
         app.texts.set(text.id, text);
-        app._renderText(text);
+        if (render) app._renderText(text);
     }
     // Re-evaluate ratlines once the model is in place.
-    app._refreshClearanceHalos?.();
-    reconcileRatsnest(app);
-    // Compute and render the pours now that obstacles are loaded.
-    app._refreshFills();
+    if (render) {
+        app._refreshClearanceHalos?.();
+        reconcileRatsnest(app);
+        // Compute and render the pours now that obstacles are loaded.
+        app._refreshFills();
+    }
     // Loading a document is not a user edit — start from a clean slate so
     // a freshly opened/recovered board isn't immediately treated as having
     // unsaved PCB changes (which would re-trigger autosave after a save).

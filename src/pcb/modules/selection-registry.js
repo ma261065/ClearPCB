@@ -9,6 +9,34 @@ import { SelectionManager } from '../../core/SelectionManager.js';
 
 const keyFor = (kind, object) => `${kind}:${kind === 'component' || kind === 'reftext' ? object : object.id}`;
 const adapterFactories = new Map();
+const hitQueries = new WeakMap();
+
+function placementSelectionHit(app, point, method) {
+    const query = hitQueries.get(app);
+    if (!query || query.x !== point.x || query.y !== point.y) return app[method]?.(point) ?? null;
+    if (!query.results.has(method)) query.results.set(method, app[method]?.(point) ?? null);
+    return query.results.get(method);
+}
+
+export function getComponentSelectionHit(app, point) {
+    return placementSelectionHit(app, point, '_hitTestComponent');
+}
+
+export function getRefTextSelectionHit(app, point) {
+    return placementSelectionHit(app, point, '_hitTestRefText');
+}
+
+function querySelectionHits(app, point) {
+    const previous = hitQueries.get(app);
+    hitQueries.set(app, { x: point.x, y: point.y, results: new Map() });
+    try {
+        manager(app)._invalidateHitTestCache();
+        return manager(app).hitTest(point, true);
+    } finally {
+        if (previous) hitQueries.set(app, previous);
+        else hitQueries.delete(app);
+    }
+}
 
 /** Register a factory implementing the SelectionManager shape contract. */
 export function registerPcbSelectionAdapter(kind, factory) {
@@ -37,6 +65,7 @@ function manager(app) {
                     (item) => item.kind === 'shape' && item.object?.id === node.shapeId,
                 );
                 if (node && !nodeStillSelected) app._selectedBoardShapeNode = null;
+                refreshPcbReferenceOverlay(app);
             },
         });
     }
@@ -109,28 +138,31 @@ export function getPcbSelectionEntries(app) {
     return manager(app).getSelection();
 }
 
+export function refreshPcbReferenceOverlay(app) {
+    const componentId = getPcbSelection(app, 'reftext')[0] || null;
+    if (componentId || app._refOverlay) app._drawRefOverlay?.(componentId, false);
+}
+
 /** Hit test an adapter kind through the shared selection ordering rules. */
 /** @param {string|null} [kind] */
 export function hitTestPcbSelection(app, point, kind = null) {
     syncPcbSelection(app);
-    const hits = manager(app).hitTest(point, true);
+    const hits = querySelectionHits(app, point);
     const hit = kind ? hits.find((item) => item.kind === kind) : hits[0];
     return hit?.object || null;
 }
 
-/** Return the topmost adapter belonging to one of the requested kinds. */
+export function getPcbSelectionHits(app, point, kinds = null, { sync = true } = {}) {
+    if (sync) syncPcbSelection(app);
+    const allowed = kinds ? new Set(kinds) : null;
+    const hits = querySelectionHits(app, point).filter((item) => !allowed || allowed.has(item.kind));
+    const priority = { via: 0, track: 1, text: 2, reftext: 3 };
+    const rank = item => item.kind === 'shape' && item.object.layer === 'hole' ? -1 : (priority[item.kind] ?? 4);
+    return hits.sort((first, second) => rank(first) - rank(second));
+}
+
 export function hitTestPcbSelectionEntry(app, point, kinds) {
-    syncPcbSelection(app);
-    const allowed = new Set(kinds);
-    const hits = manager(app).hitTest(point, true).filter((item) => allowed.has(item.kind));
-    // Copper targets have always won when they overlap graphics or pads.
-    // Keep that established PCB picking order as tracks join the registry.
-    return hits.find((item) => item.kind === 'via')
-        || hits.find((item) => item.kind === 'track')
-        || hits.find((item) => item.kind === 'text')
-        || hits.find((item) => item.kind === 'reftext')
-        || hits[0]
-        || null;
+    return getPcbSelectionHits(app, point, kinds)[0] || null;
 }
 
 export function hasPcbSelection(app) {

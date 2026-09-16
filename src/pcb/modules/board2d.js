@@ -14,12 +14,12 @@
  * axis), which also mirrors bottom silk so it reads correctly.
  */
 
-import { stringToPolylines, measureText } from './stroke-font.js';
+import { resolveReferenceText } from './reference-text.js';
 import {
-    placementPose as _placementPose,
     resolvePlacementDrills,
     resolvePadFlashes,
     resolveSilk,
+    resolvePadMaskOpenings,
 } from './board-geometry.js';
 import { boardShapeFilledRemovalOutlines, resolveBoardShapeGeometry } from './board-shapes.js';
 import { pcbTextSegments } from './pcb-text.js';
@@ -599,6 +599,9 @@ export class Board2D {
         ctx.strokeStyle = COL.rawBoard;
         ctx.lineCap = 'round';
         ctx.lineJoin = 'round';
+        for (const flash of resolvePadMaskOpenings(d.placements || new Map(), this.side)) {
+            this._fillPad(ctx, flash.x, flash.y, flash.w, flash.h, flash.shape, flash.rad);
+        }
         for (const shape of (d.boardShapes || [])) {
             if (!shape || shape.type === 'fill') continue;
             const layer = String(shape.layer || '');
@@ -933,64 +936,17 @@ export class Board2D {
             if (!drawBoardShape(ctx, geometry)) continue;
         }
 
-        // Reference designators are posed per-placement (stroke-font geometry,
-        // not part of resolveSilk).
         for (const [, pl] of (d.placements || [])) {
-            const pose = _placementPose(pl);
-            const bottom = pl.side === 'bottom';
-
-            // Reference designator: it lives on the component's silk side and
-            // is posed with the footprint, so on the bottom view it reads the
-            // right way round (the board-flip mirror un-mirrors it). Pad pin
-            // numbers are not drawn here, matching the fabricated silkscreen.
-            const refLayer = bottom ? 'bottom-silk' : 'top-silk';
-            if (refLayer !== wantLayer) continue;
-            if (pl.refVisible === false) continue;
-            const ref = pl.reference;
-            if (!ref) continue;
-            const size = pl.refSize || 0.9;
-            const strokeW = pl.refStrokeWidth || 0.15;
-            const ob = pl.outline;
-            const labelW = measureText(ref, size);
-            const cx = ob ? ob.x + ob.width / 2 : 0;
-            const lx = cx - labelW / 2;
-            const ly = ob ? ob.y - 0.8 : -2;
-            const strokes = stringToPolylines(ref, lx, ly, size, false);
-            // Vertical centre of the glyph run (authored-local), used as the
-            // rotation pivot when the designator is moved/rotated relative to
-            // the part.
-            let gMinY = Infinity, gMaxY = -Infinity;
-            for (const seg of strokes) {
-                for (const p of seg) {
-                    if (p.y < gMinY) gMinY = p.y;
-                    if (p.y > gMaxY) gMaxY = p.y;
-                }
-            }
-            const cyc = Number.isFinite(gMinY) ? (gMinY + gMaxY) / 2 : ly;
-            const rdx = pl.refDx || 0, rdy = pl.refDy || 0;
-            const rref = ((pl.refRot || 0) * Math.PI) / 180;
-            const cr = Math.cos(rref), sr = Math.sin(rref);
-            // Compose exactly as the SVG editor / 3D view:
-            //   translate(refDx,refDy) · [counter-mirror about cx] · rotate(refRot,cx,cyc)
-            // with the parent footprint pose (mirror·rotate·translate) applied
-            // last via pose.xf(). The counter-mirror keeps the glyph run's
-            // handedness pinned to the board side after a user flip.
-            const refXf = (ax, ay) => {
-                let qx = cx + (ax - cx) * cr - (ay - cyc) * sr;
-                const qy = cyc + (ax - cx) * sr + (ay - cyc) * cr;
-                if (pl.mirror) qx = 2 * cx - qx;   // counter-mirror about cx
-                return pose.xf(qx + rdx, qy + rdy);
-            };
+            if ((pl.side === 'bottom' ? 'bottom-silk' : 'top-silk') !== wantLayer) continue;
+            const reference = resolveReferenceText(pl);
+            if (!reference) continue;
             const segs = [];
-            for (const seg of strokes) {
+            for (const seg of reference.polylines) {
                 for (let i = 1; i < seg.length; i++) {
-                    segs.push([
-                        refXf(seg[i - 1].x, seg[i - 1].y),
-                        refXf(seg[i].x, seg[i].y),
-                    ]);
+                    segs.push([seg[i - 1], seg[i]]);
                 }
             }
-            if (segs.length) stroke(segs, strokeW);
+            if (segs.length) stroke(segs, reference.strokeWidth);
         }
 
         // Free-standing text on this silk side.

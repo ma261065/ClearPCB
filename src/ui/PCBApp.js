@@ -12,6 +12,8 @@ import { setToolCursor } from './modules/cursor.js';
 import { PCB_LAYERS, PCB_OVERLAYS, PCB_COPPER_FILLS, isLayerLocked, isViaLocked, isLayerVisible, isViaVisible, showLockedLayerBubble, isCopperFillLocked, isCopperFillVisible, saveLayerPrefs } from '../pcb/modules/layers.js';
 import { exportDSN, importSES } from '../pcb/modules/dsn.js';
 import { runDRC } from '../pcb/modules/drc.js';
+import { buildCopperObstacles } from '../pcb/modules/copper-obstacles.js';
+import { hasFabricationContent, prepareFabricationSnapshot } from '../pcb/modules/fabrication-snapshot.js';
 import { exportGerbers, buildZip } from '../pcb/modules/gerber.js';
 import { generateBOM, generatePickAndPlace } from '../pcb/modules/assembly.js';
 import { openBoard3DViewer } from '../pcb/modules/board3d.js';
@@ -55,7 +57,7 @@ import {
     placementTransform,
     isPlacementMirrored,
 } from '../pcb/modules/track-commands.js';
-import { createPcbText, renderPcbText, pcbTextHitTest, pcbTextObstacles, serializePcbText, TEXT_LAYERS } from '../pcb/modules/pcb-text.js';
+import { createPcbText, renderPcbText, pcbTextHitTest, serializePcbText, TEXT_LAYERS } from '../pcb/modules/pcb-text.js';
 import {
     AddTextCommand,
     RemoveTextCommand,
@@ -333,6 +335,7 @@ export default class PCBApp {
             onChanged: () => {
                 this._markDirty();
                 this._syncHistoryButtons?.();
+                refreshBoxSelectionHighlights(this);
             },
         });
         /** Debug tooltip for showing raw footprintShapes data */
@@ -3656,6 +3659,11 @@ export default class PCBApp {
      * Rebuild the PCB content from the current schematic state.
      */
     _syncFromSchematic() {
+        if (this._active === false) {
+            this._stale = true;
+            clearTimeout(this._syncTimer);
+            return;
+        }
         this._stale = false;
         clearTimeout(this._syncTimer);
 
@@ -3678,7 +3686,7 @@ export default class PCBApp {
         // BEFORE the components-empty early-return below, otherwise a
         // component-less board (e.g. test board) leaves recovered tracks
         // in the model — they hit-test on hover but stay invisible.
-        this._renderPersistentObjects();
+        this._renderPersistentObjects({ renderShapes: components.length === 0 });
 
         if (components.length === 0) {
             // Persistent copper shapes can carry nets without any schematic
@@ -3729,7 +3737,7 @@ export default class PCBApp {
      * the objects exist in the model — hit-testing/hover still work — but
      * are invisible. Idempotent: removes any stale SVG first.
      */
-    _renderPersistentObjects() {
+    _renderPersistentObjects({ renderShapes = true } = {}) {
         const getGroup = (id) => this._getLayerGroup(id);
 
         // Board outline. Its model (width/height/radius) survives the rebuild
@@ -3761,7 +3769,7 @@ export default class PCBApp {
         // Free-standing board shapes; CopperFill entries render separately.
         this._shapeElements.clear();
         for (const s of this.boardShapes) {
-            if (s.type === 'fill') continue;
+            if (!renderShapes || s.type === 'fill') continue;
             renderBoardShape(this, s);
         }
         if (getPcbSelection(this).length) refreshBoxSelectionHighlights(this);
@@ -6550,53 +6558,7 @@ export default class PCBApp {
      * @returns {import('../pcb/modules/autorouter-common.js').CopperObstacle[]}
      */
     _buildCopperObstacles() {
-        const copperObstacles = [];
-        for (const text of this.texts.values()) {
-            if (text.layer !== 'top-copper' && text.layer !== 'bottom-copper') continue;
-            for (const seg of pcbTextObstacles(text)) copperObstacles.push(seg);
-        }
-        for (const shape of this.boardShapes || []) {
-            if (shape?.type === 'fill') continue;
-            if (!shape || (shape.layer !== 'top-copper' && shape.layer !== 'bottom-copper')) continue;
-            if (normalizeShapeCopperMode(shape.copperMode) !== 'add') continue;
-            const layer = shape.layer === 'top-copper' ? 'top' : 'bottom';
-            const net = String(shape.net || '');
-            const outline = shapeOutline(shape);
-            if (shape.filled) {
-                const bounds = boardShapeBounds(shape);
-                copperObstacles.push({
-                    kind: 'pad',
-                    x: (bounds.minX + bounds.maxX) / 2,
-                    y: (bounds.minY + bounds.maxY) / 2,
-                    width: bounds.maxX - bounds.minX,
-                    height: bounds.maxY - bounds.minY,
-                    layer,
-                    shape: shape.kind === 'circle' ? 'ellipse' : 'rect',
-                    net,
-                });
-                continue;
-            }
-            for (let i = 0; i < outline.length - 1; i++) {
-                copperObstacles.push({
-                    kind: 'segment',
-                    x1: outline[i].x,
-                    y1: outline[i].y,
-                    x2: outline[i + 1].x,
-                    y2: outline[i + 1].y,
-                    width: Math.max(0.05, Number(shape.lineWidth) || 0.2),
-                    layer,
-                    net,
-                });
-            }
-            if (shape.kind !== 'arc' && outline.length > 2) {
-                const first = outline[0], last = outline[outline.length - 1];
-                copperObstacles.push({
-                    kind: 'segment', x1: last.x, y1: last.y, x2: first.x, y2: first.y,
-                    width: Math.max(0.05, Number(shape.lineWidth) || 0.2), layer, net,
-                });
-            }
-        }
-        return copperObstacles;
+        return buildCopperObstacles(this);
     }
 
     /**
@@ -8513,38 +8475,26 @@ export default class PCBApp {
      * Files included: top/bottom copper, top silkscreen, board outline,
      * and an Excellon drill file.
      */
-    exportGerber() {
-        if (!this.placements.size && !this.tracks.length && !this.vias.length) {
+    async exportGerber() {
+        if (this._exportGerberPending) return;
+        if (!hasFabricationContent(this)) {
             this._setStatus('Nothing to export');
             return;
         }
+        this._exportGerberPending = true;
+        const fname = /** @type {any} */ (window).app?.fileManager?.fileName || 'untitled.cpcb';
         let blob, files;
         try {
-            files = exportGerbers({
-                placements: this.placements,
-                tracks: this.tracks,
-                vias: this.vias,
-                texts: [...this.texts.values()],
-                fills: this.copperFills,
-                circles: [],
-                boardShapes: (this.boardShapes || [])
-                    .filter((shape) => shape?.type !== 'fill')
-                    .map((shape) => ({ ...shape, outline: shapeOutline(shape) })),
-                boardX: this._boardX || 0,
-                boardY: this._boardY || 0,
-                boardWidth: this._boardWidth,
-                boardHeight: this._boardHeight,
-                boardRadius: this._boardRadius,
-            });
+            files = exportGerbers(await prepareFabricationSnapshot(this));
             blob = buildZip(files);
         } catch (err) {
             console.error('Gerber export failed:', err);
             this._setStatus(`Gerber export failed: ${err?.message || err}`);
             return;
+        } finally {
+            this._exportGerberPending = false;
         }
         // Derive default filename from the project name.
-        const schematicApp = /** @type {any} */ (window).app;
-        const fname = schematicApp?.fileManager?.fileName || 'untitled.cpcb';
         const base = fname.replace(/\.[^./\\]+$/, '') || 'untitled';
         const suggestedName = `${base}-gerber.zip`;
         this._saveBlob(blob, suggestedName, {

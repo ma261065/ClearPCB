@@ -1,7 +1,17 @@
 /** Headless regression tests for board-shape group-drag geometry snapshots. */
 
 globalThis.window = { addEventListener() {} };
+const timers = new Map();
+let timerId = 0;
+globalThis.setTimeout = callback => { timers.set(++timerId, callback); return timerId; };
+globalThis.clearTimeout = id => timers.delete(id);
+const flushTimers = () => {
+    const pending = [...timers.values()];
+    timers.clear();
+    for (const callback of pending) callback();
+};
 globalThis.document = {
+    getElementById() { return null; },
     createElementNS() {
         const attributes = new Map();
         return {
@@ -38,6 +48,7 @@ function expect(name, actual, expected) {
     else {
         failures++;
         console.error(`FAIL: ${name}`);
+        console.error(JSON.stringify({ actual, expected }));
     }
 }
 
@@ -106,10 +117,12 @@ for (const test of cases) {
             viewport: { scale: 100, setCrosshair() {}, hideCrosshair() {} },
             history: { execute(command) { command.execute(); } },
         };
-        startBoardShapeDrag(app, shape, { x: 1, y: 2 });
-        handleBoardShapeDrag(app, { x: 6, y: -1 });
+        startBoardShapeDrag(app, shape, { x: 2, y: 3 });
+        expect(`${test.name} fixture starts a whole-shape move`, app._shapeDrag.mode, 'move');
+        handleBoardShapeDrag(app, { x: 7, y: 0 });
         expect(`${test.name} defers fill refresh while moving`, refreshes, []);
         endBoardShapeDrag(app, commit);
+        flushTimers();
         expect(`${test.name} refreshes after ${commit ? 'completion' : 'cancellation'}`, refreshes, [false]);
         expect(`${test.name} finishes with the expected geometry`, cloneShapeGeometry(shape),
             commit ? translateShapeGeometry(before, 5, -3) : before);
@@ -126,9 +139,21 @@ for (const test of cases) {
         expect(`${test.name} group defers fill refresh while moving`, refreshes, []);
         if (commit) endGroupDrag(app);
         else cancelGroupDrag(app);
+        flushTimers();
         expect(`${test.name} group refreshes after ${commit ? 'completion' : 'cancellation'}`, refreshes, [false]);
         expect(`${test.name} group finishes with expected geometry`, cloneShapeGeometry(shape),
             commit ? translateShapeGeometry(groupBefore, 3, 4) : groupBefore);
+        if (test.name === 'Line') {
+            refreshes.length = 0;
+            const vertexBefore = cloneShapeGeometry(shape);
+            const start = shape.points[0];
+            startBoardShapeDrag(app, shape, start, 0);
+            handleBoardShapeDrag(app, { x: start.x + 2, y: start.y + 1 });
+            endBoardShapeDrag(app, false);
+            flushTimers();
+            expect('cancelled vertex drag refreshes once', refreshes, [false]);
+            expect('cancelled vertex drag restores its geometry', cloneShapeGeometry(shape), vertexBefore);
+        }
     }
 }
 

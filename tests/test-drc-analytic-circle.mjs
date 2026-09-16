@@ -72,7 +72,7 @@ for (let index = 0; index < 500; index++) {
 
 const board = { placements: new Map(), tracks: [], vias: [], texts: new Map(), copperFills: [],
     boardShapes: [{ id: 'ring', kind: 'circle', layer: 'top-copper', net: 'GND',
-        x: 0, y: 0, radius: 4.5, lineWidth: 1, filled: false, copperMode: 'add' }] };
+        x: 0, y: 0, radius: 5, lineWidth: 1, filled: false, copperMode: 'add' }] };
 const copper = collectCopper(board);
 assert.equal(copper.circles.length, 1);
 assert.equal(copper.segments.length, 0, 'DRC must not also include a chord-based circle stroke');

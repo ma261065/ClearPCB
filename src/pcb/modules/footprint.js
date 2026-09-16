@@ -6,14 +6,13 @@
  * strings into pad geometry objects and renders them as SVG.
  */
 
-import { stringToPolylines, measureText } from './stroke-font.js';
 import { MASK_EXPANSION } from './board-geometry.js';
+import { layoutReferenceText, referenceAnchor, REF_DEFAULT_SIZE, REF_DEFAULT_STROKE } from './reference-text.js';
 
 const NS = 'http://www.w3.org/2000/svg';
 
 /** Default reference-designator silk text size / line width (mm). */
-export const REF_DEFAULT_SIZE = 0.9;
-export const REF_DEFAULT_STROKE = 0.15;
+export { REF_DEFAULT_SIZE, REF_DEFAULT_STROKE } from './reference-text.js';
 
 /**
  * (Re)build a reference designator's stroked-polyline geometry inside its
@@ -32,37 +31,22 @@ export const REF_DEFAULT_STROKE = 0.15;
 export function applyRefGeometry(refGroup, ref, cxRef, baseY, size, strokeWidth) {
     while (refGroup.firstChild) refGroup.removeChild(refGroup.firstChild);
     refGroup.setAttribute('stroke-width', String(strokeWidth));
-    const labelW = measureText(ref, size);
-    const baseX = cxRef - labelW / 2;
-    let rMinX = Infinity, rMinY = Infinity, rMaxX = -Infinity, rMaxY = -Infinity;
-    for (const poly of stringToPolylines(ref, baseX, baseY, size, false)) {
-        if (poly.length < 2) continue;
+    const layout = layoutReferenceText(ref, cxRef, baseY, size, strokeWidth);
+    for (const poly of layout.polylines) {
         const pl = document.createElementNS(NS, 'polyline');
         pl.setAttribute('points', poly.map(p => `${p.x},${p.y}`).join(' '));
         refGroup.appendChild(pl);
-        for (const p of poly) {
-            if (p.x < rMinX) rMinX = p.x;
-            if (p.y < rMinY) rMinY = p.y;
-            if (p.x > rMaxX) rMaxX = p.x;
-            if (p.y > rMaxY) rMaxY = p.y;
-        }
-    }
-    // Local bounding box of the reference glyphs, used by the editor for
-    // hit-testing and as the rotation centre when the user moves/rotates the
-    // designator relative to the footprint. Fall back to a label-width box.
-    if (!Number.isFinite(rMinX)) {
-        rMinX = baseX; rMaxX = baseX + labelW;
-        rMinY = baseY - size; rMaxY = baseY;
     }
     refGroup.setAttribute('data-mx-center', String(cxRef));
     refGroup.setAttribute('data-ref-anchor-y', String(baseY));
     refGroup.setAttribute('data-ref-size', String(size));
     refGroup.setAttribute('data-ref-lw', String(strokeWidth));
-    refGroup.setAttribute('data-ref-bx', String(rMinX));
-    refGroup.setAttribute('data-ref-by', String(rMinY));
-    refGroup.setAttribute('data-ref-bw', String(rMaxX - rMinX));
-    refGroup.setAttribute('data-ref-bh', String(rMaxY - rMinY));
-    refGroup.setAttribute('data-ref-cy', String((rMinY + rMaxY) / 2));
+    const { bx, by, bw, bh, cy } = layout.box;
+    refGroup.setAttribute('data-ref-bx', String(bx));
+    refGroup.setAttribute('data-ref-by', String(by));
+    refGroup.setAttribute('data-ref-bw', String(bw));
+    refGroup.setAttribute('data-ref-bh', String(bh));
+    refGroup.setAttribute('data-ref-cy', String(cy));
 }
 
 /**
@@ -1059,10 +1043,7 @@ export function renderFootprint(fp, ref, x, y, rotation = 0) {
 
     // Reference text → top silk (stroked polylines, identical to gerber)
     const refSize = REF_DEFAULT_SIZE;
-    const outlineY = fp.outline ? fp.outline.y : -2;
-    const cxRef = fp.outline ? fp.outline.x + fp.outline.width / 2 : 0;
-    // SVG is Y-down; place baseline at outlineY - 0.8 (above the outline).
-    const baseY = outlineY - 0.8;
+    const { cx: cxRef, baseY } = referenceAnchor(fp.outline);
     const refGroup = document.createElementNS(NS, 'g');
     refGroup.setAttribute('pointer-events', 'none');
     refGroup.setAttribute('fill', 'none');

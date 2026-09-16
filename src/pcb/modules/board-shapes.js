@@ -37,7 +37,8 @@ import {
 } from './selection-registry.js';
 import { clearPcbSelectionAnchors, renderPcbSelectionAnchors } from './selection-anchors.js';
 import { pictureContours, pictureCirclePathD, canDrawPictureCircles, resizePicturePoints, validatePictureArtwork, validatePicturePoints, PICTURE_LAYERS } from './picture-raster.js';
-import { bindPictureRefreshHold, schedulePictureCopperRefresh } from './picture-refresh.js';
+import { encodePictureArtwork, decodePictureArtwork } from './picture-storage.js';
+import { bindPictureRefreshHold, cancelPictureCopperRefresh, schedulePictureCopperRefresh } from './picture-refresh.js';
 import { rotationHandleAnchor, pointerRotation, rotatedImagePoints } from './rotation-handle.js';
 
 const NS = 'http://www.w3.org/2000/svg';
@@ -1960,6 +1961,7 @@ export function endBoardShapeDrag(app, commit) {
         renderBoardShapeHandles(app, s);
         renderBoardShapeSegmentSelection(app);
         syncCircleDiameterProperty(app, s);
+        cancelPictureCopperRefresh(app);
         app._refreshFills?.();
         return;
     }
@@ -3143,8 +3145,9 @@ export function boardShapeCopperCuts(app, copperLayer) {
 
 // ── Serialisation ────────────────────────────────────────────────────────────
 
-export function serializeBoardShapes(app) {
-    return (app.boardShapes || []).map((s) => {
+export function serializeBoardShapes(app, { compactArtwork = true } = {}) {
+    const artworkIndices = new Map();
+    return (app.boardShapes || []).map((s, index) => {
         if (s?.type === 'fill') return s.toJSON();
         const base = {
             id: s.id,
@@ -3169,7 +3172,13 @@ export function serializeBoardShapes(app) {
             return { ...base, x: s.x, y: s.y, radius: s.radius };
         }
         if (s.kind === 'image') {
-            return { ...base, name: s.name, artwork: structuredClone(s.artwork), points: s.points.map(pt) };
+            if (!compactArtwork) return { ...base, name: s.name, artwork: structuredClone(s.artwork), points: s.points.map(pt) };
+            const encoded = encodePictureArtwork(s.artwork);
+            const key = JSON.stringify(encoded);
+            const previous = artworkIndices.get(key);
+            const artwork = previous === undefined ? encoded : { encoding: 'reference-v1', index: previous };
+            if (previous === undefined) artworkIndices.set(key, index);
+            return { ...base, name: s.name, artwork, points: s.points.map(pt) };
         }
         return { ...base, points: (s.points || []).map((p) => ({ x: p.x, y: p.y })) };
     });
@@ -3179,7 +3188,8 @@ const pt = (p) => ({ x: Number(p?.x) || 0, y: Number(p?.y) || 0 });
 
 export function loadBoardShapes(app, arr, { render = true, strict = false } = {}) {
     if (!Array.isArray(arr)) return;
-    for (const sd of arr) {
+    const loadedArtwork = new Map();
+    for (const [index, sd] of arr.entries()) {
         if (sd?.type === 'fill') {
             try {
                 const fill = CopperFill.fromJSON(sd);
@@ -3240,10 +3250,15 @@ export function loadBoardShapes(app, arr, { render = true, strict = false } = {}
         }
         if (kind === 'image') {
             try {
-                validatePictureArtwork(sd.artwork);
                 validatePicturePoints(sd.points);
                 if (!PICTURE_LAYERS.includes(shape.layer)) throw new Error('Invalid image layer.');
-                shape.artwork = structuredClone(sd.artwork);
+                if (sd.artwork?.encoding === 'reference-v1') {
+                    if (!Number.isInteger(sd.artwork.index) || sd.artwork.index >= index || !loadedArtwork.has(sd.artwork.index)) {
+                        throw new Error('Invalid image artwork reference.');
+                    }
+                    shape.artwork = structuredClone(loadedArtwork.get(sd.artwork.index));
+                } else shape.artwork = decodePictureArtwork(sd.artwork);
+                loadedArtwork.set(index, shape.artwork);
                 shape.name = String(sd.name || 'Image');
                 shape.filled = true;
             } catch (error) {

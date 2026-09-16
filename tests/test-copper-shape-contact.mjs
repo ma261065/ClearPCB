@@ -21,7 +21,8 @@ function ratlines(shapes) {
 const cases = [
     [circle(), polygon(-3, -0.1, 3, 0.1), true],
     [circle({ filled: true }), polygon(-3, -0.1, 3, 0.1), true],
-    [circle(), polygon(2.15, -0.1, 3, 0.1), true],
+    [circle(), polygon(2.05, -0.1, 3, 0.1), true],
+    [circle(), polygon(2.15, -0.1, 3, 0.1), false],
     [circle(), polygon(2.25, -0.1, 3, 0.1), false],
     [circle(), polygon(-0.5, -0.5, 0.5, 0.5), false],
     [circle({ filled: true }), polygon(-0.5, -0.5, 0.5, 0.5), true],

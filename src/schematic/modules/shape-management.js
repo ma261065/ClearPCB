@@ -1,4 +1,4 @@
-import { AddShapeCommand } from '../../core/CommandHistory.js';
+import { AddShapeCommand } from './commands.js';
 import { freeWireLabel, bumpWireLabelCounter, freeNetName, bumpNetNameCounter, nextNetName } from '../../shapes/wire.js';
 import { Text } from '../../shapes/text.js';
 import { detachLabel, syncAttachedLabels } from '../../ui/modules/label-attachment.js';

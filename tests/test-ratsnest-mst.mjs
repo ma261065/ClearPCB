@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { spatialClusterMST } from '../src/pcb/modules/cluster-mst.js';
 
 globalThis.window = { addEventListener() {} };
 const { _clusterMST } = await import('../src/pcb/modules/track-draw.js');
@@ -74,7 +75,16 @@ for (let sample = 0; sample < 120; sample++) {
 for (const nodes of fixtures) {
     assert.deepEqual(_clusterMST(nodes), originalMST(nodes));
     assert.equal(_clusterMST(nodes).length, Math.max(0, nodes.length - 1));
+    const weight = edges => edges.reduce((sum, edge) => sum + Math.hypot(edge.x2 - edge.x1, edge.y2 - edge.y1), 0);
+    assert.ok(Math.abs(weight(spatialClusterMST(nodes)) - weight(originalMST(nodes))) < 1e-8);
 }
+
+const dense = Array.from({ length: 20000 }, (_, index) => [{ x: index % 200, y: Math.floor(index / 200) }]);
+const started = performance.now();
+const denseEdges = _clusterMST(dense);
+assert.equal(denseEdges.length, dense.length - 1);
+assert.ok(denseEdges.every(edge => Math.hypot(edge.x2 - edge.x1, edge.y2 - edge.y1) === 1));
+console.log(`PASS dense 20,000-island MST in ${Math.round(performance.now() - started)}ms`);
 
 let reads = 0;
 const countedNodes = Array.from({ length: 2 }, (_, cluster) =>

@@ -37,7 +37,10 @@ import { Via } from '../../shapes/via.js';
 import { renderTrack } from './track-render.js';
 import { collinearSnap, pointInPolygon, distanceToSegment } from '../../core/geometry.js';
 import { normalizeShapeCopperMode, shapeOutline } from './board-shapes.js';
-import { resolveTrackContactGeometry, copperShapesTouch } from './track-contact-geometry.js';
+import { resolveTrackContactGeometry, copperShapesTouch, copperRegionShape, pointInCopperRegion } from './track-contact-geometry.js';
+import { pictureRegions } from './picture-raster.js';
+import { spatialClusterMST } from './cluster-mst.js';
+import { spatialPairs } from '../../core/spatial-pairs.js';
 import { showAlert } from '../../ui/modules/modal.js';
 import { isOverlayVisible } from './layers.js';
 import {
@@ -812,6 +815,12 @@ export function reconcileRatsnest(app, opts) {
         if (!net || (layer !== 'top-copper' && layer !== 'bottom-copper')) continue;
         if (normalizeShapeCopperMode(shape.copperMode) !== 'add') continue;
         if (onlyNets && !onlyNets.has(net)) continue;
+        if (shape.kind === 'image') {
+            for (const region of pictureRegions(shape)) {
+                clusters.push({ net, layer, points: region.outer, copperShape: copperRegionShape(region), region, source: shape });
+            }
+            continue;
+        }
         const points = shapeOutline(shape);
         if (points.length < 2) continue;
         clusters.push({ net, layer, points, copperShape: shape });
@@ -833,13 +842,14 @@ export function reconcileRatsnest(app, opts) {
     // trace, even when its centre is not an explicit Track node.
     _unionViaTrackOverlaps(clusters, union, true);
 
-    for (let first = 0; first < clusters.length; first++) {
-        if (!clusters[first].copperShape) continue;
-        for (let second = first + 1; second < clusters.length; second++) {
-            if (!clusters[second].copperShape || clusters[first].net !== clusters[second].net
-                || clusters[first].layer !== clusters[second].layer || find(first) === find(second)) continue;
-            if (copperShapesTouch(clusters[first].copperShape, clusters[second].copperShape)) union(first, second);
-        }
+    const shapeIndices = clusters.map((cluster, index) => cluster.copperShape ? index : -1).filter(index => index >= 0);
+    const terminalIndices = clusters.map((cluster, index) => !cluster.copperShape ? index : -1).filter(index => index >= 0);
+    for (const [first, second] of spatialPairs(shapeIndices,
+        index => resolveTrackContactGeometry(clusters[index].copperShape).bounds)) {
+        if ((clusters[first].source && clusters[first].source === clusters[second].source)
+            || clusters[first].net !== clusters[second].net
+            || clusters[first].layer !== clusters[second].layer || find(first) === find(second)) continue;
+        if (copperShapesTouch(clusters[first].copperShape, clusters[second].copperShape)) union(first, second);
     }
 
     // Filled copper shape interiors are conductive: join any same-net,
@@ -848,21 +858,15 @@ export function reconcileRatsnest(app, opts) {
         const shape = clusters[i].copperShape;
         if (!shape?.filled) continue;
         const outline = clusters[i].points;
-        for (let j = 0; j < clusters.length; j++) {
+        for (const j of terminalIndices) {
             if (i === j || clusters[j].net !== clusters[i].net) continue;
             const compatible = clusters[j].layer === 'all' || clusters[j].layer === clusters[i].layer;
-            if (compatible && clusters[j].points.some((point) => pointInPolygon(point, outline))) union(i, j);
+            if (clusters[j].copperShape) continue;
+            if (compatible && clusters[j].points.some((point) => clusters[i].region
+                ? pointInCopperRegion(point, clusters[i].region) : pointInPolygon(point, outline))) union(i, j);
         }
     }
 
-    // ── Copper-fill bonding ── A poured fill is solid same-net copper, and
-    // thermal-reliefs same-net pads, so it electrically joins every same-net,
-    // layer-compatible cluster whose point lies within one of its poured
-    // islands. Bond all such clusters per island so no ratline is drawn across
-    // copper the fill already connects. (Per-island, not per-outline, so a
-    // pour split into disjoint islands by other-net copper doesn't falsely
-    // bridge them. Holes are ignored: a same-net pad sits inside a clearance
-    // hole yet is tied to that island through its thermal spokes.)
     for (const fill of (app.copperFills || [])) {
         const fnet = fill.net || '';
         if (!fnet) continue;
@@ -877,7 +881,7 @@ export function reconcileRatsnest(app, opts) {
             for (let i = 0; i < clusters.length; i++) {
                 const c = clusters[i];
                 if (c.net !== fnet || !compat(c.layer)) continue;
-                if (!c.points.some((p) => pointInPolygon(p, outer))) continue;
+                if (!c.points.some((p) => pointInCopperRegion(p, poly))) continue;
                 if (first === -1) first = i; else union(first, i);
             }
         }
@@ -1003,6 +1007,7 @@ function _closestPair(A, B) {
  * @returns {Array<{x1:number,y1:number,x2:number,y2:number}>}
  */
 export function _clusterMST(nodes) {
+    if (nodes.length > 128) return spatialClusterMST(nodes);
     const n = nodes.length;
     const edges = [];
     if (n < 2) return edges;
