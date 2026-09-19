@@ -33,6 +33,8 @@ export class ProjectDocument {
         this.uiHost = null;
         /** @type {Record<string, () => any>} Injected lifecycle callbacks. */
         this._lifecycle = {};
+        /** @type {((loading: boolean) => void|Promise<void>)|null} */
+        this.onLoadingChange = null;
     }
 
     /**
@@ -115,6 +117,7 @@ export class ProjectDocument {
         validateProject(data);
         this.fileManager.loading = true;
         try {
+            await this.onLoadingChange?.(true);
             const previous = structuredClone(this.serialize());
             const dirty = this.fileManager.isDirty;
             const pcbDirty = this.pcb?.isSectionDirty?.();
@@ -133,6 +136,7 @@ export class ProjectDocument {
             }
         } finally {
             this.fileManager.loading = false;
+            await this.onLoadingChange?.(false);
         }
     }
 

@@ -10,12 +10,16 @@ function fixture() {
     let finishRecovery, failRecovery;
     const recovery = new Promise((resolve, reject) => { finishRecovery = resolve; failRecovery = reject; });
     const events = [];
+    const frames = [];
     const tabs = ['schematic', 'pcb'].map(mode => ({
-        dataset: { mode }, listeners: [], classList: { toggle() {} },
+        dataset: { mode }, listeners: [], classes: new Map(), attributes: new Map(),
+        classList: { toggle(name, value) { this.owner.classes.set(name, value); } },
         addEventListener(type, handler) { this.listeners.push({ type, handler }); },
+        setAttribute(name, value) { this.attributes.set(name, value); },
+        removeAttribute(name) { this.attributes.delete(name); },
         blur() {},
-    }));
-    const window = {};
+    })).map(tab => { tab.classList.owner = tab; return tab; });
+    const window = { requestAnimationFrame(callback) { frames.push(callback); } };
     const dependencies = {
         window,
         document: { querySelectorAll: () => tabs, querySelector: () => null, getElementById: () => null },
@@ -42,7 +46,8 @@ function fixture() {
     bootstrap._bindKeyboardDispatcher = () => {};
     bootstrap._setupLaunchQueue = () => events.push('launch');
     const click = () => tabs[1].listeners.find(listener => listener.type === 'click')?.handler();
-    return { bootstrap, tabs, events, click, finishRecovery, failRecovery };
+    const flushFrame = () => frames.shift()?.();
+    return { bootstrap, tabs, events, click, flushFrame, finishRecovery, failRecovery };
 }
 
 {
@@ -61,6 +66,37 @@ function fixture() {
     await initialization;
     assert.deepEqual(test.events.slice(-2), ['autosave', 'launch']);
     assert.equal(test.tabs[1].listeners.length, 1, 'recovery completion does not duplicate tab listeners');
+}
+
+{
+    const test = fixture();
+    const loadingPaint = test.bootstrap.project.onLoadingChange(true);
+    for (const tab of test.tabs) {
+        assert.equal(tab.classes.get('loading'), true);
+        assert.equal(tab.attributes.get('aria-busy'), 'true');
+    }
+    await loadingPaint;
+    await test.bootstrap.project.onLoadingChange(false);
+    for (const tab of test.tabs) {
+        assert.equal(tab.classes.get('loading'), false);
+        assert.equal(tab.attributes.has('aria-busy'), false);
+    }
+}
+
+{
+    const test = fixture();
+    test.bootstrap.pcbApp = { _stale: true, activate() { this._stale = false; test.events.push('activate'); } };
+    const switching = test.bootstrap.switchMode('pcb');
+    assert.equal(test.tabs[1].classes.get('loading'), true, 'PCB spinner appears before deferred rendering');
+    assert.equal(test.events.includes('activate'), false, 'PCB rendering waits until the spinner can paint');
+    test.flushFrame();
+    await Promise.resolve();
+    assert.equal(test.events.includes('activate'), false, 'one frame is reserved to paint the spinner');
+    test.flushFrame();
+    await switching;
+    assert.equal(test.events.at(-1), 'activate');
+    assert.equal(test.tabs[1].classes.get('loading'), false, 'PCB spinner clears after activation finishes');
+    assert.equal(test.tabs[1].attributes.has('aria-busy'), false);
 }
 
 {

@@ -69,6 +69,8 @@ const owner = new ProjectDocument();
 let current = project();
 let pcbState = null;
 let loads = 0;
+const loadingStates = [];
+owner.onLoadingChange = loading => { loadingStates.push(loading); };
 owner.registerView('schematic', {
     serializeSection: () => structuredClone(current),
     prepareSection: () => ({}),
@@ -85,6 +87,7 @@ assert.equal(owner.isDirty, true);
 await assert.rejects(owner.load(project()), /Invalid PCB/);
 assert.equal(loads, 0);
 assert.equal(owner.fileManager.loading, false);
+assert.deepEqual(loadingStates, [true, false]);
 pcb.prepareSection = () => ({});
 pcb.loadSection = (data) => {
     if (data?.reject) throw new Error('Render failure');
@@ -94,6 +97,7 @@ await assert.rejects(owner.load({ ...project(), pcb: { reject: true } }), /Rende
 assert.deepEqual(current, project());
 assert.equal(pcbState, null);
 assert.equal(owner.fileManager.loading, false);
+assert.deepEqual(loadingStates, [true, false, true, false]);
 window.addEventListener = () => {};
 const { createComponentFromData, newFile, openFile, openRecentFile, importEasyEDA } = await import('../src/schematic/modules/files.js');
 const embedded = { name: 'Example', symbol: { width: 10, height: 10, graphics: [], pins: [] } };

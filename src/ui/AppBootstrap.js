@@ -15,8 +15,13 @@ class AppBootstrap {
 
         /** The neutral owner of the single project document. */
         this.project = new ProjectDocument();
+        this.project.onLoadingChange = (loading) => {
+            this._setTabsLoading(loading);
+            if (loading) return new Promise(resolve => setTimeout(resolve, 0));
+        };
         this.schematicApp = null;
         this.pcbApp = null;
+        this._switchingMode = false;
     }
 
     async initialize() {
@@ -83,8 +88,17 @@ class AppBootstrap {
         });
     }
 
-    switchMode(mode) {
-        if (this.project.fileManager.loading) return;
+    _setTabsLoading(loading, mode = null) {
+        this.modeTabs.forEach(tab => {
+            const tabLoading = loading && (!mode || tab.dataset.mode === mode);
+            tab.classList.toggle('loading', tabLoading);
+            if (tabLoading) tab.setAttribute('aria-busy', 'true');
+            else tab.removeAttribute('aria-busy');
+        });
+    }
+
+    async switchMode(mode) {
+        if (this.project.fileManager.loading || this._switchingMode) return;
         const isPcb = mode === 'pcb';
 
         this.modeTabs.forEach(tab => {
@@ -95,10 +109,24 @@ class AppBootstrap {
         this.ribbonSchematic?.classList.toggle('ribbon-hidden', isPcb);
         this.ribbonPCB?.classList.toggle('ribbon-hidden', !isPcb);
 
-        if (isPcb) {
-            this.pcbApp?.activate();
-        } else {
-            this.pcbApp?.deactivate();
+        const needsPcbRender = isPcb && this.pcbApp?._stale;
+        if (needsPcbRender) {
+            this._switchingMode = true;
+            this._setTabsLoading(true, 'pcb');
+            await new Promise(resolve => window.requestAnimationFrame(() => window.requestAnimationFrame(resolve)));
+        }
+
+        try {
+            if (isPcb) {
+                this.pcbApp?.activate();
+            } else {
+                this.pcbApp?.deactivate();
+            }
+        } finally {
+            if (needsPcbRender) {
+                this._setTabsLoading(false, 'pcb');
+                this._switchingMode = false;
+            }
         }
     }
 
