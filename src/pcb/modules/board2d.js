@@ -24,6 +24,7 @@ import {
 import { boardShapeFilledRemovalOutlines, resolveBoardShapeGeometry } from './board-shapes.js';
 import { pcbTextSegments } from './pcb-text.js';
 import { drawPictureCached } from './picture-raster.js';
+import { paintViewerBackground } from './viewer-background.js';
 
 function traceBoardShape(context, geometry) {
     context.beginPath();
@@ -75,7 +76,6 @@ function drawBoardShape(context, geometry) {
 
 // Palette mirrors the 3D viewer (board3d.js) so the two previews match.
 const COL = {
-    bg: 'rgb(74,76,79)',          // panel grey (3D clear colour)
     rawBoard: 'rgb(64,44,28)',    // bare FR4 substrate (board edge + document cutouts)
     solderMask: '',               // solder-mask coating on board faces
     copper: '',                   // exposed copper tone
@@ -502,8 +502,7 @@ export class Board2D {
 
         const ctx = this.ctx;
         ctx.setTransform(1, 0, 0, 1, 0, 0);
-        ctx.fillStyle = COL.bg;
-        ctx.fillRect(0, 0, cv.width, cv.height);
+        paintViewerBackground(ctx, cv.width, cv.height);
         if (!this.data) return;
 
         // World→device: fold the device-pixel-ratio and the left↔right mirror
@@ -820,7 +819,9 @@ export class Board2D {
      *  background so the bore reads as an open hole, not a dark disc. */
     _drawHoles(ctx) {
         const d = this.data;
-        ctx.fillStyle = COL.bg;
+        ctx.save();
+        ctx.globalCompositeOperation = 'destination-out';
+        ctx.fillStyle = '#000';
         // Through-hole pad drills (round + oval slot) and footprint mounting
         // holes, posed via the shared resolver. Punch through to background so
         // each bore reads as an open hole, not a dark disc.
@@ -829,7 +830,7 @@ export class Board2D {
                 // Stadium slot: a round-capped stroke of width = bore diameter
                 // traces the slot's long axis between the two cap centres.
                 ctx.save();
-                ctx.strokeStyle = COL.bg;
+                ctx.strokeStyle = '#000';
                 ctx.lineCap = 'round';
                 ctx.lineWidth = drill.dia;
                 ctx.beginPath();
@@ -854,7 +855,6 @@ export class Board2D {
         for (const s of (d.boardShapes || [])) {
             if (!s || s.type === 'fill' || s.layer !== 'hole') continue;
             const geometry = resolveBoardShapeGeometry(s);
-            ctx.fillStyle = COL.bg;
             if (geometry.filled) {
                 for (const outline of boardShapeFilledRemovalOutlines(s)) {
                     if (!traceBoardShape(ctx, { path: outline, pathClosed: true })) continue;
@@ -862,13 +862,14 @@ export class Board2D {
                 }
             } else {
                 ctx.save();
-                ctx.strokeStyle = COL.bg;
+                ctx.strokeStyle = '#000';
                 ctx.lineCap = 'round';
                 ctx.lineJoin = 'round';
                 drawBoardShape(ctx, geometry);
                 ctx.restore();
             }
         }
+        ctx.restore();
     }
 
     /** Silkscreen for the active side: shapes, ref designators, free text. */

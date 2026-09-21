@@ -12,12 +12,15 @@ class AppBootstrap {
         this.slider = document.querySelector('.app-slider');
         this.ribbonSchematic = document.getElementById('ribbonSchematic');
         this.ribbonPCB = document.getElementById('ribbonPCB');
+        this._pcbPreloadHandle = null;
 
         /** The neutral owner of the single project document. */
         this.project = new ProjectDocument();
         this.project.onLoadingChange = (loading) => {
+            if (loading) this._cancelPcbPreload();
             this._setTabsLoading(loading);
             if (loading) return new Promise(resolve => setTimeout(resolve, 0));
+            this._schedulePcbPreload();
         };
         this.schematicApp = null;
         this.pcbApp = null;
@@ -53,6 +56,7 @@ class AppBootstrap {
         this.project.startAutoSave();
 
         this._setupLaunchQueue();
+        this._schedulePcbPreload();
     }
 
     /**
@@ -97,8 +101,50 @@ class AppBootstrap {
         });
     }
 
+    _cancelPcbPreload() {
+        if (!this._pcbPreloadHandle) return;
+        const { type, id } = this._pcbPreloadHandle;
+        if (type === 'idle') window.cancelIdleCallback?.(id);
+        else if (type === 'frame') window.cancelAnimationFrame(id);
+        else clearTimeout(id);
+        this._pcbPreloadHandle = null;
+        this._setTabsLoading(false, 'pcb');
+    }
+
+    _schedulePcbPreload() {
+        if (!this.pcbApp?._stale || this.pcbApp._active) return;
+        this._cancelPcbPreload();
+        const render = () => {
+            this._pcbPreloadHandle = null;
+            if (this.project.fileManager.loading || this.pcbApp?._active || !this.pcbApp?._stale) return;
+            try {
+                this.pcbApp.preload?.();
+            } finally {
+                this._setTabsLoading(false, 'pcb');
+            }
+        };
+        const prepare = () => {
+            this._setTabsLoading(true, 'pcb');
+            this._pcbPreloadHandle = {
+                type: 'frame',
+                id: window.requestAnimationFrame(() => {
+                    this._pcbPreloadHandle = {
+                        type: 'frame',
+                        id: window.requestAnimationFrame(render),
+                    };
+                }),
+            };
+        };
+        if ('requestIdleCallback' in window) {
+            this._pcbPreloadHandle = { type: 'idle', id: window.requestIdleCallback(prepare) };
+        } else {
+            this._pcbPreloadHandle = { type: 'timeout', id: setTimeout(prepare, 250) };
+        }
+    }
+
     async switchMode(mode) {
         if (this.project.fileManager.loading || this._switchingMode) return;
+        this._cancelPcbPreload();
         const isPcb = mode === 'pcb';
 
         this.modeTabs.forEach(tab => {

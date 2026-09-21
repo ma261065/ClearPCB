@@ -1644,6 +1644,8 @@ export function startViaDrag(app, via, worldPos) {
         via,
         startX: via.x,
         startY: via.y,
+        grabX: worldPos.x,
+        grabY: worldPos.y,
         attached,
         previousDeferDragOverlays: !!app._deferDragOverlays,
     };
@@ -1656,13 +1658,17 @@ export function startViaDrag(app, via, worldPos) {
 export function updateViaDrag(app, worldPos) {
     const drag = app._viaDrag;
     if (!drag) return;
+    const targetPos = {
+        x: drag.startX + worldPos.x - drag.grabX,
+        y: drag.startY + worldPos.y - drag.grabY,
+    };
     // Skip the via's own attached nodes when snapping — they ride along with
     // the via, so letting the snap catch them (within the coarse track-node
     // tolerance) would override the finer grid snap and feel sticky.
     const excludeNode = drag.attached.length
         ? (track, nodeId) => drag.attached.some(a => a.track === track && a.nodeId === nodeId)
         : null;
-    const snap = resolveTrackSnap(app, worldPos, excludeNode ? { excludeNode } : {});
+    const snap = resolveTrackSnap(app, targetPos, excludeNode ? { excludeNode } : {});
     let pos = { x: snap.x, y: snap.y };
 
     // Yellow target circle when locked onto a hard snap (pad / track node).
@@ -1692,7 +1698,7 @@ export function updateViaDrag(app, worldPos) {
         // Measure alignment from the RAW cursor (not the grid-snapped point)
         // so grid quantisation can't shrink the pull band; unaligned axes
         // fall back to the grid-snapped position.
-        const rawPos = { x: worldPos.x, y: worldPos.y };
+        const rawPos = targetPos;
         const gridPos = { x: snap.x, y: snap.y };
         // 1. Collinear straight-run (degree-2) or across-the-corner, per node.
         let snapped = null;

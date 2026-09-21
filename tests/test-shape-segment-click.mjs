@@ -11,8 +11,9 @@ globalThis.document = {
     },
 };
 globalThis.requestAnimationFrame = callback => { callback(); return 1; };
-const { beginSelectionInteraction, finishSelectionInteraction } = await import('../src/pcb/modules/selection-interaction.js');
-const { createBoardShapeSelectionAdapter, boardShapeHitTest, renderBoardShapeSegmentSelection } = await import('../src/pcb/modules/board-shapes.js');
+const { beginSelectionInteraction, updateSelectionInteraction, finishSelectionInteraction } = await import('../src/pcb/modules/selection-interaction.js');
+const { createBoardShapeSelectionAdapter, boardShapeHitTest, getBoardShapeAnchors,
+    renderBoardShapeSegmentSelection, selectBoardShape } = await import('../src/pcb/modules/board-shapes.js');
 const { renderPcbSelectionAnchors } = await import('../src/pcb/modules/selection-anchors.js');
 
 for (const guideClick of [false, true]) {
@@ -46,5 +47,21 @@ for (const guideClick of [false, true]) {
     assert.equal(highlight.getAttribute('d'), 'M 8 0 L 32 0');
     assert.equal(highlight.getAttribute('stroke-width'), String(shape.lineWidth));
     assert.equal(highlight.getAttribute('vector-effect'), null, 'Segment highlight scales with the physical stroke');
+}
+
+{
+    const shape = { id: 'curved-segment', kind: 'line', layer: 'top-silk', lineWidth: 0.2,
+        points: [{ x: 0, y: 0 }, { x: 10, y: 0 }], segmentBulges: { 0: 0.25 } };
+    const app = { boardShapes: [shape], placements: new Map(), tracks: [], vias: [], texts: new Map(),
+        _shapeElements: new Map(), _getLayerGroup() { return null; },
+        viewport: { scale: 100, setCrosshair() {}, hideCrosshair() {} }, _snapToGrid(point) { return point; },
+        history: { execute(command) { command.execute(); } } };
+    selectBoardShape(app, shape);
+    const handle = getBoardShapeAnchors(shape).find(anchor => anchor.id === 'bulge:0');
+    assert.ok(beginSelectionInteraction(app, handle, false), 'Rendered bulge handle starts a selection interaction');
+    assert.equal(app._pcbSelectionInteraction?.mode, 'anchor');
+    updateSelectionInteraction(app, { x: 5, y: -2.5 });
+    finishSelectionInteraction(app, true);
+    assert.equal(shape.segmentBulges[0], -0.5, 'Dragging the rendered handle changes the segment curvature');
 }
 console.log('PASS real second-click segment selection on rounded strokes and straight guides');

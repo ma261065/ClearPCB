@@ -386,6 +386,20 @@ export default class PCBApp {
         this._initialized = true;
     }
 
+    preload() {
+        if (this._active || !this._stale) return false;
+        this.initialize();
+        this._ensureViewport();
+        this._hookSchematicChanges();
+        this._active = true;
+        try {
+            this._syncFromSchematic();
+        } finally {
+            this._active = false;
+        }
+        return !this._stale;
+    }
+
     activate() {
         this.initialize();
         this._active = true;

@@ -171,6 +171,57 @@ export function punchHolesInFlatMesh(mesh, holes, seg = 48) {
     }));
     if (!rings.length) return mesh;
 
+    // Hole punching used to scan every ring for every triangle. Dense boards
+    // can contain hundreds of drills, making a moved cutout rebuild O(faces *
+    // holes) even though almost every pair is spatially disjoint. Bucket ring
+    // bounds once, then preserve original ring order among local candidates.
+    const minX = Math.min(...rings.map(ring => ring.minX));
+    const maxX = Math.max(...rings.map(ring => ring.maxX));
+    const minZ = Math.min(...rings.map(ring => ring.minZ));
+    const maxZ = Math.max(...rings.map(ring => ring.maxZ));
+    const gridSide = Math.max(1, Math.min(32, Math.ceil(Math.sqrt(rings.length))));
+    const cellWidth = Math.max(1e-9, (maxX - minX) / gridSide);
+    const cellHeight = Math.max(1e-9, (maxZ - minZ) / gridSide);
+    const buckets = new Map();
+    const cell = (value, origin, size) => Math.max(0, Math.min(gridSide - 1,
+        Math.floor((value - origin) / size)));
+    rings.forEach((ring, index) => {
+        const x0 = cell(ring.minX, minX, cellWidth);
+        const x1 = cell(ring.maxX, minX, cellWidth);
+        const z0 = cell(ring.minZ, minZ, cellHeight);
+        const z1 = cell(ring.maxZ, minZ, cellHeight);
+        for (let z = z0; z <= z1; z++) {
+            for (let x = x0; x <= x1; x++) {
+                const key = z * gridSide + x;
+                if (!buckets.has(key)) buckets.set(key, []);
+                buckets.get(key).push(index);
+            }
+        }
+    });
+    const nearbyRings = (a, b, c) => {
+        const triangleMinX = Math.min(a.x, b.x, c.x);
+        const triangleMaxX = Math.max(a.x, b.x, c.x);
+        const triangleMinZ = Math.min(a.z, b.z, c.z);
+        const triangleMaxZ = Math.max(a.z, b.z, c.z);
+        if (triangleMaxX < minX || triangleMinX > maxX
+            || triangleMaxZ < minZ || triangleMinZ > maxZ) return [];
+        const indices = new Set();
+        const x0 = cell(triangleMinX, minX, cellWidth);
+        const x1 = cell(triangleMaxX, minX, cellWidth);
+        const z0 = cell(triangleMinZ, minZ, cellHeight);
+        const z1 = cell(triangleMaxZ, minZ, cellHeight);
+        for (let z = z0; z <= z1; z++) {
+            for (let x = x0; x <= x1; x++) {
+                for (const index of buckets.get(z * gridSide + x) || []) indices.add(index);
+            }
+        }
+        return [...indices].sort((first, second) => first - second)
+            .map(index => rings[index])
+            .filter(ring => triangleMinX <= ring.maxX && triangleMaxX >= ring.minX
+                && triangleMinZ <= ring.maxZ && triangleMaxZ >= ring.minZ
+                && !(Number.isFinite(ring.y) && Math.abs(a.y - ring.y) > 1e-6));
+    };
+
     // Signed area-ish test against the directed edge P→Q in the (x,z) plane;
     // ≥0 is the polygon interior side (rings are CCW, so interior is left).
     const dist = (P, Q, R) =>
@@ -276,12 +327,22 @@ export function punchHolesInFlatMesh(mesh, holes, seg = 48) {
             const v1 = mesh.verts[idx[t]];
             const v2 = mesh.verts[idx[t + 1]];
             if (!v0 || !v1 || !v2) continue;
+            const candidates = nearbyRings(v0, v1, v2);
+            if (!candidates.length) {
+                if (triangleHasArea(v0, v1, v2)) {
+                    emitTri(
+                        { x: v0.x, y: v0.y, z: v0.z },
+                        { x: v1.x, y: v1.y, z: v1.z },
+                        { x: v2.x, y: v2.y, z: v2.z }, f.color);
+                }
+                continue;
+            }
             let pieces = [[
                 { x: v0.x, y: v0.y, z: v0.z },
                 { x: v1.x, y: v1.y, z: v1.z },
                 { x: v2.x, y: v2.y, z: v2.z },
             ]];
-            for (const ring of rings) {
+            for (const ring of candidates) {
                 if (typeof ring.y === 'number' && Number.isFinite(ring.y)
                     && Math.abs(pieces[0][0].y - ring.y) > 1e-6) continue;
                 const next = [];

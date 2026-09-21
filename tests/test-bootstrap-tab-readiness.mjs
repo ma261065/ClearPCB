@@ -11,6 +11,8 @@ function fixture() {
     const recovery = new Promise((resolve, reject) => { finishRecovery = resolve; failRecovery = reject; });
     const events = [];
     const frames = [];
+    const idleCallbacks = new Map();
+    let idleId = 0;
     const tabs = ['schematic', 'pcb'].map(mode => ({
         dataset: { mode }, listeners: [], classes: new Map(), attributes: new Map(),
         classList: { toggle(name, value) { this.owner.classes.set(name, value); } },
@@ -19,7 +21,12 @@ function fixture() {
         removeAttribute(name) { this.attributes.delete(name); },
         blur() {},
     })).map(tab => { tab.classList.owner = tab; return tab; });
-    const window = { requestAnimationFrame(callback) { frames.push(callback); } };
+    const window = {
+        requestAnimationFrame(callback) { frames.push(callback); },
+        cancelAnimationFrame() {},
+        requestIdleCallback(callback) { idleCallbacks.set(++idleId, callback); return idleId; },
+        cancelIdleCallback(id) { idleCallbacks.delete(id); },
+    };
     const dependencies = {
         window,
         document: { querySelectorAll: () => tabs, querySelector: () => null, getElementById: () => null },
@@ -30,9 +37,12 @@ function fixture() {
             startAutoSave() { events.push('autosave'); }
         },
         PCBApp: class {
+            _active = false;
+            _stale = true;
             initialize() { events.push('pcb-ready'); }
             activate() { events.push('activate'); }
             deactivate() { events.push('deactivate'); }
+            preload() { this._stale = false; events.push('preload'); }
         },
         SchematicApp: class {
             constructor() { events.push('schematic-ready'); }
@@ -47,7 +57,8 @@ function fixture() {
     bootstrap._setupLaunchQueue = () => events.push('launch');
     const click = () => tabs[1].listeners.find(listener => listener.type === 'click')?.handler();
     const flushFrame = () => frames.shift()?.();
-    return { bootstrap, tabs, events, click, flushFrame, finishRecovery, failRecovery };
+    const flushIdle = () => idleCallbacks.values().next().value?.();
+    return { bootstrap, tabs, events, click, flushFrame, flushIdle, finishRecovery, failRecovery };
 }
 
 {
@@ -60,12 +71,22 @@ function fixture() {
     assert.equal(test.events.includes('activate'), false, 'mode switching cannot race a document load');
     test.bootstrap.project.fileManager.loading = false;
     test.click();
+    test.flushFrame();
+    await Promise.resolve();
+    test.flushFrame();
+    await Promise.resolve();
     assert.equal(test.events.at(-1), 'activate', 'PCB is available before recovery bookkeeping finishes');
     assert.equal(test.events.includes('autosave'), false, 'autosave still waits for recovery');
     test.finishRecovery(true);
     await initialization;
     assert.deepEqual(test.events.slice(-2), ['autosave', 'launch']);
     assert.equal(test.tabs[1].listeners.length, 1, 'recovery completion does not duplicate tab listeners');
+    test.flushIdle();
+    assert.equal(test.tabs[1].classes.get('loading'), true, 'idle PCB preload exposes its spinner before rendering');
+    test.flushFrame();
+    test.flushFrame();
+    assert.equal(test.events.at(-1), 'preload', 'PCB rendering starts during idle after recovery');
+    assert.equal(test.tabs[1].classes.get('loading'), false, 'idle PCB rendering clears its spinner');
 }
 
 {
@@ -105,6 +126,10 @@ function fixture() {
     test.failRecovery(new Error('Recovery failed'));
     await assert.rejects(initialization, /Recovery failed/);
     test.click();
+    test.flushFrame();
+    await Promise.resolve();
+    test.flushFrame();
+    await Promise.resolve();
     assert.equal(test.events.at(-1), 'activate', 'recovery failure does not leave the PCB tab unwired');
 }
 console.log('PASS: PCB tabs are wired before recovery completes and remain guarded during document loading');

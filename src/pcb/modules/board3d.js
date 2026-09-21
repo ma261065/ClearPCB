@@ -72,6 +72,7 @@ import { regionFillContours } from './region-geometry.js';
 import { boardShapeFilledRemovalOutlines, resolveBoardShapeGeometry } from './board-shapes.js';
 import { pcbTextPolylines } from './pcb-text.js';
 import { loadClipper, isClipperReady, getClipper } from './copper-fill-geom.js';
+import { createViewerBackgroundTexture, VIEWER_BACKGROUND } from './viewer-background.js';
 
 /** Finished board thickness in millimetres (standard 1.6 mm). */
 const BOARD_THICKNESS = 1.6;
@@ -2144,7 +2145,7 @@ function makeBoardMaterial() {
 
 const CPCB3D_CSS = `
   .cpcb3d-host{position:relative;flex:1 1 0;min-width:0;min-height:0;
-    overflow:hidden;background:#4a4c4f;color:#e6e6e6;
+        overflow:hidden;background:${VIEWER_BACKGROUND.css};color:#e6e6e6;
     font:13px/1.4 system-ui,Segoe UI,sans-serif}
   .cpcb3d-bar{position:absolute;top:0;left:0;right:0;height:38px;display:flex;
     align-items:center;gap:8px;padding:0 10px;background:rgba(20,23,27,.85);
@@ -2187,12 +2188,12 @@ const CPCB3D_CSS = `
         color:#b8c2cd;font-variant-numeric:tabular-nums}
   .cpcb3d-status{font-size:12px;color:#9aa3ad}
   .cpcb3d-cv{position:absolute;inset:38px 0 0 0;width:100%;height:calc(100% - 38px);
-    display:block;cursor:grab;background:#4a4c4f}
+        display:block;cursor:grab;background:${VIEWER_BACKGROUND.css}}
   .cpcb3d-cv:active{cursor:grabbing}
   /* Flat 2D board preview canvas (board2d.js). Shares the host with the WebGL
      canvas; only one is shown at a time depending on the active view. */
   .cpcb3d-cv2d{position:absolute;inset:38px 0 0 0;width:100%;height:calc(100% - 38px);
-    display:none;cursor:grab;background:#4a4c4f}
+        display:none;cursor:grab;background:${VIEWER_BACKGROUND.css}}
   .cpcb3d-cv2d:active{cursor:grabbing}
   .cpcb3d-host.cpcb3d-mode2d .cpcb3d-cv{display:none}
   .cpcb3d-host.cpcb3d-mode2d .cpcb3d-cv2d{display:block}
@@ -2209,9 +2210,9 @@ const CPCB3D_CSS = `
     .cpcb3d-bar [data-act="2dtop"].active,
   .cpcb3d-bar [data-act="2dbottom"].active{
     background:#2d7dd2;border-color:#2d7dd2;color:#fff}
-  /* Opaque cover painted from the first frame so the canvas's black pre-render
-     frames never show; fades once the board has actually rendered. */
-  .cpcb3d-cover{position:absolute;inset:0;background:#4a4c4f;z-index:10;
+  /* Opaque cover painted from the first frame so the canvas's pre-render frame
+      never shows; fades once the board has actually rendered. */
+  .cpcb3d-cover{position:absolute;inset:0;background:${VIEWER_BACKGROUND.css};z-index:10;
     pointer-events:none;transition:opacity .18s linear}
   .cpcb3d-cover.hide{opacity:0}
   .cpcb3d-hint{position:absolute;bottom:8px;left:10px;font-size:11px;color:#6b7480;
@@ -2424,13 +2425,13 @@ class ThreeScene {
         // (4) is set directly; the renderer maps 4 → "ACESFilmic".
         this.renderer.toneMapping = 4; // THREE.ACESFilmicToneMapping
         this.renderer.toneMappingExposure = 1.15;
-        // Clear to the board grey, not the WebGL default black, so any frame the
-        // canvas presents before the first scene render (or any uncovered moment)
-        // is grey rather than a black flash.
-        this.renderer.setClearColor(0x4a4c4f, 1);
+        // Match the darkest gradient edge if a frame is presented before the
+        // scene background texture is available.
+        this.renderer.setClearColor(0x01040c, 1);
 
         this.scene = new THREE.Scene();
-        this.scene.background = new THREE.Color(0x4a4c4f);
+        this.backgroundTexture = createViewerBackgroundTexture(THREE, canvas.ownerDocument);
+        this.scene.background = this.backgroundTexture;
 
         this.camera = /** @type {any} */ (new THREE.PerspectiveCamera(45, 1, 0.1, 20000));
         this.camera.position.set(80, 120, 160);
@@ -2537,6 +2538,7 @@ class ThreeScene {
         this._animating = false;
         try { this._ro?.disconnect(); } catch { /* ignore */ }
         try { this.controls?.dispose?.(); } catch { /* ignore */ }
+        try { this.backgroundTexture?.dispose?.(); } catch { /* ignore */ }
         try { this.renderer?.dispose?.(); } catch { /* ignore */ }
     }
 
@@ -3004,25 +3006,6 @@ export async function openBoard3DViewer(app, opts = {}) {
     const setStatus = (/** @type {string} */ text) => {
         if (dom.status && !panel.closed) dom.status.textContent = text;
     };
-    let timingMouseUpAt = null;
-    const onTimingMouseUp = (event) => {
-        if (event.button !== 0 || !app._active || panel.closed || panel.hidden || panel.view !== '3d') return;
-        if (!(app._viaDrag || app._vertexDrag || app._drag || app._groupDrag
-            || app._shapeDrag || app._textDrag || app._refDrag || app._fillDrag
-            || app._pcbSelectionInteraction || app._trackDraw)) return;
-        const now = performance.now();
-        timingMouseUpAt = Number.isFinite(event.timeStamp) && event.timeStamp >= 0 && event.timeStamp <= now
-            ? event.timeStamp : now;
-    };
-    const finishRebuildTiming = (startedAt) => {
-        if (startedAt === null || startedAt !== timingMouseUpAt) return;
-        const elapsed = performance.now() - startedAt;
-        timingMouseUpAt = null;
-        if (!panel.closed && !panel.hidden && panel.view === '3d') {
-            setStatus(`Mouse-up -> 3D: ${elapsed.toFixed(0)} ms [cebd3f0 + reuse]`);
-        }
-    };
-    window.addEventListener('mouseup', onTimingMouseUp, true);
 
     // ── Flat 2D board preview (board2d.js) ──────────────────────────────
     // The 2D side views do NOT use the 3D renderer: they draw the board the way
@@ -3150,8 +3133,9 @@ export async function openBoard3DViewer(app, opts = {}) {
     // One shared sliding panel hosts both views; `panel.view` decides which
     // canvas (WebGL vs 2D) is shown and which toolbar button is highlighted.
     const viewSync = createBoardViewSync({
-        refresh3D: () => { rebuildSurfaces(true); },
+        refresh3D: () => { return rebuildSurfaces(true); },
         refresh2D: () => { board2d?.setData(boardData()); },
+        on3DSettled: ({ dirty }) => { if (dirty) schedulePendingSync(); },
     });
     const applyView = (/** @type {'3d'|'top'|'bottom'} */ view) => {
         panel.view = view;
@@ -3281,7 +3265,6 @@ export async function openBoard3DViewer(app, opts = {}) {
     };
     let hasSurfaces = false;
     rebuildSurfaces = async (syncComponentBodies = false) => {
-        const timingStart = timingMouseUpAt;
         try {
             const w = app._boardWidth || 100;
             const h = app._boardHeight || 80;
@@ -3416,7 +3399,7 @@ export async function openBoard3DViewer(app, opts = {}) {
             // Document-layer circles expose raw board material above mask/copper.
             addSurface('silk', [{ mesh: buildSilkMesh(app), holes: drilledHoles }]);
             addSurface('text', [{ mesh: buildTextMesh(app), holes: drilledHoles }]);
-            const result = await surfaceBuilder.build(surfaces);
+            const result = await surfaceBuilder.build(surfaces, { takeOwnership: true });
             if (!result || panel.closed || !scene) return false;
             if (panel.hidden || panel.view !== '3d'
                 || app._deferDragOverlays || app._suspendFillRefresh || app._fillRefreshScheduled
@@ -3433,7 +3416,6 @@ export async function openBoard3DViewer(app, opts = {}) {
             scene.positionGlint(w / 2, -h / 2, Math.max(w, h));
             if (!hasSurfaces) { hasSurfaces = true; scene.frameAll(); }
             scene.requestRender();
-            finishRebuildTiming(timingStart);
             return true;
         } catch (error) {
             console.warn('3D surface build failed', error);
@@ -3645,15 +3627,18 @@ export async function openBoard3DViewer(app, opts = {}) {
         && !app._suspendBoardViewRefresh && !app._deferDragOverlays
         && !app._suspendFillRefresh && !app._fillRefreshScheduled
         && !(app._fillRefreshPending && app.copperFills?.length);
-    const scheduleSync = () => {
-        surfaceBuilder.invalidate();
-        viewSync.invalidate();
+    function schedulePendingSync() {
         if (!canSync() || syncFrame) return;
         syncFrame = window.requestAnimationFrame(() => {
             syncFrame = 0;
             if (!canSync()) return;
             viewSync.flush(panel.view);
         });
+    }
+    const scheduleSync = () => {
+        surfaceBuilder.invalidate({ cancelActive: true });
+        viewSync.invalidate();
+        schedulePendingSync();
     };
     // Public hook so non-history edits (e.g. a schematic-driven re-sync that
     // adds/removes components) can refresh the 3D view too. PCB-side edits go
@@ -3721,19 +3706,18 @@ export async function openBoard3DViewer(app, opts = {}) {
         const win = window.open('', 'clearpcb3d', 'width=980,height=720');
         if (!win) { setStatus('Pop-up blocked — allow pop-ups to tear off'); return; }
         const wd = win.document;
-        // Paint the new window grey immediately and give it the 3D stylesheet.
+        // Paint the new window immediately and give it the 3D stylesheet.
         try {
-            wd.documentElement.style.background = '#4a4c4f';
+            wd.documentElement.style.background = VIEWER_BACKGROUND.css;
             wd.documentElement.style.colorScheme = 'dark';
         } catch { /* ignore */ }
         wd.title = popTitle();
         ensure3DStyles(wd);
         const base = wd.createElement('style');
-        base.textContent =
-            'html,body{margin:0;height:100%;background:#4a4c4f;overflow:hidden}' +
-            '.cpcb3d-host{position:absolute;inset:0}';
+        base.textContent = `html,body{margin:0;height:100%;background:${VIEWER_BACKGROUND.css};overflow:hidden}`
+            + '.cpcb3d-host{position:absolute;inset:0}';
         (wd.head || wd.documentElement).appendChild(base);
-        if (wd.body) wd.body.style.background = '#4a4c4f';
+        if (wd.body) wd.body.style.background = VIEWER_BACKGROUND.css;
         // Move the live host into the pop-up; the WebGL canvas and its context
         // travel with the node and the render loop follows it to the pop-up's rAF.
         wd.body.appendChild(wd.adoptNode(host));
@@ -3782,7 +3766,6 @@ export async function openBoard3DViewer(app, opts = {}) {
         if (app.history && app.history.onChanged === onHistoryChanged) {
             app.history.onChanged = prevOnChanged;
         }
-        window.removeEventListener('mouseup', onTimingMouseUp, true);
         window.removeEventListener('pointermove', onSplitMove);
         window.removeEventListener('pointerup', onSplitUp);
         hideSpinner();

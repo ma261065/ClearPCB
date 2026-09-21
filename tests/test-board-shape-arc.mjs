@@ -11,7 +11,7 @@ globalThis.document = {
     getElementById() { return null; },
     querySelector() { return null; },
 };
-globalThis.window = { addEventListener() {} };
+globalThis.window = { addEventListener() {}, removeEventListener() {} };
 
 const {
     applyBoardShapeVertexResize,
@@ -139,6 +139,7 @@ for (const reversed of [false, true]) {
     const removal = flattenSvgPath(boardShapeRemovalPathD(banana)).flat();
     const previewPoints = [];
     const context = {
+        save() {}, restore() {},
         beginPath() {}, closePath() {}, fill() {},
         moveTo(x, y) { previewPoints.push({ x, y }); },
         lineTo(x, y) { previewPoints.push({ x, y }); },
@@ -319,7 +320,7 @@ showBoardShapeProperties({
     _setPcbPropsTitle(title) { segmentTitle = title; },
     _setActiveRibbonTab() {},
 }, roundedRemovalRect);
-check('selected PCB segment uses the Segment Properties title', segmentTitle === 'Segment');
+check('selected PCB segment uses the Line Segment Properties title', segmentTitle === 'Line Segment');
 const holeLinePropertyItems = { innerHTML: '' };
 showBoardShapeProperties({
     boardShapes: [{ ...removalRect, kind: 'line', layer: 'hole', points: removalRect.points.slice(0, 2) }],

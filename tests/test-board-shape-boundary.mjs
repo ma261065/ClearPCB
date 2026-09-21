@@ -13,7 +13,52 @@ globalThis.document = {
 const { resolveBoardShapeGeometry, getBoardShapeAnchors, boardShapeHitTest,
     boardShapeBounds, serializeBoardShapes, loadBoardShapes, cloneShapeGeometry,
     createBoardShapeSelectionAdapter, startBoardShapeDrag, handleBoardShapeDrag, endBoardShapeDrag,
-    showBoardShapeProperties } = await import('../src/pcb/modules/board-shapes.js');
+    showBoardShapeProperties, setBoardShapeSegmentType, shapePathD } = await import('../src/pcb/modules/board-shapes.js');
+
+{
+    const shape = { id: 'curved-line', kind: 'line', layer: 'top-silk', lineWidth: 0.4,
+        points: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 20, y: 0 }] };
+    const commands = [];
+    let title = '';
+    const app = {
+        boardShapes: [shape], placements: new Map(), tracks: [], vias: [], texts: new Map(),
+        _shapeElements: new Map(), viewport: { scale: 20, setCrosshair() {}, hideCrosshair() {} },
+        _getLayerGroup() { return null; },
+        _pcbPropsItems() { return { innerHTML: '' }; }, _setPcbPropsTitle(value) { title = value; },
+        _setActiveRibbonTab() {}, history: { execute(command) { commands.push(command); command.execute(); } },
+    };
+    assert.equal(setBoardShapeSegmentType(app, shape, 0, 'arc'), true);
+    assert.equal(shape.segmentBulges[0], 0.25);
+    assert.match(shapePathD(shape), / A /);
+    assert.equal(boardShapeHitTest(shape, { x: 5, y: 1.25 }, 0.1), true);
+    assert.ok(boardShapeBounds(shape).maxY > 1);
+    assert.ok(resolveBoardShapeGeometry(shape).strokeSegments.length > 1);
+    assert.ok(getBoardShapeAnchors(shape).some(anchor => anchor.id === 'bulge:0'));
+    assert.ok(!getBoardShapeAnchors(shape).some(anchor => anchor.id === 'mid:0'));
+    assert.equal(title, 'Arc Segment');
+    assert.equal(startBoardShapeDrag(app, shape, { x: 5, y: 1.25 }, 'bulge:0'), true);
+    handleBoardShapeDrag(app, { x: 5, y: -2.5 });
+    assert.equal(shape.segmentBulges[0], -0.5);
+    endBoardShapeDrag(app, false);
+    assert.equal(shape.segmentBulges[0], 0.25);
+    commands[0].undo();
+    assert.deepEqual(shape.segmentBulges, {});
+    commands[0].execute();
+    assert.equal(shape.segmentBulges[0], 0.25);
+    const saved = serializeBoardShapes({ boardShapes: [shape] });
+    const loaded = { boardShapes: [], _shapeIdCounter: 1 };
+    loadBoardShapes(loaded, saved, { render: false, strict: true });
+    assert.deepEqual(loaded.boardShapes[0].segmentBulges, { 0: 0.25 });
+    assert.equal(setBoardShapeSegmentType(app, shape, 0, 'line'), true);
+    assert.equal(shape.segmentBulges[0], undefined);
+    assert.equal(title, 'Line Segment');
+
+    shape.segmentBulges = { 1: 0.4 };
+    assert.equal(startBoardShapeDrag(app, shape, { x: 5, y: 0 }, 'mid:0'), true);
+    assert.deepEqual(shape.segmentBulges, { 2: 0.4 });
+    endBoardShapeDrag(app, false);
+}
+console.log('PASS line and polygon segments support undoable curved geometry and persistence');
 
 for (const kind of ['rect', 'polygon']) {
     for (const reversed of [false, true]) {

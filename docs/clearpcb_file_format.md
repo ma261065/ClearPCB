@@ -419,13 +419,14 @@ Every entry contains:
 | `cornerRadius` | number | Default corner radius in mm for rectangle and polygon nodes. |
 | `nodeCornerRadii` | object | Optional vertex-index to corner-radius overrides. |
 | `nodeFlatJoins` | object | Optional vertex-index to `true` map suppressing pointed miters at edited rectangle/polygon nodes; round segment caps remain visible. The field name is retained for compatibility. |
+| `segmentBulges` | object | Optional segment-index to signed arc bulge ratio for line and polygon segments. Missing entries are straight. |
 
 Geometry depends on `kind`:
 
 ```json
 [
-  { "kind": "line", "points": [{ "x": 0, "y": 0 }, { "x": 10, "y": 0 }] },
-  { "kind": "polygon", "points": [{ "x": 0, "y": 0 }, { "x": 10, "y": 0 }, { "x": 5, "y": 5 }] },
+  { "kind": "line", "points": [{ "x": 0, "y": 0 }, { "x": 10, "y": 0 }], "segmentBulges": { "0": 0.25 } },
+  { "kind": "polygon", "points": [{ "x": 0, "y": 0 }, { "x": 10, "y": 0 }, { "x": 5, "y": 5 }], "segmentBulges": { "1": -0.5 } },
   { "kind": "rect", "points": [{ "x": 0, "y": 0 }, { "x": 10, "y": 0 }, { "x": 10, "y": 5 }, { "x": 0, "y": 5 }], "cornerRadius": 1 },
   { "kind": "arc", "start": { "x": 0, "y": 0 }, "end": { "x": 10, "y": 0 }, "bulge": { "x": 5, "y": -2 } },
   { "kind": "circle", "x": 5, "y": 5, "radius": 3 }
@@ -524,6 +525,15 @@ extend half the width on each side of the path. Nodes and midpoint handles sit
 on the editing path, independent of thickness; corner radii remain independent
 of thickness too. Crossings are allowed and centred strokes are unioned. Filled
 polygons use the even-odd fill rule in addition to the centred stroke.
+
+Line and polygon entries can mix straight and circular segments using
+`segmentBulges`. Segment index `i` runs from `points[i]` to `points[i + 1]`;
+for polygons, the final index runs from the last point back to point `0`.
+The value is the signed DXF-style ratio of arc sagitta to half-chord, clamped to
+`[-1, 1]`. Its sign selects the side of the chord, and reversing a segment
+negates its value. Missing, zero, non-finite and negligible values are treated
+as straight segments. Rectangle records do not use per-segment bulges; adding
+one converts the editable shape to a polygon.
 
 Circles continue to store the outer radius, with thickness extending inward.
 Circle records without `geometryVersion: 2` have half the old stroke width added

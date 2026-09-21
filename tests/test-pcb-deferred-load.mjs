@@ -76,7 +76,7 @@ for (const withComponents of [false, true]) {
     components = withComponents ? [{ id: 'U1' }] : [];
     const app = makeApp(false);
     Object.assign(app, {
-        activate: method('activate'), _syncFromSchematic: method('_syncFromSchematic'),
+        activate: method('activate'), preload: method('preload'), _syncFromSchematic: method('_syncFromSchematic'),
         _renderPersistentObjects: method('_renderPersistentObjects'),
         initialize() {}, _hookSchematicChanges() {}, _updateCursorForTool() {}, _updateViewportStatus() {},
         _setPcbStatus() {}, _setStatus() {}, _fitToPlacedContent() {},
@@ -90,9 +90,13 @@ for (const withComponents of [false, true]) {
     app._syncFromSchematic();
     assert.deepEqual(calls, [], 'a queued sync must not render a hidden board');
     assert.equal(app._stale, true);
+    assert.equal(app.preload(), true, 'hidden stale PCB can render before first activation');
+    assert.equal(app._active, false, 'preloading does not activate the PCB editor');
+    assert.equal(app._stale, false);
+    calls.length = 0;
     app.activate();
     for (const name of ['shape', 'track', 'via', 'text', 'outline', 'clearance', 'ratsnest', 'fills']) {
-        assert.equal(calls.filter(call => call === name).length, 1, `${name} runs once on activation (components=${withComponents})`);
+        assert.equal(calls.filter(call => call === name).length, 0, `${name} is already rendered before activation (components=${withComponents})`);
     }
     assert.equal(calls.includes('dimensions-dialog'), false, 'restored board dimensions do not prompt again');
     assert.equal(app._stale, false);

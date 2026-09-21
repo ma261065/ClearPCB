@@ -25,11 +25,14 @@ globalThis.document = {
 const {
     applyShapeGeometry,
     boardShapeNodeCornerRadius,
+    boardShapeSegmentBulge,
     boardShapeSegmentWidth,
     cloneShapeGeometry,
     createBoardShapeSelectionAdapter,
     endBoardShapeDrag,
     handleBoardShapeDrag,
+    openBoardShape,
+    deleteBoardShapeVertex,
     resolveBoardShapeGeometry,
     serializeBoardShapes,
     setBoardShapeNodeCornerRadius,
@@ -108,18 +111,23 @@ for (const test of cases) {
         const shape = { ...structuredClone(test.shape), id: `deferred-${test.name}`, layer: 'top-copper' };
         const before = cloneShapeGeometry(shape);
         const refreshes = [];
+        const crosshairs = [];
         const app = {
             boardShapes: [shape], placements: new Map(), tracks: [], vias: [], texts: new Map(),
             _deferDragOverlays: false, _shapeElements: new Map(), _layerGroups: new Map(),
             _getLayerGroup() { return null; },
             _snapToGrid(point) { return point; },
             _refreshFills() { refreshes.push(this._deferDragOverlays); },
-            viewport: { scale: 100, setCrosshair() {}, hideCrosshair() {} },
+            viewport: { scale: 100, setCrosshair(point) { crosshairs.push(point); }, hideCrosshair() {} },
             history: { execute(command) { command.execute(); } },
         };
         startBoardShapeDrag(app, shape, { x: 2, y: 3 });
         expect(`${test.name} fixture starts a whole-shape move`, app._shapeDrag.mode, 'move');
+        const origin = before.points ? before.points[0] : before.start || { x: before.x, y: before.y };
+        expect(`${test.name} whole-shape crosshair starts at the shape origin`, crosshairs.at(-1), origin);
         handleBoardShapeDrag(app, { x: 7, y: 0 });
+        expect(`${test.name} whole-shape crosshair follows the moved origin`, crosshairs.at(-1),
+            { x: origin.x + 5, y: origin.y - 3 });
         expect(`${test.name} defers fill refresh while moving`, refreshes, []);
         endBoardShapeDrag(app, commit);
         flushTimers();
@@ -357,6 +365,55 @@ for (const shape of [
     expect('splitting an overridden segment gives both halves its width',
         [boardShapeSegmentWidth(shape, 0), boardShapeSegmentWidth(shape, 1), boardShapeSegmentWidth(shape, 2)],
         [0.2, 0.7, 0.7]);
+}
+
+function topologyApp(shapes) {
+    return {
+        boardShapes: shapes, placements: new Map(), tracks: [], vias: [], texts: new Map(),
+        _shapeElements: new Map(), _shapeIdCounter: 1, _deferDragOverlays: false,
+        _getLayerGroup() { return null; }, _snapToGrid(point) { return point; },
+        viewport: { scale: 100, snapToGrid: false, setCrosshair() {}, hideCrosshair() {} },
+        history: { execute(command) { command.execute(); } },
+    };
+}
+
+{
+    const shape = { id: 'close-curves', kind: 'line', layer: 'top-silk', lineWidth: 0.2,
+        points: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }, { x: 0, y: 10 }],
+        segmentBulges: { 0: 0.3, 1: 0.4, 2: 0.5 } };
+    const app = topologyApp([shape]);
+    startBoardShapeDrag(app, shape, shape.points[0], 0);
+    handleBoardShapeDrag(app, { x: 0, y: 10 });
+    endBoardShapeDrag(app, true);
+    expect('closing from the first endpoint rotates curves and reverses the closing arc',
+        [shape.kind, boardShapeSegmentBulge(shape, 0), boardShapeSegmentBulge(shape, 1), boardShapeSegmentBulge(shape, 2)],
+        ['polygon', 0.4, 0.5, -0.3]);
+}
+
+{
+    const first = { id: 'join-first', kind: 'line', layer: 'top-silk', lineWidth: 0.2,
+        points: [{ x: 0, y: 0 }, { x: 10, y: 0 }], segmentBulges: { 0: 0.2 } };
+    const second = { id: 'join-second', kind: 'line', layer: 'top-silk', lineWidth: 0.2,
+        points: [{ x: 0, y: 0 }, { x: 0, y: 10 }], segmentBulges: { 0: 0.3 } };
+    const app = topologyApp([first, second]);
+    startBoardShapeDrag(app, first, first.points[0], 0);
+    handleBoardShapeDrag(app, first.points[0]);
+    endBoardShapeDrag(app, true);
+    expect('joining reverses only the line whose point order changes',
+        [app.boardShapes.length, boardShapeSegmentBulge(app.boardShapes[0], 0), boardShapeSegmentBulge(app.boardShapes[0], 1)],
+        [1, -0.2, 0.3]);
+}
+
+{
+    const shape = { id: 'open-curves', kind: 'polygon', layer: 'top-silk', lineWidth: 0.2,
+        points: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }, { x: 0, y: 10 }],
+        segmentBulges: { 0: 0.1, 1: 0.2, 2: 0.3, 3: 0.4 } };
+    const app = topologyApp([shape]);
+    openBoardShape(app, shape, 2);
+    expect('opening a polygon rotates retained segment curves and drops the opened edge',
+        shape.segmentBulges, { 0: 0.3, 1: 0.4, 2: 0.1 });
+    deleteBoardShapeVertex(app, shape, 1);
+    expect('deleting a vertex drops the two curves merged at that vertex', shape.segmentBulges, { 1: 0.1 });
 }
 
 if (failures) process.exitCode = 1;

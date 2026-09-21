@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { createSurfaceBuilder } from '../src/pcb/modules/board3d-surface-client.js';
 import { buildSurfaceBuffers } from '../src/pcb/modules/board3d-surface-build.js';
+import { surfaceInputsEqual } from '../src/pcb/modules/board3d-surface-equality.js';
+import { decodeSurfaceInputs } from '../src/pcb/modules/board3d-surface-transfer.js';
 
 const surface = () => ({
     outline: [{ x: 0, z: 0 }, { x: 10, z: 0 }, { x: 10, z: 10 }, { x: 0, z: 10 }],
@@ -10,8 +12,16 @@ const surface = () => ({
         faces: [{ idx: [0, 1, 2], color: [64, 128, 192] }],
     }, holes: [{ x: 2, z: 2, r: 0.5 }] }],
 });
+const previousPart = { mesh: { verts: [{ x: 1 }], faces: [] }, holes: [{ x: 1 }] };
+const movedHolePart = { holes: [{ x: 2 }] };
+Object.defineProperty(movedHolePart, 'mesh', {
+    enumerable: true,
+    get() { throw new Error('Mesh must not be traversed after a hole mismatch'); },
+});
+assert.equal(surfaceInputsEqual(previousPart, movedHolePart), false,
+    'Hole changes fail before comparing the surface mesh');
 const jobs = [];
-const worker = { postMessage(job) { jobs.push(job); }, terminate() {} };
+const worker = { postMessage(job) { jobs.push({ ...job, surfaces: decodeSurfaceInputs(job.surfaces) }); }, terminate() {} };
 const builder = createSurfaceBuilder(() => worker);
 const finish = () => {
     const job = jobs.at(-1);
@@ -83,7 +93,52 @@ finish();
 assert.deepEqual(await pending, buildSurfaceBuffers(input));
 builder.dispose();
 
+const sharedJobs = [];
+const sharedWorker = { postMessage(job) { sharedJobs.push({ ...job, surfaces: decodeSurfaceInputs(job.surfaces) }); }, terminate() {} };
+const sharedBuilder = createSurfaceBuilder(() => sharedWorker);
+const sharedInput = { copper: surface(), silk: surface() };
+sharedInput.silk.parts[0].holes = sharedInput.copper.parts[0].holes;
+const sharedBuild = sharedBuilder.build(sharedInput);
+assert.equal(sharedJobs[0].surfaces.copper.parts[0].holes, sharedJobs[0].surfaces.silk.parts[0].holes,
+    'Changed surface snapshots preserve shared drill geometry');
+sharedWorker.onmessage({ data: { id: sharedJobs[0].id, surfaces: buildSurfaceBuffers(sharedJobs[0].surfaces) } });
+await sharedBuild;
+sharedInput.copper.parts[0].holes[0].x += 0.25;
+const sharedMutation = sharedBuilder.build(sharedInput);
+assert.deepEqual(Object.keys(sharedJobs[1].surfaces).sort(), ['copper', 'silk'],
+    'A shared drill mutation invalidates every affected surface');
+sharedWorker.onmessage({ data: { id: sharedJobs[1].id, surfaces: buildSurfaceBuffers(sharedJobs[1].surfaces) } });
+await sharedMutation;
+sharedBuilder.dispose();
+
+const ownedJobs = [];
+const ownedWorker = { postMessage(job) { ownedJobs.push({ ...job, surfaces: decodeSurfaceInputs(job.surfaces) }); }, terminate() {} };
+const ownedBuilder = createSurfaceBuilder(() => ownedWorker);
+const ownedInput = { copper: surface(), silk: surface() };
+ownedInput.silk.parts[0].holes = ownedInput.copper.parts[0].holes;
+const ownedBuild = ownedBuilder.build(ownedInput, { takeOwnership: true });
+assert.deepEqual(ownedJobs[0].surfaces.copper, ownedInput.copper,
+    'Owned geometry survives numeric transport without changes');
+const ownedExpected = buildSurfaceBuffers(ownedJobs[0].surfaces);
+ownedWorker.onmessage({ data: { id: ownedJobs[0].id, surfaces: ownedExpected } });
+assert.deepEqual(await ownedBuild, ownedExpected);
+const ownedReuse = await ownedBuilder.build(structuredClone(ownedInput), { takeOwnership: true });
+assert.equal(ownedJobs.length, 1, 'Equal fresh owned geometry reuses the previous buffers');
+assert.equal(ownedReuse.copper, ownedExpected.copper);
+const nextOwnedInput = structuredClone(ownedInput);
+nextOwnedInput.copper.parts[0].holes[0].x += 0.25;
+const nextOwnedBuild = ownedBuilder.build(nextOwnedInput, { takeOwnership: true });
+assert.deepEqual(Object.keys(ownedJobs[1].surfaces).sort(), ['copper', 'silk']);
+assert.equal(ownedInput.copper.parts[0].holes[0].x, 2,
+    'A fresh rebuild leaves the previous owned geometry unchanged');
+const nextOwnedExpected = buildSurfaceBuffers(nextOwnedInput);
+ownedWorker.onmessage({ data: { id: ownedJobs[1].id, surfaces: nextOwnedExpected } });
+assert.deepEqual(await nextOwnedBuild, nextOwnedExpected);
+ownedBuilder.dispose();
+
 const source = readFileSync(new URL('../src/pcb/modules/board3d.js', import.meta.url), 'utf8');
+assert.ok(source.includes('surfaceBuilder.build(surfaces, { takeOwnership: true })'),
+    'The viewer hands its freshly generated geometry to the builder');
 const start = source.indexOf('    const appliedSurfaceBuffers = new Map();');
 const end = source.indexOf('    const surfaceGeometry =', start);
 assert.ok(start >= 0 && end > start);

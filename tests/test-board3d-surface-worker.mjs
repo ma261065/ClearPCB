@@ -4,6 +4,7 @@ import { Worker } from 'node:worker_threads';
 import * as THREE from '../assets/vendor/three.module.js';
 import { buildSurfaceBuffers } from '../src/pcb/modules/board3d-surface-build.js';
 import { createSurfaceBuilder } from '../src/pcb/modules/board3d-surface-client.js';
+import { encodeSurfaceInputs, decodeSurfaceInputs } from '../src/pcb/modules/board3d-surface-transfer.js';
 import { clipMeshToOutline, punchHolesInFlatMesh } from '../src/pcb/modules/board3d-mesh-ops.js';
 import { meshToGeometry } from '../src/shared/3d/model-rendering.js';
 
@@ -20,6 +21,45 @@ const surfaces = {
     empty: { parts: [] },
 };
 const expected = buildSurfaceBuffers(surfaces);
+const originalSetRGB = THREE.Color.prototype.setRGB;
+let colorConversions = 0;
+THREE.Color.prototype.setRGB = function (...args) {
+    colorConversions++;
+    return originalSetRGB.apply(this, args);
+};
+try {
+    const sameColor = meshToGeometry(mesh);
+    assert.equal(colorConversions, 1, 'Repeated face colors need only one sRGB conversion');
+    sameColor.dispose();
+    colorConversions = 0;
+    const mixed = meshToGeometry({ verts: mesh.verts, faces: [
+        { idx: [0, 1, 2], color: [64, 128, 192] },
+        { idx: [0, 1, 2], color: [64, 128, 192] },
+        { idx: [0, 1, 2], color: [255, 0, 0] },
+        { idx: [0, 1, 2], color: [64, 128, 192] },
+    ] });
+    assert.equal(colorConversions, 3, 'Color changes must recompute even when a previous color returns');
+    const linear = new THREE.Color().setRGB(64 / 255, 128 / 255, 192 / 255, THREE.SRGBColorSpace);
+    const expectedColors = new Float32Array(
+        [linear, linear, { r: 1, g: 0, b: 0 }, linear]
+            .flatMap(color => Array.from({ length: 3 }, () => [color.r, color.g, color.b]).flat()));
+    assert.deepEqual(mixed.getAttribute('color').array, expectedColors);
+    mixed.dispose();
+} finally { THREE.Color.prototype.setRGB = originalSetRGB; }
+const preciseMesh = {
+    verts: [{ x: 1 / 3, y: -0, z: 1e-12 }, { x: 2, y: 1.6, z: 0 },
+        { x: 2, y: 1.6, z: 2 }, { x: 0, y: 1.6, z: 2 }],
+    faces: [{ idx: [0, 1, 2, 3], color: [12.5, 128, 255] }, { idx: [0, 2, 3] }],
+};
+const preciseInput = { test: { parts: [{ mesh: preciseMesh }, { mesh: preciseMesh }] } };
+const encodedInput = encodeSurfaceInputs(preciseInput);
+assert.equal(encodedInput.transfer.length, 1, 'Shared meshes are packed and transferred once');
+const transported = structuredClone(encodedInput.surfaces, { transfer: encodedInput.transfer });
+assert.equal(encodedInput.transfer[0].byteLength, 0, 'Only packed buffers are detached');
+const decoded = decodeSurfaceInputs(transported);
+assert.deepEqual(decoded, preciseInput, 'Transport preserves double precision, polygons, and optional colors');
+assert.equal(decoded.test.parts[0].mesh, decoded.test.parts[1].mesh);
+assert.equal(preciseMesh.verts[0].x, 1 / 3, 'Original cache geometry stays intact');
 const combined = { verts: [], faces: [] };
 for (const part of surfaces.copper.parts) {
     const cut = punchHolesInFlatMesh(part.mesh, part.holes || []);
@@ -46,7 +86,7 @@ for (const attribute of ['position', 'normal', 'color']) {
     assert.deepEqual(reconstructed.getAttribute(attribute).array, expected.copper[attribute]);
 }
 reconstructed.dispose();
-const workerUrl = new URL('../src/pcb/modules/board3d-surface-worker.js', import.meta.url).href;
+const workerUrl = new URL('../src/pcb/modules/board3d-surface-worker.js?v=7', import.meta.url).href;
 const thread = new Worker(`
     const { parentPort } = require('node:worker_threads');
     globalThis.postMessage = (data, options) => parentPort.postMessage(data, options?.transfer);
@@ -70,6 +110,13 @@ try {
     assert.equal(response.id, 7);
     assert.deepEqual(response.surfaces, expected);
     assert.ok(mainThreadTicks > 0, 'Main-thread tasks must run while geometry is built in the worker');
+    const encoded = encodeSurfaceInputs(surfaces);
+    const packedResponse = await new Promise((resolve, reject) => {
+        thread.once('message', resolve);
+        thread.once('error', reject);
+        thread.postMessage({ id: 8, surfaces: encoded.surfaces }, encoded.transfer);
+    });
+    assert.deepEqual(packedResponse.surfaces, expected, 'Transferred meshes produce byte-identical worker output');
 } finally { await thread.terminate(); }
 
 const sent = [];
@@ -105,4 +152,25 @@ failures.invalidate();
 failureWorker.onmessage({ data: { id: 2, surfaces: expected } });
 assert.equal(await retry, null);
 failures.dispose();
+
+const preemptWorkers = [];
+const preemptJobs = [];
+const preempting = createSurfaceBuilder(() => {
+    const instance = {
+        terminated: false,
+        postMessage(job) { preemptJobs.push({ instance, job }); },
+        terminate() { this.terminated = true; },
+    };
+    preemptWorkers.push(instance);
+    return instance;
+});
+const obsolete = preempting.build(surfaces);
+preempting.invalidate({ cancelActive: true });
+assert.equal(await obsolete, null, 'Preempting resolves the obsolete build immediately');
+assert.equal(preemptWorkers[0].terminated, true, 'Preempting terminates the obsolete worker');
+const currentBuild = preempting.build(surfaces);
+assert.equal(preemptWorkers.length, 2, 'The latest build starts on a fresh worker immediately');
+preemptWorkers[1].onmessage({ data: { id: preemptJobs.at(-1).job.id, surfaces: expected } });
+assert.deepEqual(await currentBuild, expected);
+preempting.dispose();
 console.log('PASS: real worker geometry parity, responsive main thread, latest-only jobs, disposal, and failures');

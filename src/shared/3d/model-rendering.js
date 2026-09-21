@@ -70,6 +70,7 @@ export function meshToGeometry(mesh, groupByColor = false) {
     if (!groupByColor) {
         const positions = [];
         const colors = [];
+        let previousRed = NaN, previousGreen = NaN, previousBlue = NaN;
         for (const f of mesh.faces) {
             const idx = f.idx;
             if (!idx || idx.length < 3) continue;
@@ -79,7 +80,10 @@ export function meshToGeometry(mesh, groupByColor = false) {
             // so uploading raw sRGB values double-brightens and desaturates them
             // (the "washed-out" look). Convert sRGB → linear here so they render
             // true.
-            col.setRGB(c[0] / 255, c[1] / 255, c[2] / 255, THREE.SRGBColorSpace);
+            if (c[0] !== previousRed || c[1] !== previousGreen || c[2] !== previousBlue) {
+                col.setRGB(c[0] / 255, c[1] / 255, c[2] / 255, THREE.SRGBColorSpace);
+                previousRed = c[0]; previousGreen = c[1]; previousBlue = c[2];
+            }
             const r = col.r, g = col.g, b = col.b;
             for (let i = 1; i + 1 < idx.length; i++) {
                 for (const vi of [idx[0], idx[i], idx[i + 1]]) {

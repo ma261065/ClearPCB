@@ -44,6 +44,7 @@ function expect(name, condition) {
 function appFor(via) {
     let fillRefreshes = 0;
     let clearanceRefreshes = 0;
+    const crosshairs = [];
     return {
         tracks: [],
         vias: [via],
@@ -55,10 +56,11 @@ function appFor(via) {
         fillRefreshes() { return fillRefreshes; },
         _refreshClearanceHalos() { clearanceRefreshes++; },
         clearanceRefreshes() { return clearanceRefreshes; },
+        crosshairs,
         viewport: {
             scale: 1,
             gridVisible: false,
-            setCrosshair() {},
+            setCrosshair(point) { crosshairs.push(point); },
             hideCrosshair() {},
         },
         history: { execute(command) { command.execute(); } },
@@ -91,6 +93,18 @@ function trackAppFor(track, previousDeferral = false) {
         },
         history: { execute(command) { command.execute(); } },
     };
+}
+
+{
+    const via = new Via({ x: 1, y: 2, diameter: 2, drill: 0.3 });
+    const app = appFor(via);
+    startViaDrag(app, via, { x: 1.5, y: 2.25 });
+    expect('off-center via pickup keeps the via at its origin', via.x === 1 && via.y === 2
+        && app.crosshairs.at(-1).x === 1 && app.crosshairs.at(-1).y === 2);
+    updateViaDrag(app, { x: 4.5, y: 6.25 });
+    expect('off-center via drag preserves the cursor offset', via.x === 4 && via.y === 6
+        && app.crosshairs.at(-1).x === 4 && app.crosshairs.at(-1).y === 6);
+    cancelViaDrag(app);
 }
 
 {

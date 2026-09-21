@@ -53,6 +53,33 @@ reentrant.flush('3d');
 reentrant.flush('3d');
 reentrant.flush('3d');
 assert.equal(reentrantCalls, 2, 'Invalidation during a refresh must survive for the next pass');
+
+const completions = [];
+const settled = [];
+const delayed = createBoardViewSync({
+    refresh2D() {},
+    refresh3D(revision) {
+        return new Promise(resolve => completions.push({ revision, resolve }));
+    },
+    on3DSettled(result) { settled.push(result); },
+});
+delayed.invalidate();
+const firstBuild = delayed.flush('3d');
+delayed.invalidate();
+const latestBuild = delayed.flush('3d');
+assert.deepEqual(completions.map(item => item.revision), [1, 2]);
+completions[1].resolve(false);
+await latestBuild;
+assert.equal(delayed.is3DDirty(), true, 'Discarding the newest build keeps its revision pending');
+completions[0].resolve(true);
+await firstBuild;
+assert.equal(delayed.is3DDirty(), true, 'An older completion cannot acknowledge a newer edit');
+const retryBuild = delayed.flush('3d');
+assert.deepEqual(completions.map(item => item.revision), [1, 2, 2]);
+completions[2].resolve(true);
+await retryBuild;
+assert.equal(delayed.is3DDirty(), false, 'A successful retry acknowledges the latest revision');
+assert.deepEqual(settled.map(item => [item.revision, item.applied]), [[2, false], [1, true], [2, true]]);
 console.log('PASS: visible-view refresh, deferred 3D catch-up, coalescing, retry, and reentrant invalidation');
 
 const source = readFileSync(new URL('../src/pcb/modules/board3d.js', import.meta.url), 'utf8');
@@ -82,6 +109,9 @@ const { schedule, cancel } = new Function('window', 'panel', 'app', 'viewSync', 
     },
     panel, app, scheduledSync, { invalidate() {} },
 );
+assert.match(source.slice(scheduleStart, scheduleEnd),
+    /surfaceBuilder\.invalidate\(\{ cancelActive: true \}\)/,
+    'Committed edits preempt obsolete 3D worker jobs');
 const fireFrame = () => {
     assert.equal(frames.size, 1);
     const [frame, callback] = frames.entries().next().value;
