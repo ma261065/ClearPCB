@@ -1,5 +1,6 @@
 import { resolveCopperPads } from './copper-model.js';
 import { resolvePlacementDrills } from './board-geometry.js';
+import { boardBoundary } from './board-outline.js';
 
 /** @returns {import('./copper-fill-geom.js').FillContext} */
 export function buildFillContext(app) {
@@ -11,6 +12,6 @@ export function buildFillContext(app) {
         holes: resolvePlacementDrills(app.placements).filter((hole) => !hole.plated),
         params: { clearance: Number.isFinite(params.clearance) ? params.clearance : 0.1 },
         board: app._boardWidth > 0 && app._boardHeight > 0
-            ? { w: app._boardWidth, h: app._boardHeight, r: app._boardRadius || 0 } : null,
+            ? boardBoundary(app) : null,
     };
 }

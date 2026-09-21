@@ -2,7 +2,7 @@ export { punchHolesInFlatMesh } from './board3d-mesh-ops.js';
 import { pictureTriangles, pictureCirclesDisjoint } from './picture-raster.js';
 import { ArcballController } from '../../shared/3d/ArcballController.js';
 import { createBoardViewSync } from './board-view-sync.js';
-import { createSurfaceBuilder } from './board3d-surface-client.js';
+import { createSurfaceBuilder } from './board3d-surface-client.js?v=8';
 import { parseObjModel, meshToGeometry, makeMaterial, makeComponentMaterial, makeComponentGroupMaterials, COLOR_COMPONENT } from '../../shared/3d/model-rendering.js';
 export { ArcballController } from '../../shared/3d/ArcballController.js';
 export { parseObjModel, meshToGeometry, makeMaterial, makeComponentMaterial, makeComponentGroupMaterials } from '../../shared/3d/model-rendering.js';
@@ -35,6 +35,7 @@ export { parseObjModel, meshToGeometry, makeMaterial, makeComponentMaterial, mak
 
 import * as THREE from '../../../assets/vendor/three.module.js';
 import earcut from '../../../assets/vendor/earcut.module.js';
+import ClipperLib from '../../../assets/vendor/clipper.esm.js';
 
 /* ─────────────────────────── arcball controller ──────────────────────────── */
 
@@ -56,6 +57,8 @@ import earcut from '../../../assets/vendor/earcut.module.js';
 import { resolveObjFromModelUrl } from '../../components/model3d-source.js';
 import { getComponentLibrary } from '../../components/index.js';
 import { resolveReferenceText } from './reference-text.js';
+import { boardBoundary } from './board-outline.js';
+import { pointInPolygon, distanceToSegment } from '../../core/geometry.js';
 import {
     Board2D,
     getBoard2DLayerStyles,
@@ -68,6 +71,8 @@ import {
     resolvePadMaskOpenings,
     padFlashOutline,
 } from './board-geometry.js';
+import { CORNER_CHORD_TOLERANCE } from './board-geometry.js';
+import { buildTrackLayerRuns } from './track-render.js';
 import { regionFillContours } from './region-geometry.js';
 import { boardShapeFilledRemovalOutlines, resolveBoardShapeGeometry } from './board-shapes.js';
 import { pcbTextPolylines } from './pcb-text.js';
@@ -1430,18 +1435,11 @@ function buildCopperMesh(tracks, circles = [], boardShapes = [], texts = []) {
     const mesh = emptyMesh();
     for (const track of tracks || []) {
         if (!track?.edges || !track?.nodes) continue;
-        for (const [eid, e] of track.edges) {
-            const a = track.nodes.get(e.from);
-            const b = track.nodes.get(e.to);
-            if (!a || !b) continue;
-            const layer = track.getEdgeLayer ? track.getEdgeLayer(eid) : track.layer;
-            const width = (track.getEdgeWidth ? track.getEdgeWidth(eid) : track.width) || 0.2;
+        for (const { points, layer, width } of buildTrackLayerRuns(track)) {
             const bottom = layer === 'bottom-copper';
             const y = bottom ? Y_BOT - COPPER_EPS : Y_TOP + COPPER_EPS;
             const color = bottom ? COLOR_COPPER_BOTTOM : COLOR_COPPER_TOP;
-            appendMesh(mesh, ribbonMesh(a.x, a.y, b.x, b.y, width, y, color));
-            appendMesh(mesh, discMesh(a.x, a.y, width / 2, y, color, 10));
-            appendMesh(mesh, discMesh(b.x, b.y, width / 2, y, color, 10));
+            appendFlatStroke(mesh, points, false, width, y, color);
         }
     }
     // Free-standing circles authored on copper layers.
@@ -1540,21 +1538,41 @@ function strokeOutlineHoles(outline, closed, width) {
 }
 
 /** Append a flat round-joined stroke for an open or closed sampled outline. */
-function appendFlatStroke(mesh, outline, closed, width, y, color) {
-    const segmentCount = closed ? outline.length : outline.length - 1;
-    for (let index = 0; index < segmentCount; index++) {
-        const start = outline[index];
-        const end = outline[(index + 1) % outline.length];
-        appendMesh(mesh, ribbonMesh(start.x, start.y, end.x, end.y, width, y, color));
+export function appendFlatStroke(mesh, outline, closed, width, y, color) {
+    if (outline.length < 2 || !(width > 0)) return;
+    const scale = 1e6;
+    const offset = new ClipperLib.ClipperOffset(2, CORNER_CHORD_TOLERANCE * scale);
+    offset.AddPath(outline.map(point => ({ X: Math.round(point.x * scale), Y: Math.round(point.y * scale) })),
+        ClipperLib.JoinType.jtRound, closed ? ClipperLib.EndType.etClosedLine : ClipperLib.EndType.etOpenRound);
+    const tree = new ClipperLib.PolyTree();
+    offset.Execute(tree, width * scale / 2);
+    const convert = ring => ring.map(point => ({ x: point.X / scale, y: point.Y / scale }));
+    for (const region of ClipperLib.JS.PolyTreeToExPolygons(tree)) {
+        const triangulation = triangulateWithHoles(convert(region.outer), region.holes.map(convert));
+        const base = mesh.verts.length;
+        for (const point of triangulation.pts) mesh.verts.push({ x: point.x, y, z: point.y });
+        for (const triangle of triangulation.tris) {
+            mesh.faces.push({ idx: triangle.map(index => base + index), color });
+        }
     }
-    for (const point of outline) appendMesh(mesh, discMesh(point.x, point.y, width / 2, y, color, 10));
 }
 
 function appendResolvedFlatStroke(mesh, geometry, y, color) {
     if (geometry.strokeSegments?.length) {
+        let outline = [];
+        let width = 0;
         for (const segment of geometry.strokeSegments) {
-            appendFlatStroke(mesh, [segment.start, segment.end], false, segment.lineWidth, y, color);
+            const previous = outline.at(-1);
+            if (previous && width === segment.lineWidth
+                && previous.x === segment.start.x && previous.y === segment.start.y) {
+                outline.push(segment.end);
+            } else {
+                appendFlatStroke(mesh, outline, false, width, y, color);
+                outline = [segment.start, segment.end];
+                width = segment.lineWidth;
+            }
         }
+        appendFlatStroke(mesh, outline, false, width, y, color);
         return;
     }
     appendFlatStroke(mesh, geometry.path, geometry.centerlineClosed, geometry.lineWidth, y, color);
@@ -3270,7 +3288,10 @@ export async function openBoard3DViewer(app, opts = {}) {
             const h = app._boardHeight || 80;
             const r = app._boardRadius || 0;
             // PCB world: X∈[0,w], Z(=pcb y)∈[-h,0].
-            const outline = roundedRectOutline(0, -h, w, h, r);
+            const boundary = boardBoundary(app);
+            const outline = boundary.points
+                ? boundary.points.map(point => ({ x: point.x, z: point.y }))
+                : roundedRectOutline(0, -h, w, h, r);
             // Bore drilled holes (pad drills + mounting holes) clean through the
             // slab so they read as real openings; only holes wholly inside the board.
             let drilledHoles = collectBoardHoles(app.placements).filter((ho) => ho.r > 0);
@@ -3342,11 +3363,14 @@ export async function openBoard3DViewer(app, opts = {}) {
             const boardHoles = [];
             const crossingRings = [];
             for (const ho of drilledHoles) {
-                const inside = ho.x - ho.r > 0 && ho.x + ho.r < w &&
-                    ho.z - ho.r > -h && ho.z + ho.r < 0;
+                const center = { x: ho.x, y: ho.z };
+                const inside = boundary.points
+                    ? pointInPolygon(center, boundary.points) && boundary.points.every((point, index) =>
+                        distanceToSegment(center, point, boundary.points[(index + 1) % boundary.points.length]) > ho.r)
+                    : ho.x - ho.r > 0 && ho.x + ho.r < w && ho.z - ho.r > -h && ho.z + ho.r < 0;
                 if (inside) { boardHoles.push(ho); continue; }
-                const outside = ho.x + ho.r <= 0 || ho.x - ho.r >= w ||
-                    ho.z + ho.r <= -h || ho.z - ho.r >= 0;
+                const outside = ho.x + ho.r <= boundary.x || ho.x - ho.r >= boundary.x + boundary.w ||
+                    ho.z + ho.r <= boundary.y || ho.z - ho.r >= boundary.y + boundary.h;
                 if (outside) continue;
                 if (ho.ring && ho.ring.length >= 3) {
                     crossingRings.push(ho.ring);
@@ -3413,7 +3437,7 @@ export async function openBoard3DViewer(app, opts = {}) {
                 silk: scene.silkMaterial, text: scene.textMaterial };
             for (const key of Object.keys(surf)) swapSurface(key, result[key], materials[key]);
             if (syncComponentBodies) syncBodies();
-            scene.positionGlint(w / 2, -h / 2, Math.max(w, h));
+            scene.positionGlint(boundary.x + boundary.w / 2, boundary.y + boundary.h / 2, Math.max(boundary.w, boundary.h));
             if (!hasSurfaces) { hasSurfaces = true; scene.frameAll(); }
             scene.requestRender();
             return true;

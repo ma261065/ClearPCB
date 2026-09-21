@@ -31,6 +31,7 @@ import { resolveBoardShapeGeometry, boardShapeArcGeometry, normalizeShapeCopperM
 import ClipperLib from '../../../assets/vendor/clipper.esm.js';
 import { pcbTextSegments } from './pcb-text.js';
 import { padCopperOutline } from './copper-model.js';
+import { resolveTrackSegments } from './board-geometry.js';
 
 const SCALE = 10000;            // 0.1 µm integer resolution
 const ARC_TOL = 0.01 * SCALE;   // offset arc flattening tolerance (scaled mm)
@@ -79,7 +80,7 @@ const U = (v) => v / SCALE;
  * @property {Array} fills
  * @property {Array<{x:number,y:number,dia:number}>} holes
  * @property {{clearance:number}} params
- * @property {{w:number,h:number,r:number}|null} board
+ * @property {{w:number,h:number,r:number,x?:number,y?:number,points?:Array<{x:number,y:number}>}|null} board
  */
 
 /**
@@ -104,7 +105,7 @@ export function computeFillPolygons(fill, ctx, C = _clipper) {
     if (boardPath) {
         const clip = new C.Clipper();
         clip.AddPaths(subject, C.PolyType.ptSubject, true);
-        clip.AddPaths([boardPath], C.PolyType.ptClip, true);
+        clip.AddPaths(boardPath, C.PolyType.ptClip, true);
         const sol = new C.Paths();
         clip.Execute(C.ClipType.ctIntersection, sol, C.PolyFillType.pftNonZero, C.PolyFillType.pftNonZero);
         region = sol;
@@ -141,13 +142,23 @@ export function computeFillPolygons(fill, ctx, C = _clipper) {
 /** Build the (optional) board clip polygon, shrunk inward by `clearance`. */
 function buildBoardClip(C, board, clearance) {
     if (!board || !(board.w > 0) || !(board.h > 0)) return null;
+    if (board.points?.length >= 3) {
+        const path = board.points.map(point => ({ X: S(point.x), Y: S(point.y) }));
+        if (!C.Clipper.Orientation(path)) path.reverse();
+        if (!clearance) return [path];
+        const offset = new C.ClipperOffset(2, 0.001 * SCALE);
+        offset.AddPath(path, C.JoinType.jtRound, C.EndType.etClosedPolygon);
+        const result = new C.Paths();
+        offset.Execute(result, -S(clearance));
+        return result;
+    }
     const w = board.w, h = board.h, r = Math.max(0, board.r || 0);
     // Board rect in world (SVG) coords spans (0,-h)..(w,0).
     const x1 = clearance, y1 = -h + clearance;
     const x2 = w - clearance, y2 = -clearance;
-    if (x2 <= x1 || y2 <= y1) return null;
+    if (x2 <= x1 || y2 <= y1) return [];
     const rr = Math.max(0, r - clearance);
-    return roundedRectPath(C, x1, y1, x2 - x1, y2 - y1, rr);
+    return [roundedRectPath(C, x1, y1, x2 - x1, y2 - y1, rr)];
 }
 
 /** Collect all other-net copper obstacle paths (scaled, inflated). */
@@ -161,13 +172,8 @@ function collectObstacles(C, fill, ctx, clearance) {
         if (!track || !track.edges) continue;
         const tnet = track.net || '';
         if (sameNet(tnet)) continue; // solid connection: keep same-net copper
-        for (const [eid, e] of track.edges) {
-            const layer = track.getEdgeLayer ? track.getEdgeLayer(eid) : track.layer;
+        for (const { start: a, end: b, layer, width: w } of resolveTrackSegments(track)) {
             if (layer !== fill.layer) continue;
-            const a = track.nodes.get(e.from);
-            const b = track.nodes.get(e.to);
-            if (!a || !b) continue;
-            const w = (track.getEdgeWidth ? track.getEdgeWidth(eid) : track.width) || 0.2;
             const delta = w / 2 + clearance;
             const caps = offsetOpenSegment(C, a, b, delta);
             for (const path of caps) out.push(path);

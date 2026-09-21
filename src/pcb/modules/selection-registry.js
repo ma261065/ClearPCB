@@ -58,13 +58,13 @@ function manager(app) {
                     for (const element of [...(overlay?.querySelectorAll?.('.pcb-shape-segment-selection') || [])]) {
                         element.remove();
                     }
-                    app._setPcbStatus?.();
                 }
                 const node = app._selectedBoardShapeNode;
                 const nodeStillSelected = node && selected.some(
                     (item) => item.kind === 'shape' && item.object?.id === node.shapeId,
                 );
                 if (node && !nodeStillSelected) app._selectedBoardShapeNode = null;
+                app._setPcbStatus?.();
                 refreshPcbReferenceOverlay(app);
             },
         });

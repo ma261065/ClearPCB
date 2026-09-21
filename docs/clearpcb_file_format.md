@@ -334,7 +334,19 @@ provider-specific symbol, footprint, supplier, and 3D-model metadata.
 | `design.router` | string | Router mode, currently `"maze"` or `"pathfinder"`. |
 
 Older documents without `design` retain the user's current working defaults.
-A missing/invalid board resets to the default undrawn `100 x 80` board state.
+A board outline is stored as the single shape with `layer: "board-outline"` in
+`pcb.boardShapes`. Its kind must be `rect`, `polygon`, or `circle`; it uses the
+same geometry, corner radii, and segment bulges as other board shapes. The
+outline must remain closed and nondegenerate. It cannot be split, removed,
+or duplicated through the clipboard. Deleting a polygon segment removes its
+following vertex and reconnects the remaining boundary, with at least three
+vertices retained.
+
+`board.width` and `board.height` retain the outline's bounding-box dimensions
+for compatibility. The shape geometry is authoritative, including its position.
+Older documents containing only `board` dimensions are migrated to a rectangular
+outline on activation. A missing/invalid board without an outline resets to the
+default undrawn `100 x 80` board state.
 
 ### Tracks
 
@@ -369,11 +381,27 @@ Tracks use the schematic graph base plus track fields:
 | `l` | Shape-wide layer. |
 | `el` | Edge-layer overrides keyed by edge ID. |
 | `ew` | Edge-width overrides keyed by edge ID. |
+| `cr` | Overall corner radius in mm; omitted when zero. |
+| `ncr` | Per-node corner-radius overrides keyed by node ID, including zero to retain a sharp corner. |
 | `bg` | Edge bulges keyed by edge ID. |
 | `pdc` | Pad connections keyed by node ID. |
 | `sbs` | Original board-shape snapshot when a named copper line was converted to a track. |
 
 Per-edge maps contain only values that differ from the shape-wide default.
+
+Track node radii override the overall `cr` value. Setting the overall radius in
+the editor clears all node overrides; a subsequent node edit overrides only that
+node (last set wins). Rounding applies to degree-two
+corners with matching incident layers and two straight edges; endpoints, junctions,
+arc-adjacent nodes and pad-connected nodes retain their original geometry. Rendering and fabrication
+use the same sampled corner geometry without changing the editable graph.
+
+Track `bg` values use the signed DXF bulge ratio, from -1 to 1, measured in the
+edge's `from`-to-`to` direction. Zero is straight; magnitude 1 is a semicircle.
+Splitting an arc retains its circle with a separate bulge for each new edge.
+Line-to-track conversion and restoration retain segment widths, bulges and node
+radii. The `sbs` snapshot retains source identity; live track geometry takes
+precedence when restoring a line.
 
 ### Vias
 
@@ -416,9 +444,8 @@ Every entry contains:
 | `copperMode` | string | Copper/mask operation; see below. |
 | `plated` | boolean | Plating flag for hole-layer shapes. |
 | `net` | string | Net name; empty when unassigned. |
-| `cornerRadius` | number | Default corner radius in mm for rectangle and polygon nodes. |
-| `nodeCornerRadii` | object | Optional vertex-index to corner-radius overrides. |
-| `nodeFlatJoins` | object | Optional vertex-index to `true` map suppressing pointed miters at edited rectangle/polygon nodes; round segment caps remain visible. The field name is retained for compatibility. |
+| `cornerRadius` | number | Default corner radius in mm for line, rectangle and polygon nodes. |
+| `nodeCornerRadii` | object | Optional node-index to corner-radius overrides, including zero to retain a sharp corner. |
 | `segmentBulges` | object | Optional segment-index to signed arc bulge ratio for line and polygon segments. Missing entries are straight. |
 
 Geometry depends on `kind`:
@@ -541,14 +568,16 @@ to their radius on load; new saves use version 2 to avoid repeating conversion.
 Rectangle and polygon coordinates are loaded unchanged, including interim
 version 2 records; their paths now receive centred strokes and `strokeSide` is
 ignored. New saves use version 1 for non-circle shapes.
-Rectangles and polygons without corner radii use sharp miter joins and round
-segment caps. Set `cornerRadius` or `nodeCornerRadii` for rounded corners.
+Rectangles and polygons always use round stroke joins and round segment caps,
+including when their corner radius is zero. Set `cornerRadius` or
+`nodeCornerRadii` to round the centreline corners independently of stroke width.
 Each entry in `nodeCornerRadii` overrides `cornerRadius` for that indexed point.
-Dragging a sharp rectangle/polygon node suppresses pointed miters at that node
-and its two neighbours, whose angles also change during the drag. Round segment
-caps provide the visible ends, including for existing `nodeFlatJoins` records.
-This persists after release and through save/load; other corners retain their
-existing joins.
+Setting the overall corner radius in the editor clears all node overrides;
+a subsequent node edit overrides only that node (last set wins).
+Open lines support the same overall and per-node radii; their endpoints remain
+unrounded. Corners adjacent to explicit arc segments retain the arc geometry.
+Dragging nodes does not change the join style. Round stroke joins remain through
+release, undo/redo and save/load; no per-node join-style flags are stored.
 
 #### Copper Modes
 

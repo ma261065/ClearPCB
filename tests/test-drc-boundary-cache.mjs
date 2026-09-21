@@ -3,7 +3,58 @@ import { closestPointOnSegment, pointInPolygon } from '../src/core/geometry.js';
 
 globalThis.window = { addEventListener() {} };
 globalThis.document = { createElementNS: () => ({ setAttribute() {}, appendChild() {} }) };
-const { createCopperDistanceChecker, runDRC } = await import('../src/pcb/modules/drc.js');
+const { createCopperDistanceChecker, collectCopper, runDRC } = await import('../src/pcb/modules/drc.js');
+const { Track } = await import('../src/shapes/track.js');
+const { resolveTrackSegments } = await import('../src/pcb/modules/board-geometry.js');
+
+for (const kind of ['track', 'line', 'polygon', 'rect']) {
+    for (const filled of kind === 'polygon' || kind === 'rect' ? [false, true] : [false]) {
+        const points = [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }];
+        if (kind === 'polygon' || kind === 'rect') points.push({ x: 0, y: 10 });
+        const shape = kind === 'track'
+            ? new Track({ points, width: 0.2, cornerRadius: 4, layer: 'top-copper', net: 'GND' })
+            : { id: 'rounded', kind, points, lineWidth: 0.2, cornerRadius: 4, filled, layer: 'top-copper', net: 'GND' };
+        const probe = { id: 'probe', x: 10, y: 0, diameter: 0.4, net: 'VCC' };
+        const board = { placements: new Map(), tracks: kind === 'track' ? [shape] : [],
+            boardShapes: kind === 'track' ? [] : [shape], vias: [probe], texts: new Map(), copperFills: [] };
+        const label = `${kind}, filled=${filled}`;
+        assert.equal(runDRC(board, { clearance: 0.2 }).ok, true, `${label}: removed sharp corner has no copper`);
+        const midpoint = kind === 'rect'
+            ? { x: 6 + 4 / Math.SQRT2, y: 4 - 4 / Math.SQRT2 }
+            : { x: 9, y: 1 };
+        for (const gap of [0.19, 0.21]) {
+            probe.x = midpoint.x + (0.3 + gap) / Math.SQRT2;
+            probe.y = midpoint.y - (0.3 + gap) / Math.SQRT2;
+            const result = runDRC(board, { clearance: 0.2 });
+            assert.equal(result.ok, gap > 0.2, `${label}: clearance gap ${gap}`);
+            if (gap < 0.2) {
+                assert.equal(result.violations.filter(item => item.rule === 'clearance').length, 1,
+                    `${label}: sampled segments produce one entity-pair violation`);
+            }
+        }
+        Object.assign(probe, midpoint);
+        assert.equal(runDRC(board, { clearance: 0.2 }).ok, false, `${label}: contact with the curve fails`);
+        probe.net = 'GND';
+        assert.equal(runDRC(board, { clearance: 0.2 }).ok, true, `${label}: same-net contact is allowed`);
+        probe.net = 'VCC';
+        board.vias = [];
+        board.boardShapes.push({ id: 'opposite', kind: 'circle', ...midpoint, radius: 0.2,
+            lineWidth: 0.1, filled: true, layer: 'bottom-copper', net: 'VCC' });
+        assert.equal(runDRC(board, { clearance: 0.2 }).ok, true, `${label}: opposite layers do not collide`);
+        board.boardShapes.pop();
+        board.vias = [probe];
+        probe.x = 10;
+        probe.y = 0;
+        if (kind === 'track') {
+            assert.equal(collectCopper(board).segments.length, resolveTrackSegments(shape).length,
+                'DRC collects every adaptively sampled track segment');
+            shape.setNodeCornerRadius('n1', 0);
+        } else shape.nodeCornerRadii = { 1: 0 };
+        assert.equal(runDRC(board, { clearance: 0.2 }).ok, false, `${label}: sharp-node override updates DRC`);
+        shape.nodeCornerRadii = {};
+        assert.equal(runDRC(board, { clearance: 0.2 }).ok, true, `${label}: restoring rounding clears the violation`);
+    }
+}
 
 const rectangle = (left, top, right, bottom) => [
     { x: left, y: top }, { x: right, y: top }, { x: right, y: bottom }, { x: left, y: bottom },

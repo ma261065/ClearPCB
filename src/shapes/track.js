@@ -24,6 +24,7 @@
  */
 
 import { PolylineGraph } from './polyline-graph.js';
+import { arcFromBulge } from './arc-edge.js';
 
 /** Default copper layer for a Track if none is specified. */
 const DEFAULT_LAYER = 'top-copper';
@@ -41,6 +42,7 @@ export class Track extends PolylineGraph {
     static edgeAttributes = {
         layer: { prop: 'edgeLayers', json: 'el', default: (s) => s.layer },
         width: { prop: 'edgeWidths', json: 'ew', default: (s) => s.width },
+        bulge: { prop: 'edgeBulges', json: 'bg', default: () => 0 },
     };
 
     /**
@@ -52,6 +54,9 @@ export class Track extends PolylineGraph {
      *   when edgeLayers is not provided. Edges fall back to this layer.
      * @param {object} [options.edgeLayers] - Map of edgeId → layer name
      * @param {object} [options.edgeWidths] - Map of edgeId → width (mm)
+    * @param {object} [options.edgeBulges] - Signed arc bulges keyed by edge ID
+    * @param {number} [options.cornerRadius]
+    * @param {object} [options.nodeCornerRadii]
      * @param {object} [options.padConnections] - Map of nodeId →
      *   { componentId, pinNumber }
     * @param {object|null} [options.sourceBoardShape] - Original generic
@@ -92,20 +97,43 @@ export class Track extends PolylineGraph {
 
     /* ──────────────────── Graph overrides ────────────────────── */
 
+    splitEdge(edgeId, point) {
+        const edge = this.edges.get(edgeId);
+        const start = edge && this.nodes.get(edge.from);
+        const end = edge && this.nodes.get(edge.to);
+        const arc = edge && arcFromBulge(start, end, edge.bulge || 0);
+        const result = super.splitEdge(edgeId, point);
+        if (result && arc) {
+            const ratio = (first, second) => {
+                const cross = (first.x - arc.cx) * (second.y - arc.cy) - (first.y - arc.cy) * (second.x - arc.cx);
+                const dot = (first.x - arc.cx) * (second.x - arc.cx) + (first.y - arc.cy) * (second.y - arc.cy);
+                return Math.sign(edge.bulge) * Math.tan(Math.abs(Math.atan2(cross, dot)) / 4);
+            };
+            this.setEdgeAttr(result.edge1Id, 'bulge', ratio(start, point));
+            this.setEdgeAttr(result.edge2Id, 'bulge', ratio(point, end));
+        }
+        return result;
+    }
+
     /** @override — also clean up padConnections when removing a node. */
     removeNode(nodeId) {
         this.padConnections.delete(nodeId);
+        delete this.nodeCornerRadii[nodeId];
         super.removeNode(nodeId);
     }
 
     /** @override — preserve padConnections during node merge. */
     mergeNodes(keepId, removeId) {
         if (keepId === removeId) return;
+        if (!(keepId in this.nodeCornerRadii) && removeId in this.nodeCornerRadii) {
+            this.nodeCornerRadii[keepId] = this.nodeCornerRadii[removeId];
+        }
         if (this.padConnections.has(removeId) && !this.padConnections.has(keepId)) {
             this.padConnections.set(keepId, this.padConnections.get(removeId));
         }
         this.padConnections.delete(removeId);
         super.mergeNodes(keepId, removeId);
+        delete this.nodeCornerRadii[removeId];
     }
 
     /** @override — protect pad-connected nodes from graph simplification. */
@@ -116,6 +144,9 @@ export class Track extends PolylineGraph {
     /** @override — preserve padConnections during absorb. Per-edge layer
      * and width are carried automatically by the base class. */
     _onAbsorb(other, remap) {
+        for (const [oldId, newId] of remap) {
+            this.setNodeCornerRadius(newId, other.nodeCornerRadius(oldId));
+        }
         if (other.padConnections) {
             for (const [oldNid, conn] of other.padConnections) {
                 const newNid = remap.get(oldNid);
@@ -133,6 +164,7 @@ export class Track extends PolylineGraph {
             net: this.net,
             width: this.width,
             layer: this.layer,
+            cornerRadius: this.cornerRadius,
         });
     }
 
@@ -140,6 +172,7 @@ export class Track extends PolylineGraph {
      * are preserved by the base class (edge IDs + attrs are kept intact). */
     _onExtractSubgraph(sub, nodeIds) {
         for (const nid of nodeIds) {
+            if (nid in this.nodeCornerRadii) sub.nodeCornerRadii[nid] = this.nodeCornerRadii[nid];
             if (this.padConnections.has(nid)) {
                 sub.padConnections.set(nid, { ...this.padConnections.get(nid) });
             }
@@ -164,6 +197,8 @@ export class Track extends PolylineGraph {
             visible: this.visible,
             locked: this.locked,
             sourceBoardShape: this.sourceBoardShape,
+            cornerRadius: this.cornerRadius,
+            nodeCornerRadii: this.nodeCornerRadii,
         });
         for (const [id, p] of this.nodes) c.nodes.set(id, { x: p.x, y: p.y });
         for (const [id, e] of this.edges) c.edges.set(id, this._cloneEdge(e));

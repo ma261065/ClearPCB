@@ -1,4 +1,4 @@
-import { buildSurfaceBuffers } from './board3d-surface-build.js?v=5';
+import { buildSurfaceBuffers } from './board3d-surface-build.js?v=6';
 import { decodeSurfaceInputs } from './board3d-surface-transfer.js';
 
 globalThis.onmessage = ({ data }) => {

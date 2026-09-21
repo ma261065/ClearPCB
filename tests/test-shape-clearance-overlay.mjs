@@ -30,7 +30,8 @@ for (const filled of [false, true]) {
     const contours = resolveBoardShapeGeometry(polygon).physicalContours;
     assert.deepEqual({ x: tip.x, y: tip.y }, polygon.points[0], 'Acute corner handle stays on the centreline');
     const physicalTip = Math.min(...contours.flat().map(point => point.y));
-    assert.ok(physicalTip < tip.y - polygon.lineWidth / 2, 'Sharp miter extends beyond the centreline corner');
+    assert.ok(Math.abs(physicalTip - (tip.y - polygon.lineWidth / 2)) < 0.003,
+        'Round join extends only half the stroke width beyond the centreline corner');
     const clearanceTip = Math.min(...boardShapeClearanceOutlines(polygon, 0.25).flat().map(point => point.y));
     assert.ok(physicalTip - clearanceTip >= 0.24 && physicalTip - clearanceTip < 0.29,
         'Clearance extends by the requested distance beyond the actual acute tip');

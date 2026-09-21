@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import { CopperFill } from '../src/shapes/copper-fill.js';
 import { Track } from '../src/shapes/track.js';
 globalThis.window = { addEventListener() {} };
@@ -42,4 +43,83 @@ assert.equal(geometry.placements.get('pad').element, undefined);
 assert.ok(exportGerbers(geometry).get('board.gtl').includes('G36*'));
 track.getEdgeWidth = () => { throw new Error('Invalid track'); };
 await assert.rejects(prepareFabricationSnapshot(app), /Invalid track/);
+
+const pcbSource = fs.readFileSync(new URL('../src/ui/PCBApp.js', import.meta.url), 'utf8');
+const methodSource = name => {
+    const start = pcbSource.indexOf(`    async ${name}(`);
+    assert.ok(start >= 0, `${name} exists`);
+    const end = pcbSource.indexOf('\n    }', start);
+    return pcbSource.slice(start, end + 6).trim();
+};
+const events = [];
+let finishWrite;
+const writing = new Promise(resolve => { finishWrite = resolve; });
+const saveWindow = {
+    showSaveFilePicker(options) {
+        events.push('picker');
+        assert.equal(options.suggestedName, 'untitled-gerber.zip');
+        return Promise.resolve({
+            async createWritable() {
+                events.push('createWritable');
+                return {
+                    async write(blob) {
+                        assert.ok(blob instanceof Blob);
+                        events.push('write');
+                        await writing;
+                    },
+                    async close() { events.push('close'); },
+                };
+            },
+        });
+    },
+};
+const saveBlob = new Function('window', 'document',
+    `return ({ ${methodSource('_saveBlob')} })._saveBlob;`)(saveWindow, {});
+const exportGerber = new Function('window', 'hasFabricationContent', 'prepareFabricationSnapshot',
+    'exportGerbers', 'buildZip', `return ({ ${methodSource('exportGerber')} }).exportGerber;`)(
+    saveWindow, () => true,
+    async () => { events.push('prepare'); return {}; },
+    () => new Map([['board.gtl', 'copper']]),
+    () => new Blob(['zip']),
+);
+const exportApp = { _saveBlob: saveBlob, _setStatus(message) { events.push(message); } };
+const saving = exportGerber.call(exportApp);
+assert.deepEqual(events, ['picker'], 'Picker opens synchronously before fabrication preparation');
+assert.equal(exportApp._exportGerberPending, true);
+await exportGerber.call(exportApp);
+assert.equal(events.filter(event => event === 'picker').length, 1, 'Duplicate export is blocked');
+finishWrite();
+await saving;
+assert.deepEqual(events, ['picker', 'prepare', 'createWritable', 'write', 'close', 'Gerbers exported (1 files)']);
+assert.equal(exportApp._exportGerberPending, false);
+
+events.length = 0;
+saveWindow.showSaveFilePicker = async () => {
+    events.push('cancel');
+    throw Object.assign(new Error('Cancelled'), { name: 'AbortError' });
+};
+await exportGerber.call(exportApp);
+assert.deepEqual(events, ['cancel'], 'Cancelling does not prepare or save fabrication data');
+assert.equal(exportApp._exportGerberPending, false);
+
+saveWindow.showSaveFilePicker = async () => {
+    throw new Error('Picker failed');
+};
+await assert.rejects(saveBlob.call(exportApp, async () => new Blob(), 'board.zip'), /Picker failed/);
+
+const downloadEvents = [];
+const downloadDocument = {
+    body: { appendChild() { downloadEvents.push('append'); } },
+    createElement() {
+        return { click() { downloadEvents.push('download'); }, remove() { downloadEvents.push('remove'); } };
+    },
+};
+const fallbackSave = new Function('window', 'document',
+    `return ({ ${methodSource('_saveBlob')} })._saveBlob;`)({}, downloadDocument);
+assert.equal(await fallbackSave(async () => {
+    downloadEvents.push('prepare');
+    return new Blob(['zip']);
+}, 'board.zip'), true);
+assert.deepEqual(downloadEvents, ['prepare', 'append', 'download', 'remove']);
+assert.equal(await fallbackSave(new Blob(['existing caller']), 'board.zip'), true);
 console.log('PASS fresh detached fabrication snapshot, asynchronous isolation and artwork-only export');

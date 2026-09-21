@@ -86,6 +86,19 @@ export function renderPcbSelectionAnchors(app) {
                 handle.setAttribute('aria-label', 'Rotate');
             }
             group.appendChild(handle);
+            if (anchor.selected) {
+                const ring = document.createElementNS(NS, 'circle');
+                ring.setAttribute('class', 'pcb-node-selection-ring');
+                ring.setAttribute('cx', String(anchor.x));
+                ring.setAttribute('cy', String(anchor.y));
+                ring.setAttribute('r', String(half + 4 / scale));
+                ring.setAttribute('fill', 'none');
+                ring.setAttribute('stroke', '#3399ff');
+                ring.setAttribute('stroke-width', '2');
+                ring.setAttribute('vector-effect', 'non-scaling-stroke');
+                ring.setAttribute('pointer-events', 'none');
+                group.appendChild(ring);
+            }
             if (isRotation) {
                 const icon = document.createElementNS(NS, 'image');
                 icon.setAttribute('href', ROTATION_ICON_URL);

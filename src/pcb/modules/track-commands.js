@@ -13,9 +13,18 @@ import {
     removeViaElements,
 } from './track-render.js';
 import { reconcileRatsnest } from './track-draw.js';
-import { refreshTrackSelectionHalo } from './track-select.js';
-import { getPcbSelection } from './selection-registry.js';
+import { clearTrackSelection, refreshTrackSelectionHalo } from './track-select.js';
+import { getPcbSelection, togglePcbSelection } from './selection-registry.js';
 import { batchDerivedUpdates, deferDerivedUpdate } from '../../core/DerivedUpdates.js';
+import { getBoardOutline, rectangleBoardOutline } from './board-outline.js';
+
+function deselectRemovedTrack(app, track) {
+    if (!getPcbSelection(app, 'track').includes(track)) return;
+    clearTrackSelection(app);
+    togglePcbSelection(app, 'track', track);
+    refreshTrackSelectionHalo(app);
+    app._clearProperties?.();
+}
 
 function refreshEditedTrackClearance(app) {
     if (deferDerivedUpdate(app, 'clearance', () => refreshEditedTrackClearance(app))) return;
@@ -178,6 +187,7 @@ export class AddTrackCommand {
         reconcileRatsnest(this.app);
     }
     undo() {
+        deselectRemovedTrack(this.app, this.track);
         for (const v of this.vias) {
             removeViaElements(v);
             const j = this.app.vias.indexOf(v);
@@ -198,6 +208,7 @@ export class RemoveTrackCommand {
         this.track = track;
     }
     execute() {
+        deselectRemovedTrack(this.app, this.track);
         removeTrackElements(this.track);
         const i = this.app.tracks.indexOf(this.track);
         if (i >= 0) this.app.tracks.splice(i, 1);
@@ -723,10 +734,15 @@ export class SetPlacementSideCommand {
 export class SetBoardOutlineCommand {
     constructor(app, before, after) {
         this.app = app;
-        this.before = { ...before };
-        this.after = { ...after };
+        this.before = { ...before, outline: structuredClone(getBoardOutline(app)) };
+        this.after = { ...after, outline: rectangleBoardOutline(after.width, after.height, after.radius) };
     }
     _apply(s) {
+        const outline = getBoardOutline(this.app);
+        if (outline) {
+            for (const key of Object.keys(outline)) delete outline[key];
+            Object.assign(outline, structuredClone(s.outline || rectangleBoardOutline(s.width, s.height, s.radius)));
+        }
         this.app._boardWidth = s.width;
         this.app._boardHeight = s.height;
         this.app._boardRadius = s.radius;

@@ -1,8 +1,12 @@
+export function formatNumberInputValue(value) {
+    return value.toFixed(2);
+}
+
 export function formatNumberInput(input) {
     if (!input.matches('input[type="number"]') || input.dataset.numberFormat === 'rotation') return;
     const value = input.valueAsNumber;
     if (!Number.isFinite(value)) return;
-    const formatted = value.toFixed(2);
+    const formatted = formatNumberInputValue(value);
     if (input.value !== formatted) input.value = formatted;
 }
 

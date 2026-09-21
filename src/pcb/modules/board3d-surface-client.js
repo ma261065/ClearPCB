@@ -2,7 +2,7 @@ import { surfaceInputsEqual } from './board3d-surface-equality.js';
 import { encodeSurfaceInputs } from './board3d-surface-transfer.js';
 
 export function createSurfaceBuilder(createWorker = () => new Worker(
-    new URL('./board3d-surface-worker.js?v=7', import.meta.url), { type: 'module' },
+    new URL('./board3d-surface-worker.js?v=8', import.meta.url), { type: 'module' },
 )) {
     let worker = null;
     let revision = 0;

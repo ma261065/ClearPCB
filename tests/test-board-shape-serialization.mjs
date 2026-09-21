@@ -25,7 +25,7 @@ const shapes = [
     { ...common, id: 'arc', kind: 'arc', start: { x: 148.58999999999997, y: 35.56 },
         end: { x: 187.95999999999998, y: 60.96000000000001 }, bulge: { x: 173.97907396143856, y: 39.41868535977021 } },
     ...['polygon', 'rect'].map(kind => ({ ...common, id: kind, kind, points,
-        cornerRadius: 1.234567, nodeCornerRadii: { 1: 0.456789 }, nodeFlatJoins: { 2: true } })),
+        cornerRadius: 1.234567, nodeCornerRadii: { 1: 0.456789 } })),
 ];
 const before = structuredClone(shapes);
 const saved = serializeBoardShapes({ boardShapes: shapes });
@@ -38,7 +38,6 @@ assert.deepEqual(saved[2].bulge, { x: 173.9791, y: 39.4187 });
 for (const shape of saved.slice(3)) {
     assert.equal(shape.cornerRadius, 1.2346);
     assert.deepEqual(shape.nodeCornerRadii, { 1: 0.4568 });
-    assert.deepEqual(shape.nodeFlatJoins, { 2: true });
     assert.equal(shape.points[0].x, -74.93);
 }
 assert.ok(saved.every(shape => shape.lineWidth === 0.2));

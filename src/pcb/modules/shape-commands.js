@@ -12,10 +12,12 @@ import {
     applyShapeGeometry,
     applyShapeSnapshot,
     refreshBoardShapeProperties,
+    renderBoardShapeSegmentSelection,
 } from './board-shapes.js';
 import { renderPcbSelectionAnchors } from './selection-anchors.js';
 import { getPcbSelectionEntries, setPcbSelection } from './selection-registry.js';
 import { cancelPictureCopperRefresh, schedulePictureCopperRefresh } from './picture-refresh.js';
+import { validBoardOutline } from './board-outline.js';
 
 function deselectRemovedShape(app, shape) {
     const selected = getPcbSelectionEntries(app);
@@ -32,6 +34,7 @@ export class AddBoardShapeCommand {
     }
 
     execute() {
+        if (this.shape.layer === 'board-outline') return;
         if (!this.app.boardShapes.includes(this.shape)) this.app.boardShapes.push(this.shape);
         renderBoardShape(this.app, this.shape);
         this.app._refreshFills?.();
@@ -40,6 +43,7 @@ export class AddBoardShapeCommand {
     }
 
     undo() {
+        if (this.shape.layer === 'board-outline') return;
         deselectRemovedShape(this.app, this.shape);
         removeBoardShapeElement(this.app, this.shape.id);
         const i = this.app.boardShapes.indexOf(this.shape);
@@ -58,6 +62,7 @@ export class RemoveBoardShapeCommand {
     }
 
     execute() {
+        if (this.shape.layer === 'board-outline') return;
         deselectRemovedShape(this.app, this.shape);
         removeBoardShapeElement(this.app, this.shape.id);
         const i = this.app.boardShapes.indexOf(this.shape);
@@ -69,6 +74,7 @@ export class RemoveBoardShapeCommand {
     }
 
     undo() {
+        if (this.shape.layer === 'board-outline') return;
         if (!this.app.boardShapes.includes(this.shape)) this.app.boardShapes.push(this.shape);
         renderBoardShape(this.app, this.shape);
         this.app._refreshFills?.();
@@ -86,10 +92,13 @@ export class MoveBoardShapeCommand {
     }
 
     _apply(geometry) {
+        const previous = this.shape.layer === 'board-outline' ? structuredClone(this.shape) : null;
         applyShapeGeometry(this.shape, geometry);
+        if (previous && !validBoardOutline(this.shape)) Object.assign(this.shape, previous);
         schedulePictureCopperRefresh(this.app);
         renderBoardShape(this.app, this.shape);
-        if (this.shape.kind === 'circle' || this.shape.kind === 'image') refreshBoardShapeProperties(this.app, this.shape);
+        if (this.shape.layer === 'board-outline' || this.shape.kind === 'circle' || this.shape.kind === 'image') refreshBoardShapeProperties(this.app, this.shape);
+        renderBoardShapeSegmentSelection(this.app);
         renderPcbSelectionAnchors(this.app);
     }
 
@@ -111,11 +120,13 @@ export class ModifyBoardShapeCommand {
     }
 
     _apply(state) {
+        const previous = this.shape.layer === 'board-outline' ? structuredClone(this.shape) : null;
         const affectsCopper = this.shape.kind !== 'image'
             || this.shape.layer.endsWith('copper') || state.layer.endsWith('copper');
         const geometryEdit = this.shape.layer === state.layer && (this.shape.net || '') === (state.net || '');
         if (affectsCopper && !geometryEdit) cancelPictureCopperRefresh(this.app);
         applyShapeSnapshot(this.shape, state);
+        if (previous && !validBoardOutline(this.shape)) Object.assign(this.shape, previous);
         if (affectsCopper && geometryEdit) schedulePictureCopperRefresh(this.app, this.shape);
         renderBoardShape(this.app, this.shape, {
             skipCopperUpdate: !affectsCopper,
@@ -129,6 +140,7 @@ export class ModifyBoardShapeCommand {
         }
         this.app._board3d?.refresh?.();
         refreshBoardShapeProperties(this.app, this.shape);
+        renderBoardShapeSegmentSelection(this.app);
         renderPcbSelectionAnchors(this.app);
     }
 

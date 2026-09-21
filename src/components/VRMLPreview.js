@@ -360,7 +360,7 @@ export class VRMLPreview {
             }
 
             if (geometry.vertices.length === 0) {
-                return '<div style="color:var(--text-muted);text-align:center;padding:20px">No vertices found</div>';
+                return '<div style="color:var(--text-muted);text-align:center;padding:20px">No nodes found</div>';
             }
 
             // If no faces provided, create triangles from sequential vertices
@@ -387,7 +387,7 @@ export class VRMLPreview {
             const geometry = this.parseOBJ(objText);
             
             if (geometry.vertices.length === 0) {
-                return '<div style="color:var(--text-muted);text-align:center;padding:20px">No vertices found</div>';
+                return '<div style="color:var(--text-muted);text-align:center;padding:20px">No nodes found</div>';
             }
 
             // Force white colors, ignore any colors from the file

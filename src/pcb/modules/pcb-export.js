@@ -15,6 +15,7 @@ import {
     inlineSvgComputedStyles,
 } from '../../ui/modules/export.js';
 import { PCB_LAYERS } from './layers.js';
+import { boardBoundary } from './board-outline.js';
 import { ModalManager } from '../../core/ModalManager.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
@@ -112,7 +113,7 @@ function getArtworkBoundsMm(app, layers) {
     }
     if (!Number.isFinite(minX)) {
         // Nothing measurable — fall back to the nominal board outline.
-        return { x: 0, y: -app._boardHeight, w: app._boardWidth, h: app._boardHeight };
+        return boardBoundary(app);
     }
     return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
 }

@@ -1,4 +1,4 @@
-import { clipMeshToOutline, punchHolesInFlatMesh } from './board3d-mesh-ops.js?v=2';
+import { clipMeshToOutline, punchHolesInFlatMesh } from './board3d-mesh-ops.js?v=3';
 import { meshToGeometry } from '../../shared/3d/model-rendering.js?v=2';
 
 export function buildSurfaceBuffers(surfaces) {

@@ -76,9 +76,9 @@ export function clearAxisGlow(app) {
 export function makeAxisGlowHalo(app, segment, color, line = document.createElementNS(NS, 'line')) {
     const scale = Math.max(0.01, app.viewport?.scale || 1);
     const width = segment.width || 0.2;
-    // The ring grows with copper width, with a 4px-per-side floor so fine
-    // tracks retain a visible cue when zoomed out.
-    const ring = Math.max(4 / scale, width * 0.25);
+    const ring = segment.haloMarginPx != null
+        ? segment.haloMarginPx / scale
+        : Math.max(4 / scale, width * 0.25);
     line.setAttribute('class', 'pcb-track-preview');
     line.setAttribute('x1', String(segment.a.x));
     line.setAttribute('y1', String(segment.a.y));

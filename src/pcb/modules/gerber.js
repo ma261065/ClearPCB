@@ -9,14 +9,14 @@
  *   - top-paste.gtp     (stencil apertures, top — SMD pads only)
  *   - bottom-paste.gbp  (stencil apertures, bottom)
  *   - top-silk.gto      (component reference labels on silkscreen)
- *   - board-outline.gko (rectangular / rounded board boundary)
+ *   - board-outline.gko (closed board boundary and cutouts)
  *   - board-PTH.drl     (Excellon plated through-holes: pads, vias, plated holes)
  *   - board-NPTH.drl    (Excellon non-plated holes: mounting/tooling — when present)
  *
  * Coordinate system: ClearPCB stores PCB geometry in SVG-Y-down
  * millimetres (positive Y points down on screen). Gerber files use
- * Y-up, so this exporter negates every Y value at emission time and
- * shifts the clip rectangle into the input (Y-down) space.
+ * Y-up, so this exporter negates every Y value at emission time.
+ * Artwork is clipped to the sampled board boundary in input (Y-down) space.
  *
  * The output uses fixed-point 4.6 (four integer digits, six fractional)
  * which is the modern standard for sub-micron precision in mm.
@@ -32,15 +32,21 @@ import {
     TENT_VIAS,
     padFlashOutline,
 } from './board-geometry.js';
+import { resolveTrackSegments } from './board-geometry.js';
 import { resolveBoardShapeGeometry, boardShapeFilledRemovalOutlines } from './board-shapes.js';
 import { pcbTextSegments } from './pcb-text.js';
 import ClipperLib from '../../../assets/vendor/clipper.esm.js';
 import { regionFillContours } from './region-geometry.js';
+import { getBoardOutline, boardBoundary, rectangleBoardOutline } from './board-outline.js';
 
 const FORMAT = '%FSLAX46Y46*%\n%MOMM*%\n';
 const SCALE = 1e6; // 4.6 fixed-point: multiply mm by 10^6
 
-function padOperation(flash, getAp) {
+function padOperation(flash, getAp, bounds) {
+    const contour = padFlashOutline(flash);
+    if (bounds?.points && _clipContours([contour], bounds, ClipperLib.ClipType.ctDifference).length) {
+        return { d: getAp('C:0.0010'), op: _shapeContourRegion([contour], bounds).trimEnd() };
+    }
     let width = flash.w, height = flash.h;
     const angle = ((flash.rotation || 0) % 180 + 180) % 180;
     const round = ['ellipse', 'circle', 'round'].includes(flash.shape);
@@ -54,7 +60,57 @@ function padOperation(flash, getAp) {
     return { d: getAp(key), op: `X${_fmt(flash.x)}Y${_fmtY(flash.y)}D03*` };
 }
 
-function _shapeContourRegion(contours) {
+function _strokeContours(points, closed, width) {
+    const offset = new ClipperLib.ClipperOffset(10, 0.001 * SCALE);
+    offset.AddPath(points.map(point => ({ X: _fx(point.x), Y: _fx(point.y) })),
+        ClipperLib.JoinType.jtRound, closed ? ClipperLib.EndType.etClosedLine : ClipperLib.EndType.etOpenRound);
+    const result = [];
+    offset.Execute(result, width * SCALE / 2);
+    return result.map(contour => contour.map(point => ({ x: point.X / SCALE, y: point.Y / SCALE })));
+}
+
+function _strokeOperation(points, closed, width, bounds) {
+    if (points.length < 2) return '';
+    const contours = _strokeContours(points, closed, width);
+    if (bounds?.points && _clipContours(contours, bounds, ClipperLib.ClipType.ctDifference).length) {
+        return _shapeContourRegion(contours, bounds);
+    }
+    const start = points[0];
+    return `X${_fmt(start.x)}Y${_fmtY(start.y)}D02*\n`
+        + [...points.slice(1), ...(closed ? [start] : [])]
+            .map(point => `X${_fmt(point.x)}Y${_fmtY(point.y)}D01*\n`).join('');
+}
+
+function _circleOperation(geometry, bounds) {
+    const { x, y, radius, outerRadius } = geometry.circle;
+    const circleContour = diameter => padFlashOutline({ x, y, w: diameter, h: diameter, shape: 'circle' });
+    const contours = [circleContour(outerRadius * 2)];
+    const innerRadius = radius - geometry.lineWidth / 2;
+    if (!geometry.filled && innerRadius > 0) contours.push(circleContour(innerRadius * 2));
+    if (bounds?.points && _clipContours(contours, bounds, ClipperLib.ClipType.ctDifference).length) {
+        return _shapeContourRegion(contours, bounds);
+    }
+    if (geometry.filled) return `X${_fmt(x)}Y${_fmtY(y)}D03*\n`;
+    const startX = x - radius;
+    return `G75*\nX${_fmt(startX)}Y${_fmtY(y)}D02*\nG03*\n`
+        + `X${_fmt(startX)}Y${_fmtY(y)}I${_fmt(radius)}J0D01*\nG01*\n`;
+}
+
+function _clipContours(contours, bounds, operation = ClipperLib.ClipType.ctIntersection) {
+    if (!bounds?.points) return contours;
+    const clipper = new ClipperLib.Clipper();
+    clipper.AddPaths(contours.filter(contour => contour.length >= 3)
+        .map(contour => contour.map(point => ({ X: _fx(point.x), Y: _fx(point.y) }))),
+    ClipperLib.PolyType.ptSubject, true);
+    clipper.AddPath(bounds.points.map(point => ({ X: _fx(point.x), Y: _fx(point.y) })),
+        ClipperLib.PolyType.ptClip, true);
+    const result = [];
+    clipper.Execute(operation, result, ClipperLib.PolyFillType.pftEvenOdd, ClipperLib.PolyFillType.pftNonZero);
+    return result.map(contour => contour.map(point => ({ x: point.X / SCALE, y: point.Y / SCALE })));
+}
+
+function _shapeContourRegion(contours, bounds) {
+    contours = _clipContours(contours, bounds);
     return regionFillContours(contours).map(contour => {
         let body = 'G36*\n';
         const start = contour[0];
@@ -103,6 +159,12 @@ export function exportGerbers(opts) {
         w: boardWidth, h: boardHeight,
         r: boardRadius || 0,
     };
+    if (getBoardOutline(opts)) Object.assign(clipBounds, boardBoundary(opts));
+    else if (boardWidth > 0 && boardHeight > 0) {
+        const legacy = rectangleBoardOutline(boardWidth, boardHeight, boardRadius);
+        legacy.points = legacy.points.map(point => ({ x: point.x + boardX, y: point.y - boardY }));
+        Object.assign(clipBounds, boardBoundary({ boardShapes: [legacy] }));
+    }
     const files = new Map([
         ['board.gtl', _buildCopper(placements, tracks, vias, 'top-copper', clipBounds, texts, fills, circles, boardShapes)],
         ['board.gbl', _buildCopper(placements, tracks, vias, 'bottom-copper', clipBounds, texts, fills, circles, boardShapes)],
@@ -112,7 +174,7 @@ export function exportGerbers(opts) {
         ['board.gbp', _buildPaste(placements, 'bottom', clipBounds)],
         ['board.gto', _buildSilk(placements, 'top', clipBounds, texts, boardShapes)],
         ['board.gbo', _buildSilk(placements, 'bottom', clipBounds, texts, boardShapes)],
-        ['board.gko', _buildOutline(outlineBounds, boardShapes)],
+        ['board.gko', _buildOutline(outlineBounds, boardShapes, clipBounds)],
         // Plated through-holes (pads, vias, and Hole-layer circles) and
         // non-plated holes go in separate Excellon files so fabs (JLCPCB,
         // etc.) can tell them apart — they key off the -PTH / -NPTH suffix.
@@ -127,39 +189,13 @@ export function exportGerbers(opts) {
 
 /* ──────────────────────────── board clipping ──────────────────────────── */
 
-/** Point inside the board outline (rectangle, ignoring rounded corners). */
+/** Point inside or on the board boundary. */
 function _inBoard(x, y, b) {
+    if (b?.points) return ClipperLib.Clipper.PointInPolygon({ X: _fx(x), Y: _fx(y) },
+        b.points.map(point => ({ X: _fx(point.x), Y: _fx(point.y) }))) !== 0;
     if (!b || !b.w || !b.h) return true;
     const x0 = b.x || 0, y0 = b.y || 0;
     return x >= x0 && x <= x0 + b.w && y >= y0 && y <= y0 + b.h;
-}
-
-/**
- * Liang–Barsky segment clip against the board rectangle
- * [b.x, b.y] – [b.x+w, b.y+h]. Returns null if the segment lies entirely
- * outside, otherwise the clipped endpoints. Rounded corners are ignored —
- * the outline gerber defines the actual cut, so a tiny corner overrun is
- * harmless.
- */
-function _clipSegment(x1, y1, x2, y2, b, strokeWidth = 0) {
-    if (!b || !b.w || !b.h) return [x1, y1, x2, y2];
-    const margin = strokeWidth / 2;
-    const x0 = (b.x || 0) - margin, y0 = (b.y || 0) - margin;
-    const xMax = (b.x || 0) + b.w + margin, yMax = (b.y || 0) + b.h + margin;
-    let t0 = 0, t1 = 1;
-    const dx = x2 - x1, dy = y2 - y1;
-    const p = [-dx, dx, -dy, dy];
-    const q = [x1 - x0, xMax - x1, y1 - y0, yMax - y1];
-    for (let i = 0; i < 4; i++) {
-        if (p[i] === 0) {
-            if (q[i] < 0) return null;
-        } else {
-            const t = q[i] / p[i];
-            if (p[i] < 0) { if (t > t1) return null; if (t > t0) t0 = t; }
-            else          { if (t < t0) return null; if (t < t1) t1 = t; }
-        }
-    }
-    return [x1 + t0 * dx, y1 + t0 * dy, x1 + t1 * dx, y1 + t1 * dy];
 }
 
 /* ──────────────────────────── coords ──────────────────────────── */
@@ -207,32 +243,22 @@ function _buildCopper(placements, tracks, vias, layerId, bounds, texts = [], fil
 
     // Pads on this layer (and on 'both').
     for (const flash of resolvePadFlashes(placements, { side: padSide })) {
-        ops.push(padOperation(flash, getAp));
+        ops.push(padOperation(flash, getAp, bounds));
     }
 
     // Vias (drawn as circular flashes on both copper layers).
     for (const v of vias) {
-        const key = apKey('C', v.diameter);
-        const d = getAp(key);
-        ops.push({ d, op: `X${_fmt(v.x)}Y${_fmtY(v.y)}D03*` });
+        ops.push(padOperation({ x: v.x, y: v.y, w: v.diameter, h: v.diameter, shape: 'circle' }, getAp, bounds));
     }
 
     // Tracks on this layer.
     for (const t of tracks) {
         if (!t.edges?.size) continue;
-        for (const [eid, e] of t.edges) {
-            const edgeLayer = t.getEdgeLayer ? t.getEdgeLayer(eid) : (t.layer);
+        for (const { start: a, end: b, layer: edgeLayer, width: w } of resolveTrackSegments(t)) {
             if (edgeLayer !== layerId) continue;
-            const a = t.nodes.get(e.from);
-            const b = t.nodes.get(e.to);
-            if (!a || !b) continue;
-            const clipped = _clipSegment(a.x, a.y, b.x, b.y, bounds, t.getEdgeWidth ? t.getEdgeWidth(eid) : t.width);
-            if (!clipped) continue;
             // Aperture is per-edge: each segment may have its own width.
-            const w = t.getEdgeWidth ? t.getEdgeWidth(eid) : t.width;
             const d = getAp(apKey('C', w || 0.2));
-            ops.push({ d, op: `X${_fmt(clipped[0])}Y${_fmtY(clipped[1])}D02*` });
-            ops.push({ d, op: `X${_fmt(clipped[2])}Y${_fmtY(clipped[3])}D01*` });
+            ops.push({ d, op: _strokeOperation([a, b], false, w || 0.2, bounds).trimEnd() });
         }
     }
 
@@ -247,10 +273,7 @@ function _buildCopper(placements, tracks, vias, layerId, bounds, texts = [], fil
         const d = getAp(key);
         const segs = pcbTextSegments(t);
         for (const [a, b] of segs) {
-            const clipped = _clipSegment(a.x, a.y, b.x, b.y, bounds, sw);
-            if (!clipped) continue;
-            ops.push({ d, op: `X${_fmt(clipped[0])}Y${_fmtY(clipped[1])}D02*` });
-            ops.push({ d, op: `X${_fmt(clipped[2])}Y${_fmtY(clipped[3])}D01*` });
+            ops.push({ d, op: _strokeOperation([a, b], false, sw, bounds).trimEnd() });
         }
     }
 
@@ -272,52 +295,15 @@ function _buildCopper(placements, tracks, vias, layerId, bounds, texts = [], fil
         const mode = geometry.copperMode;
         const cutsCopper = isHole ||
             (onThisLayer && (mode === 'remove-copper' || mode === 'remove-copper-mask'));
-        if (cutsCopper) {
-            if (geometry.filled) {
-                const d = getAp(apKey('C', rad * 2));
-                clearCircleOps.push({ d, op: `X${_fmt(c.x)}Y${_fmtY(c.y)}D03*` });
-            } else {
-                const d = getAp(apKey('C', geometry.lineWidth));
-                const sx = c.x - rad;
-                const arc = `G75*\n`
-                    + `X${_fmt(sx)}Y${_fmtY(c.y)}D02*\n`
-                    + `G03*\n`
-                    + `X${_fmt(sx)}Y${_fmtY(c.y)}I${_fx(rad)}J0D01*\n`
-                    + `G01*`;
-                clearCircleOps.push({ d, op: arc });
-            }
-        } else if (onThisLayer && mode === 'add') {
-            if (geometry.filled) {
-                // Solid disc: flash a circular aperture.
-                const d = getAp(apKey('C', rad * 2));
-                ops.push({ d, op: `X${_fmt(c.x)}Y${_fmtY(c.y)}D03*` });
-            } else {
-                // Ring: stroke the outline with a full-circle arc (G75/G03).
-                const d = getAp(apKey('C', geometry.lineWidth));
-                const sx = c.x - rad;
-                const arc = `G75*\n`
-                    + `X${_fmt(sx)}Y${_fmtY(c.y)}D02*\n`
-                    + `G03*\n`
-                    + `X${_fmt(sx)}Y${_fmtY(c.y)}I${_fx(rad)}J0D01*\n`
-                    + `G01*`;
-                ops.push({ d, op: arc });
-            }
+        if (cutsCopper || (onThisLayer && mode === 'add')) {
+            const d = getAp(apKey('C', geometry.filled ? rad * 2 : geometry.lineWidth));
+            (cutsCopper ? clearCircleOps : ops).push({ d, op: _circleOperation(geometry, bounds).trimEnd() });
         }
     }
 
     // User-drawn board shapes on this copper layer. Filled shapes use G36
     // regions; unfilled shapes use their configured stroke width.
-    const shapeRegion = (o) => {
-        if (!o || o.length < 3) return '';
-        let s = 'G36*\n';
-        s += `X${_fmt(o[0].x)}Y${_fmtY(o[0].y)}D02*\n`;
-        for (let i = 1; i < o.length; i++) {
-            s += `X${_fmt(o[i].x)}Y${_fmtY(o[i].y)}D01*\n`;
-        }
-        s += `X${_fmt(o[0].x)}Y${_fmtY(o[0].y)}D01*\n`;
-        s += 'G37*\n';
-        return s;
-    };
+    const shapeRegion = (outline) => _shapeContourRegion([outline], bounds);
     let darkShapeRegions = '';
     let clearShapeRegions = '';
     /** @type {Array<{d:number, op:string}>} */
@@ -335,21 +321,18 @@ function _buildCopper(placements, tracks, vias, layerId, bounds, texts = [], fil
         const cutsCopper = isHole ||
             (onThisLayer && (mode === 'remove-copper' || mode === 'remove-copper-mask'));
         if (geometry.physicalContours) {
-            const region = _shapeContourRegion(geometry.physicalContours);
+            const region = _shapeContourRegion(geometry.physicalContours, bounds);
             if (cutsCopper) clearShapeRegions += region;
             else if (onThisLayer && mode === 'add') darkShapeRegions += region;
             continue;
         }
         const d = getAp(apKey('C', geometry.lineWidth));
-        const op = `X${_fmt(o[0].x)}Y${_fmtY(o[0].y)}D02*\n`
-            + o.slice(1).map((point) => `X${_fmt(point.x)}Y${_fmtY(point.y)}D01*`).join('\n')
-            + (geometry.pathClosed ? `\nX${_fmt(o[0].x)}Y${_fmtY(o[0].y)}D01*` : '');
+        const op = _strokeOperation(o, geometry.pathClosed, geometry.lineWidth, bounds).trimEnd();
         if (!geometry.filled) {
             const strokeOps = geometry.strokeSegments?.length
                 ? geometry.strokeSegments.map((segment) => ({
                     d: getAp(apKey('C', segment.lineWidth)),
-                    op: `X${_fmt(segment.start.x)}Y${_fmtY(segment.start.y)}D02*\n`
-                        + `X${_fmt(segment.end.x)}Y${_fmtY(segment.end.y)}D01*`,
+                    op: _strokeOperation([segment.start, segment.end], false, segment.lineWidth, bounds).trimEnd(),
                 }))
                 : [{ d, op }];
             if (cutsCopper) clearShapeStrokeOps.push(...strokeOps);
@@ -371,7 +354,7 @@ function _buildCopper(placements, tracks, vias, layerId, bounds, texts = [], fil
     }
     // Pour regions omit their holes without clearing previously emitted islands.
     // Pads, tracks and vias are added afterward; explicit cutouts are applied last.
-    out += _buildFillRegions(fills, layerId);
+    out += _buildFillRegions(fills, layerId, bounds);
     out += '%LPD*%\n';
     let currentD = -1;
     for (const { d, op } of ops) {
@@ -407,7 +390,7 @@ function _buildCopper(placements, tracks, vias, layerId, bounds, texts = [], fil
  * world mm (SVG-Y-down). Hole-bearing polygons are triangulated into dark
  * regions so their holes cannot erase other islands. Returns '' for no fills.
  */
-function _buildFillRegions(fills, layerId) {
+function _buildFillRegions(fills, layerId, bounds) {
     if (!Array.isArray(fills) || !fills.length) return '';
     let out = '';
     for (const f of fills) {
@@ -417,7 +400,7 @@ function _buildFillRegions(fills, layerId) {
         if (!Array.isArray(polys) || !polys.length) continue;
         for (const poly of polys) {
             out += '%LPD*%\n';
-            out += _shapeContourRegion([poly.outer || [], ...(poly.holes || [])]);
+            out += _shapeContourRegion([poly.outer || [], ...(poly.holes || [])], bounds);
         }
     }
     return out;
@@ -444,7 +427,7 @@ function _apertureBody(key) {
  * @param {Map<string, object>} placements
  * @param {Array<object>} vias
  * @param {'top'|'bottom'} side
- * @param {object} bounds  clip rect (SVG-Y-down)
+ * @param {object} bounds  board clipping boundary (SVG-Y-down)
  * @param {object} opts
  * @param {number}  opts.expansion          mm added to each side of the pad
  * @param {boolean} opts.includeThruHole    include drilled (THT) pads
@@ -483,13 +466,13 @@ function _buildPadLayer(placements, vias, side, bounds, opts) {
         // bridge solder.
         if (respectPaste && flash.paste === false) continue;
         if (respectMask && flash.mask === false) continue;
-        ops.push(padOperation(flash, getAp));
+        ops.push(padOperation(flash, getAp, bounds));
     }
 
     // Standalone paste apertures (no copper) — windowpane stencil openings.
     if (pasteApertures) {
         for (const flash of resolvePadFlashes(placements, { side, source: 'paste', expansion })) {
-            ops.push(padOperation(flash, getAp));
+            ops.push(padOperation(flash, getAp, bounds));
         }
     }
 
@@ -497,9 +480,7 @@ function _buildPadLayer(placements, vias, side, bounds, opts) {
         for (const v of vias) {
             const dia = (v.diameter || 0.6) + 2 * expansion;
             if (dia <= 0) continue;
-            const key = apKey('C', dia);
-            const d = getAp(key);
-            ops.push({ d, op: `X${_fmt(v.x)}Y${_fmtY(v.y)}D03*` });
+            ops.push(padOperation({ x: v.x, y: v.y, w: dia, h: dia, shape: 'circle' }, getAp, bounds));
         }
     }
 
@@ -508,51 +489,27 @@ function _buildPadLayer(placements, vias, side, bounds, opts) {
         const geometry = opening?.geometry;
         if (!geometry) continue;
         if (geometry.physicalContours) {
-            shapeRegions += _shapeContourRegion(geometry.physicalContours);
+            shapeRegions += _shapeContourRegion(geometry.physicalContours, bounds);
             continue;
         }
         if (geometry.circle) {
-            if (!_inBoard(geometry.circle.x, geometry.circle.y, bounds)) continue;
-            if (geometry.filled) {
-                const d = getAp(apKey('C', geometry.circle.outerRadius * 2));
-                ops.push({ d, op: `X${_fmt(geometry.circle.x)}Y${_fmtY(geometry.circle.y)}D03*` });
-            } else {
-                const d = getAp(apKey('C', geometry.lineWidth));
-                const startX = geometry.circle.x - geometry.circle.radius;
-                ops.push({ d, op: `G75*\n`
-                    + `X${_fmt(startX)}Y${_fmtY(geometry.circle.y)}D02*\n`
-                    + `G03*\n`
-                    + `X${_fmt(startX)}Y${_fmtY(geometry.circle.y)}I${_fx(geometry.circle.radius)}J0D01*\n`
-                    + 'G01*' });
-            }
+            const d = getAp(apKey('C', geometry.filled ? geometry.circle.outerRadius * 2 : geometry.lineWidth));
+            ops.push({ d, op: _circleOperation(geometry, bounds).trimEnd() });
             continue;
         }
         if (geometry.path.length < (geometry.filled ? 3 : 2)) continue;
         if (geometry.filled) {
-            shapeRegions += 'G36*\n';
-            shapeRegions += `X${_fmt(geometry.path[0].x)}Y${_fmtY(geometry.path[0].y)}D02*\n`;
-            for (const point of geometry.path.slice(1)) {
-                shapeRegions += `X${_fmt(point.x)}Y${_fmtY(point.y)}D01*\n`;
-            }
-            shapeRegions += `X${_fmt(geometry.path[0].x)}Y${_fmtY(geometry.path[0].y)}D01*\n`;
-            shapeRegions += 'G37*\n';
+            shapeRegions += _shapeContourRegion([geometry.path], bounds);
         }
         if (!geometry.filled && geometry.strokeSegments?.length) {
             for (const segment of geometry.strokeSegments) {
                 const d = getAp(apKey('C', segment.lineWidth));
-                const op = `X${_fmt(segment.start.x)}Y${_fmtY(segment.start.y)}D02*\n`
-                    + `X${_fmt(segment.end.x)}Y${_fmtY(segment.end.y)}D01*`;
+                const op = _strokeOperation([segment.start, segment.end], false, segment.lineWidth, bounds).trimEnd();
                 ops.push({ d, op });
             }
         } else {
             const d = getAp(apKey('C', geometry.lineWidth));
-            let op = `X${_fmt(geometry.path[0].x)}Y${_fmtY(geometry.path[0].y)}D02*\n`;
-            op += geometry.path.slice(1)
-                .map((point) => `X${_fmt(point.x)}Y${_fmtY(point.y)}D01*`)
-                .join('\n');
-            if (geometry.pathClosed) {
-                op += `\nX${_fmt(geometry.path[0].x)}Y${_fmtY(geometry.path[0].y)}D01*`;
-            }
+            const op = _strokeOperation(geometry.path, geometry.pathClosed, geometry.lineWidth, bounds).trimEnd();
             ops.push({ d, op });
         }
     }
@@ -654,10 +611,7 @@ function _buildSilk(placements, side, bounds, texts = [], boardShapes = []) {
     };
 
     const emitSeg = (a, b) => {
-        const clipped = _clipSegment(a.x, a.y, b.x, b.y, bounds, currentApertureW);
-        if (!clipped) return '';
-        return `X${_fmt(clipped[0])}Y${_fmtY(clipped[1])}D02*\n`
-             + `X${_fmt(clipped[2])}Y${_fmtY(clipped[3])}D01*\n`;
+        return _strokeOperation([a, b], false, currentApertureW, bounds);
     };
 
     let body = '';
@@ -677,14 +631,10 @@ function _buildSilk(placements, side, bounds, texts = [], boardShapes = []) {
                 // Solid silk circles (e.g. polarity dots) fill as a region so
                 // the fabricated silkscreen is filled, not just an outline.
                 if (sk.filled) {
-                    let ring = 'G36*\n';
-                    ring += `X${_fmt(sk.cx + sk.r)}Y${_fmtY(sk.cy)}D02*\n`;
-                    for (let i = 1; i <= N; i++) {
-                        const t = (i / N) * Math.PI * 2;
-                        ring += `X${_fmt(sk.cx + sk.r * Math.cos(t))}Y${_fmtY(sk.cy + sk.r * Math.sin(t))}D01*\n`;
-                    }
-                    ring += 'G37*\n';
-                    body += ring;
+                    body += _shapeContourRegion([Array.from({ length: N }, (_, index) => {
+                        const angle = index / N * Math.PI * 2;
+                        return { x: sk.cx + sk.r * Math.cos(angle), y: sk.cy + sk.r * Math.sin(angle) };
+                    })], bounds);
                 }
                 let px = sk.cx + sk.r, py = sk.cy;
                 for (let i = 1; i <= N; i++) {
@@ -697,7 +647,7 @@ function _buildSilk(placements, side, bounds, texts = [], boardShapes = []) {
                 // Filled silk paths (e.g. pin-1 triangles) fill as regions so
                 // they are solid on the fabricated silkscreen, not hollow.
                 if (sk.filled) {
-                    body += _shapeContourRegion(sk.polys);
+                    body += _shapeContourRegion(sk.polys, bounds);
                 }
                 for (const poly of sk.polys) {
                     for (let i = 1; i < poly.length; i++) {
@@ -723,14 +673,9 @@ function _buildSilk(placements, side, bounds, texts = [], boardShapes = []) {
         if (!s || s.layer !== wantLayer) continue;
         const geometry = resolveBoardShapeGeometry(s);
         if (geometry.circle) {
-            const { x, y, radius, outerRadius } = geometry.circle;
+            const { outerRadius } = geometry.circle;
             body += useAperture(geometry.filled ? outerRadius * 2 : geometry.lineWidth);
-            if (geometry.filled) {
-                body += `X${_fmt(x)}Y${_fmtY(y)}D03*\n`;
-            } else {
-                body += `G75*\nX${_fmt(x - radius)}Y${_fmtY(y)}D02*\nG03*\n`
-                    + `X${_fmt(x - radius)}Y${_fmtY(y)}I${_fmt(radius)}J0D01*\nG01*\n`;
-            }
+            body += _circleOperation(geometry, bounds);
             continue;
         }
         const o = geometry.path;
@@ -738,7 +683,7 @@ function _buildSilk(placements, side, bounds, texts = [], boardShapes = []) {
         const head = useAperture(geometry.filled ? 0.06 : geometry.lineWidth);
         if (head) body += head;
         if (geometry.physicalContours) {
-            body += _shapeContourRegion(geometry.physicalContours);
+            body += _shapeContourRegion(geometry.physicalContours, bounds);
             continue;
         }
         if (!geometry.filled && geometry.strokeSegments.length) {
@@ -749,14 +694,7 @@ function _buildSilk(placements, side, bounds, texts = [], boardShapes = []) {
             continue;
         }
         if (geometry.filled && o.length >= 3) {
-            let ring = 'G36*\n';
-            ring += `X${_fmt(o[0].x)}Y${_fmtY(o[0].y)}D02*\n`;
-            for (let i = 1; i < o.length; i++) {
-                ring += `X${_fmt(o[i].x)}Y${_fmtY(o[i].y)}D01*\n`;
-            }
-            ring += `X${_fmt(o[0].x)}Y${_fmtY(o[0].y)}D01*\n`;
-            ring += 'G37*\n';
-            body += ring;
+            body += _shapeContourRegion([o], bounds);
         }
         for (let i = 1; i < o.length; i++) body += emitSeg(o[i - 1], o[i]);
         if (geometry.pathClosed) body += emitSeg(o[o.length - 1], o[0]);
@@ -779,7 +717,7 @@ function _buildSilk(placements, side, bounds, texts = [], boardShapes = []) {
 
 /* ──────────────────────────── board outline ──────────────────────────── */
 
-function _buildOutline(b, boardShapes = []) {
+function _buildOutline(b, boardShapes = [], bounds) {
     const w = b.w, h = b.h;
     const r = b.r || 0;
     const x0 = b.x || 0, y0 = b.y || 0;
@@ -787,7 +725,15 @@ function _buildOutline(b, boardShapes = []) {
     let out = 'G04 ClearPCB Board Outline*\n' + FORMAT + '%LPD*%\n';
     out += '%ADD10C,0.1*%\nD10*\n';
     const rad = Math.min(r, w / 2, h / 2);
-    if (rad <= 0) {
+    const outline = getBoardOutline({ boardShapes });
+    if (outline?.kind === 'circle') {
+        out += `G75*\nX${_fmt(outline.x - outline.radius)}Y${_fmtY(outline.y)}D02*\nG03*\n`;
+        out += `X${_fmt(outline.x - outline.radius)}Y${_fmtY(outline.y)}I${_fmt(outline.radius)}J0D01*\nG01*\n`;
+    } else if (outline) {
+        const points = boardBoundary({ boardShapes }).points;
+        out += `X${_fmt(points[0].x)}Y${_fmtY(points[0].y)}D02*\n`;
+        for (const point of [...points.slice(1), points[0]]) out += `X${_fmt(point.x)}Y${_fmtY(point.y)}D01*\n`;
+    } else if (rad <= 0) {
         out += `X${_fmt(x0)}Y${_fmt(y0)}D02*\n`;
         out += `X${_fmt(x1)}Y${_fmt(y0)}D01*\n`;
         out += `X${_fmt(x1)}Y${_fmt(y1)}D01*\n`;
@@ -817,12 +763,28 @@ function _buildOutline(b, boardShapes = []) {
     // Free-standing board shapes on the HOLE layer are interior cutouts: draw
     // each as a closed contour. Shape outlines are in SVG-Y-down internal
     // coords, so flip Y into the outline file's Y-up frame (y_up = -y_int).
+    const cutoutPaths = [];
+    let crossingCutout = false;
+    const includeCutout = contours => {
+        if (!bounds?.points) return true;
+        if (!_clipContours(contours, bounds).length) return false;
+        if (_clipContours(contours, bounds, ClipperLib.ClipType.ctDifference).length) crossingCutout = true;
+        const union = new ClipperLib.Clipper();
+        union.AddPaths(contours.map(contour => contour.map(point => ({ X: _fx(point.x), Y: _fx(point.y) }))),
+            ClipperLib.PolyType.ptSubject, true);
+        const paths = [];
+        union.Execute(ClipperLib.ClipType.ctUnion, paths,
+            ClipperLib.PolyFillType.pftEvenOdd, ClipperLib.PolyFillType.pftEvenOdd);
+        cutoutPaths.push(...paths);
+        return true;
+    };
     for (const s of boardShapes) {
         if (!s || s.layer !== 'hole') continue;
         const geometry = resolveBoardShapeGeometry(s);
         if (geometry.circle) {
             const { x, y, outerRadius: radius } = geometry.circle;
             if (radius <= 0) continue;
+            if (!includeCutout([padFlashOutline({ x, y, w: radius * 2, h: radius * 2, shape: 'circle' })])) continue;
             const startX = x - radius;
             out += 'G75*\n';
             out += `X${_fmt(startX)}Y${_fmt(-y)}D02*\n`;
@@ -853,12 +815,29 @@ function _buildOutline(b, boardShapes = []) {
                 ClipperLib.PolyFillType.pftNonZero, ClipperLib.PolyFillType.pftNonZero);
             contours = merged.map(path => path.map(point => ({ x: point.X / SCALE, y: point.Y / SCALE })));
         }
+        if (!includeCutout(contours)) continue;
         for (const contour of contours) {
             if (contour.length < 3) continue;
             out += `X${_fmt(contour[0].x)}Y${_fmtY(contour[0].y)}D02*\n`;
             for (const point of [...contour.slice(1), contour[0]]) {
                 out += `X${_fmt(point.x)}Y${_fmtY(point.y)}D01*\n`;
             }
+        }
+    }
+    if (crossingCutout) {
+        const clipper = new ClipperLib.Clipper();
+        clipper.AddPath(bounds.points.map(point => ({ X: _fx(point.x), Y: _fx(point.y) })),
+            ClipperLib.PolyType.ptSubject, true);
+        clipper.AddPaths(cutoutPaths, ClipperLib.PolyType.ptClip, true);
+        const contours = [];
+        clipper.Execute(ClipperLib.ClipType.ctDifference, contours,
+            ClipperLib.PolyFillType.pftNonZero, ClipperLib.PolyFillType.pftNonZero);
+        out = 'G04 ClearPCB Board Outline*\n' + FORMAT + '%LPD*%\n%ADD10C,0.1*%\nD10*\n';
+        for (const contour of contours) {
+            if (contour.length < 3) continue;
+            const start = contour[0];
+            out += `X${start.X}Y${-start.Y}D02*\n`;
+            for (const point of [...contour.slice(1), start]) out += `X${point.X}Y${-point.Y}D01*\n`;
         }
     }
     out += 'M02*\n';

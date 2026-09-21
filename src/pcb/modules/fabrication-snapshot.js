@@ -23,6 +23,8 @@ export async function prepareFabricationSnapshot(app) {
             width: track.getEdgeWidth(id), layer: track.getEdgeLayer(id),
         }]));
         return { id: track.id, net: track.net, width: track.width, layer: track.layer, nodes, edges,
+            cornerRadius: track.cornerRadius, nodeCornerRadii: { ...track.nodeCornerRadii },
+            padConnections: new Map(track.padConnections),
             getEdgeWidth: id => edges.get(id).width, getEdgeLayer: id => edges.get(id).layer };
     });
     const fills = app.copperFills.map(fill => ({ id: fill.id, type: 'fill', layer: fill.layer, net: fill.net,

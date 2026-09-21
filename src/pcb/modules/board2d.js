@@ -15,12 +15,14 @@
  */
 
 import { resolveReferenceText } from './reference-text.js';
+import { getBoardOutline, boardBoundary } from './board-outline.js';
 import {
     resolvePlacementDrills,
     resolvePadFlashes,
     resolveSilk,
     resolvePadMaskOpenings,
 } from './board-geometry.js';
+import { resolveTrackSegments } from './board-geometry.js';
 import { boardShapeFilledRemovalOutlines, resolveBoardShapeGeometry } from './board-shapes.js';
 import { pcbTextSegments } from './pcb-text.js';
 import { drawPictureCached } from './picture-raster.js';
@@ -395,6 +397,7 @@ export class Board2D {
 
     _boardRect() {
         const d = this.data || {};
+        if (getBoardOutline(d)) return boardBoundary(d);
         const h = d.boardHeight || 80;
         // exportGerbers' boardX/boardY are the Y-up bottom-left corner; the rest
         // of the geometry (pads/tracks/vias) is SVG-Y-down, where the board
@@ -515,7 +518,7 @@ export class Board2D {
         // spill past the edge (e.g. pads on the rim) are cropped to the board.
         ctx.save();
         const b = this._boardRect();
-        this._roundRectPath(ctx, b.x, b.y, b.w, b.h, b.r);
+        this._boardPath(ctx, b);
         ctx.clip();
         if (SHOW_SOLDERMASK) this._drawMaskOpenings(ctx);
         this._drawCopper(ctx);
@@ -559,7 +562,7 @@ export class Board2D {
     /** Rounded board substrate with a bare-FR4 edge stroke. */
     _drawBoard(ctx) {
         const b = this._boardRect();
-        this._roundRectPath(ctx, b.x, b.y, b.w, b.h, b.r);
+        this._boardPath(ctx, b);
         // Raw substrate base; solder mask is composited later as a topcoat.
         ctx.save();
         ctx.globalAlpha = LAYER_STYLE.board.o;
@@ -570,6 +573,17 @@ export class Board2D {
         ctx.lineWidth = 0.2;
         ctx.stroke();
         ctx.restore();
+    }
+
+    _boardPath(ctx, bounds) {
+        if (!bounds.points) {
+            this._roundRectPath(ctx, bounds.x, bounds.y, bounds.w, bounds.h, bounds.r);
+            return;
+        }
+        ctx.beginPath();
+        ctx.moveTo(bounds.points[0].x, bounds.points[0].y);
+        for (const point of bounds.points.slice(1)) ctx.lineTo(point.x, point.y);
+        ctx.closePath();
     }
 
     _roundRectPath(ctx, x, y, w, h, r) {
@@ -627,7 +641,7 @@ export class Board2D {
 
         const b = this._boardRect();
         mctx.fillStyle = COL.solderMask;
-        this._roundRectPath(mctx, b.x, b.y, b.w, b.h, b.r);
+        this._boardPath(mctx, b);
         mctx.save();
         mctx.globalAlpha = LAYER_STYLE.soldermask.o;
         mctx.fill();
@@ -699,13 +713,8 @@ export class Board2D {
         cctx.lineJoin = 'round';
         for (const t of (d.tracks || [])) {
             if (!t.edges?.size) continue;
-            for (const [eid, e] of t.edges) {
-                const layer = t.getEdgeLayer ? t.getEdgeLayer(eid) : t.layer;
+            for (const { start: a, end: bb, layer, width: w } of resolveTrackSegments(t)) {
                 if (layer !== copperLayer) continue;
-                const a = t.nodes.get(e.from);
-                const bb = t.nodes.get(e.to);
-                if (!a || !bb) continue;
-                const w = (t.getEdgeWidth ? t.getEdgeWidth(eid) : t.width) || 0.2;
                 cctx.lineWidth = w;
                 cctx.beginPath();
                 cctx.moveTo(a.x, a.y);

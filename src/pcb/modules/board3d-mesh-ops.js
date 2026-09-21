@@ -13,12 +13,12 @@ export function polygonAreaXZ(poly) {
 }
 
 /**
- * Clip every triangle of `mesh` to the vertical prism of the convex board
+ * Clip every triangle of `mesh` to the vertical prism of the board
  * `outline` (Sutherland–Hodgman in the x–z plane, with y linearly interpolated
  * at each new edge crossing). Geometry that overhangs the board edge is trimmed
  * exactly at the boundary instead of being dropped or left floating. The board
- * outline is convex (a rounded rectangle), so each clipped triangle stays a
- * single convex polygon that fan-triangulates cleanly.
+ * outline is triangulated when concave, so each clipping region stays convex
+ * and its resulting polygons fan-triangulate cleanly.
  * @param {{verts:Array<{x:number,y:number,z:number}>, faces:Array<{idx:number[],color:number[]}>}} mesh
  * @param {Array<{x:number,z:number}>} outline
  * @returns {{verts:Array, faces:Array}}
@@ -26,6 +26,30 @@ export function polygonAreaXZ(poly) {
 export function clipMeshToOutline(mesh, outline) {
     if (!outline || outline.length < 3) return mesh;
     const orient = polygonAreaXZ(outline) >= 0 ? 1 : -1;
+    const concave = outline.some((point, index) => {
+        const next = outline[(index + 1) % outline.length];
+        const after = outline[(index + 2) % outline.length];
+        return orient * ((next.x - point.x) * (after.z - next.z)
+            - (next.z - point.z) * (after.x - next.x)) < -1e-9;
+    });
+    if (concave) {
+        const indices = earcut(outline.flatMap(point => [point.x, point.z]));
+        const combined = emptyMesh();
+        for (let index = 0; index < indices.length; index += 3) {
+            const region = [outline[indices[index]], outline[indices[index + 1]], outline[indices[index + 2]]];
+            const clipped = clipMeshToOutline(mesh, region);
+            const base = combined.verts.length;
+            for (const vertex of clipped.verts) combined.verts.push(vertex);
+            for (const face of clipped.faces) combined.faces.push({
+                ...face, idx: face.idx.map(vertexIndex => vertexIndex + base),
+            });
+        }
+        return combined;
+    }
+    const minX = Math.min(...outline.map(point => point.x));
+    const maxX = Math.max(...outline.map(point => point.x));
+    const minZ = Math.min(...outline.map(point => point.z));
+    const maxZ = Math.max(...outline.map(point => point.z));
     const edges = [];
     for (let i = 0, j = outline.length - 1; i < outline.length; j = i++) {
         edges.push({
@@ -53,6 +77,8 @@ export function clipMeshToOutline(mesh, outline) {
             const v1 = mesh.verts[idx[t]];
             const v2 = mesh.verts[idx[t + 1]];
             if (!v0 || !v1 || !v2) continue;
+            if (Math.max(v0.x, v1.x, v2.x) < minX || Math.min(v0.x, v1.x, v2.x) > maxX
+                || Math.max(v0.z, v1.z, v2.z) < minZ || Math.min(v0.z, v1.z, v2.z) > maxZ) continue;
             // Fast path: a triangle wholly inside every edge passes through.
             let allIn = true;
             for (const e of edges) {

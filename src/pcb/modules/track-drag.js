@@ -21,6 +21,7 @@
  */
 
 import { renderTrack } from './track-render.js';
+import { resolveTrackSegments } from './board-geometry.js';
 import { renderVia } from './track-render.js';
 import {
     resolveTrackSnap,
@@ -51,6 +52,9 @@ import { Via } from '../../shapes/via.js';
 import { Track } from '../../shapes/track.js';
 import { isLayerLocked, isOverlayVisible } from './layers.js';
 import { getPcbSelection } from './selection-registry.js';
+import { snapPathTranslation, beginPathSplit } from './path-edit.js';
+import { createTrackSelectionAdapter } from './track-select.js';
+import { closestPointOnArcEdge } from '../../shapes/arc-edge.js';
 
 /** Screen-px hit tolerance for selecting a Track node to drag. */
 const NODE_HIT_PX = 8;
@@ -117,6 +121,7 @@ export function hitTestTrackMidpoint(app, track, worldPos, pxTol = NODE_HIT_PX) 
     let best = null;
     let bestD = tol;
     for (const [eid, e] of track.edges) {
+        if (e.bulge) continue;
         const a = track.nodes.get(e.from);
         const b = track.nodes.get(e.to);
         if (!a || !b) continue;
@@ -137,18 +142,15 @@ export function hitTestTrackEdge(app, track, worldPos, pxTol = 6) {
     const tol = pxTol / scale;
     let best = null;
     let bestD = Infinity;
-    for (const [eid, e] of track.edges) {
-        const a = track.nodes.get(e.from);
-        const b = track.nodes.get(e.to);
-        if (!a || !b) continue;
-        const half = (track.getEdgeWidth ? track.getEdgeWidth(eid) : track.width || 0.2) / 2 + tol;
+    for (const { edgeId, start: a, end: b, width } of resolveTrackSegments(track)) {
+        const half = width / 2 + tol;
         const vx = b.x - a.x, vy = b.y - a.y;
         const len2 = vx * vx + vy * vy;
         if (len2 < 1e-12) continue;
         let t = ((worldPos.x - a.x) * vx + (worldPos.y - a.y) * vy) / len2;
         if (t < 0 || t > 1) continue;
         const d = Math.hypot(worldPos.x - (a.x + t * vx), worldPos.y - (a.y + t * vy));
-        if (d <= half && d < bestD) { bestD = d; best = { edgeId: eid, edge: e, t }; }
+        if (d <= half && d < bestD) { bestD = d; best = { edgeId, edge: track.edges.get(edgeId), t }; }
     }
     return best;
 }
@@ -176,12 +178,7 @@ export function findSplittableTrackEdge(app, worldPos, pxTol = 6) {
             const b = t.nodes.get(e.to);
             if (!a || !b) continue;
             const half = (t.getEdgeWidth ? t.getEdgeWidth(eid) : t.width || 0.2) / 2 + pxTol / scale;
-            const vx = b.x - a.x, vy = b.y - a.y;
-            const len2 = vx * vx + vy * vy;
-            if (len2 < 1e-9) continue;
-            const tt = ((worldPos.x - a.x) * vx + (worldPos.y - a.y) * vy) / len2;
-            if (tt <= 0 || tt >= 1) continue;
-            const px = a.x + tt * vx, py = a.y + tt * vy;
+            const { x: px, y: py } = closestPointOnArcEdge(worldPos, a, b, e.bulge || 0);
             const d = Math.hypot(worldPos.x - px, worldPos.y - py);
             if (d > half || d >= bestD) continue;
             // Reject projections that sit essentially on an endpoint node.
@@ -266,12 +263,22 @@ export function deleteTrackSegment(track, edgeId) {
  * @returns {boolean}
  */
 export function deleteTrackNode(app, track, nodeId) {
-    if (!track?.nodes?.has(nodeId) || track.edges.size <= 1) return false;
+    if (!track?.nodes?.has(nodeId)) return false;
+    if (track.edges.size <= 1) {
+        app.history.execute(new RemoveTrackCommand(app, track));
+        return true;
+    }
     const before = track.captureState();
+    const incident = track.incidentEdges(nodeId);
     // deleteAnchor reconnects a degree-2 node's neighbours with a bridging
     // edge that inherits the first incident edge's attributes (layer/width),
     // so no manual carry-over is needed here.
     if (!track.deleteAnchor(nodeId)) return false;
+    if (incident.length === 2) {
+        for (const edge of track.edges.values()) {
+            if (incident.some(item => item.otherNode === edge.from) && incident.some(item => item.otherNode === edge.to)) edge.bulge = 0;
+        }
+    }
     const after = track.captureState();
     track.applyState(before);
     app.history.execute(new ModifyTrackGraphCommand(app, track, before, after));
@@ -306,6 +313,7 @@ export function collapseCollinearTrackNodes(app, track) {
             if (_viaAtPoint(app, pos.x, pos.y)) continue;  // via / layer change
             const inc = track.incidentEdges(nid);
             if (inc.length !== 2) continue;
+            if (inc.some(({ edgeId }) => track.getEdgeAttr(edgeId, 'bulge'))) continue;
             const l1 = track.getEdgeLayer(inc[0].edgeId);
             const l2 = track.getEdgeLayer(inc[1].edgeId);
             if (l1 !== l2) continue;                        // layer change → keep
@@ -378,24 +386,18 @@ export function splitTrackNodeAndDrag(app, track, nodeId) {
     if (inc.length < 2) return false;
     const newNodeId = track.splitNode(nodeId, [inc[0].edgeId]);
     if (!newNodeId) return false;
+    track.setNodeCornerRadius(newNodeId, track.nodeCornerRadius(nodeId));
 
     // Float the freshly-detached node under the cursor. The whole split
     // (topology + move) commits atomically via the graphBefore branch in
     // finishVertexDrag; dropping it in place discards the split.
-    app._vertexDrag = {
-        track,
-        mode: 'node',
-        floating: true,
-        graphBefore: before,
-        grabX: pos.x,
-        grabY: pos.y,
-        nodes: [{ nodeId: newNodeId, startX: pos.x, startY: pos.y, padLink: null }],
-        previousDeferDragOverlays: _beginVertexDragOverlayDeferral(app),
-    };
-    renderTrack(track, (id) => app._getLayerGroup(id), _opts(app));
-    refreshTrackSelectionHalo(app);
-    reconcileRatsnest(app);
-    return true;
+    const adapter = createTrackSelectionAdapter(app, track, track.id);
+    const started = beginPathSplit(app, adapter, newNodeId, () => {
+        app._vertexDrag.graphBefore = before;
+        app._vertexDrag.splitNodeId = newNodeId;
+    });
+    if (!started) track.applyState(before);
+    return started;
 }
 
 /**
@@ -668,13 +670,18 @@ export function reconcileCopperRegion(app, seedTrack) {
     const uNodes = new Map();      // posKey → { x, y }
     const uEdges = [];             // { a, b, layer, width }
     const padAt = new Map();       // posKey → padConnection
+    const radiusAt = new Map();
     for (const t of regionTracks) {
+        for (const [nodeId, point] of t.nodes) {
+            const position = key(point.x, point.y);
+            if (!radiusAt.has(position)) radiusAt.set(position, t.nodeCornerRadius(nodeId));
+        }
         for (const [eid, e] of t.edges) {
             const pa = t.nodes.get(e.from), pb = t.nodes.get(e.to);
             const ka = key(pa.x, pa.y), kb = key(pb.x, pb.y);
             if (!uNodes.has(ka)) uNodes.set(ka, { x: pa.x, y: pa.y });
             if (!uNodes.has(kb)) uNodes.set(kb, { x: pb.x, y: pb.y });
-            uEdges.push({ a: ka, b: kb, layer: t.getEdgeLayer(eid), width: t.getEdgeWidth(eid) });
+            uEdges.push({ a: ka, b: kb, layer: t.getEdgeLayer(eid), width: t.getEdgeWidth(eid), bulge: e.bulge || 0 });
         }
         for (const [nid, conn] of t.padConnections) {
             const p = t.nodes.get(nid);
@@ -707,19 +714,20 @@ export function reconcileCopperRegion(app, seedTrack) {
                 for (const o of adj.get(k) || []) if (!compKeys.has(o)) st.push(o);
             }
             const compWidth = layerEdges.find((e) => compKeys.has(e.a))?.width || seedTrack.width;
-            const sub = new Track({ net, width: compWidth, layer });
+            const sub = new Track({ net, width: compWidth, layer, cornerRadius: seedTrack.cornerRadius });
             const kToNid = new Map();
             for (const k of compKeys) {
                 const p = uNodes.get(k);
                 const nn = sub.addNode(p.x, p.y);
                 kToNid.set(k, nn);
+                sub.setNodeCornerRadius(nn, radiusAt.get(k) || 0);
                 if (padAt.has(k)) sub.padConnections.set(nn, { ...padAt.get(k) });
             }
             for (const e of layerEdges) {
                 if (!compKeys.has(e.a)) continue;
                 // Carry the per-edge layer and width onto the rebuilt edge so
                 // a component with mixed-width segments keeps each width.
-                sub.addEdge(kToNid.get(e.a), kToNid.get(e.b), { layer, width: e.width });
+                sub.addEdge(kToNid.get(e.a), kToNid.get(e.b), { layer, width: e.width, bulge: e.bulge });
             }
             addTracks.push(sub);
         }
@@ -884,8 +892,17 @@ function _tryMergeDroppedNode(app, drag) {
  *   a separate, deliberate second click.
  */
 export function startVertexDrag(app, track, worldPos, opts = {}) {
+    if (opts.whole) {
+        app._vertexDrag = { track, mode: 'move', graphBefore: track.captureState(),
+            grabX: worldPos.x, grabY: worldPos.y,
+            nodes: [...track.nodes].map(([nodeId, point]) => ({ nodeId, startX: point.x, startY: point.y,
+                padLink: track.padConnections.get(nodeId) || null })),
+            previousDeferDragOverlays: _beginVertexDragOverlayDeferral(app) };
+        app._suspendBoardViewRefresh = true;
+        return true;
+    }
     const allowMidpointInsert = opts.allowMidpointInsert !== false;
-    const nodeId = hitTestTrackNode(app, track, worldPos);
+    const nodeId = opts.edgeId ? null : opts.nodeId ?? hitTestTrackNode(app, track, worldPos);
 
     // Grabbing a node: drag that single node (snaps to grid/pad/node).
     if (nodeId) {
@@ -933,7 +950,7 @@ export function startVertexDrag(app, track, worldPos, opts = {}) {
     // the edge's endpoints by the same delta so the segment keeps its
     // orientation, while the adjacent segments stretch to stay connected
     // (they share the endpoint nodes, so they follow automatically).
-    const hit = hitTestTrackEdge(app, track, worldPos);
+    const hit = opts.edgeId ? { edgeId: opts.edgeId, edge: track.edges.get(opts.edgeId) } : hitTestTrackEdge(app, track, worldPos);
     if (!hit) return false;
     const e = hit.edge;
     const a = track.nodes.get(e.from);
@@ -986,15 +1003,21 @@ export function updateVertexDrag(app, worldPos) {
     const drag = app._vertexDrag;
     if (!drag) return;
 
-    if (drag.mode === 'segment') {
+    if (drag.mode === 'segment' || drag.mode === 'move') {
         // Translate both endpoints by the cursor delta. The dragged segment
         // itself can't change orientation, but its connected (non-dragged)
         // neighbours can — so snap the delta when one of those neighbours
         // lands on an H/V/45° axis or becomes collinear with its far edge.
         const rawDx = worldPos.x - drag.grabX;
         const rawDy = worldPos.y - drag.grabY;
-        const threshold = COLLINEAR_SNAP_SCREEN_PX / (app.viewport?.scale || 1);
-        const { dx, dy } = _snapSegmentDrag(drag.track, drag.nodes, rawDx, rawDy, threshold);
+        const movedIds = new Set(drag.nodes.map(node => node.nodeId));
+        const constraints = drag.mode === 'segment' ? drag.nodes.map((node, index) => ({ index,
+            neighbours: drag.track.incidentEdges(node.nodeId).filter(edge => !movedIds.has(edge.otherNode))
+                .map(edge => drag.track.nodes.get(edge.otherNode)),
+        })) : [];
+        const delta = snapPathTranslation(app, drag.nodes.map(node => ({ x: node.startX, y: node.startY })),
+            { x: rawDx, y: rawDy }, drag.mode === 'move' ? [{ x: drag.nodes[0].startX, y: drag.nodes[0].startY }] : [], constraints);
+        const { x: dx, y: dy } = delta;
         for (const nd of drag.nodes) {
             const n = drag.track.nodes.get(nd.nodeId);
             if (!n) continue;
@@ -1054,7 +1077,7 @@ export function updateVertexDrag(app, worldPos) {
     // band, lock the node exactly onto that H/V/45° axis so a drop matches
     // the glow (no hysteresis gap). Pad / track-node snaps are hard
     // targets and take priority over axis alignment.
-    if (snap.snapType !== 'pad' && snap.snapType !== 'track-node') {
+    if (!app.viewport?.shiftHeld && snap.snapType !== 'pad' && snap.snapType !== 'track-node') {
         const neighbours = [];
         for (const { otherNode } of drag.track.incidentEdges(nd.nodeId)) {
             const nb = drag.track.nodes.get(otherNode);
@@ -1470,7 +1493,25 @@ export function finishVertexDrag(app) {
             return;
         }
         // Dissolve any waypoints the drag made redundant before snapshotting.
-        collapseCollinearTrackNodes(app, drag.track);
+        if (drag.mode !== 'move') collapseCollinearTrackNodes(app, drag.track);
+        if (drag.splitNodeId) {
+            const components = drag.track.connectedComponents();
+            if (components.length > 1) {
+                const movingNodes = components.find(nodes => nodes.has(drag.splitNodeId));
+                const movingPart = drag.track.extractSubgraph(movingNodes);
+                movingPart.sourceBoardShape = drag.track.sourceBoardShape;
+                const remainder = components.filter(nodes => nodes !== movingNodes)
+                    .map(nodes => drag.track.extractSubgraph(nodes));
+                const after = movingPart.captureState();
+                drag.track.applyState(drag.graphBefore);
+                app.history.execute(new CompoundCommand([
+                    new ModifyTrackGraphCommand(app, drag.track, drag.graphBefore, after),
+                    ...remainder.map(track => new AddTrackCommand(app, track)),
+                ]));
+                _endVertexDragOverlayDeferral(app, drag, true);
+                return;
+            }
+        }
         const after = drag.track.captureState();
         drag.track.applyState(drag.graphBefore);
         app.history.execute(new ModifyTrackGraphCommand(app, drag.track, drag.graphBefore, after));
@@ -1600,6 +1641,8 @@ export function cancelVertexDrag(app) {
             n.x = nd.startX;
             n.y = nd.startY;
         }
+        if (nd.padLink) drag.track.padConnections.set(nd.nodeId, { ...nd.padLink });
+        else drag.track.padConnections.delete(nd.nodeId);
     }
     renderTrack(drag.track, (id) => app._getLayerGroup(id), _opts(app, drag.track));
     refreshTrackSelectionHalo(app);

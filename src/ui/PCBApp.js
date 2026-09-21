@@ -21,6 +21,7 @@ import { savePcbPdf, printPcb } from '../pcb/modules/pcb-export.js';import { tra
 import { renderTrack, renderVia, removeTrackElements, removeViaElements } from '../pcb/modules/track-render.js';
 import { startTrackDraw, updateTrackDraw, refreshTrackDrawPreview, addTrackWaypoint, finishTrackDraw, cancelTrackDraw, toggleTrackLayer, resolveTrackSnap, showTrackSnapMarker, clearTrackSnapMarker, reconcileRatsnest } from '../pcb/modules/track-draw.js';
 import { hitTestTrack, hitTestLockedTrack, selectTrackOrVia, clearTrackSelection, deleteSelectedTrack, setHoverHighlight, showTrackContextMenu, refreshTrackSelectionHalo, getSelectedTrack, getSelectedVia, selectTrackSegment, dismissTrackContextMenu } from '../pcb/modules/track-select.js';
+import { deleteFocusedBoardShape } from '../pcb/modules/board-shapes.js';
 import {
     startVertexDrag,
     updateVertexDrag,
@@ -117,6 +118,7 @@ import {
 } from '../pcb/modules/copper-fill-draw.js';
 import { createShape } from '../shapes/index.js';
 import { AddBoardShapeCommand } from '../pcb/modules/shape-commands.js';
+import { getBoardOutline, rectangleBoardOutline, boardBoundary } from '../pcb/modules/board-outline.js';
 import {
     beginBoardOutlineResize, updateBoardOutlineResize, endBoardOutlineResize,
     renderBoardOutlineHandles, hitTestBoardOutlineHandle,
@@ -445,13 +447,22 @@ export default class PCBApp {
         if (!this.status.modeStatus) return;
         const rawTool = this.currentTool || 'select';
         const toolLabel = rawTool.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-        const layerLabel = this.activeLayer?.replace(/-/g, ' ')?.replace(/\b\w/g, c => c.toUpperCase()) || 'Top Copper';
+        const layer = rawTool === 'text' ? this._textDefaults?.layer || 'top-silk'
+            : rawTool === 'fill' ? this._fillDraw?.layer || this._fillToolLayer || 'top-copper'
+            : rawTool === 'track' ? this._trackDraw?.currentLayer || this._trackToolLayer || 'top-copper'
+            : this.activeLayer;
+        const layerLabel = layer?.replace(/-/g, ' ')?.replace(/\b\w/g, c => c.toUpperCase()) || 'Top Copper';
         const selectedShape = getPcbSelection(this, 'shape');
+        const selectedTrack = getPcbSelection(this, 'track');
         const showSegmentTip = rawTool === 'select'
-            && selectedShape.length === 1
-            && ['line', 'rect', 'polygon'].includes(selectedShape[0]?.kind)
-            && this._selectedBoardShapeSegment?.shapeId !== selectedShape[0]?.id
-            && this._selectedBoardShapeNode?.shapeId !== selectedShape[0]?.id;
+            && getPcbSelection(this).length === 1
+            && !['vertex', 'segment'].includes(this._shapeDrag?.mode)
+            && !this._vertexDrag
+            && ((selectedShape.length === 1
+                && ['line', 'rect', 'polygon'].includes(selectedShape[0]?.kind)
+                && this._selectedBoardShapeSegment?.shapeId !== selectedShape[0]?.id
+                && this._selectedBoardShapeNode?.shapeId !== selectedShape[0]?.id)
+                || (selectedTrack.length === 1 && this._trackEdit?.track !== selectedTrack[0]));
         const showHoleTip = rawTool === 'circle' && this.activeLayer === 'hole';
         const showOverlapTip = rawTool === 'select' && this._overlapHitCount > 1;
         const showTrackTip = rawTool === 'track';
@@ -463,7 +474,7 @@ export default class PCBApp {
                 ? 'Tip: Shift+Click to cycle overlapping objects; Ctrl+Click for multi-selection'
                 : showHoleTip
                 ? 'Tip: A hole is just a circle on the hole layer'
-                : showSegmentTip ? 'Tip: Click again to select a segment' : '';
+                : showSegmentTip ? 'Tip: Click again to select a segment or node' : '';
         }
         this.status.modeStatus.textContent = `${toolLabel} | ${layerLabel}`;
         this._syncClipboardButtons?.();
@@ -496,7 +507,7 @@ export default class PCBApp {
     _canCopyCutPcbSelection() {
         return getPcbSelection(this, 'track').length > 0
             || getPcbSelection(this, 'via').length > 0
-            || getPcbSelection(this, 'shape').length > 0
+            || getPcbSelection(this, 'shape').some(shape => shape.layer !== 'board-outline')
             || getPcbSelection(this, 'text').length > 0
             || getPcbSelection(this, 'fill').length > 0;
     }
@@ -556,7 +567,9 @@ export default class PCBApp {
         const payload = { tracks: [], vias: [], shapes: [], texts: [], fills: [] };
         for (const track of getPcbSelection(this, 'track')) payload.tracks.push(track.toJSON());
         for (const via of getPcbSelection(this, 'via')) payload.vias.push(via.toJSON());
-        for (const shape of getPcbSelection(this, 'shape')) payload.shapes.push(JSON.parse(JSON.stringify(shape)));
+        for (const shape of getPcbSelection(this, 'shape')) {
+            if (shape.layer !== 'board-outline') payload.shapes.push(JSON.parse(JSON.stringify(shape)));
+        }
         for (const text of getPcbSelection(this, 'text')) payload.texts.push(serializePcbText(text));
         for (const fill of getPcbSelection(this, 'fill')) payload.fills.push(fill.captureState());
         if (!payload.tracks.length && !payload.vias.length && !payload.shapes.length
@@ -897,6 +910,7 @@ export default class PCBApp {
 
         svg.addEventListener('mousedown', (e) => {
             if (!this._active) return;
+            this.viewport.shiftHeld = e.shiftKey;
             // Freshly pasted entities are glued to the cursor; the first
             // left-click drops them at their current position.
             if (this._pasteDrop && e.button === 0) {
@@ -1406,6 +1420,7 @@ export default class PCBApp {
 
         svg.addEventListener('mousemove', (e) => {
             if (!this._active) return;
+            this.viewport.shiftHeld = e.shiftKey;
             if (this.viewport.isPanning) {
                 this.viewport.updatePan(e.clientX, e.clientY);
                 // Keep tool crosshairs anchored under the cursor while panning.
@@ -2212,7 +2227,7 @@ export default class PCBApp {
      * should stop propagation), `false` to let other listeners run.
      *
      * Modes (highest priority first):
-     *   - In-flight Track draw: Escape finishes, Space adds via + toggles layer.
+    *   - In-flight Track draw: Escape cancels, Enter finishes, Space inserts a via.
      *   - Selection / drag:     Ctrl+Z/Y undo/redo, Delete removes, Escape cancels.
      *
      * @param {KeyboardEvent} e
@@ -2259,9 +2274,13 @@ export default class PCBApp {
             return true;
         }
 
-        // Track-draw mode owns Escape + Space.
+        // Track-draw mode owns Escape, Enter and Space.
         if (this._trackDraw) {
             if (e.key === 'Escape') {
+                cancelTrackDraw(this);
+                return true;
+            }
+            if (e.key === 'Enter') {
                 finishTrackDraw(this);
                 return true;
             }
@@ -2287,7 +2306,7 @@ export default class PCBApp {
             return false;
         }
 
-        // Shape-draw mode owns Escape (and Enter finishes a Line or Polygon).
+        // Shape-draw mode owns Escape and Enter.
         if (this._shapeDraw) {
             if (e.key === 'Escape') {
                 cancelShapeDraw(this);
@@ -2299,6 +2318,10 @@ export default class PCBApp {
             }
             if (e.key === 'Enter' && this._shapeDraw.kind === 'line') {
                 finishLineDraw(this);
+                return true;
+            }
+            if (e.key === 'Enter') {
+                finishShapeDrawAtPoint(this, this._shapeDraw.cursorWorld);
                 return true;
             }
             return false;
@@ -2327,9 +2350,10 @@ export default class PCBApp {
             return true;
         }
         if (e.key === 'Delete' || e.key === 'Backspace') {
+            if (deleteFocusedBoardShape(this)) return true;
             // A focused Track segment is a Track-specific edit state rather
             // than a selection kind, so it retains its narrower delete path.
-            if (this._trackEdit && getSelectedTrack(this) === this._trackEdit.track) {
+            if (this._trackEdit && getPcbSelection(this).length === 1 && getSelectedTrack(this) === this._trackEdit.track) {
                 deleteSelectedTrack(this);
                 return true;
             }
@@ -2375,6 +2399,18 @@ export default class PCBApp {
                 return true;
             }
             if (this._viaDrag) { cancelViaDrag(this); return true; }
+            if (this.currentTool !== 'select') {
+                clearSelectionInteractionUi(this);
+                clearBoxSelection(this);
+                this._clearProperties?.();
+                this.currentTool = 'select';
+                this._updateCursorForTool?.();
+                this._syncPcbHomeToolHighlight?.();
+                this._setPcbStatus?.();
+                this._hideToolOptions?.();
+                this._setActiveRibbonTab?.('pcb-home');
+                return true;
+            }
             if (hasBoxSelection(this)) {
                 clearBoxSelection(this);
                 clearSelectionInteractionUi(this);
@@ -2401,14 +2437,6 @@ export default class PCBApp {
                 this._clearProperties?.();
                 this._setActiveRibbonTab?.('pcb-home');
                 return true;
-            }
-            // No active interaction: return to Home tab + select tool.
-            if (this.currentTool !== 'select') {
-                this.currentTool = 'select';
-                this._updateCursorForTool?.();
-                this._syncPcbHomeToolHighlight?.();
-                this._setPcbStatus?.();
-                this._hideToolOptions?.();
             }
             this._setActiveRibbonTab?.('pcb-home');
             return true;
@@ -2853,37 +2881,8 @@ export default class PCBApp {
         this._ensureViewport();
         if (!this.viewport) return;
 
-        // Culled footprints are display:none and report a zero bounding box, so
-        // restore full detail before measuring; the resulting view change will
-        // re-apply culling for the new viewport.
-        this._uncullAllPlacements();
-
-        // Measure the actual artwork from the live layer groups rather than
-        // relying on the viewport's fixed placeholder bounds.
-        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-        if (this._layerGroups) {
-            for (const g of this._layerGroups.values()) {
-                if (!g || !g.childNodes.length) continue;
-                let bb;
-                try {
-                    bb = g.getBBox();
-                } catch {
-                    continue;
-                }
-                if (!bb || (bb.width === 0 && bb.height === 0)) continue;
-                minX = Math.min(minX, bb.x);
-                minY = Math.min(minY, bb.y);
-                maxX = Math.max(maxX, bb.x + bb.width);
-                maxY = Math.max(maxY, bb.y + bb.height);
-            }
-        }
-
-        if (Number.isFinite(minX)) {
-            this.viewport.fitToBounds(minX, minY, maxX, maxY, 10);
-        } else {
-            // Nothing drawn yet — fall back to the nominal board outline.
-            this.viewport.fitToBounds(0, -this._boardHeight, this._boardWidth, 0, 10);
-        }
+        const bounds = boardBoundary(this);
+        this.viewport.fitToBounds(bounds.x, bounds.y, bounds.x + bounds.w, bounds.y + bounds.h, 10);
     }
 
     _bindRibbonTabs() {
@@ -3054,44 +3053,20 @@ export default class PCBApp {
      * Draw (or redraw) the board outline on the board-outline layer.
      */
     _drawBoardOutline() {
-        const NS = 'http://www.w3.org/2000/svg';
         const layer = this._getLayerGroup('board-outline');
-
-        // Remove existing outline
         const old = layer.querySelector('.pcb-board-outline');
         if (old) old.remove();
-
-        const w = this._boardWidth;
-        const h = this._boardHeight;
-        const r = Math.min(this._boardRadius, w / 2, h / 2);
-
-        // Bottom-left corner at origin (0,0) in user coords (Y-up)
-        // In SVG coords (Y-down), rect goes from (0, -h) to (w, 0)
-        const x = 0;
-        const y = -h;
-
-        const rect = document.createElementNS(NS, 'rect');
-        rect.setAttribute('class', 'pcb-board-outline');
-        rect.setAttribute('x', String(x));
-        rect.setAttribute('y', String(y));
-        rect.setAttribute('width', String(w));
-        rect.setAttribute('height', String(h));
-        if (r > 0) {
-            rect.setAttribute('rx', String(r));
-            rect.setAttribute('ry', String(r));
+        let shape = getBoardOutline(this);
+        if (!shape) {
+            shape = rectangleBoardOutline(this._boardWidth, this._boardHeight, this._boardRadius);
+            this.boardShapes.push(shape);
         }
-        rect.setAttribute('fill', 'none');
-        rect.setAttribute('stroke', '#f1c40f');
-        rect.setAttribute('stroke-width', '0.2');
-        layer.appendChild(rect);
-
+        renderBoardShape(this, shape);
         const wasDrawn = this._boardOutlineDrawn;
         this._boardOutlineDrawn = true;
-        this._selectBoardOutline(this._boardOutlineSelected);
-
-        // Fit view to board only on first draw
         if (!wasDrawn && this.viewport) {
-            this.viewport.fitToBounds(x - 5, y - 5, w + 10, h + 10);
+            const bounds = boardBoundary(this);
+            this.viewport.fitToBounds(bounds.x, bounds.y, bounds.x + bounds.w, bounds.y + bounds.h, 5);
         }
     }
 
@@ -3101,6 +3076,7 @@ export default class PCBApp {
      * Test if a world point is near the board outline edge.
      */
     _hitTestBoardOutline(pos) {
+        if (getBoardOutline(this)) return false;
         if (!this._boardOutlineDrawn) return false;
         // The board outline lives on the 'board-outline' layer; don't allow
         // selecting/hovering it while that layer is locked or hidden.
@@ -3139,6 +3115,11 @@ export default class PCBApp {
      * Set board outline selection state.
      */
     _selectBoardOutline(selected) {
+        const shape = getBoardOutline(this);
+        if (shape && selected) {
+            selectBoardShape(this, shape);
+            return;
+        }
         if (!selected && this._boardOutlineResize) endBoardOutlineResize(this, false);
         this._boardOutlineSelected = selected;
         renderBoardOutlineHandles(this);
@@ -3193,6 +3174,7 @@ export default class PCBApp {
                     }
                     this._fillToolLayer = next;
                     if (this._fillDraw) this._fillDraw.layer = this._fillToolLayer;
+                    this._setPcbStatus();
                 });
             });
     }
@@ -3271,6 +3253,7 @@ export default class PCBApp {
 
     /** Show Track draw defaults and live draw settings in Properties. */
     _showTrackDrawProperties() {
+        this._setPcbStatus();
         const items = this._pcbPropsItems();
         if (!items) return;
         const ctx = this._trackDraw;
@@ -3304,6 +3287,7 @@ export default class PCBApp {
             }
             this._trackToolLayer = next;
             if (ctx) ctx.currentLayer = next;
+            this._setPcbStatus();
         });
         widthEl?.addEventListener('input', () => {
             const next = parseFloat(widthEl.value);
@@ -3378,6 +3362,11 @@ export default class PCBApp {
      * Show board outline properties and switch to Properties tab.
      */
     _showBoardOutlineProperties() {
+        const outline = getBoardOutline(this);
+        if (outline) {
+            showBoardShapeProperties(this, outline);
+            return;
+        }
         const items = this._pcbPropsItems();
         if (!items) return;
         this._setPcbPropsTitle('Board Outline');
@@ -3781,7 +3770,6 @@ export default class PCBApp {
             renderVia(v, getGroup);
         }
         // Free-standing board shapes; CopperFill entries render separately.
-        this._shapeElements.clear();
         for (const s of this.boardShapes) {
             if (!renderShapes || s.type === 'fill') continue;
             renderBoardShape(this, s);
@@ -5337,6 +5325,7 @@ export default class PCBApp {
         const lineWidthEl = /** @type {HTMLInputElement|null} */ (items.querySelector('#pcbPropTextToolLW'));
         layerEl?.addEventListener('change', () => {
             if (TEXT_LAYERS.includes(layerEl.value)) this._textDefaults.layer = layerEl.value;
+            this._setPcbStatus();
         });
         sizeEl?.addEventListener('input', () => {
             const size = parseFloat(sizeEl.value);
@@ -7817,7 +7806,7 @@ export default class PCBApp {
             : shape.kind === 'arc' ? [shape.start, shape.end, shape.bulge] : []);
         const style = JSON.stringify([shape.kind, shape.layer, visible, clearance, shape.net, shape.radius,
             shape.lineWidth, shape.segmentWidths, shape.filled, shape.copperMode,
-            shape.cornerRadius, shape.nodeCornerRadii, shape.nodeFlatJoins,
+            shape.cornerRadius, shape.nodeCornerRadii,
             shape.content, shape.size, shape.strokeWidth, shape.rotation]);
         if (previous && previous.style === style && previous.artwork === shape.artwork
             && points.length && points.length === previous.points.length) {
@@ -8497,29 +8486,25 @@ export default class PCBApp {
         }
         this._exportGerberPending = true;
         const fname = /** @type {any} */ (window).app?.fileManager?.fileName || 'untitled.cpcb';
-        let blob, files;
+        const base = fname.replace(/\.[^./\\]+$/, '') || 'untitled';
+        const suggestedName = `${base}-gerber.zip`;
         try {
-            files = exportGerbers(await prepareFabricationSnapshot(this));
-            blob = buildZip(files);
+            let fileCount = 0;
+            const saved = await this._saveBlob(async () => {
+                const files = exportGerbers(await prepareFabricationSnapshot(this));
+                fileCount = files.size;
+                return buildZip(files);
+            }, suggestedName, {
+                description: 'Gerber ZIP archive',
+                accept: { 'application/zip': ['.zip'] },
+            });
+            if (saved) this._setStatus(`Gerbers exported (${fileCount} files)`);
         } catch (err) {
             console.error('Gerber export failed:', err);
             this._setStatus(`Gerber export failed: ${err?.message || err}`);
-            return;
         } finally {
             this._exportGerberPending = false;
         }
-        // Derive default filename from the project name.
-        const base = fname.replace(/\.[^./\\]+$/, '') || 'untitled';
-        const suggestedName = `${base}-gerber.zip`;
-        this._saveBlob(blob, suggestedName, {
-            description: 'Gerber ZIP archive',
-            accept: { 'application/zip': ['.zip'] },
-        }).then(saved => {
-            if (saved) this._setStatus(`Gerbers exported (${files.size} files)`);
-        }).catch(err => {
-            console.error('Gerber save failed:', err);
-            this._setStatus(`Gerber save failed: ${err?.message || err}`);
-        });
     }
 
     /**
@@ -8645,7 +8630,7 @@ export default class PCBApp {
      * available (proper Save As dialog), falling back to an anchor
      * download. Returns true if a file was saved, false if the user
      * cancelled the picker.
-     * @param {Blob} blob
+    * @param {Blob | (() => Promise<Blob>)} blob
      * @param {string} suggestedName
      * @param {{description?: string, accept?: Record<string,string[]>}} [opts]
      * @returns {Promise<boolean>}
@@ -8665,8 +8650,9 @@ export default class PCBApp {
                         accept: opts.accept,
                     }] : undefined,
                 });
+                const data = typeof blob === 'function' ? await blob() : blob;
                 const writable = await handle.createWritable();
-                await writable.write(blob);
+                await writable.write(data);
                 await writable.close();
                 return true;
             } catch (err) {
@@ -8676,7 +8662,8 @@ export default class PCBApp {
             }
         }
         // Fallback: anchor download (Firefox / older browsers).
-        const url = URL.createObjectURL(blob);
+        const data = typeof blob === 'function' ? await blob() : blob;
+        const url = URL.createObjectURL(data);
         const a = targetDoc.createElement('a');
         a.href = url;
         a.download = suggestedName;

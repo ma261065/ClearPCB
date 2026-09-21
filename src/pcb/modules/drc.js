@@ -25,6 +25,7 @@
  */
 
 import { resolveCopperPads } from './copper-model.js';
+import { resolveTrackSegments } from './board-geometry.js';
 import { collectCopperArtwork } from './copper-artwork.js';
 import { subtractCopperArtwork } from './copper-removal.js';
 import { spatialPairs } from '../../core/spatial-pairs.js';
@@ -143,15 +144,12 @@ export function collectCopper(app) {
     // Track segments (per edge — each edge carries its own layer/width).
     for (const track of (app.tracks || [])) {
         if (!track?.edges || !track?.nodes) continue;
-        for (const [edgeId, edge] of track.edges) {
-            const a = track.nodes.get(edge.from);
-            const b = track.nodes.get(edge.to);
-            if (!a || !b) continue;
-            const width = (track.getEdgeWidth ? track.getEdgeWidth(edgeId) : track.width) || track.width || 0.2;
-            const layer = normLayer((track.getEdgeLayer ? track.getEdgeLayer(edgeId) : track.layer) || track.layer);
+        for (const [index, segment] of resolveTrackSegments(track).entries()) {
+            const { edgeId, start: a, end: b, width } = segment;
+            const layer = normLayer(segment.layer);
             segments.push({
                 kind: 'track',
-                uid: `trk:${track.id || '?'}:${edgeId}`,
+                uid: `trk:${track.id || '?'}:${edgeId}:${index}`,
                 keyId: `trk:${track.id || '?'}`,
                 trackId: track.id || track,
                 label: track.net ? `Track ${track.net}` : 'Track',

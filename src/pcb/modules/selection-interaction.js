@@ -12,7 +12,7 @@ import {
     selectBoardShape,
     showBoardShapeProperties,
 } from './board-shapes.js';
-import { clearTrackSelection, selectTrackOrVia, showViaProperties } from './track-select.js';
+import { clearTrackSelection, showTrackSelectionProperties, showViaProperties } from './track-select.js';
 import {
     beginGroupDrag,
     cancelGroupDrag,
@@ -54,7 +54,7 @@ function showSingleProperties(app, entry) {
         app._selectRefText?.(entry.object);
         app._showRefProperties?.(entry.object);
     } else if (entry.kind === 'shape') showBoardShapeProperties(app, entry.object);
-    else if (entry.kind === 'track') selectTrackOrVia(app, { type: 'track', track: entry.object });
+    else if (entry.kind === 'track') showTrackSelectionProperties(app, entry.object);
     else if (entry.kind === 'via') showViaProperties(app, entry.object);
     else if (entry.kind === 'fill') {
         app._selectFill?.(entry.object);
@@ -87,6 +87,24 @@ export function showPcbSelectionProperties(app) {
 }
 
 /** Start a state-machine-owned select gesture. Returns true when consumed. */
+export function beginPcbAnchorInteraction(app, adapter, anchor, worldPos, floating = false) {
+    const anchorId = anchor.id ?? anchor.key;
+    if (!adapter.beginAnchorDrag?.(anchorId, worldPos, { floating })) return false;
+    app._pcbSelectionInteraction = {
+        mode: floating ? 'floating-anchor' : 'anchor',
+        startWorld: { x: worldPos.x, y: worldPos.y },
+        moved: false,
+        adapter, anchor, anchorId,
+    };
+    showPcbSelectionProperties(app);
+    if (floating) adapter.updateAnchorDrag?.(worldPos);
+    if (floating || app._rotationHandleDrag) {
+        renderPcbSelectionAnchors(app);
+        if (app.viewport?.svg) app.viewport.svg.style.cursor = selectionInteractionCursor(app);
+    }
+    return true;
+}
+
 export function beginSelectionInteraction(app, worldPos, additive, cycle = false) {
     app._lastPointerWorld = worldPos;
     const selected = getPcbSelectionEntries(app);
@@ -109,18 +127,7 @@ export function beginSelectionInteraction(app, worldPos, additive, cycle = false
     if (!additive && selected.length > 1) return false;
 
     const selectedAnchor = hitTestPcbSelectionAnchor(app, worldPos, SUPPORTED_KINDS);
-    if (selectedAnchor?.adapter.beginAnchorDrag?.(selectedAnchor.anchorId, worldPos)) {
-        app._pcbSelectionInteraction = {
-            mode: 'anchor',
-            startWorld: { x: worldPos.x, y: worldPos.y },
-            moved: false,
-            ...selectedAnchor,
-        };
-        showPcbSelectionProperties(app);
-        if (app._rotationHandleDrag) {
-            renderPcbSelectionAnchors(app);
-            if (app.viewport?.svg) app.viewport.svg.style.cursor = selectionInteractionCursor(app);
-        }
+    if (selectedAnchor && beginPcbAnchorInteraction(app, selectedAnchor.adapter, selectedAnchor.anchor, worldPos)) {
         return true;
     }
 
@@ -131,10 +138,7 @@ export function beginSelectionInteraction(app, worldPos, additive, cycle = false
     // is clicked.
     if (selected.length > 1 && selected.some((item) => item.id === entry.id)) return false;
 
-    const selectedSegment = entry.kind === 'shape'
-        && app._selectedBoardShapeSegment?.shapeId === entry.object?.id
-        ? { ...app._selectedBoardShapeSegment }
-        : null;
+    const selectedSegment = entry.getSelectedSegment?.() ?? null;
     clearSelectionInteractionUi(app);
     const alreadySelected = selected.some((item) => item.id === entry.id);
     setPcbSelection(app, [{ kind: entry.kind, object: entry.object }]);
@@ -222,6 +226,13 @@ export function finishSelectionInteraction(app, commit = true, worldPos = null) 
             }
         }
     } else if (state.mode === 'anchor') {
+        if (commit && !state.moved && ['shape', 'track'].includes(state.adapter.kind)
+            && String(state.anchorId).startsWith('mid:')) {
+            state.mode = 'floating-anchor';
+            renderPcbSelectionAnchors(app);
+            if (app.viewport?.svg) app.viewport.svg.style.cursor = selectionInteractionCursor(app);
+            return true;
+        }
         if (commit && worldPos && state.anchor?.symbol === 'rotate') state.adapter.updateAnchorDrag?.(worldPos);
         const result = state.adapter.endAnchorDrag?.(commit, { moved: state.moved });
         if (commit && result?.floating) {

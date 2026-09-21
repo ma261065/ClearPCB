@@ -4,6 +4,7 @@ import { reconcileRatsnest } from './track-draw.js';
 import { clearTrackSelection, getSelectedTrack } from './track-select.js';
 import { createPcbText, serializePcbText } from './pcb-text.js';
 import { serializeBoardShapes, loadBoardShapes, removeBoardShapeElement, renderBoardShape } from './board-shapes.js';
+import { validBoardOutline, getBoardOutline, syncBoardOutlineDimensions } from './board-outline.js';
 import { Track } from '../../shapes/track.js';
 import { Via, resetViaIdCounter, updateViaIdCounter } from '../../shapes/via.js';
 import { CopperFill, updateFillIdCounter } from '../../shapes/copper-fill.js';
@@ -59,8 +60,17 @@ export function serializePcb(app) {
 }
 
 export function preparePcb(data) {
+    for (const shape of data?.boardShapes || []) {
+        if (shape.layer === 'board-outline' && !validBoardOutline(shape)) {
+            throw new Error('The board outline must be one closed rectangle, polygon, or circle.');
+        }
+    }
     const stage = { boardShapes: [], _shapeIdCounter: 1 };
     loadBoardShapes(stage, data?.boardShapes, { render: false, strict: true });
+    const outlines = stage.boardShapes.filter(shape => shape.layer === 'board-outline');
+    if (outlines.length > 1 || outlines.some(shape => !validBoardOutline(shape))) {
+        throw new Error('The board outline must be one closed rectangle, polygon, or circle.');
+    }
     const tracks = (data?.tracks || []).map((item) => {
         const track = createShape(item);
         if (!(track instanceof Track)) throw new Error('Invalid PCB track.');
@@ -137,10 +147,13 @@ export function loadPcb(app, data, prepared = preparePcb(data)) {
 
     // Restore the saved board outline so it survives save/reopen and
     // autosave-recovery (the dimensions are part of the document).
-    if (data.board && data.board.width > 0 && data.board.height > 0) {
-        app._boardWidth = data.board.width;
-        app._boardHeight = data.board.height;
-        app._boardRadius = data.board.radius || 0;
+    if (getBoardOutline(prepared) || (data.board && data.board.width > 0 && data.board.height > 0)) {
+        app._boardWidth = data.board?.width || 100;
+        app._boardHeight = data.board?.height || 80;
+        app._boardRadius = data.board?.radius || 0;
+        const outline = prepared.boardShapes.find(shape => shape.layer === 'board-outline');
+        if (outline) app.boardShapes.push(outline);
+        if (outline) syncBoardOutlineDimensions(app);
         if (render) app._drawBoardOutline();
         else app._boardOutlineDrawn = true;
     }
@@ -180,7 +193,7 @@ export function loadPcb(app, data, prepared = preparePcb(data)) {
     }
     app._shapeIdCounter = prepared.shapeIdCounter;
     for (const shape of prepared.boardShapes) {
-        app.boardShapes.push(shape);
+        if (!app.boardShapes.includes(shape)) app.boardShapes.push(shape);
         if (shape.type === 'fill') updateFillIdCounter(shape.id);
         else if (render) renderBoardShape(app, shape);
     }

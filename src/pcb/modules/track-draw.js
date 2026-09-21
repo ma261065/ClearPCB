@@ -180,6 +180,7 @@ export function findNearbyTrackNode(app, worldPos, tolerance = TRACK_SNAP_TOL, e
  * @returns {{x:number, y:number, snapType:'pad'|'track-node'|'axis'|'grid'|'free', pad?:object, trackNode?:object}}
  */
 export function resolveTrackSnap(app, worldPos, options = {}) {
+    if (app.viewport?.shiftHeld) return { x: worldPos.x, y: worldPos.y, snapType: 'free' };
     const padTol = options.padTolerance ?? PAD_SNAP_TOL;
     // Track-node snap uses a screen-pixel band (constant feel across zoom),
     // not the fixed world tolerance — a 0.5mm world grab is huge when zoomed
@@ -200,6 +201,13 @@ export function resolveTrackSnap(app, worldPos, options = {}) {
     if (nearNode) {
         return { x: nearNode.x, y: nearNode.y, snapType: 'track-node', trackNode: nearNode };
     }
+
+    return resolveGridMagnetSnap(app, worldPos, lastPt);
+}
+
+export function resolveGridMagnetSnap(app, worldPos, lastPt = null) {
+    if (app.viewport?.shiftHeld) return { x: worldPos.x, y: worldPos.y, snapType: 'free' };
+    const scale = Math.max(0.01, app.viewport?.scale || 1);
 
     // Screen-pixel tolerance for grid / axis snapping.
     const tol = SNAP_PX / scale;
@@ -674,6 +682,7 @@ export function toggleTrackLayer(app) {
     if (!ctx) return;
     const idx = TOGGLE_LAYERS.indexOf(ctx.currentLayer);
     ctx.currentLayer = TOGGLE_LAYERS[(idx + 1) % TOGGLE_LAYERS.length];
+    app._setPcbStatus?.();
     // Re-render preview so the trailing rubber-band uses the new layer's
     // colour and an implicit-via marker appears at the toggle anchor.
     const last = ctx.points[ctx.points.length - 1];
@@ -778,7 +787,8 @@ export function popTrackWaypoint(app) {
  *   fill pass.
  */
 export function reconcileRatsnest(app, opts) {
-    if (app._pictureCopperRefreshPending) return;
+    const liveShapeDrag = app._shapeDrag?.ratsnestNets && opts?.nets === app._shapeDrag.ratsnestNets;
+    if (app._pictureCopperRefreshPending && !liveShapeDrag) return;
     if (deferDerivedUpdate(app, 'ratsnest', () => reconcileRatsnest(app))) return;
     // Incremental net filter: when present, restrict all cluster construction
     // and ratline removal/redraw to this set of nets.
@@ -894,7 +904,12 @@ export function reconcileRatsnest(app, opts) {
         const r = find(i);
         let sn = supernodes.get(r);
         if (!sn) { sn = { net: clusters[i].net, points: [] }; supernodes.set(r, sn); }
-        for (const p of clusters[i].points) sn.points.push(p);
+        const shape = clusters[i].copperShape;
+        const targets = shape?.kind === 'arc' ? [shape.start, shape.end]
+            : ['line', 'polygon'].includes(shape?.kind)
+                && Object.values(shape.segmentBulges || {}).some(value => Number(value) !== 0)
+                ? shape.points : clusters[i].points;
+        for (const point of targets) sn.points.push(point);
     }
 
     /** @type {Map<string, Array<Array<{x:number,y:number}>>>} */

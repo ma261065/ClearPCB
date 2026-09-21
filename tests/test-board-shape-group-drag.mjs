@@ -33,6 +33,8 @@ const {
     handleBoardShapeDrag,
     openBoardShape,
     deleteBoardShapeVertex,
+    deleteBoardShapeSegment,
+    setBoardShapeSegmentType,
     resolveBoardShapeGeometry,
     serializeBoardShapes,
     setBoardShapeNodeCornerRadius,
@@ -42,6 +44,8 @@ const {
     translateShapeGeometry,
 } = await import('../src/pcb/modules/board-shapes.js');
 const { updateGroupDrag, endGroupDrag, cancelGroupDrag } = await import('../src/pcb/modules/box-select.js');
+const { updateSelectionInteraction, finishSelectionInteraction, placeFloatingSelectionInteraction } =
+    await import('../src/pcb/modules/selection-interaction.js');
 
 let failures = 0;
 
@@ -410,10 +414,94 @@ function topologyApp(shapes) {
         segmentBulges: { 0: 0.1, 1: 0.2, 2: 0.3, 3: 0.4 } };
     const app = topologyApp([shape]);
     openBoardShape(app, shape, 2);
-    expect('opening a polygon rotates retained segment curves and drops the opened edge',
-        shape.segmentBulges, { 0: 0.3, 1: 0.4, 2: 0.1 });
+    expect('splitting a polygon rotates all segment curves without dropping an edge',
+        shape.segmentBulges, { 0: 0.3, 1: 0.4, 2: 0.1, 3: 0.2 });
+    updateSelectionInteraction(app, { x: 12, y: 13 });
+    placeFloatingSelectionInteraction(app);
     deleteBoardShapeVertex(app, shape, 1);
-    expect('deleting a vertex drops the two curves merged at that vertex', shape.segmentBulges, { 1: 0.1 });
+    expect('deleting a vertex drops the two curves merged at that vertex', shape.segmentBulges, { 1: 0.1, 2: 0.2 });
+}
+
+for (const kind of ['polygon', 'rect']) {
+    for (const action of ['place', 'cancel', 'in-place']) {
+        const shape = { id: `split-${kind}`, kind, layer: 'top-silk', lineWidth: 0.2, filled: true,
+            cornerRadius: 2, nodeCornerRadii: { 1: 0.5, 2: 1 }, segmentWidths: { 0: 0.4, 3: 0.7 },
+            points: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }, { x: 0, y: 10 }] };
+        const app = topologyApp([shape]);
+        const commands = [];
+        app.history.execute = command => { commands.push(command); command.execute(); };
+        const original = serializeBoardShapes(app);
+        expect(`${kind} split starts`, openBoardShape(app, shape, 2), true);
+        expect(`${kind} split floats the endpoint without node selection`,
+            [app._pcbSelectionInteraction?.mode, app._selectedBoardShapeNode], ['floating-anchor', null]);
+        expect(`${kind} split preserves every original segment`, shape.points,
+            [{ x: 10, y: 10 }, { x: 0, y: 10 }, { x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }]);
+        expect(`${kind} split preserves widths`, shape.segmentWidths, { 1: 0.7, 2: 0.4 });
+        expect(`${kind} split remaps node radii onto both endpoints`, shape.nodeCornerRadii, { 0: 1, 3: 0.5, 4: 1 });
+        expect(`${kind} split keeps the overall radius`, shape.cornerRadius, 2);
+        expect(`${kind} split is provisional`, commands.length, 0);
+        if (action !== 'in-place') {
+            updateSelectionInteraction(app, { x: 12, y: 13 });
+            expect(`${kind} only the detached endpoint follows the cursor`,
+                [shape.points[0], shape.points.at(-1)], [{ x: 12, y: 13 }, { x: 10, y: 10 }]);
+        }
+        if (action === 'cancel') finishSelectionInteraction(app, false);
+        else placeFloatingSelectionInteraction(app);
+        if (action !== 'place') {
+            expect(`${kind} ${action} restores the closed shape and all metadata`, serializeBoardShapes(app), original);
+            expect(`${kind} ${action} leaves history unchanged`, commands.length, 0);
+        } else {
+            expect(`${kind} split and move commits once`, commands.length, 1);
+            expect(`${kind} split result is an unfilled open line`, [shape.kind, shape.filled, shape.points.length], ['line', false, 5]);
+            const placed = serializeBoardShapes(app);
+            commands[0].undo();
+            expect(`${kind} split undo restores the original shape`, serializeBoardShapes(app), original);
+            commands[0].execute();
+            expect(`${kind} split redo restores placement`, serializeBoardShapes(app), placed);
+        }
+        expect(`${kind} ${action} clears floating state`, [app._shapeDrag, app._pcbSelectionInteraction], [null, null]);
+    }
+}
+
+for (const action of ['place', 'cancel', 'in-place']) {
+    const shape = { id: 'open-line-split', kind: 'line', layer: 'top-silk', lineWidth: 0.2,
+        points: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 20, y: 0 }],
+        segmentWidths: { 1: 0.6 }, segmentBulges: { 0: 0.25 }, nodeCornerRadii: { 1: 2 } };
+    const app = topologyApp([shape]);
+    const commands = [];
+    app.history.execute = command => { commands.push(command); command.execute(); };
+    const original = serializeBoardShapes(app);
+    expect(`line ${action}: split begins`, openBoardShape(app, shape, 1), true);
+    expect(`line ${action}: both pieces retain their edges`, app.boardShapes.map(part => part.points.length), [2, 2]);
+    if (action !== 'in-place') updateSelectionInteraction(app, { x: 12, y: 3 });
+    if (action === 'cancel') finishSelectionInteraction(app, false);
+    else placeFloatingSelectionInteraction(app);
+    if (action === 'place') {
+        expect('line split and placement commit atomically', commands.length, 1);
+        expect('line split preserves segment metadata', [shape.segmentWidths, app.boardShapes[1].segmentBulges], [{ 0: 0.6 }, { 0: 0.25 }]);
+        commands[0].undo();
+    } else expect(`line ${action}: no history entry`, commands.length, 0);
+    expect(`line ${action}: original is recoverable`, serializeBoardShapes(app), original);
+}
+
+{
+    const rectangle = { id: 'rect-arc', kind: 'rect', layer: 'top-silk', lineWidth: 0.3,
+        points: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }, { x: 0, y: 10 }] };
+    const app = topologyApp([rectangle]);
+    setBoardShapeSegmentType(app, rectangle, 1, 'arc');
+    expect('curving a rectangle side promotes it to a polygon', [rectangle.kind, rectangle.segmentBulges[1]], ['polygon', 0.25]);
+    deleteBoardShapeSegment(app, rectangle, 0);
+    expect('deleting a closed edge retains the other edges', [app.boardShapes[0].kind, app.boardShapes[0].points.length], ['line', 4]);
+    expect('surviving arc metadata follows its edge', app.boardShapes[0].segmentBulges, { 0: 0.25 });
+}
+
+{
+    const shape = { id: 'delete-middle', kind: 'line', layer: 'top-silk', lineWidth: 0.2,
+        points: [{ x: 0, y: 0 }, { x: 5, y: 0 }, { x: 10, y: 0 }, { x: 15, y: 0 }] };
+    const app = topologyApp([shape]);
+    deleteBoardShapeSegment(app, shape, 1);
+    expect('deleting a middle segment leaves two independent lines', app.boardShapes.map(part => part.points),
+        [[{ x: 0, y: 0 }, { x: 5, y: 0 }], [{ x: 10, y: 0 }, { x: 15, y: 0 }]]);
 }
 
 if (failures) process.exitCode = 1;

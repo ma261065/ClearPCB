@@ -5,6 +5,7 @@ import { globalEventBus } from '../core/EventBus.js';
 import { CommandHistory } from '../core/CommandHistory.js';
 import { SelectionManager } from '../core/SelectionManager.js';
 import { FileManager } from '../core/FileManager.js';
+import { repairDuplicateTrackIds } from '../core/project-format.js';
 import { storageManager } from '../core/StorageManager.js';
 import { pointsMatch } from '../core/geometry.js';
 import { ComponentPicker } from '../components/ComponentPicker.js';
@@ -385,13 +386,14 @@ export default class SchematicApp {
     async _applyAutoSave(entry) {
         const saved = this.fileManager.loadAutoSave(entry.fileName);
         if (saved && saved.data) {
+            const recovered = repairDuplicateTrackIds(saved.data);
             if (this._initComplete) {
-                await this._loadDocument(saved.data);
+                await this._loadDocument(recovered.data);
             } else {
                 this.shapes = [];
                 this.components = [];
                 this.ui = /** @type {any} */ ({});
-                this._pendingAutoLoad = saved.data;
+                this._pendingAutoLoad = recovered.data;
             }
             if (saved.fileName) this.fileManager.setFileName(saved.fileName);
             // Restore the original file handle (persisted in IndexedDB) so that
@@ -402,6 +404,10 @@ export default class SchematicApp {
                 try { await this.fileManager.restoreFileHandle(saved.fileName); } catch {}
             }
             this.fileManager.setDirty(true);
+            if (recovered.count) {
+                await this._alert(`Recovered the autosave and assigned new IDs to ${recovered.count} tracks with duplicate IDs. All track geometry was retained. Save the project to keep the repaired IDs.`,
+                    { title: 'Autosave Repaired' });
+            }
             console.log('Recovered auto-saved content');
         }
     }

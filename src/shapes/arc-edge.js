@@ -97,6 +97,20 @@ export function distanceToArcEdge(point, a, b, bulge) {
     );
 }
 
+export function closestPointOnArcEdge(point, start, end, bulge) {
+    const arc = arcFromBulge(start, end, bulge);
+    if (arc) {
+        const angle = Math.atan2(point.y - arc.cy, point.x - arc.cx);
+        if (angleInArc(arc, angle)) return { x: arc.cx + arc.radius * Math.cos(angle), y: arc.cy + arc.radius * Math.sin(angle) };
+        return Math.hypot(point.x - start.x, point.y - start.y) < Math.hypot(point.x - end.x, point.y - end.y) ? { ...start } : { ...end };
+    }
+    const dx = end.x - start.x;
+    const dy = end.y - start.y;
+    const lengthSquared = dx * dx + dy * dy;
+    const fraction = lengthSquared ? Math.max(0, Math.min(1, ((point.x - start.x) * dx + (point.y - start.y) * dy) / lengthSquared)) : 0;
+    return { x: start.x + dx * fraction, y: start.y + dy * fraction };
+}
+
 /**
  * Sample points along an edge for fill/halo/bounds approximation. Excludes the
  * start point `a`; the final sample is the end point `b`. Straight edges return

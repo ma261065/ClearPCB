@@ -5,7 +5,8 @@ import * as THREE from '../assets/vendor/three.module.js';
 import { buildSurfaceBuffers } from '../src/pcb/modules/board3d-surface-build.js';
 import { createSurfaceBuilder } from '../src/pcb/modules/board3d-surface-client.js';
 import { encodeSurfaceInputs, decodeSurfaceInputs } from '../src/pcb/modules/board3d-surface-transfer.js';
-import { clipMeshToOutline, punchHolesInFlatMesh } from '../src/pcb/modules/board3d-mesh-ops.js';
+import { clipMeshToOutline, punchHolesInFlatMesh, polygonAreaXZ } from '../src/pcb/modules/board3d-mesh-ops.js';
+import { pointInPolygon } from '../src/core/geometry.js';
 import { meshToGeometry } from '../src/shared/3d/model-rendering.js';
 
 const mesh = {
@@ -20,7 +21,56 @@ const surfaces = {
     },
     empty: { parts: [] },
 };
+const notched = [
+    { x: 0, z: 0 }, { x: 10, z: 0 }, { x: 10, z: 3 }, { x: 6, z: 3 },
+    { x: 6, z: 7 }, { x: 10, z: 7 }, { x: 10, z: 10 }, { x: 0, z: 10 },
+];
+const curvedNotch = [{ x: 0, z: 0 }, { x: 10, z: 0 },
+    ...Array.from({ length: 33 }, (_, index) => {
+        const angle = -Math.PI / 2 - index * Math.PI / 32;
+        return { x: 10 + 3 * Math.cos(angle), z: 5 + 3 * Math.sin(angle) };
+    }), { x: 10, z: 10 }, { x: 0, z: 10 }];
+const concaveCases = [];
+for (const [name, boundary] of [['notch', notched], ['curvedNotch', curvedNotch]]) {
+    for (const reversed of [false, true]) {
+        const outline = reversed ? boundary.slice().reverse() : boundary;
+        const key = `${name}${reversed ? 'Reversed' : ''}`;
+        surfaces[key] = { outline, parts: [{ mesh: {
+            verts: [{ x: 0, z: 0 }, { x: 10, z: 0 }, { x: 10, z: 10 }, { x: 0, z: 10 }]
+                .map(point => ({ ...point, y: 2 + point.x / 8 + point.z / 4 })),
+            faces: [{ idx: [0, 1, 2], color: [64, 128, 192] }, { idx: [0, 2, 3], color: [64, 128, 192] }],
+        } }] };
+        concaveCases.push({ key, outline });
+    }
+}
 const expected = buildSurfaceBuffers(surfaces);
+for (const { key, outline } of concaveCases) {
+    const positions = expected[key].position;
+    const polygon = outline.map(point => ({ x: point.x, y: point.z }));
+    let area = 0;
+    assert.ok(positions.length > 0, `${key}: concave outlines must not erase board surfaces`);
+    assert.equal(expected[key].normal.length, positions.length);
+    assert.equal(expected[key].color.length, positions.length);
+    for (let index = 0; index < positions.length; index += 9) {
+        const vertices = [0, 3, 6].map(offset => ({
+            x: positions[index + offset], y: positions[index + offset + 1], z: positions[index + offset + 2],
+        }));
+        const triangleArea = polygonAreaXZ(vertices);
+        assert.ok(triangleArea >= -1e-6, `${key}: clipping preserves surface winding`);
+        area += Math.abs(triangleArea);
+        for (const vertex of vertices) {
+            assert.ok(Math.abs(vertex.y - (2 + vertex.x / 8 + vertex.z / 4)) < 1e-5,
+                `${key}: clipped vertices preserve interpolated height`);
+        }
+        if (triangleArea > 1e-6) {
+            const center = { x: vertices.reduce((sum, point) => sum + point.x, 0) / 3,
+                y: vertices.reduce((sum, point) => sum + point.z, 0) / 3 };
+            assert.ok(pointInPolygon(center, polygon), `${key}: no surface spans the notch`);
+        }
+    }
+    assert.ok(Math.abs(area - Math.abs(polygonAreaXZ(outline))) < 1e-4,
+        `${key}: clipping retains the whole board area without overlaps`);
+}
 const originalSetRGB = THREE.Color.prototype.setRGB;
 let colorConversions = 0;
 THREE.Color.prototype.setRGB = function (...args) {

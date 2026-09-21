@@ -150,4 +150,30 @@ function appFor(track) {
     expect('a pad-linked Track remains a Track', !canRestoreTrackToSourceBoardShape(track));
 }
 
+{
+    const line = { id: 'geometry-roundtrip', kind: 'line', layer: 'top-copper', lineWidth: 0.3,
+        copperMode: 'add', points: [{ x: 0, y: 0 }, { x: 8, y: 0 }, { x: 8, y: 8 }],
+        segmentWidths: { 1: 0.6 }, segmentBulges: { 0: -0.4 }, cornerRadius: 2, nodeCornerRadii: { 1: 0.7 } };
+    const app = appFor(null);
+    app.tracks = [];
+    app.boardShapes = [line];
+    const track = convertBoardLineToTrack(app, line, 'N');
+    expect('Line conversion carries widths and bulges', track.getEdgeWidth('e1') === 0.6 && track.edges.get('e0').bulge === -0.4);
+    expect('Line conversion carries both radius levels', track.cornerRadius === 2 && track.nodeCornerRadius('n1') === 0.7);
+    track.setEdgeAttr('e0', 'bulge', 0.5);
+    restoreTrackToSourceBoardShape(app, track);
+    const restored = app.boardShapes[0];
+    expect('restoration uses edited bulges rather than the source snapshot', restored.segmentBulges[0] === 0.5);
+    expect('restoration carries widths and radii', restored.segmentWidths[1] === 0.6
+        && restored.cornerRadius === 2 && restored.nodeCornerRadii[1] === 0.7);
+}
+
+{
+    const track = new Track({ graphNodes: { n0: { x: 0, y: 0 }, n1: { x: 8, y: 0 } },
+        graphEdges: { e0: { from: 'n1', to: 'n0', bulge: 0.4 } } });
+    const app = appFor(track);
+    restoreTrackToSourceBoardShape(app, track);
+    expect('reversed traversal reverses the bulge sign', app.boardShapes[0].segmentBulges[0] === -0.4);
+}
+
 if (failures) process.exitCode = 1;

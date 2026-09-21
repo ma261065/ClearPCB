@@ -10,6 +10,7 @@ const {
     beginSelectionInteraction,
     placeFloatingSelectionInteraction,
     updateSelectionInteraction,
+    showPcbSelectionProperties,
 } = await import('../src/pcb/modules/selection-interaction.js');
 const { createTrackSelectionAdapter } = await import('../src/pcb/modules/track-select.js');
 const {
@@ -270,6 +271,78 @@ function expect(name, condition) {
         adapter.beginMove(segmentPoint, { alreadySelected: true }));
     adapter.endMove(true);
     expect('second Track click refines to the clicked segment', app._trackEdit?.edgeId === edgeId);
+
+    const items = { innerHTML: '' };
+    let title = '';
+    app._pcbPropsItems = () => items;
+    app._setPcbPropsTitle = value => { title = value; };
+    const nodeId = track.nodes.keys().next().value;
+    const node = track.nodes.get(nodeId);
+    expect('clicking a Track node starts an anchor interaction', beginSelectionInteraction(app, node, false));
+    finishSelectionInteraction(app, true);
+    expect('click-release focuses the Track node', app._trackEdit?.nodeId === nodeId);
+    expect('focused Track node does not float', app._pcbSelectionInteraction === null && app._vertexDrag === null);
+    showPcbSelectionProperties(app);
+    expect('property refresh preserves Track node focus', app._trackEdit?.nodeId === nodeId && title === 'Track Node');
+    expect('Track node properties include corner radius', items.innerHTML.includes('pcbPropTrackCornerRadius'));
+    expect('Track node properties display coordinates', items.innerHTML.includes('pcbPropTrackNodeX')
+        && items.innerHTML.includes('pcbPropTrackNodeY'));
+    finishSelectionInteraction(app, false);
+    expect('cancelling the pickup preserves existing Track node focus', app._trackEdit?.nodeId === nodeId
+        && app._vertexDrag === null && title === 'Track Node');
+}
+
+{
+    const { pathMoveInteraction, pathContextActions, snapPathPoint, snapPathTranslation } =
+        await import('../src/pcb/modules/path-edit.js');
+    let focused = null;
+    let moving = null;
+    const interaction = pathMoveInteraction({ segmentAt: () => 2, selectedSegment: () => focused,
+        selectSegment: segment => { focused = segment; },
+        begin: (point, segment) => { moving = segment; return true; }, update() {}, end() {} });
+    interaction.beginMove({ x: 0, y: 0 }, { alreadySelected: false });
+    interaction.endMove(true);
+    expect('shared first click selects the parent', moving === null && focused === null);
+    interaction.beginMove({ x: 0, y: 0 }, { alreadySelected: true });
+    interaction.endMove(true);
+    expect('shared second click selects the segment', focused === 2);
+    interaction.beginMove({ x: 0, y: 0 }, { alreadySelected: true, selectedSegment: 2 });
+    interaction.endMove(true, { moved: true });
+    expect('shared segment drag targets the selected segment', moving === 2 && focused === 2);
+    interaction.beginMove({ x: 0, y: 0 }, { alreadySelected: true, selectedSegment: 2 });
+    interaction.endMove(true);
+    expect('repeated segment click retains refinement', focused === 2);
+    const action = () => {};
+    expect('shared node menu has Split and Delete node', pathContextActions({ node: true, split: action, deleteNode: action })
+        .map(item => item.text).join(',') === 'Split,Delete node');
+    expect('shared segment menu has conversion and targeted deletion', pathContextActions({ segment: true, curved: false,
+        convert: action, deleteSegment: action }).map(item => item.text).join(',') === 'Convert to Arc Segment,Delete segment');
+    const app = { placements: new Map(), viewport: { scale: 100, gridSize: 1, gridVisible: true },
+        _snapToGrid: point => ({ x: Math.round(point.x), y: Math.round(point.y) }) };
+    const free = snapPathPoint(app, { x: 2.3, y: 4.4 });
+    expect('shared point snap is free outside the grid magnet band', free.x === 2.3 && free.y === 4.4);
+    const grid = snapPathPoint(app, { x: 2.03, y: 4.4 });
+    expect('shared point snap attracts only the nearby grid axis', grid.x === 2 && grid.y === 4.4);
+    const horizontal = snapPathPoint(app, { x: 2.3, y: 0.03 }, [{ x: 0, y: 0 }]);
+    expect('shared point snap leaves the unaligned axis free', horizontal.x === 2.3 && horizontal.y === 0);
+    const diagonal = snapPathPoint(app, { x: 2, y: 2.03 }, [{ x: 0, y: 0 }]);
+    expect('shared point snap aligns to 45 degrees', Math.abs(diagonal.x - diagonal.y) < 1e-9);
+    app.placements.set('R1', { pads: new Map([['1', { x: 10.02, y: 3.04 }]]) });
+    const delta = snapPathTranslation(app, [{ x: 0, y: 0 }, { x: 8, y: 0 }], { x: 2, y: 3 });
+    expect('translation snaps any moving endpoint to a pad', Math.abs(delta.x - 2.02) < 1e-9
+        && Math.abs(delta.y - 3.04) < 1e-9);
+    app.viewport.shiftHeld = true;
+    const override = snapPathPoint(app, { x: 10.03, y: 3.03 }, [{ x: 10, y: 3 }], true);
+    expect('Shift disables pad, grid and axis magnets', override.x === 10.03 && override.y === 3.03);
+    const freeDelta = snapPathTranslation(app, [{ x: 0, y: 0 }], { x: 10.03, y: 3.03 });
+    expect('Shift disables translation magnets', freeDelta.x === 10.03 && freeDelta.y === 3.03);
+    app.viewport.shiftHeld = false;
+    app.viewport.getEffectiveGridSize = () => 5;
+    const adaptive = snapPathPoint(app, { x: 3.03, y: 4.97 });
+    expect('grid magnets follow displayed grid spacing', adaptive.x === 3.03 && adaptive.y === 5);
+    app.viewport.gridVisible = false;
+    const hidden = snapPathPoint(app, { x: 3.03, y: 4.97 });
+    expect('hidden grid has no magnets', hidden.x === 3.03 && hidden.y === 4.97);
 }
 
 if (failures) process.exitCode = 1;

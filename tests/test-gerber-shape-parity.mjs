@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { pointInPolygon } from '../src/core/geometry.js';
+import { closestPointOnSegment, pointInPolygon } from '../src/core/geometry.js';
+import { Track } from '../src/shapes/track.js';
 import { pictureShape } from '../src/pcb/modules/picture-raster.js';
 
 globalThis.window = { addEventListener() {} };
@@ -8,6 +9,64 @@ const { resolveBoardShapeGeometry, boardShapeFilledRemovalOutlines } = await imp
 const { pcbTextSegments } = await import('../src/pcb/modules/pcb-text.js');
 const exportShapes = boardShapes => exportGerbers({ placements: new Map(),
     boardX: 0, boardY: 0, boardWidth: 100, boardHeight: 80, boardShapes });
+
+function circularStrokesIn(file) {
+    const apertures = new Map([...file.matchAll(/%ADD(\d+)C,([\d.]+)\*%/g)]
+        .map(match => [Number(match[1]), Number(match[2])]));
+    const strokes = [];
+    let aperture = null;
+    let position = null;
+    for (const command of file.split(/\r?\n/)) {
+        const selection = command.match(/^D(\d+)\*$/);
+        if (selection) aperture = Number(selection[1]);
+        const draw = command.match(/^X(-?\d+)Y(-?\d+)D0([12])\*$/);
+        if (!draw) continue;
+        const next = { x: Number(draw[1]) / 1e6, y: -Number(draw[2]) / 1e6 };
+        if (draw[3] === '1') {
+            assert.ok(position && apertures.has(aperture), 'Every curve segment uses a circular aperture');
+            strokes.push({ start: position, end: next, width: apertures.get(aperture) });
+        }
+        position = next;
+    }
+    return strokes;
+}
+
+for (const [layer, file] of [['top-copper', 'board.gtl'], ['bottom-copper', 'board.gbl'],
+    ['top-silk', 'board.gto'], ['bottom-silk', 'board.gbo'], ['top-mask', 'board.gts']]) {
+    for (const kind of layer.endsWith('copper') ? ['track', 'line', 'variable-line'] : ['line', 'variable-line']) {
+        const points = [{ x: 10, y: -10 }, { x: 30, y: -10 }, { x: 30, y: -30 }];
+        const shape = { kind: 'line', layer, points, cornerRadius: 8, lineWidth: 0.4, filled: false };
+        if (kind === 'variable-line') Object.assign(shape, { lineWidth: 0.2, segmentWidths: { 0: 0.4, 1: 0.4 } });
+        const track = new Track({ points, layer, cornerRadius: 8, width: 0.4 });
+        const gerber = exportGerbers({ placements: new Map(), boardWidth: 100, boardHeight: 80,
+            tracks: kind === 'track' ? [track] : [], boardShapes: kind === 'track' ? [] : [shape] }).get(file);
+        const strokes = circularStrokesIn(gerber);
+        const label = `${kind} ${layer}`;
+        assert.ok(strokes.length > 16, `${label}: adaptive corner samples reach Gerber`);
+        assert.ok(strokes.every(stroke => stroke.width === 0.4), `${label}: stroke width is preserved`);
+        for (let index = 1; index < strokes.length; index++) {
+            assert.deepEqual(strokes[index].start, strokes[index - 1].end, `${label}: successive draws meet exactly`);
+        }
+        const covers = point => strokes.some(stroke => {
+            const closest = closestPointOnSegment(point, stroke.start, stroke.end);
+            return Math.hypot(point.x - closest.x, point.y - closest.y) <= stroke.width / 2;
+        });
+        for (let sample = 1; sample < 100; sample++) {
+            const fraction = sample / 100;
+            const point = { x: 30 - 8 * (1 - fraction) ** 2, y: -10 - 8 * fraction ** 2 };
+            const length = Math.hypot(fraction, 1 - fraction);
+            const normal = { x: fraction / length, y: (1 - fraction) / length };
+            for (const side of [-1, 1]) {
+                assert.ok(covers({ x: point.x + side * normal.x * 0.195, y: point.y + side * normal.y * 0.195 }),
+                    `${label}: no notches along either curve boundary at ${fraction}`);
+                assert.equal(covers({ x: point.x + side * normal.x * 0.205, y: point.y + side * normal.y * 0.205 }), false,
+                    `${label}: round joins do not create protrusions at ${fraction}`);
+            }
+        }
+        assert.equal(covers({ x: 30, y: -10 }), false, `${label}: removed sharp corner stays empty`);
+    }
+}
+
 for (const layer of ['top-silk', 'bottom-silk']) {
     const file = layer === 'top-silk' ? 'board.gto' : 'board.gbo';
     const circle = { kind: 'circle', layer, x: 30, y: -30, radius: 10, lineWidth: 2, filled: false };
@@ -39,7 +98,8 @@ const hollow = { kind: 'rect', points: [{ x: 10, y: -10 }, { x: 40, y: -10 },
     { x: 40, y: -40 }, { x: 10, y: -40 }], cornerRadius: 5, lineWidth: 2, filled: false };
 const triangle = { kind: 'polygon', points: [{ x: 12, y: -12 }, { x: 44, y: -16 }, { x: 25, y: -44 }],
     lineWidth: 1, segmentWidths: { 0: 3, 1: 1.5, 2: 0.5 }, filled: false };
-for (const original of [portrait, hollow, triangle]) {
+for (const original of [portrait, hollow, triangle, { ...triangle, cornerRadius: 3 },
+    { ...hollow, kind: 'polygon', nodeCornerRadii: { 1: 2 } }]) {
     for (const [layer, file] of [['top-silk', 'board.gto'], ['top-copper', 'board.gtl']]) {
         const shape = { ...original, layer, copperMode: 'add' };
         const expected = resolveBoardShapeGeometry(shape).physicalContours;
@@ -60,7 +120,10 @@ for (const layer of ['top-copper', 'top-silk']) {
     text.x = 100.5 - right;
     const gerbers = exportGerbers({ placements: new Map(), boardWidth: 100, boardHeight: 80, texts: [text] });
     const file = gerbers.get(layer === 'top-silk' ? 'board.gto' : 'board.gtl');
-    assert.match(file, /X100500000Y\d+D02\*\nX100500000Y\d+D01\*/, 'The right stem overlaps the board by half a millimetre');
+    const clipped = regionsIn(file);
+    assert.ok(clipped.some(contour => contour.some(point => point.x === 100)), 'Overlapping text reaches the board edge');
+    assert.ok(clipped.flat().every(point => point.x <= 100), 'Text stroke width is clipped at the edge');
+    assert.doesNotMatch(file, /X100500000Y\d+D0[12]\*/, 'Off-board centreline is replaced with clipped regions');
 }
 const curvedSlot = { kind: 'line', layer: 'hole', lineWidth: 2,
     points: [{ x: 20, y: -20 }, { x: 25, y: -27 }, { x: 30, y: -30 }, { x: 35, y: -27 }, { x: 40, y: -20 }] };
@@ -111,7 +174,10 @@ const edgeCircles = [
         x: 92, y: -30, radius: 5 },
 ];
 const edgeCopper = exportShapes(edgeCircles).get('board.gtl');
-assert.match(edgeCopper, /X101000000Y30000000D03\*/, 'A circle centred outside the board still contributes its overlapping copper');
+assert.ok(regionsIn(edgeCopper).some(contour => pointInPolygon({ x: 99, y: -30 }, contour)),
+    'A circle centred outside the board still contributes its overlapping copper');
+assert.ok(regionsIn(edgeCopper).flat().every(point => point.x <= 100 && point.y >= -80), 'Circle regions stop at the board boundary');
+assert.doesNotMatch(edgeCopper, /X101000000Y30000000D03\*/, 'The off-board circle is not emitted as an unbounded flash');
 assert.match(edgeCopper, /X92000000Y30000000D03\*/, 'Both overlapping circles survive export');
 const island = [{ x: 7, y: -31 }, { x: 13, y: -38 }, { x: 10, y: -32 }];
 const surrounding = [{ x: 0.5, y: -0.5 }, { x: 99.5, y: -0.5 }, { x: 99.5, y: -79.5 }, { x: 0.5, y: -79.5 }];
@@ -127,3 +193,86 @@ for (const reverse of [false, true]) {
     assert.ok(!regions.some(region => pointInPolygon({ x: 5, y: -30 }, region)), 'The surrounding clearance remains empty');
 }
 console.log('PASS pour islands survive surrounding holes regardless of export order, and off-board circle centres retain artwork');
+
+const concaveOutline = { kind: 'polygon', layer: 'board-outline', lineWidth: 0.2, filled: false,
+    points: [{ x: 0, y: 0 }, { x: 20, y: 0 }, { x: 20, y: -20 }, { x: 14, y: -20 },
+        { x: 14, y: -8 }, { x: 6, y: -8 }, { x: 6, y: -20 }, { x: 0, y: -20 }] };
+const exportNotched = options => exportGerbers({ placements: new Map(), boardWidth: 20, boardHeight: 20,
+    ...options, boardShapes: [concaveOutline, ...(options.boardShapes || [])] });
+for (const [layer, filename] of [['top-copper', 'board.gtl'], ['bottom-copper', 'board.gbl'],
+    ['top-silk', 'board.gto'], ['bottom-silk', 'board.gbo'], ['top-mask', 'board.gts'], ['bottom-mask', 'board.gbs']]) {
+    const crossing = { kind: 'line', layer, lineWidth: 2, filled: false,
+        points: [{ x: 2, y: -12 }, { x: 18, y: -12 }] };
+    const original = JSON.stringify([concaveOutline, crossing]);
+    const file = exportNotched({ boardShapes: [crossing] }).get(filename);
+    const regions = regionsIn(file);
+    assert.ok(regions.some(contour => pointInPolygon({ x: 4, y: -12.8 }, contour)), `${layer}: left stroke width retained`);
+    assert.ok(regions.some(contour => pointInPolygon({ x: 16, y: -12.8 }, contour)), `${layer}: right stroke width retained`);
+    assert.ok(regions.every(contour => contour.every(point => point.x <= 6 || point.x >= 14)), `${layer}: no vertices in notch`);
+    assert.ok(!regions.some(contour => pointInPolygon({ x: 10, y: -12 }, contour)), `${layer}: no bridge across notch`);
+    assert.equal(JSON.stringify([concaveOutline, crossing]), original, 'Export leaves source geometry unchanged');
+    const circle = { kind: 'circle', layer, x: 7, y: -12, radius: 2, lineWidth: 0.4, filled: true };
+    const circleRegions = regionsIn(exportNotched({ boardShapes: [circle] }).get(filename));
+    assert.ok(circleRegions.some(contour => pointInPolygon({ x: 5.5, y: -12 }, contour)), `${layer}: partial circle survives`);
+    assert.ok(circleRegions.flat().every(point => point.x <= 6), `${layer}: circle clipped at notch`);
+    if (!layer.endsWith('mask')) {
+        const ring = { ...circle, x: 5, filled: false };
+        const ringRegions = regionsIn(exportNotched({ boardShapes: [ring] }).get(filename));
+        assert.ok(ringRegions.some(contour => pointInPolygon({ x: 3.2, y: -12 }, contour)), `${layer}: ring thickness survives`);
+        assert.ok(!ringRegions.some(contour => pointInPolygon({ x: 5, y: -12 }, contour)), `${layer}: clipped ring remains hollow`);
+        assert.ok(ringRegions.flat().every(point => point.x <= 6), `${layer}: ring stops at notch`);
+    }
+    const outside = exportNotched({ boardShapes: [{ ...circle, x: 30 }] }).get(filename);
+    assert.doesNotMatch(outside, /X-?\d+Y-?\d+D0[123]\*/, `${layer}: wholly external circle omitted`);
+}
+for (const side of ['top', 'bottom']) {
+    const placements = new Map([['edge', { x: 6, y: -12, side, padOffsets: [
+        { dx: 0, dy: 0, width: 2, height: 2, shape: 'rect', layer: side },
+    ] }]]);
+    const files = exportNotched({ placements });
+    for (const filename of side === 'top' ? ['board.gtl', 'board.gts', 'board.gtp'] : ['board.gbl', 'board.gbs', 'board.gbp']) {
+        const regions = regionsIn(files.get(filename));
+        assert.ok(regions.some(contour => pointInPolygon({ x: 5.5, y: -12 }, contour)), `${filename}: partial pad retained`);
+        assert.ok(regions.flat().every(point => point.x <= 6), `${filename}: pad footprint clipped`);
+        assert.doesNotMatch(files.get(filename), /D03\*/, `${filename}: crossing pad is not a full flash`);
+    }
+}
+const clippedVias = exportNotched({ vias: [{ x: 6, y: -12, diameter: 2, drill: 0.5 },
+    { x: 10, y: -12, diameter: 1, drill: 0.5 }] });
+assert.ok(regionsIn(clippedVias.get('board.gtl')).flat().every(point => point.x <= 6));
+assert.match(clippedVias.get('board-PTH.drl'), /X6\.000Y12\.000/);
+assert.doesNotMatch(clippedVias.get('board-PTH.drl'), /X10\.000Y12\.000/, 'Drills centred in the notch are omitted');
+const oversizedPicture = pictureShape({ width: 10, height: 10, contours: [
+    [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }, { x: 0, y: 10 }],
+    [{ x: 3, y: 3 }, { x: 7, y: 3 }, { x: 7, y: 7 }, { x: 3, y: 7 }],
+] }, { widthMm: 30, layer: 'top-silk', center: { x: 10, y: -10 } });
+const pictureRegions = regionsIn(exportNotched({ boardShapes: [oversizedPicture] }).get('board.gto'));
+assert.ok(pictureRegions.some(contour => pointInPolygon({ x: 2, y: -12 }, contour)), 'Clipped picture retains on-board ink');
+assert.ok(!pictureRegions.some(contour => pointInPolygon({ x: 10, y: -5 }, contour)), 'Clipped picture retains its hole');
+assert.ok(!pictureRegions.some(contour => pointInPolygon({ x: 10, y: -18 }, contour)), 'Picture cannot fill the board notch');
+for (const filename of ['board.gtl', 'board.gto']) {
+    const layer = filename === 'board.gtl' ? 'top-copper' : 'top-silk';
+    const rounded = exportGerbers({ placements: new Map(), boardWidth: 20, boardHeight: 20, boardRadius: 5,
+        boardShapes: [{ kind: 'circle', layer, x: 1, y: -1, radius: 3, filled: true, lineWidth: 0.2 }] });
+    const regions = regionsIn(rounded.get(filename));
+    assert.ok(regions.some(contour => pointInPolygon({ x: 3, y: -3 }, contour)), 'Artwork survives inside rounded corner');
+    assert.ok(!regions.some(contour => pointInPolygon({ x: 0.5, y: -0.5 }, contour)), 'Legacy rounded board clips the corner');
+}
+const profile = exportNotched({ boardShapes: [
+    { kind: 'circle', layer: 'hole', x: 30, y: -10, radius: 2 },
+    { kind: 'circle', layer: 'hole', x: 0, y: -10, radius: 2 },
+] }).get('board.gko');
+const profilePoints = [...profile.matchAll(/X(-?\d+)Y(-?\d+)D0[12]\*/g)]
+    .map(match => ({ x: Number(match[1]) / 1e6, y: -Number(match[2]) / 1e6 }));
+assert.ok(profilePoints.length > 8, 'Crossing cutout is incorporated in the perimeter');
+assert.ok(profilePoints.every(point => point.x >= 0 && point.x <= 20 && point.y >= -20 && point.y <= 0),
+    'Cutouts never emit off-board profile coordinates');
+const circularBoard = exportGerbers({ placements: new Map(), boardWidth: 20, boardHeight: 20, boardShapes: [
+    { kind: 'circle', layer: 'board-outline', x: 10, y: -10, radius: 10 },
+    { kind: 'circle', layer: 'top-copper', x: 18, y: -10, radius: 4, filled: true },
+] }).get('board.gtl');
+const circularRegions = regionsIn(circularBoard);
+assert.ok(circularRegions.some(contour => pointInPolygon({ x: 19, y: -10 }, contour)), 'Circular board retains overlapping artwork');
+assert.ok(circularRegions.flat().every(point => Math.hypot(point.x - 10, point.y + 10) <= 10.000002),
+    'Artwork follows the circular boundary');
+console.log('PASS actual board-boundary clipping for strokes, circles, pads, vias, pictures, rounded corners and cutouts');

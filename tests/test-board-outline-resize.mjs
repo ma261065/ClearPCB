@@ -14,6 +14,50 @@ const syncStart = source.indexOf('    _syncBoardOutlineInputs() {');
 const syncEnd = source.indexOf('\n    /**', syncStart);
 assert.ok(syncStart >= 0 && syncEnd > syncStart);
 const syncInputs = new Function(`return ({ ${source.slice(syncStart, syncEnd)} })._syncBoardOutlineInputs;`)();
+{
+    const { boardBoundary } = await import('../src/pcb/modules/board-outline.js');
+    const fitStart = source.indexOf('    _fitToContent() {');
+    const fitEnd = source.indexOf('\n    _bindRibbonTabs()', fitStart);
+    assert.ok(fitStart >= 0 && fitEnd > fitStart);
+    const fit = new Function('boardBoundary',
+        `return ({ ${source.slice(fitStart, fitEnd)} })._fitToContent;`)(boardBoundary);
+    const helper = { childNodes: [{}], getBBox() { return { x: -10000, y: -10000, width: 20000, height: 20000 }; } };
+    const outlines = [
+        { kind: 'rect', points: [{ x: 120, y: 40 }, { x: 180, y: 40 }, { x: 180, y: 70 }, { x: 120, y: 70 }] },
+        { kind: 'circle', x: -30, y: 20, radius: 15 },
+        { kind: 'polygon', points: [{ x: 0, y: -80 }, { x: 100, y: -80 }, { x: 100, y: 0 }, { x: 0, y: 0 }],
+            segmentBulges: { 1: -0.5 } },
+    ];
+    for (const geometry of outlines) {
+        const calls = [];
+        let unculled = 0;
+        const board = {
+            boardShapes: [{ id: 'board-outline', layer: 'board-outline', ...geometry }],
+            _boardOutlineDrawn: true, _boardWidth: 100, _boardHeight: 80,
+            _ensureViewport() {}, _uncullAllPlacements() { unculled++; },
+            viewport: { fitToBounds(...bounds) { calls.push(bounds); } },
+            _layerGroups: new Map([
+                ['selection-overlay', helper], ['clearance', helper], ['ratlines', helper], ['drc-overlay', helper],
+                ['board-outline', { childNodes: [{}], getBBox() { throw new Error('Use the outline model, not its SVG bounds'); } }],
+            ]),
+        };
+        const bounds = boardBoundary(board);
+        fit.call(board);
+        assert.deepEqual(calls.at(-1), [bounds.x, bounds.y, bounds.x + bounds.w, bounds.y + bounds.h, 10],
+            `${geometry.kind}: helpers must not affect board framing`);
+        assert.equal(unculled, 0, 'Fitting the outline does not need to reveal culled artwork');
+        board._layerGroups.set('top-silk', { childNodes: [{}], getBBox() {
+            return { x: bounds.x - 20, y: bounds.y, width: 5, height: 5 };
+        } });
+        fit.call(board);
+        assert.deepEqual(calls.at(-1), [bounds.x, bounds.y, bounds.x + bounds.w, bounds.y + bounds.h, 10],
+            'Off-board artwork must not affect board framing');
+    }
+    const legacy = { _boardOutlineDrawn: true, _boardWidth: 40, _boardHeight: 30, boardShapes: [],
+        _ensureViewport() {}, _uncullAllPlacements() {}, _layerGroups: new Map([['selection-overlay', helper]]),
+        viewport: { fitToBounds(...bounds) { assert.deepEqual(bounds, [0, -30, 40, 0, 10]); } } };
+    fit.call(legacy);
+}
 let redraws = 0;
 let fills = 0;
 const fillDimensions = [];

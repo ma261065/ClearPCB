@@ -18,6 +18,8 @@
  * testing and incremental cleanup.
  */
 
+import { resolveTrackEdgePaths } from './board-geometry.js';
+
 const NS = 'http://www.w3.org/2000/svg';
 
 /** CSS class applied to every Track polyline. */
@@ -161,6 +163,7 @@ export function removeViaElements(via) {
 export function buildTrackLayerRuns(track) {
     const runs = [];
     if (track.edges.size === 0) return runs;
+    const paths = resolveTrackEdgePaths(track);
 
     // Build adjacency: nodeId → [{edgeId, otherNodeId, layer, width}]
     const adj = new Map();
@@ -189,7 +192,6 @@ export function buildTrackLayerRuns(track) {
             const points = [];
             const startPt = track.nodes.get(startNid);
             if (!startPt) continue;
-            points.push({ x: startPt.x, y: startPt.y });
 
             let currentNid = startNid;
             let currentLayer = initial.layer;
@@ -201,7 +203,10 @@ export function buildTrackLayerRuns(track) {
                 visitedEdges.add(next.edgeId);
                 const np = track.nodes.get(next.other);
                 if (!np) break;
-                points.push({ x: np.x, y: np.y });
+                const path = paths.get(next.edgeId);
+                if (!path) break;
+                const oriented = track.edges.get(next.edgeId).from === currentNid ? path : [...path].reverse();
+                points.push(...(points.length ? oriented.slice(1) : oriented));
                 currentNid = next.other;
 
                 // Find next unvisited edge on the same layer AND width at

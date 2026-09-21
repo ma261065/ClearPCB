@@ -64,18 +64,19 @@ const sharpRectangle = {
 for (const filled of [false, true]) {
     const shape = { ...sharpRectangle, filled };
     const geometry = resolveBoardShapeGeometry(shape);
-    check(`filled=${filled} rectangle physical outline has square corners`,
+    const outerCorner = geometry.physicalContours.flat().filter(point => point.x < 0 && point.y < 0);
+    check(`filled=${filled} rectangle physical outline has round stroke joins`,
         geometry.physicalContours.length === (filled ? 1 : 2)
-        && geometry.physicalContours.every(contour => contour.length === 4)
-        && geometry.physicalContours.some(contour => contour.some(point => approx(point.x, -1) && approx(point.y, -1))));
+        && outerCorner.length > 5
+        && outerCorner.every(point => Math.abs(Math.hypot(point.x, point.y) - 1) < 0.003));
     let element;
     renderBoardShape({
         boardShapes: [shape], _shapeElements: new Map(),
         _getLayerGroup() { return { appendChild(child) { element = child; } }; },
     }, shape);
-    check(`filled=${filled} rectangle SVG uses round caps and miter joins`,
+    check(`filled=${filled} rectangle SVG uses round caps and joins`,
         element.getAttribute('stroke-linecap') === 'round'
-        && element.getAttribute('stroke-linejoin') === 'miter');
+        && element.getAttribute('stroke-linejoin') === 'round');
 }
 check('explicit rectangle corner radius preserves curved geometry',
     resolveBoardShapeGeometry({ ...sharpRectangle, cornerRadius: 2 }).physicalContours.length === 2

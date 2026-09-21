@@ -14,7 +14,9 @@
  *   circle:       + { x, y, radius }
  */
 
-import { bulgeRatio, circumcircle, pointInPolygon, distanceToSegment } from '../../core/geometry.js';
+import { bulgeRatio, bulgePointFromRatio, circumcircle, pointInPolygon, distanceToSegment } from '../../core/geometry.js';
+import { formatNumberInput, formatNumberInputValue } from '../../core/number-inputs.js';
+import { CORNER_CHORD_TOLERANCE, roundedPathCorners, sampleRoundedCorner as sampleRoundedPolygonCorner } from './board-geometry.js';
 import ClipperLib from '../../../assets/vendor/clipper.esm.js';
 import { CopperFill, updateFillIdCounter } from '../../shapes/copper-fill.js';
 import { isLayerLocked, isLayerVisible, PCB_LAYERS } from './layers.js';
@@ -36,11 +38,14 @@ import {
     syncPcbSelection,
 } from './selection-registry.js';
 import { clearPcbSelectionAnchors, renderPcbSelectionAnchors } from './selection-anchors.js';
+import { beginPcbAnchorInteraction } from './selection-interaction.js';
+import { pathMoveInteraction, beginPathSplit, snapPathPoint, snapPathTranslation, pathContextActions, showPathContextMenu, dismissPathContextMenu } from './path-edit.js';
 import { pictureContours, pictureCirclePathD, canDrawPictureCircles, resizePicturePoints, validatePictureArtwork, validatePicturePoints, PICTURE_LAYERS } from './picture-raster.js';
 import { encodePictureArtwork, decodePictureArtwork } from './picture-storage.js';
 import { bindPictureRefreshHold, cancelPictureCopperRefresh, schedulePictureCopperRefresh } from './picture-refresh.js';
 import { rotationHandleAnchor, pointerRotation, rotatedImagePoints } from './rotation-handle.js';
 import { BULGE_EPS, arcEdgeContinuation, arcFromBulge, distanceToArcEdge, sampleArcEdge } from '../../shapes/arc-edge.js';
+import { syncBoardOutlineDimensions, boardBoundary } from './board-outline.js';
 
 const NS = 'http://www.w3.org/2000/svg';
 const SHAPE_KINDS = new Set(['line', 'rect', 'polygon', 'arc', 'circle', 'image']);
@@ -84,22 +89,6 @@ function sourceBoardShapeForTrack(shape) {
     return source;
 }
 
-function trackMatchesSourceBoardShape(track) {
-    const source = track?.sourceBoardShape;
-    if (source?.kind !== 'line' || !Array.isArray(source.points) || source.points.length < 2) return false;
-    if (track.nodes.size !== source.points.length || track.edges.size !== source.points.length - 1
-        || track.padConnections.size) return false;
-    const width = Math.max(0.05, Number(source.lineWidth) || 0.2);
-    return source.points.every((point, index) => {
-        const node = track.nodes.get(`n${index}`);
-        const edge = index ? track.edges.get(`e${index - 1}`) : null;
-        return node && node.x === point.x && node.y === point.y
-            && (!edge || (edge.from === `n${index - 1}` && edge.to === `n${index}`
-                && track.getEdgeLayer(`e${index - 1}`) === source.layer
-                && track.getEdgeWidth(`e${index - 1}`) === width));
-    });
-}
-
 function simpleTrackLinePoints(track) {
     if (!track || track.nodes.size < 2
         || track.edges.size !== track.nodes.size - 1 || track.padConnections.size) return null;
@@ -116,45 +105,50 @@ function simpleTrackLinePoints(track) {
     if (endpoints.length !== 2 || [...adjacency.values()].some((edges) => edges.length < 1 || edges.length > 2)) return null;
 
     const points = [];
+    const segmentWidths = {};
+    const segmentBulges = {};
+    const nodeCornerRadii = {};
     const visitedEdges = new Set();
     let previousNodeId = null;
     let nodeId = endpoints[0];
     let layer = null;
-    let width = null;
     while (nodeId) {
         const node = track.nodes.get(nodeId);
         if (!node) return null;
+        if (Object.hasOwn(track.nodeCornerRadii || {}, nodeId)) nodeCornerRadii[points.length] = track.nodeCornerRadii[nodeId];
         points.push({ x: node.x, y: node.y });
         const next = (adjacency.get(nodeId) || []).find((edge) => edge.nodeId !== previousNodeId);
         if (!next) break;
         if (visitedEdges.has(next.edgeId)) return null;
         const edgeLayer = track.getEdgeLayer(next.edgeId);
         const edgeWidth = track.getEdgeWidth(next.edgeId);
-        if ((layer !== null && edgeLayer !== layer) || (width !== null && edgeWidth !== width)) return null;
+        if (layer !== null && edgeLayer !== layer) return null;
+        const index = points.length - 1;
+        if (edgeWidth !== track.width) segmentWidths[index] = edgeWidth;
+        const edge = track.edges.get(next.edgeId);
+        if (edge.bulge) segmentBulges[index] = edge.from === nodeId ? edge.bulge : -edge.bulge;
         visitedEdges.add(next.edgeId);
         layer = edgeLayer;
-        width = edgeWidth;
         previousNodeId = nodeId;
         nodeId = next.nodeId;
     }
     return visitedEdges.size === track.edges.size && points.length === track.nodes.size
-        ? { points, layer, width }
+        ? { points, layer, width: track.width, segmentWidths, segmentBulges,
+            cornerRadius: track.cornerRadius, nodeCornerRadii }
         : null;
 }
 
 export function canRestoreTrackToSourceBoardShape(track) {
-    return trackMatchesSourceBoardShape(track) || !!simpleTrackLinePoints(track);
+    return !!simpleTrackLinePoints(track);
 }
 
 export function restoreTrackToSourceBoardShape(app, track) {
     if (!app.tracks?.includes(track)) return false;
-    const hasSourceShape = trackMatchesSourceBoardShape(track);
-    const source = hasSourceShape
-        ? JSON.parse(JSON.stringify(track.sourceBoardShape))
-        : simpleTrackLinePoints(track);
+    const source = simpleTrackLinePoints(track);
     if (!source) return false;
-    const shape = hasSourceShape ? source : {
-        id: `pshape_${app._shapeIdCounter++}`,
+    const shape = {
+        ...track.sourceBoardShape,
+        id: track.sourceBoardShape?.id || `pshape_${app._shapeIdCounter++}`,
         kind: 'line',
         layer: source.layer,
         lineWidth: source.width,
@@ -163,6 +157,10 @@ export function restoreTrackToSourceBoardShape(app, track) {
         plated: false,
         net: '',
         points: source.points,
+        segmentWidths: source.segmentWidths,
+        segmentBulges: source.segmentBulges,
+        cornerRadius: source.cornerRadius,
+        nodeCornerRadii: source.nodeCornerRadii,
     };
     app.history.execute(new CompoundCommand([
         new RemoveTrackCommand(app, track),
@@ -186,6 +184,10 @@ export function convertBoardLineToTrack(app, shape, net = shape?.net) {
         width: Math.max(0.05, Number(shape.lineWidth) || 0.2),
         layer: shape.layer,
         points: shape.points.map((point) => ({ x: point.x, y: point.y })),
+        edgeWidths: Object.fromEntries(Object.entries(shape.segmentWidths || {}).map(([index, width]) => [`e${index}`, width])),
+        edgeBulges: Object.fromEntries(Object.entries(shape.segmentBulges || {}).map(([index, bulge]) => [`e${index}`, bulge])),
+        cornerRadius: shape.cornerRadius,
+        nodeCornerRadii: Object.fromEntries(Object.entries(shape.nodeCornerRadii || {}).map(([index, radius]) => [`n${index}`, radius])),
         sourceBoardShape: sourceBoardShapeForTrack(shape),
     });
     selectBoardShape(app, null);
@@ -444,7 +446,7 @@ export function rectCornerRadius(shape) {
 
 /** Corner radius shared by every node of a closed polygon. */
 export function polygonCornerRadius(shape) {
-    return shape?.kind === 'polygon' ? Math.max(0, Number(shape.cornerRadius) || 0) : 0;
+    return ['line', 'polygon'].includes(shape?.kind) ? Math.max(0, Number(shape.cornerRadius) || 0) : 0;
 }
 
 export function boardShapeNodeCornerRadius(shape, index) {
@@ -453,7 +455,7 @@ export function boardShapeNodeCornerRadius(shape, index) {
 }
 
 export function setBoardShapeNodeCornerRadius(shape, index, radius) {
-    if (!['rect', 'polygon'].includes(shape?.kind) || !shape.points?.[index]) return;
+    if (!['line', 'rect', 'polygon'].includes(shape?.kind) || !shape.points?.[index]) return;
     const fallback = shape.kind === 'rect' ? rectCornerRadius(shape) : polygonCornerRadius(shape);
     const value = Math.max(0, Number(radius) || 0);
     shape.nodeCornerRadii ||= {};
@@ -465,74 +467,47 @@ function roundedPolygonCorners(shape) {
     const points = shape.points || [];
     const hasRadius = points.some((_, index) => boardShapeNodeCornerRadius(shape, index) > 0);
     if (points.length < 3 || !hasRadius) return [];
-    return points.map((vertex, index) => {
-        const previous = points[(index + points.length - 1) % points.length];
-        const next = points[(index + 1) % points.length];
-        const previousDx = previous.x - vertex.x;
-        const previousDy = previous.y - vertex.y;
-        const nextDx = next.x - vertex.x;
-        const nextDy = next.y - vertex.y;
-        const previousLength = Math.hypot(previousDx, previousDy);
-        const nextLength = Math.hypot(nextDx, nextDy);
-        const inset = Math.min(boardShapeNodeCornerRadius(shape, index), previousLength / 2, nextLength / 2);
-        if (inset < 0.01 || previousLength < 0.01 || nextLength < 0.01) {
-            return { vertex, entry: { ...vertex }, exit: { ...vertex }, rounded: false };
-        }
-        return {
-            vertex,
-            rounded: true,
-            entry: {
-                x: vertex.x + previousDx / previousLength * inset,
-                y: vertex.y + previousDy / previousLength * inset,
-            },
-            exit: {
-                x: vertex.x + nextDx / nextLength * inset,
-                y: vertex.y + nextDy / nextLength * inset,
-            },
-        };
-    });
+    const radii = points.map((_, index) => boardShapeSegmentBulge(shape, (index + points.length - 1) % points.length)
+        || boardShapeSegmentBulge(shape, index) ? 0 : boardShapeNodeCornerRadius(shape, index));
+    return roundedPathCorners(points, radii, shape.kind !== 'line');
 }
 
-function sampleRoundedPolygonCorner(corner, segments = 8) {
-    if (!corner.rounded) return [{ ...corner.vertex }];
-    const points = [{ ...corner.entry }];
-    for (let index = 1; index <= segments; index++) {
-        const t = index / segments;
-        const inverse = 1 - t;
-        points.push({
-            x: inverse * inverse * corner.entry.x
-                + 2 * inverse * t * corner.vertex.x + t * t * corner.exit.x,
-            y: inverse * inverse * corner.entry.y
-                + 2 * inverse * t * corner.vertex.y + t * t * corner.exit.y,
-        });
-    }
-    return points;
-}
-
-function roundedPolygonOutline(shape, segments = 8) {
+function roundedPolygonOutline(shape, segments = undefined) {
     const corners = roundedPolygonCorners(shape);
     if (!corners.length) return (shape.points || []).map((point) => ({ ...point }));
-    return corners.flatMap((corner) => sampleRoundedPolygonCorner(corner, segments));
+    return corners.flatMap((corner, index) => {
+        const points = sampleRoundedPolygonCorner(corner, segments);
+        if (index < corners.length - 1 || shape.kind !== 'line') {
+            const next = corners[(index + 1) % corners.length];
+            points.push(...sampleArcEdge(corner.exit, next.entry, boardShapeSegmentBulge(shape, index), 64));
+        }
+        return points;
+    });
 }
 
 function roundedPolygonPath(shape) {
     const corners = roundedPolygonCorners(shape);
     if (!corners.length) return '';
     const parts = [`M ${r4(corners[0].entry.x)} ${r4(corners[0].entry.y)}`];
-    for (const corner of corners) {
-        if (corner !== corners[0]) parts.push(`L ${r4(corner.entry.x)} ${r4(corner.entry.y)}`);
+    for (const [index, corner] of corners.entries()) {
+        if (index > 0) parts.push(arcEdgeContinuation(corners[index - 1].exit, corner.entry,
+            boardShapeSegmentBulge(shape, index - 1)));
         if (corner.rounded) {
             parts.push(`Q ${r4(corner.vertex.x)} ${r4(corner.vertex.y)} ${r4(corner.exit.x)} ${r4(corner.exit.y)}`);
         }
     }
-    parts.push('Z');
+    if (shape.kind !== 'line') {
+        parts.push(arcEdgeContinuation(corners.at(-1).exit, corners[0].entry,
+            boardShapeSegmentBulge(shape, corners.length - 1)), 'Z');
+    }
     return parts.join(' ');
 }
 
-function roundedRectOutline(shape, segments = 8) {
+function roundedRectOutline(shape, segments = undefined) {
     const bounds = rectBounds(shape);
     const radius = rectCornerRadius(shape);
     if (!bounds || radius <= 0) return (shape.points || []).map((point) => ({ ...point }));
+    segments ??= Math.max(16, Math.ceil(Math.PI / (8 * Math.asin(Math.sqrt(Math.min(1, CORNER_CHORD_TOLERANCE / (2 * radius)))))));
     const corners = [
         { x: bounds.minX + radius, y: bounds.minY + radius, start: Math.PI, end: Math.PI * 1.5 },
         { x: bounds.maxX - radius, y: bounds.minY + radius, start: -Math.PI / 2, end: 0 },
@@ -573,6 +548,24 @@ export function boardShapeSegmentBulge(shape, segment) {
         : 0;
 }
 
+function editableShapeBulge(shape, segment = null) {
+    return shape.kind === 'arc'
+        ? Math.max(-1, Math.min(1, bulgeRatio(shape.start, shape.end, shape.bulge)))
+        : segment == null ? 0 : boardShapeSegmentBulge(shape, segment);
+}
+
+function normalizeStraightArc(shape, segment = null) {
+    if (Number(formatNumberInputValue(editableShapeBulge(shape, segment))) !== 0) return;
+    if (shape.kind === 'arc') {
+        const points = [shape.start, shape.end];
+        shape.kind = 'line';
+        shape.filled = false;
+        applyShapeGeometry(shape, { points });
+    } else if (segment != null && shape.segmentBulges) {
+        delete shape.segmentBulges[segment];
+    }
+}
+
 function sampledBoardShapePoints(shape) {
     const points = shape.points || [];
     if (!['line', 'polygon'].includes(shape.kind) || points.length < 2) {
@@ -592,6 +585,7 @@ function sampledBoardShapePoints(shape) {
 export function shapeOutline(shape) {
     if (shape.kind === 'arc') return arcSamples(shape);
     if (shape.kind === 'circle') return circleOutline(shape);
+    if (['line', 'polygon'].includes(shape.kind) && roundedPolygonCorners(shape).length) return roundedPolygonOutline(shape);
     if (['line', 'polygon'].includes(shape.kind) && Object.keys(shape.segmentBulges || {}).length) {
         return sampledBoardShapePoints(shape);
     }
@@ -622,7 +616,8 @@ function shapeSegments(shape) {
 }
 
 function boardShapeStrokeSegments(shape) {
-    if (['line', 'polygon'].includes(shape.kind) && Object.keys(shape.segmentBulges || {}).length) {
+    if (['line', 'polygon'].includes(shape.kind) && Object.keys(shape.segmentBulges || {}).length
+        && !roundedPolygonCorners(shape).length) {
         const points = shape.points || [];
         const count = shape.kind === 'line' ? points.length - 1 : points.length;
         return points.slice(0, count).flatMap((start, logicalSegment) => {
@@ -636,15 +631,19 @@ function boardShapeStrokeSegments(shape) {
             }));
         });
     }
-    if ((shape.kind === 'polygon' || (shape.kind === 'rect' && Object.keys(shape.nodeCornerRadii || {}).length))
+    if ((['line', 'polygon'].includes(shape.kind) || (shape.kind === 'rect' && Object.keys(shape.nodeCornerRadii || {}).length))
         && roundedPolygonCorners(shape).length) {
         const corners = roundedPolygonCorners(shape);
-        const straightSegments = corners.map((corner, index) => ({
-            start: { ...corner.exit },
-            end: { ...corners[(index + 1) % corners.length].entry },
-            lineWidth: boardShapeSegmentWidth(shape, index),
-            logicalSegment: index,
-        }));
+        const count = shape.kind === 'line' ? corners.length - 1 : corners.length;
+        const straightSegments = corners.slice(0, count).flatMap((corner, logicalSegment) => {
+            const samples = [corner.exit, ...sampleArcEdge(corner.exit,
+                corners[(logicalSegment + 1) % corners.length].entry,
+                boardShapeSegmentBulge(shape, logicalSegment), 64)];
+            return samples.slice(0, -1).map((start, index) => ({
+                start, end: samples[index + 1],
+                lineWidth: boardShapeSegmentWidth(shape, logicalSegment), logicalSegment,
+            }));
+        });
         const cornerSegments = corners.flatMap((corner) => {
             const points = sampleRoundedPolygonCorner(corner);
             return points.slice(0, -1).map((start, index) => ({
@@ -751,49 +750,11 @@ function outlinePathD(points) {
     return d + ' Z';
 }
 
-function shapeHasSquareCorners(shape) {
+function shapeHasUnroundedCorners(shape) {
     return ['rect', 'polygon'].includes(shape.kind)
         && !Object.keys(shape.segmentBulges || {}).length
         && !(Number(shape.cornerRadius) > 0)
         && !Object.values(shape.nodeCornerRadii || {}).some((radius) => Number(radius) > 0);
-}
-
-function appendClippedMiterJoins(path, halfWidth, strokes, flatNodes = {}) {
-    for (let index = 0; index < path.length; index++) {
-        if (flatNodes[index]) continue;
-        const point = path[index];
-        const previous = path[(index + path.length - 1) % path.length];
-        const next = path[(index + 1) % path.length];
-        const previousLength = Math.hypot(point.X - previous.X, point.Y - previous.Y);
-        const nextLength = Math.hypot(next.X - point.X, next.Y - point.Y);
-        if (previousLength === 0 || nextLength === 0) continue;
-        const incoming = { x: (point.X - previous.X) / previousLength, y: (point.Y - previous.Y) / previousLength };
-        const outgoing = { x: (next.X - point.X) / nextLength, y: (next.Y - point.Y) / nextLength };
-        const turn = incoming.x * outgoing.y - incoming.y * outgoing.x;
-        if (Math.abs(turn) < 1e-12) continue;
-        const side = Math.sign(turn);
-        const firstNormal = { x: side * incoming.y, y: -side * incoming.x };
-        const secondNormal = { x: side * outgoing.y, y: -side * outgoing.x };
-        const sumLength = Math.hypot(firstNormal.x + secondNormal.x, firstNormal.y + secondNormal.y);
-        const bisector = { x: (firstNormal.x + secondNormal.x) / sumLength, y: (firstNormal.y + secondNormal.y) / sumLength };
-        const miterLength = halfWidth / (sumLength / 2);
-        const limit = 10 * halfWidth;
-        const translated = (normal) => ({ X: point.X + normal.x * halfWidth, Y: point.Y + normal.y * halfWidth });
-        const clipped = (normal) => {
-            const tangent = { x: -normal.y, y: normal.x };
-            const distance = (limit - halfWidth * (normal.x * bisector.x + normal.y * bisector.y))
-                / (tangent.x * bisector.x + tangent.y * bisector.y);
-            return { X: point.X + normal.x * halfWidth + tangent.x * distance,
-                Y: point.Y + normal.y * halfWidth + tangent.y * distance };
-        };
-        const tip = miterLength <= limit
-            ? [{ X: point.X + bisector.x * miterLength, Y: point.Y + bisector.y * miterLength }]
-            : [clipped(firstNormal), clipped(secondNormal)];
-        const join = [point, translated(firstNormal), ...tip, translated(secondNormal)]
-            .map(vertex => ({ X: Math.round(vertex.X), Y: Math.round(vertex.Y) }));
-        if (!ClipperLib.Clipper.Orientation(join)) join.reverse();
-        strokes.push(join);
-    }
 }
 
 function closedShapeContours(shape, filled, lineWidth) {
@@ -810,7 +771,7 @@ function closedShapeContours(shape, filled, lineWidth) {
             offset.Execute(paths, segment.lineWidth * scale / 2);
             strokes.push(...paths);
         }
-    } else if (shapeHasSquareCorners(shape)) {
+    } else if (shapeHasUnroundedCorners(shape)) {
         for (let index = 0; index < path.length; index++) {
             const offset = new ClipperLib.ClipperOffset(10, 0.001 * scale);
             offset.AddPath([path[index], path[(index + 1) % path.length]],
@@ -819,7 +780,6 @@ function closedShapeContours(shape, filled, lineWidth) {
             offset.Execute(paths, lineWidth * scale / 2);
             strokes.push(...paths);
         }
-        appendClippedMiterJoins(path, lineWidth * scale / 2, strokes, shape.nodeFlatJoins);
     } else {
         const offset = new ClipperLib.ClipperOffset(10, 0.001 * scale);
         offset.AddPath(path, ClipperLib.JoinType.jtRound, ClipperLib.EndType.etClosedLine);
@@ -853,8 +813,7 @@ export function boardShapeFilledRemovalOutlines(shape) {
     if (path.length < 3) return [];
     if (!ClipperLib.Clipper.Orientation(path)) path.reverse();
     const offset = new ClipperLib.ClipperOffset(2, 0.001 * scale);
-    offset.AddPath(path, shapeHasSquareCorners(shape)
-        ? ClipperLib.JoinType.jtMiter : ClipperLib.JoinType.jtRound, ClipperLib.EndType.etClosedPolygon);
+    offset.AddPath(path, ClipperLib.JoinType.jtRound, ClipperLib.EndType.etClosedPolygon);
     const outlines = [];
     offset.Execute(outlines, halfWidth * scale);
     return outlines.map((outline) => outline.map((point) => ({
@@ -977,7 +936,7 @@ export function shapePathD(shape, { close = false } = {}) {
             + ` L ${r4(minX)} ${r4(minY + radius)}`
             + ` A ${r4(radius)} ${r4(radius)} 0 0 1 ${r4(minX + radius)} ${r4(minY)} Z`;
     }
-    if ((shape.kind === 'polygon' || shape.kind === 'rect') && roundedPolygonCorners(shape).length) {
+    if (['line', 'polygon', 'rect'].includes(shape.kind) && roundedPolygonCorners(shape).length) {
         return roundedPolygonPath(shape);
     }
     const pts = shape.points || [];
@@ -1007,6 +966,7 @@ export function cloneShapeGeometry(shape) {
 /** Write a geometry snapshot back onto a shape. */
 export function applyShapeGeometry(shape, geom) {
     if (shape.kind === 'arc') {
+        delete shape.points;
         shape.start = { ...geom.start };
         shape.end = { ...geom.end };
         shape.bulge = { ...geom.bulge };
@@ -1015,6 +975,9 @@ export function applyShapeGeometry(shape, geom) {
         shape.y = geom.y;
         shape.radius = geom.radius;
     } else {
+        delete shape.start;
+        delete shape.end;
+        delete shape.bulge;
         shape.points = (geom.points || []).map((p) => ({ x: p.x, y: p.y }));
     }
 }
@@ -1151,7 +1114,7 @@ export function resolveBoardShapeGeometry(shape, options = {}) {
         ? arcSamples(shape)
         : shape?.kind === 'circle'
             ? circleOutline(centerlineShape)
-            : shape?.kind === 'rect' || shape?.kind === 'polygon'
+            : ['line', 'rect', 'polygon'].includes(shape?.kind)
                 ? shapeOutline(centerlineShape)
                 : (shape?.points || []).map((point) => ({ ...point }));
     const centerlineClosed = ['rect', 'polygon', 'image'].includes(shape?.kind);
@@ -1188,6 +1151,7 @@ export function resolveBoardShapeGeometry(shape, options = {}) {
 // ── Render ───────────────────────────────────────────────────────────────────
 
 export function renderBoardShape(app, shape, opts = {}) {
+    if (shape.layer === 'board-outline') syncBoardOutlineDimensions(app);
     removeBoardShapeElement(app, shape.id, { skipHatchUpdate: true, preserveInteraction: true });
     const selectedSegment = app._selectedBoardShapeSegment?.shapeId === shape.id
         && isPcbSelected(app, 'shape', shape)
@@ -1200,9 +1164,11 @@ export function renderBoardShape(app, shape, opts = {}) {
             || selectedSegment != null);
     const el = document.createElementNS(NS, renderAsSegments ? 'g' : 'path');
     const isSelected = isPcbSelected(app, 'shape', shape)
-        && app._selectedBoardShapeSegment?.shapeId !== shape.id;
+        && app._selectedBoardShapeSegment?.shapeId !== shape.id
+        && app._selectedBoardShapeNode?.shapeId !== shape.id;
     const isHovered = !!(app._hoveredShape && app._hoveredShape.id === shape.id)
-        && app._selectedBoardShapeSegment?.shapeId !== shape.id;
+        && app._selectedBoardShapeSegment?.shapeId !== shape.id
+        && app._selectedBoardShapeNode?.shapeId !== shape.id;
     const st = shapeStyle(shape);
     if (!renderAsSegments) {
         el.setAttribute('d', st.isCopperRemoval || st.isHoleLayer
@@ -1224,11 +1190,9 @@ export function renderBoardShape(app, shape, opts = {}) {
     el.setAttribute('stroke', isSelected ? shapeSelectionColor(shape) : isHovered ? shapeHoverColor(shape) : st.baseStroke);
     el.setAttribute('stroke-width', String(st.strokeWidth));
     if (st.isCopperRemoval) el.setAttribute('vector-effect', 'non-scaling-stroke');
-    const squareCorners = shapeHasSquareCorners(shape);
-    el.setAttribute('stroke-linejoin', squareCorners ? 'miter' : 'round');
-    el.setAttribute('stroke-miterlimit', '2');
+    el.setAttribute('stroke-linejoin', 'round');
     el.setAttribute('stroke-linecap', 'round');
-    if (['rect', 'polygon', 'circle', 'image'].includes(shape.kind) && !renderAsSegments && !st.isCopperRemoval && !st.isHoleLayer) {
+    if (shape.layer !== 'board-outline' && ['rect', 'polygon', 'circle', 'image'].includes(shape.kind) && !renderAsSegments && !st.isCopperRemoval && !st.isHoleLayer) {
         el.setAttribute('d', boardShapeRemovalPathD(shape));
         el.setAttribute('fill-rule', 'evenodd');
         if (!st.filled) el.setAttribute('fill', el.getAttribute('stroke'));
@@ -1237,6 +1201,7 @@ export function renderBoardShape(app, shape, opts = {}) {
     if (st.isCopperKnockout && !isSelected && !st.filled) el.setAttribute('stroke-dasharray', '0.6 0.45');
     if (shape.kind === 'image' && canDrawPictureCircles(shape.artwork)) el.setAttribute('fill-rule', 'nonzero');
     el.setAttribute('data-board-shape-layer', shape.layer || '');
+    if (shape.layer === 'board-outline') el.setAttribute('class', 'pcb-board-outline');
     if (renderAsSegments) {
         if (st.filled) {
             const fillEl = document.createElementNS(NS, 'path');
@@ -1253,7 +1218,7 @@ export function renderBoardShape(app, shape, opts = {}) {
                 ? shapeSelectionColor(shape)
                 : el.getAttribute('stroke') || st.baseStroke);
             segmentEl.setAttribute('stroke-width', String(segment.lineWidth));
-            segmentEl.setAttribute('stroke-linejoin', squareCorners ? 'miter' : 'round');
+            segmentEl.setAttribute('stroke-linejoin', 'round');
             segmentEl.setAttribute('stroke-linecap', 'round');
             if (logicalSegment != null) segmentEl.setAttribute('data-segment', String(logicalSegment));
             el.appendChild(segmentEl);
@@ -1411,7 +1376,6 @@ export function moveBoardShapeAnchor(app, shape, anchorId, worldPos) {
     const before = cloneShapeGeometry(shape);
     const snap = app._snapToGrid(worldPos);
     applyBoardShapeVertexResize(shape, { before, handle: anchorId }, snap);
-    flattenMovedBoardShapeNode(shape, anchorId, before);
     schedulePictureCopperRefresh(app, shape);
     renderBoardShape(app, shape, { liveDrag: true });
     syncCircleDiameterProperty(app, shape);
@@ -1431,7 +1395,6 @@ function selectBoardShapeSegmentAt(app, shape, worldPos) {
 
 /** Full SelectionManager adapter for rectangle, polygon, and arc objects. */
 export function createBoardShapeSelectionAdapter(app, shape, id) {
-    let moveOptions = {};
     let rotationDrag = null;
     return {
         id,
@@ -1450,10 +1413,14 @@ export function createBoardShapeSelectionAdapter(app, shape, id) {
                 distanceToSegment(point, start, points[(index + 1) % points.length]) <= tolerance);
         },
         getEditPath() {
+            if (app._selectedBoardShapeNode?.shapeId === shape.id) return '';
             return shapePathD({ ...shape, cornerRadius: 0, nodeCornerRadii: {} });
         },
         getAnchors() {
-            const anchors = getBoardShapeAnchors(shape);
+            const anchors = getBoardShapeAnchors(shape).map(anchor => ({ ...anchor,
+                selected: app._selectedBoardShapeNode?.shapeId === shape.id
+                    && app._selectedBoardShapeNode.index === anchor.id,
+            }));
             return shape.kind === 'image'
                 ? [...anchors, rotationHandleAnchor(boardShapeBounds(shape), app.viewport?.scale)] : anchors;
         },
@@ -1499,57 +1466,40 @@ export function createBoardShapeSelectionAdapter(app, shape, id) {
             const drag = app._shapeDrag;
             if (commit && drag && !options.moved && !options.place
                 && typeof drag.sourceAnchorId === 'number'
-                && ['rect', 'polygon'].includes(shape.kind)) {
+                && ['line', 'rect', 'polygon'].includes(shape.kind)) {
                 app._selectedBoardShapeSegment = null;
                 app._selectedBoardShapeNode = { shapeId: shape.id, index: drag.sourceAnchorId };
                 showBoardShapeProperties(app, shape);
+                renderBoardShape(app, shape);
+                renderBoardShapeSegmentSelection(app);
                 renderBoardShapeHandles(app, shape);
-                return { floating: true };
+                endBoardShapeDrag(app, true);
+                return;
             }
             if (commit && drag && !options.moved && !options.place) {
-                return { floating: true };
+                endBoardShapeDrag(app, true);
+                return;
             }
             endBoardShapeDrag(app, commit);
         },
-        beginMove(worldPos, options = {}) {
-            const pressedSegment = polygonSegmentIndexAt(shape, worldPos,
-                Math.max(0.3, 8 / Math.max(0.01, app.viewport?.scale || 1)));
-            moveOptions = { ...options, pressedSegment };
-            app._selectedBoardShapeNode = null;
-            if (!options.alreadySelected) {
-                app._boardShapeSegmentClickCandidate = pressedSegment == null
-                    ? null
-                    : { shapeId: shape.id, segment: pressedSegment };
-            }
-            return startBoardShapeDrag(app, shape, worldPos, null,
-                { allowSegment: pressedSegment === options.selectedSegment?.segment });
-        },
-        updateMove(worldPos) { handleBoardShapeDrag(app, worldPos); },
-        endMove(commit, options = {}) {
-            endBoardShapeDrag(app, commit);
-            if (!commit || options.moved || !moveOptions.alreadySelected) return;
-            if (moveOptions.selectedSegment) {
-                app._selectedBoardShapeSegment = null;
-                app._boardShapeSegmentClickCandidate = moveOptions.pressedSegment == null
-                    ? null
-                    : { shapeId: shape.id, segment: moveOptions.pressedSegment };
+        ...pathMoveInteraction({
+            segmentAt: point => shape.kind === 'arc' ? 0
+                : polygonSegmentIndexAt(shape, point, 8 / Math.max(0.01, app.viewport?.scale || 1)),
+            selectedSegment: () => app._selectedBoardShapeSegment?.shapeId === shape.id ? app._selectedBoardShapeSegment.segment : null,
+            selectSegment: segment => {
+                app._selectedBoardShapeNode = null;
+                app._selectedBoardShapeSegment = { shapeId: shape.id, segment };
                 renderBoardShape(app, shape);
-                renderBoardShapeHandles(app, shape);
                 renderBoardShapeSegmentSelection(app);
-                app._setPcbStatus?.();
-            } else {
-                const candidateMatches = app._boardShapeSegmentClickCandidate?.shapeId === shape.id
-                    && app._boardShapeSegmentClickCandidate.segment === moveOptions.pressedSegment;
-                if (candidateMatches && moveOptions.pressedSegment != null) {
-                    selectBoardShapeSegmentAt(app, shape, options.startWorld);
-                } else {
-                    app._boardShapeSegmentClickCandidate = moveOptions.pressedSegment == null
-                        ? null
-                        : { shapeId: shape.id, segment: moveOptions.pressedSegment };
-                }
-            }
-            showBoardShapeProperties(app, shape);
-        },
+                showBoardShapeProperties(app, shape);
+            },
+            begin: (point, segment) => {
+                app._selectedBoardShapeNode = null;
+                return startBoardShapeDrag(app, shape, point, null, { whole: true, allowSegment: segment != null });
+            },
+            update: point => handleBoardShapeDrag(app, point),
+            end: commit => endBoardShapeDrag(app, commit),
+        }),
         anchorColor: shapeSelectionColor(shape),
         getPosition() {
             const bounds = boardShapeBounds(shape);
@@ -1565,6 +1515,14 @@ registerPcbSelectionAdapter('shape', createBoardShapeSelectionAdapter);
 /** Draw the resize handles for the selected shape on the overlay layer. */
 export function renderBoardShapeHandles(app, shape) {
     if (!shape || isLayerLocked(shape.layer) || !isLayerVisible(shape.layer)) return;
+    const selectedNode = app._selectedBoardShapeNode;
+    const node = selectedNode?.shapeId === shape.id ? shape.points?.[selectedNode.index] : null;
+    if (shape.kind === 'line' && node) {
+        for (const axis of ['x', 'y']) {
+            const field = document.getElementById(`pcbPropShapeNode${axis.toUpperCase()}`);
+            if (field) field.textContent = formatNumberInputValue(node[axis]);
+        }
+    }
     renderPcbSelectionAnchors(app);
 }
 
@@ -1583,8 +1541,9 @@ export function renderBoardShapeSegmentSelection(app) {
     if (!shape || !isPcbSelected(app, 'shape', shape)) return;
     const path = document.createElementNS(NS, 'path');
     path.setAttribute('class', 'pcb-shape-segment-selection');
-    path.setAttribute('d', boardShapeStrokeSegments(shape).filter(segment => segment.logicalSegment === selected.segment)
-        .map(({ start, end }) => `M ${start.x} ${start.y} L ${end.x} ${end.y}`).join(' '));
+    path.setAttribute('d', shape.kind === 'arc' ? shapePathD(shape, { close: false })
+        : boardShapeStrokeSegments(shape).filter(segment => segment.logicalSegment === selected.segment)
+            .map(({ start, end }) => `M ${start.x} ${start.y} L ${end.x} ${end.y}`).join(' '));
     path.setAttribute('fill', 'none');
     path.setAttribute('stroke', shapeSelectionColor(shape));
     path.setAttribute('stroke-width', String(boardShapeSegmentWidth(shape, selected.segment)));
@@ -1681,38 +1640,11 @@ function polygonSegmentIndexAt(shape, worldPos, tolerance) {
 
 function polygonVertexSnap(app, before, index, worldPos, closed, requireGrid = false) {
     const points = before.points || [];
-    if (points.length < 2) return app._snapToGrid(worldPos);
+    if (points.length < 2) return snapPathPoint(app, worldPos);
     const neighbours = [];
     if (index > 0 || closed) neighbours.push(points[(index + points.length - 1) % points.length]);
     if (index < points.length - 1 || closed) neighbours.push(points[(index + 1) % points.length]);
-    if (!neighbours.length) return app._snapToGrid(worldPos);
-    const fallback = app._snapToGrid(worldPos);
-    const threshold = 8 / Math.max(0.01, app.viewport?.scale || 1);
-    let best = null;
-    for (const neighbour of neighbours) {
-        const candidates = [
-            { axis: 'horizontal', point: { x: fallback.x, y: neighbour.y } },
-            { axis: 'vertical', point: { x: neighbour.x, y: fallback.y } },
-        ];
-        const dx = worldPos.x - neighbour.x;
-        const dy = worldPos.y - neighbour.y;
-        if (Math.abs(dx) >= Math.abs(dy)) {
-            candidates.push({ axis: 'diagonal', point: { x: fallback.x, y: neighbour.y + (Math.sign(dy) || 1) * Math.abs(dx) } });
-        } else {
-            candidates.push({ axis: 'diagonal', point: { x: neighbour.x + (Math.sign(dx) || 1) * Math.abs(dy), y: fallback.y } });
-        }
-        for (const candidate of candidates) {
-            if (requireGrid) {
-                const gridPoint = app._snapToGrid(candidate.point);
-                if (Math.hypot(gridPoint.x - candidate.point.x, gridPoint.y - candidate.point.y) > 1e-6) continue;
-            }
-            const distance = Math.hypot(candidate.point.x - worldPos.x, candidate.point.y - worldPos.y);
-            if (distance <= threshold && (!best || distance < best.distance)) {
-                best = { ...candidate, distance };
-            }
-        }
-    }
-    return best?.point || fallback;
+    return snapPathPoint(app, worldPos, neighbours, true);
 }
 
 function polygonAxisKind(a, b) {
@@ -1728,7 +1660,26 @@ function clearPolygonAxisIndicators(app) {
     clearAxisGlow(app);
 }
 
-function renderPolygonAxisIndicators(app, shape, indices, excludedSegments = []) {
+function renderPolygonAxisIndicators(app, shape, indices, excludedSegments = [], haloMarginPx = null) {
+    const bulgeMatch = typeof indices === 'string' ? /^bulge:(\d+)$/.exec(indices) : null;
+    const bulgeSegment = bulgeMatch ? Number(bulgeMatch[1]) : null;
+    if ((shape.kind === 'arc' && indices === 'bulge' || bulgeMatch)
+        && Number(formatNumberInputValue(editableShapeBulge(shape, bulgeSegment))) === 0) {
+        renderAxisGlow(app, [{
+            a: shape.kind === 'arc' ? shape.start : shape.points[bulgeSegment],
+            b: shape.kind === 'arc' ? shape.end : shape.points[(bulgeSegment + 1) % shape.points.length],
+            layerId: shape.layer,
+            width: boardShapeSegmentWidth(shape, bulgeSegment ?? 0),
+            haloMarginPx: shape.kind === 'arc' ? 1 : haloMarginPx,
+            collinear: true,
+        }]);
+        return;
+    }
+    if (shape.kind === 'arc') {
+        renderPolygonAxisIndicators(app, { ...shape, kind: 'line', points: [shape.start, shape.end] },
+            indices === 'end' ? 1 : 0, excludedSegments, 1);
+        return;
+    }
     if (!['line', 'polygon', 'rect'].includes(shape.kind) || !shape.points?.length) {
         clearAxisGlow(app);
         return;
@@ -1759,7 +1710,8 @@ function renderPolygonAxisIndicators(app, shape, indices, excludedSegments = [])
                 a: point,
                 b: neighbour,
                 layerId: shape.layer,
-                width: Math.max(0.05, Number(shape.lineWidth) || 0.2),
+                width: boardShapeSegmentWidth(shape, segmentIndex),
+                haloMarginPx,
                 axisKind: axis === 'horizontal' ? 'h' : axis === 'vertical' ? 'v' : 'd',
             });
         }
@@ -1774,38 +1726,13 @@ function snapPolylineSegmentDrag(app, shape, before, segment, worldPos) {
     const secondIndex = shape.kind === 'line' ? segment + 1 : (segment + 1) % points.length;
     const first = points[firstIndex];
     if (!first) return { dx: 0, dy: 0 };
-    const raw = { x: worldPos.x - before.startWorld.x, y: worldPos.y - before.startWorld.y };
-    const snappedStart = app._snapToGrid({ x: first.x + raw.x, y: first.y + raw.y });
-    const fallback = { dx: snappedStart.x - first.x, dy: snappedStart.y - first.y };
-    const threshold = 8 / Math.max(0.01, app.viewport?.scale || 1);
-    const candidates = [];
-    const addConstraints = (movingIndex, fixedIndex) => {
-        if (fixedIndex < 0 || fixedIndex >= points.length) return;
-        const moving = points[movingIndex];
-        const fixed = points[fixedIndex];
-        if (!moving || !fixed) return;
-        const target = { x: moving.x + raw.x, y: moving.y + raw.y };
-        const constrained = [
-            { x: fallback.dx, y: fixed.y - moving.y },
-            { x: fixed.x - moving.x, y: fallback.dy },
-        ];
-        const dx = target.x - fixed.x;
-        const dy = target.y - fixed.y;
-        if (Math.abs(dx) >= Math.abs(dy)) {
-            constrained.push({ x: fallback.dx, y: fixed.y + (Math.sign(dy) || 1) * Math.abs(dx) - moving.y });
-        } else {
-            constrained.push({ x: fixed.x + (Math.sign(dx) || 1) * Math.abs(dy) - moving.x, y: fallback.dy });
-        }
-        for (const candidate of constrained) {
-            const distance = Math.hypot(candidate.x - raw.x, candidate.y - raw.y);
-            if (distance <= threshold) candidates.push({ ...candidate, distance });
-        }
-    };
     const closed = shape.kind !== 'line';
-    addConstraints(firstIndex, firstIndex > 0 ? firstIndex - 1 : closed ? points.length - 1 : -1);
-    addConstraints(secondIndex, secondIndex < points.length - 1 ? secondIndex + 1 : closed ? 0 : -1);
-    const best = candidates.sort((a, b) => a.distance - b.distance)[0];
-    return best ? { dx: best.x, dy: best.y } : fallback;
+    const previous = firstIndex > 0 ? firstIndex - 1 : closed ? points.length - 1 : -1;
+    const next = secondIndex < points.length - 1 ? secondIndex + 1 : closed ? 0 : -1;
+    const constraints = [previous, next].flatMap((fixed, index) => points[fixed] ? [{ index, neighbours: [points[fixed]] }] : []);
+    const delta = snapPathTranslation(app, [points[firstIndex], points[secondIndex]],
+        { x: worldPos.x - before.startWorld.x, y: worldPos.y - before.startWorld.y }, [], constraints);
+    return { dx: delta.x, dy: delta.y };
 }
 
 /** Remove redundant straight-through waypoints after a polyline edit. */
@@ -1821,13 +1748,28 @@ function collapseCollinearPolylinePoints(shape) {
         const start = closed ? 0 : 1;
         const end = closed ? points.length : points.length - 1;
         for (let index = start; index < end; index++) {
-            const previous = points[(index + points.length - 1) % points.length];
+            const previousIndex = (index + points.length - 1) % points.length;
+            if (Math.abs(boardShapeSegmentBulge(shape, previousIndex)) >= BULGE_EPS
+                || Math.abs(boardShapeSegmentBulge(shape, index)) >= BULGE_EPS
+                || Math.abs(boardShapeSegmentWidth(shape, previousIndex) - boardShapeSegmentWidth(shape, index)) > 1e-9) continue;
+            const previous = points[previousIndex];
             const point = points[index];
             const next = points[(index + 1) % points.length];
             const cross = Math.abs((point.x - previous.x) * (next.y - point.y)
                 - (point.y - previous.y) * (next.x - point.x));
             const length = Math.hypot(next.x - previous.x, next.y - previous.y);
-            if (length > 1e-9 && cross / length < 1e-6) {
+            const forward = (point.x - previous.x) * (next.x - point.x)
+                + (point.y - previous.y) * (next.y - point.y);
+            if (length > 1e-9 && cross / length < 1e-6 && forward > 0) {
+                for (const field of ['segmentWidths', 'segmentBulges']) {
+                    const remapped = {};
+                    for (const [key, value] of Object.entries(shape[field] || {})) {
+                        const segment = Number(key);
+                        if (segment === index) continue;
+                        remapped[segment > index ? segment - 1 : segment] = value;
+                    }
+                    shape[field] = remapped;
+                }
                 points.splice(index, 1);
                 remapBoardShapeNodeRadii(shape, index, -1);
                 changed = true;
@@ -1840,27 +1782,13 @@ function collapseCollinearPolylinePoints(shape) {
 }
 
 function remapBoardShapeNodeRadii(shape, index, delta) {
-    for (const field of ['nodeCornerRadii', 'nodeFlatJoins']) {
-        if (field === 'nodeFlatJoins' && !shape[field]) continue;
-        const remapped = {};
-        for (const [key, value] of Object.entries(shape[field] || {})) {
-            const nodeIndex = Number(key);
-            if (!Number.isInteger(nodeIndex) || (delta < 0 && nodeIndex === index)) continue;
-            remapped[nodeIndex < index ? nodeIndex : nodeIndex + delta] = value;
-        }
-        shape[field] = remapped;
+    const remapped = {};
+    for (const [key, value] of Object.entries(shape.nodeCornerRadii || {})) {
+        const nodeIndex = Number(key);
+        if (!Number.isInteger(nodeIndex) || (delta < 0 && nodeIndex === index)) continue;
+        remapped[nodeIndex < index ? nodeIndex : nodeIndex + delta] = value;
     }
-}
-
-function flattenMovedBoardShapeNode(shape, index, before) {
-    if (!['rect', 'polygon'].includes(shape.kind) || typeof index !== 'number') return;
-    const previous = before.points?.[index];
-    const point = shape.points?.[index];
-    if (!previous || !point || Math.hypot(point.x - previous.x, point.y - previous.y) < 1e-9) return;
-    shape.nodeFlatJoins ||= {};
-    for (const affected of [index - 1, index, index + 1]) {
-        shape.nodeFlatJoins[(affected + shape.points.length) % shape.points.length] = true;
-    }
+    shape.nodeCornerRadii = remapped;
 }
 
 function splitBoardShapeSegmentMetadata(shape, segment) {
@@ -1884,6 +1812,7 @@ function splitBoardShapeSegmentMetadata(shape, segment) {
 export function deleteSelectedBoardShape(app) {
     const s = getPcbSelection(app, 'shape')[0] || null;
     if (!s) return false;
+    if (s.layer === 'board-outline') return false;
     if (isLayerLocked(s.layer)) return false;
     app.history.execute(new RemoveBoardShapeCommand(app, s));
     selectBoardShape(app, null);
@@ -1891,19 +1820,54 @@ export function deleteSelectedBoardShape(app) {
     return true;
 }
 
-export function setBoardShapeSegmentType(app, shape, segment, type) {
+export function setBoardShapeSegmentType(app, shape, segment, type, { floating = false } = {}) {
+    const standalone = shape?.kind === 'arc' || (shape?.kind === 'line' && shape.points?.length === 2);
     const count = shape?.kind === 'line' ? shape.points?.length - 1
-        : shape?.kind === 'polygon' ? shape.points?.length : 0;
+        : ['polygon', 'rect'].includes(shape?.kind) ? shape.points?.length : shape?.kind === 'arc' ? 1 : 0;
     if (!Number.isInteger(segment) || segment < 0 || segment >= count
         || !['line', 'arc'].includes(type) || isLayerLocked(shape.layer)) return false;
     const before = shapeSnapshot(shape);
-    shape.segmentBulges ||= {};
-    if (type === 'arc') shape.segmentBulges[segment] = boardShapeSegmentBulge(shape, segment) || 0.25;
-    else delete shape.segmentBulges[segment];
+    if (shape.kind === 'rect') shape.kind = 'polygon';
+    if (standalone) {
+        if (shape.kind === 'line' && type === 'arc') {
+            const [start, end] = shape.points;
+            const arc = arcFromBulge(start, end, boardShapeSegmentBulge(shape, 0) || 0.25);
+            if (!arc) return false;
+            shape.lineWidth = boardShapeSegmentWidth(shape, 0);
+            shape.kind = 'arc';
+            applyShapeGeometry(shape, { start, end, bulge: arc.bulgePoint });
+        } else if (shape.kind === 'arc' && type === 'line') {
+            const points = [shape.start, shape.end];
+            shape.kind = 'line';
+            applyShapeGeometry(shape, { points });
+        }
+        shape.filled = false;
+        shape.segmentWidths = {};
+        shape.segmentBulges = {};
+    } else {
+        shape.segmentBulges ||= {};
+        if (type === 'arc') shape.segmentBulges[segment] = boardShapeSegmentBulge(shape, segment) || 0.25;
+        else delete shape.segmentBulges[segment];
+    }
     const after = shapeSnapshot(shape);
     applyShapeSnapshot(shape, before);
-    app.history.execute(new ModifyBoardShapeCommand(app, shape, before, after));
     app._selectedBoardShapeSegment = { shapeId: shape.id, segment };
+    app._selectedBoardShapeNode = null;
+    if (floating && type === 'arc') {
+        applyShapeSnapshot(shape, after);
+        const adapter = createBoardShapeSelectionAdapter(app, shape, shape.id);
+        const anchorId = shape.kind === 'arc' ? 'bulge' : `bulge:${segment}`;
+        const anchor = adapter.getAnchors().find(item => item.id === anchorId);
+        if (!anchor || !beginPcbAnchorInteraction(app, adapter, anchor, anchor, true)) {
+            applyShapeSnapshot(shape, before);
+            renderBoardShape(app, shape);
+            renderBoardShapeHandles(app, shape);
+            renderBoardShapeSegmentSelection(app);
+            return false;
+        }
+        app._shapeDrag.beforeState = before;
+        app._shapeDrag.before = before.geom;
+    } else app.history.execute(new ModifyBoardShapeCommand(app, shape, before, after));
     showBoardShapeProperties(app, shape);
     renderBoardShapeHandles(app, shape);
     renderBoardShapeSegmentSelection(app);
@@ -1916,7 +1880,7 @@ export function startBoardShapeDrag(app, shape, worldPos, anchorId = null, optio
     if (!shape || isLayerLocked(shape.layer)) return false;
     const before = cloneShapeGeometry(shape);
     const beforeState = shapeSnapshot(shape);
-    let handle = anchorId != null ? anchorId : hitTestBoardShapeVertex(app, shape, worldPos);
+    let handle = anchorId != null ? anchorId : options.whole ? null : hitTestBoardShapeVertex(app, shape, worldPos);
     const midpointMatch = typeof anchorId === 'string' ? /^mid:(\d+)$/.exec(anchorId) : null;
     if (midpointMatch) app._selectedBoardShapeNode = null;
     let mode = handle != null ? 'vertex' : 'move';
@@ -1942,9 +1906,13 @@ export function startBoardShapeDrag(app, shape, worldPos, anchorId = null, optio
             app._selectedBoardShapeSegment = { shapeId: shape.id, segment };
         }
     }
-    if (mode !== 'segment') app._selectedBoardShapeSegment = null;
+    const bulgeMatch = typeof handle === 'string' ? /^bulge:(\d+)$/.exec(handle) : null;
+    if (bulgeMatch || shape.kind === 'arc' && handle === 'bulge') {
+        app._selectedBoardShapeNode = null;
+        app._selectedBoardShapeSegment = { shapeId: shape.id, segment: bulgeMatch ? Number(bulgeMatch[1]) : 0 };
+        showBoardShapeProperties(app, shape);
+    } else if (mode !== 'segment') app._selectedBoardShapeSegment = null;
     renderBoardShapeSegmentSelection(app);
-    app._setPcbStatus?.();
     const net = String(shape.net || '');
     const ratsnestNets = net
         && (shape.layer === 'top-copper' || shape.layer === 'bottom-copper')
@@ -1964,6 +1932,7 @@ export function startBoardShapeDrag(app, shape, worldPos, anchorId = null, optio
         ratsnestNets,
         previousDeferDragOverlays: !!app._deferDragOverlays,
     };
+    app._setPcbStatus?.();
     app._deferDragOverlays = true;
     if (mode === 'vertex' || mode === 'segment') schedulePictureCopperRefresh(app, shape);
     const vertex = midpointMatch ? shape.points[handle] : handle != null
@@ -1983,10 +1952,14 @@ export function handleBoardShapeDrag(app, worldPos) {
         const polylineDrag = (['line', 'polygon'].includes(d.beforeState.kind) && typeof d.handle === 'number')
             || (typeof d.sourceAnchorId === 'string' && d.sourceAnchorId.startsWith('mid:'));
         const editingSegmentBulge = typeof d.handle === 'string' && d.handle.startsWith('bulge:');
-        const snap = editingSegmentBulge ? worldPos : polylineDrag && typeof d.handle === 'number'
+        const editingArcEndpoint = s.kind === 'arc' && (d.handle === 'start' || d.handle === 'end');
+        const snap = editingSegmentBulge ? snapPathPoint(app, worldPos, [], true) : polylineDrag && typeof d.handle === 'number'
             ? polygonVertexSnap(app, d.vertexBefore || d.before, d.handle, worldPos, d.beforeState.kind !== 'line',
                 app._snapActive?.() ?? app.viewport?.snapToGrid !== false)
-            : app._snapToGrid(worldPos);
+            : editingArcEndpoint
+                ? polygonVertexSnap(app, { points: [d.before.start, d.before.end] }, d.handle === 'start' ? 0 : 1,
+                    worldPos, false, app._snapActive?.() ?? app.viewport?.snapToGrid !== false)
+            : snapPathPoint(app, worldPos, d.before.points || [], true);
         if (polylineDrag) {
             s.points = d.vertexBefore.points.map((point, index) => index === d.handle ? { ...snap } : { ...point });
             s.kind = d.beforeState.kind === 'line' ? 'line' : 'polygon';
@@ -1994,10 +1967,9 @@ export function handleBoardShapeDrag(app, worldPos) {
             applyBoardShapeVertexResize(s, d, snap);
         }
         if (s.kind === 'polygon') normalizeBoardPolylineKind(s);
-        else if (s.kind === 'line') closeBoardLineIfCoincident(s, d.handle);
-        flattenMovedBoardShapeNode(s, d.handle, d.vertexBefore || d.before);
+        else if (s.kind === 'line' && !d.splitBeforeState) closeBoardLineIfCoincident(s, d.handle);
         if (s.kind === 'line') {
-            const target = findBoardLineJoinTarget(app, s, d.handle, worldPos);
+            const target = app.viewport?.shiftHeld ? null : findBoardLineJoinTarget(app, s, d.handle, worldPos);
             d.joinTarget = target;
             if (target) s.points[d.handle] = { ...target.point };
         }
@@ -2005,8 +1977,10 @@ export function handleBoardShapeDrag(app, worldPos) {
         app.viewport?.setCrosshair(handle || snap);
         renderBoardShape(app, s, { liveDrag: true });
         renderBoardShapeHandles(app, s);
+        renderBoardShapeSegmentSelection(app);
         syncCircleDiameterProperty(app, s);
-        if (['line', 'polygon', 'rect'].includes(s.kind)) renderPolygonAxisIndicators(app, s, d.handle);
+        syncShapeBulgeProperty(app, s);
+        if (['line', 'polygon', 'rect', 'arc'].includes(s.kind)) renderPolygonAxisIndicators(app, s, d.handle);
         if (d.ratsnestNets) app._updateRatsnest?.({ nets: d.ratsnestNets });
         return;
     }
@@ -2033,8 +2007,9 @@ export function handleBoardShapeDrag(app, worldPos) {
     const dy = worldPos.y - d.startWorld.y;
     // Snap by the shape's anchor point so the whole shape lands on the grid.
     const anchor = geomAnchor(d.before);
-    const snapped = app._snapToGrid({ x: anchor.x + dx, y: anchor.y + dy });
-    applyShapeGeometry(s, translateShapeGeometry(d.before, snapped.x - anchor.x, snapped.y - anchor.y));
+    const delta = snapPathTranslation(app, d.before.points || [anchor], { x: dx, y: dy }, [anchor]);
+    const snapped = { x: anchor.x + delta.x, y: anchor.y + delta.y };
+    applyShapeGeometry(s, translateShapeGeometry(d.before, delta.x, delta.y));
     app.viewport?.setCrosshair(snapped);
     renderBoardShape(app, s, { liveDrag: true });
     renderBoardShapeHandles(app, s);
@@ -2044,6 +2019,7 @@ export function handleBoardShapeDrag(app, worldPos) {
 export function endBoardShapeDrag(app, commit) {
     const d = app._shapeDrag;
     app._shapeDrag = null;
+    app._setPcbStatus?.();
     app.viewport?.hideCrosshair();
     clearPolygonAxisIndicators(app);
     if (!d) return;
@@ -2051,7 +2027,20 @@ export function endBoardShapeDrag(app, commit) {
     const s = app.boardShapes.find((x) => x.id === d.id);
     if (d.mode === 'vertex' || d.mode === 'segment') schedulePictureCopperRefresh(app, s);
     if (!s) return;
-    const target = d.joinTarget?.shape;
+    if (d.splitBeforeState) {
+        const first = s.points[0];
+        const last = d.splitOrigin || s.points.at(-1);
+        if (Math.hypot(first.x - last.x, first.y - last.y) < 1e-9) commit = false;
+        d.beforeState = d.splitBeforeState;
+        d.before = d.splitBeforeState.geom;
+        if (!commit) app._selectedBoardShapeNode = null;
+        if (d.splitRemainder) {
+            const remainderIndex = app.boardShapes.indexOf(d.splitRemainder);
+            if (remainderIndex >= 0) app.boardShapes.splice(remainderIndex, 1);
+            removeBoardShapeElement(app, d.splitRemainder.id);
+        }
+    }
+    const target = d.splitBeforeState ? null : d.joinTarget?.shape;
     if (commit && s.kind === 'line' && target && app.boardShapes.includes(target)) {
         const merged = mergeBoardLines(app, s, d.handle, target, d.joinTarget.endpoint);
         applyShapeSnapshot(s, d.beforeState);
@@ -2066,9 +2055,12 @@ export function endBoardShapeDrag(app, commit) {
         return;
     }
     const closedOpenLine = d.beforeState.kind === 'line' && s.kind !== 'line';
-    if ((d.mode === 'vertex' || d.mode === 'segment') && !closedOpenLine) {
+    const bulgeHandle = typeof d.handle === 'string' ? /^bulge:(\d+)$/.exec(d.handle) : null;
+    if ((d.mode === 'vertex' || d.mode === 'segment') && !closedOpenLine && !bulgeHandle && !d.splitBeforeState
+        && JSON.stringify(cloneShapeGeometry(s)) !== JSON.stringify(d.before)) {
         collapseCollinearPolylinePoints(s);
     }
+    if (commit && d.mode === 'vertex') normalizeStraightArc(s, bulgeHandle ? Number(bulgeHandle[1]) : null);
     const after = cloneShapeGeometry(s);
     const afterState = shapeSnapshot(s);
     const moved = JSON.stringify(afterState) !== JSON.stringify(d.beforeState);
@@ -2077,9 +2069,11 @@ export function endBoardShapeDrag(app, commit) {
     else applyShapeSnapshot(s, d.beforeState);
     renderBoardShape(app, s);
     if (!moved || !commit) {
+        if (d.splitBeforeState || !commit) showBoardShapeProperties(app, s);
         renderBoardShapeHandles(app, s);
         renderBoardShapeSegmentSelection(app);
         syncCircleDiameterProperty(app, s);
+        syncShapeBulgeProperty(app, s);
         cancelPictureCopperRefresh(app);
         app._refreshFills?.();
         return;
@@ -2089,37 +2083,111 @@ export function endBoardShapeDrag(app, commit) {
         !== JSON.stringify(d.beforeState.segmentWidths || {});
     const segmentBulgesChanged = JSON.stringify(afterState.segmentBulges || {})
         !== JSON.stringify(d.beforeState.segmentBulges || {});
-    const nodeJoinsChanged = JSON.stringify(afterState.nodeFlatJoins || {})
-        !== JSON.stringify(d.beforeState.nodeFlatJoins || {});
-    app.history.execute(kindChanged || segmentWidthsChanged || segmentBulgesChanged || nodeJoinsChanged
+    const topologyChanged = after.points?.length !== d.before.points?.length;
+    const command = d.splitBeforeState || kindChanged || topologyChanged || segmentWidthsChanged || segmentBulgesChanged
         ? new ModifyBoardShapeCommand(app, s, d.beforeState, afterState)
-        : new MoveBoardShapeCommand(app, s, d.before, after));
+        : new MoveBoardShapeCommand(app, s, d.before, after);
+    app.history.execute(d.splitRemainder ? new CompoundCommand([command, new AddBoardShapeCommand(app, d.splitRemainder)]) : command);
     renderBoardShapeHandles(app, s);
     renderBoardShapeSegmentSelection(app);
     syncCircleDiameterProperty(app, s);
+    syncShapeBulgeProperty(app, s);
 }
 
-/** Open a polygon or rectangle at a vertex, preserving the ordered chain. */
+/** Split a closed shape at a node and float one of the coincident endpoints. */
 export function openBoardShape(app, shape, vertexIndex = 0) {
-    if (!shape || !['polygon', 'rect'].includes(shape.kind) || isLayerLocked(shape.layer)) return false;
+    if (shape?.layer === 'board-outline') return false;
+    if (!shape || !['line', 'polygon', 'rect'].includes(shape.kind) || isLayerLocked(shape.layer)) return false;
     const points = shape.points || [];
     if (points.length < 3) return false;
     const before = shapeSnapshot(shape);
-    const start = Math.max(0, Math.min(points.length - 1, Number(vertexIndex) || 0));
-    for (const field of ['segmentWidths', 'segmentBulges']) {
-        const values = shape[field] || {};
-        shape[field] = Object.fromEntries(Array.from({ length: points.length - 1 }, (_, index) => {
-            const source = (start + index) % points.length;
-            return Object.hasOwn(values, source) ? [index, values[source]] : null;
-        }).filter(Boolean));
+    const start = Math.max(0, Math.min(points.length - 1, Math.trunc(Number(vertexIndex) || 0)));
+    const open = shape.kind === 'line';
+    if (open && (start === 0 || start === points.length - 1)) return false;
+    const remainder = open ? boardShapeChain(shape, Array.from({ length: start + 1 }, (_, index) => index)) : null;
+    if (remainder) remainder.id = `pshape_${app._shapeIdCounter++}`;
+    const indices = Array.from({ length: open ? points.length - start : points.length + 1 }, (_, index) => (start + index) % points.length);
+    Object.assign(shape, boardShapeChain(shape, indices));
+    if (remainder) { app.boardShapes.push(remainder); renderBoardShape(app, remainder); }
+    selectBoardShape(app, shape);
+    const adapter = createBoardShapeSelectionAdapter(app, shape, shape.id);
+    if (!beginPathSplit(app, adapter, 0, () => {
+        Object.assign(app._shapeDrag, { splitBeforeState: before, splitRemainder: remainder, splitOrigin: { ...points[start] } });
+    })) {
+        if (remainder) {
+            app.boardShapes.splice(app.boardShapes.indexOf(remainder), 1);
+            removeBoardShapeElement(app, remainder.id);
+        }
+        applyShapeSnapshot(shape, before);
+        app._selectedBoardShapeNode = null;
+        renderBoardShape(app, shape);
+        showBoardShapeProperties(app, shape);
+        return false;
     }
-    shape.points = [...points.slice(start), ...points.slice(0, start)].map((point) => ({ ...point }));
-    shape.kind = 'line';
-    shape.filled = false;
-    shape.cornerRadius = undefined;
-    const after = shapeSnapshot(shape);
-    applyShapeSnapshot(shape, before);
-    app.history.execute(new ModifyBoardShapeCommand(app, shape, before, after));
+    return true;
+}
+
+function boardShapeChain(shape, indices) {
+    const result = { ...shape, kind: 'line', filled: false,
+        points: indices.map(index => ({ ...shape.points[index] })) };
+    for (const field of ['segmentWidths', 'segmentBulges', 'nodeCornerRadii']) {
+        const count = field === 'nodeCornerRadii' ? indices.length : indices.length - 1;
+        result[field] = Object.fromEntries(indices.slice(0, count).flatMap((source, index) =>
+            Object.hasOwn(shape[field] || {}, source) ? [[index, shape[field][source]]] : []));
+    }
+    return result;
+}
+
+export function deleteBoardShapeSegment(app, shape, segment) {
+    if (shape?.layer === 'board-outline') {
+        if (!Number.isInteger(segment) || segment < 0 || segment >= (shape.points?.length || 0)) return false;
+        return deleteBoardShapeVertex(app, shape, (segment + 1) % shape.points.length);
+    }
+    if (shape.kind === 'arc' && segment === 0 && !isLayerLocked(shape.layer)) {
+        setPcbSelection(app, []);
+        app.history.execute(new RemoveBoardShapeCommand(app, shape));
+        return true;
+    }
+    const count = shape.kind === 'line' ? shape.points.length - 1 : shape.points?.length;
+    if (!Number.isInteger(segment) || segment < 0 || segment >= count || isLayerLocked(shape.layer)) return false;
+    const indices = Array.from({ length: shape.points.length }, (_, index) => index);
+    const chains = shape.kind === 'line'
+        ? [indices.slice(0, segment + 1), indices.slice(segment + 1)]
+        : [indices.map(index => (segment + 1 + index) % indices.length)];
+    const parts = chains.filter(chain => chain.length >= 2).map(chain => {
+        const part = boardShapeChain(shape, chain);
+        part.id = `pshape_${app._shapeIdCounter++}`;
+        return part;
+    });
+    setPcbSelection(app, []);
+    app.history.execute(new CompoundCommand([new RemoveBoardShapeCommand(app, shape),
+        ...parts.map(part => new AddBoardShapeCommand(app, part))]));
+    return true;
+}
+
+export function deleteFocusedBoardShape(app) {
+    const selected = getPcbSelection(app, 'shape');
+    if (selected.length !== 1 || getPcbSelection(app).length !== 1) return false;
+    const shape = selected[0];
+    const node = app._selectedBoardShapeNode?.shapeId === shape.id ? app._selectedBoardShapeNode.index : null;
+    const segment = app._selectedBoardShapeSegment?.shapeId === shape.id ? app._selectedBoardShapeSegment.segment : null;
+    if (node == null && segment == null) return false;
+    if (app._shapeDrag) {
+        const splitting = !!app._shapeDrag.splitBeforeState;
+        endBoardShapeDrag(app, false);
+        app._pcbSelectionInteraction = null;
+        if (splitting) {
+            app._selectedBoardShapeNode = null;
+            app._selectedBoardShapeSegment = null;
+            showBoardShapeProperties(app, shape);
+            return true;
+        }
+    }
+    if (node != null) deleteBoardShapeVertex(app, shape, node);
+    else deleteBoardShapeSegment(app, shape, segment);
+    app._selectedBoardShapeNode = null;
+    app._selectedBoardShapeSegment = null;
+    app._refreshPcbSelectionHighlights?.();
     return true;
 }
 
@@ -2127,8 +2195,13 @@ export function openBoardShape(app, shape, vertexIndex = 0) {
 export function deleteBoardShapeVertex(app, shape, vertexIndex) {
     if (!shape || !['line', 'polygon', 'rect'].includes(shape.kind) || isLayerLocked(shape.layer)) return false;
     const points = shape.points || [];
+    if (shape.layer === 'board-outline' && points.length <= 3) return false;
     if (!Number.isInteger(vertexIndex) || vertexIndex < 0 || vertexIndex >= points.length) return false;
-    if (shape.kind === 'line' && points.length <= 2) return false;
+    if (shape.kind === 'line' && points.length <= 2) {
+        setPcbSelection(app, []);
+        app.history.execute(new RemoveBoardShapeCommand(app, shape));
+        return true;
+    }
     const before = shapeSnapshot(shape);
     const oldKind = shape.kind;
     const oldCount = points.length;
@@ -2148,12 +2221,13 @@ export function deleteBoardShapeVertex(app, shape, vertexIndex) {
                 if (index === vertexIndex || index === previous) continue;
                 remapped[index > vertexIndex ? index - 1 : index] = value;
             }
+            if (field === 'segmentWidths' && (oldKind !== 'line' || vertexIndex > 0 && vertexIndex < oldCount - 1)
+                && Object.hasOwn(values, previous)) remapped[vertexIndex === 0 ? oldCount - 2 : previous] = values[previous];
         }
         shape[field] = remapped;
     }
     if (shape.kind === 'rect') {
         shape.kind = 'polygon';
-        shape.cornerRadius = undefined;
     }
     shape.points.splice(vertexIndex, 1);
     remapBoardShapeNodeRadii(shape, vertexIndex, -1);
@@ -2161,81 +2235,47 @@ export function deleteBoardShapeVertex(app, shape, vertexIndex) {
     const after = shapeSnapshot(shape);
     applyShapeSnapshot(shape, before);
     app.history.execute(new ModifyBoardShapeCommand(app, shape, before, after));
+    app._selectedBoardShapeNode = null;
+    app._selectedBoardShapeSegment = null;
+    showBoardShapeProperties(app, shape);
     return true;
 }
 
 /** Remove the currently-open board-shape context menu. */
 export function dismissBoardShapeContextMenu() {
-    const menu = document.getElementById('pcbBoardShapeContextMenu');
-    if (!menu) return;
-    const handlers = /** @type {any} */ (menu)._dismiss;
-    if (handlers) {
-        document.removeEventListener('mousedown', handlers.dismiss, { capture: true });
-        document.removeEventListener('keydown', handlers.onKey, { capture: true });
-    }
-    menu.remove();
+    dismissPathContextMenu('pcbBoardShapeContextMenu');
 }
 
 /** Show topology actions for a Line, Polygon, or Rectangle. */
 export function showBoardShapeContextMenu(app, shape, clientX, clientY, worldPos) {
     dismissBoardShapeContextMenu();
-    if (!shape || !['line', 'polygon', 'rect'].includes(shape.kind) || isLayerLocked(shape.layer)) return;
+    if (!shape || !['line', 'polygon', 'rect', 'arc'].includes(shape.kind) || isLayerLocked(shape.layer)) return;
     selectBoardShape(app, shape);
     const vertexIndex = hitTestBoardShapeVertex(app, shape, worldPos);
-    const segmentIndex = vertexIndex == null && ['line', 'polygon'].includes(shape.kind)
-        ? polygonSegmentIndexAt(shape, worldPos, Math.max(0.3, 8 / Math.max(0.01, app.viewport?.scale || 1)))
-        : null;
-    const items = [];
-    if (segmentIndex != null) {
-        app._selectedBoardShapeSegment = { shapeId: shape.id, segment: segmentIndex };
-        const arc = !!boardShapeSegmentBulge(shape, segmentIndex);
-        items.push({
-            text: arc ? 'Convert to Line Segment' : 'Convert to Arc Segment',
-            onClick: () => setBoardShapeSegmentType(app, shape, segmentIndex, arc ? 'line' : 'arc'),
-        });
-        showBoardShapeProperties(app, shape);
-        renderBoardShape(app, shape);
-        renderBoardShapeHandles(app, shape);
-        renderBoardShapeSegmentSelection(app);
-    }
-    if (shape.kind === 'polygon' || shape.kind === 'rect') {
-        items.push({ text: 'Open shape', onClick: () => openBoardShape(app, shape, typeof vertexIndex === 'number' ? vertexIndex : 0) });
-    }
-    if (typeof vertexIndex === 'number'
-        && !(shape.kind === 'line' && shape.points.length <= 2)) {
-        items.push({ text: 'Delete vertex', onClick: () => deleteBoardShapeVertex(app, shape, vertexIndex) });
-    }
-    if (!items.length) return;
-
-    const menu = document.createElement('div');
-    menu.id = 'pcbBoardShapeContextMenu';
-    menu.style.cssText = `position:fixed;z-index:10000;background:#2b2b2b;border:1px solid #555;border-radius:4px;padding:2px 0;box-shadow:0 2px 8px rgba(0,0,0,0.4);min-width:120px;left:${clientX}px;top:${clientY}px;`;
-    for (const item of items) {
-        const element = document.createElement('div');
-        element.textContent = item.text;
-        element.style.cssText = 'padding:6px 16px;color:#eee;cursor:pointer;font:13px/1.4 system-ui,sans-serif;white-space:nowrap;';
-        element.addEventListener('mouseenter', () => { element.style.background = '#3a3a3a'; });
-        element.addEventListener('mouseleave', () => { element.style.background = ''; });
-        element.addEventListener('click', () => {
-            dismissBoardShapeContextMenu();
-            item.onClick();
-            app._refreshPcbSelectionHighlights?.();
-        });
-        menu.appendChild(element);
-    }
-    menu.addEventListener('contextmenu', (event) => event.preventDefault());
-    document.body.appendChild(menu);
-    const dismiss = (event) => {
-        if (!menu.contains(/** @type {Node|null} */ (event.target))) dismissBoardShapeContextMenu();
+    const node = typeof vertexIndex === 'number';
+    const segmentIndex = node ? null : shape.kind === 'arc' ? 0
+        : polygonSegmentIndexAt(shape, worldPos, 8 / Math.max(0.01, app.viewport?.scale || 1));
+    app._selectedBoardShapeNode = node ? { shapeId: shape.id, index: vertexIndex } : null;
+    app._selectedBoardShapeSegment = segmentIndex != null ? { shapeId: shape.id, segment: segmentIndex } : null;
+    const curved = shape.kind === 'arc' || !!boardShapeSegmentBulge(shape, segmentIndex);
+    const remove = () => {
+        setPcbSelection(app, []);
+        app.history.execute(new RemoveBoardShapeCommand(app, shape));
     };
-    const onKey = (event) => {
-        if (event.key === 'Escape') dismissBoardShapeContextMenu();
-    };
-    setTimeout(() => {
-        document.addEventListener('mousedown', dismiss, { capture: true });
-        document.addEventListener('keydown', onKey, { capture: true });
-    }, 0);
-    /** @type {any} */ (menu)._dismiss = { dismiss, onKey };
+    const items = pathContextActions({ node, segment: segmentIndex != null, curved,
+        split: shape.layer !== 'board-outline' && node && (shape.kind !== 'line' || vertexIndex > 0 && vertexIndex < shape.points.length - 1)
+            ? () => openBoardShape(app, shape, vertexIndex) : null,
+        deleteNode: shape.layer === 'board-outline' && shape.points.length <= 3 ? null : () => deleteBoardShapeVertex(app, shape, vertexIndex),
+        convert: () => setBoardShapeSegmentType(app, shape, segmentIndex, curved ? 'line' : 'arc', { floating: !curved }),
+        deleteSegment: shape.layer === 'board-outline' && shape.points.length <= 3 ? null
+            : shape.kind === 'arc' ? remove : () => deleteBoardShapeSegment(app, shape, segmentIndex),
+        deleteObject: shape.layer === 'board-outline' ? null : remove, label: shapeKindLabel(shape.kind).toLowerCase(),
+    });
+    showBoardShapeProperties(app, shape);
+    renderBoardShape(app, shape);
+    renderBoardShapeHandles(app, shape);
+    renderBoardShapeSegmentSelection(app);
+    return showPathContextMenu('pcbBoardShapeContextMenu', items, clientX, clientY, () => app._refreshPcbSelectionHighlights?.());
 }
 
 // ── Draw lifecycle ───────────────────────────────────────────────────────────
@@ -2274,10 +2314,17 @@ function rectPreviewPath(a, b, cornerRadius = 0) {
     });
 }
 
+function shapeDrawSnap(app, worldPos) {
+    const draw = app._shapeDraw;
+    if (draw?.kind === 'arc' && draw.points.length === 2) return worldPos;
+    const previous = draw?.points.at(-1);
+    return snapPathPoint(app, worldPos, previous ? [previous] : [], true);
+}
+
 /** Left-click while a shape tool is active. */
 export function shapeDrawClick(app, kind, worldPos) {
     if (!SHAPE_KINDS.has(kind) || kind === 'image') return;
-    const snap = app._snapToGrid(worldPos);
+    const snap = shapeDrawSnap(app, worldPos);
     if (!app._shapeDraw || app._shapeDraw.kind !== kind) {
         const layer = resolveShapeDrawLayer(app, app.activeLayer);
         if (isLayerLocked(layer)) return;
@@ -2301,11 +2348,10 @@ export function shapeDrawClick(app, kind, worldPos) {
 export function updateShapeDrawPreview(app, worldPos) {
     const d = app._shapeDraw;
     if (!d) return;
-    const squareCorners = shapeHasSquareCorners({ kind: d.kind, cornerRadius: app._shapeDefaults?.cornerRadius });
-    d.preview.setAttribute('stroke-linejoin', squareCorners ? 'miter' : 'round');
-    d.preview.setAttribute('stroke-miterlimit', '2');
+    d.cursorWorld = { ...worldPos };
+    d.preview.setAttribute('stroke-linejoin', 'round');
     d.preview.setAttribute('stroke-linecap', 'round');
-    const p = app._snapToGrid(worldPos);
+    const p = shapeDrawSnap(app, worldPos);
     let dstr = '';
     if (d.kind === 'line') {
         const points = [...d.points, p];
@@ -2367,7 +2413,7 @@ export function finishLineDraw(app) {
 export function finishShapeDrawAtPoint(app, worldPos) {
     const draw = app._shapeDraw;
     if (!draw || !worldPos) return false;
-    const point = app._snapToGrid(worldPos);
+    const point = shapeDrawSnap(app, worldPos);
     if (draw.kind === 'line' || draw.kind === 'polygon') {
         draw.points.push({ x: point.x, y: point.y });
     } else if ((draw.kind === 'rect' || draw.kind === 'circle') && draw.points.length === 1) {
@@ -2518,7 +2564,6 @@ function shapeSnapshot(shape) {
         geom: cloneShapeGeometry(shape),
         cornerRadius: shape.kind === 'rect' ? rectCornerRadius(shape) : polygonCornerRadius(shape),
         nodeCornerRadii: { ...(shape.nodeCornerRadii || {}) },
-        nodeFlatJoins: { ...(shape.nodeFlatJoins || {}) },
         layer: shape.layer,
         lineWidth: Math.max(0.05, Number(shape.lineWidth) || 0.2),
         segmentWidths: { ...(shape.segmentWidths || {}) },
@@ -2564,7 +2609,7 @@ export function showBoardShapeToolProperties(app, kind) {
             <div class="prop-row" id="pcbToolShapeCopperModeRow"><label>Copper Mode</label><select id="pcbToolShapeCopperMode"><option value="add"${initialCopperMode === 'add' ? ' selected' : ''}>Add Copper</option><option value="remove-copper"${initialCopperMode === 'remove-copper' ? ' selected' : ''}>Remove Copper</option><option value="remove-solder-mask"${initialCopperMode === 'remove-solder-mask' ? ' selected' : ''}>Remove Solder Mask</option><option value="remove-copper-mask"${initialCopperMode === 'remove-copper-mask' ? ' selected' : ''}>Remove Copper + Mask</option></select></div>
             <div class="prop-row" id="pcbToolShapeNetRow"><label>Net</label><span class="prop-net-control"><input type="text" id="pcbToolShapeNet" value="${initialNet}" placeholder="None"><details class="prop-net-menu"><summary aria-label="Select existing net"></summary><div>${toolNetOptions}</div></details></span></div>
             ${kind === 'rect' ? `<div class="prop-row"><label>Corner Radius (mm)</label><input type="number" id="pcbToolShapeCornerRadius" min="0" step="0.5" value="${Math.max(0, Number(defaults.cornerRadius) || 0).toFixed(2)}"></div>` : ''}
-            ${showLineWidth ? `<div class="prop-row" id="pcbToolShapeLineWidthRow"><label>Line Thickness (mm)</label><input type="number" id="pcbToolShapeLineWidth" min="${lineWidthMinimum}" step="0.05" value="${toolLineWidth.toFixed(2)}"></div>` : ''}
+            ${showLineWidth ? `<div class="prop-row" id="pcbToolShapeLineWidthRow"><label>Width (mm)</label><input type="number" id="pcbToolShapeLineWidth" min="${lineWidthMinimum}" step="0.05" value="${toolLineWidth.toFixed(2)}"></div>` : ''}
         `;
 
         const lineEl = /** @type {HTMLInputElement|null} */ (items.querySelector('#pcbToolShapeLineWidth'));
@@ -2648,9 +2693,7 @@ export function applyShapeSnapshot(shape, state) {
     if (state.kind) shape.kind = state.kind;
     if (shape.kind === 'image' && state.artwork) shape.artwork = state.artwork;
     applyShapeGeometry(shape, state.geom);
-    if (Object.keys(state.nodeFlatJoins || {}).length) shape.nodeFlatJoins = { ...state.nodeFlatJoins };
-    else delete shape.nodeFlatJoins;
-    if (shape.kind === 'rect' || shape.kind === 'polygon') {
+    if (['line', 'rect', 'polygon'].includes(shape.kind)) {
         shape.cornerRadius = Math.max(0, Number(state.cornerRadius) || 0);
         shape.nodeCornerRadii = { ...(state.nodeCornerRadii || {}) };
     }
@@ -2803,12 +2846,16 @@ export function showBoardShapeProperties(app, shape) {
     const items = app._pcbPropsItems?.();
     if (!items || !shape) return;
     syncPcbSelection(app);
+    app._setPcbStatus?.();
 
     const propertyTargets = () => {
         const selected = getPcbSelection(app, 'shape');
         return selected.length > 0 ? selected : [shape];
     };
     const initialTargets = propertyTargets();
+    const outlineTarget = initialTargets.length === 1 && shape.layer === 'board-outline';
+    const hasOutline = initialTargets.some(target => target.layer === 'board-outline');
+    const outlineBounds = outlineTarget ? boardBoundary(app) : null;
     if (initialTargets.some(target => target.kind === 'image')) {
         if (initialTargets.length === 1) showImageProperties(app, shape, items);
         else {
@@ -2828,9 +2875,9 @@ export function showBoardShapeProperties(app, shape) {
         : null;
     const mixedKind = initialTargets.some((target) => target.kind !== initialTargets[0].kind);
     app._setPcbPropsTitle?.(selectedNode != null
-        ? 'Node'
+        ? `${shapeKindLabel(shape.kind)} Node`
         : selectedSegment != null
-            ? boardShapeSegmentBulge(shape, selectedSegment) ? 'Arc Segment' : 'Line Segment'
+            ? shape.kind === 'arc' || boardShapeSegmentBulge(shape, selectedSegment) ? 'Arc Segment' : 'Line Segment'
         : mixedKind ? 'Mixed' : shapeKindLabel(initialTargets[0].kind));
     const lineWidthMinimum = Math.max(...initialTargets.map((target) => boardShapeLineWidthMinimum(target)));
     const initialLineWidth = selectedSegment == null
@@ -2848,7 +2895,7 @@ export function showBoardShapeProperties(app, shape) {
     const diameterMinimum = () => Number(Math.max(...propertyTargets().map(
         (target) => boardShapeLineWidthMinimum(target) + 0.1,
     )).toFixed(6));
-    const allRoundedTargets = initialTargets.every((target) => target.kind === 'rect' || target.kind === 'polygon');
+    const allRoundedTargets = initialTargets.every((target) => ['line', 'rect', 'polygon'].includes(target.kind));
     const targetCornerRadius = (target) => target.kind === 'rect'
         ? rectCornerRadius(target)
         : polygonCornerRadius(target);
@@ -2860,8 +2907,8 @@ export function showBoardShapeProperties(app, shape) {
     const currentLayer = String(shape.layer || 'top-silk');
     const mixedLayer = initialTargets.some((target) => String(target.layer || 'top-silk') !== currentLayer);
     const holeTargets = initialTargets.filter((target) => target.layer === 'hole');
-    const showFill = initialTargets.every((target) => target.layer !== 'hole' && target.kind !== 'line');
-    const showLineWidth = initialTargets.every(
+    const showFill = !hasOutline && initialTargets.every((target) => target.layer !== 'hole' && target.kind !== 'line');
+    const showLineWidth = !hasOutline && initialTargets.every(
         (target) => target.layer !== 'hole' || target.kind === 'line',
     );
     const showPlated = initialTargets.every((target) => target.layer === 'hole');
@@ -2885,21 +2932,106 @@ export function showBoardShapeProperties(app, shape) {
     const showNet = showCopperMode && initialTargets.every(
         (target) => normalizeShapeCopperMode(target.copperMode) === 'add',
     );
+    const showBulge = initialTargets.length === 1 && selectedNode == null
+        && (shape.kind === 'arc' || (selectedSegment != null && boardShapeSegmentBulge(shape, selectedSegment) !== 0));
+    const bulgeHtml = showBulge
+        ? `<div class="prop-row"><label for="pcbPropShapeBulge">Bulge</label><input type="number" id="pcbPropShapeBulge" min="-1" max="1" step="0.05" value="${formatNumberInputValue(editableShapeBulge(shape, selectedSegment))}"></div>`
+        : '';
 
     items.innerHTML = selectedNode != null
-        ? `<div class="prop-row"><label>Corner Radius (mm)</label><input type="number" id="pcbPropShapeNodeCornerRadius" min="0" step="0.5" value="${boardShapeNodeCornerRadius(shape, selectedNode).toFixed(2)}"></div>`
+        ? `<div class="prop-row"><label>X (mm)</label><span id="pcbPropShapeNodeX">${formatNumberInputValue(shape.points[selectedNode].x)}</span></div>
+                <div class="prop-row"><label>Y (mm)</label><span id="pcbPropShapeNodeY">${formatNumberInputValue(shape.points[selectedNode].y)}</span></div>
+                <div class="prop-row"><label>Corner Radius (mm)</label><input type="number" id="pcbPropShapeNodeCornerRadius" min="0" step="0.5" value="${formatNumberInputValue(boardShapeNodeCornerRadius(shape, selectedNode))}"></div>`
         : selectedSegment != null
-        ? `<div class="prop-row" id="pcbPropShapeLineWidthRow"><label>Line Thickness (mm)</label><input type="number" id="pcbPropShapeLineWidth" min="${lineWidthMinimum}" step="0.05" value="${initialLineWidth.toFixed(2)}"></div>`
+        ? `${hasOutline ? '' : `<div class="prop-row" id="pcbPropShapeLineWidthRow"><label>Width (mm)</label><input type="number" id="pcbPropShapeLineWidth" min="${lineWidthMinimum}" step="0.05" value="${initialLineWidth.toFixed(2)}"></div>`}${bulgeHtml}`
         : `
-            <div class="prop-row"><label>Layer</label><select id="pcbPropShapeLayer">${mixedLayer ? '<option value="" selected disabled>Mixed</option>' : ''}${layerOptionsHtml}</select></div>
+            ${hasOutline ? '' : `<div class="prop-row"><label>Layer</label><select id="pcbPropShapeLayer">${mixedLayer ? '<option value="" selected disabled>Mixed</option>' : ''}${layerOptionsHtml}</select></div>`}
+            ${outlineTarget ? `<div class="prop-row"><label>Outline</label><select id="pcbPropOutlineKind">${['rect', 'polygon', 'circle'].map(kind => `<option value="${kind}"${kind === shape.kind ? ' selected' : ''}>${shapeKindLabel(kind)}</option>`).join('')}</select></div>` : ''}
+            ${outlineTarget && shape.kind === 'rect' ? `<div class="prop-row"><label>Width (mm)</label><input id="pcbPropOutlineWidth" type="number" min="0.1" step="1" value="${formatNumberInputValue(outlineBounds.w)}"></div><div class="prop-row"><label>Height (mm)</label><input id="pcbPropOutlineHeight" type="number" min="0.1" step="1" value="${formatNumberInputValue(outlineBounds.h)}"></div>` : ''}
             ${showFill ? `<label class="prop-row prop-toggle"><input type="checkbox" id="pcbPropShapeFilled"${shape.filled ? ' checked' : ''}><span>Fill</span></label>` : ''}
             ${showPlated ? `<label class="prop-row prop-toggle"><input type="checkbox" id="pcbPropShapePlated"${!mixedPlated && holeTargets[0]?.plated ? ' checked' : ''}><span>Plated</span></label>` : ''}
             ${showCopperMode ? `<div class="prop-row" id="pcbPropShapeCopperModeRow"><label>Copper Mode</label><select id="pcbPropShapeCopperMode">${mixedCopperMode ? '<option value="" selected disabled>Mixed</option>' : ''}<option value="add"${!mixedCopperMode && initialCopperMode === 'add' ? ' selected' : ''}>Add Copper</option><option value="remove-copper"${!mixedCopperMode && initialCopperMode === 'remove-copper' ? ' selected' : ''}>Remove Copper</option><option value="remove-solder-mask"${!mixedCopperMode && initialCopperMode === 'remove-solder-mask' ? ' selected' : ''}>Remove Solder Mask</option><option value="remove-copper-mask"${!mixedCopperMode && initialCopperMode === 'remove-copper-mask' ? ' selected' : ''}>Remove Copper + Mask</option></select></div>` : ''}
             ${showNet ? `<div class="prop-row"><label>Net</label><span class="prop-net-control"><input type="text" id="pcbPropShapeNet" value="${mixedNet ? '' : initialNet.replace(/&/g, '&amp;').replace(/"/g, '&quot;')}" placeholder="${mixedNet ? 'Mixed' : 'None'}"><details class="prop-net-menu"><summary aria-label="Select existing net"></summary><div>${shapeNetOptions}</div></details></span></div>` : ''}
             ${allRoundedTargets ? `<div class="prop-row"><label>Corner Radius (mm)</label><input type="number" id="pcbPropShapeCornerRadius" min="0" step="0.5" value="${mixedCornerRadius ? '' : initialCornerRadius.toFixed(2)}"${mixedCornerRadius ? ' placeholder="Mixed"' : ''}></div>` : ''}
-            ${showLineWidth ? `<div class="prop-row" id="pcbPropShapeLineWidthRow"><label>Line Thickness (mm)</label><input type="number" id="pcbPropShapeLineWidth" min="${lineWidthMinimum}" step="0.05" value="${mixedLineWidth ? '' : initialLineWidth.toFixed(2)}"${mixedLineWidth ? ' placeholder="Mixed"' : ''}></div>` : ''}
+            ${showLineWidth ? `<div class="prop-row" id="pcbPropShapeLineWidthRow"><label>Width (mm)</label><input type="number" id="pcbPropShapeLineWidth" min="${lineWidthMinimum}" step="0.05" value="${mixedLineWidth ? '' : initialLineWidth.toFixed(2)}"${mixedLineWidth ? ' placeholder="Mixed"' : ''}></div>` : ''}
             ${allCircleTargets ? `<div class="prop-row"><label for="pcbPropShapeDiameter">Outer Diameter (mm)</label><input type="number" id="pcbPropShapeDiameter" min="${diameterMinimum()}" step="0.05" value="${mixedDiameter ? '' : initialDiameter.toFixed(2)}"${mixedDiameter ? ' placeholder="Mixed"' : ''}></div>` : ''}
+            ${bulgeHtml}
         `;
+
+    if (outlineTarget) app._setPcbPropsTitle?.(selectedNode != null ? 'Board Outline Node' : selectedSegment != null ? 'Board Outline Segment' : 'Board Outline');
+    for (const [id, axis, dimension] of [
+        ['pcbPropOutlineWidth', 'x', 'w'],
+        ['pcbPropOutlineHeight', 'y', 'h'],
+    ]) {
+        const input = /** @type {HTMLInputElement|null} */ (document.getElementById(String(id)));
+        input?.addEventListener('change', () => {
+            if (isLayerLocked(shape.layer) || !Number.isFinite(input.valueAsNumber) || input.valueAsNumber < 0.1) return;
+            const before = shapeSnapshot(shape);
+            const bounds = boardBoundary(app);
+            const factor = input.valueAsNumber / bounds[dimension];
+            shape.points = shape.points.map(point => ({ ...point, [axis]: bounds[axis] + (point[axis] - bounds[axis]) * factor }));
+            const after = shapeSnapshot(shape);
+            applyShapeSnapshot(shape, before);
+            app.history.execute(new ModifyBoardShapeCommand(app, shape, before, after));
+        });
+    }
+    const outlineKind = /** @type {HTMLSelectElement|null} */ (document.getElementById('pcbPropOutlineKind'));
+    outlineKind?.addEventListener('change', () => {
+        if (isLayerLocked(shape.layer) || shape.kind === outlineKind.value || !['rect', 'polygon', 'circle'].includes(outlineKind.value)) return;
+        const before = shapeSnapshot(shape);
+        const bounds = boardBoundary(app);
+        const keepCorners = shape.kind === 'rect' && outlineKind.value === 'polygon';
+        const points = keepCorners ? shape.points.map(point => ({ ...point })) : shapeOutline(shape);
+        shape.kind = outlineKind.value;
+        if (!keepCorners) {
+            shape.segmentBulges = {};
+            shape.nodeCornerRadii = {};
+            shape.cornerRadius = 0;
+        }
+        applyShapeGeometry(shape, shape.kind === 'circle'
+            ? { x: bounds.x + bounds.w / 2, y: bounds.y + bounds.h / 2, radius: Math.min(bounds.w, bounds.h) / 2 }
+            : { points: shape.kind === 'polygon' ? points : [
+                { x: bounds.x, y: bounds.y }, { x: bounds.x + bounds.w, y: bounds.y },
+                { x: bounds.x + bounds.w, y: bounds.y + bounds.h }, { x: bounds.x, y: bounds.y + bounds.h }] });
+        const after = shapeSnapshot(shape);
+        applyShapeSnapshot(shape, before);
+        app.history.execute(new ModifyBoardShapeCommand(app, shape, before, after));
+    });
+    const bulgeEl = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropShapeBulge'));
+    let bulgeBefore = null;
+    const previewBulge = () => {
+        if (!bulgeEl || !Number.isFinite(bulgeEl.valueAsNumber)) return;
+        const value = Math.max(-1, Math.min(1, bulgeEl.valueAsNumber));
+        if (value === editableShapeBulge(shape, selectedSegment)) return;
+        bulgeBefore ||= shapeSnapshot(shape);
+        if (shape.kind === 'arc') shape.bulge = bulgePointFromRatio(shape.start, shape.end, value);
+        else if (selectedSegment != null) {
+            shape.segmentBulges ||= {};
+            shape.segmentBulges[selectedSegment] = value;
+        }
+        schedulePictureCopperRefresh(app, shape);
+        renderBoardShape(app, shape, { liveDrag: true });
+        renderBoardShapeHandles(app, shape);
+        renderBoardShapeSegmentSelection(app);
+    };
+    const commitBulge = () => {
+        if (!bulgeEl) return;
+        formatNumberInput(bulgeEl);
+        previewBulge();
+        const before = bulgeBefore || shapeSnapshot(shape);
+        bulgeBefore = null;
+        normalizeStraightArc(shape, selectedSegment);
+        const after = shapeSnapshot(shape);
+        applyShapeSnapshot(shape, before);
+        if (JSON.stringify(before) !== JSON.stringify(after)) {
+            app.history.execute(new ModifyBoardShapeCommand(app, shape, before, after));
+        }
+        showBoardShapeProperties(app, shape);
+        renderBoardShapeSegmentSelection(app);
+    };
+    bulgeEl?.addEventListener('input', previewBulge);
+    bulgeEl?.addEventListener('change', commitBulge);
+    bulgeEl?.addEventListener('blur', commitBulge);
 
     const commit = (mutate) => {
         const before = propertyTargets().map((target) => ({ target, state: shapeSnapshot(target) }));
@@ -2939,11 +3071,13 @@ export function showBoardShapeProperties(app, shape) {
         if (!cornerRadiusEl || !Number.isFinite(cornerRadiusEl.valueAsNumber)) return;
         const radius = Math.max(0, cornerRadiusEl.valueAsNumber);
         cornerRadiusEl.value = radius.toFixed(2);
-        const targets = propertyTargets().filter((target) => target.kind === 'rect' || target.kind === 'polygon');
-        if (targets.every((target) => Math.abs(targetCornerRadius(target) - radius) < 1e-9)) return;
+        const targets = propertyTargets().filter((target) => ['line', 'rect', 'polygon'].includes(target.kind));
+        if (targets.every((target) => Math.abs(targetCornerRadius(target) - radius) < 1e-9
+            && !Object.keys(target.nodeCornerRadii || {}).length)) return;
         cornerRadiusBefore ||= targets.map((target) => ({ target, state: shapeSnapshot(target) }));
         for (const target of targets) {
             target.cornerRadius = radius;
+            target.nodeCornerRadii = {};
             schedulePictureCopperRefresh(app, target);
             renderBoardShape(app, target);
         }
@@ -3071,7 +3205,7 @@ export function showBoardShapeProperties(app, shape) {
     const copperModeEl = /** @type {HTMLSelectElement|null} */ (document.getElementById('pcbPropShapeCopperMode'));
     const netEl = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropShapeNet'));
     const netMenuEl = /** @type {HTMLDetailsElement|null} */ (document.querySelector('.prop-net-menu'));
-    for (const input of [diameterEl, lineEl, cornerRadiusEl, nodeCornerRadiusEl]) bindPictureRefreshHold(app, input);
+    for (const input of [diameterEl, lineEl, cornerRadiusEl, nodeCornerRadiusEl, bulgeEl]) bindPictureRefreshHold(app, input);
     if (filledEl) {
         filledEl.checked = mixedFill ? false : !!shape.filled;
         filledEl.indeterminate = mixedFill;
@@ -3109,10 +3243,11 @@ export function showBoardShapeProperties(app, shape) {
         if (lineEl.valueAsNumber !== v) lineEl.value = v.toFixed(2);
         if (selectedSegment != null && Math.abs(v - boardShapeSegmentWidth(shape, selectedSegment)) < 1e-9) return;
         if (selectedSegment == null
-            && targets.every((target) => Math.abs(v - (Number(target.lineWidth) || 0.2)) < 1e-9)) return;
+            && targets.every((target) => Math.abs(v - (Number(target.lineWidth) || 0.2)) < 1e-9
+                && !Object.keys(target.segmentWidths || {}).length)) return;
         lineWidthBefore ||= targets.map((target) => ({ target, state: shapeSnapshot(target) }));
         for (const target of targets) {
-            if (selectedSegment != null) {
+            if (selectedSegment != null && target.kind !== 'arc') {
                 target.segmentWidths ||= {};
                 if (Math.abs(v - normalizedBoardShapeLineWidth(target, target.lineWidth)) < 1e-9) {
                     delete target.segmentWidths[selectedSegment];
@@ -3236,6 +3371,15 @@ export function showBoardShapeProperties(app, shape) {
     app._setActiveRibbonTab?.('pcb-properties');
 }
 
+function syncShapeBulgeProperty(app, shape) {
+    const input = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropShapeBulge'));
+    if (!input) return;
+    const segment = app._selectedBoardShapeSegment?.shapeId === shape.id
+        ? app._selectedBoardShapeSegment.segment : null;
+    input.value = String(editableShapeBulge(shape, segment));
+    formatNumberInput(input);
+}
+
 function syncCircleDiameterProperty(app, shape) {
     if (shape.kind !== 'circle') return;
     const input = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropShapeDiameter'));
@@ -3333,9 +3477,8 @@ export function serializeBoardShapes(app, { compactArtwork = true, roundGeometry
         if (Object.keys(s.segmentWidths || {}).length) base.segmentWidths = numbers(s.segmentWidths);
         if (Object.keys(s.segmentBulges || {}).length) base.segmentBulges = numbers(s.segmentBulges);
         if (Object.keys(s.nodeCornerRadii || {}).length) base.nodeCornerRadii = numbers(s.nodeCornerRadii);
-        if (Object.keys(s.nodeFlatJoins || {}).length) base.nodeFlatJoins = { ...s.nodeFlatJoins };
         if (s.kind === 'rect') base.cornerRadius = number(rectCornerRadius(s));
-        else if (s.kind === 'polygon') base.cornerRadius = number(polygonCornerRadius(s));
+        else if (s.kind === 'polygon' || s.kind === 'line') base.cornerRadius = number(polygonCornerRadius(s));
         if (s.kind === 'arc') {
             return { ...base, start: point(s.start), end: point(s.end), bulge: point(s.bulge) };
         }
@@ -3403,11 +3546,7 @@ export function loadBoardShapes(app, arr, { render = true, strict = false } = {}
                 .filter(([index, radius]) => Number.isInteger(Number(index)) && Number(radius) >= 0)
                 .map(([index, radius]) => [index, Number(radius)]));
         }
-        if (sd.nodeFlatJoins && typeof sd.nodeFlatJoins === 'object') {
-            base.nodeFlatJoins = Object.fromEntries(Object.entries(sd.nodeFlatJoins)
-                .filter(([index, flat]) => Number.isInteger(Number(index)) && Number(index) >= 0 && flat === true));
-        }
-        if (kind === 'rect' || kind === 'polygon') {
+        if (['line', 'rect', 'polygon'].includes(kind)) {
             base.cornerRadius = Math.max(0, Number(sd.cornerRadius) || 0);
         }
         let shape;
@@ -3444,7 +3583,7 @@ export function loadBoardShapes(app, arr, { render = true, strict = false } = {}
                 continue;
             }
         }
-        if (sd.geometryVersion !== 2 && kind === 'circle') {
+        if (sd.geometryVersion !== 2 && kind === 'circle' && shape.layer !== 'board-outline') {
             shape.radius += shape.lineWidth / 2;
         }
         app.boardShapes.push(shape);

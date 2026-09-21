@@ -11,6 +11,8 @@
  * board-plane (x, y) to world (x, z) at the point of consumption.
  */
 
+import { arcFromBulge, sampleArcEdge } from '../../shapes/arc-edge.js';
+
 /**
  * Soldermask expansion per side (mm). 0.05 mm is the typical board-house
  * default — a pad emerges with a 0.1 mm-larger opening so solder wicks to
@@ -27,6 +29,97 @@ export const MASK_EXPANSION = 0.05;
  * export honours this flag, so all three agree.
  */
 export const TENT_VIAS = true;
+
+export const CORNER_CHORD_TOLERANCE = 0.001;
+
+export function roundedPathCorners(points, radii, closed = false) {
+    return points.map((vertex, index) => {
+        const sharp = { vertex, entry: { ...vertex }, exit: { ...vertex }, rounded: false };
+        if (points.length < 3 || (!closed && (index === 0 || index === points.length - 1))) return sharp;
+        const previous = points[(index + points.length - 1) % points.length];
+        const next = points[(index + 1) % points.length];
+        const previousLength = Math.hypot(previous.x - vertex.x, previous.y - vertex.y);
+        const nextLength = Math.hypot(next.x - vertex.x, next.y - vertex.y);
+        const inset = Math.min(radii[index] || 0, previousLength / 2, nextLength / 2);
+        if (inset < 0.01 || previousLength < 0.01 || nextLength < 0.01) return sharp;
+        return {
+            vertex, rounded: true,
+            entry: { x: vertex.x + (previous.x - vertex.x) * inset / previousLength,
+                y: vertex.y + (previous.y - vertex.y) * inset / previousLength },
+            exit: { x: vertex.x + (next.x - vertex.x) * inset / nextLength,
+                y: vertex.y + (next.y - vertex.y) * inset / nextLength },
+        };
+    });
+}
+
+export function sampleRoundedCorner(corner, segments = undefined) {
+    if (!corner.rounded) return [{ ...corner.vertex }];
+    const curvature = Math.hypot(
+        (corner.entry.x - corner.vertex.x) + (corner.exit.x - corner.vertex.x),
+        (corner.entry.y - corner.vertex.y) + (corner.exit.y - corner.vertex.y));
+    segments ??= Math.max(16, 2 * Math.ceil(Math.sqrt(curvature / (4 * CORNER_CHORD_TOLERANCE)) / 2));
+    return Array.from({ length: segments + 1 }, (_, index) => {
+        const fraction = index / segments;
+        const inverse = 1 - fraction;
+        return {
+            x: inverse * inverse * corner.entry.x + 2 * inverse * fraction * corner.vertex.x + fraction * fraction * corner.exit.x,
+            y: inverse * inverse * corner.entry.y + 2 * inverse * fraction * corner.vertex.y + fraction * fraction * corner.exit.y,
+        };
+    });
+}
+
+export function resolveTrackEdgePaths(track) {
+    const adjacent = new Map();
+    for (const [edgeId, edge] of track.edges) {
+        for (const nodeId of [edge.from, edge.to]) {
+            if (!adjacent.has(nodeId)) adjacent.set(nodeId, []);
+            adjacent.get(nodeId).push(edgeId);
+        }
+    }
+    const corners = new Map();
+    for (const [nodeId, edgeIds] of adjacent) {
+        const radius = Number(track.nodeCornerRadii?.[nodeId] ?? track.cornerRadius) || 0;
+        if (radius < 0.01 || edgeIds.length !== 2 || track.padConnections?.has(nodeId)) continue;
+        const [firstId, secondId] = edgeIds;
+        if (track.edges.get(firstId).bulge || track.edges.get(secondId).bulge) continue;
+        if ((track.getEdgeLayer?.(firstId) ?? track.layer) !== (track.getEdgeLayer?.(secondId) ?? track.layer)) continue;
+        const vertex = track.nodes.get(nodeId);
+        const neighbours = edgeIds.map(edgeId => {
+            const edge = track.edges.get(edgeId);
+            return track.nodes.get(edge.from === nodeId ? edge.to : edge.from);
+        });
+        if (!vertex || neighbours.some(point => !point)) continue;
+        const corner = roundedPathCorners([neighbours[0], vertex, neighbours[1]], [0, radius, 0])[1];
+        if (!corner.rounded) continue;
+        const samples = sampleRoundedCorner(corner);
+        const midpoint = (samples.length - 1) / 2;
+        corners.set(nodeId, new Map([[firstId, samples.slice(0, midpoint + 1)], [secondId, samples.slice(midpoint).reverse()]]));
+    }
+    const paths = new Map();
+    for (const [edgeId, edge] of track.edges) {
+        const start = track.nodes.get(edge.from);
+        const end = track.nodes.get(edge.to);
+        if (!start || !end) continue;
+        const startCorner = corners.get(edge.from)?.get(edgeId);
+        const endCorner = corners.get(edge.to)?.get(edgeId);
+        const arc = arcFromBulge(start, end, edge.bulge || 0);
+        if (arc) {
+            const count = Math.max(16, Math.ceil(Math.PI / Math.acos(Math.max(-1, 1 - CORNER_CHORD_TOLERANCE / arc.radius))));
+            const samples = sampleArcEdge(start, end, edge.bulge, count);
+            samples[samples.length - 1] = end;
+            paths.set(edgeId, [start, ...samples]);
+        } else paths.set(edgeId, [...(startCorner ? [...startCorner].reverse() : [start]), ...(endCorner || [end])]);
+    }
+    return paths;
+}
+
+export function resolveTrackSegments(track) {
+    return [...resolveTrackEdgePaths(track)].flatMap(([edgeId, points]) => points.slice(0, -1).map((start, index) => ({
+        edgeId, start, end: points[index + 1],
+        layer: track.getEdgeLayer?.(edgeId) ?? track.layer,
+        width: (track.getEdgeWidth?.(edgeId) ?? track.width) || 0.2,
+    })));
+}
 
 /**
  * Footprint-local → board-plane transform for a placement's pose: mirror

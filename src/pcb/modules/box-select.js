@@ -613,7 +613,9 @@ export function deleteBoxSelection(app) {
     const cmds = [];
     for (const t of getPcbSelection(app, 'track')) cmds.push(new RemoveTrackCommand(app, t));
     for (const v of getPcbSelection(app, 'via')) cmds.push(new RemoveViaCommand(app, v));
-    for (const shape of getPcbSelection(app, 'shape')) cmds.push(new RemoveBoardShapeCommand(app, shape));
+    for (const shape of getPcbSelection(app, 'shape')) {
+        if (shape.layer !== 'board-outline') cmds.push(new RemoveBoardShapeCommand(app, shape));
+    }
     for (const text of getPcbSelection(app, 'text')) cmds.push(new RemoveTextCommand(app, text.id));
     for (const fill of getPcbSelection(app, 'fill')) cmds.push(new RemoveFillCommand(app, fill));
 

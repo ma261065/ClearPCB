@@ -2,6 +2,41 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { createBoardViewSync } from '../src/pcb/modules/board-view-sync.js';
 
+{
+    const pcbSource = readFileSync(new URL('../src/ui/PCBApp.js', import.meta.url), 'utf8');
+    const start = pcbSource.indexOf('    _renderPersistentObjects(');
+    const end = pcbSource.indexOf('\n    /**', start);
+    assert.ok(start >= 0 && end > start);
+    const elements = new Set();
+    const renderShape = (board, shape) => {
+        elements.delete(board._shapeElements.get(shape.id));
+        const element = { id: shape.id, geometry: shape.geometry };
+        elements.add(element);
+        board._shapeElements.set(shape.id, element);
+    };
+    const rebuild = new Function('renderBoardShape', 'getPcbSelection',
+        `return ({ ${pcbSource.slice(start, end)} })._renderPersistentObjects;`)(renderShape, () => []);
+    const outline = { id: 'board-outline', geometry: 'rectangle' };
+    const artwork = { id: 'artwork', geometry: 'circle' };
+    const board = {
+        _boardOutlineDrawn: true,
+        boardShapes: [outline, artwork],
+        _shapeElements: new Map(), _textElements: new Map(), texts: new Map(),
+        tracks: [], vias: [], copperFills: [],
+        _drawBoardOutline() { renderShape(this, outline); },
+    };
+    for (const renderShapes of [true, false, true]) {
+        rebuild.call(board, { renderShapes });
+        assert.equal([...elements].filter(element => element.id === outline.id).length, 1,
+            'A rebuild must not orphan the outline rendered before the other shapes');
+        assert.ok(elements.has(board._shapeElements.get(outline.id)), 'The visible outline remains registered');
+    }
+    outline.geometry = 'polygon-with-inserted-node';
+    renderShape(board, outline);
+    assert.equal(elements.size, 2, 'Editing replaces the outline without leaving its old geometry behind');
+    assert.equal([...elements].some(element => element.geometry === 'rectangle'), false);
+}
+
 let sourceRevision = 0;
 const seen3D = [], seen2D = [];
 const sync = createBoardViewSync({

@@ -29,6 +29,11 @@ const edgePad = new Map([['pad', { x: 100.1, y: -20, padOffsets: [
     { dx: 0, dy: 0, width: 2, height: 1, shape: 'rect', layer: 'top' },
 ] }]]);
 for (const filename of ['board.gtl', 'board.gts', 'board.gtp']) {
-    assert.ok(exportBoard({ placements: edgePad }).get(filename).includes('X100100000Y20000000D03*'));
+    const output = exportBoard({ placements: edgePad }).get(filename);
+    assert.ok(output.includes('G36*'), 'An edge-crossing pad becomes a clipped region');
+    assert.ok(!output.includes('D03*'), 'No full flash may extend beyond the board');
+    const coordinates = [...output.matchAll(/X(-?\d+)Y(-?\d+)D0[12]\*/g)];
+    assert.ok(coordinates.some(point => Number(point[1]) === 100e6), 'The overlapping pad reaches the edge');
+    assert.ok(coordinates.every(point => Number(point[1]) <= 100e6), 'Copper, mask and paste stop at the edge');
 }
 console.log('PASS native and general pad export geometry, mask/paste parity and edge overlap');
