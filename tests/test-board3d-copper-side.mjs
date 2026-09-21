@@ -1,3 +1,6 @@
+import assert from 'node:assert/strict';
+import * as THREE from '../assets/vendor/three.module.js';
+
 globalThis.indexedDB = { open() { throw new Error('IndexedDB disabled in test'); } };
 globalThis.localStorage = {
     getItem() { return null; },
@@ -11,10 +14,45 @@ globalThis.document = {
     body: { contains() { return false; } },
 };
 
-const { appendFlatStroke, collectCopperSubtractHoles, punchHolesInFlatMesh } =
+const { appendFlatStroke, collectCopperSubtractHoles, punchHolesInFlatMesh, updateBoardCameraClipping } =
     await import('../src/pcb/modules/board3d.js');
 const { getBoard2DSolderMaskAppearance } = await import('../src/pcb/modules/board2d.js');
 const { pointInPolygon } = await import('../src/core/geometry.js');
+
+const camera = new THREE.PerspectiveCamera(45, 1, 0.193, 1929);
+const bounds = new THREE.Box3(new THREE.Vector3(0, 0, -80), new THREE.Vector3(100, 12, 0));
+for (const distance of [200, 500, 1000]) {
+    for (const side of [-1, 1]) {
+        camera.position.set(50, side * distance, -40);
+        camera.lookAt(50, 0.8, -40);
+        const position = camera.position.toArray();
+        const orientation = camera.quaternion.toArray();
+        updateBoardCameraClipping(camera, bounds);
+        assert.ok(camera.near > 0.193, 'Near plane follows zoom-out');
+        assert.ok(camera.near < distance / 10, 'Clipping does not over-amplify coplanar geometry errors');
+        assert.deepEqual(camera.position.toArray(), position, 'Clipping does not move the camera');
+        assert.deepEqual(camera.quaternion.toArray(), orientation, 'Clipping does not rotate the camera');
+        for (const x of [0, 100]) for (const y of [0, 12]) for (const z of [-80, 0]) {
+            const depth = -new THREE.Vector3(x, y, z).applyMatrix4(camera.matrixWorldInverse).z;
+            assert.ok(depth > camera.near && depth < camera.far, 'Scene corners remain inside clipping planes');
+        }
+        const topDepth = new THREE.Vector3(50, 1.6, -40).project(camera).z;
+        const bottomDepth = new THREE.Vector3(50, 0, -40).project(camera).z;
+        const depthUnits = Math.abs(topDepth - bottomDepth) / 2 * (2 ** 24 - 1);
+        assert.ok(depthUnits > 80 * 10, 'Opposite board faces remain well beyond the largest decal bias');
+        const displacedDepth = new THREE.Vector3(50, 1.600001, -40).project(camera).z;
+        assert.ok(Math.abs(displacedDepth - topDepth) / 2 * (2 ** 24 - 1) < 1,
+            'Sub-micron surface errors stay smaller than a depth-buffer step');
+    }
+}
+camera.position.set(50, 12.5, -40);
+camera.lookAt(50, 0.8, -40);
+updateBoardCameraClipping(camera, bounds);
+assert.ok(camera.near > 0 && camera.near < 0.5, 'Close-up components are not clipped');
+camera.position.set(50, 5, -40);
+camera.lookAt(100, 5, -40);
+updateBoardCameraClipping(camera, bounds);
+assert.equal(camera.near, 0.01, 'Bounds crossing the camera plane use the near-plane floor');
 
 let failures = 0;
 function check(name, condition) {

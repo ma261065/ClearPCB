@@ -2387,6 +2387,33 @@ function build3DHost(doc) {
 
 /* ───────────────────────────── scene helper ─────────────────────────────── */
 
+export function updateBoardCameraClipping(camera, bounds) {
+    if (!bounds || bounds.isEmpty()) return;
+    camera.updateMatrixWorld();
+    const point = new THREE.Vector3();
+    let nearest = Infinity;
+    let farthest = -Infinity;
+    for (const x of [bounds.min.x, bounds.max.x]) {
+        for (const y of [bounds.min.y, bounds.max.y]) {
+            for (const z of [bounds.min.z, bounds.max.z]) {
+                point.set(x, y, z).applyMatrix4(camera.matrixWorldInverse);
+                nearest = Math.min(nearest, -point.z);
+                farthest = Math.max(farthest, -point.z);
+            }
+        }
+    }
+    if (!Number.isFinite(nearest) || !Number.isFinite(farthest) || farthest <= 0) return;
+    const far = Math.max(1.01, farthest * 1.5);
+    const depthSteps = 2 ** 24 - 1;
+    const depthResolutionMm = 0.001;
+    const precisionNear = 1 / (depthResolutionMm * depthSteps / (farthest * farthest) + 1 / far);
+    const near = Math.max(0.01, Math.min(nearest / 2, precisionNear));
+    if (camera.near === near && camera.far === far) return;
+    camera.near = near;
+    camera.far = far;
+    camera.updateProjectionMatrix();
+}
+
 class ThreeScene {
     /**
      * @param {Window} win
@@ -2594,6 +2621,7 @@ class ThreeScene {
         this._renderScheduled = false;
         if (this._disposed) return;
         this.controls.update();
+        this._updateCameraClipping();
         this._updateLights();
         this.renderer.render(this.scene, this.camera);
     }
@@ -2632,6 +2660,7 @@ class ThreeScene {
             this.renderer.setPixelRatio(dpr);
             this.renderer.setSize(w, h, false);
             this.controls.update();
+            this._updateCameraClipping();
             this._updateLights();
             this.renderer.render(this.scene, this.camera);
             cv.toBlob(cb, 'image/png');
@@ -2670,9 +2699,15 @@ class ThreeScene {
     _animate() {
         if (!this._animating || this._disposed) return;
         this.controls.update();
+        this._updateCameraClipping();
         this._updateLights();
         this.renderer.render(this.scene, this.camera);
         this._raf(this._animate);
+    }
+
+    _updateCameraClipping() {
+        if (!this._clippingBounds) this._clippingBounds = new THREE.Box3().setFromObject(this.root);
+        updateBoardCameraClipping(this.camera, this._clippingBounds);
     }
 
     /**
@@ -2739,6 +2774,7 @@ class ThreeScene {
         const m = new THREE.Mesh(geo, mat);
         m.userData.ownedMaterials = owned;
         this.root.add(m);
+        this._clippingBounds = null;
         this.requestRender();
         return m;
     }
@@ -2754,6 +2790,7 @@ class ThreeScene {
         obj.geometry.dispose();
         const geo = meshToGeometry(mesh, groupByColor);
         obj.geometry = geo;
+        this._clippingBounds = null;
         if (groupByColor) {
             if (obj.userData.ownedMaterials) {
                 for (const mm of obj.userData.ownedMaterials) mm.dispose();
@@ -2778,6 +2815,7 @@ class ThreeScene {
     removeMesh(obj) {
         if (!obj) return;
         this.root.remove(obj);
+        this._clippingBounds = null;
         obj.geometry?.dispose();
         if (obj.userData?.ownedMaterials) {
             for (const mm of obj.userData.ownedMaterials) mm.dispose();
@@ -2805,10 +2843,9 @@ class ThreeScene {
         dir.normalize();
         this.controls.target.copy(center);
         this.camera.position.copy(center).addScaledVector(dir, dist);
-        this.camera.near = Math.max(0.05, dist / 1000);
-        this.camera.far = dist * 10;
-        this.camera.updateProjectionMatrix();
+        this._clippingBounds = box;
         this.controls.update();
+        this._updateCameraClipping();
         this.requestRender();
     }
 
