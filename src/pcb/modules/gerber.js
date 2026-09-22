@@ -182,7 +182,7 @@ export function exportGerbers(opts) {
     ]);
     // Only emit the NPTH file when there are non-plated holes — an empty
     // drill file trips up some fab pre-checks.
-    const npth = _collectNonPlatedDrills(boardShapes, placements);
+    const npth = _collectNonPlatedDrills(boardShapes, placements, clipBounds);
     if (npth.length) files.set('board-NPTH.drl', _buildDrill(npth, clipBounds, true));
     return files;
 }
@@ -872,14 +872,17 @@ function _collectPlatedDrills(placements, vias, boardShapes = []) {
 }
 
 /** Collect non-plated drills: Hole-layer shapes and footprint mounting holes. */
-function _collectNonPlatedDrills(boardShapes = [], placements = new Map()) {
+function _collectNonPlatedDrills(boardShapes = [], placements = new Map(), bounds) {
     const out = [];
     // Hole-layer circles drill through the board unless explicitly plated.
     for (const c of boardShapes) {
         if (c?.kind !== 'circle') continue;
         if (!c || c.layer !== 'hole' || c.plated) continue;
         const dia = 2 * (Number(c.radius) || 0);
-        if (dia > 0) out.push({ dia, x: c.x, y: c.y });
+        if (dia <= 0) continue;
+        const contour = padFlashOutline({ x: c.x, y: c.y, w: dia, h: dia, shape: 'circle' });
+        if (bounds?.points && _clipContours([contour], bounds, ClipperLib.ClipType.ctDifference).length) continue;
+        out.push({ dia, x: c.x, y: c.y });
     }
     // Footprint mechanical / mounting holes (posed 'hole'-layer silk circles),
     // resolved alongside pad drills by the shared resolver.

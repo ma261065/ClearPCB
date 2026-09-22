@@ -276,3 +276,20 @@ assert.ok(circularRegions.some(contour => pointInPolygon({ x: 19, y: -10 }, cont
 assert.ok(circularRegions.flat().every(point => Math.hypot(point.x - 10, point.y + 10) <= 10.000002),
     'Artwork follows the circular boundary');
 console.log('PASS actual board-boundary clipping for strokes, circles, pads, vias, pictures, rounded corners and cutouts');
+const circularNotch = { kind: 'circle', layer: 'hole', filled: true,
+    x: 35.56, y: -66.04, radius: 18.491479, lineWidth: 0.2 };
+const notchFiles = exportShapes([circularNotch]);
+assert.equal(notchFiles.has('board-NPTH.drl'), false,
+    'An edge-crossing circle is routed by the profile, not duplicated as a full drill');
+const notchStrokes = circularStrokesIn(notchFiles.get('board.gko'));
+assert.ok(notchStrokes.some(stroke => Math.abs(stroke.start.x - 35.56) < 1e-6
+    && Math.abs(stroke.start.y + 47.548521) < 1e-6), 'The circular notch remains in the board profile');
+assert.ok(notchStrokes.every(stroke => stroke.start.y >= -80 && stroke.end.y >= -80),
+    'The routed notch stops at the board edge');
+const internalHole = { ...circularNotch, x: 70, y: -30, radius: 2 };
+const mixedHoles = exportShapes([circularNotch, internalHole]).get('board-NPTH.drl');
+assert.match(mixedHoles, /T1C4\.000/);
+assert.match(mixedHoles, /X70\.000Y30\.000/);
+assert.doesNotMatch(mixedHoles, /C36\.983|X35\.560Y66\.040/,
+    'Interior circular drills are preserved without reintroducing the edge-crossing drill');
+console.log('PASS circular edge cutouts use the routed profile without duplicate NPTH drills');
