@@ -387,8 +387,6 @@ export default class SchematicApp {
         const saved = this.fileManager.loadAutoSave(entry.fileName);
         if (saved && saved.data) {
             const recovered = repairDuplicateTrackIds(saved.data);
-            const { repairAutosavePictureArtwork } = await import('../pcb/modules/picture-storage.js');
-            recovered.data = repairAutosavePictureArtwork(recovered.data);
             if (this._initComplete) {
                 await this._loadDocument(recovered.data);
             } else {

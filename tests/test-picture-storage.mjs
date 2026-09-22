@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { encodePictureArtwork, decodePictureArtwork, repairAutosavePictureArtwork } from '../src/pcb/modules/picture-storage.js';
+import { encodePictureArtwork, decodePictureArtwork } from '../src/pcb/modules/picture-storage.js';
 
 const artworks = [
     { width: 100, height: 100, rectangles: [{ x: 1, y: 2, width: 3, height: 4 }] },
@@ -65,27 +65,6 @@ assert.deepEqual(reordered[1].artwork, { encoding: 'reference-v1', index: 0 }, '
 assert.deepEqual(load(serializeBoardShapes({ boardShapes: [second] })).boardShapes[0].artwork, large,
     'deleting the first instance cannot leave dangling references');
 console.log('PASS: compact board serialization, duplicate-image references, legacy rejection, and independent edits');
-
-const { preparePcb } = await import('../src/pcb/modules/project-state.js');
-for (const artwork of artworks) {
-    const legacy = { pcb: { boardShapes: [{ ...saved[0], artwork }] } };
-    const beforeRepair = structuredClone(legacy);
-    const repaired = repairAutosavePictureArtwork(legacy);
-    assert.deepEqual(legacy, beforeRepair, 'Recovery does not alter the original autosave');
-    assert.deepEqual(preparePcb(repaired.pcb).boardShapes[0].artwork, artwork,
-        'Raw autosave artwork recovers through strict PCB preparation without geometry loss');
-    assert.equal(repairAutosavePictureArtwork(repaired), repaired, 'Modern artwork is left unchanged');
-}
-const modernAutosave = { pcb: { boardShapes: saved } };
-assert.equal(repairAutosavePictureArtwork(modernAutosave), modernAutosave);
-assert.deepEqual(preparePcb(modernAutosave.pcb).boardShapes[1].artwork, large,
-    'Existing encoded artwork references still load');
-assert.throws(() => repairAutosavePictureArtwork({ pcb: { boardShapes: [{ ...saved[0], artwork: {} }] } }),
-    'Malformed raw artwork is not silently discarded');
-const unknownAutosave = { pcb: { boardShapes: [{ ...saved[0], artwork: { encoding: 'unknown' } }] } };
-assert.equal(repairAutosavePictureArtwork(unknownAutosave), unknownAutosave);
-assert.throws(() => preparePcb(unknownAutosave.pcb), /Unsupported image storage encoding/);
-console.log('PASS: autosave-only raw artwork recovery preserves strict file loading');
 
 const { prepareFabricationSnapshot } = await import('../src/pcb/modules/fabrication-snapshot.js');
 const { exportGerbers } = await import('../src/pcb/modules/gerber.js');
