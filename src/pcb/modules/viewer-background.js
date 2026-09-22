@@ -3,7 +3,6 @@ export const VIEWER_BACKGROUND = Object.freeze({
     center: '#111c3f',
     mid: '#071027',
     edge: '#01040c',
-    css: 'radial-gradient(ellipse at center, #111c3f 0%, #071027 52%, #01040c 100%)',
 });
 
 /** Paint the viewer backdrop into a Canvas2D drawing buffer. */

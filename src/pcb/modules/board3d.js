@@ -77,7 +77,7 @@ import { regionFillContours } from './region-geometry.js';
 import { boardShapeFilledRemovalOutlines, resolveBoardShapeGeometry } from './board-shapes.js';
 import { pcbTextPolylines } from './pcb-text.js';
 import { loadClipper, isClipperReady, getClipper } from './copper-fill-geom.js';
-import { createViewerBackgroundTexture, VIEWER_BACKGROUND } from './viewer-background.js';
+import { createViewerBackgroundTexture } from './viewer-background.js';
 
 /** Finished board thickness in millimetres (standard 1.6 mm). */
 const BOARD_THICKNESS = 1.6;
@@ -2163,7 +2163,7 @@ function makeBoardMaterial() {
 
 const CPCB3D_CSS = `
   .cpcb3d-host{position:relative;flex:1 1 0;min-width:0;min-height:0;
-        overflow:hidden;background:${VIEWER_BACKGROUND.css};color:#e6e6e6;
+        overflow:hidden;color:#e6e6e6;
     font:13px/1.4 system-ui,Segoe UI,sans-serif}
   .cpcb3d-bar{position:absolute;top:0;left:0;right:0;height:38px;display:flex;
     align-items:center;gap:8px;padding:0 10px;background:rgba(20,23,27,.85);
@@ -2206,12 +2206,12 @@ const CPCB3D_CSS = `
         color:#b8c2cd;font-variant-numeric:tabular-nums}
   .cpcb3d-status{font-size:12px;color:#9aa3ad}
   .cpcb3d-cv{position:absolute;inset:38px 0 0 0;width:100%;height:calc(100% - 38px);
-        display:block;cursor:grab;background:${VIEWER_BACKGROUND.css}}
+        display:block;cursor:grab}
   .cpcb3d-cv:active{cursor:grabbing}
   /* Flat 2D board preview canvas (board2d.js). Shares the host with the WebGL
      canvas; only one is shown at a time depending on the active view. */
   .cpcb3d-cv2d{position:absolute;inset:38px 0 0 0;width:100%;height:calc(100% - 38px);
-        display:none;cursor:grab;background:${VIEWER_BACKGROUND.css}}
+        display:none;cursor:grab}
   .cpcb3d-cv2d:active{cursor:grabbing}
   .cpcb3d-host.cpcb3d-mode2d .cpcb3d-cv{display:none}
   .cpcb3d-host.cpcb3d-mode2d .cpcb3d-cv2d{display:block}
@@ -2228,11 +2228,6 @@ const CPCB3D_CSS = `
     .cpcb3d-bar [data-act="2dtop"].active,
   .cpcb3d-bar [data-act="2dbottom"].active{
     background:#2d7dd2;border-color:#2d7dd2;color:#fff}
-  /* Opaque cover painted from the first frame so the canvas's pre-render frame
-      never shows; fades once the board has actually rendered. */
-  .cpcb3d-cover{position:absolute;inset:0;background:${VIEWER_BACKGROUND.css};z-index:10;
-    pointer-events:none;transition:opacity .18s linear}
-  .cpcb3d-cover.hide{opacity:0}
   .cpcb3d-hint{position:absolute;bottom:8px;left:10px;font-size:11px;color:#6b7480;
     z-index:2;pointer-events:none}
   .cpcb3d-spinner{position:absolute;inset:38px 0 0 0;display:none;
@@ -2279,7 +2274,7 @@ function ensure3DStyles(doc) {
  * pop-up window, so it is a self-contained element tree, not a whole document.
  * @param {Document} doc
  * @returns {{host:HTMLElement, canvas:HTMLCanvasElement, status:HTMLElement,
- *   spinner:HTMLElement, cover:HTMLElement, btnParts:HTMLElement,
+ *   spinner:HTMLElement, btnParts:HTMLElement,
  *   btnTop:HTMLElement, btnIso:HTMLElement, btnFit:HTMLElement,
  *   btn2dTop:HTMLElement, btn2dBottom:HTMLElement, btn2dSave:HTMLElement,
  *   btn3dSave:HTMLElement, btnPop:HTMLElement, btnClose:HTMLElement, styleBtn:HTMLElement,
@@ -2315,7 +2310,6 @@ function build3DHost(doc) {
   <canvas class="cpcb3d-cv2d"></canvas>
   <div class="cpcb3d-spinner"><div class="cpcb3d-ring"></div><div>Loading…</div></div>
   <div class="cpcb3d-hint">Drag to orbit · Right-drag to pan · Wheel to zoom</div>
-    <div class="cpcb3d-cover"></div>
     <div class="cpcb3d-stylewin hide">
         <div class="cpcb3d-stylehead">
             <strong>Layer Styles</strong>
@@ -2353,7 +2347,6 @@ function build3DHost(doc) {
         canvas2d: q('.cpcb3d-cv2d'),
         status: q('.cpcb3d-status'),
         spinner: q('.cpcb3d-spinner'),
-        cover: q('.cpcb3d-cover'),
         btnParts: q('[data-act="parts"]'),
         btnTop: q('[data-act="top"]'),
         btnIso: q('[data-act="iso"]'),
@@ -2470,10 +2463,6 @@ class ThreeScene {
         // (4) is set directly; the renderer maps 4 → "ACESFilmic".
         this.renderer.toneMapping = 4; // THREE.ACESFilmicToneMapping
         this.renderer.toneMappingExposure = 1.15;
-        // Match the darkest gradient edge if a frame is presented before the
-        // scene background texture is available.
-        this.renderer.setClearColor(0x01040c, 1);
-
         this.scene = new THREE.Scene();
         this.backgroundTexture = createViewerBackgroundTexture(THREE, canvas.ownerDocument);
         this.scene.background = this.backgroundTexture;
@@ -3009,7 +2998,7 @@ export async function openBoard3DViewer(app, opts = {}) {
     window.addEventListener('pointermove', onSplitMove);
     window.addEventListener('pointerup', onSplitUp);
 
-    // ── Spinner / cover (armed in ensure3D) ───────────────────────────
+    // ── Spinner (armed in ensure3D) ───────────────────────────────────
     let startedAt = 0;
     let spinnerShown = false;
     let lastYieldAt = 0;
@@ -3196,8 +3185,6 @@ export async function openBoard3DViewer(app, opts = {}) {
         panel.view = view;
         if (view === 'top' || view === 'bottom') {
             host.classList.add('cpcb3d-mode2d');
-            // The 2D canvas paints instantly; drop the grey 3D cover/spinner.
-            dom.cover?.classList.add('hide');
             hideSpinner();
             const b2 = ensureBoard2D();
             b2.setSide(view);
@@ -3208,10 +3195,6 @@ export async function openBoard3DViewer(app, opts = {}) {
             if (dom.hint) dom.hint.textContent = 'Drag to pan · Wheel to zoom';
         } else {
             host.classList.remove('cpcb3d-mode2d');
-            // Show the grey cover only while the 3D scene is being built for the
-            // first time, so a 2D→3D switch on an already-built scene doesn't
-            // flash grey over the live view.
-            if (!build3DStarted) dom.cover?.classList.remove('hide');
             const alreadyStarted = build3DStarted;
             ensure3D();
             if (alreadyStarted && !panel.hidden && !panel.closed && !app._suspendBoardViewRefresh) viewSync.flush('3d');
@@ -3582,11 +3565,9 @@ export async function openBoard3DViewer(app, opts = {}) {
                     if (!panel.closed) { rebuildSurfaces(); scene.requestRender(); }
                 }).catch(() => {});
             }
-            // Fade the grey cover out once the board has rendered its first frame.
             await nextFrame();
             if (panel.closed) { hideSpinner(); return; }
             await nextFrame();
-            dom.cover?.classList.add('hide');
             await checkpoint();
 
             // Component bodies: parsing OBJ bodies is the dominant synchronous
@@ -3767,18 +3748,15 @@ export async function openBoard3DViewer(app, opts = {}) {
         const win = window.open('', 'clearpcb3d', 'width=980,height=720');
         if (!win) { setStatus('Pop-up blocked — allow pop-ups to tear off'); return; }
         const wd = win.document;
-        // Paint the new window immediately and give it the 3D stylesheet.
         try {
-            wd.documentElement.style.background = VIEWER_BACKGROUND.css;
             wd.documentElement.style.colorScheme = 'dark';
         } catch { /* ignore */ }
         wd.title = popTitle();
         ensure3DStyles(wd);
         const base = wd.createElement('style');
-        base.textContent = `html,body{margin:0;height:100%;background:${VIEWER_BACKGROUND.css};overflow:hidden}`
+        base.textContent = `html,body{margin:0;height:100%;overflow:hidden}`
             + '.cpcb3d-host{position:absolute;inset:0}';
         (wd.head || wd.documentElement).appendChild(base);
-        if (wd.body) wd.body.style.background = VIEWER_BACKGROUND.css;
         // Move the live host into the pop-up; the WebGL canvas and its context
         // travel with the node and the render loop follows it to the pop-up's rAF.
         wd.body.appendChild(wd.adoptNode(host));

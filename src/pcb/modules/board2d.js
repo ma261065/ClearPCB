@@ -505,8 +505,11 @@ export class Board2D {
 
         const ctx = this.ctx;
         ctx.setTransform(1, 0, 0, 1, 0, 0);
-        paintViewerBackground(ctx, cv.width, cv.height);
-        if (!this.data) return;
+        ctx.clearRect(0, 0, cv.width, cv.height);
+        if (!this.data) {
+            paintViewerBackground(ctx, cv.width, cv.height);
+            return;
+        }
 
         // World→device: fold the device-pixel-ratio and the left↔right mirror
         // into the transform so all geometry can be drawn in millimetres.
@@ -514,7 +517,7 @@ export class Board2D {
             this.tx * dpr, this.ty * dpr);
 
         this._drawBoard(ctx);
-        // Clip everything else to the board outline so copper/holes/silk that
+        // Clip artwork to the board outline so copper/silk that
         // spill past the edge (e.g. pads on the rim) are cropped to the board.
         ctx.save();
         const b = this._boardRect();
@@ -524,9 +527,14 @@ export class Board2D {
         this._drawCopper(ctx);
         if (SHOW_SOLDERMASK) this._drawSolderMask(ctx);
         this._drawSilk(ctx);
+        ctx.restore();
         // Holes paint last so a bore/cutout reads as open through every layer —
         // including silk, which is never printed over a drilled hole.
         this._drawHoles(ctx);
+        ctx.save();
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.globalCompositeOperation = 'destination-over';
+        paintViewerBackground(ctx, cv.width, cv.height);
         ctx.restore();
     }
 
