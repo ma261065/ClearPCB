@@ -36,6 +36,19 @@ export function encodePictureArtwork(artwork) {
     return structuredClone(encoded);
 }
 
+export function repairAutosavePictureArtwork(data) {
+    const shapes = data?.pcb?.boardShapes;
+    if (!Array.isArray(shapes)) return data;
+    let changed = false;
+    const boardShapes = shapes.map(shape => {
+        if (shape?.kind !== 'image' || !shape.artwork || Object.hasOwn(shape.artwork, 'encoding')) return shape;
+        const artwork = encodePictureArtwork(shape.artwork);
+        changed = true;
+        return { ...shape, artwork };
+    });
+    return changed ? { ...data, pcb: { ...data.pcb, boardShapes } } : data;
+}
+
 export function decodePictureArtwork(saved) {
     let data;
     if (saved?.encoding === 'tuples-v1') data = saved.data;
