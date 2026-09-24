@@ -196,9 +196,12 @@ export function showPictureImport(app) {
             hoveredPreview = null;
             hideFullPreview();
         };
-        preview.addEventListener('pointerleave', dismiss);
         preview.addEventListener('blur', dismiss);
     }
+    dialog.querySelector('.picture-previews').addEventListener('pointerleave', () => {
+        hoveredPreview = null;
+        hideFullPreview();
+    });
     window.addEventListener('resize', refreshFullPreview);
     field('layer').value = 'top-silk';
     for (const option of /** @type {HTMLSelectElement} */ (form.elements.namedItem('layer')).options) {

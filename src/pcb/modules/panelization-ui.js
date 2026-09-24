@@ -233,7 +233,7 @@ export function openPanelizeDialog(app) {
     overlay.className = 'app-modal-overlay panelize-overlay';
     overlay.innerHTML = `<form class="app-modal panelize" role="dialog" aria-modal="false" aria-labelledby="pcbPanelTitle"
         style="width:520px;min-width:0;max-width:calc(100vw - 32px);max-height:90vh;overflow:auto;box-sizing:border-box">
-        <div class="app-modal-title" id="pcbPanelTitle" style="cursor:grab;touch-action:none;user-select:none">Panelize</div>
+        <div class="app-modal-title" id="pcbPanelTitle" style="cursor:move;touch-action:none;user-select:none">Panelize</div>
         <label style="display:block;margin:12px 0">Separation
             <select class="app-modal-input" name="separation">
                 <option value="tabs">Routed tabs with mouse bites</option><option value="vcut">V-cuts</option>
@@ -270,7 +270,6 @@ export function openPanelizeDialog(app) {
         form.style.position = 'fixed';
         form.style.left = `${rect.left}px`;
         form.style.top = `${rect.top}px`;
-        title.style.cursor = 'grabbing';
         title.setPointerCapture(event.pointerId);
         event.preventDefault();
     });
@@ -284,7 +283,6 @@ export function openPanelizeDialog(app) {
     const stopDrag = (event) => {
         if (!drag || drag.pointerId !== event.pointerId) return;
         drag = null;
-        title.style.cursor = 'grab';
         if (title.hasPointerCapture(event.pointerId)) title.releasePointerCapture(event.pointerId);
     };
     title.addEventListener('pointerup', stopDrag);

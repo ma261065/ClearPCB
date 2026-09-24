@@ -116,7 +116,7 @@ export function importEasyEDASchematic(fileData, componentLibrary) {
 
     // ── Build document ───────────────────────────────────────────
     const doc = {
-        version: '2.0',
+        version: '1.0',
         type: 'clearpcb-project',
         created: new Date().toISOString(),
         schematic: {

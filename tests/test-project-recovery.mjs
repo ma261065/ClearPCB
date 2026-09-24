@@ -4,7 +4,7 @@ import { repairDuplicateTrackIds, validateProject } from '../src/core/project-fo
 import { Track } from '../src/shapes/track.js';
 import { resetIdCounter } from '../src/shapes/shape.js';
 
-const project = () => ({ type: 'clearpcb-project', version: '2.0', schematic: { shapes: [], components: [] } });
+const project = () => ({ type: 'clearpcb-project', version: '1.0', schematic: { shapes: [], components: [] } });
 const owner = new ProjectDocument();
 let current = project();
 const view = {

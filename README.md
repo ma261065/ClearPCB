@@ -27,6 +27,17 @@ npx serve .
 
 Then open `http://localhost:8000` in a browser.
 
+## Releases
+
+Development happens on `dev` and is tested locally. Versioned `release/*`
+branches maintain stable release lines; published `vMAJOR.MINOR.PATCH` GitHub
+Releases deploy the stable site at [clearpcb.org](https://clearpcb.org).
+See [the release setup and checklist](docs/releases.md) before the first release.
+
+New projects use [file format 1.0](docs/clearpcb_file_format.md). Pre-release
+2.0 files are intentionally rejected. The format defines multilayer copper,
+but the editor currently supports only two-layer boards.
+
 ## Project structure
 
 ```

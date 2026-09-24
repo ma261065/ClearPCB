@@ -1,5 +1,5 @@
 import { FileManager } from './FileManager.js';
-import { validateProject } from './project-format.js';
+import { validateEditableProject } from './project-format.js';
 
 /**
  * Neutral owner of the single ClearPCB project document.
@@ -96,7 +96,7 @@ export class ProjectDocument {
      */
     serialize() {
         const doc = this.schematic?.serializeSection?.() || {
-            version: '2.0',
+            version: '1.0',
             type: 'clearpcb-project',
             created: new Date().toISOString(),
         };
@@ -114,7 +114,7 @@ export class ProjectDocument {
     async load(data) {
         if (this.fileManager.saving) throw new Error('Wait for the current save to finish.');
         if (this.fileManager.loading) throw new Error('A project is already being loaded.');
-        validateProject(data);
+        validateEditableProject(data);
         this.fileManager.loading = true;
         try {
             await this.onLoadingChange?.(true);

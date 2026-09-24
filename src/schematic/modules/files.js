@@ -5,7 +5,7 @@ import { attachLabelToTarget } from '../../ui/modules/label-attachment.js';
 import { importEasyEDASchematic } from '../../easyeda/schematic-importer.js';
 import { createShape, bumpWireLabelCounter } from '../../shapes/index.js';
 import { bumpNetNameCounter } from '../../shapes/wire.js';
-import { validateProject } from '../../core/project-format.js';
+import { validateEditableProject } from '../../core/project-format.js';
 import { serializeGridSettings, restoreGridSettings } from '../../ui/modules/viewport.js';
 
 function canReplaceDocument(app) {
@@ -42,7 +42,7 @@ export function serializeDocument(app) {
     }
 
     const doc = {
-        version: '2.0',
+        version: '1.0',
         type: 'clearpcb-project',
         created: new Date().toISOString(),
         schematic: {
@@ -78,7 +78,7 @@ export function serializeDocument(app) {
  * @param {object} data - Previously serialized document.
  */
 export function prepareDocument(app, data) {
-    validateProject(data);
+    validateEditableProject(data);
     const schematic = data.schematic;
     const shapes = (schematic.shapes || []).filter((item) => (item.fk || item.fieldKey) !== 'net')
         .map((item) => ({ data: item, shape: createShape(item) }));

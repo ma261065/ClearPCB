@@ -19,7 +19,7 @@ if (manifest.format !== 'clearpcb-zip' || manifest.version !== 1) {
 }
 
 const document = await readProjectFile(new Blob([bytes], { type: 'application/zip' }));
-if (document.version !== '2.0' || document.type !== 'clearpcb-project') {
+if (document.version !== '1.0' || document.type !== 'clearpcb-project') {
     throw new Error('Invalid ClearPCB document envelope');
 }
 if (!document.schematic || !document.pcb) throw new Error('Missing schematic or PCB section');

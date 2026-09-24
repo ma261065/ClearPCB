@@ -71,7 +71,6 @@ export function makeHelpPanelDraggable() {
     const onMouseUp = () => {
         if (isDragging) {
             isDragging = false;
-            header.style.cursor = 'grab';
             window.removeEventListener('mousemove', onMouseMove);
             window.removeEventListener('mouseup', onMouseUp);
         }
@@ -83,7 +82,6 @@ export function makeHelpPanelDraggable() {
         const rect = panel.getBoundingClientRect();
         offsetX = e.clientX - rect.left;
         offsetY = e.clientY - rect.top;
-        header.style.cursor = 'grabbing';
         window.addEventListener('mousemove', onMouseMove);
         window.addEventListener('mouseup', onMouseUp);
         e.preventDefault();

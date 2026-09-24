@@ -1,8 +1,15 @@
 # ClearPCB Project File Format
 
-ClearPCB saves one JSON document containing both the schematic and PCB. This
-document describes the canonical format emitted by the current application
-(`version: "2.0"`).
+ClearPCB stores one logical JSON document containing both the schematic and PCB.
+This document describes the canonical format (`version: "1.0"`). Files saved
+with the pre-release `"2.0"` label are deliberately rejected, including old
+autorecovery snapshots. There is no automatic migration.
+
+On disk, `.cpcb` is a ZIP container: `options.json` holds the envelope,
+`schematic.json` and optional `pcb.json` hold the sections, and `models/` holds
+deduplicated meshes. The ZIP manifest uses `format: "clearpcb-zip", version: 1`;
+that container version is independent of the project version and app release.
+Plain JSON input is also supported, subject to the same project validation.
 
 The format is JSON, not JSON5: comments, trailing commas, `NaN`, and `Infinity`
 are not valid. Unknown fields should be ignored by readers where practical.
@@ -12,7 +19,7 @@ Writers should emit the canonical keys documented here.
 
 ```json
 {
-  "version": "2.0",
+  "version": "1.0",
   "type": "clearpcb-project",
   "created": "2026-08-16T12:00:00.000Z",
   "schematic": {
@@ -27,7 +34,7 @@ Writers should emit the canonical keys documented here.
 
 | Field | Type | Description |
 | --- | --- | --- |
-| `version` | string | Current format version, `"2.0"`. |
+| `version` | string | Current format version, `"1.0"`; independent of the app version. |
 | `type` | string | Document discriminator, `"clearpcb-project"`. |
 | `created` | string | ISO 8601 timestamp generated each time the document is serialized. |
 | `schematic` | object | Schematic settings, primitives, and component instances. |
@@ -301,6 +308,7 @@ provider-specific symbol, footprint, supplier, and 3D-model metadata.
 ```json
 {
   "pcb": {
+    "stackup": { "copperLayers": ["top-copper", "bottom-copper"] },
     "board": { "width": 100, "height": 80, "radius": 3 },
     "design": {
       "trackWidth": 0.25,
@@ -323,6 +331,7 @@ provider-specific symbol, footprint, supplier, and 3D-model metadata.
 
 | Field | Type | Description |
 | --- | --- | --- |
+| `stackup.copperLayers` | string[] | Unique copper-layer IDs in physical top-to-bottom order. Omitted `stackup` defaults to two layers. |
 | `board.width` | number | Board width in mm. |
 | `board.height` | number | Board height in mm. |
 | `board.radius` | number | Board corner radius in mm. |
@@ -541,12 +550,19 @@ precedence when restoring a line.
 | --- | --- | --- |
 | `d` | Outside diameter in mm. | Constructor default. |
 | `dr` | Drill diameter in mm. | Constructor default, clamped to `d`. |
+| `span` | `{ "from": layerId, "to": layerId }`, inclusive copper-layer endpoints in stack order. | Through via spanning the entire copper stack. |
 | `n` | Net name. | Empty. |
 | `lk` | Locked. | `false`. |
 | `v` | Visible. | `true`. |
 
 All vias, including track layer-change vias, are standalone entries in
 `pcb.vias`. Tracks do not contain implicit vias.
+
+Both span endpoints must be declared copper layers, with `from` before `to`.
+A top-to-inner or inner-to-bottom span is blind; an inner-to-inner span is
+buried. Every copper layer between the endpoints participates in the via.
+The current editor can only load through vias on two-layer boards, and may
+omit an explicit top-to-bottom span when saving because it equals the default.
 
 ### Generic Board Shapes
 
@@ -801,6 +817,7 @@ reference size/stroke width.
 Common persisted layer IDs are:
 
 - `top-copper`, `bottom-copper`
+- `inner-copper-1`, `inner-copper-2`, ... (format support; not yet editable)
 - `top-silk`, `bottom-silk`
 - `top-mask`, `bottom-mask`
 - `top-paste`, `bottom-paste`
@@ -812,7 +829,54 @@ Document layers contain design/reference graphics. They are available in the PCB
 editor and PDF/print exports, but do not alter copper, solder mask, or the board
 substrate and are excluded from fabricated-board previews and Gerbers.
 
-Pad side values are shorter: `top`, `bottom`, or `both`.
+Pad side values are shorter: `top`, `bottom`, or `both`. These are surface/through
+pad classifications, not copper-layer indexes. A plated through pad marked
+`both` spans every copper layer, including inner layers, rather than only the
+two surfaces. Surface pads remain on the corresponding outer copper layer.
+
+### Multilayer Contract
+
+Format `1.0` supports any number of copper layers greater than or equal to two.
+A four-layer example is:
+
+```json
+{
+  "stackup": {
+    "copperLayers": ["top-copper", "inner-copper-1", "inner-copper-2", "bottom-copper"]
+  }
+}
+```
+
+This object belongs in `pcb`. The first layer must be `top-copper`, the last
+`bottom-copper`, and intermediate IDs must match `inner-copper-N`, where N is
+a positive integer without leading zeros. IDs must be unique. Array order,
+not the number in an ID, determines physical order. Omit the entire `stackup`
+for the two-layer default; an explicitly supplied stackup must include its list.
+
+Tracks (`l` and `el`), fills and board shapes (`layer`), and PCB text reference
+these same IDs. Copper references must be declared in the stackup. Mask,
+paste, silk, and component side remain outer-surface concepts. No fixed-size
+two-layer arrays or bit masks define connectivity in the persisted format.
+
+Format validity and editor support are separate: `validateProject` accepts
+well-formed multilayer data, but the two-layer editor rejects it before
+preparing or replacing either view. It must not flatten, silently drop, render
+as a two-layer board, or manufacture unsupported layers. Future multilayer
+editing can use these fields without changing `version: "1.0"`.
+
+This defines connectivity and ordering, not a physical laminate specification:
+dielectric materials, copper weights, and impedance-controlled stackup details
+are not presently represented. Any future extension affecting manufacturing
+must be capability-checked before older editors may edit or export it.
+
+### Version Policy
+
+App releases such as `v1.0.0` and `v1.1.0` do not change the project version.
+Adding inner layers using the contract above does not change it either.
+Additive optional metadata may remain in `1.0` when its omission does not
+alter existing semantics. Breaking interpretation changes still require a
+new format version; `1.0` is not a promise to accept unknown manufacturing
+semantics. Unknown fields are not guaranteed to survive an edit/save cycle.
 
 ## Compatibility and Long-Key Aliases
 
@@ -869,7 +933,7 @@ project document:
 
 ```json
 {
-  "version": "2.0",
+  "version": "1.0",
   "type": "clearpcb-project",
   "created": "2026-08-16T12:00:00.000Z",
   "schematic": {
@@ -894,6 +958,8 @@ The format is currently defined by serializers and loaders rather than a JSON
 Schema file. The authoritative implementation points are:
 
 - `src/core/ProjectDocument.js`: document assembly and section ownership.
+- `src/core/project-format.js`: format validation, stackup contract, editor capability gate.
+- `src/core/FileManager.js`: ZIP container and raw JSON reading.
 - `src/schematic/modules/files.js`: schematic envelope save/load.
 - `src/shapes/shape.js` and concrete classes in `src/shapes/`: compact shape
   serialization.

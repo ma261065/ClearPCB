@@ -12,6 +12,7 @@ import { createShape } from '../../shapes/index.js';
 import { serializeGridSettings, restoreGridSettings } from '../../ui/modules/viewport.js';
 import { panelSettings } from './panelization.js';
 import { renderPanelPreview, resetPanelPreview } from './panelization-ui.js';
+import { assertSupportedPcb, defaultPcbStackup } from '../../core/project-format.js';
 
 const round4 = value => Number.isFinite(value) ? Math.round(value * 10000) / 10000 : value;
 
@@ -42,6 +43,7 @@ export function serializePcb(app) {
         router: app._getRouterMode(),
     };
     return {
+        stackup: defaultPcbStackup(),
         board: {
             width: round4(app._boardWidth),
             height: round4(app._boardHeight),
@@ -63,6 +65,7 @@ export function serializePcb(app) {
 }
 
 export function preparePcb(data) {
+    assertSupportedPcb(data);
     const panelization = data?.panelization ? panelSettings(data.panelization) : null;
     for (const shape of data?.boardShapes || []) {
         if (shape.layer === 'board-outline' && !validBoardOutline(shape)) {

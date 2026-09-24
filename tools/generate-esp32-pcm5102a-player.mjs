@@ -279,7 +279,7 @@ for (const button of buttons) {
 }
 
 const doc = {
-    version: '2.0', type: 'clearpcb-project', created: new Date().toISOString(),
+    version: '1.0', type: 'clearpcb-project', created: new Date().toISOString(),
     schematic: {
         settings: {
             gridSize: 1.27, units: 'mm', paperSize: 'A3', paperOrientation: 'landscape',

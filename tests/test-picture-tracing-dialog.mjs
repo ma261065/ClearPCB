@@ -63,7 +63,7 @@ const pixelControls = [element()];
 const lookups = new Map([
     ['form', form], ['.app-modal-title', element()], ['[data-preview="original"]', canvas()],
     ['[data-preview="artwork"]', canvas()], ['.picture-summary', summary], ['.picture-error', error],
-    ['[type="submit"]', accept], ['[data-cancel]', element()],
+    ['[type="submit"]', accept], ['[data-cancel]', element()], ['.picture-previews', element()],
 ]);
 const dialog = Object.assign(element(), { closed: false,
     querySelector(selector) { return lookups.get(selector); },
@@ -103,9 +103,10 @@ showPictureImport(app);
 const fullPreview = createdCanvases.find(preview => preview.className === 'picture-full-preview');
 const originalPreview = lookups.get('[data-preview="original"]');
 const artworkPreview = lookups.get('[data-preview="artwork"]');
+const previewArea = lookups.get('.picture-previews');
 await originalPreview.emit('pointerenter', { pointerType: 'mouse' });
 assert.equal(fullPreview.hidden, true, 'No enlarged preview before loading an image');
-await originalPreview.emit('pointerleave');
+await previewArea.emit('pointerleave');
 assert.ok(dialog.innerHTML.includes('ImageTracerJS (trial)'));
 assert.ok(dialog.innerHTML.includes('VTracer (trial)'));
 assert.ok(dialog.innerHTML.includes('Halftone dots'));
@@ -123,6 +124,17 @@ assert.equal(fullPreview.style.width, '968px');
 assert.equal(fullPreview.width, 1936, 'Full preview respects device pixel ratio');
 assert.equal(imageDraws.at(-1)[0].width, 1302, 'Original is drawn from the full source bitmap');
 await originalPreview.emit('pointerleave');
+assert.equal(fullPreview.hidden, false, 'Crossing the gap keeps the original visible');
+assert.equal(fullPreview.popoverOpen, true, 'Crossing the gap does not close the popover');
+await artworkPreview.emit('pointerenter', { pointerType: 'mouse' });
+assert.equal(fullPreview.hidden, false, 'Entering artwork switches without dismissing the preview');
+assert.deepEqual(fills.at(-1), { rule: 'evenodd', color: '#fff' });
+await artworkPreview.emit('pointerleave');
+assert.equal(fullPreview.hidden, false, 'Crossing back keeps artwork visible');
+await originalPreview.emit('pointerenter', { pointerType: 'mouse' });
+assert.equal(fullPreview.hidden, false);
+assert.equal(imageDraws.at(-1)[0].width, 1302, 'Returning to original redraws the source bitmap');
+await previewArea.emit('pointerleave');
 assert.equal(fullPreview.hidden, true);
 assert.equal(fullPreview.popoverOpen, false);
 await artworkPreview.emit('pointerenter', { pointerType: 'touch' });

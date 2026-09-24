@@ -20,7 +20,7 @@ assert.ok(Number(new Track().id.slice(6)) > 1000);
 const track = (id, offset) => ({ type: 'track', id, n: 'GND',
     nd: { n0: [offset, 0], n1: [offset + 10, 0] }, ed: { e0: ['n0', 'n1'] },
     pdc: { n0: { componentId: 'U1', pinNumber: '1' } } });
-const source = { type: 'clearpcb-project', version: '2.0',
+const source = { type: 'clearpcb-project', version: '1.0',
     schematic: { shapes: [{ id: 'shape_1' }], components: [] },
     pcb: { tracks: [track('shape_66', 0), track('shape_66', 20), track('shape_2', 40), track('shape_66', 60)] } };
 const before = structuredClone(source);

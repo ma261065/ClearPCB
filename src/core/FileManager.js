@@ -913,7 +913,7 @@ export class FileManager {
         this.setFilePath(null);
         this.setDirty(false);
         // Immediately autosave the new document
-        this.autoSaveToStorage({ version: '2.0', type: 'clearpcb-project', schematic: { shapes: [], components: [] } });
-        return { version: '2.0', type: 'clearpcb-project', schematic: { shapes: [], components: [] } };
+        this.autoSaveToStorage({ version: '1.0', type: 'clearpcb-project', schematic: { shapes: [], components: [] } });
+        return { version: '1.0', type: 'clearpcb-project', schematic: { shapes: [], components: [] } };
     }
 }

@@ -1702,15 +1702,11 @@ body {
     color: var(--text-secondary);
     text-align: center;
     border-bottom: 1px solid var(--border-color);
-    cursor: grab;
+    cursor: move;
     display: flex;
     align-items: center;
     gap: 4px;
     justify-content: center;
-}
-
-.toolbox-header:active {
-    cursor: grabbing;
 }
 
 .toolbox-header .grip {
@@ -1821,7 +1817,7 @@ body {
     color: var(--accent-color);
     margin-bottom: 8px;
     font-size: 12px;
-    cursor: grab;
+    cursor: move;
 }
 
 .help-panel kbd {

@@ -28,7 +28,7 @@ globalThis.localStorage = {
     },
 };
 
-const data = () => ({ type: 'clearpcb-project', version: '2.0', schematic: { shapes: [], components: [] } });
+const data = () => ({ type: 'clearpcb-project', version: '1.0', schematic: { shapes: [], components: [] } });
 const tick = (manager) => timers.get(manager.autoSaveTimer)();
 
 try {

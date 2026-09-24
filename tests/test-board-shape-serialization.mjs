@@ -107,7 +107,7 @@ assert.deepEqual(snapshot.boardShapes.at(-1).points, image.points, 'fabrication 
 console.log('PASS: fill and board-shape saves use four decimals; live, image, and fabrication geometry remain unchanged');
 
 globalThis.document = { getElementById: () => null };
-const { serializePcb } = await import('../src/pcb/modules/project-state.js');
+const { serializePcb, preparePcb } = await import('../src/pcb/modules/project-state.js');
 const { serializePcbText } = await import('../src/pcb/modules/pcb-text.js');
 const text = { id: 'text-2jbepmqe', content: 'Hello', x: 91.44000000000001, y: -69.85,
     size: 7.700000000000001, rotation: 30.123456, layer: 'top-copper', strokeWidth: 1.6000000000000003 };
@@ -123,6 +123,14 @@ const app = { tracks: [], vias: [], boardShapes: [], texts: new Map([[text.id, t
         viaDiameter: 0.6000000000000001, viaDrill: 0.30000000000000004 }),
     _getRouterMode: () => 'pathfinder' };
 const savedPcb = serializePcb(app);
+assert.deepEqual(savedPcb.stackup, { copperLayers: ['top-copper', 'bottom-copper'] });
+assert.doesNotThrow(() => preparePcb(savedPcb), 'A saved two-layer board can be prepared again');
+assert.throws(() => preparePcb({ ...savedPcb, stackup: {
+    copperLayers: ['top-copper', 'inner-copper-1', 'inner-copper-2', 'bottom-copper'],
+} }), /only two-layer/, 'Direct PCB preparation also rejects unsupported stacks');
+savedPcb.stackup.copperLayers.push('inner-copper-1');
+assert.deepEqual(serializePcb(app).stackup, { copperLayers: ['top-copper', 'bottom-copper'] },
+    'Serialized stackup arrays are independent snapshots');
 assert.deepEqual(savedPcb.texts, [{ ...text, x: 91.44, size: 7.7, rotation: 30.1235, strokeWidth: 1.6 }]);
 assert.deepEqual(savedPcb.placements.comp_4, { ...placement, x: 27.94, y: -38.1, rotation: 45.1235,
     refDx: 1.2346, refDy: 22.86, refRot: 30.1235, refSize: 1.2346, refStrokeWidth: 0.2346 });

@@ -4,3 +4,7 @@ benchmark-results-*.json
 
 # EasyEDA test files
 EasyEDA*.json
+
+# Release packaging output
+dist/
+ClearPCB-v*.zip
