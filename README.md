@@ -29,7 +29,7 @@ Then open `http://localhost:8000` in a browser.
 
 ## Releases
 
-Development happens on `dev` and is tested locally. Versioned `release/*`
+Development happens on `dev` and is tested locally. Versioned `release_*`
 branches maintain stable release lines; published `vMAJOR.MINOR.PATCH` GitHub
 Releases deploy the stable site at [clearpcb.org](https://clearpcb.org).
 See [the release setup and checklist](docs/releases.md) before the first release.

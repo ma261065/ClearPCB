@@ -3,8 +3,8 @@
 ## Channels
 
 - `dev`: default development branch, replacing `main`. Test with a local HTTP server.
-- `release/1.0`: maintained 1.0 release line, created when ready to freeze it.
-- `release/1.1`, etc.: future release lines, created from tested development commits.
+- `release_1.0`: maintained 1.0 release line, created when ready to freeze it.
+- `release_1.1`, etc.: future release lines, created from tested development commits.
 - `v1.0.0`, `v1.0.1`, etc.: immutable tags identifying individual releases.
 - `https://clearpcb.org`: stable only, deployed from a published final GitHub Release.
 
@@ -42,7 +42,7 @@ push, release branch, tag, or release was created by this preparation.
 6. In **Settings > Environments > github-pages**, permit release tags (`v*`)
    as deployment sources. If available for this repository, require your
    approval before deployment. Remove any obsolete main-only restriction.
-7. Add rulesets for `dev`, `release/*`, and release tags. Disallow force pushes
+7. Add rulesets for `dev`, `release_*`, and release tags. Disallow force pushes
    and deletion of released history; require reviewed changes on release
    branches. Permit creating new release tags but prohibit rewriting them.
 
@@ -57,8 +57,8 @@ Do these steps only after testing and committing the intended release content.
 
    ```powershell
    git switch dev
-   git switch -c release/1.0
-   git push -u origin release/1.0
+   git switch -c release_1.0
+   git push -u origin release_1.0
    ```
 
 2. Test that branch locally. At minimum, verify new/save/open/autorecovery,
@@ -94,7 +94,7 @@ Do these steps only after testing and committing the intended release content.
    publishing. Mark it **Latest**, not a prerelease. Publishing is the explicit
    deployment action; pushing the tag alone does not deploy.
 7. Check **Publish Stable Release** in Actions. It verifies the tag belongs to
-   `release/1.0`, adds `ClearPCB-v1.0.0.zip` to the release, and deploys the same
+   `release_1.0`, adds `ClearPCB-v1.0.0.zip` to the release, and deploys the same
    packaged site to Pages. Confirm the displayed version and stable workflows.
 8. Return to `dev` for ongoing work; bump its app label to the next planned
    development version (for example `1.1.0-dev`).
@@ -104,7 +104,7 @@ Do these steps only after testing and committing the intended release content.
 Patch fixes belong on the relevant release branch and should also be carried
 back to `dev` by merge or cherry-pick. Test and tag the next patch version;
 never move an existing release tag. Stable deployment requires the tag's
-commit to be reachable from its corresponding `release/MAJOR.MINOR` branch.
+commit to be reachable from its corresponding `release_MAJOR.MINOR` branch.
 
 Only the GitHub Release marked **Latest** may deploy. An older release-line
 patch can be published without replacing a newer stable site; its deployment
