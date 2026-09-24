@@ -3428,7 +3428,6 @@ export function boardShapeCopperCuts(app, copperLayer) {
         } else {
             continue;
         }
-        const geometry = resolveBoardShapeGeometry(s);
         if (s.layer !== 'hole') {
             const removalPath = boardShapeRemovalPathD(s);
             if (!removalPath) continue;
@@ -3436,6 +3435,7 @@ export function boardShapeCopperCuts(app, copperLayer) {
             count++;
             continue;
         }
+        const geometry = resolveBoardShapeGeometry(s);
         if (geometry.physicalContours) {
             for (const contour of geometry.physicalContours) appendLoop(contour);
             count++;

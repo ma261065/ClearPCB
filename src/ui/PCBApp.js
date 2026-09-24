@@ -866,7 +866,7 @@ export default class PCBApp {
             // The copper-removal clip rectangle is sized to the visible
             // viewport (so its raster never blows up at high zoom); re-fit it
             // to the new view whenever a cut is active.
-            if (this._hasCopperCuts) this._updateCopperCuts();
+            if (this._hasCopperCuts) this._updateCopperCuts({ geometryChanged: false });
             // Keep the DRC panel→marker leader anchored to the board point.
             if (this._drcSelectedId) this._updateDRCConnector();
         };
@@ -878,7 +878,7 @@ export default class PCBApp {
             this._scheduleRemovalHatchRender();
             // Keep the copper-removal clip rectangle following the viewport
             // during a live pan (viewBox moves without firing onViewChanged).
-            if (this._hasCopperCuts) this._updateCopperCuts();
+            if (this._hasCopperCuts) this._updateCopperCuts({ geometryChanged: false });
             // The viewBox moves continuously during a pan without firing
             // onViewChanged, so keep the DRC leader anchored here too.
             if (this._drcSelectedId) this._updateDRCConnector();
@@ -2155,7 +2155,7 @@ export default class PCBApp {
      * blows past the GPU's maximum texture size when zoomed in and gets
      * silently dropped, which made the copper "fill back in".
      */
-    _updateCopperCuts() {
+    _updateCopperCuts({ geometryChanged = true } = {}) {
         const defs = this._ensureSvgDefs();
         if (!defs) return;
         const NS = 'http://www.w3.org/2000/svg';
@@ -2188,12 +2188,15 @@ export default class PCBApp {
         // cleared (no-cut) state; `undefined` means "not yet computed".
         const cache = this._copperCutCache
             || (this._copperCutCache = { top: undefined, bottom: undefined });
+        const geometryCache = this._copperCutGeometry || (this._copperCutGeometry = {});
         let any = false;
         for (const side of ['top', 'bottom']) {
             const copperLayer = `${side}-copper`;
             const fillLayer = `${side}-fill`;
             const clipId = `pcb-copper-cut-${side}`;
-            const shapeCuts = boardShapeCopperCuts(this, copperLayer);
+            const shapeCuts = !geometryChanged && geometryCache[side]
+                ? geometryCache[side]
+                : (geometryCache[side] = boardShapeCopperCuts(this, copperLayer));
             const existing = defs.querySelector(`#${clipId}`);
             if (shapeCuts.count === 0) {
                 // Nothing to cut on this side. Only touch the DOM if we weren't
@@ -3725,8 +3728,9 @@ export default class PCBApp {
         // Keep free-standing board shapes above freshly placed footprint
         // artwork after a schematic-driven rebuild.
         for (const s of this.boardShapes) {
-            if (s.type !== 'fill') renderBoardShape(this, s);
+            if (s.type !== 'fill') renderBoardShape(this, s, { skipCopperUpdate: true });
         }
+        this._updateCopperCuts?.();
 
         // Draw ratsnest
         this._refreshClearanceHalos();
@@ -3787,8 +3791,9 @@ export default class PCBApp {
         // Free-standing board shapes; CopperFill entries render separately.
         for (const s of this.boardShapes) {
             if (!renderShapes || s.type === 'fill') continue;
-            renderBoardShape(this, s);
+            renderBoardShape(this, s, { skipCopperUpdate: true });
         }
+        if (renderShapes) this._updateCopperCuts?.();
         if (getPcbSelection(this).length) refreshBoxSelectionHighlights(this);
 
         // Copper pours. Their model (copperFills) survives the rebuild but

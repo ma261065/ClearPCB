@@ -204,8 +204,9 @@ export function loadPcb(app, data, prepared = preparePcb(data)) {
     for (const shape of prepared.boardShapes) {
         if (!app.boardShapes.includes(shape)) app.boardShapes.push(shape);
         if (shape.type === 'fill') updateFillIdCounter(shape.id);
-        else if (render) renderBoardShape(app, shape);
+        else if (render) renderBoardShape(app, shape, { skipCopperUpdate: true });
     }
+    if (render) app._updateCopperCuts?.();
     for (const text of prepared.texts) {
         app.texts.set(text.id, text);
         if (render) app._renderText(text);
