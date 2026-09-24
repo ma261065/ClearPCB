@@ -103,9 +103,11 @@ import { Via } from '../shapes/via.js';
 import { CopperFill } from '../shapes/copper-fill.js';
 import { computeFillPolygons, loadClipper, isClipperReady, boardShapeClearanceOutlines, pcbTextClearanceOutlines } from '../pcb/modules/copper-fill-geom.js';
 import { bindPictureRefreshHold, schedulePictureCopperRefresh } from '../pcb/modules/picture-refresh.js';
-import { renderCopperFill, fillGroupId } from '../pcb/modules/copper-fill-render.js';
+import { renderCopperFill, fillGroupId, setCopperFillClip } from '../pcb/modules/copper-fill-render.js';
 import { AddFillCommand, RemoveFillCommand, ModifyFillCommand } from '../pcb/modules/copper-fill-commands.js';
 import '../pcb/modules/copper-fill-selection.js';
+import { startFillEditAt, updateFillEdit, endFillEdit, showFillContextMenu,
+    addFillGeometryProperties, deleteFocusedFillPart, canEditFill } from '../pcb/modules/copper-fill-edit.js';
 import '../pcb/modules/component-selection.js';
 import '../pcb/modules/pcb-text-selection.js';
 import '../pcb/modules/ref-text-selection.js';
@@ -528,7 +530,7 @@ export default class PCBApp {
         }
         for (const shape of this.boardShapes) {
             if (shape?.type === 'fill') {
-                if (!shape.locked && shape.visible !== false && !isLayerLocked(shape.layer) && isLayerVisible(shape.layer)
+                if (!shape.locked && shape.visible !== false && !isLayerLocked(shape.layer)
                     && !isCopperFillLocked(shape.layer) && isCopperFillVisible(shape.layer)) {
                     selected.push({ kind: 'fill', object: shape });
                 }
@@ -621,7 +623,8 @@ export default class PCBApp {
         }
         for (const t of (payload.texts || [])) points.push({ x: t.x, y: t.y });
         for (const f of (payload.fills || [])) {
-            for (const p of (f.outline || [])) points.push({ x: p.x, y: p.y });
+            if (f.kind === 'circle') points.push({ x: f.x, y: f.y });
+            else for (const p of (f.outline || [])) points.push({ x: p.x, y: p.y });
         }
         const anchor = points.length
             ? {
@@ -642,9 +645,7 @@ export default class PCBApp {
             texts: (payload.texts || []).map((t) => ({ text: t, x: t.x, y: t.y })),
             fills: (payload.fills || []).map((f) => ({
                 fill: f,
-                outline: Array.isArray(f.outline)
-                    ? f.outline.map((p) => ({ x: p.x, y: p.y }))
-                    : [],
+                before: f.captureState(),
             })),
         };
         if (this.viewport?.svg) this.viewport.svg.style.cursor = 'crosshair';
@@ -697,7 +698,8 @@ export default class PCBApp {
             this._refreshText(t.text.id);
         }
         for (const f of pd.fills) {
-            f.fill.outline = f.outline.map((p) => ({ x: p.x + dx, y: p.y + dy }));
+            f.fill.applyState(f.before);
+            f.fill.move(dx, dy);
             renderCopperFill(f.fill, (id) => this._getLayerGroup(id),
                 { selected: isPcbSelected(this, 'fill', f.fill) });
             if (isPcbSelected(this, 'fill', f.fill)) renderPcbSelectionAnchors(this);
@@ -786,8 +788,8 @@ export default class PCBApp {
             pasted.texts.push(t);
         }
         for (const fd of (c.fills || [])) {
-            const outline = Array.isArray(fd.outline) ? fd.outline.map((p) => ({ x: (p.x || 0) + d, y: (p.y || 0) + d })) : [];
-            const fill = new CopperFill({ layer: fd.layer, net: fd.net || '', outline });
+            const fill = new CopperFill({ ...fd, id: undefined });
+            fill.move(d, d);
             cmds.push(new AddFillCommand(this, fill));
             pasted.fills.push(fill);
         }
@@ -1780,6 +1782,12 @@ export default class PCBApp {
             if (!this._active) return;
             if (this.currentTool !== 'select' || this._trackDraw) return;
             const worldPos = this._screenToWorld(e);
+            const fillAnchor = hitTestPcbSelectionAnchor(this, worldPos, ['fill']);
+            if (fillAnchor) {
+                if (this.viewport.isPanning) this.viewport.endPan();
+                showFillContextMenu(this, fillAnchor.adapter.object, e.clientX, e.clientY, worldPos);
+                return;
+            }
             const hit = hitTestTrack(this, worldPos);
             if (hit) {
                 // A right-click that started a pan must not leave the
@@ -1792,6 +1800,12 @@ export default class PCBApp {
             if (shape) {
                 if (this.viewport.isPanning) this.viewport.endPan();
                 showBoardShapeContextMenu(this, shape, e.clientX, e.clientY, worldPos);
+                return;
+            }
+            const fill = this._hitTestFill(worldPos);
+            if (fill) {
+                if (this.viewport.isPanning) this.viewport.endPan();
+                showFillContextMenu(this, fill, e.clientX, e.clientY, worldPos);
                 return;
             }
             // Otherwise, offer "Show 3D" when right-clicking a footprint that
@@ -2130,8 +2144,8 @@ export default class PCBApp {
 
     /**
      * Rebuild the per-side SVG clip-paths that cut copper where "remove
-     * copper" circles sit, and apply (or clear) them on the copper + pour
-     * groups. The cut reveals the canvas behind — no board-colour fill is
+    * copper" circles sit, and apply (or clear) them on copper groups and
+    * poured-copper paths. The cut reveals the canvas behind — no board-colour fill is
      * painted — so a track or pour passing through a removal circle reads as
      * genuinely removed, matching the 2D/3D board views.
      *
@@ -2185,9 +2199,8 @@ export default class PCBApp {
                 // already in the cleared state.
                 if (cache[side] !== null) {
                     if (existing) existing.remove();
-                    for (const lid of [copperLayer, fillLayer]) {
-                        this._layerGroups.get(lid)?.removeAttribute('clip-path');
-                    }
+                    this._layerGroups.get(copperLayer)?.removeAttribute('clip-path');
+                    setCopperFillClip(this._layerGroups.get(fillLayer), null);
                     cache[side] = null;
                 }
                 continue;
@@ -2210,9 +2223,8 @@ export default class PCBApp {
             path.setAttribute('clip-rule', 'evenodd');
             clip.appendChild(path);
             if (!existing) defs.appendChild(clip);
-            for (const lid of [copperLayer, fillLayer]) {
-                this._layerGroups.get(lid)?.setAttribute('clip-path', `url(#${clipId})`);
-            }
+            this._layerGroups.get(copperLayer)?.setAttribute('clip-path', `url(#${clipId})`);
+            setCopperFillClip(this._layerGroups.get(fillLayer), clipId);
             cache[side] = d;
         }
         // Remember whether any cut is active so view-change handlers know to
@@ -2351,6 +2363,8 @@ export default class PCBApp {
         }
         if (e.key === 'Delete' || e.key === 'Backspace') {
             if (deleteFocusedBoardShape(this)) return true;
+            const focusedFill = getPcbSelection(this, 'fill')[0];
+            if (focusedFill && canEditFill(focusedFill) && deleteFocusedFillPart(this, focusedFill)) return true;
             // A focused Track segment is a Track-specific edit state rather
             // than a selection kind, so it retains its narrower delete path.
             if (this._trackEdit && getPcbSelection(this).length === 1 && getSelectedTrack(this) === this._trackEdit.track) {
@@ -2761,7 +2775,7 @@ export default class PCBApp {
         // dragged or deleted), mirroring the locked-layer behaviour.
         if (!visible) {
             const selectedScopedEntity = getPcbSelection(this).some(
-                (item) => this.boardShapes.includes(item)
+                (item) => item.type !== 'fill' && this.boardShapes.includes(item)
                     && item.layer === layerId,
             );
             const viaAffected = (layerId === 'top-copper' || layerId === 'bottom-copper') && !isViaVisible();
@@ -2781,10 +2795,6 @@ export default class PCBApp {
             if (selectedShape && selectedShape.layer === layerId) {
                 selectBoardShape(this, null);
                 this._clearProperties();
-            }
-            const selectedFill = getPcbSelection(this, 'fill')[0] || null;
-            if (selectedFill && selectedFill.layer === layerId) {
-                this._selectFill(null);
             }
             if (this._boardOutlineSelected && layerId === 'board-outline') {
                 this._selectBoardOutline(false);
@@ -3806,7 +3816,7 @@ export default class PCBApp {
         for (const side of ['top', 'bottom']) {
             this._svgDefs?.querySelector(`#pcb-copper-cut-${side}`)?.remove();
             this._layerGroups.get(`${side}-copper`)?.removeAttribute('clip-path');
-            this._layerGroups.get(`${side}-fill`)?.removeAttribute('clip-path');
+            setCopperFillClip(this._layerGroups.get(`${side}-fill`), null);
         }
         // DOM is now in the cleared (no-cut) state; keep the path-string cache
         // in sync so the next _updateCopperCuts re-applies cuts from scratch.
@@ -7989,7 +7999,7 @@ export default class PCBApp {
         for (let i = this.copperFills.length - 1; i >= 0; i--) {
             const fill = this.copperFills[i];
             if (fill.visible === false || fill.locked) continue;
-            if (isLayerLocked(fill.layer) || !isLayerVisible(fill.layer)) continue;
+            if (isLayerLocked(fill.layer)) continue;
             if (isCopperFillLocked(fill.layer) || !isCopperFillVisible(fill.layer)) continue;
             // Only the outline edge (and its vertex nodes) selects a pour —
             // clicking the flooded interior must not, or every board click
@@ -8030,80 +8040,17 @@ export default class PCBApp {
      * click lands inside it. Returns true if a drag was started.
      */
     _startFillDrag(fill, worldPos, e) {
-        if (!fill || fill.locked || isLayerLocked(fill.layer) || isCopperFillLocked(fill.layer)) return false;
-        // Vertex grab?
-        const tol = 0.6;
-        let vi = -1, best = tol;
-        for (let i = 0; i < fill.outline.length; i++) {
-            const d = Math.hypot(fill.outline[i].x - worldPos.x, fill.outline[i].y - worldPos.y);
-            if (d < best) { best = d; vi = i; }
-        }
-        if (vi >= 0) {
-            this._fillDrag = {
-                fill, mode: 'vertex', vertex: vi,
-                before: fill.captureState(),
-                start: { x: worldPos.x, y: worldPos.y },
-                previousDeferDragOverlays: !!this._deferDragOverlays,
-            };
-            this._deferDragOverlays = true;
-            return true;
-        }
-        // Whole-region move?
-        if (fill.containsPoint(worldPos.x, worldPos.y)
-            || fill.distanceToEdge(worldPos.x, worldPos.y) < tol) {
-            this._fillDrag = {
-                fill, mode: 'move',
-                before: fill.captureState(),
-                start: { x: worldPos.x, y: worldPos.y },
-                last: { x: worldPos.x, y: worldPos.y },
-                previousDeferDragOverlays: !!this._deferDragOverlays,
-            };
-            this._deferDragOverlays = true;
-            return true;
-        }
-        return false;
+        return startFillEditAt(this, fill, worldPos);
     }
 
     /** Update a live pour drag (vertex move or whole-region translate). */
     _handleFillDrag(world) {
-        const fd = this._fillDrag;
-        if (!fd) return;
-        const snap = this._snapToGrid ? this._snapToGrid(world) : world;
-        if (fd.mode === 'vertex') {
-            const p = fd.fill.outline[fd.vertex];
-            if (p) { p.x = snap.x; p.y = snap.y; }
-        } else {
-            const dx = snap.x - fd.last.x;
-            const dy = snap.y - fd.last.y;
-            if (dx === 0 && dy === 0) return;
-            fd.fill.move(dx, dy);
-            fd.last = { x: snap.x, y: snap.y };
-        }
-        // Keep the editable boundary live; recompute copper once on commit.
-        renderCopperFill(fd.fill, (id) => this._getLayerGroup(id),
-            { selected: true, outlineOnly: true });
-        if (isPcbSelected(this, 'fill', fd.fill)) renderPcbSelectionAnchors(this);
+        updateFillEdit(this, world);
     }
 
     /** Commit a pour drag as an undoable ModifyFillCommand. */
     _endFillDrag(commit = true) {
-        const fd = this._fillDrag;
-        this._fillDrag = null;
-        if (!fd) return;
-        this._deferDragOverlays = fd.previousDeferDragOverlays;
-        const after = fd.fill.captureState();
-        const moved = JSON.stringify(after.outline) !== JSON.stringify(fd.before.outline);
-        if (moved && commit) {
-            // Roll the model back to its pre-drag state, then execute the
-            // command so it re-applies "after" through the normal undo path.
-            fd.fill.applyState(fd.before);
-            this.history.execute(new ModifyFillCommand(this, fd.fill, fd.before, after));
-        } else {
-            if (!commit) fd.fill.applyState(fd.before);
-            renderCopperFill(fd.fill, (id) => this._getLayerGroup(id),
-                { selected: isPcbSelected(this, 'fill', fd.fill) });
-            if (isPcbSelected(this, 'fill', fd.fill)) renderPcbSelectionAnchors(this);
-        }
+        endFillEdit(this, commit);
     }
 
     /** Delete the selected pour (Delete/Backspace). */
@@ -8112,6 +8059,7 @@ export default class PCBApp {
         if (!fill) return false;
         if (fill.locked || isLayerLocked(fill.layer)
             || isCopperFillLocked(fill.layer)) return false;
+        if (deleteFocusedFillPart(this, fill)) return true;
         this.history.execute(new RemoveFillCommand(this, fill));
         return true;
     }
@@ -8149,6 +8097,7 @@ export default class PCBApp {
             <div class="prop-row"><label>Layer</label><select id="pcbPropFillLayer">${layerOpts}</select></div>
         `;
         const commit = (mutate) => {
+            if (!canEditFill(fill)) return;
             const before = fill.captureState();
             mutate();
             const after = fill.captureState();
@@ -8181,6 +8130,7 @@ export default class PCBApp {
             if (fill.layer === layerEl.value) return;
             commit(() => { fill.layer = layerEl.value; });
         });
+        addFillGeometryProperties(this, fill, items);
         this._setActiveRibbonTab?.('pcb-properties');
     }
 

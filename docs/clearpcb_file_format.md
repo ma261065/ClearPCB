@@ -609,7 +609,12 @@ Copper fills are stored inside `pcb.boardShapes` with `type: "fill"`:
 | Key | Meaning | Default when omitted |
 | --- | --- | --- |
 | `l` | `top-copper` or `bottom-copper`. | Required. |
-| `pts` | User-authored boundary as `[x,y]` pairs. | Required. |
+| `pts` | Control vertices as `[x,y]` pairs, without a repeated closing point. | Required for polygon/rectangle. |
+| `kind` | Closed outline geometry: `polygon`, `rect`, or `circle`. | `polygon`. |
+| `cornerRadius` | Default corner radius in mm. | `0`. |
+| `nodeCornerRadii` | Per-vertex corner radius overrides, keyed by vertex index. | `{}`. |
+| `segmentBulges` | Signed arc bulges in `[-1,1]`, keyed by starting vertex index. | `{}` (straight edges). |
+| `x`, `y`, `radius` | Circle center and radius in mm. | Required for circle. |
 | `n` | Net name. | Empty. |
 | `lk` | Locked. | `false`. |
 | `v` | Visible. | `true`. |
@@ -617,6 +622,11 @@ Copper fills are stored inside `pcb.boardShapes` with `type: "fill"`:
 Computed pour polygons are not persisted. They are regenerated from the
 boundary, net, board, and obstacles after loading. The loader also accepts the
 legacy top-level `pcb.fills` array.
+
+The editing boundary and copper computation use the same sampled closed
+contour. Control vertices and curve metadata remain editable after loading;
+they are not replaced with the sampled contour. Fill edits preserve closure
+and reject self-intersecting or degenerate outlines.
 
 ### PCB Text
 

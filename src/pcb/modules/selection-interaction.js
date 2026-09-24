@@ -131,7 +131,8 @@ export function beginSelectionInteraction(app, worldPos, additive, cycle = false
         return true;
     }
 
-    const entry = hitTestPcbSelectionEntry(app, worldPos, SUPPORTED_KINDS);
+    const hits = getPcbSelectionHits(app, worldPos, SUPPORTED_KINDS);
+    const entry = hits.find(hit => selected.some(item => item.id === hit.id)) || hits[0];
     if (!entry) return false;
 
     // Let PCBApp's marquee path move the complete set when a selected member
@@ -226,7 +227,7 @@ export function finishSelectionInteraction(app, commit = true, worldPos = null) 
             }
         }
     } else if (state.mode === 'anchor') {
-        if (commit && !state.moved && ['shape', 'track'].includes(state.adapter.kind)
+        if (commit && !state.moved && ['shape', 'track', 'fill'].includes(state.adapter.kind)
             && String(state.anchorId).startsWith('mid:')) {
             state.mode = 'floating-anchor';
             renderPcbSelectionAnchors(app);

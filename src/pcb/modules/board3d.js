@@ -77,7 +77,7 @@ import { regionFillContours } from './region-geometry.js';
 import { boardShapeFilledRemovalOutlines, resolveBoardShapeGeometry } from './board-shapes.js';
 import { pcbTextPolylines } from './pcb-text.js';
 import { loadClipper, isClipperReady, getClipper } from './copper-fill-geom.js';
-import { createViewerBackgroundTexture } from './viewer-background.js';
+import { createViewerBackgroundTexture, VIEWER_BACKGROUND } from './viewer-background.js';
 
 /** Finished board thickness in millimetres (standard 1.6 mm). */
 const BOARD_THICKNESS = 1.6;
@@ -1444,6 +1444,7 @@ function buildCopperMesh(tracks, circles = [], boardShapes = [], texts = []) {
     }
     // Free-standing circles authored on copper layers.
     for (const c of circles || []) {
+        if (c?.type === 'fill') continue;
         if (!c || (c.layer !== 'top-copper' && c.layer !== 'bottom-copper')) continue;
         if (!(c.radius > 0)) continue;
         const geometry = resolveBoardShapeGeometry(c);
@@ -3749,12 +3750,13 @@ export async function openBoard3DViewer(app, opts = {}) {
         if (!win) { setStatus('Pop-up blocked — allow pop-ups to tear off'); return; }
         const wd = win.document;
         try {
+            wd.documentElement.style.background = VIEWER_BACKGROUND.edge;
             wd.documentElement.style.colorScheme = 'dark';
         } catch { /* ignore */ }
         wd.title = popTitle();
         ensure3DStyles(wd);
         const base = wd.createElement('style');
-        base.textContent = `html,body{margin:0;height:100%;overflow:hidden}`
+        base.textContent = `html,body{margin:0;height:100%;background:${VIEWER_BACKGROUND.edge};overflow:hidden}`
             + '.cpcb3d-host{position:absolute;inset:0}';
         (wd.head || wd.documentElement).appendChild(base);
         // Move the live host into the pop-up; the WebGL canvas and its context

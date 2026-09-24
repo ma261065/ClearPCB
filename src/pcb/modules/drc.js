@@ -296,7 +296,7 @@ export function runDRC(app, rules = {}) {
     const violations = [];
     for (const fill of app.copperFills || (app.boardShapes || []).filter((shape) => shape.type === 'fill')) {
         if (fill._computed != null) continue;
-        const point = fill.outline?.[0] || { x: 0, y: 0 };
+        const point = (fill.getOutline?.() || fill.outline)?.[0] || { x: 0, y: 0 };
         violations.push(makeViolation('fill', 'error', 'Copper pour has not been computed.',
             point.x, point.y, null, `fill-pending|${fill.id}`));
     }

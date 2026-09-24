@@ -51,7 +51,11 @@ const board3d = readFileSync(new URL('../src/pcb/modules/board3d.js', import.met
 assert.match(board2d, /paintViewerBackground\(ctx, cv\.width, cv\.height\)/);
 assert.match(board3d, /this\.scene\.background = this\.backgroundTexture/);
 assert.doesNotMatch(board3d, /VIEWER_BACKGROUND\.css|cpcb3d-cover|setClearColor/,
-    'The viewer uses its rendered background without a pre-render cover or explicit fallback');
+    'The canvas uses its rendered background without a pre-render cover');
+assert.match(board3d, /wd\.documentElement\.style\.background = VIEWER_BACKGROUND\.edge;/,
+    'The popup immediately uses the gradient edge colour before its canvas repaints');
+assert.match(board3d, /html,body\{[^}]*background:\$\{VIEWER_BACKGROUND\.edge\}/,
+    'The popup document keeps a solid background beneath the canvas');
 
 globalThis.window = { addEventListener() {} };
 globalThis.document = { createElement() { return {}; } };

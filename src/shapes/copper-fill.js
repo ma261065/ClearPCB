@@ -14,6 +14,8 @@
  * pipeline.
  */
 
+import { closedShapeOutline } from './closed-outline.js';
+
 let fillIdCounter = 0;
 const round4 = value => Math.round(value * 10000) / 10000;
 
@@ -40,6 +42,15 @@ export class CopperFill {
      * @param {string} [options.net] - Net to pour (empty = isolated pour)
      * @param {Array<{x:number,y:number}>} [options.outline] - Closed region
      *   outline in world mm (no implicit closing point needed).
+    * @param {'polygon'|'rect'|'circle'} [options.kind]
+    * @param {number} [options.cornerRadius]
+    * @param {Object<string,number>} [options.nodeCornerRadii]
+    * @param {Object<string,number>} [options.segmentBulges]
+    * @param {number} [options.x]
+    * @param {number} [options.y]
+    * @param {number} [options.radius]
+    * @param {boolean} [options.locked]
+    * @param {boolean} [options.visible]
      */
     constructor(options = {}) {
         this.id = options.id || `fill_${++fillIdCounter}`;
@@ -52,12 +63,23 @@ export class CopperFill {
         this.selected = false;
         this.locked = !!options.locked;
         this.visible = options.visible !== undefined ? options.visible : true;
+        this.kind = ['rect', 'circle'].includes(options.kind) ? options.kind : 'polygon';
+        this.cornerRadius = Math.max(0, Number(options.cornerRadius) || 0);
+        this.nodeCornerRadii = { ...(options.nodeCornerRadii || {}) };
+        this.segmentBulges = { ...(options.segmentBulges || {}) };
+        this.x = Number(options.x) || 0;
+        this.y = Number(options.y) || 0;
+        this.radius = Math.max(0.05, Number(options.radius) || 1);
         /** Last-computed poured geometry: [{outer:[{x,y}], holes:[[{x,y}]]}] */
         this._computed = null;
     }
 
     /** Move the whole region by (dx, dy) in world units. */
     move(dx, dy) {
+        if (this.kind === 'circle') {
+            this.x += dx;
+            this.y += dy;
+        }
         for (const p of this.outline) {
             p.x += dx;
             p.y += dy;
@@ -66,9 +88,10 @@ export class CopperFill {
 
     /** Axis-aligned bounds of the outline, or null when empty. */
     getBounds() {
-        if (this.outline.length === 0) return null;
+        const boundary = this.getOutline();
+        if (boundary.length === 0) return null;
         let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-        for (const p of this.outline) {
+        for (const p of boundary) {
             if (p.x < minX) minX = p.x;
             if (p.y < minY) minY = p.y;
             if (p.x > maxX) maxX = p.x;
@@ -79,7 +102,7 @@ export class CopperFill {
 
     /** Point-in-polygon test against the outline (world coords). */
     containsPoint(x, y) {
-        const pts = this.outline;
+        const pts = this.getOutline();
         const n = pts.length;
         if (n < 3) return false;
         let inside = false;
@@ -95,7 +118,7 @@ export class CopperFill {
 
     /** Distance from a point to the nearest outline edge (world coords). */
     distanceToEdge(x, y) {
-        const pts = this.outline;
+        const pts = this.getOutline();
         const n = pts.length;
         if (n < 2) return Infinity;
         let best = Infinity;
@@ -106,14 +129,14 @@ export class CopperFill {
         return best;
     }
 
+    get points() { return this.outline; }
+    set points(points) { this.outline = points; }
+
+    getOutline() { return closedShapeOutline(this); }
+
     clone() {
-        return new CopperFill({
-            layer: this.layer,
-            net: this.net,
-            outline: this.outline,
-            locked: this.locked,
-            visible: this.visible,
-        });
+        const { id, ...state } = this.captureState();
+        return new CopperFill(state);
     }
 
     /** Capture state for undo/redo. */
@@ -125,6 +148,11 @@ export class CopperFill {
             outline: this.outline.map((p) => ({ x: p.x, y: p.y })),
             locked: this.locked,
             visible: this.visible,
+            kind: this.kind,
+            cornerRadius: this.cornerRadius,
+            nodeCornerRadii: { ...this.nodeCornerRadii },
+            segmentBulges: { ...this.segmentBulges },
+            x: this.x, y: this.y, radius: this.radius,
         };
     }
 
@@ -137,6 +165,13 @@ export class CopperFill {
         }
         if (typeof state.locked === 'boolean') this.locked = state.locked;
         if (typeof state.visible === 'boolean') this.visible = state.visible;
+        this.kind = ['rect', 'circle'].includes(state.kind) ? state.kind : 'polygon';
+        this.cornerRadius = Math.max(0, Number(state.cornerRadius) || 0);
+        this.nodeCornerRadii = { ...(state.nodeCornerRadii || {}) };
+        this.segmentBulges = { ...(state.segmentBulges || {}) };
+        this.x = Number(state.x) || 0;
+        this.y = Number(state.y) || 0;
+        this.radius = Math.max(0.05, Number(state.radius) || 1);
     }
 
     /** Serialise to compact JSON. */
@@ -150,6 +185,13 @@ export class CopperFill {
         if (this.net) out.n = this.net;
         if (this.locked) out.lk = true;
         if (!this.visible) out.v = false;
+        if (this.kind !== 'polygon') out.kind = this.kind;
+        if (this.cornerRadius) out.cornerRadius = round4(this.cornerRadius);
+        for (const field of ['nodeCornerRadii', 'segmentBulges']) {
+            if (Object.keys(this[field]).length) out[field] = Object.fromEntries(
+                Object.entries(this[field]).map(([key, value]) => [key, round4(value)]));
+        }
+        if (this.kind === 'circle') Object.assign(out, { x: round4(this.x), y: round4(this.y), radius: round4(this.radius) });
         return out;
     }
 
@@ -159,6 +201,9 @@ export class CopperFill {
             ? data.pts.map((p) => (Array.isArray(p) ? { x: p[0], y: p[1] } : { x: p.x, y: p.y }))
             : (Array.isArray(data.outline) ? data.outline : []);
         return new CopperFill({
+            kind: data.kind, cornerRadius: data.cornerRadius,
+            nodeCornerRadii: data.nodeCornerRadii, segmentBulges: data.segmentBulges,
+            x: data.x, y: data.y, radius: data.radius,
             id: data.id,
             layer: data.l !== undefined ? data.l : data.layer,
             net: data.n !== undefined ? data.n : data.net,

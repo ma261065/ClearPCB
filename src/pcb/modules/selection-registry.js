@@ -64,6 +64,8 @@ function manager(app) {
                     (item) => item.kind === 'shape' && item.object?.id === node.shapeId,
                 );
                 if (node && !nodeStillSelected) app._selectedBoardShapeNode = null;
+                if (app._fillEdit && !selected.some(item => item.kind === 'fill'
+                    && item.object?.id === app._fillEdit.fillId)) app._fillEdit = null;
                 app._setPcbStatus?.();
                 refreshPcbReferenceOverlay(app);
             },

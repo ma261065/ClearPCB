@@ -526,8 +526,14 @@ for (const [kind, zeroOffset] of ['arc', 'line', 'polygon'].flatMap(kind =>
     let input = null;
     let title = '';
     const commands = [];
+    let replacingProperties = false;
+    let propertyRebuilds = 0;
     const items = {
         set innerHTML(html) {
+            assert.equal(replacingProperties, false, 'Blur must not rebuild a panel during its replacement');
+            replacingProperties = true;
+            propertyRebuilds++;
+            try { input?.fire('blur'); } finally { replacingProperties = false; }
             const match = /id="pcbPropShapeBulge"[^>]*value="([^"]+)"/.exec(html);
             if (!match) { input = null; return; }
             const listeners = new Map();
@@ -555,6 +561,11 @@ for (const [kind, zeroOffset] of ['arc', 'line', 'polygon'].flatMap(kind =>
         if (kind !== 'arc') app._selectedBoardShapeSegment = { shapeId: shape.id, segment: 0 };
         showBoardShapeProperties(app, shape);
         assert.equal(input.value, '0.25');
+        const initialRebuilds = propertyRebuilds;
+        input.fire('blur');
+        await Promise.resolve();
+        assert.equal(propertyRebuilds, initialRebuilds, 'Unchanged blur does not rebuild properties');
+        assert.equal(commands.length, 0, 'Unchanged blur does not create history');
         input.value = '';
         input.fire('input');
         assert.equal(commands.length, 0, 'Partial typing does not commit');
@@ -563,6 +574,9 @@ for (const [kind, zeroOffset] of ['arc', 'line', 'polygon'].flatMap(kind =>
         assert.equal(kind === 'arc' ? shape.bulge.y : shape.segmentBulges[0], kind === 'arc' ? -2.5 : -0.5);
         input.fire('change');
         assert.equal(commands.length, 1, 'Typed bulge makes one undoable edit');
+        await Promise.resolve();
+        assert.equal(commands.length, 1, 'Blur caused by the command refresh does not repeat the edit');
+        assert.equal(propertyRebuilds, initialRebuilds + 1, 'The command owns the single properties refresh');
         const handle = kind === 'arc' ? 'bulge' : 'bulge:0';
         startBoardShapeDrag(app, shape, { x: 5, y: -2.5 }, handle);
         handleBoardShapeDrag(app, { x: 5, y: 0 });
@@ -595,6 +609,20 @@ for (const [kind, zeroOffset] of ['arc', 'line', 'polygon'].flatMap(kind =>
         input.fire('change');
         assert.equal(shape.kind, kind === 'arc' ? 'line' : kind);
         if (kind !== 'arc') assert.equal(Object.hasOwn(shape.segmentBulges, 0), false);
+        commands.at(-1).undo();
+        const beforeBlurCommands = commands.length;
+        const beforeBlurValue = input.value;
+        input.value = '0.75';
+        input.fire('input');
+        items.innerHTML = '';
+        assert.equal(commands.length, beforeBlurCommands, 'Panel removal defers a pending blur commit');
+        await Promise.resolve();
+        assert.equal(commands.length, beforeBlurCommands + 1, 'Pending preview is committed after panel removal');
+        assert.equal(input.value, '0.75');
+        await Promise.resolve();
+        assert.equal(commands.length, beforeBlurCommands + 1, 'Deferred blur creates only one history entry');
+        commands.at(-1).undo();
+        assert.equal(input.value, beforeBlurValue, 'The deferred edit retains the original undo snapshot');
     } finally {
         cancelPictureCopperRefresh(app);
         document.getElementById = originalGetElementById;

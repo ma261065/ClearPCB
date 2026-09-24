@@ -92,12 +92,13 @@ const U = (v) => v / SCALE;
  */
 export function computeFillPolygons(fill, ctx, C = _clipper) {
     if (!C) return [];
-    if (!fill || !Array.isArray(fill.outline) || fill.outline.length < 3) return [];
+    const outline = fill?.getOutline?.() || fill?.outline;
+    if (!Array.isArray(outline) || outline.length < 3) return [];
 
     const clearance = Math.max(0, Number(ctx?.params?.clearance) || 0);
 
     // ── 1. Subject region: the user-drawn outline ──
-    const subject = [fill.outline.map((p) => ({ X: S(p.x), Y: S(p.y) }))];
+    const subject = [outline.map((p) => ({ X: S(p.x), Y: S(p.y) }))];
 
     // ── 2. Clip to board (shrunk by clearance) ──
     let region = subject;
@@ -220,8 +221,9 @@ function collectObstacles(C, fill, ctx, clearance) {
     for (const otherFill of (ctx.fills || [])) {
         if (!otherFill || otherFill === fill || otherFill.layer !== fill.layer) continue;
         if (sameNet(otherFill.net || '')) continue;
-        if (!Array.isArray(otherFill.outline) || otherFill.outline.length < 3) continue;
-        out.push(...offsetClosedPath(C, otherFill.outline, clearance));
+        const outline = otherFill.getOutline?.() || otherFill.outline;
+        if (!Array.isArray(outline) || outline.length < 3) continue;
+        out.push(...offsetClosedPath(C, outline, clearance));
     }
 
     // ── Pads (on this copper layer) ──

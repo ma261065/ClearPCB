@@ -46,6 +46,7 @@ import { bindPictureRefreshHold, cancelPictureCopperRefresh, schedulePictureCopp
 import { rotationHandleAnchor, pointerRotation, rotatedImagePoints } from './rotation-handle.js';
 import { BULGE_EPS, arcEdgeContinuation, arcFromBulge, distanceToArcEdge, sampleArcEdge } from '../../shapes/arc-edge.js';
 import { syncBoardOutlineDimensions, boardBoundary } from './board-outline.js';
+import { closedShapeOutline } from '../../shapes/closed-outline.js';
 
 const NS = 'http://www.w3.org/2000/svg';
 const SHAPE_KINDS = new Set(['line', 'rect', 'polygon', 'arc', 'circle', 'image']);
@@ -583,18 +584,12 @@ function sampledBoardShapePoints(shape) {
 
 /** Outline points used for fill hit-testing, copper cuts and bounds. */
 export function shapeOutline(shape) {
+    if (['rect', 'polygon', 'circle'].includes(shape.kind)) return closedShapeOutline(shape);
     if (shape.kind === 'arc') return arcSamples(shape);
-    if (shape.kind === 'circle') return circleOutline(shape);
-    if (['line', 'polygon'].includes(shape.kind) && roundedPolygonCorners(shape).length) return roundedPolygonOutline(shape);
-    if (['line', 'polygon'].includes(shape.kind) && Object.keys(shape.segmentBulges || {}).length) {
+    if (shape.kind === 'line' && roundedPolygonCorners(shape).length) return roundedPolygonOutline(shape);
+    if (shape.kind === 'line' && Object.keys(shape.segmentBulges || {}).length) {
         return sampledBoardShapePoints(shape);
     }
-    if (shape.kind === 'rect') {
-        return Object.keys(shape.nodeCornerRadii || {}).length
-            ? roundedPolygonOutline(shape)
-            : roundedRectOutline(shape);
-    }
-    if (shape.kind === 'polygon' && roundedPolygonCorners(shape).length) return roundedPolygonOutline(shape);
     return (shape.points || []).map((p) => ({ x: p.x, y: p.y }));
 }
 
@@ -1781,7 +1776,7 @@ function collapseCollinearPolylinePoints(shape) {
     return changed;
 }
 
-function remapBoardShapeNodeRadii(shape, index, delta) {
+export function remapBoardShapeNodeRadii(shape, index, delta) {
     const remapped = {};
     for (const [key, value] of Object.entries(shape.nodeCornerRadii || {})) {
         const nodeIndex = Number(key);
@@ -1791,7 +1786,7 @@ function remapBoardShapeNodeRadii(shape, index, delta) {
     shape.nodeCornerRadii = remapped;
 }
 
-function splitBoardShapeSegmentMetadata(shape, segment) {
+export function splitBoardShapeSegmentMetadata(shape, segment) {
     for (const field of ['segmentWidths', 'segmentBulges']) {
         const remapped = {};
         for (const [key, value] of Object.entries(shape[field] || {})) {
@@ -3026,12 +3021,15 @@ export function showBoardShapeProperties(app, shape) {
         if (JSON.stringify(before) !== JSON.stringify(after)) {
             app.history.execute(new ModifyBoardShapeCommand(app, shape, before, after));
         }
-        showBoardShapeProperties(app, shape);
         renderBoardShapeSegmentSelection(app);
     };
     bulgeEl?.addEventListener('input', previewBulge);
     bulgeEl?.addEventListener('change', commitBulge);
-    bulgeEl?.addEventListener('blur', commitBulge);
+    bulgeEl?.addEventListener('blur', () => {
+        queueMicrotask(() => {
+            if (bulgeBefore) commitBulge();
+        });
+    });
 
     const commit = (mutate) => {
         const before = propertyTargets().map((target) => ({ target, state: shapeSnapshot(target) }));

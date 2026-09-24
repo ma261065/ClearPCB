@@ -28,7 +28,7 @@ export async function prepareFabricationSnapshot(app) {
             getEdgeWidth: id => edges.get(id).width, getEdgeLayer: id => edges.get(id).layer };
     });
     const fills = app.copperFills.map(fill => ({ id: fill.id, type: 'fill', layer: fill.layer, net: fill.net,
-        outline: structuredClone(fill.outline), _computed: null }));
+        outline: structuredClone(fill.getOutline?.() || fill.outline), _computed: null }));
     const snapshot = {
         placements, tracks, vias: app.vias.map(via => ({ id: via.id, x: via.x, y: via.y,
             diameter: via.diameter, drill: via.drill, net: via.net })),

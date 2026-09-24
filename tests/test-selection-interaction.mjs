@@ -114,6 +114,53 @@ function expect(name, condition) {
 }
 
 {
+    const top = { id: 'priority-via' };
+    const below = { id: 'underlying-shape' };
+    const moved = [];
+    let belowVisible = true;
+    const factory = kind => (_app, object, id) => ({
+        id, kind, object,
+        get visible() { return object !== below || belowVisible; },
+        getBounds() { return { minX: 0, minY: 0, maxX: 20, maxY: 10 }; },
+        hitTest(point) { return object === top || point.x <= 10; },
+        beginMove() { return true; },
+        updateMove() { moved.push(object); },
+        endMove() {}, invalidate() {},
+    });
+    registerPcbSelectionAdapter('shape', factory('shape'));
+    registerPcbSelectionAdapter('via', factory('via'));
+    const app = {
+        placements: new Map(), tracks: [], vias: [top], boardShapes: [below], texts: new Map(),
+        _shapeElements: new Map(), viewport: { scale: 1 },
+        _syncClipboardButtons() {}, _setPcbStatus() {},
+        _selectComponent() {}, _selectBoardOutline() {}, _selectText() {}, _selectRefText() {}, _selectFill() {},
+        _clearProperties() {}, _getLayerGroup() { return null; },
+    };
+    for (const shiftDrag of [false, true]) {
+        setPcbSelection(app, [{ kind: 'via', object: top }]);
+        beginSelectionInteraction(app, { x: 5, y: 5 }, false, true);
+        finishSelectionInteraction(app, true);
+        expect('Shift-click reaches an object beneath a higher-priority kind',
+            app._pcbSelection.getSelection()[0]?.object === below);
+        beginSelectionInteraction(app, { x: 5, y: 5 }, false, shiftDrag);
+        updateSelectionInteraction(app, { x: 9, y: 5 });
+        finishSelectionInteraction(app, true);
+        expect(`${shiftDrag ? 'Shift-drag' : 'Normal drag'} moves the cycled underlying object`,
+            moved.at(-1) === below && app._pcbSelection.getSelection()[0]?.object === below);
+    }
+    beginSelectionInteraction(app, { x: 15, y: 5 }, false);
+    expect('Clicking outside the selected object still selects the object hit',
+        app._pcbSelection.getSelection()[0]?.object === top);
+    finishSelectionInteraction(app, true);
+    setPcbSelection(app, [{ kind: 'shape', object: below }]);
+    belowVisible = false;
+    beginSelectionInteraction(app, { x: 5, y: 5 }, false);
+    expect('A hidden selected object cannot claim the drag',
+        app._pcbSelection.getSelection()[0]?.object === top);
+    finishSelectionInteraction(app, true);
+}
+
+{
     let removed = 0;
     const shape = { id: 'shape-segment' };
     registerPcbSelectionAdapter('shape', (_app, object, id) => ({

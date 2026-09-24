@@ -20,6 +20,17 @@ export function fillGroupId(layer) {
     return layer === 'bottom-copper' ? 'bottom-fill' : 'top-fill';
 }
 
+export function setCopperFillClip(group, clipId) {
+    if (!group) return;
+    group.removeAttribute('clip-path');
+    if (clipId) group.setAttribute('data-copper-cut', clipId);
+    else group.removeAttribute('data-copper-cut');
+    for (const path of group.querySelectorAll('.pcb-fill-copper')) {
+        if (clipId) path.setAttribute('clip-path', `url(#${clipId})`);
+        else path.removeAttribute('clip-path');
+    }
+}
+
 /** Fill copper colour for a layer. */
 function layerColor(layer) {
     return layer === 'bottom-copper' ? '#3498db' : '#e74c3c';
@@ -50,22 +61,32 @@ export function renderCopperFill(fill, getLayerGroup, opts = {}) {
     // ── Poured copper polygons (outer + holes, even-odd) ──
     const d = opts.outlineOnly ? '' : computedPathD(fill._computed);
     if (d) {
+        let copper = group.querySelector('.pcb-fill-copper-layer');
+        if (!copper) {
+            copper = document.createElementNS(NS, 'g');
+            copper.setAttribute('class', 'pcb-fill-copper-layer');
+            copper.setAttribute('opacity', '0.45');
+            group.insertBefore(copper, group.firstChild);
+        }
         const path = document.createElementNS(NS, 'path');
         path.setAttribute('class', 'pcb-fill-copper');
         path.setAttribute('d', d);
         path.setAttribute('fill', color);
-        path.setAttribute('fill-opacity', '0.45');
         path.setAttribute('fill-rule', 'evenodd');
         path.setAttribute('stroke', 'none');
         path.setAttribute('data-fill-id', fill.id);
-        g.appendChild(path);
+        if (!visible) path.setAttribute('display', 'none');
+        const clipId = group.getAttribute?.('data-copper-cut');
+        if (clipId) path.setAttribute('clip-path', `url(#${clipId})`);
+        copper.appendChild(path);
     }
 
     // ── Region boundary (dashed) ──
-    if (fill.outline && fill.outline.length >= 2) {
+    const outline = fill.getOutline?.() || fill.outline;
+    if (outline && outline.length >= 2) {
         const poly = document.createElementNS(NS, 'polygon');
         poly.setAttribute('class', 'pcb-fill-outline');
-        poly.setAttribute('points', fill.outline.map((p) => `${p.x},${p.y}`).join(' '));
+        poly.setAttribute('points', outline.map((p) => `${p.x},${p.y}`).join(' '));
         poly.setAttribute('fill', 'none');
         poly.setAttribute('stroke', opts.selected ? pcbLayerSelectionColor(fill.layer) : color);
         poly.setAttribute('stroke-width', opts.selected ? '0.18' : '0.12');
@@ -85,8 +106,8 @@ export function removeCopperFillElements(fill, getLayerGroup) {
         const group = getLayerGroup(gid);
         if (!group) continue;
         for (const el of [...group.querySelectorAll(`[data-fill-id="${cssEscape(fill.id)}"]`)]) {
-            // Only remove the wrapping <g> (children go with it).
-            if (el.parentNode === group) el.remove();
+            if (el.parentNode === group
+                || el.parentNode?.getAttribute('class') === 'pcb-fill-copper-layer') el.remove();
         }
     }
 }

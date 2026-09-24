@@ -7,6 +7,7 @@
  */
 
 import { isPcbSelected } from './selection-registry.js';
+import { renderPcbSelectionAnchors } from './selection-anchors.js';
 
 /** Add a CopperFill to the canonical app.boardShapes collection. */
 export class AddFillCommand {
@@ -69,6 +70,7 @@ export class ModifyFillCommand {
             this.app._updateRatsnest?.();
         }
         this.app._refreshFillProperties?.(this.fill);
+        renderPcbSelectionAnchors(this.app);
     }
     undo() {
         this.fill.applyState(this.before);
@@ -77,5 +79,6 @@ export class ModifyFillCommand {
             this.app._updateRatsnest?.();
         }
         this.app._refreshFillProperties?.(this.fill);
+        renderPcbSelectionAnchors(this.app);
     }
 }
