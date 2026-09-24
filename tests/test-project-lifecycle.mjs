@@ -18,6 +18,26 @@ assert.equal(manager.fileHandle, oldHandle);
 assert.equal(manager.fileName, oldHandle.name);
 assert.equal(manager.isDirty, true);
 
+for (const errorName of ['NotAllowedError', 'SecurityError']) {
+    const deniedManager = new FileManager();
+    const deniedHandle = {
+        name: 'denied.cpcb',
+        queryPermission: async () => 'granted',
+        createWritable: async () => { throw new DOMException('Write blocked', errorName); },
+    };
+    deniedManager.fileHandle = deniedHandle;
+    deniedManager.setFileName(deniedHandle.name);
+    deniedManager.setDirty(true);
+    deniedManager.clearAutoSave = () => { throw new Error('A failed write must preserve recovery data'); };
+    const deniedResult = await deniedManager.save(project());
+    assert.equal(deniedResult.success, false);
+    assert.equal(deniedResult.errorName, errorName);
+    assert.equal(deniedManager.fileHandle, deniedHandle);
+    assert.equal(deniedManager.fileName, deniedHandle.name);
+    assert.equal(deniedManager.isDirty, true);
+    assert.equal(deniedManager.saving, false, 'A fresh Save As can run after a denied write');
+}
+
 let releaseSave;
 let saved;
 manager._saveCurrent = (data) => {
@@ -132,7 +152,36 @@ assert.equal(pcbState, null);
 assert.equal(owner.fileManager.loading, false);
 assert.deepEqual(loadingStates, [true, false, true, false]);
 window.addEventListener = () => {};
-const { createComponentFromData, newFile, openFile, openRecentFile, importEasyEDA } = await import('../src/schematic/modules/files.js');
+const { createComponentFromData, newFile, openFile, openRecentFile, importEasyEDA, saveFile } = await import('../src/schematic/modules/files.js');
+const retryEvents = [];
+let allowRetry = false;
+let serializations = 0;
+const retryApp = {
+    _serializeDocument() { serializations++; return project(); },
+    fileManager: {
+        save: async () => ({ success: false, error: 'Write blocked', errorName: 'NotAllowedError' }),
+        saveAs: async data => {
+            assert.equal(data.version, '1.0');
+            retryEvents.push('saveAs');
+            return { success: true, clean: true, fileName: 'copy.cpcb' };
+        },
+    },
+    _confirm: async (message, options) => {
+        assert.equal(options.okText, 'Save As');
+        assert.match(message, /unsaved/);
+        return allowRetry;
+    },
+    _alert() { throw new Error('Permission failure should offer recovery instead of a generic alert'); },
+    _updateTitle() { retryEvents.push('title'); },
+    _showSaveToast() { retryEvents.push('toast'); },
+    project: { markAllSectionsClean() { retryEvents.push('clean'); } },
+};
+assert.equal((await saveFile(retryApp)).success, false);
+assert.deepEqual(retryEvents, [], 'Cancelling recovery does not save or mark any view clean');
+allowRetry = true;
+assert.equal((await saveFile(retryApp)).success, true);
+assert.equal(serializations, 3, 'Save As takes a fresh snapshot after the permission prompt');
+assert.deepEqual(retryEvents, ['saveAs', 'clean', 'title', 'toast']);
 const embedded = { name: 'Example', symbol: { width: 10, height: 10, graphics: [], pins: [] } };
 const component = createComponentFromData({ componentLibrary: {
     getDefinition() { throw new Error('Embedded definitions must take precedence.'); },

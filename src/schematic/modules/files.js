@@ -424,6 +424,11 @@ export async function saveFile(app) {
         app._updateTitle();
         app._showSaveToast?.('Saved');
         console.log('Saved:', result.fileName);
+    } else if (result.errorName === 'NotAllowedError' || result.errorName === 'SecurityError') {
+        const retry = await app._confirm(
+            'The browser could not write to the current file. Your changes are still open and unsaved. Choose Save As to grant access to a file again, or save a new copy in another folder.',
+            { title: 'File Access Required', okText: 'Save As', cancelText: 'Cancel' });
+        if (retry) return saveFileAs(app);
     } else if (!result.cancelled) {
         app._alert('Failed to save: ' + (result.error || 'Unknown error'), { title: 'Save Failed' });
     }

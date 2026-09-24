@@ -563,7 +563,7 @@ export class FileManager {
             return { success: true, fileName: handle.name };
         } catch (err) {
             console.error('Save failed:', err);
-            return { success: false, error: err.message };
+            return { success: false, error: err.message, errorName: err.name };
         }
     }
     
