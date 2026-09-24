@@ -10,6 +10,7 @@ const record = name => () => calls.push(name);
 const dependencies = {
     removeTrackElements() {}, removeViaElements() {}, resetViaIdCounter() {}, removeBoardShapeElement() {},
     clearTrackSelection() {}, updateViaIdCounter() {}, updateFillIdCounter() {},
+    resetPanelPreview() {}, renderPanelPreview() {},
     renderTrack: record('track'), renderVia: record('via'), renderBoardShape: record('shape'),
     reconcileRatsnest: record('ratsnest'), restoreGridSettings: record('grid'), getSelectedTrack: () => null,
     REF_DEFAULT_SIZE: 0.9, REF_DEFAULT_STROKE: 0.15,

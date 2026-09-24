@@ -207,6 +207,10 @@ console.log('PASS standalone conversion uses native shape kinds, menus, properti
             this.children.push(element);
             element.remove = () => { this.children = this.children.filter(child => child !== element); };
         },
+        insertBefore(element, reference) {
+            this.children.splice(this.children.indexOf(reference), 0, element);
+            element.remove = () => { this.children = this.children.filter(child => child !== element); };
+        },
         querySelectorAll(selector) {
             return this.children.filter(element => element.getAttribute('class') === selector.slice(1));
         },
@@ -214,6 +218,10 @@ console.log('PASS standalone conversion uses native shape kinds, menus, properti
     const selectedPath = () => {
         const elements = overlay.querySelectorAll('.pcb-shape-segment-selection');
         assert.equal(elements.length, 1, 'Exactly one current segment highlight is rendered');
+        const handles = overlay.querySelectorAll('.pcb-selection-anchors');
+        assert.ok(handles.length > 0, 'Selected shape has an anchor overlay');
+        assert.ok(handles.every(handle => overlay.children.indexOf(elements[0]) < overlay.children.indexOf(handle)),
+            'Segment highlights stay below node and midpoint handles');
         return elements[0].getAttribute('d');
     };
     const app = {
@@ -247,8 +255,31 @@ console.log('PASS standalone conversion uses native shape kinds, menus, properti
     assert.deepEqual(loaded.boardShapes[0].segmentBulges, { 0: 0.25 });
     assert.equal(setBoardShapeSegmentType(app, shape, 0, 'line'), true);
     assert.equal(shape.segmentBulges[0], undefined);
-    assert.equal(title, 'Line Segment');
+    assert.deepEqual(shape.points, [{ x: 0, y: 0 }, { x: 20, y: 0 }]);
+    assert.equal(app._selectedBoardShapeSegment, null, 'Merged segments do not retain stale indices');
+    commands.at(-1).undo();
+    assert.equal(shape.points.length, 3);
+    assert.deepEqual(shape.segmentBulges, { 0: 0.25 });
+    commands.at(-1).execute();
+    assert.equal(shape.points.length, 2);
+    commands.at(-1).undo();
 
+    for (const widths of [{}, { 0: 0.7, 2: 0.7 }]) {
+        shape.points = [{ x: 0, y: 0 }, { x: 10, y: 10 }, { x: 20, y: 20 }, { x: 30, y: 30 }];
+        shape.segmentBulges = { 1: 0.25 };
+        shape.segmentWidths = widths;
+        const before = cloneShapeGeometry(shape);
+        const depth = commands.length;
+        assert.equal(setBoardShapeSegmentType(app, shape, 1, 'line'), true);
+        assert.equal(commands.length, depth + 1, 'Conversion and merging use one history command');
+        assert.equal(shape.points.length, Object.keys(widths).length ? 4 : 2,
+            'Both collinear neighbors merge only when their widths match');
+        commands.at(-1).undo();
+        assert.deepEqual(cloneShapeGeometry(shape), before, 'Undo restores the arc, vertices and metadata');
+    }
+
+    shape.points = [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 20, y: 0 }];
+    shape.segmentWidths = {};
     shape.segmentBulges = { 1: 0.4 };
     assert.equal(startBoardShapeDrag(app, shape, { x: 5, y: 0 }, 'mid:0'), true);
     assert.deepEqual(shape.segmentBulges, { 2: 0.4 });

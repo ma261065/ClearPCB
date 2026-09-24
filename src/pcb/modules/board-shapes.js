@@ -1544,7 +1544,9 @@ export function renderBoardShapeSegmentSelection(app) {
     path.setAttribute('stroke-width', String(boardShapeSegmentWidth(shape, selected.segment)));
     path.setAttribute('stroke-linecap', 'round');
     path.setAttribute('pointer-events', 'none');
-    overlay.appendChild(path);
+    const handles = overlay.querySelectorAll('.pcb-selection-anchors')[0];
+    if (handles) overlay.insertBefore(path, handles);
+    else overlay.appendChild(path);
 }
 
 /** Return the handle key (vertex index, or 'start'/'end'/'bulge') near worldPos, else null. */
@@ -1844,9 +1846,10 @@ export function setBoardShapeSegmentType(app, shape, segment, type, { floating =
         if (type === 'arc') shape.segmentBulges[segment] = boardShapeSegmentBulge(shape, segment) || 0.25;
         else delete shape.segmentBulges[segment];
     }
+    const merged = type === 'line' && collapseCollinearPolylinePoints(shape);
     const after = shapeSnapshot(shape);
     applyShapeSnapshot(shape, before);
-    app._selectedBoardShapeSegment = { shapeId: shape.id, segment };
+    app._selectedBoardShapeSegment = merged ? null : { shapeId: shape.id, segment };
     app._selectedBoardShapeNode = null;
     if (floating && type === 'arc') {
         applyShapeSnapshot(shape, after);

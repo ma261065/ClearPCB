@@ -209,6 +209,7 @@ export function bindPcbControls(app) {
     // Export Gerber button
     const exportGerberBtn = document.getElementById('pcbExportGerber');
     exportGerberBtn?.addEventListener('click', () => app.exportGerber?.());
+    document.getElementById('pcbPanelize')?.addEventListener('click', () => app.openPanelize?.());
 
     // Export BOM button
     const exportBomBtn = document.getElementById('pcbExportBOM');

@@ -410,6 +410,19 @@ for (const overall of [2, 3]) {
     renderPcbSelectionAnchors(app);
     const zoomedRing = overlay.children.at(-1).children.find(child => child.getAttribute('class') === 'pcb-node-selection-ring');
     assert.equal(Number(zoomedRing.getAttribute('r')), radius * 2, 'Ring keeps its screen size across zoom');
+    for (const scale of [1, 50, 500]) {
+        app.viewport.scale = scale;
+        renderPcbSelectionAnchors(app);
+        const group = overlay.children.at(-1);
+        const handles = group.children.filter(child => child.getAttribute('data-anchor-id') != null);
+        assert.ok(handles.length >= 3, 'Both endpoint and midpoint handles are present');
+        for (const handle of handles) {
+            assert.equal(handle.getAttribute('vector-effect'), 'non-scaling-stroke');
+            assert.equal(Number(handle.getAttribute('stroke-width')), 1,
+                'Non-scaling handle borders keep a one-pixel width at every zoom');
+            assert.equal(handle.getAttribute('fill'), '#ffffff', 'Handles obscure the path beneath them');
+        }
+    }
     app._getLayerGroup = () => null;
     finishSelectionInteraction(app, false);
     assert.deepEqual(shape.points, [{ x: 0, y: 0 }, { x: 10, y: 0 }]);

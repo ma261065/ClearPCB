@@ -348,6 +348,126 @@ Older documents containing only `board` dimensions are migrated to a rectangular
 outline on activation. A missing/invalid board without an outline resets to the
 default undrawn `100 x 80` board state.
 
+### Panelization
+
+The optional `pcb.panelization` object stores a manufacturing layout, separate
+from the single editable source PCB. Home > Fabrication > Panelize reopens these
+settings. Applying changes or removing a panel supports undo/redo. Missing or
+null settings mean no panel.
+
+```json
+{
+  "rows": 2,
+  "columns": 2,
+  "rowSpacing": 2,
+  "columnSpacing": 2,
+  "separation": "tabs",
+  "railTop": 5,
+  "railBottom": 5,
+  "railLeft": 0,
+  "railRight": 0,
+  "verticalTabsPerEdge": 2,
+  "horizontalTabsPerEdge": 2,
+  "verticalTabOffset": 0,
+  "horizontalTabOffset": 0,
+  "horizontalPositioningHoles": false,
+  "horizontalFiducials": false,
+  "verticalPositioningHoles": false,
+  "verticalFiducials": false,
+  "tabWidth": 3,
+  "holeDiameter": 0.5,
+  "holePitch": 0.8
+}
+```
+
+Dimensions are millimetres. Spacing is edge-to-edge between source outline
+bounding boxes. Zero rail width disables that rail. Rows extend downwards and
+columns rightwards from the source board. Counts are integers from 1 to 20,
+with at most 100 boards and a maximum panel extent of 1000 mm per axis.
+
+`tabs` creates routed gaps with `verticalTabsPerEdge` and `horizontalTabsPerEdge`
+mouse-bite tabs per connected vertical and horizontal board edge respectively,
+including connections to rails. Each count is an integer from 1 to 20,
+defaulting to 2. Legacy `tabsPerEdge` supplies either count whose new setting
+is absent; new saves store only the two independent counts.
+Tab centers divide the edge into equal cells, with a tab
+at each cell's midpoint; the default retains quarter and three-quarter positions.
+`verticalTabOffset` and `horizontalTabOffset` independently shift these centers
+along vertical and horizontal edges in millimetres (-100 to 100, default 0).
+Positive offsets move down on vertical edges and right on horizontal edges in
+the editor; negative offsets move up/left. The same offsets apply to rail
+connections. Legacy `tabOffset` supplies either axis whose new setting is absent;
+new saves store only the two independent offsets. Holes move with their tabs,
+not inward into the board. Independently, mouse-bite hole centers sit half a
+hole diameter into the connecting tab from each board/rail boundary, so holes
+are tangent to straight edges rather than centered on them. The gap at each
+hole pair must exceed twice the hole diameter to keep opposing rows apart.
+Tabs must remain strictly inside the edge ends
+and must not touch each other. These controls do not affect V-cuts.
+Rails use the corresponding board spacing
+(at least 1 mm) as a routing gap. Hole pitch must exceed hole diameter.
+`vcut` requires a square-cornered, axis-aligned rectangular source outline;
+scores extend across the panel. Nonzero spacing leaves sacrificial strips
+between V-scored boards. Cutter access, copper clearances, and tab/scoring
+dimensions must be checked against the manufacturer's capabilities.
+
+The Horizontal/Vertical edges groups independently enable positioning holes
+and fiducial marks on their nonzero rails (top/bottom and left/right respectively).
+All four boolean settings default to false and work with tabs or V-cuts.
+Each enabled rail gets two 3 mm NPTH positioning holes and/or two 1 mm copper
+fiducials with 3 mm mask openings on both sides, with no paste. Dimensions
+are currently fixed. Features sit on the rail centerline, 2.5 mm in from each
+end of the board-array span; when both options are on, fiducials move to
+6.5 mm in from each end. Rails must be at least 5 mm wide and long enough
+for the selected features. Validation enforces 1 mm clearance from rail edges,
+other features, mouse-bite holes, and V-score lines. Confirm dimensions and
+alignment-pattern requirements with the assembly provider.
+
+The editor derives non-selectable, dimmed ghost copies from one shared PNG
+snapshot, refreshed after source SVG changes pause for 120 ms. Panning and
+zooming reuse the bitmap; once zoom settles, its resolution is refreshed in
+power-of-two steps, capped at 2048 pixels per side. Rails and separation marks
+remain vector geometry, and fabrication output is unaffected. Ghosts are not
+stored as duplicate authored objects. Applying a panel initially creates its
+note lines as ordinary `pcb.texts` objects on `top-document`, with normal
+selection, editing, movement, deletion and undo. Existing panels from older
+files get these texts on their next Apply. The optional `noteCreated: true`
+panel setting records this conversion, so subsequent panel edits and redraws
+do not overwrite edits or regenerate deleted notes. Removing panel settings
+leaves these independent text objects untouched. The note is a snapshot at
+creation; export instructions are always derived from current panel settings.
+Panel Gerber export follows the inspected EasyEDA approach: copper, mask,
+paste, silk, component drills, vias and source-board NPTH holes describe ONE
+source board, without aperture blocks or step-and-repeat. Enabled rail fiducials
+are an exception: copper and mask files also contain their full-panel positions.
+Rail positioning holes are likewise already at full-panel positions in NPTH.
+Neither rail feature should be repeated by the manufacturer. Gerber headers
+describe the panel method, counts and dimensions. The manufacturer must repeat
+the source artwork and component drills using the offsets in `panel-notes.txt`.
+`board.gko` already contains the full panel substrate profile and repeated
+cutouts. Source hole-layer cutouts are clipped to the source board outline
+before repetition, so they do not remove material from tabs or rails. Crossing
+hole-layer circles and slots, including those marked plated, are supplied as
+clipped routed profiles rather than full Excellon drills or slots. A routed
+profile does not specify edge plating; confirm that separately with the
+manufacturer when the clipped opening is marked plated. Routing contours
+are simplified to avoid retraced edges at cutout/gap junctions.
+For both single-board and panel exports, a hole-layer circle exactly tangent
+to the source boundary (within 0.000001 mm of the sampled outline) receives
+an automatic 0.01 mm radial routing relief. This converts the zero-width
+contact into an open notch that CAM tools can interpret. It is omitted from
+Excellon to avoid a duplicate drill. The saved geometry is unchanged; internal
+holes with positive clearance outside that tolerance retain their drill size
+and position. The same routed-edge plating caveat applies.
+The source hole layer and ghost copies are
+also clipped to the source outline in the panel preview. Mouse-bite holes
+are already supplied at every panel tab and must NOT
+be repeated. Confirm this workflow with the manufacturer before ordering:
+the panel headers are comments, not executable repetition. V-scores are separate in
+`board-vscore.gbr`, never through routes. The ZIP also includes
+`panel-settings.json` and manufacturing notes. BOM, pick-and-place, and the
+2D/3D board viewers continue to describe the source board.
+
 ### Tracks
 
 Tracks use the schematic graph base plus track fields:

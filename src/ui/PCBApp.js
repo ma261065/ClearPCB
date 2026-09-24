@@ -13,8 +13,9 @@ import { PCB_LAYERS, PCB_OVERLAYS, PCB_COPPER_FILLS, isLayerLocked, isViaLocked,
 import { exportDSN, importSES } from '../pcb/modules/dsn.js';
 import { runDRC } from '../pcb/modules/drc.js';
 import { buildCopperObstacles } from '../pcb/modules/copper-obstacles.js';
-import { hasFabricationContent, prepareFabricationSnapshot } from '../pcb/modules/fabrication-snapshot.js';
-import { exportGerbers, buildZip } from '../pcb/modules/gerber.js';
+import { hasFabricationContent } from '../pcb/modules/fabrication-snapshot.js';
+import { openPanelizeDialog, renderPanelPreview } from '../pcb/modules/panelization-ui.js';
+import { generateGerberArchive, showGerberProgress } from '../pcb/modules/gerber-export.js';
 import { generateBOM, generatePickAndPlace } from '../pcb/modules/assembly.js';
 import { openBoard3DViewer } from '../pcb/modules/board3d.js';
 import { savePcbPdf, printPcb } from '../pcb/modules/pcb-export.js';import { tracksFromAutorouterResult } from '../pcb/modules/autorouter-adapter.js';
@@ -2584,6 +2585,7 @@ export default class PCBApp {
      */
     _markDirty() {
         this._isDirty = true;
+        renderPanelPreview(this);
         this.onDocumentChanged?.();
         /** @type {any} */ (window).app?._updateTitle?.();
         // Keep the clearance overlay in sync after any committed edit (e.g. an
@@ -2764,6 +2766,7 @@ export default class PCBApp {
             // Copper-removal knockouts belong to the copper they cut.
             const ko = this._layerGroups.get(layerId === 'bottom-copper' ? 'bottom-copper-knockout' : 'top-copper-knockout');
             if (ko) ko.style.display = visible ? '' : 'none';
+            this._scheduleRemovalHatchRender();
         }
         // Clearance overlay tracks per-layer visibility — re-render so halos
         // for hidden copper/hole layers disappear too.
@@ -2891,8 +2894,9 @@ export default class PCBApp {
         this._ensureViewport();
         if (!this.viewport) return;
 
-        const bounds = boardBoundary(this);
-        this.viewport.fitToBounds(bounds.x, bounds.y, bounds.x + bounds.w, bounds.y + bounds.h, 10);
+        const panel = this.panelization ? renderPanelPreview(this) : null;
+        const bounds = panel?.bounds || boardBoundary(this);
+        this.viewport.fitToBounds(bounds.x, bounds.y - (panel ? 12 : 0), bounds.x + bounds.w, bounds.y + bounds.h, 10);
     }
 
     _bindRibbonTabs() {
@@ -3074,6 +3078,7 @@ export default class PCBApp {
         renderBoardShape(this, shape);
         const wasDrawn = this._boardOutlineDrawn;
         this._boardOutlineDrawn = true;
+        renderPanelPreview(this);
         if (!wasDrawn && this.viewport) {
             const bounds = boardBoundary(this);
             this.viewport.fitToBounds(bounds.x, bounds.y, bounds.x + bounds.w, bounds.y + bounds.h, 5);
@@ -8428,6 +8433,11 @@ export default class PCBApp {
      * Files included: top/bottom copper, top silkscreen, board outline,
      * and an Excellon drill file.
      */
+    openPanelize() {
+        this._ensureViewport();
+        openPanelizeDialog(this);
+    }
+
     async exportGerber() {
         if (this._exportGerberPending) return;
         if (!hasFabricationContent(this)) {
@@ -8441,9 +8451,10 @@ export default class PCBApp {
         try {
             let fileCount = 0;
             const saved = await this._saveBlob(async () => {
-                const files = exportGerbers(await prepareFabricationSnapshot(this));
-                fileCount = files.size;
-                return buildZip(files);
+                const result = await generateGerberArchive(this);
+                fileCount = result.fileCount;
+                showGerberProgress('Saving ZIP', 100);
+                return result.blob;
             }, suggestedName, {
                 description: 'Gerber ZIP archive',
                 accept: { 'application/zip': ['.zip'] },
@@ -8453,6 +8464,7 @@ export default class PCBApp {
             console.error('Gerber export failed:', err);
             this._setStatus(`Gerber export failed: ${err?.message || err}`);
         } finally {
+            showGerberProgress(null);
             this._exportGerberPending = false;
         }
     }

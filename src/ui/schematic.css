@@ -1403,7 +1403,9 @@ body {
 }
 
 .picture-import .app-modal-ok:disabled,
-.picture-import .app-modal-ok:disabled:hover {
+.picture-import .app-modal-ok:disabled:hover,
+.panelize .app-modal-ok:disabled,
+.panelize .app-modal-ok:disabled:hover {
     background: var(--bg-tertiary);
     color: var(--text-secondary);
     border-color: var(--border-color);
@@ -1518,6 +1520,71 @@ body {
 
 .app-modal-ok {
     font-weight: 600;
+}
+
+.panelize-overlay {
+    pointer-events: none;
+    background: transparent;
+}
+
+.panelize-overlay .panelize {
+    pointer-events: auto;
+}
+
+.panelize-groups {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+}
+
+.panelize-group {
+    min-width: 0;
+    margin: 0;
+    padding: 10px;
+    border: 1px solid var(--border-color, #444444);
+}
+
+.panelize-group legend {
+    padding: 0 5px;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.panelize-group-wide {
+    grid-column: 1 / -1;
+}
+
+.panelize-fields {
+    display: grid;
+    gap: 8px;
+}
+
+.panelize-group-wide .panelize-fields {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.panelize-fields label {
+    min-width: 0;
+    font-size: 12px;
+}
+
+.panelize-toggle {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.panelize-fields .app-modal-input {
+    min-width: 0;
+    box-sizing: border-box;
+    margin-top: 4px;
+}
+
+@media (max-width: 480px) {
+    .panelize-groups,
+    .panelize-group-wide .panelize-fields {
+        grid-template-columns: minmax(0, 1fr);
+    }
 }
 
 .prop-actions {

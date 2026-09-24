@@ -52,7 +52,7 @@ export const ModalManager = (() => {
     }
 
     // Global key handler - capture phase so we see Escape early
-    window.addEventListener('keydown', (e) => {
+    if (typeof window !== 'undefined') window.addEventListener('keydown', (e) => {
         if (e.key !== 'Escape') return;
         const t = top();
         if (t && typeof t.onEscape === 'function') {

@@ -16,6 +16,12 @@ for (const [value, expected] of [['2', '2.00'], ['2.1', '2.10'], ['-3.5', '-3.50
 const rotation = field('15', true);
 formatNumberInput(rotation);
 assert.equal(rotation.value, '15');
+for (const [value, expected] of [['2', '2'], ['2.00', '2'], ['20', '20'], ['2.5', '2.5']]) {
+    const input = field(value);
+    input.dataset.numberFormat = 'integer';
+    formatNumberInput(input);
+    assert.equal(input.value, expected, 'Integer controls omit trailing decimals without hiding invalid fractional values');
+}
 
 let mutations;
 let disconnected = false;

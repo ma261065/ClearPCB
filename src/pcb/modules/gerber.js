@@ -36,11 +36,32 @@ import { resolveTrackSegments } from './board-geometry.js';
 import { resolveBoardShapeGeometry, boardShapeFilledRemovalOutlines } from './board-shapes.js';
 import { pcbTextSegments } from './pcb-text.js';
 import ClipperLib from '../../../assets/vendor/clipper.esm.js';
+import { deflateSync } from '../../../assets/vendor/fflate.module.js';
 import { regionFillContours } from './region-geometry.js';
 import { getBoardOutline, boardBoundary, rectangleBoardOutline } from './board-outline.js';
+import { buildPanelLayout } from './panelization.js';
+import { closestPointOnSegment, pointInPolygon } from '../../core/geometry.js';
 
 const FORMAT = '%FSLAX46Y46*%\n%MOMM*%\n';
 const SCALE = 1e6; // 4.6 fixed-point: multiply mm by 10^6
+
+function finishArtwork(header, body, bounds, fiducialD = null) {
+    if (fiducialD !== null) {
+        body += `G04 Panel rail fiducials - DO NOT repeat*\n%LPD*%\nD${fiducialD}*\n`;
+        for (const mark of bounds.panel.fiducials) {
+            body += `X${_fmt(mark.x)}Y${_fmtY(mark.y)}D03*\n`;
+        }
+    }
+    return header + body + 'M02*\n';
+}
+
+function panelScoreFile(panel) {
+    let output = 'G04 ClearPCB V-score centerlines - NOT through routes*\n' + FORMAT + '%LPD*%\n%ADD10C,0.1*%\nD10*\n';
+    for (const [start, end] of panel.cuts) {
+        output += `X${_fmt(start.x)}Y${_fmtY(start.y)}D02*\nX${_fmt(end.x)}Y${_fmtY(end.y)}D01*\n`;
+    }
+    return output + 'M02*\n';
+}
 
 function padOperation(flash, getAp, bounds) {
     const contour = padFlashOutline(flash);
@@ -109,6 +130,17 @@ function _clipContours(contours, bounds, operation = ClipperLib.ClipType.ctInter
     return result.map(contour => contour.map(point => ({ x: point.X / SCALE, y: point.Y / SCALE })));
 }
 
+function _holeRoutingRadius(x, y, radius, bounds) {
+    if (!(radius > 0) || !bounds?.points?.length || !pointInPolygon({ x, y }, bounds.points)) return radius;
+    let edgeDistance = Infinity;
+    for (let index = 0; index < bounds.points.length; index++) {
+        const closest = closestPointOnSegment({ x, y }, bounds.points[index],
+            bounds.points[(index + 1) % bounds.points.length]);
+        edgeDistance = Math.min(edgeDistance, Math.hypot(x - closest.x, y - closest.y));
+    }
+    return Math.abs(edgeDistance - radius) <= 1 / SCALE ? radius + 0.01 : radius;
+}
+
 function _shapeContourRegion(contours, bounds) {
     contours = _clipContours(contours, bounds);
     return regionFillContours(contours).map(contour => {
@@ -136,7 +168,7 @@ function _shapeContourRegion(contours, bounds) {
  * @param {number} [opts.boardY=0]                bottom-left Y of board, mm
  * @returns {Map<string, string>} filename → file contents
  */
-export function exportGerbers(opts) {
+export function exportGerbers(opts, onProgress = (done, total, name) => {}) {
     const {
         placements, tracks = [], vias = [],
         boardWidth, boardHeight, boardRadius = 0,
@@ -144,6 +176,7 @@ export function exportGerbers(opts) {
         texts = [], fills = [], boardShapes = [],
     } = opts;
     const circles = boardShapes.filter((shape) => shape?.kind === 'circle');
+    const panel = opts.panelization ? buildPanelLayout(opts, opts.panelization) : null;
 
     // Caller's boardX/boardY describe the Y-up bottom-left corner of the
     // board. Internal data is SVG-Y-down, so for clipping we shift the
@@ -165,25 +198,59 @@ export function exportGerbers(opts) {
         legacy.points = legacy.points.map(point => ({ x: point.x + boardX, y: point.y - boardY }));
         Object.assign(clipBounds, boardBoundary({ boardShapes: [legacy] }));
     }
-    const files = new Map([
-        ['board.gtl', _buildCopper(placements, tracks, vias, 'top-copper', clipBounds, texts, fills, circles, boardShapes)],
-        ['board.gbl', _buildCopper(placements, tracks, vias, 'bottom-copper', clipBounds, texts, fills, circles, boardShapes)],
-        ['board.gts', _buildMask(placements, vias, 'top', clipBounds, boardShapes)],
-        ['board.gbs', _buildMask(placements, vias, 'bottom', clipBounds, boardShapes)],
-        ['board.gtp', _buildPaste(placements, 'top', clipBounds)],
-        ['board.gbp', _buildPaste(placements, 'bottom', clipBounds)],
-        ['board.gto', _buildSilk(placements, 'top', clipBounds, texts, boardShapes)],
-        ['board.gbo', _buildSilk(placements, 'bottom', clipBounds, texts, boardShapes)],
-        ['board.gko', _buildOutline(outlineBounds, boardShapes, clipBounds)],
+    if (panel) clipBounds.panel = panel;
+    const files = new Map();
+    const emit = (name, build) => {
+        onProgress(files.size, 14, name);
+        files.set(name, build());
+    };
+    const layers = [
+        ['board.gtl', () => _buildCopper(placements, tracks, vias, 'top-copper', clipBounds, texts, fills, circles, boardShapes)],
+        ['board.gbl', () => _buildCopper(placements, tracks, vias, 'bottom-copper', clipBounds, texts, fills, circles, boardShapes)],
+        ['board.gts', () => _buildMask(placements, vias, 'top', clipBounds, boardShapes)],
+        ['board.gbs', () => _buildMask(placements, vias, 'bottom', clipBounds, boardShapes)],
+        ['board.gtp', () => _buildPaste(placements, 'top', clipBounds)],
+        ['board.gbp', () => _buildPaste(placements, 'bottom', clipBounds)],
+        ['board.gto', () => _buildSilk(placements, 'top', clipBounds, texts, boardShapes)],
+        ['board.gbo', () => _buildSilk(placements, 'bottom', clipBounds, texts, boardShapes)],
+        ['board.gko', () => _buildOutline(outlineBounds, boardShapes, clipBounds)],
         // Plated through-holes (pads, vias, and Hole-layer circles) and
         // non-plated holes go in separate Excellon files so fabs (JLCPCB,
         // etc.) can tell them apart — they key off the -PTH / -NPTH suffix.
-        ['board-PTH.drl', _buildDrill(_collectPlatedDrills(placements, vias, boardShapes), clipBounds)],
-    ]);
+        ['board-PTH.drl', () => _buildDrill(_collectPlatedDrills(placements, vias, boardShapes, clipBounds), clipBounds, false, panel)],
+    ];
+    for (const [name, build] of layers) emit(name, build);
     // Only emit the NPTH file when there are non-plated holes — an empty
     // drill file trips up some fab pre-checks.
     const npth = _collectNonPlatedDrills(boardShapes, placements, clipBounds);
-    if (npth.length) files.set('board-NPTH.drl', _buildDrill(npth, clipBounds, true));
+    if (npth.length || panel?.drills.length) emit('board-NPTH.drl', () => _buildDrill(npth, clipBounds, true, panel));
+    if (panel) {
+        if (panel.cuts.length) files.set('board-vscore.gbr', panelScoreFile(panel));
+        const { rows, columns, separation, columnSpacing, rowSpacing } = panel.settings;
+        const source = panel.sourceBounds;
+        const method = separation === 'tabs' ? 'Stamp Hole' : 'V-Cut';
+        const instruction = `Panelize: ${method}, Column: ${columns}, Row: ${rows}, Board Size: ${source.w.toFixed(2)}mm x ${source.h.toFixed(2)}mm, Panelized Board Size: ${panel.bounds.w.toFixed(2)}mm x ${panel.bounds.h.toFixed(2)}mm`;
+        for (const [name, content] of files) {
+            if (!name.endsWith('.drl')) files.set(name, `G04 ${instruction}*\n` + content);
+        }
+        files.set('panel-settings.json', JSON.stringify(panel.settings, null, 2));
+        files.set('panel-notes.txt', [instruction, ...panel.note,
+            'MANUFACTURER PANELIZATION REQUIRED: copper, mask, paste and silk contain ONE source board, plus panel-wide rail fiducials on copper/mask when enabled.',
+            'Component holes, vias and source-board NPTH holes are supplied ONCE at the source-board position.',
+            `Repeat source artwork and component drills across ${columns} columns and ${rows} rows without rotation or reflection.`,
+            `Gerber/Excellon offsets in mm: column step X=+${(source.w + columnSpacing).toFixed(6)}, row step Y=-${(source.h + rowSpacing).toFixed(6)}. First instance offset is X=0, Y=0.`,
+            `Source-board bounding box in Gerber/Excellon mm: X=${source.x.toFixed(6)} to ${(source.x + source.w).toFixed(6)}, Y=${(-(source.y + source.h)).toFixed(6)} to ${(-source.y).toFixed(6)}.`,
+            'board.gko already contains the FULL panel profile and repeated routed cutouts; DO NOT repeat it.',
+            'Hole-layer circles and slots crossing the source outline are clipped routed profiles, not full drills. If marked plated in the design, confirm routed-edge plating separately with the manufacturer.',
+            'Mouse-bite holes in board-NPTH.drl are already at ALL panel tab positions; DO NOT repeat those holes.',
+            `Rail positioning holes: ${panel.positioningHoles.length}, 3 mm NPTH, already at full-panel positions in board-NPTH.drl; DO NOT repeat.`,
+            `Rail fiducials: ${panel.fiducials.length}, 1 mm copper with 3 mm mask openings on BOTH sides, no paste; already at full-panel positions in board.gtl/gbl/gts/gbs; DO NOT repeat.`,
+            'board-vscore.gbr, when present, contains V-score centerlines, not through cuts.',
+            'Confirm manufacturer-side panelization before ordering; panel comments are instructions, not executable Gerber repetition.',
+            'Confirm cutter size, copper-to-edge clearance, tab strength and scoring requirements with the manufacturer.',
+        ].join('\n') + '\n');
+    }
+    onProgress(files.size, files.size, 'Artwork complete');
     return files;
 }
 
@@ -346,6 +413,7 @@ function _buildCopper(placements, tracks, vias, layerId, bounds, texts = [], fil
         }
     }
 
+    const fiducialD = bounds?.panel?.fiducials.length ? getAp(apKey('C', 1)) : null;
     // Emit file.
     let out = `G04 ClearPCB ${isTop ? 'Top' : 'Bottom'} Copper*\n` + FORMAT;
     out += '%LPD*%\n';
@@ -353,6 +421,8 @@ function _buildCopper(placements, tracks, vias, layerId, bounds, texts = [], fil
         out += `%ADD${code}${_apertureBody(key)}*%\n`;
     }
     // Pour regions omit their holes without clearing previously emitted islands.
+    const header = out;
+    out = '';
     // Pads, tracks and vias are added afterward; explicit cutouts are applied last.
     out += _buildFillRegions(fills, layerId, bounds);
     out += '%LPD*%\n';
@@ -380,15 +450,15 @@ function _buildCopper(placements, tracks, vias, layerId, bounds, texts = [], fil
         if (clearShapeRegions) out += clearShapeRegions;
         out += '%LPD*%\n';
     }
-    out += 'M02*\n';
-    return out;
+    return finishArtwork(header, out, bounds, fiducialD);
 }
 
 /**
  * Emit copper-pour polygons for `layerId` as gerber G36/G37 regions. Each
  * pour's last-computed geometry is a list of ExPolygons {outer, holes} in
- * world mm (SVG-Y-down). Hole-bearing polygons are triangulated into dark
- * regions so their holes cannot erase other islands. Returns '' for no fills.
+ * world mm (SVG-Y-down). Hole-bearing polygons are triangulated into simple
+ * dark regions, preserving holes without erasing other islands.
+ * Returns '' for no fills.
  */
 function _buildFillRegions(fills, layerId, bounds) {
     if (!Array.isArray(fills) || !fills.length) return '';
@@ -514,18 +584,20 @@ function _buildPadLayer(placements, vias, side, bounds, opts) {
         }
     }
 
+    const fiducialD = respectMask && bounds?.panel?.fiducials.length ? getAp(apKey('C', 3)) : null;
     let out = `G04 ClearPCB ${title}*\n` + FORMAT + '%LPD*%\n';
     for (const [key, code] of apertures) {
         out += `%ADD${code}${_apertureBody(key)}*%\n`;
     }
+    const header = out;
+    out = '';
     let currentD = -1;
     for (const { d, op } of ops) {
         if (d !== currentD) { out += `D${d}*\n`; currentD = d; }
         out += op + '\n';
     }
     out += shapeRegions;
-    out += 'M02*\n';
-    return out;
+    return finishArtwork(header, out, bounds, fiducialD);
 }
 
 /* ──────────────────────────── soldermask ──────────────────────────── */
@@ -600,7 +672,7 @@ function _buildSilk(placements, side, bounds, texts = [], boardShapes = []) {
         if (code === undefined) {
             code = nextCode++;
             apertures.set(key, code);
-            header = `%ADD${code}C,${w.toFixed(4)}*%\n`;
+            out += `%ADD${code}C,${w.toFixed(4)}*%\n`;
         }
         let sel = '';
         if (w !== currentApertureW) {
@@ -711,8 +783,7 @@ function _buildSilk(placements, side, bounds, texts = [], boardShapes = []) {
         }
     }
 
-    out += body + 'M02*\n';
-    return out;
+    return finishArtwork(out, 'D10*\n' + body, bounds);
 }
 
 /* ──────────────────────────── board outline ──────────────────────────── */
@@ -769,6 +840,7 @@ function _buildOutline(b, boardShapes = [], bounds) {
         if (!bounds?.points) return true;
         if (!_clipContours(contours, bounds).length) return false;
         if (_clipContours(contours, bounds, ClipperLib.ClipType.ctDifference).length) crossingCutout = true;
+        if (bounds.panel) contours = _clipContours(contours, bounds);
         const union = new ClipperLib.Clipper();
         union.AddPaths(contours.map(contour => contour.map(point => ({ X: _fx(point.x), Y: _fx(point.y) }))),
             ClipperLib.PolyType.ptSubject, true);
@@ -782,9 +854,13 @@ function _buildOutline(b, boardShapes = [], bounds) {
         if (!s || s.layer !== 'hole') continue;
         const geometry = resolveBoardShapeGeometry(s);
         if (geometry.circle) {
-            const { x, y, outerRadius: radius } = geometry.circle;
+            const { x, y, outerRadius } = geometry.circle;
+            const radius = _holeRoutingRadius(x, y, outerRadius, bounds);
             if (radius <= 0) continue;
-            if (!includeCutout([padFlashOutline({ x, y, w: radius * 2, h: radius * 2, shape: 'circle' })])) continue;
+            const contours = [padFlashOutline({ x, y, w: radius * 2, h: radius * 2, shape: 'circle' })];
+            if (bounds?.points && !bounds.panel && radius === Number(s.radius)
+                && !_clipContours(contours, bounds, ClipperLib.ClipType.ctDifference).length) continue;
+            if (!includeCutout(contours)) continue;
             const startX = x - radius;
             out += 'G75*\n';
             out += `X${_fmt(startX)}Y${_fmt(-y)}D02*\n`;
@@ -824,14 +900,21 @@ function _buildOutline(b, boardShapes = [], bounds) {
             }
         }
     }
-    if (crossingCutout) {
+    if (bounds?.panel || crossingCutout) {
         const clipper = new ClipperLib.Clipper();
-        clipper.AddPath(bounds.points.map(point => ({ X: _fx(point.x), Y: _fx(point.y) })),
+        clipper.StrictlySimple = true;
+        const panel = bounds.panel;
+        const subject = panel ? panel.contours : [bounds.points];
+        clipper.AddPaths(subject.map(contour => contour.map(point => ({ X: _fx(point.x), Y: _fx(point.y) }))),
             ClipperLib.PolyType.ptSubject, true);
-        clipper.AddPaths(cutoutPaths, ClipperLib.PolyType.ptClip, true);
-        const contours = [];
-        clipper.Execute(ClipperLib.ClipType.ctDifference, contours,
+        const repeatedCutouts = panel ? panel.instances.flatMap(instance => cutoutPaths.map(path =>
+            path.map(point => ({ X: point.X + _fx(instance.dx), Y: point.Y + _fx(instance.dy) })))) : cutoutPaths;
+        clipper.AddPaths(repeatedCutouts, ClipperLib.PolyType.ptClip, true);
+        const tree = new ClipperLib.PolyTree();
+        clipper.Execute(ClipperLib.ClipType.ctDifference, tree,
             ClipperLib.PolyFillType.pftNonZero, ClipperLib.PolyFillType.pftNonZero);
+        if (panel && tree.Childs().length !== 1) throw new Error('Board cutouts disconnect the panel. Adjust tabs or rails before exporting.');
+        const contours = ClipperLib.Clipper.PolyTreeToPaths(tree);
         out = 'G04 ClearPCB Board Outline*\n' + FORMAT + '%LPD*%\n%ADD10C,0.1*%\nD10*\n';
         for (const contour of contours) {
             if (contour.length < 3) continue;
@@ -847,7 +930,7 @@ function _buildOutline(b, boardShapes = [], bounds) {
 /* ──────────────────────────── drill ──────────────────────────── */
 
 /** Collect plated drills: through-hole pads, vias, and plated Hole-layer shapes. */
-function _collectPlatedDrills(placements, vias, boardShapes = []) {
+function _collectPlatedDrills(placements, vias, boardShapes = [], bounds = null) {
     const out = [];
     // Through-hole pad drills (round + oval slot), posed via the shared resolver.
     for (const drill of resolvePlacementDrills(placements)) {
@@ -865,9 +948,12 @@ function _collectPlatedDrills(placements, vias, boardShapes = []) {
         if (circle?.kind !== 'circle') continue;
         if (circle?.layer !== 'hole' || !circle.plated) continue;
         const dia = 2 * (Number(circle.radius) || 0);
+        if (_holeRoutingRadius(circle.x, circle.y, dia / 2, bounds) > dia / 2) continue;
+        if (bounds && dia > 0 && _clipContours([padFlashOutline({ x: circle.x, y: circle.y, w: dia, h: dia, shape: 'circle' })],
+            bounds, ClipperLib.ClipType.ctDifference).length) continue;
         if (dia > 0) out.push({ dia, x: circle.x, y: circle.y });
     }
-    out.push(..._collectBoardShapeSlots(boardShapes, true));
+    out.push(..._collectBoardShapeSlots(boardShapes, true, bounds));
     return out;
 }
 
@@ -880,6 +966,7 @@ function _collectNonPlatedDrills(boardShapes = [], placements = new Map(), bound
         if (!c || c.layer !== 'hole' || c.plated) continue;
         const dia = 2 * (Number(c.radius) || 0);
         if (dia <= 0) continue;
+        if (_holeRoutingRadius(c.x, c.y, dia / 2, bounds) > dia / 2) continue;
         const contour = padFlashOutline({ x: c.x, y: c.y, w: dia, h: dia, shape: 'circle' });
         if (bounds?.points && _clipContours([contour], bounds, ClipperLib.ClipType.ctDifference).length) continue;
         out.push({ dia, x: c.x, y: c.y });
@@ -890,12 +977,12 @@ function _collectNonPlatedDrills(boardShapes = [], placements = new Map(), bound
         if (drill.plated) continue;
         out.push({ dia: drill.dia, x: drill.x, y: drill.y });
     }
-    out.push(..._collectBoardShapeSlots(boardShapes, false));
+    out.push(..._collectBoardShapeSlots(boardShapes, false, bounds));
     return out;
 }
 
 /** Convert each segment of a Hole-layer Line into a round-ended routed slot. */
-function _collectBoardShapeSlots(boardShapes, plated) {
+function _collectBoardShapeSlots(boardShapes, plated, bounds = null) {
     const slots = [];
     for (const shape of boardShapes) {
         if (!shape || shape.kind !== 'line' || shape.layer !== 'hole' || !!shape.plated !== plated) continue;
@@ -906,6 +993,8 @@ function _collectBoardShapeSlots(boardShapes, plated) {
             }));
         for (const { start, end, lineWidth } of segments) {
             if (Math.hypot(end.x - start.x, end.y - start.y) <= 1e-9) continue;
+            if (bounds && _clipContours(_strokeContours([start, end], false, lineWidth), bounds,
+                ClipperLib.ClipType.ctDifference).length) continue;
             slots.push({
                 dia: lineWidth,
                 x: start.x,
@@ -924,7 +1013,13 @@ function _collectBoardShapeSlots(boardShapes, plated) {
  * @param {object} bounds   board clip bounds
  * @param {boolean} [nonPlated]  annotate the header as non-plated
  */
-function _buildDrill(drills, bounds, nonPlated = false) {
+function _buildDrill(drills, bounds, nonPlated = false, panel = null) {
+    if (panel) {
+        drills = drills.filter(drill => _inBoard(drill.x, drill.y, bounds)
+            && (!Number.isFinite(drill.x2) || _inBoard(drill.x2, drill.y2, bounds)));
+        if (nonPlated) drills.push(...panel.drills.map(drill => ({ x: drill.x, y: drill.y, dia: drill.diameter })));
+        bounds = null;
+    }
     /** @type {Map<number, Array<{x:number,y:number}>>} drill mm → positions */
     const tools = new Map();
     for (const d of drills) {
@@ -977,7 +1072,7 @@ function _buildDrill(drills, bounds, nonPlated = false) {
 /* ──────────────────────────── zip writer ──────────────────────────── */
 
 /**
- * Build a store-only (no compression) ZIP from a Map of filename → string.
+ * Build a DEFLATE-compressed ZIP from a Map of filename → string.
  * Returns a Blob suitable for `URL.createObjectURL`.
  *
  * Implements just the subset of the ZIP spec needed for a flat archive of
@@ -1010,21 +1105,22 @@ export function buildZip(files) {
         const nameBytes = encoder.encode(name);
         const dataBytes = encoder.encode(content);
         const crc = _crc32(dataBytes);
+        const compressedBytes = deflateSync(dataBytes, { level: 6 });
 
         // Local file header.
         const lfh = concat([
             u32(0x04034b50),    // signature
             u16(20),            // version needed
             u16(0),             // flags
-            u16(0),             // compression: store
+            u16(8),             // compression: DEFLATE
             u16(0), u16(0),     // mod time, mod date
             u32(crc),
-            u32(dataBytes.length), // compressed
+            u32(compressedBytes.length), // compressed
             u32(dataBytes.length), // uncompressed
             u16(nameBytes.length),
             u16(0),             // extra field length
             nameBytes,
-            dataBytes,
+            compressedBytes,
         ]);
         chunks.push(lfh);
 
@@ -1032,10 +1128,10 @@ export function buildZip(files) {
         central.push(concat([
             u32(0x02014b50),
             u16(20), u16(20),   // version made by, version needed
-            u16(0), u16(0),
+            u16(0), u16(8),
             u16(0), u16(0),
             u32(crc),
-            u32(dataBytes.length),
+            u32(compressedBytes.length),
             u32(dataBytes.length),
             u16(nameBytes.length),
             u16(0), u16(0),     // extra, comment

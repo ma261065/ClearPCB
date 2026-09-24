@@ -75,7 +75,7 @@ export function renderPcbSelectionAnchors(app) {
             }
             handle.setAttribute('fill', anchor.fill || '#ffffff');
             handle.setAttribute('stroke', anchorColor);
-            handle.setAttribute('stroke-width', String((anchor.strokeWidthPx || 1) / scale));
+            handle.setAttribute('stroke-width', String(anchor.strokeWidthPx || 1));
             handle.setAttribute('vector-effect', 'non-scaling-stroke');
             handle.setAttribute('data-anchor-id', String(anchorId(anchor)));
             handle.style.cursor = app._rotationHandleDrag ? ROTATION_CURSOR : (anchor.cursor || 'move');

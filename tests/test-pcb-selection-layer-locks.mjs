@@ -148,10 +148,19 @@ const visibilityDependencies = {
 const onVisibility = new Function(...Object.keys(visibilityDependencies),
     `return ({ ${source.slice(visibilityStart, visibilityEnd)} })._onLayerVisibilityChanged;`)(...Object.values(visibilityDependencies));
 fillApp._layerGroups = new Map();
+let hatchRedraws = 0;
+fillApp._scheduleRemovalHatchRender = () => { hatchRedraws++; };
 fillApp._selectFill = () => { throw new Error('Copper visibility must not clear a visible fill'); };
 fillApp._clearProperties = () => { throw new Error('Visible fill properties must remain available'); };
 onVisibility.call(fillApp, 'top-copper', false);
+assert.equal(hatchRedraws, 1, 'Hiding top copper invalidates the separate hatch canvas');
 assert.deepEqual(getPcbSelection(fillApp, 'fill'), [visibleFill]);
+onVisibility.call(fillApp, 'top-copper', true);
+onVisibility.call(fillApp, 'bottom-copper', false);
+onVisibility.call(fillApp, 'bottom-copper', true);
+assert.equal(hatchRedraws, 4, 'Showing and hiding either copper side refreshes hatching');
+onVisibility.call(fillApp, 'top-silk', true);
+assert.equal(hatchRedraws, 4, 'Unrelated layer visibility does not redraw copper hatching');
 
 const lockStart = source.indexOf('    _onCopperFillLockChanged(copperLayerId, locked) {');
 const lockEnd = source.indexOf('\n    /** Hit-test a world point', lockStart);

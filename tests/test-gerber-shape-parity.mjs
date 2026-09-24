@@ -78,14 +78,23 @@ for (const layer of ['top-silk', 'bottom-silk']) {
     assert.match(disc, /X30000000Y30000000D03\*/);
 }
 console.log('PASS Gerber silk circles preserve outer radius, thickness and fill on both sides');
-function regionsIn(file) {
+function nativeRegionsIn(file) {
     return [...file.matchAll(/G36\*\n([\s\S]*?)G37\*/g)].map(match => {
-        assert.equal((match[1].match(/D02\*/g) || []).length, 1, 'Each region has one unambiguous contour');
-        const points = [...match[1].matchAll(/X(-?\d+)Y(-?\d+)D0[12]\*/g)]
-            .map(point => ({ x: Number(point[1]) / 1e6, y: -Number(point[2]) / 1e6 }));
-        assert.deepEqual(points[0], points.at(-1), 'Regions explicitly close');
-        return points;
+        const contours = [];
+        for (const point of match[1].matchAll(/X(-?\d+)Y(-?\d+)D0([12])\*/g)) {
+            if (point[3] === '2') contours.push([]);
+            assert.ok(contours.length, 'A contour starts with a move');
+            contours.at(-1).push({ x: Number(point[1]) / 1e6, y: -Number(point[2]) / 1e6 });
+        }
+        assert.equal(contours.length, 1, 'Each emitted region has one simple contour, never nested hole contours');
+        for (const contour of contours) {
+            assert.deepEqual(contour[0], contour.at(-1), 'Every region contour explicitly closes');
+        }
+        return contours;
     });
+}
+function regionsIn(file) {
+    return nativeRegionsIn(file).flat();
 }
 const portrait = pictureShape({ width: 10, height: 10, contours: [
     [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }, { x: 0, y: 10 }],
@@ -138,6 +147,55 @@ assert.ok(pointInPolygon({ x: 30, y: -30 }, cutout), 'The arc centreline is remo
 assert.equal(pointInPolygon({ x: 30, y: -25 }, cutout), false, 'A curved slot must not become a filled arc segment');
 assert.ok(pointInPolygon({ x: 19.5, y: -20 }, cutout), 'Round end-cap extends by the stroke radius');
 console.log('PASS board-edge text strokes and curved cutout thickness/caps');
+for (const plated of [false, true]) {
+    const tangentHole = { kind: 'circle', layer: 'hole', x: 88.9, y: -76.2,
+        radius: 3.81, lineWidth: 0.2, filled: false, plated };
+    const crossingHole = { kind: 'circle', layer: 'hole', x: 42.8397, y: -75.8597,
+        radius: 7.2842, lineWidth: 0.2, filled: false, plated: true };
+    for (const otherShapes of [[], [crossingHole]]) {
+        const board = { placements: new Map(), boardWidth: 100.33, boardHeight: 80.01 };
+        const baseline = exportGerbers({ ...board, boardShapes: otherShapes });
+        const original = JSON.stringify(tangentHole);
+        const result = exportGerbers({ ...board, boardShapes: [...otherShapes, tangentHole] });
+        const profile = result.get('board.gko');
+        assert.notEqual(profile, baseline.get('board.gko'), 'A tangent hole becomes a routed notch');
+        assert.equal((profile.match(/D02\*/g) || []).length, 1, 'The notch is part of one outer contour');
+        const points = [...profile.matchAll(/X(-?\d+)Y(-?\d+)D0[12]\*/g)]
+            .map(point => ({ x: Number(point[1]) / 1e6, y: -Number(point[2]) / 1e6 }));
+        assert.equal(pointInPolygon({ x: tangentHole.x, y: tangentHole.y }, points), false,
+            'The original hole centre is outside the substrate');
+        const neck = points.filter(point => point.y === -80.01 && Math.abs(point.x - tangentHole.x) < 1);
+        assert.equal(new Set(neck.map(point => point.x)).size, 2, 'The notch has a finite opening, not one tangent point');
+        assert.doesNotMatch(result.get(plated ? 'board-PTH.drl' : 'board-NPTH.drl') || '', /X88\.900Y76\.200/);
+        assert.equal(JSON.stringify(tangentHole), original, 'Relief does not mutate the saved hole');
+        const inward = exportGerbers({ ...board, boardShapes: [...otherShapes, { ...tangentHole, y: -76 }] });
+        assert.equal(inward.get('board.gko'), baseline.get('board.gko'), 'An internal hole needs no routed relief');
+        const drill = inward.get(plated ? 'board-PTH.drl' : 'board-NPTH.drl');
+        assert.match(drill, /T\d+C7\.620/);
+        assert.match(drill, /X88\.900Y76\.000/);
+    }
+}
+for (const plated of [false, true]) {
+    const insideHole = { kind: 'circle', layer: 'hole', x: 10, y: -10, radius: 1, filled: true, lineWidth: 0, plated };
+    const board = { placements: new Map(), boardWidth: 100.33, boardHeight: 80.01 };
+    const baseline = exportGerbers({ ...board, boardShapes: [insideHole] });
+    for (const crossing of [
+        { kind: 'circle', layer: 'hole', x: 42.8397, y: -75.8597, radius: 7.2842, filled: true, lineWidth: 0, plated },
+        { kind: 'line', layer: 'hole', points: [{ x: 99.83, y: -20 }, { x: 99.83, y: -25 }], lineWidth: 2, plated },
+    ]) {
+        const result = exportGerbers({ ...board, boardShapes: [insideHole, crossing] });
+        const drillFile = plated ? 'board-PTH.drl' : 'board-NPTH.drl';
+        assert.equal(result.get(drillFile), baseline.get(drillFile),
+            'Single-board edge openings do not add full drills or slots outside the board');
+        assert.match(result.get(drillFile), /X10\.000Y10\.000/, 'Internal holes remain drilled');
+        assert.notEqual(result.get('board.gko'), baseline.get('board.gko'), 'Edge opening remains in the routed profile');
+        for (const point of result.get('board.gko').matchAll(/X(-?\d+)Y(-?\d+)D0[12]\*/g)) {
+            assert.ok(Number(point[1]) >= 0 && Number(point[1]) <= 100330000
+                && Number(point[2]) >= 0 && Number(point[2]) <= 80010000,
+            'Clipped routed profile stays inside the source boundary');
+        }
+    }
+}
 const arcHole = { kind: 'arc', layer: 'hole', lineWidth: 2,
     start: { x: 20, y: -20 }, end: { x: 40, y: -20 }, bulge: { x: 30, y: -30 } };
 const arcOutline = exportShapes([arcHole]).get('board.gko');
@@ -163,7 +221,16 @@ for (const [layer, file] of [['top-copper', 'board.gtl'], ['top-silk', 'board.gt
 }
 const pour = { layer: 'top-copper', _computed: [{ outer: triangle.points,
     holes: [[{ x: 23, y: -20 }, { x: 27, y: -20 }, { x: 25, y: -25 }]] }] };
-regionsIn(exportGerbers({ placements: new Map(), boardWidth: 100, boardHeight: 80, fills: [pour] }).get('board.gtl'));
+const pourFile = exportGerbers({ placements: new Map(), boardWidth: 100, boardHeight: 80, fills: [pour] }).get('board.gtl');
+const pourRegions = nativeRegionsIn(pourFile);
+assert.ok(pourRegions.length > 1, 'A pour with a hole is decomposed into simple regions');
+assert.equal(regionsIn(pourFile).some(contour => pointInPolygon({ x: 25, y: -22 }, contour)), false,
+    'The hole is empty under additive Gerber region semantics');
+const solidPourFile = exportGerbers({ placements: new Map(), boardWidth: 100, boardHeight: 80,
+    fills: [{ layer: 'top-copper', _computed: [{ outer: triangle.points, holes: [] }] }] }).get('board.gtl');
+assert.equal(nativeRegionsIn(solidPourFile).length, 1, 'A hole-free pour remains one compact region');
+assert.doesNotMatch(pourFile, /%LPC\*%/, 'A region hole does not clear copper from earlier objects');
+regionsIn(pourFile);
 console.log('PASS filled arc and pour regions explicitly close on all exported layers');
 const edgeCircles = [
     { kind: 'circle', layer: 'top-copper', filled: true, copperMode: 'add', lineWidth: 1.1,

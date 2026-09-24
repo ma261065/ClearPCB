@@ -10,6 +10,8 @@ import { Via, resetViaIdCounter, updateViaIdCounter } from '../../shapes/via.js'
 import { CopperFill, updateFillIdCounter } from '../../shapes/copper-fill.js';
 import { createShape } from '../../shapes/index.js';
 import { serializeGridSettings, restoreGridSettings } from '../../ui/modules/viewport.js';
+import { panelSettings } from './panelization.js';
+import { renderPanelPreview, resetPanelPreview } from './panelization-ui.js';
 
 const round4 = value => Number.isFinite(value) ? Math.round(value * 10000) / 10000 : value;
 
@@ -46,6 +48,7 @@ export function serializePcb(app) {
             radius: round4(app._boardRadius),
         },
         design,
+        ...(app.panelization ? { panelization: panelSettings(app.panelization) } : {}),
         settings: serializeGridSettings(app.viewport),
         tracks: app.tracks.map(t => t.toJSON()),
         vias: app.vias.map(v => v.toJSON()),
@@ -60,6 +63,7 @@ export function serializePcb(app) {
 }
 
 export function preparePcb(data) {
+    const panelization = data?.panelization ? panelSettings(data.panelization) : null;
     for (const shape of data?.boardShapes || []) {
         if (shape.layer === 'board-outline' && !validBoardOutline(shape)) {
             throw new Error('The board outline must be one closed rectangle, polygon, or circle.');
@@ -79,11 +83,13 @@ export function preparePcb(data) {
     for (const item of data?.fills || []) stage.boardShapes.push(CopperFill.fromJSON(item));
     return { tracks, vias: (data?.vias || []).map((item) => Via.fromJSON(item)),
         texts: (data?.texts || []).map((item) => createPcbText(item)),
-        boardShapes: stage.boardShapes, shapeIdCounter: stage._shapeIdCounter };
+        boardShapes: stage.boardShapes, shapeIdCounter: stage._shapeIdCounter, panelization };
 }
 
 /** @param {any} app */
 export function loadPcb(app, data, prepared = preparePcb(data)) {
+    resetPanelPreview(app);
+    app.panelization = null;
     const render = app._active !== false;
     if (!render) app._stale = true;
     // Need a viewport in place before we can render into layer
@@ -211,6 +217,8 @@ export function loadPcb(app, data, prepared = preparePcb(data)) {
     // Loading a document is not a user edit — start from a clean slate so
     // a freshly opened/recovered board isn't immediately treated as having
     // unsaved PCB changes (which would re-trigger autosave after a save).
+    app.panelization = prepared.panelization ? { ...prepared.panelization } : null;
+    if (render) renderPanelPreview(app);
     app._isDirty = false;
 }
 

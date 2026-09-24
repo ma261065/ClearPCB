@@ -331,6 +331,7 @@
                 <div class="ribbon-group">
                     <div class="ribbon-group-title">Fabrication</div>
                     <div class="ribbon-group-items">
+                        <button id="pcbPanelize" title="Configure board panel, rails and separation"><span aria-hidden="true">▦</span> Panelize</button>
                         <button id="pcbExportGerber" title="Export Gerber + drill files as ZIP">📁 Export Gerber</button>
                         <button id="pcbExportBOM" title="Export Bill of Materials as CSV">📋 Export BOM</button>
                         <button id="pcbExportPnP" title="Export Pick-and-place (centroid) file as CSV">📍 Export P&amp;P</button>
@@ -518,6 +519,12 @@
                 <div class="status-item status-filename">
                     <span class="value pcb-status-tip" id="pcbStatusTip" hidden></span>
                     <span class="value" id="pcbModeStatus">Active: Select | Top Layer</span>
+                </div>
+                <div id="pcbGerberProgress" hidden role="status" aria-live="polite">
+                    <span style="display:flex;align-items:center;gap:6px;max-width:230px">
+                        <span data-label style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span>
+                        <progress max="100" aria-label="Gerber export progress" style="width:70px;height:8px;flex-shrink:0"></progress>
+                    </span>
                 </div>
                 <div class="status-item status-filename">
                     <span class="value" id="pcbDocTitle">untitled.json</span>
