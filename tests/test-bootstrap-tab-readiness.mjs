@@ -7,6 +7,8 @@ const end = source.indexOf('\ndocument.addEventListener(', start);
 assert.ok(start >= 0 && end > start);
 
 function fixture() {
+    let keydown = null;
+    let modal = null;
     let finishRecovery, failRecovery;
     const recovery = new Promise((resolve, reject) => { finishRecovery = resolve; failRecovery = reject; });
     const events = [];
@@ -15,19 +17,22 @@ function fixture() {
     let idleId = 0;
     const tabs = ['schematic', 'pcb'].map(mode => ({
         dataset: { mode }, listeners: [], classes: new Map(), attributes: new Map(),
-        classList: { toggle(name, value) { this.owner.classes.set(name, value); } },
+        classList: { toggle(name, value) { this.owner.classes.set(name, value); },
+            contains(name) { return this.owner.classes.get(name) === true; } },
         addEventListener(type, handler) { this.listeners.push({ type, handler }); },
         setAttribute(name, value) { this.attributes.set(name, value); },
         removeAttribute(name) { this.attributes.delete(name); },
         blur() {},
     })).map(tab => { tab.classList.owner = tab; return tab; });
     const window = {
+        addEventListener(type, handler) { if (type === 'keydown') keydown = handler; },
         requestAnimationFrame(callback) { frames.push(callback); },
         cancelAnimationFrame() {},
         requestIdleCallback(callback) { idleCallbacks.set(++idleId, callback); return idleId; },
         cancelIdleCallback(id) { idleCallbacks.delete(id); },
     };
     const dependencies = {
+        ModalManager: { top: () => modal },
         window,
         document: { querySelectorAll: () => tabs, querySelector: () => null, getElementById: () => null },
         installNumberInputFormatting() {},
@@ -58,7 +63,41 @@ function fixture() {
     const click = () => tabs[1].listeners.find(listener => listener.type === 'click')?.handler();
     const flushFrame = () => frames.shift()?.();
     const flushIdle = () => idleCallbacks.values().next().value?.();
-    return { bootstrap, tabs, events, click, flushFrame, flushIdle, finishRecovery, failRecovery };
+    return { bootstrap, tabs, events, click, flushFrame, flushIdle, finishRecovery, failRecovery,
+        bindKeyboard: () => Bootstrap.prototype._bindKeyboardDispatcher.call(bootstrap),
+        key: event => keydown(event), setModal: value => { modal = value; } };
+}
+
+{
+    const test = fixture();
+    const modes = [];
+    let pcbKeys = 0;
+    test.tabs[0].classList.toggle('active', true);
+    test.bootstrap.pcbApp = { _active: false, handleKeyDown() { pcbKeys++; return true; } };
+    test.bootstrap.switchMode = mode => {
+        modes.push(mode);
+        test.tabs.forEach(tab => tab.classList.toggle('active', tab.dataset.mode === mode));
+        test.bootstrap.pcbApp._active = mode === 'pcb';
+    };
+    test.bindKeyboard();
+    const event = overrides => ({ key: 'Tab', ctrlKey: true, defaultPrevented: false, stopped: false,
+        preventDefault() { this.defaultPrevented = true; },
+        stopImmediatePropagation() { this.stopped = true; }, ...overrides });
+    for (const overrides of [{}, {}, { shiftKey: true }, { ctrlKey: false, metaKey: true }]) {
+        const press = event(overrides);
+        test.key(press);
+        assert.ok(press.defaultPrevented && press.stopped, 'mode cycling consumes the shortcut');
+    }
+    assert.deepEqual(modes, ['pcb', 'schematic', 'pcb', 'schematic'], 'Ctrl+Tab cycles repeatedly in both directions');
+    assert.equal(pcbKeys, 0, 'mode cycling precedes PCB shortcut dispatch');
+    test.key(event({ ctrlKey: false }));
+    test.key(event({ defaultPrevented: true }));
+    test.setModal({ id: 'settings' });
+    test.key(event({}));
+    assert.equal(modes.length, 4, 'plain Tab, consumed keys, and blocking modals do not switch mode');
+    test.setModal({ id: 'text-edit' });
+    test.key(event({ target: { tagName: 'INPUT', type: 'text' } }));
+    assert.equal(modes.at(-1), 'pcb', 'mode cycling remains available while editing text');
 }
 
 {

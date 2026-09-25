@@ -89,6 +89,8 @@ for (const withComponents of [false, true]) {
         activate: method('activate'), preload: method('preload'), _syncFromSchematic: method('_syncFromSchematic'),
         _renderPersistentObjects: method('_renderPersistentObjects'),
         initialize() {}, _hookSchematicChanges() {}, _updateCursorForTool() {}, _updateViewportStatus() {},
+        _retainRibbonHeight: record('ribbon-height'),
+        viewport: { _onResize: record('viewport-resize') },
         _setPcbStatus() {}, _setStatus() {}, _fitToPlacedContent() {},
         _clearPCBContent() { this.placements.clear(); calls.push('clear'); },
         _placeFootprints: record('footprints'), _updateRatsnest: record('ratsnest'),
@@ -106,8 +108,11 @@ for (const withComponents of [false, true]) {
         `Preloading clips once after the shape batch (components=${withComponents})`);
     assert.equal(app._active, false, 'preloading does not activate the PCB editor');
     assert.equal(app._stale, false);
+    assert.equal(calls.includes('ribbon-height'), false, 'hidden preloading does not measure the ribbon');
     calls.length = 0;
     app.activate();
+    assert.deepEqual(calls.slice(0, 3), ['ribbon-height', 'viewport', 'viewport-resize'],
+        'first activation measures ribbon height before creating or resizing the viewport');
     for (const name of ['shape', 'track', 'via', 'text', 'outline', 'clearance', 'ratsnest', 'fills']) {
         assert.equal(calls.filter(call => call === name).length, 0, `${name} is already rendered before activation (components=${withComponents})`);
     }
@@ -115,6 +120,8 @@ for (const withComponents of [false, true]) {
     assert.equal(app._stale, false);
     calls.length = 0;
     app.activate();
+    assert.deepEqual(calls.slice(0, 3), ['ribbon-height', 'viewport', 'viewport-resize'],
+        'returning to PCB remeasures the visible ribbon before viewport sizing');
     assert.equal(calls.includes('shape'), false, 'repeated activation does not rebuild unchanged images');
 }
 console.log('PASS: first activation renders each restored image once, with or without schematic components');

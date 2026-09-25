@@ -3,7 +3,7 @@ export function formatNumberInputValue(value) {
 }
 
 export function formatNumberInput(input) {
-    if (!input.matches('input[type="number"]') || input.dataset.numberFormat === 'rotation') return;
+    if (!input.matches('input[type="number"]') || ['rotation', 'precise'].includes(input.dataset.numberFormat)) return;
     const value = input.valueAsNumber;
     if (!Number.isFinite(value)) return;
     const formatted = input.dataset.numberFormat === 'integer' ? String(value) : formatNumberInputValue(value);

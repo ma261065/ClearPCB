@@ -354,9 +354,9 @@ export async function loadVersion(app) {
         }
 
         if (data) {
-            const versionDisplay = document.getElementById('version-display');
-            if (versionDisplay) {
-                versionDisplay.textContent = `v${data.version}`;
+            for (const id of ['version-display', 'pcb-version-display']) {
+                const versionDisplay = document.getElementById(id);
+                if (versionDisplay) versionDisplay.textContent = `v${data.version}`;
             }
         }
     } catch (err) {

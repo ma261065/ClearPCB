@@ -14,6 +14,10 @@ for (const [value, expected] of [['2', '2.00'], ['2.1', '2.10'], ['-3.5', '-3.50
     assert.equal(input.value, expected);
 }
 const rotation = field('15', true);
+const precise = field('0.001');
+precise.dataset.numberFormat = 'precise';
+formatNumberInput(precise);
+assert.equal(precise.value, '0.001', 'Geometric bulges are not rounded into straight lines');
 formatNumberInput(rotation);
 assert.equal(rotation.value, '15');
 for (const [value, expected] of [['2', '2'], ['2.00', '2'], ['20', '20'], ['2.5', '2.5']]) {
@@ -34,7 +38,7 @@ const listeners = new Map();
 const width = field('30');
 const root = {
     documentElement: {},
-    querySelectorAll() { return [width, rotation]; },
+    querySelectorAll() { return [width, rotation, precise]; },
     addEventListener(name, handler) { listeners.set(name, handler); },
     removeEventListener(name) { listeners.delete(name); },
 };
@@ -57,6 +61,9 @@ listeners.get('input')({ type: 'input', target: width });
 width.value = '30.2';
 await Promise.resolve();
 assert.equal(width.value, '30.20', 'Formatting runs after the control handler');
+listeners.get('change')({ type: 'change', target: precise });
+await Promise.resolve();
+assert.equal(precise.value, '0.001', 'Global change formatting preserves precise fields');
 assert.equal(rotation.value, '15');
 width.value = '1.';
 listeners.get('input')({ type: 'input', inputType: 'insertText', target: width });

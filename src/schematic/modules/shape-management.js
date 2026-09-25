@@ -5,6 +5,8 @@ import { detachLabel, syncAttachedLabels } from '../../ui/modules/label-attachme
 import { VERTEX_EPSILON } from './wire.js';
 import { connectComponentPinsToWires as _connectComponentPinsToWires, connectPinsToWires } from '../../ui/modules/pin-wire-connect.js';
 import { arcEdgePathD } from '../../shapes/arc-edge.js';
+import { appendSegmentSelection } from '../../core/ui-helpers.js';
+import { refreshAxisGlow } from '../../shapes/axis-glow.js';
 
 /**
  * Adds a shape to the canvas via an undoable `AddShapeCommand`.
@@ -314,9 +316,15 @@ export function renderShapes(app, force = false) {
     for (const shape of app.shapes) {
         if (shape._culled) continue; // skip off-screen
         if (force || shape._dirty || shape.selected || shape.hovered) {
+            const selectedNodeId = app._selectedShapeNode?.shapeId === shape.id
+                ? app._selectedShapeNode.nodeId : null;
+            const refined = app._selectedShapeSegment?.shapeId === shape.id || selectedNodeId != null;
             shape.render(scale, {
-                suppressSelection: app._selectedShapeSegment?.shapeId === shape.id,
+                suppressSelection: refined,
             });
+            if (refined && shape.selected && shape.type === 'polyline') {
+                shape._updateAnchors(scale, true, selectedNodeId);
+            }
         } else if (shape._lastScale !== scale && shape.element) {
             // Only stroke-width changed on zoom or force — fast-path update
             const sw = shape._getEffectiveStrokeWidth(scale);
@@ -352,6 +360,7 @@ export function renderShapes(app, force = false) {
         }
     }
     renderShapeSegmentSelection(app);
+    refreshAxisGlow(app);
 }
 
 /** Render the refined edge of a selected schematic polyline above the shape. */
@@ -367,23 +376,24 @@ export function renderShapeSegmentSelection(app) {
     if (!first || !second) return;
     const NS = 'http://www.w3.org/2000/svg';
     const bulge = shape.getEdgeAttr?.(selected.edgeId, 'bulge') || 0;
+    const straight = bulge ? null : shape.getStraightEdgePortion(selected.edgeId);
+    if (!bulge && !straight) return;
     const element = document.createElementNS(NS, bulge ? 'path' : 'line');
     if (bulge) {
         element.setAttribute('d', arcEdgePathD(first, second, bulge));
         element.setAttribute('fill', 'none');
     } else {
-        element.setAttribute('x1', String(first.x));
-        element.setAttribute('y1', String(first.y));
-        element.setAttribute('x2', String(second.x));
-        element.setAttribute('y2', String(second.y));
+        element.setAttribute('x1', String(straight.first.x));
+        element.setAttribute('y1', String(straight.first.y));
+        element.setAttribute('x2', String(straight.second.x));
+        element.setAttribute('y2', String(straight.second.y));
     }
     element.setAttribute('class', 'schematic-shape-segment-selection');
-    element.setAttribute('stroke', '#e94560');
-    element.setAttribute('stroke-width', '5');
-    element.setAttribute('stroke-linecap', 'round');
-    element.setAttribute('vector-effect', 'non-scaling-stroke');
-    element.setAttribute('pointer-events', 'none');
-    app.viewport.contentLayer.appendChild(element);
+    const width = Math.max(Number(shape.getEdgeAttr(selected.edgeId, 'width')) || shape.lineWidth,
+        1 / app.viewport.scale);
+    const overlay = app.viewport.contentLayer;
+    const handles = shape.anchorsGroup?.parentNode === overlay ? shape.anchorsGroup : null;
+    appendSegmentSelection(overlay, element, '#e94560', width, handles);
     app._shapeSegmentSelectionElement = element;
 }
 

@@ -23,7 +23,7 @@ globalThis.document = { createElementNS: element };
 const { CommandHistory } = await import('../src/core/CommandHistory.js');
 const { beginGroupDrag, updateGroupDrag, endGroupDrag, refreshBoxSelectionHighlights } =
     await import('../src/pcb/modules/box-select.js');
-const { registerPcbSelectionAdapter, setPcbSelection, getPcbSelection, clearPcbSelection } =
+const { registerPcbSelectionAdapter, setPcbSelection, getPcbSelection, getPcbSelectionEntries, clearPcbSelection } =
     await import('../src/pcb/modules/selection-registry.js');
 
 registerPcbSelectionAdapter('text', (app, text, id) => ({
@@ -78,17 +78,106 @@ const keyboardEnd = source.indexOf('    _commitTrack(', keyboardStart);
 assert.ok(keyboardStart >= 0 && keyboardEnd > keyboardStart);
 const keyboardDependencies = {
     getPcbSelection,
+    getPcbSelectionEntries,
+    beginGroupDrag, updateGroupDrag, endGroupDrag,
+    showPcbSelectionProperties() {},
     cancelShapeDraw(target) { target._shapeDraw = null; },
     cancelTrackDraw(target) { target._trackDraw = null; },
     cancelFillDraw(target) { target._fillDraw = null; },
     finishSelectionInteraction() { return false; },
     clearSelectionInteractionUi() {},
     clearBoxSelection: clearPcbSelection,
+    deleteFocusedBoardShape() { return false; },
+    deleteBoxSelection(target) {
+        const deleted = getPcbSelection(target, 'text').length > 0;
+        clearPcbSelection(target);
+        return deleted;
+    },
     hasBoxSelection(target) { return getPcbSelection(target).length > 0; },
     getSelectedTrack() { return null; }, getSelectedVia() { return null; },
 };
 const handleKeyDown = new Function(...Object.keys(keyboardDependencies),
     `return ({ ${source.slice(keyboardStart, keyboardEnd)} }).handleKeyDown;`)(...Object.values(keyboardDependencies));
+app._active = true;
+app.currentTool = 'select';
+app.viewport.snapToGrid = true;
+app.viewport.gridSize = 0.25;
+setPcbSelection(app, texts.map(object => ({ kind: 'text', object })));
+for (const [key, dx, dy] of [
+    ['ArrowUp', 0, -0.0625], ['ArrowDown', 0, 0.0625],
+    ['ArrowLeft', -0.0625, 0], ['ArrowRight', 0.0625, 0],
+]) {
+    const before = texts.map(text => [text.x, text.y]);
+    const after = before.map(([x, y]) => [x + dx, y + dy]);
+    assert.equal(handleKeyDown.call(app, { key }), true);
+    assert.deepEqual(texts.map(text => [text.x, text.y]), after, `${key}: one quarter-grid step`);
+    assert.deepEqual(coordinates(), after, `${key}: selection handles follow`);
+    app.history.undo();
+    assert.deepEqual(texts.map(text => [text.x, text.y]), before, `${key}: one undo restores the group`);
+    app.history.redo();
+    assert.deepEqual(texts.map(text => [text.x, text.y]), after, `${key}: redo moves the group`);
+    assert.deepEqual(getPcbSelection(app, 'text'), texts);
+    assert.equal(app._groupDrag, null);
+    assert.equal(app._deferDragOverlays, false);
+}
+app.viewport.snapToGrid = false;
+const beforeUnsnapped = texts.map(text => [text.x, text.y]);
+assert.equal(handleKeyDown.call(app, { key: 'ArrowRight' }), true);
+assert.deepEqual(texts.map(text => [text.x, text.y]), beforeUnsnapped.map(([x, y]) => [x + 1, y]),
+    'With snapping off, arrows move by 1 mm');
+app.history.undo();
+for (const event of [
+    { key: 'ArrowUp', target: { tagName: 'INPUT' } },
+    { key: 'ArrowUp', target: { tagName: 'TEXTAREA' } },
+    { key: 'ArrowUp', target: { tagName: 'SELECT' } },
+    { key: 'ArrowUp', target: { isContentEditable: true } },
+    { key: 'ArrowUp', ctrlKey: true }, { key: 'ArrowUp', metaKey: true },
+    { key: 'ArrowUp', altKey: true },
+]) {
+    assert.equal(handleKeyDown.call(app, event), false);
+    assert.deepEqual(texts.map(text => [text.x, text.y]), beforeUnsnapped);
+}
+for (const state of ['_pcbSelectionInteraction', '_groupDrag', '_vertexDrag', '_viaDrag', '_shapeDrag',
+    '_boardOutlineResize', '_rotationHandleDrag', '_pasteDrop', '_textEdit', '_drag',
+    '_textDrag', '_refDrag', '_fillDrag', '_boxSelectArm', '_boxSelectActive']) {
+    app[state] = {};
+    assert.equal(handleKeyDown.call(app, { key: 'ArrowLeft' }), false, `${state}: arrows leave active gestures alone`);
+    assert.deepEqual(texts.map(text => [text.x, text.y]), beforeUnsnapped);
+    app[state] = null;
+}
+const selectedEntry = getPcbSelectionEntries(app)[0];
+selectedEntry.visible = false;
+assert.equal(handleKeyDown.call(app, { key: 'ArrowLeft' }), false, 'Hidden or layer-locked entries cannot move');
+selectedEntry.visible = true;
+clearPcbSelection(app);
+assert.equal(handleKeyDown.call(app, { key: 'ArrowLeft' }), false, 'Empty selection is not moved');
+console.log('PASS: PCB arrow-key group movement, grid steps, undo/redo, and input guards');
+
+const warnings = [];
+app._showComponentPopup = (componentId, message) => warnings.push({ componentId, message });
+app.placements.set('component-1', {});
+for (const key of ['Delete', 'Backspace']) {
+    for (const kind of ['component', 'reftext']) {
+        for (const mixed of [false, true]) {
+            const selection = [{ kind, object: 'component-1' }];
+            if (mixed) selection.push({ kind: 'text', object: texts[0] });
+            setPcbSelection(app, selection);
+            warnings.length = 0;
+            assert.equal(handleKeyDown.call(app, { key }), true);
+            assert.deepEqual(getPcbSelection(app), [], 'Deletion cleared selection before the warning');
+            assert.deepEqual(warnings, [{ componentId: 'component-1', message: 'Delete components from the schematic editor' }],
+                `${key}: ${kind} warning survives selection clearing (mixed=${mixed})`);
+        }
+    }
+}
+warnings.length = 0;
+setPcbSelection(app, [{ kind: 'text', object: texts[0] }]);
+assert.equal(handleKeyDown.call(app, { key: 'Delete' }), true);
+assert.deepEqual(warnings, [], 'Ordinary deletion does not show a component warning');
+assert.equal(handleKeyDown.call(app, { key: 'Delete' }), false, 'Empty selection remains unhandled');
+app.placements.delete('component-1');
+console.log('PASS: component deletion warnings survive selection clearing');
+
 for (const tool of ['line', 'rect', 'polygon', 'circle', 'arc', 'track', 'fill']) {
     for (const selected of [false, true]) {
         setPcbSelection(app, selected ? [{ kind: 'text', object: texts[0] }] : []);

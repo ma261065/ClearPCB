@@ -56,7 +56,7 @@
             </div>
             <div class="ribbon-panel" data-panel="home">
                 <div class="ribbon-group">
-                    <div class="ribbon-group-title">Shape</div>
+                    <div class="ribbon-group-title">Tools</div>
                     <div class="ribbon-shape-body">
                         <div class="ribbon-group-items ribbon-shape-tools">
                             <button class="ribbon-tool-btn" data-tool="select" title="Select (V)">⊹ Select</button>
@@ -188,6 +188,7 @@
                         <div class="help-row"><span><kbd>Esc</kbd> Cancel / Select mode</span></div>
                         <div class="help-row"><span><kbd>Del</kbd> Delete selected</span></div>
                         <div class="help-row"><span><kbd>Ctrl+A</kbd> Select all</span></div>
+                        <div class="help-row"><span><kbd>Arrow keys</kbd> Move selected: 1/4 grid step (1 mm with snap off)</span></div>
                         <div class="help-row"><span><kbd>Drag shape</kbd> Move</span></div>
                         <div class="help-row"><span><kbd>Drag anchor</kbd> Resize/Edit</span></div>
                         <div class="help-row"><span><kbd>Drag empty</kbd> Box select</span></div>
@@ -442,11 +443,35 @@
             </div>
             <div class="ribbon-panel" data-panel="pcb-help">
                 <div class="ribbon-group ribbon-help">
-                    <div class="ribbon-group-title">PCB Layout Help</div>
+                    <div class="ribbon-group-title">Keyboard Shortcuts</div>
                     <div class="ribbon-group-items ribbon-help-items">
-                        <div class="help-row"><span class="pcb-coming-soon">PCB layout tools coming soon.</span></div>
+                        <div class="help-row"><span><kbd>Ctrl+S</kbd> Save</span></div>
+                        <div class="help-row"><span><kbd>Ctrl+Alt+S</kbd> Save As</span></div>
+                        <div class="help-row"><span><kbd>Ctrl+Z</kbd> Undo</span></div>
+                        <div class="help-row"><span><kbd>Ctrl+Y</kbd> Redo</span></div>
+                        <div class="help-row"><span><kbd>Ctrl+C</kbd> Copy selected</span></div>
+                        <div class="help-row"><span><kbd>Ctrl+X</kbd> Cut selected</span></div>
+                        <div class="help-row"><span><kbd>Ctrl+V</kbd> Paste</span></div>
+                        <div class="help-row"><span><kbd>Space</kbd> Rotate component / reference</span></div>
+                        <div class="help-row"><span><kbd>X</kbd> Flip H (component)</span></div>
+                        <div class="help-row"><span><kbd>Y</kbd> Flip V (component)</span></div>
+                        <div class="help-row"><span><kbd>Space</kbd> Switch layer while routing</span></div>
+                        <div class="help-row"><span><kbd>Enter</kbd> Finish drawing</span></div>
+                        <div class="help-row"><span><kbd>Esc</kbd> Cancel / Select mode</span></div>
+                        <div class="help-row"><span><kbd>Del</kbd> Delete selected (components: schematic only)</span></div>
+                        <div class="help-row"><span><kbd>Ctrl+A</kbd> Select all</span></div>
+                        <div class="help-row"><span><kbd>Arrow keys</kbd> Move selected: 1/4 grid step (1 mm with snap off)</span></div>
+                        <div class="help-row"><span><kbd>Drag shape</kbd> Move</span></div>
+                        <div class="help-row"><span><kbd>Drag anchor</kbd> Resize/Edit</span></div>
+                        <div class="help-row"><span><kbd>Drag empty</kbd> Box select</span></div>
+                        <div class="help-row"><span><kbd>Ctrl+Click</kbd> Multi-selection</span></div>
+                        <div class="help-row"><span><kbd>Shift+Click</kbd> Cycle overlapping objects</span></div>
+                        <div class="help-row"><span><kbd>Ctrl+Shift+Click</kbd> Cycle and keep other selections</span></div>
+                        <div class="help-row"><span><kbd>Right-drag</kbd> Pan</span></div>
+                        <div class="help-row"><span><kbd>Scroll</kbd> Zoom</span></div>
                         <div class="help-row"><label class="ribbon-checkbox"><input type="checkbox" id="pcbDebugTooltip"> Show footprint shape data</label></div>
                         <div class="help-row"><a href="https://github.com/ma261065/ClearPCB" target="_blank" rel="noopener">ClearPCB on GitHub</a></div>
+                        <div class="help-row"><span id="pcb-version-display" class="help-version"></span></div>
                     </div>
                 </div>
             </div>

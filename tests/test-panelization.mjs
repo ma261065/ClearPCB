@@ -41,19 +41,19 @@ const { default: ClipperLib } = await import('../assets/vendor/clipper.esm.js');
 
 for (const axis of ['horizontal', 'vertical']) {
     for (const feature of ['PositioningHoles', 'Fiducials']) {
-        const inputs = Object.fromEntries(['railTop', 'railBottom', 'railLeft', 'railRight'].map(key =>
+        const inputs = Object.fromEntries(['railTop', 'railLeft'].map(key =>
             [key, { valueAsNumber: 0, min: '0', validationMessage: '', setCustomValidity(message) { this.validationMessage = message; } }]));
         for (const direction of ['horizontal', 'vertical']) {
             for (const option of ['PositioningHoles', 'Fiducials']) inputs[direction + option] = { checked: false };
         }
         const form = { querySelector(selector) { return inputs[selector.match(/name="([^"]+)"/)[1]]; } };
         const active = inputs[axis === 'horizontal' ? 'railTop' : 'railLeft'];
-        const absent = inputs[axis === 'horizontal' ? 'railBottom' : 'railRight'];
+        const absent = inputs[axis === 'horizontal' ? 'railLeft' : 'railTop'];
         active.valueAsNumber = 5;
         inputs[axis + feature].checked = true;
         assert.equal(updatePanelRailConstraints(form), '');
-        assert.equal(active.min, '5', 'Active feature rails stop spinning down at 5 mm');
-        assert.equal(absent.min, '0', 'Absent rails remain optional');
+        assert.equal(active.min, '5', 'Active feature rail pair stops spinning down at 5 mm');
+        assert.equal(absent.min, '0', 'The other rail pair remains optional');
         for (const width of [4.5, 0, NaN]) {
             active.valueAsNumber = width;
             assert.match(updatePanelRailConstraints(form), /at least 5 mm/);

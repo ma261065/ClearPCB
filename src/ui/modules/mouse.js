@@ -12,12 +12,15 @@
  */
 
 import { STATE_TABLE, getEventPositions, resolveState } from './draw-states.js';
+import { DRAWING_SHAPES } from '../../shapes/shape-drawing.js';
+import { snapShapeDrawingPoint } from '../../schematic/modules/shape-snap.js';
 
 export { clearDragState } from './drag.js';
 
 const RIGHT_CLICK_THRESHOLD = 3;
 
 function dispatch(app, eventName, event, positions) {
+    if (DRAWING_SHAPES.has(app.currentTool)) positions.snapped = snapShapeDrawingPoint(app, positions.worldPos);
     if (!app.interactionState || !STATE_TABLE[app.interactionState]) {
         app.interactionState = resolveState(app);
     }
@@ -28,9 +31,14 @@ function dispatch(app, eventName, event, positions) {
 export function bindMouseEvents(app) {
     const svg = app.viewport.svg;
     app.interactionState = resolveState(app);
+    let segmentClickHandled = false;
 
     // mousedown
     svg.addEventListener('mousedown', (e) => {
+        if (e.button === 0) {
+            segmentClickHandled = false;
+            app._pendingShapeSegmentToggle = null;
+        }
         if (e.button === 2) {
             app.viewport.startPan(e.clientX, e.clientY);
             app._rightClickStart = { x: e.clientX, y: e.clientY };
@@ -68,6 +76,13 @@ export function bindMouseEvents(app) {
         }
         const positions = getEventPositions(e, app.viewport);
         dispatch(app, 'mouseup', e, positions);
+        const pending = app.pendingAnchorDrag;
+        const midpointClick = pending?.shape?.type === 'polyline' && pending.anchorId?.startsWith('mid_');
+        if (e.button === 0 && app.interactionState === 'idle' && !app.didDrag && !app.skipClickSelection
+            && (app._pendingShapeSegmentToggle || midpointClick)) {
+            dispatch(app, 'click', e, positions);
+            segmentClickHandled = true;
+        }
     });
 
     // contextmenu  just suppress the browser menu
@@ -88,6 +103,10 @@ export function bindMouseEvents(app) {
 
     // click
     svg.addEventListener('click', (e) => {
+        if (segmentClickHandled) {
+            segmentClickHandled = false;
+            return;
+        }
         const positions = getEventPositions(e, app.viewport);
         dispatch(app, 'click', e, positions);
     });

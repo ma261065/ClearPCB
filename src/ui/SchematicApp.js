@@ -150,7 +150,6 @@ export default class SchematicApp {
         this.didDrag = false;              // true once an actual drag occurred
         this.pendingAnchorDrag = null;     // deferred anchor drag (before threshold is met)
         this.skipClickSelection = false;
-        this._collinearGuides = null;      // guide lines rendered during anchor drag
         this._rightClickStart = null;      // screen pos for right-click drag detection
 
         // ── Box selection ──────────────────────────────────────────────
@@ -960,7 +959,7 @@ export default class SchematicApp {
             && !this._selectedShapeSegment
             && !this._selectedShapeNode;
         tip.hidden = !show;
-        tip.textContent = show ? 'Tip: Click again to select a segment' : '';
+        tip.textContent = show ? 'Tip: Click again to select a segment or node' : '';
     }
 
     /**

@@ -318,10 +318,16 @@ export class Shape {
             for (let i = 0; i < visibleAnchors.length; i++) {
                 const anchor = visibleAnchors[i];
                 const rect = this._anchorRects[i];
-                rect.setAttribute('x', String(anchor.x - size / 2));
-                rect.setAttribute('y', String(anchor.y - size / 2));
-                rect.setAttribute('width', String(size));
-                rect.setAttribute('height', String(size));
+                if (anchor.bulge) {
+                    rect.setAttribute('cx', String(anchor.x));
+                    rect.setAttribute('cy', String(anchor.y));
+                    rect.setAttribute('r', String(size / 2));
+                } else {
+                    rect.setAttribute('x', String(anchor.x - size / 2));
+                    rect.setAttribute('y', String(anchor.y - size / 2));
+                    rect.setAttribute('width', String(size));
+                    rect.setAttribute('height', String(size));
+                }
                 rect.setAttribute('stroke-width', String(strokeW));
             }
             // Re-position anchors group right after element so it renders on top
@@ -343,13 +349,19 @@ export class Shape {
         this._anchorsHaveLock = false;
         
         for (const anchor of visibleAnchors) {
-            const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-            rect.setAttribute('x', String(anchor.x - size / 2));
-            rect.setAttribute('y', String(anchor.y - size / 2));
-            rect.setAttribute('width', String(size));
-            rect.setAttribute('height', String(size));
-            rect.setAttribute('fill', '#fff');
-            rect.setAttribute('stroke', '#e94560');
+            const rect = document.createElementNS('http://www.w3.org/2000/svg', anchor.bulge ? 'circle' : 'rect');
+            if (anchor.bulge) {
+                rect.setAttribute('cx', String(anchor.x));
+                rect.setAttribute('cy', String(anchor.y));
+                rect.setAttribute('r', String(size / 2));
+            } else {
+                rect.setAttribute('x', String(anchor.x - size / 2));
+                rect.setAttribute('y', String(anchor.y - size / 2));
+                rect.setAttribute('width', String(size));
+                rect.setAttribute('height', String(size));
+            }
+            rect.setAttribute('fill', anchor.bulge ? '#33dd77' : '#fff');
+            rect.setAttribute('stroke', anchor.bulge ? '#2e7d32' : '#e94560');
             rect.setAttribute('stroke-width', String(1 / scale));
             rect.setAttribute('data-anchor-id', anchor.id);
             this.anchorsGroup.appendChild(rect);

@@ -96,8 +96,19 @@ function appFor(track) {
     const app = appFor(null);
     app.tracks = [];
     app.boardShapes = [line];
+    const properties = { innerHTML: '' };
+    let propertiesTitle = 'Line';
+    let activeTab = null;
+    app._pcbPropsItems = () => properties;
+    app._setPcbPropsTitle = title => { propertiesTitle = title; };
+    app._setActiveRibbonTab = tab => { activeTab = tab; };
     const track = convertBoardLineToTrack(app, line, 'N');
     expect('a property-assigned Line converts to a Track', !!track && app.tracks[0] === track);
+    expect('conversion immediately shows Track properties without reselection', propertiesTitle === 'Track'
+        && properties.innerHTML.includes('id="pcbPropTrackNet"')
+        && properties.innerHTML.includes('id="pcbPropTrackWidth"')
+        && activeTab === 'pcb-properties');
+    delete app._pcbPropsItems;
     expect('a converted Line Track remains restorable', canRestoreTrackToSourceBoardShape(track));
     expect('clearing a converted Line Track restores the Line', restoreTrackToSourceBoardShape(app, track));
     expect('restored converted Line keeps its original id', app.boardShapes[0]?.id === line.id);

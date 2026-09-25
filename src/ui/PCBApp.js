@@ -83,6 +83,7 @@ import {
     pointInBoxSelection,
     beginGroupDrag,
     scheduleGroupDrag,
+    updateGroupDrag,
     endGroupDrag,
     cancelGroupDrag,
     deleteBoxSelection,
@@ -409,6 +410,7 @@ export default class PCBApp {
         this.initialize();
         this._active = true;
 
+        this._retainRibbonHeight?.();
         this._ensureViewport();
         this._hookSchematicChanges();
         this._updateCursorForTool();
@@ -2345,6 +2347,24 @@ export default class PCBApp {
 
         // Otherwise: history, delete, selection-cancel.
         const ctrl = e.ctrlKey || e.metaKey;
+        if (!ctrl && !e.altKey && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+            if (this.currentTool !== 'select' || this._pcbSelectionInteraction || this._groupDrag
+                || this._vertexDrag || this._viaDrag || this._shapeDrag || this._boardOutlineResize
+                || this._rotationHandleDrag || this._pasteDrop || this._textEdit || this._drag
+                || this._textDrag || this._refDrag || this._fillDrag || this._boxSelectArm
+                || this._boxSelectActive || this.viewport.isPanning) return false;
+            const selected = getPcbSelectionEntries(this);
+            if (!selected.length || selected.some(entry => entry.locked || entry.visible === false
+                || entry.kind === 'reftext')) return false;
+            const step = this.viewport.snapToGrid ? this.viewport.gridSize / 4 : 1;
+            const dx = e.key === 'ArrowLeft' ? -step : e.key === 'ArrowRight' ? step : 0;
+            const dy = e.key === 'ArrowUp' ? -step : e.key === 'ArrowDown' ? step : 0;
+            beginGroupDrag(this, { x: 0, y: 0 });
+            updateGroupDrag(this, { x: dx, y: dy }, { snap: false });
+            endGroupDrag(this);
+            showPcbSelectionProperties(this);
+            return true;
+        }
         if (ctrl && !e.shiftKey && (e.key === 'z' || e.key === 'Z')) {
             if (this._groupDrag) {
                 cancelGroupDrag(this);
@@ -2375,18 +2395,16 @@ export default class PCBApp {
                 deleteSelectedTrack(this);
                 return true;
             }
-            if (deleteBoxSelection(this)) {
-                return true;
-            }
+            const componentId = getPcbSelection(this, 'component')[0] || getPcbSelection(this, 'reftext')[0];
+            const deleted = deleteBoxSelection(this);
             // Components belong to the schematic netlist and can't be deleted
             // on the PCB — tell the user where to do it instead.
-            const componentId = getPcbSelection(this, 'component')[0] || getPcbSelection(this, 'reftext')[0];
             if (componentId) {
                 this._showComponentPopup(
                     componentId, 'Delete components from the schematic editor');
                 return true;
             }
-            return false;
+            return deleted;
         }
         if (e.key === 'Escape') {
             if (this._boardOutlineResize) {
@@ -2915,6 +2933,7 @@ export default class PCBApp {
         const retainRibbonHeight = () => {
             if (!panelsEl || this.ribbon.offsetParent === null) return;
             const activePanels = Array.from(panels, panel => panel.classList.contains('active'));
+            panelsEl.style.minHeight = '';
             let height = 0;
 
             panels.forEach(panel => {
@@ -2925,6 +2944,7 @@ export default class PCBApp {
             panels.forEach((panel, index) => panel.classList.toggle('active', activePanels[index]));
             panelsEl.style.minHeight = `${Math.ceil(height)}px`;
         };
+        this._retainRibbonHeight = retainRibbonHeight;
 
         window.addEventListener('resize', () => {
             if (!panelsEl || this.ribbon.offsetParent === null) return;

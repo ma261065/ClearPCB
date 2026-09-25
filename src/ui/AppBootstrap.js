@@ -5,6 +5,7 @@ import PCBApp from './PCBApp.js';
 import { ProjectDocument } from '../core/ProjectDocument.js';
 import { readProjectFile } from '../core/FileManager.js';
 import { installNumberInputFormatting } from '../core/number-inputs.js';
+import { ModalManager } from '../core/ModalManager.js';
 
 class AppBootstrap {
     constructor() {
@@ -61,13 +62,21 @@ class AppBootstrap {
 
     /**
      * Single window-capture keydown listener that routes keys to the
-     * active mode. PCB shortcuts get first crack when PCB is active;
-     * the schematic listener (also bound on window-capture, but later)
-     * still runs as a fallback for global keys (Ctrl+S, Ctrl+Tab, etc.)
-     * unless PCB consumed the event.
+    * active mode after handling shared mode cycling. PCB consumes its
+    * shortcuts here; the later schematic listener handles schematic keys.
      */
     _bindKeyboardDispatcher() {
         window.addEventListener('keydown', (e) => {
+            if ((e.ctrlKey || e.metaKey) && e.key === 'Tab' && !e.defaultPrevented) {
+                const modal = ModalManager.top();
+                if (modal && modal.id !== 'text-edit' && modal.id !== 'componentPicker') return;
+                e.preventDefault();
+                e.stopImmediatePropagation();
+                const active = this.modeTabs.find(tab => tab.classList.contains('active'));
+                const isPcb = active ? active.dataset.mode === 'pcb' : this.pcbApp?._active;
+                this.switchMode(isPcb ? 'schematic' : 'pcb');
+                return;
+            }
             if (this.pcbApp?._active && typeof this.pcbApp.handleKeyDown === 'function') {
                 if (this.pcbApp.handleKeyDown(e)) {
                     e.preventDefault();

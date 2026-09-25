@@ -15,6 +15,9 @@ import { reconcileWires, reconcileWiresWithUndo, refreshWireConnections, refresh
 import { validateNetNameAtPoint } from './net-validation.js';
 import { connectNetToWires, disconnectNetFromWires, connectComponentPinsToWires } from './shape-management.js';
 import { joinShapes } from '../../shapes/shape-join.js';
+import { clearAxisGlow } from '../../shapes/axis-glow.js';
+import { BULGE_EPS } from '../../shapes/arc-edge.js';
+import { appendArcToLineCommand } from './context-menu.js';
 
 /**
  * Compare two captured shape states for equality.
@@ -32,9 +35,30 @@ export function areCapturedStatesEqual(a, b) {
  * Reset all drag state. Callers handle UI cleanup.
  */
 export function clearDragState(app) {
+    clearAxisGlow(app);
     if (app.drag?.shape) app.drag.shape.resetDragState();
     app.drag = null;
     app.pendingAnchorDrag = null;
+}
+
+export function cancelSchematicPathSplit(app) {
+    if (!app.drag?.pathSplit) return false;
+    const remainder = app.drag.splitRemainder;
+    if (remainder && app.shapes.includes(remainder)) app._commandRemoveShape(remainder);
+    app.drag.splitRemainder = null;
+    return true;
+}
+
+export function cancelSchematicShapeConversion(app) {
+    const conversion = app.drag?.conversion;
+    if (!conversion) return false;
+    conversion.command.undo();
+    app.drag.shape = conversion.original;
+    app.drag.beforeState = conversion.original.captureState();
+    app.drag.conversion = null;
+    app.selection.select(conversion.original, false);
+    app._updatePropertiesPanel?.(app.selection.getSelection());
+    return true;
 }
 
 //  Shared helpers 
@@ -135,6 +159,47 @@ function pushBatchIfNonEmpty(app, batch) {
  */
 export function commitAnchorDrag(app, dragShape, beforeState, anchorWireStates = null, ncLinks = null, junctionBeforeWireStates = null, junctionBeforeLabelTextStates = null) {
     if (!dragShape || !beforeState) return false;
+
+    if (app.drag?.conversion && app.drag.shape === dragShape) {
+        const { command } = app.drag.conversion;
+        app.drag.conversion = null;
+        command.undo();
+        const selectedShape = dragShape.type === 'arc' && Math.abs(dragShape.bulge) < BULGE_EPS
+            ? appendArcToLineCommand(app, command, dragShape) : dragShape;
+        app.history.execute(command);
+        app.selection.select(selectedShape, false);
+        app._selectedShapeNode = null;
+        app._selectedShapeSegment = null;
+        app._updatePropertiesPanel?.(app.selection.getSelection());
+        return true;
+    }
+
+    if (app.drag?.pathSplit && app.drag.shape === dragShape) {
+        const after = dragShape.captureState();
+        const remainder = app.drag.splitRemainder;
+        cancelSchematicPathSplit(app);
+        dragShape.applyState(beforeState);
+        const batch = new BatchCommand('Split shape');
+        batch.add(new ModifyShapeCommand(app, dragShape, beforeState, after));
+        if (remainder) batch.add(new AddShapeCommand(app, remainder));
+        app.history.execute(batch);
+        app.fileManager?.setDirty?.(true);
+        app._updatePropertiesPanel?.(app.selection.getSelection());
+        return true;
+    }
+
+    if (dragShape.type === 'arc' && Math.abs(dragShape.bulge) < BULGE_EPS) {
+        const after = dragShape.captureState();
+        dragShape.applyState(beforeState);
+        const batch = new BatchCommand('Convert arc to line');
+        const line = appendArcToLineCommand(app, batch, dragShape, after);
+        app.history.execute(batch);
+        app.selection.select(line, false);
+        app._selectedShapeNode = null;
+        app._selectedShapeSegment = null;
+        app._updatePropertiesPanel?.(app.selection.getSelection());
+        return true;
+    }
 
     if (dragShape.type === 'net') {
         const check = validateNetNameAtPoint(
@@ -335,8 +400,7 @@ export function commitShapeJoin(app, dragShape, dragAnchorId, joinTarget, before
     app.history.execute(batch);
 
     // Select the merged result.
-    app.selection?.clear?.();
-    merged.selected = true;
+    app.selection.select(merged);
     app._updatePropertiesPanel?.(app.selection?.getSelection?.() || []);
     app.renderShapes(true);
     return true;

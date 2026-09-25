@@ -1,5 +1,6 @@
 import { buildCopperClusters, unionCoincidentClusters } from './copper-connectivity.js';
 import { deferDerivedUpdate } from '../../core/DerivedUpdates.js';
+import { GRID_SNAP_PX, snapToGridLines } from '../../core/grid-snap.js';
 /**
  * Interactive Track drawing for the PCB editor (Phase 2).
  *
@@ -35,7 +36,9 @@ import { deferDerivedUpdate } from '../../core/DerivedUpdates.js';
 import { Track } from '../../shapes/track.js';
 import { Via } from '../../shapes/via.js';
 import { renderTrack } from './track-render.js';
-import { collinearSnap, pointInPolygon, distanceToSegment } from '../../core/geometry.js';
+import { pointInPolygon, distanceToSegment } from '../../core/geometry.js';
+import { snapNodeToAxis, snapNodeToCollinear } from '../../shapes/path-snap.js';
+export { snapNodeToAxis, snapNodeToCollinear } from '../../shapes/path-snap.js';
 import { normalizeShapeCopperMode, shapeOutline } from './board-shapes.js';
 import { resolveTrackContactGeometry, copperShapesTouch, copperRegionShape, pointInCopperRegion } from './track-contact-geometry.js';
 import { pictureRegions } from './picture-raster.js';
@@ -247,12 +250,13 @@ export function resolveGridMagnetSnap(app, worldPos, lastPt = null) {
     const gs = app.viewport?.getEffectiveGridSize?.()
         ?? app.viewport?.gridSize ?? 0;
     const gridOn = gs > 0 && app.viewport?.gridVisible !== false;
+    const gridPoint = snapToGridLines(worldPos, gridOn ? gs : 0, scale);
 
     // Candidate X-snaps
     {
         let bestDx = tol;
-        if (gridOn) {
-            const gx = Math.round(worldPos.x / gs) * gs;
+        if (gridPoint.snappedX) {
+            const gx = gridPoint.x;
             const d = Math.abs(gx - worldPos.x);
             if (d <= bestDx) { bestDx = d; sx = gx; snappedX = true; }
         }
@@ -264,8 +268,8 @@ export function resolveGridMagnetSnap(app, worldPos, lastPt = null) {
     // Candidate Y-snaps
     {
         let bestDy = tol;
-        if (gridOn) {
-            const gy = Math.round(worldPos.y / gs) * gs;
+        if (gridPoint.snappedY) {
+            const gy = gridPoint.y;
             const d = Math.abs(gy - worldPos.y);
             if (d <= bestDy) { bestDy = d; sy = gy; snappedY = true; }
         }
@@ -284,7 +288,7 @@ export function resolveGridMagnetSnap(app, worldPos, lastPt = null) {
 }
 
 /** Screen-pixel tolerance for grid / axis-line snapping. */
-const SNAP_PX = 8;
+const SNAP_PX = GRID_SNAP_PX;
 
 /**
  * Same as findNearbyTrackNode but prefers nodes whose owning Track
@@ -373,52 +377,6 @@ function pickAxis(lastPt, worldPos, diagBand = 0.3) {
  *   omitted, falls back to the legacy angular test (any alignment accepted).
  * @returns {{x:number,y:number}}
  */
-export function snapNodeToAxis(pos, neighbours, threshold = Infinity, fallback = pos) {
-    // A horizontal segment fixes only y (to a neighbour's y); a vertical
-    // segment fixes only x. These constraints are orthogonal, so when the
-    // node sits near BOTH at once — the classic case being the pivot of an
-    // L-bend, whose two neighbours each want a different axis — we can
-    // satisfy both simultaneously and light both segments. Track the best
-    // independent x-snap (vertical) and y-snap (horizontal), plus the best
-    // joint 45° candidate, then combine when two *different* neighbours
-    // supply the two axes.
-    //
-    // The pull band is measured against `pos` (pass the RAW cursor here so
-    // grid quantisation can't defeat an off-grid alignment); axes that don't
-    // align fall back to `fallback` (e.g. the grid-snapped position) so grid
-    // snapping still applies where no neighbour alignment is found.
-    let bestX = null;   // { x, d, i }  vertical snap: x → neighbour.x
-    let bestY = null;   // { y, d, i }  horizontal snap: y → neighbour.y
-    let bestDiag = null; // { x, y, d } joint 45° snap
-    for (let i = 0; i < neighbours.length; i++) {
-        const nb = neighbours[i];
-        const dV = Math.abs(pos.x - nb.x);            // vertical alignment
-        if (dV <= threshold && (!bestX || dV < bestX.d)) bestX = { x: nb.x, d: dV, i };
-        const dH = Math.abs(pos.y - nb.y);            // horizontal alignment
-        if (dH <= threshold && (!bestY || dH < bestY.d)) bestY = { y: nb.y, d: dH, i };
-        const diag = applyAxisConstraint(nb, pos, 'diagonal');
-        const dD = Math.hypot(diag.x - pos.x, diag.y - pos.y);
-        if (dD <= threshold && (!bestDiag || dD < bestDiag.d)) {
-            bestDiag = { x: diag.x, y: diag.y, d: dD };
-        }
-    }
-    // Combined H+V: only when the two axes come from different neighbours
-    // (combining x and y from the SAME neighbour would collapse a segment
-    // onto that neighbour).
-    if (bestX && bestY && bestX.i !== bestY.i) {
-        return { x: bestX.x, y: bestY.y };
-    }
-    // Otherwise take the single smallest nudge among H / V / 45°. The free
-    // axis keeps the fallback (grid) coordinate; the aligned axis snaps to
-    // the neighbour.
-    let best = null;
-    let bestDist = Infinity;
-    if (bestX && bestX.d < bestDist) { bestDist = bestX.d; best = { x: bestX.x, y: fallback.y }; }
-    if (bestY && bestY.d < bestDist) { bestDist = bestY.d; best = { x: fallback.x, y: bestY.y }; }
-    if (bestDiag && bestDiag.d < bestDist) { bestDist = bestDiag.d; best = { x: bestDiag.x, y: bestDiag.y }; }
-    return best || fallback;
-}
-
 /**
  * Straight-line (collinear) snap for a degree-2 waypoint: when the node
  * has exactly two neighbours and sits within `threshold` world units of
@@ -431,11 +389,6 @@ export function snapNodeToAxis(pos, neighbours, threshold = Infinity, fallback =
  * @param {number} threshold perpendicular pull distance (world mm)
  * @returns {{x:number,y:number}|null}
  */
-export function snapNodeToCollinear(pos, neighbours, threshold) {
-    if (neighbours.length !== 2) return null;
-    return collinearSnap(neighbours[0], pos, neighbours[1], threshold);
-}
-
 /* ──────────────────────────── lifecycle ──────────────────────────── */
 
 function shapeCopperContains(contact, point) {

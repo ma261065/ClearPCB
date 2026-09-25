@@ -22,6 +22,59 @@ const { selectTrackOrVia, selectTrackNode, drawTrackHalo, createTrackSelectionAd
 const { cancelPictureCopperRefresh } = await import('../src/pcb/modules/picture-refresh.js');
 const { splitTrackNodeAndDrag } = await import('../src/pcb/modules/track-drag.js');
 const { getPcbSelection } = await import('../src/pcb/modules/selection-registry.js');
+const { redrawPropertyPreview, createPropertyPreview } = await import('../src/shapes/property-preview.js');
+
+{
+    const first = { id: 'first' }, second = { id: 'second' };
+    const events = [];
+    const renderer = {
+        prepare(target) { events.push(`prepare:${target.id}`); },
+        render(targets) { events.push(`render:${targets.map(target => target.id).join(',')}`); },
+        refreshSelection() { events.push('selection'); },
+        refreshDerived() { events.push('derived'); },
+    };
+    redrawPropertyPreview([first, second, first], renderer);
+    assert.deepEqual(events, ['prepare:first', 'prepare:second', 'render:first,second', 'selection', 'derived'],
+        'Preview prepares all targets before rendering, then refreshes selection and derived views once');
+    events.length = 0;
+    redrawPropertyPreview([], renderer);
+    assert.deepEqual(events, [], 'Empty previews do not refresh the editor');
+    redrawPropertyPreview([first], { renderScene() { events.push('full-scene'); } });
+    assert.deepEqual(events, ['full-scene'], 'Full-scene adapters may render geometry and selection together');
+    assert.throws(() => redrawPropertyPreview([first], { render() {} }), TypeError,
+        'Incremental adapters must declare every redraw stage');
+}
+
+{
+    let values = [0.2, 0.4];
+    const commands = [];
+    const phases = [];
+    const preview = createPropertyPreview({
+        capture: () => [...values],
+        restore: before => { values = [...before]; },
+        redraw: phase => phases.push(phase),
+        commit: (before, after) => {
+            assert.deepEqual(values, before, 'Original values are restored before history captures them');
+            commands.push({ before, after });
+            values = [...after];
+        },
+    });
+    preview.update(() => { values = [1, 1]; });
+    preview.update(() => { values = [2, 2]; });
+    assert.equal(commands.length, 0);
+    assert.equal(preview.commit(), true);
+    assert.deepEqual(commands, [{ before: [0.2, 0.4], after: [2, 2] }]);
+    assert.deepEqual(phases, ['preview', 'preview', 'commit']);
+    assert.equal(preview.commit(), false, 'Repeated change/blur does not duplicate history');
+    preview.update(() => { values = [3, 3]; });
+    assert.equal(preview.cancel(), true);
+    assert.deepEqual(values, [2, 2]);
+    assert.equal(phases.at(-1), 'cancel');
+    preview.update(() => { values = [4, 4]; });
+    preview.update(() => { values = [2, 2]; });
+    assert.equal(preview.commit(), false, 'Returning to the original values creates no history');
+    assert.equal(commands.length, 1);
+}
 
 for (const commit of [true, false]) {
     const track = new Track({ points: [{ x: 0, y: 0 }, { x: 10, y: 0 }], edgeBulges: { e0: 0.25 } });
@@ -277,10 +330,82 @@ function propertyInput(value) {
     const listeners = new Map();
     return {
         value: String(value),
-        get valueAsNumber() { return Number(this.value); },
-        addEventListener(type, listener) { listeners.set(type, listener); },
-        fire(type) { listeners.get(type)?.({ type }); },
+        get valueAsNumber() { return this.value.trim() === '' ? NaN : Number(this.value); },
+        addEventListener(type, listener) {
+            if (!listeners.has(type)) listeners.set(type, []);
+            listeners.get(type).push(listener);
+        },
+        fire(type, details = {}) {
+            for (const listener of listeners.get(type) || []) listener({ type, preventDefault() {}, stopPropagation() {}, ...details });
+        },
     };
+}
+
+for (const bulge of [0, 0.25]) {
+    const shape = { id: 'live-segment-width', kind: 'line', layer: 'top-silk', lineWidth: 0.2,
+        points: [{ x: 0, y: 0 }, { x: 20, y: 0 }, { x: 30, y: 10 }], segmentBulges: { 0: bulge } };
+    const commands = [];
+    const app = { boardShapes: [shape], _shapeElements: new Map(), _getLayerGroup() { return null; },
+        viewport: { scale: 100 }, _pcbPropsItems() { return { innerHTML: '' }; },
+        history: { execute(command) { commands.push(command); command.execute(); } } };
+    selectBoardShape(app, shape);
+    app._selectedBoardShapeSegment = { shapeId: shape.id, segment: 0 };
+    const overlay = document.createElementNS('', 'g');
+    overlay.querySelectorAll = selector => overlay.children.filter(
+        child => (child.getAttribute('class') || '').split(' ').includes(selector.slice(1)));
+    overlay.appendChild = child => {
+        overlay.children.push(child);
+        child.remove = () => {
+            const index = overlay.children.indexOf(child);
+            if (index !== -1) overlay.children.splice(index, 1);
+        };
+    };
+    app._getLayerGroup = layer => layer === 'selection-overlay' ? overlay : null;
+    const width = propertyInput(0.2);
+    document.getElementById = id => id === 'pcbPropShapeLineWidth' ? width : null;
+    showBoardShapeProperties(app, shape);
+    renderBoardShapeSegmentSelection(app);
+    for (const value of [4, 1, 3, 0.2]) {
+        const previous = overlay.querySelectorAll('.pcb-shape-segment-selection')[0];
+        width.value = String(value);
+        width.fire('input');
+        const highlights = overlay.querySelectorAll('.pcb-shape-segment-selection');
+        assert.equal(highlights.length, 1, 'Live width changes retain exactly one segment highlight');
+        assert.notEqual(highlights[0], previous, 'The old highlight is replaced before committing');
+        assert.equal(highlights[0].getAttribute('stroke-width'), String(value),
+            `${bulge ? 'Curved' : 'Straight'} segment highlight grows and shrinks during input`);
+        assert.equal(shape.segmentWidths[0] ?? shape.lineWidth, value);
+        assert.equal(commands.length, 0, 'Live width preview does not create undo entries');
+    }
+    width.fire('change');
+    assert.equal(commands.length, 0, 'Returning to the original width leaves no undo entry');
+    width.value = '2';
+    width.fire('input');
+    width.fire('keydown', { key: 'Escape' });
+    assert.equal(shape.segmentWidths[0] ?? shape.lineWidth, 0.2, 'Escape restores the original segment width');
+    assert.equal(commands.length, 0, 'Escape does not create history');
+    for (const [id, values] of [
+        ...(!bulge ? [['pcbPropShapeCornerRadius', [2, 0.5]]] : []),
+        ['pcbPropShapeBulge', [0.5, 0.1]],
+    ]) {
+        const input = propertyInput(0);
+        document.getElementById = key => key === id ? input : null;
+        showBoardShapeProperties(app, shape);
+        for (const value of values) {
+            const previous = overlay.querySelectorAll('.pcb-shape-segment-selection')[0];
+            const beforePath = previous.getAttribute('d');
+            input.value = String(value);
+            input.fire('input');
+            const highlights = overlay.querySelectorAll('.pcb-shape-segment-selection');
+            assert.equal(highlights.length, 1, `${id}: preview retains one segment overlay`);
+            assert.notEqual(highlights[0], previous, `${id}: preview replaces stale selection`);
+            assert.notEqual(highlights[0].getAttribute('d'), beforePath, `${id}: selection follows live geometry`);
+            assert.equal(overlay.querySelectorAll('.pcb-selection-anchors').length, 1,
+                `${id}: preview retains one current anchor group`);
+            assert.equal(commands.length, 0, `${id}: preview does not commit history`);
+        }
+    }
+    document.getElementById = () => null;
 }
 
 for (const kind of ['line', 'polygon', 'rect', 'arc']) {
@@ -531,7 +656,7 @@ for (const kind of ['line', 'polygon']) {
 console.log('PASS real second-click segment selection on rounded strokes and straight guides');
 
 for (const [kind, zeroOffset] of ['arc', 'line', 'polygon'].flatMap(kind =>
-    [0, 0.02, -0.02].map(zeroOffset => [kind, zeroOffset]))) {
+    [0, 0.0001, 0.02, -0.02, 0.5, -0.5].map(zeroOffset => [kind, zeroOffset]))) {
     const shape = { id: 'bulge-properties', kind, layer: 'top-silk', lineWidth: 0.2,
         ...(kind === 'arc'
             ? { start: { x: 0, y: 0 }, end: { x: 10, y: 0 }, bulge: { x: 5, y: 1.25 } }
@@ -593,21 +718,32 @@ for (const [kind, zeroOffset] of ['arc', 'line', 'polygon'].flatMap(kind =>
         const handle = kind === 'arc' ? 'bulge' : 'bulge:0';
         startBoardShapeDrag(app, shape, { x: 5, y: -2.5 }, handle);
         handleBoardShapeDrag(app, { x: 5, y: 0 });
-        assert.equal(input.value, '0.00', 'Spinner follows a drag to zero');
+        assert.equal(Number(input.value), 0, 'Spinner follows a drag to zero');
         handleBoardShapeDrag(app, { x: 5, y: 2.5 });
-        assert.equal(input.value, '0.50', 'Dragging can cross zero without losing the bulge handle');
+        assert.equal(Number(input.value), 0.5, 'Dragging can cross zero without losing the bulge handle');
         endBoardShapeDrag(app, false);
-        assert.equal(input.value, '-0.50', 'Cancelling restores the live spinner');
+        assert.equal(Number(input.value), -0.5, 'Cancelling restores the live spinner');
         startBoardShapeDrag(app, shape, { x: 5, y: -2.5 }, handle);
         handleBoardShapeDrag(app, { x: 5, y: zeroOffset });
-        assert.ok(Number(input.value) === 0, 'Visible zero converts even with a small drag residual');
+        const straight = Math.abs(zeroOffset) <= 8 / app.viewport.scale
+            || Number((zeroOffset * 2 / 10).toFixed(2)) === 0;
         endBoardShapeDrag(app, true);
-        assert.equal(shape.kind, kind === 'arc' ? 'line' : kind);
-        assert.equal(title, kind === 'arc' ? 'Line' : 'Line Segment');
-        if (kind !== 'arc') assert.equal(Object.hasOwn(shape.segmentBulges, 0), false);
+        assert.equal(shape.kind, kind === 'arc' && straight ? 'line' : kind);
+        assert.equal(title, kind === 'arc' ? (straight ? 'Line' : 'Arc') : (straight ? 'Line Segment' : 'Arc Segment'));
+        if (kind !== 'arc') assert.equal(Object.hasOwn(shape.segmentBulges, 0), !straight);
+        if (!straight) assert.ok(Math.abs(Number(input.value)) >= 0.0001, 'Small nonzero curves remain editable');
         commands.at(-1).undo();
         assert.equal(shape.kind, kind);
-        assert.equal(input.value, '-0.50', 'Undo restores the arc and its bulge control');
+        assert.equal(Number(input.value), -0.5, 'Undo restores the arc and its bulge control');
+        commands.at(-1).execute();
+        assert.equal(shape.kind, kind === 'arc' && straight ? 'line' : kind, 'Redo restores the drag result');
+        commands.at(-1).undo();
+        input.value = '0.001';
+        input.fire('input');
+        input.fire('change');
+        assert.equal(shape.kind, kind === 'arc' ? 'line' : kind, 'A typed rounded-zero bulge straightens the shape');
+        assert.equal(input, null, 'Straightened shapes no longer show the bulge input');
+        commands.at(-1).undo();
         input.value = '0';
         input.fire('input');
         input.fire('change');
@@ -615,7 +751,7 @@ for (const [kind, zeroOffset] of ['arc', 'line', 'polygon'].flatMap(kind =>
         assert.equal(title, kind === 'arc' ? 'Line' : 'Line Segment');
         assert.equal(input, null, 'Straight shapes no longer show arc properties');
         commands.at(-1).undo();
-        assert.equal(input.value, '-0.50');
+        assert.equal(Number(input.value), -0.5);
         if (kind === 'arc') shape.bulge = { x: 5, y: 0 };
         else shape.segmentBulges[0] = 0;
         input.value = '0.00';

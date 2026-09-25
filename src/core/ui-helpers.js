@@ -6,6 +6,16 @@ const NS = 'http://www.w3.org/2000/svg';
 export const LOCK_SIZE = 1.2;   // world units
 const LOCK_STROKE = 0.2;
 
+export function appendSegmentSelection(overlay, element, color, width, handles = null) {
+    element.setAttribute('fill', 'none');
+    element.setAttribute('stroke', color);
+    element.setAttribute('stroke-width', String(width));
+    element.setAttribute('stroke-linecap', 'round');
+    element.setAttribute('pointer-events', 'none');
+    if (handles) overlay.insertBefore(element, handles);
+    else overlay.appendChild(element);
+}
+
 /**
  * Create a lock-icon SVG group with click-to-unlock behaviour.
  * @param {number} x       Left edge of the lock body in local coordinates
@@ -144,17 +154,16 @@ export function buildPointAnchorsGroup(shape, scale) {
         g.appendChild(mg);
     }
 
-    // Bulge (arc curvature) handles — green diamonds at each curved edge's apex.
     for (const anchor of bulgeAnchors) {
-        const d = midR;
-        const diamond = document.createElementNS(NS, 'path');
-        diamond.setAttribute('d',
-            `M ${anchor.x} ${anchor.y - d} L ${anchor.x + d} ${anchor.y} L ${anchor.x} ${anchor.y + d} L ${anchor.x - d} ${anchor.y} Z`);
-        diamond.setAttribute('fill', '#fff');
-        diamond.setAttribute('stroke', '#2e7d32');
-        diamond.setAttribute('stroke-width', String(strokeW));
-        diamond.setAttribute('data-anchor-id', anchor.id);
-        g.appendChild(diamond);
+        const circle = document.createElementNS(NS, 'circle');
+        circle.setAttribute('cx', String(anchor.x));
+        circle.setAttribute('cy', String(anchor.y));
+        circle.setAttribute('r', String(size / 2));
+        circle.setAttribute('fill', anchor.fill || '#33dd77');
+        circle.setAttribute('stroke', '#2e7d32');
+        circle.setAttribute('stroke-width', String(strokeW));
+        circle.setAttribute('data-anchor-id', anchor.id);
+        g.appendChild(circle);
     }
 
     // Lock icon when locked

@@ -1,10 +1,13 @@
 import { setCheckboxState } from './ui-utils.js';
-import { ModifyPropertyCommand, ModifyShapeCommand } from '../../schematic/modules/commands.js';
+import { ModifyPropertyCommand, ModifyShapeCommand, BatchCommand } from '../../schematic/modules/commands.js';
+import { BULGE_EPS } from '../../shapes/arc-edge.js';
+import { bulgeRatio } from '../../core/geometry.js';
 import { rotateNetOrientation } from '../../shapes/net.js';
 import { adaptShortcutText } from './platform-keys.js';
 import { canDecomposeRoundedCorners } from '../../shapes/shape-decompose.js';
-import { decomposeShapeCorners } from './context-menu.js';
+import { decomposeShapeCorners, appendArcToLineCommand } from './context-menu.js';
 import { hasAny3DModel, openComponent3DFromData } from '../../components/model3d-source.js';
+import { redrawPropertyPreview, createPropertyPreview } from '../../shapes/property-preview.js';
 
 /**
  * Initializes the properties panel and subscribes to `selectionChanged`
@@ -232,11 +235,8 @@ export function updatePropertiesPanel(app, selection) {
     const singlePolyline = selection.length === 1 && selection[0].type === 'polyline'
         ? selection[0]
         : null;
-    let polylineWidthBefore = null;
-    let nodeRadiusBefore = null;
     const previewPolylineWidth = (value) => {
         if (!singlePolyline) return;
-        polylineWidthBefore ||= singlePolyline.captureState();
         if (selectedSegment) {
             singlePolyline.setEdgeAttr(selectedSegment.edgeId, 'width', value);
         } else {
@@ -249,7 +249,9 @@ export function updatePropertiesPanel(app, selection) {
 
     // ── Selection / Properties section ──
     {
-        const label = selectedNode ? 'Node' : selectedSegment ? 'Segment' : headerLabel(selection);
+        const label = selectedNode ? 'Node' : selectedSegment
+            ? `${Math.abs(selectedSegment.shape.getEdgeAttr(selectedSegment.edgeId, 'bulge') || 0) >= BULGE_EPS ? 'Arc' : 'Line'}${selectedSegment.shape.edges.size === 1 ? '' : ' Segment'}`
+            : headerLabel(selection);
         const sec = _createSection(label);
 
         const countEl = document.createElement('div');
@@ -294,6 +296,9 @@ export function updatePropertiesPanel(app, selection) {
                 : selectedSegment
                     ? mergeDescriptors(selection).filter((desc) => desc.key === 'lineWidth')
                     : mergeDescriptors(selection);
+            if (selectedSegment && Math.abs(selectedSegment.shape.getEdgeAttr(selectedSegment.edgeId, 'bulge') || 0) >= BULGE_EPS) {
+                descriptors.push({ key: 'bulge', label: 'Bulge', type: 'number', min: -1, max: 1, step: 0.05 });
+            }
 
             for (const desc of descriptors) {
                 // Add divider after locked checkbox
@@ -340,7 +345,9 @@ export function updatePropertiesPanel(app, selection) {
                     if (desc.max != null) input.max = desc.max;
                     if (desc.step != null) input.step = desc.step;
 
-                    const values = desc.key === 'lineWidth' && selectedSegment
+                    const values = desc.key === 'bulge' && selectedSegment
+                        ? [selectedSegment.shape.getEdgeAttr(selectedSegment.edgeId, 'bulge') || 0]
+                        : desc.key === 'lineWidth' && selectedSegment
                         ? [selectedSegment.shape.getEdgeAttr(selectedSegment.edgeId, 'width')]
                         : desc.key === 'cornerRadius' && selectedNode
                             ? [selectedNode.shape.nodeCornerRadius(selectedNode.nodeId)]
@@ -352,59 +359,115 @@ export function updatePropertiesPanel(app, selection) {
                         const first = values[0];
                         const allSame = values.every(v => Math.abs(v - first) < 1e-6);
                         input.value = allSame
-                            ? (desc.key === 'cornerRadius' ? Number(first).toFixed(2) : first)
+                            ? (['cornerRadius', 'bulge'].includes(desc.key) ? Number(first).toFixed(2) : first)
                             : '';
                         if (!allSame) input.placeholder = '—';
                     }
 
+                    const affected = desc.key === 'bulge' && selectedSegment ? [selectedSegment.shape]
+                        : selection.filter(item => desc.key in item);
+                    const usesGeometryState = item => ['lineWidth', 'cornerRadius', 'diameter', 'bulge'].includes(desc.key)
+                        && ['polyline', 'circle', 'arc'].includes(item.type);
+                    const geometryEdit = affected.some(usesGeometryState);
+                    const preview = createPropertyPreview({
+                        capture: () => affected.map(item => usesGeometryState(item) ? item.captureState() : item[desc.key]),
+                        restore: state => {
+                            affected.forEach((item, index) => {
+                                if (usesGeometryState(item)) item.applyState(state[index]);
+                                else item[desc.key] = state[index];
+                                item.invalidate?.();
+                            });
+                        },
+                        redraw: () => redrawPropertyPreview(selection, { renderScene: () => app.renderShapes(false) }),
+                        commit: (before, after) => {
+                            if (geometryEdit) {
+                                const batch = new BatchCommand(`Change ${desc.key}`);
+                                const replacements = new Map();
+                                affected.forEach((item, index) => {
+                                    if (desc.key === 'bulge' && item.type === 'arc'
+                                        && Math.abs(bulgeRatio(after[index].startPoint, after[index].endPoint, after[index].bulgePoint)) < BULGE_EPS) {
+                                        replacements.set(item, appendArcToLineCommand(app, batch, item, after[index]));
+                                    } else if (JSON.stringify(before[index]) !== JSON.stringify(after[index])) {
+                                        batch.add(usesGeometryState(item) ? new ModifyShapeCommand(app, item, before[index], after[index])
+                                            : new ModifyPropertyCommand(app, [item], desc.key, after[index]));
+                                    }
+                                });
+                                app.history.execute(batch);
+                                if (replacements.size) {
+                                    const nextSelection = selection.map(item => replacements.get(item) || item);
+                                    app.selection.clearSelection();
+                                    for (const item of nextSelection) app.selection.select(item, true);
+                                    app._selectedShapeSegment = null;
+                                    app._selectedShapeNode = null;
+                                }
+                                app.fileManager.setDirty(true);
+                                app._updatePropertiesPanel?.(app.selection.getSelection());
+                            } else {
+                                app.history.execute(new ModifyPropertyCommand(app, affected, desc.key, after[0]));
+                                app.fileManager.setDirty(true);
+                                app._updatePropertiesPanel?.(app.selection.getSelection());
+                                if (desc.key === 'fontSize' && affected.includes(app.textEdit?.shape)) app._updateTextEditOverlay?.();
+                            }
+                        },
+                    });
+                    const previewValue = value => preview.update(before => {
+                        if (desc.key === 'bulge') value = Number(value.toFixed(2));
+                        if (desc.key === 'lineWidth') value = Math.min(value, ...affected.map(item => item.type === 'circle' ? item.radius : Infinity));
+                        if (desc.key === 'bulge' && selectedSegment) {
+                            selectedSegment.shape.setEdgeAttr(selectedSegment.edgeId, 'bulge', value);
+                            selectedSegment.shape.isRect = selectedSegment.shape.isAxisAlignedRect();
+                        } else if (desc.key === 'lineWidth' && singlePolyline) previewPolylineWidth(value);
+                        else if (desc.key === 'cornerRadius' && selectedNode) selectedNode.shape.setNodeCornerRadius(selectedNode.nodeId, value);
+                        else affected.forEach((item, index) => {
+                            if (geometryEdit && desc.key === 'diameter') item.applyState(before[index]);
+                            item[desc.key] = value;
+                            if (item.type === 'polyline' && desc.key === 'lineWidth') {
+                                for (const edge of item.edges.values()) delete edge.width;
+                            }
+                            if (item.type === 'polyline' && desc.key === 'cornerRadius') item.nodeCornerRadii = {};
+                            item.invalidate?.();
+                        });
+                        if (desc.key === 'lineWidth' && Number(input.value) !== value) input.value = String(value);
+                        if (desc.key === 'diameter') {
+                            const widthInput = /** @type {HTMLInputElement|null} */ (document.getElementById('prop_lineWidth'));
+                            if (widthInput) {
+                                const width = affected[0]?.lineWidth;
+                                const mixed = affected.some(item => Math.abs(item.lineWidth - width) >= 1e-9);
+                                widthInput.value = mixed ? '' : width.toFixed(2);
+                                widthInput.placeholder = mixed ? 'Mixed' : '';
+                            }
+                        }
+                    });
                     input.addEventListener('change', () => {
                         let v = parseFloat(input.value);
-                        if (Number.isNaN(v)) return;
+                        if (!Number.isFinite(v)) { preview.cancel(); return; }
                         if (desc.min != null && v < desc.min) v = desc.min;
                         if (desc.max != null && v > desc.max) v = desc.max;
-                        if (desc.key === 'cornerRadius') input.value = v.toFixed(2);
+                        if (['cornerRadius', 'bulge'].includes(desc.key)) input.value = v.toFixed(2);
                         else if (parseFloat(input.value) !== v) input.value = v;
-                        if (desc.key === 'lineWidth' && singlePolyline) {
-                            const before = polylineWidthBefore || singlePolyline.captureState();
-                            previewPolylineWidth(v);
-                            const after = singlePolyline.captureState();
-                            singlePolyline.applyState(before);
-                            polylineWidthBefore = null;
-                            app.history.execute(new ModifyShapeCommand(app, singlePolyline, before, after));
-                            app.fileManager.setDirty(true);
-                            app._updatePropertiesPanel?.(selection);
-                        } else if (desc.key === 'cornerRadius' && selectedNode) {
-                            const before = nodeRadiusBefore || selectedNode.shape.captureState();
-                            selectedNode.shape.setNodeCornerRadius(selectedNode.nodeId, v);
-                            const after = selectedNode.shape.captureState();
-                            selectedNode.shape.applyState(before);
-                            nodeRadiusBefore = null;
-                            app.history.execute(new ModifyShapeCommand(app, selectedNode.shape, before, after));
-                            app.fileManager.setDirty(true);
-                            app._updatePropertiesPanel?.(selection);
-                        } else {
-                            applyCommonProperty(app, desc.key, v);
-                        }
+                        previewValue(v);
+                        preview.commit();
                     });
                     // Real-time preview while dragging spinner
                     input.addEventListener('input', () => {
                         let v = parseFloat(input.value);
-                        if (Number.isNaN(v)) return;
+                        if (!Number.isFinite(v)) return;
                         if (desc.min != null && v < desc.min) v = desc.min;
                         if (desc.max != null && v > desc.max) v = desc.max;
                         if (desc.key === 'cornerRadius') input.value = v.toFixed(2);
-                        if (desc.key === 'lineWidth' && singlePolyline) {
-                            previewPolylineWidth(v);
-                        } else if (desc.key === 'cornerRadius' && selectedNode) {
-                            nodeRadiusBefore ||= selectedNode.shape.captureState();
-                            selectedNode.shape.setNodeCornerRadius(selectedNode.nodeId, v);
-                        } else for (const item of selection) {
-                            if (desc.key in item) {
-                                item[desc.key] = v;
-                                item.invalidate?.();
-                            }
-                        }
-                        app.renderShapes(false);
+                        previewValue(v);
+                    });
+                    input.addEventListener('keydown', event => {
+                        if (event.key !== 'Escape' || !preview.cancel()) return;
+                        event.preventDefault();
+                        event.stopPropagation();
+                        app._updatePropertiesPanel?.(selection);
+                    });
+                    input.addEventListener('blur', () => {
+                        queueMicrotask(() => {
+                            if (!Number.isFinite(parseFloat(input.value))) preview.cancel();
+                            else preview.commit();
+                        });
                     });
                     if (disabled) {
                         input.readOnly = true;

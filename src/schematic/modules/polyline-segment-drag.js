@@ -1,4 +1,6 @@
 /** Segment refinement and live movement for schematic line/rect/polygon shapes. */
+import { snapShapeTranslation, renderShapeAlignment } from './shape-snap.js';
+import { pathSegmentConstraints } from '../../shapes/path-snap.js';
 
 export function tryBeginPolylineSegmentDrag(app, shape, worldPos, allowSegment, tolerance) {
     if (!allowSegment || shape?.type !== 'polyline'
@@ -27,12 +29,24 @@ export function updatePolylineSegmentDrag(app, worldPos) {
     const first = originalEdge ? app.drag.beforeState.nodes?.[originalEdge.from] : null;
     const second = originalEdge ? app.drag.beforeState.nodes?.[originalEdge.to] : null;
     if (!shape || shape.type !== 'polyline' || !first || !second) return false;
-    const target = app.viewport.getSnappedPosition({
-        x: first.x + worldPos.x - app.drag.startWorldPos.x,
-        y: first.y + worldPos.y - app.drag.startWorldPos.y,
-    });
-    const dx = target.x - first.x;
-    const dy = target.y - first.y;
+    const nodeIds = [originalEdge.from, originalEdge.to];
+    const path = shape.toEditablePath();
+    const segment = path ? Object.values(path.edgeIds).indexOf(edgeId) : -1;
+    const constraints = path ? pathSegmentConstraints(
+        Object.values(path.nodeIds).map(id => app.drag.beforeState.nodes[id]), shape.closed,
+        segment, path.segmentBulges).map(constraint => ({ ...constraint,
+            index: nodeIds.indexOf(path.nodeIds[(segment + constraint.index) % path.points.length]),
+        }))
+        : nodeIds.map((nodeId, index) => ({ index,
+        neighbours: Object.entries(app.drag.beforeState.edges).filter(([id, edge]) => id !== edgeId
+            && (edge.from === nodeId || edge.to === nodeId)).map(([, edge]) =>
+            app.drag.beforeState.nodes[edge.from === nodeId ? edge.to : edge.from]),
+    }));
+    const delta = snapShapeTranslation(app, [first, second], {
+        x: worldPos.x - app.drag.startWorldPos.x, y: worldPos.y - app.drag.startWorldPos.y,
+    }, [], constraints);
+    const dx = delta.x;
+    const dy = delta.y;
     const firstNode = shape.nodes.get(originalEdge.from);
     const secondNode = shape.nodes.get(originalEdge.to);
     if (!firstNode || !secondNode) return false;
@@ -40,8 +54,9 @@ export function updatePolylineSegmentDrag(app, worldPos) {
     firstNode.y = first.y + dy;
     secondNode.x = second.x + dx;
     secondNode.y = second.y + dy;
-    if (shape.isRect && (dx !== 0 || dy !== 0) && !shape.isAxisAlignedRect()) shape.isRect = false;
+    shape.isRect = shape.isAxisAlignedRect();
     shape.invalidate();
+    renderShapeAlignment(app, shape, nodeIds, [edgeId]);
     app.didDrag = dx !== 0 || dy !== 0;
     return app.didDrag;
 }

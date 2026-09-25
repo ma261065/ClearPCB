@@ -20,6 +20,8 @@ const {
     cloneShapeGeometry,
     boardShapeLineWidthMinimum,
     boardShapeArcGeometry,
+    boardShapeBounds,
+    boardShapeHitTest,
     boardShapeCopperCuts,
     boardShapeFilledRemovalOutlines,
     boardShapeRemovalPathD,
@@ -44,6 +46,14 @@ const { exportGerbers } = await import('../src/pcb/modules/gerber.js');
 const { pcbTextPolylines, pcbTextSegments } = await import('../src/pcb/modules/pcb-text.js');
 const { pcbLayerSelectionColor } = await import('../src/pcb/modules/layers.js');
 const { flattenSvgPath } = await import('../src/pcb/modules/board-geometry.js');
+const { Polyline } = await import('../src/shapes/polyline.js');
+const { Arc } = await import('../src/shapes/arc.js');
+const { Circle } = await import('../src/shapes/circle.js');
+const { shapeFromPoints, advanceShapeDrawing, primitiveShapePath } = await import('../src/shapes/shape-drawing.js');
+const { projectArcBulge } = await import('../src/shapes/arc-edit.js');
+const { joinPaths, deletePathSegment, closePathIfCoincident, collapseCollinearPath, pointsFormAxisAlignedRect } = await import('../src/shapes/path-operations.js');
+const { roundedPathCorners, sampleRoundedCorner } = await import('../src/shapes/rounded-path.js');
+const pcbCornerGeometry = await import('../src/pcb/modules/board-geometry.js');
 const { Board2D } = await import('../src/pcb/modules/board2d.js');
 const { computeFillPolygons, loadClipper } = await import('../src/pcb/modules/copper-fill-geom.js');
 
@@ -57,6 +67,112 @@ function check(name, condition) {
 }
 
 const approx = (a, b) => Math.abs(a - b) < 1e-9;
+for (const bulge of [{ x: 5, y: 3 }, { x: 5, y: -3 }, { x: 5, y: 0 }]) {
+    const pcb = { kind: 'arc', start: { x: 0, y: 0 }, end: { x: 10, y: 0 }, bulge, lineWidth: 0.2 };
+    const schematic = new Arc({ startPoint: pcb.start, endPoint: pcb.end, bulgePoint: bulge, lineWidth: 0.2 });
+    const bounds = boardShapeBounds(pcb);
+    check('standalone arc bounds share PCB sampling', Object.entries(bounds).every(([key, value]) => approx(value, schematic._calculateBounds()[key])));
+    check('standalone arc rendering shares PCB path data', primitiveShapePath(pcb) === shapePathD(pcb));
+    for (const point of [bulge, { x: 5, y: 8 }, { x: 0, y: 0 }]) {
+        check('standalone arc stroke queries agree', schematic.hitTest(point, 0.1) === boardShapeHitTest(pcb, point, 0.1));
+    }
+}
+check('arc editing clamps at a semicircle', projectArcBulge({ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 20, y: 100 }).y === 5);
+for (const filled of [false, true]) {
+    const pcb = { kind: 'circle', x: 0, y: 0, radius: 5, lineWidth: 1, filled };
+    const schematic = new Circle({ ...pcb, fill: filled });
+    for (const point of [{ x: 0, y: 0 }, { x: 4.5, y: 0 }, { x: 5.3, y: 0 }]) {
+        check('circle outer-radius queries agree', schematic.hitTest(point, 0.1) === boardShapeHitTest(pcb, point, 0.1));
+    }
+}
+const rectanglePoints = [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }, { x: 0, y: 10 }];
+for (const [points, expected] of [[rectanglePoints, true],
+    [[{ x: 0, y: 0 }, { x: 2, y: 2 }, { x: 0, y: 4 }, { x: -2, y: 2 }], false],
+    [[{ x: 0, y: 0 }, { x: 0, y: 0 }, { x: 0, y: 4 }, { x: 0, y: 4 }], false]]) {
+    check('shared rectangle classification rejects rotated and degenerate cycles', pointsFormAxisAlignedRect(points) === expected);
+    check('schematic uses the same axis-aligned rectangle classification',
+        new Polyline({ points, closed: true }).isAxisAlignedRect() === expected);
+}
+for (const bulge of [0, 0.00001, 0.001]) {
+    const rectangle = new Polyline({ points: rectanglePoints, closed: true });
+    rectangle.setEdgeAttr([...rectangle.edges.keys()][0], 'bulge', bulge);
+    check('rectangle classification uses the geometric bulge threshold', rectangle.isAxisAlignedRect() === (bulge < 0.0001));
+}
+const circularCorners = roundedPathCorners(rectanglePoints, [2, 2, 2, 2], true, true);
+const circularSamples = sampleRoundedCorner(circularCorners[1], 16);
+check('circular rectangle corner matches PCB quadrant and sampling density', circularSamples.length >= 17
+    && circularSamples.every(point => approx(Math.hypot(point.x - 8, point.y - 2), 2)
+        && point.x >= 8 - 1e-9 && point.y <= 2 + 1e-9));
+const editedRectangle = new Polyline({ points: rectanglePoints, closed: true, isRect: true, cornerRadius: 2, lineWidth: 0.2 });
+const rectanglePath = editedRectangle.toEditablePath();
+editedRectangle.applyEditablePath(rectanglePath);
+check('graph-path round trip preserves circular corner mode', editedRectangle._circularCorners());
+editedRectangle.lineWidth = 0.6;
+check('graph-path round trip retains inherited edge widths', [...editedRectangle.edges.keys()].every(id => editedRectangle.getEdgeAttr(id, 'width') === 0.6));
+const originalNodeIds = [...editedRectangle.nodes.keys()];
+editedRectangle.moveAnchor(originalNodeIds[0], -2, -3);
+check('shared rectangle resize preserves opposite corner and stable node ids',
+    editedRectangle.nodes.get(originalNodeIds[2]).x === 10 && editedRectangle.nodes.get(originalNodeIds[2]).y === 10
+    && editedRectangle.nodes.get(originalNodeIds[1]).y === -3 && editedRectangle.nodes.get(originalNodeIds[3]).x === -2);
+const joinedDefaults = joinPaths(
+    { kind: 'line', points: rectanglePoints.slice(0, 2), lineWidth: 0.2, cornerRadius: 0 }, 1,
+    { kind: 'line', points: rectanglePoints.slice(1, 3), lineWidth: 0.8, cornerRadius: 2 }, 0);
+check('joining preserves each path default width and radius', joinedDefaults.segmentWidths[0] === 0.2
+    && joinedDefaults.segmentWidths[1] === 0.8 && joinedDefaults.nodeCornerRadii[2] === 2);
+const closedPath = { kind: 'line', points: [...rectanglePoints, { ...rectanglePoints[0] }],
+    segmentBulges: { 0: 0.5 }, nodeCornerRadii: { 1: 2 } };
+check('closing the first endpoint rotates metadata without reversing its arc', closePathIfCoincident(closedPath, 0)
+    && closedPath.segmentBulges[3] === 0.5 && closedPath.nodeCornerRadii[0] === 2);
+const openedParts = deletePathSegment(closedPath, 1);
+check('deleting a closed-path segment preserves remaining arc metadata', openedParts.length === 1
+    && openedParts[0].kind === 'line' && openedParts[0].segmentBulges[1] === 0.5);
+const redundant = { kind: 'line', points: [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 2, y: 0 }], segmentWidths: { 0: 0.2, 1: 0.8 } };
+check('cleanup preserves width transitions', !collapseCollinearPath(redundant) && redundant.points.length === 3);
+redundant.segmentWidths[1] = 0.2;
+check('cleanup removes redundant same-width waypoints', collapseCollinearPath(redundant) && redundant.points.length === 2);
+for (const kind of ['rect', 'circle', 'arc', 'line', 'polygon']) {
+    let session = advanceShapeDrawing(kind, [], { x: 0, y: 0 });
+    check('first drawing click never completes', !session.complete);
+    session = advanceShapeDrawing(kind, session.points, { x: 10, y: 10 });
+    check('second drawing click follows PCB completion rules', session.complete === ['rect', 'circle'].includes(kind));
+    if (kind === 'arc') check('arc completes on third click', advanceShapeDrawing(kind, session.points, { x: 5, y: 0 }).complete);
+}
+check('degenerate rectangle is rejected', !shapeFromPoints('rect', [{ x: 0, y: 0 }, { x: 0, y: 1 }]));
+const returningPoints = [...rectanglePoints, { ...rectanglePoints[0] }];
+check('open line drawing retains the returning segment', shapeFromPoints('line', returningPoints).points.length === 5);
+check('polygon drawing removes only its implicit closure duplicate', shapeFromPoints('polygon', returningPoints).points.length === 4);
+check('line drawing still removes consecutive duplicate points', shapeFromPoints('line',
+    [{ x: 0, y: 0 }, { x: 0, y: 0 }, { x: 10, y: 0 }]).points.length === 2);
+check('PCB compatibility exports reference the shared corner helpers',
+    pcbCornerGeometry.roundedPathCorners === roundedPathCorners
+    && pcbCornerGeometry.sampleRoundedCorner === sampleRoundedCorner);
+for (const closed of [false, true]) {
+    const points = [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 8 }, { x: 0, y: 8 }];
+    for (const radii of [[0, 2, 0, 0], [20, 20, 20, 20], [1, 2, 3, 1]]) {
+        const schematic = new Polyline({ points, closed });
+        const schematicPath = closed
+            ? schematic._buildRoundedPath(points, radii)
+            : schematic._buildRoundedOpenPath(points, radii);
+        const pcb = {
+            kind: closed ? 'polygon' : 'line', points, lineWidth: 0.2,
+            nodeCornerRadii: Object.fromEntries(radii.map((radius, index) => [index, radius])),
+        };
+        const pcbPath = shapePathD(pcb);
+        check(`${closed ? 'closed' : 'open'} rounded path matches between editors (${radii})`,
+            schematicPath === pcbPath);
+        check('PCB width overrides leave the shared rounded outline unchanged',
+            shapePathD({ ...pcb, segmentWidths: { 0: 0.8 } }) === pcbPath);
+        const corners = roundedPathCorners(points, radii, closed);
+        if (!closed) check('open endpoints remain sharp despite corner radius settings',
+            !corners[0].rounded && !corners.at(-1).rounded);
+    }
+}
+const degenerateCorners = roundedPathCorners(
+    [{ x: 0, y: 0 }, { x: 0, y: 0 }, { x: 10, y: 0 }], [2, 2, 2]);
+check('zero-length adjacent edges stay sharp and finite',
+    degenerateCorners.every(corner => !corner.rounded
+        && Number.isFinite(corner.entry.x) && Number.isFinite(corner.exit.y)));
+
 const sharpRectangle = {
     id: 'sharp-rectangle', kind: 'rect', layer: 'top-copper', lineWidth: 2,
     points: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 8 }, { x: 0, y: 8 }],

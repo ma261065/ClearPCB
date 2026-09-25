@@ -17,6 +17,7 @@
 
 import { PolylineGraph } from './polyline-graph.js';
 import { ShapeValidator } from '../core/ShapeValidator.js';
+import { deletePathVertex, splitPathSegmentMetadata, remapPathNodes, collapseCollinearPath, resizeRectanglePoints } from './path-operations.js';
 
 export class Polyline extends PolylineGraph {
     /**
@@ -78,65 +79,104 @@ export class Polyline extends PolylineGraph {
             return super.moveAnchor(anchorId, x, y);
         }
 
-        const adj1Id = edges[0].otherNode;
-        const adj2Id = edges[1].otherNode;
-        const dragPos = this.nodes.get(anchorId);
-        const adj1 = this.nodes.get(adj1Id);
-        const adj2 = this.nodes.get(adj2Id);
-
-        if (!dragPos || !adj1 || !adj2) return super.moveAnchor(anchorId, x, y);
-
-        if (!this._rectAxisCache || this._rectAxisCache.anchorId !== anchorId) {
-            const dx1 = Math.abs(adj1.x - dragPos.x);
-            const dy1 = Math.abs(adj1.y - dragPos.y);
+        const currentIds = this.getOrderedNodeIds();
+        const currentPoints = currentIds.map(id => ({ ...this.nodes.get(id) }));
+        const nondegenerate = currentPoints.every((point, index) =>
+            Math.hypot(point.x - currentPoints[(index + 1) % currentPoints.length].x,
+                point.y - currentPoints[(index + 1) % currentPoints.length].y) > 1e-9);
+        if (!this._rectAxisCache || this._rectAxisCache.anchorId !== anchorId || nondegenerate) {
             this._rectAxisCache = {
-                anchorId,
-                edge1IsVertical: dx1 < dy1,
+                anchorId, nodeIds: currentIds, points: currentPoints,
             };
         }
-
-        const { edge1IsVertical } = this._rectAxisCache;
-
-        dragPos.x = x;
-        dragPos.y = y;
-
-        if (edge1IsVertical) {
-            adj1.x = x;
-            adj2.y = y;
-        } else {
-            adj1.y = y;
-            adj2.x = x;
-        }
-
+        const { points, nodeIds } = this._rectAxisCache;
+        resizeRectanglePoints(points, nodeIds.indexOf(anchorId), { x, y })
+            .forEach((point, index) => this.nodes.set(nodeIds[index], point));
         this.invalidate();
     }
 
     /** @override */
     deleteAnchor(anchorId) {
-        // Open shapes need at least 2 vertices (1 edge)
-        if (!this.closed && this.edges.size <= 1) return false;
-        // Closed shape with 3 nodes: deleting opens it into a line
-        if (this.closed && this.nodes.size <= 3) {
-            // Remove the node and break the closure
-            if (!this.nodes.has(anchorId)) return false;
-            const edges = this.incidentEdges(anchorId);
-            if (edges.length < 2) return false;
-            // Remove edges and node
-            for (const e of edges) this.edges.delete(e.edgeId);
-            this.nodes.delete(anchorId);
-            // Remaining 2 nodes: ensure they're connected
-            const remaining = [...this.nodes.keys()];
-            if (remaining.length === 2 && !this.hasEdgeBetween(remaining[0], remaining[1])) {
-                this.addEdge(remaining[0], remaining[1]);
-            }
-            this.closed = false;
-            this.isRect = false;
-            this.invalidate();
+        const path = this.toEditablePath();
+        if (path) {
+            const index = Object.values(path.nodeIds).indexOf(anchorId);
+            if (!deletePathVertex(path, index)) return false;
+            this.applyEditablePath(path);
             return true;
         }
         const result = super.deleteAnchor(anchorId);
         if (result) this.isRect = false;
         return result;
+    }
+
+    toEditablePath() {
+        const nodeIds = this.getOrderedNodeIds();
+        const chain = this.getOrderedEdgeChain();
+        if (this.getJunctionNodes().length || nodeIds.length !== this.nodes.size
+            || chain.length !== this.edges.size) return null;
+        return {
+            kind: this.closed ? 'polygon' : 'line',
+            points: nodeIds.map(id => ({ ...this.nodes.get(id) })),
+            nodeIds: Object.fromEntries(nodeIds.map((id, index) => [index, id])),
+            edgeIds: Object.fromEntries(chain.map((edge, index) => [index, edge.edgeId])),
+            nodeCornerRadii: Object.fromEntries(nodeIds.map((id, index) => [index, this.nodeCornerRadius(id)])),
+            segmentWidths: Object.fromEntries(chain.map((edge, index) => [index, this.getEdgeAttr(edge.edgeId, 'width')])),
+            segmentBulges: Object.fromEntries(chain.map((edge, index) => [index, edge.bulge])),
+        };
+    }
+
+    cleanGraph() {
+        const path = this.toEditablePath();
+        if (!path) return super.cleanGraph();
+        if (collapseCollinearPath(path)) this.applyEditablePath(path);
+    }
+
+    applyEditablePath(path) {
+        const usedNodes = new Set(Object.values(path.nodeIds || {}));
+        const usedEdges = new Set(Object.values(path.edgeIds || {}));
+        const allocate = (used, prefix) => {
+            let index = 0;
+            while (used.has(`${prefix}${index}`)) index++;
+            const id = `${prefix}${index}`;
+            used.add(id);
+            return id;
+        };
+        const nodeIds = path.points.map((_, index) => path.nodeIds?.[index] ?? allocate(usedNodes, 'n'));
+        const nodes = new Map(path.points.map((point, index) => [nodeIds[index], { x: point.x, y: point.y }]));
+        const closed = path.kind !== 'line';
+        const count = closed ? nodeIds.length : Math.max(0, nodeIds.length - 1);
+        const edges = new Map();
+        for (let index = 0; index < count; index++) {
+            const id = path.edgeIds?.[index] ?? allocate(usedEdges, 'e');
+            edges.set(id, { ...this.edges.get(id), from: nodeIds[index], to: nodeIds[(index + 1) % nodeIds.length],
+                width: path.segmentWidths?.[index] ?? this.lineWidth, bulge: path.segmentBulges?.[index] || 0 });
+            if (edges.get(id).width === this.lineWidth) delete edges.get(id).width;
+        }
+        this.nodes = nodes;
+        this.edges = edges;
+        this.nodeCornerRadii = Object.fromEntries(nodeIds.flatMap((id, index) => {
+            const radius = path.nodeCornerRadii?.[index] ?? this.cornerRadius;
+            return Math.abs(radius - this.cornerRadius) > 1e-9 ? [[id, radius]] : [];
+        }));
+        this.closed = closed;
+        this.isRect = closed && this.isAxisAlignedRect();
+        this._rectAxisCache = null;
+        this.invalidate();
+    }
+
+    splitEdge(edgeId, point) {
+        const path = this.toEditablePath();
+        if (!path) return super.splitEdge(edgeId, point);
+        const index = Object.values(path.edgeIds).indexOf(edgeId);
+        if (index < 0) return null;
+        path.points.splice(index + 1, 0, { ...point });
+        splitPathSegmentMetadata(path, index);
+        remapPathNodes(path, index + 1, 1);
+        this.applyEditablePath(path);
+        this.isRect = false;
+        const nodeIds = this.getOrderedNodeIds();
+        const chain = this.getOrderedEdgeChain();
+        return { newNodeId: nodeIds[index + 1], edge1Id: chain[index].edgeId, edge2Id: chain[index + 1].edgeId };
     }
 
     /** @override */

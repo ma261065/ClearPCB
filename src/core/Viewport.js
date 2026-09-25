@@ -4,6 +4,8 @@
  * Uses SVG viewBox for pan/zoom - mathematically perfect scaling.
  */
 
+import { snapToGridLines } from './grid-snap.js';
+
 export class Viewport {
     /**
      * Create the SVG viewport with pan, zoom, grid, rulers, and paper outline.
@@ -368,7 +370,7 @@ export class Viewport {
     }
     
     /**
-     * Snap a world position to the grid (if snapping is enabled).
+    * Magnetically snap each coordinate near a displayed grid line.
      * Holding Shift toggles the snap setting when the grid is visible.
      * @param {{x: number, y: number}} worldPos - Unsnapped world position.
      * @returns {{x: number, y: number}} Snapped (or original) position.
@@ -377,12 +379,9 @@ export class Viewport {
         // Shift temporarily reverses the snap setting, but only if grid is visible
         let shouldSnap = this.snapToGrid;
         if (this.shiftHeld && this.gridVisible) shouldSnap = !shouldSnap;
-        if (!shouldSnap) return worldPos;
-        // Always snap to base grid size for precision
-        return {
-            x: Math.round(worldPos.x / this.gridSize) * this.gridSize,
-            y: Math.round(worldPos.y / this.gridSize) * this.gridSize
-        };
+        if (!shouldSnap || !this.gridVisible) return worldPos;
+        const { x, y } = snapToGridLines(worldPos, this.getEffectiveGridSize(), this.scale);
+        return { x, y };
     }
     
     /**
@@ -1712,6 +1711,8 @@ export class Viewport {
         // Attach handlers (no mousedown/mousemove/mouseup/contextmenu — those are in mouse.js)
         this.svg.addEventListener('wheel', this.boundHandlers.wheel, { passive: false });
         window.addEventListener('resize', this.boundHandlers.resize);
+        this.resizeObserver = new ResizeObserver(() => this._onResize());
+        this.resizeObserver.observe(this.container);
         
         // Keyboard
         this.boundHandlers.keydown = (e) => {
@@ -1737,6 +1738,7 @@ export class Viewport {
         }
         if (this.boundHandlers.wheel) this.svg.removeEventListener('wheel', this.boundHandlers.wheel);
         if (this.boundHandlers.resize) window.removeEventListener('resize', this.boundHandlers.resize);
+        this.resizeObserver?.disconnect();
         if (this.boundHandlers.keydown) window.removeEventListener('keydown', this.boundHandlers.keydown);
         if (this.boundHandlers.browserZoom) window.removeEventListener('keydown', this.boundHandlers.browserZoom);
         if (this.boundHandlers.browserWheelZoom) window.removeEventListener('wheel', this.boundHandlers.browserWheelZoom);

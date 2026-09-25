@@ -183,21 +183,19 @@ export class SetPanelizationCommand {
 
 export function updatePanelRailConstraints(form) {
     let error = '';
-    for (const [axis, rails] of [
-        ['horizontal', ['railTop', 'railBottom']],
-        ['vertical', ['railLeft', 'railRight']],
+    for (const [axis, key] of [
+        ['horizontal', 'railTop'],
+        ['vertical', 'railLeft'],
     ]) {
         const features = form.querySelector(`input[name="${axis}PositioningHoles"]`).checked
             || form.querySelector(`input[name="${axis}Fiducials"]`).checked;
-        for (const key of rails) {
-            const input = form.querySelector(`input[name="${key}"]`);
-            const required = features && (input.valueAsNumber > 0 || input.min === '5');
-            input.min = required ? '5' : '0';
-            const message = required && !(input.valueAsNumber >= 5)
-                ? 'Rails with positioning holes or fiducials must be at least 5 mm wide.' : '';
-            input.setCustomValidity(message);
-            error ||= message;
-        }
+        const input = form.querySelector(`input[name="${key}"]`);
+        const required = features && (input.valueAsNumber > 0 || input.min === '5');
+        input.min = required ? '5' : '0';
+        const message = required && !(input.valueAsNumber >= 5)
+            ? 'Rails with positioning holes or fiducials must be at least 5 mm wide.' : '';
+        input.setCustomValidity(message);
+        error ||= message;
     }
     return error;
 }
@@ -205,6 +203,8 @@ export function updatePanelRailConstraints(form) {
 export function openPanelizeDialog(app) {
     if (dialogs.has(app)) return;
     const settings = app.panelization ? panelSettings(app.panelization) : { ...PANEL_DEFAULTS };
+    settings.railTop = Math.max(settings.railTop, settings.railBottom);
+    settings.railLeft = Math.max(settings.railLeft, settings.railRight);
     const groups = [
         { title: 'Layout', wide: true, fields: [
             ['rows', 'Rows', 1, 20, 1], ['columns', 'Columns', 1, 20, 1],
@@ -214,14 +214,14 @@ export function openPanelizeDialog(app) {
             ['horizontalPositioningHoles', 'Positioning holes', 'Two 3 mm NPTH holes per enabled rail'],
             ['horizontalFiducials', 'Fiducial marks', 'Two 1 mm copper marks with 3 mm mask openings per enabled rail, both sides'],
         ], fields: [
-            ['railTop', 'Top rail (mm)', 0, 100, 0.5], ['railBottom', 'Bottom rail (mm)', 0, 100, 0.5],
+            ['railTop', 'Top/bottom rails (mm)', 0, 100, 0.5],
             ['horizontalTabsPerEdge', 'Tabs per edge', 1, 20, 1], ['horizontalTabOffset', 'Tab offset (mm)', -100, 100, 0.1],
         ] },
         { title: 'Vertical edges', toggles: [
             ['verticalPositioningHoles', 'Positioning holes', 'Two 3 mm NPTH holes per enabled rail'],
             ['verticalFiducials', 'Fiducial marks', 'Two 1 mm copper marks with 3 mm mask openings per enabled rail, both sides'],
         ], fields: [
-            ['railLeft', 'Left rail (mm)', 0, 100, 0.5], ['railRight', 'Right rail (mm)', 0, 100, 0.5],
+            ['railLeft', 'Left/right rails (mm)', 0, 100, 0.5],
             ['verticalTabsPerEdge', 'Tabs per edge', 1, 20, 1], ['verticalTabOffset', 'Tab offset (mm)', -100, 100, 0.1],
         ] },
         { title: 'Mouse bites', wide: true, fields: [
@@ -296,10 +296,13 @@ export function openPanelizeDialog(app) {
     const remove = /** @type {HTMLButtonElement} */ (overlay.querySelector('[data-remove]'));
     remove.disabled = !app.panelization;
     const priorFocus = /** @type {HTMLElement} */ (document.activeElement);
-    const read = () => Object.fromEntries([...form.querySelectorAll('input,select')].map(element => {
-        const input = /** @type {HTMLInputElement} */ (element);
-        return [input.name, input.type === 'checkbox' ? input.checked : input.name === 'separation' ? input.value : input.valueAsNumber];
-    }));
+    const read = () => {
+        const values = Object.fromEntries([...form.querySelectorAll('input,select')].map(element => {
+            const input = /** @type {HTMLInputElement} */ (element);
+            return [input.name, input.type === 'checkbox' ? input.checked : input.name === 'separation' ? input.value : input.valueAsNumber];
+        }));
+        return { ...values, railBottom: values.railTop, railRight: values.railLeft };
+    };
     const refresh = () => {
         for (const key of ['verticalTabsPerEdge', 'horizontalTabsPerEdge', 'verticalTabOffset', 'horizontalTabOffset', 'tabWidth', 'holeDiameter', 'holePitch']) {
             const input = form.querySelector(`input[name="${key}"]`);

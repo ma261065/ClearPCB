@@ -1204,7 +1204,7 @@ function _showTrackProperties(app, track) {
 function _showTrackSegmentProperties(app, track, edgeId) {
     const items = app._pcbPropsItems?.() || document.getElementById('pcbPropsItems');
     if (!items) return;
-    app._setPcbPropsTitle?.(track.edges.get(edgeId)?.bulge ? 'Arc Segment' : 'Line Segment');
+    app._setPcbPropsTitle?.(track.edges.get(edgeId)?.bulge ? 'Arc Segment' : 'Track Segment');
     const currentLayer = track.getEdgeLayer(edgeId) || 'top-copper';
     const segWidth = track.getEdgeWidth(edgeId);
     const layerOpts = COPPER_LAYERS.map(
@@ -1223,7 +1223,7 @@ function _showTrackSegmentProperties(app, track, edgeId) {
         if (!Number.isFinite(bulgeInput.valueAsNumber)) return;
         bulgeBefore ||= track.captureState();
         const value = Math.max(-1, Math.min(1, bulgeInput.valueAsNumber));
-        track.setEdgeAttr(edgeId, 'bulge', Number(formatNumberInputValue(value)) === 0 ? 0 : value);
+        track.setEdgeAttr(edgeId, 'bulge', Number(formatNumberInputValue(value)));
         renderTrack(track, layer => app._getLayerGroup(layer));
         refreshTrackSelectionHalo(app);
         app._refreshClearanceHalos?.();

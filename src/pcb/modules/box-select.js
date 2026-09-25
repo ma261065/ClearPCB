@@ -438,13 +438,13 @@ export function scheduleGroupDrag(app, worldPos) {
     });
 }
 
-export function updateGroupDrag(app, worldPos) {
+export function updateGroupDrag(app, worldPos, { snap = true } = {}) {
     const g = app._groupDrag;
     if (!g) return;
     let dx = worldPos.x - g.startWorld.x;
     let dy = worldPos.y - g.startWorld.y;
     // Snap the shared delta (not each object) so relative layout is kept.
-    if (app.viewport?.snapToGrid) {
+    if (snap && app.viewport?.snapToGrid) {
         const gs = app.viewport.gridSize;
         dx = Math.round(dx / gs) * gs;
         dy = Math.round(dy / gs) * gs;

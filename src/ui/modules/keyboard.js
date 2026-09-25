@@ -1,4 +1,5 @@
 import { clearDragState } from './mouse.js';
+import { cancelSchematicPathSplit, cancelSchematicShapeConversion } from './drag.js';
 import { ModifyPropertyCommand, MoveShapesCommand } from '../../schematic/modules/commands.js';
 import { rotateNetOrientation } from '../../shapes/net.js';
 import { resolveWireSnapPosition, PIN_SNAP_TOL } from './wire.js';
@@ -75,6 +76,11 @@ export function handleEscape(app) {
 
     // 2. Cancel an in-progress drag.
     switch (app.interactionState) {
+        case 'overlapCycle':
+            app._overlapCyclePress = null;
+            app.interactionState = 'idle';
+            app.skipClickSelection = true;
+            return;
         case 'segmentDrag':
             // Revert bridge insertions from segment drag start.
             if (app.drag?.shape?.type === 'polyline' && app.drag.beforeState) {
@@ -89,6 +95,8 @@ export function handleEscape(app) {
             return;
 
         case 'anchorDrag':
+            cancelSchematicShapeConversion(app);
+            cancelSchematicPathSplit(app);
             // Revert shape and linked wires to pre-drag state.
             if (app.drag?.beforeState) {
                 app._applyShapeState(app.drag.shape, app.drag.beforeState);
@@ -300,19 +308,6 @@ export function bindKeyboardShortcuts(app) {
         }
         if (e.defaultPrevented && e.key !== 'Escape' && e.key !== 'Enter') return;
 
-        // Ctrl+Tab: toggle Schematic / PCB mode (works even during text edit)
-        if ((e.ctrlKey || e.metaKey) && e.key === 'Tab') {
-            e.preventDefault();
-            e.stopPropagation();
-            const tabs = document.querySelectorAll('.mode-tab');
-            if (tabs.length >= 2) {
-                const active = document.querySelector('.mode-tab.active');
-                const target = active?.dataset.mode === 'pcb' ? tabs[0] : tabs[1];
-                target.click();
-            }
-            return;
-        }
-
         // Text edit has absolute priority for Escape and Enter
         if (app.textEdit) {
             if (e.key === 'Escape' || e.key === 'Enter') {
@@ -451,7 +446,7 @@ export function bindKeyboardShortcuts(app) {
                 case 'ArrowRight': {
                     if (app.textEdit) break;
                     e.preventDefault();
-                    const step = app.viewport.snapToGrid ? app.viewport.gridSize : 1;
+                    const step = app.viewport.snapToGrid ? app.viewport.gridSize / 4 : 1;
                     let dx = 0, dy = 0;
                     if (e.key === 'ArrowUp') dy = -step;
                     else if (e.key === 'ArrowDown') dy = step;
