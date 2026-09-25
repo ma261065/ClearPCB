@@ -22,8 +22,38 @@ const { Track } = await import('../src/shapes/track.js');
 const { selectTrackOrVia, selectTrackNode, drawTrackHalo, createTrackSelectionAdapter } = await import('../src/pcb/modules/track-select.js');
 const { cancelPictureCopperRefresh } = await import('../src/pcb/modules/picture-refresh.js');
 const { splitTrackNodeAndDrag } = await import('../src/pcb/modules/track-drag.js');
-const { getPcbSelection } = await import('../src/pcb/modules/selection-registry.js');
+const { getPcbSelection, setPcbSelection } = await import('../src/pcb/modules/selection-registry.js');
 const { redrawPropertyPreview, createPropertyPreview } = await import('../src/shapes/property-preview.js');
+
+for (const kinds of [['line'], ['polygon'], ['line', 'polygon']]) {
+    for (const keepTrack of [false, true]) {
+        const shapes = kinds.map(kind => ({ id: `deselect-${kind}`, kind, layer: 'top-silk', lineWidth: 0.2,
+            points: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }] }));
+        const before = structuredClone(shapes);
+        const track = new Track({ points: [{ x: 20, y: 0 }, { x: 30, y: 0 }] });
+        const app = { boardShapes: shapes, tracks: [track], vias: [], placements: new Map(), texts: new Map(),
+            _shapeElements: new Map(), _getLayerGroup() { return null; }, viewport: { scale: 20 } };
+        setPcbSelection(app, [...shapes.map(shape => ({ kind: 'shape', object: shape })),
+            ...(keepTrack ? [{ kind: 'track', object: track }] : [])]);
+        for (const shape of shapes) {
+            const adapter = createBoardShapeSelectionAdapter(app, shape, `shape:${shape.id}`);
+            assert.equal(adapter.hitTest({ x: 1000, y: 1000 }, 0.1), false,
+                'Selected path hit testing rejects empty canvas without throwing');
+        }
+        assert.equal(beginSelectionInteraction(app, { x: 1000, y: 1000 }, false), false,
+            'A blank-canvas press reaches the deselection path');
+        app._selectedBoardShapeSegment = { shapeId: shapes[0].id, segment: 0 };
+        app._selectedBoardShapeNode = { shapeId: shapes[0].id, node: 0 };
+        selectBoardShape(app, null);
+        assert.deepEqual(getPcbSelection(app, 'shape'), [], 'Null shape selection removes all selected shapes from the registry');
+        assert.deepEqual(getPcbSelection(app, 'track'), keepTrack ? [track] : [], 'Shape deselection preserves other selected kinds');
+        assert.equal(app._selectedBoardShapeSegment, null);
+        assert.equal(app._selectedBoardShapeNode, null);
+        selectBoardShape(app, null);
+        assert.deepEqual(getPcbSelection(app), keepTrack ? [track] : [], 'Repeated deselection stays cleared');
+        assert.deepEqual(shapes, before, 'Deselecting shapes does not change their geometry');
+    }
+}
 
 {
     const first = { id: 'first' }, second = { id: 'second' };

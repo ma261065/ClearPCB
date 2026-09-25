@@ -14,7 +14,7 @@
  *   circle:       + { x, y, radius }
  */
 
-import { bulgeRatio, bulgePointFromRatio } from '../../core/geometry.js';
+import { bulgeRatio, bulgePointFromRatio, distanceToSegment } from '../../core/geometry.js';
 import { formatNumberInput, formatNumberInputValue } from '../../core/number-inputs.js';
 import { projectArcBulge, snapArcBulgeToChord, arcBulgeRatio, arcBulgeFromRatio } from '../../shapes/arc-edit.js';
 import { pathHandleDescriptors, pathSegmentAt } from '../../shapes/path-geometry.js';
@@ -35,6 +35,7 @@ import { pathContinuationConstraints, pathSegmentConstraints } from '../../shape
 import { redrawPropertyPreview, createPropertyPreview } from '../../shapes/property-preview.js';
 import {
     getPcbSelection,
+    getPcbSelectionEntries,
     hitTestPcbSelection,
     isPcbSelected,
     registerPcbSelectionAdapter,
@@ -611,15 +612,21 @@ export function setBoardShapeHover(app, shape) {
 }
 
 export function selectBoardShape(app, shape) {
-    const prev = getPcbSelection(app, 'shape')[0] || null;
+    const previousShapes = getPcbSelection(app, 'shape');
+    const prev = previousShapes[0] || null;
     const next = shape || null;
     if (prev === next || (prev && next && prev.id === next.id)) return;
     app._selectedBoardShapeSegment = null;
+    app._selectedBoardShapeNode = null;
     if (next && !isPcbSelected(app, 'shape', next)) {
         setPcbSelection(app, [{ kind: 'shape', object: next }]);
+    } else if (!next) {
+        setPcbSelection(app, getPcbSelectionEntries(app).filter(entry => entry.kind !== 'shape'));
     }
     app._syncClipboardButtons?.();
-    if (prev && app.boardShapes.includes(prev)) renderBoardShape(app, prev);
+    for (const previous of previousShapes) {
+        if (app.boardShapes.includes(previous)) renderBoardShape(app, previous);
+    }
     if (next) renderBoardShape(app, next);
     clearBoardShapeHandles(app);
     if (next) renderBoardShapeHandles(app, next);
