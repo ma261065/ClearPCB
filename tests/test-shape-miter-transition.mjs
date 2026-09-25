@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 
 globalThis.window = { addEventListener() {} };
-const { resolveBoardShapeGeometry, getBoardShapeAnchors } = await import('../src/pcb/modules/board-shapes.js');
+const { resolveBoardShapeGeometry } = await import('../src/pcb/modules/board-shape-geometry.js');
+const { getBoardShapeAnchors } = await import('../src/pcb/modules/board-shapes.js');
 
 for (const reversed of [false, true]) {
     for (const filled of [false, true]) {

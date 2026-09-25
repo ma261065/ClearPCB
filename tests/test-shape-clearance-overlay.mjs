@@ -22,7 +22,8 @@ const element = () => ({
 });
 globalThis.document = { createElementNS: element, getElementById() { return null; } };
 const { boardShapeClearanceOutlines, pcbTextClearanceOutlines } = await import('../src/pcb/modules/copper-fill-geom.js');
-const { getBoardShapeAnchors, resolveBoardShapeGeometry, renderBoardShape, boardShapeRemovalPathD } = await import('../src/pcb/modules/board-shapes.js');
+const { resolveBoardShapeGeometry, boardShapeRemovalPathD } = await import('../src/pcb/modules/board-shape-geometry.js');
+const { getBoardShapeAnchors, renderBoardShape } = await import('../src/pcb/modules/board-shapes.js');
 for (const filled of [false, true]) {
     const polygon = { id: 'acute', kind: 'polygon', layer: 'top-copper', lineWidth: 2, cornerRadius: 0, filled,
         points: [{ x: 0, y: 0 }, { x: 0, y: 20 }, { x: 10, y: 20 }] };

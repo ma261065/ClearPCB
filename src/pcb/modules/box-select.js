@@ -25,12 +25,10 @@ import { isLayerLocked, isViaLocked, isCopperFillLocked, isCopperFillVisible } f
 import {
     applyShapeGeometry,
     cloneShapeGeometry,
-    boardShapeHitTest,
-    normalizeShapeCopperMode,
     renderBoardShape,
-    shapeOutline,
     translateShapeGeometry,
 } from './board-shapes.js';
+import { boardShapeHitTest, normalizeShapeCopperMode, shapeOutline } from './board-shape-geometry.js';
 import {
     CompoundCommand,
     RemoveTrackCommand,

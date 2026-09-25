@@ -20,10 +20,11 @@ globalThis.document = {
             remove() { if (contextMenu === this) contextMenu = null; }, querySelectorAll() { return []; } };
     },
 };
-const { resolveBoardShapeGeometry, getBoardShapeAnchors, boardShapeHitTest,
-    boardShapeBounds, serializeBoardShapes, loadBoardShapes, cloneShapeGeometry,
+const { resolveBoardShapeGeometry, boardShapeHitTest, boardShapeBounds, shapePathD } =
+    await import('../src/pcb/modules/board-shape-geometry.js');
+const { getBoardShapeAnchors, serializeBoardShapes, loadBoardShapes, cloneShapeGeometry,
     createBoardShapeSelectionAdapter, startBoardShapeDrag, handleBoardShapeDrag, endBoardShapeDrag,
-    showBoardShapeProperties, showBoardShapeContextMenu, setBoardShapeSegmentType, shapePathD } = await import('../src/pcb/modules/board-shapes.js');
+    showBoardShapeProperties, showBoardShapeContextMenu, setBoardShapeSegmentType } = await import('../src/pcb/modules/board-shapes.js');
 const { reconcileRatsnest } = await import('../src/pcb/modules/track-draw.js');
 const { cancelPictureCopperRefresh } = await import('../src/pcb/modules/picture-refresh.js');
 const { updateSelectionInteraction, finishSelectionInteraction, placeFloatingSelectionInteraction } =

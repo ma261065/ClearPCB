@@ -3,7 +3,7 @@ globalThis.localStorage = { getItem() { return null; }, removeItem() {} };
 globalThis.window = { addEventListener() {}, dispatchEvent() {} };
 globalThis.document = { body: { contains() { return false; } } };
 
-const { boardShapeFilledRemovalOutlines } = await import('../src/pcb/modules/board-shapes.js');
+const { boardShapeFilledRemovalOutlines } = await import('../src/pcb/modules/board-shape-geometry.js');
 const { boardSlabWithCutouts, punchHolesInFlatMesh } = await import('../src/pcb/modules/board3d.js');
 const { loadClipper } = await import('../src/pcb/modules/copper-fill-geom.js');
 

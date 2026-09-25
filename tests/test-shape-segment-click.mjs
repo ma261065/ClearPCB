@@ -13,7 +13,8 @@ globalThis.document = {
 globalThis.requestAnimationFrame = callback => { callback(); return 1; };
 const { beginSelectionInteraction, updateSelectionInteraction, finishSelectionInteraction,
     placeFloatingSelectionInteraction } = await import('../src/pcb/modules/selection-interaction.js');
-const { createBoardShapeSelectionAdapter, boardShapeHitTest, getBoardShapeAnchors,
+const { boardShapeHitTest } = await import('../src/pcb/modules/board-shape-geometry.js');
+const { createBoardShapeSelectionAdapter, getBoardShapeAnchors,
     renderBoardShapeSegmentSelection, selectBoardShape, showBoardShapeProperties,
     startBoardShapeDrag, handleBoardShapeDrag, endBoardShapeDrag, openBoardShape } = await import('../src/pcb/modules/board-shapes.js');
 const { renderPcbSelectionAnchors } = await import('../src/pcb/modules/selection-anchors.js');

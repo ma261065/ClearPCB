@@ -66,7 +66,8 @@ import {
     MoveTextCommand,
     EditTextCommand,
 } from '../pcb/modules/text-commands.js';
-import { shapeDrawClick, updateShapeDrawPreview, cancelShapeDraw, finishPolygonDraw, finishLineDraw, finishShapeDrawAtPoint, hitTestBoardShape, setBoardShapeHover, selectBoardShape, startBoardShapeDrag, handleBoardShapeDrag, endBoardShapeDrag, showBoardShapeProperties, showBoardShapeToolProperties, boardShapeCopperCuts, renderBoardShape, hitTestBoardShapeVertex, shapeOutline, normalizeShapeCopperMode, boardShapeRemovalPathD, boardShapeBounds, showBoardShapeContextMenu, dismissBoardShapeContextMenu } from '../pcb/modules/board-shapes.js';
+import { shapeDrawClick, updateShapeDrawPreview, cancelShapeDraw, finishPolygonDraw, finishLineDraw, finishShapeDrawAtPoint, hitTestBoardShape, setBoardShapeHover, selectBoardShape, startBoardShapeDrag, handleBoardShapeDrag, endBoardShapeDrag, showBoardShapeProperties, showBoardShapeToolProperties, boardShapeCopperCuts, renderBoardShape, hitTestBoardShapeVertex, showBoardShapeContextMenu, dismissBoardShapeContextMenu } from '../pcb/modules/board-shapes.js';
+import { shapeOutline, normalizeShapeCopperMode, boardShapeRemovalPathD, boardShapeBounds } from '../pcb/modules/board-shape-geometry.js';
 import { hitTestPcbSelectionAnchor, renderPcbSelectionAnchors } from '../pcb/modules/selection-anchors.js';
 import { refreshAxisGlow } from '../pcb/modules/axis-glow.js';
 import { buildFillContext } from '../pcb/modules/fill-context.js';
@@ -2260,6 +2261,17 @@ export default class PCBApp {
         const tgt = /** @type {HTMLElement} */ (e.target);
         if (tgt && (tgt.tagName === 'INPUT' || tgt.tagName === 'TEXTAREA' || tgt.tagName === 'SELECT' || tgt.isContentEditable)) {
             return false;
+        }
+
+        if (!e.ctrlKey && !e.metaKey && !e.altKey) {
+            if (e.key === '+' || e.key === '=') {
+                this.viewport.zoomIn();
+                return true;
+            }
+            if (e.key === '-' || e.key === '_') {
+                this.viewport.zoomOut();
+                return true;
+            }
         }
 
         // File save shortcuts (Ctrl+S / Ctrl+Alt+S). While PCB is active it owns

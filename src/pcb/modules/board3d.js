@@ -74,7 +74,7 @@ import {
 import { CORNER_CHORD_TOLERANCE } from './board-geometry.js';
 import { buildTrackLayerRuns } from './track-render.js';
 import { regionFillContours } from './region-geometry.js';
-import { boardShapeFilledRemovalOutlines, resolveBoardShapeGeometry } from './board-shapes.js';
+import { boardShapeFilledRemovalOutlines, resolveBoardShapeGeometry } from './board-shape-geometry.js';
 import { pcbTextPolylines } from './pcb-text.js';
 import { loadClipper, isClipperReady, getClipper } from './copper-fill-geom.js';
 import { createViewerBackgroundTexture, VIEWER_BACKGROUND } from './viewer-background.js';

@@ -1,5 +1,6 @@
-import { applyBoardShapeVertexResize, getBoardShapeAnchors, shapePathD,
+import { applyBoardShapeVertexResize, getBoardShapeAnchors,
     splitBoardShapeSegmentMetadata, remapBoardShapeNodeRadii } from './board-shapes.js';
+import { shapePathD } from './board-shape-geometry.js';
 import { validBoardOutline } from './board-outline.js';
 import { ModifyFillCommand, RemoveFillCommand } from './copper-fill-commands.js';
 import { renderCopperFill } from './copper-fill-render.js';

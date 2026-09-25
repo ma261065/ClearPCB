@@ -343,7 +343,7 @@ export async function loadVersion(app) {
         let data = null;
         for (const path of paths) {
             try {
-                const response = await fetch(path);
+                const response = await fetch(path, { cache: 'no-cache' });
                 if (response.ok) {
                     data = await response.json();
                     break;

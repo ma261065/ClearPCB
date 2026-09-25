@@ -3,7 +3,8 @@ import { CopperFill } from '../src/shapes/copper-fill.js';
 
 globalThis.window = { addEventListener() {} };
 globalThis.document = {};
-const { shapeOutline, getBoardShapeAnchors, loadBoardShapes, serializeBoardShapes } = await import('../src/pcb/modules/board-shapes.js');
+const { shapeOutline } = await import('../src/pcb/modules/board-shape-geometry.js');
+const { getBoardShapeAnchors, loadBoardShapes, serializeBoardShapes } = await import('../src/pcb/modules/board-shapes.js');
 const { beginFillEdit, updateFillEdit, endFillEdit, deleteFillNode, deleteFocusedFillPart,
     commitFillEdit, startFillEditAt } = await import('../src/pcb/modules/copper-fill-edit.js');
 const { createCopperFillSelectionAdapter } = await import('../src/pcb/modules/copper-fill-selection.js');

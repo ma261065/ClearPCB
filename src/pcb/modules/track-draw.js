@@ -39,7 +39,7 @@ import { renderTrack } from './track-render.js';
 import { pointInPolygon, distanceToSegment } from '../../core/geometry.js';
 import { snapNodeToAxis, snapNodeToCollinear } from '../../shapes/path-snap.js';
 export { snapNodeToAxis, snapNodeToCollinear } from '../../shapes/path-snap.js';
-import { normalizeShapeCopperMode, shapeOutline } from './board-shapes.js';
+import { normalizeShapeCopperMode, shapeOutline } from './board-shape-geometry.js';
 import { resolveTrackContactGeometry, copperShapesTouch, copperRegionShape, pointInCopperRegion } from './track-contact-geometry.js';
 import { pictureRegions } from './picture-raster.js';
 import { spatialClusterMST } from './cluster-mst.js';

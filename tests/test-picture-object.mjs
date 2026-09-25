@@ -28,7 +28,8 @@ assert.throws(() => validatePictureArtwork({ ...raster, width: 513 }), /Invalid 
 console.log('PASS single image object, internal artwork contours and proportional resizing');
 
 globalThis.window = { addEventListener() {} };
-const { getBoardShapeAnchors, boardShapeHitTest, boardShapeBounds, resolveBoardShapeGeometry,
+const { boardShapeHitTest, boardShapeBounds, resolveBoardShapeGeometry } = await import('../src/pcb/modules/board-shape-geometry.js');
+const { getBoardShapeAnchors,
     serializeBoardShapes, loadBoardShapes, applyBoardShapeVertexResize } = await import('../src/pcb/modules/board-shapes.js');
 image.id = 'pshape_1';
 assert.equal(getBoardShapeAnchors(image).length, 4, 'Image exposes only bounding-box resize handles');

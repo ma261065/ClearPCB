@@ -1,4 +1,4 @@
-import { resolveBoardShapeGeometry, boardShapeArcGeometry, normalizeShapeCopperMode } from './board-shapes.js';
+import { resolveBoardShapeGeometry, boardShapeArcGeometry, normalizeShapeCopperMode } from './board-shape-geometry.js';
 import { pcbTextSegments } from './pcb-text.js';
 import { pictureRegions } from './picture-raster.js';
 

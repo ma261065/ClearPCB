@@ -167,7 +167,7 @@ clearpcb/
 
 ### Board-Shape Geometry Contract
 
-`resolveBoardShapeGeometry()` in `src/pcb/modules/board-shapes.js` is the
+`resolveBoardShapeGeometry()` in `src/pcb/modules/board-shape-geometry.js` is the
 single source of truth for generic PCB shape semantics across lines,
 rectangles, polygons, arcs, and circles. It resolves:
 
@@ -184,6 +184,41 @@ consume this descriptor. Backends may choose native output primitives (for
 example a Canvas arc, triangulated Three.js mesh, or Gerber circle aperture),
 but must not independently reinterpret `filled`, `lineWidth`, shape closure,
 radius expansion, or copper-mode aliases.
+
+`board-shape-geometry.js` also owns outline/path generation, physical removal
+contours, bounds, hit tests, and effective width/radius queries. It accepts
+plain PCB shape data in SVG-Y-down millimetres and has no editor, selection,
+history, or DOM dependency. Its calculations reuse shared `src/shapes` helpers
+and the existing image-contour utilities; PCB layer and copper-mode rules
+remain PCB-owned. `board-geometry.js` continues to own footprint and track
+geometry, rather than accumulating unrelated shape editing behavior.
+
+`board-shapes.js` owns interaction, mutation, commands, SVG rendering, and
+properties. It does not re-export geometry functions. All geometry consumers,
+including editor adapters and tests, import directly from
+`board-shape-geometry.js`. Consumers that also need editor operations use
+separate imports for the two responsibilities.
+
+For headless tools and board-design agents:
+
+```js
+import { resolveBoardShapeGeometry, boardShapeBounds } from './src/pcb/modules/board-shape-geometry.js';
+
+const shape = {
+  kind: 'circle', layer: 'top-copper', x: 10, y: 20,
+  radius: 2, lineWidth: 0.2, filled: true, copperMode: 'add',
+};
+const geometry = resolveBoardShapeGeometry(shape);
+const bounds = boardShapeBounds(shape);
+```
+
+Queries do not mutate their inputs, but returned descriptors are not detached
+snapshots: physical contours are evaluated lazily, and image data/contours may
+be borrowed or cached. Treat results as read-only, consume them before mutating
+the source shape, and resolve again after edits. Replace image artwork rather
+than mutating it in place to respect the existing artwork cache. This API
+assumes valid shape data; it does not replace project validation, DRC, or the
+command layer used to apply a design to the editor.
 
 ### Tracks and Vias
 

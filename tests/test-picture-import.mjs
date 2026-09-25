@@ -12,7 +12,8 @@ globalThis.document = { getElementById() { return null; }, createElementNS() {
 } };
 const { AddBoardShapeCommand, MoveBoardShapeCommand, ModifyBoardShapeCommand } = await import('../src/pcb/modules/shape-commands.js');
 const { setPcbSelection, getPcbSelectionEntries } = await import('../src/pcb/modules/selection-registry.js');
-const { boardShapeBounds, boardShapeHitTest, resolveBoardShapeGeometry, serializeBoardShapes, loadBoardShapes,
+const { boardShapeBounds, boardShapeHitTest, resolveBoardShapeGeometry } = await import('../src/pcb/modules/board-shape-geometry.js');
+const { serializeBoardShapes, loadBoardShapes,
     cloneShapeGeometry, translateShapeGeometry } = await import('../src/pcb/modules/board-shapes.js');
 const { boardShapeClearanceOutlines } = await import('../src/pcb/modules/copper-fill-geom.js');
 const { exportGerbers } = await import('../src/pcb/modules/gerber.js');

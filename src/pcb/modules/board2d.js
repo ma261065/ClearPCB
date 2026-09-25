@@ -23,7 +23,7 @@ import {
     resolvePadMaskOpenings,
 } from './board-geometry.js';
 import { resolveTrackSegments } from './board-geometry.js';
-import { boardShapeFilledRemovalOutlines, resolveBoardShapeGeometry } from './board-shapes.js';
+import { boardShapeFilledRemovalOutlines, resolveBoardShapeGeometry } from './board-shape-geometry.js';
 import { pcbTextSegments } from './pcb-text.js';
 import { drawPictureCached } from './picture-raster.js';
 import { paintViewerBackground } from './viewer-background.js';

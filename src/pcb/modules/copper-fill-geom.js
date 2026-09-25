@@ -27,7 +27,7 @@
  * computed island is kept for now.
  */
 
-import { resolveBoardShapeGeometry, boardShapeArcGeometry, normalizeShapeCopperMode } from './board-shapes.js';
+import { resolveBoardShapeGeometry, boardShapeArcGeometry, normalizeShapeCopperMode } from './board-shape-geometry.js';
 import ClipperLib from '../../../assets/vendor/clipper.esm.js';
 import { pcbTextSegments } from './pcb-text.js';
 import { padCopperOutline } from './copper-model.js';

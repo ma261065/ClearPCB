@@ -1,3 +1,56 @@
+import assert from 'node:assert/strict';
+
+const pcbShapeGeometry = await import('../src/pcb/modules/board-shape-geometry.js');
+const {
+    boardShapeLineWidthMinimum, boardShapeArcGeometry, boardShapeBounds, boardShapeHitTest,
+    boardShapeFilledRemovalOutlines, boardShapeRemovalPathD, circleFilledRadius,
+    resolveBoardShapeGeometry, shapeOutline, shapePathD, shapeIsFilled,
+} = pcbShapeGeometry;
+
+{
+    assert.equal(typeof globalThis.document, 'undefined');
+    assert.equal(typeof globalThis.window, 'undefined');
+    const freezeShapeData = value => {
+        if (value && typeof value === 'object') {
+            Object.values(value).forEach(freezeShapeData);
+            Object.freeze(value);
+        }
+        return value;
+    };
+    const points = [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 8 }, { x: 0, y: 8 }];
+    const fixtures = [
+        { kind: 'line', points: points.slice(0, 3), segmentWidths: { 0: 0.7 }, segmentBulges: { 1: 0.2 } },
+        { kind: 'rect', points, cornerRadius: 2, filled: true },
+        { kind: 'rect', points, filled: false },
+        { kind: 'polygon', points, cornerRadius: 1, nodeCornerRadii: { 0: 2 }, segmentWidths: { 1: 0.8 } },
+        { kind: 'arc', start: points[0], end: points[1], bulge: { x: 5, y: 3 } },
+        { kind: 'circle', x: 4, y: 4, radius: 3 },
+        { kind: 'circle', layer: 'top-mask', x: 4, y: 4, radius: 3 },
+        { kind: 'line', layer: 'hole', points: points.slice(0, 2) },
+        { kind: 'image', points, artwork: { width: 10, height: 8,
+            rectangles: [{ x: 0, y: 0, width: 10, height: 8 }] } },
+    ];
+    for (const fixture of fixtures) {
+        const shape = freezeShapeData(structuredClone({ layer: 'top-copper', lineWidth: 0.4, ...fixture }));
+        const before = structuredClone(shape);
+        const measure = () => ({
+            geometry: structuredClone(resolveBoardShapeGeometry(shape)),
+            outline: shapeOutline(shape), bounds: boardShapeBounds(shape),
+            path: shapePathD(shape), removalPath: boardShapeRemovalPathD(shape),
+            removalContours: boardShapeFilledRemovalOutlines(shape),
+            hit: boardShapeHitTest(shape, { x: 5, y: 4 }, 0.1),
+        });
+        assert.deepEqual(measure(), measure(), `${shape.kind}: geometry works repeatedly without browser globals`);
+        assert.deepEqual(shape, before, `${shape.kind}: geometry queries leave frozen input unchanged`);
+    }
+    const circle = resolveBoardShapeGeometry({ kind: 'circle', x: 4, y: 4, radius: 3, lineWidth: 0.4 });
+    assert.deepEqual(circle.circle, { x: 4, y: 4, radius: 2.8, outerRadius: 3 });
+    assert.equal(shapeIsFilled({ kind: 'circle', layer: 'top-mask', filled: false }), true);
+    assert.equal(shapeIsFilled({ kind: 'line', layer: 'hole', filled: true }), false);
+    assert.equal(boardShapeLineWidthMinimum({ kind: 'line', layer: 'hole' }), 0.8);
+    assert.equal(pcbShapeGeometry.normalizeShapeCopperMode('remove'), 'remove-copper-mask');
+}
+
 globalThis.document = {
     createElementNS() {
         const attributes = new Map();
@@ -18,30 +71,23 @@ const {
     getBoardShapeAnchors,
     moveBoardShapeAnchor,
     cloneShapeGeometry,
-    boardShapeLineWidthMinimum,
-    boardShapeArcGeometry,
-    boardShapeBounds,
-    boardShapeHitTest,
     boardShapeCopperCuts,
-    boardShapeFilledRemovalOutlines,
-    boardShapeRemovalPathD,
-    circleFilledRadius,
     finishLineDraw,
     handleBoardShapeDrag,
     startBoardShapeDrag,
     endBoardShapeDrag,
     finishShapeDrawAtPoint,
-    resolveBoardShapeGeometry,
     renderBoardShape,
-    shapeOutline,
     shapeHoverColor,
-    shapePathD,
-    shapeIsFilled,
     shapeSelectionColor,
     shapeDrawClick,
     showBoardShapeProperties,
     updateShapeDrawPreview,
 } = await import('../src/pcb/modules/board-shapes.js');
+const boardShapeEditor = await import('../src/pcb/modules/board-shapes.js');
+for (const name of Object.keys(pcbShapeGeometry)) {
+    assert.equal(Object.hasOwn(boardShapeEditor, name), false, `${name}: geometry is exported only by its owning module`);
+}
 const { exportGerbers } = await import('../src/pcb/modules/gerber.js');
 const { pcbTextPolylines, pcbTextSegments } = await import('../src/pcb/modules/pcb-text.js');
 const { pcbLayerSelectionColor } = await import('../src/pcb/modules/layers.js');

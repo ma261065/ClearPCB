@@ -4,7 +4,7 @@ import { punchHolesInFlatMesh } from '../src/pcb/modules/board3d-mesh-ops.js';
 
 globalThis.window = { addEventListener() {} };
 globalThis.document = {};
-const { boardShapeFilledRemovalOutlines } = await import('../src/pcb/modules/board-shapes.js');
+const { boardShapeFilledRemovalOutlines } = await import('../src/pcb/modules/board-shape-geometry.js');
 const shape = {
     kind: 'polygon', layer: 'hole', filled: true, lineWidth: 1.85,
     nodeCornerRadii: { 0: 27, 2: 10, 3: 35 }, cornerRadius: 8,
