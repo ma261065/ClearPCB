@@ -2522,6 +2522,12 @@ export default class PCBApp {
                 return true;
             }
         }
+        if ((e.code === 'Space' || e.key === ' ') && !ctrl && !e.altKey
+            && !getPcbSelection(this).length && !this._pasteDrop && !this._textEdit
+            && !this._pcbSelectionInteraction && tgt?.tagName !== 'BUTTON') {
+            this._fitToContent();
+            return true;
+        }
         return false;
     }
     _commitTrack(track, vias = []) {

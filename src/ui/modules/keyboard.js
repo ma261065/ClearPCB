@@ -420,7 +420,14 @@ export function bindKeyboardShortcuts(app) {
                     handleFlipVertical(app, e);
                     break;
                 case ' ':
+                    if (e.target?.isContentEditable) break;
                     handleSpaceRotate(app, e);
+                    if (!e.defaultPrevented && !e.altKey && !app.textEdit && !app.placingComponent
+                        && !app.isDrawing && !app.pastingClipboard && !app.selection.getSelection().length
+                        && !['INPUT', 'BUTTON'].includes(e.target?.tagName)) {
+                        e.preventDefault();
+                        app._fitToContent();
+                    }
                     break;
                 case 'f':
                 case 'F':
