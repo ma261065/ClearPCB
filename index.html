@@ -481,6 +481,23 @@
     </div>
 
     <div class="app-slider">
+        <section class="startup-splash" id="startupSplash" aria-labelledby="startupSplashTitle" hidden>
+            <div class="startup-card">
+                <div class="startup-heading">
+                    <img src="assets/icons/favicon.ico" width="48" height="48" alt="">
+                    <div>
+                        <h1 id="startupSplashTitle">Welcome to ClearPCB</h1>
+                        <p>Open a recent project or start with a blank design.</p>
+                    </div>
+                </div>
+                <div class="startup-actions">
+                    <button class="startup-primary" id="startupOpen" type="button">Open file</button>
+                    <button id="startupContinue" type="button">Continue blank</button>
+                </div>
+                <div class="startup-recents-heading">Recent files</div>
+                <div class="startup-recents" id="startupRecents"></div>
+            </div>
+        </section>
         <div class="app-slide active" data-slide="schematic">
             <div class="main-container">
                 <div class="canvas-container" id="canvasContainer" oncontextmenu="event.preventDefault()">

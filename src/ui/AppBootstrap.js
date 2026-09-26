@@ -6,6 +6,7 @@ import { ProjectDocument } from '../core/ProjectDocument.js';
 import { readProjectFile } from '../core/FileManager.js';
 import { installNumberInputFormatting } from '../core/number-inputs.js';
 import { ModalManager } from '../core/ModalManager.js';
+import { renderRecentFiles } from './modules/recents.js';
 
 class AppBootstrap {
     constructor() {
@@ -13,6 +14,10 @@ class AppBootstrap {
         this.slider = document.querySelector('.app-slider');
         this.ribbonSchematic = document.getElementById('ribbonSchematic');
         this.ribbonPCB = document.getElementById('ribbonPCB');
+        this.startupSplash = document.getElementById('startupSplash');
+        this.startupRecents = document.getElementById('startupRecents');
+        this.startupOpen = document.getElementById('startupOpen');
+        this.startupContinue = document.getElementById('startupContinue');
         this._pcbPreloadHandle = null;
 
         /** The neutral owner of the single project document. */
@@ -51,6 +56,7 @@ class AppBootstrap {
 
         this._bindModeTabs();
         await this.schematicApp._recoverAutoSave?.();
+        await this._initializeStartupSplash();
 
         // Both views are registered — start project-driven autosave so
         // edits in EITHER editor are captured into the one document.
@@ -58,6 +64,46 @@ class AppBootstrap {
 
         this._setupLaunchQueue();
         this._schedulePcbPreload();
+    }
+
+    _isProjectBlank() {
+        const schematic = this.schematicApp;
+        const pcb = this.pcbApp;
+        const schematicBlank = !schematic?.shapes?.length && !schematic?.components?.length;
+        const pcbBlank = !pcb?.tracks?.length
+            && !pcb?.vias?.length
+            && !pcb?.boardShapes?.length
+            && !pcb?.texts?.size
+            && !pcb?._placementOverrides?.size
+            && !pcb?._boardOutlineDrawn;
+        return schematicBlank && pcbBlank;
+    }
+
+    async _initializeStartupSplash() {
+        if (!this.startupSplash || !this._isProjectBlank()) {
+            this._hideStartupSplash();
+            return;
+        }
+
+        this.startupOpen?.addEventListener('click', async () => {
+            await this.project.open();
+            if (!this._isProjectBlank()) this._hideStartupSplash();
+        });
+        this.startupContinue?.addEventListener('click', () => this._hideStartupSplash());
+
+        await renderRecentFiles({
+            container: this.startupRecents,
+            getFileManager: () => this.project.fileManager,
+            openRecent: async (name) => {
+                await this.project.openRecent(name);
+                if (!this._isProjectBlank()) this._hideStartupSplash();
+            },
+        });
+        this.startupSplash.hidden = false;
+    }
+
+    _hideStartupSplash() {
+        if (this.startupSplash) this.startupSplash.hidden = true;
     }
 
     /**
@@ -232,6 +278,7 @@ class AppBootstrap {
             try {
                 await app._loadDocument(data);
                 await app.fileManager.adoptOpen({ handle: fileHandle, fileName: fileHandle.name });
+                this._hideStartupSplash();
                 this.switchMode('schematic');
                 app._fitToContent?.();
             } catch (error) {

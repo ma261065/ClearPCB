@@ -130,6 +130,32 @@ function fixture() {
 
 {
     const test = fixture();
+    test.bootstrap._initializeStartupSplash = async () => test.events.push('splash');
+    const initialization = test.bootstrap.initialize();
+    assert.equal(test.events.includes('splash'), false, 'startup splash waits for autosave recovery');
+    test.finishRecovery(false);
+    await initialization;
+    assert.ok(test.events.indexOf('recover') < test.events.indexOf('splash'));
+    assert.ok(test.events.indexOf('splash') < test.events.indexOf('autosave'));
+}
+
+{
+    const test = fixture();
+    test.bootstrap.schematicApp = { shapes: [], components: [] };
+    test.bootstrap.pcbApp = {
+        tracks: [], vias: [], boardShapes: [], texts: new Map(),
+        _placementOverrides: new Map(), _boardOutlineDrawn: false,
+    };
+    assert.equal(test.bootstrap._isProjectBlank(), true);
+    test.bootstrap.pcbApp.tracks.push({});
+    assert.equal(test.bootstrap._isProjectBlank(), false, 'PCB content suppresses the splash');
+    test.bootstrap.pcbApp.tracks.length = 0;
+    test.bootstrap.schematicApp.components.push({});
+    assert.equal(test.bootstrap._isProjectBlank(), false, 'schematic content suppresses the splash');
+}
+
+{
+    const test = fixture();
     const loadingPaint = test.bootstrap.project.onLoadingChange(true);
     for (const tab of test.tabs) {
         assert.equal(tab.classes.get('loading'), true);
