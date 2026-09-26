@@ -4,7 +4,6 @@ import { ModifyPropertyCommand, MoveShapesCommand } from '../../schematic/module
 import { rotateNetOrientation } from '../../shapes/net.js';
 import { resolveWireSnapPosition, PIN_SNAP_TOL } from './wire.js';
 import { updateToolGhost } from './tool.js';
-import { updateLabelDragGuide } from './draw-states.js';
 import { ModalManager } from '../../core/ModalManager.js';
 
 /**
@@ -261,13 +260,12 @@ function handleSpaceRotate(app, e) {
 
         const textShapes = sel.filter(s => s.type === 'text' && !s.locked);
         if (textShapes.length > 0) {
-            const newRot = textShapes[0].rotation === 270 ? 0 : 270;
+            const newRot = textShapes.every(shape => shape.fieldKey === 'reference')
+                ? (((textShapes[0].rotation || 0) + 90) % 360 + 360) % 360
+                : textShapes[0].rotation === 270 ? 0 : 270;
             app.history.execute(new ModifyPropertyCommand(app, textShapes, 'rotation', newRot));
             app.renderShapes(true);
             app._updatePropertiesPanel(sel);
-            if (sel.length === 1 && sel[0].parentComponent) {
-                updateLabelDragGuide(app, sel[0]);
-            }
             e.preventDefault();
         }
     }

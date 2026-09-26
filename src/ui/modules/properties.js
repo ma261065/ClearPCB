@@ -341,6 +341,7 @@ export function updatePropertiesPanel(app, selection) {
                     const input = document.createElement('input');
                     input.type = 'number';
                     input.id = `prop_${desc.key}`;
+                    if (desc.key === 'rotation') input.dataset.numberFormat = 'rotation';
                     if (desc.min != null) input.min = desc.min;
                     if (desc.max != null) input.max = desc.max;
                     if (desc.step != null) input.step = desc.step;
@@ -378,7 +379,10 @@ export function updatePropertiesPanel(app, selection) {
                                 item.invalidate?.();
                             });
                         },
-                        redraw: () => redrawPropertyPreview(selection, { renderScene: () => app.renderShapes(false) }),
+                        redraw: () => redrawPropertyPreview(selection, { renderScene: () => {
+                            app.renderShapes(false);
+                            if (desc.key === 'rotation' && affected.includes(app.textEdit?.shape)) app._updateTextEditOverlay?.();
+                        } }),
                         commit: (before, after) => {
                             if (geometryEdit) {
                                 const batch = new BatchCommand(`Change ${desc.key}`);
@@ -406,7 +410,7 @@ export function updatePropertiesPanel(app, selection) {
                                 app.history.execute(new ModifyPropertyCommand(app, affected, desc.key, after[0]));
                                 app.fileManager.setDirty(true);
                                 app._updatePropertiesPanel?.(app.selection.getSelection());
-                                if (desc.key === 'fontSize' && affected.includes(app.textEdit?.shape)) app._updateTextEditOverlay?.();
+                                if (['fontSize', 'rotation'].includes(desc.key) && affected.includes(app.textEdit?.shape)) app._updateTextEditOverlay?.();
                             }
                         },
                     });
@@ -441,6 +445,7 @@ export function updatePropertiesPanel(app, selection) {
                     input.addEventListener('change', () => {
                         let v = parseFloat(input.value);
                         if (!Number.isFinite(v)) { preview.cancel(); return; }
+                        if (desc.key === 'rotation') v = ((Math.round(v) % 360) + 360) % 360;
                         if (desc.min != null && v < desc.min) v = desc.min;
                         if (desc.max != null && v > desc.max) v = desc.max;
                         if (['cornerRadius', 'bulge'].includes(desc.key)) input.value = v.toFixed(2);
@@ -452,6 +457,10 @@ export function updatePropertiesPanel(app, selection) {
                     input.addEventListener('input', () => {
                         let v = parseFloat(input.value);
                         if (!Number.isFinite(v)) return;
+                        if (desc.key === 'rotation') {
+                            v = ((Math.round(v) % 360) + 360) % 360;
+                            input.value = String(v);
+                        }
                         if (desc.min != null && v < desc.min) v = desc.min;
                         if (desc.max != null && v > desc.max) v = desc.max;
                         if (desc.key === 'cornerRadius') input.value = v.toFixed(2);
@@ -544,9 +553,10 @@ export function updatePropertiesPanel(app, selection) {
                 sec.content.appendChild(row);
             }
 
-            // H/V rotation buttons for text shapes
+            // H/V controls for text without a full rotation property.
             const textShapes = selection.filter(s => s.type === 'text');
-            if (textShapes.length > 0 && textShapes.length === selection.length) {
+            if (textShapes.length > 0 && textShapes.length === selection.length
+                && !descriptors.some(desc => desc.key === 'rotation')) {
                 const hvRow = document.createElement('div');
                 hvRow.className = 'prop-row';
                 const hvLabel = document.createElement('label');

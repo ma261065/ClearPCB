@@ -1,7 +1,7 @@
 import { AddShapeCommand } from './commands.js';
 import { freeWireLabel, bumpWireLabelCounter, freeNetName, bumpNetNameCounter, nextNetName } from '../../shapes/wire.js';
 import { Text } from '../../shapes/text.js';
-import { detachLabel, syncAttachedLabels } from '../../ui/modules/label-attachment.js';
+import { detachLabel, syncAttachedLabels, updateLabelGuide } from '../../ui/modules/label-attachment.js';
 import { VERTEX_EPSILON } from './wire.js';
 import { connectComponentPinsToWires as _connectComponentPinsToWires, connectPinsToWires } from '../../ui/modules/pin-wire-connect.js';
 import { arcEdgePathD } from '../../shapes/arc-edge.js';
@@ -361,6 +361,7 @@ export function renderShapes(app, force = false) {
     }
     renderShapeSegmentSelection(app);
     refreshAxisGlow(app);
+    updateLabelGuide(app);
 }
 
 /** Render the refined edge of a selected schematic polyline above the shape. */

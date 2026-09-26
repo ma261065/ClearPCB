@@ -17,6 +17,50 @@ export function distance(p1, p2) {
 
 // ==================== Line Operations ====================
 
+/** Connect the facing edges of two rectangles given four ordered corners. */
+const boxCenter = corners => ({
+    x: (corners[0].x + corners[2].x) / 2,
+    y: (corners[0].y + corners[2].y) / 2,
+});
+
+function boxExitFraction(corners, delta) {
+    const horizontal = { x: (corners[1].x - corners[0].x) / 2, y: (corners[1].y - corners[0].y) / 2 };
+    const vertical = { x: (corners[3].x - corners[0].x) / 2, y: (corners[3].y - corners[0].y) / 2 };
+    const horizontalLength = horizontal.x ** 2 + horizontal.y ** 2;
+    const verticalLength = vertical.x ** 2 + vertical.y ** 2;
+    if (horizontalLength <= 0 || verticalLength <= 0) return Infinity;
+    return 1 / Math.max(
+        Math.abs(delta.x * horizontal.x + delta.y * horizontal.y) / horizontalLength,
+        Math.abs(delta.x * vertical.x + delta.y * vertical.y) / verticalLength,
+    );
+}
+
+export function connectBoxOutlines(first, second) {
+    const center = boxCenter;
+    const start = center(first);
+    const end = center(second);
+    const delta = { x: end.x - start.x, y: end.y - start.y };
+    const startFraction = boxExitFraction(first, delta);
+    const endFraction = boxExitFraction(second, delta);
+    if (!Number.isFinite(startFraction + endFraction) || startFraction + endFraction >= 1) return null;
+    return {
+        start: { x: start.x + delta.x * startFraction, y: start.y + delta.y * startFraction },
+        end: { x: end.x - delta.x * endFraction, y: end.y - delta.y * endFraction },
+    };
+}
+
+export function connectPointToBoxOutline(point, box) {
+    if (!point || !box) return null;
+    const end = boxCenter(box);
+    const delta = { x: end.x - point.x, y: end.y - point.y };
+    const endFraction = boxExitFraction(box, delta);
+    if (!Number.isFinite(endFraction) || endFraction >= 1) return null;
+    return {
+        start: { x: point.x, y: point.y },
+        end: { x: end.x - delta.x * endFraction, y: end.y - delta.y * endFraction },
+    };
+}
+
 /**
  * Get closest point on a line segment to a given point
  */

@@ -25,13 +25,14 @@ import { updateToolGhost } from '../../ui/modules/tool.js';
 import { ModifyShapeCommand } from './commands.js';
 import { collapseRedundantWirePoints } from './wire.js';
 import { Text } from '../../shapes/text.js';
-import { attachLabelToTarget, detachLabel, refreshLabelAttachmentOffset, getLabelAttachmentAnchorPoint, getLabelDropHotspot } from '../../ui/modules/label-attachment.js';
+import { attachLabelToTarget, detachLabel, refreshLabelAttachmentOffset, getLabelDropHotspot } from '../../ui/modules/label-attachment.js';
 import { findJoinTarget, isJoinable } from '../../shapes/shape-join.js';
 import { tryBeginPolylineSegmentDrag, updatePolylineSegmentDrag } from './polyline-segment-drag.js';
 import { snapShapePoint, snapShapeBulge, renderShapeAlignment, shapeContinuationConstraints } from './shape-snap.js';
 import { refinePathSegment } from '../../shapes/path-interaction.js';
 import { DRAWING_SHAPES } from '../../shapes/shape-drawing.js';
 import { shapeDrawingClick } from '../../ui/modules/drawing.js';
+import { findInlineEditableHit, isUnmodifiedPrimaryDoublePress } from '../../ui/modules/inline-edit-activation.js';
 // ─── Constants ─────────────────────────────────────────────────────
 
 const DRAWING_TOOLS = new Set(['line', 'rect', 'circle', 'polygon']);
@@ -315,76 +316,11 @@ function finalizeDragInteraction(app, options = {}) {
     updateSnapHighlight(app, null);
     app._hideCrosshair();
     app._removeBoxSelectElement();
-    if (app._labelDragGuide) {
-        app._labelDragGuide.remove();
-        app._labelDragGuide = null;
-    }
     app._labelDragHoverTarget = null;
 
     clearDragState(app);
     app.renderShapes(true);
     if (options.refreshTextEdit && app.textEdit) app._updateTextEditOverlay?.();
-}
-
-export function updateLabelDragGuide(app, labelShape) {
-    if (!labelShape || labelShape.type !== 'text' || !labelShape.parentComponent) {
-        if (app._labelDragGuide) {
-            app._labelDragGuide.remove();
-            app._labelDragGuide = null;
-        }
-        return;
-    }
-
-    // Guide line endpoint: center of text at baseline, rotated to world space
-    let guideEndX, guideEndY;
-    {
-        const approxWidth = (labelShape.text?.length || 1) * (labelShape.fontSize || 2) * 0.6;
-        let localMinX = labelShape.x;
-        if (labelShape.textAnchor === 'middle') {
-            localMinX = labelShape.x - approxWidth / 2;
-        } else if (labelShape.textAnchor === 'end') {
-            localMinX = labelShape.x - approxWidth;
-        }
-        const localCX = localMinX + approxWidth / 2;
-        const localBY = labelShape.y;
-
-        if (labelShape.rotation) {
-            const rad = (labelShape.rotation * Math.PI) / 180;
-            const cos = Math.cos(rad), sin = Math.sin(rad);
-            const dx = localCX - labelShape.x, dy = localBY - labelShape.y;
-            guideEndX = labelShape.x + dx * cos - dy * sin;
-            guideEndY = labelShape.y + dx * sin + dy * cos;
-        } else {
-            guideEndX = localCX;
-            guideEndY = localBY;
-        }
-    }
-
-    const anchor = getLabelAttachmentAnchorPoint(labelShape, { x: guideEndX, y: guideEndY });
-    if (!anchor) {
-        if (app._labelDragGuide) {
-            app._labelDragGuide.remove();
-            app._labelDragGuide = null;
-        }
-        return;
-    }
-
-    let guide = app._labelDragGuide;
-    if (!guide) {
-        guide = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-        guide.setAttribute('stroke', 'var(--sch-selection, #3399ff)');
-        guide.setAttribute('stroke-width', String(Math.max(0.15, 1.2 / app.viewport.scale)));
-        guide.setAttribute('stroke-dasharray', `${Math.max(0.6, 3 / app.viewport.scale)} ${Math.max(0.4, 2 / app.viewport.scale)}`);
-        guide.setAttribute('opacity', '0.45');
-        guide.setAttribute('pointer-events', 'none');
-        app.viewport.contentLayer.appendChild(guide);
-        app._labelDragGuide = guide;
-    }
-
-    guide.setAttribute('x1', String(anchor.x));
-    guide.setAttribute('y1', String(anchor.y));
-    guide.setAttribute('x2', String(guideEndX));
-    guide.setAttribute('y2', String(guideEndY));
 }
 
 // ─── Drag session setup ────────────────────────────────────────────
@@ -1125,6 +1061,19 @@ export const idleState = {
 
         activateHomeTabIfFileTabOpen(app);
 
+        if (!app.textEdit && isUnmodifiedPrimaryDoublePress(event)) {
+            const textHit = findInlineEditableHit(app.selection, worldPos, event.target);
+            if (textHit) {
+                app.selection.select(textHit, false);
+                app.renderShapes(true);
+                app.pendingAnchorDrag = null;
+                app._startTextEdit(textHit);
+                app._setTextEditCaretFromScreen(screenPos);
+                event.preventDefault();
+                return;
+            }
+        }
+
         // Commit lingering anchor drag from a previous interaction
         if (app.drag && app.drag.mode === 'anchor' && app.drag.beforeState
             && (app.didDrag || (app.drag.wireStates && app.drag.wireStates.size > 0))) {
@@ -1343,7 +1292,9 @@ export const idleState = {
     },
 
     dblclick(app, event, { screenPos, worldPos }) {
-        const hit = app.selection.hitTest(worldPos);
+        if (app.textEdit) return;
+        const hit = findInlineEditableHit(app.selection, worldPos, event.target)
+            || app.selection.hitTest(worldPos);
         if (hit && hit.supportsInlineEdit) {
             app.selection.select(hit, false);
             app.renderShapes(true);
@@ -1657,8 +1608,6 @@ export const moveDragState = {
             const hotspot = getLabelDropHotspot(labelShape, worldPos);
             const attach = resolveLabelAttachTarget(app, hotspot, labelShape);
             updateSnapHighlight(app, attach ? { x: attach.snapPos.x, y: attach.snapPos.y, type: 'attach' } : null);
-            updateLabelDragGuide(app, labelShape);
-
             // Track hover target for invalidation
             const newTarget = attach?.target || null;
             const oldTarget = app._labelDragHoverTarget || null;
@@ -1668,11 +1617,7 @@ export const moveDragState = {
                 if (newTarget) newTarget.invalidate?.();
                 app._labelDragHoverTarget = newTarget;
             }
-        } else if (isDraggingText && selNow[0].parentComponent) {
-            // Ref/value fields: show guide line but no attachment re-targeting
-            updateLabelDragGuide(app, selNow[0]);
         } else {
-            updateLabelDragGuide(app, null);
             app._labelDragHoverTarget = null;
         }
 

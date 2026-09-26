@@ -47,7 +47,10 @@ export function createRefTextSelectionAdapter(app, componentId, id) {
         beginMove(worldPos) { return app._beginRefTextDrag(componentId, worldPos); },
         updateMove(worldPos) { app._updateRefTextDrag(worldPos); },
         endMove(commit) { if (commit) app._endRefDrag(); },
-        invalidate() { app._drawRefOverlay?.(componentId, false); },
+        invalidate() {
+            app._refreshRefHighlight?.(componentId);
+            app._drawRefOverlay?.(componentId, false);
+        },
         render() { this.invalidate(); },
     };
 }

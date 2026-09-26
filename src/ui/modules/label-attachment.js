@@ -2,7 +2,14 @@
  * Generic label attachment helpers.
  */
 
-import { closestPointOnSegment, distance } from '../../core/geometry.js';
+import {
+    closestPointOnSegment,
+    connectBoxOutlines,
+    connectPointToBoxOutline,
+    distance,
+} from '../../core/geometry.js';
+import { getTextEditBoxWorldCorners } from './text-edit-geometry.js';
+import { applyTextConnectionGuide } from './inline-text-overlay.js';
 
 const WIRE_ATTACHED_LABEL_FONT_SIZE = 1.4;
 const DEFAULT_WIRE_LABEL_OFFSET = 1.0;
@@ -182,6 +189,54 @@ export function getLabelAttachmentAnchorPoint(labelShape, referencePoint = null)
     }
 
     return getNonWireAnchor(target, referencePoint);
+}
+
+export function updateLabelGuide(app) {
+    const selection = app.selection?.getSelection?.() || [];
+    const label = app.textEdit?.shape || (selection.length === 1 ? selection[0] : null);
+    const target = label?.type === 'text' && label.visible !== false ? label.parentComponent : null;
+    let anchor = null;
+    let endpoint = null;
+    if (target) {
+        const textBox = getTextEditBoxWorldCorners(label);
+        if (!textBox) return;
+        if (target.refText === label) {
+            const local = target._getLocalBounds();
+            const angle = (target.rotation || 0) * Math.PI / 180;
+            const cosine = Math.cos(angle), sine = Math.sin(angle);
+            const componentBox = [
+                [local.minX - 0.5, local.minY - 0.5], [local.maxX + 0.5, local.minY - 0.5],
+                [local.maxX + 0.5, local.maxY + 0.5], [local.minX - 0.5, local.maxY + 0.5],
+            ].map(([x, y]) => ({ x: target.x + x * cosine - y * sine, y: target.y + x * sine + y * cosine }));
+            const connection = connectBoxOutlines(componentBox, textBox);
+            anchor = connection?.start || null;
+            endpoint = connection?.end || null;
+        } else {
+            const textCenter = {
+                x: (textBox[0].x + textBox[2].x) / 2,
+                y: (textBox[0].y + textBox[2].y) / 2,
+            };
+            const connection = connectPointToBoxOutline(
+                getLabelAttachmentAnchorPoint(label, textCenter),
+                textBox,
+            );
+            anchor = connection?.start || null;
+            endpoint = connection?.end || null;
+        }
+    }
+    if (!anchor) {
+        app._labelGuide?.remove();
+        app._labelGuide = null;
+        return;
+    }
+    let guide = app._labelGuide;
+    if (!guide) {
+        guide = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+        guide.setAttribute('class', 'label-connection-guide');
+        app._labelGuide = guide;
+    }
+    applyTextConnectionGuide(guide, { start: anchor, end: endpoint }, 'var(--sch-selection, #3399ff)');
+    app.viewport.contentLayer.appendChild(guide);
 }
 
 /**

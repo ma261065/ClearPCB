@@ -953,13 +953,18 @@ export default class SchematicApp {
         const tip = document.getElementById('schematicStatusTip');
         if (!tip) return;
         const selected = this.selection.getSelection();
+        const showReferenceTip = this.currentTool === 'select'
+            && selected.length === 1
+            && selected[0]?.type === 'text'
+            && selected[0]?.fieldKey === 'reference';
         const show = this.currentTool === 'select'
             && selected.length === 1
             && selected[0]?.type === 'polyline'
             && !this._selectedShapeSegment
             && !this._selectedShapeNode;
-        tip.hidden = !show;
-        tip.textContent = show ? 'Tip: Click again to select a segment or node' : '';
+        tip.hidden = !show && !showReferenceTip;
+        tip.textContent = showReferenceTip ? 'Tip: Use SPACE to rotate text'
+            : show ? 'Tip: Click again to select a segment or node' : '';
     }
 
     /**

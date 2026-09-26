@@ -267,6 +267,9 @@ export class Text extends Shape {
                 { key: 'text',     label,               type: 'text' },
                 { key: 'fontSize', label: 'Text size',  type: 'number', min: 0.5, max: 50, step: 0.5 },
             ];
+            if (this.fieldKey === 'reference') {
+                descriptors.push({ key: 'rotation', label: 'Rotation', type: 'number', step: 15 });
+            }
             return descriptors;
         }
         return [
