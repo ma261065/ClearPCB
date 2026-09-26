@@ -37,6 +37,7 @@ export function createRefTextSelectionAdapter(app, componentId, id) {
         kind: 'reftext',
         object: componentId,
         get visible() { return app.placements?.get(componentId)?.refVisible !== false; },
+        get locked() { return !!app.placements?.get(componentId)?.locked; },
         getBounds() { return boundsForRefText(app, componentId); },
         hitTest(point) { return getRefTextSelectionHit(app, point) === componentId; },
         getPosition() {

@@ -17,7 +17,13 @@ const { Via } = await import('../src/shapes/via.js');
 const { Track } = await import('../src/shapes/track.js');
 const { reconcileRatsnest } = await import('../src/pcb/modules/track-draw.js');
 const { AddTrackCommand, RemoveTrackCommand, AddViaCommand, RemoveViaCommand, MoveViaCommand, CompoundCommand } = await import('../src/pcb/modules/track-commands.js');
-const { MovePlacementCommand, RotatePlacementCommand, FlipPlacementCommand, SetPlacementSideCommand } = await import('../src/pcb/modules/track-commands.js');
+const {
+    FlipPlacementCommand,
+    MovePlacementCommand,
+    RotatePlacementCommand,
+    SetPlacementLockedCommand,
+    SetPlacementSideCommand,
+} = await import('../src/pcb/modules/track-commands.js');
 const { cancelGroupDrag, endGroupDrag } = await import('../src/pcb/modules/box-select.js');
 const {
     startVertexDrag,
@@ -202,6 +208,11 @@ function trackAppFor(track, previousDeferral = false) {
         command.undo();
         expect(`${command.constructor.name} owns execute and undo clearance`, app.clearanceRefreshes() === before + 2);
     }
+    const lock = new SetPlacementLockedCommand(app, 'component', true);
+    lock.execute();
+    expect('component lock command applies and persists', app.placements.get('component').locked === true);
+    lock.undo();
+    expect('component lock command is undoable', app.placements.get('component').locked === false);
 }
 
 for (const previousDeferral of [false, true]) {

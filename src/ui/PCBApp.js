@@ -15,7 +15,7 @@ import {
     createInlineTextOverlay,
     setInlineTextInputActive,
 } from './modules/inline-text-overlay.js';
-import { PCB_LAYERS, PCB_OVERLAYS, PCB_COPPER_FILLS, isLayerLocked, isViaLocked, isLayerVisible, isViaVisible, showLockedLayerBubble, isCopperFillLocked, isCopperFillVisible, saveLayerPrefs } from '../pcb/modules/layers.js';
+import { PCB_LAYERS, PCB_OVERLAYS, PCB_COPPER_FILLS, isLayerLocked, isViaLocked, isLayerVisible, isViaVisible, showLockedLayerBubble, isCopperFillLocked, isCopperFillVisible, saveLayerPrefs, setPcbCopperFillLocked, setPcbLayerLocked } from '../pcb/modules/layers.js';
 import { exportDSN, importSES } from '../pcb/modules/dsn.js';
 import { runDRC } from '../pcb/modules/drc.js';
 import { buildCopperObstacles } from '../pcb/modules/copper-obstacles.js';
@@ -52,6 +52,7 @@ import {
     CompoundCommand,
     MovePlacementCommand,
     RotatePlacementCommand,
+    SetPlacementLockedCommand,
     FlipPlacementCommand,
     SetPlacementSideCommand,
     SetPlacementRefVisibleCommand,
@@ -554,7 +555,8 @@ export default class PCBApp {
     _selectAllPcb() {
         window.getSelection?.()?.removeAllRanges();
         const selected = [];
-        for (const [componentId] of this.placements) {
+        for (const [componentId, placement] of this.placements) {
+            if (placement.locked) continue;
             selected.push({ kind: 'component', object: componentId });
         }
         for (const track of this.tracks) {
@@ -926,6 +928,15 @@ export default class PCBApp {
 
         // Bind mouse events for panning
         this._bindMouseEvents();
+        this.viewport.svg.addEventListener('unlock-shape', (event) => {
+            const item = event.detail?.shape;
+            const compId = item?.componentId;
+            if (compId && this.placements.get(compId)?.locked) {
+                this.history.execute(new SetPlacementLockedCommand(this, compId, false));
+            } else {
+                item?.unlock?.();
+            }
+        });
 
         // Create SVG layer groups (one <g> per PCB layer, in z-order)
         this._createLayerGroups();
@@ -2891,6 +2902,7 @@ export default class PCBApp {
             if (selectedScopedEntity) this._clearProperties();
             setHoverHighlight(this, null);
         }
+        this._refreshPcbSelectionHighlights?.();
         saveLayerPrefs();
     }
 
@@ -2912,36 +2924,9 @@ export default class PCBApp {
             if (ko) ko.style.opacity = locked ? '0.4' : '';
         }
         saveLayerPrefs();
-        if (!locked) return;
-        const selectedScopedEntity = getPcbSelection(this).some(
-            (item) => this.boardShapes.includes(item)
-                && item.layer === layerId,
-        );
-        // A newly-locked layer must not keep anything on it selected or
-        // hovered — locked objects are read-only.
-        const viaAffected = layerId === 'top-copper' || layerId === 'bottom-copper';
-        const selectedTrack = getSelectedTrack(this);
-        const selectedVia = getSelectedVia(this);
-        if ((selectedTrack && selectedTrack.layer === layerId) ||
-            (selectedVia && viaAffected)) {
-            clearTrackSelection(this);
-            this._clearProperties();
-        }
-        const selectedText = getPcbSelection(this, 'text')[0] || null;
-        if (selectedText && selectedText.layer === layerId) {
-            this._selectText(null);
-            this._clearProperties();
-        }
-        const selectedShape = getPcbSelection(this, 'shape')[0] || null;
-        if (selectedShape && selectedShape.layer === layerId) {
-            selectBoardShape(this, null);
-            this._clearProperties();
-        }
-        if (this._boardOutlineSelected && layerId === 'board-outline') {
-            this._selectBoardOutline(false);
-        }
-        if (hasBoxSelection(this)) clearBoxSelection(this);
-        if (selectedScopedEntity) this._clearProperties();
+        const checkbox = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropOutlineLocked'));
+        if (checkbox) checkbox.checked = locked;
+        this._refreshPcbSelectionHighlights?.();
         setHoverHighlight(this, null);
     }
 
@@ -3480,10 +3465,15 @@ export default class PCBApp {
         this._setPcbPropsTitle('Board Outline');
 
         items.innerHTML = `
+            <label class="prop-row prop-toggle"><input type="checkbox" id="pcbPropOutlineLocked"${isLayerLocked('board-outline') ? ' checked' : ''}><span>Locked</span></label>
             <div class="prop-row"><label>Width (mm)</label><input type="number" id="pcbPropBoardW" value="${Number(this._boardWidth).toFixed(2)}" min="5" step="1"></div>
             <div class="prop-row"><label>Height (mm)</label><input type="number" id="pcbPropBoardH" value="${Number(this._boardHeight).toFixed(2)}" min="5" step="1"></div>
             <div class="prop-row"><label>Corner R (mm)</label><input type="number" id="pcbPropBoardR" value="${Number(this._boardRadius).toFixed(2)}" min="0" step="0.5"></div>
         `;
+        const lockedEl = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropOutlineLocked'));
+        lockedEl?.addEventListener('change', () => {
+            setPcbLayerLocked(this, 'board-outline', lockedEl.checked);
+        });
 
         // Live editing: apply changes immediately for visual feedback, but
         // only commit a SetBoardOutlineCommand on `change` (blur / Enter)
@@ -3539,11 +3529,13 @@ export default class PCBApp {
         const name = pl?.name || pl?.reference || compId;
         const side = pl?.side === 'bottom' ? 'bottom' : 'top';
         const refVisible = pl?.refVisible !== false;
+        const locked = !!pl?.locked;
 
         items.innerHTML = `
             <div class="prop-row"><label>Reference</label><span style="font-size:11px;color:var(--text-primary)">${name}</span></div>
-            <label class="prop-row prop-toggle"><input type="checkbox" id="pcbPropCompRefVis"${refVisible ? ' checked' : ''}><span>Show Reference</span></label>
-            <div class="prop-row"><label>Layer</label><select id="pcbPropCompSide">
+            <label class="prop-row prop-toggle"><input type="checkbox" id="pcbPropCompLocked"${locked ? ' checked' : ''}><span>Locked</span></label>
+            <label class="prop-row prop-toggle"><input type="checkbox" id="pcbPropCompRefVis"${refVisible ? ' checked' : ''}${locked ? ' disabled' : ''}><span>Show Reference</span></label>
+            <div class="prop-row"><label>Layer</label><select id="pcbPropCompSide"${locked ? ' disabled' : ''}>
                 <option value="top"${side === 'top' ? ' selected' : ''}>Top</option>
                 <option value="bottom"${side === 'bottom' ? ' selected' : ''}>Bottom</option>
             </select></div>
@@ -3565,18 +3557,23 @@ export default class PCBApp {
             </div>
         `;
         panel?.appendChild(transform);
+        for (const button of transform.querySelectorAll('button')) button.disabled = locked;
 
         const curRot = () => ((this.placements.get(compId)?.rotation || 0) % 360 + 360) % 360;
 
         const rotateTo = (deg) => {
             const p = this.placements.get(compId);
-            if (!p) return;
+            if (!p || p.locked) return;
             const norm = ((deg % 360) + 360) % 360;
             if ((p.rotation || 0) === norm) return;
             this.history.execute(new RotatePlacementCommand(this, compId, p.rotation || 0, norm));
             this._showComponentProperties(compId);
         };
 
+        const lockedEl = /** @type {HTMLInputElement} */ (document.getElementById('pcbPropCompLocked'));
+        lockedEl?.addEventListener('change', () => {
+            this.history.execute(new SetPlacementLockedCommand(this, compId, lockedEl.checked));
+        });
         const refEl = /** @type {HTMLInputElement} */ (document.getElementById('pcbPropCompRefVis'));
         refEl?.addEventListener('change', () => {
             this._setComponentRefVisible(compId, refEl.checked);
@@ -3665,7 +3662,7 @@ export default class PCBApp {
      */
     _rotateComponent(compId, dir) {
         const pl = this.placements.get(compId);
-        if (!pl) return;
+        if (!pl || pl.locked) return;
         const cur = ((pl.rotation || 0) % 360 + 360) % 360;
         const next = ((cur + (dir === 'L' ? -90 : 90)) % 360 + 360) % 360;
         this.history.execute(new RotatePlacementCommand(this, compId, cur, next));
@@ -3678,7 +3675,7 @@ export default class PCBApp {
      * @param {'H'|'V'} axis
      */
     _flipComponent(compId, axis) {
-        if (!this.placements.has(compId)) return;
+        if (!this.placements.has(compId) || this.placements.get(compId)?.locked) return;
         this.history.execute(new FlipPlacementCommand(this, compId, axis));
     }
 
@@ -3689,7 +3686,7 @@ export default class PCBApp {
      */
     _setPlacementSide(compId, side) {
         const pl = this.placements.get(compId);
-        if (!pl) return;
+        if (!pl || pl.locked) return;
         const cur = pl.side === 'bottom' ? 'bottom' : 'top';
         if (cur === side) return;
         this.history.execute(new SetPlacementSideCommand(this, compId, side));
@@ -3702,7 +3699,7 @@ export default class PCBApp {
      */
     _setComponentRefVisible(compId, visible) {
         const pl = this.placements.get(compId);
-        if (!pl) return;
+        if (!pl || pl.locked) return;
         if ((pl.refVisible !== false) === !!visible) return;
         this.history.execute(new SetPlacementRefVisibleCommand(this, compId, !!visible));
     }
@@ -4049,6 +4046,7 @@ export default class PCBApp {
                 model3dPlacement: fpGeom.model3d || null,
                 silks: fpGeom.silks || [],
                 rotation: rot,
+                locked: !!override?.locked,
                 mirror: !!override?.mirror,
                 side: override?.side === 'bottom' ? 'bottom' : 'top',
                 refVisible: override?.refVisible !== false,
@@ -4632,6 +4630,7 @@ export default class PCBApp {
             pl.x = o.x;
             pl.y = o.y;
             pl.rotation = o.rotation || 0;
+            pl.locked = !!o.locked;
             pl.mirror = !!o.mirror;
             pl.refDx = o.refDx || 0;
             pl.refDy = o.refDy || 0;
@@ -4661,6 +4660,7 @@ export default class PCBApp {
             x: pl.x,
             y: pl.y,
             rotation: pl.rotation || 0,
+            locked: !!pl.locked,
             mirror: !!pl.mirror,
             side: pl.side === 'bottom' ? 'bottom' : 'top',
             refVisible: pl.refVisible !== false,
@@ -4680,7 +4680,10 @@ export default class PCBApp {
      */
     _selectComponent(compId) {
         const previousCompId = getPcbSelection(this, 'component')[0] || null;
-        if (previousCompId === compId) return;
+        if (previousCompId === compId) {
+            if (!compId) renderPcbSelectionAnchors(this);
+            return;
+        }
         // Remove old selection highlight
         if (previousCompId) {
             const oldPl = this.placements.get(previousCompId);
@@ -4695,6 +4698,7 @@ export default class PCBApp {
         this._syncClipboardButtons?.();
 
         if (!compId) {
+            renderPcbSelectionAnchors(this);
             this.viewport.svg.style.cursor = 'default';
             return;
         }
@@ -4719,8 +4723,9 @@ export default class PCBApp {
         highlight.setAttribute('stroke-width', '0.2');
         highlight.setAttribute('pointer-events', 'none');
         pl.elements[0].appendChild(highlight);
+        renderPcbSelectionAnchors(this);
 
-        this.viewport.svg.style.cursor = 'grab';
+        this.viewport.svg.style.cursor = pl.locked ? 'default' : 'grab';
         // Ensure the selected footprint shows full detail even when zoomed out
         // far enough that it would otherwise be collapsed to its LOD placeholder.
         this._updatePcbCulling();
@@ -4728,7 +4733,7 @@ export default class PCBApp {
 
     _beginComponentDrag(compId, worldPos) {
         const pl = this.placements.get(compId);
-        if (!pl) return false;
+        if (!pl || pl.locked) return false;
         setHoverHighlight(this, null);
         this._hoverComponent(null);
         this._hideNetTooltip();
@@ -4761,7 +4766,7 @@ export default class PCBApp {
         const newY = this._drag.startPos.y + worldPos.y - this._drag.startWorld.y;
         const gridSize = this.viewport.gridSize;
         const pl = this.placements.get(this._drag.compId);
-        if (!pl) return;
+        if (!pl || pl.locked) return;
         pl.x = this._snapActive() ? Math.round(newX / gridSize) * gridSize : newX;
         pl.y = this._snapActive() ? Math.round(newY / gridSize) * gridSize : newY;
         applyPlacementPose(this, this._drag.compId);
@@ -5132,7 +5137,7 @@ export default class PCBApp {
         const schematic = /** @type {any} */ (window).app;
         const component = schematic?.components?.find(item => item.id === compId);
         const layer = pl?.side === 'bottom' ? 'bottom-silk' : 'top-silk';
-        if (!pl || !component || component.locked || isLayerLocked(layer) || !isLayerVisible(layer)) return false;
+        if (!pl || pl.locked || !component || component.locked || isLayerLocked(layer) || !isLayerVisible(layer)) return false;
         const original = component.reference;
         const text = {
             content: original,
@@ -5392,7 +5397,7 @@ export default class PCBApp {
 
     _beginRefTextDrag(compId, worldPos) {
         const pl = this.placements.get(compId);
-        if (!pl) return false;
+        if (!pl || pl.locked) return false;
         this._refDrag = {
             compId,
             startWorld: worldPos,
@@ -5490,7 +5495,7 @@ export default class PCBApp {
     _handleRefDrag(e) {
         if (!this._refDrag) return;
         const pl = this.placements.get(this._refDrag.compId);
-        if (!pl) return;
+        if (!pl || pl.locked) return;
         this.viewport.shiftHeld = e.shiftKey;
         const localNow = this._worldToPlacementLocal(this._screenToWorld(e), pl);
         const localStart = this._worldToPlacementLocal(this._refDrag.startWorld, pl);
@@ -5532,7 +5537,7 @@ export default class PCBApp {
     /** Rotate the selected reference designator by 90° (through history). */
     _rotateRefText(compId) {
         const pl = this.placements.get(compId);
-        if (!pl) return;
+        if (!pl || pl.locked) return;
         const cur = ((pl.refRot || 0) % 360 + 360) % 360;
         const next = (cur + 90) % 360;
         this.history.execute(new RotateRefTextCommand(this, compId, cur, next));
@@ -5779,12 +5784,13 @@ export default class PCBApp {
         const size = pl.refSize || REF_DEFAULT_SIZE;
         const lw = pl.refStrokeWidth || REF_DEFAULT_STROKE;
         const rot = ((pl.refRot || 0) % 360 + 360) % 360;
+        const disabled = pl.locked ? ' disabled' : '';
         items.innerHTML = `
             <div class="prop-row"><label>Reference</label><input type="text" id="pcbPropRefName" value="${pl.reference ?? ''}" disabled></div>
             <div class="prop-row"><label>Layer</label><input type="text" id="pcbPropRefLayer" value="${this._layerLabel(silkLayer)}" disabled></div>
-            <div class="prop-row"><label>Size (mm)</label><input type="number" id="pcbPropRefSize" value="${size}" min="0.2" step="0.1"></div>
-            <div class="prop-row"><label>Rotation (°)</label><input type="number" id="pcbPropRefRot" data-number-format="rotation" value="${rot}" step="15"></div>
-            <div class="prop-row"><label>Line W (mm)</label><input type="number" id="pcbPropRefLW" value="${lw}" min="0.05" step="0.05"></div>
+            <div class="prop-row"><label>Size (mm)</label><input type="number" id="pcbPropRefSize" value="${size}" min="0.2" step="0.1"${disabled}></div>
+            <div class="prop-row"><label>Rotation (°)</label><input type="number" id="pcbPropRefRot" data-number-format="rotation" value="${rot}" step="15"${disabled}></div>
+            <div class="prop-row"><label>Line W (mm)</label><input type="number" id="pcbPropRefLW" value="${lw}" min="0.05" step="0.05"${disabled}></div>
         `;
         const num = (min) => (v) => {
             const n = parseFloat(v);
@@ -8141,28 +8147,23 @@ export default class PCBApp {
     _onCopperFillVisibilityChanged(copperLayerId, visible) {
         const g = this._layerGroups.get(fillGroupId(copperLayerId));
         if (g) g.style.display = visible ? '' : 'none';
+        this._refreshPcbSelectionHighlights?.();
         saveLayerPrefs();
     }
 
     /**
      * Layer-panel callback: lock/unlock the copper pour on one side. A locked
-     * pour is dimmed and can't be selected; deselect anything on it.
+     * pour is dimmed and remains selectable only for its unlock affordance.
      * @param {string} copperLayerId - 'top-copper' | 'bottom-copper'
      * @param {boolean} locked
      */
     _onCopperFillLockChanged(copperLayerId, locked) {
         const g = this._layerGroups.get(fillGroupId(copperLayerId));
         if (g) g.style.opacity = locked ? '0.4' : '';
-        if (locked) {
-            const selected = getPcbSelectionEntries(this);
-            const remaining = selected.filter(entry => entry.kind !== 'fill' || entry.object.layer !== copperLayerId);
-            if (remaining.length !== selected.length) {
-                setPcbSelection(this, remaining);
-                refreshBoxSelectionHighlights(this);
-                showPcbSelectionProperties(this);
-                this._syncClipboardButtons();
-            }
-        }
+        const selectedFill = getPcbSelection(this, 'fill')[0] || null;
+        const checkbox = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropFillLocked'));
+        if (checkbox && selectedFill?.layer === copperLayerId) checkbox.checked = locked;
+        this._refreshPcbSelectionHighlights?.();
         saveLayerPrefs();
     }
 
@@ -8267,9 +8268,14 @@ export default class PCBApp {
             ['bottom-copper', 'Bottom Copper'],
         ].map(([id, name]) => `<option value="${id}"${id === fill.layer ? ' selected' : ''}>${name}</option>`).join('');
         items.innerHTML = `
+            <label class="prop-row prop-toggle"><input type="checkbox" id="pcbPropFillLocked"${isCopperFillLocked(fill.layer) ? ' checked' : ''}><span>Locked</span></label>
             <div class="prop-row"><label>Net</label><span class="prop-net-control"><input type="text" id="pcbPropFillNet" placeholder="None" value="${esc(fill.net || '')}"><details class="prop-net-menu"><summary aria-label="Select existing net"></summary><div>${netOptions}</div></details></span></div>
             <div class="prop-row"><label>Layer</label><select id="pcbPropFillLayer">${layerOpts}</select></div>
         `;
+        const lockedEl = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropFillLocked'));
+        lockedEl?.addEventListener('change', () => {
+            setPcbCopperFillLocked(this, fill.layer, lockedEl.checked);
+        });
         const commit = (mutate) => {
             if (!canEditFill(fill)) return;
             const before = fill.captureState();

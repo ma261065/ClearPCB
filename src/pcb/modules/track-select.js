@@ -43,7 +43,7 @@ import {
     ModifyViaCommand,
     ModifyViasCommand,
 } from './track-commands.js';
-import { PCB_LAYERS, isLayerLocked, isViaLocked, isLayerVisible, isViaVisible } from './layers.js';
+import { PCB_LAYERS, isLayerLocked, isViaLocked, isLayerVisible, isViaVisible, unlockPcbLayer } from './layers.js';
 import { canRestoreTrackToSourceBoardShape, restoreTrackToSourceBoardShape } from './board-shapes.js';
 import { showAlert } from '../../ui/modules/modal.js';
 import {
@@ -100,6 +100,13 @@ function trackIsSelectable(track) {
     for (const [edgeId] of track?.edges || []) {
         const layer = track.getEdgeLayer(edgeId);
         if (!isLayerLocked(layer) && isLayerVisible(layer)) return true;
+    }
+    return false;
+}
+
+function trackIsVisible(track) {
+    for (const [edgeId] of track?.edges || []) {
+        if (isLayerVisible(track.getEdgeLayer(edgeId))) return true;
     }
     return false;
 }
@@ -163,7 +170,14 @@ export function createTrackSelectionAdapter(app, track, id) {
         id,
         kind: 'track',
         object: track,
-        get visible() { return trackIsSelectable(track); },
+        get visible() { return trackIsVisible(track); },
+        get locked() { return !trackIsSelectable(track); },
+        unlock() {
+            for (const [edgeId] of track.edges || []) {
+                const layer = track.getEdgeLayer(edgeId);
+                if (isLayerLocked(layer)) unlockPcbLayer(app, layer);
+            }
+        },
         getBounds() { return trackBounds(track); },
         hitTest(point, tolerance) { return trackHitTest(track, point, tolerance); },
         getAnchors() {
@@ -271,7 +285,15 @@ export function createViaSelectionAdapter(app, via, id) {
         id,
         kind: 'via',
         object: via,
-        get visible() { return !isViaLocked() && isViaVisible(); },
+        get visible() { return isViaVisible(); },
+        get locked() { return isViaLocked(); },
+        unlock() {
+            for (const layer of PCB_LAYERS) {
+                if ((layer.id === 'top-copper' || layer.id === 'bottom-copper') && layer.locked) {
+                    unlockPcbLayer(app, layer.id);
+                }
+            }
+        },
         getBounds() { return viaBounds(via); },
         hitTest(point, tolerance) {
             return Math.hypot(via.x - point.x, via.y - point.y) <= (Number(via.diameter) || 0.6) / 2 + tolerance;

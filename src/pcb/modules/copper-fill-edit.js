@@ -10,6 +10,7 @@ import { isCopperFillLocked, isCopperFillVisible, isLayerLocked } from './layers
 import { snapPathPoint, snapPathTranslation, pathContextActions, showPathContextMenu } from './path-edit.js';
 import { distanceToArcEdge, arcEdgePathD } from '../../shapes/arc-edge.js';
 import { formatNumberInputValue } from '../../core/number-inputs.js';
+import { normalizeCopperFillKind } from '../../shapes/copper-fill.js';
 
 export function canEditFill(fill) {
     return fill && !fill.locked && fill.visible !== false && !isLayerLocked(fill.layer)
@@ -120,6 +121,7 @@ export function endFillEdit(app, commit) {
     if (drag.anchor != null) app.viewport?.hideCrosshair?.();
     app._deferDragOverlays = drag.previousDeferDragOverlays;
     const { fill, before } = drag;
+    if (drag.anchor != null || drag.segment != null) normalizeCopperFillKind(fill);
     const after = fill.captureState();
     const valid = commit && validFill(fill);
     if (!valid) app._fillEdit = drag.previousFocus;
@@ -153,7 +155,7 @@ export function deleteFillNode(app, fill, index) {
             .map(([key, value]) => [Number(key) > index ? Number(key) - 1 : Number(key), value]));
         remapBoardShapeNodeRadii(fill, index, -1);
         fill.outline.splice(index, 1);
-        fill.kind = 'polygon';
+        normalizeCopperFillKind(fill);
         app._fillEdit = null;
     });
 }
@@ -182,6 +184,7 @@ export function showFillContextMenu(app, fill, clientX, clientY, point) {
             fill.kind = 'polygon';
             if (curved) delete fill.segmentBulges[segment];
             else fill.segmentBulges[segment] = 0.25;
+            normalizeCopperFillKind(fill);
         }),
         deleteObject: () => app.history.execute(new RemoveFillCommand(app, fill)), label: 'copper fill',
     });
@@ -224,6 +227,7 @@ export function addFillGeometryProperties(app, fill, items) {
         fill.kind = 'polygon';
         if (Math.abs(value) < 1e-4) delete fill.segmentBulges[segment];
         else fill.segmentBulges[segment] = value;
+        normalizeCopperFillKind(fill);
     }, -1, 1);
     bind('pcbPropFillCornerRadius', value => { fill.cornerRadius = value; fill.nodeCornerRadii = {}; }, 0);
     bind('pcbPropFillDiameter', value => { fill.radius = value / 2; }, 0.1);

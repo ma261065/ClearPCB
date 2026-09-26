@@ -785,8 +785,8 @@ counter-clockwise even though model Y points down. Valid text layers are
 
 ### Placement Overrides
 
-Only manually overridden footprint positions are persisted. The map key is the
-schematic component ID:
+Only footprint placements with an overridden position, pose, reference style,
+or lock state are persisted. The map key is the schematic component ID:
 
 ```json
 {
@@ -795,6 +795,7 @@ schematic component ID:
       "x": 35,
       "y": 20,
       "rotation": 90,
+      "locked": true,
       "mirror": true,
       "side": "bottom",
       "refVisible": false,
@@ -809,8 +810,8 @@ schematic component ID:
 ```
 
 Only non-default optional values are emitted. Defaults on load are top side,
-not mirrored, visible reference, zero offsets/rotation, and application default
-reference size/stroke width.
+unlocked, not mirrored, visible reference, zero offsets/rotation, and
+application default reference size/stroke width.
 
 ## PCB Layer IDs
 

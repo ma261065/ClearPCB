@@ -1,6 +1,12 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import * as layers from '../src/pcb/modules/layers.js';
+import { lockPositionOutsideOutline } from '../src/pcb/modules/selection-anchors.js';
+
+const square = [{ x: 0, y: 0 }, { x: 20, y: 0 }, { x: 20, y: 10 }, { x: 0, y: 10 }];
+const rightEdgeLock = lockPositionOutsideOutline(square, { x: 20, y: 6 }, 20);
+assert.ok(rightEdgeLock.x > 20, 'Outline lock is placed outside the edge nearest the click');
+assert.ok(Math.abs(rightEdgeLock.y - 6) < 2, 'Outline lock stays close to the clicked outline point');
 
 const source = readFileSync(new URL('../src/ui/PCBApp.js', import.meta.url), 'utf8');
 const start = source.indexOf('    _selectAllPcb() {');
@@ -26,12 +32,17 @@ const topPour = layers.PCB_COPPER_FILLS.find(layer => layer.id === 'top-copper')
 const points = [{ x: 1, y: 1 }, { x: 2, y: 1 }, { x: 2, y: 2 }];
 const fill = { type: 'fill', id: 'pour', layer: 'top-copper', outline: points, locked: false, visible: true };
 const shape = { kind: 'polygon', id: 'shape', layer: 'top-copper', points };
+const lockedPlacement = { id: 'locked-component', x: 3, y: 4, locked: true,
+    pads: new Map([['1', { x: 1, y: 1 }]]) };
 const app = {
-    placements: new Map(), tracks: [], vias: [], texts: new Map(), boardShapes: [fill, shape],
-    _syncClipboardButtons() {}, selected: [],
+    placements: new Map([[lockedPlacement.id, lockedPlacement]]),
+    tracks: [], vias: [], texts: new Map(), boardShapes: [fill, shape],
+    _syncClipboardButtons() {}, _getLayerGroup() { return null; }, selected: [],
 };
 for (const select of [() => selectAll.call(app), () => marquee(app, { minX: 0, minY: 0, maxX: 10, maxY: 10 })]) {
     select();
+    assert.ok(!app.selected.some(entry => entry.object === lockedPlacement.id),
+        'Locked component is excluded from bulk selection');
     assert.ok(app.selected.some(entry => entry.object === fill), 'Unlocked pour is selectable');
     for (const [target, property, blocked] of [
         [topPour, 'locked', true], [topPour, 'visible', false],
@@ -98,6 +109,19 @@ for (const [target, property, blocked] of [
 }
 console.log('PASS group drag excludes stale selected locked/hidden pours while other objects move');
 
+setPcbSelection(app, [
+    { kind: 'component', object: lockedPlacement.id },
+    { kind: 'text', object: movingText },
+]);
+const lockedStart = { x: lockedPlacement.x, y: lockedPlacement.y };
+const textStart = movingText.x;
+beginGroupDrag(app, { x: 0, y: 0 });
+assert.equal(app._groupDrag.comps.length, 0, 'Locked component must not enter a group drag');
+updateGroupDrag(app, { x: 5, y: 5 });
+endGroupDrag(app);
+assert.deepEqual({ x: lockedPlacement.x, y: lockedPlacement.y }, lockedStart);
+assert.equal(movingText.x, textStart + 5, 'Unlocked selection members still move');
+
 const { CopperFill } = await import('../src/shapes/copper-fill.js');
 const { createCopperFillSelectionAdapter } = await import('../src/pcb/modules/copper-fill-selection.js');
 const { hitTestPcbSelection } = await import('../src/pcb/modules/selection-registry.js');
@@ -107,7 +131,10 @@ assert.ok(hitStart >= 0 && hitEnd > hitStart);
 const hitFill = new Function(...Object.keys(layers),
     `return ({ ${source.slice(hitStart, hitEnd)} })._hitTestFill;`)(...Object.values(layers));
 const visibleFill = new CopperFill({ outline: points, layer: 'top-copper' });
-const fillApp = { boardShapes: [visibleFill], copperFills: [visibleFill], viewport: { scale: 10 } };
+const fillApp = {
+    boardShapes: [visibleFill], copperFills: [visibleFill], viewport: { scale: 10 },
+    _getLayerGroup() { return null; },
+};
 const previousVisibility = topLayer.visible;
 try {
     topLayer.visible = false;
@@ -127,7 +154,10 @@ try {
         try {
             target[property] = blocked;
             assert.equal(hitFill.call(fillApp, points[0]), null);
-            assert.equal(hitTestPcbSelection(fillApp, points[0], 'fill'), null);
+            const locked = property === 'locked';
+            assert.equal(hitTestPcbSelection(fillApp, points[0], 'fill'), locked ? visibleFill : null,
+                locked ? 'Shared selection can select a locked fill for its unlock affordance'
+                    : 'Hidden fills remain unselectable');
         } finally {
             target[property] = previous;
         }
@@ -149,11 +179,14 @@ const onVisibility = new Function(...Object.keys(visibilityDependencies),
     `return ({ ${source.slice(visibilityStart, visibilityEnd)} })._onLayerVisibilityChanged;`)(...Object.values(visibilityDependencies));
 fillApp._layerGroups = new Map();
 let hatchRedraws = 0;
+let selectionRefreshes = 0;
 fillApp._scheduleRemovalHatchRender = () => { hatchRedraws++; };
+fillApp._refreshPcbSelectionHighlights = () => { selectionRefreshes++; };
 fillApp._selectFill = () => { throw new Error('Copper visibility must not clear a visible fill'); };
 fillApp._clearProperties = () => { throw new Error('Visible fill properties must remain available'); };
 onVisibility.call(fillApp, 'top-copper', false);
 assert.equal(hatchRedraws, 1, 'Hiding top copper invalidates the separate hatch canvas');
+assert.equal(selectionRefreshes, 1, 'Hiding an outline layer removes its selection lock overlay');
 assert.deepEqual(getPcbSelection(fillApp, 'fill'), [visibleFill]);
 onVisibility.call(fillApp, 'top-copper', true);
 onVisibility.call(fillApp, 'bottom-copper', false);
@@ -161,14 +194,26 @@ onVisibility.call(fillApp, 'bottom-copper', true);
 assert.equal(hatchRedraws, 4, 'Showing and hiding either copper side refreshes hatching');
 onVisibility.call(fillApp, 'top-silk', true);
 assert.equal(hatchRedraws, 4, 'Unrelated layer visibility does not redraw copper hatching');
+assert.equal(selectionRefreshes, 5, 'Every layer eye change refreshes selection affordances');
+
+const fillVisibilityStart = source.indexOf('    _onCopperFillVisibilityChanged(copperLayerId, visible) {');
+const fillVisibilityEnd = source.indexOf('\n    /**', fillVisibilityStart);
+assert.ok(fillVisibilityStart >= 0 && fillVisibilityEnd > fillVisibilityStart);
+const onFillVisibility = new Function('fillGroupId', 'saveLayerPrefs',
+    `return ({ ${source.slice(fillVisibilityStart, fillVisibilityEnd)} })._onCopperFillVisibilityChanged;`)(
+    layer => layer, () => {},
+);
+onFillVisibility.call(fillApp, 'top-copper', false);
+assert.equal(selectionRefreshes, 6, 'Hiding copper-fill outlines removes their selection lock overlay');
 
 const lockStart = source.indexOf('    _onCopperFillLockChanged(copperLayerId, locked) {');
 const lockEnd = source.indexOf('\n    /** Hit-test a world point', lockStart);
 assert.ok(lockStart >= 0 && lockEnd > lockStart);
 const lockDependencies = {
-    setPcbSelection, getPcbSelectionEntries,
+    setPcbSelection, getPcbSelection, getPcbSelectionEntries,
     fillGroupId: layer => layer, saveLayerPrefs() {},
     refreshBoxSelectionHighlights() {}, showPcbSelectionProperties() {},
+    document: { getElementById() { return null; } },
 };
 const onLock = new Function(...Object.keys(lockDependencies),
     `return ({ ${source.slice(lockStart, lockEnd)} })._onCopperFillLockChanged;`)(...Object.values(lockDependencies));
@@ -181,9 +226,10 @@ setPcbSelection(app, [
     { kind: 'fill', object: secondTopFill }, { kind: 'text', object: movingText },
 ]);
 onLock.call(app, 'top-copper', true);
-assert.deepEqual(getPcbSelection(app, 'fill'), [bottomFill], 'Lock removes all pours on that side, even when the first selected pour is on the other side');
+assert.deepEqual(getPcbSelection(app, 'fill'), [bottomFill, fill, secondTopFill],
+    'Lock preserves selected pours so their unlock affordance remains available');
 assert.deepEqual(getPcbSelection(app, 'text'), [movingText], 'Lock preserves unrelated selection');
-console.log('PASS pour lock changes remove all matching selected pours without clearing other objects');
+console.log('PASS pour lock changes preserve selected objects for their unlock affordance');
 
 const { renderCopperFill, setCopperFillClip, removeCopperFillElements } = await import('../src/pcb/modules/copper-fill-render.js');
 function svgElement() {

@@ -18,10 +18,11 @@ const round4 = value => Number.isFinite(value) ? Math.round(value * 10000) / 100
 
 /** @param {any} app */
 export function serializePcb(app) {
-    /** @type {Record<string, {x:number, y:number, rotation:number, mirror?:boolean, side?:string, refVisible?:boolean, refDx?:number, refDy?:number, refRot?:number, refSize?:number, refStrokeWidth?:number}>} */
+    /** @type {Record<string, {x:number, y:number, rotation:number, locked?:boolean, mirror?:boolean, side?:string, refVisible?:boolean, refDx?:number, refDy?:number, refRot?:number, refSize?:number, refStrokeWidth?:number}>} */
     const placements = {};
     for (const [id, p] of app._placementOverrides) {
         placements[id] = { x: round4(p.x), y: round4(p.y), rotation: round4(p.rotation || 0) };
+        if (p.locked) placements[id].locked = true;
         if (p.mirror) placements[id].mirror = true;
         if (p.side === 'bottom') placements[id].side = 'bottom';
         if (p.refVisible === false) placements[id].refVisible = false;
@@ -174,6 +175,7 @@ export function loadPcb(app, data, prepared = preparePcb(data)) {
                 x: Number(p.x) || 0,
                 y: Number(p.y) || 0,
                 rotation: Number(p.rotation) || 0,
+                locked: !!p.locked,
                 mirror: !!p.mirror,
                 side: p.side === 'bottom' ? 'bottom' : 'top',
                 refVisible: p.refVisible !== false,

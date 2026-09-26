@@ -15,9 +15,19 @@
  */
 
 import { closedShapeOutline } from './closed-outline.js';
+import { pointsFormAxisAlignedRect } from './path-operations.js';
 
 let fillIdCounter = 0;
 const round4 = value => Math.round(value * 10000) / 10000;
+
+/** Normalize edited fill topology while retaining circles as their own primitive. */
+export function normalizeCopperFillKind(fill) {
+    if (!fill || fill.kind === 'circle') return false;
+    const before = fill.kind;
+    const hasCurves = Object.values(fill.segmentBulges || {}).some(value => Math.abs(value) >= 1e-4);
+    fill.kind = pointsFormAxisAlignedRect(fill.outline) && !hasCurves ? 'rect' : 'polygon';
+    return fill.kind !== before;
+}
 
 /** Reset the fill ID counter (for testing / new-document). */
 export function resetFillIdCounter() {
@@ -70,6 +80,7 @@ export class CopperFill {
         this.x = Number(options.x) || 0;
         this.y = Number(options.y) || 0;
         this.radius = Math.max(0.05, Number(options.radius) || 1);
+        if (options.kind === undefined) normalizeCopperFillKind(this);
         /** Last-computed poured geometry: [{outer:[{x,y}], holes:[[{x,y}]]}] */
         this._computed = null;
     }
@@ -185,7 +196,7 @@ export class CopperFill {
         if (this.net) out.n = this.net;
         if (this.locked) out.lk = true;
         if (!this.visible) out.v = false;
-        if (this.kind !== 'polygon') out.kind = this.kind;
+        out.kind = this.kind;
         if (this.cornerRadius) out.cornerRadius = round4(this.cornerRadius);
         for (const field of ['nodeCornerRadii', 'segmentBulges']) {
             if (Object.keys(this[field]).length) out[field] = Object.fromEntries(

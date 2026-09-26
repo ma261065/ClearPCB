@@ -2,6 +2,8 @@
 
 import { getPcbSelectionEntries } from './selection-registry.js';
 import { ROTATION_CURSOR } from './rotation-handle.js';
+import { createLockIcon, LOCK_SIZE } from '../../core/ui-helpers.js';
+import { closestPointOnSegment, pointInPolygon } from '../../core/geometry.js';
 
 const HANDLE_CLASS = 'pcb-selection-anchors';
 const NS = 'http://www.w3.org/2000/svg';
@@ -13,6 +15,35 @@ function anchorId(anchor) {
 
 function anchorSize(app) {
     return 8 / Math.max(0.01, app.viewport?.scale || 1);
+}
+
+/** Position a lock beside the nearest clicked outline edge, on its exterior side. */
+export function lockPositionOutsideOutline(points, pointer, scale) {
+    if (!pointer || !Array.isArray(points) || points.length < 2) return null;
+    let nearest = null;
+    for (let index = 0; index < points.length; index++) {
+        const start = points[index];
+        const end = points[(index + 1) % points.length];
+        const point = closestPointOnSegment(pointer, start, end);
+        const distance = Math.hypot(pointer.x - point.x, pointer.y - point.y);
+        if (!nearest || distance < nearest.distance) nearest = { point, start, end, distance };
+    }
+    const dx = nearest.end.x - nearest.start.x;
+    const dy = nearest.end.y - nearest.start.y;
+    const length = Math.hypot(dx, dy);
+    if (!length) return null;
+    const normals = [{ x: -dy / length, y: dx / length }, { x: dy / length, y: -dx / length }];
+    const probe = Math.max(0.1, 2 / Math.max(0.01, scale));
+    const normal = normals.find(candidate => !pointInPolygon({
+        x: nearest.point.x + candidate.x * probe,
+        y: nearest.point.y + candidate.y * probe,
+    }, points)) || normals[0];
+    const gap = Math.max(0.3, 8 / Math.max(0.01, scale)) + LOCK_SIZE * 0.6;
+    const center = {
+        x: nearest.point.x + normal.x * gap,
+        y: nearest.point.y + normal.y * gap,
+    };
+    return { x: center.x - LOCK_SIZE / 2, y: center.y - LOCK_SIZE * 0.55 };
 }
 
 /** Return the selected adapter anchor under point, or null. */
@@ -40,7 +71,29 @@ export function renderPcbSelectionAnchors(app) {
     const size = anchorSize(app);
     const scale = Math.max(0.01, app.viewport?.scale || 1);
     for (const adapter of getPcbSelectionEntries(app)) {
-        if (!adapter.visible || !adapter.getAnchors) continue;
+        if (!adapter.visible) continue;
+        if (adapter.locked) {
+            const bounds = adapter.getBounds?.();
+            if (!bounds) continue;
+            const offset = 0.6;
+            const position = adapter.getLockPosition?.(app._lastPointerWorld, scale) || {
+                x: bounds.minX - offset - LOCK_SIZE,
+                y: bounds.minY - offset - LOCK_SIZE * 0.6,
+            };
+            const owner = {
+                element: overlay,
+                unlock: adapter.unlock,
+                componentId: adapter.kind === 'component' ? adapter.object : null,
+            };
+            overlay.appendChild(createLockIcon(
+                position.x,
+                position.y,
+                owner,
+                'pcb-selection-lock-icon',
+            ));
+            continue;
+        }
+        if (!adapter.getAnchors) continue;
         const group = document.createElementNS(NS, 'g');
         group.setAttribute('class', HANDLE_CLASS);
         group.setAttribute('data-selection-id', adapter.id);
@@ -135,5 +188,7 @@ export function renderPcbSelectionAnchors(app) {
 
 /** Remove every adapter-driven anchor overlay. */
 export function clearPcbSelectionAnchors(app) {
-    app._getLayerGroup?.('selection-overlay')?.querySelectorAll(`.${HANDLE_CLASS}`).forEach((element) => element.remove());
+    const overlay = app._getLayerGroup?.('selection-overlay');
+    overlay?.querySelectorAll(`.${HANDLE_CLASS}`).forEach((element) => element.remove());
+    overlay?.querySelectorAll('.pcb-selection-lock-icon').forEach((element) => element.remove());
 }

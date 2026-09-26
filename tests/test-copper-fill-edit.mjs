@@ -12,6 +12,11 @@ const { computeFillPolygons, loadClipper } = await import('../src/pcb/modules/co
 const { prepareFabricationSnapshot } = await import('../src/pcb/modules/fabrication-snapshot.js');
 const { PCB_LAYERS, PCB_COPPER_FILLS } = await import('../src/pcb/modules/layers.js');
 const outline = [{ x: 2, y: -2 }, { x: 18, y: -2 }, { x: 18, y: -18 }, { x: 2, y: -18 }];
+assert.equal(new CopperFill({ outline }).kind, 'rect',
+    'An axis-aligned fill created without an explicit kind normalizes to Rectangle');
+const explicitPolygon = new CopperFill({ outline, kind: 'polygon' });
+assert.equal(explicitPolygon.kind, 'polygon', 'An explicitly chosen Polygon remains a polygon');
+assert.equal(explicitPolygon.toJSON().kind, 'polygon', 'Explicit Polygon intent survives save/load');
 
 for (const options of [
     { outline },

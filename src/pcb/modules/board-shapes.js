@@ -21,7 +21,7 @@ import { pathHandleDescriptors, pathSegmentAt } from '../../shapes/path-geometry
 import { joinPaths, remapPathNodes, splitPathSegmentMetadata, deletePathVertex, collapseCollinearPath, deletePathSegment, closePathIfCoincident, resizeRectanglePoints, pointsFormAxisAlignedRect, setPathSegmentType, splitPathAtNode } from '../../shapes/path-operations.js';
 import { shapeFromPoints, shapePreviewPath, advanceShapeDrawing, canFinishShapeAtPoint } from '../../shapes/shape-drawing.js';
 import { CopperFill, updateFillIdCounter } from '../../shapes/copper-fill.js';
-import { isLayerLocked, isLayerVisible, PCB_LAYERS } from './layers.js';
+import { isLayerLocked, isLayerVisible, PCB_LAYERS, setPcbLayerLocked, unlockPcbLayer } from './layers.js';
 import {
     AddBoardShapeCommand,
     RemoveBoardShapeCommand,
@@ -42,7 +42,7 @@ import {
     setPcbSelection,
     syncPcbSelection,
 } from './selection-registry.js';
-import { clearPcbSelectionAnchors, renderPcbSelectionAnchors } from './selection-anchors.js';
+import { clearPcbSelectionAnchors, lockPositionOutsideOutline, renderPcbSelectionAnchors } from './selection-anchors.js';
 import { appendSegmentSelection } from '../../core/ui-helpers.js';
 import { beginPcbAnchorInteraction, showPcbSelectionProperties } from './selection-interaction.js';
 import { pathMoveInteraction, beginPathSplit, snapPathPoint, snapPathTranslation, pathContextActions, showPathContextMenu, dismissPathContextMenu } from './path-edit.js';
@@ -704,8 +704,12 @@ export function createBoardShapeSelectionAdapter(app, shape, id) {
         id,
         kind: 'shape',
         object: shape,
-        get visible() {
-            return !isLayerLocked(shape.layer) && isLayerVisible(shape.layer);
+        get visible() { return isLayerVisible(shape.layer); },
+        get locked() { return isLayerLocked(shape.layer); },
+        unlock() { unlockPcbLayer(app, shape.layer); },
+        getLockPosition(pointer, scale) {
+            if (shape.layer !== 'board-outline') return null;
+            return lockPositionOutsideOutline(shapeOutline(shape), pointer, scale);
         },
         getBounds() { return boardShapeBounds(shape); },
         hitTest(point, tolerance) {
@@ -2025,6 +2029,7 @@ export function showBoardShapeProperties(app, shape) {
         ? `${hasOutline ? '' : `<div class="prop-row" id="pcbPropShapeLineWidthRow"><label>Width (mm)</label><input type="number" id="pcbPropShapeLineWidth" min="${lineWidthMinimum}" step="0.05" value="${initialLineWidth.toFixed(2)}"></div>`}${bulgeHtml}`
         : `
             ${hasOutline ? '' : `<div class="prop-row"><label>Layer</label><select id="pcbPropShapeLayer">${mixedLayer ? '<option value="" selected disabled>Mixed</option>' : ''}${layerOptionsHtml}</select></div>`}
+            ${outlineTarget ? `<label class="prop-row prop-toggle"><input type="checkbox" id="pcbPropOutlineLocked"${isLayerLocked('board-outline') ? ' checked' : ''}><span>Locked</span></label>` : ''}
             ${outlineTarget ? `<div class="prop-row"><label>Outline</label><select id="pcbPropOutlineKind">${['rect', 'polygon', 'circle'].map(kind => `<option value="${kind}"${kind === shape.kind ? ' selected' : ''}>${shapeKindLabel(kind)}</option>`).join('')}</select></div>` : ''}
             ${outlineTarget && shape.kind === 'rect' ? `<div class="prop-row"><label>Width (mm)</label><input id="pcbPropOutlineWidth" type="number" min="0.1" step="1" value="${formatNumberInputValue(outlineBounds.w)}"></div><div class="prop-row"><label>Height (mm)</label><input id="pcbPropOutlineHeight" type="number" min="0.1" step="1" value="${formatNumberInputValue(outlineBounds.h)}"></div>` : ''}
             ${showFill ? `<label class="prop-row prop-toggle"><input type="checkbox" id="pcbPropShapeFilled"${shape.filled ? ' checked' : ''}><span>Fill</span></label>` : ''}
@@ -2038,6 +2043,10 @@ export function showBoardShapeProperties(app, shape) {
         `;
 
     if (outlineTarget) app._setPcbPropsTitle?.(selectedNode != null ? 'Board Outline Node' : selectedSegment != null ? 'Board Outline Segment' : 'Board Outline');
+    const outlineLocked = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropOutlineLocked'));
+    outlineLocked?.addEventListener('change', () => {
+        setPcbLayerLocked(app, 'board-outline', outlineLocked.checked);
+    });
     for (const [id, axis, dimension] of [
         ['pcbPropOutlineWidth', 'x', 'w'],
         ['pcbPropOutlineHeight', 'y', 'h'],

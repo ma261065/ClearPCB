@@ -197,6 +197,7 @@ function _computeEnclosed(app, bounds) {
 
     // Components: every pad must lie inside the rectangle.
     for (const [compId, pl] of app.placements) {
+        if (pl.locked) continue;
         if (!pl.pads || pl.pads.size === 0) continue;
         let allInside = true;
         for (const [, pad] of pl.pads) {
@@ -381,7 +382,7 @@ export function beginGroupDrag(app, worldPos) {
     const comps = [];
     for (const compId of getPcbSelection(app, 'component')) {
         const pl = app.placements.get(compId);
-        if (pl) comps.push({ id: compId, x: pl.x, y: pl.y });
+        if (pl && !pl.locked) comps.push({ id: compId, x: pl.x, y: pl.y });
     }
     const vias = [];
     for (const v of getPcbSelection(app, 'via')) vias.push({ via: v, x: v.x, y: v.y });

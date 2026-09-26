@@ -88,6 +88,7 @@ export function showPcbSelectionProperties(app) {
 
 /** Start a state-machine-owned select gesture. Returns true when consumed. */
 export function beginPcbAnchorInteraction(app, adapter, anchor, worldPos, floating = false) {
+    if (adapter.locked) return false;
     const anchorId = anchor.id ?? anchor.key;
     if (!adapter.beginAnchorDrag?.(anchorId, worldPos, { floating })) return false;
     app._pcbSelectionInteraction = {
@@ -143,7 +144,9 @@ export function beginSelectionInteraction(app, worldPos, additive, cycle = false
     clearSelectionInteractionUi(app);
     const alreadySelected = selected.some((item) => item.id === entry.id);
     setPcbSelection(app, [{ kind: entry.kind, object: entry.object }]);
-    if (entry.beginMove?.(worldPos, { alreadySelected, selectedSegment })) {
+    if (entry.locked) {
+        app._pcbSelectionInteraction = null;
+    } else if (entry.beginMove?.(worldPos, { alreadySelected, selectedSegment })) {
         app._pcbSelectionInteraction = {
             mode: 'move-adapter',
             entry,

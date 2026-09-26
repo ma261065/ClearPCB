@@ -113,7 +113,8 @@ const text = { id: 'text-2jbepmqe', content: 'Hello', x: 91.44000000000001, y: -
     size: 7.700000000000001, rotation: 30.123456, layer: 'top-copper', strokeWidth: 1.6000000000000003 };
 const placement = { x: 27.939999999999998, y: -38.10000000000001, rotation: 45.123456,
     refDx: 1.234567, refDy: 22.860000000000003, refRot: 30.123456,
-    refSize: 1.234567, refStrokeWidth: 0.234567, mirror: true, side: 'bottom', refVisible: false };
+    refSize: 1.234567, refStrokeWidth: 0.234567, locked: true,
+    mirror: true, side: 'bottom', refVisible: false };
 const beforeText = structuredClone(text);
 const beforePlacement = structuredClone(placement);
 const app = { tracks: [], vias: [], boardShapes: [], texts: new Map([[text.id, text]]),

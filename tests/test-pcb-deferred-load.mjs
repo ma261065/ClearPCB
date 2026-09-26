@@ -24,7 +24,7 @@ const dependencies = {
 const loadPcb = new Function(...Object.keys(dependencies),
     `${source.slice(start, end).replace('export function', 'function')}\nreturn loadPcb;`)(...Object.values(dependencies));
 const data = { board: { width: 43, height: 27, radius: 2 }, settings: { gridSize: 0.5 },
-    placements: { U1: { x: 3, y: -5, rotation: 90 } } };
+    placements: { U1: { x: 3, y: -5, rotation: 90, locked: true } } };
 const prepared = {
     tracks: [{ id: 'track' }], vias: [{ id: 'via' }], texts: [{ id: 'text' }], shapeIdCounter: 3,
     boardShapes: [{ id: 'image', kind: 'image' }, { id: 'fill', type: 'fill' }],
@@ -51,6 +51,7 @@ assert.deepEqual(hidden.tracks, prepared.tracks);
 assert.deepEqual(hidden.vias, prepared.vias);
 assert.equal(hidden.texts.get('text'), prepared.texts[0]);
 assert.equal(hidden._placementOverrides.get('U1').rotation, 90);
+assert.equal(hidden._placementOverrides.get('U1').locked, true);
 assert.equal(hidden._isDirty, false);
 assert.equal(hidden.cutRefreshes, 1, 'Hidden loading only clears the previous document cuts');
 
@@ -74,6 +75,7 @@ let components = [];
 const methodDependencies = {
     ...dependencies, window: { app: {} }, extractComponents: () => components, extractNetlist: () => [],
     getPcbSelection: () => [], refreshBoxSelectionHighlights() {}, updateGridDropdown() {},
+    setInlineTextInputActive() {},
 };
 const method = name => {
     const methodStart = pcbSource.indexOf(`    ${name}(`);
