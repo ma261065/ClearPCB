@@ -1,5 +1,5 @@
 export { punchHolesInFlatMesh } from './board3d-mesh-ops.js';
-import { pictureTriangles, pictureCirclesDisjoint } from './picture-raster.js';
+import { pictureTriangles, pictureCirclesDisjoint, picturePoints } from './picture-raster.js';
 import { ArcballController } from '../../shared/3d/ArcballController.js';
 import { createBoardViewSync } from './board-view-sync.js';
 import { createSurfaceBuilder } from './board3d-surface-client.js?v=8';
@@ -1400,7 +1400,8 @@ function strokePolysToMesh(polys, strokeWidth, y, color, toWorld) {
  */
 export function imageArtworkMesh(shape, elevation, color) {
     const mesh = emptyMesh();
-    const { artwork, points } = shape;
+    const { artwork } = shape;
+    const points = picturePoints(shape);
     if (!artwork.invert && pictureCirclesDisjoint(artwork)) {
         const origin = points[0];
         const horizontal = { x: (points[1].x - origin.x) / artwork.width, y: (points[1].y - origin.y) / artwork.width };

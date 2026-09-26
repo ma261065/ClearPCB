@@ -34,7 +34,7 @@ import { padCopperOutline } from './copper-model.js';
 import { resolveTrackSegments } from './board-geometry.js';
 
 const SCALE = 10000;            // 0.1 µm integer resolution
-const ARC_TOL = 0.01 * SCALE;   // offset arc flattening tolerance (scaled mm)
+const ARC_TOL = 0.001 * SCALE;   // offset arc flattening tolerance (scaled mm)
 const CIRCLE_SEGMENTS = 48;     // points used for via / round-pad discs
 const ROUNDING_MARGIN = 2 / SCALE;
 const MAX_ARC_CHORD_ERROR = 2.25 * ARC_TOL / SCALE;

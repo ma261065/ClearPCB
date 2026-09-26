@@ -78,7 +78,7 @@ export class Viewport {
         // visible, but never how big things appear and never the zoom %.
         // refScale100 is the px/mm at 100%; each discrete level is a multiple.
         this.refScale100 = 5; // CSS px per mm at 100% zoom
-        this.zoomPercents = [1, 2, 5, 10, 20, 35, 50, 75, 100, 150, 200, 500, 1000, 2000, 5000, 10000];
+        this.zoomPercents = [1, 2, 5, 10, 20, 35, 50, 75, 100, 150, 200, 300, 500, 1000, 2000, 5000, 10000];
         /** Scale (CSS px/mm) for each discrete zoom level. */
         this.zoomScales = this.zoomPercents.map(p => this.refScale100 * p / 100);
         this.zoomIndex = 8; // index of 100%
@@ -504,8 +504,9 @@ export class Viewport {
      * @param {number} maxX - Right edge in mm.
      * @param {number} maxY - Bottom edge in mm.
      * @param {number} [paddingPercent=10] - Extra margin as a % of content size.
+     * @param {'center'|'bottom-left'} [alignment='center']
      */
-    fitToBounds(minX, minY, maxX, maxY, paddingPercent = 10) {
+    fitToBounds(minX, minY, maxX, maxY, paddingPercent = 10, alignment = 'center') {
         // Skip when the viewport has no on-screen size; the aspect ratio below
         // would be 0/0 = NaN and poison the viewBox.
         if (!this._hasValidSize()) return;
@@ -551,6 +552,10 @@ export class Viewport {
         this.viewBox.height = viewHeight;
         this.viewBox.x = cx - viewWidth / 2;
         this.viewBox.y = cy - viewHeight / 2;
+        if (alignment === 'bottom-left') {
+            this.viewBox.x = minX - contentWidth * paddingPercent / 100;
+            this.viewBox.y = maxY + contentHeight * paddingPercent / 100 - viewHeight;
+        }
         
         this._updateViewBox();
         this._notifyViewChanged();

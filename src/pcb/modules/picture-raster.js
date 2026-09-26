@@ -173,8 +173,15 @@ function triangulateRegions(regions) {
     });
 }
 
+export function picturePoints(shape) {
+    const points = shape.points;
+    return shape.layer?.startsWith('bottom-')
+        ? [points[1], points[0], points[3], points[2]] : points;
+}
+
 function pictureGeometry(shape) {
-    const { artwork, points } = shape;
+    const { artwork } = shape;
+    const points = picturePoints(shape);
     const key = points.flatMap(point => [point.x, point.y]).join(',');
     const cached = geometryCache.get(shape);
     if (cached?.artwork === artwork && cached.key === key) return cached;
@@ -238,7 +245,8 @@ export function pictureCirclesDisjoint(artwork) {
 }
 
 export function pictureCirclePathD(shape) {
-    const { artwork, points } = shape;
+    const { artwork } = shape;
+    const points = picturePoints(shape);
     if (!canDrawPictureCircles(artwork)) return null;
     const origin = points[0];
     const horizontal = { x: (points[1].x - origin.x) / artwork.width, y: (points[1].y - origin.y) / artwork.width };
@@ -259,7 +267,8 @@ export function pictureCirclePathD(shape) {
 }
 
 export function drawPictureCached(context, shape) {
-    const { artwork, points } = shape;
+    const { artwork } = shape;
+    const points = picturePoints(shape);
     const document = context.canvas?.ownerDocument;
     if (!document || !context.getTransform || (artwork.circles?.length || 0) < 256
         || typeof context.fillStyle !== 'string') {
@@ -304,7 +313,8 @@ export function drawPictureCached(context, shape) {
 }
 
 export function drawPicture(context, shape) {
-    const { artwork, points } = shape;
+    const { artwork } = shape;
+    const points = picturePoints(shape);
     context.beginPath();
     if (canDrawPictureCircles(artwork)) {
         const origin = points[0];
