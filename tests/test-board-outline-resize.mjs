@@ -42,20 +42,27 @@ const syncInputs = new Function(`return ({ ${source.slice(syncStart, syncEnd)} }
             ]),
         };
         const bounds = boardBoundary(board);
+        const expectedFit = [
+            Math.min(0, bounds.x) - 10,
+            Math.min(0, bounds.y),
+            Math.max(0, bounds.x + bounds.w),
+            Math.max(0, bounds.y + bounds.h) + 10,
+            0, 'bottom-left',
+        ];
         fit.call(board);
-        assert.deepEqual(calls.at(-1), [bounds.x, bounds.y, bounds.x + bounds.w, bounds.y + bounds.h, 10],
+        assert.deepEqual(calls.at(-1), expectedFit,
             `${geometry.kind}: helpers must not affect board framing`);
         assert.equal(unculled, 0, 'Fitting the outline does not need to reveal culled artwork');
         board._layerGroups.set('top-silk', { childNodes: [{}], getBBox() {
             return { x: bounds.x - 20, y: bounds.y, width: 5, height: 5 };
         } });
         fit.call(board);
-        assert.deepEqual(calls.at(-1), [bounds.x, bounds.y, bounds.x + bounds.w, bounds.y + bounds.h, 10],
+        assert.deepEqual(calls.at(-1), expectedFit,
             'Off-board artwork must not affect board framing');
     }
     const legacy = { _boardOutlineDrawn: true, _boardWidth: 40, _boardHeight: 30, boardShapes: [],
         _ensureViewport() {}, _uncullAllPlacements() {}, _layerGroups: new Map([['selection-overlay', helper]]),
-        viewport: { fitToBounds(...bounds) { assert.deepEqual(bounds, [0, -30, 40, 0, 10]); } } };
+        viewport: { fitToBounds(...bounds) { assert.deepEqual(bounds, [-10, -30, 40, 10, 0, 'bottom-left']); } } };
     fit.call(legacy);
 }
 let redraws = 0;

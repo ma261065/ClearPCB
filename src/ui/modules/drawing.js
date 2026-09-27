@@ -1,7 +1,9 @@
-import { Line, Circle, Rect, Arc, Polygon, Text, Net, NoConnect, createRect } from '../../shapes/index.js';
-import { circumcircle, projectOntoChordBisector, clampBulgePoint } from '../../core/geometry.js';
+import { Line, Circle, Arc, Text, Net, NoConnect } from '../../shapes/index.js';
+import { DRAWING_SHAPES, shapeFromPoints, shapePreviewPath, advanceShapeDrawing } from '../../shapes/shape-drawing.js';
 import { normalizeNetOrientation, normalizeNetStyle } from '../../shapes/net.js';
 import { validateNetNameAtPoint } from './net-validation.js';
+import { clearAxisGlow, pathAlignmentSegments, renderAxisGlow, squareAlignmentSegments } from '../../shapes/axis-glow.js';
+import { controlArcGeometry } from '../../shapes/arc-edit.js';
 
 /**
  * Allocate the lowest unused default net name in the current document.
@@ -95,21 +97,6 @@ export function finishDrawing(app, worldPos) {
 }
 
 /**
- * Remove duplicate trailing points caused by double-click adding two at the same spot.
- */
-function stripDuplicateTrailingPoints(points, minCount) {
-    while (points.length > minCount) {
-        const last = points[points.length - 1];
-        const prev = points[points.length - 2];
-        if (last.x === prev.x && last.y === prev.y) {
-            points.pop();
-        } else {
-            break;
-        }
-    }
-}
-
-/**
  * Adds a vertex to the in-progress polygon and updates the preview.
  * @param {object} app - Application state.
  * @param {{x: number, y: number}} worldPos - Vertex position in world coordinates.
@@ -127,25 +114,7 @@ export function addPolygonPoint(app, worldPos) {
  * @param {object} app - Application state.
  */
 export function finishPolygon(app) {
-    if (app.currentTool === 'polygon' && app.isDrawing && app.polygonPoints.length >= 3) {
-        stripDuplicateTrailingPoints(app.polygonPoints, 3);
-        const shape = new Polygon({
-            points: app.polygonPoints.map(p => ({ ...p })),
-            color: app.toolOptions.color,
-            lineWidth: app.toolOptions.lineWidth,
-                fill: app.toolOptions.fill,
-                fillColor: 'var(--sch-shape-fill, #777777)',
-            fillAlpha: 0.3,
-            closed: true
-        });
-        // Check if the polygon forms a rectangle
-        if (shape.isAxisAlignedRect()) {
-            shape.isRect = true;
-        }
-        app.addShape(shape);
-        app.selection.select(shape);
-    }
-    cancelDrawing(app);
+    if (app.currentTool === 'polygon' && app.isDrawing) finishDrawing(app, app.drawCurrent);
 }
 
 /**
@@ -166,43 +135,7 @@ export function addLinePoint(app, worldPos) {
  * @param {object} app - Application state.
  */
 export function finishLine(app) {
-    if (app.currentTool === 'line' && app.isDrawing && app.linePoints.length >= 2) {
-        stripDuplicateTrailingPoints(app.linePoints, 2);
-        const pts = app.linePoints.map(p => ({ ...p }));
-
-        // Check if the line closes on itself → create polygon instead
-        const first = pts[0];
-        const last = pts[pts.length - 1];
-        const closes = pts.length >= 3 && Math.hypot(first.x - last.x, first.y - last.y) < 0.15;
-
-        if (closes) {
-            // Remove the duplicate closing point
-            pts.pop();
-            const shape = new Line({
-                points: pts,
-                color: app.toolOptions.color,
-                lineWidth: app.toolOptions.lineWidth,
-                closed: true,
-                fill: app.toolOptions.fill,
-            });
-            // Check if it forms a rectangle
-            if (shape.isAxisAlignedRect()) {
-                shape.isRect = true;
-            }
-            app.addShape(shape);
-            app.selection.select(shape);
-        } else {
-            const shape = new Line({
-                points: pts,
-                color: app.toolOptions.color,
-                lineWidth: app.toolOptions.lineWidth,
-                fill: app.toolOptions.fill,
-            });
-            app.addShape(shape);
-            app.selection.select(shape);
-        }
-    }
-    cancelDrawing(app);
+    if (app.currentTool === 'line' && app.isDrawing) finishDrawing(app, app.drawCurrent);
 }
 
 /**
@@ -211,6 +144,7 @@ export function finishLine(app) {
  * @param {object} app - Application state.
  */
 export function cancelDrawing(app) {
+    clearAxisGlow(app);
     app.isDrawing = false;
     app.interactionState = app.currentTool === 'select' ? 'idle' : 'toolActive';
     app.drawStart = null;
@@ -259,151 +193,58 @@ export function getEffectiveStrokeWidth(app, lineWidth) {
  */
 export function updatePreview(app) {
     if (!app.previewElement || !app.drawStart || !app.drawCurrent) return;
-
-    const start = app.drawStart;
-    const end = app.drawCurrent;
-    const opts = app.toolOptions;
-    const strokeWidth = getEffectiveStrokeWidth(app, opts.lineWidth);
-
-    // Reuse existing child element when possible to avoid innerHTML churn
-    const ns = 'http://www.w3.org/2000/svg';
-    const tool = app.currentTool;
-
-    // Helper: ensure a single child element of the given tag exists
-    const ensureChild = (tag, index = 0) => {
-        let el = app.previewElement.children[index];
-        if (!el || el.tagName !== tag) {
-            // Fallback to innerHTML for complex changes or tag mismatch
-            return null;
-        }
-        return el;
-    };
-
-    switch (tool) {
-        case 'line': {
-            if (app.linePoints && app.linePoints.length > 0) {
-                const points = [...app.linePoints, end];
-                const pointsStr = points.map(p => `${p.x},${p.y}`).join(' ');
-                const fillAttr = opts.fill && points.length >= 3 ? 'var(--sch-shape-fill, #777777)' : 'none';
-                let svg = `<polyline points="${pointsStr}" 
-                        stroke="${opts.color}" stroke-width="${strokeWidth}" 
-                        fill="${fillAttr}" fill-opacity="0.3"
-                        stroke-linecap="round" stroke-linejoin="round"/>`;
-                for (const p of app.linePoints) {
-                    svg += `<circle cx="${p.x}" cy="${p.y}" r="${2 / app.viewport.scale}" fill="${opts.color}"/>`;
-                }
-                app.previewElement.innerHTML = svg;
-            }
-            break;
-        }
-
-        case 'wire': {
-            let el = ensureChild('line');
-            if (el) {
-                el.setAttribute('x1', start.x);
-                el.setAttribute('y1', start.y);
-                el.setAttribute('x2', end.x);
-                el.setAttribute('y2', end.y);
-                el.setAttribute('stroke', opts.color);
-                el.setAttribute('stroke-width', strokeWidth);
-                return;
-            }
-            app.previewElement.innerHTML = `<line x1="${start.x}" y1="${start.y}" x2="${end.x}" y2="${end.y}" 
-                    stroke="${opts.color}" stroke-width="${strokeWidth}" stroke-linecap="round"/>`;
-            break;
-        }
-
-        case 'rect': {
-            const x = Math.min(start.x, end.x);
-            const y = Math.min(start.y, end.y);
-            const w = Math.abs(end.x - start.x);
-            const h = Math.abs(end.y - start.y);
-            let el = ensureChild('rect');
-            if (el) {
-                el.setAttribute('x', x);
-                el.setAttribute('y', y);
-                el.setAttribute('width', w);
-                el.setAttribute('height', h);
-                el.setAttribute('stroke', opts.color);
-                el.setAttribute('stroke-width', strokeWidth);
-                el.setAttribute('fill', opts.fill ? 'var(--sch-shape-fill, #777777)' : 'none');
-                return;
-            }
-                app.previewElement.innerHTML = `<rect x="${x}" y="${y}" width="${w}" height="${h}" 
-                    stroke="${opts.color}" stroke-width="${strokeWidth}" 
-                    fill="${opts.fill ? 'var(--sch-shape-fill, #777777)' : 'none'}" fill-opacity="0.3"/>`;
-            break;
-        }
-
-        case 'circle': {
-            const radius = Math.hypot(end.x - start.x, end.y - start.y);
-            let el = ensureChild('circle');
-            if (el) {
-                el.setAttribute('cx', start.x);
-                el.setAttribute('cy', start.y);
-                el.setAttribute('r', radius);
-                el.setAttribute('stroke', opts.color);
-                el.setAttribute('stroke-width', strokeWidth);
-                el.setAttribute('fill', opts.fill ? 'var(--sch-shape-fill, #777777)' : 'none');
-                return;
-            }
-                app.previewElement.innerHTML = `<circle cx="${start.x}" cy="${start.y}" r="${radius}" 
-                    stroke="${opts.color}" stroke-width="${strokeWidth}" 
-                    fill="${opts.fill ? 'var(--sch-shape-fill, #777777)' : 'none'}" fill-opacity="0.3"/>`;
-            break;
-        }
-
-        case 'arc': {
-            // Arc preview is complex (path changes structure), keep innerHTML for now
-            if (!app.arcEndpoint) {
-                app.previewElement.innerHTML = `<line x1="${start.x}" y1="${start.y}" x2="${end.x}" y2="${end.y}" 
-                        stroke="${opts.color}" stroke-width="${strokeWidth}" stroke-dasharray="0.5 0.5"/>`;
-            } else {
-                const p1 = start;
-                const p2 = app.arcEndpoint;
-                const bulgePoint = clampBulgePoint(p1, p2, projectOntoChordBisector(p1, p2, end));
-                const circ = circumcircle(p1, p2, bulgePoint);
-                
-                if (!circ) {
-                    app.previewElement.innerHTML = `<line x1="${p1.x}" y1="${p1.y}" x2="${p2.x}" y2="${p2.y}" 
-                            stroke="${opts.color}" stroke-width="${strokeWidth}" stroke-dasharray="0.5 0.5"/>`;
-                } else {
-                    const { radius } = circ;
-                    const ccw = ((p2.x - p1.x) * (bulgePoint.y - p1.y) - (p2.y - p1.y) * (bulgePoint.x - p1.x)) > 0;
-                    const sweepFlag = ccw ? 0 : 1;
-                    
-                    app.arcDirection = ccw;
-                    app.arcSweepFlag = sweepFlag;
-                    
-                    const arcFill = opts.fill ? `<path d="M ${p1.x} ${p1.y} A ${radius} ${radius} 0 0 ${sweepFlag} ${p2.x} ${p2.y} Z" 
-                            fill="var(--sch-shape-fill, #777777)" fill-opacity="0.3" stroke="none"/>` : '';
-                    app.previewElement.innerHTML = `${arcFill}<path d="M ${p1.x} ${p1.y} A ${radius} ${radius} 0 0 ${sweepFlag} ${p2.x} ${p2.y}" 
-                            stroke="${opts.color}" stroke-width="${strokeWidth}" fill="none" stroke-linecap="round"/>`;
-                }
-            }
-            break;
-        }
-
-        case 'polygon':
-            if (app.polygonPoints.length > 0) {
-                const points = [...app.polygonPoints, end];
-                const pointsStr = points.map(p => `${p.x},${p.y}`).join(' ');
-                // Use <polygon> (closed) once we have 3+ points so the closing edge is visible
-                const tag = points.length >= 3 ? 'polygon' : 'polyline';
-                let svg = `<${tag} points="${pointsStr}" 
-                    stroke="${opts.color}" stroke-width="${strokeWidth}" 
-                    fill="${opts.fill ? 'var(--sch-shape-fill, #777777)' : 'none'}" fill-opacity="0.3"
-                    stroke-linecap="round" stroke-linejoin="round"/>`;
-                for (const p of app.polygonPoints) {
-                    svg += `<circle cx="${p.x}" cy="${p.y}" r="${2 / app.viewport.scale}" fill="${opts.color}"/>`;
-                }
-                app.previewElement.innerHTML = svg;
-            }
-            break;
-        case 'text':
-            // Text preview doesn't change during draw
-            break;
+    const kind = app.currentTool === 'wire' ? 'line' : app.currentTool;
+    if (!DRAWING_SHAPES.has(kind)) return;
+    const points = drawingPoints(app);
+    let element = app.previewElement.firstElementChild;
+    if (!element || element.tagName !== 'path') {
+        app.previewElement.textContent = '';
+        element = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        app.previewElement.appendChild(element);
     }
+    element.setAttribute('d', shapePreviewPath(kind, points, app.drawCurrent, app.toolOptions.cornerRadius || 0));
+    element.setAttribute('stroke', app.toolOptions.color);
+    element.setAttribute('stroke-width', getEffectiveStrokeWidth(app, app.toolOptions.lineWidth));
+    element.setAttribute('stroke-linecap', 'round');
+    element.setAttribute('stroke-linejoin', 'round');
+    element.setAttribute('fill', app.toolOptions.fill && kind !== 'line' && kind !== 'arc' ? 'var(--sch-shape-fill, #777777)' : 'none');
+    element.setAttribute('fill-opacity', '0.3');
+    if (app.currentTool !== 'wire') {
+        const geometry = shapeFromPoints(kind, [...points, app.drawCurrent], true);
+        let segments = [];
+        if (geometry?.points) {
+            const vertices = geometry.points;
+            const widths = vertices.map(() => app.toolOptions.lineWidth);
+            segments = kind === 'rect' ? squareAlignmentSegments(vertices, widths)
+                : pathAlignmentSegments(vertices, kind !== 'line', [vertices.length - 2, vertices.length - 1], widths);
+        } else if (kind === 'arc') {
+            const start = points[0], end = points[1] || app.drawCurrent;
+            segments = points.length === 1
+                ? pathAlignmentSegments([start, end], false, [0], [app.toolOptions.lineWidth])
+                : geometry && !controlArcGeometry(geometry)
+                    ? [{ a: start, b: end, width: app.toolOptions.lineWidth, collinear: true }] : [];
+        }
+        renderAxisGlow(app, segments);
+    }
+}
+
+function drawingPoints(app) {
+    if (app.currentTool === 'line') return app.linePoints || [];
+    if (app.currentTool === 'polygon') return app.polygonPoints || [];
+    return app.arcEndpoint && app.currentTool === 'arc' ? [app.drawStart, app.arcEndpoint] : [app.drawStart];
+}
+
+export function shapeDrawingClick(app, point) {
+    if (!app.isDrawing) {
+        app._startDrawing(point);
+        return;
+    }
+    const next = advanceShapeDrawing(app.currentTool, drawingPoints(app), point);
+    if (app.currentTool === 'line') app.linePoints = next.points;
+    if (app.currentTool === 'polygon') app.polygonPoints = next.points;
+    if (app.currentTool === 'arc') app.arcEndpoint = next.points[1];
+    app._updateDrawing(point);
+    if (next.complete) app._finishDrawing(point);
 }
 
 /**
@@ -416,61 +257,24 @@ export function createShapeFromDrawing(app) {
     const start = app.drawStart;
     const end = app.drawCurrent;
     const opts = app.toolOptions;
-    const minSize = 0.5;
+    if (DRAWING_SHAPES.has(app.currentTool)) {
+        const points = drawingPoints(app);
+        const geometry = shapeFromPoints(app.currentTool,
+            ['line', 'polygon'].includes(app.currentTool) ? points : [...points, end]);
+        if (!geometry) return null;
+        const style = { color: opts.color, lineWidth: opts.lineWidth,
+            fill: opts.fill && !['line', 'arc'].includes(app.currentTool),
+            fillColor: 'var(--sch-shape-fill, #777777)', fillAlpha: 0.3 };
+        if (geometry.kind === 'circle') return new Circle({ ...style, ...geometry });
+        if (geometry.kind === 'arc') return new Arc({ ...style,
+            startPoint: geometry.start, endPoint: geometry.end, bulgePoint: geometry.bulge });
+        const shape = new Line({ ...style, points: geometry.points,
+            closed: geometry.kind !== 'line', cornerRadius: opts.cornerRadius || 0 });
+        shape.isRect = shape.closed && shape.isAxisAlignedRect();
+        return shape;
+    }
 
     switch (app.currentTool) {
-        case 'rect': {
-            const w = Math.abs(end.x - start.x);
-            const h = Math.abs(end.y - start.y);
-            if (w < minSize || h < minSize) return null;
-            return createRect({
-                x: Math.min(start.x, end.x),
-                y: Math.min(start.y, end.y),
-                width: w,
-                height: h,
-                color: opts.color,
-                lineWidth: opts.lineWidth,
-                fill: opts.fill,
-                fillColor: 'var(--sch-shape-fill, #777777)',
-                fillAlpha: 0.3
-            });
-        }
-
-        case 'circle': {
-            const radius = Math.hypot(end.x - start.x, end.y - start.y);
-            if (radius < minSize) return null;
-            return new Circle({
-                x: start.x,
-                y: start.y,
-                radius,
-                color: opts.color,
-                lineWidth: opts.lineWidth,
-                fill: opts.fill,
-                fillColor: 'var(--sch-shape-fill, #777777)',
-                fillAlpha: 0.3
-            });
-        }
-
-        case 'arc': {
-            if (!app.arcEndpoint) return null;
-            
-            const p1 = start;
-            const p2 = app.arcEndpoint;
-            const bulgePoint = clampBulgePoint(p1, p2, projectOntoChordBisector(p1, p2, app.drawCurrent));
-            
-            // Clear stored direction/flags
-            app.arcDirection = undefined;
-            app.arcSweepFlag = undefined;
-            
-            return new Arc({
-                bulgePoint: { x: bulgePoint.x, y: bulgePoint.y },
-                startPoint: { x: p1.x, y: p1.y },
-                endPoint: { x: p2.x, y: p2.y },
-                color: opts.color,
-                lineWidth: opts.lineWidth,
-                fill: opts.fill,
-            });
-        }
         case 'text': {
             return new Text({
                 x: start.x,

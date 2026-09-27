@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import { serializeGridSettings, restoreGridSettings, bindViewportControls } from '../src/ui/modules/viewport.js';
+import { Viewport } from '../src/core/Viewport.js';
+import { snapToGridLines } from '../src/core/grid-snap.js';
 
 globalThis.window = { addEventListener() {} };
 globalThis.document = {
@@ -75,4 +77,36 @@ assert.deepEqual(serializeGridSettings(app.viewport), {
     gridSize: 0.5, gridStyle: 'dots', units: 'inch', gridVisible: false, snapToGrid: false,
 });
 
-console.log('PASS grid settings round-trip, exact custom spacing, controls, legacy defaults, and autosave dirtiness');
+const magnetViewport = {
+    snapToGrid: true, gridVisible: true, shiftHeld: false, gridSize: 1, scale: 4,
+    getEffectiveGridSize() { return 10; },
+};
+const snap = point => Viewport.prototype.getSnappedPosition.call(magnetViewport, point);
+assert.deepEqual(snap({ x: 4, y: 6 }), { x: 4, y: 6 }, 'Move freely between visible grid lines');
+assert.deepEqual(snap({ x: 1.5, y: 6 }), { x: 0, y: 6 }, 'Only X sticks near a vertical grid line');
+assert.deepEqual(snap({ x: 4, y: 8.5 }), { x: 4, y: 10 }, 'Only Y sticks near a horizontal grid line');
+assert.deepEqual(snap({ x: -1.5, y: -8.5 }), { x: -0, y: -10 }, 'Negative coordinates use the same magnet');
+assert.deepEqual(snap({ x: 2, y: 8 }), { x: 0, y: 10 }, 'Eight screen pixels is inside the magnet');
+assert.deepEqual(snap({ x: 2.01, y: 7.99 }), { x: 2.01, y: 7.99 }, 'Outside the magnet stays free');
+assert.deepEqual(snap({ x: 3.1, y: 6.1 }), { x: 3.1, y: 6.1 }, 'Do not snap to invisible base-grid lines');
+for (const scale of [1, 4, 20]) {
+    magnetViewport.scale = scale;
+    const point = { x: 7 / scale, y: 50 - 7 / scale };
+    const result = snapToGridLines(point, 50, scale);
+    assert.deepEqual(result, { x: 0, y: 50, snappedX: true, snappedY: true }, 'Magnet range is screen-based');
+}
+magnetViewport.scale = 4;
+const closeToGrid = { x: 1, y: 9 };
+magnetViewport.shiftHeld = true;
+assert.deepEqual(snap(closeToGrid), closeToGrid, 'Shift releases the grid magnet');
+magnetViewport.shiftHeld = false;
+magnetViewport.snapToGrid = false;
+assert.deepEqual(snap(closeToGrid), closeToGrid, 'Snap toggle disables the magnet');
+magnetViewport.shiftHeld = true;
+assert.deepEqual(snap(closeToGrid), { x: 0, y: 10 }, 'Shift retains the schematic temporary snap override');
+magnetViewport.snapToGrid = true;
+magnetViewport.shiftHeld = false;
+magnetViewport.gridVisible = false;
+assert.deepEqual(snap(closeToGrid), closeToGrid, 'Hidden grid does not attract movement');
+
+console.log('PASS grid settings, screen-space grid magnet, controls, and autosave dirtiness');

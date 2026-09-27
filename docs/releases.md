@@ -14,10 +14,91 @@ Normal pushes, draft releases, and prereleases do not deploy stable.
 the app version from its tag. Project format `1.0` and ZIP container version
 `1` are separate from app release versions.
 
+## Patch Release Using the GitHub Website
+
+Use this checklist after testing, committing, and pushing a fix on `dev`.
+The example publishes app version `1.0.1` from the existing `release_1.0`
+branch. For later patches, use the next unused tag, such as `v1.0.2`.
+
+Keep VS Code on `dev` throughout these website steps. The branch dropdown on
+GitHub does not change your local VS Code checkout.
+
+### 1. Create a Pull Request on github.com
+
+1. Open [the ClearPCB repository](https://github.com/ma261065/ClearPCB).
+2. Select **Pull requests > New pull request**.
+3. Set **base: `release_1.0`** (the branch receiving the fix).
+4. Set **compare: `dev`** (the branch supplying the fix).
+5. Review **Commits** and **Files changed**. Include only tested changes that
+   belong in this release. This comparison includes all differences from
+   `dev`, not just its most recent commit. If unrelated or unfinished changes
+   appear, stop: use a dedicated patch branch with selected fixes instead.
+6. Click **Create pull request**, enter a descriptive title, and submit it.
+
+The direction is **dev into release_1.0**, not the other way around.
+
+### 2. Merge on github.com
+
+1. On that pull request page, confirm the destination is `release_1.0`.
+2. After reviewing the changes and any required checks, click
+   **Merge pull request > Confirm merge**. Prefer a normal merge commit for
+   this long-lived branch workflow so later comparisons retain shared history.
+3. **Do not delete `dev`** if GitHub offers to delete the source branch.
+
+There is no branch to switch to for this button: the pull request already
+defines its source and destination. Merging alone does not deploy the site.
+
+### 3. Publish on github.com
+
+1. Open [Releases](https://github.com/ma261065/ClearPCB/releases) and click
+   **Draft a new release**.
+2. In **Choose a tag**, enter `v1.0.1` and select **Create new tag on publish**.
+   Use a new tag; never reuse or move `v1.0.0` or another published tag.
+3. Set **Target** to **`release_1.0`**, not `dev`. The new tag will identify
+   the release branch's current commit, including the merged fix.
+4. Enter the title **ClearPCB 1.0.1** and describe the changes. For example:
+   "Improved PCB loading and zoom performance by caching and batching
+   copper-cutout calculations."
+5. Leave **Set as a pre-release** unchecked and mark the release **Latest**.
+6. Review the tag, target branch, and notes, then click **Publish release**.
+
+Publishing is the action that triggers deployment to `clearpcb.org`.
+The workflow stamps app version `1.0.1` into the package automatically;
+the project file format remains `1.0`.
+
+### 4. Check Deployment on github.com
+
+1. Open **Actions > Publish Stable Release**, then the run for `v1.0.1`.
+2. Wait for both **package** and **deploy** to succeed. A published release
+   does not mean deployment has finished.
+3. Open `https://clearpcb.org` and check the displayed version. Save any open
+   work before reloading an existing app tab.
+4. If deployment fails, inspect the failed job and its annotations. If tags
+   are blocked, check **Settings > Environments > github-pages > Deployment
+   branches and tags**: the allowed tag rule is `v*`, not a `main`-only rule.
+   After fixing the cause, use **Re-run jobs > Re-run failed jobs**. Do not
+   recreate the release or move its tag merely to retry deployment.
+
+### Branch and Version Reference
+
+| Item | Purpose |
+| --- | --- |
+| `dev` | Everyday development; committing or pushing does not deploy stable. |
+| `release_1.0` | Maintained release branch for all `1.0.x` patches. |
+| `v1.0.1` | Immutable tag for one exact patch release commit. |
+| GitHub Release | Release notes and downloads associated with a tag; publishing a final Latest release triggers deployment. |
+| `release_1.1` | A new branch for a future 1.1 release line, not needed for a 1.0 patch. |
+
+Continue development in VS Code on `dev`. No local branch switch or pull is
+needed merely because you merged into the remote release branch. There is
+no public `clearpcb.org/dev` site; local testing uses `http://localhost:8000`.
+
 ## One-Time GitHub Setup
 
-The local branch has been renamed from `main` to `dev`. No remote rename,
-push, release branch, tag, or release was created by this preparation.
+The local and GitHub default branches have been renamed to `dev`, and
+`release_1.0` and `v1.0.0` have been created and published. Pages uses GitHub
+Actions, with release tags (`v*`) permitted by the `github-pages` environment.
+The steps below are setup reference, not tasks to repeat for each patch.
 
 1. Before pushing these changes, open repository **Settings > Pages** and
    change **Build and deployment > Source** to **GitHub Actions**. This prevents
@@ -46,8 +127,9 @@ push, release branch, tag, or release was created by this preparation.
    and deletion of released history; require reviewed changes on release
    branches. Permit creating new release tags but prohibit rewriting them.
 
-GitHub CLI was unavailable locally, so these settings have not been applied
-or verified. No DNS change is needed for local development.
+Additional branch/tag protection rules and review requirements should be
+checked separately; they are not implied by the Pages setup. No DNS change
+is needed for local development.
 
 ## First Release
 

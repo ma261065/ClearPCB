@@ -1,4 +1,4 @@
-import { CORNER_CHORD_TOLERANCE, roundedPathCorners, sampleRoundedCorner } from '../pcb/modules/board-geometry.js';
+import { CORNER_CHORD_TOLERANCE, roundedPathCorners, sampleRoundedCorner } from './rounded-path.js';
 import { BULGE_EPS, sampleArcEdge } from './arc-edge.js';
 
 export function closedShapeOutline(shape) {

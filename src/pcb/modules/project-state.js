@@ -7,7 +7,7 @@ import { serializeBoardShapes, loadBoardShapes, removeBoardShapeElement, renderB
 import { validBoardOutline, getBoardOutline, syncBoardOutlineDimensions } from './board-outline.js';
 import { Track } from '../../shapes/track.js';
 import { Via, resetViaIdCounter, updateViaIdCounter } from '../../shapes/via.js';
-import { CopperFill, updateFillIdCounter } from '../../shapes/copper-fill.js';
+import { updateFillIdCounter } from '../../shapes/copper-fill.js';
 import { createShape } from '../../shapes/index.js';
 import { serializeGridSettings, restoreGridSettings } from '../../ui/modules/viewport.js';
 import { panelSettings } from './panelization.js';
@@ -18,10 +18,11 @@ const round4 = value => Number.isFinite(value) ? Math.round(value * 10000) / 100
 
 /** @param {any} app */
 export function serializePcb(app) {
-    /** @type {Record<string, {x:number, y:number, rotation:number, mirror?:boolean, side?:string, refVisible?:boolean, refDx?:number, refDy?:number, refRot?:number, refSize?:number, refStrokeWidth?:number}>} */
+    /** @type {Record<string, {x:number, y:number, rotation:number, locked?:boolean, mirror?:boolean, side?:string, refVisible?:boolean, refDx?:number, refDy?:number, refRot?:number, refSize?:number, refStrokeWidth?:number}>} */
     const placements = {};
     for (const [id, p] of app._placementOverrides) {
         placements[id] = { x: round4(p.x), y: round4(p.y), rotation: round4(p.rotation || 0) };
+        if (p.locked) placements[id].locked = true;
         if (p.mirror) placements[id].mirror = true;
         if (p.side === 'bottom') placements[id].side = 'bottom';
         if (p.refVisible === false) placements[id].refVisible = false;
@@ -83,7 +84,6 @@ export function preparePcb(data) {
         if (!(track instanceof Track)) throw new Error('Invalid PCB track.');
         return track;
     });
-    for (const item of data?.fills || []) stage.boardShapes.push(CopperFill.fromJSON(item));
     return { tracks, vias: (data?.vias || []).map((item) => Via.fromJSON(item)),
         texts: (data?.texts || []).map((item) => createPcbText(item)),
         boardShapes: stage.boardShapes, shapeIdCounter: stage._shapeIdCounter, panelization };
@@ -144,14 +144,16 @@ export function loadPcb(app, data, prepared = preparePcb(data)) {
     app._placementOverrides.clear();
 
     if (!data) {
+        app.placements.clear();
+        app.netlist = [];
         app.markSectionClean();
+        app._board3d?.refresh?.();
         return;
     }
 
     // Restore per-project design parameters (track/clearance/via sizes,
-    // units, router) onto the ribbon inputs. Documents that predate this
-    // field simply keep the current localStorage working defaults.
-    if (data.design) app._applyProjectDesignParams(data.design);
+    // units, router) onto the ribbon inputs.
+    app._applyProjectDesignParams(data.design);
     restoreGridSettings(app, data.settings);
 
     // Restore the saved board outline so it survives save/reopen and
@@ -174,6 +176,7 @@ export function loadPcb(app, data, prepared = preparePcb(data)) {
                 x: Number(p.x) || 0,
                 y: Number(p.y) || 0,
                 rotation: Number(p.rotation) || 0,
+                locked: !!p.locked,
                 mirror: !!p.mirror,
                 side: p.side === 'bottom' ? 'bottom' : 'top',
                 refVisible: p.refVisible !== false,

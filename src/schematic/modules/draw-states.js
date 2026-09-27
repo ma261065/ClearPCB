@@ -16,7 +16,8 @@
  * event and routes to the current state's handler.
  */
 
-import { updateStickyWires, updateSnapHighlight, resolveWireSnapPosition, renderGuideLines, computeAnchorCollinearSnap, computeSegmentDragSnap, computeStickyWireSnaps, applyOffGridNeighborSnap, buildCollinearChain, bridgeCollinearPinEndpoints, SNAP_SCREEN_PX, COLLINEAR_EPSILON, VERTEX_EPSILON, PIN_SNAP_TOL } from './wire.js';
+import { updateStickyWires, updateSnapHighlight, resolveWireSnapPosition, computeAnchorCollinearSnap, computeSegmentDragSnap, computeStickyWireSnaps, applyOffGridNeighborSnap, buildCollinearChain, bridgeCollinearPinEndpoints, SNAP_SCREEN_PX, COLLINEAR_EPSILON, VERTEX_EPSILON, PIN_SNAP_TOL } from './wire.js';
+import { renderGuideLines } from '../../shapes/axis-glow.js';
 import { commitAnchorDrag, clearDragState, commitMoveDrag, commitSegmentDrag, resolveAnchorDragOnMouseUp, revertSegmentDragIfNoMove, areCapturedStatesEqual, commitShapeJoin } from '../../ui/modules/drag.js';
 import { detectTJunction, showAnchorContextMenu, showSegmentContextMenu, showLabelContextMenu, showComponentContextMenu } from '../../ui/modules/context-menu.js';
 import { hasAny3DModel } from '../../components/model3d-source.js';
@@ -24,9 +25,14 @@ import { updateToolGhost } from '../../ui/modules/tool.js';
 import { ModifyShapeCommand } from './commands.js';
 import { collapseRedundantWirePoints } from './wire.js';
 import { Text } from '../../shapes/text.js';
-import { attachLabelToTarget, detachLabel, refreshLabelAttachmentOffset, getLabelAttachmentAnchorPoint, getLabelDropHotspot } from '../../ui/modules/label-attachment.js';
+import { attachLabelToTarget, detachLabel, refreshLabelAttachmentOffset, getLabelDropHotspot } from '../../ui/modules/label-attachment.js';
 import { findJoinTarget, isJoinable } from '../../shapes/shape-join.js';
 import { tryBeginPolylineSegmentDrag, updatePolylineSegmentDrag } from './polyline-segment-drag.js';
+import { snapShapePoint, snapShapeBulge, renderShapeAlignment, shapeContinuationConstraints } from './shape-snap.js';
+import { refinePathSegment } from '../../shapes/path-interaction.js';
+import { DRAWING_SHAPES } from '../../shapes/shape-drawing.js';
+import { shapeDrawingClick } from '../../ui/modules/drawing.js';
+import { findInlineEditableHit, isUnmodifiedPrimaryDoublePress } from '../../ui/modules/inline-edit-activation.js';
 // ─── Constants ─────────────────────────────────────────────────────
 
 const DRAWING_TOOLS = new Set(['line', 'rect', 'circle', 'polygon']);
@@ -94,16 +100,6 @@ function selectContextTargetShape(app, shape) {
         selectOnlyShapeAndRender(app, shape);
     }
     shape.selected = true;
-}
-
-function getNextCycleHitShape(app, worldPos) {
-    const originalTolerance = app.selection.tolerance;
-    app.selection.tolerance = 2.0;
-    const hits = app.selection.hitTest(worldPos, true);
-    app.selection.tolerance = originalTolerance;
-    if (!hits || hits.length === 0) return null;
-    const selectedIndex = hits.findIndex(shape => shape.selected);
-    return hits[(selectedIndex + 1) % hits.length];
 }
 
 function collectMovingComponentIds(selection) {
@@ -318,82 +314,13 @@ function queuePendingAnchorDrag(app, params) {
 function finalizeDragInteraction(app, options = {}) {
     // UI cleanup (was previously inside clearDragState)
     updateSnapHighlight(app, null);
-    if (app._collinearGuides) {
-        for (const line of app._collinearGuides) line.remove();
-        app._collinearGuides = null;
-    }
     app._hideCrosshair();
     app._removeBoxSelectElement();
-    if (app._labelDragGuide) {
-        app._labelDragGuide.remove();
-        app._labelDragGuide = null;
-    }
     app._labelDragHoverTarget = null;
 
     clearDragState(app);
     app.renderShapes(true);
     if (options.refreshTextEdit && app.textEdit) app._updateTextEditOverlay?.();
-}
-
-export function updateLabelDragGuide(app, labelShape) {
-    if (!labelShape || labelShape.type !== 'text' || !labelShape.parentComponent) {
-        if (app._labelDragGuide) {
-            app._labelDragGuide.remove();
-            app._labelDragGuide = null;
-        }
-        return;
-    }
-
-    // Guide line endpoint: center of text at baseline, rotated to world space
-    let guideEndX, guideEndY;
-    {
-        const approxWidth = (labelShape.text?.length || 1) * (labelShape.fontSize || 2) * 0.6;
-        let localMinX = labelShape.x;
-        if (labelShape.textAnchor === 'middle') {
-            localMinX = labelShape.x - approxWidth / 2;
-        } else if (labelShape.textAnchor === 'end') {
-            localMinX = labelShape.x - approxWidth;
-        }
-        const localCX = localMinX + approxWidth / 2;
-        const localBY = labelShape.y;
-
-        if (labelShape.rotation) {
-            const rad = (labelShape.rotation * Math.PI) / 180;
-            const cos = Math.cos(rad), sin = Math.sin(rad);
-            const dx = localCX - labelShape.x, dy = localBY - labelShape.y;
-            guideEndX = labelShape.x + dx * cos - dy * sin;
-            guideEndY = labelShape.y + dx * sin + dy * cos;
-        } else {
-            guideEndX = localCX;
-            guideEndY = localBY;
-        }
-    }
-
-    const anchor = getLabelAttachmentAnchorPoint(labelShape, { x: guideEndX, y: guideEndY });
-    if (!anchor) {
-        if (app._labelDragGuide) {
-            app._labelDragGuide.remove();
-            app._labelDragGuide = null;
-        }
-        return;
-    }
-
-    let guide = app._labelDragGuide;
-    if (!guide) {
-        guide = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-        guide.setAttribute('stroke', 'var(--sch-selection, #3399ff)');
-        guide.setAttribute('stroke-width', String(Math.max(0.15, 1.2 / app.viewport.scale)));
-        guide.setAttribute('stroke-dasharray', `${Math.max(0.6, 3 / app.viewport.scale)} ${Math.max(0.4, 2 / app.viewport.scale)}`);
-        guide.setAttribute('opacity', '0.45');
-        guide.setAttribute('pointer-events', 'none');
-        app.viewport.contentLayer.appendChild(guide);
-        app._labelDragGuide = guide;
-    }
-
-    guide.setAttribute('x1', String(anchor.x));
-    guide.setAttribute('y1', String(anchor.y));
-    guide.setAttribute('x2', String(guideEndX));
-    guide.setAttribute('y2', String(guideEndY));
 }
 
 // ─── Drag session setup ────────────────────────────────────────────
@@ -739,7 +666,7 @@ function handleAnchorContextMenu(app, worldPos, clientX, clientY) {
             let canDeletePoint = false;
             if (shape.nodes && shape.edges) {
                 // Graph-based shape (wire, line, polygon, rect)
-                canDeletePoint = shape.nodes.has(anchorId) && shape.edges.size > 1;
+                canDeletePoint = shape.nodes.has(anchorId) && (shape.type === 'polyline' || shape.edges.size > 1);
             }
             const junctionInfo = shape.type === 'wire' ? detectTJunction(app, shape, anchorId) : null;
             const canDisconnectPin = shape.type === 'wire' && shape.pinConnections?.has(anchorId);
@@ -775,6 +702,11 @@ function handleAnchorContextMenu(app, worldPos, clientX, clientY) {
 function handleSegmentContextMenu(app, worldPos, clientX, clientY) {
     const segTolerance = SNAP_SCREEN_PX / app.viewport.scale;
     for (const shape of app.shapes) {
+        if (!shape.locked && shape.type === 'arc' && shape.hitTest(worldPos, segTolerance)) {
+            selectContextTargetShape(app, shape);
+            showSegmentContextMenu(app, shape, null, clientX, clientY);
+            return true;
+        }
         if (shape.locked || !shape.hitTestEdge) continue;
         const edgeId = shape.hitTestEdge(worldPos, segTolerance);
         if (!edgeId) continue;
@@ -1087,11 +1019,60 @@ function applyWireSegmentLabelMovement(wire, dx, dy) {
 /**
  * idle — select tool, nothing active.
  */
+export const overlapCycleState = {
+    mousemove(app, event, positions) {
+        const press = app._overlapCyclePress;
+        if (!press || Math.hypot(positions.screenPos.x - press.positions.screenPos.x,
+            positions.screenPos.y - press.positions.screenPos.y) <= DRAG_THRESHOLD_PX) return;
+        app._overlapCyclePress = null;
+        app.interactionState = 'idle';
+        app.skipClickSelection = false;
+        idleState.mousedown(app, { button: 0, shiftKey: false, ctrlKey: false, metaKey: false,
+            preventDefault() {} }, press.positions);
+        STATE_TABLE[app.interactionState]?.mousemove?.(app, event, positions);
+    },
+    mouseup(app, event, positions) {
+        if (event.button !== 0) return;
+        overlapCycleState.mousemove(app, event, positions);
+        const press = app._overlapCyclePress;
+        if (!press) {
+            STATE_TABLE[app.interactionState]?.mouseup?.(app, event, positions);
+            return;
+        }
+        app._overlapCyclePress = null;
+        app.interactionState = 'idle';
+        const hits = app.selection.hitTest(press.positions.worldPos, true);
+        const selected = app.selection.getSelection();
+        const index = hits.findIndex(shape => selected.includes(shape));
+        const next = hits[(index + 1) % hits.length];
+        if (next) {
+            const keep = press.additive ? selected.filter(shape => !hits.includes(shape)) : [];
+            app.selection.selectMultiple([...keep, next]);
+            app.renderShapes(true);
+        }
+        app.skipClickSelection = true;
+        event.preventDefault();
+    },
+};
+
 export const idleState = {
     mousedown(app, event, { screenPos, worldPos, snapped }) {
         if (event.button !== 0) return;
 
         activateHomeTabIfFileTabOpen(app);
+
+        if (!app.textEdit && isUnmodifiedPrimaryDoublePress(event)) {
+            const textHit = findInlineEditableHit(app.selection, worldPos, event.target);
+            if (textHit) {
+                app.selection.select(textHit, false);
+                app.renderShapes(true);
+                app.pendingAnchorDrag = null;
+                app._startTextEdit(textHit);
+                app._setTextEditCaretFromScreen(screenPos);
+                event.preventDefault();
+                return;
+            }
+        }
 
         // Commit lingering anchor drag from a previous interaction
         if (app.drag && app.drag.mode === 'anchor' && app.drag.beforeState
@@ -1105,6 +1086,25 @@ export const idleState = {
 
         app.didDrag = false;
         if (app.pendingAnchorDrag && !app.drag) app.pendingAnchorDrag = null;
+
+        if (event.shiftKey) {
+            app._overlapCyclePress = { positions: { screenPos, worldPos, snapped },
+                additive: isAdditiveSelectionModifier(event) };
+            app.interactionState = 'overlapCycle';
+            app.skipClickSelection = true;
+            event.preventDefault();
+            return;
+        }
+        if (isAdditiveSelectionModifier(event)) {
+            const hit = app.selection.hitTest(worldPos);
+            if (hit) {
+                app.selection.toggle(hit);
+                app.renderShapes(true);
+                app.skipClickSelection = true;
+                event.preventDefault();
+                return;
+            }
+        }
 
         // Anchor drag on selected shapes
         const selectedShapes = app.selection.getSelection();
@@ -1148,20 +1148,6 @@ export const idleState = {
             const hitSegmentEdgeId = hitShape.type === 'polyline'
                 ? hitShape.hitTestEdge(worldPos, segmentTolerance)
                 : null;
-            // Ctrl/Cmd: add to selection if unselected, cycle stacked if already selected
-            if (isAdditiveSelectionModifier(event)) {
-                if (hitShape.selected) {
-                    const nextShape = getNextCycleHitShape(app, worldPos);
-                    if (nextShape) selectOnlyShapeAndRender(app, nextShape);
-                } else {
-                    app.selection.toggle(hitShape);
-                    app.renderShapes(true);
-                }
-                app.skipClickSelection = true;
-                event.preventDefault();
-                return;
-            }
-
             if (!hitShape.selected) {
                 app.selection.select(hitShape, false);
                 app._shapeSegmentClickCandidate = hitSegmentEdgeId
@@ -1188,14 +1174,11 @@ export const idleState = {
                 ? { ...app._selectedShapeSegment }
                 : null;
             app._selectedShapeNode = null;
-            const segmentCandidateMatches = app._shapeSegmentClickCandidate?.shapeId === hitShape.id
-                && app._shapeSegmentClickCandidate.edgeId === hitSegmentEdgeId;
             app._pendingShapeSegmentToggle = wasSelected && hitShape.type === 'polyline'
                 ? {
                     shape: hitShape,
                     edgeId: hitSegmentEdgeId,
-                    hadSegment: !!selectedShapeSegment,
-                    segmentCandidateMatches,
+                    hadSegment: selectedShapeSegment?.edgeId === hitSegmentEdgeId,
                 }
                 : null;
 
@@ -1247,13 +1230,20 @@ export const idleState = {
     },
 
     click(app, event, { worldPos }) {
-        const pendingSegmentToggle = app._pendingShapeSegmentToggle;
+        let pendingSegmentToggle = app._pendingShapeSegmentToggle;
         app._pendingShapeSegmentToggle = null;
         if (app.viewport.isPanning) return;
         if (app.skipClickSelection) { app.skipClickSelection = false; return; }
         if (app.didDrag) { app.didDrag = false; return; }
 
         const pendingNode = app.pendingAnchorDrag;
+        if (pendingNode?.shape?.type === 'polyline' && pendingNode.anchorId?.startsWith('mid_')) {
+            const edgeId = pendingNode.anchorId.slice(4);
+            if (pendingNode.shape.edges.has(edgeId)) {
+                pendingSegmentToggle = { shape: pendingNode.shape, edgeId };
+                app.pendingAnchorDrag = null;
+            }
+        }
         if (pendingNode?.shape?.type === 'polyline'
             && pendingNode.shape.nodes?.has(pendingNode.anchorId)
             && app.selection.getSelection().length === 1
@@ -1263,6 +1253,7 @@ export const idleState = {
             app.renderShapes(true);
             app._updateShapeSelectionTip?.();
             app._updatePropertiesPanel?.(app.selection.getSelection());
+            app._setActiveRibbonTab?.('properties');
             event.preventDefault();
             return;
         }
@@ -1272,11 +1263,8 @@ export const idleState = {
             && app.selection.getSelection()[0] === pendingSegmentToggle.shape) {
             app._shapeSegmentSelectionElement?.remove();
             app._shapeSegmentSelectionElement = null;
-            app._selectedShapeSegment = pendingSegmentToggle.hadSegment
-                || !pendingSegmentToggle.edgeId
-                || !pendingSegmentToggle.segmentCandidateMatches
-                ? null
-                : { shapeId: pendingSegmentToggle.shape.id, edgeId: pendingSegmentToggle.edgeId };
+            const edgeId = refinePathSegment(pendingSegmentToggle.edgeId, true);
+            app._selectedShapeSegment = edgeId == null ? null : { shapeId: pendingSegmentToggle.shape.id, edgeId };
             app._selectedShapeNode = null;
             app._shapeSegmentClickCandidate = pendingSegmentToggle.edgeId
                 ? { shapeId: pendingSegmentToggle.shape.id, edgeId: pendingSegmentToggle.edgeId }
@@ -1284,6 +1272,9 @@ export const idleState = {
             app.renderShapes(true);
             app._updateShapeSelectionTip?.();
             app._updatePropertiesPanel?.(app.selection.getSelection());
+            app._setActiveRibbonTab?.('properties');
+            event.preventDefault();
+            return;
         }
 
         // If a non-Home ribbon tab is showing, switch back to Home
@@ -1301,7 +1292,9 @@ export const idleState = {
     },
 
     dblclick(app, event, { screenPos, worldPos }) {
-        const hit = app.selection.hitTest(worldPos);
+        if (app.textEdit) return;
+        const hit = findInlineEditableHit(app.selection, worldPos, event.target)
+            || app.selection.hitTest(worldPos);
         if (hit && hit.supportsInlineEdit) {
             app.selection.select(hit, false);
             app.renderShapes(true);
@@ -1359,38 +1352,8 @@ export const toolActiveState = {
             return;
         }
 
-        if (tool === 'line') {
-            if (!app.isDrawing) { app._startDrawing(snapped); app.interactionState = 'drawing'; }
-            else app._addLinePoint(snapped);
-            return;
-        }
-
-        if (tool === 'polygon') {
-            if (!app.isDrawing) { app._startDrawing(snapped); app.interactionState = 'drawing'; }
-            else app._addPolygonPoint(snapped);
-            return;
-        }
-
-        if (tool === 'arc') {
-            if (!app.isDrawing) {
-                app._startDrawing(snapped);
-                app.interactionState = 'drawing';
-            } else if (!app.arcEndpoint) {
-                app.arcEndpoint = { x: snapped.x, y: snapped.y };
-                app.drawCurrent = { x: snapped.x, y: snapped.y };
-                app._updateDrawing(app.drawCurrent);
-            } else {
-                app._updateDrawing(worldPos);
-                app._finishDrawing(worldPos);
-                app._setToolCursor(app.currentTool, app.viewport.svg);
-                app.interactionState = 'toolActive';
-            }
-            return;
-        }
-
-        if (tool === 'rect' || tool === 'circle') {
-            if (!app.isDrawing) { app._startDrawing(snapped); app.interactionState = 'drawing'; }
-            else { app._finishDrawing(snapped); app.interactionState = 'toolActive'; }
+        if (DRAWING_SHAPES.has(tool)) {
+            shapeDrawingClick(app, tool === 'arc' && app.arcEndpoint ? worldPos : snapped);
             return;
         }
 
@@ -1509,26 +1472,8 @@ export const drawingState = {
             return;
         }
 
-        if (tool === 'line') { app._addLinePoint(snapped); return; }
-        if (tool === 'polygon') { app._addPolygonPoint(snapped); return; }
-
-        if (tool === 'arc') {
-            if (!app.arcEndpoint) {
-                app.arcEndpoint = { x: snapped.x, y: snapped.y };
-                app.drawCurrent = { x: snapped.x, y: snapped.y };
-                app._updateDrawing(app.drawCurrent);
-            } else {
-                app._updateDrawing(worldPos);
-                app._finishDrawing(worldPos);
-                app._setToolCursor(app.currentTool, app.viewport.svg);
-                app.interactionState = 'toolActive';
-            }
-            return;
-        }
-
-        if (tool === 'rect' || tool === 'circle') {
-            app._finishDrawing(snapped);
-            app.interactionState = 'toolActive';
+        if (DRAWING_SHAPES.has(tool)) {
+            shapeDrawingClick(app, tool === 'arc' && app.arcEndpoint ? worldPos : snapped);
             return;
         }
 
@@ -1575,26 +1520,6 @@ export const drawingState = {
             app._updateDrawing(app.arcEndpoint ? worldPos : snapped);
         } else if (DRAWING_TOOLS.has(tool)) {
             app._updateDrawing(snapped);
-        }
-
-        // Square indicator during rect drawing
-        if (tool === 'rect' && app.drawStart) {
-            const w = Math.abs(snapped.x - app.drawStart.x);
-            const h = Math.abs(snapped.y - app.drawStart.y);
-            if (w > 0.01 && h > 0.01 && Math.abs(w - h) < 0.05) {
-                const x1 = Math.min(app.drawStart.x, snapped.x);
-                const y1 = Math.min(app.drawStart.y, snapped.y);
-                const x2 = x1 + w;
-                const y2 = y1 + h;
-                renderGuideLines(app, [
-                    [{ x: x1, y: y1 }, { x: x2, y: y1 }],
-                    [{ x: x2, y: y1 }, { x: x2, y: y2 }],
-                    [{ x: x2, y: y2 }, { x: x1, y: y2 }],
-                    [{ x: x1, y: y2 }, { x: x1, y: y1 }],
-                ]);
-            } else {
-                renderGuideLines(app, []);
-            }
         }
 
         updateToolCrosshair(app, snapped, screenPos);
@@ -1683,8 +1608,6 @@ export const moveDragState = {
             const hotspot = getLabelDropHotspot(labelShape, worldPos);
             const attach = resolveLabelAttachTarget(app, hotspot, labelShape);
             updateSnapHighlight(app, attach ? { x: attach.snapPos.x, y: attach.snapPos.y, type: 'attach' } : null);
-            updateLabelDragGuide(app, labelShape);
-
             // Track hover target for invalidation
             const newTarget = attach?.target || null;
             const oldTarget = app._labelDragHoverTarget || null;
@@ -1694,11 +1617,7 @@ export const moveDragState = {
                 if (newTarget) newTarget.invalidate?.();
                 app._labelDragHoverTarget = newTarget;
             }
-        } else if (isDraggingText && selNow[0].parentComponent) {
-            // Ref/value fields: show guide line but no attachment re-targeting
-            updateLabelDragGuide(app, selNow[0]);
         } else {
-            updateLabelDragGuide(app, null);
             app._labelDragHoverTarget = null;
         }
 
@@ -1858,7 +1777,17 @@ export const anchorDragState = {
 
             if (!snappedToTarget) {
                 updateSnapHighlight(app, null);
-                if (!app.drag.shape.isRect) {
+                if (app.drag.shape.type === 'polyline') {
+                    const nodeIds = app.drag.shape.isRect ? app.drag.shape.getOrderedNodeIds() : [];
+                    const cornerIndex = nodeIds.indexOf(app.drag.anchorId);
+                    const neighbourIds = app.drag.shape.isRect
+                        ? (cornerIndex >= 0 ? [nodeIds[(cornerIndex + 2) % 4]] : [])
+                        : app.drag.shape.neighborNodes(app.drag.anchorId);
+                    const neighbours = neighbourIds
+                        .map(id => app.drag.shape.nodes.get(id)).filter(Boolean);
+                    anchorPos = snapShapePoint(app, worldPos, neighbours,
+                        shapeContinuationConstraints(app.drag.shape, app.drag.anchorId));
+                } else if (!app.drag.shape.isRect) {
                     const neighbors = app.drag.shape.neighborNodes(app.drag.anchorId)
                         .map(nid => app.drag.shape.nodes.get(nid)).filter(Boolean);
                     applyOffGridNeighborSnap(worldPos, anchorPos, neighbors, app.viewport.gridSize || 1.0);
@@ -1869,19 +1798,23 @@ export const anchorDragState = {
             }
         }
 
+        if (app.drag.shape.type === 'polyline' && isBulgeHandle
+            || app.drag.shape.type === 'arc' && app.drag.anchorId === 'mid') {
+            anchorPos = snapShapeBulge(app, app.drag.shape, app.drag.anchorId, worldPos);
+        }
         app._updateCrosshair(anchorPos);
-        anchorPos = mergeAnchorTJunctionGuides(app, anchorPos, anchorGuides);
-        renderGuideLines(app, anchorGuides);
+        if (app.drag.shape.type === 'wire') anchorPos = mergeAnchorTJunctionGuides(app, anchorPos, anchorGuides);
+        if (app.drag.shape.type !== 'polyline' && app.drag.shape.type !== 'arc') renderGuideLines(app, anchorGuides);
 
         // Cross-shape join snap: dragging a polyline/arc endpoint onto another
         // joinable shape's endpoint fuses them on drop. Show the snap dot (the
         // "yellow circle") and record the target. Shared with PCB drawing tools
         // via shapes/shape-join.js (no schematic-only assumptions).
         app.drag.joinTarget = null;
-        if (isJoinable(app.drag.shape)) {
+        if (!app.drag.pathSplit && !app.viewport.shiftHeld && isJoinable(app.drag.shape)) {
             const isJoinSource = app.drag.shape.type === 'arc'
                 ? (app.drag.anchorId === 'start' || app.drag.anchorId === 'end')
-                : !!(app.drag.shape.nodes && app.drag.shape.nodes.has(app.drag.anchorId));
+                : !!(app.drag.shape.nodes?.has(app.drag.anchorId) && app.drag.shape.degree(app.drag.anchorId) === 1);
             if (isJoinSource) {
                 const joinTol = SNAP_SCREEN_PX / app.viewport.scale;
                 const jt = findJoinTarget(app.shapes, anchorPos, joinTol, app.drag.shape, app.drag.anchorId);
@@ -1898,24 +1831,20 @@ export const anchorDragState = {
         const newAnchorId = app.drag.shape.moveAnchor(app.drag.anchorId, anchorPos.x, anchorPos.y);
         if (newAnchorId && newAnchorId !== app.drag.anchorId) app.drag.anchorId = newAnchorId;
 
-        // Square indicator: highlight full square outline when width ≈ height
-        if (app.drag.shape.isRect && app.drag.shape.nodes.size === 4) {
-            const bounds = app.drag.shape._calculateBounds();
-            const w = bounds.maxX - bounds.minX;
-            const h = bounds.maxY - bounds.minY;
-            if (w > 0.01 && h > 0.01 && Math.abs(w - h) < 0.05) {
-                const { minX, minY, maxX, maxY } = bounds;
-                anchorGuides = [
-                    [{ x: minX, y: minY }, { x: maxX, y: minY }],
-                    [{ x: maxX, y: minY }, { x: maxX, y: maxY }],
-                    [{ x: maxX, y: maxY }, { x: minX, y: maxY }],
-                    [{ x: minX, y: maxY }, { x: minX, y: minY }],
-                ];
-                renderGuideLines(app, anchorGuides);
-            }
+        const draggedShape = app.drag.shape;
+        const selectedSegment = app._selectedShapeSegment;
+        const bulge = draggedShape.type === 'arc' ? draggedShape.bulge
+            : draggedShape.type === 'polyline' && selectedSegment?.shapeId === draggedShape.id
+                ? draggedShape.getEdgeAttr(selectedSegment.edgeId, 'bulge') : null;
+        if (Number.isFinite(bulge)) {
+            const bulgeInput = /** @type {HTMLInputElement|null} */ (document.getElementById('prop_bulge'));
+            if (bulgeInput) bulgeInput.value = bulge.toFixed(2);
         }
 
         syncAnchorDragLinkedNodes(app, anchorPos);
+        if (app.drag.shape.type === 'polyline' || app.drag.shape.type === 'arc') {
+            renderShapeAlignment(app, app.drag.shape, [app.drag.anchorId]);
+        }
         app.renderShapes(false);
         if (app.textEdit) app._updateTextEditOverlay?.();
         app.fileManager.setDirty(true);
@@ -2054,6 +1983,7 @@ export const placingState = {
 // ─── State table ───────────────────────────────────────────────────
 
 export const STATE_TABLE = {
+    overlapCycle: overlapCycleState,
     idle: idleState,
     toolActive: toolActiveState,
     drawing: drawingState,

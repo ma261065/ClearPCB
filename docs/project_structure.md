@@ -75,6 +75,70 @@ clearpcb/
 
 ## Extracted Services
 
+- `shapes/arc-edit.js` owns control-arc geometry, sampling, midpoint projection,
+  and curvature-preserving endpoint edits. `shapes/arc-edge.js` owns bulged edges.
+- `shapes/rounded-path.js` owns corner clamping, entry/exit points, SVG paths,
+  and sampling. Uniform rectangles use circular corners; polygon and per-node
+  rounding use quadratic corners. `pcb/modules/board-geometry.js` re-exports
+  the helpers for existing consumers.
+- `shapes/path-geometry.js` owns stroke decomposition, open-stroke hit tests,
+  bounds accumulation, circle hit tests, and indexed/graph handle descriptors.
+- `shapes/path-operations.js` owns chain extraction, reversal, joining, closure,
+  vertex/segment deletion, insertion metadata, collinear cleanup, and rectangle
+  resizing, axis-aligned rectangle classification, and line/arc segment
+  conversion. Both editors use `setPathSegmentType` for path segments and
+  `splitPathAtNode` for splitting. Open-path splits create independent shapes;
+  closed-path splits create an open path with distinct endpoint IDs. Their
+  context menus and floating-handle history remain editor adapters.
+  `Polyline.toEditablePath()` / `applyEditablePath()` adapt stable
+  graph IDs to indexed paths without changing the saved file format.
+- `shapes/shape-drawing.js` owns point-sequence completion, validation, primitive
+  paths, and previews. `shapes/path-interaction.js` owns segment refinement;
+  `shapes/path-snap.js` owns connection/collinear/H-V-45/grid snap precedence
+  and constrained translation, including continuation constraints for both
+  endpoints of a moving segment. Editor adapters supply pins or pads and grids.
+  Open line completion retains a returning segment; only closed polygon paths
+  discard a repeated closing point. Arc straightening uses `BULGE_EPS`, never
+  display formatting; bulge property fields preserve small nonzero values.
+- `shapes/axis-glow.js` owns H/V/45 and straight-through collinear indicator
+  classification and rendering. Both editors use the same colored halos and
+  solid/dashed/dotted centerlines. Schematic wire, T-junction, sticky-wire,
+  and square-aspect guides use this renderer too; there is no separate SVG
+  guide pool. Wire snap results carry explicit alignment descriptors while
+  their electrical snap calculations remain schematic-owned. Square feedback
+  is a blue solid outline in both editors, including PCB drawing and dragging.
+  Rectangles show only square-aspect feedback, not redundant H/V indicators.
+  All indicators refresh on redraw and share
+  finish/cancel cleanup.
+- `shapes/property-preview.js` owns reversible live-property transactions:
+  capture once, mutate and redraw, restore before committing a single history
+  edit, skip unchanged commits, and restore/redraw on cancellation. Snapshots
+  are detached JSON-compatible values supplied by editor adapters. It also
+  enforces the redraw contract: either an explicit full-scene renderer or all
+  four incremental stages:
+  prepare changed targets, render geometry, refresh selection, then refresh
+  derived views. PCB shape and image property inputs use one adapter that
+  refreshes segment overlays and anchors together; schematic numeric inputs
+  use their full-scene renderer, which already includes selection and guides.
+  Commit and cancellation request a final redraw, including any derived work
+  deferred during previews. Property validation, snapshot representation,
+  history commands, and PCB copper-refresh throttling remain editor-owned.
+  Schematic shape properties include precise bulge and circle diameter edits,
+  including multi-selection. Geometry snapshots preserve coupled dimensions
+  and overrides. Whole-shape width/radius edits clear their segment/node
+  overrides; undo restores them. A zero-bulge standalone arc is replaced by a
+  line in the same history operation as the property change.
+- Schematic focused Delete and shape context menus share node/segment deletion
+  actions; without refinement, Delete still removes the entire selection.
+  Standalone arc menus support conversion and deletion. Shape splits retain
+  one pre-split snapshot and an optional temporary remainder; placement commits
+  one batch and Escape restores the original without leaving a remainder.
+- Shared shape editing follows PCB behavior where the editors differed:
+  repeated segment clicks retain refinement, rounded corners keep the base
+  width during segment-width edits, circle radius denotes the outer edge,
+  and Shift suppresses shape snapping. Electrical wire/track connectivity,
+  layer restrictions, rendering chrome, history, and fabrication contours
+  remain editor-specific. Shared geometry must not import either editor.
 - `core/CommandHistory.js` contains only the history engine and base command.
   Schematic commands are in `schematic/modules/commands.js`.
 - `shared/3d/ArcballController.js` and `shared/3d/model-rendering.js` serve both
@@ -103,7 +167,7 @@ clearpcb/
 
 ### Board-Shape Geometry Contract
 
-`resolveBoardShapeGeometry()` in `src/pcb/modules/board-shapes.js` is the
+`resolveBoardShapeGeometry()` in `src/pcb/modules/board-shape-geometry.js` is the
 single source of truth for generic PCB shape semantics across lines,
 rectangles, polygons, arcs, and circles. It resolves:
 
@@ -120,6 +184,41 @@ consume this descriptor. Backends may choose native output primitives (for
 example a Canvas arc, triangulated Three.js mesh, or Gerber circle aperture),
 but must not independently reinterpret `filled`, `lineWidth`, shape closure,
 radius expansion, or copper-mode aliases.
+
+`board-shape-geometry.js` also owns outline/path generation, physical removal
+contours, bounds, hit tests, and effective width/radius queries. It accepts
+plain PCB shape data in SVG-Y-down millimetres and has no editor, selection,
+history, or DOM dependency. Its calculations reuse shared `src/shapes` helpers
+and the existing image-contour utilities; PCB layer and copper-mode rules
+remain PCB-owned. `board-geometry.js` continues to own footprint and track
+geometry, rather than accumulating unrelated shape editing behavior.
+
+`board-shapes.js` owns interaction, mutation, commands, SVG rendering, and
+properties. It does not re-export geometry functions. All geometry consumers,
+including editor adapters and tests, import directly from
+`board-shape-geometry.js`. Consumers that also need editor operations use
+separate imports for the two responsibilities.
+
+For headless tools and board-design agents:
+
+```js
+import { resolveBoardShapeGeometry, boardShapeBounds } from './src/pcb/modules/board-shape-geometry.js';
+
+const shape = {
+  kind: 'circle', layer: 'top-copper', x: 10, y: 20,
+  radius: 2, lineWidth: 0.2, filled: true, copperMode: 'add',
+};
+const geometry = resolveBoardShapeGeometry(shape);
+const bounds = boardShapeBounds(shape);
+```
+
+Queries do not mutate their inputs, but returned descriptors are not detached
+snapshots: physical contours are evaluated lazily, and image data/contours may
+be borrowed or cached. Treat results as read-only, consume them before mutating
+the source shape, and resolve again after edits. Replace image artwork rather
+than mutating it in place to respect the existing artwork cache. This API
+assumes valid shape data; it does not replace project validation, DRC, or the
+command layer used to apply a design to the editor.
 
 ### Tracks and Vias
 

@@ -1,4 +1,4 @@
-import { resolveBoardShapeGeometry } from './board-shapes.js';
+import { resolveBoardShapeGeometry } from './board-shape-geometry.js';
 import { pictureTriangles } from './picture-raster.js';
 import { distanceToSegment, pointInPolygon } from '../../core/geometry.js';
 import earcut from '../../../assets/vendor/earcut.module.js';

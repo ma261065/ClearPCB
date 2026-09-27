@@ -4,6 +4,7 @@
 
 import { Shape } from './shape.js';
 import { ShapeValidator } from '../core/ShapeValidator.js';
+import { circleOuterRadius, circleHitTest } from './path-geometry.js';
 
 /** Round to 4 decimal places for compact serialisation. */
 const _r4 = v => Math.round(v * 10000) / 10000;
@@ -36,9 +37,18 @@ export class Circle extends Shape {
         });
     }
     
+    get diameter() { return this.radius * 2; }
+
+    set diameter(value) {
+        if (!Number.isFinite(value)) return;
+        this.radius = Math.max(0.05, value / 2);
+        this.lineWidth = Math.min(this.lineWidth, this.radius);
+        this.invalidate();
+    }
+
     /** @override */
     _calculateBounds() {
-        const r = this.radius + this.lineWidth / 2;
+        const r = circleOuterRadius(this);
         return {
             minX: this.x - r,
             minY: this.y - r,
@@ -49,13 +59,7 @@ export class Circle extends Shape {
     
     /** @override */
     hitTest(point, tolerance = 0.5) {
-        const dist = Math.hypot(point.x - this.x, point.y - this.y);
-        
-        if (this.fill) {
-            return dist <= this.radius + tolerance;
-        } else {
-            return Math.abs(dist - this.radius) <= tolerance + this.lineWidth / 2;
-        }
+        return circleHitTest(this, point, tolerance, this.fill, this.lineWidth);
     }
     
     /** @override */
@@ -87,7 +91,7 @@ export class Circle extends Shape {
             this.x = x;
             this.y = y;
         } else if (anchorId === 'radius') {
-            this.radius = Math.max(0.1, Math.hypot(x - this.x, y - this.y));
+            this.radius = Math.max(0.05, Math.hypot(x - this.x, y - this.y));
         }
         this.invalidate();
         return undefined;
@@ -101,9 +105,10 @@ export class Circle extends Shape {
     _updateElement(el, strokeColor, fillColor, scale) {
         el.setAttribute('cx', this.x);
         el.setAttribute('cy', this.y);
-        el.setAttribute('r', this.radius);
+        const width = Math.min(this._getEffectiveStrokeWidth(scale), circleOuterRadius(this));
+        el.setAttribute('r', circleOuterRadius(this) - width / 2);
         el.setAttribute('stroke', strokeColor);
-        el.setAttribute('stroke-width', this._getEffectiveStrokeWidth(scale));
+        el.setAttribute('stroke-width', width);
         
         if (this.fill) {
             el.setAttribute('fill', fillColor);
@@ -128,19 +133,21 @@ export class Circle extends Shape {
     }
     /** @override */
     captureState() {
-        return { x: this.x, y: this.y, radius: this.radius, fill: this.fill };
+        return { x: this.x, y: this.y, radius: this.radius, fill: this.fill, lineWidth: this.lineWidth };
     }
     /** @override */
     applyState(state) {
         if ('x' in state) this.x = state.x;
         if ('y' in state) this.y = state.y;
         if ('radius' in state) this.radius = state.radius;
+        if ('lineWidth' in state) this.lineWidth = state.lineWidth;
         if ('fill' in state) this.fill = state.fill;
         this.invalidate();
     }
     /** @override */
     getPropertyDescriptors() {
         return [
+            { key: 'diameter', label: 'Diameter (mm)', type: 'number', min: 0.15, step: 0.1 },
             { key: 'locked',    label: 'Locked',     type: 'checkbox' },
             { key: 'lineWidth', label: 'Line width',  type: 'number', min: 0.05, max: 5, step: 0.05 },
             { key: 'fill',      label: 'Fill',        type: 'checkbox' },

@@ -7,8 +7,9 @@ globalThis.document = {
         return { style: {}, setAttribute() {}, getAttribute() { return null; }, removeAttribute() {}, appendChild() {}, remove() {}, querySelectorAll() { return []; } };
     },
 };
-const { resolveBoardShapeGeometry, startBoardShapeDrag, handleBoardShapeDrag, endBoardShapeDrag,
-    serializeBoardShapes, loadBoardShapes, shapePathD, shapeOutline, applyShapeSnapshot,
+const { resolveBoardShapeGeometry, shapePathD, shapeOutline } = await import('../src/pcb/modules/board-shape-geometry.js');
+const { startBoardShapeDrag, handleBoardShapeDrag, endBoardShapeDrag,
+    serializeBoardShapes, loadBoardShapes, applyShapeSnapshot,
     setBoardShapeNodeCornerRadius } = await import('../src/pcb/modules/board-shapes.js');
 const { CORNER_CHORD_TOLERANCE } = await import('../src/pcb/modules/board-geometry.js');
 

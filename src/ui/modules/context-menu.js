@@ -11,6 +11,11 @@ import { VERTEX_EPSILON, applySplitLabelRules, applySplitNetRules } from './wire
 import { detachLabel } from './label-attachment.js';
 import { canDecomposeRoundedCorners, decomposeRoundedCorners } from '../../shapes/shape-decompose.js';
 import { hasAny3DModel, openComponent3DFromData, buildComponent3DTitle } from '../../components/model3d-source.js';
+import { deletePathSegment, setPathSegmentType, collapseCollinearPath, splitPathAtNode } from '../../shapes/path-operations.js';
+import { BULGE_EPS, arcFromBulge } from '../../shapes/arc-edge.js';
+import { clearDragState, cancelSchematicPathSplit } from './drag.js';
+import { Polyline } from '../../shapes/polyline.js';
+import { Arc } from '../../shapes/arc.js';
 
 /**
  * @typedef {HTMLDivElement & {
@@ -320,6 +325,24 @@ export function deleteJunction(app, junctionInfo) {
  * keeping only components with at least one edge.
  */
 export function deleteWireSegment(app, wire, edgeId) {
+    if (wire.locked || !wire.edges.has(edgeId)) return;
+    const path = wire.type === 'polyline' ? wire.toEditablePath() : null;
+    if (path) {
+        const parts = deletePathSegment(path, Object.values(path.edgeIds).indexOf(edgeId));
+        if (!parts) return;
+        const batch = new BatchCommand('Delete segment');
+        batch.add(new DeleteShapesCommand(app, [wire]));
+        for (const part of parts) {
+            const fragment = wire.clone();
+            fragment.applyEditablePath(part);
+            fragment.fill = false;
+            batch.add(new AddShapeCommand(app, fragment));
+        }
+        app.history.execute(batch);
+        app.selection.clear();
+        app.renderShapes(true);
+        return;
+    }
     if (wire.edges.size <= 1) {
         deleteWire(app, wire);
         return;
@@ -392,12 +415,101 @@ export function deleteWire(app, wire) {
  * Split a degree-2 anchor into two co-located nodes (one for each edge),
  * then enter anchor-drag mode on the new node. Works for any graph-based shape.
  */
-function splitAnchorAndDrag(app, shape, anchorId, clientX, clientY) {
+export function deleteSchematicShapeNode(app, shape, nodeId) {
+    if (shape?.type !== 'polyline' || shape.locked || !shape.nodes.has(nodeId)) return false;
+    if (shape.edges.size <= 1) {
+        app.history.execute(new DeleteShapesCommand(app, [shape]));
+        app.selection.clear();
+    } else {
+        const before = shape.captureState();
+        if (!shape.deleteAnchor(nodeId)) return false;
+        if (!shape.closed) shape.fill = false;
+        const after = shape.captureState();
+        shape.applyState(before);
+        app.history.execute(new ModifyShapeCommand(app, shape, before, after));
+    }
+    app._selectedShapeNode = null;
+    app._selectedShapeSegment = null;
+    app.fileManager?.setDirty?.(true);
+    app.renderShapes(true);
+    app._updatePropertiesPanel?.(app.selection.getSelection());
+    return true;
+}
+
+export function deleteFocusedSchematicShape(app) {
+    const selected = app.selection.getSelection();
+    if (selected.length !== 1 || selected[0].locked) return false;
+    const shape = selected[0];
+    if (shape.type !== 'polyline') return false;
+    const nodeId = app._selectedShapeNode?.shapeId === shape.id ? app._selectedShapeNode.nodeId : null;
+    const edgeId = app._selectedShapeSegment?.shapeId === shape.id ? app._selectedShapeSegment.edgeId : null;
+    if (!shape.nodes.has(nodeId) && !shape.edges.has(edgeId)) return false;
+    if (app.drag?.shape === shape) {
+        const splitting = !!app.drag.pathSplit;
+        cancelSchematicPathSplit(app);
+        if (app.drag.beforeState) shape.applyState(app.drag.beforeState);
+        clearDragState(app);
+        app.interactionState = 'idle';
+        app.didDrag = false;
+        app._hideCrosshair?.();
+        app.viewport.svg.style.cursor = '';
+        if (splitting) {
+            app._selectedShapeNode = null;
+            app._selectedShapeSegment = null;
+            app.renderShapes(true);
+            app._updatePropertiesPanel?.(app.selection.getSelection());
+            return true;
+        }
+    }
+    if (shape.nodes.has(nodeId)) return deleteSchematicShapeNode(app, shape, nodeId);
+    deleteWireSegment(app, shape, edgeId);
+    app._selectedShapeNode = null;
+    app._selectedShapeSegment = null;
+    app.fileManager?.setDirty?.(true);
+    app._updatePropertiesPanel?.(app.selection.getSelection());
+    return true;
+}
+
+export function splitAnchorAndDrag(app, shape, anchorId, clientX, clientY) {
+    if (shape?.locked) return;
     if (!shape?.nodes?.has(anchorId)) return;
     const pos = shape.nodes.get(anchorId);
     if (!pos) return;
 
     const beforeState = app._captureShapeState(shape);
+
+    if (shape.type === 'polyline') {
+        const path = shape.toEditablePath();
+        const split = path && splitPathAtNode(path, Object.values(path.nodeIds).indexOf(anchorId));
+        if (!split) return;
+        const remainder = split.remainder ? shape.clone() : null;
+        if (remainder) {
+            remainder.applyEditablePath(split.remainder);
+            remainder.fill = false;
+            remainder.selected = false;
+            app._commandAddShape(remainder);
+        }
+        shape.applyEditablePath(split.moving);
+        shape.fill = false;
+        app._selectedShapeNode = null;
+        app._selectedShapeSegment = null;
+        app.selection.clearSelection();
+        app.selection.select(shape, false);
+        app.drag = {
+            mode: 'anchor', shape, beforeState, anchorId: shape.getOrderedNodeIds()[0],
+            start: { ...pos }, startScreen: null, wireAnchorOriginal: { ...pos },
+            tjLinks: [], wireStates: null, excludePin: null, ncLinks: [],
+            pathSplit: true, splitRemainder: remainder,
+        };
+        app.interactionState = 'anchorDrag';
+        app.didDrag = true;
+        app.renderShapes(true);
+        app._showCrosshair();
+        app._updateCrosshair(pos);
+        app.viewport.svg.style.cursor = 'move';
+        app._updatePropertiesPanel?.(app.selection.getSelection());
+        return;
+    }
 
     // Pick one of the two edges to detach to the new node
     const edges = shape.incidentEdges(anchorId);
@@ -572,7 +684,9 @@ export function showAnchorContextMenu(app, shape, anchorId, clientX, clientY, ca
         });
     }
 
-    if (canDeletePoint) {
+    if (shape.type === 'polyline' && !shape.locked && shape.nodes.has(anchorId)) {
+        items.push({ text: 'Delete node', onClick: () => deleteSchematicShapeNode(app, shape, anchorId) });
+    } else if (canDeletePoint) {
         items.push({
             text: 'Delete point',
             onClick: () => {
@@ -632,7 +746,23 @@ export function dismissAnchorContextMenu() {
  * Show a context menu for wire segment operations (delete segment).
  */
 export function showSegmentContextMenu(app, shape, edgeId, clientX, clientY) {
+    if (shape.locked) return;
+    if (shape.type === 'arc') {
+        createContextMenu([
+            { text: 'Convert to Line', onClick: () => setSchematicShapeSegmentType(app, shape, null, 'line') },
+            { text: 'Delete arc', onClick: () => deleteSchematicShape(app, shape) },
+        ], clientX, clientY);
+        return;
+    }
     const items = [];
+
+    if (shape.type === 'polyline' && !shape.locked && shape.edges.has(edgeId)) {
+        const curved = Math.abs(shape.edges.get(edgeId).bulge || 0) >= BULGE_EPS;
+        items.push({
+            text: `Convert to ${curved ? 'Line' : 'Arc'}${shape.edges.size === 1 ? '' : ' Segment'}`,
+            onClick: () => setSchematicShapeSegmentType(app, shape, edgeId, curved ? 'line' : 'arc', { floating: !curved }),
+        });
+    }
 
     if (shape.edges.size > 1) {
         items.push({
@@ -648,6 +778,13 @@ export function showSegmentContextMenu(app, shape, edgeId, clientX, clientY) {
         });
     }
 
+    if (shape.type === 'polyline') {
+        const label = shape.edges.size === 1
+            ? Math.abs(shape.edges.values().next().value.bulge || 0) >= BULGE_EPS ? 'arc' : 'line'
+            : 'shape';
+        items.push({ text: `Delete ${label}`, onClick: () => deleteSchematicShape(app, shape) });
+    }
+
     if (canDecomposeRoundedCorners(shape)) {
         items.push({
             text: 'Decompose corners',
@@ -658,6 +795,110 @@ export function showSegmentContextMenu(app, shape, edgeId, clientX, clientY) {
     if (items.length > 0) {
         createContextMenu(items, clientX, clientY);
     }
+}
+
+function deleteSchematicShape(app, shape) {
+    if (shape.locked) return;
+    app.history.execute(new DeleteShapesCommand(app, [shape]));
+    app.selection.clear();
+    app._selectedShapeNode = null;
+    app._selectedShapeSegment = null;
+    app.fileManager?.setDirty?.(true);
+    app.renderShapes(true);
+    app._updatePropertiesPanel?.(app.selection.getSelection());
+}
+
+export function appendArcToLineCommand(app, batch, shape, state = shape.captureState()) {
+    const line = new Polyline({
+        points: [state.startPoint, state.endPoint], lineWidth: state.lineWidth ?? shape.lineWidth,
+        color: shape.color, layer: shape.layer, visible: shape.visible, locked: shape.locked,
+        fill: false, fillColor: shape.fillColor, fillAlpha: shape.fillAlpha,
+    });
+    batch.add(new DeleteShapesCommand(app, [shape]));
+    batch.add(new AddShapeCommand(app, line));
+    return line;
+}
+
+export function setSchematicShapeSegmentType(app, shape, edgeId, type, { floating = false } = {}) {
+    if (shape?.type === 'arc' && type === 'line' && !shape.locked) {
+        const batch = new BatchCommand('Convert arc to line');
+        const line = appendArcToLineCommand(app, batch, shape);
+        app.history.execute(batch);
+        app.selection.clearSelection();
+        app.selection.select(line, false);
+        app._selectedShapeSegment = { shapeId: line.id, edgeId: [...line.edges.keys()][0] };
+        app._selectedShapeNode = null;
+        app.fileManager?.setDirty?.(true);
+        app.renderShapes(true);
+        app._updatePropertiesPanel?.(app.selection.getSelection());
+        return true;
+    }
+    if (shape?.type !== 'polyline' || shape.locked || !shape.edges.has(edgeId)) return false;
+    const path = shape.toEditablePath();
+    if (!path || !setPathSegmentType(path, Object.values(path.edgeIds).indexOf(edgeId), type)) return false;
+    if (!shape.closed && path.points.length === 2 && type === 'arc') {
+        const geometry = arcFromBulge(path.points[0], path.points[1], path.segmentBulges[0]);
+        if (!geometry) return false;
+        const arc = new Arc({
+            startPoint: { ...path.points[0] }, endPoint: { ...path.points[1] }, bulgePoint: geometry.bulgePoint,
+            lineWidth: path.segmentWidths?.[0] ?? shape.lineWidth,
+            color: shape.color, layer: shape.layer, visible: shape.visible, locked: shape.locked,
+            fill: false, fillColor: shape.fillColor, fillAlpha: shape.fillAlpha,
+        });
+        const command = new BatchCommand('Convert line to arc');
+        command.add(new DeleteShapesCommand(app, [shape]));
+        command.add(new AddShapeCommand(app, arc));
+        if (floating) {
+            command.execute();
+            const point = arc.bulgePoint;
+            app.drag = {
+                mode: 'anchor', shape: arc, beforeState: arc.captureState(), anchorId: 'mid',
+                start: { ...point }, startScreen: null, wireAnchorOriginal: { ...point },
+                conversion: { command, original: shape },
+                tjLinks: [], wireStates: null, excludePin: null, ncLinks: [],
+            };
+            app.interactionState = 'anchorDrag';
+            app.didDrag = true;
+            app._showCrosshair?.();
+            app._updateCrosshair?.(point);
+            app.viewport.svg.style.cursor = 'move';
+        } else app.history.execute(command);
+        app._selectedShapeSegment = null;
+        app._selectedShapeNode = null;
+        app.selection.select(arc, false);
+        app.renderShapes(true);
+        app._updatePropertiesPanel?.(app.selection.getSelection());
+        return true;
+    }
+    const before = shape.captureState();
+    if (type === 'line') collapseCollinearPath(path);
+    shape.applyEditablePath(path);
+    const after = shape.captureState();
+    app._selectedShapeSegment = shape.edges.has(edgeId) ? { shapeId: shape.id, edgeId } : null;
+    app._selectedShapeNode = null;
+    if (floating && type === 'arc') {
+        const edge = shape.edges.get(edgeId);
+        const arc = arcFromBulge(shape.nodes.get(edge.from), shape.nodes.get(edge.to), edge.bulge);
+        const point = arc.bulgePoint;
+        app.drag = {
+            mode: 'anchor', shape, beforeState: before, anchorId: `bulge_${edgeId}`,
+            start: { ...point }, startScreen: null, wireAnchorOriginal: { ...point },
+            tjLinks: [], wireStates: null, excludePin: null, ncLinks: [],
+            junctionBeforeWireStates: null, junctionBeforeLabelTextStates: null,
+        };
+        app.interactionState = 'anchorDrag';
+        app.didDrag = true;
+        app.renderShapes(true);
+        app._showCrosshair?.();
+        app._updateCrosshair?.(point);
+        app.viewport.svg.style.cursor = 'move';
+    } else {
+        shape.applyState(before);
+        app.history.execute(new ModifyShapeCommand(app, shape, before, after));
+        app.fileManager?.setDirty?.(true);
+    }
+    app._updatePropertiesPanel?.(app.selection.getSelection());
+    return true;
 }
 
 /**

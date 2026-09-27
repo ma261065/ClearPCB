@@ -31,16 +31,12 @@ import { NoConnect } from './noconnect.js';
 
 const shapeRegistry = {
     polyline: Polyline,
-    line: Polyline,
-    polygon: Polyline,
-    rect: Rect,
     wire: Wire,
     track: Track,
     via: Via,
     circle: Circle,
     arc: Arc,
     text: Text,
-    Net: Net,
     net: Net,
     noconnect: NoConnect
 };

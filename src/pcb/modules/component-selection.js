@@ -33,6 +33,7 @@ export function createComponentSelectionAdapter(app, componentId, id) {
         kind: 'component',
         object: componentId,
         get visible() { return app.placements?.has(componentId); },
+        get locked() { return !!app.placements?.get(componentId)?.locked; },
         getBounds() { return boundsForPlacement(app.placements?.get(componentId)); },
         hitTest(point) { return getComponentSelectionHit(app, point) === componentId; },
         getPosition() {

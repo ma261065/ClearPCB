@@ -1,5 +1,5 @@
 export { punchHolesInFlatMesh } from './board3d-mesh-ops.js';
-import { pictureTriangles, pictureCirclesDisjoint } from './picture-raster.js';
+import { pictureTriangles, pictureCirclesDisjoint, picturePoints } from './picture-raster.js';
 import { ArcballController } from '../../shared/3d/ArcballController.js';
 import { createBoardViewSync } from './board-view-sync.js';
 import { createSurfaceBuilder } from './board3d-surface-client.js?v=8';
@@ -74,7 +74,7 @@ import {
 import { CORNER_CHORD_TOLERANCE } from './board-geometry.js';
 import { buildTrackLayerRuns } from './track-render.js';
 import { regionFillContours } from './region-geometry.js';
-import { boardShapeFilledRemovalOutlines, resolveBoardShapeGeometry } from './board-shapes.js';
+import { boardShapeFilledRemovalOutlines, resolveBoardShapeGeometry } from './board-shape-geometry.js';
 import { pcbTextPolylines } from './pcb-text.js';
 import { loadClipper, isClipperReady, getClipper } from './copper-fill-geom.js';
 import { createViewerBackgroundTexture, VIEWER_BACKGROUND } from './viewer-background.js';
@@ -1400,7 +1400,8 @@ function strokePolysToMesh(polys, strokeWidth, y, color, toWorld) {
  */
 export function imageArtworkMesh(shape, elevation, color) {
     const mesh = emptyMesh();
-    const { artwork, points } = shape;
+    const { artwork } = shape;
+    const points = picturePoints(shape);
     if (!artwork.invert && pictureCirclesDisjoint(artwork)) {
         const origin = points[0];
         const horizontal = { x: (points[1].x - origin.x) / artwork.width, y: (points[1].y - origin.y) / artwork.width };
@@ -3860,4 +3861,3 @@ export async function openBoard3DViewer(app, opts = {}) {
     // 3D scene + STEP models are built lazily by ensure3D when 3D is first shown.
     applyView(initialView);
 }
-

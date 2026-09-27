@@ -12,6 +12,8 @@
  */
 
 import { arcFromBulge, sampleArcEdge } from '../../shapes/arc-edge.js';
+import { CORNER_CHORD_TOLERANCE, roundedPathCorners, sampleRoundedCorner } from '../../shapes/rounded-path.js';
+export { CORNER_CHORD_TOLERANCE, roundedPathCorners, sampleRoundedCorner } from '../../shapes/rounded-path.js';
 
 /**
  * Soldermask expansion per side (mm). 0.05 mm is the typical board-house
@@ -29,44 +31,6 @@ export const MASK_EXPANSION = 0.05;
  * export honours this flag, so all three agree.
  */
 export const TENT_VIAS = true;
-
-export const CORNER_CHORD_TOLERANCE = 0.001;
-
-export function roundedPathCorners(points, radii, closed = false) {
-    return points.map((vertex, index) => {
-        const sharp = { vertex, entry: { ...vertex }, exit: { ...vertex }, rounded: false };
-        if (points.length < 3 || (!closed && (index === 0 || index === points.length - 1))) return sharp;
-        const previous = points[(index + points.length - 1) % points.length];
-        const next = points[(index + 1) % points.length];
-        const previousLength = Math.hypot(previous.x - vertex.x, previous.y - vertex.y);
-        const nextLength = Math.hypot(next.x - vertex.x, next.y - vertex.y);
-        const inset = Math.min(radii[index] || 0, previousLength / 2, nextLength / 2);
-        if (inset < 0.01 || previousLength < 0.01 || nextLength < 0.01) return sharp;
-        return {
-            vertex, rounded: true,
-            entry: { x: vertex.x + (previous.x - vertex.x) * inset / previousLength,
-                y: vertex.y + (previous.y - vertex.y) * inset / previousLength },
-            exit: { x: vertex.x + (next.x - vertex.x) * inset / nextLength,
-                y: vertex.y + (next.y - vertex.y) * inset / nextLength },
-        };
-    });
-}
-
-export function sampleRoundedCorner(corner, segments = undefined) {
-    if (!corner.rounded) return [{ ...corner.vertex }];
-    const curvature = Math.hypot(
-        (corner.entry.x - corner.vertex.x) + (corner.exit.x - corner.vertex.x),
-        (corner.entry.y - corner.vertex.y) + (corner.exit.y - corner.vertex.y));
-    segments ??= Math.max(16, 2 * Math.ceil(Math.sqrt(curvature / (4 * CORNER_CHORD_TOLERANCE)) / 2));
-    return Array.from({ length: segments + 1 }, (_, index) => {
-        const fraction = index / segments;
-        const inverse = 1 - fraction;
-        return {
-            x: inverse * inverse * corner.entry.x + 2 * inverse * fraction * corner.vertex.x + fraction * fraction * corner.exit.x,
-            y: inverse * inverse * corner.entry.y + 2 * inverse * fraction * corner.vertex.y + fraction * fraction * corner.exit.y,
-        };
-    });
-}
 
 export function resolveTrackEdgePaths(track) {
     const adjacent = new Map();

@@ -657,8 +657,8 @@ export class FileManager {
      * @param {string} name
      */
     removeRecent(name) {
-        if (!name) return;
-        _idbDeleteRecord(name);
+        if (!name) return Promise.resolve();
+        return _idbDeleteRecord(name);
     }
 
     /**

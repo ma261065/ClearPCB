@@ -79,10 +79,50 @@ export function isCopperFillLocked(copperLayerId) {
     return !!(def && def.locked);
 }
 
+/** Set a PCB layer lock through its panel control so all UI state stays in sync. */
+export function setPcbLayerLocked(app, layerId, locked) {
+    const layer = PCB_LAYERS.find(item => item.id === layerId);
+    if (!layer || layer.locked === !!locked) return;
+    const button = document.querySelector(
+        `.pcb-layer-row[data-layer-id="${layerId}"] .lock-btn`,
+    );
+    if (button) {
+        button.click();
+        return;
+    }
+    layer.locked = !!locked;
+    app._onLayerLockChanged?.(layerId, layer.locked);
+}
+
+/** Unlock a PCB layer through its panel control so all UI state stays in sync. */
+export function unlockPcbLayer(app, layerId) {
+    setPcbLayerLocked(app, layerId, false);
+}
+
+/** Set a copper-fill lock through its panel control. */
+export function setPcbCopperFillLocked(app, layerId, locked) {
+    const fill = PCB_COPPER_FILLS.find(item => item.id === layerId);
+    if (!fill || fill.locked === !!locked) return;
+    const button = document.querySelector(
+        `.pcb-layer-row[data-fill-id="${layerId}"] .lock-btn`,
+    );
+    if (button) {
+        button.click();
+        return;
+    }
+    fill.locked = !!locked;
+    app._onCopperFillLockChanged?.(layerId, fill.locked);
+}
+
+/** Unlock a copper-fill layer through its panel control. */
+export function unlockPcbCopperFill(app, layerId) {
+    setPcbCopperFillLocked(app, layerId, false);
+}
+
 /**
  * True when the given layer id is currently locked. Locked layers are
- * read-only: their objects can't be selected, hovered, dragged or deleted,
- * and nothing new may be drawn on them.
+ * read-only: their objects can be selected for inspection/unlocking, but
+ * cannot be dragged, edited, or deleted, and nothing new may be drawn on them.
  * @param {string} layerId
  * @returns {boolean}
  */

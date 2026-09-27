@@ -23,7 +23,7 @@ import {
     resolvePadMaskOpenings,
 } from './board-geometry.js';
 import { resolveTrackSegments } from './board-geometry.js';
-import { boardShapeFilledRemovalOutlines, resolveBoardShapeGeometry } from './board-shapes.js';
+import { boardShapeFilledRemovalOutlines, resolveBoardShapeGeometry } from './board-shape-geometry.js';
 import { pcbTextSegments } from './pcb-text.js';
 import { drawPictureCached } from './picture-raster.js';
 import { paintViewerBackground } from './viewer-background.js';
@@ -612,8 +612,8 @@ export class Board2D {
 
     /** Solder-mask openings on the active side. Drawn under copper so copper
      * naturally shows only where it exists; elsewhere raw board is visible.
-     * Supports legacy mask-layer circles (always filled openings) and copper-
-     * layer circles using remove-solder-mask / remove-copper-mask modes. */
+     * Supports mask-layer circles (always filled openings) and copper-layer
+     * circles using remove-solder-mask / remove-copper-mask modes. */
     _drawMaskOpenings(ctx) {
         const d = this.data;
         ctx.fillStyle = COL.rawBoard;

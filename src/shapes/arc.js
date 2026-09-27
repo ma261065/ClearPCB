@@ -5,7 +5,10 @@
  */
 
 import { Shape } from './shape.js';
-import { circumcircle, projectOntoChordBisector, clampBulgePoint, bulgeRatio, bulgePointFromRatio } from '../core/geometry.js';
+import { pointInPolygon, distanceToSegment, bulgeRatio, bulgePointFromRatio } from '../core/geometry.js';
+import { projectArcBulge, arcBulgeRatio, arcBulgeFromRatio, controlArcGeometry, sampleControlArc } from './arc-edit.js';
+import { pointsBounds, hitTestStrokeSegments } from './path-geometry.js';
+import { primitiveShapePath } from './shape-drawing.js';
 
 /** Round to 4 decimal places for compact serialisation. */
 const _r4 = v => Math.round(v * 10000) / 10000;
@@ -58,6 +61,14 @@ export class Arc extends Shape {
         this._endPoint = val;
         this._cachedGeometry = null;
     }
+    get bulge() { return bulgeRatio(this._startPoint, this._endPoint, this._bulgePoint); }
+
+    set bulge(value) {
+        if (!Number.isFinite(value)) return;
+        this.bulgePoint = bulgePointFromRatio(this._startPoint, this._endPoint, Math.max(-1, Math.min(1, value)));
+        this.invalidate();
+    }
+
     /** @returns {{x:number,y:number}} Bulge (curvature) control point. */
     get bulgePoint() {
         return this._bulgePoint;
@@ -94,10 +105,9 @@ export class Arc extends Shape {
      */
     _computeGeometry() {
         const p1 = this._startPoint;
-        const p2 = this._bulgePoint;
         const p3 = this._endPoint;
         
-        const circ = circumcircle(p1, p2, p3);
+        const circ = controlArcGeometry(this._controlArc());
         
         // If points are collinear, return a degenerate circle
         if (!circ) {
@@ -111,15 +121,7 @@ export class Arc extends Shape {
             };
         }
         
-        const { cx, cy, radius } = circ;
-        
-        const startAngle = Math.atan2(p1.y - cy, p1.x - cx);
-        const endAngle = Math.atan2(p3.y - cy, p3.x - cx);
-        
-        const crossProduct = (p3.x - p1.x) * (p2.y - p1.y) - (p3.y - p1.y) * (p2.x - p1.x);
-        const sweepFlag = crossProduct > 0 ? 0 : 1;
-        
-        return { cx, cy, radius, startAngle, endAngle, sweepFlag };
+        return { ...circ, sweepFlag: circ.counterclockwise ? 0 : 1 };
     }
     
     /** Centre X, derived from control points. */
@@ -150,87 +152,16 @@ export class Arc extends Shape {
     
     /** @override */
     _calculateBounds() {
-        const geo = this._getGeometry();
-        const { cx, cy, radius } = geo;
-        const half = this.lineWidth / 2;
-
-        // Start with the three control points
-        const pts = [this._startPoint, this._endPoint, this._bulgePoint];
-        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-        for (const p of pts) {
-            if (p.x < minX) minX = p.x;
-            if (p.y < minY) minY = p.y;
-            if (p.x > maxX) maxX = p.x;
-            if (p.y > maxY) maxY = p.y;
-        }
-
-        // Check if any cardinal axis point (0°, 90°, 180°, 270°) lies on the arc.
-        // If so, expand bounds to the circle's extent in that direction.
-        const cardinals = [0, Math.PI / 2, Math.PI, 3 * Math.PI / 2];
-        for (const angle of cardinals) {
-            if (this._isAngleInRange(angle)) {
-                const px = cx + radius * Math.cos(angle);
-                const py = cy + radius * Math.sin(angle);
-                if (px < minX) minX = px;
-                if (py < minY) minY = py;
-                if (px > maxX) maxX = px;
-                if (py > maxY) maxY = py;
-            }
-        }
-
-        return {
-            minX: minX - half,
-            minY: minY - half,
-            maxX: maxX + half,
-            maxY: maxY + half
-        };
+        return pointsBounds(sampleControlArc(this._controlArc()), this.lineWidth / 2);
     }
     
     /** @override */
     hitTest(point, tolerance = 0.5) {
-        const dist = Math.hypot(point.x - this.x, point.y - this.y);
-
-        // Filled arc: check if point is inside the chord area
-        if (this.fill) {
-            // Inside the circle and within the arc angle range
-            if (dist <= this.radius) {
-                const angle = Math.atan2(point.y - this.y, point.x - this.x);
-                if (this._isAngleInRange(angle)) return true;
-            }
-            // Also check if point is inside the chord triangle
-            // (between the straight line connecting start/end and the arc)
-            const start = this.getStartPoint();
-            const end = this.getEndPoint();
-            if (start && end && this._pointInChord(point, start, end)) return true;
-        }
-
-        // Stroke hit test
-        if (Math.abs(dist - this.radius) > tolerance + this.lineWidth / 2) {
-            return false;
-        }
-        
-        const angle = Math.atan2(point.y - this.y, point.x - this.x);
-        return this._isAngleInRange(angle);
+        const points = sampleControlArc(this._controlArc());
+        return (this.fill && pointInPolygon(point, points)) || hitTestStrokeSegments(point,
+            points.slice(0, -1).map((start, index) => ({ start, end: points[index + 1], lineWidth: this.lineWidth })), tolerance);
     }
 
-    /**
-     * Check if a point is inside the chord area (triangle between arc endpoints and center-ish).
-     */
-    _pointInChord(point, start, end) {
-        // Simple approach: check if point is on the same side of the chord line as the bulge point
-        const cx = (start.x + end.x) / 2;
-        const cy = (start.y + end.y) / 2;
-        const dx = end.x - start.x;
-        const dy = end.y - start.y;
-        // Cross product to determine side of chord line
-        const bulge = this._bulgePoint;
-        const bulgeSide = dx * (bulge.y - start.y) - dy * (bulge.x - start.x);
-        const pointSide = dx * (point.y - start.y) - dy * (point.x - start.x);
-        // Same side as bulge and within the radius
-        const dist = Math.hypot(point.x - this.x, point.y - this.y);
-        return (bulgeSide * pointSide >= 0) && dist <= this.radius + 0.5;
-    }
-    
     /**
      * Test whether an angle lies on the drawn arc.
      * @param {number} angle - Angle in radians.
@@ -257,19 +188,13 @@ export class Arc extends Shape {
     
     /** @override */
     distanceTo(point) {
-        const dist = Math.hypot(point.x - this.x, point.y - this.y);
-        const angle = Math.atan2(point.y - this.y, point.x - this.x);
-        
-        if (this._isAngleInRange(angle)) {
-            return Math.abs(dist - this.radius);
-        }
-        
-        const start = this.getStartPoint();
-        const end = this.getEndPoint();
-        return Math.min(
-            Math.hypot(point.x - start.x, point.y - start.y),
-            Math.hypot(point.x - end.x, point.y - end.y)
-        );
+        const points = sampleControlArc(this._controlArc());
+        return points.slice(0, -1).reduce((distance, start, index) =>
+            Math.min(distance, distanceToSegment(point, start, points[index + 1])), Infinity);
+    }
+
+    _controlArc() {
+        return { kind: 'arc', start: this._startPoint, end: this._endPoint, bulge: this._bulgePoint };
     }
     
     /** @returns {{x:number,y:number}} Copy of the arc start point. */
@@ -288,7 +213,7 @@ export class Arc extends Shape {
         const mid = this.getMidPoint();
         return [
             { id: 'start', x: start.x, y: start.y, cursor: 'grab' },
-            { id: 'mid', x: mid.x, y: mid.y, cursor: 'grab' },
+            { id: 'mid', x: mid.x, y: mid.y, cursor: 'grab', bulge: true },
             { id: 'end', x: end.x, y: end.y, cursor: 'grab' }
         ];
     }
@@ -298,28 +223,12 @@ export class Arc extends Shape {
      * @returns {{x:number,y:number}}
      */
     getMidPoint() {
-        const geo = this._getGeometry();
-        const { cx, cy, radius, sweepFlag } = geo;
-
-        // Use the same sweepFlag that drives SVG rendering so the
-        // anchor always sits on the drawn curve.
-        const TWO_PI = Math.PI * 2;
-        const mod = (a) => ((a % TWO_PI) + TWO_PI) % TWO_PI;
-
-        let midAngle;
-        if (sweepFlag === 1) {
-            // CW in SVG (positive-angle / increasing atan2 with Y-down)
-            const span = mod(geo.endAngle - geo.startAngle);
-            midAngle = geo.startAngle + span / 2;
-        } else {
-            // CCW in SVG (decreasing angles)
-            const span = mod(geo.startAngle - geo.endAngle);
-            midAngle = geo.startAngle - span / 2;
-        }
-
+        const geometry = controlArcGeometry(this._controlArc());
+        if (!geometry) return { x: (this._startPoint.x + this._endPoint.x) / 2, y: (this._startPoint.y + this._endPoint.y) / 2 };
+        const angle = (geometry.startAngle + geometry.endAngle) / 2;
         return {
-            x: cx + radius * Math.cos(midAngle),
-            y: cy + radius * Math.sin(midAngle)
+            x: geometry.cx + geometry.radius * Math.cos(angle),
+            y: geometry.cy + geometry.radius * Math.sin(angle)
         };
     }
     
@@ -329,20 +238,19 @@ export class Arc extends Shape {
         const end = this.getEndPoint();
 
         if (anchorId === 'mid') {
-            const projected = projectOntoChordBisector(start, end, { x, y });
-            this.bulgePoint = clampBulgePoint(start, end, projected);
+            this.bulgePoint = projectArcBulge(start, end, { x, y });
         } else {
             // Start/end anchor: snapshot bulge *ratio* at drag start so the
             // curvature stays constant as the chord changes length.
             if (this._dragBulgeRatio == null) {
-                this._dragBulgeRatio = bulgeRatio(start, end, this._bulgePoint);
+                this._dragBulgeRatio = arcBulgeRatio({ start, end, bulge: this._bulgePoint });
             }
             if (anchorId === 'start') {
                 this.startPoint = { x, y };
-                this.bulgePoint = bulgePointFromRatio({ x, y }, end, this._dragBulgeRatio);
+                this.bulgePoint = arcBulgeFromRatio({ x, y }, end, this._dragBulgeRatio);
             } else {
                 this.endPoint = { x, y };
-                this.bulgePoint = bulgePointFromRatio(start, { x, y }, this._dragBulgeRatio);
+                this.bulgePoint = arcBulgeFromRatio(start, { x, y }, this._dragBulgeRatio);
             }
         }
         this.invalidate();
@@ -357,9 +265,7 @@ export class Arc extends Shape {
     _updateElement(el, strokeColor, fillColor, scale) {
         el.textContent = '';
 
-        const start = this.getStartPoint();
-        const end = this.getEndPoint();
-        const arcPath = `M ${start.x} ${start.y} A ${this.radius} ${this.radius} 0 0 ${this.sweepFlag} ${end.x} ${end.y}`;
+        const arcPath = primitiveShapePath(this._controlArc());
         const sw = this._getEffectiveStrokeWidth(scale);
 
         // Fill: chord area (arc + close)
@@ -404,12 +310,14 @@ export class Arc extends Shape {
             bulgePoint: { x: this._bulgePoint.x, y: this._bulgePoint.y },
             fill: this.fill,
             fillAlpha: this.fillAlpha,
+            lineWidth: this.lineWidth,
         };
     }
 
     /** @override */
     getPropertyDescriptors() {
         return [
+            { key: 'bulge', label: 'Bulge', type: 'number', min: -1, max: 1, step: 0.05 },
             { key: 'locked',    label: 'Locked',    type: 'checkbox' },
             { key: 'lineWidth', label: 'Line width', type: 'number', min: 0.05, max: 5, step: 0.05 },
             { key: 'fill',      label: 'Fill',       type: 'checkbox' },
@@ -422,6 +330,7 @@ export class Arc extends Shape {
         if (state.bulgePoint) this.bulgePoint = { x: state.bulgePoint.x, y: state.bulgePoint.y };
         if ('fill' in state) this.fill = state.fill;
         if ('fillAlpha' in state) this.fillAlpha = state.fillAlpha;
+        if ('lineWidth' in state) this.lineWidth = state.lineWidth;
         this.invalidate();
     }
     

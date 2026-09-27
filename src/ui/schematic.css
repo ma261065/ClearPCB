@@ -251,6 +251,146 @@ body {
 
 .app-slider.show-pcb .app-slide { transform: translateX(-100%); }
 
+/* ── Blank-project startup ── */
+.startup-splash {
+    position: absolute;
+    inset: 0;
+    z-index: 1100;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 32px;
+    background:
+        radial-gradient(circle at 50% 35%, color-mix(in srgb, var(--accent-color) 10%, transparent), transparent 45%),
+        var(--bg-primary);
+}
+
+.startup-splash[hidden] {
+    display: none;
+}
+
+.startup-card {
+    width: min(560px, 100%);
+    max-height: min(620px, calc(100% - 32px));
+    display: flex;
+    flex-direction: column;
+    padding: 28px;
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    background: var(--bg-secondary);
+    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.22);
+}
+
+.startup-heading {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+.startup-heading h1 {
+    margin: 0 0 4px;
+    color: var(--text-primary);
+    font-size: 24px;
+    font-weight: 600;
+}
+
+.startup-heading p {
+    margin: 0;
+    color: var(--text-secondary);
+    font-size: 14px;
+}
+
+.startup-actions {
+    display: flex;
+    gap: 8px;
+    margin: 24px 0;
+}
+
+.startup-actions button {
+    padding: 8px 14px;
+    border: 1px solid var(--border-color);
+    border-radius: 5px;
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    cursor: pointer;
+}
+
+.startup-actions button:hover {
+    border-color: var(--accent-color);
+}
+
+.startup-actions .startup-primary {
+    border-color: var(--accent-color);
+    background: var(--accent-color);
+    color: #fff;
+}
+
+.startup-recents-heading {
+    margin-bottom: 8px;
+    color: var(--text-secondary);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.startup-recents {
+    min-height: 48px;
+    overflow-y: auto;
+}
+
+.startup-recents .recent-row {
+    display: flex;
+    align-items: stretch;
+    border-top: 1px solid var(--border-color);
+}
+
+.startup-recents .recent-open {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 3px;
+    padding: 10px 8px;
+    border: 0;
+    background: transparent;
+    color: var(--text-primary);
+    cursor: pointer;
+    text-align: left;
+}
+
+.startup-recents .recent-open:hover {
+    background: var(--bg-tertiary);
+}
+
+.startup-recents .recent-name,
+.startup-recents .recent-path {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.startup-recents .recent-path {
+    color: var(--text-secondary);
+    font-size: 11px;
+}
+
+.startup-recents .recent-remove {
+    align-self: center;
+}
+
+.startup-recents .recent-empty {
+    padding: 12px 8px;
+}
+
+@media (max-width: 600px) {
+    .startup-splash { padding: 16px; }
+    .startup-card { padding: 20px; }
+    .startup-heading img { display: none; }
+}
+
 /* ── PCB placeholder ── */
 .pcb-placeholder {
     flex: 1;
@@ -854,6 +994,16 @@ body {
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
+}
+
+.dropdown-menu .recent-name {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.dropdown-menu .recent-path {
+    display: none;
 }
 
 .recent-row .recent-remove {
@@ -3427,5 +3577,3 @@ svg.pcb-zoom-low .pcb-track-label { display: none; }
 .drc-item-warn .drc-item-dot { background: #d9a40a; }
 
 .drc-item-text { flex: 1 1 auto; }
-
-

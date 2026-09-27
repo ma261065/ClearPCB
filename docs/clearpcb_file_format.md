@@ -12,8 +12,12 @@ that container version is independent of the project version and app release.
 Plain JSON input is also supported, subject to the same project validation.
 
 The format is JSON, not JSON5: comments, trailing commas, `NaN`, and `Infinity`
-are not valid. Unknown fields should be ignored by readers where practical.
-Writers should emit the canonical keys documented here.
+are not valid. ClearPCB-owned records are strict: unknown fields, long-form
+aliases, obsolete fields, and legacy representations make the file invalid.
+Only the canonical keys documented here are accepted. Loading stops at the
+first error and reports its property path plus a line-numbered JSON snippet of
+the faulty value. Provider-defined values nested inside supported component
+metadata retain their provider-specific structure.
 
 ## Document Envelope
 
@@ -91,7 +95,7 @@ A project always has a schematic envelope. `ProjectDocument` adds the optional
 | `gridStyle` | string | `"lines"` or `"dots"`. |
 | `gridVisible` | boolean | Whether the grid is shown. |
 | `snapToGrid` | boolean | Whether snapping is enabled; disabled when the grid is hidden. |
-| `units` | string | Display units: `"mm"`, `"inch"`, or legacy `"mil"`. |
+| `units` | string | Display units: `"mm"` or `"inch"`. |
 | `paperSize` | string or null | Paper preset key, such as `"A4"`; `null` means no paper. |
 | `paperOrientation` | string or null | `"landscape"` or `"portrait"`. |
 | `titleBlock` | boolean | Whether the title block is shown. Default `false`. |
@@ -103,8 +107,7 @@ A project always has a schematic envelope. `ProjectDocument` adds the optional
 The PCB section also stores `settings` with `gridSize`, `gridStyle`,
 `gridVisible`, `snapToGrid`, and `units`, independently of the schematic.
 These settings are included in project saves and autorecovery, even for an
-empty PCB whose viewport has been initialized. Older files without these
-fields retain the editor's current defaults.
+empty PCB whose viewport has been initialized.
 
 Every entry in `schematic.shapes` has `id` and `type`. Shape subclasses extend
 this compact base:
@@ -120,8 +123,8 @@ this compact base:
 | `lk` | locked | boolean | `false`. |
 
 Canonical schematic shape types are `polyline`, `wire`, `circle`, `arc`,
-`text`, `net`, and `noconnect`. The loader also recognizes `line`, `polygon`,
-`rect`, `track`, and `Net` where applicable.
+`text`, `net`, and `noconnect`. Type names are case-sensitive. In particular,
+`net` is valid and `Net` is not.
 
 ### Graph Shapes
 
@@ -207,10 +210,10 @@ The three control points are the source of truth:
 
 ### Rect
 
-A schematic rectangle is canonically a graph-based `polyline` with `ir: true`.
-Its corners are stored in `nd`/`ed`; `cr` is the optional corner radius.
-Fill-related fields use `f`, `fc`, and `fa`. The loader accepts `type: "rect"`
-as a compatibility alias, but the current writer emits `type: "polyline"`.
+A schematic rectangle is a graph-based `polyline` with `ir: true`. Its corners
+are stored in `nd`/`ed`; `cr` is the optional corner radius. Fill-related
+fields use `f`, `fc`, and `fa`. A persisted `points` array or `type: "rect"`
+is invalid.
 
 ### Text
 
@@ -331,7 +334,7 @@ provider-specific symbol, footprint, supplier, and 3D-model metadata.
 
 | Field | Type | Description |
 | --- | --- | --- |
-| `stackup.copperLayers` | string[] | Unique copper-layer IDs in physical top-to-bottom order. Omitted `stackup` defaults to two layers. |
+| `stackup.copperLayers` | string[] | Unique copper-layer IDs in physical top-to-bottom order. `stackup` is required when `pcb` exists. |
 | `board.width` | number | Board width in mm. |
 | `board.height` | number | Board height in mm. |
 | `board.radius` | number | Board corner radius in mm. |
@@ -342,7 +345,7 @@ provider-specific symbol, footprint, supplier, and 3D-model metadata.
 | `design.units` | string | PCB UI display units, normally `"mm"` or `"inch"`. |
 | `design.router` | string | Router mode, currently `"maze"` or `"pathfinder"`. |
 
-Older documents without `design` retain the user's current working defaults.
+`design` and all fields listed above are required when `pcb` exists.
 A board outline is stored as the single shape with `layer: "board-outline"` in
 `pcb.boardShapes`. Its kind must be `rect`, `polygon`, or `circle`; it uses the
 same geometry, corner radii, and segment bulges as other board shapes. The
@@ -351,11 +354,11 @@ or duplicated through the clipboard. Deleting a polygon segment removes its
 following vertex and reconnects the remaining boundary, with at least three
 vertices retained.
 
-`board.width` and `board.height` retain the outline's bounding-box dimensions
-for compatibility. The shape geometry is authoritative, including its position.
-Older documents containing only `board` dimensions are migrated to a rectangular
-outline on activation. A missing/invalid board without an outline resets to the
-default undrawn `100 x 80` board state.
+`board.width` and `board.height` retain the outline's bounding-box dimensions.
+The shape geometry is authoritative, including its position. A valid document
+containing only board dimensions is repaired to a rectangular outline on
+activation. A missing/invalid board without an outline resets to the default
+undrawn `100 x 80` board state.
 
 ### Panelization
 
@@ -397,16 +400,14 @@ with at most 100 boards and a maximum panel extent of 1000 mm per axis.
 `tabs` creates routed gaps with `verticalTabsPerEdge` and `horizontalTabsPerEdge`
 mouse-bite tabs per connected vertical and horizontal board edge respectively,
 including connections to rails. Each count is an integer from 1 to 20,
-defaulting to 2. Legacy `tabsPerEdge` supplies either count whose new setting
-is absent; new saves store only the two independent counts.
+defaulting to 2.
 Tab centers divide the edge into equal cells, with a tab
 at each cell's midpoint; the default retains quarter and three-quarter positions.
 `verticalTabOffset` and `horizontalTabOffset` independently shift these centers
 along vertical and horizontal edges in millimetres (-100 to 100, default 0).
 Positive offsets move down on vertical edges and right on horizontal edges in
 the editor; negative offsets move up/left. The same offsets apply to rail
-connections. Legacy `tabOffset` supplies either axis whose new setting is absent;
-new saves store only the two independent offsets. Holes move with their tabs,
+connections. Holes move with their tabs,
 not inward into the board. Independently, mouse-bite hole centers sit half a
 hole diameter into the connecting tab from each board/rail boundary, so holes
 are tangent to straight edges rather than centered on them. The gap at each
@@ -574,7 +575,6 @@ Every entry contains:
 | `id` | string | Shape ID. |
 | `kind` | string | `line`, `rect`, `polygon`, `arc`, `circle`, or `image`. |
 | `layer` | string | PCB layer ID. |
-| `geometryVersion` | number | `1` for centreline paths; circles use `2` to store the outer radius. |
 | `lineWidth` | number | Stroke width in mm; centred on lines, arcs, rectangles and polygons, inward for circles. |
 | `filled` | boolean | Whether the enclosed area is active. |
 | `copperMode` | string | Copper/mask operation; see below. |
@@ -698,12 +698,9 @@ negates its value. Missing, zero, non-finite and negligible values are treated
 as straight segments. Rectangle records do not use per-segment bulges; adding
 one converts the editable shape to a polygon.
 
-Circles continue to store the outer radius, with thickness extending inward.
-Circle records without `geometryVersion: 2` have half the old stroke width added
-to their radius on load; new saves use version 2 to avoid repeating conversion.
-Rectangle and polygon coordinates are loaded unchanged, including interim
-version 2 records; their paths now receive centred strokes and `strokeSide` is
-ignored. New saves use version 1 for non-circle shapes.
+Circles store the outer radius, with thickness extending inward. All other shape
+coordinates are loaded unchanged and their paths receive centred strokes.
+`strokeSide` is not a format field and makes a file invalid.
 Rectangles and polygons always use round stroke joins and round segment caps,
 including when their corner radius is zero. Set `cornerRadius` or
 `nodeCornerRadii` to round the centreline corners independently of stroke width.
@@ -724,9 +721,7 @@ release, undo/redo and save/load; no per-node join-style flags are stored.
 | `remove-solder-mask` | Open solder mask without removing copper. |
 | `remove-copper-mask` | Remove copper and open solder mask. |
 
-Legacy values accepted on load are `remove` (mapped to
-`remove-copper-mask`) and `remove-mask` (mapped to
-`remove-solder-mask`).
+The legacy aliases `remove` and `remove-mask` are invalid.
 
 ### Copper Fills
 
@@ -746,7 +741,7 @@ Copper fills are stored inside `pcb.boardShapes` with `type: "fill"`:
 | --- | --- | --- |
 | `l` | `top-copper` or `bottom-copper`. | Required. |
 | `pts` | Control vertices as `[x,y]` pairs, without a repeated closing point. | Required for polygon/rectangle. |
-| `kind` | Closed outline geometry: `polygon`, `rect`, or `circle`. | `polygon`. |
+| `kind` | Closed outline geometry: `polygon`, `rect`, or `circle`. | Required. |
 | `cornerRadius` | Default corner radius in mm. | `0`. |
 | `nodeCornerRadii` | Per-vertex corner radius overrides, keyed by vertex index. | `{}`. |
 | `segmentBulges` | Signed arc bulges in `[-1,1]`, keyed by starting vertex index. | `{}` (straight edges). |
@@ -756,8 +751,8 @@ Copper fills are stored inside `pcb.boardShapes` with `type: "fill"`:
 | `v` | Visible. | `true`. |
 
 Computed pour polygons are not persisted. They are regenerated from the
-boundary, net, board, and obstacles after loading. The loader also accepts the
-legacy top-level `pcb.fills` array.
+boundary, net, board, and obstacles after loading. Copper fills are valid only
+inside `pcb.boardShapes`; `pcb.fills` is invalid.
 
 The editing boundary and copper computation use the same sampled closed
 contour. Control vertices and curve metadata remain editable after loading;
@@ -785,8 +780,8 @@ counter-clockwise even though model Y points down. Valid text layers are
 
 ### Placement Overrides
 
-Only manually overridden footprint positions are persisted. The map key is the
-schematic component ID:
+Only footprint placements with an overridden position, pose, reference style,
+or lock state are persisted. The map key is the schematic component ID:
 
 ```json
 {
@@ -795,6 +790,7 @@ schematic component ID:
       "x": 35,
       "y": 20,
       "rotation": 90,
+      "locked": true,
       "mirror": true,
       "side": "bottom",
       "refVisible": false,
@@ -809,8 +805,8 @@ schematic component ID:
 ```
 
 Only non-default optional values are emitted. Defaults on load are top side,
-not mirrored, visible reference, zero offsets/rotation, and application default
-reference size/stroke width.
+unlocked, not mirrored, visible reference, zero offsets/rotation, and
+application default reference size/stroke width.
 
 ## PCB Layer IDs
 
@@ -850,8 +846,8 @@ A four-layer example is:
 This object belongs in `pcb`. The first layer must be `top-copper`, the last
 `bottom-copper`, and intermediate IDs must match `inner-copper-N`, where N is
 a positive integer without leading zeros. IDs must be unique. Array order,
-not the number in an ID, determines physical order. Omit the entire `stackup`
-for the two-layer default; an explicitly supplied stackup must include its list.
+not the number in an ID, determines physical order. `stackup` and its
+`copperLayers` list are required whenever `pcb` exists.
 
 Tracks (`l` and `el`), fills and board shapes (`layer`), and PCB text reference
 these same IDs. Copper references must be declared in the stackup. Mask,
@@ -873,14 +869,14 @@ must be capability-checked before older editors may edit or export it.
 
 App releases such as `v1.0.0` and `v1.1.0` do not change the project version.
 Adding inner layers using the contract above does not change it either.
-Additive optional metadata may remain in `1.0` when its omission does not
-alter existing semantics. Breaking interpretation changes still require a
-new format version; `1.0` is not a promise to accept unknown manufacturing
-semantics. Unknown fields are not guaranteed to survive an edit/save cycle.
+Additive optional metadata requires updating the strict validator while this
+format is under development. Breaking interpretation changes still require a
+new format version once the format is finalized.
 
-## Compatibility and Long-Key Aliases
+## Canonical Compact-Key Dictionary
 
-The schematic shape loader expands these compact keys to constructor fields:
+The following table documents the meaning of compact persisted keys. The long
+field names are explanatory only and are not accepted in project files.
 
 | Compact | Long field | Compact | Long field |
 | --- | --- | --- | --- |
@@ -907,12 +903,12 @@ The schematic shape loader expands these compact keys to constructor fields:
 | `nst` | `style` | `no` | `orientation` |
 | `nto` | `textOffset` |  |  |
 
-The via and copper-fill loaders separately accept both compact and long names:
-`d`/`diameter`, `dr`/`drill`, `n`/`net`, `l`/`layer`, `lk`/`locked`,
-`v`/`visible`, and `pts`/`outline`.
-
-Component loading accepts `dn`/`definitionName`, `def`/`definition`, and the
-instance compact keys emitted by `Component.toJSON()`.
+Vias and copper fills likewise accept only their compact keys: `d` means
+diameter, `dr` drill diameter, `n` net, `l` layer, `lk` locked, `v` visible,
+and `pts` outline points. Component instances accept only `dn` for definition
+name and the compact instance keys documented above. Long forms such as
+`diameter`, `drill`, `net`, `layer`, `locked`, `visible`, `outline`,
+`definitionName`, and `definition` are invalid.
 
 ## Data Not Stored in Project Files
 

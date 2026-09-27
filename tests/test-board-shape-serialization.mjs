@@ -29,6 +29,7 @@ const shapes = [
 ];
 const before = structuredClone(shapes);
 const saved = serializeBoardShapes({ boardShapes: shapes });
+assert.ok(saved.every(shape => !('geometryVersion' in shape)));
 assert.equal(saved[0].radius, 6.8392);
 assert.deepEqual(saved[1].points, [{ x: -74.93, y: 58.42 }, { x: -74.93, y: 11.43 }]);
 assert.deepEqual(saved[1].segmentWidths, { 0: 0.3457 });
@@ -45,6 +46,12 @@ assert.deepEqual(shapes, before, 'saving does not mutate live geometry');
 const restored = { boardShapes: [], _shapeIdCounter: 1 };
 loadBoardShapes(restored, [...saved, fill.toJSON()], { render: false, strict: true });
 assert.deepEqual(serializeBoardShapes(restored), [...saved, fill.toJSON()]);
+const staleVersionCircle = { ...saved[0], geometryVersion: 1, radius: 5 };
+const restoredStaleVersionCircle = { boardShapes: [], _shapeIdCounter: 1 };
+loadBoardShapes(restoredStaleVersionCircle, [staleVersionCircle], { render: false, strict: true });
+assert.equal(restoredStaleVersionCircle.boardShapes[0].radius, 5,
+    'all circle radii are interpreted as outer radii regardless of stale metadata');
+assert.equal('geometryVersion' in serializeBoardShapes(restoredStaleVersionCircle)[0], false);
 
 const imagePoints = [
     { x: 1.2700000000000102, y: -76.2 },
@@ -113,7 +120,8 @@ const text = { id: 'text-2jbepmqe', content: 'Hello', x: 91.44000000000001, y: -
     size: 7.700000000000001, rotation: 30.123456, layer: 'top-copper', strokeWidth: 1.6000000000000003 };
 const placement = { x: 27.939999999999998, y: -38.10000000000001, rotation: 45.123456,
     refDx: 1.234567, refDy: 22.860000000000003, refRot: 30.123456,
-    refSize: 1.234567, refStrokeWidth: 0.234567, mirror: true, side: 'bottom', refVisible: false };
+    refSize: 1.234567, refStrokeWidth: 0.234567, locked: true,
+    mirror: true, side: 'bottom', refVisible: false };
 const beforeText = structuredClone(text);
 const beforePlacement = structuredClone(placement);
 const app = { tracks: [], vias: [], boardShapes: [], texts: new Map([[text.id, text]]),

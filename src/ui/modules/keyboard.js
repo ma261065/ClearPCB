@@ -1,9 +1,9 @@
 import { clearDragState } from './mouse.js';
+import { cancelSchematicPathSplit, cancelSchematicShapeConversion } from './drag.js';
 import { ModifyPropertyCommand, MoveShapesCommand } from '../../schematic/modules/commands.js';
 import { rotateNetOrientation } from '../../shapes/net.js';
 import { resolveWireSnapPosition, PIN_SNAP_TOL } from './wire.js';
 import { updateToolGhost } from './tool.js';
-import { updateLabelDragGuide } from './draw-states.js';
 import { ModalManager } from '../../core/ModalManager.js';
 
 /**
@@ -75,6 +75,11 @@ export function handleEscape(app) {
 
     // 2. Cancel an in-progress drag.
     switch (app.interactionState) {
+        case 'overlapCycle':
+            app._overlapCyclePress = null;
+            app.interactionState = 'idle';
+            app.skipClickSelection = true;
+            return;
         case 'segmentDrag':
             // Revert bridge insertions from segment drag start.
             if (app.drag?.shape?.type === 'polyline' && app.drag.beforeState) {
@@ -89,6 +94,8 @@ export function handleEscape(app) {
             return;
 
         case 'anchorDrag':
+            cancelSchematicShapeConversion(app);
+            cancelSchematicPathSplit(app);
             // Revert shape and linked wires to pre-drag state.
             if (app.drag?.beforeState) {
                 app._applyShapeState(app.drag.shape, app.drag.beforeState);
@@ -253,13 +260,12 @@ function handleSpaceRotate(app, e) {
 
         const textShapes = sel.filter(s => s.type === 'text' && !s.locked);
         if (textShapes.length > 0) {
-            const newRot = textShapes[0].rotation === 270 ? 0 : 270;
+            const newRot = textShapes.every(shape => shape.fieldKey === 'reference')
+                ? (((textShapes[0].rotation || 0) + 90) % 360 + 360) % 360
+                : textShapes[0].rotation === 270 ? 0 : 270;
             app.history.execute(new ModifyPropertyCommand(app, textShapes, 'rotation', newRot));
             app.renderShapes(true);
             app._updatePropertiesPanel(sel);
-            if (sel.length === 1 && sel[0].parentComponent) {
-                updateLabelDragGuide(app, sel[0]);
-            }
             e.preventDefault();
         }
     }
@@ -299,19 +305,6 @@ export function bindKeyboardShortcuts(app) {
             }
         }
         if (e.defaultPrevented && e.key !== 'Escape' && e.key !== 'Enter') return;
-
-        // Ctrl+Tab: toggle Schematic / PCB mode (works even during text edit)
-        if ((e.ctrlKey || e.metaKey) && e.key === 'Tab') {
-            e.preventDefault();
-            e.stopPropagation();
-            const tabs = document.querySelectorAll('.mode-tab');
-            if (tabs.length >= 2) {
-                const active = document.querySelector('.mode-tab.active');
-                const target = active?.dataset.mode === 'pcb' ? tabs[0] : tabs[1];
-                target.click();
-            }
-            return;
-        }
 
         // Text edit has absolute priority for Escape and Enter
         if (app.textEdit) {
@@ -425,7 +418,14 @@ export function bindKeyboardShortcuts(app) {
                     handleFlipVertical(app, e);
                     break;
                 case ' ':
+                    if (e.target?.isContentEditable) break;
                     handleSpaceRotate(app, e);
+                    if (!e.defaultPrevented && !e.altKey && !app.textEdit && !app.placingComponent
+                        && !app.isDrawing && !app.pastingClipboard && !app.selection.getSelection().length
+                        && !['INPUT', 'BUTTON'].includes(e.target?.tagName)) {
+                        e.preventDefault();
+                        app._fitToContent();
+                    }
                     break;
                 case 'f':
                 case 'F':
@@ -451,7 +451,7 @@ export function bindKeyboardShortcuts(app) {
                 case 'ArrowRight': {
                     if (app.textEdit) break;
                     e.preventDefault();
-                    const step = app.viewport.snapToGrid ? app.viewport.gridSize : 1;
+                    const step = app.viewport.snapToGrid ? app.viewport.gridSize / 4 : 1;
                     let dx = 0, dy = 0;
                     if (e.key === 'ArrowUp') dy = -step;
                     else if (e.key === 'ArrowDown') dy = step;

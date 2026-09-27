@@ -24,9 +24,6 @@ globalThis.document = {
 
 const {
     applyShapeGeometry,
-    boardShapeNodeCornerRadius,
-    boardShapeSegmentBulge,
-    boardShapeSegmentWidth,
     cloneShapeGeometry,
     createBoardShapeSelectionAdapter,
     endBoardShapeDrag,
@@ -35,14 +32,13 @@ const {
     deleteBoardShapeVertex,
     deleteBoardShapeSegment,
     setBoardShapeSegmentType,
-    resolveBoardShapeGeometry,
     serializeBoardShapes,
     setBoardShapeNodeCornerRadius,
-    shapeOutline,
-    shapePathD,
     startBoardShapeDrag,
     translateShapeGeometry,
 } = await import('../src/pcb/modules/board-shapes.js');
+const { boardShapeNodeCornerRadius, boardShapeSegmentBulge, boardShapeSegmentWidth,
+    resolveBoardShapeGeometry, shapeOutline, shapePathD } = await import('../src/pcb/modules/board-shape-geometry.js');
 const { updateGroupDrag, endGroupDrag, cancelGroupDrag } = await import('../src/pcb/modules/box-select.js');
 const { updateSelectionInteraction, finishSelectionInteraction, placeFloatingSelectionInteraction } =
     await import('../src/pcb/modules/selection-interaction.js');

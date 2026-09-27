@@ -20,10 +20,11 @@ globalThis.document = {
             remove() { if (contextMenu === this) contextMenu = null; }, querySelectorAll() { return []; } };
     },
 };
-const { resolveBoardShapeGeometry, getBoardShapeAnchors, boardShapeHitTest,
-    boardShapeBounds, serializeBoardShapes, loadBoardShapes, cloneShapeGeometry,
+const { resolveBoardShapeGeometry, boardShapeHitTest, boardShapeBounds, shapePathD } =
+    await import('../src/pcb/modules/board-shape-geometry.js');
+const { getBoardShapeAnchors, serializeBoardShapes, loadBoardShapes, cloneShapeGeometry,
     createBoardShapeSelectionAdapter, startBoardShapeDrag, handleBoardShapeDrag, endBoardShapeDrag,
-    showBoardShapeProperties, showBoardShapeContextMenu, setBoardShapeSegmentType, shapePathD } = await import('../src/pcb/modules/board-shapes.js');
+    showBoardShapeProperties, showBoardShapeContextMenu, setBoardShapeSegmentType } = await import('../src/pcb/modules/board-shapes.js');
 const { reconcileRatsnest } = await import('../src/pcb/modules/track-draw.js');
 const { cancelPictureCopperRefresh } = await import('../src/pcb/modules/picture-refresh.js');
 const { updateSelectionInteraction, finishSelectionInteraction, placeFloatingSelectionInteraction } =
@@ -436,7 +437,6 @@ for (const cornerRadius of [0, 2]) {
     assert.equal(shape.lineWidth, 5);
     document.getElementById = () => null;
     const serialized = serializeBoardShapes(app);
-    assert.equal(serialized[0].geometryVersion, 1);
     const loaded = { boardShapes: [], _shapeIdCounter: 1 };
     loadBoardShapes(loaded, serialized, { render: false });
     assert.deepEqual(serializeBoardShapes(loaded), serialized);
@@ -473,7 +473,7 @@ loadBoardShapes(legacy, [
     { id: 'legacy-line', kind: 'line', lineWidth: 2, points: [{ x: 0, y: 0 }, { x: 20, y: 0 }] },
 ], { render: false });
 assert.deepEqual(legacy.boardShapes[0].points[0], { x: 0, y: 0 });
-assert.equal(legacy.boardShapes[1].radius, 6);
+assert.equal(legacy.boardShapes[1].radius, 5);
 assert.deepEqual(legacy.boardShapes[2].points, [{ x: 0, y: 0 }, { x: 20, y: 0 }]);
 const migrated = serializeBoardShapes(legacy);
 const reloaded = { boardShapes: [], _shapeIdCounter: 1 };

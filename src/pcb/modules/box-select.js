@@ -25,12 +25,10 @@ import { isLayerLocked, isViaLocked, isCopperFillLocked, isCopperFillVisible } f
 import {
     applyShapeGeometry,
     cloneShapeGeometry,
-    boardShapeHitTest,
-    normalizeShapeCopperMode,
     renderBoardShape,
-    shapeOutline,
     translateShapeGeometry,
 } from './board-shapes.js';
+import { boardShapeHitTest, normalizeShapeCopperMode, shapeOutline } from './board-shape-geometry.js';
 import {
     CompoundCommand,
     RemoveTrackCommand,
@@ -199,6 +197,7 @@ function _computeEnclosed(app, bounds) {
 
     // Components: every pad must lie inside the rectangle.
     for (const [compId, pl] of app.placements) {
+        if (pl.locked) continue;
         if (!pl.pads || pl.pads.size === 0) continue;
         let allInside = true;
         for (const [, pad] of pl.pads) {
@@ -383,7 +382,7 @@ export function beginGroupDrag(app, worldPos) {
     const comps = [];
     for (const compId of getPcbSelection(app, 'component')) {
         const pl = app.placements.get(compId);
-        if (pl) comps.push({ id: compId, x: pl.x, y: pl.y });
+        if (pl && !pl.locked) comps.push({ id: compId, x: pl.x, y: pl.y });
     }
     const vias = [];
     for (const v of getPcbSelection(app, 'via')) vias.push({ via: v, x: v.x, y: v.y });
@@ -438,13 +437,13 @@ export function scheduleGroupDrag(app, worldPos) {
     });
 }
 
-export function updateGroupDrag(app, worldPos) {
+export function updateGroupDrag(app, worldPos, { snap = true } = {}) {
     const g = app._groupDrag;
     if (!g) return;
     let dx = worldPos.x - g.startWorld.x;
     let dy = worldPos.y - g.startWorld.y;
     // Snap the shared delta (not each object) so relative layout is kept.
-    if (app.viewport?.snapToGrid) {
+    if (snap && app.viewport?.snapToGrid) {
         const gs = app.viewport.gridSize;
         dx = Math.round(dx / gs) * gs;
         dy = Math.round(dy / gs) * gs;

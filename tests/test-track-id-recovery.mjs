@@ -21,8 +21,12 @@ const track = (id, offset) => ({ type: 'track', id, n: 'GND',
     nd: { n0: [offset, 0], n1: [offset + 10, 0] }, ed: { e0: ['n0', 'n1'] },
     pdc: { n0: { componentId: 'U1', pinNumber: '1' } } });
 const source = { type: 'clearpcb-project', version: '1.0',
-    schematic: { shapes: [{ id: 'shape_1' }], components: [] },
-    pcb: { tracks: [track('shape_66', 0), track('shape_66', 20), track('shape_2', 40), track('shape_66', 60)] } };
+    schematic: { shapes: [{ id: 'shape_1', type: 'circle', c: '#fff', x: 0, y: 0, r: 1 }], components: [] },
+    pcb: {
+        stackup: { copperLayers: ['top-copper', 'bottom-copper'] },
+        design: { trackWidth: 0.2, clearance: 0.2, viaDiameter: 0.6, viaDrill: 0.3, units: 'mm', router: 'maze' },
+        tracks: [track('shape_66', 0), track('shape_66', 20), track('shape_2', 40), track('shape_66', 60)],
+    } };
 const before = structuredClone(source);
 assert.throws(() => validateProject(source), /Duplicate tracks id/);
 const repaired = repairDuplicateTrackIds(source);
@@ -40,6 +44,6 @@ repaired.data.pcb.tracks.forEach((item, index) => {
 assert.doesNotThrow(() => validateProject(repaired.data));
 assert.deepEqual(repairDuplicateTrackIds(repaired.data), { data: repaired.data, count: 0 });
 repaired.data.pcb.tracks[0].ed.e0[1] = 'missing';
-assert.throws(() => validateProject(repairDuplicateTrackIds(repaired.data).data), /Dangling/);
+assert.throws(() => validateProject(repairDuplicateTrackIds(repaired.data).data), /missing node/);
 
 console.log('Track ID allocation and autosave repair regressions passed.');

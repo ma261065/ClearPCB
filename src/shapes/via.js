@@ -135,11 +135,11 @@ export class Via {
             id: data.id,
             x: data.x,
             y: data.y,
-            diameter: data.d !== undefined ? data.d : data.diameter,
-            drill: data.dr !== undefined ? data.dr : data.drill,
-            net: data.n !== undefined ? data.n : data.net,
-            locked: data.lk !== undefined ? data.lk : data.locked,
-            visible: data.v !== undefined ? data.v : data.visible,
+            diameter: data.d,
+            drill: data.dr,
+            net: data.n,
+            locked: data.lk,
+            visible: data.v,
         });
     }
 }

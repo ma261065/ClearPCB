@@ -1,7 +1,7 @@
 /** Headless regression tests for shared PCB selection interaction state. */
 
 globalThis.window = { addEventListener() {} };
-globalThis.document = { getElementById() { return null; },
+globalThis.document = { getElementById() { return null; }, querySelector() { return null; },
     createElementNS() { return { setAttribute() {}, getAttribute() { return null; }, appendChild() {}, remove() {} }; } };
 globalThis.requestAnimationFrame = (callback) => { callback(); return 1; };
 
@@ -111,6 +111,28 @@ function expect(name, condition) {
     const selectedObjects = app._pcbSelection.getSelection().map((item) => item.object);
     expect('Ctrl+Shift cycling preserves unrelated selected objects', selectedObjects.includes(below)
         && selectedObjects.includes(unrelated) && !selectedObjects.includes(top));
+}
+
+{
+    const locked = { id: 'locked-shape' };
+    let beganMove = false;
+    registerPcbSelectionAdapter('shape', (_app, object, id) => ({
+        id, kind: 'shape', object, visible: true, locked: true,
+        getBounds: () => ({ minX: 0, minY: 0, maxX: 10, maxY: 10 }),
+        hitTest: () => true,
+        beginMove() { beganMove = true; return true; },
+        invalidate() {},
+    }));
+    const app = {
+        placements: new Map(), tracks: [], vias: [], boardShapes: [locked], texts: new Map(),
+        _shapeElements: new Map(), viewport: { scale: 1 },
+        _syncClipboardButtons() {}, _setPcbStatus() {},
+        _selectComponent() {}, _selectBoardOutline() {}, _selectText() {}, _selectRefText() {}, _selectFill() {},
+        _clearProperties() {}, _getLayerGroup() { return null; },
+    };
+    expect('Locked object remains directly selectable',
+        beginSelectionInteraction(app, { x: 5, y: 5 }, false));
+    expect('Locked object does not begin movement', !beganMove && !app._pcbSelectionInteraction);
 }
 
 {

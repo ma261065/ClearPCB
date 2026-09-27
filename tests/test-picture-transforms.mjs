@@ -26,6 +26,31 @@ for (const invert of [false, true]) {
     }
 }
 console.log('PASS image inversion and local horizontal/vertical flips, combinations and cache invalidation');
+for (const layer of ['bottom-silk', 'bottom-copper', 'bottom-document']) {
+    for (const artwork of [raster,
+        { width: 4, height: 3, contours: [[{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 0, y: 1 }]] },
+        { width: 4, height: 3, circles: [{ x: 0.5, y: 0.5, radius: 0.3 }] }]) {
+        for (const flipHorizontal of [false, true]) {
+            const shape = pictureShape(artwork, { widthMm: 8, layer: 'top-silk' });
+            shape.points = [{ x: 0, y: 0 }, { x: 0, y: 8 }, { x: -6, y: 8 }, { x: -6, y: 0 }];
+            shape.artwork = { ...shape.artwork, flipHorizontal };
+            const before = structuredClone(shape);
+            const top = structuredClone(pictureRegions(shape));
+            const triangles = structuredClone(pictureTriangles(shape));
+            const reflect = point => ({ x: point.x, y: 8 - point.y });
+            shape.layer = layer;
+            assert.deepEqual(pictureRegions(shape), top.map(region => ({
+                outer: region.outer.map(reflect), holes: region.holes.map(hole => hole.map(reflect)),
+            })), `${layer}: rotated artwork mirrors on its local horizontal axis`);
+            assert.deepEqual(pictureTriangles(shape), triangles.map(triangle => triangle.map(reflect)),
+                `${layer}: triangles follow the same automatic mirror with manual flip=${flipHorizontal}`);
+            assert.deepEqual(shape.points, before.points);
+            assert.deepEqual(shape.artwork, before.artwork);
+            shape.layer = 'top-silk';
+            assert.deepEqual(pictureRegions(shape), top, 'Returning to top invalidates the mirrored geometry cache');
+        }
+    }
+}
 const solid = pictureShape({ width: 2, height: 2, rectangles: [{ x: 0, y: 0, width: 2, height: 2 }] },
     { widthMm: 2, layer: 'top-silk' });
 solid.artwork = { ...solid.artwork, invert: true };

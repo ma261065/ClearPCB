@@ -37,6 +37,7 @@ export function createRefTextSelectionAdapter(app, componentId, id) {
         kind: 'reftext',
         object: componentId,
         get visible() { return app.placements?.get(componentId)?.refVisible !== false; },
+        get locked() { return !!app.placements?.get(componentId)?.locked; },
         getBounds() { return boundsForRefText(app, componentId); },
         hitTest(point) { return getRefTextSelectionHit(app, point) === componentId; },
         getPosition() {
@@ -47,7 +48,10 @@ export function createRefTextSelectionAdapter(app, componentId, id) {
         beginMove(worldPos) { return app._beginRefTextDrag(componentId, worldPos); },
         updateMove(worldPos) { app._updateRefTextDrag(worldPos); },
         endMove(commit) { if (commit) app._endRefDrag(); },
-        invalidate() { app._drawRefOverlay?.(componentId, false); },
+        invalidate() {
+            app._refreshRefHighlight?.(componentId);
+            app._drawRefOverlay?.(componentId, false);
+        },
         render() { this.invalidate(); },
     };
 }

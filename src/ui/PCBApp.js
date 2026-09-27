@@ -9,7 +9,13 @@ import { extractNetlist, extractComponents } from '../pcb/modules/netlist.js';
 import { generateFootprint, renderFootprint, applyRefGeometry, REF_DEFAULT_SIZE, REF_DEFAULT_STROKE } from '../pcb/modules/footprint.js';
 import { updateGridDropdown } from './modules/viewport.js';
 import { setToolCursor } from './modules/cursor.js';
-import { PCB_LAYERS, PCB_OVERLAYS, PCB_COPPER_FILLS, isLayerLocked, isViaLocked, isLayerVisible, isViaVisible, showLockedLayerBubble, isCopperFillLocked, isCopperFillVisible, saveLayerPrefs } from '../pcb/modules/layers.js';
+import { isUnmodifiedPrimaryDoublePress } from './modules/inline-edit-activation.js';
+import {
+    applyTextConnectionGuide,
+    createInlineTextOverlay,
+    setInlineTextInputActive,
+} from './modules/inline-text-overlay.js';
+import { PCB_LAYERS, PCB_OVERLAYS, PCB_COPPER_FILLS, isLayerLocked, isViaLocked, isLayerVisible, isViaVisible, showLockedLayerBubble, isCopperFillLocked, isCopperFillVisible, saveLayerPrefs, setPcbCopperFillLocked, setPcbLayerLocked } from '../pcb/modules/layers.js';
 import { exportDSN, importSES } from '../pcb/modules/dsn.js';
 import { runDRC } from '../pcb/modules/drc.js';
 import { buildCopperObstacles } from '../pcb/modules/copper-obstacles.js';
@@ -46,6 +52,7 @@ import {
     CompoundCommand,
     MovePlacementCommand,
     RotatePlacementCommand,
+    SetPlacementLockedCommand,
     FlipPlacementCommand,
     SetPlacementSideCommand,
     SetPlacementRefVisibleCommand,
@@ -59,14 +66,17 @@ import {
     placementTransform,
     isPlacementMirrored,
 } from '../pcb/modules/track-commands.js';
-import { createPcbText, renderPcbText, pcbTextHitTest, serializePcbText, TEXT_LAYERS } from '../pcb/modules/pcb-text.js';
+import { createPcbText, renderPcbText, pcbTextHitTest, serializePcbText, textColorForLayer, TEXT_LAYERS } from '../pcb/modules/pcb-text.js';
+import { ModifyPropertyCommand } from '../schematic/modules/commands.js';
+import { connectBoxOutlines } from '../core/geometry.js';
 import {
     AddTextCommand,
     RemoveTextCommand,
     MoveTextCommand,
     EditTextCommand,
 } from '../pcb/modules/text-commands.js';
-import { shapeDrawClick, updateShapeDrawPreview, cancelShapeDraw, finishPolygonDraw, finishLineDraw, finishShapeDrawAtPoint, hitTestBoardShape, setBoardShapeHover, selectBoardShape, startBoardShapeDrag, handleBoardShapeDrag, endBoardShapeDrag, showBoardShapeProperties, showBoardShapeToolProperties, boardShapeCopperCuts, renderBoardShape, hitTestBoardShapeVertex, shapeOutline, normalizeShapeCopperMode, boardShapeRemovalPathD, boardShapeBounds, showBoardShapeContextMenu, dismissBoardShapeContextMenu } from '../pcb/modules/board-shapes.js';
+import { shapeDrawClick, updateShapeDrawPreview, cancelShapeDraw, finishPolygonDraw, finishLineDraw, finishShapeDrawAtPoint, hitTestBoardShape, setBoardShapeHover, selectBoardShape, startBoardShapeDrag, handleBoardShapeDrag, endBoardShapeDrag, showBoardShapeProperties, showBoardShapeToolProperties, boardShapeCopperCuts, renderBoardShape, hitTestBoardShapeVertex, showBoardShapeContextMenu, dismissBoardShapeContextMenu } from '../pcb/modules/board-shapes.js';
+import { shapeOutline, normalizeShapeCopperMode, boardShapeRemovalPathD, boardShapeBounds } from '../pcb/modules/board-shape-geometry.js';
 import { hitTestPcbSelectionAnchor, renderPcbSelectionAnchors } from '../pcb/modules/selection-anchors.js';
 import { refreshAxisGlow } from '../pcb/modules/axis-glow.js';
 import { buildFillContext } from '../pcb/modules/fill-context.js';
@@ -83,6 +93,7 @@ import {
     pointInBoxSelection,
     beginGroupDrag,
     scheduleGroupDrag,
+    updateGroupDrag,
     endGroupDrag,
     cancelGroupDrag,
     deleteBoxSelection,
@@ -97,7 +108,7 @@ import {
     updateSelectionInteraction,
 } from '../pcb/modules/selection-interaction.js';
 import { getPcbSelection, getPcbSelectionEntries, getPcbSelectionHits, isPcbSelected, setPcbSelection, syncPcbSelection } from '../pcb/modules/selection-registry.js';
-import { measureText as measureStrokeText } from '../pcb/modules/stroke-font.js';
+import { measureText as measureStrokeText, stringToPolylines } from '../pcb/modules/stroke-font.js';
 import { CommandHistory } from '../core/CommandHistory.js';
 import { Track } from '../shapes/track.js';
 import { Via } from '../shapes/via.js';
@@ -140,6 +151,24 @@ const PCB_LOD_PIXEL_THRESHOLD = 24;
  * comfortably around the label instead of touching the strokes.
  */
 const REF_BOX_PAD = 0.6;
+
+function measureStrokeTextVerticalBounds(text, size, strokeWidth = 0) {
+    const polylines = stringToPolylines(text, 0, 0, size, false);
+    let top = Infinity;
+    let bottom = -Infinity;
+    for (const polyline of polylines) {
+        for (const point of polyline) {
+            top = Math.min(top, point.y);
+            bottom = Math.max(bottom, point.y);
+        }
+    }
+    if (!Number.isFinite(top) || !Number.isFinite(bottom)) {
+        top = -size;
+        bottom = 0;
+    }
+    const strokeRadius = Math.max(Number(strokeWidth) || 0, 0) / 2;
+    return { top: top - strokeRadius, bottom: bottom + strokeRadius };
+}
 
 /**
  * PCB editor application.
@@ -408,7 +437,9 @@ export default class PCBApp {
     activate() {
         this.initialize();
         this._active = true;
+        setInlineTextInputActive(this._textEdit?.input, true);
 
+        this._retainRibbonHeight?.();
         this._ensureViewport();
         this._hookSchematicChanges();
         this._updateCursorForTool();
@@ -436,6 +467,7 @@ export default class PCBApp {
     }
 
     deactivate() {
+        setInlineTextInputActive(this._textEdit?.input, false);
         if (this._shapeDraw) {
             this._cancelShapeDraw();
             this.currentTool = 'select';
@@ -469,10 +501,15 @@ export default class PCBApp {
         const showHoleTip = rawTool === 'circle' && this.activeLayer === 'hole';
         const showOverlapTip = rawTool === 'select' && this._overlapHitCount > 1;
         const showTrackTip = rawTool === 'track';
+        const showReferenceTip = rawTool === 'select'
+            && getPcbSelection(this).length === 1
+            && getPcbSelection(this, 'reftext').length === 1;
         if (this.status.tipStatus) {
-            this.status.tipStatus.hidden = !showOverlapTip && !showHoleTip && !showSegmentTip && !showTrackTip;
+            this.status.tipStatus.hidden = !showOverlapTip && !showHoleTip && !showSegmentTip && !showTrackTip && !showReferenceTip;
             this.status.tipStatus.textContent = showTrackTip
                 ? 'Tip: Press SPACE to insert a via and switch to the other layer'
+                : showReferenceTip
+                ? 'Tip: Use SPACE to rotate text'
                 : showOverlapTip
                 ? 'Tip: Shift+Click to cycle overlapping objects; Ctrl+Click for multi-selection'
                 : showHoleTip
@@ -518,7 +555,8 @@ export default class PCBApp {
     _selectAllPcb() {
         window.getSelection?.()?.removeAllRanges();
         const selected = [];
-        for (const [componentId] of this.placements) {
+        for (const [componentId, placement] of this.placements) {
+            if (placement.locked) continue;
             selected.push({ kind: 'component', object: componentId });
         }
         for (const track of this.tracks) {
@@ -813,10 +851,10 @@ export default class PCBApp {
         this.viewport.onMouseMove = (worldPos, snappedPos) => {
             if (!this._active) return;
             if (this.status.cursorPos) {
-                this.status.cursorPos.textContent = `${worldPos.x.toFixed(2)}, ${worldPos.y.toFixed(2)} mm`;
+                this.status.cursorPos.textContent = `${worldPos.x.toFixed(2)}, ${(-worldPos.y).toFixed(2)} mm`;
             }
             if (this.status.gridSnap) {
-                this.status.gridSnap.textContent = `${snappedPos.x.toFixed(2)}, ${snappedPos.y.toFixed(2)} mm`;
+                this.status.gridSnap.textContent = `${snappedPos.x.toFixed(2)}, ${(-snappedPos.y).toFixed(2)} mm`;
             }
         };
 
@@ -890,6 +928,15 @@ export default class PCBApp {
 
         // Bind mouse events for panning
         this._bindMouseEvents();
+        this.viewport.svg.addEventListener('unlock-shape', (event) => {
+            const item = event.detail?.shape;
+            const compId = item?.componentId;
+            if (compId && this.placements.get(compId)?.locked) {
+                this.history.execute(new SetPlacementLockedCommand(this, compId, false));
+            } else {
+                item?.unlock?.();
+            }
+        });
 
         // Create SVG layer groups (one <g> per PCB layer, in z-order)
         this._createLayerGroups();
@@ -969,7 +1016,12 @@ export default class PCBApp {
             // must not commit.) If the text tool is active, the
             // text-tool branch below will then place a new text.
             if (this._textEdit && e.button === 0) {
-                this._endTextInlineEdit(true);
+                if (this._endTextInlineEdit(true) === false) return;
+            }
+            if (worldPos && isUnmodifiedPrimaryDoublePress(e)
+                && this._tryEditReferenceAt(worldPos)) {
+                e.preventDefault();
+                return;
             }
             // Right-click while drawing a track: defer the finish decision
             // to mouseup — if the user actually drags (pans), don't finish.
@@ -1556,6 +1608,10 @@ export default class PCBApp {
                 this._startTextInlineEdit(textHit, worldPos);
                 return;
             }
+            if (this.currentTool === 'select' && this._tryEditReferenceAt(worldPos)) {
+                e.preventDefault();
+                return;
+            }
             // Double-clicking a LOCKED track/via is the natural "why can't I
             // select this?" gesture — explain it with a speech bubble.
             const lockedHit = hitTestLockedTrack(this, worldPos);
@@ -1581,6 +1637,10 @@ export default class PCBApp {
                 e.preventDefault();
                 this._selectText(textHit);
                 this._startTextInlineEdit(textHit, worldPos);
+                return;
+            }
+            if (this.currentTool === 'select' && this._tryEditReferenceAt(worldPos)) {
+                e.preventDefault();
                 return;
             }
             const lockedHit = hitTestLockedTrack(this, worldPos);
@@ -2260,6 +2320,17 @@ export default class PCBApp {
             return false;
         }
 
+        if (!e.ctrlKey && !e.metaKey && !e.altKey) {
+            if (e.key === '+' || e.key === '=') {
+                this.viewport.zoomIn();
+                return true;
+            }
+            if (e.key === '-' || e.key === '_') {
+                this.viewport.zoomOut();
+                return true;
+            }
+        }
+
         // File save shortcuts (Ctrl+S / Ctrl+Alt+S). While PCB is active it owns
         // the keyboard, and the schematic keyboard handler bails out when PCB is
         // active — so Ctrl+S must be handled here. Otherwise it isn't consumed by
@@ -2345,6 +2416,24 @@ export default class PCBApp {
 
         // Otherwise: history, delete, selection-cancel.
         const ctrl = e.ctrlKey || e.metaKey;
+        if (!ctrl && !e.altKey && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+            if (this.currentTool !== 'select' || this._pcbSelectionInteraction || this._groupDrag
+                || this._vertexDrag || this._viaDrag || this._shapeDrag || this._boardOutlineResize
+                || this._rotationHandleDrag || this._pasteDrop || this._textEdit || this._drag
+                || this._textDrag || this._refDrag || this._fillDrag || this._boxSelectArm
+                || this._boxSelectActive || this.viewport.isPanning) return false;
+            const selected = getPcbSelectionEntries(this);
+            if (!selected.length || selected.some(entry => entry.locked || entry.visible === false
+                || entry.kind === 'reftext')) return false;
+            const step = this.viewport.snapToGrid ? this.viewport.gridSize / 4 : 1;
+            const dx = e.key === 'ArrowLeft' ? -step : e.key === 'ArrowRight' ? step : 0;
+            const dy = e.key === 'ArrowUp' ? -step : e.key === 'ArrowDown' ? step : 0;
+            beginGroupDrag(this, { x: 0, y: 0 });
+            updateGroupDrag(this, { x: dx, y: dy }, { snap: false });
+            endGroupDrag(this);
+            showPcbSelectionProperties(this);
+            return true;
+        }
         if (ctrl && !e.shiftKey && (e.key === 'z' || e.key === 'Z')) {
             if (this._groupDrag) {
                 cancelGroupDrag(this);
@@ -2375,18 +2464,16 @@ export default class PCBApp {
                 deleteSelectedTrack(this);
                 return true;
             }
-            if (deleteBoxSelection(this)) {
-                return true;
-            }
+            const componentId = getPcbSelection(this, 'component')[0] || getPcbSelection(this, 'reftext')[0];
+            const deleted = deleteBoxSelection(this);
             // Components belong to the schematic netlist and can't be deleted
             // on the PCB — tell the user where to do it instead.
-            const componentId = getPcbSelection(this, 'component')[0] || getPcbSelection(this, 'reftext')[0];
             if (componentId) {
                 this._showComponentPopup(
                     componentId, 'Delete components from the schematic editor');
                 return true;
             }
-            return false;
+            return deleted;
         }
         if (e.key === 'Escape') {
             if (this._boardOutlineResize) {
@@ -2491,6 +2578,12 @@ export default class PCBApp {
                 e.preventDefault();
                 return true;
             }
+        }
+        if ((e.code === 'Space' || e.key === ' ') && !ctrl && !e.altKey
+            && !getPcbSelection(this).length && !this._pasteDrop && !this._textEdit
+            && !this._pcbSelectionInteraction && tgt?.tagName !== 'BUTTON') {
+            this._fitToContent();
+            return true;
         }
         return false;
     }
@@ -2809,6 +2902,7 @@ export default class PCBApp {
             if (selectedScopedEntity) this._clearProperties();
             setHoverHighlight(this, null);
         }
+        this._refreshPcbSelectionHighlights?.();
         saveLayerPrefs();
     }
 
@@ -2830,36 +2924,9 @@ export default class PCBApp {
             if (ko) ko.style.opacity = locked ? '0.4' : '';
         }
         saveLayerPrefs();
-        if (!locked) return;
-        const selectedScopedEntity = getPcbSelection(this).some(
-            (item) => this.boardShapes.includes(item)
-                && item.layer === layerId,
-        );
-        // A newly-locked layer must not keep anything on it selected or
-        // hovered — locked objects are read-only.
-        const viaAffected = layerId === 'top-copper' || layerId === 'bottom-copper';
-        const selectedTrack = getSelectedTrack(this);
-        const selectedVia = getSelectedVia(this);
-        if ((selectedTrack && selectedTrack.layer === layerId) ||
-            (selectedVia && viaAffected)) {
-            clearTrackSelection(this);
-            this._clearProperties();
-        }
-        const selectedText = getPcbSelection(this, 'text')[0] || null;
-        if (selectedText && selectedText.layer === layerId) {
-            this._selectText(null);
-            this._clearProperties();
-        }
-        const selectedShape = getPcbSelection(this, 'shape')[0] || null;
-        if (selectedShape && selectedShape.layer === layerId) {
-            selectBoardShape(this, null);
-            this._clearProperties();
-        }
-        if (this._boardOutlineSelected && layerId === 'board-outline') {
-            this._selectBoardOutline(false);
-        }
-        if (hasBoxSelection(this)) clearBoxSelection(this);
-        if (selectedScopedEntity) this._clearProperties();
+        const checkbox = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropOutlineLocked'));
+        if (checkbox) checkbox.checked = locked;
+        this._refreshPcbSelectionHighlights?.();
         setHoverHighlight(this, null);
     }
 
@@ -2899,7 +2966,13 @@ export default class PCBApp {
 
         const panel = this.panelization ? renderPanelPreview(this) : null;
         const bounds = panel?.bounds || boardBoundary(this);
-        this.viewport.fitToBounds(bounds.x, bounds.y - (panel ? 12 : 0), bounds.x + bounds.w, bounds.y + bounds.h, 10);
+        this.viewport.fitToBounds(
+            Math.min(0, bounds.x) - 10,
+            Math.min(0, bounds.y - (panel ? 12 : 0)),
+            Math.max(0, bounds.x + bounds.w),
+            Math.max(0, bounds.y + bounds.h) + 10,
+            0, 'bottom-left',
+        );
     }
 
     _bindRibbonTabs() {
@@ -2915,6 +2988,7 @@ export default class PCBApp {
         const retainRibbonHeight = () => {
             if (!panelsEl || this.ribbon.offsetParent === null) return;
             const activePanels = Array.from(panels, panel => panel.classList.contains('active'));
+            panelsEl.style.minHeight = '';
             let height = 0;
 
             panels.forEach(panel => {
@@ -2925,6 +2999,7 @@ export default class PCBApp {
             panels.forEach((panel, index) => panel.classList.toggle('active', activePanels[index]));
             panelsEl.style.minHeight = `${Math.ceil(height)}px`;
         };
+        this._retainRibbonHeight = retainRibbonHeight;
 
         window.addEventListener('resize', () => {
             if (!panelsEl || this.ribbon.offsetParent === null) return;
@@ -3390,10 +3465,15 @@ export default class PCBApp {
         this._setPcbPropsTitle('Board Outline');
 
         items.innerHTML = `
+            <label class="prop-row prop-toggle"><input type="checkbox" id="pcbPropOutlineLocked"${isLayerLocked('board-outline') ? ' checked' : ''}><span>Locked</span></label>
             <div class="prop-row"><label>Width (mm)</label><input type="number" id="pcbPropBoardW" value="${Number(this._boardWidth).toFixed(2)}" min="5" step="1"></div>
             <div class="prop-row"><label>Height (mm)</label><input type="number" id="pcbPropBoardH" value="${Number(this._boardHeight).toFixed(2)}" min="5" step="1"></div>
             <div class="prop-row"><label>Corner R (mm)</label><input type="number" id="pcbPropBoardR" value="${Number(this._boardRadius).toFixed(2)}" min="0" step="0.5"></div>
         `;
+        const lockedEl = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropOutlineLocked'));
+        lockedEl?.addEventListener('change', () => {
+            setPcbLayerLocked(this, 'board-outline', lockedEl.checked);
+        });
 
         // Live editing: apply changes immediately for visual feedback, but
         // only commit a SetBoardOutlineCommand on `change` (blur / Enter)
@@ -3449,11 +3529,13 @@ export default class PCBApp {
         const name = pl?.name || pl?.reference || compId;
         const side = pl?.side === 'bottom' ? 'bottom' : 'top';
         const refVisible = pl?.refVisible !== false;
+        const locked = !!pl?.locked;
 
         items.innerHTML = `
             <div class="prop-row"><label>Reference</label><span style="font-size:11px;color:var(--text-primary)">${name}</span></div>
-            <label class="prop-row prop-toggle"><input type="checkbox" id="pcbPropCompRefVis"${refVisible ? ' checked' : ''}><span>Show Reference</span></label>
-            <div class="prop-row"><label>Layer</label><select id="pcbPropCompSide">
+            <label class="prop-row prop-toggle"><input type="checkbox" id="pcbPropCompLocked"${locked ? ' checked' : ''}><span>Locked</span></label>
+            <label class="prop-row prop-toggle"><input type="checkbox" id="pcbPropCompRefVis"${refVisible ? ' checked' : ''}${locked ? ' disabled' : ''}><span>Show Reference</span></label>
+            <div class="prop-row"><label>Layer</label><select id="pcbPropCompSide"${locked ? ' disabled' : ''}>
                 <option value="top"${side === 'top' ? ' selected' : ''}>Top</option>
                 <option value="bottom"${side === 'bottom' ? ' selected' : ''}>Bottom</option>
             </select></div>
@@ -3475,18 +3557,23 @@ export default class PCBApp {
             </div>
         `;
         panel?.appendChild(transform);
+        for (const button of transform.querySelectorAll('button')) button.disabled = locked;
 
         const curRot = () => ((this.placements.get(compId)?.rotation || 0) % 360 + 360) % 360;
 
         const rotateTo = (deg) => {
             const p = this.placements.get(compId);
-            if (!p) return;
+            if (!p || p.locked) return;
             const norm = ((deg % 360) + 360) % 360;
             if ((p.rotation || 0) === norm) return;
             this.history.execute(new RotatePlacementCommand(this, compId, p.rotation || 0, norm));
             this._showComponentProperties(compId);
         };
 
+        const lockedEl = /** @type {HTMLInputElement} */ (document.getElementById('pcbPropCompLocked'));
+        lockedEl?.addEventListener('change', () => {
+            this.history.execute(new SetPlacementLockedCommand(this, compId, lockedEl.checked));
+        });
         const refEl = /** @type {HTMLInputElement} */ (document.getElementById('pcbPropCompRefVis'));
         refEl?.addEventListener('change', () => {
             this._setComponentRefVisible(compId, refEl.checked);
@@ -3575,7 +3662,7 @@ export default class PCBApp {
      */
     _rotateComponent(compId, dir) {
         const pl = this.placements.get(compId);
-        if (!pl) return;
+        if (!pl || pl.locked) return;
         const cur = ((pl.rotation || 0) % 360 + 360) % 360;
         const next = ((cur + (dir === 'L' ? -90 : 90)) % 360 + 360) % 360;
         this.history.execute(new RotatePlacementCommand(this, compId, cur, next));
@@ -3588,7 +3675,7 @@ export default class PCBApp {
      * @param {'H'|'V'} axis
      */
     _flipComponent(compId, axis) {
-        if (!this.placements.has(compId)) return;
+        if (!this.placements.has(compId) || this.placements.get(compId)?.locked) return;
         this.history.execute(new FlipPlacementCommand(this, compId, axis));
     }
 
@@ -3599,7 +3686,7 @@ export default class PCBApp {
      */
     _setPlacementSide(compId, side) {
         const pl = this.placements.get(compId);
-        if (!pl) return;
+        if (!pl || pl.locked) return;
         const cur = pl.side === 'bottom' ? 'bottom' : 'top';
         if (cur === side) return;
         this.history.execute(new SetPlacementSideCommand(this, compId, side));
@@ -3612,7 +3699,7 @@ export default class PCBApp {
      */
     _setComponentRefVisible(compId, visible) {
         const pl = this.placements.get(compId);
-        if (!pl) return;
+        if (!pl || pl.locked) return;
         if ((pl.refVisible !== false) === !!visible) return;
         this.history.execute(new SetPlacementRefVisibleCommand(this, compId, !!visible));
     }
@@ -3620,6 +3707,7 @@ export default class PCBApp {
     _bindThemeToggle() {
         window.addEventListener('clearpcb-theme-changed', () => {
             this.viewport?.updateTheme?.();
+            for (const compId of getPcbSelection(this, 'reftext')) this._refreshRefHighlight(compId);
         });
         if (!this.themeToggle) return;
 
@@ -3716,6 +3804,7 @@ export default class PCBApp {
             this._refreshClearanceHalos();
             this._updateRatsnest();
             this._setStatus('No components in schematic');
+            this._board3d?.refresh?.();
             return;
         }
 
@@ -3958,6 +4047,7 @@ export default class PCBApp {
                 model3dPlacement: fpGeom.model3d || null,
                 silks: fpGeom.silks || [],
                 rotation: rot,
+                locked: !!override?.locked,
                 mirror: !!override?.mirror,
                 side: override?.side === 'bottom' ? 'bottom' : 'top',
                 refVisible: override?.refVisible !== false,
@@ -4541,6 +4631,7 @@ export default class PCBApp {
             pl.x = o.x;
             pl.y = o.y;
             pl.rotation = o.rotation || 0;
+            pl.locked = !!o.locked;
             pl.mirror = !!o.mirror;
             pl.refDx = o.refDx || 0;
             pl.refDy = o.refDy || 0;
@@ -4570,6 +4661,7 @@ export default class PCBApp {
             x: pl.x,
             y: pl.y,
             rotation: pl.rotation || 0,
+            locked: !!pl.locked,
             mirror: !!pl.mirror,
             side: pl.side === 'bottom' ? 'bottom' : 'top',
             refVisible: pl.refVisible !== false,
@@ -4589,7 +4681,10 @@ export default class PCBApp {
      */
     _selectComponent(compId) {
         const previousCompId = getPcbSelection(this, 'component')[0] || null;
-        if (previousCompId === compId) return;
+        if (previousCompId === compId) {
+            if (!compId) renderPcbSelectionAnchors(this);
+            return;
+        }
         // Remove old selection highlight
         if (previousCompId) {
             const oldPl = this.placements.get(previousCompId);
@@ -4604,6 +4699,7 @@ export default class PCBApp {
         this._syncClipboardButtons?.();
 
         if (!compId) {
+            renderPcbSelectionAnchors(this);
             this.viewport.svg.style.cursor = 'default';
             return;
         }
@@ -4628,8 +4724,9 @@ export default class PCBApp {
         highlight.setAttribute('stroke-width', '0.2');
         highlight.setAttribute('pointer-events', 'none');
         pl.elements[0].appendChild(highlight);
+        renderPcbSelectionAnchors(this);
 
-        this.viewport.svg.style.cursor = 'grab';
+        this.viewport.svg.style.cursor = pl.locked ? 'default' : 'grab';
         // Ensure the selected footprint shows full detail even when zoomed out
         // far enough that it would otherwise be collapsed to its LOD placeholder.
         this._updatePcbCulling();
@@ -4637,7 +4734,7 @@ export default class PCBApp {
 
     _beginComponentDrag(compId, worldPos) {
         const pl = this.placements.get(compId);
-        if (!pl) return false;
+        if (!pl || pl.locked) return false;
         setHoverHighlight(this, null);
         this._hoverComponent(null);
         this._hideNetTooltip();
@@ -4670,7 +4767,7 @@ export default class PCBApp {
         const newY = this._drag.startPos.y + worldPos.y - this._drag.startWorld.y;
         const gridSize = this.viewport.gridSize;
         const pl = this.placements.get(this._drag.compId);
-        if (!pl) return;
+        if (!pl || pl.locked) return;
         pl.x = this._snapActive() ? Math.round(newX / gridSize) * gridSize : newX;
         pl.y = this._snapActive() ? Math.round(newY / gridSize) * gridSize : newY;
         applyPlacementPose(this, this._drag.compId);
@@ -5032,7 +5129,95 @@ export default class PCBApp {
     // A component's reference (e.g. "R3") is rendered as part of its
     // footprint but can be repositioned and rotated relative to the body,
     // mirroring the schematic editor. The label text itself comes from the
-    // schematic, so it is never edited in place here.
+    // schematic; reference edits update that source through its property command.
+
+    _tryEditReferenceAt(worldPos) {
+        if (this._hitTestText(worldPos)) return false;
+        const compId = this._hitTestRefText(worldPos);
+        const pl = this.placements.get(compId);
+        const schematic = /** @type {any} */ (window).app;
+        const component = schematic?.components?.find(item => item.id === compId);
+        const layer = pl?.side === 'bottom' ? 'bottom-silk' : 'top-silk';
+        if (!pl || pl.locked || !component || component.locked || isLayerLocked(layer) || !isLayerVisible(layer)) return false;
+        const original = component.reference;
+        const text = {
+            content: original,
+            size: pl.refSize || REF_DEFAULT_SIZE,
+            strokeWidth: pl.refStrokeWidth || REF_DEFAULT_STROKE,
+            layer,
+        };
+        const baseX = () => this._refBox(pl).cx - measureStrokeText(text.content, text.size) / 2;
+        const render = () => {
+            pl.reference = text.content;
+            this._rerenderRef(compId);
+            this._drawRefOverlay(compId, false);
+        };
+        this._startTextInlineEdit(text, worldPos, {
+            componentId: compId,
+            select: () => {
+                this._selectRefText(compId);
+                this._showRefProperties(compId);
+            },
+            prepare: () => {
+                text.size = pl.refSize || REF_DEFAULT_SIZE;
+                text.strokeWidth = pl.refStrokeWidth || REF_DEFAULT_STROKE;
+            },
+            transform: () => `${placementTransform(pl)} ${pl._refEl.getAttribute('transform') || ''}`
+                + ` translate(${baseX()},${pl._refEl.getAttribute('data-ref-anchor-y')})`,
+            localX: point => {
+                const svg = this.viewport.svg;
+                const cursor = svg.createSVGPoint();
+                cursor.x = point.x;
+                cursor.y = point.y;
+                const local = cursor.matrixTransform(pl._refEl.getCTM().inverse().multiply(svg.getCTM()));
+                return local.x - baseX();
+            },
+            render,
+            validate: value => {
+                const reference = value.trim();
+                if (!reference) {
+                    schematic._alert('Reference cannot be blank.', { title: 'Invalid Reference' });
+                    return false;
+                }
+                if (schematic.components.some(item => item.id !== compId
+                    && item.reference.toUpperCase() === reference.toUpperCase())) {
+                    schematic._alert(`Reference "${reference}" is already used by another component.`, { title: 'Duplicate Reference' });
+                    return false;
+                }
+                return true;
+            },
+            finish: (value, commit) => {
+                text.content = original;
+                render();
+                const reference = value.trim();
+                if (commit && reference !== original) {
+                    const command = new ModifyPropertyCommand(schematic, [component], 'reference', reference);
+                    const apply = redo => {
+                        if (redo) command.execute();
+                        else command.undo();
+                        const current = schematic.components.find(item => item.id === compId);
+                        const placement = this.placements.get(compId);
+                        if (placement && current) {
+                            placement.reference = current.reference;
+                            this._rerenderRef(compId);
+                            this._drawRefOverlay(compId, false);
+                            this._showRefProperties(compId);
+                        }
+                        this.netlist = extractNetlist(schematic);
+                        this._updateRatsnest();
+                        this._board3d?.refresh?.();
+                    };
+                    this.history.execute({
+                        description: `Rename ${original} to ${reference}`,
+                        execute: () => apply(true),
+                        undo: () => apply(false),
+                    });
+                }
+                this._showRefProperties(compId);
+            },
+        });
+        return true;
+    }
 
     /**
      * Resolve a placement's reference-text element and its footprint-local
@@ -5082,6 +5267,18 @@ export default class PCBApp {
             pl.refSize || REF_DEFAULT_SIZE, pl.refStrokeWidth || REF_DEFAULT_STROKE);
         pl._refBox = null; // bbox changed — invalidate cache
         applyPlacementPose(this, compId);
+        this._refreshRefHighlight(compId);
+        if (this._textEdit?.options?.componentId === compId) this._textEdit.updateCaret?.();
+    }
+
+    _refreshRefHighlight(compId) {
+        const pl = this.placements.get(compId);
+        if (!pl || !this._refBox(pl)) return;
+        const active = isPcbSelected(this, 'reftext', compId)
+            || this._textEdit?.options?.componentId === compId;
+        const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+        pl._refEl.setAttribute('stroke', active ? (isLight ? '#000000' : '#ffffff')
+            : textColorForLayer(pl.side === 'bottom' ? 'bottom-silk' : 'top-silk'));
     }
 
     /**
@@ -5114,6 +5311,40 @@ export default class PCBApp {
      */
     _refCenterWorld(pl, box) {
         return this._placementLocalToWorld(pl, box.cx + (pl.refDx || 0), box.cy + (pl.refDy || 0));
+    }
+
+    /**
+     * World-space corners of the reference's inline-edit rectangle.
+     * Keep these metrics identical to _startTextInlineEdit.updateCaret().
+     */
+    _refEditBoxWorldCorners(pl, box) {
+        const size = pl.refSize || REF_DEFAULT_SIZE;
+        const width = measureStrokeText(pl.reference || '', size);
+        const baseX = box.cx - width / 2;
+        const baseY = parseFloat(pl._refEl?.getAttribute('data-ref-anchor-y'));
+        if (!Number.isFinite(baseY)) return null;
+
+        const padX = size * 0.15;
+        const padTop = size * 0.25;
+        const padBot = size * 1.0;
+        const referenceAngle = (pl.refRot || 0) * Math.PI / 180;
+        const cosine = Math.cos(referenceAngle), sine = Math.sin(referenceAngle);
+        return [
+            [baseX - padX, baseY - size - padTop],
+            [baseX + width + padX, baseY - size - padTop],
+            [baseX + width + padX, baseY + padBot],
+            [baseX - padX, baseY + padBot],
+        ].map(([x, y]) => {
+            const deltaX = x - box.cx, deltaY = y - box.cy;
+            let localX = box.cx + deltaX * cosine - deltaY * sine;
+            const localY = box.cy + deltaX * sine + deltaY * cosine;
+            if (pl.mirror) localX = 2 * box.cx - localX;
+            return this._placementLocalToWorld(
+                pl,
+                localX + (pl.refDx || 0),
+                localY + (pl.refDy || 0),
+            );
+        });
     }
 
     /**
@@ -5167,7 +5398,7 @@ export default class PCBApp {
 
     _beginRefTextDrag(compId, worldPos) {
         const pl = this.placements.get(compId);
-        if (!pl) return false;
+        if (!pl || pl.locked) return false;
         this._refDrag = {
             compId,
             startWorld: worldPos,
@@ -5212,9 +5443,9 @@ export default class PCBApp {
     }
 
     /**
-     * Draw (or clear) the dashed selection box around a component's reference
-     * text, and optionally the dotted tether from the component origin to the
-     * label. Passing a null/invalid compId clears the overlay.
+    * Draw (or clear) the component outline associated with a reference and
+    * optionally its dotted connection line. Passing a null/invalid compId
+    * clears the overlay.
      * @param {string|null} compId
      * @param {boolean} withTether
      */
@@ -5226,46 +5457,37 @@ export default class PCBApp {
         if (!pl) return;
         const box = this._refBox(pl);
         if (!box) return;
+        this._refreshRefHighlight(compId);
         const NS = 'http://www.w3.org/2000/svg';
-        const dx = pl.refDx || 0, dy = pl.refDy || 0, rr = pl.refRot || 0;
-        const rad = rr * Math.PI / 180;
-        const cos = Math.cos(rad), sin = Math.sin(rad);
-        // Pad the tight glyph box outward a little so the selection outline
-        // (and grab region) sits comfortably around the label rather than
-        // touching the strokes.
-        const PAD = REF_BOX_PAD;
-        const x0 = box.bx - PAD, y0 = box.by - PAD;
-        const x1 = box.bx + box.bw + PAD, y1 = box.by + box.bh + PAD;
-        // Four corners of the local box → rotate about centre → +offset → world.
-        const corners = [
-            [x0, y0], [x1, y0], [x1, y1], [x0, y1],
-        ].map(([lx, ly]) => {
-            const ox = lx - box.cx, oy = ly - box.cy;
-            const rxL = box.cx + ox * cos - oy * sin + dx;
-            const ryL = box.cy + ox * sin + oy * cos + dy;
-            return this._placementLocalToWorld(pl, rxL, ryL);
-        });
-        const poly = document.createElementNS(NS, 'polygon');
-        poly.setAttribute('points', corners.map(p => `${p.x},${p.y}`).join(' '));
-        poly.setAttribute('fill', 'rgba(51,153,255,0.10)');
-        poly.setAttribute('stroke', '#3399ff');
-        poly.setAttribute('stroke-width', '1.2');
-        poly.setAttribute('stroke-dasharray', '4 3');
-        poly.setAttribute('vector-effect', 'non-scaling-stroke');
-        poly.setAttribute('pointer-events', 'none');
-        g.appendChild(poly);
-        if (withTether) {
-            const c = this._refCenterWorld(pl, box);
+        if (pl.bounds) {
+            const outline = document.createElementNS(NS, 'rect');
+            outline.setAttribute('class', 'pcb-ref-component-outline');
+            outline.setAttribute('x', String(pl.bounds.x));
+            outline.setAttribute('y', String(pl.bounds.y));
+            outline.setAttribute('width', String(pl.bounds.width));
+            outline.setAttribute('height', String(pl.bounds.height));
+            outline.setAttribute('transform', placementTransform(pl));
+            outline.setAttribute('fill', 'none');
+            outline.setAttribute('stroke', '#3399ff');
+            outline.setAttribute('stroke-width', '1.2');
+            outline.setAttribute('vector-effect', 'non-scaling-stroke');
+            outline.setAttribute('pointer-events', 'none');
+            g.appendChild(outline);
+        }
+        if (withTether || isPcbSelected(this, 'reftext', compId) || this._refDrag?.compId === compId
+            || this._textEdit?.options?.componentId === compId) {
+            const bounds = pl.bounds;
+            if (!bounds || bounds.width <= 0 || bounds.height <= 0) return;
+            const textBox = this._refEditBoxWorldCorners(pl, box);
+            if (!textBox) return;
+            const componentBox = [
+                [bounds.x, bounds.y], [bounds.x + bounds.width, bounds.y],
+                [bounds.x + bounds.width, bounds.y + bounds.height], [bounds.x, bounds.y + bounds.height],
+            ].map(([x, y]) => this._placementLocalToWorld(pl, x, y));
+            const connection = connectBoxOutlines(componentBox, textBox);
+            if (!connection) return;
             const line = document.createElementNS(NS, 'line');
-            line.setAttribute('x1', String(pl.x));
-            line.setAttribute('y1', String(pl.y));
-            line.setAttribute('x2', String(c.x));
-            line.setAttribute('y2', String(c.y));
-            line.setAttribute('stroke', '#3399ff');
-            line.setAttribute('stroke-width', '1');
-            line.setAttribute('stroke-dasharray', '3 3');
-            line.setAttribute('vector-effect', 'non-scaling-stroke');
-            line.setAttribute('pointer-events', 'none');
+            applyTextConnectionGuide(line, connection, '#3399ff');
             g.appendChild(line);
         }
     }
@@ -5274,7 +5496,7 @@ export default class PCBApp {
     _handleRefDrag(e) {
         if (!this._refDrag) return;
         const pl = this.placements.get(this._refDrag.compId);
-        if (!pl) return;
+        if (!pl || pl.locked) return;
         this.viewport.shiftHeld = e.shiftKey;
         const localNow = this._worldToPlacementLocal(this._screenToWorld(e), pl);
         const localStart = this._worldToPlacementLocal(this._refDrag.startWorld, pl);
@@ -5316,7 +5538,7 @@ export default class PCBApp {
     /** Rotate the selected reference designator by 90° (through history). */
     _rotateRefText(compId) {
         const pl = this.placements.get(compId);
-        if (!pl) return;
+        if (!pl || pl.locked) return;
         const cur = ((pl.refRot || 0) % 360 + 360) % 360;
         const next = (cur + 90) % 360;
         this.history.execute(new RotateRefTextCommand(this, compId, cur, next));
@@ -5563,12 +5785,13 @@ export default class PCBApp {
         const size = pl.refSize || REF_DEFAULT_SIZE;
         const lw = pl.refStrokeWidth || REF_DEFAULT_STROKE;
         const rot = ((pl.refRot || 0) % 360 + 360) % 360;
+        const disabled = pl.locked ? ' disabled' : '';
         items.innerHTML = `
             <div class="prop-row"><label>Reference</label><input type="text" id="pcbPropRefName" value="${pl.reference ?? ''}" disabled></div>
             <div class="prop-row"><label>Layer</label><input type="text" id="pcbPropRefLayer" value="${this._layerLabel(silkLayer)}" disabled></div>
-            <div class="prop-row"><label>Size (mm)</label><input type="number" id="pcbPropRefSize" value="${size}" min="0.2" step="0.1"></div>
-            <div class="prop-row"><label>Rotation (°)</label><input type="number" id="pcbPropRefRot" data-number-format="rotation" value="${rot}" step="15"></div>
-            <div class="prop-row"><label>Line W (mm)</label><input type="number" id="pcbPropRefLW" value="${lw}" min="0.05" step="0.05"></div>
+            <div class="prop-row"><label>Size (mm)</label><input type="number" id="pcbPropRefSize" value="${size}" min="0.2" step="0.1"${disabled}></div>
+            <div class="prop-row"><label>Rotation (°)</label><input type="number" id="pcbPropRefRot" data-number-format="rotation" value="${rot}" step="15"${disabled}></div>
+            <div class="prop-row"><label>Line W (mm)</label><input type="number" id="pcbPropRefLW" value="${lw}" min="0.05" step="0.05"${disabled}></div>
         `;
         const num = (min) => (v) => {
             const n = parseFloat(v);
@@ -5631,7 +5854,7 @@ export default class PCBApp {
      */
     _startTextInlineEdit(text, worldPos, opts = {}) {
         if (!text) return;
-        if (this._textEdit) this._endTextInlineEdit(true);
+        if (this._textEdit && this._endTextInlineEdit(true) === false) return;
 
         const svg = this.viewport?.svg;
         if (!svg) return;
@@ -5646,90 +5869,34 @@ export default class PCBApp {
             'position:fixed;left:-1000px;top:-1000px;width:10px;height:10px;' +
             'opacity:0;';
         document.body.appendChild(input);
+        setInlineTextInputActive(input, this._active);
 
         const layerG = this._getLayerGroup(text.layer);
-        // Editing box around the text (matches schematic style).
-        const box = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-        box.setAttribute('fill', 'none');
-        box.setAttribute('stroke', '#00ccff');
-        box.setAttribute('stroke-opacity', '0.5');
-        box.setAttribute('vector-effect', 'non-scaling-stroke');
-        box.setAttribute('stroke-width', '2');
-        box.style.pointerEvents = 'none';
-        layerG?.appendChild(box);
-
-        const caret = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-        // Use a contrasting colour so the caret stands out against the
-        // silk/copper text colour (yellow/teal/red). A cyan-ish accent
-        // works on every layer.
-        caret.setAttribute('stroke', '#00ccff');
-        caret.setAttribute('stroke-width', '2');
-        caret.setAttribute('vector-effect', 'non-scaling-stroke');
-        caret.setAttribute('stroke-linecap', 'butt');
-        caret.style.pointerEvents = 'none';
-        caret.style.opacity = '1';
-
-        // Steady blink rhythm: a single setInterval toggles the caret
-        // on a fixed cadence and is never reset. While the user is
-        // actively typing or moving the caret, `forceVisibleUntil` is
-        // bumped — the toggle then just keeps it visible without
-        // touching the underlying rhythm, so there's no stutter.
-        layerG?.appendChild(caret);
+        const overlay = createInlineTextOverlay(group => layerG?.appendChild(group));
+        const { box, caret } = overlay;
 
         this._textEdit = {
-            text, input, caret, box,
+            text, input, caret, box, overlay,
+            options: opts,
             isNewPlacement: !!opts.isNewPlacement,
             originalContent: text.content,
             committed: false,
-            blinkTimer: null,
-            blinkEpoch: performance.now(),
-            forceVisibleUntil: 0,
+            blinkTimer: overlay.blinkTimer,
         };
-
-        // Metronome: blink state is a pure function of wallclock time
-        // (floor((now-epoch)/BLINK_MS) % 2). Movement bumps
-        // forceVisibleUntil to hold the caret solid-on, but the
-        // metronome keeps ticking underneath — so when movement
-        // stops, the blink resumes exactly in phase.
-        const BLINK_MS = 530;
-        const IDLE_MS = 400;
-        const tick = () => {
-            const st = this._textEdit;
-            if (!st) return;
-            const now = performance.now();
-            const beat = (Math.floor((now - st.blinkEpoch) / BLINK_MS) % 2) === 0;
-            // Caret is solid-on while the activity hold is in effect.
-            // After the hold expires, only release into the blink cycle
-            // on a "light" beat — otherwise we'd flash dark for a few ms
-            // then back to light, which reads as a disconcerting blink.
-            let on;
-            if (now < st.forceVisibleUntil) {
-                on = true;
-                st.releasePending = true;
-            } else if (st.releasePending) {
-                if (beat) { st.releasePending = false; on = true; }
-                else { on = true; }   // hold through residual dark
-            } else {
-                on = beat;
-            }
-            st.caret.style.opacity = on ? '1' : '0';
-        };
-        // Sample faster than BLINK_MS so the visible transition
-        // happens close to the true metronome edge.
-        this._textEdit.blinkTimer = setInterval(tick, 60);
 
         // Surface the Properties panel for this text so the user can
         // tweak size/rotation/etc. mid-edit without leaving edit mode.
-        this._selectText(text);
-        this._showTextProperties(text);
+        if (opts.select) opts.select();
+        else {
+            this._selectText(text);
+            this._showTextProperties(text);
+        }
         const keepVisible = () => {
-            const st = this._textEdit;
-            if (!st) return;
-            st.forceVisibleUntil = performance.now() + IDLE_MS;
-            st.caret.style.opacity = '1';
+            this._textEdit?.overlay?.keepCaretVisible();
         };
 
         const updateCaret = () => {
+            opts.prepare?.();
             // Update editing box bounds. Top of box sits a small pad
             // above the cap-top; bottom sits below the baseline far
             // enough to clear descenders (g, y, p, …).
@@ -5738,32 +5905,27 @@ export default class PCBApp {
             const padTop = text.size * 0.25;
             const padBot = text.size * 1.0;   // descender room (Hershey 'g','y' reach -0.75)
             const mirror = (typeof text.layer === 'string' && text.layer.startsWith('bottom-')) ? -1 : 1;
-            box.setAttribute('x', String(-padX));
-            box.setAttribute('y', String(-text.size - padTop));
-            box.setAttribute('width', String(totalW + padX * 2));
-            box.setAttribute('height', String(text.size + padTop + padBot));
-            // scale(mirror,1) mirrors box + caret about the text's local Y
-            // axis so the editing overlay tracks the mirrored rendered text
-            // on bottom layers.
-            const xform = `translate(${text.x},${text.y}) rotate(${-(text.rotation || 0)}) scale(${mirror},1)`;
-            box.setAttribute('transform', xform);
-            caret.setAttribute('transform', xform);
+            const xform = opts.transform?.()
+                ?? `translate(${text.x},${text.y}) rotate(${-(text.rotation || 0)}) scale(${mirror},1)`;
 
             const caretIdx = input.selectionStart ?? input.value.length;
             const sub = input.value.slice(0, caretIdx);
             const lx = measureStrokeText(sub, text.size);
-            // Caret spans the editing box vertically (cap-top + small
-            // overhang, baseline + descender room).
-            const ly0 = text.size * 1.0;      // below baseline (matches box padBot)
-            const ly1 = -text.size * 1.25;    // above cap-top (matches box: size+padTop)
-            caret.setAttribute('x1', String(lx));
-            caret.setAttribute('y1', String(ly0));
-            caret.setAttribute('x2', String(lx));
-            caret.setAttribute('y2', String(ly1));
-            // Keep caret/box on top of the (re-rendered) text so a
-            // fat stroke doesn't obscure the cursor.
-            if (box.parentNode) box.parentNode.appendChild(box);
-            if (caret.parentNode) caret.parentNode.appendChild(caret);
+            const verticalBounds = measureStrokeTextVerticalBounds(
+                input.value,
+                text.size,
+                text.strokeWidth,
+            );
+            overlay.updateGeometry({
+                x: -padX,
+                y: -text.size - padTop,
+                width: totalW + padX * 2,
+                height: text.size + padTop + padBot,
+                caretX: lx,
+                caretTop: verticalBounds.top,
+                caretBottom: verticalBounds.bottom,
+                transform: xform,
+            });
         };
 
         keepVisible();
@@ -5794,7 +5956,8 @@ export default class PCBApp {
                 }
             }
             text.content = input.value;
-            this._refreshText(text.id);
+            if (opts.render) opts.render();
+            else this._refreshText(text.id);
             updateCaret();
             keepVisible();
         };
@@ -5809,7 +5972,7 @@ export default class PCBApp {
         // so the user can tweak rotation/size and keep typing seamlessly.
         const docKeyCapture = (ev) => {
             const st = this._textEdit;
-            if (!st) return;
+            if (!st || !this._active) return;
             const active = document.activeElement;
             if (active === input) return;
             const propsPanel = document.getElementById('pcbPropertiesPanel');
@@ -5880,6 +6043,10 @@ export default class PCBApp {
         this._textEdit.docKeyCapture = docKeyCapture;
 
         input.addEventListener('keydown', (e) => {
+            if (!this._active) {
+                e.preventDefault();
+                return;
+            }
             e.stopPropagation();
             if (e.key === 'Enter') {
                 e.preventDefault();
@@ -5904,7 +6071,7 @@ export default class PCBApp {
             // via Enter or Escape.
             const propsPanel = document.getElementById('pcbPropertiesPanel');
             setTimeout(() => {
-                if (!this._textEdit || this._textEdit.committed) return;
+                if (!this._active || !this._textEdit || this._textEdit.committed) return;
                 const active = document.activeElement;
                 if (active === input) return;
                 if (propsPanel && active && propsPanel.contains(active)) return;
@@ -5913,6 +6080,7 @@ export default class PCBApp {
         });
 
         setTimeout(() => {
+            if (!this._active || this._textEdit?.input !== input) return;
             input.focus();
             // Place caret at the character nearest the click, if known.
             let idx = input.value.length;
@@ -5924,7 +6092,7 @@ export default class PCBApp {
                 const cos = Math.cos(-rad), sin = Math.sin(-rad);
                 const mirror = (typeof text.layer === 'string' && text.layer.startsWith('bottom-')) ? -1 : 1;
                 const dx = worldPos.x - text.x, dy = worldPos.y - text.y;
-                const lx = (dx * cos - dy * sin) * mirror;
+                const lx = opts.localX ? opts.localX(worldPos) : (dx * cos - dy * sin) * mirror;
                 let cursorX = 0;
                 let best = 0;
                 let bestDist = Math.abs(lx - cursorX);
@@ -5951,19 +6119,22 @@ export default class PCBApp {
     _endTextInlineEdit(commit) {
         const state = this._textEdit;
         if (!state) return;
+        if (commit && state.options?.validate && !state.options.validate(state.input.value)) return false;
         state.committed = true;
         this._textEdit = null;
 
-        const { text, input, caret, box, originalContent, blinkTimer, isNewPlacement } = state;
+        const { text, input, originalContent, isNewPlacement } = state;
         const finalContent = input.value;
 
-        if (blinkTimer) clearInterval(blinkTimer);
         if (state.docKeyCapture) document.removeEventListener('keydown', state.docKeyCapture, true);
-        if (caret.parentNode) caret.parentNode.removeChild(caret);
-        if (box.parentNode) box.parentNode.removeChild(box);
+        state.overlay?.destroy();
         if (input.parentNode) input.parentNode.removeChild(input);
 
         text.content = originalContent;
+        if (state.options?.finish) {
+            state.options.finish(commit ? finalContent : originalContent, commit);
+            return;
+        }
         this._refreshText(text.id);
 
         // Determine effective final content (empty if cancelled).
@@ -7977,28 +8148,23 @@ export default class PCBApp {
     _onCopperFillVisibilityChanged(copperLayerId, visible) {
         const g = this._layerGroups.get(fillGroupId(copperLayerId));
         if (g) g.style.display = visible ? '' : 'none';
+        this._refreshPcbSelectionHighlights?.();
         saveLayerPrefs();
     }
 
     /**
      * Layer-panel callback: lock/unlock the copper pour on one side. A locked
-     * pour is dimmed and can't be selected; deselect anything on it.
+     * pour is dimmed and remains selectable only for its unlock affordance.
      * @param {string} copperLayerId - 'top-copper' | 'bottom-copper'
      * @param {boolean} locked
      */
     _onCopperFillLockChanged(copperLayerId, locked) {
         const g = this._layerGroups.get(fillGroupId(copperLayerId));
         if (g) g.style.opacity = locked ? '0.4' : '';
-        if (locked) {
-            const selected = getPcbSelectionEntries(this);
-            const remaining = selected.filter(entry => entry.kind !== 'fill' || entry.object.layer !== copperLayerId);
-            if (remaining.length !== selected.length) {
-                setPcbSelection(this, remaining);
-                refreshBoxSelectionHighlights(this);
-                showPcbSelectionProperties(this);
-                this._syncClipboardButtons();
-            }
-        }
+        const selectedFill = getPcbSelection(this, 'fill')[0] || null;
+        const checkbox = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropFillLocked'));
+        if (checkbox && selectedFill?.layer === copperLayerId) checkbox.checked = locked;
+        this._refreshPcbSelectionHighlights?.();
         saveLayerPrefs();
     }
 
@@ -8103,9 +8269,14 @@ export default class PCBApp {
             ['bottom-copper', 'Bottom Copper'],
         ].map(([id, name]) => `<option value="${id}"${id === fill.layer ? ' selected' : ''}>${name}</option>`).join('');
         items.innerHTML = `
+            <label class="prop-row prop-toggle"><input type="checkbox" id="pcbPropFillLocked"${isCopperFillLocked(fill.layer) ? ' checked' : ''}><span>Locked</span></label>
             <div class="prop-row"><label>Net</label><span class="prop-net-control"><input type="text" id="pcbPropFillNet" placeholder="None" value="${esc(fill.net || '')}"><details class="prop-net-menu"><summary aria-label="Select existing net"></summary><div>${netOptions}</div></details></span></div>
             <div class="prop-row"><label>Layer</label><select id="pcbPropFillLayer">${layerOpts}</select></div>
         `;
+        const lockedEl = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropFillLocked'));
+        lockedEl?.addEventListener('change', () => {
+            setPcbCopperFillLocked(this, fill.layer, lockedEl.checked);
+        });
         const commit = (mutate) => {
             if (!canEditFill(fill)) return;
             const before = fill.captureState();

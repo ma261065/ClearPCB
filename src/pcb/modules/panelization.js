@@ -16,12 +16,6 @@ export function panelSettings(value) {
     for (const key of Object.keys(settings)) {
         if (value[key] !== undefined) settings[key] = value[key];
     }
-    for (const key of ['verticalTabOffset', 'horizontalTabOffset']) {
-        if (value[key] === undefined && value.tabOffset !== undefined) settings[key] = value.tabOffset;
-    }
-    for (const key of ['verticalTabsPerEdge', 'horizontalTabsPerEdge']) {
-        if (value[key] === undefined && value.tabsPerEdge !== undefined) settings[key] = value.tabsPerEdge;
-    }
     for (const key of ['rows', 'columns']) {
         if (!Number.isInteger(settings[key]) || settings[key] < 1 || settings[key] > 20) {
             throw new Error('Rows and columns must be whole numbers from 1 to 20.');

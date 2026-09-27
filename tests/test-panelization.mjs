@@ -41,19 +41,19 @@ const { default: ClipperLib } = await import('../assets/vendor/clipper.esm.js');
 
 for (const axis of ['horizontal', 'vertical']) {
     for (const feature of ['PositioningHoles', 'Fiducials']) {
-        const inputs = Object.fromEntries(['railTop', 'railBottom', 'railLeft', 'railRight'].map(key =>
+        const inputs = Object.fromEntries(['railTop', 'railLeft'].map(key =>
             [key, { valueAsNumber: 0, min: '0', validationMessage: '', setCustomValidity(message) { this.validationMessage = message; } }]));
         for (const direction of ['horizontal', 'vertical']) {
             for (const option of ['PositioningHoles', 'Fiducials']) inputs[direction + option] = { checked: false };
         }
         const form = { querySelector(selector) { return inputs[selector.match(/name="([^"]+)"/)[1]]; } };
         const active = inputs[axis === 'horizontal' ? 'railTop' : 'railLeft'];
-        const absent = inputs[axis === 'horizontal' ? 'railBottom' : 'railRight'];
+        const absent = inputs[axis === 'horizontal' ? 'railLeft' : 'railTop'];
         active.valueAsNumber = 5;
         inputs[axis + feature].checked = true;
         assert.equal(updatePanelRailConstraints(form), '');
-        assert.equal(active.min, '5', 'Active feature rails stop spinning down at 5 mm');
-        assert.equal(absent.min, '0', 'Absent rails remain optional');
+        assert.equal(active.min, '5', 'Active feature rail pair stops spinning down at 5 mm');
+        assert.equal(absent.min, '0', 'The other rail pair remains optional');
         for (const width of [4.5, 0, NaN]) {
             active.valueAsNumber = width;
             assert.match(updatePanelRailConstraints(form), /at least 5 mm/);
@@ -116,27 +116,13 @@ assert.throws(() => panelSettings({ rowSpacing: NaN }), /Spacing/);
 assert.throws(() => panelSettings({ holeDiameter: 0.8, holePitch: 0.8 }), /pitch/);
 assert.equal(panelSettings({}).verticalTabsPerEdge, 2);
 assert.equal(panelSettings({}).horizontalTabsPerEdge, 2);
-assert.deepEqual(panelSettings({ tabsPerEdge: 3 }),
-    { ...PANEL_DEFAULTS, verticalTabsPerEdge: 3, horizontalTabsPerEdge: 3 },
-    'legacy shared tab count migrates to both axes');
-assert.deepEqual(panelSettings({ tabsPerEdge: 3, verticalTabsPerEdge: 1 }),
-    { ...PANEL_DEFAULTS, verticalTabsPerEdge: 1, horizontalTabsPerEdge: 3 },
-    'explicit axis count overrides the legacy count');
 assert.equal(panelSettings({}).verticalTabOffset, 0);
 assert.equal(panelSettings({}).horizontalTabOffset, 0);
-assert.deepEqual(panelSettings({ tabOffset: -0.5 }),
-    { ...PANEL_DEFAULTS, verticalTabOffset: -0.5, horizontalTabOffset: -0.5 },
-    'legacy shared offset migrates to both axes');
-assert.deepEqual(panelSettings({ tabOffset: -0.5, verticalTabOffset: 0 }),
-    { ...PANEL_DEFAULTS, verticalTabOffset: 0, horizontalTabOffset: -0.5 },
-    'explicit axis offset overrides the legacy offset, including zero');
 for (const tabsPerEdge of [0, 1.5, 21, NaN]) {
-    assert.throws(() => panelSettings({ tabsPerEdge }), /Tabs per edge/);
     assert.throws(() => panelSettings({ verticalTabsPerEdge: tabsPerEdge }), /Tabs per edge/);
     assert.throws(() => panelSettings({ horizontalTabsPerEdge: tabsPerEdge }), /Tabs per edge/);
 }
 for (const tabOffset of [-101, 101, NaN, Infinity]) {
-    assert.throws(() => panelSettings({ tabOffset }), /Tab offset/);
     assert.throws(() => panelSettings({ verticalTabOffset: tabOffset }), /Tab offset/);
     assert.throws(() => panelSettings({ horizontalTabOffset: tabOffset }), /Tab offset/);
 }
@@ -176,7 +162,10 @@ for (const arrangement of [{ rows: 1, columns: 2, along: 'y' }, { rows: 2, colum
         }
     }
 }
-const oneTab = buildPanelLayout(app, { tabsPerEdge: 1, tabOffset: 0.5 });
+const oneTab = buildPanelLayout(app, {
+    verticalTabsPerEdge: 1, horizontalTabsPerEdge: 1,
+    verticalTabOffset: 0.5, horizontalTabOffset: 0.5,
+});
 assert.equal(oneTab.tabs.length * 2, layout.tabs.length, 'count applies to board and rail connections');
 const mixedTabs = buildPanelLayout(app, { verticalTabsPerEdge: 1, horizontalTabsPerEdge: 3 });
 assert.equal(mixedTabs.tabs.length, 20, 'two vertical connections use one tab and six horizontal board/rail connections use three');
@@ -197,9 +186,13 @@ for (const columnSpacing of [1, 1.1]) {
 }
 assert.throws(() => buildPanelLayout(app, { rows: 1, columns: 2,
     railTop: 0, railBottom: 0, columnSpacing: 1 }), /drill rows would touch or overlap/);
-assert.throws(() => buildPanelLayout(app, { tabsPerEdge: 4 }), /without touching/);
+assert.throws(() => buildPanelLayout(app, {
+    verticalTabsPerEdge: 4, horizontalTabsPerEdge: 4,
+}), /without touching/);
 for (const tabOffset of [-1, 1]) {
-    assert.throws(() => buildPanelLayout(app, { tabOffset }), /edge end/);
+    assert.throws(() => buildPanelLayout(app, {
+        verticalTabOffset: tabOffset, horizontalTabOffset: tabOffset,
+    }), /edge end/);
 }
 assert.throws(() => buildPanelLayout(app, { rowSpacing: 0 }), /at least 1 mm/);
 const rounded = { ...app, boardShapes: [rectangleBoardOutline(20, 10, 2)] };

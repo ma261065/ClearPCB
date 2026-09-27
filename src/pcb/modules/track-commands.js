@@ -436,6 +436,31 @@ export class RotatePlacementCommand {
     undo() { this._apply(this.from); }
 }
 
+/** Toggle whether a PCB placement can be transformed or have its reference edited. */
+export class SetPlacementLockedCommand {
+    constructor(app, compId, locked) {
+        this.app = app;
+        this.compId = compId;
+        this.before = !!app.placements?.get(compId)?.locked;
+        this.after = !!locked;
+    }
+    _apply(locked) {
+        const pl = this.app.placements?.get(this.compId);
+        if (!pl) return;
+        pl.locked = locked;
+        this.app._recordPlacementOverride?.(this.compId);
+        this.app._refreshPcbSelectionHighlights?.();
+        if (getPcbSelection(this.app, 'component').includes(this.compId)) {
+            if (this.app.viewport?.svg) {
+                this.app.viewport.svg.style.cursor = locked ? 'default' : 'grab';
+            }
+            this.app._showComponentProperties?.(this.compId);
+        }
+    }
+    execute() { this._apply(this.after); }
+    undo() { this._apply(this.before); }
+}
+
 /**
  * Flip a placement horizontally or vertically. Mirrors the schematic editor's
  * model: a flip toggles the `mirror` flag and adjusts the rotation so the net
@@ -784,4 +809,3 @@ export class CompoundCommand {
         });
     }
 }
-

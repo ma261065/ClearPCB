@@ -29,6 +29,7 @@ import { distanceToSegment, pointsMatch, pointsCollinear, segmentsCollinear, col
 import { applyStickyConnections } from '../../ui/modules/sticky-wires.js';
 import { attachLabelToTarget, getLabelDropHotspot } from '../../ui/modules/label-attachment.js';
 import { VERTEX_EPSILON } from './wire-constants.js';
+export { renderGuideLines } from '../../shapes/axis-glow.js';
 
 // --- Constants ---
 
@@ -2137,42 +2138,6 @@ export function reconcileWiresWithUndo(app, changedWires, skipSet = null) {
     return batch;
 }
 
-// --- Guide line rendering ---
-
-/**
- * Render an array of guide line segments as blue highlight overlays.
- * Manages a pool of SVG line elements in app._collinearGuides.
- *
- * @param {object} app
- * @param {Array<[{x,y},{x,y}]>} guides - Array of [pointA, pointB] pairs
- */
-export function renderGuideLines(app, guides) {
-    if (!app._collinearGuides) app._collinearGuides = [];
-    const wireStroke = app._getEffectiveStrokeWidth(0.25);
-    for (let gi = 0; gi < guides.length; gi++) {
-        const [gA, gB] = guides[gi];
-        if (!app._collinearGuides[gi]) {
-            const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-            line.setAttribute('pointer-events', 'none');
-            app.viewport.svg.appendChild(line);
-            app._collinearGuides[gi] = line;
-        }
-        const line = app._collinearGuides[gi];
-        line.setAttribute('x1', gA.x);
-        line.setAttribute('y1', gA.y);
-        line.setAttribute('x2', gB.x);
-        line.setAttribute('y2', gB.y);
-        line.setAttribute('stroke', '#4488ff');
-        line.setAttribute('stroke-width', String(wireStroke * 3));
-        line.setAttribute('stroke-opacity', '0.22');
-        line.setAttribute('stroke-dasharray', 'none');
-        line.setAttribute('display', '');
-    }
-    for (let gi = guides.length; gi < app._collinearGuides.length; gi++) {
-        app._collinearGuides[gi].setAttribute('display', 'none');
-    }
-}
-
 // --- Collinear / H-V snap for moving wire segments ---
 
 /**
@@ -2293,7 +2258,7 @@ export function applyOffGridNeighborSnap(raw, snapped, neighbors, gridSize) {
  * @param {number} threshold - snap distance in world units
  * @param {Array<{ moving: {x,y}, fixed: {x,y}, beyond?: {x,y} }>} edges
  * @param {string} [axisLock] - 'horizontal'|'vertical' drag-axis constraint
- * @returns {{ adjustX: number, adjustY: number, guides: Array<[{x,y},{x,y}]> }}
+ * @returns {{ adjustX: number, adjustY: number, guides: Array<{a:{x:number,y:number},b:{x:number,y:number},collinear?:boolean,axisKind?:string}> }}
  */
 export function computeMovingSegmentSnaps(threshold, edges, axisLock) {
     let adjustX = 0, adjustY = 0;
@@ -2351,7 +2316,7 @@ export function computeMovingSegmentSnaps(threshold, edges, axisLock) {
         const rx = Math.abs(beyond.x - fixed.x);
         const ry = Math.abs(beyond.y - fixed.y);
         pts.sort((a, b) => rx >= ry ? a.x - b.x : a.y - b.y);
-        guides.push(/** @type {[{x:number,y:number},{x:number,y:number}]} */ ([pts[0], pts[2]]));
+        guides.push({ a: pts[0], b: pts[2], collinear: true });
     }
     // H/V guides (skip fixed points already covered by collinear,
     // and skip alignments that are trivially preserved by the axis lock)
@@ -2361,7 +2326,7 @@ export function computeMovingSegmentSnaps(threshold, edges, axisLock) {
         const yAligned = axisLock !== 'horizontal' && Math.abs(my - fixed.y) < threshold;
         const xAligned = axisLock !== 'vertical' && Math.abs(mx - fixed.x) < threshold;
         if (yAligned || xAligned) {
-            guides.push(/** @type {[{x:number,y:number},{x:number,y:number}]} */ ([{ x: mx, y: my }, fixed]));
+            guides.push({ a: { x: mx, y: my }, b: fixed, axisKind: yAligned ? 'h' : 'v' });
             covered.add(fixed);
         }
     }

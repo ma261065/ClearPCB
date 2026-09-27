@@ -1,9 +1,12 @@
-import { ModalManager } from '../../core/ModalManager.js';
 import { ModifyShapeCommand } from '../../schematic/modules/commands.js';
 import { freeWireLabel, bumpWireLabelCounter, freeNetName, bumpNetNameCounter } from '../../shapes/wire.js';
 import { validateNetNameAtPoint } from './net-validation.js';
-
-const SVG_NS = 'http://www.w3.org/2000/svg';
+import {
+    getTextEditBoxPadding,
+    measureTextGlyphBBox,
+    normalizeTextBBox,
+} from './text-edit-geometry.js';
+import { createInlineTextOverlay } from './inline-text-overlay.js';
 
 /**
  * Update wires connected to a Net label to use its current net name.
@@ -28,7 +31,7 @@ function _propagateNetNameToWires(app, netShape) {
 
 /**
  * Begins inline text editing on a text shape: initializes caret, creates
- * the overlay (box + blinking caret), and pushes a ModalManager entry.
+ * the overlay box and blinking caret.
  * @param {object} app - Application state.
  * @param {import('../../shapes/text.js').Text} shape - Text shape to edit.
  */
@@ -70,6 +73,7 @@ export function startTextEdit(app, shape) {
         shape,
         originalText: initialText,
         caretIndex: initialCaret,
+        overlay: null,
         overlayGroup: null,
         overlayBox: null,
         overlayCaret: null,
@@ -81,10 +85,6 @@ export function startTextEdit(app, shape) {
     ensureOverlay(app);
     updateTextEditOverlay(app);
 
-    ModalManager.push('text-edit', () => {
-        app._suppressNextEscape = true;
-        endTextEdit(app, false);
-    });
 }
 
 /**
@@ -98,9 +98,6 @@ export function endTextEdit(app, commit = true) {
     const state = app.textEdit;
     if (!state) return;
     const shape = state.shape;
-
-    // Defer pop so ModalManager can complete its current handling
-    Promise.resolve().then(() => ModalManager.pop('text-edit'));
 
     if (state.shape) {
         const textLength = (state.shape.text || '').length;
@@ -189,17 +186,13 @@ export function endTextEdit(app, commit = true) {
     const sel = app.selection.getSelection();
     if (sel.length > 0) app._updatePropertiesPanel(sel);
 
-    if (state.overlayGroup && state.overlayGroup.parentNode) {
-        state.overlayGroup.parentNode.removeChild(state.overlayGroup);
-    }
+    state.overlay?.destroy();
+    state.overlay = null;
     state.overlayGroup = null;
     state.overlayBox = null;
     state.overlayCaret = null;
     state.overlayBlink = null;
-    if (state.blinkTimer) {
-        clearInterval(state.blinkTimer);
-        state.blinkTimer = null;
-    }
+    state.blinkTimer = null;
     if (state.blinkTimeoutId) {
         clearTimeout(state.blinkTimeoutId);
         state.blinkTimeoutId = null;
@@ -362,12 +355,7 @@ export function updateTextEditOverlay(app) {
     if (rot) groupTransform += ` rotate(${rot})`;
     state.overlayGroup.setAttribute('transform', groupTransform);
 
-    let bbox;
-    try {
-        bbox = el.getBBox();
-    } catch (e) {
-        bbox = null;
-    }
+    let bbox = measureTextGlyphBBox(shape, el);
 
     const textValue = typeof shape.text === 'string' ? shape.text : '';
     if (textValue.length === 0) {
@@ -385,7 +373,6 @@ export function updateTextEditOverlay(app) {
     const normalized = normalizeTextBBox(shape, el, bbox, usesNestedTextCoords);
     bbox = normalized || bbox;
 
-    const pad = 0.4;
     const minHeight = Math.max(shape.fontSize || 2.5, 1);
     const minWidth = Math.max((shape.fontSize || 2.5) * 0.6, 1);
 
@@ -395,63 +382,27 @@ export function updateTextEditOverlay(app) {
     const baseY = usesNestedTextCoords
         ? (bbox ? bbox.y : 0)
         : ((bbox ? bbox.y : originY) - originY);
-    const width = Math.max(bbox ? bbox.width : 0, minWidth);
-    const height = Math.max(bbox ? bbox.height : 0, minHeight);
+    const width = textValue.length > 0 && bbox
+        ? bbox.width
+        : Math.max(bbox ? bbox.width : 0, minWidth);
+    const height = bbox?.height > 0 ? bbox.height : minHeight;
+    const pad = getTextEditBoxPadding(shape, bbox?.height || height);
 
     const caretProbe = usesNestedTextCoords
         ? { x: baseX, width }
         : { x: baseX + originX, width };
     const caretXAbs = getCaretX(app, shape, el, caretProbe, state.caretIndex ?? 0);
     const caretX = usesNestedTextCoords ? caretXAbs : (caretXAbs - originX);
-    const caretInset = 0.25;
-    const caretTop = baseY - pad + caretInset;
-    const caretBottom = baseY + height + pad - caretInset;
-
-    const numericValues = [baseX, baseY, width, height, caretX, caretTop, caretBottom];
-    if (numericValues.some((value) => !Number.isFinite(value))) {
-        state.overlayGroup.style.display = 'none';
-        return;
-    }
-
-    state.overlayGroup.style.display = '';
-    state.overlayBox.setAttribute('x', baseX - pad);
-    state.overlayBox.setAttribute('y', baseY - pad);
-    state.overlayBox.setAttribute('width', width + pad * 2);
-    state.overlayBox.setAttribute('height', height + pad * 2);
-
-    state.overlayCaret.setAttribute('x1', caretX);
-    state.overlayCaret.setAttribute('x2', caretX);
-    state.overlayCaret.setAttribute('y1', caretTop);
-    state.overlayCaret.setAttribute('y2', caretBottom);
-}
-
-function normalizeTextBBox(shape, el, bbox, usesNestedTextCoords) {
-    if (!bbox) return null;
-
-    const metrics = measureOverlayVerticalMetrics(shape);
-    if (!metrics) return null;
-
-    const yAttr = parseFloat(el?.getAttribute?.('y') || '0');
-    const baselineY = Number.isFinite(yAttr)
-        ? yAttr
-        : (Number.isFinite(bbox.y) ? (bbox.y + metrics.ascent) : (usesNestedTextCoords ? 0 : Number(shape?.y) || 0));
-
-    return {
-        x: bbox.x,
-        y: baselineY - metrics.ascent,
-        width: bbox.width,
-        height: metrics.height
-    };
-}
-
-function measureOverlayVerticalMetrics(shape) {
-    const fontSize = Math.max(Number(shape?.fontSize) || 0, 1);
-    // Keep edit-box sizing behavior identical across wire/component/net labels.
-    // Ratios are intentionally conservative: enough room for descenders
-    // without the oversized lower gap from raw SVG bbox measurements.
-    const ascent = fontSize * 0.78;
-    const descent = fontSize * 0.18;
-    return { ascent, descent, height: ascent + descent };
+    state.overlay?.updateGeometry({
+        x: baseX - pad,
+        y: baseY - pad,
+        width: width + pad * 2,
+        height: height + pad * 2,
+        caretX,
+        caretTop: baseY,
+        caretBottom: baseY + height,
+        transform: groupTransform,
+    });
 }
 
 /**
@@ -551,63 +502,17 @@ function ensureOverlay(app) {
     const state = app.textEdit;
     if (!state || state.overlayGroup) return;
 
-    const g = app.viewport.createGroup();
-    g.setAttribute('class', 'text-edit-overlay');
-    g.setAttribute('pointer-events', 'none');
-
-    const box = document.createElementNS(SVG_NS, 'rect');
-    box.setAttribute('fill', 'none');
-    box.setAttribute('stroke', 'var(--accent-color, #00ccff)');
-    box.setAttribute('stroke-width', '0.15');
-    box.setAttribute('stroke-opacity', '0.4');
-
-    const caret = document.createElementNS(SVG_NS, 'line');
-    caret.setAttribute('stroke', 'var(--accent-color, #00ccff)');
-    caret.setAttribute('stroke-width', '0.2');
-    caret.style.opacity = '1';
-
-    g.appendChild(box);
-    g.appendChild(caret);
-
-    app.viewport.addContent(g);
-
-    state.overlayGroup = g;
-    state.overlayBox = box;
-    state.overlayCaret = caret;
+    const overlay = createInlineTextOverlay(group => app.viewport.addContent(group));
+    state.overlay = overlay;
+    state.overlayGroup = overlay.group;
+    state.overlayBox = overlay.box;
+    state.overlayCaret = overlay.caret;
     state.overlayBlink = null;
-
-    // Wallclock metronome blink: state is a pure function of time so the
-    // rhythm stays constant regardless of caret movement. While the user
-    // is active, the caret is held solid-on, and only releases back into
-    // the cycle on a "light" beat (avoids a disconcerting brief flash).
-    const BLINK_MS = 530;
-    state.blinkEpoch = performance.now();
-    state.forceVisibleUntil = 0;
-    state.releasePending = false;
-    state.blinkTimer = setInterval(() => {
-        const s = app.textEdit;
-        if (!s || !s.overlayCaret) return;
-        const now = performance.now();
-        const beat = (Math.floor((now - s.blinkEpoch) / BLINK_MS) % 2) === 0;
-        let on;
-        if (now < s.forceVisibleUntil) {
-            on = true;
-            s.releasePending = true;
-        } else if (s.releasePending) {
-            if (beat) { s.releasePending = false; on = true; }
-            else { on = true; }
-        } else {
-            on = beat;
-        }
-        s.overlayCaret.style.opacity = on ? '1' : '0';
-    }, 60);
+    state.blinkTimer = overlay.blinkTimer;
 }
 
 function resetCaretBlink(state, _delay = 300) {
-    if (!state || !state.overlayCaret) return;
-    const IDLE_MS = 400;
-    state.forceVisibleUntil = performance.now() + IDLE_MS;
-    state.overlayCaret.style.opacity = '1';
+    state?.overlay?.keepCaretVisible();
 }
 
 function updateText(app, nextText, caretIndex) {
@@ -761,17 +666,13 @@ function _syncFieldToComponent(textShape) {
 
 /** Clean up text-edit overlay state (used for early abort). */
 function _cleanupTextEditState(state, app, shape) {
-    if (state.overlayGroup && state.overlayGroup.parentNode) {
-        state.overlayGroup.parentNode.removeChild(state.overlayGroup);
-    }
+    state.overlay?.destroy();
+    state.overlay = null;
     state.overlayGroup = null;
     state.overlayBox = null;
     state.overlayCaret = null;
     state.overlayBlink = null;
-    if (state.blinkTimer) {
-        clearInterval(state.blinkTimer);
-        state.blinkTimer = null;
-    }
+    state.blinkTimer = null;
     if (state.blinkTimeoutId) {
         clearTimeout(state.blinkTimeoutId);
         state.blinkTimeoutId = null;

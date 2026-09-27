@@ -1,4 +1,4 @@
-import { shapeOutline } from './board-shapes.js';
+import { shapeOutline } from './board-shape-geometry.js';
 import ClipperLib from '../../../assets/vendor/clipper.esm.js';
 
 export function getBoardOutline(app) {

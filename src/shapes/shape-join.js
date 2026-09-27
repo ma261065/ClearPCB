@@ -15,6 +15,7 @@
 
 import { Polyline } from './polyline.js';
 import { bulgeRatio } from '../core/geometry.js';
+import { joinPaths, closePathIfCoincident } from './path-operations.js';
 
 /** Endpoints within this world distance are treated as coincident. */
 export const JOIN_COINCIDENT_EPS = 1e-3;
@@ -188,6 +189,23 @@ export function joinShapes(shapeA, anchorIdA, shapeB, anchorIdB) {
     const origNodeB = B.anchorNode[anchorIdB];
     if (nodeA == null || origNodeB == null) return null;
 
+    const firstPath = A.poly.toEditablePath();
+    const secondPath = B.poly.toEditablePath();
+    if (firstPath && secondPath && !A.poly.closed && !B.poly.closed) {
+        const firstEndpoint = Object.values(firstPath.nodeIds).indexOf(nodeA);
+        const secondEndpoint = Object.values(secondPath.nodeIds).indexOf(origNodeB);
+        if (![0, firstPath.points.length - 1].includes(firstEndpoint)
+            || ![0, secondPath.points.length - 1].includes(secondEndpoint)) return null;
+        const joined = joinPaths(firstPath, firstEndpoint, secondPath, secondEndpoint);
+        joined.nodeIds = {};
+        joined.edgeIds = {};
+        A.poly.applyEditablePath(joined);
+        fuseCoincidentEndpoints(A.poly);
+        detectAndMarkClosed(A.poly);
+        A.poly.invalidate();
+        return A.poly;
+    }
+
     // Bring B's graph into A (bulge and other edge attrs are carried verbatim).
     const remap = A.poly.absorb(B.poly);
     const nodeB = remap.get(origNodeB);
@@ -218,6 +236,17 @@ export function joinShapeEndpoints(shape, keepAnchorId, dropAnchorId) {
     if (keepAnchorId === dropAnchorId) return null;
     const poly = shape.clone();
     if (!poly.nodes.has(keepAnchorId) || !poly.nodes.has(dropAnchorId)) return null;
+    const path = poly.toEditablePath();
+    if (path) {
+        const ids = Object.values(path.nodeIds);
+        const endpoint = ids.indexOf(keepAnchorId);
+        const other = ids.indexOf(dropAnchorId);
+        if (![0, ids.length - 1].includes(endpoint) || ![0, ids.length - 1].includes(other)) return null;
+        path.points[endpoint] = { ...path.points[other] };
+        if (!closePathIfCoincident(path, endpoint)) return null;
+        poly.applyEditablePath(path);
+        return poly;
+    }
     poly.mergeNodes(keepAnchorId, dropAnchorId);
     fuseCoincidentEndpoints(poly);
     detectAndMarkClosed(poly);

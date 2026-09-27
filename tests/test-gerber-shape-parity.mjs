@@ -2,10 +2,10 @@ import assert from 'node:assert/strict';
 import { closestPointOnSegment, pointInPolygon } from '../src/core/geometry.js';
 import { Track } from '../src/shapes/track.js';
 import { pictureShape } from '../src/pcb/modules/picture-raster.js';
+import { resolveBoardShapeGeometry, boardShapeFilledRemovalOutlines } from '../src/pcb/modules/board-shape-geometry.js';
 
 globalThis.window = { addEventListener() {} };
 const { exportGerbers } = await import('../src/pcb/modules/gerber.js');
-const { resolveBoardShapeGeometry, boardShapeFilledRemovalOutlines } = await import('../src/pcb/modules/board-shapes.js');
 const { pcbTextSegments } = await import('../src/pcb/modules/pcb-text.js');
 const exportShapes = boardShapes => exportGerbers({ placements: new Map(),
     boardX: 0, boardY: 0, boardWidth: 100, boardHeight: 80, boardShapes });

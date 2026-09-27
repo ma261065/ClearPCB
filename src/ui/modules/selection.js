@@ -1,5 +1,6 @@
 import { DeleteShapesCommand, DeleteComponentsCommand, ModifyPropertyCommand, ModifyShapeCommand, BatchCommand } from '../../schematic/modules/commands.js';
 import { updateRibbonState } from './ribbon.js';
+import { deleteFocusedSchematicShape } from './context-menu.js';
 
 /**
  * Toggles the `locked` property on all selected items via `ModifyPropertyCommand`
@@ -28,6 +29,7 @@ export function toggleSelectionLock(app) {
  * @param {object} app - Application state.
  */
 export function deleteSelected(app) {
+    if (deleteFocusedSchematicShape(app)) return;
     const toDelete = app.selection.getSelection().filter(item => !item.locked);
     if (toDelete.length === 0) return;
 

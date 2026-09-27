@@ -33,7 +33,7 @@ import {
     padFlashOutline,
 } from './board-geometry.js';
 import { resolveTrackSegments } from './board-geometry.js';
-import { resolveBoardShapeGeometry, boardShapeFilledRemovalOutlines } from './board-shapes.js';
+import { resolveBoardShapeGeometry, boardShapeFilledRemovalOutlines } from './board-shape-geometry.js';
 import { pcbTextSegments } from './pcb-text.js';
 import ClipperLib from '../../../assets/vendor/clipper.esm.js';
 import { deflateSync } from '../../../assets/vendor/fflate.module.js';

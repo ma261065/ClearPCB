@@ -29,6 +29,10 @@ assert.equal(hitTestPcbSelection(app, point, 'component'), winner);
 assert.equal(scans, 4, 'Single-hit selection must use the same query cache');
 
 const adapter = createComponentSelectionAdapter(app, 'component-42', 'direct');
+assert.equal(adapter.locked, false);
+app.placements.get('component-42').locked = true;
+assert.equal(adapter.locked, true, 'Component adapter exposes the live placement lock');
+app.placements.get('component-42').locked = false;
 assert.equal(adapter.hitTest(point), true);
 winner = null;
 assert.equal(adapter.hitTest(point), false);
