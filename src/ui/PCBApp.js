@@ -112,6 +112,10 @@ import { measureText as measureStrokeText, stringToPolylines } from '../pcb/modu
 import { CommandHistory } from '../core/CommandHistory.js';
 import { Track } from '../shapes/track.js';
 import { Via } from '../shapes/via.js';
+import { Pad } from '../shapes/pad.js';
+import { renderPad } from '../pcb/modules/pad.js';
+import { AddPadCommand, ModifyPadCommand } from '../pcb/modules/pad-commands.js';
+import '../pcb/modules/pad-selection.js';
 import { CopperFill } from '../shapes/copper-fill.js';
 import { computeFillPolygons, loadClipper, isClipperReady, boardShapeClearanceOutlines, pcbTextClearanceOutlines } from '../pcb/modules/copper-fill-geom.js';
 import { bindPictureRefreshHold, schedulePictureCopperRefresh } from '../pcb/modules/picture-refresh.js';
@@ -259,6 +263,12 @@ export default class PCBApp {
          * @type {Array<import('../shapes/via.js').Via>}
          */
         this.vias = [];
+        /** Standalone plated through-hole pads. */
+        this.pads = [];
+        this._padDefaults = {
+            shape: 'round', size: 1.5, drill: 0.8, ratio: 2,
+            rotation: 0, layers: 'both', net: '',
+        };
 
         /** Currently selected CopperFill, or null. */
         /** True when the schematic has changed since last PCB rebuild */
@@ -501,15 +511,20 @@ export default class PCBApp {
         const showHoleTip = rawTool === 'circle' && this.activeLayer === 'hole';
         const showOverlapTip = rawTool === 'select' && this._overlapHitCount > 1;
         const showTrackTip = rawTool === 'track';
+        const showPadTip = rawTool === 'pad'
+            || (rawTool === 'select' && getPcbSelection(this, 'pad').length === 1);
         const showReferenceTip = rawTool === 'select'
             && getPcbSelection(this).length === 1
             && getPcbSelection(this, 'reftext').length === 1;
         if (this.status.tipStatus) {
-            this.status.tipStatus.hidden = !showOverlapTip && !showHoleTip && !showSegmentTip && !showTrackTip && !showReferenceTip;
+            this.status.tipStatus.hidden = !showOverlapTip && !showHoleTip && !showSegmentTip
+                && !showTrackTip && !showPadTip && !showReferenceTip;
             this.status.tipStatus.textContent = showTrackTip
                 ? 'Tip: Press SPACE to insert a via and switch to the other layer'
                 : showReferenceTip
                 ? 'Tip: Use SPACE to rotate text'
+                : showPadTip
+                ? 'Tip: Place a pad on the board edge to make a castellation'
                 : showOverlapTip
                 ? 'Tip: Shift+Click to cycle overlapping objects; Ctrl+Click for multi-selection'
                 : showHoleTip
@@ -537,6 +552,7 @@ export default class PCBApp {
         return !!c && (
             (c.tracks?.length || 0) > 0
             || (c.vias?.length || 0) > 0
+            || (c.pads?.length || 0) > 0
             || (c.shapes?.length || 0) > 0
             || (c.texts?.length || 0) > 0
             || (c.fills?.length || 0) > 0
@@ -547,6 +563,7 @@ export default class PCBApp {
     _canCopyCutPcbSelection() {
         return getPcbSelection(this, 'track').length > 0
             || getPcbSelection(this, 'via').length > 0
+            || getPcbSelection(this, 'pad').length > 0
             || getPcbSelection(this, 'shape').some(shape => shape.layer !== 'board-outline')
             || getPcbSelection(this, 'text').length > 0
             || getPcbSelection(this, 'fill').length > 0;
@@ -566,6 +583,9 @@ export default class PCBApp {
         }
         if (!isViaLocked() && isViaVisible()) {
             for (const via of this.vias) selected.push({ kind: 'via', object: via });
+        }
+        for (const pad of this.pads || []) {
+            if (!pad.locked && pad.visible !== false) selected.push({ kind: 'pad', object: pad });
         }
         for (const shape of this.boardShapes) {
             if (shape?.type === 'fill') {
@@ -605,15 +625,16 @@ export default class PCBApp {
      * Components/reference labels are intentionally excluded.
      */
     _capturePcbClipboardSelection() {
-        const payload = { tracks: [], vias: [], shapes: [], texts: [], fills: [] };
+        const payload = { tracks: [], vias: [], pads: [], shapes: [], texts: [], fills: [] };
         for (const track of getPcbSelection(this, 'track')) payload.tracks.push(track.toJSON());
         for (const via of getPcbSelection(this, 'via')) payload.vias.push(via.toJSON());
+        for (const pad of getPcbSelection(this, 'pad')) payload.pads.push(pad.toJSON());
         for (const shape of getPcbSelection(this, 'shape')) {
             if (shape.layer !== 'board-outline') payload.shapes.push(JSON.parse(JSON.stringify(shape)));
         }
         for (const text of getPcbSelection(this, 'text')) payload.texts.push(serializePcbText(text));
         for (const fill of getPcbSelection(this, 'fill')) payload.fills.push(fill.captureState());
-        if (!payload.tracks.length && !payload.vias.length && !payload.shapes.length
+        if (!payload.tracks.length && !payload.vias.length && !payload.pads.length && !payload.shapes.length
             && !payload.texts.length && !payload.fills.length) return null;
         return payload;
     }
@@ -656,6 +677,7 @@ export default class PCBApp {
             for (const [, n] of t.nodes) points.push({ x: n.x, y: n.y });
         }
         for (const v of (payload.vias || [])) points.push({ x: v.x, y: v.y });
+        for (const pad of (payload.pads || [])) points.push({ x: pad.x, y: pad.y });
         for (const shape of (payload.shapes || [])) {
             if (shape.kind === 'circle') points.push({ x: shape.x, y: shape.y });
             else for (const point of (shape.points || [shape.start, shape.end, shape.bulge])) if (point) points.push(point);
@@ -680,6 +702,7 @@ export default class PCBApp {
                 return { track: t, nodes };
             }),
             vias: (payload.vias || []).map((v) => ({ via: v, x: v.x, y: v.y })),
+            pads: (payload.pads || []).map((pad) => ({ pad, x: pad.x, y: pad.y })),
             shapes: (payload.shapes || []).map((shape) => ({ shape, before: JSON.parse(JSON.stringify(shape)) })),
             texts: (payload.texts || []).map((t) => ({ text: t, x: t.x, y: t.y })),
             fills: (payload.fills || []).map((f) => ({
@@ -722,6 +745,11 @@ export default class PCBApp {
             v.via.x = v.x + dx;
             v.via.y = v.y + dy;
             renderVia(v.via, (id) => this._getLayerGroup(id));
+        }
+        for (const entry of pd.pads || []) {
+            entry.pad.x = entry.x + dx;
+            entry.pad.y = entry.y + dy;
+            renderPad(entry.pad, id => this._getLayerGroup(id));
         }
         for (const entry of pd.shapes) {
             const shape = entry.shape;
@@ -795,7 +823,7 @@ export default class PCBApp {
         this._pcbPasteCount = (this._pcbPasteCount || 0) + 1;
         const d = 2 * this._pcbPasteCount; // mm offset per successive paste
         const cmds = [];
-        const pasted = { tracks: [], vias: [], shapes: [], texts: [], fills: [] };
+        const pasted = { tracks: [], vias: [], pads: [], shapes: [], texts: [], fills: [] };
 
         for (const td of (c.tracks || [])) {
             const json = JSON.parse(JSON.stringify(td));
@@ -811,6 +839,12 @@ export default class PCBApp {
             via.x += d; via.y += d;
             cmds.push(new AddViaCommand(this, via));
             pasted.vias.push(via);
+        }
+        for (const pd of (c.pads || [])) {
+            const pad = Pad.fromJSON({ ...pd, id: undefined });
+            pad.x += d; pad.y += d;
+            cmds.push(new AddPadCommand(this, pad));
+            pasted.pads.push(pad);
         }
         for (const sd of (c.shapes || [])) {
             const shape = JSON.parse(JSON.stringify(sd));
@@ -892,7 +926,7 @@ export default class PCBApp {
             // Cursor crosshair and via previews are sized in screen pixels
             // and spans the viewport — redraw on zoom/pan so it doesn't drift.
             if (this._lastCrosshairWorld &&
-                (this.currentTool === 'via' || this.currentTool === 'track' || this.currentTool === 'text' || this.currentTool === 'line' || this.currentTool === 'circle' || this.currentTool === 'rect' || this.currentTool === 'polygon' || this.currentTool === 'arc')) {
+                (this.currentTool === 'via' || this.currentTool === 'pad' || this.currentTool === 'track' || this.currentTool === 'text' || this.currentTool === 'line' || this.currentTool === 'circle' || this.currentTool === 'rect' || this.currentTool === 'polygon' || this.currentTool === 'arc')) {
                 if (this.currentTool === 'via') {
                     this._updateViaPreview(this._lastCrosshairWorld);
                 } else {
@@ -1445,12 +1479,25 @@ export default class PCBApp {
                         } else {
                             this.history.execute(new AddViaCommand(this, via));
                         }
+
                     } else {
                         // Empty space: a standalone via with no net assignment.
                         const via = new Via({ x: snap.x, y: snap.y, diameter, drill, net: selectedNet });
                         this.history.execute(new AddViaCommand(this, via));
                     }
                 }
+            }
+
+            if (e.button === 0 && this.currentTool === 'pad') {
+                const snap = this._snapToGrid(this._screenToWorld(e));
+                const pad = new Pad({ ...this._padDefaults, x: snap.x, y: snap.y });
+                if (pad.layers === 'both'
+                    ? (isLayerLocked('top-copper') || isLayerLocked('bottom-copper'))
+                    : isLayerLocked(pad.layers)) return;
+                this.history.execute(new AddPadCommand(this, pad));
+                setPcbSelection(this, [{ kind: 'pad', object: pad }]);
+                this._showPadProperties(pad);
+                refreshBoxSelectionHighlights(this);
             }
 
             // Left-click with a shape tool: circle/rect = 2 clicks, arc = 3
@@ -1497,6 +1544,8 @@ export default class PCBApp {
                     this._updateCursorCrosshair(this._screenToWorld(e));
                 } else if (this.currentTool === 'via') {
                     this._updateViaPreview(this._screenToWorld(e));
+                } else if (this.currentTool === 'pad') {
+                    this._updateCursorCrosshair(this._screenToWorld(e));
                 } else if (this.currentTool === 'line' || this.currentTool === 'circle') {
                     this._updateCursorCrosshair(this._screenToWorld(e));
                 } else if (this.currentTool === 'rect' || this.currentTool === 'polygon' || this.currentTool === 'arc') {
@@ -1923,7 +1972,7 @@ export default class PCBApp {
             return;
         }
         const t = this.currentTool;
-        if (['line', 'circle', 'rect', 'polygon', 'arc', 'text', 'track', 'via'].includes(t)) {
+        if (['line', 'circle', 'rect', 'polygon', 'arc', 'text', 'track', 'via', 'pad'].includes(t)) {
             setToolCursor(this, t, this.viewport.svg);
             if (t !== 'via') this._clearViaRing();
             return;
@@ -1932,7 +1981,7 @@ export default class PCBApp {
             t === 'pan' ? 'grab' :
             'default';
         if (t !== 'via') this._clearViaRing();
-        if (t !== 'via' && t !== 'track' && t !== 'text' && t !== 'line' && t !== 'circle' && t !== 'rect' && t !== 'polygon' && t !== 'arc') this._clearCursorCrosshair();
+        if (t !== 'via' && t !== 'pad' && t !== 'track' && t !== 'text' && t !== 'line' && t !== 'circle' && t !== 'rect' && t !== 'polygon' && t !== 'arc') this._clearCursorCrosshair();
     }
 
     /**
@@ -2642,7 +2691,7 @@ export default class PCBApp {
      * @returns {object|null}
      */
     serializeSection() {
-        const hasContent = this.tracks?.length || this.vias?.length
+        const hasContent = this.tracks?.length || this.vias?.length || this.pads?.length
             || this.boardShapes?.length
             || this.texts?.size || this._placementOverrides.size
             || this._boardOutlineDrawn || this.viewport;
@@ -3449,6 +3498,123 @@ export default class PCBApp {
         this._setActiveRibbonTab?.('pcb-properties');
     }
 
+    _showPadToolProperties() {
+        this._showPadEditor(null);
+    }
+
+    _showPadProperties(pad) {
+        if (pad) this._showPadEditor(pad);
+    }
+
+    _showPadEditor(pad) {
+        const items = this._pcbPropsItems();
+        if (!items) return;
+        const state = pad || this._padDefaults;
+        const elongated = ['stadium', 'rectangle', 'oval'].includes(state.shape);
+        const { escape, options } = this._toolNetOptions(state.net || '');
+        this._setPcbPropsTitle(pad ? 'Pad' : 'New Pad');
+        items.innerHTML = `
+            <div class="prop-row"><label>Shape</label><select id="pcbPropPadShape">
+                ${[['round', 'Round'], ['stadium', 'Stadium'], ['square', 'Square'], ['rectangle', 'Rectangle'], ['oval', 'Oval']]
+                    .map(([value, label]) => `<option value="${value}"${state.shape === value ? ' selected' : ''}>${label}</option>`).join('')}
+            </select></div>
+            <div class="prop-row"><label>Size (mm)</label><input type="number" id="pcbPropPadSize" value="${state.size}" min="0.05" step="0.05"></div>
+            ${elongated ? `<div class="prop-row"><label>Ratio</label><input type="number" id="pcbPropPadRatio" value="${state.ratio}" min="1" step="0.1"></div>` : ''}
+            <div class="prop-row"><label>Drill (mm)</label><input type="number" id="pcbPropPadDrill" value="${state.drill}" min="0.05" max="${state.size}" step="0.05"></div>
+            ${state.shape !== 'round' ? `<div class="prop-row"><label>Rotation</label><input type="number" id="pcbPropPadRotation" value="${state.rotation}" step="1"></div>` : ''}
+            <div class="prop-row"><label>Copper</label><select id="pcbPropPadLayers">
+                <option value="top-copper"${state.layers === 'top-copper' ? ' selected' : ''}>Top</option>
+                <option value="bottom-copper"${state.layers === 'bottom-copper' ? ' selected' : ''}>Bottom</option>
+                <option value="both"${state.layers === 'both' ? ' selected' : ''}>Both</option>
+            </select></div>
+            <div class="prop-row"><label>Net</label><span class="prop-net-control"><input type="text" id="pcbPropPadNet" value="${escape(state.net || '')}" placeholder="None"><details class="prop-net-menu"><summary aria-label="Select existing net"></summary><div>${options}</div></details></span></div>
+        `;
+        const apply = (property, value) => {
+            if (pad) {
+                const before = pad.captureState();
+                const after = { ...before, [property]: value };
+                if (property === 'size') after.drill = Math.min(after.drill, value);
+                this.history.execute(new ModifyPadCommand(this, pad, before, after));
+                refreshBoxSelectionHighlights(this);
+            } else {
+                this._padDefaults[property] = value;
+                if (property === 'size') this._padDefaults.drill = Math.min(this._padDefaults.drill, value);
+            }
+        };
+        items.querySelector('#pcbPropPadShape')?.addEventListener('change', event => {
+            apply('shape', event.target.value);
+            this._showPadEditor(pad);
+        });
+        items.querySelector('#pcbPropPadLayers')?.addEventListener('change', event => apply('layers', event.target.value));
+        let renderFrame = null;
+        const renderLivePad = () => {
+            if (!pad || renderFrame !== null) return;
+            renderFrame = requestAnimationFrame(() => {
+                renderFrame = null;
+                renderPad(pad, layer => this._getLayerGroup(layer));
+                refreshBoxSelectionHighlights(this);
+            });
+        };
+        const cancelLiveRender = () => {
+            if (renderFrame === null) return;
+            cancelAnimationFrame(renderFrame);
+            renderFrame = null;
+        };
+        const bindLiveNumber = (id, property, minimum) => {
+            const input = /** @type {HTMLInputElement|null} */ (items.querySelector(id));
+            if (!input) return;
+            bindPictureRefreshHold(this, input);
+            const before = pad?.captureState();
+            input.addEventListener('input', () => {
+                let value = Number(input.value);
+                if (!Number.isFinite(value) || value < minimum) return;
+                if (property === 'rotation') value = ((value % 360) + 360) % 360;
+                if (property === 'drill') {
+                    value = Math.min(value, state.size);
+                    if (Number(input.value) !== value) input.value = String(value);
+                }
+                if (!pad) {
+                    this._padDefaults[property] = value;
+                    if (property === 'size') {
+                        const drillInput = /** @type {HTMLInputElement|null} */ (items.querySelector('#pcbPropPadDrill'));
+                        if (drillInput) drillInput.max = String(value);
+                        if (this._padDefaults.drill > value) {
+                            this._padDefaults.drill = value;
+                            if (drillInput) drillInput.value = String(value);
+                        }
+                    }
+                    return;
+                }
+                pad[property] = value;
+                if (property === 'size') {
+                    const drillInput = /** @type {HTMLInputElement|null} */ (items.querySelector('#pcbPropPadDrill'));
+                    if (drillInput) drillInput.max = String(value);
+                    if (pad.drill > value) {
+                        pad.drill = value;
+                        if (drillInput) drillInput.value = String(value);
+                    }
+                }
+                renderLivePad();
+                schedulePictureCopperRefresh(this, pad);
+            });
+            input.addEventListener('change', () => {
+                if (!pad || !before) return;
+                const after = pad.captureState();
+                if (JSON.stringify(after) === JSON.stringify(before)) return;
+                cancelLiveRender();
+                pad.applyState(before);
+                this.history.execute(new ModifyPadCommand(this, pad, before, after));
+                refreshBoxSelectionHighlights(this);
+            });
+        };
+        bindLiveNumber('#pcbPropPadSize', 'size', 0.05);
+        bindLiveNumber('#pcbPropPadRatio', 'ratio', 1);
+        bindLiveNumber('#pcbPropPadDrill', 'drill', 0.05);
+        bindLiveNumber('#pcbPropPadRotation', 'rotation', -Infinity);
+        this._bindToolNetControl(items, 'pcbPropPadNet', next => apply('net', next));
+        this._setActiveRibbonTab?.('pcb-properties');
+    }
+
     /** Show Properties-tab defaults for a board shape being created. */
     _showBoardShapeToolProperties(kind) {
         showBoardShapeToolProperties(this, kind);
@@ -3891,6 +4057,7 @@ export default class PCBApp {
             removeViaElements(v);
             renderVia(v, getGroup);
         }
+        for (const pad of this.pads || []) renderPad(pad, getGroup);
         // Free-standing board shapes; CopperFill entries render separately.
         for (const s of this.boardShapes) {
             if (!renderShapes || s.type === 'fill') continue;
@@ -4465,7 +4632,12 @@ export default class PCBApp {
             this._hoverComponent(componentHover);
             // Hover highlight for tracks/vias.
             const trackHover = hitTestTrack(this, worldPos);
-            const hovered = this._hitTestPad(worldPos) || trackHover;
+            // Read-only overlap count: skip the per-frame adapter-list rebuild
+            // and reuse the last-synced entries (structural edits resync).
+            const selectionHits = getPcbSelectionHits(this, worldPos, null, { sync: false });
+            const standalonePadHover = selectionHits.find(hit => hit.kind === 'pad')?.object || null;
+            const hovered = this._hitTestPad(worldPos) || trackHover
+                || (standalonePadHover ? { type: 'standalone-pad', pad: standalonePadHover } : null);
             setHoverHighlight(this, hovered);
             // Net-name tooltip for the hovered pad/track/via.
             this._updateNetTooltip(ev, hovered);
@@ -4475,9 +4647,7 @@ export default class PCBApp {
             // Hover highlight for free-standing board shapes.
             const shapeHover = hitTestBoardShape(this, worldPos);
             setBoardShapeHover(this, shapeHover);
-            // Read-only overlap count: skip the per-frame adapter-list rebuild
-            // and reuse the last-synced entries (structural edits resync).
-            const overlapHitCount = getPcbSelectionHits(this, worldPos, null, { sync: false }).length;
+            const overlapHitCount = selectionHits.length;
             if (overlapHitCount !== this._overlapHitCount) {
                 this._overlapHitCount = overlapHitCount;
                 this._setPcbStatus();
@@ -4508,6 +4678,7 @@ export default class PCBApp {
                 : selectedAnchor ? (selectedAnchor.anchor.cursor || 'move')
                 : shapeHover ? (shapeIsSelected ? 'move' : 'pointer')
                 : textHover ? (isPcbSelected(this, 'text', textHover) ? 'move' : 'pointer')
+                : standalonePadHover ? (isPcbSelected(this, 'pad', standalonePadHover) ? 'move' : 'pointer')
                 : componentHover ? (isPcbSelected(this, 'component', componentHover) ? 'move' : 'pointer')
                 : null;
             if (hoverCursor) {
@@ -4571,6 +4742,7 @@ export default class PCBApp {
         if (!hovered) return '';
         if (hovered.type === 'track') return hovered.track?.net || '';
         if (hovered.type === 'via') return hovered.via?.net || '';
+        if (hovered.type === 'standalone-pad') return hovered.pad?.net || '';
         if (hovered.type === 'pad') {
             const key = `${hovered.componentId}|${hovered.pinNumber}`;
             for (const entry of (this.netlist || [])) {
@@ -4601,7 +4773,9 @@ export default class PCBApp {
         // Skip when nothing is hovered or the hovered item is selected.
         const isSelected = hovered
             && ((hovered.type === 'track' && hovered.track === getSelectedTrack(this))
-                || (hovered.type === 'via' && hovered.via === getSelectedVia(this)));
+                || (hovered.type === 'via' && hovered.via === getSelectedVia(this))
+                || (hovered.type === 'standalone-pad'
+                    && isPcbSelected(this, 'pad', hovered.pad)));
         if (!hovered || isSelected) {
             this._hideNetTooltip();
             return;

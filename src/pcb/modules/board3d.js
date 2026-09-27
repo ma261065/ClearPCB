@@ -70,6 +70,7 @@ import {
     resolveSilk,
     resolvePadMaskOpenings,
     padFlashOutline,
+    MASK_EXPANSION,
 } from './board-geometry.js';
 import { CORNER_CHORD_TOLERANCE } from './board-geometry.js';
 import { buildTrackLayerRuns } from './track-render.js';
@@ -78,6 +79,28 @@ import { boardShapeFilledRemovalOutlines, resolveBoardShapeGeometry } from './bo
 import { pcbTextPolylines } from './pcb-text.js';
 import { loadClipper, isClipperReady, getClipper } from './copper-fill-geom.js';
 import { createViewerBackgroundTexture, VIEWER_BACKGROUND } from './viewer-background.js';
+
+export function board2DDataFromApp(app) {
+    return {
+        placements: app.placements,
+        tracks: app.tracks,
+        vias: app.vias,
+        pads: app.pads,
+        circles: [],
+        boardShapes: (app.boardShapes || []).filter(shape => shape?.type !== 'fill'),
+        fills: app.copperFills,
+        texts: [...(app.texts?.values?.() || [])],
+        boardX: app._boardX || 0,
+        boardY: app._boardY || 0,
+        boardWidth: app._boardWidth,
+        boardHeight: app._boardHeight,
+        boardRadius: app._boardRadius,
+    };
+}
+
+export function platedSurfaceRemovalHoles(drilledHoles, copperSubtractHoles) {
+    return drilledHoles.filter(hole => hole.boardShape).concat(copperSubtractHoles);
+}
 
 /** Finished board thickness in millimetres (standard 1.6 mm). */
 const BOARD_THICKNESS = 1.6;
@@ -1186,7 +1209,8 @@ function stadiumDiscMesh(cx, cz, halfW, halfH, ct, st, y, color) {
  *        cap-centres (world x, z); when set the bore is a slot, not a circle
  * @returns {{verts: Array, faces: Array}}
  */
-function throughHolePadMesh(cx, cz, shape, halfW, halfH, ct, st, ri, yBottom, yTop, color, slot = null) {
+function throughHolePadMesh(cx, cz, shape, halfW, halfH, ct, st, ri, yBottom, yTop, color, slot = null,
+    faces = { top: true, bottom: true, outerWall: true }) {
     const toWorld = (lx, lz) => ({ x: cx + lx * ct - lz * st, y: cz + lx * st + lz * ct });
     // Outer outline in the board plane (x, y(=world z)).
     const outline = [];
@@ -1221,14 +1245,18 @@ function throughHolePadMesh(cx, cz, shape, halfW, halfH, ct, st, ri, yBottom, yT
     try { tri = triangulateWithHoles(outline, [hole]); } catch { tri = null; }
     const mesh = emptyMesh();
     if (tri && tri.tris.length) {
-        appendMesh(mesh, {
-            verts: tri.pts.map((p) => ({ x: p.x, y: yTop, z: p.y })),
-            faces: tri.tris.map((t) => ({ idx: [t[0], t[1], t[2]], color })),
-        });
-        appendMesh(mesh, {
-            verts: tri.pts.map((p) => ({ x: p.x, y: yBottom, z: p.y })),
-            faces: tri.tris.map((t) => ({ idx: [t[2], t[1], t[0]], color })),
-        });
+        if (faces.top) {
+            appendMesh(mesh, {
+                verts: tri.pts.map((p) => ({ x: p.x, y: yTop, z: p.y })),
+                faces: tri.tris.map((t) => ({ idx: [t[0], t[1], t[2]], color })),
+            });
+        }
+        if (faces.bottom) {
+            appendMesh(mesh, {
+                verts: tri.pts.map((p) => ({ x: p.x, y: yBottom, z: p.y })),
+                faces: tri.tris.map((t) => ({ idx: [t[2], t[1], t[0]], color })),
+            });
+        }
     }
     // Outer side wall around the pad outline.
     const wall = { verts: [], faces: [] };
@@ -1239,7 +1267,7 @@ function throughHolePadMesh(cx, cz, shape, halfW, halfH, ct, st, ri, yBottom, yT
         const j = (i + 1) % n;
         wall.faces.push({ idx: [i, j, n + j, n + i], color });
     }
-    appendMesh(mesh, wall);
+    if (faces.outerWall) appendMesh(mesh, wall);
     // Inner barrel lining the bore (capsule wall for slots, cylinder for round).
     if (slot) appendMesh(mesh, polygonWallMesh(hole, yBottom, yTop, color));
     else appendMesh(mesh, cylinderWallMesh(cx, cz, ri, yBottom, yTop, color, seg));
@@ -1656,11 +1684,19 @@ export function collectCopperSubtractHoles(boardShapes = []) {
  * @param {'top'|'bottom'} side
  * @returns {Array<{x?:number,z?:number,r?:number,ring?:Array<{x:number,z:number}>}>}
  */
-export function collectMaskOpeningHoles(boardShapes = [], side = 'top', placements = new Map()) {
+export function collectMaskOpeningHoles(boardShapes = [], side = 'top', placements = new Map(), pads = []) {
      /** @type {Array<{x?:number,z?:number,r?:number,ring?:Array<{x:number,z:number}>}>} */
     const holes = resolvePadMaskOpenings(placements, side).map(flash => ({
         ring: padFlashOutline(flash).map(point => ({ x: point.x, z: point.y })),
     }));
+    const copperLayer = `${side}-copper`;
+    for (const pad of pads || []) {
+       if (pad.layers !== 'both' && pad.layers !== copperLayer) continue;
+       holes.push({
+           ring: padFlashOutline(standalonePadFlash(pad, MASK_EXPANSION))
+               .map(point => ({ x: point.x, z: point.y })),
+       });
+    }
     for (const c of boardShapes || []) {
         if (c?.kind !== 'circle') continue;
         if (!c || !(c.radius > 0)) continue;
@@ -1836,7 +1872,112 @@ function buildPlatedShapeHoleMesh(drilledHoles) {
  * @param {Iterable<[string, object]>} placements
  * @returns {Array<{x:number,z:number,r:number,plated:boolean}>}
  */
-function collectBoardHoles(placements) {
+function standalonePadFlash(pad, expansion = 0) {
+    const ratio = ['stadium', 'rectangle', 'oval'].includes(pad.shape) ? pad.ratio || 2 : 1;
+    return {
+        x: pad.x, y: pad.y, w: pad.size * ratio + expansion * 2, h: pad.size + expansion * 2,
+        shape: pad.shape === 'round' ? 'circle'
+            : pad.shape === 'oval' ? 'ellipse'
+                : pad.shape === 'stadium' ? 'oval' : 'rect',
+        rotation: pad.rotation || 0, rad: -(pad.rotation || 0) * Math.PI / 180,
+    };
+}
+
+function standalonePadMesh(pad) {
+    const flash = standalonePadFlash(pad);
+    const halfW = flash.w / 2;
+    const halfH = flash.h / 2;
+    const ri = Math.max(0.05, pad.drill / 2 - 0.02);
+    return throughHolePadMesh(
+        flash.x, flash.y, flash.shape === 'circle' ? 'ellipse' : flash.shape,
+        halfW, halfH, Math.cos(flash.rad), Math.sin(flash.rad), ri,
+        Y_BOT - PAD_EPS, Y_TOP + PAD_EPS, COLOR_PAD, null,
+        {
+            top: pad.layers === 'both' || pad.layers === 'top-copper',
+            bottom: pad.layers === 'both' || pad.layers === 'bottom-copper',
+            outerWall: false,
+        },
+    );
+}
+
+export function standalonePadEdgeMesh(pad, boardOutline) {
+    const mesh = emptyMesh();
+    if (!Array.isArray(boardOutline) || boardOutline.length < 3) return mesh;
+    const flash = standalonePadFlash(pad);
+    const padOutline = padFlashOutline(flash).map(point => ({ x: point.x, z: point.y }));
+    if (padOutline.length < 3) return mesh;
+    const padPolygon = padOutline.map(point => ({ x: point.x, y: point.z }));
+    const drillRadius = Math.max(0, Number(pad.drill) || 0) / 2;
+    const cross = (ax, az, bx, bz) => ax * bz - az * bx;
+    const addIntersection = (values, a, b, c, d) => {
+        const rx = b.x - a.x;
+        const rz = b.z - a.z;
+        const sx = d.x - c.x;
+        const sz = d.z - c.z;
+        const denominator = cross(rx, rz, sx, sz);
+        if (Math.abs(denominator) <= 1e-12) return;
+        const qx = c.x - a.x;
+        const qz = c.z - a.z;
+        const t = cross(qx, qz, sx, sz) / denominator;
+        const u = cross(qx, qz, rx, rz) / denominator;
+        if (t > 1e-9 && t < 1 - 1e-9 && u >= -1e-9 && u <= 1 + 1e-9) values.push(t);
+    };
+    const addDrillIntersections = (values, a, b) => {
+        if (!(drillRadius > 0)) return;
+        const dx = b.x - a.x;
+        const dz = b.z - a.z;
+        const ox = a.x - pad.x;
+        const oz = a.z - pad.y;
+        const aa = dx * dx + dz * dz;
+        const bb = 2 * (ox * dx + oz * dz);
+        const cc = ox * ox + oz * oz - drillRadius * drillRadius;
+        const discriminant = bb * bb - 4 * aa * cc;
+        if (aa <= 1e-12 || discriminant <= 0) return;
+        const root = Math.sqrt(discriminant);
+        for (const t of [(-bb - root) / (2 * aa), (-bb + root) / (2 * aa)]) {
+            if (t > 1e-9 && t < 1 - 1e-9) values.push(t);
+        }
+    };
+    const pointAt = (a, b, t) => ({
+        x: a.x + (b.x - a.x) * t,
+        z: a.z + (b.z - a.z) * t,
+    });
+    for (let edgeIndex = 0; edgeIndex < boardOutline.length; edgeIndex++) {
+        const a = boardOutline[edgeIndex];
+        const b = boardOutline[(edgeIndex + 1) % boardOutline.length];
+        const values = [0, 1];
+        for (let padIndex = 0; padIndex < padOutline.length; padIndex++) {
+            addIntersection(values, a, b, padOutline[padIndex],
+                padOutline[(padIndex + 1) % padOutline.length]);
+        }
+        addDrillIntersections(values, a, b);
+        values.sort((first, second) => first - second);
+        const unique = values.filter((value, index) => index === 0 || value - values[index - 1] > 1e-8);
+        for (let index = 0; index + 1 < unique.length; index++) {
+            const start = pointAt(a, b, unique[index]);
+            const end = pointAt(a, b, unique[index + 1]);
+            if (Math.hypot(end.x - start.x, end.z - start.z) <= 1e-8) continue;
+            const midpoint = pointAt(start, end, 0.5);
+            if (!pointInPolygon({ x: midpoint.x, y: midpoint.z }, padPolygon)) continue;
+            if (drillRadius > 0
+                && Math.hypot(midpoint.x - pad.x, midpoint.z - pad.y) < drillRadius - 1e-8) continue;
+            const base = mesh.verts.length;
+            mesh.verts.push(
+                { x: start.x, y: Y_TOP + PAD_EPS, z: start.z },
+                { x: end.x, y: Y_TOP + PAD_EPS, z: end.z },
+                { x: end.x, y: Y_BOT - PAD_EPS, z: end.z },
+                { x: start.x, y: Y_BOT - PAD_EPS, z: start.z },
+            );
+            mesh.faces.push(
+                { idx: [base, base + 1, base + 2], color: COLOR_PAD },
+                { idx: [base, base + 2, base + 3], color: COLOR_PAD },
+            );
+        }
+    }
+    return mesh;
+}
+
+function collectBoardHoles(placements, pads = []) {
     const holes = [];
     for (const drill of resolvePlacementDrills(placements)) {
         const r = drill.dia / 2;
@@ -1857,6 +1998,9 @@ function collectBoardHoles(placements) {
         } else {
             holes.push({ x: drill.x, z: drill.y, r, plated: drill.plated });
         }
+    }
+    for (const pad of pads) {
+        if (pad.drill > 0) holes.push({ x: pad.x, z: pad.y, r: pad.drill / 2, plated: true });
     }
     return holes;
 }
@@ -3059,21 +3203,7 @@ export async function openBoard3DViewer(app, opts = {}) {
     // straight to a 2D canvas. Created lazily the first time a 2D view shows.
     /** @type {import('./board2d.js').Board2D|null} */
     let board2d = null;
-    const boardData = () => ({
-        placements: app.placements,
-        tracks: app.tracks,
-        vias: app.vias,
-        circles: [],
-        boardShapes: (app.boardShapes || [])
-            .filter((shape) => shape?.type !== 'fill'),
-        fills: app.copperFills,
-        texts: [...(app.texts?.values?.() || [])],
-        boardX: app._boardX || 0,
-        boardY: app._boardY || 0,
-        boardWidth: app._boardWidth,
-        boardHeight: app._boardHeight,
-        boardRadius: app._boardRadius,
-    });
+    const boardData = () => board2DDataFromApp(app);
     const ensureBoard2D = () => {
         if (!board2d) board2d = new Board2D(dom.canvas2d);
         return board2d;
@@ -3316,7 +3446,7 @@ export async function openBoard3DViewer(app, opts = {}) {
                 : roundedRectOutline(0, -h, w, h, r);
             // Bore drilled holes (pad drills + mounting holes) clean through the
             // slab so they read as real openings; only holes wholly inside the board.
-            let drilledHoles = collectBoardHoles(app.placements).filter((ho) => ho.r > 0);
+            let drilledHoles = collectBoardHoles(app.placements, app.pads).filter((ho) => ho.r > 0);
             // Free-standing circles on HOLE layer are real board cutouts.
             // Free-standing board shapes (rect/polygon/arc/circle) on HOLE layer are real
             // board cutouts too — carry an explicit polygon ring plus a bounding
@@ -3423,23 +3553,27 @@ export async function openBoard3DViewer(app, opts = {}) {
             const circleShapes = (app.boardShapes || []).filter((shape) => shape?.kind === 'circle');
             const copperSubtractHoles = collectCopperSubtractHoles(app.boardShapes || []);
             const copperPunchHoles = drilledHoles.concat(copperSubtractHoles);
-            const boardShapeHoles = drilledHoles.filter((hole) => hole.boardShape);
+            const platedMeshHoles = platedSurfaceRemovalHoles(drilledHoles, copperSubtractHoles);
             const copperMesh = buildCopperMesh(app.tracks, circleShapes, app.boardShapes, app.texts);
             appendMesh(copperMesh, buildFillMesh(app.copperFills));
             addSurface('copper', [{ mesh: copperMesh, holes: copperPunchHoles }]);
             const padsMesh = emptyMesh();
             for (const [, pl] of app.placements) appendMesh(padsMesh, padMesh(pl));
+            for (const pad of app.pads || []) {
+                appendMesh(padsMesh, standalonePadMesh(pad));
+                appendMesh(padsMesh, standalonePadEdgeMesh(pad, outline));
+            }
             addSurface('via', [
-                { mesh: buildViaMesh(app.vias), holes: boardShapeHoles.concat(copperSubtractHoles) },
+                { mesh: buildViaMesh(app.vias), holes: platedMeshHoles },
                 { mesh: buildPlatedShapeHoleMesh(drilledHoles) },
             ]);
-            addSurface('pads', [{ mesh: padsMesh, holes: copperPunchHoles }]);
+            addSurface('pads', [{ mesh: padsMesh, holes: platedMeshHoles }]);
             if (SHOW_SOLDERMASK) {
                 addSurface('maskCoat', [
                     { mesh: buildMaskFaceMesh(outline, Y_TOP + COPPER_EPS, false),
-                        holes: drilledHoles.concat(collectMaskOpeningHoles(app.boardShapes || [], 'top', app.placements)) },
+                        holes: drilledHoles.concat(collectMaskOpeningHoles(app.boardShapes || [], 'top', app.placements, app.pads)) },
                     { mesh: buildMaskFaceMesh(outline, Y_BOT - COPPER_EPS, true),
-                        holes: drilledHoles.concat(collectMaskOpeningHoles(app.boardShapes || [], 'bottom', app.placements)) },
+                        holes: drilledHoles.concat(collectMaskOpeningHoles(app.boardShapes || [], 'bottom', app.placements, app.pads)) },
                 ]);
             }
             // Document-layer circles expose raw board material above mask/copper.

@@ -80,6 +80,10 @@ const ARTWORK = { e: 'encoding', b: 'bytes', d: 'data', i: 'index' };
 const PCB_TEXT = {
     t: 'content', s: 'size', rot: 'rotation', l: 'layer', lw: 'strokeWidth', bd: 'border',
 };
+const PAD = {
+    sh: 'shape', s: 'size', dr: 'drill', ra: 'ratio', rot: 'rotation',
+    ls: 'layers', n: 'net', lk: 'locked', v: 'visible',
+};
 const PLACEMENT = {
     rot: 'rotation', lk: 'locked', mir: 'mirror', sd: 'side', rv: 'refVisible',
     rdx: 'refDx', rdy: 'refDy', rr: 'refRot', rs: 'refSize', rw: 'refStrokeWidth',
@@ -202,6 +206,9 @@ function transformPcb(pcb, target) {
     }
     for (const [index, text] of (Array.isArray(pcb.texts) ? pcb.texts : []).entries()) {
         convertRecord(text, PCB_TEXT, target, `pcb.texts[${index}]`);
+    }
+    for (const [index, pad] of (Array.isArray(pcb.pads) ? pcb.pads : []).entries()) {
+        convertRecord(pad, PAD, target, `pcb.pads[${index}]`);
     }
     for (const [id, placement] of Object.entries(pcb.placements || {})) {
         convertRecord(placement, PLACEMENT, target, `pcb.placements.${id}`);

@@ -58,6 +58,7 @@ import { resolveTrackEdgePaths, resolveTrackSegments } from './board-geometry.js
 import { arcFromBulge } from '../../shapes/arc-edge.js';
 import { bulgeRatio } from '../../core/geometry.js';
 import { pathMoveInteraction, pathContextActions, showPathContextMenu, dismissPathContextMenu, snapPathPoint } from './path-edit.js';
+import { padOutline } from './pad.js';
 import { beginPcbAnchorInteraction } from './selection-interaction.js';
 
 const NS = 'http://www.w3.org/2000/svg';
@@ -541,6 +542,7 @@ export function setHoverHighlight(app, hit) {
     // the selection stays the sole focus.
     const selectedTrack = getSelectedTrack(app);
     const selectedVia = getSelectedVia(app);
+    const selectedPad = getPcbSelection(app, 'pad')[0] || null;
     if (selectedTrack) {
         if (app._hoveredTrackOrVia !== null) {
             app._hoveredTrackOrVia = null;
@@ -552,6 +554,7 @@ export function setHoverHighlight(app, hit) {
         ? (hit.type === 'track' ? hit.track
             : hit.type === 'via' ? hit.via
             : hit.type === 'pad' ? `pad:${hit.componentId}|${hit.pinNumber}`
+                : hit.type === 'standalone-pad' ? `standalone-pad:${hit.pad.id}`
             : null)
         : null;
     if (app._hoveredTrackOrVia === key) return;
@@ -575,6 +578,8 @@ export function setHoverHighlight(app, hit) {
         }
     } else if (hit.type === 'via' && hit.via !== selectedVia) {
         _drawViaHalo(app, hit.via, HOVER_CLASS, HALO_OPACITY_HOVER);
+    } else if (hit.type === 'standalone-pad' && hit.pad !== selectedPad) {
+        drawStandalonePadHalo(app, hit.pad, HOVER_CLASS, HALO_OPACITY_HOVER);
     }
 }
 
@@ -746,6 +751,22 @@ export function drawTrackHalo(app, track, cls, opacity = HALO_OPACITY_SELECTED) 
 /** Draw a selection halo over a via using the given CSS class. */
 export function drawViaHalo(app, via, cls, opacity = HALO_OPACITY_SELECTED) {
     _drawViaHalo(app, via, cls, opacity);
+}
+
+export function drawStandalonePadHalo(app, pad, cls, opacity = HALO_OPACITY_SELECTED) {
+    const parent = app._getLayerGroup?.('selection-overlay');
+    if (!parent) return;
+    const points = padOutline({ ...pad, x: 0, y: 0 });
+    const polygon = document.createElementNS(NS, 'polygon');
+    polygon.setAttribute('class', cls);
+    polygon.setAttribute('points', points.map(point => `${point.x},${point.y}`).join(' '));
+    polygon.setAttribute('transform', `translate(${pad.x},${pad.y})`);
+    polygon.setAttribute('fill', HALO_COLOR);
+    polygon.setAttribute('fill-opacity', String(opacity));
+    polygon.setAttribute('stroke', 'none');
+    polygon.setAttribute('pointer-events', 'none');
+    polygon.dataset.padId = pad.id;
+    parent.appendChild(polygon);
 }
 
 /** Remove every halo with the given CSS class from all layers. */

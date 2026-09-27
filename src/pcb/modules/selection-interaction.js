@@ -24,7 +24,7 @@ import {
 import { hitTestPcbSelectionAnchor, renderPcbSelectionAnchors } from './selection-anchors.js';
 import { ROTATION_CURSOR } from './rotation-handle.js';
 
-const SUPPORTED_KINDS = new Set(['component', 'shape', 'track', 'via', 'fill', 'text', 'reftext']);
+const SUPPORTED_KINDS = new Set(['component', 'shape', 'track', 'via', 'pad', 'fill', 'text', 'reftext']);
 
 export function selectionInteractionCursor(app) {
     if (app._rotationHandleDrag) return ROTATION_CURSOR;
@@ -56,6 +56,7 @@ function showSingleProperties(app, entry) {
     } else if (entry.kind === 'shape') showBoardShapeProperties(app, entry.object);
     else if (entry.kind === 'track') showTrackSelectionProperties(app, entry.object);
     else if (entry.kind === 'via') showViaProperties(app, entry.object);
+    else if (entry.kind === 'pad') app._showPadProperties?.(entry.object);
     else if (entry.kind === 'fill') {
         app._selectFill?.(entry.object);
         app._showFillProperties?.(entry.object);
@@ -81,6 +82,8 @@ export function showPcbSelectionProperties(app) {
         showBoardShapeProperties(app, selected[0].object);
     } else if (kinds.size === 1 && selected[0].kind === 'via') {
         showViaProperties(app, selected[0].object);
+    } else if (kinds.size === 1 && selected[0].kind === 'pad') {
+        app._showPadProperties?.(selected[0].object);
     } else {
         app._showPcbMultiSelectionProperties?.(selected);
     }

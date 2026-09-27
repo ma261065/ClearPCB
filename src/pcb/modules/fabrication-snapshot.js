@@ -7,7 +7,7 @@ const placementFields = ['x', 'y', 'rotation', 'mirror', 'side', 'padOffsets', '
     'pads', 'name', 'reference', 'outline', 'refVisible', 'refDx', 'refDy', 'refRot', 'refSize', 'refStrokeWidth'];
 
 export function hasFabricationContent(app) {
-    return !!(app.placements?.size || app.tracks?.length || app.vias?.length || app.texts?.size
+    return !!(app.placements?.size || app.tracks?.length || app.vias?.length || app.pads?.length || app.texts?.size
         || app.boardShapes?.some(shape => !String(shape.layer).endsWith('-document')) || app.copperFills?.length);
 }
 
@@ -35,6 +35,7 @@ export async function prepareFabricationSnapshot(app, { computeFills = true } = 
         panelization: app.panelization ? panelSettings(app.panelization) : null,
         placements, tracks, vias: app.vias.map(via => ({ id: via.id, x: via.x, y: via.y,
             diameter: via.diameter, drill: via.drill, net: via.net })),
+        pads: (app.pads || []).map(pad => structuredClone(pad.captureState())),
         texts: structuredClone([...app.texts.values()]), fills,
         boardShapes: serializeBoardShapes({ boardShapes: app.boardShapes.filter(shape => shape.type !== 'fill') }, { compactArtwork: false, roundGeometry: false }),
         boardX: app._boardX || 0, boardY: app._boardY || 0,

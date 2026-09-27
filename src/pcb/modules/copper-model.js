@@ -71,6 +71,24 @@ export function resolveCopperPads(app, { physical = false } = {}) {
             }
         }
     }
+    for (const pad of app.pads || []) {
+        const width = Number.isFinite(pad.width) ? pad.width
+            : pad.size * (['stadium', 'rectangle', 'oval'].includes(pad.shape) ? pad.ratio || 2 : 1);
+        const height = Number.isFinite(pad.height) ? pad.height : pad.size;
+        const shape = pad.shape === 'round' ? 'circle'
+            : pad.shape === 'oval' ? 'ellipse'
+                : pad.shape === 'stadium' ? 'oval' : 'rect';
+        const angle = -(pad.rotation || 0) * Math.PI / 180;
+        const contour = padFlashOutline({
+            x: pad.x, y: pad.y, w: width, h: height, shape, rad: angle,
+        }, physical ? 1e-4 : undefined);
+        pads.push({
+            x: pad.x, y: pad.y, componentId: null, padId: pad.id, number: pad.id,
+            drill: pad.drill, net: pad.net || '', layer: pad.layers,
+            width, height, hw: width / 2, hh: height / 2,
+            shape, rotation: pad.rotation || 0, reference: pad.id, outline: contour,
+        });
+    }
     for (const pad of pads) pad.outline ||= outline(pad);
     return pads;
 }

@@ -12,6 +12,7 @@ export function bindPcbControls(app) {
     const trackBtn = document.getElementById('pcbToolTrack');
     const imageBtn = document.getElementById('pcbImportImage');
     const viaBtn = document.getElementById('pcbToolVia');
+    const padBtn = document.getElementById('pcbToolPad');
     const holeBtn = document.getElementById('pcbToolHole');
     const shapesBtn = document.getElementById('pcbToolShapes');
     const shapesArrowBtn = document.getElementById('pcbToolShapesArrow');
@@ -37,7 +38,7 @@ export function bindPcbControls(app) {
     const undoBtn = document.getElementById('pcbUndoBtn');
     const redoBtn = document.getElementById('pcbRedoBtn');
 
-    const toolBtns = [selectBtn, trackBtn, viaBtn, holeBtn, shapesBtn, textBtn, fillBtn];
+    const toolBtns = [selectBtn, trackBtn, viaBtn, padBtn, holeBtn, shapesBtn, textBtn, fillBtn];
     const validTools = new Set(['select', 'track', 'pad', 'via', 'line', 'circle', 'arc', 'rect', 'polygon', 'text', 'fill']);
     // Tools grouped under the "Shapes" dropdown button.
     const SHAPE_TOOLS = new Set(['line', 'circle', 'arc', 'rect', 'polygon']);
@@ -101,6 +102,9 @@ export function bindPcbControls(app) {
         if (nextTool === 'via') {
             app._hideToolOptions?.();
             app._showViaToolProperties?.();
+        } else if (nextTool === 'pad') {
+            app._hideToolOptions?.();
+            app._showPadToolProperties?.();
         } else if (nextTool === 'track') {
             app._hideToolOptions?.();
             app._showTrackDrawProperties?.();
@@ -126,6 +130,7 @@ export function bindPcbControls(app) {
     trackBtn?.addEventListener('click', () => setTool('track'));
     imageBtn?.addEventListener('click', () => showPictureImport(app));
     viaBtn?.addEventListener('click', () => setTool('via'));
+    padBtn?.addEventListener('click', () => setTool('pad'));
     holeBtn?.addEventListener('click', () => {
         app.activeLayer = 'hole';
         setTool('circle');

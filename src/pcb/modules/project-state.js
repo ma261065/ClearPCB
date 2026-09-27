@@ -7,6 +7,8 @@ import { serializeBoardShapes, loadBoardShapes, removeBoardShapeElement, renderB
 import { validBoardOutline, getBoardOutline, syncBoardOutlineDimensions } from './board-outline.js';
 import { Track } from '../../shapes/track.js';
 import { Via, resetViaIdCounter, updateViaIdCounter } from '../../shapes/via.js';
+import { Pad, resetPadIdCounter, updatePadIdCounter } from '../../shapes/pad.js';
+import { renderPad, removePadElements } from './pad.js';
 import { updateFillIdCounter } from '../../shapes/copper-fill.js';
 import { createShape } from '../../shapes/index.js';
 import { serializeGridSettings, restoreGridSettings } from '../../ui/modules/viewport.js';
@@ -56,6 +58,7 @@ export function serializePcb(app) {
         settings: serializeGridSettings(app.viewport),
         tracks: app.tracks.map(t => t.toJSON()),
         vias: app.vias.map(v => v.toJSON()),
+        pads: (app.pads || []).map(pad => pad.toJSON()),
         boardShapes: serializeBoardShapes(app),
         texts: [...app.texts.values()].map(text => {
             const saved = serializePcbText(text);
@@ -88,6 +91,7 @@ export function preparePcb(data) {
         return track;
     });
     return { data, tracks, vias: (data?.vias || []).map((item) => Via.fromJSON(item)),
+        pads: (data?.pads || []).map((item) => new Pad(item)),
         texts: (data?.texts || []).map((item) => createPcbText(item)),
         boardShapes: stage.boardShapes, shapeIdCounter: stage._shapeIdCounter, panelization };
 }
@@ -106,9 +110,13 @@ export function loadPcb(app, data, prepared = preparePcb(data)) {
     // Drop any existing tracks/vias and their SVG.
     for (const t of app.tracks) removeTrackElements(t);
     for (const v of app.vias) removeViaElements(v);
+    app.pads ||= [];
+    for (const pad of app.pads) removePadElements(pad);
     app.tracks.length = 0;
     app.vias.length = 0;
+    app.pads.length = 0;
     resetViaIdCounter();
+    resetPadIdCounter();
     for (const id of app._shapeElements.keys()) removeBoardShapeElement(app, id);
     app.boardShapes.length = 0;
     app._shapeIdCounter = 1;
@@ -206,6 +214,11 @@ export function loadPcb(app, data, prepared = preparePcb(data)) {
         updateViaIdCounter(via.id);
         app.vias.push(via);
         if (render) renderVia(via, (id) => app._getLayerGroup(id));
+    }
+    for (const pad of prepared.pads) {
+        updatePadIdCounter(pad.id);
+        app.pads.push(pad);
+        if (render) renderPad(pad, (id) => app._getLayerGroup(id));
     }
     app._shapeIdCounter = prepared.shapeIdCounter;
     for (const shape of prepared.boardShapes) {

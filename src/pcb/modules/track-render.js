@@ -19,6 +19,7 @@
  */
 
 import { resolveTrackEdgePaths } from './board-geometry.js';
+import { VIA_DRILL_COLOR } from './pcb-colors.js';
 
 const NS = 'http://www.w3.org/2000/svg';
 
@@ -49,7 +50,7 @@ export function renderTrack(track, getLayerGroup, opts = {}) {
     const topColor = opts.topColor || '#e74c3c';
     const bottomColor = opts.bottomColor || '#2479b5';
     const viaRingColor = opts.viaRingColor || '#b8860b';
-    const viaDrillColor = opts.viaDrillColor || '#1a1a2e';
+    const viaDrillColor = opts.viaDrillColor || VIA_DRILL_COLOR;
     const viaDiameter = Number.isFinite(opts.viaDiameter) && opts.viaDiameter > 0
         ? opts.viaDiameter : 0.6;
     const viaDrill = Number.isFinite(opts.viaDrill) && opts.viaDrill > 0
@@ -113,7 +114,7 @@ export function renderVia(via, getLayerGroup, opts = {}) {
     if (!holeLayer) return;
 
     const ringColor = opts.viaRingColor || '#b8860b';
-    const drillColor = opts.viaDrillColor || '#1a1a2e';
+    const drillColor = opts.viaDrillColor || VIA_DRILL_COLOR;
 
     const ring = _makeViaCircle(via.x, via.y, via.diameter / 2, ringColor);
     ring.setAttribute('class', VIA_CLASS);
@@ -334,4 +335,3 @@ function _buildNetLabels(points, netName, trackWidth) {
     }
     return labels;
 }
-

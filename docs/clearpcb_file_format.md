@@ -349,6 +349,7 @@ unrecognized provider-owned keys are preserved unchanged.
     },
     "tracks": [],
     "vias": [],
+    "pads": [],
     "boardShapes": [],
     "texts": [],
     "placements": {}
@@ -590,6 +591,41 @@ A top-to-inner or inner-to-bottom span is blind; an inner-to-inner span is
 buried. Every copper layer between the endpoints participates in the via.
 The current editor can only load through vias on two-layer boards, and may
 omit an explicit top-to-bottom span when saving because it equals the default.
+
+### Standalone Pads
+
+```json
+{
+  "type": "pad",
+  "id": "pad_1",
+  "x": 20,
+  "y": 10,
+  "sh": "stadium",
+  "s": 1.5,
+  "dr": 0.8,
+  "ra": 2,
+  "rot": 90,
+  "ls": "both",
+  "n": "GND"
+}
+```
+
+| Key | Long input alias | Meaning | Default when omitted |
+| --- | --- | --- | --- |
+| `sh` | `shape` | `round`, `stadium`, `square`, `rectangle`, or `oval`. | `round` |
+| `s` | `size` | Diameter for round pads; width and height for square pads; minor dimension for elongated pads. | 1.5 mm |
+| `dr` | `drill` | Circular plated drill diameter, no larger than `s`. | 0.8 mm |
+| `ra` | `ratio` | Major/minor dimension ratio for stadium, rectangle, and oval pads; at least 1. | 2 |
+| `rot` | `rotation` | Clockwise rotation in degrees. | 0 |
+| `ls` | `layers` | Copper coverage: `top-copper`, `bottom-copper`, or `both`. | `both` |
+| `n` | `net` | Net name. | Empty |
+| `lk` | `locked` | Locked. | `false` |
+| `v` | `visible` | Visible. | `true` |
+
+Standalone pads are plated through-hole features. Copper and solder-mask
+openings are emitted on the selected side or sides, while the circular drill is
+always emitted in the plated drill file. Pads may cross the board outline;
+Gerber copper and mask are clipped at the edge to support castellations.
 
 ### Generic Board Shapes
 

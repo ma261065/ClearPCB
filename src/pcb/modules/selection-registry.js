@@ -93,6 +93,7 @@ function entries(app) {
     for (const [id] of app.placements || []) out.push(adapter(app, 'component', id));
     for (const track of app.tracks || []) out.push(adapter(app, 'track', track));
     for (const via of app.vias || []) out.push(adapter(app, 'via', via));
+    for (const pad of app.pads || []) out.push(adapter(app, 'pad', pad));
     for (const shape of app.boardShapes || []) {
         if (shape?.type === 'fill') out.push(adapter(app, 'fill', shape));
         else out.push(adapter(app, 'shape', shape));
@@ -158,7 +159,7 @@ export function getPcbSelectionHits(app, point, kinds = null, { sync = true } = 
     if (sync) syncPcbSelection(app);
     const allowed = kinds ? new Set(kinds) : null;
     const hits = querySelectionHits(app, point).filter((item) => !allowed || allowed.has(item.kind));
-    const priority = { via: 0, track: 1, text: 2, reftext: 3 };
+    const priority = { pad: 0, via: 1, track: 2, text: 3, reftext: 4 };
     const rank = item => item.kind === 'shape' && item.object.layer === 'hole' ? -1 : (priority[item.kind] ?? 4);
     return hits.sort((first, second) => rank(first) - rank(second));
 }

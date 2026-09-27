@@ -23,7 +23,7 @@ const SHAPE_FIELDS = {
     noconnect: fields('x', 'y', 'pn'),
 };
 const PCB_FIELDS = fields('stackup', 'board', 'design', 'panelization', 'settings',
-    'tracks', 'vias', 'boardShapes', 'texts', 'placements');
+    'tracks', 'vias', 'pads', 'boardShapes', 'texts', 'placements');
 const STACKUP_FIELDS = fields('copperLayers');
 const BOARD_FIELDS = fields('width', 'height', 'radius');
 const DESIGN_FIELDS = fields('trackWidth', 'clearance', 'viaDiameter', 'viaDrill', 'units', 'router');
@@ -37,6 +37,8 @@ const BOARD_SHAPE_FIELDS = fields('id', 'kind', 'layer', 'lineWidth', 'filled', 
 const FILL_FIELDS = fields('type', 'id', 'l', 'pts', 'n', 'lk', 'v', 'kind', 'cornerRadius',
     'nodeCornerRadii', 'segmentBulges', 'x', 'y', 'radius');
 const PCB_TEXT_FIELDS = fields('id', 'content', 'x', 'y', 'size', 'rotation', 'layer', 'strokeWidth', 'border');
+const PAD_FIELDS = fields('type', 'id', 'x', 'y', 'shape', 'size', 'drill', 'ratio',
+    'rotation', 'layers', 'net', 'locked', 'visible');
 const PLACEMENT_FIELDS = fields('x', 'y', 'rotation', 'locked', 'mirror', 'side', 'refVisible',
     'refDx', 'refDy', 'refRot', 'refSize', 'refStrokeWidth');
 const PANEL_FIELDS = fields('rows', 'columns', 'rowSpacing', 'columnSpacing', 'separation',
@@ -218,6 +220,25 @@ function validatePcb(pcb) {
                 rejectUnknownFields(item.span, VIA_SPAN_FIELDS, `${path}.span`);
             }
         }],
+        ['pads', (item, index) => {
+            const path = `pcb.pads[${index}]`;
+            rejectUnknownFields(item, PAD_FIELDS, path);
+            requireFields(item, ['type', 'id', 'x', 'y', 'shape', 'size', 'drill', 'layers'], path);
+            if (item.type !== 'pad') invalid(`${path}.type`, 'PCB pad type must be "pad".', { type: item.type });
+            if (!['round', 'stadium', 'square', 'rectangle', 'oval'].includes(item.shape)) {
+                invalid(`${path}.shape`, 'Invalid PCB pad shape.', { shape: item.shape });
+            }
+            if (['stadium', 'rectangle', 'oval'].includes(item.shape)) requireFields(item, ['ratio'], path);
+            if (!['top-copper', 'bottom-copper', 'both'].includes(item.layers)) {
+                invalid(`${path}.layers`, 'Pad layers must be top-copper, bottom-copper, or both.', { layers: item.layers });
+            }
+            if (!(item.size > 0) || !(item.drill > 0) || item.drill > item.size) {
+                invalid(path, 'Pad size and drill must be positive, with drill no larger than size.', item);
+            }
+            if (['stadium', 'rectangle', 'oval'].includes(item.shape) && !(item.ratio >= 1)) {
+                invalid(`${path}.ratio`, 'Elongated pad ratio must be at least 1.', { ratio: item.ratio });
+            }
+        }],
         ['boardShapes', validatePcbShape],
         ['texts', (item, index) => {
             const path = `pcb.texts[${index}]`;
@@ -268,6 +289,11 @@ export function validatePcbStackup(pcb) {
             if (!record(via.span) || !layers.includes(via.span.from) || !layers.includes(via.span.to)
                 || layers.indexOf(via.span.from) >= layers.indexOf(via.span.to)) {
                 invalid(`pcb.vias[${pcb.vias.indexOf(via)}].span`, 'Invalid via copper-layer span.', via.span);
+            }
+            for (const pad of pcb?.pads || []) {
+                for (const layer of pad.layers === 'both' ? ['top-copper', 'bottom-copper'] : [pad.layers]) {
+                    if (!layers.includes(layer)) invalid('pcb.pads', `Undeclared PCB copper layer: ${layer}`, pad);
+                }
             }
         }
     }
@@ -325,7 +351,7 @@ export function validateProject(data) {
     }
     validatePcbStackup(data.pcb);
     for (const [section, fields] of [[data.schematic, ['shapes', 'components']],
-        [data.pcb, ['tracks', 'vias', 'boardShapes', 'texts']]]) {
+        [data.pcb, ['tracks', 'vias', 'pads', 'boardShapes', 'texts']]]) {
         if (!section) continue;
         for (const field of fields) {
             const items = section[field];

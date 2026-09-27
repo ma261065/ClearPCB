@@ -8,12 +8,13 @@ assert.ok(start >= 0 && end > start);
 const calls = [];
 const record = name => () => calls.push(name);
 const dependencies = {
-    removeTrackElements() {}, removeViaElements() {}, resetViaIdCounter() {}, removeBoardShapeElement() {},
+    removeTrackElements() {}, removeViaElements() {}, removePadElements() {},
+    resetViaIdCounter() {}, resetPadIdCounter() {}, updatePadIdCounter() {}, removeBoardShapeElement() {},
     clearTrackSelection() {}, updateViaIdCounter() {}, updateFillIdCounter() {},
     resetPanelPreview() {}, renderPanelPreview() {},
     getBoardOutline: app => app.boardShapes.find(shape => shape.layer === 'board-outline'),
     syncBoardOutlineDimensions() {},
-    renderTrack: record('track'), renderVia: record('via'),
+    renderTrack: record('track'), renderVia: record('via'), renderPad: record('pad'),
     renderBoardShape(app, shape, options) {
         assert.equal(options?.skipCopperUpdate, true, 'Batch rendering must defer copper clipping');
         calls.push('shape');
@@ -29,11 +30,12 @@ const data = {
     board: { width: 43, height: 27, radius: 2 }, settings: { gridSize: 0.5 },
     placements: { U1: { x: 3, y: -5, rotation: 90, locked: true } } };
 const prepared = {
-    tracks: [{ id: 'track' }], vias: [{ id: 'via' }], texts: [{ id: 'text' }], shapeIdCounter: 3,
+    tracks: [{ id: 'track' }], vias: [{ id: 'via' }], pads: [{ id: 'pad' }],
+    texts: [{ id: 'text' }], shapeIdCounter: 3,
     boardShapes: [{ id: 'image', kind: 'image' }, { id: 'fill', type: 'fill' }],
 };
 const makeApp = active => ({
-    _active: active, _stale: false, tracks: [], vias: [], boardShapes: [], texts: new Map(),
+    _active: active, _stale: false, tracks: [], vias: [], pads: [], boardShapes: [], texts: new Map(),
     placements: new Map([['U1', {}]]), _shapeElements: new Map(), _textElements: new Map(),
     _placementOverrides: new Map(), history: { clear() {} },
     _ensureViewport: record('viewport'), _getLayerGroup: () => null,
@@ -53,6 +55,7 @@ assert.deepEqual([hidden._boardWidth, hidden._boardHeight, hidden._boardRadius],
 assert.deepEqual(hidden.boardShapes, prepared.boardShapes);
 assert.deepEqual(hidden.tracks, prepared.tracks);
 assert.deepEqual(hidden.vias, prepared.vias);
+assert.deepEqual(hidden.pads, prepared.pads);
 assert.equal(hidden.texts.get('text'), prepared.texts[0]);
 assert.equal(hidden._placementOverrides.get('U1').rotation, 90);
 assert.equal(hidden._placementOverrides.get('U1').locked, true);
@@ -62,7 +65,7 @@ assert.equal(hidden.cutRefreshes, 1, 'Hidden loading only clears the previous do
 calls.length = 0;
 const active = makeApp(true);
 loadPcb(active, data, prepared);
-assert.deepEqual(calls, ['viewport', 'grid', 'outline', 'placements', 'track', 'via', 'shape', 'text', 'clearance', 'ratsnest', 'fills'],
+assert.deepEqual(calls, ['viewport', 'grid', 'outline', 'placements', 'track', 'via', 'pad', 'shape', 'text', 'clearance', 'ratsnest', 'fills'],
     'active loads still render immediately');
 assert.equal(active.cutRefreshes, 2, 'Active loading clears old cuts and refreshes once after all shapes');
 

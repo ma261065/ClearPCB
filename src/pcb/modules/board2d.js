@@ -21,6 +21,7 @@ import {
     resolvePadFlashes,
     resolveSilk,
     resolvePadMaskOpenings,
+    MASK_EXPANSION,
 } from './board-geometry.js';
 import { resolveTrackSegments } from './board-geometry.js';
 import { boardShapeFilledRemovalOutlines, resolveBoardShapeGeometry } from './board-shape-geometry.js';
@@ -623,6 +624,17 @@ export class Board2D {
         for (const flash of resolvePadMaskOpenings(d.placements || new Map(), this.side)) {
             this._fillPad(ctx, flash.x, flash.y, flash.w, flash.h, flash.shape, flash.rad);
         }
+        const copperLayer = `${this.side}-copper`;
+        for (const pad of (d.pads || [])) {
+            if (pad.layers !== 'both' && pad.layers !== copperLayer) continue;
+            const ratio = ['stadium', 'rectangle', 'oval'].includes(pad.shape) ? pad.ratio || 2 : 1;
+            const shape = pad.shape === 'round' ? 'circle'
+                : pad.shape === 'oval' ? 'ellipse'
+                    : pad.shape === 'stadium' ? 'oval' : 'rect';
+            this._fillPad(ctx, pad.x, pad.y,
+                pad.size * ratio + 2 * MASK_EXPANSION, pad.size + 2 * MASK_EXPANSION,
+                shape, -(pad.rotation || 0) * Math.PI / 180);
+        }
         for (const shape of (d.boardShapes || [])) {
             if (!shape || shape.type === 'fill') continue;
             const layer = String(shape.layer || '');
@@ -765,6 +777,15 @@ export class Board2D {
         for (const flash of resolvePadFlashes(d.placements || new Map(), { side: padSide })) {
             this._fillPad(cctx, flash.x, flash.y, flash.w, flash.h, flash.shape, flash.rad);
         }
+        for (const pad of (d.pads || [])) {
+            if (pad.layers !== 'both' && pad.layers !== copperLayer) continue;
+            const ratio = ['stadium', 'rectangle', 'oval'].includes(pad.shape) ? pad.ratio || 2 : 1;
+            const shape = pad.shape === 'round' ? 'circle'
+                : pad.shape === 'oval' ? 'ellipse'
+                    : pad.shape === 'stadium' ? 'oval' : 'rect';
+            this._fillPad(cctx, pad.x, pad.y, pad.size * ratio, pad.size, shape,
+                -(pad.rotation || 0) * Math.PI / 180);
+        }
         cctx.restore();
 
         // Vias appear on both copper layers.
@@ -806,7 +827,9 @@ export class Board2D {
 
     _padPath(ctx, cx, cy, w, h, shape) {
         ctx.beginPath();
-        if (shape === 'ellipse') {
+        if (shape === 'circle') {
+            ctx.arc(cx, cy, Math.min(w, h) / 2, 0, Math.PI * 2);
+        } else if (shape === 'ellipse') {
             ctx.ellipse(cx, cy, w / 2, h / 2, 0, 0, Math.PI * 2);
         } else if (shape === 'oval') {
             const r = Math.min(w, h) / 2;
@@ -866,6 +889,12 @@ export class Board2D {
             if (drill <= 0) continue;
             ctx.beginPath();
             ctx.arc(v.x, v.y, drill / 2, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        for (const pad of (d.pads || [])) {
+            if (!(pad.drill > 0)) continue;
+            ctx.beginPath();
+            ctx.arc(pad.x, pad.y, pad.drill / 2, 0, Math.PI * 2);
             ctx.fill();
         }
         // Free-standing board shapes on HOLE layer are board cutouts.

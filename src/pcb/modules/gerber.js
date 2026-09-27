@@ -170,7 +170,7 @@ function _shapeContourRegion(contours, bounds) {
  */
 export function exportGerbers(opts, onProgress = (done, total, name) => {}) {
     const {
-        placements, tracks = [], vias = [],
+        placements, tracks = [], vias = [], pads = [],
         boardWidth, boardHeight, boardRadius = 0,
         boardX = 0, boardY = 0,
         texts = [], fills = [], boardShapes = [],
@@ -205,10 +205,10 @@ export function exportGerbers(opts, onProgress = (done, total, name) => {}) {
         files.set(name, build());
     };
     const layers = [
-        ['board.gtl', () => _buildCopper(placements, tracks, vias, 'top-copper', clipBounds, texts, fills, circles, boardShapes)],
-        ['board.gbl', () => _buildCopper(placements, tracks, vias, 'bottom-copper', clipBounds, texts, fills, circles, boardShapes)],
-        ['board.gts', () => _buildMask(placements, vias, 'top', clipBounds, boardShapes)],
-        ['board.gbs', () => _buildMask(placements, vias, 'bottom', clipBounds, boardShapes)],
+        ['board.gtl', () => _buildCopper(placements, tracks, vias, 'top-copper', clipBounds, texts, fills, circles, boardShapes, pads)],
+        ['board.gbl', () => _buildCopper(placements, tracks, vias, 'bottom-copper', clipBounds, texts, fills, circles, boardShapes, pads)],
+        ['board.gts', () => _buildMask(placements, vias, 'top', clipBounds, boardShapes, pads)],
+        ['board.gbs', () => _buildMask(placements, vias, 'bottom', clipBounds, boardShapes, pads)],
         ['board.gtp', () => _buildPaste(placements, 'top', clipBounds)],
         ['board.gbp', () => _buildPaste(placements, 'bottom', clipBounds)],
         ['board.gto', () => _buildSilk(placements, 'top', clipBounds, texts, boardShapes)],
@@ -217,7 +217,7 @@ export function exportGerbers(opts, onProgress = (done, total, name) => {}) {
         // Plated through-holes (pads, vias, and Hole-layer circles) and
         // non-plated holes go in separate Excellon files so fabs (JLCPCB,
         // etc.) can tell them apart — they key off the -PTH / -NPTH suffix.
-        ['board-PTH.drl', () => _buildDrill(_collectPlatedDrills(placements, vias, boardShapes, clipBounds), clipBounds, false, panel)],
+        ['board-PTH.drl', () => _buildDrill(_collectPlatedDrills(placements, vias, boardShapes, clipBounds, pads), clipBounds, false, panel)],
     ];
     for (const [name, build] of layers) emit(name, build);
     // Only emit the NPTH file when there are non-plated holes — an empty
@@ -288,7 +288,20 @@ function _poseXform(pl) {
     return placementPose(pl).xf;
 }
 
-function _buildCopper(placements, tracks, vias, layerId, bounds, texts = [], fills = [], circles = [], boardShapes = []) {
+function _standalonePadFlash(pad, expansion = 0) {
+    const ratio = ['stadium', 'rectangle', 'oval'].includes(pad.shape) ? pad.ratio || 2 : 1;
+    const width = Number.isFinite(pad.width) ? pad.width : pad.size * ratio;
+    const height = Number.isFinite(pad.height) ? pad.height : pad.size;
+    const shape = pad.shape === 'round' ? 'circle'
+        : pad.shape === 'oval' ? 'ellipse'
+            : pad.shape === 'stadium' ? 'oval' : 'rect';
+    return {
+        x: pad.x, y: pad.y, w: width + expansion * 2, h: height + expansion * 2,
+        shape, rotation: pad.rotation || 0, rad: -(pad.rotation || 0) * Math.PI / 180,
+    };
+}
+
+function _buildCopper(placements, tracks, vias, layerId, bounds, texts = [], fills = [], circles = [], boardShapes = [], pads = []) {
     const isTop = layerId === 'top-copper';
     // Pads use the footprint/autorouter convention: 'top'|'bottom'|'both'.
     // Tracks use SVG-layer-id form: 'top-copper'|'bottom-copper'.
@@ -311,6 +324,11 @@ function _buildCopper(placements, tracks, vias, layerId, bounds, texts = [], fil
     // Pads on this layer (and on 'both').
     for (const flash of resolvePadFlashes(placements, { side: padSide })) {
         ops.push(padOperation(flash, getAp, bounds));
+    }
+    for (const pad of pads) {
+        if (pad.layers === 'both' || pad.layers === layerId) {
+            ops.push(padOperation(_standalonePadFlash(pad), getAp, bounds));
+        }
     }
 
     // Vias (drawn as circular flashes on both copper layers).
@@ -515,6 +533,7 @@ function _buildPadLayer(placements, vias, side, bounds, opts) {
         respectMask = false,
         pasteApertures = false,
         shapeOpenings = [],
+        standalonePads = [],
         title = 'Pad Layer',
     } = opts;
     /** @type {Map<string, number>} apertureKey → D-code */
@@ -537,6 +556,9 @@ function _buildPadLayer(placements, vias, side, bounds, opts) {
         if (respectPaste && flash.paste === false) continue;
         if (respectMask && flash.mask === false) continue;
         ops.push(padOperation(flash, getAp, bounds));
+    }
+    for (const pad of standalonePads) {
+        ops.push(padOperation(_standalonePadFlash(pad, expansion), getAp, bounds));
     }
 
     // Standalone paste apertures (no copper) — windowpane stencil openings.
@@ -602,7 +624,7 @@ function _buildPadLayer(placements, vias, side, bounds, opts) {
 
 /* ──────────────────────────── soldermask ──────────────────────────── */
 
-function _buildMask(placements, vias, side, bounds, boardShapes = []) {
+function _buildMask(placements, vias, side, bounds, boardShapes = [], pads = []) {
     // User-drawn soldermask openings: circles on this side's mask layer,
     // copper circles flagged to also open mask (remove-solder-mask /
     // remove-copper-mask), and hole-layer circles (a bare drilled hole has
@@ -629,6 +651,7 @@ function _buildMask(placements, vias, side, bounds, boardShapes = []) {
         respectMask: true,
         shapeOpenings,
         title: side === 'top' ? 'Top Soldermask' : 'Bottom Soldermask',
+        standalonePads: pads.filter(pad => pad.layers === 'both' || pad.layers === copperLayer),
     });
 }
 
@@ -930,7 +953,7 @@ function _buildOutline(b, boardShapes = [], bounds) {
 /* ──────────────────────────── drill ──────────────────────────── */
 
 /** Collect plated drills: through-hole pads, vias, and plated Hole-layer shapes. */
-function _collectPlatedDrills(placements, vias, boardShapes = [], bounds = null) {
+function _collectPlatedDrills(placements, vias, boardShapes = [], bounds = null, pads = []) {
     const out = [];
     // Through-hole pad drills (round + oval slot), posed via the shared resolver.
     for (const drill of resolvePlacementDrills(placements)) {
@@ -943,6 +966,9 @@ function _collectPlatedDrills(placements, vias, boardShapes = [], bounds = null)
     }
     for (const v of vias) {
         if (v.drill > 0) out.push({ dia: v.drill, x: v.x, y: v.y });
+    }
+    for (const pad of pads) {
+        if (pad.drill > 0) out.push({ dia: pad.drill, x: pad.x, y: pad.y });
     }
     for (const circle of boardShapes) {
         if (circle?.kind !== 'circle') continue;
