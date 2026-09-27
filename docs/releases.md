@@ -14,6 +14,11 @@ Normal pushes, draft releases, and prereleases do not deploy stable.
 the app version from its tag. Project format `1.0` and ZIP container version
 `1` are separate from app release versions.
 
+The experimental MCP Worker is deployed separately through the **Deploy MCP
+Worker** workflow. GitHub Pages continues to serve the application; Cloudflare
+intercepts only `clearpcb.org/mcp*`. See [mcp.md](mcp.md) for the required
+Cloudflare zone, repository secrets, local testing, and security limitations.
+
 ## Patch Release Using the GitHub Website
 
 Use this checklist after testing, committing, and pushing a fix on `dev`.

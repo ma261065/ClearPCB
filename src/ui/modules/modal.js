@@ -38,6 +38,10 @@ function buildModal({ title, message, contentEl = null, okText, cancelText, show
     if (message) {
         const msgEl = document.createElement('div');
         msgEl.className = 'app-modal-message';
+        if (message.includes('Faulty source:')) {
+            modal.classList.add('app-modal-diagnostic');
+            msgEl.classList.add('app-modal-message-diagnostic');
+        }
         msgEl.textContent = message;
         modal.appendChild(msgEl);
     }

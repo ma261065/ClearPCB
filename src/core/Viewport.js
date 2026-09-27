@@ -41,6 +41,7 @@ export class Viewport {
         this.componentLayer.setAttribute('id', 'componentLayer');
         this.contentLayer.appendChild(this.componentLayer);
         this.axesLayer = this._createGroup('axesLayer');
+        this.interactionLayer = this._createGroup('interactionLayer');
         this.rulerLayer = null; // Rulers are in screen space, handled separately
         
         // Create ruler container (HTML overlay)
@@ -1748,6 +1749,14 @@ export class Viewport {
      */
     addContent(svgElement) {
         this.contentLayer.appendChild(svgElement);
+    }
+
+    /**
+     * Append a transient interaction element above drawing and axis layers.
+     * @param {SVGElement} svgElement - Overlay element to add.
+     */
+    addInteractionOverlay(svgElement) {
+        this.interactionLayer.appendChild(svgElement);
     }
     
     /**

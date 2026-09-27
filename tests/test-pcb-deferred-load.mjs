@@ -142,6 +142,7 @@ console.log('PASS: first activation renders each restored image once, with or wi
 globalThis.window = { addEventListener() {} };
 globalThis.document = { getElementById: () => null };
 const { preparePcb, serializePcb } = await import('../src/pcb/modules/project-state.js');
+const { compactProjectAliases } = await import('../src/core/project-field-aliases.js');
 const { pictureShape } = await import('../src/pcb/modules/picture-raster.js');
 const { serializeBoardShapes } = await import('../src/pcb/modules/board-shapes.js');
 const artwork = { width: 20, height: 20, circles: [{ x: Math.PI, y: 5, radius: 1 / 3 }] };
@@ -152,9 +153,10 @@ restored._getRoutingParams = () => ({ trackWidth: 0.25, clearance: 0.2, viaDiame
 restored._getRouterMode = () => 'pathfinder';
 loadPcb(restored, saved, preparePcb(saved));
 const snapshot = serializePcb(restored);
-assert.deepEqual(snapshot.board, data.board);
-assert.deepEqual(snapshot.boardShapes, saved.boardShapes, 'saving before activation preserves encoded geometry and pose');
-assert.deepEqual(snapshot.placements, data.placements);
+const expectedSaved = compactProjectAliases({ pcb: saved }).pcb;
+assert.deepEqual(snapshot.board, expectedSaved.board);
+assert.deepEqual(snapshot.boardShapes, expectedSaved.boardShapes, 'saving before activation preserves encoded geometry and pose');
+assert.deepEqual(snapshot.placements, expectedSaved.placements);
 assert.deepEqual(restored.boardShapes[0].artwork, artwork);
 console.log('PASS: image geometry, board dimensions, and placements survive save before first activation');
 

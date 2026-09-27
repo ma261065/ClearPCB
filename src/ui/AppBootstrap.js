@@ -7,6 +7,8 @@ import { readProjectFile } from '../core/FileManager.js';
 import { installNumberInputFormatting } from '../core/number-inputs.js';
 import { ModalManager } from '../core/ModalManager.js';
 import { renderRecentFiles } from './modules/recents.js';
+import { McpBridge } from '../core/McpBridge.js';
+import { createMcpSessionUi } from './modules/mcp-session.js';
 
 class AppBootstrap {
     constructor() {
@@ -42,6 +44,8 @@ class AppBootstrap {
         // Register the PCB editor as a project view (contributes doc.pcb).
         this.pcbApp.project = this.project;
         this.project.registerView('pcb', this.pcbApp);
+        this.mcpBridge = new McpBridge(this.project);
+        this.mcpSessionUi = createMcpSessionUi(this.mcpBridge);
 
         // Install the dispatcher BEFORE SchematicApp constructs so that
         // it occupies an earlier slot in window-capture order than the
@@ -90,6 +94,7 @@ class AppBootstrap {
             if (!this._isProjectBlank()) this._hideStartupSplash();
         });
         this.startupContinue?.addEventListener('click', () => this._hideStartupSplash());
+        this.startupSplash.addEventListener('keydown', event => this._trapStartupSplashFocus(event));
 
         await renderRecentFiles({
             container: this.startupRecents,
@@ -100,10 +105,33 @@ class AppBootstrap {
             },
         });
         this.startupSplash.hidden = false;
+        ModalManager.push('startup-splash', () => this._hideStartupSplash());
+        this.startupOpen?.focus();
     }
 
     _hideStartupSplash() {
         if (this.startupSplash) this.startupSplash.hidden = true;
+        ModalManager.pop('startup-splash');
+    }
+
+    _trapStartupSplashFocus(event) {
+        if (event.key !== 'Tab' || !this.startupSplash || this.startupSplash.hidden) return;
+        const focusable = Array.from(this.startupSplash.querySelectorAll(
+            'button:not(:disabled), [href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])'
+        ));
+        if (!focusable.length) {
+            event.preventDefault();
+            return;
+        }
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        if (event.shiftKey && document.activeElement === first) {
+            event.preventDefault();
+            last.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+            event.preventDefault();
+            first.focus();
+        }
     }
 
     /**

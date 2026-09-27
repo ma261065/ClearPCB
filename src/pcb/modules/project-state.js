@@ -13,6 +13,7 @@ import { serializeGridSettings, restoreGridSettings } from '../../ui/modules/vie
 import { panelSettings } from './panelization.js';
 import { renderPanelPreview, resetPanelPreview } from './panelization-ui.js';
 import { assertSupportedPcb, defaultPcbStackup } from '../../core/project-format.js';
+import { compactProjectAliases, normalizePcbSection } from '../../core/project-field-aliases.js';
 
 const round4 = value => Number.isFinite(value) ? Math.round(value * 10000) / 10000 : value;
 
@@ -43,7 +44,7 @@ export function serializePcb(app) {
         units: /** @type {HTMLSelectElement|null} */ (document.getElementById('pcbRouteUnits'))?.value || 'mm',
         router: app._getRouterMode(),
     };
-    return {
+    const pcb = {
         stackup: defaultPcbStackup(),
         board: {
             width: round4(app._boardWidth),
@@ -63,9 +64,11 @@ export function serializePcb(app) {
         }),
         placements,
     };
+    return compactProjectAliases({ pcb }).pcb;
 }
 
 export function preparePcb(data) {
+    data = normalizePcbSection(data);
     assertSupportedPcb(data);
     const panelization = data?.panelization ? panelSettings(data.panelization) : null;
     for (const shape of data?.boardShapes || []) {
@@ -84,13 +87,14 @@ export function preparePcb(data) {
         if (!(track instanceof Track)) throw new Error('Invalid PCB track.');
         return track;
     });
-    return { tracks, vias: (data?.vias || []).map((item) => Via.fromJSON(item)),
+    return { data, tracks, vias: (data?.vias || []).map((item) => Via.fromJSON(item)),
         texts: (data?.texts || []).map((item) => createPcbText(item)),
         boardShapes: stage.boardShapes, shapeIdCounter: stage._shapeIdCounter, panelization };
 }
 
 /** @param {any} app */
 export function loadPcb(app, data, prepared = preparePcb(data)) {
+    if (prepared.data) data = prepared.data;
     resetPanelPreview(app);
     app.panelization = null;
     const render = app._active !== false;

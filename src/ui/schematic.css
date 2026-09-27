@@ -253,16 +253,17 @@ body {
 
 /* ── Blank-project startup ── */
 .startup-splash {
-    position: absolute;
+    position: fixed;
     inset: 0;
-    z-index: 1100;
+    z-index: 1900;
     display: flex;
     align-items: center;
     justify-content: center;
     padding: 32px;
-    background:
-        radial-gradient(circle at 50% 35%, color-mix(in srgb, var(--accent-color) 10%, transparent), transparent 45%),
-        var(--bg-primary);
+    background: rgba(0, 0, 0, 0.62);
+    backdrop-filter: blur(3px);
+    -webkit-user-select: none;
+    user-select: none;
 }
 
 .startup-splash[hidden] {
@@ -271,7 +272,7 @@ body {
 
 .startup-card {
     width: min(560px, 100%);
-    max-height: min(620px, calc(100% - 32px));
+    max-height: min(620px, calc(100dvh - 64px));
     display: flex;
     flex-direction: column;
     padding: 28px;
@@ -1626,6 +1627,19 @@ body {
     color: var(--text-secondary, #bdbdbd);
     white-space: pre-wrap;
     line-height: 1.4;
+}
+
+.app-modal-diagnostic {
+    width: min(820px, calc(100vw - 32px));
+    max-width: none;
+}
+
+.app-modal-message-diagnostic {
+    max-height: min(60vh, 520px);
+    overflow: auto;
+    font-family: Consolas, "Courier New", monospace;
+    white-space: pre;
+    user-select: text;
 }
 
 .app-modal-input {
@@ -3577,3 +3591,203 @@ svg.pcb-zoom-low .pcb-track-label { display: none; }
 .drc-item-warn .drc-item-dot { background: #d9a40a; }
 
 .drc-item-text { flex: 1 1 auto; }
+.mcp-session-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 10000;
+    display: grid;
+    place-items: center;
+    background: rgb(0 0 0 / 55%);
+}
+
+.mcp-session-overlay.hide,
+.mcp-session-url.hide {
+    display: none;
+}
+
+.mcp-session-dialog {
+    width: min(560px, calc(100vw - 32px));
+    padding: 18px;
+    border: 1px solid var(--border-color, #555);
+    border-radius: 8px;
+    background: var(--bg-panel, #252526);
+    color: var(--text-primary, #eee);
+    box-shadow: 0 16px 48px rgb(0 0 0 / 45%);
+}
+
+.mcp-session-dialog header,
+.mcp-session-dialog footer,
+.mcp-session-url {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.mcp-session-dialog header {
+    justify-content: space-between;
+}
+
+.mcp-session-dialog h2 {
+    margin: 0;
+}
+
+.mcp-session-intro {
+    margin: 18px 0 14px;
+    color: var(--text-primary, #eee);
+    font-size: 14px;
+    line-height: 1.45;
+}
+
+.mcp-session-dialog button {
+    padding: 7px 12px;
+    border: 1px solid var(--border-color, #555);
+    border-radius: 4px;
+    background: var(--bg-secondary, #333);
+    color: inherit;
+    cursor: pointer;
+}
+
+.mcp-session-dialog button:hover:not(:disabled) {
+    background: var(--bg-tertiary, #444);
+}
+
+.mcp-session-dialog button:disabled {
+    cursor: default;
+    opacity: 0.5;
+}
+
+.mcp-session-dialog button.primary {
+    border-color: var(--accent-color, #4d8fd6);
+    background: var(--accent-color, #4d8fd6);
+    color: #fff;
+}
+
+.mcp-session-dialog button.primary:hover:not(:disabled) {
+    filter: brightness(1.12);
+}
+
+.mcp-session-dialog header [data-mcp-close] {
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    border-color: transparent;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--text-secondary, #aaa);
+    font-size: 20px;
+    line-height: 1;
+}
+
+.mcp-session-dialog header [data-mcp-close]:hover,
+.mcp-session-dialog header [data-mcp-close]:focus-visible {
+    border-color: transparent;
+    background: rgb(255 255 255 / 8%);
+    color: var(--text-primary, #eee);
+}
+
+.mcp-session-dialog footer {
+    justify-content: flex-end;
+    margin-top: 18px;
+}
+
+.mcp-session-dialog footer [data-mcp-revert] {
+    margin-right: auto;
+}
+
+.mcp-session-notices {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    margin-bottom: 16px;
+}
+
+.mcp-session-notice {
+    min-width: 0;
+    padding: 10px;
+    display: flex;
+    align-items: flex-start;
+    gap: 9px;
+    border-radius: 6px;
+    background: rgb(255 255 255 / 4%);
+    color: var(--text-secondary, #bbb);
+    font-size: 12px;
+    line-height: 1.35;
+}
+
+.mcp-session-notice strong {
+    display: block;
+    margin-bottom: 2px;
+    color: var(--text-primary, #eee);
+    font-size: 12px;
+}
+
+.mcp-session-notice-icon {
+    width: 20px;
+    height: 20px;
+    flex: 0 0 auto;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    background: rgb(240 184 73 / 14%);
+    color: var(--warning-color, #f0b849);
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.mcp-session-status {
+    margin-top: 5px;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    color: var(--text-secondary, #bbb);
+    font-size: 12px;
+    font-weight: 500;
+}
+
+.mcp-session-status-icon {
+    width: 8px;
+    height: 8px;
+    flex: 0 0 auto;
+    border-radius: 50%;
+    background: currentColor;
+}
+
+.mcp-session-status[data-enabled="true"] {
+    color: #e0b354;
+}
+
+.mcp-session-status[data-connected="true"] {
+    color: #55c878;
+}
+
+.mcp-session-status[data-error="true"] {
+    color: #ed7777;
+}
+
+.mcp-session-url input {
+    flex: 1;
+    min-width: 0;
+    padding: 7px 9px;
+    border: 1px solid var(--border-color, #555);
+    border-radius: 4px;
+    background: var(--bg-secondary, #333);
+    color: var(--text-primary, #eee);
+}
+
+.mcp-session-url [data-copy-state="success"] {
+    border-color: #378f53;
+    background: rgb(55 143 83 / 18%);
+    color: #70d78d;
+}
+
+.mcp-session-url [data-copy-state="error"] {
+    border-color: #a74343;
+    background: rgb(167 67 67 / 18%);
+    color: #ed7777;
+}
+
+@media (max-width: 540px) {
+    .mcp-session-notices {
+        grid-template-columns: 1fr;
+    }
+}

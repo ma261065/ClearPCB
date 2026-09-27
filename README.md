@@ -12,6 +12,7 @@ A browser-based schematic + PCB editor built with vanilla JavaScript and SVG.  N
 - **File I/O** — Save/open JSON documents, auto-save to localStorage, PDF and print export
 - **Theming** — Light and dark modes
 - **PWA** — Installable as a standalone app via `manifest.json`
+- **MCP** — Optional pairing with AI clients to inspect or edit the open project
 
 ## Getting started
 
@@ -33,6 +34,8 @@ Development happens on `dev` and is tested locally. Versioned `release_*`
 branches maintain stable release lines; published `vMAJOR.MINOR.PATCH` GitHub
 Releases deploy the stable site at [clearpcb.org](https://clearpcb.org).
 See [the release setup and checklist](docs/releases.md) before the first release.
+The experimental hosted MCP endpoint has a separate
+[deployment and security guide](docs/mcp.md).
 
 New projects use [file format 1.0](docs/clearpcb_file_format.md). Pre-release
 2.0 files are intentionally rejected. The format defines multilayer copper,

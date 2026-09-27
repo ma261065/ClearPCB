@@ -487,7 +487,8 @@ function _createNetText(app, Net) {
         fontSize: Net.fontSize,
         fontFamily: 'Arial',
         textAnchor: anchor,
-        color: 'var(--sch-text-label, #00b894)'
+        color: 'var(--sch-text-label, #00b894)',
+        border: Net.border
     }));
     text.parentComponent = Net;
     text.fieldKey = 'net';

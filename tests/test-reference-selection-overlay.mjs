@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { CommandHistory } from '../src/core/CommandHistory.js';
 import { connectBoxOutlines, connectPointToBoxOutline } from '../src/core/geometry.js';
-import { getTextEditBoxWorldCorners } from '../src/ui/modules/text-edit-geometry.js';
+import { getTextEditBoxWorldCorners } from '../src/core/text-edit-geometry.js';
 import { applyTextConnectionGuide } from '../src/ui/modules/inline-text-overlay.js';
 import { clearPcbSelection, setPcbSelection, togglePcbSelection }
     from '../src/pcb/modules/selection-registry.js';
@@ -218,10 +218,10 @@ for (const rotation of [0, 37, 90]) for (const mirrored of [false, true]) {
         toWorld(local.maxX + 0.5, local.maxY + 0.5), toWorld(local.minX - 0.5, local.maxY + 0.5),
     ];
     const textBox = getTextEditBoxWorldCorners(reference);
-    near(textBox[0].x, center.x - 1.3);
-    near(textBox[0].y, center.y - 1.3);
-    near(textBox[2].x, center.x + 1.3);
-    near(textBox[2].y, center.y + 1.3);
+    near(textBox[0].x, center.x - 1.8);
+    near(textBox[0].y, center.y - 1.8);
+    near(textBox[2].x, center.x + 1.8);
+    near(textBox[2].y, center.y + 1.8);
     const expected = connectBoxOutlines(componentBox, textBox);
     near(firstGuide.attributes.x1, expected.end.x);
     near(firstGuide.attributes.y1, expected.end.y);
@@ -280,7 +280,7 @@ const renderApp = { shapes: [renderReference], components: [],
     _selectedShapeNode: null, _selectedShapeSegment: null,
     viewport: { scale: 10, contentLayer: guideLayer } };
 renderShapes(renderApp);
-near(renderApp._labelGuide.attributes.x1, 13.7);
+near(renderApp._labelGuide.attributes.x1, 13.2);
 assert.equal(guideLayer.children.length, 1, 'Post-render hook draws exactly one guide using current text geometry');
 for (const textAnchor of ['start', 'middle', 'end']) for (const rotation of [0, 37, 90, 270]) {
     Object.assign(renderReference, { text: 'R123', fontSize: 2, textAnchor, rotation, y: 8 });

@@ -9,6 +9,7 @@ boundaries between schematic, PCB, and shared code.
 clearpcb/
 ├── index.html
 ├── sw.js                       # Service worker (PWA)
+├── mcp-worker/                 # Cloudflare Worker + Durable Object MCP relay
 ├── manifest.json
 ├── jsconfig.json               # checkJs: true, noImplicitAny: false
 ├── assets/
@@ -382,4 +383,3 @@ sites (rarely-visited HTTPS origins). `localhost` is exempt. Symptom:
 the autorouter worker can run **~8–10× slower** on the deployed site
 than on localhost despite identical bytes. Add the origin to the
 setting's exception list before suspecting code/network issues.
-

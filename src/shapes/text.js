@@ -4,6 +4,7 @@
 
 import { Shape } from './shape.js';
 import { ShapeValidator } from '../core/ShapeValidator.js';
+import { getTextEditBoxGeometry } from '../core/text-edit-geometry.js';
 
 /** Round to 4 decimal places for compact serialisation. */
 const _r4 = v => Math.round(v * 10000) / 10000;
@@ -19,6 +20,7 @@ export class Text extends Shape {
      * @param {number} [options.fontSize=2.0]   - Font size in mm.
      * @param {string} [options.fontFamily='Arial'] - CSS font family.
      * @param {string} [options.textAnchor='start'] - SVG text-anchor.
+     * @param {boolean} [options.border=false] - Draw a padded rectangular outline.
      */
     constructor(options = {}) {
         super(options);
@@ -36,6 +38,7 @@ export class Text extends Shape {
         this.fontFamily = options.fontFamily || 'Arial';
         this.textAnchor = options.textAnchor || 'start';
         this.rotation = options.rotation || 0;
+        this.border = !!options.border;
 
         // Text is rendered as a filled glyph, so its fill follows `color`
         // unless an explicit override is supplied. Without this, reloaded
@@ -71,6 +74,7 @@ export class Text extends Shape {
         if (!localBounds) {
             const approxWidth = this.text.length * this.fontSize * 0.6;
             const approxHeight = this.fontSize;
+            const padding = this.border ? this.fontSize * 0.2 : 0;
             let minX = this.x;
             if (this.textAnchor === 'middle') {
                 minX = this.x - approxWidth / 2;
@@ -78,8 +82,8 @@ export class Text extends Shape {
                 minX = this.x - approxWidth;
             }
             localBounds = {
-                minX, minY: this.y - approxHeight,
-                maxX: minX + approxWidth, maxY: this.y
+                minX: minX - padding, minY: this.y - approxHeight - padding,
+                maxX: minX + approxWidth + padding, maxY: this.y + padding
             };
         }
 
@@ -173,29 +177,49 @@ export class Text extends Shape {
 
     /** @override */
     _createElement() {
-        return document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        group.appendChild(document.createElementNS('http://www.w3.org/2000/svg', 'rect'));
+        group.appendChild(document.createElementNS('http://www.w3.org/2000/svg', 'text'));
+        return group;
     }
     /** @override */
     _updateElement(el, strokeColor, fillColor, scale) {
-        el.setAttribute('x', this.x);
-        el.setAttribute('y', this.y);
+        const borderEl = el.children[0];
+        const textEl = el.children[1];
+        textEl.setAttribute('x', this.x);
+        textEl.setAttribute('y', this.y);
         // When parent component is selected but this field text isn't,
         // tint blue to show ownership
         if (this.parentComponent?.selected && !this.selected && !this.hovered) {
             fillColor = 'var(--sch-selection, #3399ff)';
         }
-        el.setAttribute('fill', fillColor);
-        el.setAttribute('font-size', this.fontSize);
-        el.setAttribute('font-family', this.fontFamily);
-        el.setAttribute('text-anchor', this.textAnchor);
-        el.setAttribute('dominant-baseline', 'alphabetic');
-        el.setAttribute('alignment-baseline', 'alphabetic');
-        el.setAttribute('text-rendering', 'geometricPrecision');
-        el.setAttribute('xml:space', 'preserve');
-        el.style.whiteSpace = 'pre';
-        el.textContent = typeof this.text === 'string' ? this.text : '';
-        el.setAttribute('stroke', 'none');
-        el.removeAttribute('stroke-width');
+        textEl.setAttribute('fill', fillColor);
+        textEl.setAttribute('font-size', this.fontSize);
+        textEl.setAttribute('font-family', this.fontFamily);
+        textEl.setAttribute('text-anchor', this.textAnchor);
+        textEl.setAttribute('dominant-baseline', 'alphabetic');
+        textEl.setAttribute('alignment-baseline', 'alphabetic');
+        textEl.setAttribute('text-rendering', 'geometricPrecision');
+        textEl.setAttribute('xml:space', 'preserve');
+        textEl.style.whiteSpace = 'pre';
+        textEl.textContent = typeof this.text === 'string' ? this.text : '';
+        textEl.setAttribute('stroke', 'none');
+        textEl.removeAttribute('stroke-width');
+
+        if (this.border) {
+            const box = getTextEditBoxGeometry(this, textEl);
+            const borderWidth = Math.max(this.lineWidth, 1 / scale);
+            borderEl.setAttribute('x', String(box.x + box.originX));
+            borderEl.setAttribute('y', String(box.y + box.originY));
+            borderEl.setAttribute('width', String(box.width));
+            borderEl.setAttribute('height', String(box.height));
+            borderEl.setAttribute('fill', 'none');
+            borderEl.setAttribute('stroke', fillColor);
+            borderEl.setAttribute('stroke-width', String(borderWidth));
+            borderEl.removeAttribute('display');
+        } else {
+            borderEl.setAttribute('display', 'none');
+        }
         // Apply rotation around text anchor point
         if (this.rotation) {
             el.setAttribute('transform', `rotate(${this.rotation}, ${this.x}, ${this.y})`);
@@ -227,13 +251,14 @@ export class Text extends Shape {
             fontSize: this.fontSize,
             fontFamily: this.fontFamily,
             textAnchor: this.textAnchor,
-            rotation: this.rotation
+            rotation: this.rotation,
+            border: this.border
         });
     }
     
     /** @override */
     captureState() {
-        const state = { x: this.x, y: this.y, text: this.text, fontSize: this.fontSize, fontFamily: this.fontFamily, textAnchor: this.textAnchor, rotation: this.rotation };
+        const state = { x: this.x, y: this.y, text: this.text, fontSize: this.fontSize, fontFamily: this.fontFamily, textAnchor: this.textAnchor, rotation: this.rotation, border: this.border };
         if (this.attachment) state.attachment = { ...this.attachment };
         else state.attachment = null;
         state.parentComponentId = this.parentComponent?.id || null;
@@ -270,12 +295,16 @@ export class Text extends Shape {
             if (this.fieldKey === 'reference') {
                 descriptors.push({ key: 'rotation', label: 'Rotation', type: 'number', step: 15 });
             }
+            if (this.fieldKey === 'label') {
+                descriptors.push({ key: 'border', label: 'Border', type: 'checkbox' });
+            }
             return descriptors;
         }
         return [
             { key: 'locked',   label: 'Locked',    type: 'checkbox' },
             { key: 'text',     label: 'Label',      type: 'text' },
             { key: 'fontSize', label: 'Text size',  type: 'number', min: 0.5, max: 50, step: 0.5 },
+            { key: 'border',   label: 'Border',     type: 'checkbox' },
         ];
     }
     
@@ -295,6 +324,7 @@ export class Text extends Shape {
         if (this.fontFamily !== 'Arial') json.ff = this.fontFamily;
         if (this.textAnchor !== 'start') json.ta = this.textAnchor;
         if (this.rotation) json.rot = this.rotation;
+        if (this.border) json.bd = true;
         if (this.parentComponent) {
             json.cid = this.parentComponent.id;
             json.fk = this.fieldKey;

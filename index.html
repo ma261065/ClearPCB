@@ -44,6 +44,7 @@
                         <button id="ribbonSaveAs" title="Save As (Ctrl+Alt+S)">💾 Save As</button>
                         <button id="ribbonExportPdf" title="Export PDF (Ctrl+Shift+P)">🧾 Export PDF</button>
                         <button id="ribbonPrint" title="Print (Ctrl+P)">🖨️ Print</button>
+                        <button data-mcp-session title="Connect an AI through MCP">🔌 AI Mode</button>
                     </div>
                 </div>
                 <div class="ribbon-group">
@@ -258,6 +259,7 @@
                         <button id="pcbRibbonSaveAs" title="Save As (Ctrl+Alt+S)">💾 Save As</button>
                         <button id="pcbRibbonExportPdf" title="Export PDF (Ctrl+Shift+P)">🧾 Export PDF</button>
                         <button id="pcbRibbonPrint" title="Print (Ctrl+P)">🖨️ Print</button>
+                        <button data-mcp-session title="Connect an AI through MCP">🔌 AI Mode</button>
                     </div>
                 </div>
             </div>
@@ -479,18 +481,19 @@
     </div>
 
     <div class="app-slider">
-        <section class="startup-splash" id="startupSplash" aria-labelledby="startupSplashTitle" hidden>
-            <div class="startup-card">
+        <section class="startup-splash" id="startupSplash" oncontextmenu="event.preventDefault()" hidden>
+            <div class="startup-card" role="dialog" aria-modal="true" aria-labelledby="startupSplashTitle"
+                aria-describedby="startupSplashDescription">
                 <div class="startup-heading">
                     <img src="assets/icons/favicon.ico" width="48" height="48" alt="">
                     <div>
                         <h1 id="startupSplashTitle">Welcome to ClearPCB</h1>
-                        <p>Open a recent project or start with a blank design.</p>
+                        <p id="startupSplashDescription">Open a recent project or start with a blank design.</p>
                     </div>
                 </div>
                 <div class="startup-actions">
                     <button class="startup-primary" id="startupOpen" type="button">Open file</button>
-                    <button id="startupContinue" type="button">Continue blank</button>
+                    <button id="startupContinue" type="button">New Blank Design</button>
                 </div>
                 <div class="startup-recents-heading">Recent files</div>
                 <div class="startup-recents" id="startupRecents"></div>

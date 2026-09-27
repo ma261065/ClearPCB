@@ -12,11 +12,16 @@ that container version is independent of the project version and app release.
 Plain JSON input is also supported, subject to the same project validation.
 
 The format is JSON, not JSON5: comments, trailing commas, `NaN`, and `Infinity`
-are not valid. ClearPCB-owned records are strict: unknown fields, long-form
-aliases, obsolete fields, and legacy representations make the file invalid.
-Only the canonical keys documented here are accepted. Loading stops at the
-first error and reports its property path plus a line-numbered JSON snippet of
-the faulty value. Provider-defined values nested inside supported component
+are not valid. ClearPCB-owned records are strict: unknown fields, obsolete
+fields, and legacy representations make the file invalid. Record fields may
+use either the compact persisted key or its documented long-form alias. If
+both aliases occur with different values, the file is rejected as ambiguous;
+equal duplicates are accepted and normalized. ClearPCB never mutates the
+supplied object while normalizing it. Loading stops at the first error and
+reports its property path plus a line-numbered JSON snippet of
+the faulty value. Invalid JSON is reported with the ZIP member name, exact
+source line and column, a bounded source excerpt, and a caret at the offending
+character, including for minified one-line members. Provider-defined values nested inside supported component
 metadata retain their provider-specific structure.
 
 ## Document Envelope
@@ -54,7 +59,10 @@ A project always has a schematic envelope. `ProjectDocument` adds the optional
   is down. Gerber/Excellon export performs the Y-axis conversion.
 - Rotations are degrees. Individual object sections below note visual direction
   where it matters.
-- Many schematic objects use compact keys. Defaults are usually omitted.
+- ClearPCB saves all schematic and PCB record fields with compact keys.
+  Structural section names such as `schematic`, `pcb`, `boardShapes`, and
+  `placements` remain readable. Long-form record aliases are input-only.
+- Defaults are usually omitted.
 - Shape and component coordinates are generally rounded to four decimal places.
   PCB via positions and diameters, fill outlines, and board-shape
   coordinates, radii and stroke widths follow this convention on save, including
@@ -72,13 +80,13 @@ A project always has a schematic envelope. `ProjectDocument` adds the optional
 {
   "schematic": {
     "settings": {
-      "gridSize": 2.54,
-      "units": "mm",
-      "paperSize": "A4",
-      "paperOrientation": "landscape",
-      "titleBlock": true,
-      "titleBlockInfo": false,
-      "titleBlockData": {}
+      "gs": 2.54,
+      "u": "mm",
+      "ps": "A4",
+      "po": "landscape",
+      "tb": true,
+      "ti": false,
+      "td": {}
     },
     "shapes": [],
     "components": [],
@@ -91,16 +99,16 @@ A project always has a schematic envelope. `ProjectDocument` adds the optional
 
 | Field | Type | Description |
 | --- | --- | --- |
-| `gridSize` | number | Grid spacing in model units. Must be positive. |
-| `gridStyle` | string | `"lines"` or `"dots"`. |
-| `gridVisible` | boolean | Whether the grid is shown. |
-| `snapToGrid` | boolean | Whether snapping is enabled; disabled when the grid is hidden. |
-| `units` | string | Display units: `"mm"` or `"inch"`. |
-| `paperSize` | string or null | Paper preset key, such as `"A4"`; `null` means no paper. |
-| `paperOrientation` | string or null | `"landscape"` or `"portrait"`. |
-| `titleBlock` | boolean | Whether the title block is shown. Default `false`. |
-| `titleBlockInfo` | boolean | Whether title-block information is shown. Default `false`. |
-| `titleBlockData` | object | User-entered title-block values. |
+| `gs` (`gridSize`) | number | Grid spacing in model units. Must be positive. |
+| `gt` (`gridStyle`) | string | `"lines"` or `"dots"`. |
+| `gv` (`gridVisible`) | boolean | Whether the grid is shown. |
+| `sg` (`snapToGrid`) | boolean | Whether snapping is enabled; disabled when the grid is hidden. |
+| `u` (`units`) | string | Display units: `"mm"` or `"inch"`. |
+| `ps` (`paperSize`) | string or null | Paper preset key, such as `"A4"`; `null` means no paper. |
+| `po` (`paperOrientation`) | string or null | `"landscape"` or `"portrait"`. |
+| `tb` (`titleBlock`) | boolean | Whether the title block is shown. Default `false`. |
+| `ti` (`titleBlockInfo`) | boolean | Whether title-block information is shown. Default `false`. |
+| `td` (`titleBlockData`) | object | User-entered title-block values. |
 
 ### Common Schematic Shape Keys
 
@@ -225,6 +233,7 @@ is invalid.
 | `ff` | Font family. | `"Arial"`. |
 | `ta` | Text anchor. | `"start"`. |
 | `rot` | Rotation in degrees. | `0`. |
+| `bd` | Rectangular border matching the schematic inline-editing box, in the text color. | `false`. |
 | `cid` | Parent component/shape ID for linked fields. | None. |
 | `fk` | Linked field key. | None. |
 | `att` | Generic label attachment descriptor. | None. |
@@ -240,6 +249,7 @@ A `net` stores `x`, `y`, and its name in `n`. Optional fields are:
 - `nst`: style; default `"t"`.
 - `no`: orientation; default `"N"`.
 - `nto`: non-zero text offset `[x, y]`.
+- `bd`: rectangular border around the net name; default `false`.
 
 A `noconnect` stores `x`, `y`, plus optional `pn` pin-connection metadata.
 
@@ -285,41 +295,57 @@ only `dn`. A definition commonly contains:
 
 ```json
 {
-  "name": "Vendor:Part",
-  "category": "...",
-  "description": "...",
-  "symbol": {
-    "width": 10,
-    "height": 10,
-    "origin": { "x": 5, "y": 5 },
-    "graphics": [],
-    "pins": []
+  "n": "Vendor:Part",
+  "cat": "...",
+  "desc": "...",
+  "sym": {
+    "w": 10,
+    "h": 10,
+    "o": { "x": 5, "y": 5 },
+    "g": [],
+    "p": [
+      {
+        "i": "gge6",
+        "k": "gge6",
+        "pd": "M 0 2.54 h 2.54",
+        "num": "2",
+        "n": "3V3",
+        "x": 0,
+        "y": 2.54,
+        "o": "right",
+        "len": 2.54,
+        "t": "passive",
+        "np": { "x": 3.4798, "y": 2.8448, "rot": 0, "a": "start", "ff": null, "fs": 1.778 }
+      }
+    ]
   },
-  "defaultReference": "U",
-  "defaultValue": "Part",
-  "defaultProperties": {},
-  "_source": "KiCad",
-  "footprintShapes": []
+  "dr": "U",
+  "dv": "Part",
+  "dp": {},
+  "src": "KiCad",
+  "fsh": []
 }
 ```
 
-Definitions are intentionally extensible because imported providers carry
-provider-specific symbol, footprint, supplier, and 3D-model metadata.
+Known definition, symbol, graphic, pin, text-position, and footprint-bound
+fields use the compact aliases listed below. Definitions remain extensible
+because imported providers may also carry opaque provider-specific metadata;
+unrecognized provider-owned keys are preserved unchanged.
 
 ## PCB Section
 
 ```json
 {
   "pcb": {
-    "stackup": { "copperLayers": ["top-copper", "bottom-copper"] },
-    "board": { "width": 100, "height": 80, "radius": 3 },
+    "stackup": { "cl": ["top-copper", "bottom-copper"] },
+    "board": { "w": 100, "h": 80, "r": 3 },
     "design": {
-      "trackWidth": 0.25,
-      "clearance": 0.2,
-      "viaDiameter": 0.8,
-      "viaDrill": 0.4,
-      "units": "mm",
-      "router": "pathfinder"
+      "tw": 0.25,
+      "cl": 0.2,
+      "vd": 0.8,
+      "dr": 0.4,
+      "u": "mm",
+      "rt": "pathfinder"
     },
     "tracks": [],
     "vias": [],
@@ -334,16 +360,16 @@ provider-specific symbol, footprint, supplier, and 3D-model metadata.
 
 | Field | Type | Description |
 | --- | --- | --- |
-| `stackup.copperLayers` | string[] | Unique copper-layer IDs in physical top-to-bottom order. `stackup` is required when `pcb` exists. |
-| `board.width` | number | Board width in mm. |
-| `board.height` | number | Board height in mm. |
-| `board.radius` | number | Board corner radius in mm. |
-| `design.trackWidth` | number | Default track width in mm. |
-| `design.clearance` | number | Copper clearance in mm. |
-| `design.viaDiameter` | number | Default via outside diameter in mm. |
-| `design.viaDrill` | number | Default via drill diameter in mm. |
-| `design.units` | string | PCB UI display units, normally `"mm"` or `"inch"`. |
-| `design.router` | string | Router mode, currently `"maze"` or `"pathfinder"`. |
+| `stackup.cl` (`copperLayers`) | string[] | Unique copper-layer IDs in physical top-to-bottom order. `stackup` is required when `pcb` exists. |
+| `board.w` (`width`) | number | Board width in mm. |
+| `board.h` (`height`) | number | Board height in mm. |
+| `board.r` (`radius`) | number | Board corner radius in mm. |
+| `design.tw` (`trackWidth`) | number | Default track width in mm. |
+| `design.cl` (`clearance`) | number | Copper clearance in mm. |
+| `design.vd` (`viaDiameter`) | number | Default via outside diameter in mm. |
+| `design.dr` (`viaDrill`) | number | Default via drill diameter in mm. |
+| `design.u` (`units`) | string | PCB UI display units, normally `"mm"` or `"inch"`. |
+| `design.rt` (`router`) | string | Router mode, currently `"maze"` or `"pathfinder"`. |
 
 `design` and all fields listed above are required when `pcb` exists.
 A board outline is stored as the single shape with `layer: "board-outline"` in
@@ -354,7 +380,7 @@ or duplicated through the clipboard. Deleting a polygon segment removes its
 following vertex and reconnects the remaining boundary, with at least three
 vertices retained.
 
-`board.width` and `board.height` retain the outline's bounding-box dimensions.
+`board.w` and `board.h` retain the outline's bounding-box dimensions.
 The shape geometry is authoritative, including its position. A valid document
 containing only board dimensions is repaired to a rectangular outline on
 activation. A missing/invalid board without an outline resets to the default
@@ -369,26 +395,26 @@ null settings mean no panel.
 
 ```json
 {
-  "rows": 2,
-  "columns": 2,
-  "rowSpacing": 2,
-  "columnSpacing": 2,
-  "separation": "tabs",
-  "railTop": 5,
-  "railBottom": 5,
-  "railLeft": 0,
-  "railRight": 0,
-  "verticalTabsPerEdge": 2,
-  "horizontalTabsPerEdge": 2,
-  "verticalTabOffset": 0,
-  "horizontalTabOffset": 0,
-  "horizontalPositioningHoles": false,
-  "horizontalFiducials": false,
-  "verticalPositioningHoles": false,
-  "verticalFiducials": false,
-  "tabWidth": 3,
-  "holeDiameter": 0.5,
-  "holePitch": 0.8
+  "r": 2,
+  "c": 2,
+  "rs": 2,
+  "cs": 2,
+  "sp": "tabs",
+  "rt": 5,
+  "rb": 5,
+  "rl": 0,
+  "rr": 0,
+  "vt": 2,
+  "ht": 2,
+  "vo": 0,
+  "ho": 0,
+  "hph": false,
+  "hf": false,
+  "vph": false,
+  "vf": false,
+  "tw": 3,
+  "hd": 0.5,
+  "hp": 0.8
 }
 ```
 
@@ -551,7 +577,7 @@ precedence when restoring a line.
 | --- | --- | --- |
 | `d` | Outside diameter in mm. | Constructor default. |
 | `dr` | Drill diameter in mm. | Constructor default, clamped to `d`. |
-| `span` | `{ "from": layerId, "to": layerId }`, inclusive copper-layer endpoints in stack order. | Through via spanning the entire copper stack. |
+| `sp` (`span`) | `{ "f": layerId, "t": layerId }` (or long `from`/`to` aliases), inclusive copper-layer endpoints in stack order. | Through via spanning the entire copper stack. |
 | `n` | Net name. | Empty. |
 | `lk` | Locked. | `false`. |
 | `v` | Visible. | `true`. |
@@ -567,48 +593,49 @@ omit an explicit top-to-bottom span when saving because it equals the default.
 
 ### Generic Board Shapes
 
-Board shapes use readable keys rather than the compact schematic shape keys.
+Board shapes are saved with compact keys. The long aliases in parentheses are
+accepted on input.
 Every entry contains:
 
 | Field | Type | Description |
 | --- | --- | --- |
 | `id` | string | Shape ID. |
-| `kind` | string | `line`, `rect`, `polygon`, `arc`, `circle`, or `image`. |
-| `layer` | string | PCB layer ID. |
-| `lineWidth` | number | Stroke width in mm; centred on lines, arcs, rectangles and polygons, inward for circles. |
-| `filled` | boolean | Whether the enclosed area is active. |
-| `copperMode` | string | Copper/mask operation; see below. |
-| `plated` | boolean | Plating flag for hole-layer shapes. |
-| `net` | string | Net name; empty when unassigned. |
-| `cornerRadius` | number | Default corner radius in mm for line, rectangle and polygon nodes. |
-| `nodeCornerRadii` | object | Optional node-index to corner-radius overrides, including zero to retain a sharp corner. |
-| `segmentBulges` | object | Optional segment-index to signed arc bulge ratio for line and polygon segments. Missing entries are straight. |
+| `k` (`kind`) | string | `line`, `rect`, `polygon`, `arc`, `circle`, or `image`. |
+| `l` (`layer`) | string | PCB layer ID. |
+| `lw` (`lineWidth`) | number | Stroke width in mm; centred on lines, arcs, rectangles and polygons, inward for circles. |
+| `f` (`filled`) | boolean | Whether the enclosed area is active. |
+| `cm` (`copperMode`) | string | Copper/mask operation; see below. |
+| `p` (`plated`) | boolean | Plating flag for hole-layer shapes. |
+| `n` (`net`) | string | Net name; empty when unassigned. |
+| `cr` (`cornerRadius`) | number | Default corner radius in mm for line, rectangle and polygon nodes. |
+| `ncr` (`nodeCornerRadii`) | object | Optional node-index to corner-radius overrides, including zero to retain a sharp corner. |
+| `sb` (`segmentBulges`) | object | Optional segment-index to signed arc bulge ratio for line and polygon segments. Missing entries are straight. |
 
-Geometry depends on `kind`:
+Geometry depends on `k` (`kind`):
 
 ```json
 [
-  { "kind": "line", "points": [{ "x": 0, "y": 0 }, { "x": 10, "y": 0 }], "segmentBulges": { "0": 0.25 } },
-  { "kind": "polygon", "points": [{ "x": 0, "y": 0 }, { "x": 10, "y": 0 }, { "x": 5, "y": 5 }], "segmentBulges": { "1": -0.5 } },
-  { "kind": "rect", "points": [{ "x": 0, "y": 0 }, { "x": 10, "y": 0 }, { "x": 10, "y": 5 }, { "x": 0, "y": 5 }], "cornerRadius": 1 },
-  { "kind": "arc", "start": { "x": 0, "y": 0 }, "end": { "x": 10, "y": 0 }, "bulge": { "x": 5, "y": -2 } },
-  { "kind": "circle", "x": 5, "y": 5, "radius": 3 }
+  { "k": "line", "pts": [{ "x": 0, "y": 0 }, { "x": 10, "y": 0 }], "sb": { "0": 0.25 } },
+  { "k": "polygon", "pts": [{ "x": 0, "y": 0 }, { "x": 10, "y": 0 }, { "x": 5, "y": 5 }], "sb": { "1": -0.5 } },
+  { "k": "rect", "pts": [{ "x": 0, "y": 0 }, { "x": 10, "y": 0 }, { "x": 10, "y": 5 }, { "x": 0, "y": 5 }], "cr": 1 },
+  { "k": "arc", "sp": { "x": 0, "y": 0 }, "ep": { "x": 10, "y": 0 }, "bp": { "x": 5, "y": -2 } },
+  { "k": "circle", "x": 5, "y": 5, "r": 3 }
 ]
 ```
 
-Image records are single objects with `kind: "image"`, an optional `name`, and
-four rectangular `points` in source-corner order (top-left, top-right,
+Image records are single objects with `k: "image"`, an optional `nm`, and
+four rectangular `pts` in source-corner order (top-left, top-right,
 bottom-right, bottom-left before rotation). The bounding box is selectable,
 including transparent areas. Only top/bottom silk and copper layers are supported.
-Images are always filled; `lineWidth` does not expand their artwork.
+Images are always filled; `lw` does not expand their artwork.
 
-New saves and autosaves encode `artwork` losslessly using the smaller of:
+New saves and autosaves encode `aw` losslessly using the smaller of:
 
-- `{ "encoding": "tuples-v1", "data": [...] }` for small payloads.
-- `{ "encoding": "deflate-tuples-v1", "bytes": N, "data": "..." }` for
-  raw-DEFLATE compressed UTF-8 tuple JSON, stored as base64. `bytes` is the
+- `{ "e": "tuples-v1", "d": [...] }` for small payloads.
+- `{ "e": "deflate-tuples-v1", "b": N, "d": "..." }` for
+  raw-DEFLATE compressed UTF-8 tuple JSON, stored as base64. `b` is the
   uncompressed byte length, limited to 8 MiB during decoding.
-- `{ "encoding": "reference-v1", "index": N }` for identical artwork already
+- `{ "e": "reference-v1", "i": N }` for identical artwork already
   stored by an earlier image in the same `boardShapes` array. The index is
   zero-based and must refer to a successfully decoded earlier image. References
   are rebuilt on every serialization, so deletion and reordering remain safe.
@@ -733,6 +760,7 @@ Copper fills are stored inside `pcb.boardShapes` with `type: "fill"`:
   "id": "fill_1",
   "l": "top-copper",
   "pts": [[5, 5], [40, 5], [40, 30], [5, 30]],
+  "k": "rect",
   "n": "GND"
 }
 ```
@@ -741,11 +769,11 @@ Copper fills are stored inside `pcb.boardShapes` with `type: "fill"`:
 | --- | --- | --- |
 | `l` | `top-copper` or `bottom-copper`. | Required. |
 | `pts` | Control vertices as `[x,y]` pairs, without a repeated closing point. | Required for polygon/rectangle. |
-| `kind` | Closed outline geometry: `polygon`, `rect`, or `circle`. | Required. |
-| `cornerRadius` | Default corner radius in mm. | `0`. |
-| `nodeCornerRadii` | Per-vertex corner radius overrides, keyed by vertex index. | `{}`. |
-| `segmentBulges` | Signed arc bulges in `[-1,1]`, keyed by starting vertex index. | `{}` (straight edges). |
-| `x`, `y`, `radius` | Circle center and radius in mm. | Required for circle. |
+| `k` (`kind`) | Closed outline geometry: `polygon`, `rect`, or `circle`. | Required. |
+| `cr` (`cornerRadius`) | Default corner radius in mm. | `0`. |
+| `ncr` (`nodeCornerRadii`) | Per-vertex corner radius overrides, keyed by vertex index. | `{}`. |
+| `sb` (`segmentBulges`) | Signed arc bulges in `[-1,1]`, keyed by starting vertex index. | `{}` (straight edges). |
+| `x`, `y`, `r` (`radius`) | Circle center and radius in mm. | Required for circle. |
 | `n` | Net name. | Empty. |
 | `lk` | Locked. | `false`. |
 | `v` | Visible. | `true`. |
@@ -764,19 +792,33 @@ and reject self-intersecting or degenerate outlines.
 ```json
 {
   "id": "text-abc123",
-  "content": "REV A",
+  "t": "REV A",
   "x": 10,
   "y": 20,
-  "size": 1,
-  "rotation": 0,
-  "layer": "top-silk",
-  "strokeWidth": 0.15
+  "s": 1,
+  "rot": 0,
+  "l": "top-silk",
+  "lw": 0.15,
+  "bd": true
 }
 ```
 
+| Field | Meaning | Default when omitted |
+| --- | --- | --- |
+| `id` | Unique PCB text ID. | Required. |
+| `t` (`content`) | Display text. | Required. |
+| `x`, `y` | Baseline-left anchor position in mm. | Required. |
+| `s` (`size`) | Cap height in mm. | Required. |
+| `rot` (`rotation`) | Visual counter-clockwise rotation in degrees. | Required. |
+| `l` (`layer`) | PCB layer containing the text. | Required. |
+| `lw` (`strokeWidth`) | Glyph and border line width in mm. | Required. |
+| `bd` (`border`) | Rectangular border matching the PCB inline-editing box, in the text color. | `false`. |
+
 PCB text uses Hershey stroke geometry. Positive rotation is visually
 counter-clockwise even though model Y points down. Valid text layers are
-`top-silk`, `bottom-silk`, `top-copper`, and `bottom-copper`.
+`top-silk`, `bottom-silk`, `top-copper`, and `bottom-copper`. `bd` uses the
+same geometry as the inline-editing box, including its cursor and descender
+room, so entering and leaving edit mode does not show two almost-matching boxes.
 
 ### Placement Overrides
 
@@ -789,16 +831,16 @@ or lock state are persisted. The map key is the schematic component ID:
     "comp_1": {
       "x": 35,
       "y": 20,
-      "rotation": 90,
-      "locked": true,
-      "mirror": true,
-      "side": "bottom",
-      "refVisible": false,
-      "refDx": 1,
-      "refDy": -2,
-      "refRot": 90,
-      "refSize": 1.2,
-      "refStrokeWidth": 0.18
+      "rot": 90,
+      "lk": true,
+      "mir": true,
+      "sd": "bottom",
+      "rv": false,
+      "rdx": 1,
+      "rdy": -2,
+      "rr": 90,
+      "rs": 1.2,
+      "rw": 0.18
     }
   }
 }
@@ -873,42 +915,48 @@ Additive optional metadata requires updating the strict validator while this
 format is under development. Breaking interpretation changes still require a
 new format version once the format is finalized.
 
-## Canonical Compact-Key Dictionary
+## Compact-Key and Long-Alias Dictionary
 
-The following table documents the meaning of compact persisted keys. The long
-field names are explanatory only and are not accepted in project files.
+The compact key is canonical output. The corresponding long field is accepted
+on input. Aliases are scoped to the record type, so a key such as `r` can mean
+`radius`, `rows`, or `rotation` in different records. Fields not listed here
+keep the same name in both forms, including `type`, `id`, `x`, and `y`.
 
-| Compact | Long field | Compact | Long field |
-| --- | --- | --- | --- |
-| `c` | `color` | `l` | `layer` |
-| `lw` | `lineWidth` | `v` | `visible` |
-| `lk` | `locked` | `pts` | `points` |
-| `n` | `net` | `nd` | `graphNodes` |
-| `ed` | `graphEdges` | `pc` | `pinConnections` |
-| `wl` | `wireLabel` | `el` | `edgeLayers` |
-| `ew` | `edgeWidths` | `bg` | `edgeBulges` |
-| `pdc` | `padConnections` | `sbs` | `sourceBoardShape` |
-| `r` | `radius` | `w` | `width` |
-| `h` | `height` | `cr` | `cornerRadius` |
-| `ncr` | `nodeCornerRadii` |  |  |
-| `f` | `fill` | `fc` | `fillColor` |
-| `fa` | `fillAlpha` | `cl` | `closed` |
-| `ir` | `isRect` | `sp` | `startPoint` |
-| `ep` | `endPoint` | `bp` | `bulgePoint` |
-| `t` | `text` | `fs` | `fontSize` |
-| `ff` | `fontFamily` | `ta` | `textAnchor` |
-| `cid` | `componentId` | `fk` | `fieldKey` |
-| `rot` | `rotation` | `att` | `attachment` |
-| `pn` | `pinConnection` | `lo` | `labelOffset` |
-| `nst` | `style` | `no` | `orientation` |
-| `nto` | `textOffset` |  |  |
+| Record | Compact key | Accepted long alias |
+| --- | --- | --- |
+| Grid/settings | `gs`, `gt`, `u`, `gv`, `sg` | `gridSize`, `gridStyle`, `units`, `gridVisible`, `snapToGrid` |
+| Schematic settings | `ps`, `po`, `tb`, `ti`, `td` | `paperSize`, `paperOrientation`, `titleBlock`, `titleBlockInfo`, `titleBlockData` |
+| Schematic shape | `c`, `l`, `lw`, `v`, `lk` | `color`, `layer`, `lineWidth`, `visible`, `locked` |
+| Schematic graph/geometry | `nd`, `ed`, `cl`, `f`, `fa`, `cr`, `ncr`, `bg`, `ew`, `ir`, `fc` | `graphNodes`, `graphEdges`, `closed`, `fill`, `fillAlpha`, `cornerRadius`, `nodeCornerRadii`, `edgeBulges`, `edgeWidths`, `isRect`, `fillColor` |
+| Schematic wire/net | `pc`, `wl`, `n`, `lo`, `nst`, `no`, `nto`, `pn` | `pinConnections`, `wireLabel`, `net`, `labelOffset`, `style`, `orientation`, `textOffset`, `pinConnection` |
+| Pin/pad connection entry | `cid`, `pn` | `componentId`, `pinNumber` |
+| Schematic arc/text | `sp`, `ep`, `bp`, `t`, `fs`, `ff`, `ta`, `rot`, `cid`, `fk`, `att`, `bd` | `startPoint`, `endPoint`, `bulgePoint`, `text`, `fontSize`, `fontFamily`, `textAnchor`, `rotation`, `componentId`, `fieldKey`, `attachment`, `border` |
+| Component instance | `dn`, `rot`, `mir`, `ref`, `val`, `sr`, `sv`, `props`, `v`, `lk` | `definitionName`, `rotation`, `mirror`, `reference`, `value`, `showReference`, `showValue`, `properties`, `visible`, `locked` |
+| Component definition | `n`, `cat`, `desc`, `sym`, `dr`, `dv`, `dp`, `src`, `spn` | `name`, `category`, `description`, `symbol`, `defaultReference`, `defaultValue`, `defaultProperties`, `_source`, `supplier_part_numbers` |
+| Component footprint/3D | `fsh`, `fbb`, `fn`, `m3o`, `m3u`, `m3n`, `h3` | `footprintShapes`, `footprintBBox`, `footprintName`, `model3dObj`, `model3dUrl`, `model3dName`, `has3d` |
+| Symbol | `w`, `h`, `o`, `g`, `p` | `width`, `height`, `origin`, `graphics`, `pins` |
+| Symbol graphic | `k`, `w`, `h`, `sw`, `s`, `f`, `pts`, `tx`, `fs`, `a`, `bl`, `tr`, `sa`, `ea` | `type`, `width`, `height`, `strokeWidth`, `stroke`, `fill`, `points`, `text`, `fontSize`, `anchor`, `baseline`, `transform`, `startAngle`, `endAngle` |
+| Symbol pin | `i`, `k`, `pd`, `num`, `n`, `o`, `len`, `t`, `pt`, `sh`, `np`, `nup`, `sn`, `snu`, `hd`, `b` | `_id`, `_key`, `_pathData`, `number`, `name`, `orientation`, `length`, `type`, `pinType`, `shape`, `namePos`, `numberPos`, `showName`, `showNumber`, `hidden`, `bubble` |
+| KiCad pin metadata | `knfs`, `kufs`, `kny` | `kicadNameFontSize`, `kicadNumberFontSize`, `kicadNumberYOffset` |
+| Symbol text position | `rot`, `a`, `ff`, `fs` | `rotation`, `anchor`, `fontFamily`, `fontSize` |
+| Footprint bounds | `w`, `h` | `width`, `height` |
+| PCB stackup/board | `cl`; `w`, `h`, `r` | `copperLayers`; `width`, `height`, `radius` |
+| PCB design | `tw`, `cl`, `vd`, `dr`, `u`, `rt` | `trackWidth`, `clearance`, `viaDiameter`, `viaDrill`, `units`, `router` |
+| PCB track | `c`, `l`, `lw`, `v`, `lk`, `nd`, `ed`, `cl`, `f`, `fa`, `cr`, `ncr`, `bg`, `el`, `ew`, `n`, `w`, `pdc`, `sbs` | `color`, `layer`, `lineWidth`, `visible`, `locked`, `graphNodes`, `graphEdges`, `closed`, `fill`, `fillAlpha`, `cornerRadius`, `nodeCornerRadii`, `edgeBulges`, `edgeLayers`, `edgeWidths`, `net`, `width`, `padConnections`, `sourceBoardShape` |
+| PCB via | `d`, `dr`, `n`, `lk`, `v`, `sp` | `diameter`, `drill`, `net`, `locked`, `visible`, `span` |
+| Via span | `f`, `t` | `from`, `to` |
+| Board shape | `k`, `l`, `lw`, `f`, `cm`, `p`, `n`, `sw`, `sb`, `ncr`, `cr`, `sp`, `ep`, `bp`, `r`, `nm`, `aw`, `pts` | `kind`, `layer`, `lineWidth`, `filled`, `copperMode`, `plated`, `net`, `segmentWidths`, `segmentBulges`, `nodeCornerRadii`, `cornerRadius`, `start`, `end`, `bulge`, `radius`, `name`, `artwork`, `points` |
+| Artwork | `e`, `b`, `d`, `i` | `encoding`, `bytes`, `data`, `index` |
+| Copper fill | `l`, `pts`, `n`, `lk`, `v`, `k`, `cr`, `ncr`, `sb`, `r` | `layer`, `points`, `net`, `locked`, `visible`, `kind`, `cornerRadius`, `nodeCornerRadii`, `segmentBulges`, `radius` |
+| PCB text | `t`, `s`, `rot`, `l`, `lw`, `bd` | `content`, `size`, `rotation`, `layer`, `strokeWidth`, `border` |
+| Placement | `rot`, `lk`, `mir`, `sd`, `rv`, `rdx`, `rdy`, `rr`, `rs`, `rw` | `rotation`, `locked`, `mirror`, `side`, `refVisible`, `refDx`, `refDy`, `refRot`, `refSize`, `refStrokeWidth` |
+| Panelization | `r`, `c`, `rs`, `cs`, `sp`, `rt`, `rb`, `rl`, `rr`, `vt`, `ht`, `vo`, `ho` | `rows`, `columns`, `rowSpacing`, `columnSpacing`, `separation`, `railTop`, `railBottom`, `railLeft`, `railRight`, `verticalTabsPerEdge`, `horizontalTabsPerEdge`, `verticalTabOffset`, `horizontalTabOffset` |
+| Panelization features | `vph`, `hf`, `hph`, `vf`, `tw`, `hd`, `hp`, `nc` | `verticalPositioningHoles`, `horizontalFiducials`, `horizontalPositioningHoles`, `verticalFiducials`, `tabWidth`, `holeDiameter`, `holePitch`, `noteCreated` |
 
-Vias and copper fills likewise accept only their compact keys: `d` means
-diameter, `dr` drill diameter, `n` net, `l` layer, `lk` locked, `v` visible,
-and `pts` outline points. Component instances accept only `dn` for definition
-name and the compact instance keys documented above. Long forms such as
-`diameter`, `drill`, `net`, `layer`, `locked`, `visible`, `outline`,
-`definitionName`, and `definition` are invalid.
+Unknown fields remain invalid. A record containing both aliases is accepted
+only when their values are structurally equal; otherwise ClearPCB reports the
+record path and the conflicting values. File saves, Save As/downloads,
+autosaves, and AI Mode project snapshots all emit compact keys.
 
 ## Data Not Stored in Project Files
 

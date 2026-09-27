@@ -364,7 +364,7 @@ export class ModifyPropertyCommand extends Command {
                 if (oldNet) freeNetName(oldNet);
                 if (newNet) bumpNetNameCounter(newNet);
             }
-            if (item.type === 'net' && (this.prop === 'net' || this.prop === 'fontSize' || this.prop === 'style' || this.prop === 'orientation')) {
+            if (item.type === 'net' && ['net', 'fontSize', 'style', 'orientation', 'border'].includes(this.prop)) {
                 if (typeof item.syncTextOffsetFromLabelText === 'function') {
                     item.syncTextOffsetFromLabelText();
                 }

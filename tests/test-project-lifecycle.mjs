@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { FileManager, readProjectFile } from '../src/core/FileManager.js';
+import { FileManager, parseProjectJSON, readProjectFile } from '../src/core/FileManager.js';
 import { ProjectDocument } from '../src/core/ProjectDocument.js';
 import { validateProject, validateEditableProject, defaultPcbStackup } from '../src/core/project-format.js';
 import { zipSync, strToU8 } from '../assets/vendor/fflate.module.js';
@@ -70,6 +70,13 @@ assert.equal(cleared, 1);
 assert.throws(() => validateProject({ ...project(), version: '99' }), /Unsupported/);
 assert.throws(() => validateProject({ ...project(), version: '2.0' }), /Unsupported/);
 assert.doesNotThrow(() => validateEditableProject(project()));
+assert.doesNotThrow(() => validateProject({ ...project(), schematic: { shapes: [
+    { id: 'shape-bordered-text', type: 'text', x: 0, y: 0, t: 'Label', bd: true },
+    { id: 'shape-bordered-net', type: 'net', x: 0, y: 0, n: 'GND', bd: true },
+], components: [] }, pcb: pcbSection({ texts: [{
+    id: 'pcb-bordered-text', content: 'REV A', x: 0, y: 0, size: 1, rotation: 0,
+    layer: 'top-silk', strokeWidth: 0.15, border: true,
+}] }) }));
 assert.doesNotThrow(() => validateEditableProject({ ...project(), pcb: pcbSection({
     vias: [via({ span: { from: 'top-copper', to: 'bottom-copper' } })] }) }));
 const multilayer = { ...project(), pcb: pcbSection({
@@ -104,9 +111,9 @@ assert.throws(() => validateProject({ ...project(), pcb: pcbSection({ board: { w
 const longForm = { ...project(), schematic: { shapes: [
     { id: 'shape-1', type: 'text', c: '#fff', x: 0, y: 0, t: 'Label', componentId: 'comp-1' },
 ], components: [] } };
-assert.throws(() => validateProject(longForm), error => /Unknown field "componentId"/.test(error.message)
-    && /Location: schematic\.shapes\[0\]\.componentId/.test(error.message)
-    && /1 \| \{/.test(error.message) && /2 \|   "componentId"/.test(error.message));
+const normalizedLongForm = validateProject(longForm);
+assert.equal(normalizedLongForm.schematic.shapes[0].cid, 'comp-1');
+assert.equal('componentId' in normalizedLongForm.schematic.shapes[0], false);
 assert.throws(() => validateProject({ ...project(), extra: true }), /Unknown field "extra"/);
 assert.throws(() => validateProject({ ...project(), schematic: {
     shapes: [{ id: 'shape-1', type: 'polyline', nd: { n0: { x: 0, y: 0 } }, ed: {} }], components: [],
@@ -120,9 +127,12 @@ for (const type of ['line', 'polygon', 'rect', 'Net']) {
     } }), /Unknown schematic shape type/);
 }
 assert.throws(() => validateProject({ ...project(), pcb: pcbSection({ fills: [] }) }), /Unknown field "fills"/);
+assert.doesNotThrow(() => validateProject({ ...project(), pcb: pcbSection({
+    vias: [{ type: 'via', id: 'v', x: 0, y: 0, diameter: 0.8, drill: 0.3 }],
+}) }));
 assert.throws(() => validateProject({ ...project(), pcb: pcbSection({
-    vias: [via({ diameter: 0.8 })],
-}) }), /Unknown field "diameter"/);
+    vias: [via({ d: 0.6, diameter: 0.8 })],
+}) }), /Conflicting fields "d" and "diameter"/);
 const fill = { type: 'fill', id: 'fill-1', l: 'top-copper', pts: [[0, 0], [1, 0], [0, 1]], kind: 'polygon' };
 assert.throws(() => validateProject({ ...project(), pcb: pcbSection({
     boardShapes: [{ ...fill, outline: [] }],
@@ -156,6 +166,31 @@ assert.throws(() => validateProject({ ...project(), schematic: {
 } }), /Units must be/);
 const corruptZip = zipSync({ 'manifest.json': strToU8(JSON.stringify({ format: 'clearpcb-zip', version: 99 })) });
 await assert.rejects(readProjectFile(new Blob([corruptZip])), /manifest/);
+const malformedJson = '{"type":"clearpcb-project","schematic":{"shapes":[],"components":[]},BROKEN}';
+assert.throws(() => parseProjectJSON(malformedJson, 'pcb.json'), error =>
+    /Invalid JSON in pcb\.json/.test(error.message)
+    && /Location: line 1, column \d+ \(character \d+\)/.test(error.message)
+    && /Faulty source:\n1 \| /.test(error.message)
+    && /\n  \| +\^/.test(error.message));
+const largeMalformedJson = `{"items":[${'0,'.repeat(4000)},BROKEN]}`;
+assert.throws(() => parseProjectJSON(largeMalformedJson, 'pcb.json'), error =>
+    /Invalid JSON in pcb\.json/.test(error.message)
+    && /Location: line 1, column \d+ \(character \d+\)/.test(error.message)
+    && /…/.test(error.message)
+    && /BROKEN/.test(error.message)
+    && /\n  \| +\^/.test(error.message));
+const malformedZip = zipSync({
+    'manifest.json': strToU8(JSON.stringify({ format: 'clearpcb-zip', version: 1, models: {} })),
+    'options.json': strToU8(JSON.stringify({ type: 'clearpcb-project', version: '1.0' })),
+    'schematic.json': strToU8(JSON.stringify(project().schematic)),
+    'pcb.json': strToU8('{\n  "stackup": {},\n  "design": {,\n    "units": "mm"\n  }\n}'),
+});
+await assert.rejects(readProjectFile(new Blob([malformedZip])), error =>
+    /Invalid JSON in pcb\.json/.test(error.message)
+    && /Location: line 3, column 14/.test(error.message)
+    && /2 \|   "stackup"/.test(error.message)
+    && /3 \|   "design": \{,/.test(error.message)
+    && /\n  \| +\^/.test(error.message));
 const validZip = new Blob([zipSync({
     'manifest.json': strToU8(JSON.stringify({ format: 'clearpcb-zip', version: 1, models: {} })),
     'options.json': strToU8(JSON.stringify({ type: 'clearpcb-project', version: '1.0' })),

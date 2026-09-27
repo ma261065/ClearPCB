@@ -1,3 +1,5 @@
+import { normalizeProjectAliases, normalizePcbSection } from './project-field-aliases.js';
+
 const record = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 const fields = (...names) => new Set(names);
 
@@ -16,8 +18,8 @@ const SHAPE_FIELDS = {
     wire: fields('nd', 'ed', 'f', 'fa', 'cr', 'ncr', 'bg', 'ew', 'pc', 'wl', 'n', 'lo'),
     circle: fields('x', 'y', 'r', 'f', 'fa'),
     arc: fields('sp', 'ep', 'bp', 'f'),
-    text: fields('x', 'y', 't', 'fs', 'ff', 'ta', 'rot', 'cid', 'fk', 'att'),
-    net: fields('x', 'y', 'n', 'fs', 'nst', 'no', 'nto'),
+    text: fields('x', 'y', 't', 'fs', 'ff', 'ta', 'rot', 'cid', 'fk', 'att', 'bd'),
+    net: fields('x', 'y', 'n', 'fs', 'nst', 'no', 'nto', 'bd'),
     noconnect: fields('x', 'y', 'pn'),
 };
 const PCB_FIELDS = fields('stackup', 'board', 'design', 'panelization', 'settings',
@@ -34,7 +36,7 @@ const BOARD_SHAPE_FIELDS = fields('id', 'kind', 'layer', 'lineWidth', 'filled', 
     'x', 'y', 'radius', 'name', 'artwork', 'points');
 const FILL_FIELDS = fields('type', 'id', 'l', 'pts', 'n', 'lk', 'v', 'kind', 'cornerRadius',
     'nodeCornerRadii', 'segmentBulges', 'x', 'y', 'radius');
-const PCB_TEXT_FIELDS = fields('id', 'content', 'x', 'y', 'size', 'rotation', 'layer', 'strokeWidth');
+const PCB_TEXT_FIELDS = fields('id', 'content', 'x', 'y', 'size', 'rotation', 'layer', 'strokeWidth', 'border');
 const PLACEMENT_FIELDS = fields('x', 'y', 'rotation', 'locked', 'mirror', 'side', 'refVisible',
     'refDx', 'refDy', 'refRot', 'refSize', 'refStrokeWidth');
 const PANEL_FIELDS = fields('rows', 'columns', 'rowSpacing', 'columnSpacing', 'separation',
@@ -220,7 +222,7 @@ function validatePcb(pcb) {
         ['texts', (item, index) => {
             const path = `pcb.texts[${index}]`;
             rejectUnknownFields(item, PCB_TEXT_FIELDS, path);
-            requireFields(item, PCB_TEXT_FIELDS, path);
+            requireFields(item, ['id', 'content', 'x', 'y', 'size', 'rotation', 'layer', 'strokeWidth'], path);
         }],
     ]) {
         if (pcb[field] === undefined) continue;
@@ -273,21 +275,22 @@ export function validatePcbStackup(pcb) {
 }
 
 export function assertSupportedPcb(pcb) {
-    const layers = validatePcbStackup(pcb);
+    const layers = validatePcbStackup(normalizePcbSection(pcb));
     if (layers.length !== 2) {
         throw new Error('This project uses multiple copper layers. This editor currently supports only two-layer boards.');
     }
 }
 
 export function validateEditableProject(data) {
-    validateProject(data);
-    assertSupportedPcb(data.pcb);
-    return data;
+    const normalized = validateProject(data);
+    assertSupportedPcb(normalized.pcb);
+    return normalized;
 }
 
 export function repairDuplicateTrackIds(data) {
-    const tracks = data?.pcb?.tracks;
-    if (!Array.isArray(tracks)) return { data, count: 0 };
+    const normalized = normalizeProjectAliases(data);
+    const tracks = normalized?.pcb?.tracks;
+    if (!Array.isArray(tracks)) return { data: normalized, count: 0 };
     const seen = new Set();
     const duplicates = [];
     tracks.forEach((track, index) => {
@@ -295,9 +298,9 @@ export function repairDuplicateTrackIds(data) {
         if (seen.has(track.id)) duplicates.push(index);
         seen.add(track.id);
     });
-    if (!duplicates.length) return { data, count: 0 };
-    for (const shape of data.schematic?.shapes || []) if (shape?.id) seen.add(shape.id);
-    const repaired = structuredClone(data);
+    if (!duplicates.length) return { data: normalized, count: 0 };
+    for (const shape of normalized.schematic?.shapes || []) if (shape?.id) seen.add(shape.id);
+    const repaired = structuredClone(normalized);
     let next = 1;
     for (const index of duplicates) {
         while (seen.has(`shape_${next}`)) next++;
@@ -309,6 +312,7 @@ export function repairDuplicateTrackIds(data) {
 }
 
 export function validateProject(data) {
+    data = normalizeProjectAliases(data);
     if (!record(data) || data.type !== 'clearpcb-project' || data.version !== '1.0') {
         invalid('project', 'Unsupported ClearPCB project format or version.', data);
     }

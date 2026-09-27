@@ -2,10 +2,10 @@ import { ModifyShapeCommand } from '../../schematic/modules/commands.js';
 import { freeWireLabel, bumpWireLabelCounter, freeNetName, bumpNetNameCounter } from '../../shapes/wire.js';
 import { validateNetNameAtPoint } from './net-validation.js';
 import {
-    getTextEditBoxPadding,
+    getTextEditBoxGeometry,
+    measureTextAdvance,
     measureTextGlyphBBox,
-    normalizeTextBBox,
-} from './text-edit-geometry.js';
+} from '../../core/text-edit-geometry.js';
 import { createInlineTextOverlay } from './inline-text-overlay.js';
 
 /**
@@ -358,49 +358,30 @@ export function updateTextEditOverlay(app) {
     let bbox = measureTextGlyphBBox(shape, el);
 
     const textValue = typeof shape.text === 'string' ? shape.text : '';
-    if (textValue.length === 0) {
-        const measured = measurePlaceholderBBox(app, el);
-        if (measured) {
-            bbox = measured;
-        } else if (bbox) {
-            bbox = null;
-        }
-    }
     if (bbox && bbox.width === 0 && bbox.height === 0) {
         bbox = null;
     }
 
-    const normalized = normalizeTextBBox(shape, el, bbox, usesNestedTextCoords);
-    bbox = normalized || bbox;
-
-    const minHeight = Math.max(shape.fontSize || 2.5, 1);
-    const minWidth = Math.max((shape.fontSize || 2.5) * 0.6, 1);
-
-    const baseX = usesNestedTextCoords
-        ? (bbox ? bbox.x : 0)
-        : ((bbox ? bbox.x : originX) - originX);
-    const baseY = usesNestedTextCoords
-        ? (bbox ? bbox.y : 0)
-        : ((bbox ? bbox.y : originY) - originY);
-    const width = textValue.length > 0 && bbox
-        ? bbox.width
-        : Math.max(bbox ? bbox.width : 0, minWidth);
-    const height = bbox?.height > 0 ? bbox.height : minHeight;
-    const pad = getTextEditBoxPadding(shape, bbox?.height || height);
+    const box = getTextEditBoxGeometry(shape, el, bbox, usesNestedTextCoords);
+    if (!box) {
+        state.overlayGroup.style.display = 'none';
+        return;
+    }
 
     const caretProbe = usesNestedTextCoords
-        ? { x: baseX, width }
-        : { x: baseX + originX, width };
+        ? { x: box.contentX, width: box.contentWidth }
+        : { x: box.contentX + originX, width: box.contentWidth };
     const caretXAbs = getCaretX(app, shape, el, caretProbe, state.caretIndex ?? 0);
     const caretX = usesNestedTextCoords ? caretXAbs : (caretXAbs - originX);
+    const caretExtension = box.contentHeight * 0.15;
     state.overlay?.updateGeometry({
-        x: baseX - pad,
-        y: baseY - pad,
-        width: width + pad * 2,
-        height: height + pad * 2,
+        x: box.x,
+        y: box.y,
+        width: box.width,
+        height: box.height,
         caretX,
-        caretTop: baseY,
-        caretBottom: baseY + height,
+        caretTop: box.contentY - caretExtension,
+        caretBottom: box.contentY + box.contentHeight + caretExtension,
         transform: groupTransform,
     });
 }
@@ -438,7 +419,13 @@ export function setTextCaretFromScreen(app, screenPos) {
     const state = app.textEdit;
     if (!state || !state.shape) return;
 
-    const el = state.shape.getTextElement?.() || state.shape.element;
+    const explicitTextEl = state.shape.getTextElement?.();
+    const ownTextEl = state.shape.type === 'text'
+        ? Array.from(state.shape.element?.children || []).find(
+            child => String(child.tagName || '').toLowerCase() === 'text',
+        )
+        : null;
+    const el = explicitTextEl || ownTextEl || state.shape.element;
     if (!el || typeof el.getCharNumAtPosition !== 'function') {
         state.caretIndex = (state.shape.text || '').length;
         updateTextEditOverlay(app);
@@ -454,9 +441,16 @@ export function setTextCaretFromScreen(app, screenPos) {
         const localPt = ctm ? pt.matrixTransform(ctm.inverse()) : pt;
         const idx = el.getCharNumAtPosition(localPt);
         if (idx >= 0) {
-            state.caretIndex = idx;
+            const start = el.getStartPositionOfChar?.(idx);
+            const end = el.getEndPositionOfChar?.(idx);
+            const midpoint = start && end ? (start.x + end.x) / 2 : null;
+            state.caretIndex = Number.isFinite(midpoint) && localPt.x >= midpoint ? idx + 1 : idx;
         } else {
-            state.caretIndex = (state.shape.text || '').length;
+            const textLength = (state.shape.text || '').length;
+            const start = textLength > 0 ? el.getStartPositionOfChar?.(0) : null;
+            state.caretIndex = start && Number.isFinite(start.x) && localPt.x < start.x
+                ? 0
+                : textLength;
         }
         updateTextEditOverlay(app);
         resetCaretBlink(state);
@@ -502,7 +496,16 @@ function ensureOverlay(app) {
     const state = app.textEdit;
     if (!state || state.overlayGroup) return;
 
-    const overlay = createInlineTextOverlay(group => app.viewport.addContent(group));
+    const overlay = createInlineTextOverlay(
+        group => {
+            if (typeof app.viewport.addInteractionOverlay === 'function') {
+                app.viewport.addInteractionOverlay(group);
+            } else {
+                app.viewport.addContent(group);
+            }
+        },
+        { emphasized: true },
+    );
     state.overlay = overlay;
     state.overlayGroup = overlay.group;
     state.overlayBox = overlay.box;
@@ -529,29 +532,12 @@ function updateText(app, nextText, caretIndex) {
     updateTextEditOverlay(app);
 }
 
-function measurePlaceholderBBox(app, el) {
-    if (!app?.viewport || !el) return null;
-
-    try {
-        const temp = el.cloneNode(true);
-        temp.textContent = 'M';
-        temp.setAttribute('visibility', 'hidden');
-        temp.setAttribute('pointer-events', 'none');
-        app.viewport.addContent(temp);
-        const bbox = temp.getBBox();
-        if (temp.parentNode) {
-            temp.parentNode.removeChild(temp);
-        }
-        // Use the original element's x/y for position so the cursor
-        // stays at the text anchor when text is empty
-        const origX = parseFloat(el.getAttribute('x')) || 0;
-        return { x: origX, y: bbox.y, width: 0, height: bbox.height };
-    } catch (e) {
-        return null;
-    }
-}
-
 function getCaretX(app, shape, el, bbox, caretIndex) {
+    const textValue = typeof shape.text === 'string' ? shape.text : '';
+    const clampedIndex = Math.max(0, Math.min(caretIndex, textValue.length));
+    const advance = measureTextAdvance(shape, textValue.slice(0, clampedIndex));
+    if (Number.isFinite(advance)) return bbox.x + advance;
+
     if (!el || caretIndex <= 0) {
         // Caret at position 0 — left edge of first character
         try {
@@ -564,9 +550,6 @@ function getCaretX(app, shape, el, bbox, caretIndex) {
     }
 
     try {
-        const textValue = typeof shape.text === 'string' ? shape.text : '';
-        const clampedIndex = Math.min(caretIndex, textValue.length);
-
         // Use getEndPositionOfChar for the character just before the caret.
         // This works correctly for all text-anchor values (start/middle/end).
         if (typeof el.getEndPositionOfChar === 'function' && clampedIndex > 0) {

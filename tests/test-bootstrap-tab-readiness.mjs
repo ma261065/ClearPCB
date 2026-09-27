@@ -32,7 +32,11 @@ function fixture() {
         cancelIdleCallback(id) { idleCallbacks.delete(id); },
     };
     const dependencies = {
-        ModalManager: { top: () => modal },
+        ModalManager: {
+            top: () => modal,
+            push(id, onEscape) { modal = { id, onEscape }; },
+            pop(id) { if (modal?.id === id) modal = null; },
+        },
         window,
         document: { querySelectorAll: () => tabs, querySelector: () => null, getElementById: () => null },
         installNumberInputFormatting() {},
@@ -41,6 +45,8 @@ function fixture() {
             registerView() {}
             startAutoSave() { events.push('autosave'); }
         },
+        McpBridge: class {},
+        createMcpSessionUi() {},
         PCBApp: class {
             _active = false;
             _stale = true;

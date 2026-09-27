@@ -66,7 +66,7 @@ import {
     placementTransform,
     isPlacementMirrored,
 } from '../pcb/modules/track-commands.js';
-import { createPcbText, renderPcbText, pcbTextHitTest, serializePcbText, textColorForLayer, TEXT_LAYERS } from '../pcb/modules/pcb-text.js';
+import { createPcbText, renderPcbText, pcbTextEditBox, pcbTextHitTest, serializePcbText, textColorForLayer, TEXT_LAYERS } from '../pcb/modules/pcb-text.js';
 import { ModifyPropertyCommand } from '../schematic/modules/commands.js';
 import { connectBoxOutlines } from '../core/geometry.js';
 import {
@@ -314,7 +314,7 @@ export default class PCBApp {
         /** Overlay <g> for the ref-text selection box and drag tether. */
         this._refOverlay = null;
         /** Defaults for the Text tool (modifiable via tool options). */
-        this._textDefaults = { size: 1.0, rotation: 0, layer: 'top-silk', strokeWidth: 0.15 };
+        this._textDefaults = { size: 1.0, rotation: 0, layer: 'top-silk', strokeWidth: 0.15, border: false };
         /** Last typed content for the Text tool. */
         this._lastTextContent = 'Text';
         /** In-memory PCB clipboard payload. */
@@ -1004,6 +1004,11 @@ export default class PCBApp {
             const selectedBoardShapeAnchor = worldPos && getPcbSelection(this, 'shape').some(
                 (shape) => hitTestBoardShapeVertex(this, shape, worldPos) != null,
             );
+            const selectedTextAnchor = worldPos && this._textEdit
+                ? hitTestPcbSelectionAnchor(this, worldPos, ['text'])
+                : null;
+            const rotatingEditedText = selectedTextAnchor?.anchor?.symbol === 'rotate'
+                && selectedTextAnchor.adapter?.object?.id === this._textEdit?.text?.id;
             if (!this._trackDraw && !this._textEdit && !propertiesToolActive
                 && !selectedBoardShapeAnchor && e.button !== 2 && !e.ctrlKey && !e.metaKey) {
                 const activeTab = this.ribbon?.querySelector('.ribbon-tab.active');
@@ -1015,13 +1020,21 @@ export default class PCBApp {
             // the current edit. (Right-click is reserved for pan and
             // must not commit.) If the text tool is active, the
             // text-tool branch below will then place a new text.
-            if (this._textEdit && e.button === 0) {
+            if (this._textEdit && e.button === 0 && !rotatingEditedText) {
                 if (this._endTextInlineEdit(true) === false) return;
             }
-            if (worldPos && isUnmodifiedPrimaryDoublePress(e)
-                && this._tryEditReferenceAt(worldPos)) {
-                e.preventDefault();
-                return;
+            if (worldPos && isUnmodifiedPrimaryDoublePress(e)) {
+                const textHit = this._hitTestText(worldPos);
+                if (textHit) {
+                    e.preventDefault();
+                    this._selectText(textHit);
+                    this._startTextInlineEdit(textHit, worldPos);
+                    return;
+                }
+                if (this._tryEditReferenceAt(worldPos)) {
+                    e.preventDefault();
+                    return;
+                }
             }
             // Right-click while drawing a track: defer the finish decision
             // to mouseup — if the user actually drags (pans), don't finish.
@@ -1461,6 +1474,7 @@ export default class PCBApp {
                     rotation: this._textDefaults.rotation,
                     layer,
                     strokeWidth: this._textDefaults.strokeWidth,
+                    border: this._textDefaults.border,
                 });
                 this.history.execute(new AddTextCommand(this, text));
                 // Select the freshly-placed text so the user can immediately
@@ -5560,11 +5574,13 @@ export default class PCBApp {
             <div class="prop-row"><label>Size (mm)</label><input type="number" id="pcbPropTextToolSize" value="${d.size}" min="0.2" max="20" step="0.1"></div>
             <div class="prop-row"><label>Rotation (°)</label><input type="number" id="pcbPropTextToolRot" data-number-format="rotation" value="${Math.round(d.rotation) % 360}" step="1"></div>
             <div class="prop-row"><label>Line W (mm)</label><input type="number" id="pcbPropTextToolLW" value="${d.strokeWidth}" min="0.05" max="2" step="0.05"></div>
+            <div class="prop-row"><label><input type="checkbox" id="pcbPropTextToolBorder"${d.border ? ' checked' : ''}> Border</label></div>
         `;
         const layerEl = /** @type {HTMLSelectElement|null} */ (items.querySelector('#pcbPropTextToolLayer'));
         const sizeEl = /** @type {HTMLInputElement|null} */ (items.querySelector('#pcbPropTextToolSize'));
         const rotationEl = /** @type {HTMLInputElement|null} */ (items.querySelector('#pcbPropTextToolRot'));
         const lineWidthEl = /** @type {HTMLInputElement|null} */ (items.querySelector('#pcbPropTextToolLW'));
+        const borderEl = /** @type {HTMLInputElement|null} */ (items.querySelector('#pcbPropTextToolBorder'));
         layerEl?.addEventListener('change', () => {
             if (TEXT_LAYERS.includes(layerEl.value)) this._textDefaults.layer = layerEl.value;
             this._setPcbStatus();
@@ -5583,6 +5599,9 @@ export default class PCBApp {
         lineWidthEl?.addEventListener('input', () => {
             const lineWidth = parseFloat(lineWidthEl.value);
             if (Number.isFinite(lineWidth) && lineWidth > 0) this._textDefaults.strokeWidth = lineWidth;
+        });
+        borderEl?.addEventListener('change', () => {
+            this._textDefaults.border = borderEl.checked;
         });
         this._setActiveRibbonTab?.('pcb-properties');
     }
@@ -5634,6 +5653,7 @@ export default class PCBApp {
             <div class="prop-row"><label>Size (mm)</label><input type="number" id="pcbPropTextSize" value="${text.size}" min="0.2" step="0.1"></div>
             <div class="prop-row"><label>Rotation (°)</label><input type="number" id="pcbPropTextRot" data-number-format="rotation" value="${Math.round(text.rotation) % 360}" step="1"></div>
             <div class="prop-row"><label>Line W (mm)</label><input type="number" id="pcbPropTextLW" value="${text.strokeWidth}" min="0.05" step="0.05"></div>
+            <div class="prop-row"><label><input type="checkbox" id="pcbPropTextBorder"${text.border ? ' checked' : ''}> Border</label></div>
             ${insertRow}
         `;
         // Snapshot at first edit so undo collapses keystrokes into a
@@ -5677,7 +5697,7 @@ export default class PCBApp {
             preview: (t) => this._refreshText(t.id),
             commit: (t, snap) => {
                 const after = {};
-                for (const k of ['content', 'layer', 'size', 'rotation', 'strokeWidth', 'x', 'y']) {
+                for (const k of ['content', 'layer', 'size', 'rotation', 'strokeWidth', 'border', 'x', 'y']) {
                     if (snap[k] !== t[k]) after[k] = t[k];
                 }
                 // Roll back to snapshot first; EditTextCommand will reapply.
@@ -5688,6 +5708,10 @@ export default class PCBApp {
                 Object.assign(t, final); // restore current values inside cmd
                 this.history.execute(new EditTextCommand(this, t.id, after));
             },
+        });
+        const borderEl = /** @type {HTMLInputElement|null} */ (items.querySelector('#pcbPropTextBorder'));
+        borderEl?.addEventListener('change', () => {
+            this.history.execute(new EditTextCommand(this, text.id, { border: borderEl.checked }));
         });
         // Insert-symbol dropdown: insert at caret when inline-editing,
         // otherwise append to the text via an EditTextCommand. Resets
@@ -5872,7 +5896,16 @@ export default class PCBApp {
         setInlineTextInputActive(input, this._active);
 
         const layerG = this._getLayerGroup(text.layer);
-        const overlay = createInlineTextOverlay(group => layerG?.appendChild(group));
+        const overlay = createInlineTextOverlay(
+            group => {
+                if (typeof this.viewport.addInteractionOverlay === 'function') {
+                    this.viewport.addInteractionOverlay(group);
+                } else {
+                    layerG?.appendChild(group);
+                }
+            },
+            { emphasized: true },
+        );
         const { box, caret } = overlay;
 
         this._textEdit = {
@@ -5900,10 +5933,7 @@ export default class PCBApp {
             // Update editing box bounds. Top of box sits a small pad
             // above the cap-top; bottom sits below the baseline far
             // enough to clear descenders (g, y, p, …).
-            const totalW = measureStrokeText(input.value, text.size);
-            const padX = text.size * 0.15;
-            const padTop = text.size * 0.25;
-            const padBot = text.size * 1.0;   // descender room (Hershey 'g','y' reach -0.75)
+            const editBox = pcbTextEditBox(text, input.value);
             const mirror = (typeof text.layer === 'string' && text.layer.startsWith('bottom-')) ? -1 : 1;
             const xform = opts.transform?.()
                 ?? `translate(${text.x},${text.y}) rotate(${-(text.rotation || 0)}) scale(${mirror},1)`;
@@ -5916,14 +5946,12 @@ export default class PCBApp {
                 text.size,
                 text.strokeWidth,
             );
+            const caretExtension = text.size * 0.15;
             overlay.updateGeometry({
-                x: -padX,
-                y: -text.size - padTop,
-                width: totalW + padX * 2,
-                height: text.size + padTop + padBot,
+                ...editBox,
                 caretX: lx,
-                caretTop: verticalBounds.top,
-                caretBottom: verticalBounds.bottom,
+                caretTop: verticalBounds.top - caretExtension,
+                caretBottom: verticalBounds.bottom + caretExtension,
                 transform: xform,
             });
         };

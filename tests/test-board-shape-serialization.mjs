@@ -131,20 +131,22 @@ const app = { tracks: [], vias: [], boardShapes: [], texts: new Map([[text.id, t
         viaDiameter: 0.6000000000000001, viaDrill: 0.30000000000000004 }),
     _getRouterMode: () => 'pathfinder' };
 const savedPcb = serializePcb(app);
-assert.deepEqual(savedPcb.stackup, { copperLayers: ['top-copper', 'bottom-copper'] });
+assert.deepEqual(savedPcb.stackup, { cl: ['top-copper', 'bottom-copper'] });
 assert.doesNotThrow(() => preparePcb(savedPcb), 'A saved two-layer board can be prepared again');
 assert.throws(() => preparePcb({ ...savedPcb, stackup: {
     copperLayers: ['top-copper', 'inner-copper-1', 'inner-copper-2', 'bottom-copper'],
 } }), /only two-layer/, 'Direct PCB preparation also rejects unsupported stacks');
-savedPcb.stackup.copperLayers.push('inner-copper-1');
-assert.deepEqual(serializePcb(app).stackup, { copperLayers: ['top-copper', 'bottom-copper'] },
+savedPcb.stackup.cl.push('inner-copper-1');
+assert.deepEqual(serializePcb(app).stackup, { cl: ['top-copper', 'bottom-copper'] },
     'Serialized stackup arrays are independent snapshots');
-assert.deepEqual(savedPcb.texts, [{ ...text, x: 91.44, size: 7.7, rotation: 30.1235, strokeWidth: 1.6 }]);
-assert.deepEqual(savedPcb.placements.comp_4, { ...placement, x: 27.94, y: -38.1, rotation: 45.1235,
-    refDx: 1.2346, refDy: 22.86, refRot: 30.1235, refSize: 1.2346, refStrokeWidth: 0.2346 });
-assert.deepEqual(savedPcb.board, { width: 100.1235, height: 80, radius: 1.2346 });
-assert.deepEqual(savedPcb.design, { trackWidth: 0.2, clearance: 0.1235, viaDiameter: 0.6,
-    viaDrill: 0.3, units: 'mm', router: 'pathfinder' });
+assert.deepEqual(savedPcb.texts, [{ id: text.id, t: 'Hello', x: 91.44, y: -69.85,
+    s: 7.7, rot: 30.1235, l: 'top-copper', lw: 1.6 }]);
+assert.deepEqual(savedPcb.placements.comp_4, { x: 27.94, y: -38.1, rot: 45.1235,
+    rdx: 1.2346, rdy: 22.86, rr: 30.1235, rs: 1.2346, rw: 0.2346,
+    lk: true, mir: true, sd: 'bottom', rv: false });
+assert.deepEqual(savedPcb.board, { w: 100.1235, h: 80, r: 1.2346 });
+assert.deepEqual(savedPcb.design, { tw: 0.2, cl: 0.1235, vd: 0.6,
+    dr: 0.3, u: 'mm', rt: 'pathfinder' });
 assert.deepEqual(text, beforeText);
 assert.deepEqual(placement, beforePlacement);
 assert.deepEqual(serializePcbText(text), beforeText, 'undo and clipboard snapshots retain full text precision');

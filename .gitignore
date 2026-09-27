@@ -8,3 +8,6 @@ EasyEDA*.json
 # Release packaging output
 dist/
 ClearPCB-v*.zip
+
+# MCP Worker dependencies
+mcp-worker/node_modules/
