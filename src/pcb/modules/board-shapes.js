@@ -2491,7 +2491,6 @@ export function serializeBoardShapes(app, { compactArtwork = true, roundGeometry
         const numbers = values => Object.fromEntries(Object.entries(values).map(([key, value]) => [key, number(value)]));
         const base = {
             id: s.id,
-            geometryVersion: s.kind === 'circle' ? 2 : 1,
             kind: s.kind,
             layer: s.layer,
             lineWidth: number(s.lineWidth),
@@ -2608,9 +2607,6 @@ export function loadBoardShapes(app, arr, { render = true, strict = false } = {}
                 console.warn('Skipping malformed image during load:', error);
                 continue;
             }
-        }
-        if (sd.geometryVersion !== 2 && kind === 'circle' && shape.layer !== 'board-outline') {
-            shape.radius += shape.lineWidth / 2;
         }
         app.boardShapes.push(shape);
         if (render) renderBoardShape(app, shape);

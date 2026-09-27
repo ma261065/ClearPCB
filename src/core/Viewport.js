@@ -122,7 +122,6 @@ export class Viewport {
         this.units = 'mm';
         this.unitConversions = {
             'mm': 1,
-            'mil': 39.3701,
             'inch': 0.0393701
         };
         
@@ -1337,15 +1336,6 @@ export class Viewport {
                 while (tickSpacingInch < targetDisplay) tickSpacingInch *= 10;
             }
             tickSpacingMm = tickSpacingInch / this.unitConversions['inch']; // Convert back to mm
-        } else if (this.units === 'mil') {
-            // Mil-based nice numbers: 10, 25, 50, 100, 250, 500, 1000, 2500, 5000
-            const niceMils = [10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000];
-            let tickSpacingMil = niceMils.find(n => n >= targetDisplay);
-            if (tickSpacingMil === undefined) {
-                tickSpacingMil = niceMils[niceMils.length - 1];
-                while (tickSpacingMil < targetDisplay) tickSpacingMil *= 10;
-            }
-            tickSpacingMm = tickSpacingMil / this.unitConversions['mil']; // Convert back to mm
         } else {
             // mm-based nice numbers
             const niceNumbersMm = [0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50, 100, 200, 500, 1000];
@@ -1358,7 +1348,7 @@ export class Viewport {
         
         // Unit-specific formatting
         const unitConversion = this.unitConversions[this.units];
-        const unitSuffix = this.units === 'inch' ? '"' : (this.units === 'mil' ? '' : '');
+        const unitSuffix = this.units === 'inch' ? '"' : '';
         
         // Determine decimal places based on tick spacing in display units
         const tickSpacingDisplay = tickSpacingMm * unitConversion;
@@ -1597,15 +1587,6 @@ export class Viewport {
      */
     getGridOptions() {
         switch (this.units) {
-            case 'mil':
-                return [
-                    { value: 0.0254, label: '1 mil' },
-                    { value: 0.127, label: '5 mil' },
-                    { value: 0.254, label: '10 mil' },
-                    { value: 0.635, label: '25 mil' },
-                    { value: 1.27, label: '50 mil' },
-                    { value: 2.54, label: '100 mil' }
-                ];
             case 'inch':
                 return [
                     { value: 0.0254, label: '0.001"' },

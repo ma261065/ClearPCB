@@ -5,6 +5,12 @@ import { validateProject, validateEditableProject, defaultPcbStackup } from '../
 import { zipSync, strToU8 } from '../assets/vendor/fflate.module.js';
 
 const project = () => ({ type: 'clearpcb-project', version: '1.0', schematic: { shapes: [], components: [] } });
+const design = () => ({ trackWidth: 0.2, clearance: 0.2, viaDiameter: 0.6, viaDrill: 0.3,
+    units: 'mm', router: 'maze' });
+const pcbSection = (overrides = {}) => ({ stackup: defaultPcbStackup(), design: design(), ...overrides });
+const track = (overrides = {}) => ({ id: 'track-1', type: 'track', c: '#fff',
+    nd: { a: [0, 0], b: [1, 0] }, ed: { edge: ['a', 'b'] }, f: false, ...overrides });
+const via = (overrides = {}) => ({ type: 'via', id: 'v', x: 0, y: 0, d: 0.6, dr: 0.3, ...overrides });
 const manager = new FileManager();
 const oldHandle = { name: 'old.cpcb' };
 manager.fileHandle = oldHandle;
@@ -64,32 +70,90 @@ assert.equal(cleared, 1);
 assert.throws(() => validateProject({ ...project(), version: '99' }), /Unsupported/);
 assert.throws(() => validateProject({ ...project(), version: '2.0' }), /Unsupported/);
 assert.doesNotThrow(() => validateEditableProject(project()));
-assert.doesNotThrow(() => validateEditableProject({ ...project(), pcb: { stackup: defaultPcbStackup(),
-    vias: [{ span: { from: 'top-copper', to: 'bottom-copper' } }] } }));
-const multilayer = { ...project(), pcb: {
+assert.doesNotThrow(() => validateEditableProject({ ...project(), pcb: pcbSection({
+    vias: [via({ span: { from: 'top-copper', to: 'bottom-copper' } })] }) }));
+const multilayer = { ...project(), pcb: pcbSection({
     stackup: { copperLayers: ['top-copper', 'inner-copper-1', 'inner-copper-2', 'bottom-copper'] },
-    tracks: [{ l: 'inner-copper-1', el: { edge: 'inner-copper-2' } }],
-    boardShapes: [{ layer: 'inner-copper-2' }],
-    vias: [{ span: { from: 'top-copper', to: 'inner-copper-1' } },
-        { span: { from: 'inner-copper-1', to: 'inner-copper-2' } }, {}],
-} };
+    tracks: [track({ l: 'inner-copper-1', el: { edge: 'inner-copper-2' } })],
+    boardShapes: [{ id: 'shape-1', kind: 'line', layer: 'inner-copper-2', lineWidth: 0.2,
+        filled: false, copperMode: 'add', plated: false, net: '', points: [{ x: 0, y: 0 }, { x: 1, y: 0 }] }],
+    vias: [via({ id: 'v1', span: { from: 'top-copper', to: 'inner-copper-1' } }),
+        via({ id: 'v2', span: { from: 'inner-copper-1', to: 'inner-copper-2' } }), via({ id: 'v3' })],
+}) };
 const multilayerOriginal = structuredClone(multilayer);
 assert.doesNotThrow(() => validateProject(multilayer), 'Multilayer is valid format 1.0');
 assert.throws(() => validateEditableProject(multilayer), /only two-layer/);
 assert.deepEqual(multilayer, multilayerOriginal, 'Validation does not change multilayer data');
 for (const copperLayers of [[], ['bottom-copper', 'top-copper'], ['top-copper', 'inner-copper-1', 'inner-copper-1', 'bottom-copper'],
     ['top-copper', 'unknown', 'bottom-copper']]) {
-    assert.throws(() => validateProject({ ...project(), pcb: { stackup: { copperLayers } } }), /copper layers/);
+    assert.throws(() => validateProject({ ...project(), pcb: pcbSection({ stackup: { copperLayers } }) }), /copper layers/);
 }
-assert.throws(() => validateProject({ ...project(), pcb: { stackup: {} } }), /copper layers/);
-assert.throws(() => validateProject({ ...project(), pcb: { tracks: [{ el: { edge: 'inner-copper-1' } }] } }), /Undeclared/);
+assert.throws(() => validateProject({ ...project(), pcb: { design: design() } }), /field "stackup"/);
+assert.throws(() => validateProject({ ...project(), pcb: { stackup: defaultPcbStackup() } }), /field "design"/);
+assert.throws(() => validateProject({ ...project(), pcb: pcbSection({ stackup: {} }) }), /copperLayers/);
+assert.throws(() => validateProject({ ...project(), pcb: pcbSection({
+    tracks: [track({ el: { edge: 'inner-copper-1' } })] }) }), /Undeclared/);
 for (const span of [null, { from: 'bottom-copper', to: 'top-copper' },
     { from: 'top-copper', to: 'top-copper' }, { from: 'missing', to: 'bottom-copper' }]) {
-    assert.throws(() => validateProject({ ...multilayer, pcb: { ...multilayer.pcb, vias: [{ span }] } }), /via copper-layer span/);
+    assert.throws(() => validateProject({ ...multilayer, pcb: { ...multilayer.pcb, vias: [via({ span })] } }), /via copper-layer span/);
 }
-assert.throws(() => validateProject({ ...project(), pcb: { vias: [{ id: 'v' }, { id: 'v' }] } }), /Duplicate/);
-assert.throws(() => validateProject({ ...project(), pcb: { tracks: [{ nd: { a: [0, 0] }, ed: { edge: ['a', 'missing'] } }] } }), /Dangling/);
-assert.throws(() => validateProject({ ...project(), pcb: { board: { width: Infinity } } }), /Non-finite/);
+assert.throws(() => validateProject({ ...project(), pcb: pcbSection({ vias: [via(), via()] }) }), /Duplicate/);
+assert.throws(() => validateProject({ ...project(), pcb: pcbSection({
+    tracks: [track({ ed: { edge: ['a', 'missing'] } })] }) }), /missing node/);
+assert.throws(() => validateProject({ ...project(), pcb: pcbSection({ board: { width: Infinity } }) }), /Non-finite/);
+const longForm = { ...project(), schematic: { shapes: [
+    { id: 'shape-1', type: 'text', c: '#fff', x: 0, y: 0, t: 'Label', componentId: 'comp-1' },
+], components: [] } };
+assert.throws(() => validateProject(longForm), error => /Unknown field "componentId"/.test(error.message)
+    && /Location: schematic\.shapes\[0\]\.componentId/.test(error.message)
+    && /1 \| \{/.test(error.message) && /2 \|   "componentId"/.test(error.message));
+assert.throws(() => validateProject({ ...project(), extra: true }), /Unknown field "extra"/);
+assert.throws(() => validateProject({ ...project(), schematic: {
+    shapes: [{ id: 'shape-1', type: 'polyline', nd: { n0: { x: 0, y: 0 } }, ed: {} }], components: [],
+} }), /canonical \[x, y\] tuple/);
+assert.throws(() => validateProject({ ...project(), schematic: {
+    shapes: [{ id: 'shape-1', type: 'polyline', points: [[0, 0], [1, 0]] }], components: [],
+} }), /Unknown field "points"/);
+for (const type of ['line', 'polygon', 'rect', 'Net']) {
+    assert.throws(() => validateProject({ ...project(), schematic: {
+        shapes: [{ id: 'shape-1', type }], components: [],
+    } }), /Unknown schematic shape type/);
+}
+assert.throws(() => validateProject({ ...project(), pcb: pcbSection({ fills: [] }) }), /Unknown field "fills"/);
+assert.throws(() => validateProject({ ...project(), pcb: pcbSection({
+    vias: [via({ diameter: 0.8 })],
+}) }), /Unknown field "diameter"/);
+const fill = { type: 'fill', id: 'fill-1', l: 'top-copper', pts: [[0, 0], [1, 0], [0, 1]], kind: 'polygon' };
+assert.throws(() => validateProject({ ...project(), pcb: pcbSection({
+    boardShapes: [{ ...fill, outline: [] }],
+}) }), /Unknown field "outline"/);
+const { kind: _fillKind, ...fillWithoutKind } = fill;
+assert.throws(() => validateProject({ ...project(), pcb: pcbSection({
+    boardShapes: [fillWithoutKind],
+}) }), /field "kind"/);
+const boardShape = { id: 'shape-1', kind: 'rect', layer: 'top-copper', lineWidth: 0.2,
+    filled: true, copperMode: 'add', plated: false, net: '',
+    points: [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 1, y: 1 }, { x: 0, y: 1 }] };
+for (const copperMode of ['remove', 'remove-mask']) {
+    assert.throws(() => validateProject({ ...project(), pcb: pcbSection({
+        boardShapes: [{ ...boardShape, copperMode }],
+    }) }), /Copper mode must be/);
+}
+assert.doesNotThrow(() => validateProject({ ...project(), pcb: pcbSection({
+    boardShapes: [{ ...boardShape, copperMode: 'remove-copper-mask' }],
+}) }));
+assert.throws(() => validateProject({ ...project(), pcb: pcbSection({
+    boardShapes: [{ ...boardShape, strokeSide: 'inside' }],
+}) }), /Unknown field "strokeSide"/);
+assert.throws(() => validateProject({ ...project(), pcb: pcbSection({
+    panelization: { tabsPerEdge: 2 },
+}) }), /Unknown field "tabsPerEdge"/);
+assert.throws(() => validateProject({ ...project(), pcb: pcbSection({
+    panelization: { tabOffset: 0 },
+}) }), /Unknown field "tabOffset"/);
+assert.throws(() => validateProject({ ...project(), schematic: {
+    settings: { units: 'mil' }, shapes: [], components: [],
+} }), /Units must be/);
 const corruptZip = zipSync({ 'manifest.json': strToU8(JSON.stringify({ format: 'clearpcb-zip', version: 99 })) });
 await assert.rejects(readProjectFile(new Blob([corruptZip])), /manifest/);
 const validZip = new Blob([zipSync({
@@ -142,11 +206,13 @@ assert.equal(loads, 0);
 assert.equal(owner.fileManager.loading, false);
 assert.deepEqual(loadingStates, [true, false]);
 pcb.prepareSection = () => ({});
+let rejectPcbLoad = false;
 pcb.loadSection = (data) => {
-    if (data?.reject) throw new Error('Render failure');
+    if (rejectPcbLoad) throw new Error('Render failure');
     pcbState = data;
 };
-await assert.rejects(owner.load({ ...project(), pcb: { reject: true } }), /Render failure/);
+rejectPcbLoad = true;
+await assert.rejects(owner.load({ ...project(), pcb: pcbSection() }), /Render failure/);
 assert.deepEqual(current, project());
 assert.equal(pcbState, null);
 assert.equal(owner.fileManager.loading, false);

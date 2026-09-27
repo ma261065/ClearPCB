@@ -80,12 +80,11 @@ export function serializeDocument(app) {
 export function prepareDocument(app, data) {
     validateEditableProject(data);
     const schematic = data.schematic;
-    const shapes = (schematic.shapes || []).filter((item) => (item.fk || item.fieldKey) !== 'net')
+    const shapes = schematic.shapes.filter((item) => item.fk !== 'net')
         .map((item) => ({ data: item, shape: createShape(item) }));
-    const components = (schematic.components || []).map((item) => {
-        const name = item.dn || item.definitionName;
-        const embedded = item.def || item.definition || schematic.defs?.[name];
-        const component = createComponentFromData(app, { ...item, def: embedded });
+    const components = schematic.components.map((item) => {
+        const name = item.dn;
+        const component = createComponentFromData(app, { ...item, def: schematic.defs?.[name] });
         if (!component) throw new Error(`Missing component definition: ${name}`);
         return component;
     });
@@ -110,8 +109,8 @@ export async function loadDocument(app, data, prepared = prepareDocument(app, da
 
     if (shapes && Array.isArray(shapes)) {
         for (const { data: shapeData, shape } of prepared.shapes) {
-            const compId = shapeData.cid || shapeData.componentId;
-            const fieldKey = shapeData.fk || shapeData.fieldKey;
+            const compId = shapeData.cid;
+            const fieldKey = shapeData.fk;
 
             // Net field text is derived and not part of persisted schema.
             if (fieldKey === 'net') {
@@ -226,8 +225,8 @@ export async function loadDocument(app, data, prepared = prepareDocument(app, da
  * @returns {import('../../components/Component.js').Component|null} The created component, or `null` if definition not found.
  */
 export function createComponentFromData(app, data) {
-    const dn = data.dn || data.definitionName;
-    const def_data = data.def || data.definition;
+    const dn = data.dn;
+    const def_data = data.def;
     let def = def_data ? structuredClone(def_data) : app.componentLibrary.getDefinition(dn);
     if (def_data && (!def._source || def._source === 'Built-in')) def._source = 'Project';
 
@@ -247,15 +246,15 @@ export function createComponentFromData(app, data) {
         id: data.id,
         x: data.x,
         y: data.y,
-        rotation: data.rot ?? data.rotation ?? 0,
-        mirror: data.mir ?? data.mirror ?? false,
-        reference: data.ref ?? data.reference,
-        value: data.val ?? data.value,
-        showReference: data.sr ?? data.showReference,
-        showValue: data.sv ?? data.showValue,
-        properties: data.props ?? data.properties,
-        visible: data.v ?? data.visible,
-        locked: data.lk ?? data.locked,
+        rotation: data.rot ?? 0,
+        mirror: data.mir ?? false,
+        reference: data.ref,
+        value: data.val,
+        showReference: data.sr,
+        showValue: data.sv,
+        properties: data.props,
+        visible: data.v,
+        locked: data.lk,
     });
 }
 

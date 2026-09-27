@@ -10,13 +10,10 @@ import { closedShapeOutline } from '../../shapes/closed-outline.js';
 
 const r4 = (n) => Math.round(n * 10000) / 10000;
 
-/** Normalise a copper mode string (back-compatible with old circle modes). */
+/** Return a supported copper mode, defaulting invalid internal values to add. */
 export function normalizeShapeCopperMode(mode) {
     const m = String(mode || 'add');
-    if (m === 'remove-copper' || m === 'remove-solder-mask' || m === 'remove-copper-mask') return m;
-    if (m === 'remove') return 'remove-copper-mask';
-    if (m === 'remove-mask') return 'remove-solder-mask';
-    return 'add';
+    return m === 'remove-copper' || m === 'remove-solder-mask' || m === 'remove-copper-mask' ? m : 'add';
 }
 
 export function isMaskLayer(layer) {

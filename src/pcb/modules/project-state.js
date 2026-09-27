@@ -7,7 +7,7 @@ import { serializeBoardShapes, loadBoardShapes, removeBoardShapeElement, renderB
 import { validBoardOutline, getBoardOutline, syncBoardOutlineDimensions } from './board-outline.js';
 import { Track } from '../../shapes/track.js';
 import { Via, resetViaIdCounter, updateViaIdCounter } from '../../shapes/via.js';
-import { CopperFill, updateFillIdCounter } from '../../shapes/copper-fill.js';
+import { updateFillIdCounter } from '../../shapes/copper-fill.js';
 import { createShape } from '../../shapes/index.js';
 import { serializeGridSettings, restoreGridSettings } from '../../ui/modules/viewport.js';
 import { panelSettings } from './panelization.js';
@@ -84,7 +84,6 @@ export function preparePcb(data) {
         if (!(track instanceof Track)) throw new Error('Invalid PCB track.');
         return track;
     });
-    for (const item of data?.fills || []) stage.boardShapes.push(CopperFill.fromJSON(item));
     return { tracks, vias: (data?.vias || []).map((item) => Via.fromJSON(item)),
         texts: (data?.texts || []).map((item) => createPcbText(item)),
         boardShapes: stage.boardShapes, shapeIdCounter: stage._shapeIdCounter, panelization };
@@ -145,14 +144,16 @@ export function loadPcb(app, data, prepared = preparePcb(data)) {
     app._placementOverrides.clear();
 
     if (!data) {
+        app.placements.clear();
+        app.netlist = [];
         app.markSectionClean();
+        app._board3d?.refresh?.();
         return;
     }
 
     // Restore per-project design parameters (track/clearance/via sizes,
-    // units, router) onto the ribbon inputs. Documents that predate this
-    // field simply keep the current localStorage working defaults.
-    if (data.design) app._applyProjectDesignParams(data.design);
+    // units, router) onto the ribbon inputs.
+    app._applyProjectDesignParams(data.design);
     restoreGridSettings(app, data.settings);
 
     // Restore the saved board outline so it survives save/reopen and

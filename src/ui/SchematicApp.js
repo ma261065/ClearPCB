@@ -385,30 +385,36 @@ export default class SchematicApp {
     async _applyAutoSave(entry) {
         const saved = this.fileManager.loadAutoSave(entry.fileName);
         if (saved && saved.data) {
-            const recovered = repairDuplicateTrackIds(saved.data);
-            if (this._initComplete) {
-                await this._loadDocument(recovered.data);
-            } else {
-                this.shapes = [];
-                this.components = [];
-                this.ui = /** @type {any} */ ({});
-                this._pendingAutoLoad = recovered.data;
+            try {
+                const recovered = repairDuplicateTrackIds(saved.data);
+                if (this._initComplete) {
+                    await this._loadDocument(recovered.data);
+                } else {
+                    this.shapes = [];
+                    this.components = [];
+                    this.ui = /** @type {any} */ ({});
+                    this._pendingAutoLoad = recovered.data;
+                }
+                if (saved.fileName) this.fileManager.setFileName(saved.fileName);
+                // Restore the original file handle (persisted in IndexedDB) so that
+                // "Save"/Ctrl+S writes back to the same file instead of prompting
+                // for a name. The write-permission grant is re-requested lazily on
+                // the next save (which carries a user gesture).
+                if (saved.fileName) {
+                    try { await this.fileManager.restoreFileHandle(saved.fileName); } catch {}
+                }
+                this.fileManager.setDirty(true);
+                if (recovered.count) {
+                    await this._alert(`Recovered the autosave and assigned new IDs to ${recovered.count} tracks with duplicate IDs. All track geometry was retained. Save the project to keep the repaired IDs.`,
+                        { title: 'Autosave Repaired' });
+                }
+                console.log('Recovered auto-saved content');
+            } catch (error) {
+                await this._alert(`Failed to recover autosave: ${error.message}`, { title: 'Recovery Failed' });
+                return false;
             }
-            if (saved.fileName) this.fileManager.setFileName(saved.fileName);
-            // Restore the original file handle (persisted in IndexedDB) so that
-            // "Save"/Ctrl+S writes back to the same file instead of prompting
-            // for a name. The write-permission grant is re-requested lazily on
-            // the next save (which carries a user gesture).
-            if (saved.fileName) {
-                try { await this.fileManager.restoreFileHandle(saved.fileName); } catch {}
-            }
-            this.fileManager.setDirty(true);
-            if (recovered.count) {
-                await this._alert(`Recovered the autosave and assigned new IDs to ${recovered.count} tracks with duplicate IDs. All track geometry was retained. Save the project to keep the repaired IDs.`,
-                    { title: 'Autosave Repaired' });
-            }
-            console.log('Recovered auto-saved content');
         }
+        return true;
     }
 
     /**
@@ -1627,4 +1633,3 @@ export default class SchematicApp {
         await FileTools.importEasyEDA(this);
     }
 }
-

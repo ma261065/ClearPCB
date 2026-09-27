@@ -3861,4 +3861,3 @@ export async function openBoard3DViewer(app, opts = {}) {
     // 3D scene + STEP models are built lazily by ensure3D when 3D is first shown.
     applyView(initialView);
 }
-

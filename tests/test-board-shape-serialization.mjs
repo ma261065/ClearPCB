@@ -29,6 +29,7 @@ const shapes = [
 ];
 const before = structuredClone(shapes);
 const saved = serializeBoardShapes({ boardShapes: shapes });
+assert.ok(saved.every(shape => !('geometryVersion' in shape)));
 assert.equal(saved[0].radius, 6.8392);
 assert.deepEqual(saved[1].points, [{ x: -74.93, y: 58.42 }, { x: -74.93, y: 11.43 }]);
 assert.deepEqual(saved[1].segmentWidths, { 0: 0.3457 });
@@ -45,6 +46,12 @@ assert.deepEqual(shapes, before, 'saving does not mutate live geometry');
 const restored = { boardShapes: [], _shapeIdCounter: 1 };
 loadBoardShapes(restored, [...saved, fill.toJSON()], { render: false, strict: true });
 assert.deepEqual(serializeBoardShapes(restored), [...saved, fill.toJSON()]);
+const staleVersionCircle = { ...saved[0], geometryVersion: 1, radius: 5 };
+const restoredStaleVersionCircle = { boardShapes: [], _shapeIdCounter: 1 };
+loadBoardShapes(restoredStaleVersionCircle, [staleVersionCircle], { render: false, strict: true });
+assert.equal(restoredStaleVersionCircle.boardShapes[0].radius, 5,
+    'all circle radii are interpreted as outer radii regardless of stale metadata');
+assert.equal('geometryVersion' in serializeBoardShapes(restoredStaleVersionCircle)[0], false);
 
 const imagePoints = [
     { x: 1.2700000000000102, y: -76.2 },

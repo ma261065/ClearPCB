@@ -17,7 +17,7 @@ export function serializeGridSettings(viewport) {
 export function restoreGridSettings(app, settings) {
     if (!settings || !app.viewport) return;
     const viewport = app.viewport;
-    if (['mm', 'inch', 'mil'].includes(settings.units)) viewport.setUnits(settings.units);
+    if (['mm', 'inch'].includes(settings.units)) viewport.setUnits(settings.units);
     if (Number.isFinite(settings.gridSize) && settings.gridSize > 0 && settings.gridSize <= 1000) {
         viewport.setGridSize(settings.gridSize);
     }

@@ -3804,6 +3804,7 @@ export default class PCBApp {
             this._refreshClearanceHalos();
             this._updateRatsnest();
             this._setStatus('No components in schematic');
+            this._board3d?.refresh?.();
             return;
         }
 

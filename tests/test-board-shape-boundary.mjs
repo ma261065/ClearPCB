@@ -437,7 +437,6 @@ for (const cornerRadius of [0, 2]) {
     assert.equal(shape.lineWidth, 5);
     document.getElementById = () => null;
     const serialized = serializeBoardShapes(app);
-    assert.equal(serialized[0].geometryVersion, 1);
     const loaded = { boardShapes: [], _shapeIdCounter: 1 };
     loadBoardShapes(loaded, serialized, { render: false });
     assert.deepEqual(serializeBoardShapes(loaded), serialized);
@@ -474,7 +473,7 @@ loadBoardShapes(legacy, [
     { id: 'legacy-line', kind: 'line', lineWidth: 2, points: [{ x: 0, y: 0 }, { x: 20, y: 0 }] },
 ], { render: false });
 assert.deepEqual(legacy.boardShapes[0].points[0], { x: 0, y: 0 });
-assert.equal(legacy.boardShapes[1].radius, 6);
+assert.equal(legacy.boardShapes[1].radius, 5);
 assert.deepEqual(legacy.boardShapes[2].points, [{ x: 0, y: 0 }, { x: 20, y: 0 }]);
 const migrated = serializeBoardShapes(legacy);
 const reloaded = { boardShapes: [], _shapeIdCounter: 1 };

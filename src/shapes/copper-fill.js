@@ -208,19 +208,17 @@ export class CopperFill {
 
     /** Deserialise from compact JSON produced by toJSON(). */
     static fromJSON(data) {
-        const outline = Array.isArray(data.pts)
-            ? data.pts.map((p) => (Array.isArray(p) ? { x: p[0], y: p[1] } : { x: p.x, y: p.y }))
-            : (Array.isArray(data.outline) ? data.outline : []);
+        const outline = data.pts.map((p) => ({ x: p[0], y: p[1] }));
         return new CopperFill({
             kind: data.kind, cornerRadius: data.cornerRadius,
             nodeCornerRadii: data.nodeCornerRadii, segmentBulges: data.segmentBulges,
             x: data.x, y: data.y, radius: data.radius,
             id: data.id,
-            layer: data.l !== undefined ? data.l : data.layer,
-            net: data.n !== undefined ? data.n : data.net,
+            layer: data.l,
+            net: data.n,
             outline,
-            locked: data.lk !== undefined ? data.lk : data.locked,
-            visible: data.v !== undefined ? data.v : data.visible,
+            locked: data.lk,
+            visible: data.v,
         });
     }
 }

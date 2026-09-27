@@ -39,7 +39,11 @@ assert.equal(new Set(newTracks.map(track => track.id)).size, newTracks.length);
 
 const damaged = project();
 damaged.schematic.shapes.push({ id: 'shape_1', type: 'circle', x: 0, y: 0, r: 1 });
-damaged.pcb = { tracks: [restoredTrack.toJSON(), { ...restoredTrack.toJSON(), n: 'GND', bg: { e0: 0.25 } }] };
+damaged.pcb = {
+    stackup: { copperLayers: ['top-copper', 'bottom-copper'] },
+    design: { trackWidth: 0.2, clearance: 0.2, viaDiameter: 0.6, viaDrill: 0.3, units: 'mm', router: 'maze' },
+    tracks: [restoredTrack.toJSON(), { ...restoredTrack.toJSON(), n: 'GND', bg: { e0: 0.25 } }],
+};
 const original = structuredClone(damaged);
 assert.throws(() => validateProject(damaged), /Duplicate tracks id: shape_65/);
 const repaired = repairDuplicateTrackIds(damaged);

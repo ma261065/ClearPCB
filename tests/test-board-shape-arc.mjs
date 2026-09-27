@@ -48,7 +48,9 @@ const {
     assert.equal(shapeIsFilled({ kind: 'circle', layer: 'top-mask', filled: false }), true);
     assert.equal(shapeIsFilled({ kind: 'line', layer: 'hole', filled: true }), false);
     assert.equal(boardShapeLineWidthMinimum({ kind: 'line', layer: 'hole' }), 0.8);
-    assert.equal(pcbShapeGeometry.normalizeShapeCopperMode('remove'), 'remove-copper-mask');
+    assert.equal(pcbShapeGeometry.normalizeShapeCopperMode('remove'), 'add');
+    assert.equal(pcbShapeGeometry.normalizeShapeCopperMode('remove-mask'), 'add');
+    assert.equal(pcbShapeGeometry.normalizeShapeCopperMode('remove-copper-mask'), 'remove-copper-mask');
 }
 
 globalThis.document = {

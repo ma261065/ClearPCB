@@ -23,7 +23,10 @@ const dependencies = {
 };
 const loadPcb = new Function(...Object.keys(dependencies),
     `${source.slice(start, end).replace('export function', 'function')}\nreturn loadPcb;`)(...Object.values(dependencies));
-const data = { board: { width: 43, height: 27, radius: 2 }, settings: { gridSize: 0.5 },
+const data = {
+    stackup: { copperLayers: ['top-copper', 'bottom-copper'] },
+    design: { trackWidth: 0.25, clearance: 0.2, viaDiameter: 0.6, viaDrill: 0.3, units: 'mm', router: 'pathfinder' },
+    board: { width: 43, height: 27, radius: 2 }, settings: { gridSize: 0.5 },
     placements: { U1: { x: 3, y: -5, rotation: 90, locked: true } } };
 const prepared = {
     tracks: [{ id: 'track' }], vias: [{ id: 'via' }], texts: [{ id: 'text' }], shapeIdCounter: 3,
@@ -35,6 +38,7 @@ const makeApp = active => ({
     _placementOverrides: new Map(), history: { clear() {} },
     _ensureViewport: record('viewport'), _getLayerGroup: () => null,
     _drawBoardOutline: record('outline'), _applyPlacementOverrides: record('placements'),
+    _applyProjectDesignParams() {},
     _renderText: record('text'), _refreshClearanceHalos: record('clearance'), _refreshFills: record('fills'),
     _updateCopperCuts() { this.cutRefreshes = (this.cutRefreshes || 0) + 1; },
     markSectionClean() { this._isDirty = false; },
@@ -63,11 +67,15 @@ assert.deepEqual(calls, ['viewport', 'grid', 'outline', 'placements', 'track', '
 assert.equal(active.cutRefreshes, 2, 'Active loading clears old cuts and refreshes once after all shapes');
 
 calls.length = 0;
+hidden._board3d = { refresh: record('3d') };
+hidden.netlist = [{ net: 'GND' }];
 loadPcb(hidden, null, { tracks: [], vias: [], texts: [], boardShapes: [], shapeIdCounter: 1 });
-assert.deepEqual(calls, ['viewport']);
+assert.deepEqual(calls, ['viewport', '3d']);
 assert.equal(hidden._boardOutlineDrawn, false);
 assert.deepEqual(hidden.boardShapes, []);
 assert.equal(hidden._placementOverrides.size, 0);
+assert.equal(hidden.placements.size, 0);
+assert.deepEqual(hidden.netlist, []);
 console.log('PASS: hidden PCB loading restores models and settings without rendering or derived copper work');
 
 const pcbSource = readFileSync(new URL('../src/ui/PCBApp.js', import.meta.url), 'utf8');
@@ -97,6 +105,7 @@ for (const withComponents of [false, true]) {
         _clearPCBContent() { this.placements.clear(); calls.push('clear'); },
         _placeFootprints: record('footprints'), _updateRatsnest: record('ratsnest'),
         _showBoardDimensionsDialog: record('dimensions-dialog'),
+        _board3d: { refresh: record('3d') },
     });
     Object.defineProperty(app, 'copperFills', { get: () => app.boardShapes.filter(shape => shape.type === 'fill') });
     loadPcb(app, data, prepared);
@@ -110,6 +119,8 @@ for (const withComponents of [false, true]) {
         `Preloading clips once after the shape batch (components=${withComponents})`);
     assert.equal(app._active, false, 'preloading does not activate the PCB editor');
     assert.equal(app._stale, false);
+    assert.equal(calls.filter(call => call === '3d').length, 1,
+        `Preloading refreshes the board viewer when components=${withComponents}`);
     assert.equal(calls.includes('ribbon-height'), false, 'hidden preloading does not measure the ribbon');
     calls.length = 0;
     app.activate();
