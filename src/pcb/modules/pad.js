@@ -1,5 +1,6 @@
 import { padFlashOutline } from './board-geometry.js';
 import { textColorForLayer } from './pcb-text.js';
+import { renderDrillBore } from './drill-bore.js';
 
 const NS = 'http://www.w3.org/2000/svg';
 
@@ -108,6 +109,8 @@ export function renderPad(pad, getLayerGroup, strokeOverride = null) {
         if (pad.net) path.dataset.net = pad.net;
         group.appendChild(path);
         elements.push(path);
+        const drill = renderDrillBore(pad, getLayerGroup(`${layer}-pad-drills`), 'pcb-pad-drill', 'pad');
+        if (drill) elements.push(drill);
     }
     pad._svgElements = elements;
 }

@@ -4,6 +4,8 @@
  * Operates on the generic `app.boardShapes` array. Geometry-specific behaviour
  * lives in board-shapes.js; these commands only push/splice the shape and
  * trigger re-render + fill refresh so history is the single source of truth.
+ * Copper-mode changes refresh connectivity immediately rather than waiting
+ * for the live-geometry edit debounce.
  */
 
 import {
@@ -18,6 +20,7 @@ import { renderPcbSelectionAnchors } from './selection-anchors.js';
 import { getPcbSelectionEntries, setPcbSelection } from './selection-registry.js';
 import { cancelPictureCopperRefresh, schedulePictureCopperRefresh } from './picture-refresh.js';
 import { validBoardOutline } from './board-outline.js';
+import { normalizeShapeCopperMode } from './board-shape-geometry.js';
 
 function deselectRemovedShape(app, shape) {
     const selected = getPcbSelectionEntries(app);
@@ -123,7 +126,8 @@ export class ModifyBoardShapeCommand {
         const previous = this.shape.layer === 'board-outline' ? structuredClone(this.shape) : null;
         const affectsCopper = this.shape.kind !== 'image'
             || this.shape.layer.endsWith('copper') || state.layer.endsWith('copper');
-        const geometryEdit = this.shape.layer === state.layer && (this.shape.net || '') === (state.net || '');
+        const geometryEdit = this.shape.layer === state.layer && (this.shape.net || '') === (state.net || '')
+            && normalizeShapeCopperMode(this.shape.copperMode) === normalizeShapeCopperMode(state.copperMode);
         if (affectsCopper && !geometryEdit) cancelPictureCopperRefresh(this.app);
         applyShapeSnapshot(this.shape, state);
         if (previous && !validBoardOutline(this.shape)) Object.assign(this.shape, previous);

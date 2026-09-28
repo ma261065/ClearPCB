@@ -25,15 +25,29 @@ export const PCB_LAYERS = /** @type {LayerDef[]} */ ([
     { id: 'hole',             name: 'Hole',                color: '#1abc9c', visible: true, locked: false },
 ]);
 
-/** Return a lighter selection color derived from a PCB layer's display color. */
-export function pcbLayerSelectionColor(layerId) {
-    const color = PCB_LAYERS.find((layer) => layer.id === layerId)?.color || '#ffffff';
+export const PCB_SELECTION_HIGHLIGHT_OPACITY = 0.5;
+export const PCB_HOVER_HIGHLIGHT_OPACITY = 0.25;
+
+/** Blend a PCB display color toward white by the requested highlight opacity. */
+export function pcbHighlightColor(color, opacity) {
     const channels = color.match(/[\da-f]{2}/gi);
     if (!channels || channels.length !== 3) return color;
     return `#${channels.map((channel) => {
         const value = parseInt(channel, 16);
-        return Math.round(value + (255 - value) * 0.35).toString(16).padStart(2, '0');
+        return Math.round(value + (255 - value) * opacity).toString(16).padStart(2, '0');
     }).join('')}`;
+}
+
+/** Return a selected color equivalent to the shared white halo. */
+export function pcbLayerSelectionColor(layerId) {
+    const color = PCB_LAYERS.find((layer) => layer.id === layerId)?.color || '#ffffff';
+    return pcbHighlightColor(color, PCB_SELECTION_HIGHLIGHT_OPACITY);
+}
+
+/** Return a hover color equivalent to the shared white halo. */
+export function pcbLayerHoverColor(layerId) {
+    const color = PCB_LAYERS.find((layer) => layer.id === layerId)?.color || '#ffffff';
+    return pcbHighlightColor(color, PCB_HOVER_HIGHLIGHT_OPACITY);
 }
 
 /**

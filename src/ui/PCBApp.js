@@ -15,7 +15,7 @@ import {
     createInlineTextOverlay,
     setInlineTextInputActive,
 } from './modules/inline-text-overlay.js';
-import { PCB_LAYERS, PCB_OVERLAYS, PCB_COPPER_FILLS, isLayerLocked, isViaLocked, isLayerVisible, isViaVisible, showLockedLayerBubble, isCopperFillLocked, isCopperFillVisible, saveLayerPrefs, setPcbCopperFillLocked, setPcbLayerLocked } from '../pcb/modules/layers.js';
+import { PCB_LAYERS, PCB_OVERLAYS, PCB_COPPER_FILLS, isLayerLocked, isViaLocked, isLayerVisible, isViaVisible, pcbLayerHoverColor, pcbLayerSelectionColor, showLockedLayerBubble, isCopperFillLocked, isCopperFillVisible, saveLayerPrefs, setPcbCopperFillLocked, setPcbLayerLocked } from '../pcb/modules/layers.js';
 import { exportDSN, importSES } from '../pcb/modules/dsn.js';
 import { runDRC } from '../pcb/modules/drc.js';
 import { buildCopperObstacles } from '../pcb/modules/copper-obstacles.js';
@@ -26,8 +26,8 @@ import { generateBOM, generatePickAndPlace } from '../pcb/modules/assembly.js';
 import { openBoard3DViewer } from '../pcb/modules/board3d.js';
 import { savePcbPdf, printPcb } from '../pcb/modules/pcb-export.js';import { tracksFromAutorouterResult } from '../pcb/modules/autorouter-adapter.js';
 import { renderTrack, renderVia, removeTrackElements, removeViaElements, viaCopperPathD } from '../pcb/modules/track-render.js';
-import { startTrackDraw, updateTrackDraw, refreshTrackDrawPreview, addTrackWaypoint, finishTrackDraw, cancelTrackDraw, toggleTrackLayer, resolveTrackSnap, showTrackSnapMarker, clearTrackSnapMarker, reconcileRatsnest } from '../pcb/modules/track-draw.js';
-import { hitTestTrack, hitTestLockedTrack, selectTrackOrVia, clearTrackSelection, deleteSelectedTrack, setHoverHighlight, showTrackContextMenu, refreshTrackSelectionHalo, getSelectedTrack, getSelectedVia, selectTrackSegment, dismissTrackContextMenu } from '../pcb/modules/track-select.js';
+import { startTrackDraw, updateTrackDraw, refreshTrackDrawPreview, addTrackWaypoint, finishTrackDraw, cancelTrackDraw, toggleTrackLayer, resolveTrackDrawSnap, resolveTrackSnap, showTrackSnapMarker, clearTrackSnapMarker, reconcileRatsnest } from '../pcb/modules/track-draw.js';
+import { hitTestTrack, hitTestLockedTrack, selectTrackOrVia, clearTrackSelection, deleteSelectedTrack, setHoverHighlight, showTrackContextMenu, refreshTrackSelectionHalo, getSelectedTrack, getSelectedVia, selectTrackSegment, dismissTrackContextMenu, applyNetToCopperSelection } from '../pcb/modules/track-select.js';
 import { deleteFocusedBoardShape } from '../pcb/modules/board-shapes.js';
 import {
     startVertexDrag,
@@ -49,6 +49,7 @@ import {
     AddTrackCommand,
     AddViaCommand,
     RemoveTrackCommand,
+    ModifyTrackGraphCommand,
     CompoundCommand,
     MovePlacementCommand,
     RotatePlacementCommand,
@@ -60,6 +61,7 @@ import {
     RotateRefTextCommand,
     SetRefStyleCommand,
     SetBoardOutlineCommand,
+    ModifyViaCommand,
     applyPlacementPose,
     applyPlacementSide,
     applyPlacementRefVisible,
@@ -75,7 +77,8 @@ import {
     MoveTextCommand,
     EditTextCommand,
 } from '../pcb/modules/text-commands.js';
-import { shapeDrawClick, updateShapeDrawPreview, cancelShapeDraw, finishPolygonDraw, finishLineDraw, finishShapeDrawAtPoint, hitTestBoardShape, setBoardShapeHover, selectBoardShape, startBoardShapeDrag, handleBoardShapeDrag, endBoardShapeDrag, showBoardShapeProperties, showBoardShapeToolProperties, boardShapeCopperCuts, renderBoardShape, hitTestBoardShapeVertex, showBoardShapeContextMenu, dismissBoardShapeContextMenu } from '../pcb/modules/board-shapes.js';
+import { shapeDrawClick, updateShapeDrawPreview, cancelShapeDraw, finishPolygonDraw, finishLineDraw, finishShapeDrawAtPoint, hitTestBoardShape, setBoardShapeHover, selectBoardShape, startBoardShapeDrag, handleBoardShapeDrag, endBoardShapeDrag, showBoardShapeProperties, showBoardShapeToolProperties, boardShapeCopperCuts, renderBoardShape, hitTestBoardShapeVertex, showBoardShapeContextMenu, dismissBoardShapeContextMenu, captureBoardShapeState, applyShapeSnapshot } from '../pcb/modules/board-shapes.js';
+import { ModifyBoardShapeCommand } from '../pcb/modules/shape-commands.js';
 import { shapeOutline, normalizeShapeCopperMode, boardShapeRemovalPathD, boardShapeBounds } from '../pcb/modules/board-shape-geometry.js';
 import { hitTestPcbSelectionAnchor, renderPcbSelectionAnchors } from '../pcb/modules/selection-anchors.js';
 import { refreshAxisGlow } from '../pcb/modules/axis-glow.js';
@@ -113,12 +116,13 @@ import { CommandHistory } from '../core/CommandHistory.js';
 import { Track } from '../shapes/track.js';
 import { Via } from '../shapes/via.js';
 import { Pad } from '../shapes/pad.js';
-import { renderPad } from '../pcb/modules/pad.js';
+import { padCopperPathD, renderPad } from '../pcb/modules/pad.js';
 import { AddPadCommand, ModifyPadCommand } from '../pcb/modules/pad-commands.js';
 import '../pcb/modules/pad-selection.js';
 import { CopperFill } from '../shapes/copper-fill.js';
 import { computeFillPolygons, loadClipper, isClipperReady, boardShapeClearanceOutlines, pcbTextClearanceOutlines } from '../pcb/modules/copper-fill-geom.js';
 import { bindPictureRefreshHold, schedulePictureCopperRefresh } from '../pcb/modules/picture-refresh.js';
+import { PICTURE_LAYERS } from '../pcb/modules/picture-raster.js';
 import { renderCopperFill, fillGroupId, setCopperFillClip } from '../pcb/modules/copper-fill-render.js';
 import { AddFillCommand, RemoveFillCommand, ModifyFillCommand } from '../pcb/modules/copper-fill-commands.js';
 import '../pcb/modules/copper-fill-selection.js';
@@ -183,6 +187,11 @@ function measureStrokeTextVerticalBounds(text, size, strokeWidth = 0) {
  * visible.  If the PCB pane is already visible the rebuild happens
  * immediately (debounced).
  */
+const PCB_CROSSHAIR_TOOLS = new Set([
+    'track', 'via', 'pad', 'text', 'fill',
+    'line', 'circle', 'rect', 'polygon', 'arc',
+]);
+
 export default class PCBApp {
     /** CopperFill entries owned by the canonical board-shape collection. */
     get copperFills() {
@@ -478,13 +487,7 @@ export default class PCBApp {
 
     deactivate() {
         setInlineTextInputActive(this._textEdit?.input, false);
-        if (this._shapeDraw) {
-            this._cancelShapeDraw();
-            this.currentTool = 'select';
-            this._updateCursorForTool?.();
-            this._setPcbStatus?.();
-            this._hideToolOptions?.();
-        }
+        this._cancelDrawingMode();
         this._active = false;
     }
 
@@ -892,6 +895,59 @@ export default class PCBApp {
             }
         };
 
+        let pendingView = null;
+        let viewRaf = 0;
+        const flushViewUpdate = () => {
+            viewRaf = 0;
+            const view = pendingView;
+            pendingView = null;
+            if (!view || !this._active) return;
+
+            // Selection halo node handles are sized in screen pixels, so they
+            // must be redrawn when the zoom scale changes to stay constant on
+            // screen. (Pan doesn't change scale, so skip the churn then.)
+            const sc = this.viewport?.scale || 1;
+            if (sc !== this._lastHaloScale && (getSelectedTrack(this) || getSelectedVia(this))) {
+                this._lastHaloScale = sc;
+                refreshTrackSelectionHalo(this);
+            }
+            if (view.scaleChanged && getPcbSelection(this).length) {
+                refreshBoxSelectionHighlights(this);
+            }
+            if (view.scaleChanged) {
+                renderBoardOutlineHandles(this);
+                refreshAxisGlow(this);
+                refreshTrackDrawPreview(this);
+                this._syncCopperRemovalHatches();
+            }
+            this._scheduleRemovalHatchRender();
+            if (this._lastCrosshairWorld && PCB_CROSSHAIR_TOOLS.has(this.currentTool)) {
+                if (this.currentTool === 'via') {
+                    this._updateViaPreview(this._lastCrosshairWorld);
+                } else if (this.currentTool === 'pad') {
+                    this._updatePadPreview(this._lastCrosshairWorld);
+                } else {
+                    this._updateCursorCrosshair(this._lastCrosshairWorld);
+                }
+            }
+            this._updatePcbCulling();
+            if (this._hasCopperCuts) this._updateCopperCuts({ geometryChanged: false });
+            if (this._drcSelectedId) this._updateDRCConnector();
+        };
+
+        this.viewport.onInteractionStart = (kind) => {
+            this._pendingHoverEvent = null;
+            if (this._hoverRaf) {
+                cancelAnimationFrame(this._hoverRaf);
+                this._hoverRaf = 0;
+            }
+            if (kind !== 'pointer' && viewRaf) {
+                cancelAnimationFrame(viewRaf);
+                viewRaf = 0;
+            }
+            this._hideNetTooltip();
+        };
+
         this.viewport.onViewChanged = (view) => {
             if (!this._active) return;
             // A track context menu is anchored to a screen position but refers
@@ -905,42 +961,14 @@ export default class PCBApp {
             // any pan/zoom invalidates that screen anchor, so dismiss on view move.
             if (!view || view.scaleChanged || view.boundsChanged) this._hideNetTooltip();
             this._updateViewportStatus();
-            // Selection halo node handles are sized in screen pixels, so they
-            // must be redrawn when the zoom scale changes to stay constant on
-            // screen. (Pan doesn't change scale, so skip the churn then.)
-            const sc = this.viewport?.scale || 1;
-            if (sc !== this._lastHaloScale && (getSelectedTrack(this) || getSelectedVia(this))) {
-                this._lastHaloScale = sc;
-                refreshTrackSelectionHalo(this);
-            }
-            if (view?.scaleChanged && getPcbSelection(this).length) {
-                refreshBoxSelectionHighlights(this);
-            }
-            if (view?.scaleChanged) {
-                renderBoardOutlineHandles(this);
-                refreshAxisGlow(this);
-                refreshTrackDrawPreview(this);
-            }
-            if (view?.scaleChanged) this._syncCopperRemovalHatches();
-            this._scheduleRemovalHatchRender();
-            // Cursor crosshair and via previews are sized in screen pixels
-            // and spans the viewport — redraw on zoom/pan so it doesn't drift.
-            if (this._lastCrosshairWorld &&
-                (this.currentTool === 'via' || this.currentTool === 'pad' || this.currentTool === 'track' || this.currentTool === 'text' || this.currentTool === 'line' || this.currentTool === 'circle' || this.currentTool === 'rect' || this.currentTool === 'polygon' || this.currentTool === 'arc')) {
-                if (this.currentTool === 'via') {
-                    this._updateViaPreview(this._lastCrosshairWorld);
-                } else {
-                    this._updateCursorCrosshair(this._lastCrosshairWorld);
+            pendingView = pendingView
+                ? {
+                    ...view,
+                    scaleChanged: pendingView.scaleChanged || view.scaleChanged,
+                    boundsChanged: pendingView.boundsChanged || view.boundsChanged,
                 }
-            }
-            // Re-evaluate footprint culling / level-of-detail after zoom or pan.
-            this._updatePcbCulling();
-            // The copper-removal clip rectangle is sized to the visible
-            // viewport (so its raster never blows up at high zoom); re-fit it
-            // to the new view whenever a cut is active.
-            if (this._hasCopperCuts) this._updateCopperCuts({ geometryChanged: false });
-            // Keep the DRC panel→marker leader anchored to the board point.
-            if (this._drcSelectedId) this._updateDRCConnector();
+                : view;
+            if (!viewRaf) viewRaf = requestAnimationFrame(flushViewUpdate);
         };
 
         // Throttled footprint culling during an active pan (Viewport rAF).
@@ -994,6 +1022,7 @@ export default class PCBApp {
 
         svg.addEventListener('mousedown', (e) => {
             if (!this._active) return;
+            this.viewport.onInteractionStart?.('pointer');
             this.viewport.shiftHeld = e.shiftKey;
             // Freshly pasted entities are glued to the cursor; the first
             // left-click drops them at their current position.
@@ -1038,13 +1067,16 @@ export default class PCBApp {
             const selectedBoardShapeAnchor = worldPos && getPcbSelection(this, 'shape').some(
                 (shape) => hitTestBoardShapeVertex(this, shape, worldPos) != null,
             );
+            const selectedGroupHit = worldPos && hasBoxSelection(this)
+                && pointInBoxSelection(this, worldPos);
             const selectedTextAnchor = worldPos && this._textEdit
                 ? hitTestPcbSelectionAnchor(this, worldPos, ['text'])
                 : null;
             const rotatingEditedText = selectedTextAnchor?.anchor?.symbol === 'rotate'
                 && selectedTextAnchor.adapter?.object?.id === this._textEdit?.text?.id;
             if (!this._trackDraw && !this._textEdit && !propertiesToolActive
-                && !selectedBoardShapeAnchor && e.button !== 2 && !e.ctrlKey && !e.metaKey) {
+                && !selectedBoardShapeAnchor && !selectedGroupHit
+                && e.button !== 2 && !e.ctrlKey && !e.metaKey) {
                 const activeTab = this.ribbon?.querySelector('.ribbon-tab.active');
                 if (activeTab instanceof HTMLElement && activeTab.dataset?.tab !== 'pcb-home') {
                     this._setActiveRibbonTab?.('pcb-home');
@@ -1162,7 +1194,7 @@ export default class PCBApp {
                         svg.style.cursor = 'grabbing';
                         return;
                     }
-                    if (pointInBoxSelection(this, worldPos)) {
+                    if (selectedGroupHit) {
                         // Clear the hover halo before dragging: hover updates
                         // are suppressed during a drag, so a leftover hover X
                         // (e.g. on a hole/via) would otherwise sit at the
@@ -1489,7 +1521,7 @@ export default class PCBApp {
             }
 
             if (e.button === 0 && this.currentTool === 'pad') {
-                const snap = this._snapToGrid(this._screenToWorld(e));
+                const snap = this._snapPadPlacement(this._screenToWorld(e));
                 const pad = new Pad({ ...this._padDefaults, x: snap.x, y: snap.y });
                 if (pad.layers === 'both'
                     ? (isLayerLocked('top-copper') || isLayerLocked('bottom-copper'))
@@ -1540,15 +1572,11 @@ export default class PCBApp {
             if (this.viewport.isPanning) {
                 this.viewport.updatePan(e.clientX, e.clientY);
                 // Keep tool crosshairs anchored under the cursor while panning.
-                if (this.currentTool === 'track' || this.currentTool === 'text') {
-                    this._updateCursorCrosshair(this._screenToWorld(e));
-                } else if (this.currentTool === 'via') {
+                if (this.currentTool === 'via') {
                     this._updateViaPreview(this._screenToWorld(e));
                 } else if (this.currentTool === 'pad') {
-                    this._updateCursorCrosshair(this._screenToWorld(e));
-                } else if (this.currentTool === 'line' || this.currentTool === 'circle') {
-                    this._updateCursorCrosshair(this._screenToWorld(e));
-                } else if (this.currentTool === 'rect' || this.currentTool === 'polygon' || this.currentTool === 'arc') {
+                    this._updatePadPreview(this._screenToWorld(e));
+                } else if (PCB_CROSSHAIR_TOOLS.has(this.currentTool)) {
                     this._updateCursorCrosshair(this._screenToWorld(e));
                 }
             } else if (this._boardOutlineResize) {
@@ -1615,24 +1643,20 @@ export default class PCBApp {
                 }
             } else if (this.currentTool === 'via') {
                 this._updateViaPreview(this._screenToWorld(e));
+            } else if (this.currentTool === 'pad') {
+                this._updatePadPreview(this._screenToWorld(e));
             } else if (this.currentTool === 'track') {
-                this._updateCursorCrosshair(this._screenToWorld(e));
-                // Pre-draw hover: show the yellow target circle when the
-                // cursor is over a pad or existing track node, so the user
-                // knows clicking will bond the new track there.
-                const snap = resolveTrackSnap(this, this._screenToWorld(e), {});
-                if (snap.snapType === 'pad' || snap.snapType === 'track-node') {
+                const snap = resolveTrackDrawSnap(this, this._screenToWorld(e), {});
+                this._updateCursorCrosshair({ x: snap.x, y: snap.y });
+                // Pre-draw hover uses the same hard copper targets as the
+                // active route so the first press cannot change its snap.
+                if (snap.snapType === 'pad' || snap.snapType === 'via'
+                    || snap.snapType === 'track-node') {
                     showTrackSnapMarker(this, { x: snap.x, y: snap.y });
                 } else {
                     clearTrackSnapMarker(this);
                 }
-            } else if (this.currentTool === 'text') {
-                this._updateCursorCrosshair(this._screenToWorld(e));
-            } else if (this.currentTool === 'fill') {
-                this._updateCursorCrosshair(this._screenToWorld(e));
-            } else if (this.currentTool === 'line' || this.currentTool === 'circle') {
-                this._updateCursorCrosshair(this._screenToWorld(e));
-            } else if (this.currentTool === 'rect' || this.currentTool === 'polygon' || this.currentTool === 'arc') {
+            } else if (PCB_CROSSHAIR_TOOLS.has(this.currentTool)) {
                 this._updateCursorCrosshair(this._screenToWorld(e));
             }
             this.viewport.trackMouse(e);
@@ -1968,20 +1992,23 @@ export default class PCBApp {
         if (this._pasteDrop) {
             this.viewport.svg.style.cursor = 'crosshair';
             this._clearViaRing();
+            this._clearPadPreview();
             this._clearHoleRing();
             return;
         }
         const t = this.currentTool;
-        if (['line', 'circle', 'rect', 'polygon', 'arc', 'text', 'track', 'via', 'pad'].includes(t)) {
+        if (PCB_CROSSHAIR_TOOLS.has(t)) {
             setToolCursor(this, t, this.viewport.svg);
             if (t !== 'via') this._clearViaRing();
+            if (t !== 'pad') this._clearPadPreview();
             return;
         }
         this.viewport.svg.style.cursor =
             t === 'pan' ? 'grab' :
             'default';
         if (t !== 'via') this._clearViaRing();
-        if (t !== 'via' && t !== 'pad' && t !== 'track' && t !== 'text' && t !== 'line' && t !== 'circle' && t !== 'rect' && t !== 'polygon' && t !== 'arc') this._clearCursorCrosshair();
+        if (t !== 'pad') this._clearPadPreview();
+        this._clearCursorCrosshair();
     }
 
     /**
@@ -2073,6 +2100,44 @@ export default class PCBApp {
         }
     }
 
+    _updatePadPreview(worldPos) {
+        if (!this.viewport) return;
+        const snap = this._snapPadPlacement(worldPos);
+        this._lastCrosshairWorld = { x: worldPos.x, y: worldPos.y };
+        this.viewport.setCrosshair({ x: snap.x, y: snap.y });
+        const svg = this.viewport.svg;
+        if (!svg) return;
+        const scale = this.viewport.scale || 1;
+        const stroke = 1 / scale;
+        let group = this._padPreviewGroup;
+        if (!group) {
+            const NS = 'http://www.w3.org/2000/svg';
+            const accent = getComputedStyle(document.documentElement)
+                .getPropertyValue('--accent-color').trim() || '#0098ff';
+            group = document.createElementNS(NS, 'g');
+            group.setAttribute('class', 'pcb-pad-preview');
+            group.setAttribute('pointer-events', 'none');
+            const outline = document.createElementNS(NS, 'path');
+            outline.setAttribute('data-role', 'outline');
+            outline.setAttribute('fill', 'none');
+            outline.setAttribute('stroke', accent);
+            outline.setAttribute('fill-rule', 'evenodd');
+            group.appendChild(outline);
+            svg.appendChild(group);
+            this._padPreviewGroup = group;
+        }
+        const outline = group.querySelector('[data-role="outline"]');
+        outline.setAttribute('d', padCopperPathD({ ...this._padDefaults, x: snap.x, y: snap.y }));
+        outline.setAttribute('stroke-width', String(stroke * 1.5));
+    }
+
+    _clearPadPreview() {
+        if (this._padPreviewGroup) {
+            this._padPreviewGroup.remove();
+            this._padPreviewGroup = null;
+        }
+    }
+
     _clearViaPreview() {
         this._clearViaRing();
         this._clearCursorCrosshair();
@@ -2099,6 +2164,21 @@ export default class PCBApp {
     /** Public hook used by controls.setTool to abort an in-flight shape draw. */
     _cancelShapeDraw() {
         cancelShapeDraw(this);
+    }
+
+    _cancelDrawingMode() {
+        if (!PCB_CROSSHAIR_TOOLS.has(this.currentTool)
+            && !this._trackDraw && !this._fillDraw && !this._shapeDraw && !this._textEdit) return false;
+        if (this._textEdit) this._endTextInlineEdit(false);
+        this._cancelTrackDraw();
+        this._cancelFillDraw();
+        this._cancelShapeDraw();
+        this.currentTool = 'select';
+        this._updateCursorForTool?.();
+        this._syncPcbHomeToolHighlight?.();
+        this._setPcbStatus?.();
+        this._hideToolOptions?.();
+        return true;
     }
 
     /** Get (or lazily create) the shared <defs> in the editor SVG. */
@@ -2382,6 +2462,9 @@ export default class PCBApp {
         if (tgt && (tgt.tagName === 'INPUT' || tgt.tagName === 'TEXTAREA' || tgt.tagName === 'SELECT' || tgt.isContentEditable)) {
             return false;
         }
+        // The window-capture dispatcher must let panel navigation reach its handler.
+        if (tgt?.closest?.('#pcbDrcSlidePanel')
+            && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) return false;
 
         if (!e.ctrlKey && !e.metaKey && !e.altKey) {
             if (e.key === '+' || e.key === '=') {
@@ -2658,17 +2741,20 @@ export default class PCBApp {
      * Commit one or more freshly drawn Track objects plus any
      * layer-transition Vias as a single undo step. A draw that toggled
      * copper layers mid-route produces several single-layer Tracks joined
-     * by vias; grouping them keeps undo/redo atomic.
+     * by vias; grouping them and connected-copper Net adoption keeps undo/redo atomic.
      * @param {Track[]} tracks
      * @param {Via[]} [vias]
+     * @param {object[]} [destinationShapes]
      */
-    _commitTracks(tracks, vias = []) {
+    _commitTracks(tracks, vias = [], destinationShapes = []) {
         const list = Array.isArray(tracks) ? tracks : [tracks];
         // Fuse any drawn endpoint that lands on an existing same-net/
         // same-layer track node into that track, so joined traces render
         // as one continuous polyline instead of two coincident objects.
-        const cmd = buildDrawnTrackCommands(this, list, vias);
-        if (cmd) this.history.execute(cmd);
+        const command = buildDrawnTrackCommands(this, list, vias, destinationShapes);
+        if (command === false) return false;
+        if (command) this.history.execute(command);
+        return true;
     }
 
     /**
@@ -2838,7 +2924,12 @@ export default class PCBApp {
             'top-fill', 'top-copper',
             'top-pad-numbers',
             'top-copper-knockout',
+            'bottom-copper-pad-drills', 'top-copper-pad-drills',
             'vias',
+            // Track labels remain readable where a connected trace terminates
+            // beneath a via, while still following copper-layer visibility.
+            'bottom-copper-track-labels',
+            'top-copper-track-labels',
             'bottom-silk', 'top-silk',
             // Level-of-detail placeholders: one solid rect per footprint, shown
             // (in place of the footprint's full geometry) when zoomed out far
@@ -2925,6 +3016,10 @@ export default class PCBApp {
             // Copper-removal knockouts belong to the copper they cut.
             const ko = this._layerGroups.get(layerId === 'bottom-copper' ? 'bottom-copper-knockout' : 'top-copper-knockout');
             if (ko) ko.style.display = visible ? '' : 'none';
+            const labels = this._layerGroups.get(`${layerId}-track-labels`);
+            if (labels) labels.style.display = visible ? '' : 'none';
+            const drills = this._layerGroups.get(`${layerId}-pad-drills`);
+            if (drills) drills.style.display = visible ? '' : 'none';
             this._scheduleRemovalHatchRender();
         }
         // Clearance overlay tracks per-layer visibility.
@@ -3108,14 +3203,7 @@ export default class PCBApp {
                 const currentTab = /** @type {HTMLElement|null} */ (
                     this.ribbon.querySelector('.ribbon-tab.active')
                 )?.dataset.tab || null;
-                if (currentTab !== tabEl.dataset.tab
-                    && (this._shapeDraw || ['line', 'circle', 'rect', 'polygon', 'arc'].includes(this.currentTool))) {
-                    this._cancelShapeDraw();
-                    this.currentTool = 'select';
-                    this._updateCursorForTool?.();
-                    this._setPcbStatus?.();
-                    this._hideToolOptions?.();
-                }
+                if (currentTab !== tabEl.dataset.tab) this._cancelDrawingMode();
                 setActive(tabEl.dataset.tab);
             });
         });
@@ -3367,7 +3455,7 @@ export default class PCBApp {
             { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]
         ));
         const netNames = new Set((this.netlist || []).map((entry) => String(entry.net || '')).filter(Boolean));
-        for (const source of [this.tracks, this.vias, this.boardShapes, this.copperFills]) {
+        for (const source of [this.tracks, this.vias, this.pads, this.boardShapes, this.copperFills]) {
             for (const item of source || []) {
                 const net = String(item?.net || '');
                 if (net) netNames.add(net);
@@ -3504,35 +3592,58 @@ export default class PCBApp {
         const items = this._pcbPropsItems();
         if (!items) return;
         const state = pad || this._padDefaults;
+        const selectedPads = pad ? getPcbSelection(this, 'pad') : [];
+        const pads = pad && selectedPads.includes(pad) ? selectedPads : (pad ? [pad] : []);
+        const isMixed = property => pads.some(target => target[property] !== state[property]);
+        const mixedShape = isMixed('shape');
+        const mixedSize = isMixed('size');
+        const mixedRatio = isMixed('ratio');
+        const mixedDrill = isMixed('drill');
+        const mixedRotation = isMixed('rotation');
+        const mixedLayers = isMixed('layers');
+        const mixedNet = pads.some(target => (target.net || '') !== (state.net || ''));
         const elongated = ['stadium', 'rectangle', 'oval'].includes(state.shape);
+        const showRatio = pad ? pads.some(target => ['stadium', 'rectangle', 'oval'].includes(target.shape)) : elongated;
+        const showRotation = pad ? pads.some(target => target.shape !== 'round') : state.shape !== 'round';
+        const maximumDrill = pad ? Math.min(...pads.map(target => target.size)) : state.size;
         const { escape, options } = this._toolNetOptions(state.net || '');
         this._setPcbPropsTitle(pad ? 'Pad' : 'New Pad');
         items.innerHTML = `
             <div class="prop-row"><label>Shape</label><select id="pcbPropPadShape">
+                ${mixedShape ? '<option value="" selected disabled>Mixed</option>' : ''}
                 ${[['round', 'Round'], ['stadium', 'Stadium'], ['square', 'Square'], ['rectangle', 'Rectangle'], ['oval', 'Oval']]
-                    .map(([value, label]) => `<option value="${value}"${state.shape === value ? ' selected' : ''}>${label}</option>`).join('')}
+                    .map(([value, label]) => `<option value="${value}"${!mixedShape && state.shape === value ? ' selected' : ''}>${label}</option>`).join('')}
             </select></div>
-            <div class="prop-row"><label>Size (mm)</label><input type="number" id="pcbPropPadSize" value="${state.size}" min="0.05" step="0.05"></div>
-            ${elongated ? `<div class="prop-row"><label>Ratio</label><input type="number" id="pcbPropPadRatio" value="${state.ratio}" min="1" step="0.1"></div>` : ''}
-            <div class="prop-row"><label>Drill (mm)</label><input type="number" id="pcbPropPadDrill" value="${state.drill}" min="0.05" max="${state.size}" step="0.05"></div>
-            ${state.shape !== 'round' ? `<div class="prop-row"><label>Rotation</label><input type="number" id="pcbPropPadRotation" value="${state.rotation}" step="1"></div>` : ''}
+            <div class="prop-row"><label>Size (mm)</label><input type="number" id="pcbPropPadSize" value="${mixedSize ? '' : state.size}" placeholder="${mixedSize ? 'Mixed' : ''}" min="0.05" step="0.05"></div>
+            ${showRatio ? `<div class="prop-row"><label>Ratio</label><input type="number" id="pcbPropPadRatio" value="${mixedRatio ? '' : state.ratio}" placeholder="${mixedRatio ? 'Mixed' : ''}" min="1" step="0.1"></div>` : ''}
+            <div class="prop-row"><label>Drill (mm)</label><input type="number" id="pcbPropPadDrill" value="${mixedDrill ? '' : state.drill}" placeholder="${mixedDrill ? 'Mixed' : ''}" min="0.05" max="${maximumDrill}" step="0.05"></div>
+            ${showRotation ? `<div class="prop-row"><label>Rotation</label><input type="number" id="pcbPropPadRotation" value="${mixedRotation ? '' : state.rotation}" placeholder="${mixedRotation ? 'Mixed' : ''}" step="1"></div>` : ''}
             <div class="prop-row"><label>Copper</label><select id="pcbPropPadLayers">
-                <option value="top-copper"${state.layers === 'top-copper' ? ' selected' : ''}>Top</option>
-                <option value="bottom-copper"${state.layers === 'bottom-copper' ? ' selected' : ''}>Bottom</option>
-                <option value="both"${state.layers === 'both' ? ' selected' : ''}>Both</option>
+                ${mixedLayers ? '<option value="" selected disabled>Mixed</option>' : ''}
+                <option value="top-copper"${!mixedLayers && state.layers === 'top-copper' ? ' selected' : ''}>Top</option>
+                <option value="bottom-copper"${!mixedLayers && state.layers === 'bottom-copper' ? ' selected' : ''}>Bottom</option>
+                <option value="both"${!mixedLayers && state.layers === 'both' ? ' selected' : ''}>Both</option>
             </select></div>
-            <div class="prop-row"><label>Net</label><span class="prop-net-control"><input type="text" id="pcbPropPadNet" value="${escape(state.net || '')}" placeholder="None"><details class="prop-net-menu"><summary aria-label="Select existing net"></summary><div>${options}</div></details></span></div>
+            <div class="prop-row"><label>Net</label><span class="prop-net-control"><input type="text" id="pcbPropPadNet" value="${mixedNet ? '' : escape(state.net || '')}" placeholder="${mixedNet ? 'Mixed' : 'None'}"><details class="prop-net-menu"><summary aria-label="Select existing net"></summary><div>${options}</div></details></span></div>
         `;
         const apply = (property, value) => {
             if (pad) {
-                const before = pad.captureState();
-                const after = { ...before, [property]: value };
-                if (property === 'size') after.drill = Math.min(after.drill, value);
-                this.history.execute(new ModifyPadCommand(this, pad, before, after));
+                const commands = [];
+                for (const target of pads) {
+                    const before = target.captureState();
+                    const after = { ...before, [property]: value };
+                    if (property === 'size') after.drill = Math.min(after.drill, value);
+                    if (JSON.stringify(after) !== JSON.stringify(before)) {
+                        commands.push(new ModifyPadCommand(this, target, before, after));
+                    }
+                }
+                if (!commands.length) return;
+                this.history.execute(commands.length === 1 ? commands[0] : new CompoundCommand(commands));
                 refreshBoxSelectionHighlights(this);
             } else {
                 this._padDefaults[property] = value;
                 if (property === 'size') this._padDefaults.drill = Math.min(this._padDefaults.drill, value);
+                if (this._lastCrosshairWorld) this._updatePadPreview(this._lastCrosshairWorld);
             }
         };
         items.querySelector('#pcbPropPadShape')?.addEventListener('change', event => {
@@ -3541,11 +3652,11 @@ export default class PCBApp {
         });
         items.querySelector('#pcbPropPadLayers')?.addEventListener('change', event => apply('layers', event.target.value));
         let renderFrame = null;
-        const renderLivePad = () => {
+        const renderLivePads = () => {
             if (!pad || renderFrame !== null) return;
             renderFrame = requestAnimationFrame(() => {
                 renderFrame = null;
-                renderPad(pad, layer => this._getLayerGroup(layer));
+                for (const target of pads) renderPad(target, layer => this._getLayerGroup(layer));
                 refreshBoxSelectionHighlights(this);
             });
         };
@@ -3557,14 +3668,18 @@ export default class PCBApp {
         const bindLiveNumber = (id, property, minimum) => {
             const input = /** @type {HTMLInputElement|null} */ (items.querySelector(id));
             if (!input) return;
+            let baseline = null;
             bindPictureRefreshHold(this, input);
-            const before = pad?.captureState();
             input.addEventListener('input', () => {
                 let value = Number(input.value);
                 if (!Number.isFinite(value) || value < minimum) return;
-                if (property === 'rotation') value = ((value % 360) + 360) % 360;
+                if (property === 'rotation') {
+                    value = ((value % 360) + 360) % 360;
+                    if (Number(input.value) !== value) input.value = String(value);
+                }
                 if (property === 'drill') {
-                    value = Math.min(value, state.size);
+                    const max = pad ? Math.min(...pads.map(target => target.size)) : state.size;
+                    value = Math.min(value, max);
                     if (Number(input.value) !== value) input.value = String(value);
                 }
                 if (!pad) {
@@ -3577,27 +3692,38 @@ export default class PCBApp {
                             if (drillInput) drillInput.value = String(value);
                         }
                     }
+                    if (this._lastCrosshairWorld) this._updatePadPreview(this._lastCrosshairWorld);
                     return;
                 }
-                pad[property] = value;
+                // The editor can remain open across moves and Undo/Redo.
+                // Capture state when this edit starts, not when the panel opens.
+                baseline ??= new Map(pads.map(target => [target, target.captureState()]));
+                for (const target of pads) {
+                    target[property] = value;
+                    if (property === 'size') target.drill = Math.min(target.drill, value);
+                    schedulePictureCopperRefresh(this, target);
+                }
                 if (property === 'size') {
                     const drillInput = /** @type {HTMLInputElement|null} */ (items.querySelector('#pcbPropPadDrill'));
                     if (drillInput) drillInput.max = String(value);
-                    if (pad.drill > value) {
-                        pad.drill = value;
-                        if (drillInput) drillInput.value = String(value);
-                    }
                 }
-                renderLivePad();
-                schedulePictureCopperRefresh(this, pad);
+                renderLivePads();
             });
             input.addEventListener('change', () => {
-                if (!pad || !before) return;
-                const after = pad.captureState();
-                if (JSON.stringify(after) === JSON.stringify(before)) return;
+                if (!pad || !baseline) return;
+                const changes = pads.map(target => ({
+                    target,
+                    before: baseline.get(target),
+                    after: target.captureState(),
+                })).filter(change => JSON.stringify(change.after) !== JSON.stringify(change.before));
+                baseline = null;
+                if (!changes.length) return;
                 cancelLiveRender();
-                pad.applyState(before);
-                this.history.execute(new ModifyPadCommand(this, pad, before, after));
+                const commands = changes.map(({ target, before, after }) => {
+                    target.applyState(before);
+                    return new ModifyPadCommand(this, target, before, after);
+                });
+                this.history.execute(commands.length === 1 ? commands[0] : new CompoundCommand(commands));
                 refreshBoxSelectionHighlights(this);
             });
         };
@@ -4630,16 +4756,21 @@ export default class PCBApp {
             // and reuse the last-synced entries (structural edits resync).
             const selectionHits = getPcbSelectionHits(this, worldPos, null, { sync: false });
             const standalonePadHover = selectionHits.find(hit => hit.kind === 'pad')?.object || null;
+            const shapeHover = hitTestBoardShape(this, worldPos);
+            const copperShapeHover = shapeHover
+                && (shapeHover.layer === 'top-copper' || shapeHover.layer === 'bottom-copper')
+                && normalizeShapeCopperMode(shapeHover.copperMode) === 'add'
+                ? shapeHover : null;
             const hovered = this._hitTestPad(worldPos) || trackHover
-                || (standalonePadHover ? { type: 'standalone-pad', pad: standalonePadHover } : null);
+                || (standalonePadHover ? { type: 'standalone-pad', pad: standalonePadHover } : null)
+                || (copperShapeHover ? { type: 'shape', shape: copperShapeHover } : null);
             setHoverHighlight(this, hovered);
-            // Net-name tooltip for the hovered pad/track/via.
+            // Net-name tooltip for the hovered copper object.
             this._updateNetTooltip(ev, hovered);
             // Hover highlight for text annotations.
             const textHover = this._hitTestText(worldPos);
             this._setTextHover(textHover);
             // Hover highlight for free-standing board shapes.
-            const shapeHover = hitTestBoardShape(this, worldPos);
             setBoardShapeHover(this, shapeHover);
             const overlapHitCount = selectionHits.length;
             if (overlapHitCount !== this._overlapHitCount) {
@@ -4737,6 +4868,7 @@ export default class PCBApp {
         if (hovered.type === 'track') return hovered.track?.net || '';
         if (hovered.type === 'via') return hovered.via?.net || '';
         if (hovered.type === 'standalone-pad') return hovered.pad?.net || '';
+        if (hovered.type === 'shape') return hovered.shape?.net || '';
         if (hovered.type === 'pad') {
             const key = `${hovered.componentId}|${hovered.pinNumber}`;
             for (const entry of (this.netlist || [])) {
@@ -4759,18 +4891,12 @@ export default class PCBApp {
 
     /**
      * Show/hide a small tooltip with the net name of the hovered element.
-     * Only appears for an unselected pad/track/via, after a short delay.
+     * Appears for any hovered pad/track/via after a short delay.
      * @param {MouseEvent} e
      * @param {{type:string, track?:any, via?:any}|null} hovered
      */
     _updateNetTooltip(e, hovered) {
-        // Skip when nothing is hovered or the hovered item is selected.
-        const isSelected = hovered
-            && ((hovered.type === 'track' && hovered.track === getSelectedTrack(this))
-                || (hovered.type === 'via' && hovered.via === getSelectedVia(this))
-                || (hovered.type === 'standalone-pad'
-                    && isPcbSelected(this, 'pad', hovered.pad)));
-        if (!hovered || isSelected) {
+        if (!hovered) {
             this._hideNetTooltip();
             return;
         }
@@ -5164,6 +5290,10 @@ export default class PCBApp {
         return { x: Math.round(p.x / gs) * gs, y: Math.round(p.y / gs) * gs };
     }
 
+    _snapPadPlacement(point) {
+        return this.viewport?.getSnappedPosition?.(point) || { x: point.x, y: point.y };
+    }
+
     /**
      * Render `text` into its layer group, replacing any prior element
      * with the same id. Stores the new element in _textElements.
@@ -5178,8 +5308,8 @@ export default class PCBApp {
         // disappear against same-coloured tracks/pads on the layer.
         const isEditing = this._textEdit?.text?.id === text.id;
         const isLight = document.documentElement.getAttribute('data-theme') === 'light';
-        const selColor = isLight ? '#000000' : '#ffffff';
-        const hoverColor = isLight ? '#555555' : '#aaaaaa';
+        const selColor = pcbLayerSelectionColor(text.layer);
+        const hoverColor = pcbLayerHoverColor(text.layer);
         const editColor = isLight ? '#000000' : '#ffffff';
         const strokeOverride = isEditing ? editColor
             : isSel ? selColor
@@ -6386,20 +6516,343 @@ export default class PCBApp {
         this._setActiveRibbonTab?.('pcb-home');
     }
 
-    /** Show a non-destructive Properties state for unsupported batch edits. */
+    _pcbMultiPropertyCapabilities(entry) {
+        const { kind, object } = entry;
+        const number = (label, get, command, min = -Infinity, step = 1, max = Infinity) => (
+            { type: 'number', label, get, command, min, max, step }
+        );
+        const select = (label, get, command, options, disabled = false) => (
+            { type: 'select', label, get, command, options, disabled }
+        );
+        const checkbox = (label, get, command, disabled = false) => (
+            { type: 'checkbox', label, get, command, disabled }
+        );
+        const net = (get, command) => ({ type: 'net', label: 'Net', get, command });
+        const shapeCommand = (mutate) => {
+            const before = captureBoardShapeState(object);
+            mutate(object);
+            const after = captureBoardShapeState(object);
+            applyShapeSnapshot(object, before);
+            return JSON.stringify(before) === JSON.stringify(after)
+                ? null : new ModifyBoardShapeCommand(this, object, before, after);
+        };
+        const fillCommand = (mutate) => {
+            const before = object.captureState();
+            mutate(object);
+            const after = object.captureState();
+            object.applyState(before);
+            return JSON.stringify(before) === JSON.stringify(after)
+                ? null : new ModifyFillCommand(this, object, before, after);
+        };
+        const padCommand = (property, value) => {
+            const before = object.captureState();
+            const after = { ...before, [property]: value };
+            if (property === 'size') after.drill = Math.min(after.drill, value);
+            return JSON.stringify(before) === JSON.stringify(after)
+                ? null : new ModifyPadCommand(this, object, before, after);
+        };
+        const capabilities = {};
+        if (kind === 'component') {
+            const placement = this.placements.get(object);
+            if (!placement) return capabilities;
+            const locked = !!placement.locked;
+            capabilities.locked = checkbox('Locked', () => !!placement.locked,
+                value => new SetPlacementLockedCommand(this, object, value));
+            capabilities.refVisible = checkbox('Show Reference', () => placement.refVisible !== false,
+                value => new SetPlacementRefVisibleCommand(this, object, value), locked);
+            capabilities.layer = select('Layer', () => placement.side === 'bottom' ? 'bottom' : 'top',
+                value => new SetPlacementSideCommand(this, object, value),
+                [['top', 'Top'], ['bottom', 'Bottom']], locked);
+            capabilities.rotation = number('Rotation (°)', () => ((placement.rotation || 0) % 360 + 360) % 360,
+                value => new RotatePlacementCommand(this, object, placement.rotation || 0, value),
+                -Infinity, 1, Infinity);
+            capabilities.rotation.disabled = locked;
+        } else if (kind === 'text') {
+            capabilities.layer = select('Layer', () => object.layer,
+                value => {
+                    const after = { layer: value };
+                    const wasBottom = String(object.layer).startsWith('bottom-');
+                    const willBottom = String(value).startsWith('bottom-');
+                    if (wasBottom !== willBottom) {
+                        const width = measureStrokeText(object.content, object.size);
+                        const sign = willBottom ? 1 : -1;
+                        const radians = (object.rotation || 0) * Math.PI / 180;
+                        after.x = object.x + sign * width * Math.cos(radians);
+                        after.y = object.y - sign * width * Math.sin(radians);
+                    }
+                    return new EditTextCommand(this, object.id, after);
+                },
+                TEXT_LAYERS.map(layer => [layer, this._layerLabel(layer)]));
+            capabilities.size = number('Size (mm)', () => object.size,
+                value => new EditTextCommand(this, object.id, { size: value }), 0.1, 0.1);
+            capabilities.rotation = number('Rotation (°)', () => object.rotation || 0,
+                value => new EditTextCommand(this, object.id, { rotation: value }), -Infinity, 1);
+            capabilities.lineWidth = number('Line W (mm)', () => object.strokeWidth,
+                value => new EditTextCommand(this, object.id, { strokeWidth: value }), 0.01, 0.05);
+            capabilities.border = checkbox('Border', () => !!object.border,
+                value => new EditTextCommand(this, object.id, { border: value }));
+        } else if (kind === 'reftext') {
+            const placement = this.placements.get(object);
+            if (!placement) return capabilities;
+            const locked = !!placement.locked;
+            const currentSize = () => placement.refSize || REF_DEFAULT_SIZE;
+            const currentWidth = () => placement.refStrokeWidth || REF_DEFAULT_STROKE;
+            const currentRotation = () => placement.refRot || 0;
+            capabilities.size = number('Size (mm)', currentSize,
+                value => new SetRefStyleCommand(this, object,
+                    { refSize: currentSize(), refStrokeWidth: currentWidth(), refRot: currentRotation() },
+                    { refSize: value, refStrokeWidth: currentWidth(), refRot: currentRotation() }),
+                0.1, 0.1);
+            capabilities.rotation = number('Rotation (°)', currentRotation,
+                value => new SetRefStyleCommand(this, object,
+                    { refSize: currentSize(), refStrokeWidth: currentWidth(), refRot: currentRotation() },
+                    { refSize: currentSize(), refStrokeWidth: currentWidth(), refRot: value }),
+                -Infinity, 1);
+            capabilities.lineWidth = number('Line W (mm)', currentWidth,
+                value => new SetRefStyleCommand(this, object,
+                    { refSize: currentSize(), refStrokeWidth: currentWidth(), refRot: currentRotation() },
+                    { refSize: currentSize(), refStrokeWidth: value, refRot: currentRotation() }),
+                0.01, 0.05);
+            for (const capability of Object.values(capabilities)) capability.disabled = locked;
+        } else if (kind === 'fill') {
+            capabilities.net = net(() => String(object.net || ''),
+                value => fillCommand(target => { target.net = value; }));
+            capabilities.layer = select('Layer', () => object.layer,
+                value => fillCommand(target => { target.layer = value; }),
+                [['top-copper', 'Top Copper'], ['bottom-copper', 'Bottom Copper']]);
+            capabilities.shapeKind = select('Outline', () => object.kind,
+                value => fillCommand(target => {
+                    if (value === target.kind) return;
+                    const bounds = target.getBounds();
+                    const contour = target.getOutline();
+                    target.kind = value;
+                    target.cornerRadius = 0;
+                    target.nodeCornerRadii = {};
+                    target.segmentBulges = {};
+                    if (value === 'circle') {
+                        target.outline = [];
+                        target.x = (bounds.minX + bounds.maxX) / 2;
+                        target.y = (bounds.minY + bounds.maxY) / 2;
+                        target.radius = Math.min(bounds.maxX - bounds.minX, bounds.maxY - bounds.minY) / 2;
+                    } else {
+                        target.outline = value === 'polygon' ? contour : [
+                            { x: bounds.minX, y: bounds.minY },
+                            { x: bounds.maxX, y: bounds.minY },
+                            { x: bounds.maxX, y: bounds.maxY },
+                            { x: bounds.minX, y: bounds.maxY },
+                        ];
+                    }
+                }), [['rect', 'Rectangle'], ['polygon', 'Polygon'], ['circle', 'Circle']]);
+            if (object.kind === 'circle') {
+                capabilities.diameter = number('Diameter (mm)', () => object.radius * 2,
+                    value => fillCommand(target => { target.radius = value / 2; }), 0.1, 0.05);
+            } else {
+                capabilities.cornerRadius = number('Corner Radius (mm)', () => object.cornerRadius || 0,
+                    value => fillCommand(target => {
+                        target.cornerRadius = value;
+                        target.nodeCornerRadii = {};
+                    }), 0, 0.05);
+                if (object.kind === 'rect') {
+                    const resizeFill = (axis, value) => fillCommand(target => {
+                        const bounds = target.getBounds();
+                        const min = axis === 'x' ? 'minX' : 'minY';
+                        const max = axis === 'x' ? 'maxX' : 'maxY';
+                        const factor = value / (bounds[max] - bounds[min]);
+                        target.outline = target.outline.map(point => ({
+                            ...point,
+                            [axis]: bounds[min] + (point[axis] - bounds[min]) * factor,
+                        }));
+                    });
+                    capabilities.width = number('Width (mm)', () => {
+                        const bounds = object.getBounds();
+                        return bounds.maxX - bounds.minX;
+                    }, value => resizeFill('x', value), 0.1, 0.05);
+                    capabilities.height = number('Height (mm)', () => {
+                        const bounds = object.getBounds();
+                        return bounds.maxY - bounds.minY;
+                    }, value => resizeFill('y', value), 0.1, 0.05);
+                }
+            }
+            for (const capability of Object.values(capabilities)) {
+                capability.disabled = !canEditFill(object);
+            }
+        } else if (kind === 'pad') {
+            capabilities.net = net(() => String(object.net || ''), value => padCommand('net', value));
+            capabilities.size = number('Size (mm)', () => object.size,
+                value => padCommand('size', value), 0.05, 0.05);
+            capabilities.rotation = number('Rotation (°)', () => object.rotation || 0,
+                value => padCommand('rotation', value), -Infinity, 1);
+        } else if (kind === 'via') {
+            capabilities.net = net(() => String(object.net || ''),
+                value => new ModifyViaCommand(this, object, { net: object.net || '' }, { net: value }));
+            capabilities.diameter = number('Diameter (mm)', () => object.diameter,
+                value => new ModifyViaCommand(this, object, { diameter: object.diameter }, { diameter: value }),
+                object.drill, 0.05);
+            capabilities.drill = number('Drill (mm)', () => object.drill,
+                value => new ModifyViaCommand(this, object, { drill: object.drill }, { drill: value }),
+                0.05, 0.05, object.diameter);
+        } else if (kind === 'track') {
+            capabilities.net = net(() => String(object.net || ''), null);
+            capabilities.lineWidth = number('Width (mm)', () => object.width,
+                value => {
+                    const before = object.captureState();
+                    object.width = value;
+                    for (const edgeId of object.edges.keys()) object.setEdgeAttr(edgeId, 'width', value);
+                    const after = object.captureState();
+                    object.applyState(before);
+                    return JSON.stringify(before) === JSON.stringify(after)
+                        ? null : new ModifyTrackGraphCommand(this, object, before, after);
+                }, 0.05, 0.05);
+        } else if (kind === 'shape') {
+            const copper = object.layer === 'top-copper' || object.layer === 'bottom-copper';
+            if (copper && normalizeShapeCopperMode(object.copperMode) === 'add') {
+                capabilities.net = net(() => String(object.net || ''),
+                    value => shapeCommand(target => { target.net = value; }));
+            }
+            capabilities.layer = select('Layer', () => object.layer,
+                value => shapeCommand(target => { target.layer = value; }),
+                PCB_LAYERS.filter(layer => object.kind !== 'image'
+                    ? layer.id !== 'board-outline' : PICTURE_LAYERS.includes(layer.id))
+                    .map(layer => [layer.id, layer.name]));
+            if (object.kind === 'image') {
+                const imageSize = () => ({
+                    width: Math.hypot(object.points[1].x - object.points[0].x, object.points[1].y - object.points[0].y),
+                    height: Math.hypot(object.points[3].x - object.points[0].x, object.points[3].y - object.points[0].y),
+                });
+                const resize = (dimension, value) => shapeCommand(target => {
+                    const current = imageSize();
+                    const base = current[dimension];
+                    const factor = value / base;
+                    const center = { x: (target.points[0].x + target.points[2].x) / 2,
+                        y: (target.points[0].y + target.points[2].y) / 2 };
+                    target.points = target.points.map(point => ({
+                        x: center.x + (point.x - center.x) * factor,
+                        y: center.y + (point.y - center.y) * factor,
+                    }));
+                });
+                capabilities.width = number('Width (mm)', () => imageSize().width,
+                    value => resize('width', value), 0.1, 0.1, 500);
+                capabilities.height = number('Height (mm)', () => imageSize().height,
+                    value => resize('height', value), 0.1, 0.1, 500);
+                capabilities.rotation = number('Rotation (°)', () => (
+                    (-Math.atan2(object.points[1].y - object.points[0].y,
+                        object.points[1].x - object.points[0].x) * 180 / Math.PI) % 360 + 360
+                ) % 360, value => shapeCommand(target => {
+                    const current = (-Math.atan2(target.points[1].y - target.points[0].y,
+                        target.points[1].x - target.points[0].x) * 180 / Math.PI + 360) % 360;
+                    const radians = -(value - current) * Math.PI / 180;
+                    const cosine = Math.cos(radians), sine = Math.sin(radians);
+                    const center = { x: (target.points[0].x + target.points[2].x) / 2,
+                        y: (target.points[0].y + target.points[2].y) / 2 };
+                    target.points = target.points.map(point => ({
+                        x: center.x + (point.x - center.x) * cosine - (point.y - center.y) * sine,
+                        y: center.y + (point.x - center.x) * sine + (point.y - center.y) * cosine,
+                    }));
+                }), -Infinity, 1);
+                capabilities.invert = checkbox('Invert', () => !!object.artwork?.invert,
+                    value => shapeCommand(target => { target.artwork = { ...target.artwork, invert: value }; }));
+                capabilities.flipHorizontal = checkbox('Flip Horizontal', () => !!object.artwork?.flipHorizontal,
+                    value => shapeCommand(target => { target.artwork = { ...target.artwork, flipHorizontal: value }; }));
+                capabilities.flipVertical = checkbox('Flip Vertical', () => !!object.artwork?.flipVertical,
+                    value => shapeCommand(target => { target.artwork = { ...target.artwork, flipVertical: value }; }));
+            } else {
+                capabilities.lineWidth = number('Width (mm)', () => object.lineWidth || 0.2,
+                    value => shapeCommand(target => { target.lineWidth = value; }), 0.05, 0.05);
+            }
+        }
+        return capabilities;
+    }
+
+    /** Show the editable intersection of properties for any PCB multi-selection. */
     _showPcbMultiSelectionProperties(entries) {
         const items = this._pcbPropsItems();
         if (!items) return;
-        const labels = {
-            component: 'Components',
-            fill: 'Copper Fills',
-            reftext: 'References',
-            text: 'Text',
-            track: 'Tracks',
-        };
-        const kinds = [...new Set(entries.map((entry) => labels[entry.kind] || entry.kind))];
         this._setPcbPropsTitle(`${entries.length} Selected`);
-        items.innerHTML = `<span class="props-placeholder">${kinds.join(', ')}</span>`;
+        const capabilitySets = entries.map(entry => this._pcbMultiPropertyCapabilities(entry));
+        let keys = Object.keys(capabilitySets[0] || {});
+        for (const capabilities of capabilitySets.slice(1)) {
+            keys = keys.filter(key => capabilities[key]?.type === capabilitySets[0][key]?.type);
+        }
+        const order = ['net', 'layer', 'locked', 'refVisible', 'shapeKind', 'size', 'width', 'height', 'diameter', 'drill',
+            'rotation', 'lineWidth', 'cornerRadius', 'border', 'invert', 'flipHorizontal', 'flipVertical'];
+        keys.sort((a, b) => order.indexOf(a) - order.indexOf(b));
+        const descriptors = new Map();
+        const rows = [];
+        for (const key of keys) {
+            const group = capabilitySets.map(capabilities => capabilities[key]);
+            const descriptor = group[0];
+            if (descriptor.type === 'select') {
+                const allowed = new Set(descriptor.options.map(([value]) => value));
+                for (const candidate of group.slice(1)) {
+                    const values = new Set(candidate.options.map(([value]) => value));
+                    for (const value of [...allowed]) if (!values.has(value)) allowed.delete(value);
+                }
+                descriptor.options = descriptor.options.filter(([value]) => allowed.has(value));
+                if (!descriptor.options.length) continue;
+            }
+            const values = group.map(candidate => candidate.get());
+            const mixed = values.some(value => value !== values[0]);
+            const allTracks = entries.every(entry => entry.kind === 'track');
+            const id = key === 'net' ? 'pcbPropMultiNet'
+                : key === 'lineWidth' && allTracks ? 'pcbPropMultiTrackWidth'
+                    : `pcbPropIntersection_${key}`;
+            descriptors.set(key, { group, descriptor, id, mixed });
+            if (descriptor.type === 'checkbox') {
+                rows.push(`<label class="prop-row prop-toggle"><input type="checkbox" id="${id}"${!mixed && values[0] ? ' checked' : ''}${group.some(item => item.disabled) ? ' disabled' : ''}><span>${descriptor.label}</span></label>`);
+            } else if (descriptor.type === 'select') {
+                rows.push(`<div class="prop-row"><label>${descriptor.label}</label><select id="${id}"${group.some(item => item.disabled) ? ' disabled' : ''}>${mixed ? '<option value="" selected disabled>Mixed</option>' : ''}${descriptor.options.map(([value, label]) => `<option value="${value}"${!mixed && value === values[0] ? ' selected' : ''}>${label}</option>`).join('')}</select></div>`);
+            } else if (descriptor.type === 'net') {
+                const { escape, options } = this._toolNetOptions(mixed ? '' : values[0]);
+                rows.push(`<div class="prop-row"><label>Net</label><span class="prop-net-control"><input type="text" id="${id}" value="${mixed ? '' : escape(values[0])}" placeholder="${mixed ? 'Mixed' : 'None'}"${group.some(item => item.disabled) ? ' disabled' : ''}><details class="prop-net-menu"><summary aria-label="Select existing net"></summary><div>${options}</div></details></span></div>`);
+            } else {
+                const min = Number.isFinite(Math.max(...group.map(item => item.min))) ? Math.max(...group.map(item => item.min)) : '';
+                const max = Number.isFinite(Math.min(...group.map(item => item.max))) ? Math.min(...group.map(item => item.max)) : '';
+                rows.push(`<div class="prop-row"><label>${descriptor.label}</label><input type="number" id="${id}" value="${mixed ? '' : values[0]}" placeholder="${mixed ? 'Mixed' : ''}"${min === '' ? '' : ` min="${min}"`}${max === '' ? '' : ` max="${max}"`} step="${descriptor.step}"${group.some(item => item.disabled) ? ' disabled' : ''}></div>`);
+            }
+        }
+        items.innerHTML = rows.length
+            ? rows.join('')
+            : '<span class="props-placeholder">No shared editable properties</span>';
+        const commit = (key, value) => {
+            const info = descriptors.get(key);
+            if (!info || info.group.some(capability => capability.disabled)) return;
+            if (key === 'net') {
+                const routedEntries = entries.filter(entry => entry.kind === 'track' || entry.kind === 'via');
+                const otherCommands = entries.map((entry, index) =>
+                    routedEntries.includes(entry) ? null : info.group[index].command?.(value)).filter(Boolean);
+                if (!applyNetToCopperSelection(this, entries, value, otherCommands)) {
+                    this._showPcbMultiSelectionProperties(entries);
+                    return;
+                }
+            } else {
+                const commands = info.group.map(capability => capability.command?.(value)).filter(Boolean);
+                if (commands.length) {
+                    this.history.execute(commands.length === 1 ? commands[0] : new CompoundCommand(commands));
+                }
+            }
+            refreshBoxSelectionHighlights(this);
+            this._showPcbMultiSelectionProperties(entries);
+        };
+        for (const [key, info] of descriptors) {
+            const input = /** @type {HTMLInputElement|HTMLSelectElement|null} */ (items.querySelector(`#${info.id}`));
+            if (!input) continue;
+            if (info.descriptor.type === 'checkbox') {
+                input.indeterminate = info.mixed;
+                input.addEventListener('change', () => commit(key, input.checked));
+            } else if (info.descriptor.type === 'net') {
+                this._bindToolNetControl(items, info.id, value => commit(key, value));
+            } else {
+                input.addEventListener('change', () => {
+                    let value = info.descriptor.type === 'number' ? Number(input.value) : input.value;
+                    if (info.descriptor.type === 'number') {
+                        if (!Number.isFinite(value)) return;
+                        if (key === 'rotation') value = ((value % 360) + 360) % 360;
+                        value = Math.max(info.descriptor.min, Math.min(info.descriptor.max, value));
+                    }
+                    commit(key, value);
+                });
+            }
+        }
         this._setActiveRibbonTab?.('pcb-properties');
         this._syncClipboardButtons?.();
     }
@@ -7503,9 +7956,27 @@ export default class PCBApp {
             e.stopPropagation();
             this._closeDRCPanel();
         });
+        const slidePanel = document.getElementById('pcbDrcSlidePanel');
+        const clearBoardSelection = () => {
+            if (!getPcbSelection(this).length && !this._boardOutlineSelected && !this._trackEdit) return;
+            clearSelectionInteractionUi(this);
+            clearBoxSelection(this);
+            this._clearProperties?.();
+        };
+        slidePanel?.setAttribute('tabindex', '-1');
+        slidePanel?.addEventListener('pointerdown', () => {
+            clearBoardSelection();
+            slidePanel.focus({ preventScroll: true });
+        }, { capture: true });
+        slidePanel?.addEventListener('focusin', clearBoardSelection);
+        slidePanel?.addEventListener('keydown', (e) => {
+            if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
+            e.preventDefault();
+            e.stopPropagation();
+            this._moveDRCSelection(e.key === 'ArrowDown' ? 1 : -1);
+        });
 
         // Suppress the browser/app context menu on the DRC panel.
-        const slidePanel = document.getElementById('pcbDrcSlidePanel');
         slidePanel?.addEventListener('contextmenu', (e) => {
             e.preventDefault();
             e.stopPropagation();
@@ -7563,9 +8034,10 @@ export default class PCBApp {
         return out;
     }
 
-    /** Run the DRC engine and refresh the status indicator + problem list. */
+    /** Refresh DRC only after deferred copper geometry and pours are current. */
     _runDRCLive() {
-        if (this._deferDragOverlays || this._suspendFillRefresh || this._fillRefreshScheduled) return;
+        if (this._deferDragOverlays || this._suspendFillRefresh
+            || this._pictureCopperRefreshPending || this._fillRefreshScheduled) return;
         // Capture the currently-selected violation before the list is replaced,
         // so a coordinate-keyed ratline that gets renumbered can be re-adopted.
         const prevSel = this._drcSelectedId
@@ -7712,9 +8184,12 @@ export default class PCBApp {
         const ORDER = ['Shorted Nets', 'Clearance', 'Incomplete Connections'];
 
         // Cap the rendered rows so a pathological board (thousands of
-        // violations) can't bloat the DOM and stall the UI.
+        // violations) can't bloat the DOM and stall the UI. Prioritize first:
+        // the engine emits shorts last, after potentially hundreds of ratlines.
         const MAX_ROWS = 200;
-        const shown = this._drcViolations.slice(0, MAX_ROWS);
+        const shown = [...this._drcViolations]
+            .sort((a, b) => ORDER.indexOf(groupOf(a)) - ORDER.indexOf(groupOf(b)))
+            .slice(0, MAX_ROWS);
 
         const groups = new Map();
         for (const v of shown) {
@@ -7769,6 +8244,7 @@ export default class PCBApp {
                 const li = document.createElement('li');
                 li.className = `drc-item drc-item-${v.severity === 'error' ? 'error' : 'warn'}`;
                 li.dataset.drcId = v.id;
+                li.tabIndex = v.id === this._drcSelectedId ? 0 : -1;
                 if (v.id === this._drcSelectedId) li.classList.add('drc-item-active');
 
                 const dot = document.createElement('span');
@@ -7779,7 +8255,10 @@ export default class PCBApp {
                 li.appendChild(dot);
                 li.appendChild(text);
 
-                li.addEventListener('click', () => this._selectDRCViolation(v.id));
+                li.addEventListener('click', () => {
+                    this._selectDRCViolation(v.id);
+                    li.focus();
+                });
                 list.appendChild(li);
             }
         }
@@ -7823,6 +8302,22 @@ export default class PCBApp {
         this._clearDRCMarker();
     }
 
+    /** Select the adjacent visible DRC row using keyboard list navigation. */
+    _moveDRCSelection(direction) {
+        const list = document.getElementById('pcbDrcList');
+        if (!list) return;
+        const rows = [...list.querySelectorAll('.drc-item')];
+        if (rows.length === 0) return;
+        const current = rows.findIndex(row => row.dataset.drcId === this._drcSelectedId);
+        const next = current < 0
+            ? (direction > 0 ? 0 : rows.length - 1)
+            : Math.max(0, Math.min(rows.length - 1, current + direction));
+        const row = rows[next];
+        this._selectDRCViolation(row.dataset.drcId);
+        row.focus({ preventScroll: true });
+        row.scrollIntoView({ block: 'nearest' });
+    }
+
     /**
      * Highlight a violation: draw a dotted marker pointing to it on the board,
      * scroll it into view, and flag the matching list row.
@@ -7837,7 +8332,9 @@ export default class PCBApp {
         const list = document.getElementById('pcbDrcList');
         if (list) {
             for (const li of list.querySelectorAll('.drc-item')) {
-                li.classList.toggle('drc-item-active', li.dataset.drcId === id);
+                const active = li.dataset.drcId === id;
+                li.classList.toggle('drc-item-active', active);
+                li.tabIndex = active ? 0 : -1;
             }
         }
 
@@ -7867,7 +8364,7 @@ export default class PCBApp {
             overlay.appendChild(c);
         };
 
-        // Marker location ring (always) — a dashed circle pinpointing the spot.
+        // One location ring, including the detected contact for a short.
         const m = v.marker || {};
         const ringR = (m.type === 'ring') ? (m.r || 0.3) + 0.25 : 0.6;
         dot(v.x, v.y, ringR, '3,2');
@@ -7887,24 +8384,6 @@ export default class PCBApp {
             line.setAttribute('vector-effect', 'non-scaling-stroke');
             line.setAttribute('pointer-events', 'none');
             overlay.appendChild(line);
-        }
-
-        // For a shorted-net violation, draw a red leader between sample points
-        // of the two shorted nets plus a ring at each end so the user can see
-        // which two features are tied together.
-        if (m.type === 'short' && m.a && m.b) {
-            const line = document.createElementNS(NS, 'line');
-            line.setAttribute('x1', String(m.a.x));
-            line.setAttribute('y1', String(m.a.y));
-            line.setAttribute('x2', String(m.b.x));
-            line.setAttribute('y2', String(m.b.y));
-            line.setAttribute('stroke', '#ff3b30');
-            line.setAttribute('stroke-width', '1.5');
-            line.setAttribute('vector-effect', 'non-scaling-stroke');
-            line.setAttribute('pointer-events', 'none');
-            overlay.appendChild(line);
-            dot(m.a.x, m.a.y, 0.5, '3,2');
-            dot(m.b.x, m.b.y, 0.5, '3,2');
         }
     }
 
@@ -8035,19 +8514,32 @@ export default class PCBApp {
 
     /**
      * Pan (preserving zoom) so a world point is comfortably on-screen. Only
-     * moves the view if the point currently sits outside the viewport.
+     * moves the view if the point sits outside the unobscured viewport.
      */
     _ensurePointVisible(x, y) {
         const vp = this.viewport;
         if (!vp || !vp.viewBox) return;
         const vb = vp.viewBox;
-        const margin = Math.min(vb.width, vb.height) * 0.12;
-        const inside = x >= vb.x + margin && x <= vb.x + vb.width - margin &&
+        let leftInset = 0;
+        const panel = document.getElementById('pcbDrcSlidePanel');
+        if (panel?.classList.contains('open')) {
+            const rect = vp.svg?.getBoundingClientRect();
+            const panelRect = panel.getBoundingClientRect();
+            if (rect?.width > 0 && panelRect.width > 0 && panel.offsetParent &&
+                panelRect.bottom > rect.top && panelRect.top < rect.top + rect.height) {
+                // Use the settled left-docked position, even during the slide-in animation.
+                const panelRight = panel.offsetParent.getBoundingClientRect().left +
+                    panel.offsetLeft + panelRect.width;
+                leftInset = Math.max(0, Math.min(1, (panelRight - rect.left) / rect.width)) * vb.width;
+            }
+        }
+        const visibleWidth = vb.width - leftInset;
+        const margin = Math.min(visibleWidth, vb.height) * 0.12;
+        const inside = x >= vb.x + leftInset + margin && x <= vb.x + vb.width - margin &&
             y >= vb.y + margin && y <= vb.y + vb.height - margin;
         if (inside) return;
-        // Needs panning: center the point on screen (never change zoom).
-        // viewBox.width/height are left untouched so the scale is preserved.
-        vb.x = x - vb.width / 2;
+        // Center within the uncovered area without changing the scale.
+        vb.x = x - leftInset - visibleWidth / 2;
         vb.y = y - vb.height / 2;
         vp._updateViewBox?.();
         vp._notifyViewChanged?.();

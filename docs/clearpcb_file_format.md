@@ -738,10 +738,16 @@ curves at higher zoom. The 3D viewer builds separated, non-inverted circles dire
 as meshes. Inverted overlapping circles retain a polygon fallback. Polygon outlines
 (0.125-source-pixel chord tolerance, at least 12 sides) are generated only for
 consumers that need them. Triangulation is separately lazy. These caches and world
-transforms are never stored in the project. Pour obstacles and DRC clearance use
-the image's four `points` as one rotated rectangular boundary, independent of the
-internal artwork representation. Actual copper output and contact geometry retain
-the artwork, including holes and gaps. Dot size is computed from grayscale
+transforms are never stored in the project. For all additive copper pictures,
+clearance, DRC, ratlines, and routing contact checks treat the image's four `points`
+as one solid rotated rectangle, independent of the internal artwork representation.
+Separate dots do not require connections to each other; contacts anywhere inside
+the rectangle belong to the same logical copper object. This also applies when
+inversion leaves no visible artwork. It is an intentional logical approximation:
+rendering and manufactured copper retain the actual artwork, including holes and
+gaps, so logical connectivity does not guarantee connectivity between printed
+islands. Copper-removal pictures remain non-conductive and cut their actual artwork.
+Dot size is computed from grayscale
 cell averages at import; the source photo, dot-size setting and sampling grid are
 not persisted. Contour-based halftones use the same compact storage encodings. Older versions
 without circle-artwork support cannot load the new records. This representation

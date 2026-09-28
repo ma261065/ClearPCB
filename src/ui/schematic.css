@@ -3575,6 +3575,11 @@ svg.pcb-zoom-low .pcb-track-label { display: none; }
     background: var(--btn-hover-bg, rgba(255, 255, 255, 0.08));
 }
 
+.drc-item:focus-visible {
+    outline: 1px solid var(--accent-color, #4b9cd5);
+    outline-offset: -1px;
+}
+
 .drc-item.drc-item-active {
     background: rgba(75, 156, 213, 0.18);
 }

@@ -141,8 +141,11 @@ for (const clearance of [0.1, 0.2, 1.67]) {
             assert.equal(actual.dist < clearance - 1e-4, expected.dist < clearance - 1e-4, label);
             if (expected.dist < clearance - 1e-4) {
                 assert.ok(Math.abs(actual.dist - expected.dist) < 1e-10, label);
-                assert.ok(Math.abs(actual.x - expected.x) < 1e-10, label);
-                assert.ok(Math.abs(actual.y - expected.y) < 1e-10, label);
+                const marker = { kind: 'via', x: actual.x, y: actual.y, r: 0 };
+                for (const feature of [fixtures[first], fixtures[second]]) {
+                    assert.ok(Math.abs(exhaustiveDistance(feature, marker).dist - actual.dist / 2) < 1e-9,
+                        `${label}: marker must lie on both copper objects or halfway across their gap`);
+                }
             }
         }
     }

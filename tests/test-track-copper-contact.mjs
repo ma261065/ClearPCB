@@ -6,7 +6,8 @@ globalThis.window = { addEventListener() {} };
 globalThis.document = { createElement: element, createElementNS: element, body: element(),
     addEventListener() {}, removeEventListener() {} };
 globalThis.requestAnimationFrame = () => 0;
-const { startTrackDraw, addTrackWaypoint, resolveTrackDrawSnap } = await import('../src/pcb/modules/track-draw.js');
+const { startTrackDraw, updateTrackDraw, addTrackWaypoint, resolveTrackDrawSnap } = await import('../src/pcb/modules/track-draw.js');
+const { applyNetToCopperSelection } = await import('../src/pcb/modules/track-select.js');
 
 const shape = (x, net, extra = {}) => ({ id: `shape-${x}`, kind: 'rect', layer: 'top-copper',
     net, filled: true, copperMode: 'add', lineWidth: 0.2,
@@ -16,7 +17,10 @@ const via = (x, net) => ({ id: `via-${x}`, x, y: 0, diameter: 1, drill: 0.3, net
 const board = () => ({ tracks: [], vias: [], boardShapes: [], placements: new Map(), netlist: [],
     _trackToolLayer: 'top-copper', _getLayerGroup: () => null,
     viewport: { scale: 100, gridVisible: false, setCrosshair() {}, hideCrosshair() {} },
-    _commitTracks(tracks) { this.tracks.push(...tracks); } });
+    _commitTracks(tracks, _vias, destinationShapes = []) {
+        this.tracks.push(...tracks);
+        for (const destination of destinationShapes) destination.net = tracks[0]?.net || '';
+    } });
 
 for (const startKind of ['shape', 'via']) {
     for (const endKind of ['shape', 'via']) {
@@ -34,6 +38,16 @@ for (const startKind of ['shape', 'via']) {
         }
     }
 }
+
+const unassignedDestination = board();
+unassignedDestination._trackToolNet = 'SIGNAL';
+const destinationShape = shape(20, '');
+unassignedDestination.boardShapes.push(destinationShape);
+startTrackDraw(unassignedDestination, { x: 0, y: 0 });
+addTrackWaypoint(unassignedDestination, { x: 20, y: 0 });
+assert.equal(unassignedDestination.tracks[0].net, 'SIGNAL');
+assert.equal(destinationShape.net, 'SIGNAL',
+    'an unassigned destination copper shape inherits the terminating Track Net');
 
 for (const startKind of ['shape', 'via']) {
     const app = board();
@@ -62,9 +76,78 @@ assert.deepEqual(resolveTrackDrawSnap(strokeApp, { x: 2, y: 0 }).contactNets, []
 
 const viaApp = board();
 viaApp.vias.push(via(0, 'GND'));
+assert.equal(resolveTrackDrawSnap(viaApp, { x: 0.3, y: 0 }).snapType, 'via',
+    'vias are hard snap targets before drawing starts');
 assert.equal(resolveTrackDrawSnap(viaApp, { x: 0.3, y: 0 }).x, 0);
 viaApp._trackToolLayer = 'bottom-copper';
 assert.deepEqual(resolveTrackDrawSnap(viaApp, { x: 0.3, y: 0 }).contactNets, ['GND']);
+
+const standalonePad = (x, net, layers = 'both') => ({
+    id: `pad-${x}`, x, y: 0, width: 1.5, height: 1.5, layers, visible: true, net,
+});
+const standaloneApp = board();
+standaloneApp.pads = [standalonePad(0, 'PAD_NET'), standalonePad(20, 'PAD_NET')];
+standaloneApp._trackToolNet = 'STALE_TOOL_NET';
+const standaloneContext = startTrackDraw(standaloneApp, { x: 0.4, y: 0 });
+assert.equal(standaloneContext.snap.snapType, 'pad');
+assert.deepEqual(standaloneContext.points[0], { x: 0, y: 0 });
+assert.equal(standaloneContext.net, 'PAD_NET', 'originating pad overrides the previous Track-tool Net');
+addTrackWaypoint(standaloneApp, { x: 19.6, y: 0 });
+assert.equal(standaloneApp._trackDraw, null, 'releasing on a standalone pad finishes the Track');
+assert.equal(standaloneApp.tracks[0].net, 'PAD_NET');
+let netCommand = null;
+standaloneApp.history = { execute(command) { netCommand = command; command.execute(); } };
+const selectedStandalonePad = standaloneApp.pads[0];
+const otherStandalonePad = standaloneApp.pads[1];
+const padNetCommand = {
+    execute() {
+        selectedStandalonePad.net = 'RENAMED_NET';
+        otherStandalonePad.net = 'RENAMED_NET';
+    },
+    undo() {
+        selectedStandalonePad.net = 'PAD_NET';
+        otherStandalonePad.net = 'PAD_NET';
+    },
+};
+assert.equal(applyNetToCopperSelection(standaloneApp, [
+    { kind: 'track', object: standaloneApp.tracks[0] },
+    { kind: 'pad', object: selectedStandalonePad },
+    { kind: 'pad', object: otherStandalonePad },
+], 'RENAMED_NET', [padNetCommand]), true,
+'selected bonded standalone Pads do not conflict with their own batch Net change');
+assert.deepEqual([standaloneApp.tracks[0].net, selectedStandalonePad.net, otherStandalonePad.net],
+    ['RENAMED_NET', 'RENAMED_NET', 'RENAMED_NET']);
+netCommand.undo();
+assert.deepEqual([standaloneApp.tracks[0].net, selectedStandalonePad.net, otherStandalonePad.net],
+    ['PAD_NET', 'PAD_NET', 'PAD_NET'], 'mixed Track and Pad Net change undoes atomically');
+
+const componentPadApp = board();
+componentPadApp._trackToolNet = 'STALE_TOOL_NET';
+componentPadApp.placements = new Map([
+    ['U1', { pads: new Map([['1', { x: 0, y: 0, number: '1' }]]) }],
+    ['U2', { pads: new Map([['1', { x: 20, y: 0, number: '1' }]]) }],
+]);
+componentPadApp.netlist = [{ net: 'COMPONENT_NET', pins: [
+    { componentId: 'U1', pinNumber: '1' },
+    { componentId: 'U2', pinNumber: '1' },
+] }];
+const componentPadContext = startTrackDraw(componentPadApp, { x: 0.4, y: 0 });
+assert.equal(componentPadContext.net, 'COMPONENT_NET',
+    'originating component pad overrides the previous Track-tool Net');
+addTrackWaypoint(componentPadApp, { x: 19.6, y: 0 });
+assert.equal(componentPadApp._trackDraw, null, 'releasing on a component pad finishes the Track');
+assert.deepEqual([...componentPadApp.tracks[0].padConnections.values()], [
+    { componentId: 'U1', pinNumber: '1' },
+    { componentId: 'U2', pinNumber: '1' },
+]);
+
+const viaHighlightApp = board();
+viaHighlightApp.viewport.svg = { appendChild() {} };
+viaHighlightApp.vias.push(via(10, 'GND'));
+startTrackDraw(viaHighlightApp, { x: 0, y: 0 });
+updateTrackDraw(viaHighlightApp, { x: 10.2, y: 0 });
+assert.equal(viaHighlightApp._trackDraw.snap.snapType, 'via');
+assert.ok(viaHighlightApp._trackSnapMarker, 'destination via receives the yellow snap highlight');
 
 const overlap = board();
 overlap.boardShapes.push(shape(0, 'GND'), shape(0, 'VCC'));

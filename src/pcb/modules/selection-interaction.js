@@ -75,9 +75,9 @@ export function showPcbSelectionProperties(app) {
         return;
     }
     const kinds = new Set(selected.map((entry) => entry.kind));
-    // Shapes and vias already expose batch-safe property panels. Other
-    // families retain single-object editors, so show a neutral summary rather
-    // than silently reducing the registry selection to the last clicked item.
+    // Families with geometry-aware batch editors keep those specialized
+    // panels. Every other selection is handled by PCBApp's shared capability
+    // intersection editor.
     if (kinds.size === 1 && selected[0].kind === 'shape') {
         showBoardShapeProperties(app, selected[0].object);
     } else if (kinds.size === 1 && selected[0].kind === 'via') {

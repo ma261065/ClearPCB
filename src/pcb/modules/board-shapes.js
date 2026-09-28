@@ -21,7 +21,16 @@ import { pathHandleDescriptors, pathSegmentAt } from '../../shapes/path-geometry
 import { joinPaths, remapPathNodes, splitPathSegmentMetadata, deletePathVertex, collapseCollinearPath, deletePathSegment, closePathIfCoincident, resizeRectanglePoints, pointsFormAxisAlignedRect, setPathSegmentType, splitPathAtNode } from '../../shapes/path-operations.js';
 import { shapeFromPoints, shapePreviewPath, advanceShapeDrawing, canFinishShapeAtPoint } from '../../shapes/shape-drawing.js';
 import { CopperFill, updateFillIdCounter } from '../../shapes/copper-fill.js';
-import { isLayerLocked, isLayerVisible, PCB_LAYERS, setPcbLayerLocked, unlockPcbLayer } from './layers.js';
+import {
+    isLayerLocked,
+    isLayerVisible,
+    pcbHighlightColor,
+    PCB_HOVER_HIGHLIGHT_OPACITY,
+    PCB_LAYERS,
+    PCB_SELECTION_HIGHLIGHT_OPACITY,
+    setPcbLayerLocked,
+    unlockPcbLayer,
+} from './layers.js';
 import {
     AddBoardShapeCommand,
     RemoveBoardShapeCommand,
@@ -46,7 +55,14 @@ import { clearPcbSelectionAnchors, lockPositionOutsideOutline, renderPcbSelectio
 import { appendSegmentSelection } from '../../core/ui-helpers.js';
 import { beginPcbAnchorInteraction, showPcbSelectionProperties } from './selection-interaction.js';
 import { pathMoveInteraction, beginPathSplit, snapPathPoint, snapPathTranslation, pathContextActions, showPathContextMenu, dismissPathContextMenu } from './path-edit.js';
-import { canDrawPictureCircles, resizePicturePoints, validatePictureArtwork, validatePicturePoints, PICTURE_LAYERS } from './picture-raster.js';
+import {
+    canDrawPictureCircles,
+    normalizePicturePoints,
+    resizePicturePoints,
+    validatePictureArtwork,
+    validatePicturePoints,
+    PICTURE_LAYERS,
+} from './picture-raster.js';
 import { encodePictureArtwork, decodePictureArtwork } from './picture-storage.js';
 import { bindPictureRefreshHold, cancelPictureCopperRefresh, schedulePictureCopperRefresh } from './picture-refresh.js';
 import { rotationHandleAnchor, pointerRotation, rotatedImagePoints } from './rotation-handle.js';
@@ -365,16 +381,6 @@ const REMOVAL_COLORS = {
 // but hover/selection lighten it in the same direction as every other layer.
 const HOLE_FEEDBACK_BASE = '#2f7d72';
 
-/** Lighten a hex color toward white by the given fraction (0..1). */
-function lightenColor(color, fraction) {
-    const channels = color.match(/[\da-f]{2}/gi);
-    if (!channels || channels.length !== 3) return color;
-    return `#${channels.map((channel) => {
-        const value = parseInt(channel, 16);
-        return Math.round(value + (255 - value) * fraction).toString(16).padStart(2, '0');
-    }).join('')}`;
-}
-
 /** Base display color for the shape's PCB layer. */
 export function shapeLayerColor(shape) {
     return PCB_LAYERS.find((layer) => layer.id === shape?.layer)?.color || '#ffffff';
@@ -383,13 +389,13 @@ export function shapeLayerColor(shape) {
 /** Selection is a lighter version of the owning layer, not a fixed side color. */
 export function shapeSelectionColor(shape) {
     const base = shape?.layer === 'hole' ? HOLE_FEEDBACK_BASE : shapeLayerColor(shape);
-    return lightenColor(base, 0.35);
+    return pcbHighlightColor(base, PCB_SELECTION_HIGHLIGHT_OPACITY);
 }
 
-/** Hover is a subtle lightening of the owning layer color. */
+/** Match the effective colour of the track hover's translucent white overlay. */
 export function shapeHoverColor(shape) {
     const base = shape?.layer === 'hole' ? HOLE_FEEDBACK_BASE : shapeLayerColor(shape);
-    return lightenColor(base, 0.18);
+    return pcbHighlightColor(base, PCB_HOVER_HIGHLIGHT_OPACITY);
 }
 
 function shapeStyle(shape) {
@@ -486,7 +492,8 @@ export function renderBoardShape(app, shape, opts = {}) {
     const isSelected = isPcbSelected(app, 'shape', shape)
         && app._selectedBoardShapeSegment?.shapeId !== shape.id
         && app._selectedBoardShapeNode?.shapeId !== shape.id;
-    const isHovered = !!(app._hoveredShape && app._hoveredShape.id === shape.id)
+    const isHovered = (!!(app._hoveredShape && app._hoveredShape.id === shape.id)
+        || app._netHoveredShapeIds?.has(shape.id))
         && app._selectedBoardShapeSegment?.shapeId !== shape.id
         && app._selectedBoardShapeNode?.shapeId !== shape.id;
     const st = shapeStyle(shape);
@@ -546,8 +553,8 @@ export function renderBoardShape(app, shape, opts = {}) {
     }
     app._getLayerGroup(st.targetLayer)?.appendChild(el);
     app._shapeElements.set(shape.id, el);
-    app._refreshBoardShapeClearance?.(shape);
-    if (!opts.liveDrag || st.isCopperRemoval) app._scheduleRemovalHatchRender?.();
+    if (!opts.interactionOnly) app._refreshBoardShapeClearance?.(shape);
+    if (!opts.interactionOnly && (!opts.liveDrag || st.isCopperRemoval)) app._scheduleRemovalHatchRender?.();
     if (app._pictureCopperRefreshPending) {
         if (shapeAffectsCopperCuts(shape) || app._hasCopperCuts) app._deferredShapeCopperCuts = true;
         return;
@@ -607,8 +614,21 @@ export function setBoardShapeHover(app, shape) {
     const next = shape || null;
     if (prev === next || (prev && next && prev.id === next.id)) return;
     app._hoveredShape = next;
-    if (prev) renderBoardShape(app, prev);
-    if (next) renderBoardShape(app, next);
+    if (prev) renderBoardShape(app, prev, { interactionOnly: true, skipCopperUpdate: true });
+    if (next) renderBoardShape(app, next, { interactionOnly: true, skipCopperUpdate: true });
+}
+
+export function setBoardShapeNetHover(app, shapes) {
+    const previous = app._netHoveredShapeIds || new Set();
+    const next = new Set([...shapes || []].map(shape => shape.id));
+    if (previous.size === next.size && [...previous].every(id => next.has(id))) return;
+    app._netHoveredShapeIds = next;
+    const changed = new Set([...previous, ...next]);
+    for (const shape of app.boardShapes || []) {
+        if (changed.has(shape.id)) {
+            renderBoardShape(app, shape, { interactionOnly: true, skipCopperUpdate: true });
+        }
+    }
 }
 
 export function selectBoardShape(app, shape) {
@@ -1689,6 +1709,10 @@ function shapeSnapshot(shape) {
     };
 }
 
+export function captureBoardShapeState(shape) {
+    return shapeSnapshot(shape);
+}
+
 /**
  * Show Properties-tab controls for the active board-shape tool. These edit
  * creation defaults (and an unfinished draw), rather than a saved shape.
@@ -1962,10 +1986,9 @@ export function showBoardShapeProperties(app, shape) {
     const outlineBounds = outlineTarget ? boardBoundary(app) : null;
     if (initialTargets.some(target => target.kind === 'image')) {
         if (initialTargets.length === 1) showImageProperties(app, shape, items);
-        else {
-            app._setPcbPropsTitle?.(`${initialTargets.length} Selected`);
-            items.innerHTML = '';
-        }
+        else app._showPcbMultiSelectionProperties?.(
+            initialTargets.map((object) => ({ kind: 'shape', object })),
+        );
         return;
     }
     const selectedSegment = initialTargets.length === 1
@@ -2534,13 +2557,14 @@ export function serializeBoardShapes(app, { compactArtwork = true, roundGeometry
             return { ...base, x: number(s.x), y: number(s.y), radius: number(s.radius) };
         }
         if (s.kind === 'image') {
-            if (!compactArtwork) return { ...base, name: s.name, artwork: structuredClone(s.artwork), points: s.points.map(point) };
+            const picturePoints = s.points.map(value => ({ x: value.x, y: value.y }));
+            if (!compactArtwork) return { ...base, name: s.name, artwork: structuredClone(s.artwork), points: picturePoints };
             const encoded = encodePictureArtwork(s.artwork);
             const key = JSON.stringify(encoded);
             const previous = artworkIndices.get(key);
             const artwork = previous === undefined ? encoded : { encoding: 'reference-v1', index: previous };
             if (previous === undefined) artworkIndices.set(key, index);
-            return { ...base, name: s.name, artwork, points: s.points.map(point) };
+            return { ...base, name: s.name, artwork, points: picturePoints };
         }
         return { ...base, points: (s.points || []).map(point) };
     });
@@ -2614,7 +2638,11 @@ export function loadBoardShapes(app, arr, { render = true, strict = false } = {}
         }
         if (kind === 'image') {
             try {
-                validatePicturePoints(sd.points, { coordinateTolerance: 0.00005 });
+                try {
+                    validatePicturePoints(sd.points);
+                } catch {
+                    shape.points = normalizePicturePoints(sd.points, { coordinateTolerance: 0.0001 });
+                }
                 if (!PICTURE_LAYERS.includes(shape.layer)) throw new Error('Invalid image layer.');
                 if (sd.artwork?.encoding === 'reference-v1') {
                     if (!Number.isInteger(sd.artwork.index) || sd.artwork.index >= index || !loadedArtwork.has(sd.artwork.index)) {

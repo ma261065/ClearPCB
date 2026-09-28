@@ -4,10 +4,10 @@ import { registerPcbSelectionAdapter } from './selection-registry.js';
 import { lockPositionOutsideOutline } from './selection-anchors.js';
 import { rotationHandleAnchor, pointerRotation } from './rotation-handle.js';
 import { ModifyPadCommand } from './pad-commands.js';
+import { startPadDrag, updateViaDrag, finishViaDrag, cancelViaDrag } from './track-drag.js';
 
 export function createPadSelectionAdapter(app, pad, id) {
     let rotationDrag = null;
-    let moveDrag = null;
     const layers = () => padLayers(pad);
     return {
         id, kind: 'pad', object: pad,
@@ -29,46 +29,16 @@ export function createPadSelectionAdapter(app, pad, id) {
                 ? [] : [rotationHandleAnchor(padBounds(pad), app.viewport?.scale)];
         },
         beginMove(worldPos) {
-            moveDrag = {
-                before: pad.captureState(),
-                grab: { ...worldPos },
-                previousDeferDragOverlays: !!app._deferDragOverlays,
-            };
-            app._deferDragOverlays = true;
-            app.viewport?.setCrosshair({ x: pad.x, y: pad.y });
-            return true;
+            return startPadDrag(app, pad, worldPos);
         },
         updateMove(worldPos) {
-            if (!moveDrag) return;
-            const target = {
-                x: moveDrag.before.x + worldPos.x - moveDrag.grab.x,
-                y: moveDrag.before.y + worldPos.y - moveDrag.grab.y,
-            };
-            const position = app.viewport?.getSnappedPosition?.(target) || target;
-            pad.x = position.x;
-            pad.y = position.y;
-            app.viewport?.setCrosshair(position);
-            renderPad(pad, layer => app._getLayerGroup(layer));
+            updateViaDrag(app, worldPos);
             updatePadHighlightGeometry(pad, app._getLayerGroup('selection-overlay'));
-            if (pad.net) app._updateRatsnest?.({ nets: new Set([pad.net]) });
         },
         endMove(commit) {
-            if (!moveDrag) return;
-            const drag = moveDrag;
-            moveDrag = null;
-            app._deferDragOverlays = drag.previousDeferDragOverlays;
-            app.viewport?.hideCrosshair();
-            const after = pad.captureState();
-            const moved = after.x !== drag.before.x || after.y !== drag.before.y;
-            if (commit && moved) {
-                pad.applyState(drag.before);
-                app.history.execute(new ModifyPadCommand(app, pad, drag.before, after));
-            } else if (!commit && moved) {
-                pad.applyState(drag.before);
-                renderPad(pad, layer => app._getLayerGroup(layer));
-                updatePadHighlightGeometry(pad, app._getLayerGroup('selection-overlay'));
-                if (pad.net) app._updateRatsnest?.({ nets: new Set([pad.net]) });
-            }
+            if (commit) finishViaDrag(app);
+            else cancelViaDrag(app);
+            updatePadHighlightGeometry(pad, app._getLayerGroup('selection-overlay'));
             if (!app._deferDragOverlays) app._refreshClearanceHalos?.();
         },
         beginAnchorDrag(anchorId, worldPos) {

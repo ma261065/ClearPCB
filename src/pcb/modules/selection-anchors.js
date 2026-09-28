@@ -117,10 +117,12 @@ export function lockPositionOutsideOutline(points, pointer, scale, closed = true
 export function hitTestPcbSelectionAnchor(app, point, kinds = null) {
     const allowed = kinds ? new Set(kinds) : null;
     const tolerance = anchorSize(app);
-    for (const adapter of getPcbSelectionEntries(app)) {
+    const selected = getPcbSelectionEntries(app);
+    const hideRotation = selected.length > 1 || app._rotationHandleDrag;
+    for (const adapter of selected) {
         if (!adapter.visible || (allowed && !allowed.has(adapter.kind))) continue;
         for (const anchor of adapter.getAnchors?.() || []) {
-            if (anchor.symbol === 'rotate' && app._rotationHandleDrag) continue;
+            if (anchor.symbol === 'rotate' && hideRotation) continue;
             const hitRadius = Math.max(tolerance, (anchor.sizePx || 8) / (2 * Math.max(0.01, app.viewport?.scale || 1)));
             if (Math.hypot(anchor.x - point.x, anchor.y - point.y) <= hitRadius) {
                 return { adapter, anchor, anchorId: anchorId(anchor) };
@@ -138,7 +140,9 @@ export function renderPcbSelectionAnchors(app) {
     const size = anchorSize(app);
     const scale = Math.max(0.01, app.viewport?.scale || 1);
     const { size: lockSize } = lockIconMetrics(scale);
-    for (const adapter of getPcbSelectionEntries(app)) {
+    const selected = getPcbSelectionEntries(app);
+    const hideRotation = selected.length > 1 || app._rotationHandleDrag;
+    for (const adapter of selected) {
         if (!adapter.visible) continue;
         if (adapter.locked) {
             const bounds = adapter.getBounds?.();
@@ -179,7 +183,7 @@ export function renderPcbSelectionAnchors(app) {
             group.appendChild(path);
         }
         for (const anchor of adapter.getAnchors()) {
-            if (anchor.hidden || (anchor.symbol === 'rotate' && app._rotationHandleDrag)) continue;
+            if (anchor.hidden || (anchor.symbol === 'rotate' && hideRotation)) continue;
             const isMidpoint = anchor.symbol === 'plus';
             const isRotation = anchor.symbol === 'rotate';
             const handleSize = isMidpoint ? 11 / scale : (anchor.sizePx || 8) / scale;

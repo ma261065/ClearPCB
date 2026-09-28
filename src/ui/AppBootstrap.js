@@ -161,6 +161,11 @@ class AppBootstrap {
     }
 
     _bindModeTabs() {
+        this.slider?.addEventListener('transitionend', (event) => {
+            if (event.propertyName !== 'transform') return;
+            this.schematicApp?.viewport?.invalidateLayoutCache?.();
+            this.pcbApp?.viewport?.invalidateLayoutCache?.();
+        });
         this.modeTabs.forEach(tab => {
             tab.addEventListener('click', () => {
                 const mode = tab.dataset.mode === 'pcb' ? 'pcb' : 'schematic';
@@ -237,6 +242,8 @@ class AppBootstrap {
         this.slider?.classList.toggle('show-pcb', isPcb);
         this.ribbonSchematic?.classList.toggle('ribbon-hidden', isPcb);
         this.ribbonPCB?.classList.toggle('ribbon-hidden', !isPcb);
+        this.schematicApp?.viewport?.invalidateLayoutCache?.();
+        this.pcbApp?.viewport?.invalidateLayoutCache?.();
 
         const needsPcbRender = isPcb && this.pcbApp?._stale;
         if (needsPcbRender) {

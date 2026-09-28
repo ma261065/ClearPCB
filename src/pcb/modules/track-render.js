@@ -19,6 +19,7 @@
  */
 
 import { resolveTrackEdgePaths } from './board-geometry.js';
+import { renderDrillBore } from './drill-bore.js';
 
 const NS = 'http://www.w3.org/2000/svg';
 
@@ -54,6 +55,7 @@ export function renderTrack(track, getLayerGroup, opts = {}) {
         const layerId = run.layer;
         const parent = getLayerGroup(layerId);
         if (!parent) continue;
+        const labelParent = getLayerGroup(`${layerId}-track-labels`) || parent;
 
         const color = layerId === 'bottom-copper' ? bottomColor : topColor;
         const polyline = document.createElementNS(NS, 'polyline');
@@ -74,7 +76,7 @@ export function renderTrack(track, getLayerGroup, opts = {}) {
         // Net-name labels along the run.
         if (track.net && !opts.hideNetLabel) {
             for (const lbl of _buildNetLabels(run.points, track.net, run.width)) {
-                parent.appendChild(lbl);
+                labelParent.appendChild(lbl);
                 lbl.dataset.trackId = track.id;
                 created.push(lbl);
             }
@@ -97,7 +99,7 @@ export function renderTrack(track, getLayerGroup, opts = {}) {
  */
 export function viaCopperPathD(via) {
     const outerRadius = via.diameter / 2;
-    const drillRadius = Math.max(0, via.drill / 2);
+    const drillRadius = Number.isFinite(via.drill) ? Math.max(0, via.drill / 2) : 0;
     let path = `M${via.x + outerRadius},${via.y}`
         + `A${outerRadius},${outerRadius} 0 1 0 ${via.x - outerRadius},${via.y}`
         + `A${outerRadius},${outerRadius} 0 1 0 ${via.x + outerRadius},${via.y}Z`;
@@ -129,7 +131,11 @@ export function renderVia(via, getLayerGroup, opts = {}) {
     if (via.net) ring.dataset.net = via.net;
     viaLayer.appendChild(ring);
 
-    via._svgElements = [ring];
+    const created = [ring];
+    const drill = renderDrillBore(via, viaLayer, `${VIA_CLASS} pcb-via-drill`, 'via');
+    if (drill) created.push(drill);
+
+    via._svgElements = created;
 }
 
 /** Remove every SVG element this Track previously created. */

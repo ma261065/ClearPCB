@@ -57,6 +57,20 @@ export class SelectionManager {
         }
         return this.tolerance;
     }
+
+    /**
+     * Cheaply reject shapes whose cached bounds cannot contain the hit point.
+     * Shapes without usable bounds fall through to their authoritative test.
+     */
+    _boundsMayHit(shape, point, tolerance) {
+        if (typeof shape.getBounds !== 'function') return true;
+        const bounds = shape.getBounds();
+        if (!bounds) return true;
+        const { minX, minY, maxX, maxY } = bounds;
+        if (![minX, minY, maxX, maxY].every(Number.isFinite)) return true;
+        return point.x >= minX - tolerance && point.x <= maxX + tolerance
+            && point.y >= minY - tolerance && point.y <= maxY + tolerance;
+    }
     
     /**
      * Invalidate hitTest cache when shapes change
@@ -123,8 +137,13 @@ export class SelectionManager {
                 if (this.hitTestCache.lastAllResults) return this.hitTestCache.lastAllResults;
             } else {
                 if (this.hitTestCache.lastResult) return this.hitTestCache.lastResult;
-                // Note: We cannot infer single result from 'lastAllResults' anymore because 
-                // the single result logic now prioritizes selection, while 'all' is distinct z-order.
+                if (this.hitTestCache.lastAllResults) {
+                    const result = this.hitTestCache.lastAllResults.find(shape => shape.selected)
+                        || this.hitTestCache.lastAllResults[0]
+                        || null;
+                    this.hitTestCache.lastResult = result;
+                    return result;
+                }
             }
         }
         
@@ -134,6 +153,7 @@ export class SelectionManager {
             for (let i = this.shapes.length - 1; i >= 0; i--) {
                 const shape = this.shapes[i];
                 if (!shape.visible || shape._culled) continue;
+                if (!this._boundsMayHit(shape, point, tol)) continue;
                 if (shape.hitTest(point, tol)) {
                     hits.push(shape);
                 }
@@ -151,6 +171,7 @@ export class SelectionManager {
         for (let i = this.shapes.length - 1; i >= 0; i--) {
             const shape = this.shapes[i];
             if (!shape.visible || shape._culled || !shape.selected) continue;
+            if (!this._boundsMayHit(shape, point, tol)) continue;
             
             if (shape.hitTest(point, tol)) {
                 this.hitTestCache.lastPoint = cacheKey;
@@ -164,6 +185,7 @@ export class SelectionManager {
         for (let i = this.shapes.length - 1; i >= 0; i--) {
             const shape = this.shapes[i];
             if (!shape.visible || shape._culled || shape.selected) continue;
+            if (!this._boundsMayHit(shape, point, tol)) continue;
             
             if (shape.hitTest(point, tol)) {
                this.hitTestCache.lastPoint = cacheKey;
@@ -234,6 +256,7 @@ export class SelectionManager {
             this._selectionCache = null;
             shapeObj.selected = true;
             shapeObj.invalidate();
+            this._invalidateHitTestCache();
         }
 
         this._invalidateLinkedSelectionVisuals(shapeObj);
@@ -252,6 +275,7 @@ export class SelectionManager {
         if (this.selected.has(id)) {
             this.selected.delete(id);
             this._selectionCache = null;
+            this._invalidateHitTestCache();
             if (shapeObj) {
                 shapeObj.selected = false;
                 shapeObj.invalidate();
@@ -297,6 +321,7 @@ export class SelectionManager {
                 this._invalidateLinkedSelectionVisuals(shapeObj);
             }
         }
+        this._invalidateHitTestCache();
         
         this._notifySelectionChanged();
     }
@@ -325,6 +350,7 @@ export class SelectionManager {
         const selectedIds = [...this.selected];
         this.selected.clear();
         this._selectionCache = null;
+        this._invalidateHitTestCache();
         for (const id of selectedIds) {
             const shape = this._getShape(id);
             if (shape) {
@@ -481,6 +507,7 @@ export class SelectionManager {
         }
         this.selected = newSet;
         this._selectionCache = null;
+        this._invalidateHitTestCache();
     }
 
     /** Capture current selection as additive base for box drag. */

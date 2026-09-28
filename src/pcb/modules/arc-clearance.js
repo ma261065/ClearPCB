@@ -18,7 +18,8 @@ function pointOnArc(arc, point) {
     return Math.hypot(point.x - start.x, point.y - start.y) <= Math.hypot(point.x - end.x, point.y - end.y) ? start : end;
 }
 
-function measured(first, second, firstWidth, secondWidth) {
+/** Gap midpoint, or a shared copper point when the round strokes overlap. */
+export function strokedPointDistance(first, second, firstWidth, secondWidth) {
     const dx = second.x - first.x, dy = second.y - first.y;
     const distance = Math.hypot(dx, dy);
     const totalWidth = firstWidth + secondWidth;
@@ -31,7 +32,7 @@ function measured(first, second, firstWidth, secondWidth) {
 export function arcSegmentDistance(arc, start, end, halfWidth = 0) {
     let best = { dist: Infinity, x: 0, y: 0 };
     const consider = (first, second) => {
-        const result = measured(first, second, arc.hw || 0, halfWidth);
+        const result = strokedPointDistance(first, second, arc.hw || 0, halfWidth);
         if (result.dist < best.dist) best = result;
     };
     for (const point of endpoints(arc)) consider(point, closestPointOnSegment(point, start, end));
@@ -62,7 +63,7 @@ export function arcSegmentDistance(arc, start, end, halfWidth = 0) {
 export function arcArcDistance(first, second) {
     let best = { dist: Infinity, x: 0, y: 0 };
     const consider = (firstPoint, secondPoint) => {
-        const result = measured(firstPoint, secondPoint, first.hw || 0, second.hw || 0);
+        const result = strokedPointDistance(firstPoint, secondPoint, first.hw || 0, second.hw || 0);
         if (result.dist < best.dist) best = result;
     };
     for (const point of endpoints(first)) consider(point, pointOnArc(second, point));

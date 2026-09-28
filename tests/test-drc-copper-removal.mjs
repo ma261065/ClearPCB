@@ -18,16 +18,16 @@ const app = {
         track('vertical', 'VCC', [[0, -2], [0, 0], [0, 2]])],
 };
 const violations = () => runDRC(app, { clearance: 0.2 }).violations;
-assert.ok(violations().some(item => item.rule === 'clearance'));
+assert.equal(violations().some(item => item.rule === 'clearance'), false, 'short contacts are not repeated as clearance');
 assert.ok(violations().some(item => item.rule === 'short'));
 app.boardShapes = [removal];
 assert.deepEqual(violations(), [], 'removed crossing must not report clearance or short violations');
 removal.copperMode = 'remove-solder-mask';
-assert.ok(violations().some(item => item.rule === 'clearance'), 'mask-only artwork retains copper');
+assert.ok(violations().some(item => item.rule === 'short'), 'mask-only artwork retains the shorted copper');
 removal.copperMode = 'remove-copper-mask';
 assert.deepEqual(violations(), [], 'combined removal cuts copper');
 removal.layer = 'bottom-copper';
-assert.ok(violations().some(item => item.rule === 'clearance'), 'opposite layer is not cut');
+assert.ok(violations().some(item => item.rule === 'short'), 'opposite layer is not cut');
 console.log('PASS: DRC copper removal clears crossings without clearing opposite layers or mask-only artwork');
 
 const rectangle = (left, top, right, bottom) => [
@@ -86,13 +86,13 @@ const { pictureShape } = await import('../src/pcb/modules/picture-raster.js');
     ] }, { widthMm: 5, layer: 'top-copper' });
     image.copperMode = 'remove-copper';
     target.boardShapes.push(image);
-    assert.ok(clearanceErrors(target).length, 'a hole in removal artwork preserves the copper inside');
+    assert.ok(shortErrors(target).length, 'a hole in removal artwork preserves the shorted copper inside');
     image.artwork = { ...image.artwork, invert: true };
     assert.equal(clearanceErrors(target).length, 0, 'inverted removal artwork cuts inside the hole');
     image.copperMode = 'add';
     image.artwork = { ...image.artwork, invert: false };
     target.tracks.pop();
-    assert.equal(clearanceErrors(target).length, 0, 'additive image holes are not conservative bounding-box copper');
+    assert.equal(clearanceErrors(target).length, 1, 'additive pictures use their solid rectangular boundary');
 }
 
 {
@@ -104,7 +104,7 @@ const { pictureShape } = await import('../src/pcb/modules/picture-raster.js');
         { kind: 'line', filled: false, lineWidth: 0.05, segmentWidths: { 0: 1 } })];
     assert.equal(clearanceErrors(target).length, 0, 'removal strokes use per-edge widths');
     target.boardShapes[0].segmentWidths = {};
-    assert.ok(clearanceErrors(target).length, 'a narrow cut still leaves insufficient clearance');
+    assert.ok(shortErrors(target).length, 'a narrow cut still leaves touching copper shorted');
 }
 console.log('PASS: pad, via, pour, shape, image-hole, overlapping-cut, per-edge-width, and split-connectivity cases');
 

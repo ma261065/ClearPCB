@@ -525,6 +525,7 @@ export class FileManager {
         this.autoSavePrefix = 'clearpcb_autosave_';
         this.autoSaveInterval = 10000; // 10 seconds
         this.autoSaveTimer = null;
+        this.autoSaveIdleHandle = null;
         this.autoSaveSize = null;
         /** @type {{revision:number,fileName:string}|null} */
         this._lastAutoSave = null;
@@ -912,7 +913,7 @@ export class FileManager {
      */
     startAutoSave(getDataFn, isDirtyFn) {
         this.stopAutoSave();
-        this.autoSaveTimer = setInterval(() => {
+        const saveIfNeeded = () => {
             if (this.loading) return;
             try {
                 const dirty = this.isDirty || (typeof isDirtyFn === 'function' && isDirtyFn());
@@ -924,6 +925,19 @@ export class FileManager {
             } catch (err) {
                 console.error('Auto-save snapshot failed:', err);
             }
+        };
+        this.autoSaveTimer = setInterval(() => {
+            if (this.loading || this.autoSaveIdleHandle !== null) return;
+            const dirty = this.isDirty || (typeof isDirtyFn === 'function' && isDirtyFn());
+            if (!dirty) return;
+            if (typeof requestIdleCallback === 'function') {
+                this.autoSaveIdleHandle = requestIdleCallback(() => {
+                    this.autoSaveIdleHandle = null;
+                    saveIfNeeded();
+                }, { timeout: 2000 });
+                return;
+            }
+            saveIfNeeded();
         }, this.autoSaveInterval);
     }
     
@@ -934,6 +948,10 @@ export class FileManager {
         if (this.autoSaveTimer) {
             clearInterval(this.autoSaveTimer);
             this.autoSaveTimer = null;
+        }
+        if (this.autoSaveIdleHandle !== null) {
+            if (typeof cancelIdleCallback === 'function') cancelIdleCallback(this.autoSaveIdleHandle);
+            this.autoSaveIdleHandle = null;
         }
     }
     

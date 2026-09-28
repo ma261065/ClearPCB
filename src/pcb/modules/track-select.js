@@ -43,8 +43,18 @@ import {
     ModifyViaCommand,
     ModifyViasCommand,
 } from './track-commands.js';
-import { PCB_LAYERS, isLayerLocked, isViaLocked, isLayerVisible, isViaVisible, unlockPcbLayer } from './layers.js';
-import { canRestoreTrackToSourceBoardShape, restoreTrackToSourceBoardShape } from './board-shapes.js';
+import {
+    PCB_HOVER_HIGHLIGHT_OPACITY,
+    PCB_LAYERS,
+    PCB_SELECTION_HIGHLIGHT_OPACITY,
+    isLayerLocked,
+    isViaLocked,
+    isLayerVisible,
+    isViaVisible,
+    unlockPcbLayer,
+} from './layers.js';
+import { canRestoreTrackToSourceBoardShape, restoreTrackToSourceBoardShape, setBoardShapeNetHover } from './board-shapes.js';
+import { normalizeShapeCopperMode } from './board-shape-geometry.js';
 import { showAlert } from '../../ui/modules/modal.js';
 import {
     getPcbSelection,
@@ -71,8 +81,8 @@ const VIA_BATCH_HALO_CLASS = 'pcb-box-via-sel';
  *  selected trace only brightens slightly and its layer colour (top vs
  *  bottom) stays clearly distinguishable. */
 const HALO_COLOR = '#ffffff';
-const HALO_OPACITY_SELECTED = 0.55;
-const HALO_OPACITY_HOVER = 0.6;
+const HALO_OPACITY_SELECTED = PCB_SELECTION_HIGHLIGHT_OPACITY;
+const HALO_OPACITY_HOVER = PCB_HOVER_HIGHLIGHT_OPACITY;
 
 /** Pixel tolerance for hit-testing tracks (converted to world units). */
 const HIT_TOL_PX = 6;
@@ -551,37 +561,39 @@ export function refreshTrackSelectionHalo(app) {
 
 /**
  * Set the currently-hovered track/via highlight. Pass `null` to clear.
- * No-op when the same object is already selected (the selection halo
- * already covers it).
+ * Selected objects keep their selection halo while the rest of the hovered
+ * net receives hover halos.
  */
 export function setHoverHighlight(app, hit) {
-    // While a track is selected, suppress the whole-net hover highlight so
-    // the selection stays the sole focus.
     const selectedTrack = getSelectedTrack(app);
     const selectedVia = getSelectedVia(app);
     const selectedPad = getPcbSelection(app, 'pad')[0] || null;
-    if (selectedTrack) {
-        if (app._hoveredTrackOrVia !== null) {
-            app._hoveredTrackOrVia = null;
-            _removeHalos(app, HOVER_CLASS);
-        }
-        return;
-    }
     const key = hit
         ? (hit.type === 'track' ? hit.track
             : hit.type === 'via' ? hit.via
             : hit.type === 'pad' ? `pad:${hit.componentId}|${hit.pinNumber}`
                 : hit.type === 'standalone-pad' ? `standalone-pad:${hit.pad.id}`
+                    : hit.type === 'shape' ? `shape:${hit.shape.id}`
             : null)
         : null;
     if (app._hoveredTrackOrVia === key) return;
     app._hoveredTrackOrVia = key;
     _removeHalos(app, HOVER_CLASS);
-    if (!hit) return;
-    if (hit.type === 'track' || hit.type === 'pad') {
+    if (!hit) {
+        setBoardShapeNetHover(app, []);
+        return;
+    }
+    if (hit.type === 'track' || hit.type === 'via'
+        || hit.type === 'pad' || hit.type === 'standalone-pad' || hit.type === 'shape') {
         const seed = hit.type === 'track'
             ? { type: 'track', track: hit.track }
-            : { type: 'pad', componentId: hit.componentId, pinNumber: hit.pinNumber };
+            : hit.type === 'via'
+                ? { type: 'via', via: hit.via }
+                : hit.type === 'standalone-pad'
+                    ? { type: 'standalone-pad', pad: hit.pad }
+                    : hit.type === 'shape'
+                        ? { type: 'shape', shape: hit.shape }
+                    : { type: 'pad', componentId: hit.componentId, pinNumber: hit.pinNumber };
         const net = _collectConnectedNet(app, seed);
         for (const track of net.tracks) {
             if (track !== selectedTrack) _drawTrackHalo(app, track, HOVER_CLASS, HALO_OPACITY_HOVER);
@@ -593,27 +605,41 @@ export function setHoverHighlight(app, hit) {
             const [componentId, pinNumber] = padKey.split('|');
             _drawSinglePadHighlight(app, componentId, pinNumber, HOVER_CLASS, HALO_OPACITY_HOVER);
         }
-    } else if (hit.type === 'via' && hit.via !== selectedVia) {
-        _drawViaHalo(app, hit.via, HOVER_CLASS, HALO_OPACITY_HOVER);
-    } else if (hit.type === 'standalone-pad' && hit.pad !== selectedPad) {
-        drawStandalonePadHalo(app, hit.pad, HOVER_CLASS, HALO_OPACITY_HOVER);
+        for (const pad of net.standalonePads) {
+            if (pad !== selectedPad) drawStandalonePadHalo(app, pad, HOVER_CLASS, HALO_OPACITY_HOVER);
+        }
+        setBoardShapeNetHover(app, net.shapes);
     }
 }
 
-/** Walk the connected copper graph starting from a pad or track. */
+/** Walk the connected copper graph starting from a pad, track, or via. */
 function _collectConnectedNet(app, seed) {
     const tracks = new Set();
     const vias = new Set();
     const pads = new Set();
+    const standalonePads = new Set();
+    const shapes = new Set();
     const viaByPos = new Map();
     for (const via of app.vias || []) viaByPos.set(_posKey(via.x, via.y), via);
 
     const netName = seed.type === 'track'
         ? seed.track.net || ''
-        : _netForPad(app, seed.componentId, seed.pinNumber);
+        : seed.type === 'via'
+            ? seed.via.net || ''
+            : seed.type === 'standalone-pad'
+                ? seed.pad.net || ''
+                : seed.type === 'shape'
+                    ? seed.shape.net || ''
+                : _netForPad(app, seed.componentId, seed.pinNumber);
     if (netName) {
         for (const track of app.tracks || []) if (track.net === netName) tracks.add(track);
         for (const via of app.vias || []) if (via.net === netName) vias.add(via);
+        for (const pad of app.pads || []) if (pad.net === netName) standalonePads.add(pad);
+        for (const shape of app.boardShapes || []) {
+            if (shape.net === netName
+                && (shape.layer === 'top-copper' || shape.layer === 'bottom-copper')
+                && normalizeShapeCopperMode(shape.copperMode) === 'add') shapes.add(shape);
+        }
         const netEntry = (app.netlist || []).find((entry) => entry.net === netName);
         for (const pin of netEntry?.pins || []) pads.add(`${pin.componentId}|${pin.pinNumber}`);
     }
@@ -623,9 +649,16 @@ function _collectConnectedNet(app, seed) {
         const key = `${seed.componentId}|${seed.pinNumber}`;
         pads.add(key);
         queue.push({ kind: 'pad', key });
-    } else {
+    } else if (seed.type === 'track') {
         tracks.add(seed.track);
         queue.push({ kind: 'track', track: seed.track });
+    } else if (seed.type === 'via') {
+        vias.add(seed.via);
+        queue.push({ kind: 'via', via: seed.via });
+    } else if (seed.type === 'shape') {
+        shapes.add(seed.shape);
+    } else {
+        standalonePads.add(seed.pad);
     }
     for (const track of tracks) queue.push({ kind: 'track', track });
     for (const via of vias) queue.push({ kind: 'via', via });
@@ -638,7 +671,8 @@ function _collectConnectedNet(app, seed) {
             for (const track of app.tracks || []) {
                 if (tracks.has(track)) continue;
                 for (const connection of track.padConnections?.values?.() || []) {
-                    if (connection.componentId === componentId && connection.pinNumber === pinNumber) {
+                    if (String(connection.componentId) === componentId
+                        && String(connection.pinNumber) === pinNumber) {
                         tracks.add(track);
                         queue.push({ kind: 'track', track });
                         break;
@@ -673,7 +707,7 @@ function _collectConnectedNet(app, seed) {
             }
         }
     }
-    return { tracks, vias, pads };
+    return { tracks, vias, pads, standalonePads, shapes };
 }
 
 function _posKey(x, y) {
@@ -685,7 +719,8 @@ function _posKey(x, y) {
 function _netForPad(app, componentId, pinNumber) {
     for (const entry of app.netlist || []) {
         for (const pin of entry.pins || []) {
-            if (pin.componentId === componentId && pin.pinNumber === pinNumber) {
+            if (String(pin.componentId) === String(componentId)
+                && String(pin.pinNumber) === String(pinNumber)) {
                 return entry.net || '';
             }
         }
@@ -701,8 +736,10 @@ function _netForPad(app, componentId, pinNumber) {
 function _drawSinglePadHighlight(app, componentId, pinNumber, cls, opacity) {
     const pl = app.placements?.get(componentId);
     if (!pl) return;
-    const off = pl.padOffsets?.find((p) => p.number === pinNumber);
-    const pos = pl.pads?.get(pinNumber);
+    const off = pl.padOffsets?.find((p) => String(p.number) === String(pinNumber));
+    const padId = off?.padId ?? pinNumber;
+    const pos = pl.pads?.get(padId)
+        || [...(pl.pads?.entries?.() || [])].find(([id]) => String(id) === String(padId))?.[1];
     if (!pos) return;
     const layers = off?.layer === 'bottom-copper'
         ? ['bottom-copper']
@@ -908,7 +945,7 @@ function _drawTrackHalo(app, track, cls = HALO_CLASS, opacity = HALO_OPACITY_SEL
     // instead of producing an outer glow that lags behind moves.
     const runs = buildTrackLayerRuns(track);
     for (const run of runs) {
-        const parent = app._getLayerGroup(run.layer);
+        const parent = app._getLayerGroup(cls === HOVER_CLASS ? run.layer : 'selection-overlay');
         if (!parent) continue;
         const poly = document.createElementNS(NS, 'polyline');
         poly.setAttribute('class', cls);
@@ -938,7 +975,7 @@ function _drawSegmentHalo(app, track, edgeId, cls = HALO_CLASS, opacity = HALO_O
     const b = track.nodes.get(e.to);
     if (!a || !b) return;
     const layerId = track.getEdgeLayer(edgeId) || 'top-copper';
-    const parent = app._getLayerGroup(layerId);
+    const parent = app._getLayerGroup(cls === HOVER_CLASS ? layerId : 'selection-overlay');
     if (parent) {
         const line = document.createElementNS(NS, 'polyline');
         line.setAttribute('class', cls);
@@ -1189,6 +1226,8 @@ function _showTrackProperties(app, track) {
     });
     const netEl = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropTrackNet'));
     const netMenuEl = /** @type {HTMLDetailsElement|null} */ (document.querySelector('.prop-net-menu'));
+    const netSeedEdgeId = hitTestTrackEdge(app, track, app._lastPointerWorld || {})?.edgeId
+        || track.edges.keys().next().value;
     netEl?.addEventListener('change', () => {
         const v = netEl.value.trim();
         if (v === baseline.net) return;
@@ -1199,7 +1238,7 @@ function _showTrackProperties(app, track) {
                 return;
             }
         }
-        if (_applyNetToBondedCopper(app, { track }, v)) {
+        if (_applyNetToBondedCopper(app, { track, edgeId: netSeedEdgeId }, v)) {
             baseline.net = v;
         } else {
             netEl.value = baseline.net; // refused — restore the field
@@ -1343,7 +1382,7 @@ function _showTrackSegmentProperties(app, track, edgeId) {
                 return;
             }
         }
-        if (_applyNetToBondedCopper(app, { track }, v)) {
+        if (_applyNetToBondedCopper(app, { track, edgeId }, v)) {
             baseline.net = v;
         } else {
             netEl.value = baseline.net;
@@ -1407,8 +1446,26 @@ function _showTrackSegmentProperties(app, track, edgeId) {
  *
  * @returns {boolean} true if applied (or a no-op), false if refused.
  */
-function _applyNetToBondedCopper(app, seed, v) {
-    const group = collectBondedCopper(app, seed);
+export function _applyNetToBondedCopper(app, seed, v) {
+    let replacement = null;
+    let group;
+    const components = seed.track?.connectedComponents?.() || [];
+    if (seed.edgeId && components.length > 1) {
+        const edge = seed.track.edges.get(seed.edgeId);
+        const selectedNodes = edge
+            ? components.find(nodes => nodes.has(edge.from) && nodes.has(edge.to))
+            : null;
+        if (selectedNodes) {
+            const parts = components.map(nodes => seed.track.extractSubgraph(nodes));
+            const selectedIndex = components.indexOf(selectedNodes);
+            const selectedTrack = parts[selectedIndex];
+            const tracks = (app.tracks || []).filter(track => track !== seed.track);
+            tracks.push(...parts);
+            group = collectBondedCopper({ ...app, tracks }, { track: selectedTrack });
+            replacement = { original: seed.track, parts, selectedTrack };
+        }
+    }
+    group ||= collectBondedCopper(app, seed);
     // Authoritative pad-net guard: if the bonded copper reaches a pad, that
     // pad's schematic net is the truth; renaming the copper to something
     // else would contradict it.
@@ -1423,13 +1480,20 @@ function _applyNetToBondedCopper(app, seed, v) {
         return false;
     }
     const cmds = [];
+    if (replacement) {
+        replacement.selectedTrack.net = v;
+        cmds.push(new RemoveTrackCommand(app, replacement.original));
+        for (const part of replacement.parts) cmds.push(new AddTrackCommand(app, part));
+    }
     for (const t of group.tracks) {
+        if (t === replacement?.selectedTrack) continue;
         if ((t.net || '') !== v) cmds.push(new ModifyTrackCommand(app, t, { net: t.net || '' }, { net: v }));
     }
     for (const vi of group.vias) {
         if ((vi.net || '') !== v) cmds.push(new ModifyViaCommand(app, vi, { net: vi.net || '' }, { net: v }));
     }
     if (cmds.length) {
+        if (replacement) clearTrackSelection(app);
         app.history?.execute(cmds.length === 1 ? cmds[0] : new CompoundCommand(cmds));
     }
     return true;
@@ -1468,6 +1532,55 @@ function _applyNetToSelectedVias(app, vias, v) {
             before: { net: bondedVia.net || '' },
             after: { net: v },
         }));
+    if (viaChanges.length === 1) {
+        const change = viaChanges[0];
+        commands.push(new ModifyViaCommand(app, change.via, change.before, change.after));
+    } else if (viaChanges.length > 1) {
+        commands.push(new ModifyViasCommand(app, viaChanges));
+    }
+    if (commands.length) {
+        app.history?.execute(commands.length === 1 ? commands[0] : new CompoundCommand(commands));
+    }
+    return true;
+}
+
+/** Apply a net to the union of copper bonded to selected tracks and vias. */
+export function applyNetToCopperSelection(app, entries, v, additionalCommands = []) {
+    const tracks = new Set();
+    const vias = new Set();
+    const padNets = new Set();
+    const selectedPadKeys = new Set(entries
+        .filter(entry => entry.kind === 'pad')
+        .map(entry => `null|${entry.object.id}`));
+    for (const entry of entries) {
+        const seed = entry.kind === 'track' ? { track: entry.object }
+            : entry.kind === 'via' ? { via: entry.object } : null;
+        if (!seed) continue;
+        const group = collectBondedCopper(app, seed);
+        for (const track of group.tracks) tracks.add(track);
+        for (const via of group.vias) vias.add(via);
+        for (const [padKey, padNet] of group.padNetByKey) {
+            if (padNet && !selectedPadKeys.has(padKey)) padNets.add(padNet);
+        }
+    }
+    const conflict = [...padNets].find(padNet => padNet !== v);
+    if (conflict !== undefined) {
+        showAlert(
+            `This copper is connected to a pad on net "${conflict}" (assigned by the schematic). ` +
+            'Rename the net in the schematic instead of editing the selection.',
+            { title: 'Net Assigned by Schematic' },
+        );
+        return false;
+    }
+    const commands = [...additionalCommands];
+    for (const track of tracks) {
+        if ((track.net || '') !== v) {
+            commands.push(new ModifyTrackCommand(app, track, { net: track.net || '' }, { net: v }));
+        }
+    }
+    const viaChanges = [...vias]
+        .filter(via => (via.net || '') !== v)
+        .map(via => ({ via, before: { net: via.net || '' }, after: { net: v } }));
     if (viaChanges.length === 1) {
         const change = viaChanges[0];
         commands.push(new ModifyViaCommand(app, change.via, change.before, change.after));

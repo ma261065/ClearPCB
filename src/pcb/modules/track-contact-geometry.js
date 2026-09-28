@@ -1,6 +1,6 @@
 import { resolveBoardShapeGeometry } from './board-shape-geometry.js';
-import { pictureTriangles } from './picture-raster.js';
 import { distanceToSegment, pointInPolygon } from '../../core/geometry.js';
+import { spatialCrossPairs } from '../../core/spatial-pairs.js';
 import earcut from '../../../assets/vendor/earcut.module.js';
 
 const regionShapes = new WeakMap();
@@ -18,6 +18,11 @@ export function copperRegionShape(region) {
         regionShapes.set(region, shape);
     }
     return shape;
+}
+
+export function copperSegmentShape(segment) {
+    return { kind: 'line', points: [segment.start, segment.end], layer: segment.layer,
+        lineWidth: segment.width, copperSegment: segment };
 }
 
 function trianglesForRegion(region) {
@@ -42,7 +47,7 @@ function trianglesForRegion(region) {
 
 const cache = new WeakMap();
 const geometryKeys = ['kind', 'x', 'y', 'radius', 'start', 'end', 'bulge', 'points',
-    'lineWidth', 'segmentWidths', 'filled', 'cornerRadius', 'nodeCornerRadii', 'copperMode', 'layer'];
+    'lineWidth', 'segmentWidths', 'segmentBulges', 'filled', 'cornerRadius', 'nodeCornerRadii', 'copperMode', 'layer', 'copperSegment'];
 
 function equalInput(current, saved) {
     if (Object.is(current, saved)) return true;
@@ -60,8 +65,15 @@ export function resolveTrackContactGeometry(shape) {
     const previous = cache.get(shape);
     if (previous && geometryKeys.every((key) => equalInput(shape[key], previous.inputs[key]))) return previous;
     const inputs = structuredClone(Object.fromEntries(geometryKeys.map((key) => [key, shape[key]])));
-    const geometry = resolveBoardShapeGeometry(shape);
-    if (shape.region) geometry.lineWidth = 0;
+    // Track widths are physical values, not generic-shape UI stroke defaults.
+    const segment = shape.copperSegment;
+    const geometry = segment ? {
+        centerline: [segment.start, segment.end], areaOutline: [], pathClosed: false,
+        filled: false, lineWidth: segment.width, circle: null,
+        strokeSegments: [{ start: segment.start, end: segment.end, lineWidth: segment.width }],
+    } : resolveBoardShapeGeometry(shape);
+    // Pictures use their transformed frame as solid logical copper, not pixels.
+    if (shape.region || shape.kind === 'image') geometry.lineWidth = 0;
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
     for (const point of geometry.centerline) {
         minX = Math.min(minX, point.x); minY = Math.min(minY, point.y);
@@ -90,12 +102,29 @@ export function copperShapesTouch(first, second) {
     if (firstBounds.maxX + tolerance < secondBounds.minX || secondBounds.maxX + tolerance < firstBounds.minX
         || firstBounds.maxY + tolerance < secondBounds.minY || secondBounds.maxY + tolerance < firstBounds.minY) return false;
     const firstGeometry = firstContact.geometry, secondGeometry = secondContact.geometry;
-    const regions = (shape, geometry) => shape.kind === 'image' || shape.region
-        ? (shape.region ? trianglesForRegion(shape.region) : pictureTriangles(shape))
-            .map(contour => ({ ...geometry, centerline: contour, areaOutline: contour, lineWidth: 0 }))
-        : [geometry];
-    return regions(first, firstGeometry).some(firstRegion =>
-        regions(second, secondGeometry).some(secondRegion => copperGeometryTouches(firstRegion, secondRegion)));
+    if (!first.region && !second.region) {
+        return copperGeometryTouches(firstGeometry, secondGeometry);
+    }
+    const regions = (shape, contact) => {
+        if (!shape.region) return [contact];
+        return trianglesForRegion(shape.region).map(contour => ({
+            // Copy only the contact geometry; spreading the full geometry would
+            // evaluate its expensive physicalContours getter for every triangle.
+            geometry: { centerline: contour, areaOutline: contour, lineWidth: 0,
+                filled: true, pathClosed: true, strokeSegments: [], circle: null },
+            bounds: {
+                minX: Math.min(...contour.map(point => point.x)),
+                minY: Math.min(...contour.map(point => point.y)),
+                maxX: Math.max(...contour.map(point => point.x)),
+                maxY: Math.max(...contour.map(point => point.y)),
+            },
+        }));
+    };
+    for (const [a, b] of spatialCrossPairs(regions(first, firstContact), regions(second, secondContact),
+        contact => contact.bounds, tolerance)) {
+        if (copperGeometryTouches(a.geometry, b.geometry)) return true;
+    }
+    return false;
 }
 
 function copperGeometryTouches(firstGeometry, secondGeometry) {
@@ -119,7 +148,7 @@ function copperGeometryTouches(firstGeometry, secondGeometry) {
                 && separation + otherOuter + tolerance >= innerRadius
                 && separation + outerRadius + tolerance >= otherInner;
         }
-        if (other.filled && pointInPolygon(circle, other.areaOutline)) return true;
+        if (other.filled && pointInPolygon({ x: circle.x + outerRadius, y: circle.y }, other.areaOutline)) return true;
         return segments(other).some((segment) => {
             const nearest = distanceToSegment(circle, segment.start, segment.end);
             const farthest = Math.max(Math.hypot(circle.x - segment.start.x, circle.y - segment.start.y),

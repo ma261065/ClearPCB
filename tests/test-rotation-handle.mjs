@@ -46,6 +46,8 @@ const { CommandHistory } = await import('../src/core/CommandHistory.js');
 const { pictureShape } = await import('../src/pcb/modules/picture-raster.js');
 const { createBoardShapeSelectionAdapter } = await import('../src/pcb/modules/board-shapes.js');
 const { createPcbTextSelectionAdapter } = await import('../src/pcb/modules/pcb-text-selection.js');
+const { Pad } = await import('../src/shapes/pad.js');
+const { createPadSelectionAdapter } = await import('../src/pcb/modules/pad-selection.js');
 const { setPcbSelection, getPcbSelection, isPcbSelected } = await import('../src/pcb/modules/selection-registry.js');
 const { MoveTextCommand } = await import('../src/pcb/modules/text-commands.js');
 const { pcbTextBounds } = await import('../src/pcb/modules/pcb-text.js');
@@ -165,6 +167,35 @@ try {
                 assert.equal(app.viewport.svg.style.cursor, 'default', 'Release/cancel restores the normal cursor');
                 cancelPictureCopperRefresh(app);
             }
+            const selectedObject = { kind: kind === 'image' ? 'shape' : 'text', object };
+            const pad = new Pad({ x: 1000, y: 1000, shape: 'rectangle' });
+            app.pads = [pad];
+            const padAdapter = createPadSelectionAdapter(app, pad, `pad:${pad.id}`);
+            const roundPad = new Pad({ x: 2000, y: 2000, shape: 'round' });
+            app.pads.push(roundPad);
+            for (const other of [pad, roundPad]) {
+                setPcbSelection(app, [selectedObject, { kind: 'pad', object: other }]);
+                renderPcbSelectionAnchors(app);
+                assert.equal(visibleRotationParts().length, 0,
+                    'Multi-selection hides rotation controls, even when only one object can rotate');
+                const originalAnchor = adapter.getAnchors().find(handle => handle.id === 'rotate');
+                assert.equal(hitTestPcbSelectionAnchor(app, originalAnchor, [selectedObject.kind]), null,
+                    'Kind-filtered hit tests cannot activate hidden multi-selection rotation controls');
+                const padAnchor = padAdapter.getAnchors()[0];
+                assert.equal(hitTestPcbSelectionAnchor(app, padAnchor), null);
+                if (kind === 'image') {
+                    const resizeAnchor = adapter.getAnchors().find(handle => handle.id !== 'rotate' && !handle.hidden);
+                    assert.ok(hitTestPcbSelectionAnchor(app, resizeAnchor),
+                        'Image resize handles remain available');
+                }
+            }
+            setPcbSelection(app, [{ kind: 'pad', object: pad }]);
+            renderPcbSelectionAnchors(app);
+            assert.equal(visibleRotationParts().length, 2, 'Single Pad selection restores its rotation control');
+            assert.equal(hitTestPcbSelectionAnchor(app, padAdapter.getAnchors()[0])?.anchorId, 'rotate');
+            setPcbSelection(app, [selectedObject]);
+            renderPcbSelectionAnchors(app);
+            assert.equal(visibleRotationParts().length, 2, 'Returning to a single image/text restores rotation');
         }
     }
     const source = readFileSync(new URL('../src/ui/PCBApp.js', import.meta.url), 'utf8').replace(/\r\n/g, '\n');

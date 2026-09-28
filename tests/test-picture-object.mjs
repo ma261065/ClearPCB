@@ -1,5 +1,12 @@
 import assert from 'node:assert/strict';
-import { pictureShape, pictureContours, resizePicturePoints, validatePictureArtwork, MAX_PICTURE_REGIONS } from '../src/pcb/modules/picture-raster.js';
+import {
+    pictureShape,
+    pictureContours,
+    resizePicturePoints,
+    validatePictureArtwork,
+    validatePicturePoints,
+    MAX_PICTURE_REGIONS,
+} from '../src/pcb/modules/picture-raster.js';
 
 const raster = { width: 4, height: 2, rectangles: [{ x: 0, y: 0, width: 1, height: 2 }, { x: 3, y: 0, width: 1, height: 2 }] };
 const image = pictureShape(raster, { widthMm: 4, layer: 'top-silk' });
@@ -44,6 +51,27 @@ const loaded = { boardShapes: [], _shapeIdCounter: 1 };
 loadBoardShapes(loaded, saved, { render: false, strict: true });
 assert.deepEqual(serializeBoardShapes(loaded), saved);
 assert.equal(loaded.boardShapes.length, 1);
+const angle = 37 * Math.PI / 180;
+const rotated = image.points.map(point => ({
+    x: 12.3456789 + point.x * Math.cos(angle) - point.y * Math.sin(angle),
+    y: -9.8765432 + point.x * Math.sin(angle) + point.y * Math.cos(angle),
+}));
+image.points = resizePicturePoints(rotated, 2, { x: rotated[2].x + 3.1415926, y: rotated[2].y + 2.7182818 });
+const transformedSaved = serializeBoardShapes({ boardShapes: [image] });
+assert.deepEqual(transformedSaved[0].points, image.points, 'Autosave preserves exact transformed image bounds');
+const transformedLoaded = { boardShapes: [], _shapeIdCounter: 1 };
+loadBoardShapes(transformedLoaded, transformedSaved, { render: false, strict: true });
+assert.deepEqual(serializeBoardShapes(transformedLoaded), transformedSaved,
+    'Exact transformed image bounds round-trip unchanged');
+const legacyRounded = structuredClone(transformedSaved);
+legacyRounded[0].points = legacyRounded[0].points.map(point => ({
+    x: Math.round(point.x * 10000) / 10000,
+    y: Math.round(point.y * 10000) / 10000,
+}));
+const recovered = { boardShapes: [], _shapeIdCounter: 1 };
+loadBoardShapes(recovered, legacyRounded, { render: false, strict: true });
+assert.doesNotThrow(() => validatePicturePoints(recovered.boardShapes[0].points),
+    'Rounded legacy autosaves recover to exact rectangular bounds');
 assert.throws(() => loadBoardShapes({ boardShapes: [] }, [{ ...saved[0], artwork: null }], { render: false, strict: true }));
 assert.throws(() => loadBoardShapes({ boardShapes: [] }, [{ ...saved[0], points: [{ x: Infinity, y: 0 }, ...image.points.slice(1)] }], { render: false, strict: true }));
 assert.throws(() => loadBoardShapes({ boardShapes: [] }, [{ ...saved[0], points: image.points.map(() => ({ x: 0, y: 0 })) }], { render: false, strict: true }));

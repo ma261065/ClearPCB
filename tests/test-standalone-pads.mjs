@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { Pad } from '../src/shapes/pad.js';
+import { Track } from '../src/shapes/track.js';
 import { padBounds, padCopperPathD, padHitTest, padOutline, renderPad } from '../src/pcb/modules/pad.js';
 import { createPadSelectionAdapter } from '../src/pcb/modules/pad-selection.js';
 import { renderTrack, renderVia, viaCopperPathD } from '../src/pcb/modules/track-render.js';
@@ -38,6 +39,16 @@ assert.ok(
     'round Pad lock sits beside its actual outline instead of its distant bounding-box corner',
 );
 const movingPad = new Pad({ x: 0, y: 0, shape: 'round' });
+assert.deepEqual(
+    snapToGridLines({ x: 0.5, y: 0.5 }, 1, 4),
+    { x: 0.5, y: 0.5, snappedX: false, snappedY: false },
+    'magnetic grid snapping retains a free-movement region when grid lines are close on screen',
+);
+assert.deepEqual(
+    snapToGridLines({ x: 0.2, y: 0.8 }, 1, 4),
+    { x: 0, y: 1, snappedX: true, snappedY: true },
+    'magnetic grid snapping still attracts points near grid lines at low zoom',
+);
 const movingViewport = {
     scale: 20, gridVisible: true, snapToGrid: true, shiftHeld: false,
     getSnappedPosition(point) {
@@ -120,7 +131,10 @@ assert.doesNotThrow(() => renderTrack({ edges: new Map(), _svgElements: null }, 
     'track rendering has no stale Via drill-colour dependency');
 const renderGroups = new Map([
     ['top-copper', new FakeSvgElement('g')],
+    ['top-copper-track-labels', new FakeSvgElement('g')],
     ['bottom-copper', new FakeSvgElement('g')],
+    ['top-copper-pad-drills', new FakeSvgElement('g')],
+    ['bottom-copper-pad-drills', new FakeSvgElement('g')],
     ['hole', new FakeSvgElement('g')],
 ]);
 const renderedPad = new Pad({
@@ -134,7 +148,15 @@ for (const layer of ['top-copper', 'bottom-copper']) {
     assert.equal(copperPath.getAttribute('fill-opacity'), '1');
     assert.match(copperPath.getAttribute('d'), /A0\.5,0\.5 0 1 0/,
         'Pad copper contains a transparent circular drill cutout');
+    const drill = renderGroups.get(`${layer}-pad-drills`).children[0];
+    assert.equal(drill.getAttribute('fill'), 'var(--pcb-drill, #1a1a2e)',
+        'Pad drill masks underlying normal and hover copper just like a Via');
+    assert.equal(drill.getAttribute('r'), '0.5');
+    assert.equal(drill.dataset.padId, renderedPad.id);
 }
+renderPad(renderedPad, layer => renderGroups.get(layer));
+assert.equal(renderGroups.get('top-copper-pad-drills').children.length, 1,
+    're-render replaces the old Pad drill mask');
 assert.equal(renderGroups.get('hole').children.length, 0,
     'Pad drills are not covered by an opaque hole-layer disc');
 assert.match(padCopperPathD(renderedPad), /^M.*Z M|^M.*ZM/,
@@ -146,9 +168,23 @@ assert.equal(viaLayer.children[0].getAttribute('fill-opacity'), '1',
     'Via copper rings render fully opaque');
 assert.equal(viaLayer.children[0].localName, 'path');
 assert.equal(viaLayer.children[0].getAttribute('fill-rule'), 'evenodd');
-assert.equal(viaLayer.children.length, 1, 'Via drills are not covered by an opaque disc');
+assert.equal(viaLayer.children[1].localName, 'circle');
+assert.equal(viaLayer.children[1].getAttribute('r'), '0.25');
+assert.equal(viaLayer.children[1].getAttribute('fill'), 'var(--pcb-drill, #1a1a2e)',
+    'Via drill masks tracks rendered beneath the bore');
 assert.match(viaCopperPathD({ x: 3, y: 4, diameter: 1, drill: 0.5 }),
     /A0\.25,0\.25 0 1 0/, 'Via copper path contains a transparent drill cutout');
+const labelledTrack = new Track({
+    points: [{ x: 0, y: 0 }, { x: 10, y: 0 }],
+    layer: 'top-copper',
+    width: 0.4,
+    net: 'GND',
+});
+renderTrack(labelledTrack, layer => renderGroups.get(layer));
+assert.equal(renderGroups.get('top-copper').children.some(element => element.localName === 'text'), false,
+    'Track labels are not left beneath vias');
+assert.equal(renderGroups.get('top-copper-track-labels').children.some(element => element.localName === 'text'), true,
+    'Track labels render above vias');
 const viaLock = createViaSelectionAdapter({ viewport: { scale: 20 } },
     { id: 'via_lock', x: 3, y: 4, diameter: 1 }, 'via:lock')
     .getLockPosition({ x: 3.5, y: 4 }, 20);

@@ -35,6 +35,7 @@ export function bindMouseEvents(app) {
 
     // mousedown
     svg.addEventListener('mousedown', (e) => {
+        app.viewport.onInteractionStart?.('pointer');
         if (e.button === 0) {
             segmentClickHandled = false;
             app._pendingShapeSegmentToggle = null;

@@ -42,7 +42,6 @@ import {
     COLLINEAR_SNAP_SCREEN_PX,
     COLLINEAR_GLOW_ANGLE_TOL,
     collectBondedCopper,
-    _padNet,
 } from './track-draw.js';
 import { refreshTrackSelectionHalo } from './track-select.js';
 import { MoveVertexCommand, MoveViaCommand, CompoundCommand, ModifyTrackGraphCommand, RemoveTrackCommand, AddViaCommand, AddTrackCommand, ModifyTrackCommand, ModifyViaCommand } from './track-commands.js';
@@ -50,8 +49,13 @@ import { pointsCollinear, collinearSnap } from '../../core/geometry.js';
 import { showAlert } from '../../ui/modules/modal.js';
 import { Via } from '../../shapes/via.js';
 import { Track } from '../../shapes/track.js';
-import { isLayerLocked, isOverlayVisible } from './layers.js';
+import { isLayerLocked } from './layers.js';
 import { getPcbSelection } from './selection-registry.js';
+import { padLayers, renderPad } from './pad.js';
+import { MovePadCommand, ModifyPadCommand } from './pad-commands.js';
+import { captureBoardShapeState } from './board-shapes.js';
+import { ModifyBoardShapeCommand } from './shape-commands.js';
+import { ModifyFillCommand } from './copper-fill-commands.js';
 import { snapPathTranslation, beginPathSplit } from './path-edit.js';
 import { createTrackSelectionAdapter } from './track-select.js';
 import { closestPointOnArcEdge } from '../../shapes/arc-edge.js';
@@ -168,12 +172,14 @@ const SPLIT_ENDPOINT_EPS = 0.05;
  *
  * @returns {{track:object, edgeId:string, edge:object, px:number, py:number}|null}
  */
-export function findSplittableTrackEdge(app, worldPos, pxTol = 6) {
+export function findSplittableTrackEdge(app, worldPos, pxTol = 6, options = {}) {
     const scale = app.viewport?.scale || 1;
     let best = null;
     let bestD = Infinity;
     for (const t of (app.tracks || [])) {
+        if (options.excludeTracks?.has(t)) continue;
         for (const [eid, e] of t.edges) {
+            if (options.layers && !options.layers.includes(t.getEdgeLayer(eid))) continue;
             const a = t.nodes.get(e.from);
             const b = t.nodes.get(e.to);
             if (!a || !b) continue;
@@ -189,6 +195,28 @@ export function findSplittableTrackEdge(app, worldPos, pxTol = 6) {
         }
     }
     return best;
+}
+
+function _findNearbyVia(app, worldPos, excludeVia = null) {
+    const tolerance = 6 / (app.viewport?.scale || 1);
+    let best = null;
+    let bestDistance = Infinity;
+    for (const via of app.vias || []) {
+        if (via === excludeVia || via.visible === false) continue;
+        const distance = Math.hypot(worldPos.x - via.x, worldPos.y - via.y);
+        if (distance <= Math.max(tolerance, (via.diameter || 0.6) / 2)
+            && distance < bestDistance) {
+            best = via;
+            bestDistance = distance;
+        }
+    }
+    return best;
+}
+
+function _showTrackViaNetConflict(app, trackNet, viaNet, kind = 'via') {
+    const message = `Cannot connect track net "${trackNet}" to ${kind} net "${viaNet}".`;
+    if (app._alert) app._alert(message, { title: 'Net Conflict' });
+    else showAlert(message, { title: 'Net Conflict' });
 }
 
 /**
@@ -498,6 +526,81 @@ function _findExistingMergeNode(app, x, y, net, layer, exclude) {
     return null;
 }
 
+function _bondedNets(bonded, shapes = bonded.shapes) {
+    return new Set([...bonded.tracks, ...bonded.vias, ...shapes].map(object => object.net || '')
+        .concat([...bonded.padNets]).filter(Boolean));
+}
+
+function _showBondedNetConflict(app, nets) {
+    const message = `Cannot connect different nets: ${[...nets].map(net => `"${net}"`).join(', ')}.`;
+    if (app._alert) app._alert(message);
+    else showAlert(message, { title: 'Net Conflict' });
+}
+
+function _buildCopperNetCommands(app, bonded, net, shapes = bonded.shapes, includeTracks = true) {
+    const commands = [];
+    if (!net) return commands;
+    if (includeTracks) {
+        for (const track of bonded.tracks) {
+            if (track.net) continue;
+            const nodes = bonded.trackNodes.get(track);
+            if (nodes.size === track.nodes.size) {
+                commands.push(new ModifyTrackCommand(app, track, { net: track.net }, { net }));
+            } else {
+                const before = track.captureState();
+                const after = track.extractSubgraph(nodes).captureState();
+                after.net = net;
+                commands.push(new ModifyTrackGraphCommand(app, track, before, after));
+                for (const component of track.connectedComponents()) {
+                    if (![...component].some(node => nodes.has(node))) {
+                        commands.push(new AddTrackCommand(app, track.extractSubgraph(component)));
+                    }
+                }
+            }
+        }
+    }
+    for (const via of bonded.vias) {
+        if (!via.net) commands.push(new ModifyViaCommand(app, via, { net: via.net }, { net }));
+    }
+    for (const pad of app.pads || []) {
+        if (pad.net || !bonded.padKeys.has(`null|${pad.id}`)) continue;
+        const before = pad.captureState();
+        commands.push(new ModifyPadCommand(app, pad, before, { ...before, net }));
+    }
+    for (const shape of shapes) {
+        if (shape.net) continue;
+        if (shape.type === 'fill') {
+            const before = shape.captureState();
+            commands.push(new ModifyFillCommand(app, shape, before, { ...before, net }));
+        } else {
+            const before = captureBoardShapeState(shape);
+            commands.push(new ModifyBoardShapeCommand(app, shape, before, { ...before, net }));
+        }
+    }
+    return commands;
+}
+
+/** Capture Net edits after the move/merge so snapshots reference the final topology. */
+class AdoptDroppedCopperNetCommand {
+    constructor(app, track, nodeIds, net) {
+        this.app = app;
+        this.track = track;
+        this.nodeIds = nodeIds;
+        this.net = net;
+        this.command = null;
+    }
+    execute() {
+        if (!this.command) {
+            const nodeId = [...this.nodeIds].find(id => this.track.nodes.has(id));
+            const bonded = collectBondedCopper(this.app, { track: this.track, nodeId },
+                { includeShapes: true, newTracks: new Set([this.track]) });
+            this.command = new CompoundCommand(_buildCopperNetCommands(this.app, bonded, this.net));
+        }
+        this.command.execute();
+    }
+    undo() { this.command.undo(); }
+}
+
 /**
  * Build the history command(s) that commit freshly drawn tracks/vias,
  * fusing any drawn endpoint that lands on an existing track's node (same
@@ -511,18 +614,44 @@ function _findExistingMergeNode(app, x, y, net, layer, exclude) {
  * @param {object} app
  * @param {object|object[]} newTracks freshly built (uncommitted) tracks
  * @param {object[]} [newVias] standalone vias produced alongside the draw
- * @returns {object|null} a single Command, a CompoundCommand, or null when
- *   there is nothing to commit.
+ * @param {object[]} [destinationShapes] Explicit destination copper contacts.
+ * @returns {object|null|false} A command, null when empty, or false on a Net conflict.
  */
-export function buildDrawnTrackCommands(app, newTracks, newVias = []) {
+export function buildDrawnTrackCommands(app, newTracks, newVias = [], destinationShapes = []) {
     const drawn = Array.isArray(newTracks) ? newTracks.slice() : [newTracks];
     const vias = newVias || [];
     const drawnSet = new Set(drawn);
+    const bonded = collectBondedCopper({
+        ...app, tracks: [...(app.tracks || []), ...drawn], vias: [...(app.vias || []), ...vias],
+    }, { tracks: drawnSet }, { includeShapes: true, newTracks: drawnSet });
+    const shapes = new Set([...bonded.shapes, ...destinationShapes]);
+    const nets = _bondedNets(bonded, shapes);
+    if (nets.size > 1) {
+        _showBondedNetConflict(app, nets);
+        return false;
+    }
+    const net = [...nets][0] || '';
 
     const beforeStates = new Map();      // existing track -> pre-merge snapshot
     const removedExisting = new Set();   // existing tracks emptied by absorb
     const independentAdds = [];          // drawn tracks with no existing join
     const ensureBefore = (t) => { if (!beforeStates.has(t)) beforeStates.set(t, t.captureState()); };
+    if (net) {
+        for (const track of bonded.tracks) {
+            if (track.net || drawnSet.has(track)) continue;
+            ensureBefore(track);
+            const nodes = bonded.trackNodes.get(track);
+            if (nodes.size < track.nodes.size) {
+                for (const component of track.connectedComponents()) {
+                    if (![...component].some(node => nodes.has(node))) independentAdds.push(track.extractSubgraph(component));
+                }
+                track.applyState(track.extractSubgraph(nodes).captureState());
+            }
+            track.net = net;
+        }
+        for (const track of drawn) track.net = net;
+        for (const via of vias) via.net = net;
+    }
 
     for (const nt of drawn) {
         // Endpoints (degree-1 nodes) of the drawn track, with their layer.
@@ -552,6 +681,7 @@ export function buildDrawnTrackCommands(app, newTracks, newVias = []) {
                 const remapEx = primary.absorb(target.track);
                 if (!primary.net && target.track.net) primary.net = target.track.net;
                 removedExisting.add(target.track);
+                drawnSet.add(target.track);
                 targetNodeId = remapEx.get(target.nodeId) ?? targetNodeId;
             }
             const drawnNodeId = remapNt.get(nodeId);
@@ -563,16 +693,17 @@ export function buildDrawnTrackCommands(app, newTracks, newVias = []) {
 
     const cmds = [];
     for (const [existing, before] of beforeStates) {
+        const after = existing.captureState();
+        existing.applyState(before);
         if (removedExisting.has(existing)) {
             cmds.push(new RemoveTrackCommand(app, existing));
         } else {
-            const after = existing.captureState();
-            existing.applyState(before);
             cmds.push(new ModifyTrackGraphCommand(app, existing, before, after));
         }
     }
     for (const nt of independentAdds) cmds.push(new AddTrackCommand(app, nt));
     for (const v of vias) cmds.push(new AddViaCommand(app, v));
+    cmds.push(..._buildCopperNetCommands(app, bonded, net, shapes, false));
 
     if (cmds.length === 0) return null;
     return cmds.length === 1 ? cmds[0] : new CompoundCommand(cmds);
@@ -763,42 +894,36 @@ export function reconcileCopperRegion(app, seedTrack) {
     return { removeTracks: [...regionTracks], addTracks, removeVias, addVias };
 }
 
+function _droppedNodeTarget(app, drag) {
+    const nd = drag.nodes[0];
+    const track = drag.track;
+    const n = track.nodes.get(nd.nodeId);
+    if (!n) return null;
+    // Prefer the node the cursor actually snapped onto during the drag (the
+    // yellow target). Coincidence re-detection is a fallback: with the
+    // screen-pixel node-snap band, a drop can land visually-on but not
+    // bit-exactly on the target, so coincidence alone would miss the merge.
+    if (drag.snapTargetNode
+        && !(drag.snapTargetNode.track === track && drag.snapTargetNode.nodeId === nd.nodeId)
+        && app.tracks?.includes(drag.snapTargetNode.track)
+        && drag.snapTargetNode.track.nodes?.has(drag.snapTargetNode.nodeId)) {
+        return drag.snapTargetNode;
+    }
+    return _findCoincidentNode(app, track, nd.nodeId, n.x, n.y);
+}
+
 /**
- * If the just-dropped single node landed on top of another node, merge
- * the two into one (like schematic wires). Tracks on conflicting nets
- * (two different non-empty net names) are not merged — an error dialog
- * is shown and the node snaps back.
- *
- * MODEL INVARIANT: a graph node belongs to exactly one copper layer and
- * never carries edges of more than one layer. A same-layer drop fuses the
- * two nodes into one continuous trace. A CROSS-layer drop instead keeps
- * the two single-layer nodes DISTINCT but coincident and bonds them with
- * a via — mirroring the split-path representation (a layer transition is
- * always two coincident single-layer nodes + a Via). This avoids
- * overloading one node with both layers, which previously made
- * layer-aware segment dragging move the wrong copper.
- *
- * Returns true if the drop was handled here (merged or rejected), false
- * to fall through to a normal move.
+ * Same-layer drops fuse nodes; cross-layer drops keep distinct coincident
+ * nodes joined by a Via, preserving the single-layer graph-node invariant.
+ * Returns true when merged or rejected, false to fall through to a move.
  */
-function _tryMergeDroppedNode(app, drag) {
+function _tryMergeDroppedNode(app, drag, netCommand = null) {
     const nd = drag.nodes[0];
     const track = drag.track;
     const n = track.nodes.get(nd.nodeId);
     if (!n) return false;
     let dropX = n.x, dropY = n.y;
-    // Prefer the node the cursor actually snapped onto during the drag (the
-    // yellow target). Coincidence re-detection is a fallback: with the
-    // screen-pixel node-snap band, a drop can land visually-on but not
-    // bit-exactly on the target, so coincidence alone would miss the merge.
-    let target = null;
-    if (drag.snapTargetNode
-        && !(drag.snapTargetNode.track === track && drag.snapTargetNode.nodeId === nd.nodeId)
-        && app.tracks?.includes(drag.snapTargetNode.track)
-        && drag.snapTargetNode.track.nodes?.has(drag.snapTargetNode.nodeId)) {
-        target = drag.snapTargetNode;
-    }
-    if (!target) target = _findCoincidentNode(app, track, nd.nodeId, dropX, dropY);
+    const target = _droppedNodeTarget(app, drag);
     if (!target) return false;
     // Pull the dragged node exactly onto the target so the fused geometry is
     // bit-coincident regardless of the release position.
@@ -873,6 +998,7 @@ function _tryMergeDroppedNode(app, drag) {
         cmds.push(new RemoveTrackCommand(app, target.track));
         cmds.push(new ModifyTrackGraphCommand(app, track, before, after));
     }
+    if (netCommand) cmds.push(netCommand);
     app.history.execute(cmds.length === 1 ? cmds[0] : new CompoundCommand(cmds));
     refreshTrackSelectionHalo(app);
     reconcileRatsnest(app);
@@ -1051,13 +1177,19 @@ export function updateVertexDrag(app, worldPos) {
         else if (e.to === draggedId) neighborIds.add(e.from);
     }
     const snap = resolveTrackSnap(app, worldPos, {
+        layer: drag.track.getEdgeLayer(drag.track.incidentEdges(draggedId)[0]?.edgeId) || drag.track.layer,
         excludeNode: (track, nid) =>
             track === drag.track && (nid === draggedId || neighborIds.has(nid)),
     });
     const n = drag.track.nodes.get(nd.nodeId);
     if (!n) return;
-    n.x = snap.x;
-    n.y = snap.y;
+    const snapVia = app.viewport?.shiftHeld
+        || snap.snapType === 'pad' || snap.snapType === 'track-node'
+        ? null : _findNearbyVia(app, worldPos);
+    n.x = snapVia ? snapVia.x : snap.x;
+    n.y = snapVia ? snapVia.y : snap.y;
+    drag.snapTargetVia = snapVia || snap.pad?.standalonePad || null;
+    drag.snapTargetKind = snap.pad?.standalonePad ? 'pad' : 'via';
 
     // Remember the exact node the cursor snapped onto, so the drop merges
     // into THAT node even though the smaller node-snap band means the
@@ -1067,8 +1199,8 @@ export function updateVertexDrag(app, worldPos) {
         : null;
 
     // Yellow target circle when locked onto a hard snap (pad / track node).
-    if (snap.snapType === 'pad' || snap.snapType === 'track-node') {
-        showTrackSnapMarker(app, { x: snap.x, y: snap.y });
+    if (snap.snapType === 'pad' || snap.snapType === 'track-node' || snapVia) {
+        showTrackSnapMarker(app, { x: n.x, y: n.y });
     } else {
         clearTrackSnapMarker(app);
     }
@@ -1077,7 +1209,8 @@ export function updateVertexDrag(app, worldPos) {
     // band, lock the node exactly onto that H/V/45° axis so a drop matches
     // the glow (no hysteresis gap). Pad / track-node snaps are hard
     // targets and take priority over axis alignment.
-    if (!app.viewport?.shiftHeld && snap.snapType !== 'pad' && snap.snapType !== 'track-node') {
+    if (!app.viewport?.shiftHeld && snap.snapType !== 'pad'
+        && snap.snapType !== 'track-node' && !snapVia) {
         const neighbours = [];
         for (const { otherNode } of drag.track.incidentEdges(nd.nodeId)) {
             const nb = drag.track.nodes.get(otherNode);
@@ -1113,7 +1246,7 @@ export function updateVertexDrag(app, worldPos) {
     app.viewport?.setCrosshair({ x: n.x, y: n.y });
 
     // If the user landed on a pad, record/replace the pad connection.
-    if (snap.snapType === 'pad' && snap.pad) {
+    if (snap.snapType === 'pad' && snap.pad?.componentId) {
         drag.track.padConnections.set(nd.nodeId, {
             componentId: snap.pad.componentId,
             pinNumber: snap.pad.pinNumber,
@@ -1130,12 +1263,12 @@ export function updateVertexDrag(app, worldPos) {
     reconcileRatsnest(app);
 
     // Live guide from the dragged node to the nearest existing copper on this
-    // track's net that it isn't already connected to. Only shown when the
-    // ratlines overlay is HIDDEN — when it's visible the ratsnest already
-    // draws this connection. The track's bonded cluster (captured at drag
+    // track's net, regardless of the static Ratlines toggle.
+    // The track's bonded cluster (captured at drag
     // start) is excluded so the guide skips copper the far end already reaches.
-    if (drag.track.net && !isOverlayVisible('ratlines')) {
+    if (drag.track.net) {
         const near = nearestPointOnNet(app, drag.track.net, { x: n.x, y: n.y }, {
+            layer: drag.track.getEdgeLayer(drag.track.incidentEdges(nd.nodeId)[0]?.edgeId) || drag.track.layer,
             ...(drag.guideExclude || {}),
         });
         showNetGuideLine(app, near ? { x: n.x, y: n.y } : null, near);
@@ -1384,74 +1517,6 @@ function _snapNodeAcrossNeighbour(track, nodeId, pos, threshold) {
 }
 
 /**
- * Build the commands that give the dropped copper a pad's schematic net when
- * a single node lands on a component pad — UNLESS the same bonded copper
- * already reaches a DIFFERENT pin (a pad on another net), whose net is
- * authoritative and must not be overwritten; the conflicting drop is left
- * as-is.
- *
- * Returns the commands WITHOUT executing them so the caller can commit them
- * ATOMICALLY with the node move — a single undo then restores both the
- * position and the net. The bonded-copper scan must run while the node is in
- * its final, on-pad position.
- *
- * @param {object} app
- * @param {Track} track
- * @param {string} nodeId - the dropped node
- * @returns {Array} command objects (possibly empty)
- */
-function _buildPadNetInheritCommands(app, track, nodeId) {
-    const conn = track.padConnections?.get(nodeId);
-    if (!conn) return [];
-    const padNet = _padNet(app, conn.componentId, conn.pinNumber);
-    if (!padNet) return [];                       // pad carries no schematic net
-    if ((track.net || '') === padNet) return [];  // already on the pad's net
-
-    const { tracks, vias, padNets } = collectBondedCopper(app, { track });
-    // A different pin already feeds this copper → its net is authoritative.
-    for (const pn of padNets) {
-        if (pn && pn !== padNet) return [];
-    }
-
-    const cmds = [];
-    for (const t of tracks) {
-        if ((t.net || '') !== padNet) {
-            cmds.push(new ModifyTrackCommand(app, t, { net: t.net || '' }, { net: padNet }));
-        }
-    }
-    for (const v of vias) {
-        if ((v.net || '') !== padNet) {
-            cmds.push(new ModifyViaCommand(app, v, { net: v.net || '' }, { net: padNet }));
-        }
-    }
-    return cmds;
-}
-
-/**
- * Detect when a single node, just dropped onto a pad, would short two
- * different nets: the target pad carries net B, but the same bonded copper is
- * already fed by a DIFFERENT pin on net A. Every pad now carries a net (real
- * or a default `<Ref>.<Pin>`), so bonding to a pad on a foreign net is always
- * an illegal connection and must be rejected.
- *
- * @param {object} app
- * @param {Track} track
- * @param {string} nodeId - the dropped node
- * @returns {{existing:string, pad:string}|null} the conflicting nets, or null
- */
-function _padBondConflict(app, track, nodeId) {
-    const conn = track.padConnections?.get(nodeId);
-    if (!conn) return null;
-    const padNet = _padNet(app, conn.componentId, conn.pinNumber);
-    if (!padNet) return null;                       // target pad carries no net
-    const { padNets } = collectBondedCopper(app, { track });
-    for (const pn of padNets) {
-        if (pn && pn !== padNet) return { existing: pn, pad: padNet };
-    }
-    return null;
-}
-
-/**
  * Commit the in-progress drag as a MoveVertexCommand (or a
  * CompoundCommand for a multi-node segment drag), or revert if no net
  * movement.
@@ -1480,6 +1545,50 @@ export function finishVertexDrag(app) {
         }
     }
 
+    let netCommand = null;
+    if (drag.mode === 'node' && drag.nodes.length === 1 && (moved || drag.snapTargetNode)) {
+        const nodeId = drag.nodes[0].nodeId;
+        const target = _droppedNodeTarget(app, drag);
+        let prospectiveApp = app;
+        if (target && !drag.graphBefore) {
+            const fromLayers = _incidentLayers(drag.track, nodeId);
+            const toLayers = _incidentLayers(target.track, target.nodeId);
+            const point = target.track.nodes.get(target.nodeId);
+            if (fromLayers.size && toLayers.size && ![...fromLayers].some(layer => toLayers.has(layer))
+                && !_hasViaAt(app, point.x, point.y)) {
+                // Validate the connection the merge will create across layers,
+                // including the transition Via that is not on the board yet.
+                prospectiveApp = { ...app, vias: [...(app.vias || []), _makeViaAt(app, point.x, point.y, '')] };
+            }
+        }
+        const bonded = collectBondedCopper(prospectiveApp, { track: drag.track, nodeId },
+            { includeShapes: true, newTracks: new Set([drag.track]) });
+        const nets = _bondedNets(bonded);
+        if (nets.size > 1) {
+            if (drag.graphBefore) drag.track.applyState(drag.graphBefore);
+            else for (const nd of drag.nodes) {
+                const n = drag.track.nodes.get(nd.nodeId);
+                if (n) { n.x = nd.startX; n.y = nd.startY; }
+                if (nd.padLink) drag.track.padConnections.set(nd.nodeId, { ...nd.padLink });
+                else drag.track.padConnections.delete(nd.nodeId);
+            }
+            renderTrack(drag.track, (id) => app._getLayerGroup(id), _opts(app));
+            refreshTrackSelectionHalo(app);
+            reconcileRatsnest(app);
+            _endVertexDragOverlayDeferral(app, drag, false);
+            const terminalNet = drag.snapTargetVia?.net;
+            if (drag.track.net && terminalNet && drag.track.net !== terminalNet) {
+                _showTrackViaNetConflict(app, drag.track.net, terminalNet, drag.snapTargetKind);
+            } else _showBondedNetConflict(app, nets);
+            return;
+        }
+        const net = [...nets][0];
+        if (net) netCommand = new AdoptDroppedCopperNetCommand(app, drag.track,
+            bonded.trackNodes.get(drag.track), net);
+    }
+    const commit = command => app.history.execute(netCommand
+        ? new CompoundCommand([command, netCommand]) : command);
+
     // Segment drag that pinned a via grew bridge geometry on start —
     // commit the whole graph change (topology + positions) atomically.
     if (drag.graphBefore) {
@@ -1504,7 +1613,7 @@ export function finishVertexDrag(app) {
                     .map(nodes => drag.track.extractSubgraph(nodes));
                 const after = movingPart.captureState();
                 drag.track.applyState(drag.graphBefore);
-                app.history.execute(new CompoundCommand([
+                commit(new CompoundCommand([
                     new ModifyTrackGraphCommand(app, drag.track, drag.graphBefore, after),
                     ...remainder.map(track => new AddTrackCommand(app, track)),
                 ]));
@@ -1514,7 +1623,7 @@ export function finishVertexDrag(app) {
         }
         const after = drag.track.captureState();
         drag.track.applyState(drag.graphBefore);
-        app.history.execute(new ModifyTrackGraphCommand(app, drag.track, drag.graphBefore, after));
+        commit(new ModifyTrackGraphCommand(app, drag.track, drag.graphBefore, after));
         _endVertexDragOverlayDeferral(app, drag, true);
         return;
     }
@@ -1527,40 +1636,8 @@ export function finishVertexDrag(app) {
     // displacement when one is dragged onto the other, so a `moved`-only gate
     // would never fuse them.
     if (drag.mode === 'node' && drag.nodes.length === 1 && (moved || drag.snapTargetNode)) {
-        if (_tryMergeDroppedNode(app, drag)) {
+        if (_tryMergeDroppedNode(app, drag, netCommand)) {
             _endVertexDragOverlayDeferral(app, drag, true);
-            return;
-        }
-    }
-
-    // A single node dropped onto a bare pad should inherit that pad's net
-    // (unless its current net is anchored to another pin) — applied below
-    // once the move is committed.
-    const singleNodeId = (drag.mode === 'node' && drag.nodes.length === 1)
-        ? drag.nodes[0].nodeId : null;
-
-    // Reject a drop that bonds this node to a pad whose net conflicts with a
-    // different pin already feeding the same copper — that would short two
-    // nets. Evaluate while the node is still at its on-pad drop position, then
-    // restore the original positions and pad bond(s). Gated on `moved` so a
-    // no-op click on an already-bonded node never triggers the dialog.
-    if (singleNodeId && moved) {
-        const conflict = _padBondConflict(app, drag.track, singleNodeId);
-        if (conflict) {
-            for (const nd of drag.nodes) {
-                const n = drag.track.nodes.get(nd.nodeId);
-                if (n) { n.x = nd.startX; n.y = nd.startY; }
-                if (nd.padLink) drag.track.padConnections.set(nd.nodeId, { ...nd.padLink });
-                else drag.track.padConnections.delete(nd.nodeId);
-            }
-            renderTrack(drag.track, (id) => app._getLayerGroup(id), _opts(app));
-            refreshTrackSelectionHalo(app);
-            reconcileRatsnest(app);
-            _endVertexDragOverlayDeferral(app, drag, false);
-            showAlert(
-                `Cannot connect to a pad on net "${conflict.pad}" \u2014 this track is already on net "${conflict.existing}".`,
-                { title: 'Net Conflict' }
-            );
             return;
         }
     }
@@ -1592,16 +1669,11 @@ export function finishVertexDrag(app) {
         const n = drag.track.nodes.get(m.nodeId);
         if (n) { n.x = m.toX; n.y = m.toY; }
     }
-    // While the dragged node sits at its final (possibly on-pad) position,
-    // build any pad-net inheritance commands so they commit ATOMICALLY with
-    // the move — a single undo restores both the position and the net.
-    const netCmds = singleNodeId ? _buildPadNetInheritCommands(app, drag.track, singleNodeId) : [];
     const collapsed = collapseCollinearTrackNodes(app, drag.track);
     if (collapsed) {
         const after = drag.track.captureState();
         drag.track.applyState(before);
-        const all = [new ModifyTrackGraphCommand(app, drag.track, before, after), ...netCmds];
-        app.history.execute(all.length === 1 ? all[0] : new CompoundCommand(all));
+        commit(new ModifyTrackGraphCommand(app, drag.track, before, after));
         _endVertexDragOverlayDeferral(app, drag, true);
         return;
     }
@@ -1609,8 +1681,7 @@ export function finishVertexDrag(app) {
 
     const moveCmds = moves.map((m) =>
         new MoveVertexCommand(app, drag.track, m.nodeId, m.fromX, m.fromY, m.toX, m.toY));
-    const all = [...moveCmds, ...netCmds];
-    app.history.execute(all.length === 1 ? all[0] : new CompoundCommand(all));
+    commit(moveCmds.length === 1 ? moveCmds[0] : new CompoundCommand(moveCmds));
     _endVertexDragOverlayDeferral(app, drag, true);
 }
 
@@ -1672,12 +1743,23 @@ function _hitVia(app, via, worldPos, pxTol = VIA_HIT_PX) {
  */
 export function startViaDrag(app, via, worldPos) {
     if (!via || !_hitVia(app, via, worldPos)) return false;
+    return startTerminalDrag(app, via, worldPos, 'via');
+}
+
+/** Pads and vias share attached-node movement, snapping and atomic history. */
+export function startPadDrag(app, pad, worldPos) {
+    return startTerminalDrag(app, pad, worldPos, 'pad');
+}
+
+function startTerminalDrag(app, via, worldPos, kind) {
+    const layers = kind === 'pad' ? padLayers(via) : ['top-copper', 'bottom-copper'];
     // Find every Track node at the via's current (x, y). Track endpoints
     // and layer-change nodes commonly sit exactly on a via.
     const EPS = 1e-4;
     const attached = []; // [{track, nodeId, startX, startY}]
-    for (const t of app.tracks) {
+    for (const t of app.tracks || []) {
         for (const [nid, n] of t.nodes) {
+            if (!t.incidentEdges(nid).some(edge => layers.includes(t.getEdgeLayer(edge.edgeId)))) continue;
             if (Math.abs(n.x - via.x) < EPS && Math.abs(n.y - via.y) < EPS) {
                 attached.push({ track: t, nodeId: nid, startX: n.x, startY: n.y });
             }
@@ -1685,6 +1767,9 @@ export function startViaDrag(app, via, worldPos) {
     }
     app._viaDrag = {
         via,
+        kind,
+        layers,
+        render: kind === 'pad' ? renderPad : renderVia,
         startX: via.x,
         startY: via.y,
         grabX: worldPos.x,
@@ -1697,7 +1782,7 @@ export function startViaDrag(app, via, worldPos) {
     return true;
 }
 
-/** Update the dragged via's position from the current mouse world pos. */
+/** Update a dragged Via or standalone Pad and its layer-compatible Track nodes. */
 export function updateViaDrag(app, worldPos) {
     const drag = app._viaDrag;
     if (!drag) return;
@@ -1708,15 +1793,31 @@ export function updateViaDrag(app, worldPos) {
     // Skip the via's own attached nodes when snapping — they ride along with
     // the via, so letting the snap catch them (within the coarse track-node
     // tolerance) would override the finer grid snap and feel sticky.
-    const excludeNode = drag.attached.length
-        ? (track, nodeId) => drag.attached.some(a => a.track === track && a.nodeId === nodeId)
-        : null;
-    const snap = resolveTrackSnap(app, targetPos, excludeNode ? { excludeNode } : {});
+    const excludeNode = (track, nodeId) =>
+        drag.attached.some(a => a.track === track && a.nodeId === nodeId)
+        || !track.incidentEdges(nodeId).some(edge => drag.layers.includes(track.getEdgeLayer(edge.edgeId)));
+    const snap = resolveTrackSnap(app, targetPos, {
+        excludeNode,
+        excludePad: drag.kind === 'pad' ? drag.via : null,
+        layer: drag.kind === 'pad' ? drag.via.layers : 'both',
+    });
+    if (drag.kind === 'pad' && snap.snapType !== 'pad' && snap.snapType !== 'track-node') {
+        Object.assign(snap, app.viewport?.getSnappedPosition?.(targetPos) || targetPos);
+    }
     let pos = { x: snap.x, y: snap.y };
+    const attachedTracks = new Set(drag.attached.map(item => item.track));
+    const trackTarget = app.viewport?.shiftHeld || snap.snapType === 'pad'
+        ? null
+        : snap.snapType === 'track-node'
+            ? { track: snap.trackNode.track, nodeId: snap.trackNode.nodeId,
+                px: snap.trackNode.x, py: snap.trackNode.y }
+            : findSplittableTrackEdge(app, targetPos, 6, { excludeTracks: attachedTracks, layers: drag.layers });
+    if (trackTarget) pos = { x: trackTarget.px, y: trackTarget.py };
+    drag.snapTargetTrack = trackTarget;
 
-    // Yellow target circle when locked onto a hard snap (pad / track node).
-    if (snap.snapType === 'pad' || snap.snapType === 'track-node') {
-        showTrackSnapMarker(app, { x: snap.x, y: snap.y });
+    // Yellow target circle when locked onto a hard copper target.
+    if (snap.snapType === 'pad' || snap.snapType === 'track-node' || trackTarget) {
+        showTrackSnapMarker(app, pos);
     } else {
         clearTrackSnapMarker(app);
     }
@@ -1725,7 +1826,7 @@ export function updateViaDrag(app, worldPos) {
     // H/V/45° axes and straight runs (and lights the same glow). Skip when
     // the grid snap already locked a hard pad / track-node target. The via's
     // attached nodes all move with it, so they're excluded as neighbours.
-    if (snap.snapType !== 'pad' && snap.snapType !== 'track-node') {
+    if (!app.viewport?.shiftHeld && snap.snapType !== 'pad' && snap.snapType !== 'track-node' && !trackTarget) {
         const threshold = COLLINEAR_SNAP_SCREEN_PX / (app.viewport?.scale || 1);
         const isAttached = (track, nid) =>
             drag.attached.some(a => a.track === track && a.nodeId === nid);
@@ -1785,14 +1886,14 @@ export function updateViaDrag(app, worldPos) {
     for (const t of touched) {
         renderTrack(t, (id) => app._getLayerGroup(id), _opts(app, t));
     }
-    renderVia(drag.via, (id) => app._getLayerGroup(id));
+    drag.render(drag.via, (id) => app._getLayerGroup(id));
     renderTrackAxisGlowTop(app);
     refreshTrackSelectionHalo(app);
     reconcileRatsnest(app);
 }
 
 /**
- * Commit the in-progress via drag. Wraps the via move plus every
+ * Commit the in-progress terminal drag. Wraps the Pad/Via move plus every
  * attached track-node move as a single compound history entry.
  */
 export function finishViaDrag(app) {
@@ -1813,6 +1914,28 @@ export function finishViaDrag(app) {
         }
         return;
     }
+    if (drag.snapTargetTrack) {
+        const viaNet = drag.via.net || '';
+        const trackNet = drag.snapTargetTrack.track.net || '';
+        if (viaNet && trackNet && viaNet !== trackNet) {
+            drag.via.x = drag.startX;
+            drag.via.y = drag.startY;
+            drag.render(drag.via, (id) => app._getLayerGroup(id));
+            const touched = new Set();
+            for (const a of drag.attached) {
+                const n = a.track.nodes.get(a.nodeId);
+                if (n) { n.x = a.startX; n.y = a.startY; touched.add(a.track); }
+            }
+            for (const track of touched) {
+                renderTrack(track, (id) => app._getLayerGroup(id), _opts(app, track));
+            }
+            if (!app._deferDragOverlays) app._refreshClearanceHalos?.();
+            refreshTrackSelectionHalo(app);
+            reconcileRatsnest(app);
+            _showTrackViaNetConflict(app, trackNet, viaNet, drag.kind);
+            return;
+        }
+    }
     const toX = drag.via.x, toY = drag.via.y;
     // Snap-back the model so commands' execute() re-apply.
     drag.via.x = drag.startX;
@@ -1821,16 +1944,26 @@ export function finishViaDrag(app) {
         const n = a.track.nodes.get(a.nodeId);
         if (n) { n.x = a.startX; n.y = a.startY; }
     }
-    /** @type {Array<MoveViaCommand|MoveVertexCommand>} */
-    const cmds = [new MoveViaCommand(app, drag.via, drag.startX, drag.startY, toX, toY)];
+    const cmds = [drag.kind === 'pad'
+        ? new MovePadCommand(app, drag.via, { x: drag.startX, y: drag.startY }, { x: toX, y: toY })
+        : new MoveViaCommand(app, drag.via, drag.startX, drag.startY, toX, toY)];
     for (const a of drag.attached) {
         cmds.push(new MoveVertexCommand(app, a.track, a.nodeId, a.startX, a.startY, toX, toY));
+    }
+    if (drag.snapTargetTrack?.edgeId) {
+        // Materialize the contact so the next Pad/Via drag has a node to carry.
+        const { track, edgeId } = drag.snapTargetTrack;
+        const before = track.captureState();
+        track.splitEdge(edgeId, { x: toX, y: toY });
+        const after = track.captureState();
+        track.applyState(before);
+        cmds.push(new ModifyTrackGraphCommand(app, track, before, after));
     }
     app.history.execute(new CompoundCommand(cmds));
     reconcileRatsnest(app);
 }
 
-/** Abort the in-progress via drag and restore the original position. */
+/** Abort the in-progress Pad/Via drag and restore the terminal and Track nodes. */
 export function cancelViaDrag(app) {
     const drag = app._viaDrag;
     if (!drag) return;
@@ -1841,7 +1974,7 @@ export function cancelViaDrag(app) {
     clearTrackSnapMarker(app);
     drag.via.x = drag.startX;
     drag.via.y = drag.startY;
-    renderVia(drag.via, (id) => app._getLayerGroup(id));
+    drag.render(drag.via, (id) => app._getLayerGroup(id));
     const touched = new Set();
     for (const a of drag.attached) {
         const n = a.track.nodes.get(a.nodeId);

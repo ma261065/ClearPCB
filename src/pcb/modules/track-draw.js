@@ -37,15 +37,17 @@ import { Track } from '../../shapes/track.js';
 import { Via } from '../../shapes/via.js';
 import { renderTrack, viaCopperPathD } from './track-render.js';
 import { pointInPolygon, distanceToSegment } from '../../core/geometry.js';
+import { closestPointOnArcEdge } from '../../shapes/arc-edge.js';
+import { copperLayer, resolveCopperPads } from './copper-model.js';
+import { padFlashOutline, placementPose, resolveTrackSegments } from './board-geometry.js';
 import { snapNodeToAxis, snapNodeToCollinear } from '../../shapes/path-snap.js';
 export { snapNodeToAxis, snapNodeToCollinear } from '../../shapes/path-snap.js';
 import { normalizeShapeCopperMode, shapeOutline } from './board-shape-geometry.js';
-import { resolveTrackContactGeometry, copperShapesTouch, copperRegionShape, pointInCopperRegion } from './track-contact-geometry.js';
-import { pictureRegions } from './picture-raster.js';
+import { renderBoardShape } from './board-shapes.js';
+import { resolveTrackContactGeometry, copperShapesTouch, copperRegionShape, copperSegmentShape, pointInCopperRegion } from './track-contact-geometry.js';
 import { spatialClusterMST } from './cluster-mst.js';
 import { spatialPairs } from '../../core/spatial-pairs.js';
 import { showAlert } from '../../ui/modules/modal.js';
-import { isOverlayVisible } from './layers.js';
 import {
     clearAxisGlow,
     makeAxisGlowCenterline,
@@ -75,7 +77,7 @@ export const COLLINEAR_SNAP_SCREEN_PX = 15;
  */
 export const COLLINEAR_GLOW_ANGLE_TOL = 0.01;
 
-/** Pad snap tolerance (world mm). */
+/** Minimum standalone Pad snap radius (world mm). */
 export const PAD_SNAP_TOL = 1.0;
 
 /** Track-node snap tolerance (world mm) — used as the bare default of
@@ -95,21 +97,31 @@ const TOGGLE_LAYERS = ['top-copper', 'bottom-copper'];
 /* ──────────────────────────── snap helpers ──────────────────────────── */
 
 /**
- * Find the nearest pad center to `worldPos` within `tolerance`.
- * @returns {{x:number, y:number, componentId:string, pinNumber:string, number:string, net:string}|null}
+ * Find the nearest Pad centre. Component Pads require entering their outline;
+ * standalone Pads retain their minimum snap radius of `tolerance`.
+ * @returns {{x:number, y:number, componentId?:string, pinNumber?:string, number?:string, net:string, standalonePad?:object}|null}
  */
-export function findNearbyPad(app, worldPos, tolerance = PAD_SNAP_TOL) {
-    if (!app?.placements) return null;
-    const tol2 = tolerance * tolerance;
+export function findNearbyPad(app, worldPos, tolerance = PAD_SNAP_TOL, layer = 'top-copper', excludePad = null) {
+    if (!app) return null;
     let best = null;
     let bestD2 = Infinity;
-    for (const [compId, pl] of app.placements) {
+    for (const [compId, pl] of app.placements || []) {
         if (!pl?.pads) continue;
-        for (const [padId, pad] of pl.pads) {
+        const pose = placementPose(pl);
+        const consider = (padId, pad, geometry, rotated) => {
             const dx = pad.x - worldPos.x;
             const dy = pad.y - worldPos.y;
             const d2 = dx * dx + dy * dy;
-            if (d2 < bestD2 && d2 <= tol2) {
+            if (d2 >= bestD2) return;
+            const point = rotated
+                ? { x: dx * pose.cos + dy * pose.sin, y: -dx * pose.sin + dy * pose.cos }
+                : { x: dx, y: dy };
+            const width = geometry.width || 1.2;
+            const height = geometry.height || 1.2;
+            if (Math.abs(point.x) > width / 2 || Math.abs(point.y) > height / 2) return;
+            const outline = padFlashOutline({ x: 0, y: 0, w: width, h: height, shape: geometry.shape });
+            if (pointInPolygon(point, outline) || outline.some((start, index) =>
+                distanceToSegment(point, start, outline[(index + 1) % outline.length]) <= 1e-9)) {
                 bestD2 = d2;
                 // pinNumber is the unique pad identity (so a track bonds to
                 // THIS physical pad and follows it on drag). `number` is the
@@ -121,10 +133,31 @@ export function findNearbyPad(app, worldPos, tolerance = PAD_SNAP_TOL) {
                     net: '',
                 };
             }
+        };
+        if (pl.padOffsets?.length) {
+            for (const offset of pl.padOffsets) {
+                const padId = offset.padId ?? offset.number;
+                const pad = pl.pads.get(padId) || pl.pads.get(String(padId));
+                if (pad) consider(padId, pad, offset, true);
+            }
+        } else {
+            for (const [padId, pad] of pl.pads) consider(padId, pad, pad, false);
+        }
+    }
+    for (const pad of app.pads || []) {
+        if (pad === excludePad || pad?.visible === false
+            || (layer !== 'both' && pad.layers !== 'both' && pad.layers !== layer)) continue;
+        const dx = pad.x - worldPos.x;
+        const dy = pad.y - worldPos.y;
+        const d2 = dx * dx + dy * dy;
+        const radius = Math.max(tolerance, Number(pad.width) / 2 || 0, Number(pad.height) / 2 || 0);
+        if (d2 < bestD2 && d2 <= radius * radius) {
+            bestD2 = d2;
+            best = { x: pad.x, y: pad.y, net: String(pad.net || ''), standalonePad: pad };
         }
     }
     if (!best) return null;
-    best.net = _padNet(app, best.componentId, best.number);
+    if (best.componentId) best.net = _padNet(app, best.componentId, best.number);
     return best;
 }
 
@@ -173,6 +206,8 @@ export function findNearbyTrackNode(app, worldPos, tolerance = TRACK_SNAP_TOL, e
  * @param {number} [options.padTolerance]
  * @param {number} [options.trackTolerance]
  * @param {object} [options.excludeTrack]
+ * @param {object} [options.excludePad] - Standalone Pad being dragged.
+ * @param {string} [options.layer] - Copper layer, or 'both' for a plated terminal.
  * @param {(track:object, nodeId:string)=>boolean} [options.excludeNode] -
  *   Predicate returning true for track nodes that should be ignored when
  *   snapping (e.g. the nodes that move in lock-step with a dragged via).
@@ -195,7 +230,8 @@ export function resolveTrackSnap(app, worldPos, options = {}) {
     const lastPt = options.lastPt || null;
     const net = options.net || '';
 
-    const nearPad = findNearbyPad(app, worldPos, padTol);
+    const layer = options.layer || app._trackDraw?.currentLayer || app._trackToolLayer || 'top-copper';
+    const nearPad = findNearbyPad(app, worldPos, padTol, layer, options.excludePad);
     if (nearPad) {
         return { x: nearPad.x, y: nearPad.y, snapType: 'pad', pad: nearPad };
     }
@@ -395,11 +431,6 @@ function shapeCopperContains(contact, point) {
     const { geometry, bounds } = contact;
     if (point.x < bounds.minX || point.x > bounds.maxX || point.y < bounds.minY || point.y > bounds.maxY) return false;
     if (geometry.copperMode !== 'add') return false;
-    if (contact.inputs.kind === 'image') {
-        return geometry.physicalContours.some(contour => contour.some((start, index) =>
-            distanceToSegment(point, start, contour[(index + 1) % contour.length]) <= 1e-7))
-            || geometry.physicalContours.filter(contour => pointInPolygon(point, contour)).length % 2 === 1;
-    }
     if (geometry.circle) {
         const distance = Math.hypot(point.x - geometry.circle.x, point.y - geometry.circle.y);
         return geometry.filled ? distance <= geometry.circle.outerRadius
@@ -460,7 +491,14 @@ export function resolveTrackDrawSnap(app, worldPos, options = {}) {
     const sourceNet = snap.pad?.net || snap.trackNode?.track.net || '';
     const contactNets = [...new Set([sourceNet, ...contacts.map((shape) => shape.net), ...vias.map((item) => item.net)]
         .map((net) => String(net || '').trim()).filter(Boolean))];
-    return { ...snap, ...target, contactNets, copperContact: contacts.length > 0 || vias.length > 0 };
+    return {
+        ...snap,
+        ...target,
+        ...(via ? { snapType: 'via', via } : {}),
+        contactNets,
+        copperShapes: contacts,
+        copperContact: contacts.length > 0 || vias.length > 0,
+    };
 }
 
 function trackContactConflict(net, contactNets) {
@@ -486,7 +524,7 @@ export function startTrackDraw(app, worldPos) {
     // Inherit the net at draw start from the pad or track node we begin on,
     // so the live net-guide line works for the whole draw (an unassigned
     // track would have nothing to guide toward).
-    let net = String(app._trackToolNet || '').trim() || startPad?.net || '';
+    let net = startPad?.net || String(app._trackToolNet || '').trim();
     let startTrack = null;
     if (snap.snapType === 'track-node' && snap.trackNode) {
         startTrack = snap.trackNode.track;
@@ -507,14 +545,18 @@ export function startTrackDraw(app, worldPos) {
         net,
         startPad,
         endPad: null,
+        endCopperShapes: [],
         axisLock: null,                  // 'horizontal' | 'vertical' | 'diagonal' | null
         previewElements: [],             // SVG nodes owned by the current preview render
         snap,                            // most recent live snap result
-        // Copper this draw is already electrically bonded to (the start
-        // track's cluster), so the live net-guide line never points back at
+        // Copper this draw is already electrically bonded to (the starting
+        // Track, Pad or Via cluster), so the live net-guide line never points back at
         // it. Computed once here; the in-progress track isn't in app.tracks,
         // so the bonded set can't change mid-draw.
-        guideExclude: startTrack ? bondedExclusion(app, startTrack) : null,
+        guideExclude: bondedExclusion(app, startTrack, snap.via ? { via: snap.via }
+            : startPad ? { padKey: startPad.standalonePad
+                ? `null|${startPad.standalonePad.id}` : `${startPad.componentId}|${startPad.pinNumber}` } : null),
+        guideSourceShapes: new Set(snap.copperShapes || []),
         // Via geometry snapshot — captured at draw-start so the preview
         // marker and the eventually-committed Via render at the same size.
         viaDiameter: routeOpts.viaDiameter,
@@ -541,8 +583,9 @@ export function updateTrackDraw(app, worldPos) {
     ctx.axisLock = null;
     const target = { x: snap.x, y: snap.y };
 
-    // Yellow target circle when locked onto a hard snap (pad / track node).
-    if (snap.snapType === 'pad' || snap.snapType === 'track-node' || snap.copperContact) {
+    // Yellow target circle when locked onto a hard copper target.
+    if (snap.snapType === 'pad' || snap.snapType === 'via'
+        || snap.snapType === 'track-node' || snap.copperContact) {
         showTrackSnapMarker(app, target);
     } else {
         clearTrackSnapMarker(app);
@@ -552,13 +595,14 @@ export function updateTrackDraw(app, worldPos) {
     _renderPreview(app, ctx, target);
 
     // Live guide from the trailing tip to the nearest existing copper on this
-    // track's net that it isn't already connected to. Only shown when the
-    // ratlines overlay is HIDDEN — when it's visible the ratsnest already
-    // draws this connection, so the guide would just duplicate it.
-    if (ctx.net && !isOverlayVisible('ratlines')) {
+    // track's net that it isn't already connected to. This moving guide is
+    // independent of the static ratsnest overlay.
+    if (ctx.net) {
         const near = nearestPointOnNet(app, ctx.net, target, {
             excludePoints: ctx.points,
             ...(ctx.guideExclude || {}),
+            excludeShapes: ctx.guideSourceShapes,
+            layer: ctx.currentLayer,
         });
         showNetGuideLine(app, near ? target : null, near);
     } else {
@@ -595,16 +639,30 @@ export function addTrackWaypoint(app, worldPos) {
         return;
     }
 
+    const beforeFinish = { net: ctx.net, endPad: ctx.endPad, endCopperShapes: ctx.endCopperShapes };
     if (!ctx.net) ctx.net = snap.contactNets[0] || '';
     ctx.points.push({ x: target.x, y: target.y });
     ctx.edgeLayers.push(ctx.currentLayer);
+    const finishAtTarget = () => {
+        if (finishTrackDraw(app) !== false) return;
+        ctx.points.pop();
+        ctx.edgeLayers.pop();
+        Object.assign(ctx, beforeFinish);
+        _renderPreview(app, ctx, target);
+    };
 
     // Did we hit a pad? If yes, finish (adopt net if we didn't have one).
     if (snap.snapType === 'pad') {
         const pad = snap.pad;
         if (!ctx.net) ctx.net = pad.net || '';
-        ctx.endPad = pad;
-        finishTrackDraw(app);
+        if (pad.componentId) ctx.endPad = pad;
+        finishAtTarget();
+        return;
+    }
+
+    if (snap.snapType === 'via') {
+        if (!ctx.net) ctx.net = snap.via.net || '';
+        finishAtTarget();
         return;
     }
 
@@ -612,12 +670,14 @@ export function addTrackWaypoint(app, worldPos) {
     if (snap.snapType === 'track-node') {
         const otherNet = snap.trackNode.track.net || '';
         if (!ctx.net) ctx.net = otherNet;
-        finishTrackDraw(app);
+        finishAtTarget();
         return;
     }
 
     if (snap.copperContact) {
-        finishTrackDraw(app);
+        ctx.endCopperShapes = (snap.copperShapes || [])
+            .filter((shape) => !String(shape.net || '').trim());
+        finishAtTarget();
         return;
     }
 
@@ -662,8 +722,13 @@ export function finishTrackDraw(app) {
         // the tracks land on the history stack. Otherwise fall back to
         // a direct push + render.
         if (typeof app._commitTracks === 'function') {
-            app._commitTracks(tracks, newVias);
+            if (app._commitTracks(tracks, newVias, ctx.endCopperShapes) === false) return false;
         } else {
+            for (const shape of ctx.endCopperShapes || []) {
+                shape.net = ctx.net;
+                if (shape.type === 'fill') app._refreshFills?.();
+                else renderBoardShape(app, shape);
+            }
             for (const track of tracks) {
                 app.tracks.push(track);
                 renderTrack(track, (id) => app._getLayerGroup(id), _renderOptsFromApp(app));
@@ -684,6 +749,7 @@ export function finishTrackDraw(app) {
     _teardownDraw(app);
     // Track tool is still selected — restore its draw settings.
     app._showTrackDrawProperties?.();
+    return true;
 }
 
 /**
@@ -767,10 +833,11 @@ export function reconcileRatsnest(app, opts) {
     }
 
     const clusters = buildCopperClusters(app, onlyNets).filter((cluster) => cluster.net);
+    const terminalCount = clusters.length;
 
     // ── Additive copper shapes are net-bearing islands on their own layer.
-    // Their outline provides point-contact bonding; filled shapes additionally
-    // bond copper terminals that lie anywhere inside their area.
+    // Bond by copper contact, not just coincident centres or vertices.
+    // Pictures contribute one solid transformed frame, not individual pixels.
     for (const shape of (app.boardShapes || [])) {
         if (shape?.type === 'fill') continue;
         const net = String(shape?.net || '');
@@ -778,15 +845,19 @@ export function reconcileRatsnest(app, opts) {
         if (!net || (layer !== 'top-copper' && layer !== 'bottom-copper')) continue;
         if (normalizeShapeCopperMode(shape.copperMode) !== 'add') continue;
         if (onlyNets && !onlyNets.has(net)) continue;
-        if (shape.kind === 'image') {
-            for (const region of pictureRegions(shape)) {
-                clusters.push({ net, layer, points: region.outer, copperShape: copperRegionShape(region), region, source: shape });
-            }
-            continue;
-        }
         const points = shapeOutline(shape);
         if (points.length < 2) continue;
         clusters.push({ net, layer, points, copperShape: shape });
+    }
+
+    for (const fill of app.copperFills || []) {
+        const net = fill.net || '';
+        if (!net || (onlyNets && !onlyNets.has(net))) continue;
+        for (const region of fill._computed || []) {
+            if (!region.outer || region.outer.length < 3) continue;
+            clusters.push({ net, layer: fill.layer, points: [], source: fill,
+                copperShape: copperRegionShape({ ...region, holes: region.holes || [] }) });
+        }
     }
 
     if (!clusters.length) return;
@@ -799,55 +870,15 @@ export function reconcileRatsnest(app, opts) {
     const find = (i) => { while (parent[i] !== i) { parent[i] = parent[parent[i]]; i = parent[i]; } return i; };
     const union = (a, b) => { const ra = find(a), rb = find(b); if (ra !== rb) parent[ra] = rb; };
 
-    unionCoincidentClusters(clusters, union, true);
-
-    // A via bonds wherever its annular copper physically overlaps a same-net
-    // trace, even when its centre is not an explicit Track node.
-    _unionViaTrackOverlaps(clusters, union, true);
-
-    const shapeIndices = clusters.map((cluster, index) => cluster.copperShape ? index : -1).filter(index => index >= 0);
-    const terminalIndices = clusters.map((cluster, index) => !cluster.copperShape ? index : -1).filter(index => index >= 0);
-    for (const [first, second] of spatialPairs(shapeIndices,
-        index => resolveTrackContactGeometry(clusters[index].copperShape).bounds)) {
-        if ((clusters[first].source && clusters[first].source === clusters[second].source)
-            || clusters[first].net !== clusters[second].net
-            || clusters[first].layer !== clusters[second].layer || find(first) === find(second)) continue;
-        if (copperShapesTouch(clusters[first].copperShape, clusters[second].copperShape)) union(first, second);
-    }
-
-    // Filled copper shape interiors are conductive: join any same-net,
-    // layer-compatible terminal that lies in the shape's actual outline.
-    for (let i = 0; i < clusters.length; i++) {
-        const shape = clusters[i].copperShape;
-        if (!shape?.filled) continue;
-        const outline = clusters[i].points;
-        for (const j of terminalIndices) {
-            if (i === j || clusters[j].net !== clusters[i].net) continue;
-            const compatible = clusters[j].layer === 'all' || clusters[j].layer === clusters[i].layer;
-            if (clusters[j].copperShape) continue;
-            if (compatible && clusters[j].points.some((point) => clusters[i].region
-                ? pointInCopperRegion(point, clusters[i].region) : pointInPolygon(point, outline))) union(i, j);
-        }
-    }
-
-    for (const fill of (app.copperFills || [])) {
-        const fnet = fill.net || '';
-        if (!fnet) continue;
-        if (onlyNets && !onlyNets.has(fnet)) continue;
-        const polys = fill._computed;
-        if (!Array.isArray(polys) || polys.length === 0) continue;
-        const compat = (layer) => layer === 'all' || layer === fill.layer;
-        for (const poly of polys) {
-            const outer = poly.outer;
-            if (!outer || outer.length < 3) continue;
-            let first = -1;
-            for (let i = 0; i < clusters.length; i++) {
-                const c = clusters[i];
-                if (c.net !== fnet || !compat(c.layer)) continue;
-                if (!c.points.some((p) => pointInCopperRegion(p, poly))) continue;
-                if (first === -1) first = i; else union(first, i);
-            }
-        }
+    unionCoincidentClusters(clusters.slice(0, terminalCount), union, true);
+    const contacts = _clusterCopperContacts(clusters);
+    for (const [first, second] of spatialPairs(contacts,
+        contact => resolveTrackContactGeometry(contact.geometry).bounds, 1e-7)) {
+        const a = clusters[first.index], b = clusters[second.index];
+        if (a.net !== b.net || find(first.index) === find(second.index)
+            || (a.source && a.source === b.source)
+            || (first.layer !== 'all' && second.layer !== 'all' && first.layer !== second.layer)) continue;
+        if (copperShapesTouch(first.geometry, second.geometry)) union(first.index, second.index);
     }
 
     // ── Group merged clusters by net ──
@@ -868,6 +899,8 @@ export function reconcileRatsnest(app, opts) {
     /** @type {Map<string, Array<Array<{x:number,y:number}>>>} */
     const netGroups = new Map();
     for (const sn of supernodes.values()) {
+        // Pours bridge existing objects, but are not standalone ratline targets.
+        if (!sn.points.length) continue;
         if (!netGroups.has(sn.net)) netGroups.set(sn.net, []);
         netGroups.get(sn.net)?.push(sn.points);
     }
@@ -899,54 +932,114 @@ export function reconcileRatsnest(app, opts) {
 }
 
 /**
- * Walk the physically-bonded copper reachable from a seed track/via,
- * using the SAME bonding rules as the ratsnest: two pieces connect only
- * where they share a coincident point AND are layer-compatible (same
- * copper layer, or one side is an all-layer bond — a via or pad). A
- * cross-layer coincidence WITHOUT a via/pad does NOT connect (so a
- * deleted via genuinely separates the layers). Net is ignored entirely —
- * this is purely geometric — so it can gather copper that currently
- * carries different (or empty) net names, which is exactly what net
- * propagation needs.
+ * Walk copper reachable from a seed track/via, ignoring Net names.
+ * Base connectivity follows layer-compatible junctions and Via/Track overlap.
+ * With includeShapes, use the same physical contact geometry as ratlines for
+ * all copper types, including Pad rims, curved strokes and pour regions.
+ * Drill voids and region holes do not conduct. Cross-layer contact still
+ * requires a through Via or Pad.
  *
  * @param {object} app
- * @param {{track?:object, via?:object}} seed
- * @returns {{tracks:Set<object>, vias:Set<object>, padNets:Set<string>, padKeys:Set<string>}}
+ * @param {{track?:object, tracks?:Set<object>, via?:object, padKey?:string}} seed
+ * @param {{includeShapes?:boolean, newTracks?:Set<object>}} [options]
+ *   Include physical shape contacts; new Tracks reserve clearance in foreign-net pours.
+ * @returns {{tracks:Set<object>, trackNodes:Map<object,Set<string>>, vias:Set<object>, shapes:Set<object>, padNets:Set<string>, padKeys:Set<string>, padNetByKey:Map<string,string>}}
  */
-export function collectBondedCopper(app, seed) {
+export function collectBondedCopper(app, seed, { includeShapes = false, newTracks = null } = {}) {
     const clusters = buildCopperClusters(app);
+    if (includeShapes) {
+        for (const shape of new Set([...(app.boardShapes || []), ...(app.copperFills || [])])) {
+            if (!TOGGLE_LAYERS.includes(shape.layer)
+                || (shape.type !== 'fill' && normalizeShapeCopperMode(shape.copperMode) !== 'add')) continue;
+            const geometries = shape.type === 'fill'
+                ? (shape._computed || []).map(region => copperRegionShape({ ...region, holes: region.holes || [] }))
+                : [shape];
+            for (const geometry of geometries) {
+                clusters.push({ kind: 'shape', shape, geometry, net: shape.net || '',
+                    layer: shape.layer, points: [] });
+            }
+        }
+    }
 
     // Union-find with layer-aware coincidence (mirrors reconcileRatsnest).
     const parent = clusters.map((_, i) => i);
     const find = (i) => { while (parent[i] !== i) { parent[i] = parent[parent[i]]; i = parent[i]; } return i; };
     const union = (a, b) => { const ra = find(a), rb = find(b); if (ra !== rb) parent[ra] = rb; };
     unionCoincidentClusters(clusters, union);
-    _unionViaTrackOverlaps(clusters, union, false);
+    if (!includeShapes) _unionViaTrackOverlaps(clusters, union, false);
 
-    // Find the root of the seed's cluster(s).
     const roots = new Set();
     for (let i = 0; i < clusters.length; i++) {
         const c = clusters[i];
-        if ((seed.track && c.track === seed.track) || (seed.via && c.via === seed.via)) {
+        const seededTrackComponent = (seed.tracks?.has(c.track) || seed.track && c.track === seed.track)
+            && (!seed.edgeId || c.edgeIds?.has(seed.edgeId))
+            && (!seed.nodeId || c.nodeIds?.has(seed.nodeId));
+        if (seededTrackComponent || (seed.via && c.via === seed.via)
+            || (seed.padKey && c.padKey === seed.padKey)) {
             roots.add(find(i));
+        }
+    }
+    if (includeShapes && roots.size) {
+        const contacts = _clusterCopperContacts(clusters).map(contact => ({
+            ...contact, root: find(contact.index),
+        }));
+        const bounds = contact => resolveTrackContactGeometry(contact.geometry).bounds;
+        const neighbours = new Map();
+        const addCandidates = pairs => {
+            for (const [first, second] of pairs) {
+                if (first.root === second.root
+                    || (first.layer !== 'all' && second.layer !== 'all' && first.layer !== second.layer)) continue;
+                const fill = first.shape?.type === 'fill' ? first.shape
+                    : second.shape?.type === 'fill' ? second.shape : null;
+                const track = first.track || second.track;
+                // The cached pour predates this route. Repouring will cut
+                // clearance around a new foreign-net Track, not bond to it.
+                if (fill?.net && newTracks?.has(track) && fill.net !== track.net) continue;
+                for (const [from, to] of [[first, second], [second, first]]) {
+                    if (!neighbours.has(from.root)) neighbours.set(from.root, []);
+                    neighbours.get(from.root).push([from, to]);
+                }
+            }
+        };
+        addCandidates(spatialPairs(contacts, bounds, 1e-7));
+        // Narrow-phase geometry is needed only for candidates reachable from
+        // this route, not for every pair of artwork/fill objects on the board.
+        const pending = [...roots];
+        for (let index = 0; index < pending.length; index++) {
+            for (const [from, to] of neighbours.get(pending[index]) || []) {
+                if (roots.has(to.root) || !copperShapesTouch(from.geometry, to.geometry)) continue;
+                roots.add(to.root);
+                pending.push(to.root);
+            }
         }
     }
 
     const tracks = new Set();
+    const trackNodes = new Map();
     const vias = new Set();
+    const shapes = new Set();
     const padNets = new Set();
     const padKeys = new Set();
+    const padNetByKey = new Map();
     for (let i = 0; i < clusters.length; i++) {
         if (!roots.has(find(i))) continue;
         const c = clusters[i];
-        if (c.kind === 'track' && c.track) tracks.add(c.track);
+        if (c.kind === 'track' && c.track) {
+            tracks.add(c.track);
+            if (!trackNodes.has(c.track)) trackNodes.set(c.track, new Set());
+            for (const nodeId of c.nodeIds) trackNodes.get(c.track).add(nodeId);
+        }
         else if (c.kind === 'via' && c.via) vias.add(c.via);
+        else if (c.kind === 'shape') shapes.add(c.shape);
         else if (c.kind === 'pad') {
             if (c.padNet) padNets.add(c.padNet);
-            if (c.padKey) padKeys.add(c.padKey);
+            if (c.padKey) {
+                padKeys.add(c.padKey);
+                padNetByKey.set(c.padKey, c.padNet || '');
+            }
         }
     }
-    return { tracks, vias, padNets, padKeys };
+    return { tracks, trackNodes, vias, shapes, padNets, padKeys, padNetByKey };
 }
 
 /**
@@ -1092,6 +1185,45 @@ function _projectPointOnSegment(p, a, b) {
     return { x: a.x + abx * t, y: a.y + aby * t };
 }
 
+/** Shared physical geometry for ratlines and bonded-Net traversal. */
+function _clusterCopperContacts(clusters) {
+    const contacts = [];
+    const segments = new Map();
+    clusters.forEach((cluster, index) => {
+        const isShape = cluster.kind === 'shape' || !!cluster.copperShape;
+        let geometries;
+        if (isShape) geometries = [cluster.geometry || cluster.copperShape];
+        else if (cluster.kind === 'via' || cluster.kind === 'pad') {
+            const terminal = cluster.pad || cluster.via;
+            const outer = cluster.pad?.outline || padFlashOutline({
+                x: terminal.x, y: terminal.y, w: cluster.viaRadius * 2,
+                h: cluster.viaRadius * 2, shape: 'circle',
+            }, 1e-4);
+            const holes = [];
+            if (terminal.drill > 0) {
+                const slot = terminal.slot;
+                holes.push(padFlashOutline({
+                    x: slot ? (slot.x1 + slot.x2) / 2 : terminal.x,
+                    y: slot ? (slot.y1 + slot.y2) / 2 : terminal.y,
+                    w: terminal.drill + (slot ? Math.hypot(slot.x2 - slot.x1, slot.y2 - slot.y1) : 0),
+                    h: terminal.drill, shape: slot ? 'oval' : 'circle',
+                    rad: slot ? Math.atan2(slot.y2 - slot.y1, slot.x2 - slot.x1) : 0,
+                }, 1e-4));
+            }
+            geometries = [copperRegionShape({ outer, holes })];
+        } else {
+            if (!segments.has(cluster.track)) segments.set(cluster.track, resolveTrackSegments(cluster.track));
+            geometries = segments.get(cluster.track).filter(segment => cluster.edgeIds.has(segment.edgeId))
+                .map(copperSegmentShape);
+        }
+        for (const geometry of geometries) contacts.push({
+            index, geometry, track: cluster.track, shape: cluster.shape,
+            layer: geometry.layer || cluster.layer,
+        });
+    });
+    return contacts;
+}
+
 /** Spatially join vias to physically-overlapping stroked Track segments. */
 function _unionViaTrackOverlaps(clusters, union, requireSameNet) {
     const cellSize = 2;
@@ -1165,6 +1297,8 @@ function _unionViaTrackOverlaps(clusters, union, requireSameNet) {
  * @param {Set<object>} [opts.excludeVias] - Vias to skip entirely.
  * @param {Set<string>} [opts.excludePadKeys] - `componentId|pinNumber` keys to
  *   skip entirely.
+ * @param {Set<object>} [opts.excludeShapes] - Source copper shapes/fills to skip.
+ * @param {string} [opts.layer] - Only target copper reachable on this layer.
  * @param {Array<{x:number,y:number}>} [opts.excludePoints] - candidate points
  *   coincident (within ~1µm) with any of these are skipped, so the guide
  *   never points back at the source pad / waypoints just placed.
@@ -1176,6 +1310,8 @@ export function nearestPointOnNet(app, net, from, opts = {}) {
     const excludeVias = opts.excludeVias || null;
     const excludePadKeys = opts.excludePadKeys || null;
     const excludePoints = opts.excludePoints || null;
+    const compatible = layer => !opts.layer || copperLayer(layer) === 'all'
+        || copperLayer(layer) === opts.layer;
     const EPS2 = 1e-6; // (1e-3 mm)^2
     const skip = (x, y) => {
         if (!excludePoints) return false;
@@ -1194,60 +1330,87 @@ export function nearestPointOnNet(app, net, from, opts = {}) {
         if (d2 < bestD2) { bestD2 = d2; best = { x, y }; }
     };
 
-    // Pads on the net (schematic netlist ∩ placed footprint pad positions).
-    const padKeys = new Set();
-    for (const entry of (app.netlist || [])) {
-        if (entry?.net !== net || !entry.pins) continue;
-        for (const pin of entry.pins) padKeys.add(`${pin.componentId}|${pin.pinNumber}`);
-    }
-    if (padKeys.size) {
-        for (const [compId, pl] of (app.placements || [])) {
-            if (!pl?.pads) continue;
-            for (const [pin, pad] of pl.pads) {
-                const key = `${compId}|${pin}`;
-                if (!padKeys.has(key)) continue;
-                if (excludePadKeys && excludePadKeys.has(key)) continue;
-                consider(pad.x, pad.y);
-            }
-        }
+    // Use the shared physical-pad model for component and standalone Pads.
+    for (const pad of resolveCopperPads(app)) {
+        if (pad.net !== net || !compatible(pad.layer)) continue;
+        if (excludePadKeys?.has(`${pad.componentId}|${pad.padId}`)) continue;
+        if (pad.componentId == null
+            && app.pads?.some(source => source.id === pad.padId && source.visible === false)) continue;
+        consider(pad.x, pad.y);
     }
 
     // Vias on the net.
     for (const v of (app.vias || [])) {
-        if (v.net !== net) continue;
+        if (v.net !== net || v.visible === false) continue;
         if (excludeVias && excludeVias.has(v)) continue;
         consider(v.x, v.y);
     }
 
     // Tracks on the net: every node plus the nearest point on each segment.
     for (const track of (app.tracks || [])) {
-        if (track.net !== net) continue;
+        if (track.net !== net || track.visible === false) continue;
         if (excludeTracks && excludeTracks.has(track)) continue;
-        for (const [, p] of track.nodes) consider(p.x, p.y);
-        for (const [, e] of track.edges) {
+        for (const [edgeId, e] of track.edges) {
+            if (!compatible(track.getEdgeLayer(edgeId))) continue;
             const a = track.nodes.get(e.from);
             const b = track.nodes.get(e.to);
             if (!a || !b) continue;
-            const proj = _projectPointOnSegment(from, a, b);
+            consider(a.x, a.y);
+            consider(b.x, b.y);
+            const proj = closestPointOnArcEdge(from, a, b, e.bulge || 0);
             consider(proj.x, proj.y);
         }
     }
 
+    const considerContour = (points, closed = true) => {
+        for (let index = 0; index < points.length - (closed ? 0 : 1); index++) {
+            const point = _projectPointOnSegment(from, points[index], points[(index + 1) % points.length]);
+            consider(point.x, point.y);
+        }
+    };
+    for (const shape of new Set([...(app.boardShapes || []), ...(app.copperFills || [])])) {
+        if (shape.net !== net || shape.visible === false || opts.excludeShapes?.has(shape)
+            || !['top-copper', 'bottom-copper'].includes(shape.layer) || !compatible(shape.layer)) continue;
+        if (shape.type !== 'fill' && normalizeShapeCopperMode(shape.copperMode) !== 'add') continue;
+        if (shape.type === 'fill') {
+            const regions = shape._computed || [];
+            for (const region of regions) {
+                const holes = region.holes || [];
+                if (pointInCopperRegion(from, { outer: region.outer, holes })) consider(from.x, from.y);
+                considerContour(region.outer);
+                for (const hole of holes) considerContour(hole);
+            }
+            continue;
+        }
+        const contact = resolveTrackContactGeometry(shape);
+        const geometry = contact.geometry;
+        if (shapeCopperContains(contact, from)) consider(from.x, from.y);
+        if (geometry.circle) {
+            const { x, y, radius } = geometry.circle;
+            const angle = Math.atan2(from.y - y, from.x - x);
+            consider(x + radius * Math.cos(angle), y + radius * Math.sin(angle));
+        } else if (geometry.strokeSegments.length) {
+            for (const { start, end } of geometry.strokeSegments) considerContour([start, end], false);
+        } else {
+            considerContour(geometry.centerline, geometry.pathClosed);
+        }
+    }
     return best;
 }
 
 /**
  * Precompute the copper a trace seeded on `seedTrack` is already bonded to,
  * shaped for `nearestPointOnNet`'s exclusion options. Returns null when there
- * is no seed track. Computed once at draw/drag start and reused per frame.
+ * is no seed Track or terminal. Computed once at draw/drag start and reused per frame.
  *
  * @param {object} app
  * @param {object|null} seedTrack
+ * @param {object|null} [terminalSeed] - Starting Via or Pad key when not starting on a Track.
  * @returns {{excludeTracks:Set<object>, excludeVias:Set<object>, excludePadKeys:Set<string>}|null}
  */
-export function bondedExclusion(app, seedTrack) {
-    if (!seedTrack) return null;
-    const { tracks, vias, padKeys } = collectBondedCopper(app, { track: seedTrack });
+export function bondedExclusion(app, seedTrack, terminalSeed = null) {
+    if (!seedTrack && !terminalSeed) return null;
+    const { tracks, vias, padKeys } = collectBondedCopper(app, seedTrack ? { track: seedTrack } : terminalSeed);
     return { excludeTracks: tracks, excludeVias: vias, excludePadKeys: padKeys };
 }
 
@@ -1503,7 +1666,7 @@ function _buildTracksFromContext(ctx) {
             curNodeId = cur.addNode(a.x, a.y);
             tracks.push(cur);
             // Start-pad metadata belongs to the very first node.
-            if (i === 0 && ctx.startPad) {
+            if (i === 0 && ctx.startPad?.componentId) {
                 cur.padConnections.set(curNodeId, {
                     componentId: ctx.startPad.componentId,
                     pinNumber: ctx.startPad.pinNumber,
