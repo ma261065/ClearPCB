@@ -369,6 +369,7 @@ const Y_BOT = 0;                           // bottom copper plane
 const COPPER_EPS = 0;                       // copper — coplanar with the face
 const PAD_EPS = 0;                          // pads — coplanar (depth bias beats copper)
 const SILK_EPS = 0;                         // silk — coplanar (depth bias beats pads)
+const PAD_BARREL_SEGMENTS = 16;
 
 /* ───────────────────────────── mesh builders ────────────────────────────── */
 
@@ -1231,7 +1232,7 @@ function throughHolePadMesh(cx, cz, shape, halfW, halfH, ct, st, ri, yBottom, yT
         }
     }
     // Drill hole: a stadium slot when one is given, else a round bore.
-    const seg = 16;
+    const seg = PAD_BARREL_SEGMENTS;
     const hole = slot
         ? capsuleRing(slot.x1, slot.z1, slot.x2, slot.z2, ri)
         : [];
@@ -1883,11 +1884,27 @@ function standalonePadFlash(pad, expansion = 0) {
     };
 }
 
+function standalonePadBarrelRadius(pad) {
+    return Math.max(0.05, pad.drill / 2 - 0.02);
+}
+
+function standalonePadBarrelOutline(pad) {
+    if (!(pad.drill > 0)) return [];
+    const radius = standalonePadBarrelRadius(pad);
+    return Array.from({ length: PAD_BARREL_SEGMENTS }, (_, index) => {
+        const angle = index / PAD_BARREL_SEGMENTS * Math.PI * 2;
+        return {
+            x: pad.x + radius * Math.cos(angle),
+            z: pad.y + radius * Math.sin(angle),
+        };
+    });
+}
+
 function standalonePadMesh(pad) {
     const flash = standalonePadFlash(pad);
     const halfW = flash.w / 2;
     const halfH = flash.h / 2;
-    const ri = Math.max(0.05, pad.drill / 2 - 0.02);
+    const ri = standalonePadBarrelRadius(pad);
     return throughHolePadMesh(
         flash.x, flash.y, flash.shape === 'circle' ? 'ellipse' : flash.shape,
         halfW, halfH, Math.cos(flash.rad), Math.sin(flash.rad), ri,
@@ -1907,7 +1924,8 @@ export function standalonePadEdgeMesh(pad, boardOutline) {
     const padOutline = padFlashOutline(flash).map(point => ({ x: point.x, z: point.y }));
     if (padOutline.length < 3) return mesh;
     const padPolygon = padOutline.map(point => ({ x: point.x, y: point.z }));
-    const drillRadius = Math.max(0, Number(pad.drill) || 0) / 2;
+    const barrelOutline = standalonePadBarrelOutline(pad);
+    const barrelPolygon = barrelOutline.map(point => ({ x: point.x, y: point.z }));
     const cross = (ax, az, bx, bz) => ax * bz - az * bx;
     const addIntersection = (values, a, b, c, d) => {
         const rx = b.x - a.x;
@@ -1922,22 +1940,6 @@ export function standalonePadEdgeMesh(pad, boardOutline) {
         const u = cross(qx, qz, rx, rz) / denominator;
         if (t > 1e-9 && t < 1 - 1e-9 && u >= -1e-9 && u <= 1 + 1e-9) values.push(t);
     };
-    const addDrillIntersections = (values, a, b) => {
-        if (!(drillRadius > 0)) return;
-        const dx = b.x - a.x;
-        const dz = b.z - a.z;
-        const ox = a.x - pad.x;
-        const oz = a.z - pad.y;
-        const aa = dx * dx + dz * dz;
-        const bb = 2 * (ox * dx + oz * dz);
-        const cc = ox * ox + oz * oz - drillRadius * drillRadius;
-        const discriminant = bb * bb - 4 * aa * cc;
-        if (aa <= 1e-12 || discriminant <= 0) return;
-        const root = Math.sqrt(discriminant);
-        for (const t of [(-bb - root) / (2 * aa), (-bb + root) / (2 * aa)]) {
-            if (t > 1e-9 && t < 1 - 1e-9) values.push(t);
-        }
-    };
     const pointAt = (a, b, t) => ({
         x: a.x + (b.x - a.x) * t,
         z: a.z + (b.z - a.z) * t,
@@ -1950,7 +1952,10 @@ export function standalonePadEdgeMesh(pad, boardOutline) {
             addIntersection(values, a, b, padOutline[padIndex],
                 padOutline[(padIndex + 1) % padOutline.length]);
         }
-        addDrillIntersections(values, a, b);
+        for (let barrelIndex = 0; barrelIndex < barrelOutline.length; barrelIndex++) {
+            addIntersection(values, a, b, barrelOutline[barrelIndex],
+                barrelOutline[(barrelIndex + 1) % barrelOutline.length]);
+        }
         values.sort((first, second) => first - second);
         const unique = values.filter((value, index) => index === 0 || value - values[index - 1] > 1e-8);
         for (let index = 0; index + 1 < unique.length; index++) {
@@ -1959,8 +1964,8 @@ export function standalonePadEdgeMesh(pad, boardOutline) {
             if (Math.hypot(end.x - start.x, end.z - start.z) <= 1e-8) continue;
             const midpoint = pointAt(start, end, 0.5);
             if (!pointInPolygon({ x: midpoint.x, y: midpoint.z }, padPolygon)) continue;
-            if (drillRadius > 0
-                && Math.hypot(midpoint.x - pad.x, midpoint.z - pad.y) < drillRadius - 1e-8) continue;
+            if (barrelPolygon.length >= 3
+                && pointInPolygon({ x: midpoint.x, y: midpoint.z }, barrelPolygon)) continue;
             const base = mesh.verts.length;
             mesh.verts.push(
                 { x: start.x, y: Y_TOP + PAD_EPS, z: start.z },
@@ -1975,6 +1980,20 @@ export function standalonePadEdgeMesh(pad, boardOutline) {
         }
     }
     return mesh;
+}
+
+export function boardCutoutEdgeRings(drilledHoles) {
+    const rings = (drilledHoles || [])
+        .filter(hole => hole?.boardShape)
+        .flatMap(hole => {
+            if (Array.isArray(hole.ring) && hole.ring.length >= 3) {
+                return [hole.ring.map(point => ({ x: point.x, y: point.z }))];
+            }
+            return hole.r > 0 ? [circleRing(hole.x, hole.z, hole.r, 48)] : [];
+        });
+    const unioned = unionBoreRings(rings);
+    return (unioned || rings)
+        .map(ring => ring.map(point => ({ x: point.x, z: point.y })));
 }
 
 function collectBoardHoles(placements, pads = []) {
@@ -3558,16 +3577,23 @@ export async function openBoard3DViewer(app, opts = {}) {
             appendMesh(copperMesh, buildFillMesh(app.copperFills));
             addSurface('copper', [{ mesh: copperMesh, holes: copperPunchHoles }]);
             const padsMesh = emptyMesh();
+            const padEdgeMesh = emptyMesh();
+            const edgeRings = [outline, ...boardCutoutEdgeRings(drilledHoles)];
             for (const [, pl] of app.placements) appendMesh(padsMesh, padMesh(pl));
             for (const pad of app.pads || []) {
                 appendMesh(padsMesh, standalonePadMesh(pad));
-                appendMesh(padsMesh, standalonePadEdgeMesh(pad, outline));
+                for (const edgeRing of edgeRings) {
+                    appendMesh(padEdgeMesh, standalonePadEdgeMesh(pad, edgeRing));
+                }
             }
             addSurface('via', [
                 { mesh: buildViaMesh(app.vias), holes: platedMeshHoles },
                 { mesh: buildPlatedShapeHoleMesh(drilledHoles) },
             ]);
-            addSurface('pads', [{ mesh: padsMesh, holes: platedMeshHoles }]);
+            addSurface('pads', [
+                { mesh: padsMesh, holes: platedMeshHoles },
+                { mesh: padEdgeMesh, holes: copperSubtractHoles },
+            ]);
             if (SHOW_SOLDERMASK) {
                 addSurface('maskCoat', [
                     { mesh: buildMaskFaceMesh(outline, Y_TOP + COPPER_EPS, false),

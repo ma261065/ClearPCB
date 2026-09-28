@@ -2,11 +2,55 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import * as layers from '../src/pcb/modules/layers.js';
 import { lockPositionOutsideOutline } from '../src/pcb/modules/selection-anchors.js';
+import {
+    LOCK_BOUNDS,
+    LOCK_MIN_SCREEN_PX,
+    LOCK_SCREEN_GAP_PX,
+    lockIconMetrics,
+} from '../src/core/ui-helpers.js';
 
 const square = [{ x: 0, y: 0 }, { x: 20, y: 0 }, { x: 20, y: 10 }, { x: 0, y: 10 }];
 const rightEdgeLock = lockPositionOutsideOutline(square, { x: 20, y: 6 }, 20);
-assert.ok(rightEdgeLock.x > 20, 'Outline lock is placed outside the edge nearest the click');
-assert.ok(Math.abs(rightEdgeLock.y - 6) < 2, 'Outline lock stays close to the clicked outline point');
+assert.ok(rightEdgeLock.x > 20, 'Outline lock is placed outside the edge nearest the pointer');
+assert.ok(rightEdgeLock.x < 20.5, 'Outline lock stays five screen pixels from the selected object');
+assert.ok(Math.abs(rightEdgeLock.y - 6) < 1, 'Outline lock follows the pointer along the object edge');
+assert.ok(Math.abs(rightEdgeLock.x + LOCK_BOUNDS.minX - 20 - LOCK_SCREEN_GAP_PX / 20) < 1e-9);
+
+const topEdgeLock = lockPositionOutsideOutline(square, { x: 10, y: 0 }, 20);
+assert.ok(Math.abs(-(topEdgeLock.y + LOCK_BOUNDS.maxY) - LOCK_SCREEN_GAP_PX / 20) < 1e-9,
+    'top and side lock placements have the same visible screen gap');
+const lowZoomMetrics = lockIconMetrics(2);
+assert.equal(lowZoomMetrics.size * 2, LOCK_MIN_SCREEN_PX,
+    'lock body retains its minimum screen width at low zoom');
+
+const diagonal = [{ x: 0, y: 0 }, { x: 20, y: 10 }];
+const diagonalLock = lockPositionOutsideOutline(diagonal, { x: 10, y: 5 }, 20, false, 2);
+const diagonalOutward = { x: 1 / Math.sqrt(5), y: -2 / Math.sqrt(5) };
+const diagonalBoundary = {
+    x: 10 + diagonalOutward.x * 2,
+    y: 5 + diagonalOutward.y * 2,
+};
+const diagonalNearestProjection = diagonalOutward.x * LOCK_BOUNDS.minX
+    + diagonalOutward.y * LOCK_BOUNDS.maxY;
+const diagonalGap = diagonalOutward.x * (diagonalLock.x - diagonalBoundary.x)
+    + diagonalOutward.y * (diagonalLock.y - diagonalBoundary.y)
+    + diagonalNearestProjection;
+assert.ok(
+    Math.abs(diagonalGap - LOCK_SCREEN_GAP_PX / 20) < 1e-9,
+    'diagonal lock placement keeps the same visible five-pixel gap',
+);
+
+const sampledArc = [
+    [{ x: -10, y: 0 }, { x: -5, y: -5 }],
+    [{ x: -5, y: -5 }, { x: 0, y: -6 }],
+    [{ x: 0, y: -6 }, { x: 5, y: -5 }],
+    [{ x: 5, y: -5 }, { x: 10, y: 0 }],
+];
+const sampledArcLock = lockPositionOutsideOutline(
+    sampledArc, { x: 0, y: -6 }, 20, false, sampledArc.map(() => 6),
+);
+assert.ok(sampledArcLock.y + LOCK_BOUNDS.maxY < -6,
+    'fat sampled arc uses the nearest centreline segment when painted widths overlap');
 
 const source = readFileSync(new URL('../src/ui/PCBApp.js', import.meta.url), 'utf8');
 const start = source.indexOf('    _selectAllPcb() {');

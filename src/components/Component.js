@@ -1,4 +1,4 @@
-import { createLockIcon, LOCK_SIZE } from '../core/ui-helpers.js';
+import { createLockIcon, lockIconMetrics, LOCK_GAP } from '../core/ui-helpers.js';
 import { Text } from '../shapes/text.js';
 import { compactObjText } from './LCSCFetcher.js';
 
@@ -545,10 +545,10 @@ export class Component {
         // Draw lock icon when locked and selected
         if (this.locked && this.selected) {
             const localBounds = this._getLocalBounds();
-            const offset = 0.6;
-            const lockX = localBounds.minX - offset - LOCK_SIZE;
-            const lockY = localBounds.minY - offset - LOCK_SIZE * 0.6;
-            this._lockIconEl = createLockIcon(lockX, lockY, this, 'component-lock-icon');
+            const { size } = lockIconMetrics(scale);
+            const lockX = localBounds.minX - LOCK_GAP - size;
+            const lockY = localBounds.minY - LOCK_GAP - size * 0.6;
+            this._lockIconEl = createLockIcon(lockX, lockY, this, 'component-lock-icon', scale);
             this.element.appendChild(this._lockIconEl);
         }
     }

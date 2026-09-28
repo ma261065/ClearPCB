@@ -1,14 +1,19 @@
 import { registerPcbSelectionAdapter, getComponentSelectionHit } from './selection-registry.js';
+import { lockPositionOutsideOutline } from './selection-anchors.js';
 
-function boundsForPlacement(placement) {
+function outlineForPlacement(placement) {
     const bounds = placement?.bounds;
-    if (!bounds) return { minX: placement?.x || 0, minY: placement?.y || 0, maxX: placement?.x || 0, maxY: placement?.y || 0 };
-    const points = [
+    if (!bounds) return [{ x: placement?.x || 0, y: placement?.y || 0 }];
+    return [
         { x: bounds.x, y: bounds.y },
         { x: bounds.x + bounds.width, y: bounds.y },
         { x: bounds.x + bounds.width, y: bounds.y + bounds.height },
         { x: bounds.x, y: bounds.y + bounds.height },
     ].map((point) => appLocalToWorld(placement, point));
+}
+
+function boundsForPlacement(placement) {
+    const points = outlineForPlacement(placement);
     return {
         minX: Math.min(...points.map((point) => point.x)),
         minY: Math.min(...points.map((point) => point.y)),
@@ -35,6 +40,13 @@ export function createComponentSelectionAdapter(app, componentId, id) {
         get visible() { return app.placements?.has(componentId); },
         get locked() { return !!app.placements?.get(componentId)?.locked; },
         getBounds() { return boundsForPlacement(app.placements?.get(componentId)); },
+        getLockPosition(pointer, scale) {
+            return lockPositionOutsideOutline(
+                outlineForPlacement(app.placements?.get(componentId)),
+                pointer,
+                scale,
+            );
+        },
         hitTest(point) { return getComponentSelectionHit(app, point) === componentId; },
         getPosition() {
             const placement = app.placements?.get(componentId);

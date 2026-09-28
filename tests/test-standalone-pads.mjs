@@ -1,7 +1,13 @@
 import assert from 'node:assert/strict';
 import { Pad } from '../src/shapes/pad.js';
-import { padBounds, padHitTest, padOutline } from '../src/pcb/modules/pad.js';
+import { padBounds, padCopperPathD, padHitTest, padOutline, renderPad } from '../src/pcb/modules/pad.js';
 import { createPadSelectionAdapter } from '../src/pcb/modules/pad-selection.js';
+import { renderTrack, renderVia, viaCopperPathD } from '../src/pcb/modules/track-render.js';
+import { createViaSelectionAdapter } from '../src/pcb/modules/track-select.js';
+import { createBoardShapeSelectionAdapter } from '../src/pcb/modules/board-shapes.js';
+import { PCB_LAYERS, isViaLocked, isViaVisible } from '../src/pcb/modules/layers.js';
+import { snapToGridLines } from '../src/core/grid-snap.js';
+import { LOCK_SCREEN_GAP_PX, LOCK_SIZE, lockIconMetrics } from '../src/core/ui-helpers.js';
 import { compactProjectAliases, normalizeProjectAliases } from '../src/core/project-field-aliases.js';
 import { validateProject } from '../src/core/project-format.js';
 
@@ -24,6 +30,54 @@ assert.deepEqual(pad.toJSON(), {
 const roundAdapter = createPadSelectionAdapter({ viewport: { scale: 1 } },
     new Pad({ shape: 'round' }), 'pad:round');
 assert.deepEqual(roundAdapter.getAnchors(), [], 'round pads do not expose a rotation handle');
+const largeRoundPad = new Pad({ x: 0, y: 0, shape: 'round', size: 20 });
+const roundLock = createPadSelectionAdapter({ viewport: { scale: 20 } },
+    largeRoundPad, 'pad:round-lock').getLockPosition({ x: 0, y: 0 }, 20);
+assert.ok(
+    Math.abs(roundLock.x + LOCK_SIZE + largeRoundPad.size / 2) < 0.5,
+    'round Pad lock sits beside its actual outline instead of its distant bounding-box corner',
+);
+const movingPad = new Pad({ x: 0, y: 0, shape: 'round' });
+const movingViewport = {
+    scale: 20, gridVisible: true, snapToGrid: true, shiftHeld: false,
+    getSnappedPosition(point) {
+        let shouldSnap = this.snapToGrid;
+        if (this.shiftHeld && this.gridVisible) shouldSnap = !shouldSnap;
+        if (!shouldSnap || !this.gridVisible) return point;
+        return snapToGridLines(point, 1, this.scale);
+    },
+    setCrosshair() {},
+    hideCrosshair() {},
+};
+const movingAdapter = createPadSelectionAdapter({
+    viewport: movingViewport,
+    _getLayerGroup: () => null,
+    history: { execute() {} },
+}, movingPad, 'pad:moving');
+movingAdapter.beginMove({ x: 0, y: 0 });
+movingAdapter.updateMove({ x: 1.3, y: 1.45 });
+assert.deepEqual(
+    { x: movingPad.x, y: movingPad.y },
+    { x: 1, y: 1.45 },
+    'pad drag is free between grid lines and magnetically snaps each nearby axis',
+);
+movingViewport.shiftHeld = true;
+movingAdapter.updateMove({ x: 1.3, y: 1.3 });
+assert.deepEqual(
+    { x: movingPad.x, y: movingPad.y },
+    { x: 1.3, y: 1.3 },
+    'Shift overrides magnetic grid snapping while dragging a pad',
+);
+movingViewport.snapToGrid = false;
+movingViewport.shiftHeld = true;
+movingAdapter.updateMove({ x: 2.3, y: 2.45 });
+assert.deepEqual(
+    { x: movingPad.x, y: movingPad.y },
+    { x: 2, y: 2.45 },
+    'Shift temporarily enables magnetic snapping when normal snapping is off',
+);
+movingAdapter.endMove(false);
+assert.deepEqual({ x: movingPad.x, y: movingPad.y }, { x: 0, y: 0 });
 const rotatingPad = new Pad({ x: 0, y: 0, shape: 'rectangle', size: 2, ratio: 2 });
 const rotationInput = { value: '' };
 globalThis.document = { getElementById: id => id === 'pcbPropPadRotation' ? rotationInput : null };
@@ -39,6 +93,108 @@ assert.equal(rotatingPad.rotation, 315);
 assert.equal(rotationInput.value, '315', 'rotation property follows the dragged handle');
 assert.ok(padOutline(rotatingPad)[1].y > 0, 'pad geometry follows the pointer rotation direction');
 rotationAdapter.endAnchorDrag(false);
+
+class FakeSvgElement {
+    constructor(name) {
+        this.localName = name;
+        this.attributes = new Map();
+        this.dataset = {};
+        this.children = [];
+    }
+    setAttribute(name, value) { this.attributes.set(name, String(value)); }
+    getAttribute(name) { return this.attributes.get(name) ?? null; }
+    appendChild(child) { this.children.push(child); child.parentNode = this; }
+    insertBefore(child) { this.appendChild(child); }
+    querySelector() { return null; }
+    remove() {
+        if (this.parentNode) {
+            this.parentNode.children = this.parentNode.children.filter(child => child !== this);
+        }
+    }
+}
+globalThis.document = {
+    createElementNS: (_namespace, name) => new FakeSvgElement(name),
+    getElementById: () => null,
+};
+assert.doesNotThrow(() => renderTrack({ edges: new Map(), _svgElements: null }, () => null),
+    'track rendering has no stale Via drill-colour dependency');
+const renderGroups = new Map([
+    ['top-copper', new FakeSvgElement('g')],
+    ['bottom-copper', new FakeSvgElement('g')],
+    ['hole', new FakeSvgElement('g')],
+]);
+const renderedPad = new Pad({
+    id: 'pad_render', x: 3, y: 4, shape: 'round', size: 2, drill: 1, layers: 'both',
+});
+renderPad(renderedPad, layer => renderGroups.get(layer));
+for (const layer of ['top-copper', 'bottom-copper']) {
+    const copperPath = renderGroups.get(layer).children[0];
+    assert.equal(copperPath.localName, 'path');
+    assert.equal(copperPath.getAttribute('fill-rule'), 'evenodd');
+    assert.equal(copperPath.getAttribute('fill-opacity'), '1');
+    assert.match(copperPath.getAttribute('d'), /A0\.5,0\.5 0 1 0/,
+        'Pad copper contains a transparent circular drill cutout');
+}
+assert.equal(renderGroups.get('hole').children.length, 0,
+    'Pad drills are not covered by an opaque hole-layer disc');
+assert.match(padCopperPathD(renderedPad), /^M.*Z M|^M.*ZM/,
+    'Pad copper path includes an outer contour and bore contour');
+const viaLayer = new FakeSvgElement('g');
+renderVia({ id: 'via_render', x: 3, y: 4, diameter: 1, drill: 0.5 },
+    layer => layer === 'vias' ? viaLayer : null);
+assert.equal(viaLayer.children[0].getAttribute('fill-opacity'), '1',
+    'Via copper rings render fully opaque');
+assert.equal(viaLayer.children[0].localName, 'path');
+assert.equal(viaLayer.children[0].getAttribute('fill-rule'), 'evenodd');
+assert.equal(viaLayer.children.length, 1, 'Via drills are not covered by an opaque disc');
+assert.match(viaCopperPathD({ x: 3, y: 4, diameter: 1, drill: 0.5 }),
+    /A0\.25,0\.25 0 1 0/, 'Via copper path contains a transparent drill cutout');
+const viaLock = createViaSelectionAdapter({ viewport: { scale: 20 } },
+    { id: 'via_lock', x: 3, y: 4, diameter: 1 }, 'via:lock')
+    .getLockPosition({ x: 3.5, y: 4 }, 20);
+assert.ok(viaLock && Number.isFinite(viaLock.x) && Number.isFinite(viaLock.y),
+    'Via adapter renders a finite pointer-relative lock position');
+const copperCircle = {
+    kind: 'circle', x: 0, y: 0, radius: 5, layer: 'top-copper',
+    filled: true, copperMode: 'add',
+};
+const circlePointer = { x: 5, y: 0 };
+const thinCircleLock = createBoardShapeSelectionAdapter({},
+    { ...copperCircle, id: 'thin', lineWidth: 0.2 }, 'shape:thin')
+    .getLockPosition(circlePointer, 20);
+const fatCircleLock = createBoardShapeSelectionAdapter({},
+    { ...copperCircle, id: 'fat', lineWidth: 3 }, 'shape:fat')
+    .getLockPosition(circlePointer, 20);
+assert.deepEqual(fatCircleLock, thinCircleLock,
+    'equal-diameter copper circles place locks identically regardless of stored line width');
+const fatArcLine = {
+    id: 'fat-arc', kind: 'line', layer: 'top-copper', lineWidth: 0.2,
+    segmentWidths: { 0: 4 },
+    points: [{ x: 0, y: 0 }, { x: 10, y: 0 }],
+};
+const fatArcLock = createBoardShapeSelectionAdapter({}, fatArcLine, 'shape:fat-arc')
+    .getLockPosition({ x: 5, y: 0 }, 20);
+const fatArcBounds = lockIconMetrics(20).bounds;
+const fatArcVisibleGap = -2 - (fatArcLock.y + fatArcBounds.maxY);
+assert.ok(Math.abs(fatArcVisibleGap - LOCK_SCREEN_GAP_PX / 20) < 0.02,
+    'fat line/arc lock clears the rendered per-segment width');
+const holeLayerState = PCB_LAYERS.find(layer => layer.id === 'hole');
+const viaLayerState = PCB_LAYERS.find(layer => layer.id === 'vias');
+assert.ok(viaLayerState, 'PCB layer panel exposes a dedicated Vias layer');
+const originalHoleState = { visible: holeLayerState.visible, locked: holeLayerState.locked };
+const originalViaState = { visible: viaLayerState.visible, locked: viaLayerState.locked };
+holeLayerState.visible = false;
+holeLayerState.locked = true;
+viaLayerState.visible = true;
+viaLayerState.locked = false;
+assert.equal(isViaVisible(), true, 'hiding Hole does not hide Vias');
+assert.equal(isViaLocked(), false, 'locking Hole does not lock Vias');
+viaLayerState.visible = false;
+viaLayerState.locked = true;
+assert.equal(isViaVisible(), false);
+assert.equal(isViaLocked(), true);
+Object.assign(holeLayerState, originalHoleState);
+Object.assign(viaLayerState, originalViaState);
 
 const longPad = {
     type: 'pad', id: 'pad_1', x: 2, y: 3, shape: 'rectangle', size: 1.5,
@@ -71,7 +227,7 @@ assert.throws(() => validateProject({
 
 globalThis.window = { addEventListener() {} };
 const { exportGerbers } = await import('../src/pcb/modules/gerber.js');
-const { standalonePadEdgeMesh } = await import('../src/pcb/modules/board3d.js');
+const { boardCutoutEdgeRings, standalonePadEdgeMesh } = await import('../src/pcb/modules/board3d.js');
 const { clipMeshToOutline } = await import('../src/pcb/modules/board3d-mesh-ops.js');
 const exportPad = new Pad({ ...pad.captureState(), id: 'pad_export', y: -20, rotation: 37 });
 const files = exportGerbers({
@@ -106,8 +262,48 @@ const edgeMesh = standalonePadEdgeMesh(
 assert.equal(edgeMesh.faces.length, 4, 'castellation plates both board-edge strips around the bore');
 assert.ok(Math.abs(Math.min(...edgeMesh.verts.map(vertex => vertex.z)) + 22) < 1e-9);
 assert.ok(Math.abs(Math.max(...edgeMesh.verts.map(vertex => vertex.z)) + 18) < 1e-9);
+const edgeJunctions = [...new Set(edgeMesh.verts.map(vertex => vertex.z))]
+    .filter(z => z > -22 + 1e-9 && z < -18 - 1e-9)
+    .sort((first, second) => first - second);
+assert.ok(Math.abs(edgeJunctions[0] + 20.98) < 1e-9);
+assert.ok(Math.abs(edgeJunctions[1] + 19.02) < 1e-9,
+    'axis-aligned edge plating terminates exactly on the barrel polygon');
+const diagonalAngle = Math.PI / 16;
+const diagonalDirection = { x: Math.cos(diagonalAngle), z: Math.sin(diagonalAngle) };
+const diagonalNormal = { x: -diagonalDirection.z, z: diagonalDirection.x };
+const diagonalMesh = standalonePadEdgeMesh(
+    new Pad({ x: 0, y: 0, shape: 'round', size: 4, drill: 2, layers: 'both' }),
+    [
+        { x: -10 * diagonalDirection.x, z: -10 * diagonalDirection.z },
+        { x: 10 * diagonalDirection.x, z: 10 * diagonalDirection.z },
+        { x: 10 * diagonalDirection.x + 10 * diagonalNormal.x,
+            z: 10 * diagonalDirection.z + 10 * diagonalNormal.z },
+        { x: -10 * diagonalDirection.x + 10 * diagonalNormal.x,
+            z: -10 * diagonalDirection.z + 10 * diagonalNormal.z },
+    ],
+);
+const diagonalJunctionDistances = [...new Set(diagonalMesh.verts
+    .map(vertex => Math.hypot(vertex.x, vertex.z).toFixed(9)))]
+    .map(Number)
+    .filter(distance => distance < 1.5);
+assert.deepEqual(diagonalJunctionDistances, [Number((0.98 * Math.cos(Math.PI / 16)).toFixed(9))],
+    'oblique edge plating meets the barrel facets exactly without a gap or hanging overlap');
 assert.ok(clipMeshToOutline(edgeMesh,
     [{ x: 0, z: 0 }, { x: 100, z: 0 }, { x: 100, z: -80 }, { x: 0, z: -80 }]).faces.length > 0,
 'castellation edge plating survives board-outline clipping');
+const cutoutRings = boardCutoutEdgeRings([{
+    x: 50, z: -40, r: 5, boardShape: true,
+    ring: [
+        { x: 45, z: -45 }, { x: 55, z: -45 },
+        { x: 55, z: -35 }, { x: 45, z: -35 },
+    ],
+}]);
+const cutoutEdgeMesh = standalonePadEdgeMesh(
+    new Pad({ x: 45, y: -40, shape: 'round', size: 4, drill: 2, layers: 'both' }),
+    cutoutRings[0],
+);
+assert.equal(cutoutEdgeMesh.faces.length, 4,
+    'castellation plates both strips where a Pad meets an internal routed edge');
+assert.ok(cutoutEdgeMesh.verts.every(vertex => Math.abs(vertex.x - 45) < 1e-9));
 
 console.log('PASS standalone pad model, aliases, geometry, validation and fabrication');

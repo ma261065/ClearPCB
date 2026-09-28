@@ -1,6 +1,7 @@
 import { isLayerLocked, isLayerVisible, unlockPcbLayer } from './layers.js';
-import { pcbTextBounds, pcbTextHitTest, renderPcbText } from './pcb-text.js';
+import { pcbTextBounds, pcbTextHitTest, pcbTextOutline, renderPcbText } from './pcb-text.js';
 import { registerPcbSelectionAdapter } from './selection-registry.js';
+import { lockPositionOutsideOutline } from './selection-anchors.js';
 import { rotationHandleAnchor, pointerRotation } from './rotation-handle.js';
 import { schedulePictureCopperRefresh } from './picture-refresh.js';
 import { EditTextCommand } from './text-commands.js';
@@ -15,6 +16,15 @@ export function createPcbTextSelectionAdapter(app, text, id) {
         get locked() { return isLayerLocked(text.layer); },
         unlock() { unlockPcbLayer(app, text.layer); },
         getBounds() { return pcbTextBounds(text); },
+        getLockPosition(pointer, scale) {
+            return lockPositionOutsideOutline(
+                pcbTextOutline(text, false),
+                pointer || { x: text.x, y: text.y },
+                scale,
+                true,
+                Math.max(0, Number(text.strokeWidth) || 0) / 2,
+            );
+        },
         hitTest(point) { return pcbTextHitTest(text, point.x, point.y); },
         getPosition() { return { x: text.x, y: text.y }; },
         getAnchors() { return [rotationHandleAnchor(pcbTextBounds(text), app.viewport?.scale)]; },

@@ -624,8 +624,9 @@ omit an explicit top-to-bottom span when saving because it equals the default.
 
 Standalone pads are plated through-hole features. Copper and solder-mask
 openings are emitted on the selected side or sides, while the circular drill is
-always emitted in the plated drill file. Pads may cross the board outline;
-Gerber copper and mask are clipped at the edge to support castellations.
+always emitted in the plated drill file. Pads may cross the outer board outline
+or an internal routed cutout/slot edge; copper, mask, and edge plating follow
+the routed boundary to support castellations.
 
 ### Generic Board Shapes
 

@@ -1,15 +1,16 @@
 import { registerPcbSelectionAdapter, getRefTextSelectionHit } from './selection-registry.js';
+import { lockPositionOutsideOutline } from './selection-anchors.js';
 
-function boundsForRefText(app, componentId) {
+function outlineForRefText(app, componentId) {
     const placement = app.placements?.get(componentId);
     const box = app._refBox?.(placement);
-    if (!placement || !box) return { minX: 0, minY: 0, maxX: 0, maxY: 0 };
+    if (!placement || !box) return [];
     const rotation = (placement.refRot || 0) * Math.PI / 180;
     const cos = Math.cos(rotation);
     const sin = Math.sin(rotation);
     const dx = placement.refDx || 0;
     const dy = placement.refDy || 0;
-    const points = [
+    return [
         [box.bx, box.by],
         [box.bx + box.bw, box.by],
         [box.bx + box.bw, box.by + box.bh],
@@ -23,6 +24,11 @@ function boundsForRefText(app, componentId) {
             box.cy + offsetX * sin + offsetY * cos + dy,
         );
     });
+}
+
+function boundsForRefText(app, componentId) {
+    const points = outlineForRefText(app, componentId);
+    if (!points.length) return { minX: 0, minY: 0, maxX: 0, maxY: 0 };
     return {
         minX: Math.min(...points.map((point) => point.x)),
         minY: Math.min(...points.map((point) => point.y)),
@@ -39,6 +45,13 @@ export function createRefTextSelectionAdapter(app, componentId, id) {
         get visible() { return app.placements?.get(componentId)?.refVisible !== false; },
         get locked() { return !!app.placements?.get(componentId)?.locked; },
         getBounds() { return boundsForRefText(app, componentId); },
+        getLockPosition(pointer, scale) {
+            return lockPositionOutsideOutline(
+                outlineForRefText(app, componentId),
+                pointer,
+                scale,
+            );
+        },
         hitTest(point) { return getRefTextSelectionHit(app, point) === componentId; },
         getPosition() {
             const placement = app.placements?.get(componentId);

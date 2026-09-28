@@ -12,14 +12,13 @@
  *   - A Track that spans two layers ⇒ one <polyline> per contiguous run
  *     of same-layer edges. The implicit-via nodes (where layers change)
  *     are rendered as <circle> ring + drill on the hole layer.
- *   - Standalone Via shapes always render as <circle> ring + drill.
+ *   - Standalone Via shapes render as an opaque annular <path> with an open bore.
  *
  * All rendered elements carry data-track-id (or data-via-id) for hit
  * testing and incremental cleanup.
  */
 
 import { resolveTrackEdgePaths } from './board-geometry.js';
-import { VIA_DRILL_COLOR } from './pcb-colors.js';
 
 const NS = 'http://www.w3.org/2000/svg';
 
@@ -38,23 +37,12 @@ const VIA_CLASS = 'pcb-via';
  * @param {object} [opts]
  * @param {string} [opts.topColor='#e74c3c']
  * @param {string} [opts.bottomColor='#2479b5']
- * @param {string} [opts.viaRingColor='#b8860b']
- * @param {string} [opts.viaDrillColor='#1a1a2e']
- * @param {number} [opts.viaDiameter=0.6] - Default ring diameter (mm)
- *   used for implicit vias (layer-change nodes).
- * @param {number} [opts.viaDrill=0.3] - Default drill diameter (mm).
  */
 export function renderTrack(track, getLayerGroup, opts = {}) {
     removeTrackElements(track);
 
     const topColor = opts.topColor || '#e74c3c';
     const bottomColor = opts.bottomColor || '#2479b5';
-    const viaRingColor = opts.viaRingColor || '#b8860b';
-    const viaDrillColor = opts.viaDrillColor || VIA_DRILL_COLOR;
-    const viaDiameter = Number.isFinite(opts.viaDiameter) && opts.viaDiameter > 0
-        ? opts.viaDiameter : 0.6;
-    const viaDrill = Number.isFinite(opts.viaDrill) && opts.viaDrill > 0
-        ? opts.viaDrill : 0.3;
 
     if (track.edges.size === 0) return;
 
@@ -107,30 +95,41 @@ export function renderTrack(track, getLayerGroup, opts = {}) {
  * @param {(layerId: string) => SVGGElement|null} getLayerGroup
  * @param {object} [opts]
  */
+export function viaCopperPathD(via) {
+    const outerRadius = via.diameter / 2;
+    const drillRadius = Math.max(0, via.drill / 2);
+    let path = `M${via.x + outerRadius},${via.y}`
+        + `A${outerRadius},${outerRadius} 0 1 0 ${via.x - outerRadius},${via.y}`
+        + `A${outerRadius},${outerRadius} 0 1 0 ${via.x + outerRadius},${via.y}Z`;
+    if (drillRadius > 0) {
+        path += `M${via.x + drillRadius},${via.y}`
+            + `A${drillRadius},${drillRadius} 0 1 0 ${via.x - drillRadius},${via.y}`
+            + `A${drillRadius},${drillRadius} 0 1 0 ${via.x + drillRadius},${via.y}Z`;
+    }
+    return path;
+}
+
 export function renderVia(via, getLayerGroup, opts = {}) {
     removeViaElements(via);
 
-    const holeLayer = getLayerGroup('hole');
-    if (!holeLayer) return;
+    const viaLayer = getLayerGroup('vias');
+    if (!viaLayer) return;
 
     const ringColor = opts.viaRingColor || '#b8860b';
-    const drillColor = opts.viaDrillColor || VIA_DRILL_COLOR;
-
-    const ring = _makeViaCircle(via.x, via.y, via.diameter / 2, ringColor);
+    const ring = document.createElementNS(NS, 'path');
+    ring.setAttribute('d', viaCopperPathD(via));
+    ring.setAttribute('fill', ringColor);
+    ring.setAttribute('fill-rule', 'evenodd');
     ring.setAttribute('class', VIA_CLASS);
-    ring.setAttribute('fill-opacity', '0.9');
+    ring.setAttribute('fill-opacity', '1');
+    ring.setAttribute('data-via-x', String(via.x));
+    ring.setAttribute('data-via-y', String(via.y));
+    ring.setAttribute('data-via-radius', String(via.diameter / 2));
     ring.dataset.viaId = via.id;
     if (via.net) ring.dataset.net = via.net;
-    const firstHoleShape = holeLayer.querySelector('[data-board-shape-layer="hole"]');
-    holeLayer.insertBefore(ring, firstHoleShape);
+    viaLayer.appendChild(ring);
 
-    const drill = _makeViaCircle(via.x, via.y, via.drill / 2, drillColor);
-    drill.setAttribute('class', VIA_CLASS);
-    drill.dataset.viaId = via.id;
-    if (via.net) drill.dataset.net = via.net;
-    holeLayer.insertBefore(drill, firstHoleShape);
-
-    via._svgElements = [ring, drill];
+    via._svgElements = [ring];
 }
 
 /** Remove every SVG element this Track previously created. */
@@ -230,16 +229,6 @@ export function buildTrackLayerRuns(track) {
     }
 
     return runs;
-}
-
-function _makeViaCircle(cx, cy, r, fillColor) {
-    const c = document.createElementNS(NS, 'circle');
-    c.setAttribute('cx', String(cx));
-    c.setAttribute('cy', String(cy));
-    c.setAttribute('r', String(r));
-    c.setAttribute('fill', fillColor);
-    c.setAttribute('class', VIA_CLASS);
-    return c;
 }
 
 /** Spacing between net-name labels along a track run, in mm. */

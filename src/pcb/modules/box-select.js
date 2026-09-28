@@ -444,9 +444,13 @@ export function beginGroupDrag(app, worldPos) {
         lastDx: 0, lastDy: 0,
         comps, vias, pads, tracks, shapes, texts, fills,
         ratsnestNets,
+        padCrosshairStart: pads.length ? { x: pads[0].before.x, y: pads[0].before.y } : null,
         previousDeferDragOverlays: !!app._deferDragOverlays,
     };
     app._deferDragOverlays = true;
+    if (app._groupDrag.padCrosshairStart) {
+        app.viewport?.setCrosshair(app._groupDrag.padCrosshairStart);
+    }
 }
 
 /** Live-update positions of every selected object during a group drag. */
@@ -469,8 +473,13 @@ export function updateGroupDrag(app, worldPos, { snap = true } = {}) {
     if (!g) return;
     let dx = worldPos.x - g.startWorld.x;
     let dy = worldPos.y - g.startWorld.y;
-    // Snap the shared delta (not each object) so relative layout is kept.
-    if (snap && app.viewport?.snapToGrid) {
+    // Magnetically snap the shared delta (not each object) so relative layout
+    // is kept while movement remains free between nearby grid lines.
+    if (snap && app.viewport?.getSnappedPosition) {
+        const position = app.viewport.getSnappedPosition({ x: dx, y: dy });
+        dx = position.x;
+        dy = position.y;
+    } else if (snap && app.viewport?.snapToGrid) {
         const gs = app.viewport.gridSize;
         dx = Math.round(dx / gs) * gs;
         dy = Math.round(dy / gs) * gs;
@@ -478,6 +487,12 @@ export function updateGroupDrag(app, worldPos, { snap = true } = {}) {
     if (dx === g.lastDx && dy === g.lastDy) return;
     g.lastDx = dx;
     g.lastDy = dy;
+    if (g.padCrosshairStart) {
+        app.viewport?.setCrosshair({
+            x: g.padCrosshairStart.x + dx,
+            y: g.padCrosshairStart.y + dy,
+        });
+    }
 
     for (const c of g.comps) {
         const pl = app.placements.get(c.id);
@@ -530,6 +545,7 @@ export function endGroupDrag(app) {
     g.pendingWorld = null;
     app._groupDrag = null;
     app._deferDragOverlays = g.previousDeferDragOverlays;
+    if (g.padCrosshairStart) app.viewport?.hideCrosshair();
     const cmds = [];
     for (const c of g.comps) {
         const pl = app.placements.get(c.id);
@@ -594,6 +610,7 @@ export function cancelGroupDrag(app) {
     g.frame = 0;
     g.pendingWorld = null;
     app._deferDragOverlays = g.previousDeferDragOverlays;
+    if (g.padCrosshairStart) app.viewport?.hideCrosshair();
     for (const entry of g.comps || []) {
         const placement = app.placements.get(entry.id);
         if (!placement) continue;

@@ -52,7 +52,7 @@ import {
     registerPcbSelectionAdapter,
     setPcbSelection,
 } from './selection-registry.js';
-import { renderPcbSelectionAnchors } from './selection-anchors.js';
+import { lockPositionOutsideOutline, renderPcbSelectionAnchors } from './selection-anchors.js';
 import { formatNumberInputValue } from '../../core/number-inputs.js';
 import { resolveTrackEdgePaths, resolveTrackSegments } from './board-geometry.js';
 import { arcFromBulge } from '../../shapes/arc-edge.js';
@@ -179,6 +179,16 @@ export function createTrackSelectionAdapter(app, track, id) {
                 if (isLayerLocked(layer)) unlockPcbLayer(app, layer);
             }
         },
+        getLockPosition(pointer, scale) {
+            const paths = [...resolveTrackEdgePaths(track).entries()];
+            return lockPositionOutsideOutline(
+                paths.map(([, points]) => points),
+                pointer,
+                scale,
+                false,
+                paths.map(([edgeId]) => Math.max(0, Number(track.getEdgeWidth?.(edgeId) ?? track.width) || 0) / 2),
+            );
+        },
         getBounds() { return trackBounds(track); },
         hitTest(point, tolerance) { return trackHitTest(track, point, tolerance); },
         getAnchors() {
@@ -289,11 +299,18 @@ export function createViaSelectionAdapter(app, via, id) {
         get visible() { return isViaVisible(); },
         get locked() { return isViaLocked(); },
         unlock() {
-            for (const layer of PCB_LAYERS) {
-                if ((layer.id === 'top-copper' || layer.id === 'bottom-copper') && layer.locked) {
-                    unlockPcbLayer(app, layer.id);
-                }
-            }
+            unlockPcbLayer(app, 'vias');
+        },
+        getLockPosition(pointer, scale) {
+            const radius = (Number(via.diameter) || 0.6) / 2;
+            const outline = Array.from({ length: 24 }, (_, index) => {
+                const angle = index * Math.PI * 2 / 24;
+                return {
+                    x: via.x + Math.cos(angle) * radius,
+                    y: via.y + Math.sin(angle) * radius,
+                };
+            });
+            return lockPositionOutsideOutline(outline, pointer, scale);
         },
         getBounds() { return viaBounds(via); },
         hitTest(point, tolerance) {
@@ -993,8 +1010,8 @@ function _drawPadHighlights(app, track, cls, opacity) {
 }
 
 function _drawViaHalo(app, via, cls = HALO_CLASS, opacity = HALO_OPACITY_SELECTED) {
-    const hole = app._getLayerGroup('hole');
-    if (!hole) return;
+    const layer = app._getLayerGroup('vias');
+    if (!layer) return;
     const c = document.createElementNS(NS, 'circle');
     c.setAttribute('class', cls);
     c.setAttribute('cx', String(via.x));
@@ -1004,7 +1021,7 @@ function _drawViaHalo(app, via, cls = HALO_CLASS, opacity = HALO_OPACITY_SELECTE
     c.setAttribute('fill-opacity', String(opacity));
     c.setAttribute('stroke', 'none');
     c.setAttribute('pointer-events', 'none');
-    hole.appendChild(c);
+    layer.appendChild(c);
 }
 
 /**

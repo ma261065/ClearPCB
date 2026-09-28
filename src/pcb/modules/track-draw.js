@@ -35,7 +35,7 @@ import { GRID_SNAP_PX, snapToGridLines } from '../../core/grid-snap.js';
 
 import { Track } from '../../shapes/track.js';
 import { Via } from '../../shapes/via.js';
-import { renderTrack } from './track-render.js';
+import { renderTrack, viaCopperPathD } from './track-render.js';
 import { pointInPolygon, distanceToSegment } from '../../core/geometry.js';
 import { snapNodeToAxis, snapNodeToCollinear } from '../../shapes/path-snap.js';
 export { snapNodeToAxis, snapNodeToCollinear } from '../../shapes/path-snap.js';
@@ -1363,15 +1363,15 @@ function _renderPreview(app, ctx, livePt) {
     // Implicit-via markers: any committed anchor where adjacent committed
     // edges differ in layer, PLUS the trailing anchor if currentLayer
     // differs from the last committed edge's layer.
-    const holeLayer = app._getLayerGroup('hole');
-    if (holeLayer) {
+    const viaLayer = app._getLayerGroup('vias');
+    if (viaLayer) {
         const opts = _renderOptsFromApp(app);
         const viaDia = opts.viaDiameter || 0.6;
         const viaDrill = opts.viaDrill || 0.3;
         for (let i = 1; i < segLayers.length; i++) {
             if (segLayers[i] !== segLayers[i - 1]) {
                 const p = allPts[i];
-                _appendPreviewVia(ctx, holeLayer, p, viaDia, viaDrill, i, used);
+                _appendPreviewVia(ctx, viaLayer, p, viaDia, viaDrill, i, used);
             }
         }
     }
@@ -1392,25 +1392,17 @@ function _previewElement(ctx, key, tag, used) {
     return element;
 }
 
-function _appendPreviewVia(ctx, holeLayer, p, viaDia, viaDrill, index, used) {
-    const ring = _previewElement(ctx, `via:${index}:ring`, 'circle', used);
+function _appendPreviewVia(ctx, viaLayer, p, viaDia, viaDrill, index, used) {
+    const ring = _previewElement(ctx, `via:${index}:ring`, 'path', used);
     ring.setAttribute('class', PREVIEW_CLASS);
-    ring.setAttribute('cx', String(p.x));
-    ring.setAttribute('cy', String(p.y));
-    ring.setAttribute('r', String(viaDia / 2));
+    ring.setAttribute('d', viaCopperPathD({
+        x: p.x, y: p.y, diameter: viaDia, drill: viaDrill,
+    }));
+    ring.setAttribute('fill-rule', 'evenodd');
     ring.setAttribute('fill', '#b8860b');
-    ring.setAttribute('fill-opacity', '0.9');
+    ring.setAttribute('fill-opacity', '1');
     ring.setAttribute('pointer-events', 'none');
-    holeLayer.appendChild(ring);
-
-    const drill = _previewElement(ctx, `via:${index}:drill`, 'circle', used);
-    drill.setAttribute('class', PREVIEW_CLASS);
-    drill.setAttribute('cx', String(p.x));
-    drill.setAttribute('cy', String(p.y));
-    drill.setAttribute('r', String(viaDrill / 2));
-    drill.setAttribute('fill', '#1a1a2e');
-    drill.setAttribute('pointer-events', 'none');
-    holeLayer.appendChild(drill);
+    viaLayer.appendChild(ring);
 }
 
 /**

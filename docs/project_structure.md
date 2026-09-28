@@ -234,6 +234,10 @@ command layer used to apply a design to the editor.
   each layer-change node on finish), autorouter
   (`autorouter-adapter.js` emits standalone Vias deduped by position),
   and explicit user placement.
+- In the PCB editor, Vias use a dedicated **Via** display layer. Its
+  visibility and lock state are session preferences and are not serialized
+  into `.cpcb` files; the Hole layer applies only to routed board holes and
+  cutouts.
 - Render (`track-render.js`) and Gerber/Excellon output (`gerber.js`)
   read vias exclusively from `PCBApp.vias`.
 

@@ -5,6 +5,7 @@ import {
     pcbTextEditBox,
     pcbTextBounds,
     pcbTextHitTest,
+    pcbTextOutline,
     pcbTextPolylines,
     serializePcbText,
 } from '../src/pcb/modules/pcb-text.js';
@@ -141,6 +142,22 @@ globalThis.document = {
     assert.ok(borderedBounds.minY < plainBounds.minY);
     assert.ok(borderedBounds.maxX > plainBounds.maxX);
     assert.ok(borderedBounds.maxY > plainBounds.maxY);
+
+    const rotated = { ...bordered, rotation: 45 };
+    const rotatedOutline = pcbTextOutline(rotated);
+    const rotatedCenterlineOutline = pcbTextOutline(rotated, false);
+    assert.equal(rotatedOutline.length, 4);
+    assert.ok(
+        rotatedOutline.every((point, index) => {
+            const next = rotatedOutline[(index + 1) % rotatedOutline.length];
+            return Math.abs(point.x - next.x) > 1e-6 && Math.abs(point.y - next.y) > 1e-6;
+        }),
+        'rotated PCB text exposes its true angled outline for lock placement',
+    );
+    assert.ok(
+        pcbTextBounds(rotated).minX < Math.min(...rotatedCenterlineOutline.map(point => point.x)),
+        'fat PCB text bounds include the painted stroke outside its centre geometry',
+    );
 
     const bottom = { ...bordered, layer: 'bottom-silk' };
     const topBorder = borderedPolylines[0];

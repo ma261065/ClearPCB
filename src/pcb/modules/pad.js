@@ -1,6 +1,5 @@
 import { padFlashOutline } from './board-geometry.js';
 import { textColorForLayer } from './pcb-text.js';
-import { VIA_DRILL_COLOR } from './pcb-colors.js';
 
 const NS = 'http://www.w3.org/2000/svg';
 
@@ -80,35 +79,35 @@ export function removePadElements(pad) {
     pad._svgElements = null;
 }
 
+export function padCopperPathD(pad) {
+    const points = padOutline(pad);
+    if (!points.length) return '';
+    let path = `M${points.map(point => `${point.x},${point.y}`).join('L')}Z`;
+    if (pad.drill > 0) {
+        const radius = pad.drill / 2;
+        path += `M${pad.x + radius},${pad.y}`
+            + `A${radius},${radius} 0 1 0 ${pad.x - radius},${pad.y}`
+            + `A${radius},${radius} 0 1 0 ${pad.x + radius},${pad.y}Z`;
+    }
+    return path;
+}
+
 export function renderPad(pad, getLayerGroup, strokeOverride = null) {
     removePadElements(pad);
     if (pad.visible === false) return;
-    const points = padOutline({ ...pad, x: 0, y: 0 });
     const elements = [];
     for (const layer of padLayers(pad)) {
         const group = getLayerGroup(layer);
         if (!group) continue;
-        const polygon = document.createElementNS(NS, 'polygon');
-        polygon.setAttribute('points', points.map(point => `${point.x},${point.y}`).join(' '));
-        polygon.setAttribute('transform', `translate(${pad.x},${pad.y})`);
-        polygon.setAttribute('fill', strokeOverride || textColorForLayer(layer));
-        polygon.setAttribute('fill-opacity', '0.9');
-        polygon.dataset.padId = pad.id;
-        if (pad.net) polygon.dataset.net = pad.net;
-        group.appendChild(polygon);
-        elements.push(polygon);
-    }
-    const holeLayer = getLayerGroup('hole');
-    if (holeLayer && pad.drill > 0) {
-        const drill = document.createElementNS(NS, 'circle');
-        drill.setAttribute('cx', String(pad.x));
-        drill.setAttribute('cy', String(pad.y));
-        drill.setAttribute('r', String(pad.drill / 2));
-        drill.setAttribute('fill', VIA_DRILL_COLOR);
-        drill.dataset.padId = pad.id;
-        if (pad.net) drill.dataset.net = pad.net;
-        holeLayer.appendChild(drill);
-        elements.push(drill);
+        const path = document.createElementNS(NS, 'path');
+        path.setAttribute('d', padCopperPathD(pad));
+        path.setAttribute('fill-rule', 'evenodd');
+        path.setAttribute('fill', strokeOverride || textColorForLayer(layer));
+        path.setAttribute('fill-opacity', '1');
+        path.dataset.padId = pad.id;
+        if (pad.net) path.dataset.net = pad.net;
+        group.appendChild(path);
+        elements.push(path);
     }
     pad._svgElements = elements;
 }

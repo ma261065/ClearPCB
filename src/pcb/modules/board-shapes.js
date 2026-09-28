@@ -708,8 +708,31 @@ export function createBoardShapeSelectionAdapter(app, shape, id) {
         get locked() { return isLayerLocked(shape.layer); },
         unlock() { unlockPcbLayer(app, shape.layer); },
         getLockPosition(pointer, scale) {
-            if (shape.layer !== 'board-outline') return null;
-            return lockPositionOutsideOutline(shapeOutline(shape), pointer, scale);
+            const geometry = resolveBoardShapeGeometry(shape);
+            if (['rect', 'polygon'].includes(shape.kind) && geometry.physicalContours?.length) {
+                return lockPositionOutsideOutline(
+                    geometry.physicalContours,
+                    pointer,
+                    scale,
+                );
+            }
+            const strokedCenterline = ['line', 'arc'].includes(shape.kind);
+            if (strokedCenterline) {
+                const segments = boardShapeStrokeSegments(shape);
+                return lockPositionOutsideOutline(
+                    segments.map(segment => [segment.start, segment.end]),
+                    pointer,
+                    scale,
+                    false,
+                    segments.map(segment => segment.lineWidth / 2),
+                );
+            }
+            return lockPositionOutsideOutline(
+                shapeOutline(shape),
+                pointer,
+                scale,
+                true,
+            );
         },
         getBounds() { return boardShapeBounds(shape); },
         hitTest(point, tolerance) {

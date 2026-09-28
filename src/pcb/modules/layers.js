@@ -21,6 +21,7 @@ export const PCB_LAYERS = /** @type {LayerDef[]} */ ([
     { id: 'board-outline',    name: 'Board Outline',       color: '#f1c40f', visible: true, locked: false },
     { id: 'top-document',     name: 'Top Document',        color: '#b0b7b8', visible: true, locked: false },
     { id: 'bottom-document',  name: 'Bottom Document',     color: '#7f8c8d', visible: true, locked: false },
+    { id: 'vias',             name: 'Via',                  color: '#b8860b', visible: true, locked: false },
     { id: 'hole',             name: 'Hole',                color: '#1abc9c', visible: true, locked: false },
 ]);
 
@@ -155,22 +156,19 @@ export function isOverlayVisible(overlayId) {
 }
 
 /**
- * True when a through-hole via is locked. A via spans both copper layers,
- * so it is protected whenever either copper layer is locked.
+ * True when the dedicated Via layer is locked.
  * @returns {boolean}
  */
 export function isViaLocked() {
-    return isLayerLocked('top-copper') || isLayerLocked('bottom-copper');
+    return isLayerLocked('vias');
 }
 
 /**
- * True when a through-hole via is visible. A via spans both copper layers,
- * so it is still shown (and hit-testable) while either copper layer is
- * visible; it disappears only when both are hidden.
+ * True when the dedicated Via layer is visible.
  * @returns {boolean}
  */
 export function isViaVisible() {
-    return isLayerVisible('top-copper') || isLayerVisible('bottom-copper');
+    return isLayerVisible('vias');
 }
 
 /**

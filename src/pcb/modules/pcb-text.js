@@ -91,7 +91,7 @@ function pcbTextLocalPolylines(text) {
     return polylines;
 }
 
-function pcbTextLocalBounds(text) {
+function pcbTextLocalBounds(text, includeStroke = true) {
     const polylines = pcbTextLocalPolylines(text);
     let minX = Infinity;
     let minY = Infinity;
@@ -117,7 +117,7 @@ function pcbTextLocalBounds(text) {
         };
     }
 
-    const strokeRadius = Math.max(0, Number(text.strokeWidth) || 0) / 2;
+    const strokeRadius = includeStroke ? Math.max(0, Number(text.strokeWidth) || 0) / 2 : 0;
     return {
         minX: minX - strokeRadius,
         minY: minY - strokeRadius,
@@ -166,13 +166,10 @@ export function renderPcbText(text, strokeOverride) {
     return g;
 }
 
-/**
- * Axis-aligned bounding box of `text` in world (SVG-Y-down) coords,
- * accounting for rotation. Returns `{minX, minY, maxX, maxY}` in mm.
- */
-export function pcbTextBounds(text) {
+/** Rotated text bounds as a world-space polygon in SVG-Y-down coordinates. */
+export function pcbTextOutline(text, includeStroke = true) {
     const mirror = isBottomLayer(text.layer) ? -1 : 1;
-    const localBounds = pcbTextLocalBounds(text);
+    const localBounds = pcbTextLocalBounds(text, includeStroke);
     const x0 = mirror === 1 ? localBounds.minX : -localBounds.maxX;
     const x1 = mirror === 1 ? localBounds.maxX : -localBounds.minX;
     const localCorners = [
@@ -183,14 +180,23 @@ export function pcbTextBounds(text) {
     ];
     const rad = -text.rotation * Math.PI / 180; // negate to match render
     const cos = Math.cos(rad), sin = Math.sin(rad);
+    return localCorners.map(([lx, ly]) => ({
+        x: text.x + lx * cos - ly * sin,
+        y: text.y + lx * sin + ly * cos,
+    }));
+}
+
+/**
+ * Axis-aligned bounding box of `text` in world (SVG-Y-down) coords,
+ * accounting for rotation. Returns `{minX, minY, maxX, maxY}` in mm.
+ */
+export function pcbTextBounds(text) {
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    for (const [lx, ly] of localCorners) {
-        const wx = text.x + lx * cos - ly * sin;
-        const wy = text.y + lx * sin + ly * cos;
-        if (wx < minX) minX = wx;
-        if (wx > maxX) maxX = wx;
-        if (wy < minY) minY = wy;
-        if (wy > maxY) maxY = wy;
+    for (const point of pcbTextOutline(text)) {
+        if (point.x < minX) minX = point.x;
+        if (point.x > maxX) maxX = point.x;
+        if (point.y < minY) minY = point.y;
+        if (point.y > maxY) maxY = point.y;
     }
     return { minX, minY, maxX, maxY };
 }

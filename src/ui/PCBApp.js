@@ -25,7 +25,7 @@ import { generateGerberArchive, showGerberProgress } from '../pcb/modules/gerber
 import { generateBOM, generatePickAndPlace } from '../pcb/modules/assembly.js';
 import { openBoard3DViewer } from '../pcb/modules/board3d.js';
 import { savePcbPdf, printPcb } from '../pcb/modules/pcb-export.js';import { tracksFromAutorouterResult } from '../pcb/modules/autorouter-adapter.js';
-import { renderTrack, renderVia, removeTrackElements, removeViaElements } from '../pcb/modules/track-render.js';
+import { renderTrack, renderVia, removeTrackElements, removeViaElements, viaCopperPathD } from '../pcb/modules/track-render.js';
 import { startTrackDraw, updateTrackDraw, refreshTrackDrawPreview, addTrackWaypoint, finishTrackDraw, cancelTrackDraw, toggleTrackLayer, resolveTrackSnap, showTrackSnapMarker, clearTrackSnapMarker, reconcileRatsnest } from '../pcb/modules/track-draw.js';
 import { hitTestTrack, hitTestLockedTrack, selectTrackOrVia, clearTrackSelection, deleteSelectedTrack, setHoverHighlight, showTrackContextMenu, refreshTrackSelectionHalo, getSelectedTrack, getSelectedVia, selectTrackSegment, dismissTrackContextMenu } from '../pcb/modules/track-select.js';
 import { deleteFocusedBoardShape } from '../pcb/modules/board-shapes.js';
@@ -2838,6 +2838,7 @@ export default class PCBApp {
             'top-fill', 'top-copper',
             'top-pad-numbers',
             'top-copper-knockout',
+            'vias',
             'bottom-silk', 'top-silk',
             // Level-of-detail placeholders: one solid rect per footprint, shown
             // (in place of the footprint's full geometry) when zoomed out far
@@ -2846,15 +2847,14 @@ export default class PCBApp {
             'fp-lod',
             'bottom-document',
             'top-document',
-            // Board cutouts must cover every board-art layer, including
-            // document shapes and vias that share this group.
+            // Board cutouts must cover every board-art layer, including vias.
             'hole',
             'ratlines',
             // Overlays — non-editable visual aids drawn on top of everything
             // (clearance halos, etc.). Must be last in z-order.
             'clearance-overlay',
             // Selection-overlay — track node handles etc. sit above ALL
-            // copper, vias (hole layer) and overlays so they stay visible
+            // copper, vias and overlays so they stay visible
             // even when a via covers the node they mark.
             'selection-overlay',
             // DRC-overlay — design-rule violation markers (dotted leaders /
@@ -2927,9 +2927,8 @@ export default class PCBApp {
             if (ko) ko.style.display = visible ? '' : 'none';
             this._scheduleRemovalHatchRender();
         }
-        // Clearance overlay tracks per-layer visibility — re-render so halos
-        // for hidden copper/hole layers disappear too.
-        if (this._clearancesVisible && (layerId === 'top-copper' || layerId === 'bottom-copper' || layerId === 'hole')) {
+        // Clearance overlay tracks per-layer visibility.
+        if (this._clearancesVisible && ['top-copper', 'bottom-copper', 'vias', 'hole'].includes(layerId)) {
             this.showClearances(true);
         }
         // A newly-hidden layer must not keep anything on it selected or
@@ -2940,7 +2939,7 @@ export default class PCBApp {
                 (item) => item.type !== 'fill' && this.boardShapes.includes(item)
                     && item.layer === layerId,
             );
-            const viaAffected = (layerId === 'top-copper' || layerId === 'bottom-copper') && !isViaVisible();
+            const viaAffected = layerId === 'vias' && !isViaVisible();
             const selectedTrack = getSelectedTrack(this);
             const selectedVia = getSelectedVia(this);
             if ((selectedTrack && selectedTrack.layer === layerId) ||
@@ -2970,21 +2969,16 @@ export default class PCBApp {
     }
 
     /**
-     * Called by the layer panel when a layer's lock is toggled. A locked
-     * layer is rendered dimmed (reduced opacity) so it's clearly set apart
-     * from the editable layers.
+     * Called by the layer panel when a layer's lock is toggled.
      * @param {string} layerId
      * @param {boolean} locked
      */
     _onLayerLockChanged(layerId, locked) {
         const g = this._layerGroups.get(layerId);
-        if (g) {
-            g.style.opacity = locked ? '0.4' : '';
-        }
-        // Keep copper-removal knockouts dimmed in step with their copper layer.
+        if (g) g.style.opacity = '';
         if (layerId === 'top-copper' || layerId === 'bottom-copper') {
             const ko = this._layerGroups.get(layerId === 'bottom-copper' ? 'bottom-copper-knockout' : 'top-copper-knockout');
-            if (ko) ko.style.opacity = locked ? '0.4' : '';
+            if (ko) ko.style.opacity = '';
         }
         saveLayerPrefs();
         const checkbox = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropOutlineLocked'));
@@ -7149,7 +7143,7 @@ export default class PCBApp {
         };
         const topVisible = isLayerVisible('top-copper');
         const bottomVisible = isLayerVisible('bottom-copper');
-        const holeVisible = isLayerVisible('hole');
+        const viaVisible = isLayerVisible('vias');
 
         // Build a single SVG path representing the Minkowski expansion of a
         // pad shape by `halo`. Returns null if shape unsupported.
@@ -7456,16 +7450,16 @@ export default class PCBApp {
         }
         for (const text of this.texts?.values() || []) this._refreshBoardShapeClearance(text);
 
-        // Vias: drawn as circles with class 'pcb-routed-via' (legacy/animation)
-        // or 'pcb-via' (model-driven) on the 'hole' layer. Two elements share
-        // the class (ring + drill); halo only the ring (the larger r).
-        const holeGroup = this._getLayerGroup('hole');
-        if (!holeVisible) return;
+        // Legacy/animated vias are circles; model-driven vias are annular paths
+        // carrying their outer geometry as data attributes.
+        const viaGroup = this._getLayerGroup('vias');
+        if (!viaVisible) return;
         const viaRingByCenter = new Map();
-        for (const via of holeGroup.querySelectorAll('circle.pcb-routed-via, circle.pcb-via')) {
-            const cx = parseFloat(via.getAttribute('cx'));
-            const cy = parseFloat(via.getAttribute('cy'));
-            const r = parseFloat(via.getAttribute('r'));
+        for (const via of viaGroup.querySelectorAll('circle.pcb-routed-via, circle.pcb-via, path.pcb-via')) {
+            const pathVia = via.localName === 'path';
+            const cx = parseFloat(via.getAttribute(pathVia ? 'data-via-x' : 'cx'));
+            const cy = parseFloat(via.getAttribute(pathVia ? 'data-via-y' : 'cy'));
+            const r = parseFloat(via.getAttribute(pathVia ? 'data-via-radius' : 'r'));
             if (!Number.isFinite(cx) || !Number.isFinite(cy) || !Number.isFinite(r)) continue;
             const key = `${cx.toFixed(4)},${cy.toFixed(4)}`;
             const prev = viaRingByCenter.get(key);
@@ -8116,31 +8110,24 @@ export default class PCBApp {
 
             // Render vias for this trace
             if (trace.vias?.length) {
-                const holeLayer = this._getLayerGroup('hole');
+                const viaLayer = this._getLayerGroup('vias');
                 const viaRadius = params.viaDiameter / 2;
                 const drillRadius = params.viaDrill / 2;
                 for (const v of trace.vias) {
-                    const ring = document.createElementNS(NS, 'circle');
+                    const ring = document.createElementNS(NS, 'path');
                     ring.setAttribute('class', 'pcb-routed-via pcb-route-anim');
-                    ring.setAttribute('cx', String(v.x));
-                    ring.setAttribute('cy', String(v.y));
-                    ring.setAttribute('r', String(viaRadius));
+                    ring.setAttribute('d', viaCopperPathD({
+                        x: v.x, y: v.y, diameter: viaRadius * 2, drill: drillRadius * 2,
+                    }));
+                    ring.setAttribute('fill-rule', 'evenodd');
                     ring.setAttribute('fill', '#b8860b');
                     ring.setAttribute('opacity', '0.6');
+                    ring.setAttribute('data-via-x', String(v.x));
+                    ring.setAttribute('data-via-y', String(v.y));
+                    ring.setAttribute('data-via-radius', String(viaRadius));
                     if (trace.net) ring.dataset.net = trace.net;
                     if (trace.connId) ring.dataset.connid = trace.connId;
-                    holeLayer.appendChild(ring);
-
-                    const drill = document.createElementNS(NS, 'circle');
-                    drill.setAttribute('class', 'pcb-routed-via pcb-route-anim');
-                    drill.setAttribute('cx', String(v.x));
-                    drill.setAttribute('cy', String(v.y));
-                    drill.setAttribute('r', String(drillRadius));
-                    drill.setAttribute('fill', '#1a1a2e');
-                    drill.setAttribute('opacity', '0.6');
-                    if (trace.net) drill.dataset.net = trace.net;
-                    if (trace.connId) drill.dataset.connid = trace.connId;
-                    holeLayer.appendChild(drill);
+                    viaLayer.appendChild(ring);
                 }
             }
         }
@@ -8673,8 +8660,8 @@ export default class PCBApp {
         const bottomCopper = this._getLayerGroup('bottom-copper');
         if (topCopper) topCopper.querySelectorAll('.pcb-routed-trace, .pcb-route-anim').forEach(el => el.remove());
         if (bottomCopper) bottomCopper.querySelectorAll('.pcb-routed-trace, .pcb-route-anim').forEach(el => el.remove());
-        const holeLayerEarly = this._getLayerGroup('hole');
-        if (holeLayerEarly) holeLayerEarly.querySelectorAll('.pcb-routed-via, .pcb-route-anim').forEach(el => el.remove());
+        const viaLayerEarly = this._getLayerGroup('vias');
+        if (viaLayerEarly) viaLayerEarly.querySelectorAll('.pcb-routed-via, .pcb-route-anim').forEach(el => el.remove());
 
         // Build model objects from the autorouter output.
         const { tracks, vias } = tracksFromAutorouterResult(result, {
