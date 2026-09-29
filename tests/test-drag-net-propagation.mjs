@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { PcbDocument } from '../src/core/PcbDocument.js';
 
 globalThis.window = { addEventListener() {} };
 globalThis.document = { getElementById() { return null; } };
@@ -8,20 +9,24 @@ const { Track } = await import('../src/shapes/track.js');
 const { CopperFill } = await import('../src/shapes/copper-fill.js');
 const { startVertexDrag, updateVertexDrag, finishVertexDrag, cancelVertexDrag } =
     await import('../src/pcb/modules/track-drag.js');
+const { default: PCBApp } = await import('../src/ui/PCBApp.js');
+const copperPrototype = Object.create(null, Object.fromEntries(['tracks', 'vias', 'pads']
+    .map(key => [key, Object.getOwnPropertyDescriptor(PCBApp.prototype, key)])));
 
 function fixture(kind = 'via', chain = false) {
     const pad = new Pad({ x: 0, y: 0, layers: 'both', net: 'SIGNAL' });
     const track = new Track({ points: [{ x: 0, y: 0 }, { x: 10, y: 0 }], net: 'SIGNAL' });
     const terminal = kind === 'via' ? new Via({ x: 20, y: 0 }) : new Pad({ x: 20, y: 0 });
     const commands = [];
-    const app = {
+    const app = Object.assign(Object.create(copperPrototype), {
+        pcbDocument: new PcbDocument(),
         tracks: [track], vias: kind === 'via' ? [terminal] : [], pads: kind === 'pad' ? [pad, terminal] : [pad],
         placements: new Map(), netlist: [], boardShapes: [],
         _getLayerGroup() { return null; },
         viewport: { scale: 100, gridVisible: false, setCrosshair() {}, hideCrosshair() {} },
         history: { execute(command) { commands.push(command); command.execute(); } },
         _alert(message) { this.lastAlert = message; },
-    };
+    });
     const connected = [terminal];
     if (chain) {
         const branch = new Track({ points: [{ x: 20, y: 0 }, { x: 30, y: 0 }] });

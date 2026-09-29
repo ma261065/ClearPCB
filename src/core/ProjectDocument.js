@@ -2,8 +2,7 @@ import { FileManager } from './FileManager.js';
 import { validateEditableProject } from './project-format.js';
 import { compactProjectAliases } from './project-field-aliases.js';
 import { SchematicDocument } from './SchematicDocument.js';
-import { PcbPlacementState } from './PcbPlacementState.js';
-import { PcbDesignSettings } from './PcbDesignSettings.js';
+import { PcbDocument } from './PcbDocument.js';
 
 /** @typedef {{id: string, reference: string, locked: boolean, footprintShapes: string[]}} ComponentInfo */
 
@@ -14,9 +13,9 @@ import { PcbDesignSettings } from './PcbDesignSettings.js';
  * Historically the schematic editor owned the file (it was built first),
  * which forced the PCB editor to reach sideways into the schematic for
  * every File operation. `ProjectDocument` makes ownership explicit and
- * symmetric: it holds the single {@link FileManager}, the schematic document
- * model, and registered *views*. The PCB section is still editor-owned during
- * the incremental model migration.
+ * symmetric: it holds the single {@link FileManager}, document models, and
+ * registered *views*. PCB board shapes, text and view settings remain
+ * editor-owned during the incremental model migration.
  *
  * Views implement a small duck-typed interface:
  *   - `serializeSection()` → the view's slice of the document (or null).
@@ -39,8 +38,7 @@ export class ProjectDocument {
         /** The single source of truth for the file on disk. */
         this.fileManager = new FileManager();
         this.schematicDocument = new SchematicDocument();
-        this.pcbPlacementState = new PcbPlacementState();
-        this.pcbDesignSettings = new PcbDesignSettings();
+        this.pcbDocument = new PcbDocument();
         /** @type {Map<string, any>} Registered editor views by name. */
         this.views = new Map();
         /** View that owns canvas-level UI (prompts, toasts, title). */

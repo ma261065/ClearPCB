@@ -60,7 +60,7 @@ function fixture() {
     app._clearancesVisible = true;
     app._board3d = { refresh() { changes.board3d++; } };
     bindPcbControls(app);
-    assert.equal(app.designSettings, project.pcbDesignSettings);
+    assert.equal(app.designSettings, project.pcbDocument.designSettings);
     return { app, changes, elements };
 }
 const { app, changes, elements } = fixture();

@@ -5,7 +5,7 @@ import { PcbPlacementState } from '../src/core/PcbPlacementState.js';
 assert.equal(typeof window, 'undefined');
 assert.equal(typeof document, 'undefined');
 const project = new ProjectDocument();
-const state = project.pcbPlacementState;
+const state = project.pcbDocument.placementState;
 const overrides = state.overrides;
 const artwork = {};
 artwork.self = artwork;
@@ -45,5 +45,5 @@ assert.deepEqual(state.serialize().default, { x: 0, y: 0, rotation: 0 },
 state.load(null);
 assert.equal(state.overrides, overrides);
 assert.equal(overrides.size, 0, 'Clearing the saved state does not replace its map');
-assert.equal(new ProjectDocument().pcbPlacementState.overrides.size, 0, 'Projects have independent placement state');
+assert.equal(new ProjectDocument().pcbDocument.placementState.overrides.size, 0, 'Projects have independent placement state');
 console.log('PASS DOM-free project placement state, metadata isolation, legacy defaults, precision and reload identity');

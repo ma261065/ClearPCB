@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { PcbDocument } from '../src/core/PcbDocument.js';
 
 const appended = [];
 globalThis.document = {
@@ -37,6 +38,7 @@ try {
     ]);
     const via = { id: 'via-a', net: 'N1' };
     const app = Object.create(PCBApp.prototype);
+    app.pcbDocument = new PcbDocument();
     app.netlist = [];
     app._netTooltip = null;
     app._netTooltipTimer = 0;

@@ -622,7 +622,7 @@ export function buildDrawnTrackCommands(app, newTracks, newVias = [], destinatio
     const vias = newVias || [];
     const drawnSet = new Set(drawn);
     const bonded = collectBondedCopper({
-        ...app, tracks: [...(app.tracks || []), ...drawn], vias: [...(app.vias || []), ...vias],
+        ...app, tracks: [...(app.tracks || []), ...drawn], vias: [...(app.vias || []), ...vias], pads: app.pads,
     }, { tracks: drawnSet }, { includeShapes: true, newTracks: drawnSet });
     const shapes = new Set([...bonded.shapes, ...destinationShapes]);
     const nets = _bondedNets(bonded, shapes);
@@ -1558,7 +1558,8 @@ export function finishVertexDrag(app) {
                 && !_hasViaAt(app, point.x, point.y)) {
                 // Validate the connection the merge will create across layers,
                 // including the transition Via that is not on the board yet.
-                prospectiveApp = { ...app, vias: [...(app.vias || []), _makeViaAt(app, point.x, point.y, '')] };
+                prospectiveApp = { ...app, tracks: app.tracks, pads: app.pads,
+                    vias: [...(app.vias || []), _makeViaAt(app, point.x, point.y, '')] };
             }
         }
         const bonded = collectBondedCopper(prospectiveApp, { track: drag.track, nodeId },

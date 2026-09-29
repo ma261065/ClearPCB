@@ -1461,7 +1461,7 @@ export function _applyNetToBondedCopper(app, seed, v) {
             const selectedTrack = parts[selectedIndex];
             const tracks = (app.tracks || []).filter(track => track !== seed.track);
             tracks.push(...parts);
-            group = collectBondedCopper({ ...app, tracks }, { track: selectedTrack });
+            group = collectBondedCopper({ ...app, tracks, vias: app.vias, pads: app.pads }, { track: selectedTrack });
             replacement = { original: seed.track, parts, selectedTrack };
         }
     }

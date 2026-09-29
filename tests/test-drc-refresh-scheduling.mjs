@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { PcbDocument } from '../src/core/PcbDocument.js';
 
 globalThis.window = { addEventListener() {} };
 globalThis.document = {
@@ -45,6 +46,7 @@ function fixture(withFill = true) {
         copperMode: 'add', filled: true, lineWidth: 0.2, points: rectangle(-4, -1, 4, 1) };
     const reports = [];
     const app = Object.assign(Object.create(PCBApp.prototype), {
+        pcbDocument: new PcbDocument(),
         placements: new Map(), texts: new Map(), tracks: [], pads: [], netlist: [],
         vias: [{ id: 'ground', x: 8, y: 8, diameter: 1, drill: 0.3, net: 'GND' }],
         boardShapes: [shape, ...(withFill ? [new CopperFill({ net: 'GND', layer: 'top-copper',

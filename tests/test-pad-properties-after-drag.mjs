@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { PcbDocument } from '../src/core/PcbDocument.js';
 
 globalThis.window = { addEventListener() {} };
 globalThis.document = { getElementById() { return null; } };
@@ -21,6 +22,7 @@ function fixture(count) {
     }
     const app = Object.create(PCBApp.prototype);
     Object.assign(app, {
+        pcbDocument: new PcbDocument(),
         pads: Array.from({ length: count }, (_, index) => new Pad({
             x: index * 3, y: index % 2, shape: 'rectangle', layers: 'both', rotation: index * 10,
         })),

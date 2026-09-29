@@ -4,22 +4,19 @@ import { clearTrackSelection, getSelectedTrack } from './track-select.js';
 import { createPcbText, serializePcbText } from './pcb-text.js';
 import { serializeBoardShapes, loadBoardShapes, removeBoardShapeElement, renderBoardShape } from './board-shapes.js';
 import { validBoardOutline, getBoardOutline, syncBoardOutlineDimensions } from './board-outline.js';
-import { Track } from '../../shapes/track.js';
-import { Via, resetViaIdCounter, updateViaIdCounter } from '../../shapes/via.js';
-import { Pad, resetPadIdCounter, updatePadIdCounter } from '../../shapes/pad.js';
 import { renderPad, removePadElements } from './pad.js';
 import { updateFillIdCounter } from '../../shapes/copper-fill.js';
-import { createShape } from '../../shapes/index.js';
 import { serializeGridSettings, restoreGridSettings } from '../../ui/modules/viewport.js';
 import { panelSettings } from './panelization.js';
 import { renderPanelPreview, resetPanelPreview } from './panelization-ui.js';
-import { assertSupportedPcb, defaultPcbStackup } from '../../core/project-format.js';
-import { compactProjectAliases, normalizePcbSection } from '../../core/project-field-aliases.js';
+import { defaultPcbStackup } from '../../core/project-format.js';
+import { compactProjectAliases } from '../../core/project-field-aliases.js';
 import { hasRectangleFrame, rectangleFramePoints } from '../../shapes/rectangle-frame.js';
 import { resetPcbSelection, syncPcbSelection } from './selection-registry.js';
 import { clearPcbSelectionAnchors } from './selection-anchors.js';
 import { applyDesignSettings } from './design-settings.js';
 import { PcbDesignSettings } from '../../core/PcbDesignSettings.js';
+import { PcbDocument } from '../../core/PcbDocument.js';
 
 const round4 = value => Number.isFinite(value) ? Math.round(value * 10000) / 10000 : value;
 
@@ -35,9 +32,7 @@ export function serializePcb(app) {
         design: app.designSettings.serialize(),
         ...(app.panelization ? { panelization: panelSettings(app.panelization) } : {}),
         settings: serializeGridSettings(app.viewport),
-        tracks: app.tracks.map(t => t.toJSON()),
-        vias: app.vias.map(v => v.toJSON()),
-        pads: (app.pads || []).map(pad => pad.toJSON()),
+        ...app.pcbDocument.serializeCopper(),
         boardShapes: serializeBoardShapes(app),
         texts: [...app.texts.values()].map(text => {
             const saved = serializePcbText(text);
@@ -50,8 +45,8 @@ export function serializePcb(app) {
 }
 
 export function preparePcb(data) {
-    data = normalizePcbSection(data);
-    assertSupportedPcb(data);
+    const copper = PcbDocument.prepareCopper(data);
+    data = copper.data;
     if (data?.design) new PcbDesignSettings().update(data.design);
     const panelization = data?.panelization ? panelSettings(data.panelization) : null;
     for (const shape of data?.boardShapes || []) {
@@ -67,13 +62,7 @@ export function preparePcb(data) {
     if (outlines.length > 1 || outlines.some(shape => !validBoardOutline(shape))) {
         throw new Error('The board outline must be one closed rectangle, polygon, or circle.');
     }
-    const tracks = (data?.tracks || []).map((item) => {
-        const track = createShape(item);
-        if (!(track instanceof Track)) throw new Error('Invalid PCB track.');
-        return track;
-    });
-    return { data, tracks, vias: (data?.vias || []).map((item) => Via.fromJSON(item)),
-        pads: (data?.pads || []).map((item) => new Pad(item)),
+    return { ...copper,
         texts: (data?.texts || []).map((item) => createPcbText(item)),
         boardShapes: stage.boardShapes, shapeIdCounter: stage._shapeIdCounter, panelization };
 }
@@ -98,13 +87,8 @@ export function loadPcb(app, data, prepared = preparePcb(data)) {
     // Drop any existing tracks/vias and their SVG.
     for (const t of app.tracks) removeTrackElements(t);
     for (const v of app.vias) removeViaElements(v);
-    app.pads ||= [];
     for (const pad of app.pads) removePadElements(pad);
-    app.tracks.length = 0;
-    app.vias.length = 0;
-    app.pads.length = 0;
-    resetViaIdCounter();
-    resetPadIdCounter();
+    app.pcbDocument.clearCopper();
     for (const id of app._shapeElements.keys()) removeBoardShapeElement(app, id);
     app.boardShapes.length = 0;
     app._shapeIdCounter = 1;
@@ -174,22 +158,18 @@ export function loadPcb(app, data, prepared = preparePcb(data)) {
         if (render && app.placements.size) app._applyPlacementOverrides();
     }
 
-    for (const track of prepared.tracks) {
-        app.tracks.push(track);
+    app.pcbDocument.loadCopper(data, prepared);
+    for (const track of app.tracks) {
         if (render) renderTrack(track, (id) => app._getLayerGroup(id), {
             viaDiameter: app._getRoutingParams?.()?.viaDiameter,
             viaDrill: app._getRoutingParams?.()?.viaDrill,
             hideNetLabel: track === getSelectedTrack(app),
         });
     }
-    for (const via of prepared.vias) {
-        updateViaIdCounter(via.id);
-        app.vias.push(via);
+    for (const via of app.vias) {
         if (render) renderVia(via, (id) => app._getLayerGroup(id));
     }
-    for (const pad of prepared.pads) {
-        updatePadIdCounter(pad.id);
-        app.pads.push(pad);
+    for (const pad of app.pads) {
         if (render) renderPad(pad, (id) => app._getLayerGroup(id));
     }
     app._shapeIdCounter = prepared.shapeIdCounter;

@@ -1,10 +1,13 @@
 import assert from 'node:assert/strict';
+import { PcbDocument } from '../src/core/PcbDocument.js';
 
 const element = () => ({ setAttribute() {}, appendChild() {}, remove() {}, classList: { add() {} } });
 globalThis.window = { addEventListener() {} };
 globalThis.document = { createElementNS: element, getElementById() { return null; } };
 globalThis.requestAnimationFrame = () => 0;
 const { default: PCBApp } = await import('../src/ui/PCBApp.js');
+const copperPrototype = Object.create(null, Object.fromEntries(['tracks', 'vias', 'pads']
+    .map(key => [key, Object.getOwnPropertyDescriptor(PCBApp.prototype, key)])));
 const { Track } = await import('../src/shapes/track.js');
 const { Via } = await import('../src/shapes/via.js');
 const { Pad } = await import('../src/shapes/pad.js');
@@ -18,7 +21,8 @@ const { pointInCopperRegion } = await import('../src/pcb/modules/track-contact-g
 
 function fixture() {
     const commands = [];
-    return {
+    return Object.assign(Object.create(copperPrototype), {
+        pcbDocument: new PcbDocument(),
         tracks: [], vias: [], pads: [], boardShapes: [], copperFills: [], netlist: [
             { net: 'SIGNAL', pins: [{ componentId: 'U1', pinNumber: '1' }] },
         ],
@@ -29,7 +33,7 @@ function fixture() {
         _alert(message) { this.lastAlert = message; },
         viewport: { scale: 100, gridVisible: false, setCrosshair() {}, hideCrosshair() {} },
         commands, history: { execute(command) { commands.push(command); command.execute(); } },
-    };
+    });
 }
 const track = (x1, y1, x2, y2, layer = 'top-copper') =>
     new Track({ points: [{ x: x1, y: y1 }, { x: x2, y: y2 }], layer });

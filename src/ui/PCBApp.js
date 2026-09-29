@@ -4,8 +4,7 @@
 import { serializePcb, preparePcb, loadPcb, applyProjectDesignParams } from '../pcb/modules/project-state.js';
 import { bindPcbControls } from '../pcb/modules/controls.js';
 import { Viewport } from '../core/Viewport.js';
-import { PcbPlacementState } from '../core/PcbPlacementState.js';
-import { PcbDesignSettings } from '../core/PcbDesignSettings.js';
+import { PcbDocument } from '../core/PcbDocument.js';
 import { commitDesignInput, renderDesignSettings } from '../pcb/modules/design-settings.js';
 import { loadAndApplyTheme, toggleTheme as toggleSharedTheme, syncThemeToggleButtons } from '../shared/ui/theme.js';
 import { extractNetlist, extractComponents } from '../core/netlist.js';
@@ -196,6 +195,13 @@ const PCB_CROSSHAIR_TOOLS = new Set([
 ]);
 
 export default class PCBApp {
+    get tracks() { return this.pcbDocument.tracks; }
+    set tracks(value) { this.pcbDocument.tracks = value; }
+    get vias() { return this.pcbDocument.vias; }
+    set vias(value) { this.pcbDocument.vias = value; }
+    get pads() { return this.pcbDocument.pads; }
+    set pads(value) { this.pcbDocument.pads = value; }
+
     /** CopperFill entries owned by the canonical board-shape collection. */
     get copperFills() {
         return (this.boardShapes || []).filter((shape) => shape?.type === 'fill');
@@ -204,8 +210,9 @@ export default class PCBApp {
     /** @param {import('../core/ProjectDocument.js').ProjectDocument} [project] */
     constructor(project) {
         this.project = project || null;
-        this.placementState = project ? project.pcbPlacementState : new PcbPlacementState();
-        this.designSettings = project ? project.pcbDesignSettings : new PcbDesignSettings();
+        this.pcbDocument = project ? project.pcbDocument : new PcbDocument();
+        this.placementState = this.pcbDocument.placementState;
+        this.designSettings = this.pcbDocument.designSettings;
         this.ribbon = document.getElementById('ribbonPCB');
         this.themeToggle = document.getElementById('pcbThemeToggle');
         this.canvasContainer = document.getElementById('pcbCanvasContainer');
@@ -265,23 +272,6 @@ export default class PCBApp {
         /** Cached netlist from last sync */
         this.netlist = [];
 
-        /**
-         * Tracks (routed copper traces) on the board. The autorouter pushes
-         * here via the autorouter-adapter; the interactive Track tool (Phase
-         * 2) will push here too. Each entry is a Track shape instance.
-         * @type {Array<import('../shapes/track.js').Track>}
-         */
-        this.tracks = [];
-
-        /**
-         * Standalone vias (e.g. ground-plane stitching). Vias implied by
-         * a Track changing layer at a node are NOT stored here — they live
-         * inside the Track itself.
-         * @type {Array<import('../shapes/via.js').Via>}
-         */
-        this.vias = [];
-        /** Standalone plated through-hole pads. */
-        this.pads = [];
         this._padDefaults = {
             shape: 'round', size: 1.5, drill: 0.8, ratio: 2,
             rotation: 0, layers: 'both', net: '',

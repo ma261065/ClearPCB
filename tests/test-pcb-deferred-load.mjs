@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { PcbPlacementState } from '../src/core/PcbPlacementState.js';
-import { PcbDesignSettings } from '../src/core/PcbDesignSettings.js';
+import { PcbDocument } from '../src/core/PcbDocument.js';
 
 const source = readFileSync(new URL('../src/pcb/modules/project-state.js', import.meta.url), 'utf8');
 const start = source.indexOf('export function loadPcb(');
@@ -11,8 +10,8 @@ const calls = [];
 const record = name => () => calls.push(name);
 const dependencies = {
     removeTrackElements() {}, removeViaElements() {}, removePadElements() {},
-    resetViaIdCounter() {}, resetPadIdCounter() {}, updatePadIdCounter() {}, removeBoardShapeElement() {},
-    clearTrackSelection() {}, updateViaIdCounter() {}, updateFillIdCounter() {},
+    removeBoardShapeElement() {},
+    clearTrackSelection() {}, updateFillIdCounter() {},
     resetPcbSelection() {}, syncPcbSelection() {}, clearPcbSelectionAnchors() {},
     resetPanelPreview() {}, renderPanelPreview() {},
     getBoardOutline: app => app.boardShapes.find(shape => shape.layer === 'board-outline'),
@@ -38,10 +37,12 @@ const prepared = {
     boardShapes: [{ id: 'image', kind: 'image' }, { id: 'fill', type: 'fill' }],
 };
 const makeApp = active => {
-    const placementState = new PcbPlacementState();
+    const pcbDocument = new PcbDocument();
+    const placementState = pcbDocument.placementState;
     return {
-    designSettings: new PcbDesignSettings(),
-    _active: active, _stale: false, tracks: [], vias: [], pads: [], boardShapes: [], texts: new Map(),
+    pcbDocument, designSettings: pcbDocument.designSettings,
+    _active: active, _stale: false, tracks: pcbDocument.tracks, vias: pcbDocument.vias, pads: pcbDocument.pads,
+    boardShapes: [], texts: new Map(),
     placements: new Map([['U1', {}]]), _shapeElements: new Map(), _textElements: new Map(),
     placementState, _placementOverrides: placementState.overrides, history: { clear() {} },
     _ensureViewport: record('viewport'), _getLayerGroup: () => null,

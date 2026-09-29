@@ -131,8 +131,25 @@ entry and derived-display updates. The model can load, rename/undo, derive
 connectivity and serialize without either editor or a DOM. Pure connectivity
 queries remain in `core/netlist.js`.
 
+`ProjectDocument.pcbDocument` (`core/PcbDocument.js`) owns tracks, standalone
+vias and pads, together with the previously migrated placement and design state.
+PCB editor collection accessors alias the model, including array replacements
+by commands; constructing an editor does not clear a preloaded model.
+`prepareCopper()` normalizes a PCB section and checks its required stackup,
+then constructs copper entities without a DOM. `loadCopper()` adopts prepared
+entities, preserves collection identity and restores via/pad ID counters.
+`serializeCopper()` returns the three copper collections using the existing
+entity serializers, preserving topology, metadata and save-boundary precision.
+These are copper-section operations, not yet full headless PCB persistence.
+
+The editor adapter still removes old SVG and selection before replacing copper,
+renders only when active, and refreshes derived geometry after loading.
+Drawing and Net-edit contexts explicitly retain the inherited collections when
+spreading the editor into a temporary object; otherwise copper could silently
+disappear from connectivity checks.
+
 Saved PCB placement/reference settings live in
-`ProjectDocument.pcbPlacementState` (`core/PcbPlacementState.js`). The PCB editor's
+`ProjectDocument.pcbDocument.placementState` (`core/PcbPlacementState.js`). The PCB editor's
 `_placementOverrides` aliases its map. Recording copies only the persisted pose,
 side, lock and reference-style fields, never generated pads/SVG/caches.
 Loading and clearing preserve map identity; serialization retains the existing
@@ -142,11 +159,10 @@ presentation updates, and notify the editor's dirty hook after recording.
 
 The live `placements` map and automatic layout slots remain editor-owned:
 they contain generated footprint geometry, presentation caches and temporary
-gesture state, not a second authoritative saved-placement store. This slice
-does not move tracks, vias, board shapes or free-standing text,
-nor make full PCB document load/serialization independent of the PCB adapter.
+gesture state, not a second authoritative saved-placement store. Board shapes,
+free-standing text and full PCB load/serialization still depend on the PCB adapter.
 
-PCB design settings now live in `ProjectDocument.pcbDesignSettings`
+PCB design settings now live in `ProjectDocument.pcbDocument.designSettings`
 (`core/PcbDesignSettings.js`). Track width, clearance, via diameter and drill
 are canonical millimetres; routing and serialization never read rounded ribbon
 values. The adapter in `pcb/modules/design-settings.js` handles display units,
@@ -165,7 +181,7 @@ display-unit strings under the existing storage key.
 
 This is an intermediate migration: existing entities still contain rendering
 methods/state, general schematic commands still mix data and presentation, and
-PCB geometry is still editor-owned. SVG preparation/attachment, derived Net text,
+PCB board shapes and free-standing text are still editor-owned. SVG preparation/attachment, derived Net text,
 label layout and current viewport settings remain editor responsibilities.
 Headless serialization preserves loaded settings; editor serialization supplies
 current viewport settings. Schematic editing callbacks explicitly notify the

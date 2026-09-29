@@ -60,11 +60,12 @@ function fixture(active) {
     const lifecycle = [];
     const project = new ProjectDocument();
     const app = Object.assign(Object.create(PCBApp.prototype), {
+        pcbDocument: project.pcbDocument,
         _active: active, currentTool: 'select', activeLayer: 'top-silk',
         tracks: [], vias: [], pads: [], boardShapes: [], texts: new Map(), placements: new Map(),
         _shapeElements: new Map(), _textElements: new Map(),
-        placementState: project.pcbPlacementState, _placementOverrides: project.pcbPlacementState.overrides,
-        designSettings: project.pcbDesignSettings,
+        placementState: project.pcbDocument.placementState, _placementOverrides: project.pcbDocument.placementState.overrides,
+        designSettings: project.pcbDocument.designSettings,
         history: new CommandHistory(), netlist: [],
         viewport: { scale: 10, shiftHeld: true, hideCrosshair() {},
             gridSize: 1, getGridOptions: () => [{ value: 1, label: '1 mm' }], fitToBounds() {} },

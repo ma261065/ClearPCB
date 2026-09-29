@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { PcbPlacementState } from '../src/core/PcbPlacementState.js';
+import { PcbDocument } from '../src/core/PcbDocument.js';
 
 globalThis.window = { addEventListener() {} };
 globalThis.requestAnimationFrame = callback => { callback(); return 1; };
@@ -12,11 +12,12 @@ globalThis.document = {
 const { default: PCBApp } = await import('../src/ui/PCBApp.js');
 const { setPcbSelection } = await import('../src/pcb/modules/selection-registry.js');
 const app = Object.create(PCBApp.prototype);
+app.pcbDocument = new PcbDocument();
 app.tracks = [{ net: 'GND' }];
 app.vias = [{ net: 'GND' }];
 app.pads = [];
 app.placements = new Map();
-app.placementState = new PcbPlacementState();
+app.placementState = app.pcbDocument.placementState;
 app._placementOverrides = app.placementState.overrides;
 app.boardShapes = [];
 app.netlist = [];

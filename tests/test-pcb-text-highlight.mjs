@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { PcbDocument } from '../src/core/PcbDocument.js';
 
 function element(tag) {
     const attributes = new Map();
@@ -46,6 +47,7 @@ const [
 const text = createPcbText({ id: 'text-a', content: 'A', layer: 'top-copper' });
 const layer = element('g');
 const app = Object.create(PCBApp.prototype);
+app.pcbDocument = new PcbDocument();
 app.texts = new Map([[text.id, text]]);
 app._textElements = new Map();
 app._hoveredText = null;
