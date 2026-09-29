@@ -198,6 +198,20 @@ is added. Unit changes also select the nearest available preset, so metric-only
 sizes can still change when switching to inches. Saving from the editor records
 the selected preset. Refreshing an already matching preset does not redraw the grid.
 
+Viewport display conversions and inch ruler spacing use `1 / 25.4` rather than a
+rounded reciprocal. Ruler label precision follows the selected tick spacing,
+including all digits in 1/8-inch (`0.125"`) and 1/16-inch (`0.0625"`) ticks.
+With a visible grid, ruler labels use 1-2-5 multiples of the grid spacing to
+maintain at least 80 screen pixels between major labels. Thus a 0.1-inch grid
+labels 0.1-inch intervals when zoom permits, rather than unrelated fractional
+intervals. Both ruler axes remain aligned to displayed grid lines, including when
+the tick limit requires skipping more lines. With the grid hidden, the existing
+unit-based spacing is retained. Changing grid size or visibility refreshes the
+rulers; ordinary panning still translates cached ticks without rebuilding them.
+Metric labels omit trailing zeros, and extreme-zoom output stays bounded.
+These presentation changes do not alter
+authored geometry, grid presets or file-save precision.
+
 Saved board dimensions live in `PcbDocument.board`. The editor's `_boardWidth`,
 `_boardHeight` and `_boardRadius` access that object, including during live resize,
 cancel and undo/redo. Loading restores legacy dimension-only boards, while an

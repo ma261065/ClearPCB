@@ -123,7 +123,7 @@ export class Viewport {
         this.units = 'mm';
         this.unitConversions = {
             'mm': 1,
-            'inch': 0.0393701
+            'inch': 1 / 25.4
         };
         
         // Pan state
@@ -352,12 +352,12 @@ export class Viewport {
      * Calculate the adaptive grid spacing for display using a 1-2-5 sequence.
      * Returns the smallest multiple of the base grid that keeps lines at least
      * `minPixelSpacing` screen pixels apart.
+     * @param {number} [minPixelSpacing=4] Minimum on-screen spacing.
      * @returns {number} Grid spacing in mm.
      */
-    getEffectiveGridSize() {
+    getEffectiveGridSize(minPixelSpacing = 4) {
         // Calculate adaptive grid spacing for display using 1-2-5 sequence
         // This gives smoother transitions than 10x jumps
-        const minPixelSpacing = 4; // Allow denser grid (was 8)
         const minWorldSpacing = minPixelSpacing / this.scale;
         
         // 1-2-5 sequence multipliers
@@ -711,13 +711,14 @@ export class Viewport {
     // ==================== Grid ====================
     
     /**
-     * Set the base grid spacing and redraw.
+     * Set the base grid spacing and redraw the grid and rulers.
      * @param {number} size - Grid cell size in mm (clamped to >= 0.01).
      */
     setGridSize(size) {
         this.gridSize = Math.max(0.01, size);
         this.gridDirty = true;
         this._createGrid();
+        this._createRulers();
     }
     
     /**
@@ -733,13 +734,14 @@ export class Viewport {
     }
     
     /**
-     * Show or hide the grid.
+     * Show or hide the grid and refresh the ruler spacing.
      * @param {boolean} visible - Whether the grid is visible.
      */
     setGridVisible(visible) {
         this.gridVisible = visible;
         this.gridDirty = true;
         this._createGrid();
+        this._createRulers();
     }
     
     /**
@@ -1268,7 +1270,7 @@ export class Viewport {
     
     /**
      * Rebuild the ruler SVGs (top + left) for the current view and units.
-     * Computes adaptive tick spacing using unit-appropriate nice-number sequences.
+     * Labels visible grid lines, or uses unit-appropriate spacing with the grid hidden.
      */
     _createRulers() {
         if (!this.showRulers) {
@@ -1289,7 +1291,7 @@ export class Viewport {
     /**
      * Reposition the pre-built ruler tick groups by translating them to
      * match the current pan, avoiding a full SVG rebuild. Returns false if
-     * a rebuild is required (scale/units/size changed, or the pan moved
+     * a rebuild is required (scale/units/grid/size changed, or the pan moved
      * beyond the pre-rendered margin).
      * @returns {boolean}
      */
@@ -1297,6 +1299,7 @@ export class Viewport {
         const st = this._rulerBuildState;
         if (!st) return false;
         if (st.scale !== this.scale || st.units !== this.units
+            || st.gridSize !== this.gridSize || st.gridVisible !== this.gridVisible
             || st.w !== this.width || st.h !== this.height) {
             return false;
         }
@@ -1333,10 +1336,12 @@ export class Viewport {
         const targetMm = targetPixels / this.scale;
         const targetDisplay = targetMm * this.unitConversions[this.units];
         
-        // Choose nice tick spacing based on current units
+        // Prefer grid multiples with enough screen space for labels.
         let tickSpacingMm;
         
-        if (this.units === 'inch') {
+        if (this.gridVisible) {
+            tickSpacingMm = this.getEffectiveGridSize(targetPixels);
+        } else if (this.units === 'inch') {
             // Inch-based nice numbers: 0.0625" (1/16), 0.125" (1/8), 0.25" (1/4), 0.5", 1", 2", 5", 10"
             const niceInches = [0.0625, 0.125, 0.25, 0.5, 1, 2, 5, 10];
             let tickSpacingInch = niceInches.find(n => n >= targetDisplay);
@@ -1361,14 +1366,9 @@ export class Viewport {
         const unitConversion = this.unitConversions[this.units];
         const unitSuffix = this.units === 'inch' ? '"' : '';
         
-        // Determine decimal places based on tick spacing in display units
+        // Four decimal places cover all preset spacings, including 1/16 inch.
         const tickSpacingDisplay = tickSpacingMm * unitConversion;
-        let decimals = 0;
-        if (tickSpacingDisplay < 0.01) decimals = 4;
-        else if (tickSpacingDisplay < 0.1) decimals = 3;
-        else if (tickSpacingDisplay < 1) decimals = 2;
-        else if (tickSpacingDisplay < 10) decimals = 1;
-        else decimals = 0;
+        const decimals = (tickSpacingDisplay.toFixed(4).replace(/0+$/, '').split('.')[1] || '').length;
         
         const formatLabel = (mmVal) => {
             const displayVal = mmVal * unitConversion;
@@ -1405,8 +1405,12 @@ export class Viewport {
         let tickSpacingX = tickSpacingMm;
         const startX = Math.floor((bounds.minX - vw) / tickSpacingX) * tickSpacingX;
         const endX = Math.ceil((bounds.maxX + vw) / tickSpacingX) * tickSpacingX;
-        if ((endX - startX) / tickSpacingX > MAX_TICKS) tickSpacingX = (endX - startX) / MAX_TICKS;
-        for (let worldX = startX; worldX <= endX; worldX += tickSpacingX) {
+        if ((endX - startX) / tickSpacingX > MAX_TICKS) {
+            tickSpacingX *= Math.ceil((endX - startX) / tickSpacingX / MAX_TICKS);
+        }
+        for (let tick = 0; tick <= MAX_TICKS; tick++) {
+            const worldX = startX + tick * tickSpacingX;
+            if (worldX > endX) break;
             const screenX = this.worldToScreen({ x: worldX, y: 0 }).x;
             topTicks += `<line x1="${screenX}" y1="${rs}" x2="${screenX}" y2="${rs - 8}" stroke="${colors.rulerLine}"/>`;
             topTicks += `<text x="${screenX + 2}" y="12" fill="${colors.rulerText}" font-size="10" font-family="monospace">${formatLabel(worldX)}</text>`;
@@ -1422,8 +1426,12 @@ export class Viewport {
         let tickSpacingY = tickSpacingMm;
         const startY = Math.floor((bounds.minY - vh) / tickSpacingY) * tickSpacingY;
         const endY = Math.ceil((bounds.maxY + vh) / tickSpacingY) * tickSpacingY;
-        if ((endY - startY) / tickSpacingY > MAX_TICKS) tickSpacingY = (endY - startY) / MAX_TICKS;
-        for (let worldY = startY; worldY <= endY; worldY += tickSpacingY) {
+        if ((endY - startY) / tickSpacingY > MAX_TICKS) {
+            tickSpacingY *= Math.ceil((endY - startY) / tickSpacingY / MAX_TICKS);
+        }
+        for (let tick = 0; tick <= MAX_TICKS; tick++) {
+            const worldY = startY + tick * tickSpacingY;
+            if (worldY > endY) break;
             const screenY = this.worldToScreen({ x: 0, y: worldY }).y;
             leftTicks += `<line x1="${rs}" y1="${screenY}" x2="${rs - 8}" y2="${screenY}" stroke="${colors.rulerLine}"/>`;
             leftTicks += `<text x="3" y="${screenY + 3}" fill="${colors.rulerText}" font-size="10" font-family="monospace">${formatLabel(-worldY)}</text>`;
@@ -1472,6 +1480,8 @@ export class Viewport {
         this._rulerBuildState = {
             scale: this.scale,
             units: this.units,
+            gridSize: this.gridSize,
+            gridVisible: this.gridVisible,
             w: this.width,
             h: this.height,
             vbX: this.viewBox.x,
