@@ -183,7 +183,7 @@ resolve the current node by ID on every operation, so they survive graph undo
 recreating node objects. Missing targets throw explicitly rather than recording
 a successful no-op. Geometry edits invalidate existing entity bounds without
 rendering; connectivity, clearance, selection and SVG work remain in the
-`pcb/modules/track-commands.js` adapters. Placement/outline-setup commands and
+`pcb/modules/track-commands.js` adapters. Placement commands and
 entity-level render/derived state remain open boundaries.
 
 Copper-fill add/remove/modify operations live in `core/pcb-fill-commands.js`.
@@ -209,6 +209,21 @@ The editor adapters preserve selection cleanup, rendering, property controls,
 3D refresh and immediate versus deferred copper updates. Live preview rendering
 still synchronizes outline dimensions; that remaining presentation-side mutation
 is not removed by the command separation.
+
+Board-outline setup lives in `core/pcb-outline-commands.js`.
+`PcbDocument.setBoardOutline()` validates and detaches incoming geometry before
+adoption, retains an existing outline object and the model's collection/dimension
+objects, and synchronizes dimension metadata from the actual boundary.
+`ensureBoardOutline()` creates a missing rectangle from current model dimensions
+without replacing an existing outline. Setup and undo therefore work without a
+renderer, including restoration of offset circles and curved polygons. As in the
+existing editor, undoing initial setup retains a rectangle at the previous
+dimensions rather than removing the board. Loading dimensions alone still does
+not automatically synthesize geometry.
+The editor command retains draw/input/pour refresh ordering. First draw still
+requests `ensureBoardOutline()` for fresh or legacy boards and retains its
+viewport-fit behavior; this remaining view-triggered initialization is explicit,
+not a claim that rendering is entirely free of model mutations.
 
 `serialize(settings)` assembles the complete authored PCB section: stackup,
 dimensions, design settings, optional panelization, entities and saved placements.

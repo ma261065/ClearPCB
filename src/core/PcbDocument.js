@@ -8,7 +8,7 @@ import { Via, resetViaIdCounter, updateViaIdCounter } from '../shapes/via.js';
 import { Pad, resetPadIdCounter, updatePadIdCounter } from '../shapes/pad.js';
 import { createPcbText, serializePcbText } from './pcb-text.js';
 import { loadBoardShapeData, serializeBoardShapes } from './pcb-board-shapes.js';
-import { validBoardOutline, getBoardOutline, boardBoundary } from '../pcb/modules/board-outline.js';
+import { validBoardOutline, getBoardOutline, rectangleBoardOutline, boardBoundary } from '../pcb/modules/board-outline.js';
 import { hasRectangleFrame, rectangleFramePoints } from '../shapes/rectangle-frame.js';
 import { updateFillIdCounter } from '../shapes/copper-fill.js';
 import { panelSettings } from './pcb-panelization.js';
@@ -124,6 +124,27 @@ export class PcbDocument {
         this.board.width = bounds.w;
         this.board.height = bounds.h;
         this.board.radius = getBoardOutline(this)?.cornerRadius || 0;
+    }
+
+    setBoardOutline(outline) {
+        if (!validBoardOutline(outline)) {
+            throw new Error('The board outline must be one closed rectangle, polygon, or circle.');
+        }
+        const snapshot = structuredClone(outline);
+        const current = getBoardOutline(this);
+        if (current) {
+            for (const key of Object.keys(current)) delete current[key];
+            Object.assign(current, snapshot);
+        } else {
+            this.boardShapes.push(snapshot);
+        }
+        this.syncBoardOutlineDimensions();
+        return current || snapshot;
+    }
+
+    ensureBoardOutline() {
+        return getBoardOutline(this) || this.setBoardOutline(
+            rectangleBoardOutline(this.board.width, this.board.height, this.board.radius));
     }
 
     /** Complete data-only load; editors may use the two phases around rendering. */

@@ -184,3 +184,82 @@ assert.equal(app._boardOutlineResize, null);
 assert.deepEqual([app._boardWidth, app._boardHeight], [110, 95], 'Locking during a drag restores original dimensions');
 layer.locked = false;
 console.log('PASS board resize handles, snapping, minimum dimensions, undo/redo, cancellation, and locks');
+
+{
+    const { SetBoardOutlineCommand } = await import('../src/pcb/modules/track-commands.js');
+    const { getBoardOutline, rectangleBoardOutline, boardBoundary } = await import('../src/pcb/modules/board-outline.js');
+    const makeOutlineElement = () => ({
+        attributes: new Map(), children: [], style: {},
+        setAttribute(name, value) { this.attributes.set(name, String(value)); },
+        getAttribute(name) { return this.attributes.get(name); },
+        removeAttribute(name) { this.attributes.delete(name); },
+        appendChild(child) { child.parentNode = this; this.children.push(child); },
+        removeChild(child) {
+            this.children = this.children.filter(element => element !== child);
+            child.parentNode = null;
+            return child;
+        },
+        remove() { this.parentNode?.removeChild(this); },
+        querySelector(selector) { return this.children.find(child => child.getAttribute('class') === selector.slice(1)) || null; },
+        querySelectorAll() { return []; },
+    });
+    document.createElementNS = makeOutlineElement;
+    for (const geometry of [null, { id: 'board-outline', kind: 'circle', layer: 'board-outline',
+        x: 35, y: -20, radius: 8 }]) {
+        const pcbDocument = new PcbDocument();
+        if (geometry) pcbDocument.setBoardOutline(geometry);
+        const original = structuredClone(geometry);
+        const originalDimensions = { ...pcbDocument.board };
+        const outlineLayer = makeOutlineElement();
+        const fitCalls = [], stages = [];
+        const view = Object.assign(Object.create(dimensionPrototype), {
+            pcbDocument, boardShapes: pcbDocument.boardShapes, _shapeElements: new Map(),
+            _boardOutlineDrawn: !!geometry,
+            viewport: { fitToBounds(...args) { fitCalls.push(args); } },
+            _getLayerGroup(id) { return id === 'board-outline' ? outlineLayer : null; },
+            _drawBoardOutline() {
+                assert.ok(getBoardOutline(pcbDocument), 'The model has adopted the outline before the command invokes rendering');
+                stages.push('draw');
+                PCBApp.prototype._drawBoardOutline.call(this);
+            },
+            _syncBoardOutlineInputs() { stages.push('inputs'); syncInputs.call(this); },
+            _refreshFills() { stages.push('fills'); },
+        });
+        const command = new SetBoardOutlineCommand(view, originalDimensions, { width: 40, height: 30, radius: 2 });
+        command.execute();
+        const outline = getBoardOutline(pcbDocument);
+        assert.deepEqual(outline, rectangleBoardOutline(40, 30, 2));
+        assert.deepEqual(stages, ['draw', 'inputs', 'fills']);
+        assert.equal(outlineLayer.children.length, 1);
+        assert.equal(fitCalls.length, geometry ? 0 : 1, 'Only the initial draw fits the viewport');
+        assert.deepEqual(pcbDocument.board, { width: 40, height: 30, radius: 2 });
+        command.undo();
+        assert.deepEqual(outline, original || rectangleBoardOutline(
+            originalDimensions.width, originalDimensions.height, originalDimensions.radius));
+        command.execute();
+        assert.equal(getBoardOutline(pcbDocument), outline);
+        assert.equal(outlineLayer.children.length, 1, 'History replaces outline SVG without duplicating it');
+        assert.deepEqual(stages, ['draw', 'inputs', 'fills', 'draw', 'inputs', 'fills', 'draw', 'inputs', 'fills']);
+        assert.equal(fitCalls.length, geometry ? 0 : 1);
+        assert.equal(view._shapeElements.get(outline.id), outlineLayer.children[0]);
+    }
+    const pcbDocument = new PcbDocument();
+    Object.assign(pcbDocument.board, { width: 47.123456, height: 29.234567, radius: 0 });
+    const outlineLayer = makeOutlineElement();
+    const fitCalls = [];
+    const view = Object.assign(Object.create(dimensionPrototype), {
+        pcbDocument, boardShapes: pcbDocument.boardShapes, _shapeElements: new Map(),
+        _boardOutlineDrawn: false, viewport: { fitToBounds(...args) { fitCalls.push(args); } },
+        _getLayerGroup(id) { return id === 'board-outline' ? outlineLayer : null; },
+    });
+    PCBApp.prototype._drawBoardOutline.call(view);
+    const outline = getBoardOutline(pcbDocument);
+    assert.deepEqual(outline, rectangleBoardOutline(47.123456, 29.234567));
+    const bounds = boardBoundary(pcbDocument);
+    assert.deepEqual(fitCalls, [[bounds.x, bounds.y, bounds.x + bounds.w, bounds.y + bounds.h, 5]]);
+    PCBApp.prototype._drawBoardOutline.call(view);
+    assert.equal(pcbDocument.boardShapes.length, 1);
+    assert.equal(outlineLayer.children.length, 1);
+    assert.equal(fitCalls.length, 1, 'Legacy/default initialization remains idempotent');
+}
+console.log('PASS model-owned outline setup, actual draw/undo/redo, viewport fitting and first-draw initialization');

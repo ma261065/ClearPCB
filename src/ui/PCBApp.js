@@ -143,7 +143,7 @@ import {
 } from '../pcb/modules/copper-fill-draw.js';
 import { createShape } from '../shapes/index.js';
 import { AddBoardShapeCommand } from '../pcb/modules/shape-commands.js';
-import { getBoardOutline, rectangleBoardOutline, boardBoundary } from '../pcb/modules/board-outline.js';
+import { getBoardOutline, boardBoundary } from '../pcb/modules/board-outline.js';
 import {
     beginBoardOutlineResize, updateBoardOutlineResize, endBoardOutlineResize,
     renderBoardOutlineHandles, hitTestBoardOutlineHandle,
@@ -3299,11 +3299,7 @@ export default class PCBApp {
         const layer = this._getLayerGroup('board-outline');
         const old = layer.querySelector('.pcb-board-outline');
         if (old) old.remove();
-        let shape = getBoardOutline(this);
-        if (!shape) {
-            shape = rectangleBoardOutline(this._boardWidth, this._boardHeight, this._boardRadius);
-            this.boardShapes.push(shape);
-        }
+        const shape = this.pcbDocument.ensureBoardOutline();
         renderBoardShape(this, shape);
         const wasDrawn = this._boardOutlineDrawn;
         this._boardOutlineDrawn = true;

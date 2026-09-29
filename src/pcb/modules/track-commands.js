@@ -15,7 +15,7 @@ import { reconcileRatsnest } from './track-draw.js';
 import { clearTrackSelection, refreshTrackSelectionHalo } from './track-select.js';
 import { getPcbSelection, togglePcbSelection } from './selection-registry.js';
 import { batchDerivedUpdates, deferDerivedUpdate } from '../../core/DerivedUpdates.js';
-import { getBoardOutline, rectangleBoardOutline } from './board-outline.js';
+import { SetBoardOutlineCommand as ModelSetBoardOutlineCommand } from '../../core/pcb-outline-commands.js';
 import {
     AddTrackCommand as ModelAddTrackCommand,
     RemoveTrackCommand as ModelRemoveTrackCommand,
@@ -730,27 +730,17 @@ export class SetPlacementSideCommand {
     }
 }
 
-export class SetBoardOutlineCommand {
+export class SetBoardOutlineCommand extends ModelSetBoardOutlineCommand {
     constructor(app, before, after) {
+        super(app.pcbDocument, before, after);
         this.app = app;
-        this.before = { ...before, outline: structuredClone(getBoardOutline(app)) };
-        this.after = { ...after, outline: rectangleBoardOutline(after.width, after.height, after.radius) };
     }
     _apply(s) {
-        const outline = getBoardOutline(this.app);
-        if (outline) {
-            for (const key of Object.keys(outline)) delete outline[key];
-            Object.assign(outline, structuredClone(s.outline || rectangleBoardOutline(s.width, s.height, s.radius)));
-        }
-        this.app._boardWidth = s.width;
-        this.app._boardHeight = s.height;
-        this.app._boardRadius = s.radius;
+        super._apply(s);
         this.app._drawBoardOutline?.();
         this.app._syncBoardOutlineInputs?.();
         this.app._refreshFills?.();
     }
-    execute() { this._apply(this.after); }
-    undo() { this._apply(this.before); }
 }
 
 /**
