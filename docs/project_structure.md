@@ -132,13 +132,15 @@ connectivity and serialize without either editor or a DOM. Pure connectivity
 queries remain in `core/netlist.js`.
 
 `ProjectDocument.pcbDocument` (`core/PcbDocument.js`) owns tracks, standalone
-vias and pads, and free-standing text, together with placement and design state.
+vias and pads, free-standing text and board shapes (including copper-fill regions),
+together with placement and design state.
 PCB editor collection accessors alias the model, including array/map replacements
 by commands; constructing an editor does not clear a preloaded model.
 `prepareEntities()` normalizes a PCB section and checks its required stackup,
-then constructs copper and text entities without a DOM. `loadEntities()` adopts prepared
-entities, preserves collection identity and restores via/pad ID counters.
-`serializeEntities()` returns the copper collections and text using the existing
+then validates board outlines and constructs all entities without a DOM.
+`loadEntities()` adopts prepared entities, preserves collection identity and
+restores the board-shape, via/pad and fill ID counters.
+`serializeEntities()` returns the entity collections using the existing
 entity serializers, preserving topology, metadata and save-boundary precision.
 `clearEntities()` empties those collections without replacing them. These are
 entity operations, not yet full headless PCB persistence.
@@ -148,6 +150,18 @@ renders only when active, and refreshes derived geometry after loading.
 Drawing and Net-edit contexts explicitly retain the inherited collections when
 spreading the editor into a temporary object; otherwise copper could silently
 disappear from connectivity checks.
+
+Board-shape decoding and serialization live in `core/pcb-board-shapes.js`,
+reusing existing pure geometry and artwork-codec helpers. The model owns the
+shape ID counter; the editor's `_shapeIdCounter` is an accessor, not a second
+counter. Rectangle frames, legacy corner-point readers, image artwork encoding
+and deduplication, polygon save normalization and outline checks are unchanged.
+The compatibility `loadBoardShapes()` adapter stages data before appending and
+rendering it; its serializer re-export retains existing import paths.
+Manufacturing snapshots use the neutral serializer directly, with their existing
+unrounded geometry options. SVG, selection, copper-cut/pour caches and command
+presentation stay in the editor. Legacy saved board dimensions still create a
+model-owned outline without a later entity adoption clearing it.
 
 Free-standing text creation, defaults/layer rules and full-precision snapshots
 live in `core/pcb-text.js`. Undo and clipboard use these snapshots without file
@@ -169,8 +183,8 @@ presentation updates, and notify the editor's dirty hook after recording.
 
 The live `placements` map and automatic layout slots remain editor-owned:
 they contain generated footprint geometry, presentation caches and temporary
-gesture state, not a second authoritative saved-placement store. Board shapes,
-board dimensions, panelization and full PCB load/serialization still depend on
+gesture state, not a second authoritative saved-placement store. Board dimensions,
+panelization and full PCB load/serialization still depend on
 the PCB adapter.
 
 PCB design settings now live in `ProjectDocument.pcbDocument.designSettings`
@@ -191,8 +205,8 @@ boundary. Local defaults now store canonical mm values and still read the legacy
 display-unit strings under the existing storage key.
 
 This is an intermediate migration: existing entities still contain rendering
-methods/state, general schematic commands still mix data and presentation, and
-PCB board shapes are still editor-owned. SVG preparation/attachment, derived Net
+methods/state, and general commands still mix data and presentation.
+SVG preparation/attachment, derived Net
 text, label layout and current viewport settings remain editor responsibilities.
 Headless serialization preserves loaded settings; editor serialization supplies
 current viewport settings. Schematic editing callbacks explicitly notify the

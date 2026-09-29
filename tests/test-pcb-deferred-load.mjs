@@ -11,7 +11,7 @@ const record = name => () => calls.push(name);
 const dependencies = {
     removeTrackElements() {}, removeViaElements() {}, removePadElements() {},
     removeBoardShapeElement() {},
-    clearTrackSelection() {}, updateFillIdCounter() {},
+    clearTrackSelection() {},
     resetPcbSelection() {}, syncPcbSelection() {}, clearPcbSelectionAnchors() {},
     resetPanelPreview() {}, renderPanelPreview() {},
     getBoardOutline: app => app.boardShapes.find(shape => shape.layer === 'board-outline'),
@@ -42,7 +42,9 @@ const makeApp = active => {
     return {
     pcbDocument, designSettings: pcbDocument.designSettings,
     _active: active, _stale: false, tracks: pcbDocument.tracks, vias: pcbDocument.vias, pads: pcbDocument.pads,
-    boardShapes: [], texts: pcbDocument.texts,
+    boardShapes: pcbDocument.boardShapes, texts: pcbDocument.texts,
+    get _shapeIdCounter() { return pcbDocument.shapeIdCounter; },
+    set _shapeIdCounter(value) { pcbDocument.shapeIdCounter = value; },
     placements: new Map([['U1', {}]]), _shapeElements: new Map(), _textElements: new Map(),
     placementState, _placementOverrides: placementState.overrides, history: { clear() {} },
     _ensureViewport: record('viewport'), _getLayerGroup: () => null,
@@ -279,6 +281,7 @@ const { CommandHistory } = await import('../src/core/CommandHistory.js');
 const project = new ProjectDocument();
 let syncs = 0, placed = [];
 const pcb = Object.assign(Object.create(PCBApp.prototype), {
+    pcbDocument: project.pcbDocument,
     project: null, _active: true, _stale: true, boardShapes: [],
     _ensureViewport() { syncs++; }, _clearPCBContent() {}, _renderPersistentObjects() {},
     _placeFootprints(items) { placed = items; }, _getLayerGroup: () => null,

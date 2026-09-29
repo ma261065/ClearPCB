@@ -204,6 +204,10 @@ export default class PCBApp {
     set pads(value) { this.pcbDocument.pads = value; }
     get texts() { return this.pcbDocument.texts; }
     set texts(value) { this.pcbDocument.texts = value; }
+    get boardShapes() { return this.pcbDocument.boardShapes; }
+    set boardShapes(value) { this.pcbDocument.boardShapes = value; }
+    get _shapeIdCounter() { return this.pcbDocument.shapeIdCounter; }
+    set _shapeIdCounter(value) { this.pcbDocument.shapeIdCounter = value; }
 
     /** CopperFill entries owned by the canonical board-shape collection. */
     get copperFills() {
@@ -335,8 +339,6 @@ export default class PCBApp {
         this._pcbClipboard = null;
         /** Monotonic paste counter (used for visible paste offsets). */
         this._pcbPasteCount = 0;
-        /** Canonical board shapes, including CopperFill pour regions. */
-        this.boardShapes = [];
         /** SVG <path> elements keyed by shape id for quick remove/replace. */
         this._shapeElements = new Map();
         /** Board shape currently hovered in select mode, or null. */
@@ -350,8 +352,6 @@ export default class PCBApp {
         this._shapeDraw = null;
         /** Active board-shape drag: { id, startWorld, before } or null. */
         this._shapeDrag = null;
-        /** Monotonic id counter for free-standing board shapes. */
-        this._shapeIdCounter = 1;
         /** Defaults for the Shape tools. */
         this._shapeDefaults = { lineWidth: 0.2 };
         /** Active paste-drop interaction (pasted items glued to cursor). */

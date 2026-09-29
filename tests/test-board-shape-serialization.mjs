@@ -217,7 +217,7 @@ const pcbDocument = new PcbDocument();
 pcbDocument.texts.set(text.id, text);
 const placementState = pcbDocument.placementState;
 placementState.overrides.set('comp_4', placement);
-const app = { pcbDocument, tracks: pcbDocument.tracks, vias: pcbDocument.vias, boardShapes: [], texts: pcbDocument.texts,
+const app = { pcbDocument, tracks: pcbDocument.tracks, vias: pcbDocument.vias, boardShapes: pcbDocument.boardShapes, texts: pcbDocument.texts,
     placementState, _placementOverrides: placementState.overrides, designSettings: pcbDocument.designSettings,
     _boardWidth: 100.123456, _boardHeight: 80.00000000000001, _boardRadius: 1.234567,
     _getRoutingParams: () => ({ trackWidth: 0.20000000000000004, clearance: 0.123456,

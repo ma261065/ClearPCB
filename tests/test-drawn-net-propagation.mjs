@@ -6,7 +6,7 @@ globalThis.window = { addEventListener() {} };
 globalThis.document = { createElementNS: element, getElementById() { return null; } };
 globalThis.requestAnimationFrame = () => 0;
 const { default: PCBApp } = await import('../src/ui/PCBApp.js');
-const copperPrototype = Object.create(null, Object.fromEntries(['tracks', 'vias', 'pads']
+const copperPrototype = Object.create(null, Object.fromEntries(['tracks', 'vias', 'pads', 'boardShapes']
     .map(key => [key, Object.getOwnPropertyDescriptor(PCBApp.prototype, key)])));
 const { Track } = await import('../src/shapes/track.js');
 const { Via } = await import('../src/shapes/via.js');

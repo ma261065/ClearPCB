@@ -20,7 +20,7 @@ const [{ Track }, { Via }, { _applyNetToBondedCopper, applyNetToCopperSelection 
     import('../src/pcb/modules/track-select.js'),
 ]);
 const { default: PCBApp } = await import('../src/ui/PCBApp.js');
-const copperPrototype = Object.create(null, Object.fromEntries(['tracks', 'vias', 'pads']
+const copperPrototype = Object.create(null, Object.fromEntries(['tracks', 'vias', 'pads', 'boardShapes']
     .map(key => [key, Object.getOwnPropertyDescriptor(PCBApp.prototype, key)])));
 
 const track = new Track({ points: [{ x: 0, y: 0 }, { x: 5, y: 0 }], net: 'OLD' });

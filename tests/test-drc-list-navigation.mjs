@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { SelectionManager } from '../src/core/SelectionManager.js';
+import { PcbDocument } from '../src/core/PcbDocument.js';
 import { getPcbSelection } from '../src/pcb/modules/selection-registry.js';
 
 globalThis.window = { addEventListener() {} };
@@ -28,6 +29,7 @@ globalThis.document = {
 
 const { default: PCBApp } = await import('../src/ui/PCBApp.js');
 const app = Object.create(PCBApp.prototype);
+app.pcbDocument = new PcbDocument();
 app._drcSelectedId = null;
 app._selectDRCViolation = id => { app._drcSelectedId = id; };
 

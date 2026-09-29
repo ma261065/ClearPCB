@@ -108,6 +108,19 @@ function fixture(active) {
     return { app, project, layers, lifecycle };
 }
 
+{
+    const { app, project } = fixture(true);
+    loadPcb(app, { stackup: { copperLayers: ['top-copper', 'bottom-copper'] },
+        board: { width: 43, height: 27, radius: 2 } });
+    const outline = project.pcbDocument.boardShapes.find(shape => shape.layer === 'board-outline');
+    assert.ok(outline, 'Legacy dimensions generate a model-owned outline that survives entity adoption');
+    assert.equal(app.boardShapes.length, 1);
+    assert.equal(outline.cornerRadius, 2);
+    assert.deepEqual([app._boardWidth, app._boardHeight], [43, 27]);
+    assert.equal(app._getLayerGroup('board-outline').querySelectorAll('.pcb-board-outline').length, 1,
+        'Legacy outline rendering is not duplicated');
+}
+
 for (const active of [true, false]) {
     for (const selected of [true, false]) {
         const { app, project, lifecycle } = fixture(active);

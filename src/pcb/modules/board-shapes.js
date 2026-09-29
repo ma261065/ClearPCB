@@ -18,10 +18,12 @@ import { bulgeRatio, bulgePointFromRatio, distanceToSegment } from '../../core/g
 import { formatNumberInput, formatNumberInputValue } from '../../core/number-inputs.js';
 import { projectArcBulge, snapArcBulgeToChord, arcBulgeRatio, arcBulgeFromRatio } from '../../shapes/arc-edit.js';
 import { pathHandleDescriptors, pathSegmentAt } from '../../shapes/path-geometry.js';
-import { joinPaths, remapPathNodes, splitPathSegmentMetadata, deletePathVertex, collapseCollinearPath, collapseRoundedPolygon, deletePathSegment, closePathIfCoincident, resizeRectanglePoints, pointsFormAxisAlignedRect, setPathSegmentType, splitPathAtNode } from '../../shapes/path-operations.js';
+import { joinPaths, remapPathNodes, splitPathSegmentMetadata, deletePathVertex, collapseCollinearPath, deletePathSegment, closePathIfCoincident, resizeRectanglePoints, pointsFormAxisAlignedRect, setPathSegmentType, splitPathAtNode } from '../../shapes/path-operations.js';
 import { validBoardOutline } from './board-outline.js';
 import { shapeFromPoints, shapePreviewPath, advanceShapeDrawing, canFinishShapeAtPoint } from '../../shapes/shape-drawing.js';
-import { CopperFill, updateFillIdCounter } from '../../shapes/copper-fill.js';
+import { CopperFill } from '../../shapes/copper-fill.js';
+import { SHAPE_KINDS, loadBoardShapeData } from '../../core/pcb-board-shapes.js';
+export { serializeBoardShapes } from '../../core/pcb-board-shapes.js';
 import {
     isLayerLocked,
     isLayerVisible,
@@ -58,14 +60,9 @@ import { beginPcbAnchorInteraction, showPcbSelectionProperties } from './selecti
 import { pathMoveInteraction, beginPathSplit, snapPathPoint, snapPathTranslation, pathContextActions, showPathContextMenu, dismissPathContextMenu } from './path-edit.js';
 import {
     canDrawPictureCircles,
-    normalizePicturePoints,
     resizePicturePoints,
-    validatePictureArtwork,
-    validatePicturePoints,
     PICTURE_LAYERS,
 } from './picture-raster.js';
-import { encodePictureArtwork, decodePictureArtwork } from './picture-storage.js';
-import { hasRectangleFrame, rectangleFrameFromPoints, rectangleFramePoints } from '../../shapes/rectangle-frame.js';
 import { bindPictureRefreshHold, cancelPictureCopperRefresh, schedulePictureCopperRefresh } from './picture-refresh.js';
 import { rotationHandleAnchor, pointerRotation, rotatedImagePoints } from './rotation-handle.js';
 import { BULGE_EPS, arcFromBulge } from '../../shapes/arc-edge.js';
@@ -94,7 +91,6 @@ import {
 } from './board-shape-geometry.js';
 
 const NS = 'http://www.w3.org/2000/svg';
-const SHAPE_KINDS = new Set(['line', 'rect', 'polygon', 'arc', 'circle', 'image']);
 const HOLE_BORDER_WIDTH = 0.05;
 const REMOVAL_OUTLINE_WIDTH_PX = 1;
 
@@ -2531,153 +2527,12 @@ export function boardShapeCopperCuts(app, copperLayer) {
 
 // ── Serialisation ────────────────────────────────────────────────────────────
 
-export function serializeBoardShapes(app, { compactArtwork = true, roundGeometry = true, parametricRectangles = true } = {}) {
-    const artworkIndices = new Map();
-    return (app.boardShapes || []).map((s, index) => {
-        if (s?.type === 'fill') return s.toJSON();
-        const number = value => roundGeometry && Number.isFinite(value) ? r4(value) : value;
-        const point = value => ({ x: number(value.x), y: number(value.y) });
-        const numbers = values => Object.fromEntries(Object.entries(values).map(([key, value]) => [key, number(value)]));
-        const base = {
-            id: s.id,
-            kind: s.kind,
-            layer: s.layer,
-            lineWidth: number(s.lineWidth),
-            filled: !!s.filled,
-            copperMode: normalizeShapeCopperMode(s.copperMode),
-            plated: !!s.plated,
-            net: String(s.net || ''),
-        };
-        if (Object.keys(s.segmentWidths || {}).length) base.segmentWidths = numbers(s.segmentWidths);
-        if (Object.keys(s.segmentBulges || {}).length) base.segmentBulges = numbers(s.segmentBulges);
-        if (Object.keys(s.nodeCornerRadii || {}).length) base.nodeCornerRadii = numbers(s.nodeCornerRadii);
-        if (s.kind === 'rect') base.cornerRadius = number(rectCornerRadius(s));
-        else if (s.kind === 'polygon' || s.kind === 'line') base.cornerRadius = number(polygonCornerRadius(s));
-        if (s.kind === 'arc') {
-            return { ...base, start: point(s.start), end: point(s.end), bulge: point(s.bulge) };
-        }
-        if (s.kind === 'circle') {
-            return { ...base, x: number(s.x), y: number(s.y), radius: number(s.radius) };
-        }
-        if (s.kind === 'image') {
-            const geometry = parametricRectangles ? rectangleFrameFromPoints(s.points)
-                : { points: s.points.map(value => ({ x: value.x, y: value.y })) };
-            if (!compactArtwork) return { ...base, name: s.name, artwork: structuredClone(s.artwork), ...geometry };
-            const encoded = encodePictureArtwork(s.artwork);
-            const key = JSON.stringify(encoded);
-            const previous = artworkIndices.get(key);
-            const artwork = previous === undefined ? encoded : { encoding: 'reference-v1', index: previous };
-            if (previous === undefined) artworkIndices.set(key, index);
-            return { ...base, name: s.name, artwork, ...geometry };
-        }
-        if (s.kind === 'rect' && parametricRectangles) return { ...base, ...rectangleFrameFromPoints(s.points) };
-        const saved = { ...base, points: (s.points || []).map(point) };
-        if (roundGeometry && s.kind === 'polygon') {
-            collapseRoundedPolygon(saved);
-            if (s.layer === 'board-outline' && !validBoardOutline(saved)) {
-                throw new Error('Cannot save board outline: rounding leaves an invalid closed outline.');
-            }
-        }
-        return saved;
-    });
-}
-
-const pt = (p) => ({ x: Number(p?.x) || 0, y: Number(p?.y) || 0 });
-
 export function loadBoardShapes(app, arr, { render = true, strict = false } = {}) {
-    if (!Array.isArray(arr)) return;
-    const loadedArtwork = new Map();
-    for (const [index, sd] of arr.entries()) {
-        if (sd?.type === 'fill') {
-            try {
-                const fill = CopperFill.fromJSON(sd);
-                updateFillIdCounter(fill.id);
-                app.boardShapes.push(fill);
-            } catch (err) {
-                if (strict) throw err;
-                console.warn('Skipping malformed copper fill during load:', err);
-            }
-            continue;
-        }
-        const kind = SHAPE_KINDS.has(sd?.kind) ? sd.kind : null;
-        if (!kind) {
-            if (strict) throw new Error(`Unknown board shape kind: ${sd?.kind}`);
-            continue;
-        }
-        const base = {
-            id: String(sd.id || `pshape_${app._shapeIdCounter++}`),
-            kind,
-            layer: String(sd.layer || 'top-silk'),
-            lineWidth: Math.max(0.05, Number(sd.lineWidth) || (app._shapeDefaults?.lineWidth ?? 0.2)),
-            filled: !!sd.filled,
-            copperMode: normalizeShapeCopperMode(sd.copperMode),
-            plated: !!sd.plated,
-            net: String(sd.net || ''),
-        };
-        if (sd.segmentWidths && typeof sd.segmentWidths === 'object') {
-            base.segmentWidths = Object.fromEntries(Object.entries(sd.segmentWidths)
-                .filter(([index, width]) => Number.isInteger(Number(index)) && Number(width) >= 0.05)
-                .map(([index, width]) => [index, Number(width)]));
-        }
-        if (sd.segmentBulges && typeof sd.segmentBulges === 'object') {
-            base.segmentBulges = Object.fromEntries(Object.entries(sd.segmentBulges)
-                .filter(([segment, bulge]) => Number.isInteger(Number(segment))
-                    && Number.isFinite(Number(bulge)) && Math.abs(Number(bulge)) >= BULGE_EPS)
-                .map(([segment, bulge]) => [segment, Math.max(-1, Math.min(1, Number(bulge)))]));
-        }
-        if (sd.nodeCornerRadii && typeof sd.nodeCornerRadii === 'object') {
-            base.nodeCornerRadii = Object.fromEntries(Object.entries(sd.nodeCornerRadii)
-                .filter(([index, radius]) => Number.isInteger(Number(index)) && Number(radius) >= 0)
-                .map(([index, radius]) => [index, Number(radius)]));
-        }
-        if (['line', 'rect', 'polygon'].includes(kind)) {
-            base.cornerRadius = Math.max(0, Number(sd.cornerRadius) || 0);
-        }
-        let shape;
-        if ((kind === 'rect' || kind === 'image') && hasRectangleFrame(sd)) {
-            if (Object.hasOwn(sd, 'points')) throw new Error('Rectangle records cannot contain both a frame and corner points.');
-            shape = { ...base, points: rectangleFramePoints(sd) };
-        } else if (kind === 'arc') {
-            shape = { ...base, start: pt(sd.start), end: pt(sd.end), bulge: pt(sd.bulge) };
-        } else if (kind === 'circle') {
-            const radius = Math.max(0.05, Number(sd.radius) || 0);
-            if (!radius) continue;
-            shape = { ...base, x: Number(sd.x) || 0, y: Number(sd.y) || 0, radius };
-        } else {
-            const pts = Array.isArray(sd.points) ? sd.points.map(pt) : [];
-            if (pts.length < (kind === 'line' ? 2 : 3)) {
-                if (strict) throw new Error(`Insufficient points in board shape: ${sd.id}`);
-                continue;
-            }
-            shape = { ...base, points: pts };
-        }
-        if (kind === 'image') {
-            try {
-                try {
-                    validatePicturePoints(hasRectangleFrame(sd) ? shape.points : sd.points);
-                } catch {
-                    if (hasRectangleFrame(sd)) throw new Error('Invalid image rectangle frame.');
-                    shape.points = normalizePicturePoints(sd.points, { coordinateTolerance: 0.0001 });
-                }
-                if (!PICTURE_LAYERS.includes(shape.layer)) throw new Error('Invalid image layer.');
-                if (sd.artwork?.encoding === 'reference-v1') {
-                    if (!Number.isInteger(sd.artwork.index) || sd.artwork.index >= index || !loadedArtwork.has(sd.artwork.index)) {
-                        throw new Error('Invalid image artwork reference.');
-                    }
-                    shape.artwork = structuredClone(loadedArtwork.get(sd.artwork.index));
-                } else shape.artwork = decodePictureArtwork(sd.artwork);
-                loadedArtwork.set(index, shape.artwork);
-                shape.name = String(sd.name || 'Image');
-                shape.filled = true;
-            } catch (error) {
-                if (strict) throw error;
-                console.warn('Skipping malformed image during load:', error);
-                continue;
-            }
-        }
+    const stage = { boardShapes: [], shapeIdCounter: app._shapeIdCounter };
+    loadBoardShapeData(stage, arr, { strict, lineWidth: app._shapeDefaults?.lineWidth ?? 0.2 });
+    app._shapeIdCounter = stage.shapeIdCounter;
+    for (const shape of stage.boardShapes) {
         app.boardShapes.push(shape);
-        if (render) renderBoardShape(app, shape);
-        const n = /pshape_(\d+)/.exec(shape.id);
-        if (n) app._shapeIdCounter = Math.max(app._shapeIdCounter, Number(n[1]) + 1);
+        if (render && shape.type !== 'fill') renderBoardShape(app, shape);
     }
 }

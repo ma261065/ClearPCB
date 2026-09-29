@@ -89,12 +89,13 @@ for (const axis of ['horizontal', 'vertical']) {
 }
 
 const pcbDocument = new PcbDocument();
+pcbDocument.boardShapes.push(rectangleBoardOutline(20, 10));
 const placementState = pcbDocument.placementState;
 const app = {
     pcbDocument, designSettings: pcbDocument.designSettings,
     placementState, placements: new Map(), _placementOverrides: placementState.overrides,
     tracks: pcbDocument.tracks, vias: pcbDocument.vias, pads: pcbDocument.pads, texts: pcbDocument.texts,
-    copperFills: [], boardShapes: [rectangleBoardOutline(20, 10)],
+    copperFills: [], boardShapes: pcbDocument.boardShapes,
     _boardWidth: 20, _boardHeight: 10, _boardRadius: 0,
     _getRoutingParams: () => ({ clearance: 0.2, trackWidth: 0.25, viaDiameter: 0.6, viaDrill: 0.3 }),
     _getRouterMode: () => 'pathfinder',

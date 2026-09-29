@@ -7,10 +7,14 @@ import { Track } from '../shapes/track.js';
 import { Via, resetViaIdCounter, updateViaIdCounter } from '../shapes/via.js';
 import { Pad, resetPadIdCounter, updatePadIdCounter } from '../shapes/pad.js';
 import { createPcbText, serializePcbText } from './pcb-text.js';
+import { loadBoardShapeData, serializeBoardShapes } from './pcb-board-shapes.js';
+import { validBoardOutline } from '../pcb/modules/board-outline.js';
+import { hasRectangleFrame, rectangleFramePoints } from '../shapes/rectangle-frame.js';
+import { updateFillIdCounter } from '../shapes/copper-fill.js';
 
 const round4 = value => Number.isFinite(value) ? Math.round(value * 10000) / 10000 : value;
 
-/** Authoritative PCB data; board shapes still await migration from the view. */
+/** Authoritative PCB entities; board settings still await migration from the view. */
 export class PcbDocument {
     constructor() {
         this.placementState = new PcbPlacementState();
@@ -23,17 +27,33 @@ export class PcbDocument {
         this.pads = [];
         /** @type {Map<string, ReturnType<typeof createPcbText>>} */
         this.texts = new Map();
+        /** @type {any[]} Generic board shapes and CopperFill instances. */
+        this.boardShapes = [];
+        this.shapeIdCounter = 1;
     }
 
     static prepareEntities(data) {
         data = normalizePcbSection(data);
         assertSupportedPcb(data);
+        for (const shape of data?.boardShapes || []) {
+            const outline = shape.kind === 'rect' && hasRectangleFrame(shape)
+                ? { ...shape, points: rectangleFramePoints(shape) } : shape;
+            if (shape.layer === 'board-outline' && !validBoardOutline(outline)) {
+                throw new Error('The board outline must be one closed rectangle, polygon, or circle.');
+            }
+        }
+        const stage = { boardShapes: [], shapeIdCounter: 1 };
+        loadBoardShapeData(stage, data?.boardShapes, { strict: true });
+        const outlines = stage.boardShapes.filter(shape => shape.layer === 'board-outline');
+        if (outlines.length > 1 || outlines.some(shape => !validBoardOutline(shape))) {
+            throw new Error('The board outline must be one closed rectangle, polygon, or circle.');
+        }
         const tracks = (data?.tracks || []).map(item => {
             const track = createShape(item);
             if (!(track instanceof Track)) throw new Error('Invalid PCB track.');
             return track;
         });
-        return { data, tracks, vias: (data?.vias || []).map(item => Via.fromJSON(item)),
+        return { ...stage, data, tracks, vias: (data?.vias || []).map(item => Via.fromJSON(item)),
             pads: (data?.pads || []).map(item => new Pad(item)),
             texts: (data?.texts || []).map(item => createPcbText(item)) };
     }
@@ -43,6 +63,8 @@ export class PcbDocument {
         this.vias.length = 0;
         this.pads.length = 0;
         this.texts.clear();
+        this.boardShapes.length = 0;
+        this.shapeIdCounter = 1;
         resetViaIdCounter();
         resetPadIdCounter();
     }
@@ -59,10 +81,15 @@ export class PcbDocument {
             this.pads.push(pad);
         }
         for (const text of prepared.texts) this.texts.set(text.id, text);
+        this.shapeIdCounter = prepared.shapeIdCounter;
+        for (const shape of prepared.boardShapes) {
+            this.boardShapes.push(shape);
+            if (shape.type === 'fill') updateFillIdCounter(shape.id);
+        }
     }
 
     serializeEntities() {
-        return { tracks: this.tracks.map(track => track.toJSON()),
+        return { boardShapes: serializeBoardShapes(this), tracks: this.tracks.map(track => track.toJSON()),
             vias: this.vias.map(via => via.toJSON()), pads: this.pads.map(pad => pad.toJSON()),
             texts: [...this.texts.values()].map(text => {
                 const saved = serializePcbText(text);

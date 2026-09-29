@@ -1,16 +1,14 @@
 import { renderTrack, renderVia, removeTrackElements, removeViaElements } from './track-render.js';
 import { reconcileRatsnest } from './track-draw.js';
 import { clearTrackSelection, getSelectedTrack } from './track-select.js';
-import { serializeBoardShapes, loadBoardShapes, removeBoardShapeElement, renderBoardShape } from './board-shapes.js';
-import { validBoardOutline, getBoardOutline, syncBoardOutlineDimensions } from './board-outline.js';
+import { removeBoardShapeElement, renderBoardShape } from './board-shapes.js';
+import { getBoardOutline, syncBoardOutlineDimensions } from './board-outline.js';
 import { renderPad, removePadElements } from './pad.js';
-import { updateFillIdCounter } from '../../shapes/copper-fill.js';
 import { serializeGridSettings, restoreGridSettings } from '../../ui/modules/viewport.js';
 import { panelSettings } from './panelization.js';
 import { renderPanelPreview, resetPanelPreview } from './panelization-ui.js';
 import { defaultPcbStackup } from '../../core/project-format.js';
 import { compactProjectAliases } from '../../core/project-field-aliases.js';
-import { hasRectangleFrame, rectangleFramePoints } from '../../shapes/rectangle-frame.js';
 import { resetPcbSelection, syncPcbSelection } from './selection-registry.js';
 import { clearPcbSelectionAnchors } from './selection-anchors.js';
 import { applyDesignSettings } from './design-settings.js';
@@ -32,7 +30,6 @@ export function serializePcb(app) {
         ...(app.panelization ? { panelization: panelSettings(app.panelization) } : {}),
         settings: serializeGridSettings(app.viewport),
         ...app.pcbDocument.serializeEntities(),
-        boardShapes: serializeBoardShapes(app),
         placements: app.placementState.serialize(),
     };
     return compactProjectAliases({ pcb }).pcb;
@@ -43,21 +40,7 @@ export function preparePcb(data) {
     data = entities.data;
     if (data?.design) new PcbDesignSettings().update(data.design);
     const panelization = data?.panelization ? panelSettings(data.panelization) : null;
-    for (const shape of data?.boardShapes || []) {
-        const outline = shape.kind === 'rect' && hasRectangleFrame(shape)
-            ? { ...shape, points: rectangleFramePoints(shape) } : shape;
-        if (shape.layer === 'board-outline' && !validBoardOutline(outline)) {
-            throw new Error('The board outline must be one closed rectangle, polygon, or circle.');
-        }
-    }
-    const stage = { boardShapes: [], _shapeIdCounter: 1 };
-    loadBoardShapes(stage, data?.boardShapes, { render: false, strict: true });
-    const outlines = stage.boardShapes.filter(shape => shape.layer === 'board-outline');
-    if (outlines.length > 1 || outlines.some(shape => !validBoardOutline(shape))) {
-        throw new Error('The board outline must be one closed rectangle, polygon, or circle.');
-    }
-    return { ...entities,
-        boardShapes: stage.boardShapes, shapeIdCounter: stage._shapeIdCounter, panelization };
+    return { ...entities, panelization };
 }
 
 /** @param {any} app */
@@ -82,10 +65,8 @@ export function loadPcb(app, data, prepared = preparePcb(data)) {
     for (const v of app.vias) removeViaElements(v);
     for (const pad of app.pads) removePadElements(pad);
     for (const id of app._textElements.keys()) app._removeTextElement(id);
-    app.pcbDocument.clearEntities();
     for (const id of app._shapeElements.keys()) removeBoardShapeElement(app, id);
-    app.boardShapes.length = 0;
-    app._shapeIdCounter = 1;
+    app.pcbDocument.clearEntities();
     app._hoveredShape = null;
     app._shapeDraw = null;
     app._shapeDrag = null;
@@ -130,6 +111,7 @@ export function loadPcb(app, data, prepared = preparePcb(data)) {
     // units, router) onto the ribbon inputs.
     app._applyProjectDesignParams(data.design);
     restoreGridSettings(app, data.settings);
+    app.pcbDocument.loadEntities(data, prepared);
 
     // Restore the saved board outline so it survives save/reopen and
     // autosave-recovery (the dimensions are part of the document).
@@ -138,7 +120,6 @@ export function loadPcb(app, data, prepared = preparePcb(data)) {
         app._boardHeight = data.board?.height || 80;
         app._boardRadius = data.board?.radius || 0;
         const outline = prepared.boardShapes.find(shape => shape.layer === 'board-outline');
-        if (outline) app.boardShapes.push(outline);
         if (outline) syncBoardOutlineDimensions(app);
         if (render) app._drawBoardOutline();
         else app._boardOutlineDrawn = true;
@@ -149,7 +130,6 @@ export function loadPcb(app, data, prepared = preparePcb(data)) {
         if (render && app.placements.size) app._applyPlacementOverrides();
     }
 
-    app.pcbDocument.loadEntities(data, prepared);
     for (const track of app.tracks) {
         if (render) renderTrack(track, (id) => app._getLayerGroup(id), {
             viaDiameter: app._getRoutingParams?.()?.viaDiameter,
@@ -163,11 +143,8 @@ export function loadPcb(app, data, prepared = preparePcb(data)) {
     for (const pad of app.pads) {
         if (render) renderPad(pad, (id) => app._getLayerGroup(id));
     }
-    app._shapeIdCounter = prepared.shapeIdCounter;
     for (const shape of prepared.boardShapes) {
-        if (!app.boardShapes.includes(shape)) app.boardShapes.push(shape);
-        if (shape.type === 'fill') updateFillIdCounter(shape.id);
-        else if (render) renderBoardShape(app, shape, { skipCopperUpdate: true });
+        if (render && shape.type !== 'fill') renderBoardShape(app, shape, { skipCopperUpdate: true });
     }
     if (render) app._updateCopperCuts?.();
     for (const text of app.texts.values()) {

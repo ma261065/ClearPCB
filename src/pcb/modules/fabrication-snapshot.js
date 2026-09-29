@@ -1,4 +1,4 @@
-import { serializeBoardShapes } from './board-shapes.js';
+import { serializeBoardShapes } from '../../core/pcb-board-shapes.js';
 import { buildFillContext } from './fill-context.js';
 import { computeFillPolygons, loadClipper } from './copper-fill-geom.js';
 import { panelSettings } from './panelization.js';
