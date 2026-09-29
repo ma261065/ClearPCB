@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { PcbDocument } from '../src/core/PcbDocument.js';
 import { bindPictureRefreshHold, cancelPictureCopperRefresh, schedulePictureCopperRefresh } from '../src/pcb/modules/picture-refresh.js';
 import { Pad } from '../src/shapes/pad.js';
 import { AddPadCommand, RemovePadCommand, ModifyPadCommand, MovePadCommand } from '../src/pcb/modules/pad-commands.js';
@@ -13,7 +14,9 @@ let ratsnest = 0;
 let drcRequests = 0;
 let poursHandleRatsnest = false;
 let observedValue = 0;
+const pcbDocument = new PcbDocument();
 const app = {
+    pcbDocument, pads: pcbDocument.pads,
     value: 0,
     _getLayerGroup: () => null,
     _refreshFills() { fills++; observedValue = this.value; return poursHandleRatsnest; },
@@ -130,7 +133,7 @@ try {
     for (const withPours of [false, true]) {
         poursHandleRatsnest = withPours;
         const pad = new Pad({ net: 'GND' }), before = pad.captureState();
-        app.pads = [];
+        pcbDocument.pads.length = 0;
         for (const command of [
             new AddPadCommand(app, pad),
             new ModifyPadCommand(app, pad, before, { ...before, x: 1 }),

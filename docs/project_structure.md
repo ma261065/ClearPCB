@@ -152,6 +152,15 @@ the last-used design settings, matching
 existing New behavior. Missing design sections also retain those settings; partial
 sections merge without rounding. Collection and submodel identities are preserved.
 
+Standalone pad add/remove/move/modify operations live in
+`core/pcb-pad-commands.js`. Collection commands take `PcbDocument`; movement and
+property commands operate directly on its `Pad` entities, without an editor or
+DOM. Pad removal changes the collection in place, and undo retains the same pad
+objects. Movement coordinates and flat property snapshots are copied at command
+creation, preserving full precision and insulating history from caller edits.
+The existing `pcb/modules/pad-commands.js` classes are presentation adapters that
+retain SVG updates, selection cleanup and the existing deferred refresh cadence.
+
 `serialize(settings)` assembles the complete authored PCB section: stackup,
 dimensions, design settings, optional panelization, entities and saved placements.
 It applies the existing compact aliases and save-boundary precision, returning a
