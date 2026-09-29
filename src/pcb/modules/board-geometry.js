@@ -85,6 +85,11 @@ export function resolveTrackSegments(track) {
     })));
 }
 
+/** A user flip and bottom-side placement each mirror the footprint, cancelling when combined. */
+export function isPlacementMirrored(placement) {
+    return (!!placement?.mirror) !== (placement?.side === 'bottom');
+}
+
 /**
  * Footprint-local → board-plane transform for a placement's pose: mirror
  * (about the footprint origin) then rotate then translate. Matches the
@@ -102,7 +107,7 @@ export function resolveTrackSegments(track) {
 export function placementPose(pl) {
     const rad = ((pl.rotation || 0) * Math.PI) / 180;
     const cos = Math.cos(rad), sin = Math.sin(rad);
-    const mx = ((!!pl.mirror) !== (pl.side === 'bottom')) ? -1 : 1;
+    const mx = isPlacementMirrored(pl) ? -1 : 1;
     const ox = pl.x || 0, oy = pl.y || 0;
     return {
         rad, mx, cos, sin,

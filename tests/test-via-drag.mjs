@@ -36,6 +36,7 @@ const {
     RotatePlacementCommand,
     SetPlacementLockedCommand,
     SetPlacementSideCommand,
+    applyPlacementPose,
 } = await import('../src/pcb/modules/track-commands.js');
 const { cancelGroupDrag, endGroupDrag } = await import('../src/pcb/modules/box-select.js');
 const {
@@ -460,6 +461,108 @@ for (const previousDeferral of [false, true]) {
     assert.deepEqual(app.vias, [quietVia]);
     assert.equal(copper.children.length, 0);
     assert.equal(holes.children.length, 0);
+}
+
+{
+    const attached = (pinNumber, layer) => new Track({
+        points: [{ x: 0, y: 0 }, { x: 30, y: 0 }], layer, net: 'GND',
+        padConnections: { n0: { componentId: 'component', pinNumber } },
+    });
+    const topSmd = attached('1', 'top-copper');
+    const bottomSmd = attached('2', 'bottom-copper');
+    const topThrough = attached('3', 'top-copper');
+    const duplicateThrough = attached('3#2', 'bottom-copper');
+    const app = trackAppFor(topSmd);
+    app.tracks.push(bottomSmd, topThrough, duplicateThrough);
+    const placement = {
+        x: 10, y: 20, rotation: 0, side: 'top', pads: new Map(),
+        padOffsets: [
+            { padId: '1', number: '1', dx: 2, dy: 0, layer: 'top' },
+            { padId: '2', number: '2', dx: 0, dy: 2, layer: 'bottom' },
+            { padId: '3', number: '3', dx: -4, dy: 0, layer: 'both' },
+            { padId: '3#2', number: '3', dx: 4, dy: 0, layer: 'both' },
+        ],
+        pasteOffsets: [{ side: 'top' }, { side: 'bottom' }],
+    };
+    const svg = attributes => {
+        const values = new Map(Object.entries(attributes));
+        return {
+            getAttribute: name => values.get(name),
+            hasAttribute: name => values.has(name),
+            setAttribute(name, value) { values.set(name, String(value)); },
+            removeAttribute(name) { values.delete(name); },
+        };
+    };
+    const smdShape = svg({ fill: '#e74c3c' }), thShape = svg({ fill: '#b8860b' });
+    const padLabel = svg({ 'data-mx-center': '1' });
+    const refLabel = svg({ 'data-fp-ref': '', 'data-mx-center': '1', 'data-ref-cy': '0' });
+    const copperArtwork = { ...svg({ 'data-fp-layer': 'top-copper' }),
+        querySelectorAll(selector) {
+            return selector === '.pcb-pad'
+                ? [{ getAttribute: () => 'smd', querySelector: () => smdShape },
+                    { getAttribute: () => 'th', querySelector: () => thShape }]
+                : selector === '.pcb-mirror-text' ? [padLabel] : [];
+        },
+    };
+    const silkArtwork = { ...svg({ 'data-fp-layer': 'top-silk' }),
+        querySelectorAll: selector => selector === '.pcb-mirror-text' ? [refLabel] : [],
+    };
+    const layers = new Map(['top-copper', 'bottom-copper', 'top-silk', 'bottom-silk'].map(id => [id, {
+        children: [],
+        appendChild(child) {
+            child.parentNode?.removeChild(child);
+            this.children.push(child);
+            child.parentNode = this;
+        },
+        removeChild(child) {
+            this.children = this.children.filter(element => element !== child);
+            child.parentNode = null;
+        },
+    }]));
+    layers.get('top-copper').appendChild(copperArtwork);
+    layers.get('top-silk').appendChild(silkArtwork);
+    placement.elements = [copperArtwork, silkArtwork];
+    placement.lodEl = svg({});
+    const halo = svg({});
+    app._padHaloGroups = new Map([['component', halo]]);
+    app._getLayerGroup = id => layers.get(id) || null;
+    app.placements.set('component', placement);
+    app._recordPlacementOverride = id => app.placementState.record(id, app.placements.get(id));
+    applyPlacementPose(app, 'component');
+    const before = app.tracks.map(track => track.captureState());
+    const command = new SetPlacementSideCommand(app, 'component', 'bottom');
+    for (let cycle = 0; cycle < 2; cycle++) {
+        command.execute();
+        assert.equal(topSmd.padConnections.size, 0);
+        assert.equal(bottomSmd.padConnections.size, 0);
+        assert.equal(topThrough.padConnections.has('n0'), true);
+        assert.equal(duplicateThrough.padConnections.has('n0'), true,
+            'Duplicate physical through-hole pads retain bottom-layer bonds during a side change');
+        assert.deepEqual(topSmd.nodes.get('n0'), before[0].nodes.n0, 'Disconnected SMD endpoints stay in place');
+        assert.deepEqual(duplicateThrough.nodes.get('n0'), { x: 6, y: 20 });
+        assert.deepEqual(placement.padOffsets.map(pad => pad.layer), ['bottom', 'top', 'both', 'both']);
+        assert.deepEqual(placement.pasteOffsets.map(pad => pad.side), ['bottom', 'top']);
+        assert.equal(app.placementState.overrides.get('component').side, 'bottom');
+        assert.equal(copperArtwork.parentNode, layers.get('bottom-copper'));
+        assert.equal(silkArtwork.parentNode, layers.get('bottom-silk'));
+        assert.equal(smdShape.getAttribute('fill'), '#3498db');
+        assert.equal(thShape.getAttribute('fill'), '#b8860b');
+        for (const element of [copperArtwork, silkArtwork, placement.lodEl, halo]) {
+            assert.equal(element.getAttribute('transform'), 'translate(10, 20) scale(-1, 1)');
+        }
+        assert.equal(padLabel.getAttribute('transform'), 'translate(2, 0) scale(-1, 1)');
+        assert.equal(refLabel.getAttribute('transform'), undefined, 'Bottom-side references retain their board-side mirroring');
+        command.undo();
+        assert.deepEqual(app.tracks.map(track => track.captureState()), before, 'Side undo restores every bond and endpoint');
+        assert.deepEqual(placement.padOffsets.map(pad => pad.layer), ['top', 'bottom', 'both', 'both']);
+        assert.deepEqual(placement.pasteOffsets.map(pad => pad.side), ['top', 'bottom']);
+        assert.equal(app.placementState.overrides.get('component').side, 'top');
+        assert.equal(copperArtwork.parentNode, layers.get('top-copper'));
+        assert.equal(silkArtwork.parentNode, layers.get('top-silk'));
+        assert.equal(smdShape.getAttribute('fill'), '#e74c3c');
+        assert.equal(copperArtwork.getAttribute('transform'), 'translate(10, 20)');
+        assert.equal(padLabel.getAttribute('transform'), undefined);
+    }
 }
 
 if (failures) process.exitCode = 1;

@@ -15,6 +15,14 @@ import { reconcileRatsnest } from './track-draw.js';
 import { clearTrackSelection, refreshTrackSelectionHalo } from './track-select.js';
 import { getPcbSelection, togglePcbSelection } from './selection-registry.js';
 import { batchDerivedUpdates, deferDerivedUpdate } from '../../core/DerivedUpdates.js';
+import { isPlacementMirrored } from './board-geometry.js';
+export { isPlacementMirrored } from './board-geometry.js';
+import {
+    updatePlacementPadPositions,
+    repositionPadConnectedNodes as repositionPadConnectedNodesData,
+    applyPlacementSide as applyPlacementSideData,
+    disconnectIncompatiblePadNodes as disconnectIncompatiblePadNodesData,
+} from '../../core/pcb-placement-geometry.js';
 import { SetBoardOutlineCommand as ModelSetBoardOutlineCommand } from '../../core/pcb-outline-commands.js';
 import {
     SetPlacementLockedCommand as ModelSetPlacementLockedCommand,
@@ -81,35 +89,11 @@ function _shouldHideNetLabel(app, track) {
 export function repositionPadConnectedNodes(app, compId) {
     const pl = app.placements?.get(compId);
     if (!pl?.pads) return null;
-    const touched = new Set();
-    for (const track of (app.tracks || [])) {
-        if (!track.padConnections?.size) continue;
-        for (const [nid, conn] of track.padConnections) {
-            if (!conn || conn.componentId !== compId) continue;
-            const pad = pl.pads.get(conn.pinNumber)
-                ?? pl.pads.get(String(conn.pinNumber))
-                ?? pl.pads.get(Number(conn.pinNumber));
-            if (!pad) continue;
-            const n = track.nodes.get(nid);
-            if (!n) continue;
-            if (n.x !== pad.x || n.y !== pad.y) {
-                n.x = pad.x;
-                n.y = pad.y;
-                touched.add(track);
-            }
-        }
-    }
+    const touched = repositionPadConnectedNodesData(app.tracks || [], compId, pl.pads);
     for (const track of touched) {
         renderTrack(track, (id) => app._getLayerGroup(id), _opts(app, track));
     }
     return touched;
-}
-
-/** True when a placement's footprint geometry is mirrored on screen.
- *  A user flip (`mirror`) and a bottom-side placement each mirror the
- *  footprint; together they cancel out. */
-export function isPlacementMirrored(pl) {
-    return (!!pl?.mirror) !== (pl?.side === 'bottom');
 }
 
 /** The SVG transform for a placement's current pose (position + rotation + mirror). */
@@ -135,22 +119,13 @@ export function placementTransform(pl) {
 export function applyPlacementPose(app, compId) {
     const pl = app.placements?.get(compId);
     if (!pl) return;
-    const rot = pl.rotation || 0;
     const transform = placementTransform(pl);
     for (const el of (pl.elements || [])) el.setAttribute('transform', transform);
     if (pl.lodEl) pl.lodEl.setAttribute('transform', transform);
     const halo = app._padHaloGroups?.get(compId);
     if (halo) halo.setAttribute('transform', transform);
-    const rad = rot * Math.PI / 180;
-    const cos = Math.cos(rad), sin = Math.sin(rad);
     const mirrored = isPlacementMirrored(pl);
-    const mx = mirrored ? -1 : 1;
-    for (const off of (pl.padOffsets || [])) {
-        const lx = off.dx * mx;
-        const wx = pl.x + lx * cos - off.dy * sin;
-        const wy = pl.y + lx * sin + off.dy * cos;
-        pl.pads.set(off.padId, { x: wx, y: wy, number: off.number });
-    }
+    updatePlacementPadPositions(pl);
     // Counter-mirror text inside the (possibly mirrored) footprint group:
     //  • Pad numbers stay readable in every orientation → counter the full
     //    visual mirror (`mirrored` = user-flip XOR bottom-side).
@@ -583,7 +558,6 @@ const FP_LAYER_FLIP = {
     'top-mask': 'bottom-mask', 'bottom-mask': 'top-mask',
     'top-document': 'bottom-document', 'bottom-document': 'top-document',
 };
-const flipShortLayer = (l) => (l === 'top' ? 'bottom' : l === 'bottom' ? 'top' : l);
 
 /**
  * Break pad bonds whose copper layer no longer matches the connected track.
@@ -598,26 +572,7 @@ const flipShortLayer = (l) => (l === 'top' ? 'bottom' : l === 'bottom' ? 'top' :
 export function disconnectIncompatiblePadNodes(app, compId) {
     const pl = app.placements?.get(compId);
     if (!pl) return;
-    const padLayer = new Map();
-    for (const off of (pl.padOffsets || [])) padLayer.set(String(off.number), off.layer);
-    const touched = new Set();
-    for (const track of (app.tracks || [])) {
-        if (!track.padConnections?.size) continue;
-        for (const [nid, conn] of [...track.padConnections]) {
-            if (!conn || conn.componentId !== compId) continue;
-            const short = padLayer.get(String(conn.pinNumber));
-            if (short === 'both') continue; // through-hole reaches every layer
-            const copper = short === 'bottom' ? 'bottom-copper' : 'top-copper';
-            const incident = track.incidentEdges(nid);
-            const compatible = incident.length
-                ? incident.some((e) => track.getEdgeLayer(e.edgeId) === copper)
-                : track.layer === copper;
-            if (!compatible) {
-                track.padConnections.delete(nid);
-                touched.add(track);
-            }
-        }
-    }
+    const touched = disconnectIncompatiblePadNodesData(app.tracks || [], compId, pl.padOffsets || []);
     for (const track of touched) {
         renderTrack(track, (id) => app._getLayerGroup(id), _opts(app, track));
     }
@@ -637,7 +592,7 @@ export function applyPlacementSide(app, compId, side) {
     const pl = app.placements?.get(compId);
     if (!pl) return;
     const flip = side === 'bottom';
-    pl.side = flip ? 'bottom' : 'top';
+    applyPlacementSideData(pl, side);
     for (const el of (pl.elements || [])) {
         const base = el.getAttribute('data-fp-layer');
         if (!base) continue;
@@ -654,14 +609,6 @@ export function applyPlacementSide(app, compId, side) {
                 if (shape) shape.setAttribute('fill', fill);
             }
         }
-    }
-    for (const off of (pl.padOffsets || [])) {
-        if (off._baseLayer === undefined) off._baseLayer = off.layer;
-        off.layer = flip ? flipShortLayer(off._baseLayer) : off._baseLayer;
-    }
-    for (const off of (pl.pasteOffsets || [])) {
-        if (off._baseSide === undefined) off._baseSide = off.side;
-        off.side = flip ? flipShortLayer(off._baseSide) : off._baseSide;
     }
     // SMD pads have just changed copper layer — drop any track bonds that no
     // longer share a layer with their pad so the trace stops sticking.

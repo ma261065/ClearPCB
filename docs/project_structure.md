@@ -379,7 +379,19 @@ selection, overlay and 3D updates and notify the dirty hook. They no longer
 re-record the whole generated placement to persist metadata edits. Authored
 undo/redo works without a currently rendered placement. Physical movement,
 rotation, flipping and side-change commands remain editor-coupled because they
-also update generated pad geometry and bonded track nodes.
+resolve current generated footprint geometry and update bonded track nodes.
+
+`core/pcb-placement-geometry.js` owns renderer-free world-pad updates, bonded
+track-node movement, side-dependent pad/paste layers and incompatible-bond
+removal. It uses the shared affine transform and mirror predicate in
+`pcb/modules/board-geometry.js`; editor wrappers retain SVG updates and redraw
+only touched tracks. Moved tracks invalidate their geometry bounds independently
+of rendering. Bond compatibility uses physical pad IDs, not potentially repeated
+logical pad numbers, so duplicate through-hole pads retain compatible bonds.
+These operations consume current geometry rather than capturing footprint
+definitions in history: footprint re-sync can replace geometry while retaining
+commands. Physical command ownership still needs a model-side source of that
+current geometry; extracting these mutations does not complete that boundary.
 
 The live `placements` map and automatic layout slots remain editor-owned:
 they contain generated footprint geometry, presentation caches and temporary
