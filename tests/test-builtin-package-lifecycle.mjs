@@ -119,10 +119,13 @@ const project = serializeDocument({ ...app, components: instances.concat(app.com
 assert.equal(project.schematic.defs, undefined, 'Different packages of the same symbol need no embedded definitions');
 assert.ok(JSON.stringify(project).length < 12000, 'Saving bundled models must not bloat the project');
 const manager = new FileManager();
+let autoSaveSuccesses = 0;
+manager.onAutoSaveSuccess = () => { autoSaveSuccesses++; };
 manager.autoSaveToStorage(project, { revision: 1, fileName: 'packages.cpcb' });
-const indicator = document.body.children.find(child => child.id === 'clearpcb-autosave-dot');
-assert.equal(indicator.style.opacity, '1', 'Autorecovery completes its success notification');
-clearTimeout(indicator._t);
+await Promise.resolve();
+assert.equal(autoSaveSuccesses, 1, 'Autorecovery completes its success notification');
+assert.equal(document.body.children.some(child => child.id === 'clearpcb-autosave-dot'), false,
+    'Storage does not render the success indicator');
 const recovered = JSON.parse(storage.get('clearpcb_autosave_packages.cpcb')).data;
 assert.deepEqual(recovered, project);
 let written;

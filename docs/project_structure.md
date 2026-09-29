@@ -98,8 +98,12 @@ Storage reports autosave failures through `FileManager.onAutoSaveError`; the UI
 host shows the existing alert dialog, visible from either editor. Notifications
 are once per storage-failure streak, reset after a successful autosave. Storage
 and notification failures are logged; error reporting no longer discovers editors
-through globals. The existing autosave-success indicator still renders from
-FileManager and remains a separate UI-boundary cleanup.
+through globals. Completed document/index writes emit `FileManager.onAutoSaveSuccess`;
+the UI host injects `flashAutoSaveIndicator()` from `ui/modules/ui-utils.js`.
+The fixed 4px blue dot retains its 250ms retriggerable visibility and existing
+styling. Success-indicator failures are logged separately: they cannot turn a
+completed autosave into a storage-failure warning or cause it to be retried.
+`onAutoSaveChanged` remains the separate size/title update callback.
 
 Schematic history/dirty callbacks update their own UI, then call
 `ProjectDocument.notifySchematicChanged()`. The project calls the registered

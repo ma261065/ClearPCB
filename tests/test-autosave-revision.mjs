@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { FileManager } from '../src/core/FileManager.js';
 import { ProjectDocument } from '../src/core/ProjectDocument.js';
+import { flashAutoSaveIndicator } from '../src/ui/modules/ui-utils.js';
 
 const originalSetInterval = globalThis.setInterval;
 const originalClearInterval = globalThis.clearInterval;
@@ -135,6 +136,8 @@ try {
         retry.setFileName(`retry-${failure}.cpcb`);
         retry.setDirty(true);
         let attempts = 0;
+        let successes = 0;
+        retry.onAutoSaveSuccess = () => { successes++; };
         let serializationFails = failure === 'serialization';
         failKey = failure === 'document' ? retry.autoSavePrefix + retry.fileName
             : failure === 'index' ? retry.autoSavePrefix + 'index' : null;
@@ -145,10 +148,14 @@ try {
         });
         assert.doesNotThrow(() => tick(retry));
         assert.equal(retry._lastAutoSave, null);
+        await Promise.resolve();
+        assert.equal(successes, 0, 'A failed document/index write or snapshot must not flash success');
         failKey = null;
         serializationFails = false;
         tick(retry);
         assert.equal(attempts, 2);
+        await Promise.resolve();
+        assert.equal(successes, 1, 'Only a completed autosave notifies success');
         tick(retry);
         assert.equal(attempts, 2);
         retry.stopAutoSave();
@@ -173,6 +180,37 @@ try {
     assert.equal(warnings.length, 2, 'A successful autosave resets warning suppression');
     assert.equal(globalLookups, 0, 'Storage must not discover UI through the global bootstrap');
     failKey = null;
+
+    const notificationManager = new FileManager();
+    const originalConsoleError = console.error;
+    const notificationErrors = [];
+    let storageErrors = 0;
+    notificationManager.onAutoSaveError = () => { storageErrors++; };
+    notificationManager.startAutoSave(data);
+    try {
+        console.error = (...args) => notificationErrors.push(args);
+        for (const asynchronous of [false, true]) {
+            const error = new Error('Simulated indicator failure');
+            notificationManager.onAutoSaveSuccess = asynchronous
+                ? async () => { throw error; }
+                : () => { throw error; };
+            notificationManager._autoSaveErrorNotified = true;
+            notificationManager.setDirty(true);
+            tick(notificationManager);
+            await new Promise(resolve => setImmediate(resolve));
+            assert.deepEqual(notificationErrors.at(-1), ['Auto-save success notification failed:', error]);
+            assert.equal(notificationManager._lastAutoSave.revision, notificationManager.revision);
+            assert.equal(notificationManager._autoSaveErrorNotified, false, 'Storage success still resets failure suppression');
+            const completedWrites = writes;
+            tick(notificationManager);
+            assert.equal(writes, completedWrites, 'Indicator failure must not retry a completed autosave');
+        }
+        assert.equal(notificationErrors.length, 2);
+        assert.equal(storageErrors, 0, 'Presentation failure is not reported as storage failure');
+    } finally {
+        console.error = originalConsoleError;
+        notificationManager.stopAutoSave();
+    }
 
     const changedDuringSnapshot = new FileManager();
     changedDuringSnapshot.setDirty(true);
@@ -200,4 +238,44 @@ try {
     else globalThis.cancelIdleCallback = originalCancelIdleCallback;
     if (originalStorage === undefined) delete globalThis.localStorage;
     else globalThis.localStorage = originalStorage;
+}
+
+const originalDocument = globalThis.document;
+const originalSetTimeout = globalThis.setTimeout;
+const originalClearTimeout = globalThis.clearTimeout;
+const indicatorTimers = new Map();
+const indicatorElements = [];
+let indicatorTimerId = 0;
+try {
+    globalThis.document = {
+        getElementById: id => indicatorElements.find(element => element.id === id) || null,
+        createElement: () => ({ id: '', style: {} }),
+        body: { appendChild: element => indicatorElements.push(element) },
+    };
+    globalThis.setTimeout = (callback, delay) => {
+        assert.equal(delay, 250, 'Preserve indicator visibility duration');
+        indicatorTimers.set(++indicatorTimerId, callback);
+        return indicatorTimerId;
+    };
+    globalThis.clearTimeout = id => indicatorTimers.delete(id);
+    flashAutoSaveIndicator();
+    const dot = indicatorElements[0];
+    assert.equal(dot.id, 'clearpcb-autosave-dot');
+    assert.match(dot.style.cssText, /position:fixed;right:4px;bottom:4px;width:4px;height:4px/);
+    assert.match(dot.style.cssText, /background:#3b9dff/);
+    assert.match(dot.style.cssText, /pointer-events:none/);
+    assert.equal(dot.style.opacity, '1');
+    flashAutoSaveIndicator();
+    assert.equal(indicatorElements.length, 1, 'Repeated saves reuse one global indicator');
+    assert.equal(indicatorTimers.size, 1, 'Repeated saves replace the previous hide timer');
+    const hide = [...indicatorTimers.values()][0];
+    indicatorTimers.clear();
+    hide();
+    assert.equal(dot.style.opacity, '0');
+    console.log('PASS UI-owned autosave indicator timing, reuse and presentation-failure isolation');
+} finally {
+    globalThis.setTimeout = originalSetTimeout;
+    globalThis.clearTimeout = originalClearTimeout;
+    if (originalDocument === undefined) delete globalThis.document;
+    else globalThis.document = originalDocument;
 }

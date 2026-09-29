@@ -36,13 +36,12 @@ function element(tag) {
     };
 }
 globalThis.window = { addEventListener() {} };
-const autosaveDot = element('div');
 globalThis.document = {
     body: element('body'),
     documentElement: { getAttribute() { return 'dark'; } },
     createElementNS: (_namespace, tag) => element(tag),
     createElement: tag => element(tag),
-    getElementById(id) { return id === 'clearpcb-autosave-dot' ? autosaveDot : null; },
+    getElementById() { return null; },
     querySelector() { return null; },
 };
 globalThis.localStorage = { getItem() { return null; }, setItem() {}, removeItem() {} };
@@ -194,7 +193,6 @@ for (const replacement of [null, { stackup: { copperLayers: ['top-copper', 'bott
     assert.equal(app._getLayerGroup('top-silk').children.length, 1, 'Open retains only the new document artwork');
 }
 delete globalThis.bootstrap;
-clearTimeout(autosaveDot._t);
 {
     const { app, project } = fixture(true);
     app._showBoardDimensionsDialog = PCBApp.prototype._showBoardDimensionsDialog;

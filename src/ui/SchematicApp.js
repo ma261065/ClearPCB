@@ -34,7 +34,7 @@ import * as ExportTools from './modules/export.js';
 import { onToolSelected, onComponentPickerClosed, onOptionsChanged, loadToolOptions } from './modules/tool.js';
 import { adaptShortcutsInDOM } from './modules/platform-keys.js';
 import { setupCallbacks } from './modules/callbacks.js';
-import { updateUndoRedoButtons, makeHelpPanelDraggable } from './modules/ui-utils.js';
+import { updateUndoRedoButtons, makeHelpPanelDraggable, flashAutoSaveIndicator } from './modules/ui-utils.js';
 import { needsValueDialog, showValueDialog } from './modules/value-dialog.js';
 import { showAlert, showConfirm, showPrompt } from './modules/modal.js';
 import {
@@ -114,6 +114,7 @@ export default class SchematicApp {
         this.fileManager.onDirtyChanged = () => this._onDirtyChanged();
         this.fileManager.onFileNameChanged = () => this._updateTitle();
         this.fileManager.onAutoSaveChanged = () => this._updateTitle();
+        this.fileManager.onAutoSaveSuccess = flashAutoSaveIndicator;
         this.fileManager.onAutoSaveError = () => this.onAutoSaveError();
 
         // Shape/selection state

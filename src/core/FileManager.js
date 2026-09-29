@@ -308,31 +308,6 @@ async function _deserializeProject(file) {
     return doc;
 }
 
-/**
- * Briefly flash a small blue dot in the bottom-right corner to give a
- * visual confirmation that an auto-save just completed. The element is
- * created lazily on first use and reused thereafter.
- */
-function _flashAutoSaveIndicator() {
-    if (typeof document === 'undefined') return;
-    let dot = document.getElementById('clearpcb-autosave-dot');
-    if (!dot) {
-        dot = document.createElement('div');
-        dot.id = 'clearpcb-autosave-dot';
-        dot.style.cssText = [
-            'position:fixed', 'right:4px', 'bottom:4px',
-            'width:4px', 'height:4px', 'border-radius:50%',
-            'background:#3b9dff', 'box-shadow:0 0 4px #3b9dff',
-            'opacity:0', 'pointer-events:none', 'z-index:99999',
-            'transition:opacity 120ms ease-out',
-        ].join(';');
-        document.body.appendChild(dot);
-    }
-    dot.style.opacity = '1';
-    clearTimeout(/** @type {any} */ (dot)._t);
-    /** @type {any} */ (dot)._t = setTimeout(() => { dot.style.opacity = '0'; }, 250);
-}
-
 // ==================== FileSystemFileHandle persistence ====================
 // ==================== Recent files + file handles (IndexedDB) ============
 // One store, one source of truth. Each record is
@@ -534,6 +509,8 @@ export class FileManager {
         this.onDirtyChanged = null;
         this.onFileNameChanged = null;
         this.onAutoSaveChanged = null;
+        /** @type {(() => void|Promise<void>)|null} */
+        this.onAutoSaveSuccess = null;
         /** @type {((error: unknown) => void|Promise<void>)|null} */
         this.onAutoSaveError = null;
     }
@@ -986,7 +963,6 @@ export class FileManager {
             localStorage.setItem(this.autoSavePrefix + 'index', JSON.stringify(index));
             this._lastAutoSave = snapshot;
             console.log('Auto-saved to localStorage');
-            _flashAutoSaveIndicator();
             // Keep the file handle (if any) persisted in its recents record so
             // a post-reload recovery can "Save" back to the original file.
             if (this.fileHandle && this.fileName) {
@@ -995,6 +971,9 @@ export class FileManager {
             // Reset failure-backoff state on success.
             this._autoSaveBackoffMs = 0;
             if (this._autoSaveErrorNotified) this._autoSaveErrorNotified = false;
+            Promise.resolve().then(() => this.onAutoSaveSuccess?.()).catch(notificationError => {
+                console.error('Auto-save success notification failed:', notificationError);
+            });
         } catch (err) {
             console.error('Auto-save failed:', err);
             // Notify the user once per failure streak so they know their

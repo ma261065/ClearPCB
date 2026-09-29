@@ -89,3 +89,29 @@ export function makeHelpPanelDraggable() {
 
     header.addEventListener('mousedown', onMouseDown);
 }
+
+/** @type {ReturnType<typeof setTimeout>|null} */
+let autoSaveIndicatorTimer = null;
+
+/** Flash the shared autosave dot, extending its visibility on repeated saves. */
+export function flashAutoSaveIndicator() {
+    let dot = document.getElementById('clearpcb-autosave-dot');
+    if (!dot) {
+        dot = document.createElement('div');
+        dot.id = 'clearpcb-autosave-dot';
+        dot.style.cssText = [
+            'position:fixed', 'right:4px', 'bottom:4px',
+            'width:4px', 'height:4px', 'border-radius:50%',
+            'background:#3b9dff', 'box-shadow:0 0 4px #3b9dff',
+            'opacity:0', 'pointer-events:none', 'z-index:99999',
+            'transition:opacity 120ms ease-out',
+        ].join(';');
+        document.body.appendChild(dot);
+    }
+    dot.style.opacity = '1';
+    clearTimeout(autoSaveIndicatorTimer);
+    autoSaveIndicatorTimer = setTimeout(() => {
+        dot.style.opacity = '0';
+        autoSaveIndicatorTimer = null;
+    }, 250);
+}
