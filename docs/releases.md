@@ -19,6 +19,30 @@ Worker** workflow. GitHub Pages continues to serve the application; Cloudflare
 intercepts only `clearpcb.org/mcp*`. See [mcp.md](mcp.md) for the required
 Cloudflare zone, repository secrets, local testing, and security limitations.
 
+## Automated Regression Gate
+
+**Regression Checks** runs on pushes and pull requests targeting `dev` and
+`release_*`, and can be started manually. Its **Regression gate** job runs
+`node tools/regression.mjs` on Node 22: every root regression test plus the
+autorouter clearance baseline. Any test failure or hard baseline failure
+fails the job. Trace/via-count differences remain visible soft warnings,
+not evidence that routing quality is unchanged.
+
+**Publish Stable Release** independently runs the same gate against the checked-out
+release tag before packaging, uploading the downloadable ZIP, or deploying.
+A failed gate leaves the existing stable deployment untouched. GitHub may already
+show the release as published; this check blocks distribution by the workflow,
+not creation of the release entry itself.
+
+After pushing the workflow and seeing its first successful hosted run, configure
+the `dev` and `release_*` branch rulesets to require **Regression gate** before
+merging. Workflow files alone do not enable branch protection. Hosted execution
+and ruleset configuration must be verified in GitHub; a local pass does not
+prove those settings are active.
+
+The current hardening checklist and outstanding release evidence are maintained
+in [Code Review Follow-Up](review-fixes.md#release-readiness-tracker).
+
 ## Patch Release Using the GitHub Website
 
 Use this checklist after testing, committing, and pushing a fix on `dev`.
@@ -175,17 +199,14 @@ Do these steps only after testing and committing the intended release content.
    schematic and PCB editing, image import, panelization, Gerber exports,
    worker/WASM loading, and PWA loading. Verify `2.0` files are rejected and
    unsupported multilayer files leave the current document untouched.
-3. Run the focused automated checks after approving test execution locally:
+3. Run the complete automated gate on the intended release revision:
 
    ```powershell
-   node tests/test-project-lifecycle.mjs
-   node tests/test-project-recovery.mjs
-   node tests/test-autosave-revision.mjs
-   node tests/test-track-id-recovery.mjs
-   node tests/test-board-shape-serialization.mjs
-   node tests/test-panelization.mjs
-   node tests/test-picture-tracing-dialog.mjs
+   node tools/regression.mjs
    ```
+
+   Review any soft warnings as well as failures. A passing gate is necessary,
+   but does not replace the manual checks above or independent fabrication review.
 
 4. Inspect the deployable package with `node tools/package-release.mjs v1.0.0`.
    It creates a new `dist` directory and refuses to reuse an existing one;

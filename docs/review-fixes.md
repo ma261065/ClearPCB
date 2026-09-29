@@ -4,6 +4,44 @@ This maps the 19 review findings to the corresponding implementation changes.
 Verification uses the headless Node regressions below; browser verification has
 not been performed.
 
+## Release-readiness tracker
+
+Started 2026-09-29. This is the active checklist, not a declaration that the
+application is ready to release. Each milestone requires implementation,
+regression evidence, and updated documentation. Work proceeds in small,
+reviewable changes; no broad rewrite or mechanical file splitting is planned.
+
+| Milestone | Status | Evidence required / remaining work |
+| --- | --- | --- |
+| Verified checkpoint | Done | Commit `3b5e096`: geometry persistence/resize, document reset, Home navigation and regression-fixture fixes. Full gate: 132/132 files; autorouter 74/76, zero clearance violations. |
+| Automated release gate implementation | Locally verified | Push/PR workflow and tag-specific pre-package gate added. Both pass actionlint 1.7.7 (workflow/schema/expression checks; external shellcheck/pyflakes disabled). The unchanged gate command passed the full checkpoint above. |
+| Hosted checks and merge protection | Pending authorization | After an authorized push, verify the first hosted run and require Regression gate in branch rulesets. No remote settings, push or release have been performed. |
+| Document lifecycle and UI ownership | Pending - next | Centralize replacement/cleanup and shared UI orchestration. Cover New/Open/Recent/import/PWA, cancellation, failures, previews, selection disposal and hidden PCB activation. |
+| File > New board-size prompt | Pending decision | Reuse the existing Board Dimensions dialog. Confirm whether schematic New should prompt immediately or defer until PCB activation; active PCB New should prompt immediately after successful reset. |
+| Data model and representation consistency | Pending | Audit identities, geometry/precision invariants and editable/persisted/manufacturing conversions; extend cross-consumer tests. Keep legacy rectangle readers until the user confirms migration. |
+| Separation of duties and maintainability | Pending | Reduce broad application/private-state dependencies with explicit owners and typed contracts, starting with lifecycle and derived-data invalidation. Replace brittle source-extraction tests where practical. |
+| Measured performance | Pending | Define representative boards, latency budgets and repeatable first-interaction/load/switch/dense-board measurements; check visual correctness as well as speed. Browser checks remain user-led unless authorized. |
+| Reliability and routing baseline review | Pending | Exercise failure paths and multi-step editing sequences. Review 288 traces/214 vias versus the old 239/174 baseline; the hard routed threshold is still 65 despite current 74/76. Do not merely reset baselines to silence warnings. |
+| Current documentation and distribution notices | Pending | Reconcile README, structure, file-format and limitation descriptions; distinguish historical audit results from current guarantees; review licence/notices. |
+| Final release acceptance | Pending | Run the full gate on the final revision, complete user-led real-board/browser acceptance and independent manufacturing-output review, record limitations, and obtain release approval. |
+
+### Working agreements
+
+- Keep verified milestones separate and commit when authorized; do not push,
+  tag or publish without authorization. Do not modify the user's board files.
+- Retain existing minimum behaviour and user contracts while tightening ownership.
+  A failing test is investigated, not weakened simply to make a gate pass.
+- Report completed work, remaining risks and the next proposed milestone after
+  each stage; ask when a behavioural decision is needed.
+- Separate locally verified implementation from hosted, browser or manufacturing
+  evidence that has not been obtained. No browser testing/debugging by the agent
+  without authorization.
+- Release acceptance covers architecture, consistency, model, responsibilities,
+  performance, reliability, documentation and maintainability. A green test count
+  alone is not sufficient, and zero defects cannot be guaranteed.
+
+## Original review findings
+
 | Finding | Implementation |
 | --- | --- |
 | 1. Save As reports failed writes as success | FileManager propagates write failures and adopts the destination only after success. |

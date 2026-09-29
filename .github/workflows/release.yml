@@ -44,6 +44,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - name: Run full regression gate
+        run: node tools/regression.mjs
       - name: Package site
         run: node tools/package-release.mjs "$RELEASE_TAG"
       - name: Attach downloadable release

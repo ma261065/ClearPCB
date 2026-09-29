@@ -1,0 +1,28 @@
+name: Regression Checks
+
+on:
+  push:
+    branches: [dev, 'release_*']
+  pull_request:
+    branches: [dev, 'release_*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: regression-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  regression:
+    name: Regression gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Run full regression gate
+        run: node tools/regression.mjs
