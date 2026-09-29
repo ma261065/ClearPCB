@@ -272,9 +272,16 @@ live in `core/pcb-text.js`. Undo and clipboard use these snapshots without file
 rounding; `PcbDocument.serializeEntities()` rounds text position, size, rotation
 and stroke width to four decimals only at the save boundary. The rendering
 module re-exports the data helpers for existing imports but retains only glyph
-geometry, hit-testing, SVG and layer-color responsibilities. Add/move/edit/delete
-commands retain their existing history and presentation behavior, including
-restoring deleted text from an unrounded snapshot with its original ID.
+geometry, hit-testing, SVG and layer-color responsibilities.
+
+`core/pcb-text-commands.js` owns add/remove/move/edit text mutations, undo state
+and descriptions, operating directly on `PcbDocument` without an editor or DOM.
+The existing `pcb/modules/text-commands.js` imports remain editor adapters: they
+delegate mutations to the model commands and retain SVG, selection, property
+control and derived-refresh updates. Deleted text is restored from an unrounded
+snapshot with its original ID. Add undo retains the current model object, which
+may have been recreated by a later deletion undo, so a complete undo/redo chain
+cannot resurrect a stale text instance. Missing move/edit targets fail explicitly.
 
 Saved PCB placement/reference settings live in
 `ProjectDocument.pcbDocument.placementState` (`core/PcbPlacementState.js`). The PCB editor's

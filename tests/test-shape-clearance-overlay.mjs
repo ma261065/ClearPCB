@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { PcbDocument } from '../src/core/PcbDocument.js';
 
 globalThis.window = { addEventListener() {} };
 const element = () => ({
@@ -118,7 +119,9 @@ assert.ok(toggleStart >= 0 && toggleEnd > toggleStart);
 const toggle = new Function('saveLayerPrefs',
     `return ({ ${source.slice(toggleStart, toggleEnd)} })._onOverlayVisibilityChanged;`)(() => {});
 const groups = new Map(['top-copper', 'bottom-copper', 'hole', 'vias', 'clearance-overlay'].map(id => [id, element()]));
+const pcbDocument = new PcbDocument();
 const app = {
+    pcbDocument, texts: pcbDocument.texts,
     placements: new Map(), boardShapes: [circle, rectangle, hole, line, arc],
     _layerGroups: groups, _getLayerGroup(id) { return groups.get(id); },
     _getRoutingParams() { return { clearance, trackWidth: 0.2 }; }, showClearances,
@@ -209,7 +212,7 @@ assert.equal(outlineCalls, callsBeforeHide + 1, 'Hidden clearance does no geomet
 assert.equal(overlay.children.length, 0);
 console.log('PASS unassigned image clearance follows dragging without recomputing outlines');
 const text = { id: 'text-clearance', content: 'O', x: 3, y: 4, size: 5, strokeWidth: 0.2, rotation: 0, layer: 'top-copper' };
-app.texts = new Map([[text.id, text]]);
+app.texts.set(text.id, text);
 showClearances.call(app, true);
 const textHalos = () => overlay.children.filter(child => child.attributes.get('data-shape-id') === text.id);
 assert.ok(textHalos().length >= 2, 'Text clearance follows glyphs and preserves holes');

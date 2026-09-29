@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { PcbDocument } from '../src/core/PcbDocument.js';
 import { readFileSync } from 'node:fs';
 import { rotationHandleAnchor, pointerRotation, rotatedImagePoints, ROTATION_CURSOR } from '../src/pcb/modules/rotation-handle.js';
 
@@ -76,7 +77,9 @@ try {
                 object.id = 'pshape_1';
                 object.points = rotatedImagePoints(object.points, center, 30);
             }
-            const app = { boardShapes: kind === 'image' ? [object] : [], texts: new Map(kind === 'text' ? [[object.id, object]] : []),
+            const pcbDocument = new PcbDocument();
+            if (kind === 'text') pcbDocument.texts.set(object.id, object);
+            const app = { pcbDocument, boardShapes: kind === 'image' ? [object] : [], texts: pcbDocument.texts,
                 tracks: [], vias: [], placements: new Map(), _shapeElements: new Map(),
                 viewport: { scale: 10, svg: element('svg') }, history: new CommandHistory(), _getLayerGroup() { return null; },
                 _pcbPropsItems() { return null; }, _refreshText() {},
@@ -223,7 +226,9 @@ try {
     const movingText = { id: 'moving-text', content: 'Move', x: 0, y: 0, size: 2, strokeWidth: 0.2,
         rotation: 0, layer: 'top-copper' };
     const movingOverlay = element('g');
-    const movingApp = { ...textMethods, boardShapes: [], texts: new Map([[movingText.id, movingText]]),
+    const movingDocument = new PcbDocument();
+    movingDocument.texts.set(movingText.id, movingText);
+    const movingApp = { ...textMethods, pcbDocument: movingDocument, boardShapes: [], texts: movingDocument.texts,
         placements: new Map(), tracks: [], vias: [], history: new CommandHistory(),
         viewport: { scale: 10, svg: element('svg'), setCrosshair() {}, hideCrosshair() {} },
         _getLayerGroup(id) { return id === 'selection-overlay' ? movingOverlay : null; },

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { PcbDocument } from '../src/core/PcbDocument.js';
 
 function element() {
     return {
@@ -35,9 +36,11 @@ registerPcbSelectionAdapter('text', (app, text, id) => ({
 
 const overlay = element();
 const texts = [{ id: 'first', x: 1, y: 2 }, { id: 'second', x: 10, y: 20 }];
+const pcbDocument = new PcbDocument();
+for (const text of texts) pcbDocument.texts.set(text.id, text);
 const app = {
     placements: new Map(), tracks: [], vias: [], boardShapes: [],
-    texts: new Map(texts.map(text => [text.id, text])),
+    pcbDocument, texts: pcbDocument.texts,
     viewport: { scale: 8, snapToGrid: false },
     _layerGroups: new Map([['selection-overlay', overlay]]),
     _getLayerGroup(id) { return this._layerGroups.get(id); },

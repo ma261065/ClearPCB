@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { PcbDocument } from '../src/core/PcbDocument.js';
 import { readFileSync } from 'node:fs';
 import { bindPictureRefreshHold, schedulePictureCopperRefresh } from '../src/pcb/modules/picture-refresh.js';
 
@@ -33,8 +34,9 @@ const originalClearTimeout = globalThis.clearTimeout;
 const timers = new Map();
 let timerId = 0;
 let refreshes = 0;
+const pcbDocument = new PcbDocument();
 const app = {
-    boardShapes: [], texts: new Map(), placements: new Map(), tracks: [], vias: [],
+    pcbDocument, boardShapes: [], texts: pcbDocument.texts, placements: new Map(), tracks: [], vias: [],
     _shapeElements: new Map(), _boardShapeClearanceCache: new Map(),
     _getLayerGroup() { return null; },
     _refreshFills() { refreshes++; return false; },

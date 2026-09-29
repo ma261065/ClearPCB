@@ -269,7 +269,8 @@ assert.equal('panelization' in serializePcb(app), false);
 assert.equal(app.texts.size, layout.note.length, 'removing panel settings leaves ordinary text untouched');
 remove.undo();
 assert.deepEqual(app.panelization, appliedSettings);
-const legacyApp = { ...app, panelization: { ...PANEL_DEFAULTS }, texts: new Map() };
+const legacyDocument = new PcbDocument();
+const legacyApp = { ...app, pcbDocument: legacyDocument, panelization: { ...PANEL_DEFAULTS }, texts: legacyDocument.texts };
 new SetPanelizationCommand(legacyApp, legacyApp.panelization).execute();
 assert.equal(legacyApp.texts.size, layout.note.length, 'applying a legacy panel creates editable notes');
 

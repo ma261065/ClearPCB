@@ -1,79 +1,72 @@
 /**
  * Command classes for PCB free-standing text undo/redo.
  *
- * Each command owns enough state to fully reverse itself. SVG updates
- * happen inside execute()/undo() so the visible board state always
- * matches the model.
+ * Model commands own mutations and undo state. These adapters keep SVG,
+ * selection, and derived-geometry updates synchronized with those operations.
  */
 
-import { serializePcbText } from '../../core/pcb-text.js';
+import {
+    AddTextCommand as ModelAddTextCommand, RemoveTextCommand as ModelRemoveTextCommand,
+    MoveTextCommand as ModelMoveTextCommand, EditTextCommand as ModelEditTextCommand,
+} from '../../core/pcb-text-commands.js';
 import { isPcbSelected } from './selection-registry.js';
 import { schedulePictureCopperRefresh } from './picture-refresh.js';
 
 /** Add a text to app.texts and render it. */
-export class AddTextCommand {
+export class AddTextCommand extends ModelAddTextCommand {
     constructor(app, text) {
+        super(app.pcbDocument, text);
         this.app = app;
-        this.text = text;
     }
     execute() {
-        this.app.texts.set(this.text.id, this.text);
+        super.execute();
         schedulePictureCopperRefresh(this.app, this.text);
         this.app._renderText(this.text);
     }
     undo() {
         this.app._removeTextElement(this.text.id);
-        this.app.texts.delete(this.text.id);
+        super.undo();
         schedulePictureCopperRefresh(this.app, this.text);
         if (isPcbSelected(this.app, 'text', this.text)) {
             this.app._selectText(null);
         }
     }
-    get description() { return `Add text "${this.text.content}"`; }
 }
 
 /** Remove a text. */
-export class RemoveTextCommand {
+export class RemoveTextCommand extends ModelRemoveTextCommand {
     constructor(app, textId) {
+        super(app.pcbDocument, textId);
         this.app = app;
-        this.snapshot = serializePcbText(app.texts.get(textId));
     }
     execute() {
-        const text = this.app.texts.get(this.snapshot.id);
+        const text = this.document.texts.get(this.snapshot.id);
         this.app._removeTextElement(this.snapshot.id);
-        this.app.texts.delete(this.snapshot.id);
+        super.execute();
         schedulePictureCopperRefresh(this.app, this.snapshot);
         if (text && isPcbSelected(this.app, 'text', text)) {
             this.app._selectText(null);
         }
     }
     undo() {
-        const text = { ...this.snapshot };
-        this.app.texts.set(text.id, text);
+        super.undo();
+        const text = this.document.texts.get(this.snapshot.id);
         schedulePictureCopperRefresh(this.app, text);
         this.app._renderText(text);
     }
-    get description() { return `Delete text "${this.snapshot.content}"`; }
 }
 
 /** Move a text from (x0,y0) to (x1,y1). */
-export class MoveTextCommand {
+export class MoveTextCommand extends ModelMoveTextCommand {
     constructor(app, textId, x0, y0, x1, y1) {
+        super(app.pcbDocument, textId, x0, y0, x1, y1);
         this.app = app;
-        this.id = textId;
-        this.x0 = x0; this.y0 = y0;
-        this.x1 = x1; this.y1 = y1;
     }
-    execute() { this._set(this.x1, this.y1); }
-    undo()    { this._set(this.x0, this.y0); }
     _set(x, y) {
-        const t = this.app.texts.get(this.id);
-        if (!t) return;
-        t.x = x; t.y = y;
+        super._set(x, y);
         schedulePictureCopperRefresh(this.app);
         this.app._refreshText(this.id);
     }
-    get description() { return 'Move text'; }
 }
 
 /**
@@ -81,24 +74,14 @@ export class MoveTextCommand {
  * partial object (e.g. `{ size: 1.2, layer: 'bottom-silk' }`). The
  * pre-edit values are captured at construction time.
  */
-export class EditTextCommand {
+export class EditTextCommand extends ModelEditTextCommand {
     constructor(app, textId, after) {
+        super(app.pcbDocument, textId, after);
         this.app = app;
-        this.id = textId;
-        const t = app.texts.get(textId);
-        this.before = {};
-        this.after = {};
-        for (const k of Object.keys(after)) {
-            this.before[k] = t[k];
-            this.after[k] = after[k];
-        }
     }
-    execute() { this._apply(this.after); }
-    undo()    { this._apply(this.before); }
     _apply(patch) {
-        const t = this.app.texts.get(this.id);
-        if (!t) return;
-        Object.assign(t, patch);
+        super._apply(patch);
+        const t = this.document.texts.get(this.id);
         schedulePictureCopperRefresh(this.app, t);
         this.app._refreshText(this.id);
         if ('rotation' in patch && isPcbSelected(this.app, 'text', t)) {
@@ -106,5 +89,4 @@ export class EditTextCommand {
             if (input) input.value = String(Math.round(t.rotation) % 360);
         }
     }
-    get description() { return 'Edit text'; }
 }
