@@ -377,6 +377,7 @@ app._recomputeFillsNow = () => false;
 app._updateCopperCuts = () => {};
 const history = new CommandHistory();
 const padCollection = model.pads;
+const viaCollection = model.vias;
 try {
     for (const [key, object, Add, Remove] of [
         ['tracks', track, AddTrackCommand, RemoveTrackCommand],
@@ -386,6 +387,7 @@ try {
         history.execute(new Remove(app, object));
         assert.equal(model[key].length, 0, `${key} removal mutates the authoritative collection`);
         if (key === 'pads') assert.equal(model.pads, padCollection, 'Pad removal preserves model collection identity');
+        if (key === 'vias') assert.equal(model.vias, viaCollection, 'Via removal preserves model collection identity');
         history.undo();
         assert.equal(model[key][0], object);
         history.redo();
@@ -398,6 +400,7 @@ try {
         assert.equal(model[key][0], object, `${key} redo retains entity identity`);
         assert.equal(app[key], model[key], 'Array replacement must not detach the view from the model');
         if (key === 'pads') assert.equal(model.pads, padCollection, 'Pad history retains the canonical collection');
+        if (key === 'vias') assert.equal(model.vias, viaCollection, 'Via history retains the canonical collection');
     }
     history.execute(new MovePadCommand(app, pad, { x: 5, y: 6 }, { x: 12, y: 18 }));
     assert.equal(model.serializeEntities().pads[0].x, 12);

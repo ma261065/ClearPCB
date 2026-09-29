@@ -161,6 +161,17 @@ creation, preserving full precision and insulating history from caller edits.
 The existing `pcb/modules/pad-commands.js` classes are presentation adapters that
 retain SVG updates, selection cleanup and the existing deferred refresh cadence.
 
+Standalone via add/remove/move/modify and batch-modify operations live in
+`core/pcb-via-commands.js`. Collection commands take `PcbDocument`; property and
+movement commands operate on its `Via` entities without rendering or changing
+track geometry. Scalar property snapshots and batch membership are copied at
+construction, preserving IDs, full precision and the existing diameter/drill
+normalization. The existing exports in `pcb/modules/track-commands.js` remain
+editor adapters. Batch edits apply every via's state before rendering any of them,
+then refresh derived state once; compound batching and drag-time overlay deferral
+are preserved. Via moves retain caller-owned connectivity and pour refresh timing.
+Track/placement commands and entity-level render state remain separate boundaries.
+
 Copper-fill add/remove/modify operations live in `core/pcb-fill-commands.js`.
 Collection commands use the model's existing `boardShapes` array; modification
 applies authored state to a `CopperFill`. Undo snapshots deeply copy outline

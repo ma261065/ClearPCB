@@ -1,12 +1,22 @@
 /** Headless regression tests for via-drag derived-overlay deferral. */
+import assert from 'node:assert/strict';
+import { PcbDocument } from '../src/core/PcbDocument.js';
 
 globalThis.window = { addEventListener() {} };
 globalThis.document = {
     getElementById() { return null; },
     createElementNS() {
+        const attributes = new Map();
         return {
-            setAttribute() {},
-            remove() {},
+            setAttribute(name, value) { attributes.set(name, String(value)); },
+            getAttribute(name) { return attributes.get(name); },
+            remove() {
+                if (this.parentNode) {
+                    const siblings = this.parentNode.children;
+                    siblings.splice(siblings.indexOf(this), 1);
+                    this.parentNode = null;
+                }
+            },
             classList: { add() {} },
             dataset: {},
         };
@@ -16,7 +26,8 @@ globalThis.document = {
 const { Via } = await import('../src/shapes/via.js');
 const { Track } = await import('../src/shapes/track.js');
 const { collectBondedCopper, reconcileRatsnest } = await import('../src/pcb/modules/track-draw.js');
-const { AddTrackCommand, RemoveTrackCommand, AddViaCommand, RemoveViaCommand, MoveViaCommand, CompoundCommand } = await import('../src/pcb/modules/track-commands.js');
+const { AddTrackCommand, RemoveTrackCommand, AddViaCommand, RemoveViaCommand, MoveViaCommand,
+    ModifyViaCommand, ModifyViasCommand, CompoundCommand } = await import('../src/pcb/modules/track-commands.js');
 const {
     FlipPlacementCommand,
     MovePlacementCommand,
@@ -48,12 +59,15 @@ function expect(name, condition) {
 }
 
 function appFor(via) {
+    const pcbDocument = new PcbDocument();
+    pcbDocument.vias.push(via);
     let fillRefreshes = 0;
     let clearanceRefreshes = 0;
     const crosshairs = [];
     return {
+        pcbDocument,
         tracks: [],
-        vias: [via],
+        vias: pcbDocument.vias,
         placements: new Map(),
         netlist: [],
         _layerGroups: new Map(),
@@ -75,11 +89,13 @@ function appFor(via) {
 }
 
 function trackAppFor(track, previousDeferral = false) {
+    const pcbDocument = new PcbDocument();
     let fillRefreshes = 0;
     let clearanceRefreshes = 0;
     return {
+        pcbDocument,
         tracks: [track],
-        vias: [],
+        vias: pcbDocument.vias,
         placements: new Map(),
         netlist: [],
         boardShapes: [],
@@ -295,6 +311,81 @@ for (const previousDeferral of [false, true]) {
     app._deferDragOverlays = true;
     endGroupDrag(app);
     expect(`unchanged group drop restores clearance (${previousDeferral})`, app.clearanceRefreshes() === count + (previousDeferral ? 0 : 1));
+}
+
+{
+    const first = new Via({ x: 1, y: 2, net: 'GND' });
+    const second = new Via({ x: 5, y: 6, net: 'GND' });
+    const app = appFor(first);
+    app.vias.push(second);
+    const vias = app.pcbDocument.vias;
+    const layer = { children: [], appendChild(element) {
+        this.children.push(element);
+        element.parentNode = this;
+    } };
+    const renderedStates = [];
+    let reconciles = 0;
+    app._getLayerGroup = id => {
+        if (id === 'ratlines') reconciles++;
+        if (id !== 'vias') return null;
+        renderedStates.push(vias.map(via => via.captureState()));
+        return layer;
+    };
+    const before = vias.map(via => via.captureState());
+    const after = before.map(state => ({ ...state, diameter: 0.876543, drill: 0.345678, net: 'POWER' }));
+    const batch = new ModifyViasCommand(app, vias.map((via, index) => ({
+        via, before: before[index], after: after[index],
+    })));
+    for (const deferred of [false, true]) {
+        app._deferDragOverlays = deferred;
+        for (const [action, expected] of [['execute', after], ['undo', before]]) {
+            renderedStates.length = 0;
+            const counts = [app.clearanceRefreshes(), app.fillRefreshes(), reconciles];
+            batch[action]();
+            assert.equal(app.vias, vias);
+            assert.deepEqual(renderedStates, [expected, expected], 'Every via is updated before the first SVG render');
+            assert.equal(layer.children.length, 4, 'Each refresh replaces, rather than duplicates, the ring and drill');
+            assert.equal(app.clearanceRefreshes() - counts[0], deferred ? 0 : 1);
+            assert.equal(app.fillRefreshes() - counts[1], deferred ? 0 : 1);
+            assert.equal(reconciles - counts[2], 1, 'Batch property edits reconcile only once');
+        }
+    }
+    app._deferDragOverlays = false;
+    const compound = new CompoundCommand(vias.map(via =>
+        new ModifyViaCommand(app, via, { net: via.net }, { net: 'COMPOUND' })));
+    const counts = [app.clearanceRefreshes(), app.fillRefreshes(), reconciles];
+    compound.execute();
+    compound.undo();
+    assert.deepEqual(vias.map(via => via.captureState()), before);
+    assert.equal(app.clearanceRefreshes() - counts[0], 2);
+    assert.equal(app.fillRefreshes() - counts[1], 2);
+    assert.equal(reconciles - counts[2], 2, 'Editor adapters still participate in compound refresh batching');
+    const move = new MoveViaCommand(app, first, first.x, first.y, 3.123456, -4.123456);
+    const beforeMove = [app.clearanceRefreshes(), app.fillRefreshes(), reconciles];
+    move.execute();
+    assert.equal(first._svgElements[0].getAttribute('data-via-x'), '3.123456');
+    assert.equal(first._svgElements[0].getAttribute('data-via-y'), '-4.123456');
+    move.undo();
+    assert.equal(layer.children.length, 4);
+    assert.equal(app.clearanceRefreshes() - beforeMove[0], 2);
+    assert.equal(app.fillRefreshes(), beforeMove[1], 'Via movement preserves caller-owned pour refresh timing');
+    assert.equal(reconciles, beforeMove[2], 'Via movement preserves caller-owned connectivity timing');
+    const remove = new RemoveViaCommand(app, first);
+    remove.execute();
+    assert.deepEqual(vias, [second]);
+    assert.equal(layer.children.length, 2, 'Removal clears the via SVG along with its model entry');
+    remove.undo();
+    assert.deepEqual(vias, [second, first]);
+    assert.equal(layer.children.length, 4);
+    const added = new Via({ x: 10, y: 20 });
+    const add = new AddViaCommand(app, added);
+    add.execute();
+    assert.equal(vias[2], added);
+    assert.equal(layer.children.length, 6);
+    add.undo();
+    assert.deepEqual(vias, [second, first]);
+    assert.equal(layer.children.length, 4, 'Undo addition removes only the newly added via SVG');
+    assert.equal(app.vias, app.pcbDocument.vias);
 }
 
 if (failures) process.exitCode = 1;

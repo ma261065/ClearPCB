@@ -17,6 +17,13 @@ import { clearTrackSelection, refreshTrackSelectionHalo } from './track-select.j
 import { getPcbSelection, togglePcbSelection } from './selection-registry.js';
 import { batchDerivedUpdates, deferDerivedUpdate } from '../../core/DerivedUpdates.js';
 import { getBoardOutline, rectangleBoardOutline } from './board-outline.js';
+import {
+    AddViaCommand as ModelAddViaCommand,
+    RemoveViaCommand as ModelRemoveViaCommand,
+    ModifyViaCommand as ModelModifyViaCommand,
+    ModifyViasCommand as ModelModifyViasCommand,
+    MoveViaCommand as ModelMoveViaCommand,
+} from '../../core/pcb-via-commands.js';
 
 function deselectRemovedTrack(app, track) {
     if (!getPcbSelection(app, 'track').includes(track)) return;
@@ -291,70 +298,60 @@ export class ModifyTrackGraphCommand {
     undo() { this._apply(this.before); }
 }
 
-export class AddViaCommand {
-    constructor(app, via) { this.app = app; this.via = via; }
+export class AddViaCommand extends ModelAddViaCommand {
+    constructor(app, via) { super(app.pcbDocument, via); this.app = app; }
     execute() {
-        if (!this.app.vias.includes(this.via)) this.app.vias.push(this.via);
+        super.execute();
         renderVia(this.via, (id) => this.app._getLayerGroup(id));
         refreshEditedTrackClearance(this.app);
         reconcileRatsnest(this.app);
     }
     undo() {
         removeViaElements(this.via);
-        const i = this.app.vias.indexOf(this.via);
-        if (i >= 0) this.app.vias.splice(i, 1);
+        super.undo();
         refreshEditedTrackClearance(this.app);
         reconcileRatsnest(this.app);
     }
 }
 
-export class RemoveViaCommand {
-    constructor(app, via) { this.app = app; this.via = via; }
+export class RemoveViaCommand extends ModelRemoveViaCommand {
+    constructor(app, via) { super(app.pcbDocument, via); this.app = app; }
     execute() {
         removeViaElements(this.via);
-        const i = this.app.vias.indexOf(this.via);
-        if (i >= 0) this.app.vias.splice(i, 1);
+        super.execute();
         refreshEditedTrackClearance(this.app);
         reconcileRatsnest(this.app);
     }
     undo() {
-        if (!this.app.vias.includes(this.via)) this.app.vias.push(this.via);
+        super.undo();
         renderVia(this.via, (id) => this.app._getLayerGroup(id));
         refreshEditedTrackClearance(this.app);
         reconcileRatsnest(this.app);
     }
 }
 
-export class ModifyViaCommand {
+export class ModifyViaCommand extends ModelModifyViaCommand {
     constructor(app, via, before, after) {
+        super(via, before, after);
         this.app = app;
-        this.via = via;
-        this.before = { ...before };
-        this.after = { ...after };
     }
     _apply(state) {
-        this.via.applyState(state);
+        super._apply(state);
         renderVia(this.via, (id) => this.app._getLayerGroup(id));
         refreshEditedTrackClearance(this.app);
         reconcileRatsnest(this.app);
         refreshTrackSelectionHalo(this.app);
     }
-    execute() { this._apply(this.after); }
-    undo() { this._apply(this.before); }
 }
 
 /** Apply the same property edit to several vias with one derived refresh. */
-export class ModifyViasCommand {
+export class ModifyViasCommand extends ModelModifyViasCommand {
     constructor(app, changes) {
+        super(changes);
         this.app = app;
-        this.changes = changes.map(({ via, before, after }) => ({
-            via,
-            before: { ...before },
-            after: { ...after },
-        }));
     }
     _apply(stateKey) {
-        for (const change of this.changes) change.via.applyState(change[stateKey]);
+        super._apply(stateKey);
         for (const change of this.changes) {
             renderVia(change.via, (id) => this.app._getLayerGroup(id));
         }
@@ -362,27 +359,20 @@ export class ModifyViasCommand {
         reconcileRatsnest(this.app);
         refreshTrackSelectionHalo(this.app);
     }
-    execute() { this._apply('after'); }
-    undo() { this._apply('before'); }
 }
 
 /** Move a standalone Via from (fromX, fromY) to (toX, toY). */
-export class MoveViaCommand {
+export class MoveViaCommand extends ModelMoveViaCommand {
     constructor(app, via, fromX, fromY, toX, toY) {
+        super(via, fromX, fromY, toX, toY);
         this.app = app;
-        this.via = via;
-        this.from = { x: fromX, y: fromY };
-        this.to = { x: toX, y: toY };
     }
     _set(pt) {
-        this.via.x = pt.x;
-        this.via.y = pt.y;
+        super._set(pt);
         renderVia(this.via, (id) => this.app._getLayerGroup(id));
         refreshEditedTrackClearance(this.app);
         refreshTrackSelectionHalo(this.app);
     }
-    execute() { this._set(this.to); }
-    undo() { this._set(this.from); }
 }
 
 export class MovePlacementCommand {
