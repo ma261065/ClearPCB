@@ -5,8 +5,7 @@ import { globalEventBus } from '../core/EventBus.js';
 import { CommandHistory } from '../core/CommandHistory.js';
 import { SelectionManager } from '../core/SelectionManager.js';
 import { FileManager } from '../core/FileManager.js';
-import { extractNetlist } from '../core/netlist.js';
-import { ModifyPropertyCommand } from '../schematic/modules/commands.js';
+import { SchematicDocument } from '../core/SchematicDocument.js';
 import { repairDuplicateTrackIds } from '../core/project-format.js';
 import { storageManager } from '../core/StorageManager.js';
 import { pointsMatch } from '../core/geometry.js';
@@ -69,8 +68,8 @@ import {
  * as the shared app context.  If you're looking for how a feature works, check
  * the corresponding module rather than this file.
  *
- * The constructor is the single source of truth for application state — every
- * property that modules read or write on `app` is initialised here.
+ * The constructor initializes editor interaction state. Shape/component
+ * collections alias the project-owned document rather than separate editor data.
  */
 export default class SchematicApp {
 
@@ -86,6 +85,7 @@ export default class SchematicApp {
         /** @type {any} */
         this.project = project || null;
         this.fileManager = project ? project.fileManager : new FileManager();
+        this.document = project ? project.schematicDocument : new SchematicDocument();
         // Register as the schematic view + UI host, and inject the file
         // lifecycle so the project can drive New/Open/Save without
         // importing this module (keeping core free of view dependencies).
@@ -119,8 +119,6 @@ export default class SchematicApp {
         this.fileManager.onAutoSaveError = () => this.onAutoSaveError();
 
         // Shape/selection state
-        this.shapes = [];
-        this.components = [];
         this.selection = new SelectionManager({
             getScale: () => this.viewport?.scale,
             onSelectionChanged: (shapes) => this._onSelectionChanged(shapes)
@@ -1415,48 +1413,19 @@ export default class SchematicApp {
             { title: 'Auto-save Failed' });
     }
 
-    /**
-     * @param {string} id
-     * @returns {import('../core/ProjectDocument.js').ComponentInfo|null}
-     */
-    getComponentInfo(id) {
-        const component = this.components.find(item => item.id === id);
-        if (!component) return null;
-        const shapes = component.definition?.footprintShapes;
-        return { id: component.id, reference: component.reference, locked: !!component.locked,
-            footprintShapes: Array.isArray(shapes) ? shapes.filter(shape => typeof shape === 'string') : [] };
-    }
+    // Existing interaction modules use these aliases, never a second collection.
+    get shapes() { return this.document.shapes; }
+    set shapes(value) { this.document.shapes = value; }
+    get components() { return this.document.components; }
+    set components(value) { this.document.components = value; }
 
-    /**
-     * @param {string} id
-     * @param {string} reference
-     */
-    validateComponentReference(id, reference) {
+    /** Refresh presentation after a project-owned reference operation. */
+    onComponentReferenceChanged(id) {
         const component = this.components.find(item => item.id === id);
-        if (!component) return { message: 'Component is no longer available.', title: 'Invalid Reference' };
-        if (component.locked) return { message: 'Component is locked.', title: 'Locked Component' };
-        reference = reference.trim();
-        if (!reference) return { message: 'Reference cannot be blank.', title: 'Invalid Reference' };
-        if (this.components.some(item => item.id !== id && item.reference.toUpperCase() === reference.toUpperCase())) {
-            return { message: `Reference "${reference}" is already used by another component.`, title: 'Duplicate Reference' };
-        }
-        return null;
-    }
-
-    /**
-     * @param {string} id
-     * @param {string} reference
-     */
-    createReferenceRenameCommand(id, reference) {
-        const issue = this.validateComponentReference(id, reference);
-        if (issue) throw new Error(issue.message);
-        const component = this.components.find(item => item.id === id);
-        const command = new ModifyPropertyCommand(this, [component], 'reference', reference.trim());
-        return { execute: () => command.execute(), undo: () => command.undo() };
-    }
-
-    getNetlist() {
-        return extractNetlist(this);
+        if (!component) return;
+        component.invalidate();
+        component.refText?.invalidate();
+        this.renderShapes(true);
     }
 
     /**

@@ -1,4 +1,5 @@
 import { Command } from '../../core/CommandHistory.js';
+import { setComponentReference } from '../../core/SchematicDocument.js';
 /**
  * CommandHistory - Manages undo/redo stack
  * 
@@ -326,6 +327,8 @@ export class ModifyPropertyCommand extends Command {
                 if (item.mirror !== val) {
                     item.flipHorizontal();
                 }
+            } else if (this.prop === 'reference') {
+                setComponentReference(item, val);
             } else {
                 item[this.prop] = val;
             }
@@ -342,6 +345,8 @@ export class ModifyPropertyCommand extends Command {
                     item.parentComponent.wireLabel = val;
                     bumpWireLabelCounter(val);
                     item.parentComponent.invalidate();
+                } else if (item.fieldKey === 'reference') {
+                    setComponentReference(item.parentComponent, val);
                 } else {
                     item.parentComponent[item.fieldKey] = val;
                 }
@@ -374,7 +379,6 @@ export class ModifyPropertyCommand extends Command {
             }
             // Sync component reference/value to field text content
             if (this.prop === 'reference' && item.refText) {
-                item.refText.text = val;
                 item.refText.invalidate();
             }
             if (this.prop === 'value' && item.valueText) {

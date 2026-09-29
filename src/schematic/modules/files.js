@@ -1,12 +1,8 @@
-import { updateIdCounter, resetWireLabelCounter, resetNetNameCounter } from '../../shapes/index.js';
-import { Component, updateComponentIdCounter } from '../../components/index.js';
+import { resetWireLabelCounter, resetNetNameCounter } from '../../shapes/index.js';
 import { createNetText } from './shape-management.js';
 import { attachLabelToTarget } from '../../ui/modules/label-attachment.js';
 import { importEasyEDASchematic } from '../../easyeda/schematic-importer.js';
-import { createShape, bumpWireLabelCounter } from '../../shapes/index.js';
-import { bumpNetNameCounter } from '../../shapes/wire.js';
-import { validateEditableProject } from '../../core/project-format.js';
-import { compactProjectAliases } from '../../core/project-field-aliases.js';
+import { deserializeComponent, serializeSchematicDocument } from '../../core/SchematicDocument.js';
 import { serializeGridSettings, restoreGridSettings } from '../../ui/modules/viewport.js';
 
 function canReplaceDocument(app) {
@@ -22,76 +18,31 @@ function canReplaceDocument(app) {
  * @returns {object} Serialized document object.
  */
 export function serializeDocument(app) {
-    const components = app.components.map(c => c.toJSON());
-
-    // Keep Net text as derived data (recreated/relinked on load)
-    // so net name/font/offset are persisted only on the Net shape.
-    const serializedShapes = app.shapes
-        .filter(s => !(s.type === 'text' && s.fieldKey === 'net' && s.parentComponent?.type === 'net'))
-        .map(s => s.toJSON());
-
-    // Deduplicate definitions: extract into a top-level map so each
-    // unique definition is stored only once instead of per-instance.
-    const defs = {};
-    for (const comp of components) {
-        if (comp.def && comp.dn) {
-            if (!defs[comp.dn]) {
-                defs[comp.dn] = comp.def;
-            }
-            delete comp.def;
-        }
-    }
-
-    const doc = {
-        version: '1.0',
-        type: 'clearpcb-project',
-        created: new Date().toISOString(),
-        schematic: {
-            settings: {
-                ...serializeGridSettings(app.viewport),
-                paperSize: app.viewport.paperSizeKey || null,
-                paperOrientation: app.viewport.paperSize
-                    ? (app.viewport.paperSize.width >= app.viewport.paperSize.height ? 'landscape' : 'portrait')
-                    : null,
-                titleBlock: app.viewport.showTitleBlock || false,
-                titleBlockInfo: app.viewport.showTitleBlockInfo || false,
-                titleBlockData: app.viewport.titleBlockData || {}
-            },
-            shapes: serializedShapes,
-            components
-        }
-    };
-
-    if (Object.keys(defs).length > 0) {
-        doc.schematic.defs = defs;
-    }
-
-    // NB: the PCB section (`doc.pcb`) is added by ProjectDocument, which
-    // coordinates both editor views. This function only produces the
-    // schematic envelope so the schematic view never reaches into the PCB.
-    return compactProjectAliases(doc);
+    return serializeSchematicDocument({
+        shapes: app.shapes, components: app.components,
+        settings: {
+            ...serializeGridSettings(app.viewport),
+            paperSize: app.viewport.paperSizeKey || null,
+            paperOrientation: app.viewport.paperSize
+                ? (app.viewport.paperSize.width >= app.viewport.paperSize.height ? 'landscape' : 'portrait')
+                : null,
+            titleBlock: app.viewport.showTitleBlock || false,
+            titleBlockInfo: app.viewport.showTitleBlockInfo || false,
+            titleBlockData: app.viewport.titleBlockData || {}
+        },
+    });
 }
 
 /**
- * Clears the canvas and reconstitutes all shapes, components, and settings
- * from a saved document object.
+ * Prepare model data and its SVG before replacing the live editor content.
  * @param {object} app - Application state.
  * @param {object} data - Previously serialized document.
  */
 export function prepareDocument(app, data) {
-    data = validateEditableProject(data);
-    const schematic = data.schematic;
-    const shapes = schematic.shapes.filter((item) => item.fk !== 'net')
-        .map((item) => ({ data: item, shape: createShape(item) }));
-    const components = schematic.components.map((item) => {
-        const name = item.dn;
-        const component = createComponentFromData(app, { ...item, def: schematic.defs?.[name] });
-        if (!component) throw new Error(`Missing component definition: ${name}`);
-        return component;
-    });
-    for (const { shape } of shapes) shape.render(app.viewport.scale);
-    for (const component of components) component.createSymbolElement();
-    return { data, shapes, components };
+    const prepared = app.document.prepare(data, name => app.componentLibrary.getDefinition(name));
+    for (const { shape } of prepared.shapes) shape.render(app.viewport.scale);
+    for (const component of prepared.components) component.createSymbolElement();
+    return prepared;
 }
 
 export async function loadDocument(app, data, prepared = prepareDocument(app, data)) {
@@ -100,56 +51,19 @@ export async function loadDocument(app, data, prepared = prepareDocument(app, da
     if (app.textEdit?.shape) app._endTextEdit(false);
     app._clearAllShapes();
     app._clearAllComponents();
-    resetWireLabelCounter();
-    resetNetNameCounter();
+    app.document.load(data, prepared);
 
     // Unified project format (v2.0)
     const sch = data.schematic || {};
-    const shapes = sch.shapes;
-    const components = sch.components;
     const settings = sch.settings;
 
-    if (shapes && Array.isArray(shapes)) {
-        for (const { data: shapeData, shape } of prepared.shapes) {
-            const compId = shapeData.cid;
-            const fieldKey = shapeData.fk;
-
-            // Net field text is derived and not part of persisted schema.
-            if (fieldKey === 'net') {
-                continue;
-            }
-
-            if (shapeData.id) {
-                updateIdCounter(shapeData.id);
-            }
-
-            if (shape) {
-                if (shape.type === 'wire') bumpWireLabelCounter(shape.wireLabel);
-                if (shape.net) bumpNetNameCounter(shape.net);
-                // Preserve component field linkage for re-linking after components load
-                if (compId && fieldKey) {
-                    shape._pendingComponentId = compId;
-                    shape.fieldKey = fieldKey;
-                }
-                app.shapes.push(shape);
-                shape.render(app.viewport.scale);
-                app.viewport.addContent(shape.element);
-            }
-        }
+    for (const shape of app.shapes) {
+        shape.render(app.viewport.scale);
+        app.viewport.addContent(shape.element);
     }
 
-    if (components && Array.isArray(components)) {
-        for (const component of prepared.components) {
-            updateComponentIdCounter(component.id);
-            if (component) {
-                app.components.push(component);
-                const element = component.element;
-                app.viewport.addComponentContent(element);
-                
-                // Re-link field texts from loaded shapes
-                component.linkFieldTexts(app.shapes);
-            }
-        }
+    for (const component of app.components) {
+        app.viewport.addComponentContent(component.element);
     }
 
     // Re-link only derived Net text (wire names are handled as generic labels)
@@ -227,38 +141,7 @@ export async function loadDocument(app, data, prepared = prepareDocument(app, da
  * @returns {import('../../components/Component.js').Component|null} The created component, or `null` if definition not found.
  */
 export function createComponentFromData(app, data) {
-    const dn = data.dn;
-    const def_data = data.def;
-    let def = def_data ? structuredClone(def_data) : app.componentLibrary.getDefinition(dn);
-    if (def_data && (!def._source || def._source === 'Built-in')) def._source = 'Project';
-
-    if (def_data && !def.symbol && (def.graphics || def.pins)) {
-        def.symbol = {
-            width: def.width || 10, height: def.height || 10,
-            origin: def.origin || { x: 5, y: 5 }, graphics: def.graphics || [], pins: def.pins || [],
-        };
-    }
-
-    if (!def) {
-        console.warn('Component definition not found:', dn);
-        return null;
-    }
-
-    return new Component(def, {
-        id: data.id,
-        x: data.x,
-        y: data.y,
-        rotation: data.rot ?? 0,
-        mirror: data.mir ?? false,
-        reference: data.ref,
-        value: data.val,
-        packageId: data.pkg,
-        showReference: data.sr,
-        showValue: data.sv,
-        properties: data.props,
-        visible: data.v,
-        locked: data.lk,
-    });
+    return deserializeComponent(data, name => app.componentLibrary.getDefinition(name));
 }
 
 /**

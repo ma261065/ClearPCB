@@ -1,0 +1,166 @@
+import { Component, updateComponentIdCounter } from '../components/Component.js';
+import { BuiltInComponents } from '../components/BuiltInComponents.js';
+import { createShape, updateIdCounter, resetWireLabelCounter, resetNetNameCounter } from '../shapes/index.js';
+import { bumpWireLabelCounter, bumpNetNameCounter } from '../shapes/wire.js';
+import { validateEditableProject } from './project-format.js';
+import { compactProjectAliases } from './project-field-aliases.js';
+import { extractNetlist } from './netlist.js';
+
+const builtInDefinition = name => BuiltInComponents.find(definition => definition.name === name);
+
+/** Construct component data without creating its SVG. */
+export function deserializeComponent(data, getDefinition = builtInDefinition) {
+    const embedded = data.def;
+    const definition = embedded ? structuredClone(embedded) : getDefinition(data.dn);
+    if (!definition) {
+        console.warn('Component definition not found:', data.dn);
+        return null;
+    }
+    if (embedded && (!definition._source || definition._source === 'Built-in')) definition._source = 'Project';
+    if (embedded && !definition.symbol && (definition.graphics || definition.pins)) {
+        definition.symbol = {
+            width: definition.width || 10, height: definition.height || 10,
+            origin: definition.origin || { x: 5, y: 5 },
+            graphics: definition.graphics || [], pins: definition.pins || [],
+        };
+    }
+    return new Component(definition, {
+        id: data.id, x: data.x, y: data.y, rotation: data.rot ?? 0,
+        mirror: data.mir ?? false, reference: data.ref, value: data.val,
+        packageId: data.pkg, showReference: data.sr, showValue: data.sv,
+        properties: data.props, visible: data.v, locked: data.lk,
+    });
+}
+
+/** Shared data mutation for project commands and schematic property edits. */
+export function setComponentReference(component, reference) {
+    component.reference = reference;
+    if (component.refText) component.refText.text = reference;
+}
+
+/** Serialize existing entities; settings are supplied by the editor until their own migration. */
+export function serializeSchematicDocument({ shapes, components, settings = {} }) {
+    const serializedComponents = components.map(component => component.toJSON());
+    const serializedShapes = shapes
+        .filter(shape => !(shape.type === 'text' && shape.fieldKey === 'net' && shape.parentComponent?.type === 'net'))
+        .map(shape => shape.toJSON());
+    const defs = {};
+    for (const component of serializedComponents) {
+        if (component.def && component.dn) {
+            if (!defs[component.dn]) defs[component.dn] = component.def;
+            delete component.def;
+        }
+    }
+    const schematic = { settings, shapes: serializedShapes, components: serializedComponents };
+    if (Object.keys(defs).length) schematic.defs = defs;
+    return compactProjectAliases({
+        version: '1.0', type: 'clearpcb-project', created: new Date().toISOString(), schematic,
+    });
+}
+
+/**
+ * Project-owned schematic state. Existing entities retain their presentation
+ * methods during migration; none of this model's operations invoke them.
+ */
+export class SchematicDocument {
+    constructor() {
+        /** @type {ReturnType<typeof createShape>[]} */
+        this.shapes = [];
+        /** @type {Component[]} */
+        this.components = [];
+        this.settings = {};
+    }
+
+    /** Validate and construct a replacement without changing the live collections. */
+    prepare(data, getDefinition = builtInDefinition) {
+        data = validateEditableProject(data);
+        const schematic = data.schematic;
+        const shapes = schematic.shapes.filter(item => item.fk !== 'net')
+            .map(item => ({ data: item, shape: createShape(item) }));
+        const components = schematic.components.map(item => {
+            const component = deserializeComponent({ ...item, def: schematic.defs?.[item.dn] }, getDefinition);
+            if (!component) throw new Error(`Missing component definition: ${item.dn}`);
+            return component;
+        });
+        return { data, shapes, components };
+    }
+
+    /** Adopt prepared entities without cloning them or creating presentation state. */
+    load(data, prepared = this.prepare(data)) {
+        resetWireLabelCounter();
+        resetNetNameCounter();
+        this.shapes = prepared.shapes.map(({ data: item, shape }) => {
+            if (item.id) updateIdCounter(item.id);
+            if (shape.type === 'wire') bumpWireLabelCounter(shape.wireLabel);
+            if (shape.net) bumpNetNameCounter(shape.net);
+            if (item.cid && item.fk) {
+                shape._pendingComponentId = item.cid;
+                shape.fieldKey = item.fk;
+            }
+            return shape;
+        });
+        this.components = prepared.components;
+        this.settings = structuredClone(prepared.data.schematic.settings || {});
+        for (const component of this.components) {
+            updateComponentIdCounter(component.id);
+            component.linkFieldTexts(this.shapes);
+        }
+        const targets = new Map([...this.shapes, ...this.components].map(item => [item.id, item]));
+        for (const shape of this.shapes) {
+            if (shape.type !== 'text' || shape.fieldKey !== 'label' || !shape._pendingComponentId) continue;
+            const target = targets.get(shape._pendingComponentId);
+            if (!target) continue;
+            shape.parentComponent = target;
+            if (!(target.attachedLabels instanceof Set)) target.attachedLabels = new Set();
+            target.attachedLabels.add(shape);
+        }
+    }
+
+    clear() {
+        this.shapes = [];
+        this.components = [];
+        this.settings = {};
+    }
+
+    serialize() {
+        return serializeSchematicDocument(this);
+    }
+
+    /** @returns {import('./ProjectDocument.js').ComponentInfo|null} */
+    getComponentInfo(id) {
+        const component = this.components.find(item => item.id === id);
+        if (!component) return null;
+        const shapes = component.definition?.footprintShapes;
+        return { id: component.id, reference: component.reference, locked: !!component.locked,
+            footprintShapes: Array.isArray(shapes) ? shapes.filter(shape => typeof shape === 'string') : [] };
+    }
+
+    validateComponentReference(id, reference) {
+        const component = this.components.find(item => item.id === id);
+        if (!component) return { message: 'Component is no longer available.', title: 'Invalid Reference' };
+        if (component.locked) return { message: 'Component is locked.', title: 'Locked Component' };
+        reference = reference.trim();
+        if (!reference) return { message: 'Reference cannot be blank.', title: 'Invalid Reference' };
+        if (this.components.some(item => item.id !== id && item.reference.toUpperCase() === reference.toUpperCase())) {
+            return { message: `Reference "${reference}" is already used by another component.`, title: 'Duplicate Reference' };
+        }
+        return null;
+    }
+
+    createReferenceRenameCommand(id, reference) {
+        const issue = this.validateComponentReference(id, reference);
+        if (issue) throw new Error(issue.message);
+        const original = this.getComponentInfo(id).reference;
+        const apply = value => {
+            const component = this.components.find(item => item.id === id);
+            if (!component) throw new Error('Component is no longer available.');
+            setComponentReference(component, value);
+        };
+        reference = reference.trim();
+        return { execute: () => apply(reference), undo: () => apply(original) };
+    }
+
+    getNetlist() {
+        return extractNetlist(this);
+    }
+}

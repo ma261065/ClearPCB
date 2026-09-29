@@ -80,18 +80,16 @@ const component = { id: 'component-1', reference: 'R1', invalidate() {},
     definition: { name: 'Part' }, symbol: { pins: [{ number: '1' }] },
     refText: { text: 'R1', invalidate() {} } };
 const alerts = [];
-const schematic = { components: [component, { id: 'component-2', reference: 'R2' }], shapes: [],
-    renderShapes() {},
-    getComponentInfo: SchematicApp.prototype.getComponentInfo,
-    validateComponentReference: SchematicApp.prototype.validateComponentReference,
-    createReferenceRenameCommand: SchematicApp.prototype.createReferenceRenameCommand,
-    getNetlist: SchematicApp.prototype.getNetlist,
-};
 const project = new ProjectDocument();
 assert.equal(project.getComponentInfo('missing'), null);
 assert.deepEqual(project.getNetlist(), []);
 assert.match(project.validateComponentReference('missing', 'R3').message, /available/);
 assert.throws(() => project.createReferenceRenameCommand('missing', 'R3'), /available/);
+const schematic = Object.create(SchematicApp.prototype);
+schematic.document = project.schematicDocument;
+schematic.components = [component, { id: 'component-2', reference: 'R2' }];
+let schematicRenders = 0;
+schematic.renderShapes = () => { schematicRenders++; };
 project.registerView('schematic', schematic);
 const componentApi = {
     getComponentInfo: id => project.getComponentInfo(id),
@@ -437,5 +435,41 @@ assert.equal(component.reference, 'R7', 'Creating a command does not execute or 
 assert.deepEqual(Object.keys(rename).sort(), ['execute', 'undo'], 'Command exposes no editor/model implementation');
 rename.execute();
 assert.equal(component.reference, 'R3');
+const rendersAfterRename = schematicRenders;
 rename.undo();
 assert.equal(component.reference, 'R7');
+assert.equal(schematicRenders, rendersAfterRename + 1, 'Project undo refreshes the registered editor');
+assert.equal(schematic.components, project.schematicDocument.components, 'Editor aliases authoritative model state');
+
+const { loadDocument } = await import('../src/schematic/modules/files.js');
+const { SchematicDocument } = await import('../src/core/SchematicDocument.js');
+const loadedModel = new SchematicDocument();
+const loadInput = { type: 'clearpcb-project', version: '1.0', schematic: {
+    components: [{ type: 'component', id: 'comp_800', dn: 'Resistor', x: 0, y: 0, ref: 'R8', val: '10k' }],
+    shapes: [{ type: 'text', id: 'shape_800', x: 0, y: -2, t: 'R8', cid: 'comp_800', fk: 'reference' }],
+} };
+const prepared = loadedModel.prepare(loadInput);
+const loadedField = prepared.shapes[0].shape;
+const loadedComponent = prepared.components[0];
+const attached = [];
+loadedField.render = () => { loadedField.element = { field: true }; };
+loadedComponent.element = { component: true };
+const loadingEditor = Object.create(SchematicApp.prototype);
+Object.assign(loadingEditor, {
+    document: loadedModel, selection: { clearSelection() {} },
+    viewport: { scale: 1, addContent: element => attached.push(element),
+        addComponentContent: element => attached.push(element) },
+    _clearAllShapes() { this.shapes = []; },
+    _clearAllComponents() { this.components = []; },
+    _updateSelectableItems() {}, renderShapes() {},
+});
+await loadDocument(loadingEditor, loadInput, prepared);
+assert.equal(loadingEditor.components[0], loadedComponent, 'Editor load adopts prepared model instances');
+assert.equal(loadingEditor.shapes[0], loadedField);
+assert.equal(loadedComponent.refText, loadedField);
+assert.deepEqual(attached, [loadedField.element, loadedComponent.element], 'Editor alone attaches loaded SVG');
+loadingEditor.shapes = [];
+loadingEditor.components = [];
+assert.deepEqual(loadedModel.shapes, [], 'Editor clearing replaces the authoritative collections');
+assert.deepEqual(loadedModel.components, []);
+console.log('PASS: editor load and clear use the project-owned collections without copying entities');

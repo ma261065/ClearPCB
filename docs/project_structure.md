@@ -36,7 +36,7 @@ clearpcb/
 │   ├── pcb/
 │   │   └── modules/            # PCB-only interaction + I/O modules
 │   │                           # (autorouter family, controls, dsn, footprint,
-│   │                           # gerber, layers, netlist, ratsnest, track-*)
+│   │                           # gerber, layers, ratsnest, track-*)
 │   └── ui/
 │       ├── AppBootstrap.js     # Shared startup + mode switching
 │       ├── SchematicApp.js     # Schematic editor facade
@@ -110,11 +110,26 @@ PCB reference editing and footprint inspection use the project's narrow componen
 interface: `getComponentInfo()`, `validateComponentReference()`,
 `createReferenceRenameCommand()` and `getNetlist()`. Queries return detached data;
 rename commands expose only `execute()`/`undo()`, not an editor or live component.
-The schematic adapter retains model mutation and field-text rendering, while PCB
-owns its validation dialogs, preview, history entry and derived-display updates.
-Pure component/netlist queries live in `core/netlist.js` for shared use.
-This separates those consumers from the editor without moving the whole model;
-the synchronization subscription still depends on the registered schematic.
+`core/SchematicDocument.js`, owned by `ProjectDocument.schematicDocument`, now
+owns the schematic collections, component lookup/validation/rename, connectivity
+queries and data-only loading/serialization. Editor `shapes`/`components`
+accessors alias those collections, including replacements during load and clear;
+there is no second entity store. Schematic property commands reuse the same
+reference/field-text mutation helper.
+
+Project rename commands perform the model operation and then notify the
+schematic adapter to invalidate/render. PCB retains its dialogs, preview, history
+entry and derived-display updates. The model can load, rename/undo, derive
+connectivity and serialize without either editor or a DOM. Pure connectivity
+queries remain in `core/netlist.js`.
+
+This is an intermediate migration: existing entities still contain rendering
+methods/state, general schematic commands still mix data and presentation, and
+PCB geometry is still editor-owned. SVG preparation/attachment, derived Net text,
+label layout and current viewport settings remain editor responsibilities.
+Headless serialization preserves loaded settings; editor serialization supplies
+current viewport settings. The PCB synchronization subscription still depends on
+the registered schematic.
 
 PDF, Gerber, BOM and pick-and-place naming share
 `projectBaseName()` from `pcb/modules/pcb-export.js`, using the owning project's

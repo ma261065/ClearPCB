@@ -21,9 +21,9 @@
  */
 
 /**
- * Extract a netlist from the schematic app's current state.
+ * Extract a netlist from the schematic document's current state.
  *
- * @param {object} schematicApp - The project's registered schematic view.
+ * @param {object} schematicApp - Schematic state exposing shapes and components.
  * @returns {NetlistEntry[]} Array of nets, each with a name and pin list
  */
 export function extractNetlist(schematicApp) {
@@ -85,7 +85,7 @@ export function extractNetlist(schematicApp) {
 /**
  * Build a component summary from the schematic for footprint placement.
  *
- * @param {object} schematicApp - The SchematicApp instance
+ * @param {object} schematicApp - Schematic state exposing shapes and components.
  * @returns {Array<{id: string, reference: string, value: string, footprint: string, pins: Array<{number: string, name: string}>}>}
  */
 export function extractComponents(schematicApp) {

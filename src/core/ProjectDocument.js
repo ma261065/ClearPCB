@@ -1,6 +1,7 @@
 import { FileManager } from './FileManager.js';
 import { validateEditableProject } from './project-format.js';
 import { compactProjectAliases } from './project-field-aliases.js';
+import { SchematicDocument } from './SchematicDocument.js';
 
 /** @typedef {{id: string, reference: string, locked: boolean, footprintShapes: string[]}} ComponentInfo */
 
@@ -11,9 +12,9 @@ import { compactProjectAliases } from './project-field-aliases.js';
  * Historically the schematic editor owned the file (it was built first),
  * which forced the PCB editor to reach sideways into the schematic for
  * every File operation. `ProjectDocument` makes ownership explicit and
- * symmetric: it holds the single {@link FileManager} and coordinates a
- * set of registered *views* (the schematic and PCB editors), each of which
- * contributes one section of the document.
+ * symmetric: it holds the single {@link FileManager}, the schematic document
+ * model, and registered *views*. The PCB section is still editor-owned during
+ * the incremental model migration.
  *
  * Views implement a small duck-typed interface:
  *   - `serializeSection()` → the view's slice of the document (or null).
@@ -23,6 +24,7 @@ import { compactProjectAliases } from './project-field-aliases.js';
  *   - `restoreSectionDirty(dirty)` → restore section dirtiness after a failed load.
  *   - `onDocumentReplaced(reason)` → local UI reset after a successful file action.
  *   - `onProjectChanged()` → UI host refreshes aggregate project status.
+ *   - `onComponentReferenceChanged(id)` → schematic refreshes reference presentation.
  *
  * The schematic view additionally acts as the *UI host* (it owns the
  * canvas-level prompts/toasts/title), and injects the file-lifecycle
@@ -33,6 +35,7 @@ export class ProjectDocument {
     constructor() {
         /** The single source of truth for the file on disk. */
         this.fileManager = new FileManager();
+        this.schematicDocument = new SchematicDocument();
         /** @type {Map<string, any>} Registered editor views by name. */
         this.views = new Map();
         /** View that owns canvas-level UI (prompts, toasts, title). */
@@ -71,7 +74,7 @@ export class ProjectDocument {
      * @returns {ComponentInfo|null} Detached component metadata.
      */
     getComponentInfo(id) {
-        return this.schematic?.getComponentInfo(id) || null;
+        return this.schematicDocument.getComponentInfo(id);
     }
 
     /**
@@ -80,9 +83,7 @@ export class ProjectDocument {
      * @returns {{message: string, title: string}|null}
      */
     validateComponentReference(id, reference) {
-        return this.schematic
-            ? this.schematic.validateComponentReference(id, reference)
-            : { message: 'Component is no longer available.', title: 'Invalid Reference' };
+        return this.schematicDocument.validateComponentReference(id, reference);
     }
 
     /**
@@ -92,13 +93,18 @@ export class ProjectDocument {
      * @returns {{execute(): void, undo(): void}}
      */
     createReferenceRenameCommand(id, reference) {
-        if (!this.schematic) throw new Error('Component is no longer available.');
-        return this.schematic.createReferenceRenameCommand(id, reference);
+        const command = this.schematicDocument.createReferenceRenameCommand(id, reference);
+        const apply = redo => {
+            if (redo) command.execute();
+            else command.undo();
+            this.schematic?.onComponentReferenceChanged?.(id);
+        };
+        return { execute: () => apply(true), undo: () => apply(false) };
     }
 
     /** @returns {import('./netlist.js').NetlistEntry[]} */
     getNetlist() {
-        return this.schematic?.getNetlist() || [];
+        return this.schematicDocument.getNetlist();
     }
 
     /**
@@ -144,17 +150,14 @@ export class ProjectDocument {
 
     /**
      * Assemble the combined on-disk document from every registered view.
-     * The schematic view produces the document envelope (version/type/
-     * settings/shapes/components); the PCB view contributes `doc.pcb`.
+     * The schematic adapter supplies current viewport settings to the model
+     * serializer; without a view, use the model's loaded settings.
+     * The PCB view contributes `doc.pcb`.
      * Neither view reaches into the other — the project coordinates them.
      * @returns {object} The serialized project document.
      */
     serialize() {
-        const doc = this.schematic?.serializeSection?.() || {
-            version: '1.0',
-            type: 'clearpcb-project',
-            created: new Date().toISOString(),
-        };
+        const doc = this.schematic?.serializeSection?.() || this.schematicDocument.serialize();
         const pcbSection = this.pcb?.serializeSection?.();
         if (pcbSection) doc.pcb = pcbSection;
         else delete doc.pcb;
@@ -176,14 +179,18 @@ export class ProjectDocument {
             const previous = structuredClone(this.serialize());
             const dirty = this.fileManager.isDirty;
             const pcbDirty = this.pcb?.isSectionDirty?.();
-            const prepared = await this.schematic?.prepareSection?.(data);
+            const prepared = this.schematic
+                ? await this.schematic.prepareSection?.(data)
+                : this.schematicDocument.prepare(data);
             const pcbPrepared = await this.pcb?.prepareSection?.(data.pcb || null);
             this.fileManager.touch();
             try {
                 await this.schematic?.loadSection?.(data, prepared);
+                if (!this.schematic) this.schematicDocument.load(data, prepared);
                 await this.pcb?.loadSection?.(data.pcb || null, pcbPrepared);
             } catch (error) {
                 await this.schematic?.loadSection?.(previous);
+                if (!this.schematic) this.schematicDocument.load(previous);
                 await this.pcb?.loadSection?.(previous.pcb || null);
                 this.fileManager.setDirty(dirty);
                 if (pcbDirty) this.pcb?.restoreSectionDirty?.(true);
@@ -203,6 +210,7 @@ export class ProjectDocument {
         this.fileManager.loading = true;
         try {
             await this.schematic?.clearSection();
+            if (!this.schematic) this.schematicDocument.clear();
             await this.pcb?.clearSection();
             this.fileManager.newDocument(this.serialize());
         } finally {
