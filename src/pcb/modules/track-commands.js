@@ -1,7 +1,7 @@
 /**
- * Editor adapters for core Track/Via commands, plus placement/outline commands.
+ * Editor adapters for PCB model commands, plus remaining placement-pose commands.
  *
- * Render/SVG updates and derived refreshes stay here; authored Track/Via
+ * Render/SVG updates and derived refreshes stay here; separated authored
  * changes and undo snapshots belong to the neutral core commands.
  */
 
@@ -16,6 +16,13 @@ import { clearTrackSelection, refreshTrackSelectionHalo } from './track-select.j
 import { getPcbSelection, togglePcbSelection } from './selection-registry.js';
 import { batchDerivedUpdates, deferDerivedUpdate } from '../../core/DerivedUpdates.js';
 import { SetBoardOutlineCommand as ModelSetBoardOutlineCommand } from '../../core/pcb-outline-commands.js';
+import {
+    SetPlacementLockedCommand as ModelSetPlacementLockedCommand,
+    SetPlacementRefVisibleCommand as ModelSetPlacementRefVisibleCommand,
+    MoveRefTextCommand as ModelMoveRefTextCommand,
+    RotateRefTextCommand as ModelRotateRefTextCommand,
+    SetRefStyleCommand as ModelSetRefStyleCommand,
+} from '../../core/pcb-placement-commands.js';
 import {
     AddTrackCommand as ModelAddTrackCommand,
     RemoveTrackCommand as ModelRemoveTrackCommand,
@@ -411,18 +418,16 @@ export class RotatePlacementCommand {
 }
 
 /** Toggle whether a PCB placement can be transformed or have its reference edited. */
-export class SetPlacementLockedCommand {
+export class SetPlacementLockedCommand extends ModelSetPlacementLockedCommand {
     constructor(app, compId, locked) {
+        super(app.placementState, compId, locked, app.placements?.get(compId));
         this.app = app;
-        this.compId = compId;
-        this.before = !!app.placements?.get(compId)?.locked;
-        this.after = !!locked;
     }
     _apply(locked) {
+        const saved = super._apply(locked);
         const pl = this.app.placements?.get(this.compId);
-        if (!pl) return;
-        pl.locked = locked;
-        this.app._recordPlacementOverride?.(this.compId);
+        if (pl) pl.locked = saved.locked;
+        this.app._markDirty?.();
         this.app._refreshPcbSelectionHighlights?.();
         if (getPcbSelection(this.app, 'component').includes(this.compId)) {
             if (this.app.viewport?.svg) {
@@ -430,9 +435,8 @@ export class SetPlacementLockedCommand {
             }
             this.app._showComponentProperties?.(this.compId);
         }
+        return saved;
     }
-    execute() { this._apply(this.after); }
-    undo() { this._apply(this.before); }
 }
 
 /**
@@ -489,22 +493,18 @@ export function applyPlacementRefVisible(app, compId, visible) {
 }
 
 /** Toggle a placement's reference-designator visibility through history. */
-export class SetPlacementRefVisibleCommand {
+export class SetPlacementRefVisibleCommand extends ModelSetPlacementRefVisibleCommand {
     constructor(app, compId, visible) {
+        super(app.placementState, compId, visible, app.placements?.get(compId));
         this.app = app;
-        this.compId = compId;
-        const pl = app.placements?.get(compId);
-        this.before = pl?.refVisible !== false;
-        this.after = visible !== false;
     }
     _apply(v) {
-        if (!this.app.placements?.get(this.compId)) return;
-        applyPlacementRefVisible(this.app, this.compId, v);
-        this.app._recordPlacementOverride?.(this.compId);
+        const saved = super._apply(v);
+        applyPlacementRefVisible(this.app, this.compId, saved.refVisible);
+        this.app._markDirty?.();
         this.app._board3d?.refresh?.();
+        return saved;
     }
-    execute() { this._apply(this.after); }
-    undo() { this._apply(this.before); }
 }
 
 /**
@@ -513,76 +513,67 @@ export class SetPlacementRefVisibleCommand {
  * — the same frame as the pad offsets — so it survives rotation, mirroring and
  * side changes of the parent placement.
  */
-export class MoveRefTextCommand {
+export class MoveRefTextCommand extends ModelMoveRefTextCommand {
     constructor(app, compId, fromDx, fromDy, toDx, toDy) {
+        super(app.placementState, compId, fromDx, fromDy, toDx, toDy, app.placements?.get(compId));
         this.app = app;
-        this.compId = compId;
-        this.from = { dx: fromDx, dy: fromDy };
-        this.to = { dx: toDx, dy: toDy };
     }
     _apply(s) {
-        const pl = this.app.placements.get(this.compId);
-        if (!pl) return;
-        pl.refDx = s.dx;
-        pl.refDy = s.dy;
+        const saved = super._apply(s);
+        const pl = this.app.placements?.get(this.compId);
+        if (pl) { pl.refDx = saved.refDx; pl.refDy = saved.refDy; }
         applyPlacementPose(this.app, this.compId);
-        this.app._recordPlacementOverride?.(this.compId);
+        this.app._markDirty?.();
         this.app._drawRefOverlay?.(this.compId, false);
         this.app._board3d?.refresh?.();
+        return saved;
     }
-    execute() { this._apply(this.to); }
-    undo() { this._apply(this.from); }
 }
 
 /**
  * Rotate a placement's reference designator about its own centre to an
  * absolute angle (degrees), independent of the footprint's rotation.
  */
-export class RotateRefTextCommand {
+export class RotateRefTextCommand extends ModelRotateRefTextCommand {
     constructor(app, compId, fromDeg, toDeg) {
+        super(app.placementState, compId, fromDeg, toDeg, app.placements?.get(compId));
         this.app = app;
-        this.compId = compId;
-        this.from = ((fromDeg % 360) + 360) % 360;
-        this.to = ((toDeg % 360) + 360) % 360;
     }
     _apply(deg) {
-        const pl = this.app.placements.get(this.compId);
-        if (!pl) return;
-        pl.refRot = deg;
+        const saved = super._apply(deg);
+        const pl = this.app.placements?.get(this.compId);
+        if (pl) pl.refRot = saved.refRot;
         applyPlacementPose(this.app, this.compId);
-        this.app._recordPlacementOverride?.(this.compId);
+        this.app._markDirty?.();
         this.app._drawRefOverlay?.(this.compId, false);
         this.app._board3d?.refresh?.();
+        return saved;
     }
-    execute() { this._apply(this.to); }
-    undo() { this._apply(this.from); }
 }
 
 /**
- * Change a reference designator's silk text size and/or line width. The glyph
- * geometry is regenerated by the app (which also re-applies the placement
- * pose), then the override is persisted and any open 3D view refreshed.
+ * Project canonical reference styling before regenerating glyph geometry
+ * and refreshing any open 3D view.
  */
-export class SetRefStyleCommand {
+export class SetRefStyleCommand extends ModelSetRefStyleCommand {
     constructor(app, compId, before, after) {
+        super(app.placementState, compId, before, after, app.placements?.get(compId));
         this.app = app;
-        this.compId = compId;
-        this.before = { ...before };
-        this.after = { ...after };
     }
     _apply(state) {
-        const pl = this.app.placements.get(this.compId);
-        if (!pl) return;
-        if (state.refSize !== undefined) pl.refSize = state.refSize;
-        if (state.refStrokeWidth !== undefined) pl.refStrokeWidth = state.refStrokeWidth;
-        if (state.refRot !== undefined) pl.refRot = state.refRot;
+        const saved = super._apply(state);
+        const pl = this.app.placements?.get(this.compId);
+        if (pl) {
+            if (state.refSize !== undefined) pl.refSize = saved.refSize;
+            if (state.refStrokeWidth !== undefined) pl.refStrokeWidth = saved.refStrokeWidth;
+            if (state.refRot !== undefined) pl.refRot = saved.refRot;
+        }
         this.app._rerenderRef?.(this.compId);
-        this.app._recordPlacementOverride?.(this.compId);
+        this.app._markDirty?.();
         this.app._drawRefOverlay?.(this.compId, false);
         this.app._board3d?.refresh?.();
+        return saved;
     }
-    execute() { this._apply(this.after); }
-    undo() { this._apply(this.before); }
 }
 const FP_LAYER_FLIP = {
     'top-copper': 'bottom-copper', 'bottom-copper': 'top-copper',

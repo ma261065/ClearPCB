@@ -130,3 +130,83 @@ assert.equal(owner.pcbDocument.placementState.overrides.get('part').refVisible, 
 assert.equal(editor.placements.get('part'), moved, 'Undo/redo preserves the generated placement identity');
 assert.equal(dirtyNotifications, 3, 'The editor still marks each execute/undo/redo dirty');
 console.log('PASS placement commands persist into project state through execute/undo/redo');
+
+{
+    const { SetPlacementLockedCommand, SetPlacementRefVisibleCommand, MoveRefTextCommand,
+        RotateRefTextCommand, SetRefStyleCommand, applyPlacementPose } = await import('../src/pcb/modules/track-commands.js');
+    const { setPcbSelection } = await import('../src/pcb/modules/selection-registry.js');
+    const stages = [];
+    const refAttributes = new Map([['data-mx-center', '0'], ['data-ref-cy', '0']]);
+    const ref = {
+        style: {},
+        hasAttribute: name => name === 'data-fp-ref',
+        getAttribute: name => refAttributes.get(name),
+        setAttribute(name, value) { refAttributes.set(name, value); },
+        removeAttribute(name) { refAttributes.delete(name); },
+    };
+    moved.elements = [{
+        setAttribute() { stages.push('pose'); },
+        querySelector() { return ref; },
+        querySelectorAll() { return [ref]; },
+    }];
+    editor.viewport = { svg: { style: {} } };
+    editor._getLayerGroup = () => null;
+    editor._recordPlacementOverride = () => assert.fail('Metadata adapters must not persist generated artwork back into the model');
+    editor._markDirty = () => { dirtyNotifications++; stages.push('dirty'); };
+    editor._refreshPcbSelectionHighlights = () => stages.push('highlights');
+    editor._showComponentProperties = () => stages.push('properties');
+    editor._drawRefOverlay = () => stages.push('overlay');
+    editor._board3d = { refresh() { stages.push('3d'); } };
+    editor._rerenderRef = id => {
+        stages.push('glyphs');
+        const placement = editor.placements.get(id);
+        if (placement) {
+            assert.equal(owner.pcbDocument.placementState.overrides.get(id).refSize, placement.refSize,
+                'Canonical style is committed before glyph rendering');
+        }
+        applyPlacementPose(editor, id);
+    };
+    setPcbSelection(editor, [{ kind: 'component', object: 'part' }]);
+    const entry = () => owner.pcbDocument.placementState.overrides.get('part');
+    const commands = [
+        [new SetPlacementLockedCommand(editor, 'part', true), ['locked'], ['dirty', 'highlights', 'properties']],
+        [new SetPlacementRefVisibleCommand(editor, 'part', true), ['refVisible'], ['dirty', '3d']],
+        [new MoveRefTextCommand(editor, 'part', 3, -2, 5.123456, -6.234567),
+            ['refDx', 'refDy'], ['pose', 'dirty', 'overlay', '3d']],
+        [new RotateRefTextCommand(editor, 'part', 90, 450.123456),
+            ['refRot'], ['pose', 'dirty', 'overlay', '3d']],
+        [new SetRefStyleCommand(editor, 'part', { refSize: 0.9, refStrokeWidth: 0.15 },
+            { refSize: 2.345678, refStrokeWidth: 0.234567 }),
+            ['refSize', 'refStrokeWidth'], ['glyphs', 'pose', 'dirty', 'overlay', '3d']],
+    ];
+    for (const [command, fields, expectedStages] of commands) {
+        for (const action of ['execute', 'undo', 'execute']) {
+            stages.length = 0;
+            const count = dirtyNotifications;
+            command[action]();
+            assert.equal(dirtyNotifications, count + 1);
+            assert.deepEqual(stages, expectedStages);
+            for (const key of fields) assert.equal(moved[key], entry()[key], `${key}: projection reflects canonical metadata`);
+            assert.equal(editor.placements.get('part'), moved);
+        }
+    }
+    assert.equal(editor.viewport.svg.style.cursor, 'default');
+    assert.equal(ref.style.display, '');
+    assert.match(refAttributes.get('transform'), /translate\(5.123456, -6.234567\)/);
+    assert.match(refAttributes.get('transform'), /rotate\(/);
+    const pending = new SetPlacementLockedCommand(editor, 'part', false);
+    const replacement = { ...moved, x: 999 };
+    editor.placements.set('part', replacement);
+    pending.execute();
+    assert.equal(replacement.locked, false, 'Commands resolve the current generated placement, not a stale object');
+    assert.equal(entry().x, 10, 'Metadata edits do not overwrite canonical coordinates with stale projected values');
+    editor.placements.delete('part');
+    pending.undo();
+    assert.equal(entry().locked, true, 'Authored undo still works when the placement is not currently rendered');
+    const hiddenReference = new SetPlacementRefVisibleCommand(editor, 'part', false);
+    hiddenReference.execute();
+    assert.equal(entry().refVisible, false);
+    hiddenReference.undo();
+    assert.equal(entry().refVisible, true, 'Reference metadata can also be restored without a generated placement');
+}
+console.log('PASS canonical placement metadata projection, dirty/refresh ordering and reference transforms');

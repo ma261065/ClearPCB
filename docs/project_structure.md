@@ -183,7 +183,7 @@ resolve the current node by ID on every operation, so they survive graph undo
 recreating node objects. Missing targets throw explicitly rather than recording
 a successful no-op. Geometry edits invalidate existing entity bounds without
 rendering; connectivity, clearance, selection and SVG work remain in the
-`pcb/modules/track-commands.js` adapters. Placement commands and
+`pcb/modules/track-commands.js` adapters. Physical placement commands and
 entity-level render/derived state remain open boundaries.
 
 Copper-fill add/remove/modify operations live in `core/pcb-fill-commands.js`.
@@ -362,8 +362,24 @@ Saved PCB placement/reference settings live in
 side, lock and reference-style fields, never generated pads/SVG/caches.
 Loading and clearing preserve map identity; serialization retains the existing
 four-decimal precision and default-field omission. These operations work without
-an editor or DOM. Placement commands still own their existing undo/redo and
-presentation updates, and notify the editor's dirty hook after recording.
+an editor or DOM.
+
+`core/pcb-placement-commands.js` owns lock and reference visibility, offset,
+rotation and style edits directly against `PcbPlacementState`. Commands patch
+the latest canonical record without replacing unrelated pose fields. An explicit
+authored baseline can be supplied for an automatic placement with no saved
+override: `capturePlacementOverride()` detaches only persisted fields, and the
+model is not changed until execution. First-edit undo retains that baseline
+override, matching the existing editor's recording behavior. Missing placements
+without either a saved record or an explicit baseline fail immediately.
+
+The existing editor command names remain adapters. They project only edited
+fields into the current generated placement, then retain transform/glyph,
+selection, overlay and 3D updates and notify the dirty hook. They no longer
+re-record the whole generated placement to persist metadata edits. Authored
+undo/redo works without a currently rendered placement. Physical movement,
+rotation, flipping and side-change commands remain editor-coupled because they
+also update generated pad geometry and bonded track nodes.
 
 The live `placements` map and automatic layout slots remain editor-owned:
 they contain generated footprint geometry, presentation caches and temporary

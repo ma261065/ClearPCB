@@ -68,6 +68,7 @@ function appFor(via) {
     const crosshairs = [];
     return {
         pcbDocument,
+        placementState: pcbDocument.placementState,
         tracks: pcbDocument.tracks,
         vias: pcbDocument.vias,
         placements: new Map(),
@@ -97,6 +98,7 @@ function trackAppFor(track, previousDeferral = false) {
     let clearanceRefreshes = 0;
     return {
         pcbDocument,
+        placementState: pcbDocument.placementState,
         tracks: pcbDocument.tracks,
         vias: pcbDocument.vias,
         placements: new Map(),

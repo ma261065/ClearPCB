@@ -8,6 +8,24 @@ import { REF_DEFAULT_SIZE, REF_DEFAULT_STROKE } from '../pcb/modules/reference-t
 
 const round4 = value => Number.isFinite(value) ? Math.round(value * 10000) / 10000 : value;
 
+/** @param {Partial<PlacementOverride> & {x:number, y:number}} placement */
+export function capturePlacementOverride(placement) {
+    return {
+        x: placement.x,
+        y: placement.y,
+        rotation: placement.rotation || 0,
+        locked: !!placement.locked,
+        mirror: !!placement.mirror,
+        side: placement.side === 'bottom' ? 'bottom' : 'top',
+        refVisible: placement.refVisible !== false,
+        refDx: placement.refDx || 0,
+        refDy: placement.refDy || 0,
+        refRot: ((placement.refRot || 0) % 360 + 360) % 360,
+        refSize: placement.refSize || REF_DEFAULT_SIZE,
+        refStrokeWidth: placement.refStrokeWidth || REF_DEFAULT_STROKE,
+    };
+}
+
 /** Saved footprint poses and reference settings, independent of generated artwork. */
 export class PcbPlacementState {
     constructor() {
@@ -21,20 +39,9 @@ export class PcbPlacementState {
      * @param {Partial<PlacementOverride> & {x:number, y:number}} placement
      */
     record(id, placement) {
-        this.overrides.set(id, {
-            x: placement.x,
-            y: placement.y,
-            rotation: placement.rotation || 0,
-            locked: !!placement.locked,
-            mirror: !!placement.mirror,
-            side: placement.side === 'bottom' ? 'bottom' : 'top',
-            refVisible: placement.refVisible !== false,
-            refDx: placement.refDx || 0,
-            refDy: placement.refDy || 0,
-            refRot: ((placement.refRot || 0) % 360 + 360) % 360,
-            refSize: placement.refSize || REF_DEFAULT_SIZE,
-            refStrokeWidth: placement.refStrokeWidth || REF_DEFAULT_STROKE,
-        });
+        const snapshot = capturePlacementOverride(placement);
+        this.overrides.set(id, snapshot);
+        return snapshot;
     }
 
     /** Restore saved values in place so editor aliases remain valid. */
