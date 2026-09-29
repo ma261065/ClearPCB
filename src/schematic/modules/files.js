@@ -406,6 +406,7 @@ export async function newFile(app) {
 
     app._updateTitle();
     app.invalidate?.();
+    app._showDocumentHome?.();
     console.log('New document created');
 }
 
@@ -482,6 +483,7 @@ export async function openFile(app) {
             app._fitToContent?.();
             app._updateTitle();
             app.fileManager.clearAutoSave();
+            app._showDocumentHome?.();
             console.log('Opened:', result.fileName);
         } else if (result.error) {
             app._alert('Failed to open: ' + result.error, { title: 'Open Failed' });
@@ -515,6 +517,7 @@ export async function openRecentFile(app, name) {
             app._fitToContent?.();
             app._updateTitle();
             app.fileManager.clearAutoSave();
+            app._showDocumentHome?.();
             console.log('Opened recent:', result.fileName);
         } else if (result.error) {
             app._alert('Failed to open: ' + result.error, { title: 'Open Failed' });
@@ -557,6 +560,7 @@ export async function importEasyEDA(app) {
         app.fileManager.setDirty(true);
         app._updateTitle();
         app.fileManager.clearAutoSave();
+        app._showDocumentHome?.();
         console.log('EasyEDA import complete');
     } catch (err) {
         app._alert('Import failed: ' + err.message, { title: 'Import Failed' });

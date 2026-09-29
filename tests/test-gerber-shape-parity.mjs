@@ -32,40 +32,69 @@ function circularStrokesIn(file) {
 }
 
 for (const [layer, file] of [['top-copper', 'board.gtl'], ['bottom-copper', 'board.gbl'],
-    ['top-silk', 'board.gto'], ['bottom-silk', 'board.gbo'], ['top-mask', 'board.gts']]) {
-    for (const kind of layer.endsWith('copper') ? ['track', 'line', 'variable-line'] : ['line', 'variable-line']) {
+    ['top-silk', 'board.gto'], ['bottom-silk', 'board.gbo'], ['top-mask', 'board.gts'], ['bottom-mask', 'board.gbs']]) {
+    for (const kind of layer.endsWith('copper') ? ['track', 'line', 'variable-line', 'mixed-line'] : ['line', 'variable-line', 'mixed-line']) {
         const points = [{ x: 10, y: -10 }, { x: 30, y: -10 }, { x: 30, y: -30 }];
         const shape = { kind: 'line', layer, points, cornerRadius: 8, lineWidth: 0.4, filled: false };
-        if (kind === 'variable-line') Object.assign(shape, { lineWidth: 0.2, segmentWidths: { 0: 0.4, 1: 0.4 } });
+        const variable = kind === 'variable-line' || kind === 'mixed-line';
+        const outgoingWidth = kind === 'mixed-line' ? 0.6 : 0.4;
+        if (variable) Object.assign(shape, { lineWidth: 0.2, segmentWidths: { 0: 0.4, 1: outgoingWidth } });
         const track = new Track({ points, layer, cornerRadius: 8, width: 0.4 });
         const gerber = exportGerbers({ placements: new Map(), boardWidth: 100, boardHeight: 80,
             tracks: kind === 'track' ? [track] : [], boardShapes: kind === 'track' ? [] : [shape] }).get(file);
         const strokes = circularStrokesIn(gerber);
         const label = `${kind} ${layer}`;
         assert.ok(strokes.length > 16, `${label}: adaptive corner samples reach Gerber`);
-        assert.ok(strokes.every(stroke => stroke.width === 0.4), `${label}: stroke width is preserved`);
-        for (let index = 1; index < strokes.length; index++) {
-            assert.deepEqual(strokes[index].start, strokes[index - 1].end, `${label}: successive draws meet exactly`);
+        for (const stroke of strokes) {
+            const incoming = stroke.start.y === -10 && stroke.end.y === -10;
+            const outgoing = stroke.start.x === 30 && stroke.end.x === 30;
+            const expectedWidth = incoming ? 0.4 : outgoing ? outgoingWidth : shape.lineWidth;
+            assert.equal(stroke.width, expectedWidth, `${label}: straight overrides and shape-wide corner width are preserved`);
         }
+        // Aperture batching may reorder draws; the physical path must still join exactly.
+        const key = point => `${point.x},${point.y}`;
+        const nonzero = strokes.filter(stroke => key(stroke.start) !== key(stroke.end));
+        const remaining = new Map(nonzero.map(stroke => [key(stroke.start), stroke]));
+        assert.equal(remaining.size, nonzero.length, `${label}: no duplicate nonzero stroke starts`);
+        let next = points[0];
+        while (remaining.size) {
+            const stroke = remaining.get(key(next));
+            assert.ok(stroke, `${label}: no gaps in the exported path`);
+            remaining.delete(key(next));
+            next = stroke.end;
+        }
+        assert.deepEqual(next, points.at(-1), `${label}: path reaches its final endpoint`);
         const covers = point => strokes.some(stroke => {
             const closest = closestPointOnSegment(point, stroke.start, stroke.end);
             return Math.hypot(point.x - closest.x, point.y - closest.y) <= stroke.width / 2;
         });
-        for (let sample = 1; sample < 100; sample++) {
+        // Wider straight-edge round caps legitimately extend into the curve at its ends.
+        for (let sample = variable ? 10 : 1; sample < (variable ? 91 : 100); sample++) {
             const fraction = sample / 100;
             const point = { x: 30 - 8 * (1 - fraction) ** 2, y: -10 - 8 * fraction ** 2 };
             const length = Math.hypot(fraction, 1 - fraction);
             const normal = { x: fraction / length, y: (1 - fraction) / length };
             for (const side of [-1, 1]) {
-                assert.ok(covers({ x: point.x + side * normal.x * 0.195, y: point.y + side * normal.y * 0.195 }),
+                const inside = shape.lineWidth / 2 - 0.005, outside = shape.lineWidth / 2 + 0.005;
+                assert.ok(covers({ x: point.x + side * normal.x * inside, y: point.y + side * normal.y * inside }),
                     `${label}: no notches along either curve boundary at ${fraction}`);
-                assert.equal(covers({ x: point.x + side * normal.x * 0.205, y: point.y + side * normal.y * 0.205 }), false,
+                assert.equal(covers({ x: point.x + side * normal.x * outside, y: point.y + side * normal.y * outside }), false,
                     `${label}: round joins do not create protrusions at ${fraction}`);
+            }
+            for (const [point, normal, width] of [
+                [{ x: 15, y: -10 }, { x: 0, y: 1 }, 0.4],
+                [{ x: 30, y: -25 }, { x: 1, y: 0 }, outgoingWidth],
+            ]) for (const side of [-1, 1]) {
+                for (const [offset, expected] of [[width / 2 - 0.005, true], [width / 2 + 0.005, false]]) {
+                    assert.equal(covers({ x: point.x + side * normal.x * offset, y: point.y + side * normal.y * offset }),
+                        expected, `${label}: straight segment boundary preserves its own width`);
+                }
             }
         }
         assert.equal(covers({ x: 30, y: -10 }), false, `${label}: removed sharp corner stays empty`);
     }
 }
+console.log('PASS rounded Gerber strokes preserve corner/segment widths, connectivity and coverage on copper, silk and mask');
 
 for (const layer of ['top-silk', 'bottom-silk']) {
     const file = layer === 'top-silk' ? 'board.gto' : 'board.gbo';

@@ -18,7 +18,8 @@ import { bulgeRatio, bulgePointFromRatio, distanceToSegment } from '../../core/g
 import { formatNumberInput, formatNumberInputValue } from '../../core/number-inputs.js';
 import { projectArcBulge, snapArcBulgeToChord, arcBulgeRatio, arcBulgeFromRatio } from '../../shapes/arc-edit.js';
 import { pathHandleDescriptors, pathSegmentAt } from '../../shapes/path-geometry.js';
-import { joinPaths, remapPathNodes, splitPathSegmentMetadata, deletePathVertex, collapseCollinearPath, deletePathSegment, closePathIfCoincident, resizeRectanglePoints, pointsFormAxisAlignedRect, setPathSegmentType, splitPathAtNode } from '../../shapes/path-operations.js';
+import { joinPaths, remapPathNodes, splitPathSegmentMetadata, deletePathVertex, collapseCollinearPath, collapseRoundedPolygon, deletePathSegment, closePathIfCoincident, resizeRectanglePoints, pointsFormAxisAlignedRect, setPathSegmentType, splitPathAtNode } from '../../shapes/path-operations.js';
+import { validBoardOutline } from './board-outline.js';
 import { shapeFromPoints, shapePreviewPath, advanceShapeDrawing, canFinishShapeAtPoint } from '../../shapes/shape-drawing.js';
 import { CopperFill, updateFillIdCounter } from '../../shapes/copper-fill.js';
 import {
@@ -64,6 +65,7 @@ import {
     PICTURE_LAYERS,
 } from './picture-raster.js';
 import { encodePictureArtwork, decodePictureArtwork } from './picture-storage.js';
+import { hasRectangleFrame, rectangleFrameFromPoints, rectangleFramePoints } from '../../shapes/rectangle-frame.js';
 import { bindPictureRefreshHold, cancelPictureCopperRefresh, schedulePictureCopperRefresh } from './picture-refresh.js';
 import { rotationHandleAnchor, pointerRotation, rotatedImagePoints } from './rotation-handle.js';
 import { BULGE_EPS, arcFromBulge } from '../../shapes/arc-edge.js';
@@ -452,7 +454,8 @@ function createBoardShapePropertyPreview(app, targets, { liveDrag = false } = {}
     return createPropertyPreview({
         capture: () => targets.map(shapeSnapshot),
         restore: states => targets.forEach((target, index) => applyShapeSnapshot(target, states[index])),
-        redraw: phase => redrawBoardShapePropertyPreview(app, targets, { liveDrag: liveDrag && phase === 'preview' }),
+        // Commit/cancel redraws must retain the same deferred copper-refresh policy.
+        redraw: () => redrawBoardShapePropertyPreview(app, targets, { liveDrag }),
         commit: (before, after) => {
             const commands = targets.flatMap((target, index) => JSON.stringify(before[index]) === JSON.stringify(after[index])
                 ? [] : [new ModifyBoardShapeCommand(app, target, before[index], after[index])]);
@@ -2528,7 +2531,7 @@ export function boardShapeCopperCuts(app, copperLayer) {
 
 // ── Serialisation ────────────────────────────────────────────────────────────
 
-export function serializeBoardShapes(app, { compactArtwork = true, roundGeometry = true } = {}) {
+export function serializeBoardShapes(app, { compactArtwork = true, roundGeometry = true, parametricRectangles = true } = {}) {
     const artworkIndices = new Map();
     return (app.boardShapes || []).map((s, index) => {
         if (s?.type === 'fill') return s.toJSON();
@@ -2557,16 +2560,25 @@ export function serializeBoardShapes(app, { compactArtwork = true, roundGeometry
             return { ...base, x: number(s.x), y: number(s.y), radius: number(s.radius) };
         }
         if (s.kind === 'image') {
-            const picturePoints = s.points.map(value => ({ x: value.x, y: value.y }));
-            if (!compactArtwork) return { ...base, name: s.name, artwork: structuredClone(s.artwork), points: picturePoints };
+            const geometry = parametricRectangles ? rectangleFrameFromPoints(s.points)
+                : { points: s.points.map(value => ({ x: value.x, y: value.y })) };
+            if (!compactArtwork) return { ...base, name: s.name, artwork: structuredClone(s.artwork), ...geometry };
             const encoded = encodePictureArtwork(s.artwork);
             const key = JSON.stringify(encoded);
             const previous = artworkIndices.get(key);
             const artwork = previous === undefined ? encoded : { encoding: 'reference-v1', index: previous };
             if (previous === undefined) artworkIndices.set(key, index);
-            return { ...base, name: s.name, artwork, points: picturePoints };
+            return { ...base, name: s.name, artwork, ...geometry };
         }
-        return { ...base, points: (s.points || []).map(point) };
+        if (s.kind === 'rect' && parametricRectangles) return { ...base, ...rectangleFrameFromPoints(s.points) };
+        const saved = { ...base, points: (s.points || []).map(point) };
+        if (roundGeometry && s.kind === 'polygon') {
+            collapseRoundedPolygon(saved);
+            if (s.layer === 'board-outline' && !validBoardOutline(saved)) {
+                throw new Error('Cannot save board outline: rounding leaves an invalid closed outline.');
+            }
+        }
+        return saved;
     });
 }
 
@@ -2622,7 +2634,10 @@ export function loadBoardShapes(app, arr, { render = true, strict = false } = {}
             base.cornerRadius = Math.max(0, Number(sd.cornerRadius) || 0);
         }
         let shape;
-        if (kind === 'arc') {
+        if ((kind === 'rect' || kind === 'image') && hasRectangleFrame(sd)) {
+            if (Object.hasOwn(sd, 'points')) throw new Error('Rectangle records cannot contain both a frame and corner points.');
+            shape = { ...base, points: rectangleFramePoints(sd) };
+        } else if (kind === 'arc') {
             shape = { ...base, start: pt(sd.start), end: pt(sd.end), bulge: pt(sd.bulge) };
         } else if (kind === 'circle') {
             const radius = Math.max(0.05, Number(sd.radius) || 0);
@@ -2639,8 +2654,9 @@ export function loadBoardShapes(app, arr, { render = true, strict = false } = {}
         if (kind === 'image') {
             try {
                 try {
-                    validatePicturePoints(sd.points);
+                    validatePicturePoints(hasRectangleFrame(sd) ? shape.points : sd.points);
                 } catch {
+                    if (hasRectangleFrame(sd)) throw new Error('Invalid image rectangle frame.');
                     shape.points = normalizePicturePoints(sd.points, { coordinateTolerance: 0.0001 });
                 }
                 if (!PICTURE_LAYERS.includes(shape.layer)) throw new Error('Invalid image layer.');

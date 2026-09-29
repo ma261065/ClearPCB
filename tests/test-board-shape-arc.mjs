@@ -60,6 +60,7 @@ globalThis.document = {
             setAttribute(name, value) { attributes.set(name, String(value)); },
             getAttribute(name) { return attributes.get(name) ?? null; },
             removeAttribute(name) { attributes.delete(name); },
+            remove() { this.parentNode?.removeChild(this); },
             parentNode: null,
         };
     },
@@ -91,6 +92,7 @@ for (const name of Object.keys(pcbShapeGeometry)) {
     assert.equal(Object.hasOwn(boardShapeEditor, name), false, `${name}: geometry is exported only by its owning module`);
 }
 const { exportGerbers } = await import('../src/pcb/modules/gerber.js');
+const { pointInPolygon } = await import('../src/core/geometry.js');
 const { pcbTextPolylines, pcbTextSegments } = await import('../src/pcb/modules/pcb-text.js');
 const { pcbLayerSelectionColor } = await import('../src/pcb/modules/layers.js');
 const { flattenSvgPath } = await import('../src/pcb/modules/board-geometry.js');
@@ -347,9 +349,9 @@ const app = {
     activeLayer: 'top-silk',
     _shapeIdCounter: 1,
     _snapToGrid: (point) => ({ x: Math.round(point.x), y: Math.round(point.y) }),
-    _getLayerGroup: () => ({ appendChild() {} }),
+    _getLayerGroup: () => ({ appendChild() {}, insertBefore() {} }),
     history: { execute(command) { app.boardShapes.push(command.shape); } },
-    viewport: { scale: 1, setCrosshair() {} },
+    viewport: { scale: 100, gridSize: 1, setCrosshair() {} },
 };
 
 shapeDrawClick(app, 'arc', { x: 0, y: 0 });
@@ -546,7 +548,7 @@ for (const reversed of [false, true]) {
         const expected = { x: Math.round(anchor.x), y: Math.round(anchor.y) };
         const dragApp = {
             boardShapes: [shape], placements: new Map(), tracks: [], vias: [], texts: new Map(),
-            _shapeElements: new Map(), viewport: { scale: 20, setCrosshair() {} },
+            _shapeElements: new Map(), viewport: { scale: 100, gridSize: 1, setCrosshair() {} },
             _getLayerGroup() { return null; },
             _snapToGrid(point) { return { x: Math.round(point.x), y: Math.round(point.y) }; },
         };
@@ -639,35 +641,43 @@ for (const layer of ['hole', 'top-copper', 'bottom-copper']) {
             : id === 'pcbPropShapeLineWidth' && layer !== 'hole' ? widthInput : null;
         const commands = [];
         let fillRefreshes = 0;
+        let selectionRefreshes = 0;
+        let propertyRebuilds = 0;
+        let propertyHtml = '';
+        const diameterItems = {
+            get innerHTML() { return propertyHtml; },
+            set innerHTML(value) { propertyHtml = value; propertyRebuilds++; },
+        };
         const diameterApp = {
             boardShapes: [editableCircle], placements: new Map(), tracks: [], vias: [], texts: new Map(),
             viewport: { scale: 1 }, _shapeElements: new Map(),
             _getLayerGroup() { return null; },
-            _pcbPropsItems() { return propertyItems; },
+            _pcbPropsItems() { return diameterItems; },
             _setPcbPropsTitle() {}, _setActiveRibbonTab() {},
             _refreshFills() { fillRefreshes++; },
-            _refreshPcbSelectionHighlights() { throw new Error('Diameter preview must not rebuild the properties panel'); },
+            _refreshPcbSelectionHighlights() { selectionRefreshes++; },
             history: { execute(command) { commands.push(command); command.execute(); } },
         };
         showBoardShapeProperties(diameterApp, editableCircle);
+        const initialPropertyRebuilds = propertyRebuilds;
         if (layer !== 'hole') {
             check(`${layer} filled=${filled} diameter follows line thickness in properties`,
-                propertyItems.innerHTML.indexOf('id="pcbPropShapeDiameter"')
-                > propertyItems.innerHTML.indexOf('id="pcbPropShapeLineWidth"'));
+                diameterItems.innerHTML.indexOf('id="pcbPropShapeDiameter"')
+                > diameterItems.innerHTML.indexOf('id="pcbPropShapeLineWidth"'));
         }
         diameterInput.value = '20';
         diameterInput.fire('input');
         diameterInput.value = '29.999999999999996';
         diameterInput.fire('input');
         check(`${layer} filled=${filled} diameter preview preserves input text`,
-            diameterInput.value === '29.999999999999996');
+            diameterInput.value === '29.999999999999996' && propertyRebuilds === initialPropertyRebuilds);
+        check(`${layer} filled=${filled} diameter preview refreshes selection geometry`, selectionRefreshes >= 2);
         check(`${layer} filled=${filled} diameter previews exact outside size`,
             approx(editableCircle.radius, 15)
             && approx(circleFilledRadius(editableCircle) * 2, 30)
             && editableCircle.x === circlePropertyShape.x && editableCircle.y === circlePropertyShape.y
             && editableCircle.lineWidth === 0.4 && editableCircle.filled === filled
             && commands.length === 0 && fillRefreshes >= 2);
-        delete diameterApp._refreshPcbSelectionHighlights;
         diameterInput.fire('change');
         check(`${layer} filled=${filled} committed diameter removes floating-point tails`,
             diameterInput.value === '30.00');
@@ -941,9 +951,18 @@ const strokedRectMask = maskGerber({
     points: removalRect.points.map((point) => ({ x: point.x, y: point.y - 10 })),
     copperMode: 'remove-solder-mask',
 });
-check('unfilled rectangle mask removal emits a sharp region with an inner opening',
-    strokedRectMask.includes('G36*')
-    && (strokedRectMask.match(/G36\*([\s\S]*?)G37\*/)?.[1].match(/D02\*/g) || []).length === 2);
+const maskRegions = [...strokedRectMask.matchAll(/G36\*([\s\S]*?)G37\*/g)].map(([, body]) =>
+    [...body.matchAll(/X(-?\d+)Y(-?\d+)D0[12]\*/g)].map(([, x, y]) => ({
+        x: Number(x) / 1e6, y: -Number(y) / 1e6,
+    })));
+const maskCovers = point => maskRegions.some(region => pointInPolygon(point, region));
+check('unfilled rectangle mask removal emits filled regions on every side',
+    maskRegions.length > 0 && [
+        { x: 5.13, y: -10.05 }, { x: 5.13, y: -4.95 },
+        { x: 0.1, y: -7.37 }, { x: 10.1, y: -7.37 },
+    ].every(maskCovers));
+check('unfilled rectangle mask removal preserves its inner opening',
+    !maskCovers({ x: 5, y: -7.5 }) && !maskCovers({ x: 5.13, y: -9.7 }));
 
 const copperText = {
     id: 'text_1',

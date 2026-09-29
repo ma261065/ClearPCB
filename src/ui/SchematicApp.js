@@ -1391,6 +1391,11 @@ export default class SchematicApp {
         }
     }
 
+    _showDocumentHome() {
+        this._setActiveRibbonTab?.('home');
+        this.project?.pcb?._setActiveRibbonTab?.('pcb-home');
+    }
+
     // ── ProjectDocument view interface ────────────────────────────────
 
     /**

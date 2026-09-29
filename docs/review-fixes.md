@@ -1,7 +1,8 @@
 # Code Review Follow-Up
 
 This maps the 19 review findings to the corresponding implementation changes.
-Behavioral tests and browser verification have not been run for this change.
+Verification uses the headless Node regressions below; browser verification has
+not been performed.
 
 | Finding | Implementation |
 | --- | --- |
@@ -40,9 +41,119 @@ node tools/test.mjs
 node tools/regression.mjs
 ```
 
+Regression fixtures must reflect the current contracts: declared PCB stackups,
+on-board artwork placement, selection-overlay layers and complete DOM/timer
+mocks. Gerber checks compare numeric dimensions and physical coverage rather
+than incidental decimal formatting. Copper-image connectivity uses the solid
+image frame, while manufacturing checks retain transparent artwork holes.
+
+After the fixture/expectation cleanup, geometry persistence, rotated rectangle
+resize, document reset and Home-tab fixes, the full headless gate passed all
+132 test files on 2026-09-29.
+The autorouter routed 74/76 connections with zero clearance violations.
+Its 288 traces and 214 vias differ from the older 239/174 baseline,
+so those two informational warnings remain; the routing baseline was not
+changed to silence them.
+
 Manual checks remain necessary for file permission/write failures, EasyEDA
 import followed by Save, mixed-object marquee cancellation, offscreen and
 bottom-side footprints, PDF layer filtering, and the component/board 3D views.
+
+## Properties regression follow-up
+
+- Image size/rotation previews retain their deferred copper-refresh policy on
+  commit and cancellation. Silk-image edits avoid copper work; copper-image
+  edits remain debounced, and changes onto or off copper still refresh pours.
+- Arc geometry commands refresh the selected shape's Properties on Undo/Redo,
+  keeping the displayed bulge synchronized without rebuilding the panel during
+  live dragging.
+
+Focused headless coverage:
+
+```sh
+node tools/test.mjs picture-properties arc-properties-history
+```
+
+## Confirmed geometry and interaction contracts
+
+- Image and rectangle placement now saves centre, width, height and rotation
+  instead of independently rounded corners. Legacy corner records remain
+  readable temporarily and migrate on save. Artwork remains lossless; live and
+  fabrication geometry retain full precision. See the file-format specification
+  for winding and schematic node-identity preservation.
+- Exact shape alignment takes priority over grid magnetism when they conflict.
+  The grid remains a guide, and Shift bypasses snapping.
+- Cancelling a shape-handle drag restores geometry, clearance feedback and fill
+  refresh immediately. Committed drags continue to use the existing debounce.
+
+The rectangle-frame regressions cover rotations and both windings, corner/edge
+metadata, legacy migration, strict malformed-record rejection, repeated saves,
+schematic copy/paste offsets, mixed-project ZIP/autosave round trips and exact
+fabrication snapshots:
+
+```sh
+node tools/test.mjs rectangle-frame
+```
+
+Polygon saves also merge adjacent vertices that become identical at four-decimal
+precision, including runs and the closing edge. Surviving metadata is remapped
+for PCB/schematic polygons and polygon fills, without changing live or fabrication
+geometry. Invalid results and unsafe curve, width or corner-radius combinations
+fail explicitly. Coverage includes stable resaves and a mixed-project ZIP
+round trip:
+
+```sh
+node tools/test.mjs polygon-save-collapse
+```
+
+## Rotated rectangle resizing
+
+Corner resizing uses the rectangle's local axes and fixes the opposite corner,
+preserving rotation, node order and metadata in schematic/PCB rectangles and
+rectangular fills. Fills retain their rectangle kind after a rotated resize.
+Uniform rounded outlines also follow the rotated frame, with radii clamped to
+actual side lengths rather than the world-aligned bounding box.
+
+Image resizing already scales proportionally about the opposite corner; that
+behavior remains unchanged, including its minimum scale and artwork orientation.
+Regression coverage checks every corner, both windings, non-cardinal rotations,
+crossing the opposite axes, transient collapse/recovery, cancellation, real
+Undo/Redo commands, persistence and rounded outlines.
+
+```sh
+node tools/test.mjs rotated-rectangle-resize
+```
+
+## PCB document reset
+
+New/Open now discard the PCB selection and hover adapters before removing old
+artwork, because deselection itself can redraw an object. Selection outlines and
+handles are removed, pending drawing previews are cancelled, and the registry
+is rebuilt for the replacement document. This prevents selected shapes from
+remaining visible or reappearing after their models have been cleared.
+
+```sh
+node tools/test.mjs pcb-document-reset pcb-deferred-load project-lifecycle
+```
+
+## Home tab after opening a document
+
+Successful New, Open and Open Recent actions return both editors to Home.
+Navigation happens after document replacement and file adoption, not when the
+button is clicked, so cancelled or failed actions do not request a tab change.
+Import and PWA file opening use the same Home navigation.
+
+```sh
+node tools/test.mjs file-home-tab project-lifecycle project-recovery pcb-document-reset pcb-deferred-load
+```
+
+## Future cleanup: remove legacy rectangle formats
+
+TODO: After the user confirms that all existing boards have been resaved in the
+centre/width/height/rotation format, remove legacy corner-based loading for images,
+PCB rectangles, rectangular copper fills and schematic rectangles. Remove the
+associated compatibility normalization and update validation, tests and the
+file-format documentation. Keep compatibility until that confirmation.
 
 ## Limits
 

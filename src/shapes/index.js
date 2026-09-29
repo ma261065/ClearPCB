@@ -46,6 +46,7 @@ const SHORT_KEYS = {
     c: 'color', l: 'layer', lw: 'lineWidth', v: 'visible', lk: 'locked',
     pts: 'points', n: 'net',
     nd: 'graphNodes', ed: 'graphEdges', pc: 'pinConnections', wl: 'wireLabel',
+    cn: 'cornerNodeIds', rev: 'reversed',
     el: 'edgeLayers', ew: 'edgeWidths', bg: 'edgeBulges', pdc: 'padConnections',
     sbs: 'sourceBoardShape',
     r: 'radius', w: 'width', h: 'height', cr: 'cornerRadius', ncr: 'nodeCornerRadii',

@@ -16,6 +16,9 @@ import { panelSettings } from './panelization.js';
 import { renderPanelPreview, resetPanelPreview } from './panelization-ui.js';
 import { assertSupportedPcb, defaultPcbStackup } from '../../core/project-format.js';
 import { compactProjectAliases, normalizePcbSection } from '../../core/project-field-aliases.js';
+import { hasRectangleFrame, rectangleFramePoints } from '../../shapes/rectangle-frame.js';
+import { resetPcbSelection, syncPcbSelection } from './selection-registry.js';
+import { clearPcbSelectionAnchors } from './selection-anchors.js';
 
 const round4 = value => Number.isFinite(value) ? Math.round(value * 10000) / 10000 : value;
 
@@ -75,7 +78,9 @@ export function preparePcb(data) {
     assertSupportedPcb(data);
     const panelization = data?.panelization ? panelSettings(data.panelization) : null;
     for (const shape of data?.boardShapes || []) {
-        if (shape.layer === 'board-outline' && !validBoardOutline(shape)) {
+        const outline = shape.kind === 'rect' && hasRectangleFrame(shape)
+            ? { ...shape, points: rectangleFramePoints(shape) } : shape;
+        if (shape.layer === 'board-outline' && !validBoardOutline(outline)) {
             throw new Error('The board outline must be one closed rectangle, polygon, or circle.');
         }
     }
@@ -107,6 +112,11 @@ export function loadPcb(app, data, prepared = preparePcb(data)) {
     // groups (autosave-recovery may call this before the user has
     // ever activated the PCB tab).
     app._ensureViewport();
+    app._cancelDrawingMode?.();
+    // Deselection can redraw old objects, so do it before removing their SVG.
+    resetPcbSelection(app);
+    clearPcbSelectionAnchors(app);
+    clearTrackSelection(app);
     // Drop any existing tracks/vias and their SVG.
     for (const t of app.tracks) removeTrackElements(t);
     for (const v of app.vias) removeViaElements(v);
@@ -129,7 +139,6 @@ export function loadPcb(app, data, prepared = preparePcb(data)) {
     // Drop any existing free-standing texts.
     for (const id of app._textElements.keys()) app._removeTextElement(id);
     app.texts.clear();
-    clearTrackSelection(app);
     app.history.clear?.();
 
     // A new/opened document invalidates any current DRC results, so close
@@ -158,6 +167,7 @@ export function loadPcb(app, data, prepared = preparePcb(data)) {
     if (!data) {
         app.placements.clear();
         app.netlist = [];
+        syncPcbSelection(app);
         app.markSectionClean();
         app._board3d?.refresh?.();
         return;
@@ -242,6 +252,7 @@ export function loadPcb(app, data, prepared = preparePcb(data)) {
     // a freshly opened/recovered board isn't immediately treated as having
     // unsaved PCB changes (which would re-trigger autosave after a save).
     app.panelization = prepared.panelization ? { ...prepared.panelization } : null;
+    syncPcbSelection(app);
     if (render) renderPanelPreview(app);
     app._isDirty = false;
 }

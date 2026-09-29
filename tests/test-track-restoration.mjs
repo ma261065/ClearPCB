@@ -3,9 +3,14 @@
 globalThis.window = { addEventListener() {} };
 globalThis.document = {
     getElementById() { return null; },
+    querySelector() { return null; },
     createElementNS() {
+        const attributes = new Map();
         return {
-            setAttribute() {},
+            setAttribute(name, value) { attributes.set(name, String(value)); },
+            getAttribute(name) { return attributes.get(name) ?? null; },
+            removeAttribute(name) { attributes.delete(name); },
+            appendChild() {},
             remove() {},
             classList: { add() {} },
         };
@@ -181,7 +186,7 @@ function appFor(track) {
 
 {
     const track = new Track({ graphNodes: { n0: { x: 0, y: 0 }, n1: { x: 8, y: 0 } },
-        graphEdges: { e0: { from: 'n1', to: 'n0', bulge: 0.4 } } });
+        graphEdges: { e0: { from: 'n1', to: 'n0' } }, edgeBulges: { e0: 0.4 } });
     const app = appFor(track);
     restoreTrackToSourceBoardShape(app, track);
     expect('reversed traversal reverses the bulge sign', app.boardShapes[0].segmentBulges[0] === -0.4);

@@ -1,7 +1,58 @@
 import { BULGE_EPS, arcFromBulge } from './arc-edge.js';
+import { validClosedShape } from './closed-outline.js';
 
 const EDGE_FIELDS = ['segmentWidths', 'segmentBulges', 'edgeIds'];
 const NODE_FIELDS = ['nodeCornerRadii', 'nodeIds'];
+
+/** Collapse exact duplicate neighbours on a rounded save copy, not live geometry. */
+export function collapseRoundedPolygon(path) {
+    if (path.kind !== 'polygon') return false;
+    const points = path.points;
+    const same = (a, b) => a.x === b.x && a.y === b.y;
+    if (points.length < 2 || !points.some((point, index) => same(point, points[(index + 1) % points.length]))) return false;
+    const groups = [];
+    for (let index = 0; index < points.length; index++) {
+        if (index && same(points[index - 1], points[index])) groups.at(-1).push(index);
+        else groups.push([index]);
+    }
+    if (groups.length > 1 && same(points[0], points.at(-1))) {
+        groups[0] = [...groups.pop(), ...groups[0]];
+    }
+    const fail = reason => { throw new Error(`Cannot save polygon${path.id ? ` "${path.id}"` : ''}: ${reason}`); };
+    if (groups.length < 3) fail('rounding leaves fewer than three distinct corners.');
+    for (const group of groups) {
+        const outgoing = group.at(-1);
+        const width = path.segmentWidths?.[outgoing] ?? path.lineWidth ?? 0.2;
+        const radius = path.nodeCornerRadii?.[outgoing] ?? path.cornerRadius ?? 0;
+        // Removing a tiny edge can release the radius clamp and enlarge a rounded corner.
+        if (group.length > 1 && radius > 0) fail('rounding collapses a rounded corner.');
+        for (const index of group.slice(0, -1)) {
+            if (path.segmentBulges?.[index]) fail('rounding collapses a curved edge.');
+            if ((path.segmentWidths?.[index] ?? path.lineWidth ?? 0.2) !== width) {
+                fail('a collapsed edge has a conflicting width.');
+            }
+            if ((path.nodeCornerRadii?.[index] ?? path.cornerRadius ?? 0) !== radius) {
+                fail('merged corners have conflicting radii.');
+            }
+        }
+    }
+    const retained = groups.map(group => group.includes(0) ? 0 : group[0]);
+    const cleaned = { ...path, points: retained.map(index => ({ ...points[index] })) };
+    for (const field of [...EDGE_FIELDS, ...NODE_FIELDS]) {
+        if (!path[field]) continue;
+        cleaned[field] = Object.fromEntries(groups.flatMap((group, index) => {
+            const source = EDGE_FIELDS.includes(field) ? group.at(-1)
+                : field === 'nodeCornerRadii' ? group.find(old => Object.hasOwn(path[field], old)) : retained[index];
+            return source !== undefined && Object.hasOwn(path[field], source) ? [[index, path[field][source]]] : [];
+        }));
+    }
+    if (!validClosedShape(cleaned, { allowCrossings: true })) fail('rounding leaves an invalid closed outline.');
+    Object.assign(path, cleaned);
+    for (const field of [...EDGE_FIELDS, ...NODE_FIELDS]) {
+        if (path[field] && !Object.keys(path[field]).length) delete path[field];
+    }
+    return true;
+}
 
 export function setPathSegmentType(path, segment, type) {
     if (!Array.isArray(path?.points)) return false;
@@ -41,11 +92,25 @@ export function pointsFormAxisAlignedRect(points) {
 
 export function resizeRectanglePoints(points, index, target) {
     const opposite = points[(index + 2) % 4];
-    const corner = points[index];
-    return points.map(point => ({
-        x: Math.abs(point.x - corner.x) < 1e-9 ? target.x : opposite.x,
-        y: Math.abs(point.y - corner.y) < 1e-9 ? target.y : opposite.y,
-    }));
+    const adjacent = points[(index + 1) % 4];
+    const dx = adjacent.x - opposite.x, dy = adjacent.y - opposite.y;
+    const lengthSquared = dx * dx + dy * dy;
+    if (!Number.isFinite(lengthSquared) || lengthSquared === 0) {
+        throw new Error('Cannot resize a rectangle without a nonzero side axis.');
+    }
+    // Resolve the moving diagonal along the rectangle's own axes, not world X/Y.
+    const projection = ((target.x - opposite.x) * dx + (target.y - opposite.y) * dy) / lengthSquared;
+    const along = dx === 0 ? { x: opposite.x, y: target.y }
+        : dy === 0 ? { x: target.x, y: opposite.y }
+        : { x: opposite.x + dx * projection, y: opposite.y + dy * projection };
+    const across = dx === 0 ? { x: target.x, y: opposite.y }
+        : dy === 0 ? { x: opposite.x, y: target.y }
+        : { x: target.x - dx * projection, y: target.y - dy * projection };
+    const resized = points.map(point => ({ ...point }));
+    resized[index] = { x: target.x, y: target.y };
+    resized[(index + 1) % 4] = along;
+    resized[(index + 3) % 4] = across;
+    return resized;
 }
 
 export function deletePathSegment(path, segment) {

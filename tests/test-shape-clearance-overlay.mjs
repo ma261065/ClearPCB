@@ -6,6 +6,7 @@ const element = () => ({
     children: [], attributes: new Map(), dataset: {}, style: {},
     setAttribute(name, value) { this.attributes.set(name, String(value)); },
     getAttribute(name) { return this.attributes.get(name) ?? null; },
+    removeAttribute(name) { this.attributes.delete(name); },
     appendChild(child) {
         child.parentNode?.removeChild(child);
         this.children.push(child);
@@ -17,6 +18,14 @@ const element = () => ({
         this.children.splice(this.children.indexOf(child), 1);
         child.parentNode = null;
     },
+    insertBefore(child, reference) {
+        child.parentNode?.removeChild(child);
+        const index = this.children.indexOf(reference);
+        if (index < 0) this.children.push(child);
+        else this.children.splice(index, 0, child);
+        child.parentNode = this;
+    },
+    remove() { this.parentNode?.removeChild(this); },
     get firstChild() { return this.children[0]; },
     querySelectorAll() { return []; },
 });
@@ -108,7 +117,7 @@ const toggleEnd = source.indexOf('\n    _fitToContent()', toggleStart);
 assert.ok(toggleStart >= 0 && toggleEnd > toggleStart);
 const toggle = new Function('saveLayerPrefs',
     `return ({ ${source.slice(toggleStart, toggleEnd)} })._onOverlayVisibilityChanged;`)(() => {});
-const groups = new Map(['top-copper', 'bottom-copper', 'hole', 'clearance-overlay'].map(id => [id, element()]));
+const groups = new Map(['top-copper', 'bottom-copper', 'hole', 'vias', 'clearance-overlay'].map(id => [id, element()]));
 const app = {
     placements: new Map(), boardShapes: [circle, rectangle, hole, line, arc],
     _layerGroups: groups, _getLayerGroup(id) { return groups.get(id); },

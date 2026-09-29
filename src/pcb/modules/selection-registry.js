@@ -129,6 +129,14 @@ export function clearPcbSelection(app) {
     manager(app).clearSelection();
 }
 
+/** Discard selection and hover adapters before replacing the document's models. */
+export function resetPcbSelection(app) {
+    const selection = manager(app);
+    selection.clearSelection();
+    selection.setHovered(null);
+    selection.setShapes([]);
+}
+
 /** @param {string|null} [kind] */
 export function getPcbSelection(app, kind = null) {
     return manager(app).getSelection()

@@ -8,7 +8,7 @@ globalThis.localStorage = { getItem() { return null; } };
 const { PCB_LAYERS } = await import('../src/pcb/modules/layers.js');
 const { Board2D } = await import('../src/pcb/modules/board2d.js');
 const { exportGerbers } = await import('../src/pcb/modules/gerber.js');
-const { collectCopperSubtractHoles } = await import('../src/pcb/modules/board3d.js');
+const { collectCopperSubtractHoles, buildSilkMesh, buildTextMesh } = await import('../src/pcb/modules/board3d.js');
 const { resolveSilk } = await import('../src/pcb/modules/board-geometry.js');
 
 const fixtures = [
@@ -63,13 +63,8 @@ for (const side of ['top', 'bottom']) {
 assert.equal(preview._drawDocumentCutouts, undefined);
 
 const source = readFileSync(new URL('../src/pcb/modules/board3d.js', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
-const emptyMesh = () => ({ verts: [], faces: [] });
-for (const name of ['buildSilkMesh', 'buildTextMesh']) {
-    const start = source.indexOf(`function ${name}(`);
-    assert.ok(start >= 0);
-    const end = source.indexOf('\n}', start) + 2;
-    const build = new Function('emptyMesh', 'resolveSilk', `${source.slice(start, end)}; return ${name};`)(emptyMesh, resolveSilk);
-    assert.deepEqual(build(app), emptyMesh());
+for (const build of [buildSilkMesh, buildTextMesh]) {
+    assert.deepEqual(build(app), { verts: [], faces: [] });
 }
 assert.ok(!source.includes('documentCutout'));
 

@@ -173,7 +173,7 @@ console.log('bulge apex handle');
 
     // Dragging the apex to (5,5): chord len 10 → half 5 → bulge ≈ 1.
     p.moveAnchor('bulge_e0', 5, 5);
-    ok('drag apex to semicircle → bulge ≈ 1', approx(p.getEdgeAttr('e0', 'bulge'), 0.999, 1e-3));
+    ok('drag apex to semicircle → bulge ≈ 1', approx(p.getEdgeAttr('e0', 'bulge'), 1));
 
     // Dragging back onto the chord flattens it (bulge ≈ 0).
     p.moveAnchor('bulge_e0', 5, 0);

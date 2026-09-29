@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { encodePictureArtwork, decodePictureArtwork } from '../src/pcb/modules/picture-storage.js';
+import { pointInPolygon } from '../src/core/geometry.js';
 
 const artworks = [
     { width: 100, height: 100, rectangles: [{ x: 1, y: 2, width: 3, height: 4 }] },
@@ -70,9 +71,17 @@ const { prepareFabricationSnapshot } = await import('../src/pcb/modules/fabricat
 const { exportGerbers } = await import('../src/pcb/modules/gerber.js');
 const exportImage = { ...pictureShape(artworks[2], { widthMm: 5, layer: 'top-copper', center: { x: 5, y: -5 } }), id: 'export-image' };
 const exportApp = { placements: new Map(), tracks: [], vias: [], texts: new Map(), copperFills: [],
-    boardShapes: [exportImage], _boardWidth: 10, _boardHeight: 10, _boardY: -10 };
+    boardShapes: [exportImage], _boardWidth: 10, _boardHeight: 10, _boardY: 0 };
 const snapshot = await prepareFabricationSnapshot(exportApp);
 assert.deepEqual(snapshot.boardShapes[0].artwork, exportImage.artwork, 'manufacturing snapshot uses decoded geometry');
 assert.notEqual(snapshot.boardShapes[0].artwork, exportImage.artwork, 'manufacturing geometry remains detached');
-assert.ok(exportGerbers(snapshot).get('board.gtl').includes('G36*'), 'image still reaches Gerber through the fabrication snapshot');
+const gerber = exportGerbers(snapshot).get('board.gtl');
+const regions = [...gerber.matchAll(/G36\*\n([\s\S]*?)G37\*/g)].map(match =>
+    [...match[1].matchAll(/X(-?\d+)Y(-?\d+)D0[12]\*/g)].map(point =>
+        ({ x: Number(point[1]) / 1e6, y: -Number(point[2]) / 1e6 })));
+assert.ok(regions.length > 0, 'image still reaches Gerber through the fabrication snapshot');
+assert.ok(regions.some(region => pointInPolygon({ x: 2.5 + Math.PI / 2, y: -6.5 }, region)),
+    'Gerber retains the circle at its transformed source position');
+assert.equal(regions.some(region => pointInPolygon({ x: 5, y: -5 }, region)), false,
+    'Gerber does not replace the artwork with the solid image frame');
 console.log('PASS: compact storage does not leak into manufacturing snapshots or Gerber');

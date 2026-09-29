@@ -100,7 +100,7 @@ export class MoveBoardShapeCommand {
         if (previous && !validBoardOutline(this.shape)) Object.assign(this.shape, previous);
         schedulePictureCopperRefresh(this.app);
         renderBoardShape(this.app, this.shape);
-        if (this.shape.layer === 'board-outline' || this.shape.kind === 'circle' || this.shape.kind === 'image') refreshBoardShapeProperties(this.app, this.shape);
+        if (this.shape.layer === 'board-outline' || ['circle', 'image', 'arc'].includes(this.shape.kind)) refreshBoardShapeProperties(this.app, this.shape);
         renderBoardShapeSegmentSelection(this.app);
         renderPcbSelectionAnchors(this.app);
     }

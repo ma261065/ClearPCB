@@ -19,6 +19,7 @@ globalThis.document = {
 };
 const shared = await import('../src/shared/ui/theme.js');
 const { bindThemeToggle, toggleTheme, loadTheme } = await import('../src/ui/modules/theme.js');
+const { getPcbSelection, setPcbSelection } = await import('../src/pcb/modules/selection-registry.js');
 let schematicUpdates = 0;
 let pcbUpdates = 0;
 let symbols = 0;
@@ -33,12 +34,17 @@ const source = readFileSync(new URL('../src/ui/PCBApp.js', import.meta.url), 'ut
 const start = source.indexOf('    _bindThemeToggle() {');
 const end = source.indexOf('\n    //', start);
 assert.ok(start >= 0 && end > start);
-const bindPCB = new Function('toggleSharedTheme', 'syncThemeToggleButtons',
-    `return ({ ${source.slice(start, end)} })._bindThemeToggle;`)(shared.toggleTheme, shared.syncThemeToggleButtons);
-bindPCB.call({
+const bindPCB = new Function('toggleSharedTheme', 'syncThemeToggleButtons', 'getPcbSelection',
+    `return ({ ${source.slice(start, end)} })._bindThemeToggle;`)(shared.toggleTheme, shared.syncThemeToggleButtons, getPcbSelection);
+const highlights = [];
+const pcb = {
     themeToggle: buttons.get('pcbThemeToggle'),
     viewport: { updateTheme() { pcbUpdates++; } },
-});
+    placements: new Map([['part', {}]]),
+    _refreshRefHighlight(id) { highlights.push(id); },
+};
+setPcbSelection(pcb, [{ kind: 'reftext', object: 'part' }]);
+bindPCB.call(pcb);
 schematicUpdates = 0;
 for (const [index, id] of ['pcbThemeToggle', 'themeToggle', 'themeToggle', 'pcbThemeToggle'].entries()) {
     buttons.get(id).dispatchEvent(new Event('click'));
@@ -47,6 +53,7 @@ for (const [index, id] of ['pcbThemeToggle', 'themeToggle', 'themeToggle', 'pcbT
     assert.equal(attributes.get('data-theme') || 'dark', expected);
     assert.equal(schematicUpdates, index + 1, 'Either toggle refreshes the schematic once');
     assert.equal(pcbUpdates, index + 1, 'Either toggle refreshes PCB once');
+    assert.deepEqual(highlights, Array(index + 1).fill('part'), 'Either toggle refreshes the selected reference highlight');
     assert.equal(symbols, index + 1, 'Either toggle refreshes schematic symbols');
     for (const button of buttons.values()) assert.equal(button.textContent, shared.getThemeIcon(expected));
 }

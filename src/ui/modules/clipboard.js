@@ -352,7 +352,10 @@ function _getShapeDataCentroid(data) {
 function offsetShapeData(data, tx, ty) {
     const type = data.type;
 
-    if (type === 'wire' && data.nd) {
+    if (type === 'polyline' && data.ir === true && Array.isArray(data.cn)) {
+        data.x = tx;
+        data.y = ty;
+    } else if (type === 'wire' && data.nd) {
         // Graph-based wire: nd is {nodeId: [x, y], ...}
         const nodeIds = Object.keys(data.nd);
         if (nodeIds.length > 0) {

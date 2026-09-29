@@ -13,11 +13,47 @@
  *   - Dragging a polygon into rect shape → becomes a rectangle (isRect=true)
  *
  * type is always 'polyline' for serialization.
+ * True rectangles save a centre/size/rotation frame plus corner and edge IDs;
+ * legacy coordinate graphs remain readable and runtime geometry stays graph-based.
  */
 
 import { PolylineGraph } from './polyline-graph.js';
 import { ShapeValidator } from '../core/ShapeValidator.js';
-import { deletePathVertex, splitPathSegmentMetadata, remapPathNodes, collapseCollinearPath, resizeRectanglePoints } from './path-operations.js';
+import { deletePathVertex, splitPathSegmentMetadata, remapPathNodes, collapseCollinearPath, collapseRoundedPolygon, resizeRectanglePoints } from './path-operations.js';
+import { hasRectangleFrame, rectangleFrameFromPoints, rectangleFramePoints } from './rectangle-frame.js';
+
+function rectangleGraphOptions(options) {
+    if (!Object.hasOwn(options, 'cornerNodeIds')
+        && !hasRectangleFrame(options)) return options;
+    const ids = options.cornerNodeIds;
+    if (options.isRect !== true || options.closed !== true || !Array.isArray(ids) || ids.length !== 4
+        || ids.some(id => typeof id !== 'string' || !id) || new Set(ids).size !== 4
+        || !options.graphEdges || typeof options.graphEdges !== 'object' || Array.isArray(options.graphEdges)
+        || Object.hasOwn(options, 'graphNodes') || Object.hasOwn(options, 'points')) {
+        throw new Error('Rectangle frame requires four distinct corner node IDs and a closed rectangle graph without coordinate nodes.');
+    }
+    const expected = new Set(ids.map((id, index) => JSON.stringify([id, ids[(index + 1) % 4]].sort())));
+    const edges = Object.values(options.graphEdges);
+    if (edges.length !== 4 || edges.some(edge => !Array.isArray(edge) || edge.length !== 2
+        || edge.some(id => typeof id !== 'string'))) {
+        throw new Error('Rectangle edges must be four endpoint tuples connecting successive corner node IDs.');
+    }
+    const actual = edges.map(edge => JSON.stringify([...edge].sort()));
+    if (new Set(actual).size !== 4 || actual.some(edge => !expected.has(edge))) {
+        throw new Error('Rectangle edges must connect successive corner node IDs exactly once.');
+    }
+    const points = rectangleFramePoints(options);
+    return { ...options, graphNodes: Object.fromEntries(ids.map((id, index) => [id, points[index]])) };
+}
+
+function rectangleGraphFrame(shape) {
+    const ids = shape.getOrderedNodeIds();
+    if (!shape.closed || shape.nodes.size !== 4 || shape.edges.size !== 4 || ids.length !== 4
+        || ids.some(id => shape.degree(id) !== 2) || shape._hasBulgedEdges()) {
+        throw new Error('Rectangle serialization requires a closed four-corner graph with straight edges.');
+    }
+    return { ids, frame: rectangleFrameFromPoints(ids.map(id => shape.nodes.get(id))) };
+}
 
 export class Polyline extends PolylineGraph {
     /**
@@ -31,6 +67,7 @@ export class Polyline extends PolylineGraph {
     };
 
     constructor(options = {}) {
+        options = rectangleGraphOptions(options);
         const closed = options.closed !== undefined ? options.closed : false;
         const fill = options.fill !== undefined ? options.fill : (closed ? true : false);
         const fillAlpha = options.fillAlpha ?? 0.3;
@@ -55,6 +92,7 @@ export class Polyline extends PolylineGraph {
                 delete edge.width;
             }
         }
+        if (options.cornerNodeIds) rectangleGraphFrame(this);
     }
 
     /**
@@ -225,7 +263,41 @@ export class Polyline extends PolylineGraph {
 
     toJSON() {
         const json = { ...super.toJSON(), type: 'polyline' };
-        if (this.isRect) json.ir = true;
+        if (this.isRect) {
+            const { ids, frame } = rectangleGraphFrame(this);
+            delete json.nd;
+            Object.assign(json, {
+                ir: true, x: frame.x, y: frame.y, w: frame.width, h: frame.height,
+                rot: frame.rotation, cn: ids,
+            });
+            if (frame.reversed) json.rev = true;
+        } else if (this.closed && Object.values(json.ed).some(([from, to]) =>
+            json.nd[from][0] === json.nd[to][0] && json.nd[from][1] === json.nd[to][1])) {
+            const path = this.toEditablePath();
+            if (!path || Object.keys(path.edgeIds).length !== path.points.length) {
+                throw new Error(`Cannot save polygon "${this.id}": collapsed edges require a simple closed graph.`);
+            }
+            path.id = this.id;
+            const forward = Object.fromEntries(Object.entries(path.edgeIds).map(([index, id]) =>
+                [id, json.ed[id][0] === path.nodeIds[index]]));
+            path.points = Object.values(path.nodeIds).map(id => ({ x: json.nd[id][0], y: json.nd[id][1] }));
+            collapseRoundedPolygon(path);
+            const ids = Object.values(path.nodeIds);
+            json.nd = Object.fromEntries(ids.map((id, index) => [id, [path.points[index].x, path.points[index].y]]));
+            json.ed = Object.fromEntries(Object.entries(path.edgeIds).map(([index, id]) => {
+                const endpoints = [ids[Number(index)], ids[(Number(index) + 1) % ids.length]];
+                return [id, forward[id] ? endpoints : endpoints.reverse()];
+            }));
+            for (const field of ['bg', 'ew']) {
+                if (!json[field]) continue;
+                json[field] = Object.fromEntries(Object.entries(json[field]).filter(([id]) => Object.hasOwn(json.ed, id)));
+                if (!Object.keys(json[field]).length) delete json[field];
+            }
+            const radii = ids.flatMap((id, index) => Math.abs(path.nodeCornerRadii[index] - this.cornerRadius) >= 1e-9
+                ? [[id, path.nodeCornerRadii[index]]] : []);
+            if (radii.length) json.ncr = Object.fromEntries(radii);
+            else delete json.ncr;
+        }
         return json;
     }
 }
@@ -262,9 +334,12 @@ export function createRect(options = {}) {
     const y = ShapeValidator.validateCoordinate(options.y || 0, { name: 'y' });
     const w = ShapeValidator.validateNumber(options.width || 10, { min: 0, name: 'width' });
     const h = ShapeValidator.validateNumber(options.height || 10, { min: 0, name: 'height' });
+    const shapeOptions = { ...options };
+    // Factory dimensions describe its top-left drawing API, not a saved frame.
+    for (const field of ['width', 'height', 'rotation', 'reversed']) delete shapeOptions[field];
 
     return new Polyline({
-        ...options,
+        ...shapeOptions,
         points: [
             { x: x,     y: y },
             { x: x + w, y: y },

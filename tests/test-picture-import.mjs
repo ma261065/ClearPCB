@@ -20,6 +20,9 @@ const { exportGerbers } = await import('../src/pcb/modules/gerber.js');
 const { collectCopperArtwork } = await import('../src/pcb/modules/copper-artwork.js');
 const { copperShapesTouch } = await import('../src/pcb/modules/track-contact-geometry.js');
 const { resolveTrackDrawSnap } = await import('../src/pcb/modules/track-draw.js');
+const gerberRegions = file => [...file.matchAll(/G36\*\n([\s\S]*?)G37\*/g)].map(match =>
+    [...match[1].matchAll(/X(-?\d+)Y(-?\d+)D0[12]\*/g)].map(point =>
+        ({ x: Number(point[1]) / 1e6, y: -Number(point[2]) / 1e6 })));
 
 const data = new Uint8ClampedArray(3 * 3 * 4);
 for (let index = 0; index < 9; index++) data.set(index === 4 ? [0, 0, 0, 255] : [255, 255, 255, 255], index * 4);
@@ -47,18 +50,26 @@ for (const layer of ['top-silk', 'bottom-silk', 'top-copper', 'bottom-copper']) 
         && !area.holes.some(hole => pointInPolygon({ x: 0, y: 0 }, hole))), false);
     assert.equal(copper.areas.some(area => pointInPolygon({ x: -1, y: -1 }, area.outer)), layer.endsWith('copper'));
     const circle = { kind: 'circle', x: 0, y: 0, radius: 0.1, filled: true, lineWidth: 0.05 };
-    assert.equal(copperShapesTouch(image, circle), false, 'No electrical contact inside transparent pixels');
-    assert.equal(copperShapesTouch(circle, image), false);
+    assert.equal(copperShapesTouch(image, circle), true, 'Logical image contact uses the solid frame, including transparent pixels');
+    assert.equal(copperShapesTouch(circle, image), true, 'Solid-frame contact is symmetric');
     assert.equal(copperShapesTouch(image, { ...circle, x: -1 }), true);
+    assert.equal(copperShapesTouch(image, { ...circle, x: -3 }), false, 'Contact does not extend outside the frame');
     const snapApp = { boardShapes: shapes, tracks: [], vias: [], placements: new Map(),
         _trackToolLayer: layer, viewport: { scale: 100, snapToGrid: false } };
-    assert.equal(resolveTrackDrawSnap(snapApp, { x: 0, y: 0 }).copperContact, false);
+    assert.equal(resolveTrackDrawSnap(snapApp, { x: 0, y: 0 }).copperContact, layer.endsWith('copper'),
+        'Transparent pixels are logical copper only on copper layers');
     assert.equal(resolveTrackDrawSnap(snapApp, { x: -1, y: 0 }).copperContact, layer.endsWith('copper'));
     const gerbers = exportGerbers({ placements: new Map(), boardWidth: 10, boardHeight: 10,
         boardX: -5, boardY: -5, boardShapes: shapes });
     const filesByLayer = { 'top-silk': 'board.gto', 'bottom-silk': 'board.gbo', 'top-copper': 'board.gtl', 'bottom-copper': 'board.gbl' };
     for (const [target, filename] of Object.entries(filesByLayer)) {
-        assert.equal(gerbers.get(filename).includes('G36*'), target === layer, 'Image regions export only on their target artwork layer');
+        const regions = gerberRegions(gerbers.get(filename));
+        assert.equal(regions.length > 0, target === layer, 'Image regions export only on their target artwork layer');
+        for (let y = -1; y <= 1; y++) for (let x = -1; x <= 1; x++) {
+            assert.equal(regions.some(region => pointInPolygon({ x, y }, region)),
+                target === layer && (x !== 0 || y !== 0),
+                'Manufacturing retains the artwork hole rather than the solid logical contact frame');
+        }
     }
     const original = { ...shapes[0], id: 'original' };
     let fills = 0;

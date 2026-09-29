@@ -5,6 +5,8 @@ const timers = new Map();
 let timerId = 0;
 globalThis.setTimeout = callback => { timers.set(++timerId, callback); return timerId; };
 globalThis.clearTimeout = id => timers.delete(id);
+globalThis.requestAnimationFrame = callback => setTimeout(callback, 0);
+globalThis.cancelAnimationFrame = id => clearTimeout(id);
 const flushTimers = () => {
     const pending = [...timers.values()];
     timers.clear();
@@ -308,14 +310,14 @@ for (const shape of [
     const adapter = createBoardShapeSelectionAdapter(app, shape, `shape:${shape.id}`);
     adapter.beginAnchorDrag(0, shape.points[0]);
     const result = adapter.endAnchorDrag(true, { moved: false });
-    expect('PCB Node properties preserve click-release floating movement', {
-        floating: result?.floating,
+    expect('PCB node click refines selection without floating movement', {
+        floating: !!result?.floating,
         selectedNode: app._selectedBoardShapeNode,
         dragActive: !!app._shapeDrag,
     }, {
-        floating: true,
+        floating: false,
         selectedNode: { shapeId: shape.id, index: 0 },
-        dragActive: true,
+        dragActive: false,
     });
     adapter.endAnchorDrag(false, { moved: true });
 }
@@ -385,9 +387,9 @@ function topologyApp(shapes) {
     startBoardShapeDrag(app, shape, shape.points[0], 0);
     handleBoardShapeDrag(app, { x: 0, y: 10 });
     endBoardShapeDrag(app, true);
-    expect('closing from the first endpoint rotates curves and reverses the closing arc',
+    expect('closing from the first endpoint rotates curves without reversing edge direction',
         [shape.kind, boardShapeSegmentBulge(shape, 0), boardShapeSegmentBulge(shape, 1), boardShapeSegmentBulge(shape, 2)],
-        ['polygon', 0.4, 0.5, -0.3]);
+        ['polygon', 0.4, 0.5, 0.3]);
 }
 
 {

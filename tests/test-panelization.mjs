@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { pointInPolygon } from '../src/core/geometry.js';
+import { Via } from '../src/shapes/via.js';
 
 globalThis.window = { addEventListener() {} };
 globalThis.document = { getElementById: () => null };
@@ -259,7 +260,7 @@ const legacyApp = { ...app, panelization: { ...PANEL_DEFAULTS }, texts: new Map(
 new SetPanelizationCommand(legacyApp, legacyApp.panelization).execute();
 assert.equal(legacyApp.texts.size, layout.note.length, 'applying a legacy panel creates editable notes');
 
-app.vias.push({ id: 'via', x: 5, y: -5, diameter: 1, drill: 0.3, net: '' });
+app.vias.push(new Via({ id: 'via', x: 5, y: -5, diameter: 1, drill: 0.3, net: '' }));
 app.placements.set('U1', { x: 8, y: -5, rotation: 90, mirror: true,
     reference: 'U1', refVisible: true,
     padOffsets: [{ dx: 0, dy: 0, width: 2, height: 1, layer: 'top', shape: 'rect' }],
@@ -332,7 +333,10 @@ for (const prefix of ['horizontal', 'vertical']) {
         const tail = content.slice(content.indexOf('G04 Panel rail fiducials'));
         assert.equal((tail.match(/D03\*/g) || []).length, 4, 'rail marks are flashed once per actual panel position');
         const aperture = tail.match(/\nD(\d+)\*/)[1];
-        assert.ok(content.includes(`%ADD${aperture}C,${name.endsWith('s') ? '3.0000' : '1.0000'}*%`));
+        const definition = content.match(new RegExp(`%ADD${aperture}C,([\\d.]+)\\*%`));
+        assert.ok(definition, 'rail marks use a circular aperture');
+        assert.equal(Number(definition[1]), name.endsWith('s') ? 3 : 1,
+            'rail fiducials have 1 mm copper and 3 mm mask openings');
         for (const mark of featureLayout.fiducials) {
             assert.ok(tail.includes(`X${Math.round(mark.x * 1e6)}Y${Math.round(-mark.y * 1e6)}D03*`));
         }

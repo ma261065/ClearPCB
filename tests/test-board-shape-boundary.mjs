@@ -35,6 +35,7 @@ const { updateSelectionInteraction, finishSelectionInteraction, placeFloatingSel
     const { openBoardShape, deleteBoardShapeSegment, deleteBoardShapeVertex } = await import('../src/pcb/modules/board-shapes.js');
     const { RemoveBoardShapeCommand, AddBoardShapeCommand, MoveBoardShapeCommand } = await import('../src/pcb/modules/shape-commands.js');
     const { preparePcb } = await import('../src/pcb/modules/project-state.js');
+    const { defaultPcbStackup } = await import('../src/core/project-format.js');
     const { computeFillPolygons, loadClipper } = await import('../src/pcb/modules/copper-fill-geom.js');
     const { pointInPolygon } = await import('../src/core/geometry.js');
     const { exportGerbers } = await import('../src/pcb/modules/gerber.js');
@@ -76,7 +77,7 @@ const { updateSelectionInteraction, finishSelectionInteraction, placeFloatingSel
             { x: 10, y: 10 }, { x: 30, y: 10 }, { x: 30, y: 15 },
             { x: 20, y: 15 }, { x: 20, y: 20 }, { x: 10, y: 20 }] }]) {
         const saved = serializeBoardShapes({ boardShapes: [outline] });
-        const loaded = preparePcb({ boardShapes: saved }).boardShapes[0];
+        const loaded = preparePcb({ stackup: defaultPcbStackup(), boardShapes: saved }).boardShapes[0];
         assert.equal(validBoardOutline(loaded), true);
         assert.deepEqual(cloneShapeGeometry(loaded), cloneShapeGeometry(outline));
         const bounds = boardBoundary({ boardShapes: [outline] });
@@ -96,8 +97,8 @@ const { updateSelectionInteraction, finishSelectionInteraction, placeFloatingSel
             assert.ok(profile.includes(`${coordinate}D01*`), 'Gerber closes the actual contour');
         }
     }
-    assert.throws(() => preparePcb({ boardShapes: [shape, shape] }), /board outline/);
-    assert.throws(() => preparePcb({ boardShapes: [{ ...shape, kind: 'line' }] }), /board outline/);
+    assert.throws(() => preparePcb({ stackup: defaultPcbStackup(), boardShapes: [shape, shape] }), /board outline/);
+    assert.throws(() => preparePcb({ stackup: defaultPcbStackup(), boardShapes: [{ ...shape, kind: 'line' }] }), /board outline/);
     assert.equal(validBoardOutline({ ...shape, points: shape.points.slice(0, 3) }), false);
     assert.equal(validBoardOutline({ ...shape, points: [null, ...shape.points.slice(1)] }), false);
     assert.equal(validBoardOutline({ ...shape, kind: 'polygon', points: [shape.points[0], ...shape.points] }), false);
@@ -129,7 +130,7 @@ const { updateSelectionInteraction, finishSelectionInteraction, placeFloatingSel
     };
     for (const [kind, label] of [['arc', 'Arc'], ['line', 'Line']]) {
         showBoardShapeContextMenu(app, shape, 0, 0, { x: 3, y: 0 });
-        assert.equal(contextMenu.children[0].textContent, `Convert to ${label} Segment`);
+        assert.equal(contextMenu.children[0].textContent, `Convert to ${label}`);
         contextMenu.children[0].click();
         if (kind === 'arc') {
             assert.equal(app._pcbSelectionInteraction?.mode, 'floating-anchor');
@@ -140,7 +141,7 @@ const { updateSelectionInteraction, finishSelectionInteraction, placeFloatingSel
             finishSelectionInteraction(app, false);
             assert.equal(app._pcbSelectionInteraction, null);
             assert.equal(shape.kind, 'line', 'Cancelling conversion restores the original line');
-            assert.equal(title, 'Line Segment');
+            assert.equal(title, 'Line');
             assert.deepEqual(shape.points, endpoints);
             assert.deepEqual(shape.segmentWidths, { 0: 0.7 });
             assert.equal(commands.length, 0, 'Cancelled conversion creates no history entry');
@@ -150,7 +151,7 @@ const { updateSelectionInteraction, finishSelectionInteraction, placeFloatingSel
             assert.equal(commands.length, 1, 'Conversion and placement share one history entry');
         }
         assert.equal(shape.kind, kind);
-        assert.equal(title, `${label} Segment`);
+        assert.equal(title, label);
         assert.deepEqual(app._selectedBoardShapeSegment, { shapeId: shape.id, segment: 0 });
         assert.equal(shape.net, 'GND');
         assert.equal(shape.lineWidth, 0.7);

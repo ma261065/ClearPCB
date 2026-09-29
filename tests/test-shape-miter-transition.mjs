@@ -15,11 +15,12 @@ for (const reversed of [false, true]) {
             const shape = { kind: 'polygon', layer: 'top-copper', points, lineWidth: 2, filled };
             const contours = resolveBoardShapeGeometry(shape).physicalContours;
             const tip = Math.min(...contours.flat().map(point => point.x));
-            assert.ok(tip >= -10.001 && tip < -9.8, 'Acute tip is clipped at ten half-widths, not replaced by a short bevel');
+            assert.ok(Math.abs(tip + shape.lineWidth / 2) < 0.003,
+                'Round joins extend one half-width beyond an acute corner, without miter spikes');
             if (previousTip !== null) assert.ok(Math.abs(tip - previousTip) < 0.01, 'Tiny angle changes must not pop the corner');
             previousTip = tip;
             assert.deepEqual(getBoardShapeAnchors(shape).filter(anchor => !anchor.midpoint).map(({ x, y }) => ({ x, y })), points);
         }
     }
 }
-console.log('PASS continuous clipped miter transition with fixed centreline handles');
+console.log('PASS continuous round joins across the former miter threshold with fixed centreline handles');

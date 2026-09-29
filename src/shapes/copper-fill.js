@@ -15,17 +15,25 @@
  */
 
 import { closedShapeOutline } from './closed-outline.js';
-import { pointsFormAxisAlignedRect } from './path-operations.js';
+import { collapseRoundedPolygon } from './path-operations.js';
+import { rectangleFrameFromPoints, rectangleFramePoints, pointsFormRectangle } from './rectangle-frame.js';
 
 let fillIdCounter = 0;
 const round4 = value => Math.round(value * 10000) / 10000;
+
+function storedField(data, compact, long) {
+    if (Object.hasOwn(data, compact) && Object.hasOwn(data, long)) {
+        throw new Error(`Ambiguous copper-fill fields: ${compact} and ${long}.`);
+    }
+    return Object.hasOwn(data, compact) ? data[compact] : data[long];
+}
 
 /** Normalize edited fill topology while retaining circles as their own primitive. */
 export function normalizeCopperFillKind(fill) {
     if (!fill || fill.kind === 'circle') return false;
     const before = fill.kind;
     const hasCurves = Object.values(fill.segmentBulges || {}).some(value => Math.abs(value) >= 1e-4);
-    fill.kind = pointsFormAxisAlignedRect(fill.outline) && !hasCurves ? 'rect' : 'polygon';
+    fill.kind = pointsFormRectangle(fill.outline) && !hasCurves ? 'rect' : 'polygon';
     return fill.kind !== before;
 }
 
@@ -191,8 +199,12 @@ export class CopperFill {
             type: 'fill',
             id: this.id,
             l: this.layer,
-            pts: this.outline.map((p) => [round4(p.x), round4(p.y)]),
         };
+        if (this.kind === 'rect') {
+            const frame = rectangleFrameFromPoints(this.outline);
+            Object.assign(out, { x: frame.x, y: frame.y, w: frame.width, h: frame.height, rot: frame.rotation });
+            if (frame.reversed) out.rev = true;
+        } else out.pts = this.outline.map((p) => [round4(p.x), round4(p.y)]);
         if (this.net) out.n = this.net;
         if (this.locked) out.lk = true;
         if (!this.visible) out.v = false;
@@ -203,22 +215,57 @@ export class CopperFill {
                 Object.entries(this[field]).map(([key, value]) => [key, round4(value)]));
         }
         if (this.kind === 'circle') Object.assign(out, { x: round4(this.x), y: round4(this.y), radius: round4(this.radius) });
+        if (this.kind === 'polygon') {
+            const path = { ...out, points: out.pts.map(([x, y]) => ({ x, y })) };
+            if (collapseRoundedPolygon(path)) {
+                out.pts = path.points.map(({ x, y }) => [x, y]);
+                for (const field of ['nodeCornerRadii', 'segmentBulges']) {
+                    if (path[field]) out[field] = path[field];
+                    else delete out[field];
+                }
+            }
+        }
         return out;
     }
 
     /** Deserialise from compact JSON produced by toJSON(). */
     static fromJSON(data) {
-        const outline = data.pts.map((p) => ({ x: p[0], y: p[1] }));
+        const points = storedField(data, 'pts', 'points');
+        let outline;
+        if (data.kind === 'rect') {
+            const hasPoints = Object.hasOwn(data, 'pts') || Object.hasOwn(data, 'points');
+            const hasFrame = ['x', 'y', 'w', 'width', 'h', 'height', 'rot', 'rotation', 'rev', 'reversed']
+                .some(key => Object.hasOwn(data, key));
+            if (hasPoints === hasFrame) {
+                throw new Error('Rectangular copper fill requires exactly one rectangle frame or legacy points.');
+            }
+            if (hasFrame) {
+                outline = rectangleFramePoints({
+                    x: data.x, y: data.y,
+                    width: storedField(data, 'w', 'width'),
+                    height: storedField(data, 'h', 'height'),
+                    rotation: storedField(data, 'rot', 'rotation'),
+                    reversed: storedField(data, 'rev', 'reversed'),
+                });
+            } else {
+                if (!Array.isArray(points) || points.some(point => !Array.isArray(point)
+                    || point.length !== 2 || !point.every(Number.isFinite))) {
+                    throw new Error('Rectangular copper-fill points require finite [x, y] tuples.');
+                }
+                outline = points.map(point => ({ x: point[0], y: point[1] }));
+                rectangleFrameFromPoints(outline);
+            }
+        } else outline = points.map((p) => ({ x: p[0], y: p[1] }));
         return new CopperFill({
             kind: data.kind, cornerRadius: data.cornerRadius,
             nodeCornerRadii: data.nodeCornerRadii, segmentBulges: data.segmentBulges,
-            x: data.x, y: data.y, radius: data.radius,
+            ...(data.kind === 'rect' ? {} : { x: data.x, y: data.y, radius: data.radius }),
             id: data.id,
-            layer: data.l,
-            net: data.n,
+            layer: storedField(data, 'l', 'layer'),
+            net: storedField(data, 'n', 'net'),
             outline,
-            locked: data.lk,
-            visible: data.v,
+            locked: storedField(data, 'lk', 'locked'),
+            visible: storedField(data, 'v', 'visible'),
         });
     }
 }

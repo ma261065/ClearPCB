@@ -16,6 +16,7 @@ const SCHEMATIC_SHAPE = {
     nd: 'graphNodes', ed: 'graphEdges', cl: 'closed', f: 'fill', fa: 'fillAlpha',
     cr: 'cornerRadius', ncr: 'nodeCornerRadii', bg: 'edgeBulges', ew: 'edgeWidths',
     ir: 'isRect', fc: 'fillColor', pc: 'pinConnections', wl: 'wireLabel',
+    w: 'width', h: 'height', rev: 'reversed', cn: 'cornerNodeIds',
     n: 'net', lo: 'labelOffset', sp: 'startPoint', ep: 'endPoint', bp: 'bulgePoint',
     t: 'text', fs: 'fontSize', ff: 'fontFamily', ta: 'textAnchor', rot: 'rotation',
     cid: 'componentId', fk: 'fieldKey', att: 'attachment', bd: 'border',
@@ -72,10 +73,12 @@ const BOARD_SHAPE = {
     p: 'plated', n: 'net', sw: 'segmentWidths', sb: 'segmentBulges',
     ncr: 'nodeCornerRadii', cr: 'cornerRadius', sp: 'start', ep: 'end',
     bp: 'bulge', r: 'radius', nm: 'name', aw: 'artwork', pts: 'points',
+    w: 'width', h: 'height', rot: 'rotation', rev: 'reversed',
 };
 const FILL_BASE = { l: 'layer', pts: 'points', n: 'net', lk: 'locked', v: 'visible' };
 const FILL_GEOMETRY = {
     k: 'kind', cr: 'cornerRadius', ncr: 'nodeCornerRadii', sb: 'segmentBulges', r: 'radius',
+    w: 'width', h: 'height', rot: 'rotation', rev: 'reversed',
 };
 const ARTWORK = { e: 'encoding', b: 'bytes', d: 'data', i: 'index' };
 const PCB_TEXT = {

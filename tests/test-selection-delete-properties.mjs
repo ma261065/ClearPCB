@@ -2,7 +2,15 @@ import assert from 'node:assert/strict';
 
 globalThis.window = { addEventListener() {} };
 globalThis.document = {
-    createElementNS() { return { setAttribute() {}, appendChild() {} }; },
+    createElementNS() {
+        const attributes = new Map();
+        return {
+            setAttribute(name, value) { attributes.set(name, String(value)); },
+            getAttribute(name) { return attributes.get(name) ?? null; },
+            removeAttribute(name) { attributes.delete(name); },
+            appendChild() {},
+        };
+    },
 };
 
 const { deleteBoxSelection } = await import('../src/pcb/modules/box-select.js');

@@ -7,7 +7,20 @@ globalThis.document = {
         const attributes = new Map();
         return { style: {}, children: [], setAttribute(name, value) { attributes.set(name, String(value)); },
             getAttribute(name) { return attributes.get(name) ?? null; }, removeAttribute(name) { attributes.delete(name); },
-            appendChild(child) { this.children.push(child); }, remove() {}, querySelectorAll() { return []; } };
+            appendChild(child) { child.remove(); child.parentNode = this; this.children.push(child); },
+            insertBefore(child, reference) {
+                child.remove();
+                const index = this.children.indexOf(reference);
+                if (index < 0) this.children.push(child);
+                else this.children.splice(index, 0, child);
+                child.parentNode = this;
+            },
+            removeChild(child) { child.remove(); },
+            remove() {
+                if (this.parentNode) this.parentNode.children = this.parentNode.children.filter(child => child !== this);
+                this.parentNode = null;
+            },
+            querySelectorAll() { return []; } };
     },
 };
 globalThis.requestAnimationFrame = callback => { callback(); return 1; };
@@ -384,13 +397,6 @@ for (const bulge of [0, 0.25]) {
     const overlay = document.createElementNS('', 'g');
     overlay.querySelectorAll = selector => overlay.children.filter(
         child => (child.getAttribute('class') || '').split(' ').includes(selector.slice(1)));
-    overlay.appendChild = child => {
-        overlay.children.push(child);
-        child.remove = () => {
-            const index = overlay.children.indexOf(child);
-            if (index !== -1) overlay.children.splice(index, 1);
-        };
-    };
     app._getLayerGroup = layer => layer === 'selection-overlay' ? overlay : null;
     const width = propertyInput(0.2);
     document.getElementById = id => id === 'pcbPropShapeLineWidth' ? width : null;
@@ -521,10 +527,11 @@ for (const overall of [2, 3]) {
     commands.at(-1).undo();
     assert.equal(track.width, 2);
     assert.equal(track.getEdgeWidth(edgeId), 4, 'Undo restores the original local width');
-    radius.value = '1';
+    const nodeRadius = propertyInput(1);
+    document.getElementById = id => id === 'pcbPropTrackCornerRadius' ? nodeRadius : null;
     selectTrackNode(app, track, nodeId);
-    radius.fire('input');
-    radius.fire('change');
+    nodeRadius.fire('input');
+    nodeRadius.fire('change');
     assert.equal(track.cornerRadius, overall);
     assert.deepEqual(track.nodeCornerRadii, { [nodeId]: 1 });
     document.getElementById = () => null;
@@ -790,6 +797,10 @@ for (const [kind, zeroOffset] of ['arc', 'line', 'polygon'].flatMap(kind =>
         assert.equal(shape.kind, kind === 'arc' ? 'line' : kind);
         if (kind !== 'arc') assert.equal(Object.hasOwn(shape.segmentBulges, 0), false);
         commands.at(-1).undo();
+        assert.equal(kind === 'arc' ? shape.bulge.y : shape.segmentBulges[0], 0,
+            'Undo normalization restores the externally supplied zero bulge');
+        commands[0].execute();
+        assert.equal(Number(input.value), -0.5, 'Restore the curved fixture before testing a deferred blur');
         const beforeBlurCommands = commands.length;
         const beforeBlurValue = input.value;
         input.value = '0.75';

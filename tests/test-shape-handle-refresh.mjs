@@ -70,13 +70,21 @@ try {
             }
             assert.notDeepEqual(cloneShapeGeometry(shape), original, `${shape.kind} updates live`);
             endBoardShapeDrag(app, commit);
-            assert.equal(timers.size, 1, 'Release or cancellation starts one debounce');
-            assert.equal(halos, 0);
-            assert.equal(fills, 0);
-            if (!commit) assert.deepEqual(cloneShapeGeometry(shape), original);
+            if (commit) {
+                assert.equal(timers.size, 1, 'A committed release starts one debounce');
+                assert.equal(halos, 0);
+                assert.equal(fills, 0);
+            } else {
+                assert.deepEqual(cloneShapeGeometry(shape), original, 'Cancel restores geometry immediately');
+                assert.equal(app._pictureCopperRefreshPending, false);
+                assert.equal(timers.size, 0, 'Cancellation leaves no deferred refresh');
+                assert.equal(halos, 1, 'Cancel restores clearance immediately');
+                assert.equal(fills, 1, 'Cancel refreshes fills immediately');
+            }
             flush();
             assert.equal(app._pictureCopperRefreshPending, false);
             assert.equal(halos, 1);
+            assert.equal(fills, 1, 'Restored or committed geometry refreshes fills exactly once');
             if (commit) {
                 app.history.undo();
                 assert.deepEqual(cloneShapeGeometry(shape), original);
@@ -88,4 +96,4 @@ try {
     globalThis.setTimeout = originalSetTimeout;
     globalThis.clearTimeout = originalClearTimeout;
 }
-console.log('PASS image, circle, rectangle, polygon, line and arc handle drags defer clearance until release/cancel');
+console.log('PASS all shape handle drags defer committed refreshes and restore cancelled geometry/clearance/fills immediately');

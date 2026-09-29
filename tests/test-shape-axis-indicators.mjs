@@ -40,6 +40,7 @@ const wireGuides = await import('../src/schematic/modules/wire.js');
 const { Arc } = await import('../src/shapes/arc.js');
 const { renderShapeAlignment, snapShapePoint, snapShapeBulge, shapeContinuationConstraints, snapShapeDrawingPoint } = await import('../src/schematic/modules/shape-snap.js');
 const { resolvePathPoint, pathContinuationConstraints, resolvePathTranslation, pathSegmentConstraints } = await import('../src/shapes/path-snap.js');
+const { snapPathPoint } = await import('../src/pcb/modules/path-edit.js');
 const { updatePolylineSegmentDrag } = await import('../src/schematic/modules/polyline-segment-drag.js');
 const { clearDragState } = await import('../src/ui/modules/drag.js');
 const { updatePreview, cancelDrawing } = await import('../src/ui/modules/drawing.js');
@@ -89,6 +90,21 @@ expect('horizontal snap shows the Track halo and solid centerline', hasTrackStyl
 expect('vertical snap shows the Track halo and solid centerline', hasTrackStyleGlow({ x: 10.1, y: 5 }, false));
 expect('diagonal snap shows the Track halo and dashed centerline', hasTrackStyleGlow({ x: 5, y: 5.1 }, true));
 
+{
+    const app = { viewport: { scale: 20, gridSize: 1, snapToGrid: true } };
+    const pointer = { x: 4.05, y: 4.08 };
+    const neighbour = { x: 0.1, y: 8.1 };
+    const aligned = snapPathPoint(app, pointer, [neighbour]);
+    expect('exact diagonal alignment overrides a competing grid magnet',
+        Math.abs(Math.abs(aligned.x - neighbour.x) - Math.abs(aligned.y - neighbour.y)) < 1e-9
+        && Math.hypot(aligned.x - 4, aligned.y - 4) > 0.01);
+    const gridOnly = snapPathPoint(app, pointer);
+    expect('grid magnet still guides points without an alignment constraint', gridOnly.x === 4 && gridOnly.y === 4);
+    app.viewport.shiftHeld = true;
+    const free = snapPathPoint(app, pointer, [neighbour]);
+    expect('Shift bypasses both alignment and grid magnetism', free.x === pointer.x && free.y === pointer.y);
+}
+
 for (const [name, target, expectedKind, diagonal] of [
     ['rectangle', { x: 0.05, y: 0.05 }, 'rect', false],
     ['horizontal', { x: 2.05, y: 0.05 }, 'polygon', false],
@@ -101,7 +117,7 @@ for (const [name, target, expectedKind, diagonal] of [
     const expanded = getBoardShapeAnchors(shape).filter(anchor => !anchor.midpoint);
     shape.points = outer.map((point, index) => ({ x: 2 * point.x - expanded[index].x, y: 2 * point.y - expanded[index].y }));
     const app = {
-        boardShapes: [shape], viewport: { scale: 20, snapToGrid: true, setCrosshair() {} },
+        boardShapes: [shape], viewport: { scale: 20, gridSize: 1, snapToGrid: true, setCrosshair() {} },
         _snapToGrid(point) { return { x: Math.round(point.x), y: Math.round(point.y) }; },
         _getLayerGroup() { return overlay; }, _shapeElements: new Map(),
     };
@@ -109,8 +125,14 @@ for (const [name, target, expectedKind, diagonal] of [
     startBoardShapeDrag(app, shape, anchor, 0);
     handleBoardShapeDrag(app, target);
     const moved = getBoardShapeAnchors(shape)[0];
-    expect(`polygon ${name} alignment keeps the outer handle on grid`,
-        Math.abs(moved.x - Math.round(moved.x)) < 1e-6 && Math.abs(moved.y - Math.round(moved.y)) < 1e-6);
+    if (diagonal) {
+        expect('polygon diagonal alignment takes priority over the outer-handle grid',
+            [shape.points[1], shape.points.at(-1)].some(neighbour =>
+                Math.abs(Math.abs(shape.points[0].x - neighbour.x) - Math.abs(shape.points[0].y - neighbour.y)) < 1e-6));
+    } else {
+        expect(`polygon ${name} alignment keeps the outer handle on grid when compatible`,
+            Math.abs(moved.x - Math.round(moved.x)) < 1e-6 && Math.abs(moved.y - Math.round(moved.y)) < 1e-6);
+    }
     expect(`polygon ${name} alignment normalizes its kind correctly`, shape.kind === expectedKind);
     const lines = overlay.children.filter(child => child.tagName === 'line' && child.getAttribute('stroke') === '#ffffff');
     if (expectedKind === 'rect') {
@@ -235,12 +257,14 @@ for (const mode of ['move', 'segment', 'insert']) {
         _snapToGrid(point) { return point; },
     };
     const start = mode === 'insert' ? { x: 150, y: 100 } : { x: 130, y: 98 };
+    const feedbackStart = mode === 'move' ? { ...shape.points[0] } : start;
     startBoardShapeDrag(app, shape, start, mode === 'insert' ? 'mid:0' : null, { allowSegment: mode === 'segment' });
-    expect(`${mode} starts crosshair at grabbed point`, crosshair.x === start.x && crosshair.y === start.y);
+    const feedback = mode === 'move' ? 'shape origin' : 'grabbed point';
+    expect(`${mode} starts crosshair at ${feedback}`, crosshair.x === feedbackStart.x && crosshair.y === feedbackStart.y);
     const target = { x: start.x, y: start.y - 5 };
     handleBoardShapeDrag(app, target);
-    expect(`${mode} crosshair follows grabbed point`, Math.abs(crosshair.x - target.x) < 1e-9
-        && Math.abs(crosshair.y - target.y) < 1e-9);
+    expect(`${mode} crosshair follows ${feedback}`, Math.abs(crosshair.x - feedbackStart.x) < 1e-9
+        && Math.abs(crosshair.y - (feedbackStart.y - 5)) < 1e-9);
 }
 
 {

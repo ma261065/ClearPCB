@@ -32,31 +32,15 @@ function arcSamples(shape, segments = 48) {
     return sampleControlArc(shape, segments);
 }
 
-/**
- * Walk angles from start through bulge to end. Returns { a1, dir, total }
- * where the arc spans `total` radians from `a1` in direction `dir` (+1/-1),
- * guaranteeing the bulge control point lies on the swept arc.
- */
-function rectBounds(shape) {
-    const points = shape.points || [];
-    if (points.length < 2) return null;
-    const xs = points.map((point) => point.x);
-    const ys = points.map((point) => point.y);
-    return {
-        minX: Math.min(...xs), maxX: Math.max(...xs),
-        minY: Math.min(...ys), maxY: Math.max(...ys),
-    };
-}
-
 /** Clamp a rectangle's corner radius to its current dimensions. */
 export function rectCornerRadius(shape) {
     if (shape?.kind !== 'rect') return 0;
-    const bounds = rectBounds(shape);
-    if (!bounds) return 0;
+    const points = shape.points || [];
+    if (points.length !== 4) return 0;
     return Math.max(0, Math.min(
         Number(shape.cornerRadius) || 0,
-        (bounds.maxX - bounds.minX) / 2,
-        (bounds.maxY - bounds.minY) / 2,
+        Math.hypot(points[1].x - points[0].x, points[1].y - points[0].y) / 2,
+        Math.hypot(points[3].x - points[0].x, points[3].y - points[0].y) / 2,
     ));
 }
 

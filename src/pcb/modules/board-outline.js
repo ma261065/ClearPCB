@@ -1,5 +1,5 @@
 import { shapeOutline } from './board-shape-geometry.js';
-import ClipperLib from '../../../assets/vendor/clipper.esm.js';
+import { validClosedShape } from '../../shapes/closed-outline.js';
 
 export function getBoardOutline(app) {
     return app.boardShapes?.find(shape => shape.layer === 'board-outline') || null;
@@ -12,27 +12,7 @@ export function rectangleBoardOutline(width, height, radius = 0) {
 }
 
 export function validBoardOutline(shape) {
-    if (!shape || shape.layer !== 'board-outline' || !['rect', 'polygon', 'circle'].includes(shape.kind)) return false;
-    if (shape.kind === 'circle') return Number.isFinite(shape.x) && Number.isFinite(shape.y)
-        && Number.isFinite(shape.radius) && shape.radius > 0;
-    if (!Array.isArray(shape.points) || shape.points.length < 3
-        || (shape.kind === 'rect' && shape.points.length !== 4)
-        || shape.points.some(point => !point || !Number.isFinite(point.x) || !Number.isFinite(point.y))) return false;
-    if (shape.points.some((point, index) => {
-        const next = shape.points[(index + 1) % shape.points.length];
-        return Math.hypot(next.x - point.x, next.y - point.y) < 1e-9;
-    })) return false;
-    const points = shapeOutline(shape);
-    let area = 0;
-    for (let index = 0; index < points.length; index++) {
-        const start = points[index], end = points[(index + 1) % points.length];
-        area += start.x * end.y - end.x * start.y;
-    }
-    if (!Number.isFinite(area) || Math.abs(area) <= 1e-6) return false;
-    const path = points.map(point => ({ X: Math.round(point.x * 10000), Y: Math.round(point.y * 10000) }));
-    const simple = ClipperLib.Clipper.SimplifyPolygon(path, ClipperLib.PolyFillType.pftNonZero);
-    return simple.length === 1 && Math.abs(Math.abs(ClipperLib.Clipper.Area(path))
-        - Math.abs(ClipperLib.Clipper.Area(simple[0]))) < 1;
+    return shape?.layer === 'board-outline' && validClosedShape(shape, { minArea: 1e-6 });
 }
 
 export function boardBoundary(app) {

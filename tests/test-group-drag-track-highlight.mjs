@@ -37,7 +37,7 @@ for (const count of [1, 2]) {
     }));
     const rectangle = { id: 'rect', kind: 'rect', layer: 'top-silk', lineWidth: 0.2,
         points: [{ x: 20, y: 0 }, { x: 25, y: 0 }, { x: 25, y: 5 }, { x: 20, y: 5 }] };
-    const layers = new Map(['top-copper', 'bottom-copper', 'top-silk', 'hole'].map((name) => [name, new Element()]));
+    const layers = new Map(['top-copper', 'bottom-copper', 'top-silk', 'hole', 'selection-overlay'].map((name) => [name, new Element()]));
     const app = {
         tracks, vias: [], boardShapes: [rectangle], placements: new Map(), texts: new Map(),
         _shapeElements: new Map(), _layerGroups: layers,
@@ -49,8 +49,8 @@ for (const count of [1, 2]) {
     setPcbSelection(app, [...tracks.map((object) => ({ kind: 'track', object })), { kind: 'shape', object: rectangle }]);
     refreshBoxSelectionHighlights(app);
     const checkHighlights = () => {
-        const primary = layers.get('top-copper').querySelectorAll('.pcb-track-selection');
-        const secondary = layers.get('top-copper').querySelectorAll('.pcb-box-track-sel');
+        const primary = layers.get('selection-overlay').querySelectorAll('.pcb-track-selection');
+        const secondary = layers.get('selection-overlay').querySelectorAll('.pcb-box-track-sel');
         const expected = tracks.flatMap((track) => buildTrackLayerRuns(track)
             .map((run) => run.points.map((point) => `${point.x},${point.y}`).join(' ')));
         assert.deepEqual([...primary, ...secondary].map((element) => element.getAttribute('points')), expected);

@@ -180,11 +180,9 @@ export function bindRibbon(app) {
 
     get('ribbonNew')?.addEventListener('click', () => {
         app.newFile();
-        app._setActiveRibbonTab('home');
     });
     get('ribbonOpen')?.addEventListener('click', () => {
         app.openFile();
-        app._setActiveRibbonTab('home');
     });
 
     // ── Recent files (Open ▾ dropdown) ───────────────────────────

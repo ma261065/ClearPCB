@@ -1,5 +1,6 @@
 import { normalizeProjectAliases, normalizePcbSection } from './project-field-aliases.js';
 import { getBuiltInPackageOptions } from '../components/BuiltInPackages.js';
+import { hasRectangleFrame, rectangleFramePoints } from '../shapes/rectangle-frame.js';
 
 const record = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 const fields = (...names) => new Set(names);
@@ -15,7 +16,7 @@ const DEFINITION_FIELDS = fields('name', 'category', 'description', 'symbol', 'd
     'model3dObj', 'model3dUrl', 'model3dName', 'has3d');
 const SHAPE_COMMON_FIELDS = fields('id', 'type', 'c', 'l', 'lw', 'v', 'lk');
 const SHAPE_FIELDS = {
-    polyline: fields('nd', 'ed', 'cl', 'f', 'fa', 'cr', 'ncr', 'bg', 'ew', 'ir', 'fc'),
+    polyline: fields('nd', 'ed', 'cl', 'f', 'fa', 'cr', 'ncr', 'bg', 'ew', 'ir', 'fc', 'x', 'y', 'w', 'h', 'rot', 'rev', 'cn'),
     wire: fields('nd', 'ed', 'f', 'fa', 'cr', 'ncr', 'bg', 'ew', 'pc', 'wl', 'n', 'lo'),
     circle: fields('x', 'y', 'r', 'f', 'fa'),
     arc: fields('sp', 'ep', 'bp', 'f'),
@@ -34,9 +35,9 @@ const VIA_FIELDS = fields('type', 'id', 'x', 'y', 'd', 'dr', 'n', 'lk', 'v', 'sp
 const VIA_SPAN_FIELDS = fields('from', 'to');
 const BOARD_SHAPE_FIELDS = fields('id', 'kind', 'layer', 'lineWidth', 'filled', 'copperMode', 'plated', 'net',
     'segmentWidths', 'segmentBulges', 'nodeCornerRadii', 'cornerRadius', 'start', 'end', 'bulge',
-    'x', 'y', 'radius', 'name', 'artwork', 'points');
+    'x', 'y', 'radius', 'name', 'artwork', 'points', 'width', 'height', 'rotation', 'reversed');
 const FILL_FIELDS = fields('type', 'id', 'l', 'pts', 'n', 'lk', 'v', 'kind', 'cornerRadius',
-    'nodeCornerRadii', 'segmentBulges', 'x', 'y', 'radius');
+    'nodeCornerRadii', 'segmentBulges', 'x', 'y', 'radius', 'width', 'height', 'rotation', 'reversed');
 const PCB_TEXT_FIELDS = fields('id', 'content', 'x', 'y', 'size', 'rotation', 'layer', 'strokeWidth', 'border');
 const PAD_FIELDS = fields('type', 'id', 'x', 'y', 'shape', 'size', 'drill', 'ratio',
     'rotation', 'layers', 'net', 'locked', 'visible');
@@ -119,7 +120,32 @@ function validateSchematicShape(item, index) {
     }
     rejectUnknownFields(item, new Set([...SHAPE_COMMON_FIELDS, ...SHAPE_FIELDS[item.type]]), path);
     requireFields(item, ['id', 'type'], path);
-    if (item.type === 'polyline' || item.type === 'wire') validateGraph(item, path);
+    if (item.type === 'polyline' && ['w', 'h', 'rot', 'rev', 'cn'].some(key => Object.hasOwn(item, key))) {
+        if (item.ir !== true || item.cl !== true || Object.hasOwn(item, 'nd')) {
+            invalid(path, 'A rectangle frame requires a closed rectangle without a coordinate node map.', item);
+        }
+        const frame = { x: item.x, y: item.y, width: item.w, height: item.h, rotation: item.rot, reversed: item.rev };
+        validateFrame(frame, path);
+        if (!Array.isArray(item.cn) || item.cn.length !== 4 || new Set(item.cn).size !== 4
+            || !item.cn.every(id => typeof id === 'string' && id.length)) {
+            invalid(`${path}.cn`, 'A rectangle requires four distinct corner node IDs.', item.cn);
+        }
+        const points = rectangleFramePoints(frame);
+        validateGraph({ ...item, nd: Object.fromEntries(item.cn.map((id, i) => [id, [points[i].x, points[i].y]])) }, path);
+        const expected = new Set(item.cn.map((id, i) => JSON.stringify([id, item.cn[(i + 1) % 4]].sort())));
+        const actual = Object.values(item.ed).map(edge => JSON.stringify([...edge].sort()));
+        if (actual.length !== 4 || new Set(actual).size !== 4 || actual.some(edge => !expected.has(edge))) {
+            invalid(`${path}.ed`, 'Rectangle edges must connect the four corners in order.', item.ed);
+        }
+    } else if (item.type === 'polyline' || item.type === 'wire') validateGraph(item, path);
+}
+
+function validateFrame(frame, path) {
+    try {
+        rectangleFramePoints(frame);
+    } catch (error) {
+        invalid(path, error instanceof Error ? error.message : String(error), frame);
+    }
 }
 
 function validateComponent(item, index) {
@@ -168,11 +194,16 @@ function validatePcbShape(item, index) {
     requireRecord(item, path);
     if (item.type === 'fill') {
         rejectUnknownFields(item, FILL_FIELDS, path);
-        requireFields(item, ['type', 'id', 'l', 'pts', 'kind'], path);
+        requireFields(item, ['type', 'id', 'l', 'kind'], path);
         if (!['polygon', 'rect', 'circle'].includes(item.kind)) {
             invalid(`${path}.kind`, 'Copper-fill kind must be "polygon", "rect", or "circle".', { kind: item.kind });
         }
-        if (!Array.isArray(item.pts)
+        if (hasRectangleFrame(item)) {
+            if (item.kind !== 'rect' || Object.hasOwn(item, 'pts')) {
+                invalid(path, 'Only rectangular fills may use a frame, without outline points.', item);
+            }
+            validateFrame(item, path);
+        } else if (!Array.isArray(item.pts)
             || item.pts.some(point => !Array.isArray(point) || point.length !== 2 || !point.every(Number.isFinite))) {
             invalid(`${path}.pts`, 'Copper-fill points must use canonical [x, y] tuples.', item.pts);
         }
@@ -182,6 +213,12 @@ function validatePcbShape(item, index) {
     requireFields(item, ['id', 'kind', 'layer', 'lineWidth', 'filled', 'copperMode', 'plated', 'net'], path);
     if (!['line', 'rect', 'polygon', 'arc', 'circle', 'image'].includes(item.kind)) {
         invalid(`${path}.kind`, 'Unknown board-shape kind.', { kind: item.kind });
+    }
+    if (hasRectangleFrame(item)) {
+        if (!['rect', 'image'].includes(item.kind) || Object.hasOwn(item, 'points')) {
+            invalid(path, 'Only rectangles/images may use a frame, without corner points.', item);
+        }
+        validateFrame(item, path);
     }
     if (!COPPER_MODES.has(item.copperMode)) {
         invalid(`${path}.copperMode`, 'Copper mode must be "add", "remove-copper", "remove-solder-mask", or "remove-copper-mask".',
@@ -386,10 +423,11 @@ export function validateProject(data) {
                         invalid(`${field}[${index}].nd`, `Invalid graph coordinates in ${field}`, node);
                     }
                 }
+                const nodeIds = new Set(item.cn || Object.keys(nodes || {}));
                 for (const edge of Object.values(edges || {})) {
                     const from = edge[0];
                     const to = edge[1];
-                    if (!nodes || !Object.prototype.hasOwnProperty.call(nodes, from) || !Object.prototype.hasOwnProperty.call(nodes, to)) {
+                    if (!nodeIds.has(from) || !nodeIds.has(to)) {
                         invalid(`${field}[${index}].ed`, `Dangling graph edge in ${field}`, edge);
                     }
                 }

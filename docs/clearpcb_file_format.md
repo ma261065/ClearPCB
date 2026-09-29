@@ -65,11 +65,22 @@ A project always has a schematic envelope. `ProjectDocument` adds the optional
 - Defaults are usually omitted.
 - Shape and component coordinates are generally rounded to four decimal places.
   PCB via positions and diameters, fill outlines, and board-shape
-  coordinates, radii and stroke widths follow this convention on save, including
-  image placement points. Free-standing text, footprint placement and reference-text
+  coordinates, radii and stroke widths follow this convention on save. Images
+  and rectangles save centre/size/rotation parameters instead of independently
+  rounded corners. Free-standing text, footprint placement and reference-text
   geometry, board dimensions, and routing design dimensions also use four decimals.
   Image source artwork remains lossless. Save-time rounding does not
   mutate live geometry or apply to detached fabrication snapshots.
+- For PCB polygons (including board outlines), polygon copper fills and simple
+  closed schematic polygons, adjacent vertices that round to identical
+  coordinates are merged on the save copy. Runs and the closing edge are
+  included. Surviving edge/corner metadata is remapped; schematic edge IDs,
+  directions and surviving node IDs are preserved. Cleanup must leave a valid
+  closed outline; ordinary artwork retains even-odd crossings, while board
+  outlines must remain simple. Collapsed curved edges, conflicting widths/radii and merged
+  rounded corners fail explicitly rather than lose properties or enlarge a
+  radius previously constrained by the tiny edge. Open lines, electrical graphs
+  and parametric rectangles/images are not subject to this polygon cleanup.
 - IDs are opaque strings. Readers must not infer object type solely from an ID
   prefix.
 - Boolean fields omitted from compact objects take their documented default.
@@ -157,7 +168,7 @@ Polylines and wires use graph storage rather than a single point array:
 
 | Key | Meaning |
 | --- | --- |
-| `nd` | Node map. Each value is `[x, y]`. |
+| `nd` | Node map. Each value is `[x, y]`. New rectangle records use a frame and `cn` instead. |
 | `ed` | Edge map. Each value is `[fromNodeId, toNodeId]`. |
 | `cl` | Closed graph. Omitted/false means open. |
 | `f` | Filled. Graph serializers emit this explicitly. |
@@ -218,10 +229,18 @@ The three control points are the source of truth:
 
 ### Rect
 
-A schematic rectangle is a graph-based `polyline` with `ir: true`. Its corners
-are stored in `nd`/`ed`; `cr` is the optional corner radius. Fill-related
-fields use `f`, `fc`, and `fa`. A persisted `points` array or `type: "rect"`
-is invalid.
+A schematic rectangle remains a graph-based `polyline` with `ir: true` and
+`cl: true`. New records store the rectangle frame described below
+(`x`, `y`, `w`, `h`, `rot`, optional `rev`) and `cn` (`cornerNodeIds`):
+an ordered array of four distinct node IDs. `nd` is omitted. The unchanged
+`ed` map connects those four corners cyclically, preserving edge IDs and their
+width/bulge metadata. `ncr` remains keyed by node ID. Coordinates are derived
+from the frame when loading.
+
+`cr` is the optional corner radius. Fill-related fields use `f`, `fc`, and `fa`.
+Legacy rectangle records with `nd`/`ed` remain readable temporarily; saving them
+emits the frame representation. Supplying both a frame and `nd` is invalid.
+A persisted `points` array or `type: "rect"` is still invalid.
 
 ### Text
 
@@ -661,16 +680,47 @@ Geometry depends on `k` (`kind`):
 [
   { "k": "line", "pts": [{ "x": 0, "y": 0 }, { "x": 10, "y": 0 }], "sb": { "0": 0.25 } },
   { "k": "polygon", "pts": [{ "x": 0, "y": 0 }, { "x": 10, "y": 0 }, { "x": 5, "y": 5 }], "sb": { "1": -0.5 } },
-  { "k": "rect", "pts": [{ "x": 0, "y": 0 }, { "x": 10, "y": 0 }, { "x": 10, "y": 5 }, { "x": 0, "y": 5 }], "cr": 1 },
+  { "k": "rect", "x": 5, "y": 2.5, "w": 10, "h": 5, "rot": 0, "cr": 1 },
   { "k": "arc", "sp": { "x": 0, "y": 0 }, "ep": { "x": 10, "y": 0 }, "bp": { "x": 5, "y": -2 } },
   { "k": "circle", "x": 5, "y": 5, "r": 3 }
 ]
 ```
 
-Image records are single objects with `k: "image"`, an optional `nm`, and
-four rectangular `pts` in source-corner order (top-left, top-right,
-bottom-right, bottom-left before rotation). The bounding box is selectable,
-including transparent areas. Only top/bottom silk and copper layers are supported.
+#### Rectangle frames
+
+Images, PCB rectangles (including rectangular board outlines), schematic
+rectangles, and rectangular copper fills use this common saved geometry:
+
+| Key (long alias) | Meaning |
+| --- | --- |
+| `x`, `y` | Rectangle centre in board/schematic coordinates, mm. |
+| `w` (`width`), `h` (`height`) | Positive width and height in mm. |
+| `rot` (`rotation`) | Rotation in degrees, positive visually counterclockwise; saves normalize to `[0,360)`. |
+| `rev` (`reversed`) | Optional reversed corner winding; default `false`. Preserves existing source-corner and indexed-metadata order. |
+
+Centre, dimensions and rotation are rounded to four decimal places on save.
+The corners are reconstructed from perpendicular axes, so independent corner
+rounding cannot distort the rectangle. With `a = (cos(-rot), sin(-rot))` and
+`b = (-a.y, a.x)` (angles converted to radians), the ordered corners are
+`centre - w*a/2 - h*b/2`, `centre + w*a/2 - h*b/2`,
+`centre + w*a/2 + h*b/2`, `centre - w*a/2 + h*b/2`.
+When `rev` is true, negate `b`. This flag preserves winding; it does not toggle
+the artwork's horizontal/vertical flip settings.
+
+Frames must have all five finite numeric parameters and nonempty dimensions.
+Dimensions that round to zero are rejected rather than saved as degenerate frames.
+Partial frames or simultaneous frame and corner-coordinate representations
+are rejected. Legacy corner-based images and rectangles remain readable for
+migration, but new saves/autosaves use frames only. Older application versions
+without frame support cannot read these new records.
+
+#### Images
+
+Image records are single objects with `k: "image"`, an optional `nm`, and a
+rectangle frame. The derived corners retain source-corner order (top-left,
+top-right, bottom-right, bottom-left before rotation). The bounding box is
+selectable, including transparent areas. Top/bottom silk, copper and document
+layers are supported.
 Images are always filled; `lw` does not expand their artwork.
 
 New saves and autosaves encode `aw` losslessly using the smaller of:
@@ -691,11 +741,13 @@ array of flat `x,y` sequences, one per ring. Each of `invert`, `flipHorizontal`,
 and `flipVertical` occupies two bits of `flags`, starting at the low bits:
 `0` means absent, `1` means false, `3` means true; `2` is invalid.
 Coordinates are not rounded or quantized. Full JSON numeric precision survives
-save/load, including fractional source-pixel positions and radii. Each image's
-four board-space points are saved to four decimal places independently of its artwork.
-On load, rectangle validation allows the bounded error from rounding each coordinate
-by at most 0.00005 mm. This preserves rounded rotated images without accepting
-empty bounds or distortion beyond the rounding allowance and numeric tolerance.
+save/load, including fractional source-pixel positions and radii. Placement is
+stored separately as the rectangle frame above, not as rounded corner points.
+For older rounded image records that fail strict rectangle validation, loading
+uses a bounded coordinate tolerance of 0.0001 mm and normalizes the points to a
+rectangle. Subsequent saves encode that rectangle as a frame.
+Empty bounds and distortion beyond that allowance remain invalid; strict
+runtime rectangle validation is unchanged.
 Loaded duplicates are independently editable. Only persistence uses this encoding;
 renderers and fabrication snapshots consume the decoded geometry described below.
 Legacy uncompressed artwork is not supported and is rejected when loading a
@@ -809,7 +861,11 @@ Copper fills are stored inside `pcb.boardShapes` with `type: "fill"`:
   "type": "fill",
   "id": "fill_1",
   "l": "top-copper",
-  "pts": [[5, 5], [40, 5], [40, 30], [5, 30]],
+  "x": 22.5,
+  "y": 17.5,
+  "w": 35,
+  "h": 25,
+  "rot": 0,
   "k": "rect",
   "n": "GND"
 }
@@ -818,7 +874,8 @@ Copper fills are stored inside `pcb.boardShapes` with `type: "fill"`:
 | Key | Meaning | Default when omitted |
 | --- | --- | --- |
 | `l` | `top-copper` or `bottom-copper`. | Required. |
-| `pts` | Control vertices as `[x,y]` pairs, without a repeated closing point. | Required for polygon/rectangle. |
+| `pts` | Control vertices as `[x,y]` pairs, without a repeated closing point. | Polygon/circle outline; legacy rectangles only. |
+| `x`, `y`, `w`, `h`, `rot`, `rev` | Rectangle frame described above; preserves vertex-indexed metadata. | Required for rectangle except optional `rev`. |
 | `k` (`kind`) | Closed outline geometry: `polygon`, `rect`, or `circle`. | Required. |
 | `cr` (`cornerRadius`) | Default corner radius in mm. | `0`. |
 | `ncr` (`nodeCornerRadii`) | Per-vertex corner radius overrides, keyed by vertex index. | `{}`. |
@@ -977,7 +1034,7 @@ keep the same name in both forms, including `type`, `id`, `x`, and `y`.
 | Grid/settings | `gs`, `gt`, `u`, `gv`, `sg` | `gridSize`, `gridStyle`, `units`, `gridVisible`, `snapToGrid` |
 | Schematic settings | `ps`, `po`, `tb`, `ti`, `td` | `paperSize`, `paperOrientation`, `titleBlock`, `titleBlockInfo`, `titleBlockData` |
 | Schematic shape | `c`, `l`, `lw`, `v`, `lk` | `color`, `layer`, `lineWidth`, `visible`, `locked` |
-| Schematic graph/geometry | `nd`, `ed`, `cl`, `f`, `fa`, `cr`, `ncr`, `bg`, `ew`, `ir`, `fc` | `graphNodes`, `graphEdges`, `closed`, `fill`, `fillAlpha`, `cornerRadius`, `nodeCornerRadii`, `edgeBulges`, `edgeWidths`, `isRect`, `fillColor` |
+| Schematic graph/geometry | `nd`, `ed`, `cl`, `f`, `fa`, `cr`, `ncr`, `bg`, `ew`, `ir`, `fc`, `cn`, `w`, `h`, `rev` | `graphNodes`, `graphEdges`, `closed`, `fill`, `fillAlpha`, `cornerRadius`, `nodeCornerRadii`, `edgeBulges`, `edgeWidths`, `isRect`, `fillColor`, `cornerNodeIds`, `width`, `height`, `reversed` |
 | Schematic wire/net | `pc`, `wl`, `n`, `lo`, `nst`, `no`, `nto`, `pn` | `pinConnections`, `wireLabel`, `net`, `labelOffset`, `style`, `orientation`, `textOffset`, `pinConnection` |
 | Pin/pad connection entry | `cid`, `pn` | `componentId`, `pinNumber` |
 | Schematic arc/text | `sp`, `ep`, `bp`, `t`, `fs`, `ff`, `ta`, `rot`, `cid`, `fk`, `att`, `bd` | `startPoint`, `endPoint`, `bulgePoint`, `text`, `fontSize`, `fontFamily`, `textAnchor`, `rotation`, `componentId`, `fieldKey`, `attachment`, `border` |
@@ -995,9 +1052,9 @@ keep the same name in both forms, including `type`, `id`, `x`, and `y`.
 | PCB track | `c`, `l`, `lw`, `v`, `lk`, `nd`, `ed`, `cl`, `f`, `fa`, `cr`, `ncr`, `bg`, `el`, `ew`, `n`, `w`, `pdc`, `sbs` | `color`, `layer`, `lineWidth`, `visible`, `locked`, `graphNodes`, `graphEdges`, `closed`, `fill`, `fillAlpha`, `cornerRadius`, `nodeCornerRadii`, `edgeBulges`, `edgeLayers`, `edgeWidths`, `net`, `width`, `padConnections`, `sourceBoardShape` |
 | PCB via | `d`, `dr`, `n`, `lk`, `v`, `sp` | `diameter`, `drill`, `net`, `locked`, `visible`, `span` |
 | Via span | `f`, `t` | `from`, `to` |
-| Board shape | `k`, `l`, `lw`, `f`, `cm`, `p`, `n`, `sw`, `sb`, `ncr`, `cr`, `sp`, `ep`, `bp`, `r`, `nm`, `aw`, `pts` | `kind`, `layer`, `lineWidth`, `filled`, `copperMode`, `plated`, `net`, `segmentWidths`, `segmentBulges`, `nodeCornerRadii`, `cornerRadius`, `start`, `end`, `bulge`, `radius`, `name`, `artwork`, `points` |
+| Board shape | `k`, `l`, `lw`, `f`, `cm`, `p`, `n`, `sw`, `sb`, `ncr`, `cr`, `sp`, `ep`, `bp`, `r`, `nm`, `aw`, `pts`, `w`, `h`, `rot`, `rev` | `kind`, `layer`, `lineWidth`, `filled`, `copperMode`, `plated`, `net`, `segmentWidths`, `segmentBulges`, `nodeCornerRadii`, `cornerRadius`, `start`, `end`, `bulge`, `radius`, `name`, `artwork`, `points`, `width`, `height`, `rotation`, `reversed` |
 | Artwork | `e`, `b`, `d`, `i` | `encoding`, `bytes`, `data`, `index` |
-| Copper fill | `l`, `pts`, `n`, `lk`, `v`, `k`, `cr`, `ncr`, `sb`, `r` | `layer`, `points`, `net`, `locked`, `visible`, `kind`, `cornerRadius`, `nodeCornerRadii`, `segmentBulges`, `radius` |
+| Copper fill | `l`, `pts`, `n`, `lk`, `v`, `k`, `cr`, `ncr`, `sb`, `r`, `w`, `h`, `rot`, `rev` | `layer`, `points`, `net`, `locked`, `visible`, `kind`, `cornerRadius`, `nodeCornerRadii`, `segmentBulges`, `radius`, `width`, `height`, `rotation`, `reversed` |
 | PCB text | `t`, `s`, `rot`, `l`, `lw`, `bd` | `content`, `size`, `rotation`, `layer`, `strokeWidth`, `border` |
 | Placement | `rot`, `lk`, `mir`, `sd`, `rv`, `rdx`, `rdy`, `rr`, `rs`, `rw` | `rotation`, `locked`, `mirror`, `side`, `refVisible`, `refDx`, `refDy`, `refRot`, `refSize`, `refStrokeWidth` |
 | Panelization | `r`, `c`, `rs`, `cs`, `sp`, `rt`, `rb`, `rl`, `rr`, `vt`, `ht`, `vo`, `ho` | `rows`, `columns`, `rowSpacing`, `columnSpacing`, `separation`, `railTop`, `railBottom`, `railLeft`, `railRight`, `verticalTabsPerEdge`, `horizontalTabsPerEdge`, `verticalTabOffset`, `horizontalTabOffset` |

@@ -455,11 +455,9 @@ function bindPcbFileMenu(app) {
 
     get('pcbRibbonNew')?.addEventListener('click', () => {
         project()?.newDocument();
-        app._setActiveRibbonTab?.('pcb-home');
     });
     get('pcbRibbonOpen')?.addEventListener('click', () => {
         project()?.open();
-        app._setActiveRibbonTab?.('pcb-home');
     });
 
     // ── Recent files (Open ▾ dropdown) ───────────────────────────

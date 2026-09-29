@@ -11,6 +11,7 @@ const dependencies = {
     removeTrackElements() {}, removeViaElements() {}, removePadElements() {},
     resetViaIdCounter() {}, resetPadIdCounter() {}, updatePadIdCounter() {}, removeBoardShapeElement() {},
     clearTrackSelection() {}, updateViaIdCounter() {}, updateFillIdCounter() {},
+    resetPcbSelection() {}, syncPcbSelection() {}, clearPcbSelectionAnchors() {},
     resetPanelPreview() {}, renderPanelPreview() {},
     getBoardOutline: app => app.boardShapes.find(shape => shape.layer === 'board-outline'),
     syncBoardOutlineDimensions() {},

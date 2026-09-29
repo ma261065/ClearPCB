@@ -15,6 +15,11 @@ const items = { html: '', set innerHTML(html) {
                 listeners.get(name).push(listener);
             },
             input(value) { this.value = value; for (const listener of listeners.get('input') || []) listener(); },
+            keydown(key) {
+                for (const listener of listeners.get('keydown') || []) {
+                    listener({ key, preventDefault() {}, stopPropagation() {} });
+                }
+            },
             toggle(checked) { this.checked = checked; for (const listener of listeners.get('change') || []) listener(); },
             change(value) { this.value = value; for (const listener of listeners.get('change') || []) listener(); } });
     }
@@ -140,6 +145,20 @@ app._updateRatsnest = () => { ratsnestRefreshes++; };
 for (let step = 1; step <= 20; step++) fields.get('pcbPropImageWidth').change(String(4 + step / 10));
 fields.get('pcbPropImageRot').input('90');
 fields.get('pcbPropImageRot').change('90');
+app.history.undo();
+app.history.redo();
+for (const [id, value] of [['pcbPropImageWidth', '12'], ['pcbPropImageHeight', '6'], ['pcbPropImageRot', '135']]) {
+    const original = cloneShapeGeometry(image);
+    const depth = app.history.undoStack.length;
+    fields.get(id).input(value);
+    assert.notDeepEqual(cloneShapeGeometry(image), original, 'Silk previews update the visible geometry');
+    fields.get(id).keydown('Escape');
+    assert.deepEqual(cloneShapeGeometry(image), original, 'Escape restores the silk preview');
+    fields.get(id).input(value);
+    fields.get(id).change('');
+    assert.deepEqual(cloneShapeGeometry(image), original, 'An invalid edit restores the silk preview');
+    assert.equal(app.history.undoStack.length, depth, 'Cancelled previews do not create history');
+}
 assert.equal(fillRefreshes, 0, 'Silk spinner edits do not recompute copper pours');
 assert.equal(ratsnestRefreshes, 0, 'Silk spinner edits do not rebuild copper connectivity');
 assert.equal(copperCutRefreshes, 0, 'Silk spinner edits do not rebuild board-wide copper clipping');
@@ -208,6 +227,12 @@ try {
     fields.get('pcbPropImageRot').input('105');
     fields.get('pcbPropImageRot').change('105');
     app.history.undo();
+    const beforeCancel = cloneShapeGeometry(image);
+    const depthBeforeCancel = app.history.undoStack.length;
+    fields.get('pcbPropImageWidth').input('12');
+    fields.get('pcbPropImageWidth').keydown('Escape');
+    assert.deepEqual(cloneShapeGeometry(image), beforeCancel, 'Copper preview cancellation restores geometry');
+    assert.equal(app.history.undoStack.length, depthBeforeCancel);
     assert.equal(fillRefreshes, 3, 'Copper spinner clicks and undo do not pour synchronously');
     assert.equal(ratsnestRefreshes, 3, 'Copper spinner clicks and undo do not reconcile synchronously');
     assert.equal(imageClearanceRefreshes, 0, 'Width, rotation and undo do not calculate image clearance before the debounce');
