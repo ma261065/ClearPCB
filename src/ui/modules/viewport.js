@@ -39,7 +39,7 @@ export function syncGridSettings(app) {
         ui.snapToGrid.checked = viewport.snapToGrid && viewport.gridVisible;
         ui.snapToGrid.disabled = !viewport.gridVisible;
     }
-    if (ui.gridSize) updateGridDropdown(app, true);
+    updateGridDropdown(app);
 }
 
 export function bindViewportControls(app) {
@@ -99,21 +99,29 @@ export function bindViewportControls(app) {
 }
 
 /**
- * Rebuilds the grid-size `<select>` options for the current unit system
- * and selects the closest match to the current grid size.
+ * Selects the nearest fixed preset and rebuilds the grid dropdown when present.
  * @param {object} app - Application state.
  */
-export function updateGridDropdown(app, preserveSize = false) {
+export function updateGridDropdown(app) {
     const options = app.viewport.getGridOptions();
     const currentValue = app.viewport.gridSize;
 
-    app.ui.gridSize.innerHTML = '';
-
-    for (const opt of options) {
-        const option = document.createElement('option');
-        option.value = opt.value;
-        option.textContent = opt.label;
-        app.ui.gridSize.appendChild(option);
+    const select = app.ui?.gridSize;
+    if (select) {
+        select.innerHTML = '';
+        for (const opt of options) {
+            if (opt.separatorBefore) {
+                const separator = document.createElement('option');
+                separator.value = '';
+                separator.textContent = '\u2500'.repeat(12);
+                separator.disabled = true;
+                select.appendChild(separator);
+            }
+            const option = document.createElement('option');
+            option.value = String(opt.value);
+            option.textContent = opt.label;
+            select.appendChild(option);
+        }
     }
 
     let closestIdx = 0;
@@ -125,17 +133,9 @@ export function updateGridDropdown(app, preserveSize = false) {
             closestIdx = i;
         }
     }
-    if (preserveSize && closestDiff > 1e-9) {
-        const option = document.createElement('option');
-        option.value = String(currentValue);
-        option.textContent = `${Number(currentValue.toFixed(6))} mm`;
-        app.ui.gridSize.appendChild(option);
-        app.ui.gridSize.value = String(currentValue);
-        return;
-    }
-    app.ui.gridSize.selectedIndex = closestIdx;
-
-    if (!preserveSize) app.viewport.setGridSize(options[closestIdx].value);
+    const size = options[closestIdx].value;
+    if (select) select.value = String(size);
+    if (size !== currentValue) app.viewport.setGridSize(size);
 }
 
 /**

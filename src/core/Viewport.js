@@ -1594,31 +1594,28 @@ export class Viewport {
     
     /**
      * Get sensible grid size options for current units
-     * Returns array of { value: mm, label: string }
+     * Returns array of { value: mm, label: string, separatorBefore?: boolean }.
      */
     getGridOptions() {
-        switch (this.units) {
-            case 'inch':
-                return [
-                    { value: 0.0254, label: '0.001"' },
-                    { value: 0.127, label: '0.005"' },
-                    { value: 0.254, label: '0.01"' },
-                    { value: 0.635, label: '0.025"' },
-                    { value: 1.27, label: '0.05"' },
-                    { value: 2.54, label: '0.1"' }
-                ];
-            case 'mm':
-            default:
-                return [
-                    { value: 0.1, label: '0.1 mm' },
-                    { value: 0.127, label: '0.127 mm (5 mil)' },
-                    { value: 0.25, label: '0.25 mm' },
-                    { value: 0.5, label: '0.5 mm' },
-                    { value: 1, label: '1 mm' },
-                    { value: 1.27, label: '1.27 mm (50 mil)' },
-                    { value: 2.54, label: '2.54 mm (100 mil)' }
-                ];
-        }
+        const inchOptions = [
+            { value: 0.0254, label: '0.001"' },
+            { value: 0.127, label: '0.005"' },
+            { value: 0.254, label: '0.01"' },
+            { value: 0.635, label: '0.025"' },
+            { value: 1.27, label: '0.05"' },
+            { value: 2.54, label: '0.1"' },
+        ];
+        if (this.units === 'inch') return inchOptions;
+        return [
+            { value: 0.1, label: '0.1 mm' },
+            { value: 0.25, label: '0.25 mm' },
+            { value: 0.5, label: '0.5 mm' },
+            { value: 1, label: '1 mm' },
+            ...inchOptions.map((option, index) => ({
+                value: option.value, label: `${option.value} mm (${option.label} / ${Math.round(option.value / 0.0254)} mil)`,
+                separatorBefore: index === 0,
+            })),
+        ];
     }
     
     // ==================== Browser Zoom Prevention ====================

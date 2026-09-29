@@ -180,11 +180,23 @@ New retains the marker with the last-used values. A fresh model still accepts
 local defaults, including the legacy display-unit format. Binding always displays
 the model's values without reading rounded controls back.
 The first viewport restores the model's loaded grid preferences. Controls bound
-before or after viewport creation synchronize from the live viewport without
-snapping a custom grid size to a dropdown option. Later viewport checks do not
+before or after viewport creation synchronize from the live viewport, selecting
+the nearest fixed grid preset. Later viewport checks do not
 reapply the loaded snapshot. Initial control edits capture the requested value
 before viewport creation can refresh the controls. A metadata-only loaded PCB
 also remains serializable through an attached editor before a viewport exists.
+
+Both editors use fixed grid dropdowns. The metric list starts with 0.1, 0.25,
+0.5 and 1 mm, followed by a nonselectable separator bar, then 0.0254, 0.127,
+0.254, 0.635, 1.27 and 2.54 mm. There are no group headings; inch-derived
+sizes show their inch and mil values in parentheses, for example `0.127 mm (0.005" / 5 mil)`.
+The inch list remains 0.001, 0.005, 0.01, 0.025, 0.05 and 0.1 inch.
+All inch presets therefore survive a switch to metric and back exactly.
+Per the chosen fixed-list policy, a non-preset saved grid selects the nearest
+preset when restored into an editor, even before controls exist; no custom option
+is added. Unit changes also select the nearest available preset, so metric-only
+sizes can still change when switching to inches. Saving from the editor records
+the selected preset. Refreshing an already matching preset does not redraw the grid.
 
 Saved board dimensions live in `PcbDocument.board`. The editor's `_boardWidth`,
 `_boardHeight` and `_boardRadius` access that object, including during live resize,

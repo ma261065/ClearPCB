@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { serializeGridSettings, restoreGridSettings, bindViewportControls } from '../src/ui/modules/viewport.js';
+import { serializeGridSettings, restoreGridSettings, bindViewportControls, updateGridDropdown } from '../src/ui/modules/viewport.js';
 import { Viewport } from '../src/core/Viewport.js';
 import { snapToGridLines } from '../src/core/grid-snap.js';
 import { PcbDocument } from '../src/core/PcbDocument.js';
@@ -9,15 +9,16 @@ import { defaultPcbStackup } from '../src/core/project-format.js';
 globalThis.window = { addEventListener() {} };
 globalThis.document = {
     getElementById() { return { addEventListener() {} }; },
-    createElement() { return {}; },
+    createElement(tag) { return { tag, children: [], appendChild(child) { this.children.push(child); } }; },
 };
 
 function control() {
     const handlers = new Map();
     return {
-        value: '', checked: true, disabled: false, options: [],
-        set innerHTML(value) { this.options = []; },
-        appendChild(option) { this.options.push(option); },
+        value: '', checked: true, disabled: false, children: [],
+        get options() { return this.children; },
+        set innerHTML(value) { this.children = []; },
+        appendChild(option) { this.children.push(option); },
         addEventListener(event, handler) { handlers.set(event, handler); },
         change() { handlers.get('change')({ target: this }); },
     };
@@ -31,7 +32,7 @@ function editor() {
             setGridStyle(value) { this.gridStyle = value; },
             setGridVisible(value) { this.gridVisible = value; },
             setUnits(value) { this.units = value; },
-            getGridOptions() { return [{ value: 1.27, label: '1.27 mm' }, { value: 2.54, label: '2.54 mm' }]; },
+            getGridOptions: Viewport.prototype.getGridOptions,
         },
         ui: Object.fromEntries(['gridSize', 'gridStyle', 'showGrid', 'snapToGrid', 'units'].map(key => [key, control()])),
     };
@@ -43,8 +44,10 @@ for (const visible of [true, false]) {
     const saved = JSON.parse(JSON.stringify(serializeGridSettings(source.viewport)));
     const recovered = editor();
     restoreGridSettings(recovered, saved);
-    assert.deepEqual(serializeGridSettings(recovered.viewport), saved);
-    assert.equal(recovered.ui.gridSize.value, '0.375');
+    assert.deepEqual(serializeGridSettings(recovered.viewport), { ...saved, gridSize: 0.254 },
+        'Non-preset saved grids select the nearest fixed preset');
+    assert.equal(recovered.ui.gridSize.value, '0.254');
+    assert.equal(recovered.ui.gridSize.options.length, 6, 'Loading never appends a custom option');
     assert.equal(recovered.ui.gridStyle.value, 'dots');
     assert.equal(recovered.ui.units.value, 'inch');
     assert.equal(recovered.ui.showGrid.checked, visible);
@@ -60,10 +63,53 @@ assert.deepEqual(serializeGridSettings(legacy.viewport), defaults);
 restoreGridSettings(legacy, { gridVisible: false, snapToGrid: true });
 assert.equal(legacy.viewport.snapToGrid, false);
 
+const metricValues = [0.1, 0.25, 0.5, 1];
+const inchValues = [0.0254, 0.127, 0.254, 0.635, 1.27, 2.54];
+const fixed = editor();
+updateGridDropdown(fixed);
+assert.ok(fixed.ui.gridSize.children.every(child => child.tag === 'option'), 'No named group headings');
+assert.deepEqual(fixed.ui.gridSize.options.slice(0, 4).map(option => Number(option.value)), metricValues);
+const separator = fixed.ui.gridSize.options[4];
+assert.equal(separator.disabled, true, 'The separator bar is not selectable');
+assert.equal(separator.value, '');
+assert.match(separator.textContent, /^\u2500+$/);
+assert.deepEqual(fixed.ui.gridSize.options.slice(5).map(option => Number(option.value)), inchValues);
+assert.deepEqual(fixed.ui.gridSize.options.slice(5).map(option => option.textContent),
+    ['0.0254 mm (0.001" / 1 mil)', '0.127 mm (0.005" / 5 mil)', '0.254 mm (0.01" / 10 mil)',
+        '0.635 mm (0.025" / 25 mil)', '1.27 mm (0.05" / 50 mil)', '2.54 mm (0.1" / 100 mil)']);
+for (const size of inchValues) {
+    fixed.viewport.gridSize = size;
+    for (const units of ['inch', 'mm', 'inch', 'mm']) {
+        fixed.viewport.units = units;
+        updateGridDropdown(fixed);
+        assert.equal(fixed.viewport.gridSize, size, 'Every inch preset has an exact metric counterpart');
+        assert.equal(fixed.ui.gridSize.value, String(size));
+        assert.equal(fixed.ui.gridSize.options.filter(option => option.disabled).length, units === 'inch' ? 0 : 1);
+        assert.deepEqual(fixed.ui.gridSize.options.filter(option => !option.disabled).map(option => Number(option.value)),
+            units === 'inch' ? inchValues : [...metricValues, ...inchValues], 'Options do not depend on the current grid');
+    }
+}
+for (const [units, value, expected] of [
+    ['mm', 0.375, 0.254], ['inch', 0.375, 0.254], ['mm', 0.123456, 0.127],
+    ['mm', 0.0001, 0.0254], ['mm', 999, 2.54], ['mm', 0.75, 0.635],
+]) {
+    fixed.viewport.units = units;
+    restoreGridSettings(fixed, { gridSize: value });
+    assert.equal(fixed.viewport.gridSize, expected);
+    assert.equal(fixed.ui.gridSize.options.length, units === 'inch' ? 6 : 11);
+}
+fixed.viewport.gridSize = 0.635;
+fixed.viewport.setGridSize = () => assert.fail('Refreshing an exact preset must not trigger another grid redraw');
+updateGridDropdown(fixed);
+const withoutControls = editor();
+delete withoutControls.ui;
+restoreGridSettings(withoutControls, { gridSize: 0.375, units: 'mm' });
+assert.equal(withoutControls.viewport.gridSize, 0.254, 'Preset normalization does not depend on controls existing');
+
 const app = editor();
 let dirtyChanges = 0;
 app.fileManager = { setDirty(value) { assert.equal(value, true); dirtyChanges++; } };
-app._updateGridDropdown = () => {};
+app._updateGridDropdown = () => updateGridDropdown(app);
 bindViewportControls(app);
 app.ui.gridSize.value = '0.5';
 app.ui.gridSize.change();
@@ -77,8 +123,17 @@ app.ui.showGrid.checked = false;
 app.ui.showGrid.change();
 assert.equal(dirtyChanges, 5);
 assert.deepEqual(serializeGridSettings(app.viewport), {
-    gridSize: 0.5, gridStyle: 'dots', units: 'inch', gridVisible: false, snapToGrid: false,
+    gridSize: 0.635, gridStyle: 'dots', units: 'inch', gridVisible: false, snapToGrid: false,
 });
+for (const size of inchValues) {
+    app.viewport.gridSize = size;
+    app.ui.units.value = 'mm';
+    app.ui.units.change();
+    assert.equal(app.viewport.gridSize, size, 'The schematic unit control retains every inch grid in metric mode');
+    app.ui.units.value = 'inch';
+    app.ui.units.change();
+    assert.equal(app.viewport.gridSize, size);
+}
 
 const magnetViewport = {
     snapToGrid: true, gridVisible: true, shiftHeld: false, gridSize: 1, scale: 4,
@@ -144,31 +199,31 @@ for (const controlsFirst of [true, false]) {
         _markDirty() { dirty++; } };
     if (controlsFirst) bindPcbControls(attached);
     attached._ensureViewport();
-    assert.deepEqual(serializeGridSettings(attached.viewport), settings,
-        'The first viewport restores preloaded model preferences instead of constructor defaults');
+    assert.deepEqual(serializeGridSettings(attached.viewport), { ...settings, gridSize: 0.127 },
+        'The first viewport restores preferences and normalizes a custom grid to the nearest preset');
     if (!controlsFirst) {
-        attached.viewport.gridSize = 0.456789;
+        attached.viewport.gridSize = 0.635;
         bindPcbControls(attached);
     }
-    const expectedSize = controlsFirst ? 0.123456 : 0.456789;
-    assert.equal(attached.ui.gridSize.value, String(expectedSize), 'Binding reflects live precision without snapping to an option');
+    const expectedSize = controlsFirst ? 0.127 : 0.635;
+    assert.equal(attached.ui.gridSize.value, String(expectedSize), 'Binding selects the current live preset');
     assert.equal(attached.ui.units.value, 'inch');
     assert.equal(attached.ui.gridStyle.value, 'dots');
     assert.equal(attached.ui.showGrid.checked, false);
     assert.equal(attached.ui.snapToGrid.checked, false);
     assert.equal(attached.ui.snapToGrid.disabled, true);
     const count = creations;
-    attached.viewport.gridSize = 0.789123;
+    attached.viewport.gridSize = 0.254;
     attached._ensureViewport();
     assert.equal(creations, count);
-    assert.equal(attached.viewport.gridSize, 0.789123, 'Repeated ensure calls do not overwrite subsequent live edits');
+    assert.equal(attached.viewport.gridSize, 0.254, 'Repeated ensure calls do not overwrite subsequent live edits');
     assert.deepEqual(pcbDocument.settings, settings, 'Restoring controls does not mutate the loaded preference snapshot');
     assert.equal(dirty, 0, 'View attachment is not a user edit');
 }
 console.log('PASS preloaded PCB viewport settings and control synchronization in either initialization order');
 
 for (const [id, property, value, field] of [
-    ['pcbGridSize', 'value', '0.456789', 'gridSize'],
+    ['pcbGridSize', 'value', '0.5', 'gridSize'],
     ['pcbGridStyle', 'value', 'dots', 'gridStyle'],
     ['pcbUnits', 'value', 'inch', 'units'],
     ['pcbShowGrid', 'checked', false, 'gridVisible'],

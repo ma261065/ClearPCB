@@ -463,7 +463,7 @@ export default class PCBApp {
         this.viewport?._onResize?.();
         this._updateViewportStatus();
         this.syncPcbViewToggles?.();
-        updateGridDropdown(this, true);
+        updateGridDropdown(this);
 
         // Rebuild if schematic changed while we were away
         if (this._stale) this._syncFromSchematic();
