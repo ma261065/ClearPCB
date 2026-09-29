@@ -8,7 +8,9 @@ import { createBoardViewSync } from '../src/pcb/modules/board-view-sync.js';
     const end = pcbSource.indexOf('\n    /**', start);
     assert.ok(start >= 0 && end > start);
     const elements = new Set();
+    const renders = new Map();
     const renderShape = (board, shape) => {
+        renders.set(shape.id, (renders.get(shape.id) || 0) + 1);
         elements.delete(board._shapeElements.get(shape.id));
         const element = { id: shape.id, geometry: shape.geometry };
         elements.add(element);
@@ -16,8 +18,8 @@ import { createBoardViewSync } from '../src/pcb/modules/board-view-sync.js';
     };
     const rebuild = new Function('renderBoardShape', 'getPcbSelection',
         `return ({ ${pcbSource.slice(start, end)} })._renderPersistentObjects;`)(renderShape, () => []);
-    const outline = { id: 'board-outline', geometry: 'rectangle' };
-    const artwork = { id: 'artwork', geometry: 'circle' };
+    const outline = { id: 'board-outline', layer: 'board-outline', geometry: 'rectangle' };
+    const artwork = { id: 'artwork', layer: 'top-silk', geometry: 'circle' };
     const board = {
         _boardOutlineDrawn: true,
         boardShapes: [outline, artwork],
@@ -26,11 +28,18 @@ import { createBoardViewSync } from '../src/pcb/modules/board-view-sync.js';
         _drawBoardOutline() { renderShape(this, outline); },
     };
     for (const renderShapes of [true, false, true]) {
+        renders.clear();
         rebuild.call(board, { renderShapes });
+        assert.equal(renders.get(outline.id), 1, 'Each rebuild renders the outline only once');
+        assert.equal(renders.get(artwork.id) || 0, renderShapes ? 1 : 0);
         assert.equal([...elements].filter(element => element.id === outline.id).length, 1,
             'A rebuild must not orphan the outline rendered before the other shapes');
         assert.ok(elements.has(board._shapeElements.get(outline.id)), 'The visible outline remains registered');
     }
+    board._boardOutlineDrawn = false;
+    renders.clear();
+    rebuild.call(board);
+    assert.equal(renders.get(outline.id), 1, 'An outline not drawn by the dedicated path still renders');
     outline.geometry = 'polygon-with-inserted-node';
     renderShape(board, outline);
     assert.equal(elements.size, 2, 'Editing replaces the outline without leaving its old geometry behind');

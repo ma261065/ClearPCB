@@ -299,8 +299,8 @@ export default class PCBApp {
         this._syncTimer = null;
         /** True after the first sync (governs fitToBounds) */
         this._hasContent = false;
-        /** Whether the board outline has been drawn */
-        this._boardOutlineDrawn = false;
+        /** Whether a board outline exists, including before its first render. */
+        this._boardOutlineDrawn = !!getBoardOutline(this);
         /** @type {HTMLDivElement|null} */
         this._boardDimensionsOverlay = null;
         /** Whether the board outline is currently selected */
@@ -4102,7 +4102,8 @@ export default class PCBApp {
         // Keep free-standing board shapes above freshly placed footprint
         // artwork after a schematic-driven rebuild.
         for (const s of this.boardShapes) {
-            if (s.type !== 'fill') renderBoardShape(this, s, { skipCopperUpdate: true });
+            if (s.type === 'fill' || (this._boardOutlineDrawn && s.layer === 'board-outline')) continue;
+            renderBoardShape(this, s, { skipCopperUpdate: true });
         }
         this._updateCopperCuts?.();
 
@@ -4165,7 +4166,8 @@ export default class PCBApp {
         for (const pad of this.pads || []) renderPad(pad, getGroup);
         // Free-standing board shapes; CopperFill entries render separately.
         for (const s of this.boardShapes) {
-            if (!renderShapes || s.type === 'fill') continue;
+            if (!renderShapes || s.type === 'fill'
+                || (this._boardOutlineDrawn && s.layer === 'board-outline')) continue;
             renderBoardShape(this, s, { skipCopperUpdate: true });
         }
         if (renderShapes) this._updateCopperCuts?.();
@@ -4410,10 +4412,10 @@ export default class PCBApp {
             if (!b) continue;
             const inView = b.maxX >= minX && b.minX <= maxX &&
                            b.maxY >= minY && b.minY <= maxY;
-            // Never collapse the actively-selected footprint — keep it editable.
+            // Keep every selected footprint detailed so it stays editable.
             const px = Math.max(b.maxX - b.minX, b.maxY - b.minY) * scale;
             const far = inView && px < PCB_LOD_PIXEL_THRESHOLD
-                && compId !== getPcbSelection(this, 'component')[0];
+                && !isPcbSelected(this, 'component', compId);
 
             // Detail (real geometry) is visible only when in view AND not far.
             const detailHidden = !inView || far;
@@ -8627,7 +8629,7 @@ export default class PCBApp {
         const points = shape.points || (shape.kind === 'circle' || isText ? [{ x: shape.x, y: shape.y }]
             : shape.kind === 'arc' ? [shape.start, shape.end, shape.bulge] : []);
         const style = JSON.stringify([shape.kind, shape.layer, visible, clearance, shape.net, shape.radius,
-            shape.lineWidth, shape.segmentWidths, shape.filled, shape.copperMode,
+            shape.lineWidth, shape.segmentWidths, shape.segmentBulges, shape.filled, shape.copperMode,
             shape.cornerRadius, shape.nodeCornerRadii,
             shape.content, shape.size, shape.strokeWidth, shape.rotation]);
         if (previous && previous.style === style && previous.artwork === shape.artwork

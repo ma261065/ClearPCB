@@ -20,7 +20,7 @@ const dependencies = {
     renderTrack: record('track'), renderVia: record('via'), renderPad: record('pad'),
     renderBoardShape(app, shape, options) {
         assert.equal(options?.skipCopperUpdate, true, 'Batch rendering must defer copper clipping');
-        calls.push('shape');
+        calls.push(shape.layer === 'board-outline' ? 'outline-shape' : 'shape');
     },
     reconcileRatsnest: record('ratsnest'), restoreGridSettings: record('grid'), getSelectedTrack: () => null,
     refreshDesignSettings(app) {
@@ -61,7 +61,8 @@ const makeApp = active => {
     placements: new Map([['U1', {}]]), _shapeElements: new Map(), _textElements: new Map(),
     placementState, _placementOverrides: placementState.overrides, history: { clear() {} },
     _ensureViewport: record('viewport'), _getLayerGroup: () => null,
-    _drawBoardOutline: record('outline'), _applyPlacementOverrides: record('placements'),
+    _drawBoardOutline() { this._boardOutlineDrawn = true; calls.push('outline'); },
+    _applyPlacementOverrides: record('placements'),
     _renderText: record('text'), _refreshClearanceHalos: record('clearance'), _refreshFills: record('fills'),
     _updateCopperCuts() { this.cutRefreshes = (this.cutRefreshes || 0) + 1; },
     markSectionClean() { this._isDirty = false; },
@@ -101,6 +102,16 @@ loadPcb(active, data, prepared);
 assert.deepEqual(calls, ['viewport', 'grid', 'outline', 'placements', 'track', 'via', 'pad', 'shape', 'text', 'clearance', 'ratsnest', 'fills'],
     'active loads still render immediately');
 assert.equal(active.cutRefreshes, 2, 'Active loading clears old cuts and refreshes once after all shapes');
+
+{
+    const saved = { stackup: data.stackup, boardShapes: [
+        { id: 'outline', kind: 'circle', layer: 'board-outline', x: 30, y: -20, radius: 10 },
+    ] };
+    calls.length = 0;
+    loadPcb(makeApp(true), saved, PcbDocument.prepare(saved));
+    assert.equal(calls.filter(call => call === 'outline').length, 1);
+    assert.equal(calls.includes('outline-shape'), false, 'Active loading must not render the saved outline twice');
+}
 
 for (const active of [true, false]) {
     const paneApp = makeApp(active);
@@ -184,6 +195,8 @@ for (const withComponents of [false, true]) {
         `Preloading clips once after the shape batch (components=${withComponents})`);
     assert.equal(app._active, false, 'preloading does not activate the PCB editor');
     assert.equal(app._stale, false);
+    if (withComponents) assert.ok(calls.indexOf('footprints') < calls.indexOf('shape'),
+        'Free-standing artwork renders after footprint artwork');
     assert.equal(calls.filter(call => call === '3d').length, 1,
         `Preloading refreshes the board viewer when components=${withComponents}`);
     assert.equal(calls.includes('ribbon-height'), false, 'hidden preloading does not measure the ribbon');
@@ -206,6 +219,51 @@ console.log('PASS: first activation renders each restored image once, with or wi
 
 globalThis.window = { addEventListener() {} };
 globalThis.document = { getElementById: () => null };
+const { default: PCBApp } = await import('../src/ui/PCBApp.js');
+for (const pcb of [
+    null,
+    { settings: { units: 'mm', gridSize: 0.5 } },
+    { board: { width: 43, height: 27, radius: 2 } },
+    { boardShapes: [{ id: 'round-board', kind: 'circle', layer: 'board-outline', x: 30, y: -20, radius: 10 }] },
+    { boardShapes: [{ id: 'polygon-board', kind: 'polygon', layer: 'board-outline',
+        points: [{ x: 10, y: -20 }, { x: 40, y: -20 }, { x: 30, y: -5 }] }] },
+]) {
+    for (const [preload, withComponents] of [[false, false], [false, true], [true, false], [true, true]]) {
+        const pcbDocument = new PcbDocument();
+        if (pcb) pcbDocument.load({ ...pcb, stackup: data.stackup });
+        const before = pcbDocument.serializeSection();
+        const outline = dependencies.getBoardOutline(pcbDocument);
+        const app = new PCBApp({ pcbDocument, schematicDocument: {} });
+        assert.equal(app._boardOutlineDrawn, !!outline, 'Editor attachment recognizes an existing model outline');
+        components = withComponents ? [{ id: 'U1' }] : [];
+        Object.assign(app, {
+            activate: method('activate'), preload: method('preload'), _syncFromSchematic: method('_syncFromSchematic'),
+            _renderPersistentObjects: method('_renderPersistentObjects'),
+            initialize() {}, _ensureViewport() {}, _retainRibbonHeight() {},
+            _updateCursorForTool() {}, _syncPcbHomeToolHighlight() {}, _updateViewportStatus() {},
+            _setPcbStatus() {}, _setStatus() {}, _clearPCBContent() {},
+            _getLayerGroup: () => null, _drawBoardOutline: record('outline'),
+            _placeFootprints: record('footprints'), _fitToPlacedContent() {},
+            _refreshClearanceHalos() {}, _updateRatsnest() {}, _updateCopperCuts() {},
+            _showBoardDimensionsDialog: record('dimensions-dialog'),
+            viewport: { _onResize() {} },
+        });
+        calls.length = 0;
+        if (preload) {
+            assert.equal(app.preload(), true);
+            assert.equal(app._active, false);
+        }
+        app.activate();
+        assert.equal(calls.filter(call => call === 'outline').length, outline ? 1 : 0,
+            'Existing outlines are restored exactly once, including hidden preload');
+        assert.equal(calls.includes('outline-shape'), false, 'Rebuilds must not render the outline again with other artwork');
+        assert.equal(calls.includes('dimensions-dialog'), !outline,
+            'Only boards without an outline need the dimensions prompt');
+        assert.equal(dependencies.getBoardOutline(pcbDocument), outline, 'Attachment preserves outline identity');
+        assert.deepEqual(pcbDocument.serializeSection(), before, 'Attachment and activation do not edit authored data');
+        assert.equal(app.isSectionDirty(), false);
+    }
+}
 const { preparePcb, serializePcb } = await import('../src/pcb/modules/project-state.js');
 const { compactProjectAliases } = await import('../src/core/project-field-aliases.js');
 const { pictureShape } = await import('../src/pcb/modules/picture-raster.js');
@@ -312,7 +370,6 @@ globalThis.window = { addEventListener() {} };
 Object.defineProperty(window, 'app', {
     get() { assert.fail('PCB synchronization must not read the global schematic'); },
 });
-const { default: PCBApp } = await import('../src/ui/PCBApp.js');
 const { ProjectDocument } = await import('../src/core/ProjectDocument.js');
 globalThis.HTMLElement = class {};
 const { default: SchematicApp } = await import('../src/ui/SchematicApp.js');

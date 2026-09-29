@@ -363,3 +363,46 @@ try {
     globalThis.clearTimeout = originalClearTimeout;
 }
 console.log('PASS deferred image edit updates only its halo without detaching unrelated clearance');
+
+for (const [kind, filled] of [['line', false], ['polygon', false], ['polygon', true]]) {
+    for (const layer of ['top-copper', 'bottom-copper', 'hole']) {
+        const shape = { id: 'curved-clearance', kind, filled, layer, lineWidth: 0.4,
+            segmentBulges: { 0: 0.2 }, points: kind === 'line'
+                ? [{ x: 0, y: 0 }, { x: 10, y: 0 }]
+                : [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }, { x: 0, y: 10 }] };
+        const layers = new Map([layer, 'clearance-overlay'].map(id => [id, element()]));
+        const curveApp = { _clearancesVisible: true, _shapeElements: new Map(), _layerGroups: layers,
+            _getLayerGroup: id => layers.get(id), _getRoutingParams: () => ({ clearance }),
+            _refreshBoardShapeClearance: refreshShape };
+        const haloPoints = () => curveApp._boardShapeClearanceCache.get(shape.id).elements
+            .map(child => child.getAttribute('points'));
+        renderBoardShape(curveApp, shape);
+        for (const bulge of [0.65, -0.45, undefined, 0.2]) {
+            const previousPoints = haloPoints();
+            const previousElements = [...curveApp._boardShapeClearanceCache.get(shape.id).elements];
+            const before = outlineCalls;
+            if (bulge === undefined) delete shape.segmentBulges[0];
+            else shape.segmentBulges[0] = bulge;
+            const expected = boardShapeClearanceOutlines(shape, clearance)
+                .map(contour => contour.map(point => `${point.x},${point.y}`).join(' '));
+            assert.notDeepEqual(expected, previousPoints, 'Changing curvature changes physical clearance geometry');
+            renderBoardShape(curveApp, shape, { liveDrag: true });
+            assert.deepEqual(haloPoints(), expected, `${kind}/${layer}: clearance follows segment curvature changes`);
+            assert.equal(outlineCalls, before + 1, 'Curvature invalidates the cached outline exactly once');
+            assert.ok(previousElements.every(child => child.parentNode === null), 'Stale halo elements are removed');
+            renderBoardShape(curveApp, shape);
+            assert.equal(outlineCalls, before + 1, 'Unchanged curvature retains the geometry cache');
+        }
+        const cached = curveApp._boardShapeClearanceCache.get(shape.id);
+        const beforeMove = outlineCalls;
+        shape.points = shape.points.map(point => ({ x: point.x + 7, y: point.y - 2 }));
+        renderBoardShape(curveApp, shape, { liveDrag: true });
+        assert.equal(outlineCalls, beforeMove, 'Curved-shape translation still avoids clearance recalculation');
+        assert.equal(curveApp._boardShapeClearanceCache.get(shape.id), cached);
+        for (const child of cached.elements) {
+            assert.equal(child.parentNode, layers.get('clearance-overlay'));
+            assert.equal(child.getAttribute('transform'), 'translate(7 -2)');
+        }
+    }
+}
+console.log('PASS curved line/polygon clearance invalidation, straightening, restoration and translation reuse');

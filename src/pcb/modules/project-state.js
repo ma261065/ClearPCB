@@ -105,7 +105,8 @@ export function loadPcb(app, data, prepared = preparePcb(data)) {
         if (render) renderPad(pad, (id) => app._getLayerGroup(id));
     }
     for (const shape of prepared.boardShapes) {
-        if (render && shape.type !== 'fill') renderBoardShape(app, shape, { skipCopperUpdate: true });
+        if (!render || shape.type === 'fill' || shape.layer === 'board-outline') continue;
+        renderBoardShape(app, shape, { skipCopperUpdate: true });
     }
     if (render) app._updateCopperCuts?.();
     for (const text of app.texts.values()) {

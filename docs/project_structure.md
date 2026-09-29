@@ -254,6 +254,13 @@ Manufacturing snapshots use the neutral serializer directly, with their existing
 unrounded geometry options. SVG, selection, copper-cut/pour caches and command
 presentation stay in the editor. Legacy saved board dimensions still create a
 model-owned outline without a later entity adoption clearing it.
+An editor attached after headless loading recognizes that outline at construction,
+so direct activation and hidden preload restore it without prompting for new board
+dimensions. Fresh and metadata-only models without an outline still prompt.
+Active loads and schematic-driven rebuilds draw the outline once through its
+dedicated path; general artwork batches skip that already-rendered outline.
+Other board artwork still renders after footprints, and an outline not yet drawn
+through the dedicated path remains eligible for normal shape rendering.
 
 Manufacturing capture rejects active inline text edits and board-outline resizes,
 as well as deferred geometry drags, rather than exporting cancellable previews.
@@ -282,6 +289,10 @@ The live `placements` map and automatic layout slots remain editor-owned:
 they contain generated footprint geometry, presentation caches and temporary
 gesture state, not a second authoritative saved-placement store. PCB presentation
 during loading and viewport settings remain in the PCB adapter.
+Viewport culling uses constant-time selection membership rather than rebuilding
+the selection list for each footprint. Every in-view selected footprint keeps
+its detailed artwork at low zoom; unselected footprints retain the 24-pixel
+placeholder threshold, and offscreen footprints still cull with 50% overdraw.
 
 PCB design settings now live in `ProjectDocument.pcbDocument.designSettings`
 (`core/PcbDesignSettings.js`). Track width, clearance, via diameter and drill
@@ -479,6 +490,11 @@ the source shape, and resolve again after edits. Replace image artwork rather
 than mutating it in place to respect the existing artwork cache. This API
 assumes valid shape data; it does not replace project validation, DRC, or the
 command layer used to apply a design to the editor.
+
+The editor's clearance-halo cache includes per-segment curvature alongside
+widths, corner radii and other geometry/style fields. Curvature edits invalidate
+the cached contours even when endpoints stay fixed; unchanged shapes and pure
+translations continue to reuse the existing halo geometry.
 
 ### Tracks and Vias
 
