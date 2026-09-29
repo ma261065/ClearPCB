@@ -18,6 +18,7 @@ import { compactProjectAliases } from './project-field-aliases.js';
  *   - `loadSection(data)`   → restore the view from its slice.
  *   - `clearSection()`      → reset the view to empty (used by New).
  *   - `isSectionDirty()`    → unsaved-changes flag for autosave/beforeunload.
+ *   - `onDocumentReplaced(reason)` → local UI reset after a successful file action.
  *
  * The schematic view additionally acts as the *UI host* (it owns the
  * canvas-level prompts/toasts/title), and injects the file-lifecycle
@@ -57,6 +58,17 @@ export class ProjectDocument {
     get schematic() { return this.views.get('schematic'); }
     /** @returns {any} The PCB view, if registered. */
     get pcb() { return this.views.get('pcb'); }
+
+    /**
+     * Notify views only after replacement and file-identity updates succeed.
+     * Each editor owns its own tabs and any new-document setup UI.
+     * @param {'new'|'open'|'import'} reason
+     */
+    notifyDocumentReplaced(reason) {
+        for (const view of this.views.values()) {
+            view.onDocumentReplaced?.(reason);
+        }
+    }
 
     /**
      * Whether any view has unsaved changes beyond the file manager's own

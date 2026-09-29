@@ -316,7 +316,7 @@ class AppBootstrap {
                 this._hideStartupSplash();
                 this.switchMode('schematic');
                 app._fitToContent?.();
-                app._showDocumentHome?.();
+                this.project.notifyDocumentReplaced('open');
             } catch (error) {
                 app._alert('Failed to open file: ' + error.message, { title: 'Open Failed' });
             }

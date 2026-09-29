@@ -2,9 +2,16 @@ import assert from 'node:assert/strict';
 
 function element(tag) {
     const attributes = new Map();
+    const listeners = new Map();
     return {
         tag, children: [], parentNode: null, style: {}, dataset: {},
         classList: { add() {}, remove() {} },
+        addEventListener(type, listener) {
+            if (!listeners.has(type)) listeners.set(type, []);
+            listeners.get(type).push(listener);
+        },
+        dispatchEvent(event) { for (const listener of listeners.get(event.type) || []) listener(event); },
+        focus() {},
         setAttribute(name, value) { attributes.set(name, String(value)); },
         getAttribute(name) { return attributes.get(name) ?? null; },
         removeAttribute(name) { attributes.delete(name); },
@@ -31,13 +38,16 @@ function element(tag) {
 globalThis.window = { addEventListener() {} };
 const autosaveDot = element('div');
 globalThis.document = {
+    body: element('body'),
     documentElement: { getAttribute() { return 'dark'; } },
     createElementNS: (_namespace, tag) => element(tag),
+    createElement: tag => element(tag),
     getElementById(id) { return id === 'clearpcb-autosave-dot' ? autosaveDot : null; },
     querySelector() { return null; },
 };
 globalThis.localStorage = { getItem() { return null; }, setItem() {}, removeItem() {} };
 const { default: PCBApp } = await import('../src/ui/PCBApp.js');
+const { default: SchematicApp } = await import('../src/ui/SchematicApp.js');
 const { ProjectDocument } = await import('../src/core/ProjectDocument.js');
 const { newFile } = await import('../src/schematic/modules/files.js');
 const { loadPcb } = await import('../src/pcb/modules/project-state.js');
@@ -48,12 +58,26 @@ const { CommandHistory } = await import('../src/core/CommandHistory.js');
 
 function fixture(active) {
     const layers = new Map();
+    const lifecycle = [];
     const app = Object.assign(Object.create(PCBApp.prototype), {
         _active: active, currentTool: 'select', activeLayer: 'top-silk',
         tracks: [], vias: [], pads: [], boardShapes: [], texts: new Map(), placements: new Map(),
         _shapeElements: new Map(), _textElements: new Map(), _placementOverrides: new Map(),
         history: new CommandHistory(), netlist: [],
-        viewport: { scale: 10, shiftHeld: true, hideCrosshair() {} },
+        viewport: { scale: 10, shiftHeld: true, hideCrosshair() {},
+            gridSize: 1, getGridOptions: () => [{ value: 1, label: '1 mm' }], fitToBounds() {} },
+        ui: { gridSize: element('select') },
+        initialize() {}, _retainRibbonHeight() {}, _hookSchematicChanges() {},
+        _updateViewportStatus() {}, syncPcbViewToggles() {},
+        _syncFromSchematic() { this._stale = false; },
+        _setActiveRibbonTab(tab) { lifecycle.push(tab); },
+        _showBoardDimensionsDialog() {
+            assert.equal(this.boardShapes.length, 0, 'Prompt follows removal of the old shapes');
+            assert.equal(getPcbSelectionEntries(this).length, 0, 'Prompt follows selection disposal');
+            assert.equal(this._boardOutlineDrawn, false);
+            assert.deepEqual([this._boardWidth, this._boardHeight, this._boardRadius], [100, 80, 0]);
+            lifecycle.push('dimensions');
+        },
         _ensureViewport() {},
         _getLayerGroup(id) {
             if (!layers.has(id)) layers.set(id, element('g'));
@@ -70,16 +94,19 @@ function fixture(active) {
         shapes: [], components: [],
         _clearAllShapes() { this.shapes = []; }, _clearAllComponents() { this.components = []; },
         viewport: { resetView() {}, setTitleBlockData() {} }, _updateTitle() {},
+        _notifyDocumentReplaced: SchematicApp.prototype._notifyDocumentReplaced,
     };
     project.registerView('pcb', app);
     project.registerView('schematic', host, { isUiHost: true, lifecycle: { new: () => newFile(host) } });
-    globalThis.bootstrap = { project };
-    return { app, project, layers };
+    globalThis.bootstrap = { project: { pcb: {
+        clearSection() { assert.fail('New must not clear a different bootstrap project'); },
+    } } };
+    return { app, project, layers, lifecycle };
 }
 
 for (const active of [true, false]) {
     for (const selected of [true, false]) {
-        const { app, project } = fixture(active);
+        const { app, project, lifecycle } = fixture(active);
         const shape = { id: 'old-rect', kind: 'rect', layer: 'top-silk', lineWidth: 0.2,
             points: [{ x: 0, y: 0 }, { x: 8, y: 0 }, { x: 8, y: 4 }, { x: 0, y: 4 }] };
         const shapes = [shape,
@@ -98,6 +125,8 @@ for (const active of [true, false]) {
             app._pcbSelection.setHovered(getPcbSelectionEntries(app)[0]);
         }
         await project.newDocument();
+        assert.deepEqual(lifecycle, active ? ['pcb-home', 'dimensions'] : ['pcb-home'],
+            'Successful New returns Home and prompts only when PCB is active');
         assert.equal(app.boardShapes.length, 0);
         assert.equal(layer.children.length, 0);
         assert.equal(overlay.querySelectorAll('.pcb-selection-anchors').length, 0,
@@ -113,6 +142,12 @@ for (const active of [true, false]) {
         assert.equal(project.isDirty, false);
         await project.newDocument();
         assert.equal(layer.children.length, 0, 'Repeated New remains empty');
+        assert.equal(lifecycle.filter(event => event === 'dimensions').length, active ? 2 : 0);
+        if (!active) {
+            app.activate();
+            assert.equal(lifecycle.filter(event => event === 'dimensions').length, 1,
+                'Schematic New defers the dimensions prompt until PCB activation');
+        }
     }
 }
 
@@ -131,7 +166,7 @@ for (const replacement of [null, { stackup: { copperLayers: ['top-copper', 'bott
 }
 
 {
-    const { app, project } = fixture(true);
+    const { app, project, lifecycle } = fixture(true);
     const old = { id: 'reused-id', kind: 'circle', layer: 'top-silk', lineWidth: 0.2, x: 2, y: 3, radius: 1 };
     app.boardShapes.push(old);
     renderBoardShape(app, old);
@@ -140,6 +175,7 @@ for (const replacement of [null, { stackup: { copperLayers: ['top-copper', 'bott
     project.fileManager.setDirty(true);
     project.schematic._confirm = async () => false;
     await project.newDocument();
+    assert.deepEqual(lifecycle, [], 'Cancelling New must not prompt or change tabs');
     assert.equal(app.boardShapes[0], old, 'Cancelling New preserves the current document');
     assert.equal(getPcbSelectionEntries(app)[0].object, old);
     assert.equal(app._getLayerGroup('selection-overlay').querySelectorAll('.pcb-selection-anchors').length, 1);
@@ -149,10 +185,61 @@ for (const replacement of [null, { stackup: { copperLayers: ['top-copper', 'bott
     assert.notEqual(app.boardShapes[0], old);
     assert.equal(app.boardShapes[0].x, 50);
     assert.equal(getPcbSelectionEntries(app).length, 0, 'Open cannot transfer old selection to a reused object ID');
+    project.notifyDocumentReplaced('open');
+    assert.deepEqual(lifecycle, ['pcb-home'], 'Open does not trigger the New-board setup prompt');
     assert.equal(app._getLayerGroup('selection-overlay').children.length, 0);
     clearPcbSelection(app);
     assert.equal(app._getLayerGroup('top-silk').children.length, 1, 'Open retains only the new document artwork');
 }
 delete globalThis.bootstrap;
 clearTimeout(autosaveDot._t);
-console.log('PASS PCB document reset clears selected shapes, hover adapters, handles and drawing previews without resurrection');
+{
+    const { app, project } = fixture(true);
+    app._showBoardDimensionsDialog = PCBApp.prototype._showBoardDimensionsDialog;
+    const createElement = document.createElement;
+    document.createElement = tag => {
+        const node = createElement(tag);
+        if (tag === 'div') {
+            const controls = new Map([
+                ['#boardDlgWidth', Object.assign(element('input'), { value: '100' })],
+                ['#boardDlgHeight', Object.assign(element('input'), { value: '80' })],
+                ['#boardDlgRadius', Object.assign(element('input'), { value: '0' })],
+                ['#boardDlgOk', element('button')],
+            ]);
+            node.querySelector = selector => controls.get(selector) || null;
+        }
+        return node;
+    };
+    await project.newDocument();
+    const first = app._boardDimensionsOverlay;
+    assert.equal(first.parentNode, document.body, 'New displays the existing dimensions dialog');
+    app._showBoardDimensionsDialog();
+    assert.equal(app._boardDimensionsOverlay, first, 'Repeated setup requests do not stack dialogs');
+    await project.newDocument();
+    const second = app._boardDimensionsOverlay;
+    assert.notEqual(second, first);
+    assert.equal(first.parentNode, null, 'Replacing the document disposes its old dialog');
+    assert.equal(document.body.children.length, 1);
+    first.querySelector('#boardDlgOk').dispatchEvent({ type: 'click' });
+    assert.equal(app._boardOutlineDrawn, false, 'A stale dialog cannot change the replacement document');
+    second.querySelector('#boardDlgOk').dispatchEvent({ type: 'click' });
+    assert.equal(app._boardOutlineDrawn, true, 'Accepting defaults creates the new board outline');
+    assert.equal(project.isDirty, true, 'The newly created outline is eligible for saving');
+    assert.equal(app._boardDimensionsOverlay, null);
+    assert.equal(document.body.children.length, 0);
+
+    project.schematic._confirm = async () => true;
+    await project.newDocument();
+    const pending = app._boardDimensionsOverlay;
+    loadPcb(app, { stackup: { copperLayers: ['top-copper', 'bottom-copper'] },
+        board: { width: 45, height: 22, radius: 0 } });
+    project.notifyDocumentReplaced('open');
+    assert.equal(pending.parentNode, null, 'Open disposes an unfinished New-board dialog');
+    assert.equal(app._boardDimensionsOverlay, null);
+    assert.deepEqual([app._boardWidth, app._boardHeight], [45, 22]);
+    pending.querySelector('#boardDlgOk').dispatchEvent({ type: 'click' });
+    assert.deepEqual([app._boardWidth, app._boardHeight], [45, 22], 'Stale setup cannot overwrite loaded dimensions');
+    document.createElement = createElement;
+}
+
+console.log('PASS PCB document reset disposes selection/previews/dialogs and prompts for New-board dimensions at the correct time');

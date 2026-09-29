@@ -389,10 +389,8 @@ export async function newFile(app) {
     app.fileManager.newDocument();
     app.viewport.resetView();
 
-    // Clear the PCB section too — one document means New wipes both
-    // editors. Routed via the project so the schematic doesn't reach
-    // directly into the PCB view.
-    /** @type {any} */ (globalThis).bootstrap?.project?.pcb?.clearSection?.();
+    // New must clear this project's PCB, not a view from a global bootstrap.
+    app.project?.pcb?.clearSection?.();
 
     // Reset title block to defaults (preserve persisted user-identity fields)
     app.viewport.setTitleBlockData({
@@ -406,7 +404,7 @@ export async function newFile(app) {
 
     app._updateTitle();
     app.invalidate?.();
-    app._showDocumentHome?.();
+    app._notifyDocumentReplaced?.('new');
     console.log('New document created');
 }
 
@@ -483,7 +481,7 @@ export async function openFile(app) {
             app._fitToContent?.();
             app._updateTitle();
             app.fileManager.clearAutoSave();
-            app._showDocumentHome?.();
+            app._notifyDocumentReplaced?.('open');
             console.log('Opened:', result.fileName);
         } else if (result.error) {
             app._alert('Failed to open: ' + result.error, { title: 'Open Failed' });
@@ -517,7 +515,7 @@ export async function openRecentFile(app, name) {
             app._fitToContent?.();
             app._updateTitle();
             app.fileManager.clearAutoSave();
-            app._showDocumentHome?.();
+            app._notifyDocumentReplaced?.('open');
             console.log('Opened recent:', result.fileName);
         } else if (result.error) {
             app._alert('Failed to open: ' + result.error, { title: 'Open Failed' });
@@ -560,7 +558,7 @@ export async function importEasyEDA(app) {
         app.fileManager.setDirty(true);
         app._updateTitle();
         app.fileManager.clearAutoSave();
-        app._showDocumentHome?.();
+        app._notifyDocumentReplaced?.('import');
         console.log('EasyEDA import complete');
     } catch (err) {
         app._alert('Import failed: ' + err.message, { title: 'Import Failed' });

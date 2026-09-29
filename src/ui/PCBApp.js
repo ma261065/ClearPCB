@@ -290,6 +290,8 @@ export default class PCBApp {
         this._hasContent = false;
         /** Whether the board outline has been drawn */
         this._boardOutlineDrawn = false;
+        /** @type {HTMLDivElement|null} */
+        this._boardDimensionsOverlay = null;
         /** Whether the board outline is currently selected */
         this._boardOutlineSelected = false;
         this._boardOutlineResize = null;
@@ -2770,6 +2772,14 @@ export default class PCBApp {
 
     // ── ProjectDocument view interface ────────────────────────────────
 
+    /** @param {'new'|'open'|'import'} reason */
+    onDocumentReplaced(reason) {
+        this._setActiveRibbonTab?.('pcb-home');
+        if (reason === 'new' && this._active && !this._boardOutlineDrawn) {
+            this._showBoardDimensionsDialog();
+        }
+    }
+
     /**
      * Serialize this editor's slice of the document for the project owner.
      * Returns null when there is nothing to persist so the combined
@@ -3211,10 +3221,16 @@ export default class PCBApp {
 
     // ── Board Outline ─────────────────────────────────────────────
 
+    _closeBoardDimensionsDialog() {
+        this._boardDimensionsOverlay?.remove();
+        this._boardDimensionsOverlay = null;
+    }
+
     /**
      * Show a dialog asking for board dimensions on first entry.
      */
     _showBoardDimensionsDialog() {
+        if (this._boardDimensionsOverlay) return;
         const overlay = document.createElement('div');
         overlay.className = 'app-modal-overlay';
         overlay.innerHTML = `
@@ -3240,6 +3256,7 @@ export default class PCBApp {
                 </div>
             </div>`;
         document.body.appendChild(overlay);
+        this._boardDimensionsOverlay = overlay;
 
         const widthInput = /** @type {HTMLInputElement} */ (overlay.querySelector('#boardDlgWidth'));
         const heightInput = /** @type {HTMLInputElement} */ (overlay.querySelector('#boardDlgHeight'));
@@ -3252,9 +3269,12 @@ export default class PCBApp {
             }
         });
 
-        setTimeout(() => widthInput?.focus(), 50);
+        setTimeout(() => {
+            if (this._boardDimensionsOverlay === overlay) widthInput?.focus();
+        }, 50);
 
         const accept = () => {
+            if (this._boardDimensionsOverlay !== overlay) return;
             const w = parseFloat(widthInput?.value) || 100;
             const h = parseFloat(heightInput?.value) || 80;
             const r = parseFloat(radiusInput?.value) || 0;
@@ -3277,7 +3297,7 @@ export default class PCBApp {
                 this._drawBoardOutline();
                 this._markDirty();
             }
-            overlay.remove();
+            this._closeBoardDimensionsDialog();
         };
 
         okBtn?.addEventListener('click', accept);

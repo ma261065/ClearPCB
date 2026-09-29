@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 globalThis.window = { addEventListener() {} };
 globalThis.localStorage = { getItem() { return null; } };
 const { default: SchematicApp } = await import('../src/ui/SchematicApp.js');
+const { default: PCBApp } = await import('../src/ui/PCBApp.js');
+const { ProjectDocument } = await import('../src/core/ProjectDocument.js');
 const { newFile, openFile, openRecentFile } = await import('../src/schematic/modules/files.js');
 
 function fixture(outcome = 'success') {
@@ -17,7 +19,11 @@ function fixture(outcome = 'success') {
                 if (outcome === 'load-error') throw new Error('Invalid project');
                 events.push('loaded');
             },
-            pcb: { _setActiveRibbonTab(tab) { tabs.pcb = tab; events.push('pcb-home'); } },
+            pcb: {
+                onDocumentReplaced: PCBApp.prototype.onDocumentReplaced,
+                _setActiveRibbonTab(tab) { tabs.pcb = tab; events.push('pcb-home'); },
+            },
+            notifyDocumentReplaced: ProjectDocument.prototype.notifyDocumentReplaced,
         },
         fileManager: {
             loading: outcome === 'busy', saving: false, isDirty: false,
@@ -30,13 +36,15 @@ function fixture(outcome = 'success') {
             clearAutoSave() {}, newDocument() { events.push('new'); },
         },
         _loadDocument: SchematicApp.prototype._loadDocument,
-        _showDocumentHome: SchematicApp.prototype._showDocumentHome,
+        _notifyDocumentReplaced: SchematicApp.prototype._notifyDocumentReplaced,
+        onDocumentReplaced: SchematicApp.prototype.onDocumentReplaced,
         _setActiveRibbonTab(tab) { tabs.schematic = tab; events.push('schematic-home'); },
         _confirm: async () => false, _alert() { events.push('alert'); },
         _fitToContent() {}, _updateTitle() {},
         selection: { clearSelection() {} }, _clearAllShapes() {}, _clearAllComponents() {},
         viewport: { resetView() {}, setTitleBlockData() {} },
     };
+    app.project.views = new Map([['schematic', app], ['pcb', app.project.pcb]]);
     return { app, tabs, events };
 }
 

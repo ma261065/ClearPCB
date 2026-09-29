@@ -1391,12 +1391,17 @@ export default class SchematicApp {
         }
     }
 
-    _showDocumentHome() {
-        this._setActiveRibbonTab?.('home');
-        this.project?.pcb?._setActiveRibbonTab?.('pcb-home');
+    /** @param {'new'|'open'|'import'} reason */
+    _notifyDocumentReplaced(reason) {
+        if (this.project) this.project.notifyDocumentReplaced(reason);
+        else this.onDocumentReplaced();
     }
 
     // ── ProjectDocument view interface ────────────────────────────────
+
+    onDocumentReplaced() {
+        this._setActiveRibbonTab?.('home');
+    }
 
     /**
      * Serialize just this editor's slice of the document (the schematic

@@ -74,6 +74,14 @@ clearpcb/
   switching, platform launch hooks).
 - `src/easyeda/*` is import-only (read EasyEDA files into our model).
 
+`ProjectDocument` dispatches successful file-action completion through registered
+views' `onDocumentReplaced(reason)` hooks (`new`, `open`, or `import`). Each editor
+owns its own Home-tab navigation; the PCB view also owns new-board setup timing
+and disposal of its dimensions dialog. Completion is not emitted for cancelled
+or failed file actions. Full New/reset transaction ownership is still being
+consolidated; the remaining work is tracked in
+[review-fixes.md](review-fixes.md#release-readiness-tracker).
+
 ## Extracted Services
 
 - `shapes/arc-edit.js` owns control-arc geometry, sampling, midpoint projection,

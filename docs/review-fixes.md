@@ -14,10 +14,11 @@ reviewable changes; no broad rewrite or mechanical file splitting is planned.
 | Milestone | Status | Evidence required / remaining work |
 | --- | --- | --- |
 | Verified checkpoint | Done | Commit `3b5e096`: geometry persistence/resize, document reset, Home navigation and regression-fixture fixes. Full gate: 132/132 files; autorouter 74/76, zero clearance violations. |
-| Automated release gate implementation | Locally verified | Push/PR workflow and tag-specific pre-package gate added. Both pass actionlint 1.7.7 (workflow/schema/expression checks; external shellcheck/pyflakes disabled). The unchanged gate command passed the full checkpoint above. |
+| Automated release gate implementation | Committed, locally verified | Commit `7e03035`: push/PR workflow and tag-specific pre-package gate. Both pass actionlint 1.7.7 (workflow/schema/expression checks; external shellcheck/pyflakes disabled). The unchanged gate command passed the full checkpoint above. |
 | Hosted checks and merge protection | Pending authorization | After an authorized push, verify the first hosted run and require Regression gate in branch rulesets. No remote settings, push or release have been performed. |
-| Document lifecycle and UI ownership | Pending - next | Centralize replacement/cleanup and shared UI orchestration. Cover New/Open/Recent/import/PWA, cancellation, failures, previews, selection disposal and hidden PCB activation. |
-| File > New board-size prompt | Pending decision | Reuse the existing Board Dimensions dialog. Confirm whether schematic New should prompt immediately or defer until PCB activation; active PCB New should prompt immediately after successful reset. |
+| Document-completion UI ownership | Implemented, locally verified | ProjectDocument notifies registered views after successful New/Open/Recent/import/PWA; each view owns its own Home navigation. New clears its own registered PCB instead of relying on a global bootstrap. Five focused suites pass. |
+| Document replacement transaction ownership | In progress - next | Move the remaining New/reset orchestration out of the schematic file module; consolidate failure/concurrency handling and transient-state disposal without losing rollback or user settings. Existing completion hooks are not a claim that all lifecycle ownership is resolved. |
+| File > New board-size prompt | Implemented, locally verified | User chose immediate setup in active PCB, deferred until PCB activation after schematic New. Reuses the existing dialog; repeated setup cannot stack dialogs, replacement disposes old dialogs, and stale acceptance cannot mutate the new document. |
 | Data model and representation consistency | Pending | Audit identities, geometry/precision invariants and editable/persisted/manufacturing conversions; extend cross-consumer tests. Keep legacy rectangle readers until the user confirms migration. |
 | Separation of duties and maintainability | Pending | Reduce broad application/private-state dependencies with explicit owners and typed contracts, starting with lifecycle and derived-data invalidation. Replace brittle source-extraction tests where practical. |
 | Measured performance | Pending | Define representative boards, latency budgets and repeatable first-interaction/load/switch/dense-board measurements; check visual correctness as well as speed. Browser checks remain user-led unless authorized. |
@@ -170,6 +171,13 @@ handles are removed, pending drawing previews are cancelled, and the registry
 is rebuilt for the replacement document. This prevents selected shapes from
 remaining visible or reappearing after their models have been cleared.
 
+Successful New prompts for board dimensions immediately if PCB is active;
+otherwise the existing activation prompt handles setup when PCB is next shown.
+The previous document's setup dialog is disposed during replacement. Duplicate
+setup requests do not stack dialogs, and callbacks from a disposed dialog cannot
+change the replacement document. Headless coverage uses the actual dialog
+creation/acceptance code as well as the New and activation paths.
+
 ```sh
 node tools/test.mjs pcb-document-reset pcb-deferred-load project-lifecycle
 ```
@@ -180,6 +188,11 @@ Successful New, Open and Open Recent actions return both editors to Home.
 Navigation happens after document replacement and file adoption, not when the
 button is clicked, so cancelled or failed actions do not request a tab change.
 Import and PWA file opening use the same Home navigation.
+
+The project owner dispatches completion through each view's
+`onDocumentReplaced(reason)` contract. The schematic no longer manipulates the
+PCB's ribbon; each editor owns its own UI response. PCB-specific New setup is
+handled by the PCB view, not by the shared project model.
 
 ```sh
 node tools/test.mjs file-home-tab project-lifecycle project-recovery pcb-document-reset pcb-deferred-load
