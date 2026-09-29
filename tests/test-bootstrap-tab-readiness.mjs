@@ -31,6 +31,10 @@ function fixture() {
         requestIdleCallback(callback) { idleCallbacks.set(++idleId, callback); return idleId; },
         cancelIdleCallback(id) { idleCallbacks.delete(id); },
     };
+    Object.defineProperty(window, 'app', {
+        get() { assert.fail('Startup must not read the legacy schematic alias'); },
+        set() { assert.fail('Startup must not publish the legacy schematic alias'); },
+    });
     const dependencies = {
         ModalManager: {
             top: () => modal,

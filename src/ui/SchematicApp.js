@@ -5,6 +5,8 @@ import { globalEventBus } from '../core/EventBus.js';
 import { CommandHistory } from '../core/CommandHistory.js';
 import { SelectionManager } from '../core/SelectionManager.js';
 import { FileManager } from '../core/FileManager.js';
+import { extractNetlist } from '../core/netlist.js';
+import { ModifyPropertyCommand } from '../schematic/modules/commands.js';
 import { repairDuplicateTrackIds } from '../core/project-format.js';
 import { storageManager } from '../core/StorageManager.js';
 import { pointsMatch } from '../core/geometry.js';
@@ -114,6 +116,7 @@ export default class SchematicApp {
         this.fileManager.onDirtyChanged = () => this._updateTitle();
         this.fileManager.onFileNameChanged = () => this._updateTitle();
         this.fileManager.onAutoSaveChanged = () => this._updateTitle();
+        this.fileManager.onAutoSaveError = () => this.onAutoSaveError();
 
         // Shape/selection state
         this.shapes = [];
@@ -1405,6 +1408,55 @@ export default class SchematicApp {
 
     onProjectChanged() {
         this._updateTitle();
+    }
+
+    onAutoSaveError() {
+        return this._alert('Auto-save failed: storage full or unavailable. Your changes are still open, but are not being backed up. Save your project to disk.',
+            { title: 'Auto-save Failed' });
+    }
+
+    /**
+     * @param {string} id
+     * @returns {import('../core/ProjectDocument.js').ComponentInfo|null}
+     */
+    getComponentInfo(id) {
+        const component = this.components.find(item => item.id === id);
+        if (!component) return null;
+        const shapes = component.definition?.footprintShapes;
+        return { id: component.id, reference: component.reference, locked: !!component.locked,
+            footprintShapes: Array.isArray(shapes) ? shapes.filter(shape => typeof shape === 'string') : [] };
+    }
+
+    /**
+     * @param {string} id
+     * @param {string} reference
+     */
+    validateComponentReference(id, reference) {
+        const component = this.components.find(item => item.id === id);
+        if (!component) return { message: 'Component is no longer available.', title: 'Invalid Reference' };
+        if (component.locked) return { message: 'Component is locked.', title: 'Locked Component' };
+        reference = reference.trim();
+        if (!reference) return { message: 'Reference cannot be blank.', title: 'Invalid Reference' };
+        if (this.components.some(item => item.id !== id && item.reference.toUpperCase() === reference.toUpperCase())) {
+            return { message: `Reference "${reference}" is already used by another component.`, title: 'Duplicate Reference' };
+        }
+        return null;
+    }
+
+    /**
+     * @param {string} id
+     * @param {string} reference
+     */
+    createReferenceRenameCommand(id, reference) {
+        const issue = this.validateComponentReference(id, reference);
+        if (issue) throw new Error(issue.message);
+        const component = this.components.find(item => item.id === id);
+        const command = new ModifyPropertyCommand(this, [component], 'reference', reference.trim());
+        return { execute: () => command.execute(), undo: () => command.undo() };
+    }
+
+    getNetlist() {
+        return extractNetlist(this);
     }
 
     /**

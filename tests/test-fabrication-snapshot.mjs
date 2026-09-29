@@ -144,6 +144,35 @@ try {
 }
 
 const pcbSource = fs.readFileSync(new URL('../src/ui/PCBApp.js', import.meta.url), 'utf8');
+const { default: PCBApp } = await import('../src/ui/PCBApp.js');
+for (const name of ['app', 'bootstrap']) Object.defineProperty(window, name, {
+    get() { assert.fail('Export naming must not consult global project owners'); },
+});
+const ownedProject = { fileManager: { fileName: 'owned.rev2.cpcb' } };
+assert.equal(PCBApp.prototype._exportBaseName.call({ project: ownedProject }), 'owned.rev2');
+assert.equal(PCBApp.prototype._exportBaseName.call({}), 'untitled');
+const { projectBaseName } = await import('../src/pcb/modules/pcb-export.js');
+for (const [fileName, expected] of [['owned.rev2.cpcb', 'owned.rev2'], ['board', 'board']]) {
+    assert.equal(projectBaseName({ project: { fileManager: { fileName } } }), expected);
+}
+assert.equal(projectBaseName({}), 'pcb', 'PDF keeps its existing unnamed-project fallback');
+assert.equal(projectBaseName({ project: { fileManager: { fileName: '.cpcb' } } }), 'pcb');
+assert.equal(PCBApp.prototype._exportBaseName.call({
+    project: { fileManager: { fileName: '.cpcb' } },
+}), 'untitled');
+
+const csvNames = [];
+const csvApp = {
+    project: ownedProject, _exportBaseName: PCBApp.prototype._exportBaseName,
+    placements: new Map([['U1', { reference: 'U1', value: 'Part', footprint: 'Package' }]]),
+    async _saveBlob(blob, name) { assert.ok(blob instanceof Blob); csvNames.push(name); return true; },
+    _setStatus() {},
+};
+PCBApp.prototype.exportBOM.call(csvApp);
+PCBApp.prototype.exportPickAndPlace.call(csvApp);
+await Promise.resolve();
+assert.deepEqual(csvNames, ['owned.rev2-bom.csv', 'owned.rev2-pick-and-place.csv']);
+
 const methodSource = name => {
     const start = pcbSource.indexOf(`    async ${name}(`);
     assert.ok(start >= 0, `${name} exists`);
@@ -154,9 +183,10 @@ const events = [];
 let finishWrite;
 const writing = new Promise(resolve => { finishWrite = resolve; });
 const saveWindow = {
+    app: { fileManager: { fileName: 'unrelated.cpcb' } },
     showSaveFilePicker(options) {
         events.push('picker');
-        assert.equal(options.suggestedName, 'untitled-gerber.zip');
+        assert.equal(options.suggestedName, 'owned.rev2-gerber.zip');
         return Promise.resolve({
             async createWritable() {
                 events.push('createWritable');
@@ -181,7 +211,8 @@ const exportGerber = new Function('window', 'hasFabricationContent', 'generateGe
     async () => { events.push('prepare'); return { blob: new Blob(['zip']), fileCount: 1 }; },
     (...progress) => progressEvents.push(progress),
 );
-const exportApp = { _saveBlob: saveBlob, _setStatus(message) { events.push(message); } };
+const exportApp = { project: ownedProject, _exportBaseName: PCBApp.prototype._exportBaseName,
+    _saveBlob: saveBlob, _setStatus(message) { events.push(message); } };
 const saving = exportGerber.call(exportApp);
 assert.deepEqual(events, ['picker'], 'Picker opens synchronously before fabrication preparation');
 assert.equal(exportApp._exportGerberPending, true);

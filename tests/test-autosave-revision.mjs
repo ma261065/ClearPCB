@@ -7,6 +7,11 @@ const originalClearInterval = globalThis.clearInterval;
 const originalStorage = globalThis.localStorage;
 const originalRequestIdleCallback = globalThis.requestIdleCallback;
 const originalCancelIdleCallback = globalThis.cancelIdleCallback;
+const originalBootstrap = Object.getOwnPropertyDescriptor(globalThis, 'bootstrap');
+let globalLookups = 0;
+Object.defineProperty(globalThis, 'bootstrap', {
+    configurable: true, get() { globalLookups++; return null; },
+});
 const timers = new Map();
 const stored = new Map();
 let nextTimer = 0;
@@ -149,6 +154,26 @@ try {
         retry.stopAutoSave();
     }
 
+    const warningManager = new FileManager();
+    warningManager.setFileName('warning.cpcb');
+    const warnings = [];
+    warningManager.onAutoSaveError = error => { warnings.push(error); };
+    const warningKey = warningManager.autoSavePrefix + warningManager.fileName;
+    failKey = warningKey;
+    warningManager.autoSaveToStorage(data());
+    warningManager.autoSaveToStorage(data());
+    await Promise.resolve();
+    assert.equal(warnings.length, 1, 'Report only once per storage-failure streak');
+    assert.match(warnings[0].message, /Simulated storage failure/);
+    failKey = null;
+    warningManager.autoSaveToStorage(data());
+    failKey = warningKey;
+    warningManager.autoSaveToStorage(data());
+    await Promise.resolve();
+    assert.equal(warnings.length, 2, 'A successful autosave resets warning suppression');
+    assert.equal(globalLookups, 0, 'Storage must not discover UI through the global bootstrap');
+    failKey = null;
+
     const changedDuringSnapshot = new FileManager();
     changedDuringSnapshot.setDirty(true);
     let attempts = 0;
@@ -165,6 +190,8 @@ try {
     assert.equal(timers.size, 0);
     console.log('Autosave revision regressions passed (simulated failures above are expected).');
 } finally {
+    if (originalBootstrap) Object.defineProperty(globalThis, 'bootstrap', originalBootstrap);
+    else delete globalThis.bootstrap;
     globalThis.setInterval = originalSetInterval;
     globalThis.clearInterval = originalClearInterval;
     if (originalRequestIdleCallback === undefined) delete globalThis.requestIdleCallback;

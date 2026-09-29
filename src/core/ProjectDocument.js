@@ -2,6 +2,8 @@ import { FileManager } from './FileManager.js';
 import { validateEditableProject } from './project-format.js';
 import { compactProjectAliases } from './project-field-aliases.js';
 
+/** @typedef {{id: string, reference: string, locked: boolean, footprintShapes: string[]}} ComponentInfo */
+
 /**
  * Neutral owner of the single ClearPCB project document.
  *
@@ -63,6 +65,41 @@ export class ProjectDocument {
     get schematic() { return this.views.get('schematic'); }
     /** @returns {any} The PCB view, if registered. */
     get pcb() { return this.views.get('pcb'); }
+
+    /**
+     * @param {string} id
+     * @returns {ComponentInfo|null} Detached component metadata.
+     */
+    getComponentInfo(id) {
+        return this.schematic?.getComponentInfo(id) || null;
+    }
+
+    /**
+     * @param {string} id
+     * @param {string} reference
+     * @returns {{message: string, title: string}|null}
+     */
+    validateComponentReference(id, reference) {
+        return this.schematic
+            ? this.schematic.validateComponentReference(id, reference)
+            : { message: 'Component is no longer available.', title: 'Invalid Reference' };
+    }
+
+    /**
+     * Create, but do not execute or record, an editor-independent undoable operation.
+     * @param {string} id
+     * @param {string} reference
+     * @returns {{execute(): void, undo(): void}}
+     */
+    createReferenceRenameCommand(id, reference) {
+        if (!this.schematic) throw new Error('Component is no longer available.');
+        return this.schematic.createReferenceRenameCommand(id, reference);
+    }
+
+    /** @returns {import('./netlist.js').NetlistEntry[]} */
+    getNetlist() {
+        return this.schematic?.getNetlist() || [];
+    }
 
     /**
      * Notify views only after replacement and file-identity updates succeed.

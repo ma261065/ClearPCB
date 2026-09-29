@@ -451,7 +451,7 @@ export function bindPcbControls(app) {
 function bindPcbFileMenu(app) {
     const get = (id) => document.getElementById(id);
     /** The neutral document owner coordinates all file I/O. */
-    const project = () => /** @type {any} */ (window).bootstrap?.project;
+    const project = () => app.project;
 
     get('pcbRibbonNew')?.addEventListener('click', () => {
         project()?.newDocument();

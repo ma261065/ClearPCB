@@ -1,5 +1,5 @@
 /**
- * Netlist extraction – builds a net-to-pin mapping from the schematic.
+ * Shared project queries: net-to-pin mappings and component placement data.
  *
  * Walks all Wire shapes and their pinConnections to determine which
  * component pins share electrical connectivity (same net).

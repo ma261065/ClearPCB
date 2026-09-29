@@ -89,10 +89,37 @@ advances the revision and calls its UI host's `onProjectChanged()` to refresh
 aggregate title/dirty indicators. PCB edits keep their section dirty flag separate
 from `FileManager.isDirty`, avoiding the schematic-to-PCB stale-sync listener.
 
+`AppBootstrap` stores its schematic instance directly; there is no `window.app`
+alias. PCB file commands resolve their own `app.project`, including after controls
+are bound during startup. `window.bootstrap` remains only a console-inspection
+handle, not a runtime service lookup.
+
+Storage reports autosave failures through `FileManager.onAutoSaveError`; the UI
+host shows the existing alert dialog, visible from either editor. Notifications
+are once per storage-failure streak, reset after a successful autosave. Storage
+and notification failures are logged; error reporting no longer discovers editors
+through globals. The existing autosave-success indicator still renders from
+FileManager and remains a separate UI-boundary cleanup.
+
 PCB synchronization subscribes to and reads the project's registered schematic,
 not the global app. Existing history/dirty listeners are preserved and wrapped
 once; active edits retain the 300 ms debounce, while hidden boards defer rebuilds.
 A missing schematic registration leaves synchronization pending.
+
+PCB reference editing and footprint inspection use the project's narrow component
+interface: `getComponentInfo()`, `validateComponentReference()`,
+`createReferenceRenameCommand()` and `getNetlist()`. Queries return detached data;
+rename commands expose only `execute()`/`undo()`, not an editor or live component.
+The schematic adapter retains model mutation and field-text rendering, while PCB
+owns its validation dialogs, preview, history entry and derived-display updates.
+Pure component/netlist queries live in `core/netlist.js` for shared use.
+This separates those consumers from the editor without moving the whole model;
+the synchronization subscription still depends on the registered schematic.
+
+PDF, Gerber, BOM and pick-and-place naming share
+`projectBaseName()` from `pcb/modules/pcb-export.js`, using the owning project's
+FileManager. Existing unnamed-export defaults (`pcb` for PDF, `untitled` for
+manufacturing exports) are retained.
 
 Open retains the existing best-effort serialized rollback. It can round or
 normalize geometry and does not preserve Undo or selection. The experimental

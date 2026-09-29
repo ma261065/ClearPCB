@@ -151,4 +151,48 @@ for (const outcome of ['success', 'declined', 'busy', 'reset-error']) {
         assert.equal(pcbTitle.textContent, 'owned.cpcb');
     }
 }
-console.log('PASS file completion navigation and project-owned PCB dirty/title notifications');
+{
+    const calls = [];
+    const node = () => {
+        const handlers = new Map(), classes = new Set();
+        return { children: [], appendChild(child) { this.children.push(child); }, setAttribute() {},
+            addEventListener: (event, handler) => handlers.set(event, handler),
+            click: event => handlers.get('click')?.(event || { stopPropagation() {} }),
+            classList: { contains: name => classes.has(name), remove: name => classes.delete(name),
+                toggle(name) { if (!classes.delete(name)) classes.add(name); } },
+        };
+    };
+    const ids = ['New', 'Open', 'Save', 'SaveAs', 'ExportPdf', 'Print', 'Import', 'ImportMenu', 'OpenRecent', 'RecentMenu'];
+    const elements = new Map(ids.map(id => [`pcbRibbon${id}`, node()]));
+    globalThis.document = { getElementById: id => elements.get(id) || null,
+        querySelectorAll: () => [], addEventListener() {}, createElement: node };
+    Object.defineProperty(window, 'bootstrap', {
+        get() { assert.fail('PCB File commands must use their own project'); },
+    });
+    const { bindPcbControls } = await import('../src/pcb/modules/controls.js');
+    const project = {
+        newDocument() { calls.push('new'); }, open() { calls.push('open'); },
+        openRecent(name) { calls.push(name); }, importEasyEDA() { calls.push('import'); },
+        async save() { calls.push('save'); return { success: true }; },
+        async saveAs() { calls.push('saveAs'); return { success: true }; },
+        fileManager: { getRecentFiles: () => [{ name: 'owned.cpcb' }] },
+    };
+    const pcbControls = { project: null, _showSaveToast() { calls.push('toast'); },
+        savePdf() { calls.push('pdf'); }, print() { calls.push('print'); } };
+    bindPcbControls(pcbControls);
+    pcbControls.project = project;
+    for (const id of ['New', 'Open', 'OpenRecent']) await elements.get(`pcbRibbon${id}`).click();
+    elements.get('pcbRibbonRecentMenu').children[0].children[0].click();
+    elements.get('pcbRibbonImportMenu').click({ target: { closest: () => ({ dataset: { format: 'easyeda-sch' } }) } });
+    for (const id of ['Save', 'SaveAs', 'ExportPdf', 'Print']) await elements.get(`pcbRibbon${id}`).click();
+    assert.deepEqual(calls, ['new', 'open', 'owned.cpcb', 'import', 'save', 'toast', 'saveAs', 'toast', 'pdf', 'print']);
+    await SchematicApp.prototype.onAutoSaveError.call({
+        async _alert(message, options) {
+            assert.match(message, /Auto-save failed/);
+            assert.equal(options.title, 'Auto-save Failed');
+            calls.push('warning');
+        },
+    });
+    assert.equal(calls.at(-1), 'warning');
+}
+console.log('PASS file navigation, project-owned dirty notifications and File-menu/error wiring');

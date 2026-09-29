@@ -534,6 +534,8 @@ export class FileManager {
         this.onDirtyChanged = null;
         this.onFileNameChanged = null;
         this.onAutoSaveChanged = null;
+        /** @type {((error: unknown) => void|Promise<void>)|null} */
+        this.onAutoSaveError = null;
     }
     
     /**
@@ -999,10 +1001,9 @@ export class FileManager {
             // work isn't being backed up (storage full, private mode, …).
             if (!this._autoSaveErrorNotified) {
                 this._autoSaveErrorNotified = true;
-                try {
-                    globalThis.bootstrap?.schematicApp?._setStatus?.(
-                        'Auto-save failed: storage full or unavailable');
-                } catch { /* status bar may not exist */ }
+                Promise.resolve().then(() => this.onAutoSaveError?.(err)).catch(notificationError => {
+                    console.error('Auto-save error notification failed:', notificationError);
+                });
             }
         }
     }

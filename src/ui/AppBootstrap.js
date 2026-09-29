@@ -55,8 +55,7 @@ class AppBootstrap {
 
         // The schematic editor registers itself as the project's UI-host
         // view (and injects the file lifecycle) from its constructor.
-        /** @type {any} */ (window).app = new SchematicApp(this.project);
-        this.schematicApp = /** @type {any} */ (window).app;
+        this.schematicApp = new SchematicApp(this.project);
 
         this._bindModeTabs();
         await this.schematicApp._recoverAutoSave?.();
@@ -328,9 +327,7 @@ class AppBootstrap {
 
 document.addEventListener('DOMContentLoaded', async () => {
     const bootstrap = new AppBootstrap();
-    // Expose BEFORE initialize() so autosave-recovery (which runs
-    // inside initialize()) can reach bootstrap.project to restore the
-    // PCB section of the document.
+    // Console inspection only; application code receives its dependencies explicitly.
     /** @type {any} */ (window).bootstrap = bootstrap;
     await bootstrap.initialize();
 });

@@ -6,7 +6,7 @@ globalThis.document = { createElementNS: () => ({ setAttribute() {}, appendChild
 const { createShape } = await import('../src/shapes/index.js');
 const { Via } = await import('../src/shapes/via.js');
 const { generateFootprint } = await import('../src/pcb/modules/footprint.js');
-const { extractNetlist } = await import('../src/pcb/modules/netlist.js');
+const { extractNetlist } = await import('../src/core/netlist.js');
 const { loadBoardShapes } = await import('../src/pcb/modules/board-shapes.js');
 const { buildFillContext } = await import('../src/pcb/modules/fill-context.js');
 const { computeFillPolygons, loadClipper } = await import('../src/pcb/modules/copper-fill-geom.js');

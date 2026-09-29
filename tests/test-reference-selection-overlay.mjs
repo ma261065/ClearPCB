@@ -59,7 +59,8 @@ globalThis.document = {
     getElementById() { return null; },
     querySelector() { return null; },
 };
-const { ModifyPropertyCommand } = await import('../src/schematic/modules/commands.js');
+const { ProjectDocument } = await import('../src/core/ProjectDocument.js');
+const { default: SchematicApp } = await import('../src/ui/SchematicApp.js');
 const { idleState } = await import('../src/schematic/modules/draw-states.js');
 const source = readFileSync(new URL('../src/ui/PCBApp.js', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
 const method = source.match(/    _tryEditReferenceAt\(worldPos\) \{([\s\S]*?)\n    \}/);
@@ -67,22 +68,46 @@ assert.ok(method, 'PCB reference inline-edit entry point exists');
 let layerLocked = false;
 let layerVisible = true;
 const dependencies = {
-    ModifyPropertyCommand,
+    showAlert: message => alerts.push(message),
     REF_DEFAULT_SIZE: 0.9,
     REF_DEFAULT_STROKE: 0.15,
     isLayerLocked: () => layerLocked,
     isLayerVisible: () => layerVisible,
-    extractNetlist: () => [],
 };
 const startReferenceEdit = new Function(...Object.keys(dependencies), `return function(worldPos) {${method[1]}\n};`)
     (...Object.values(dependencies));
 const component = { id: 'component-1', reference: 'R1', invalidate() {},
+    definition: { name: 'Part' }, symbol: { pins: [{ number: '1' }] },
     refText: { text: 'R1', invalidate() {} } };
 const alerts = [];
-window.app = { components: [component, { id: 'component-2', reference: 'R2' }], shapes: [],
-    renderShapes() {}, _alert(message) { alerts.push(message); } };
+const schematic = { components: [component, { id: 'component-2', reference: 'R2' }], shapes: [],
+    renderShapes() {},
+    getComponentInfo: SchematicApp.prototype.getComponentInfo,
+    validateComponentReference: SchematicApp.prototype.validateComponentReference,
+    createReferenceRenameCommand: SchematicApp.prototype.createReferenceRenameCommand,
+    getNetlist: SchematicApp.prototype.getNetlist,
+};
+const project = new ProjectDocument();
+assert.equal(project.getComponentInfo('missing'), null);
+assert.deepEqual(project.getNetlist(), []);
+assert.match(project.validateComponentReference('missing', 'R3').message, /available/);
+assert.throws(() => project.createReferenceRenameCommand('missing', 'R3'), /available/);
+project.registerView('schematic', schematic);
+const componentApi = {
+    getComponentInfo: id => project.getComponentInfo(id),
+    validateComponentReference: (id, value) => project.validateComponentReference(id, value),
+    createReferenceRenameCommand: (id, value) => project.createReferenceRenameCommand(id, value),
+    getNetlist: () => project.getNetlist(),
+};
+Object.defineProperty(componentApi, 'schematic', {
+    get() { assert.fail('PCB component operations must not access the schematic editor'); },
+});
+Object.defineProperty(window, 'app', {
+    get() { assert.fail('PCB component access must use the registered schematic'); },
+});
 let dirty = false;
 const editor = {
+    project: componentApi,
     placements: new Map([[component.id, { reference: 'R1', side: 'top', x: 10, y: 20 }]]),
     history: new CommandHistory({ onChanged() { dirty = true; } }),
     _hitTestText() { return null; }, _hitTestRefText() { return component.id; },
@@ -101,6 +126,7 @@ assert.equal(editor.edit.options.validate(' R7 '), true);
 editor.edit.options.finish(' R7 ', true);
 assert.equal(component.reference, 'R7');
 assert.equal(component.refText.text, 'R7', 'Schematic field text follows its component');
+assert.equal(editor.netlist[0].net, 'R7.1', 'Reference-derived net names refresh through the project');
 assert.equal(editor.placements.get(component.id).reference, 'R7');
 assert.equal(editor.history.undoStack.length, 1, 'One rename creates one PCB undo entry');
 assert.equal(editor.history.getUndoDescription(), 'Rename R1 to R7');
@@ -110,6 +136,7 @@ editor.placements.set(component.id, { reference: 'R7', side: 'top', x: 10, y: 20
 editor.history.undo();
 assert.equal(component.reference, 'R1');
 assert.equal(component.refText.text, 'R1');
+assert.equal(editor.netlist[0].net, 'R1.1');
 assert.equal(editor.placements.get(component.id).reference, 'R1', 'Undo resolves the current placement after a rebuild');
 editor.history.redo();
 assert.equal(component.reference, 'R7');
@@ -377,3 +404,38 @@ near(pcbGuide.attributes.y2, -1);
 drawRefOverlay.call(highlightApp, null, false);
 assert.equal(referenceOverlay.children.length, 0);
 console.log('PASS: PCB references use silk selection colors, restore on deselection, and draw no reference box');
+
+const { default: PCBApp } = await import('../src/ui/PCBApp.js');
+component.definition = { footprintShapes: ['PAD~owned-footprint'] };
+const inspectorText = { value: '' };
+const inspector = {
+    project: componentApi, _showDebugTooltip: true,
+    viewport: { svg: { getBoundingClientRect: () => ({ left: 0, top: 0 }) },
+        screenToWorld: () => ({ x: 0, y: 0 }) },
+    placements: new Map([[component.id, { pads: new Map([['1', { x: 0, y: 0 }]]) }]]),
+    _debugTooltip: { dataset: {}, style: {}, offsetWidth: 100, offsetHeight: 100,
+        querySelector: () => inspectorText },
+};
+window.innerWidth = window.innerHeight = 800;
+PCBApp.prototype._updateDebugTooltip.call(inspector, { clientX: 10, clientY: 10 });
+assert.equal(inspectorText.value, 'PAD~owned-footprint');
+assert.equal(inspector._debugTooltip.style.display, 'block');
+const info = project.getComponentInfo(component.id);
+info.reference = 'NOT-A-RENAME';
+info.footprintShapes.push('NOT-MODEL-DATA');
+assert.equal(component.reference, 'R7');
+assert.deepEqual(component.definition.footprintShapes, ['PAD~owned-footprint'], 'Queries do not expose mutable model data');
+component.locked = false;
+assert.throws(() => project.createReferenceRenameCommand(component.id, ' r2 '), /already used/);
+assert.throws(() => project.createReferenceRenameCommand(component.id, ' '), /blank/);
+assert.throws(() => project.createReferenceRenameCommand('missing', 'R3'), /available/);
+component.locked = true;
+assert.throws(() => project.createReferenceRenameCommand(component.id, 'R3'), /locked/);
+component.locked = false;
+const rename = project.createReferenceRenameCommand(component.id, ' R3 ');
+assert.equal(component.reference, 'R7', 'Creating a command does not execute or record it');
+assert.deepEqual(Object.keys(rename).sort(), ['execute', 'undo'], 'Command exposes no editor/model implementation');
+rename.execute();
+assert.equal(component.reference, 'R3');
+rename.undo();
+assert.equal(component.reference, 'R7');

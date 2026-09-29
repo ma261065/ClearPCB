@@ -1,5 +1,5 @@
 /**
- * PCB-specific PDF and print export.
+ * PCB-specific PDF/print export and shared export naming.
  *
  * The schematic exporter in `ui/modules/export.js` is tied to schematic
  * concepts (paper size, selection, monochrome line art). The PCB needs a
@@ -42,13 +42,12 @@ const FIT_MARGIN_MM = 10;
 /**
  * Derive a sensible base file name (no extension) from the project file.
  * @param {object} app PCBApp instance.
+ * @param {string} [fallback='pcb'] Base name when no project filename is available.
  * @returns {string}
  */
-function projectBaseName(app) {
-    const fm = /** @type {any} */ (window).bootstrap?.project?.fileManager
-        || /** @type {any} */ (window).app?.fileManager;
-    const fname = fm?.fileName || 'pcb';
-    return fname.replace(/\.[^./\\]+$/, '') || 'pcb';
+export function projectBaseName(app, fallback = 'pcb') {
+    const fname = app.project?.fileManager?.fileName || fallback;
+    return fname.replace(/\.[^./\\]+$/, '') || fallback;
 }
 
 /** Artwork layer ids (z-ordered, bottom to top). Excludes ratlines/overlays. */

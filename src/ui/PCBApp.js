@@ -5,7 +5,7 @@ import { serializePcb, preparePcb, loadPcb, applyProjectDesignParams } from '../
 import { bindPcbControls } from '../pcb/modules/controls.js';
 import { Viewport } from '../core/Viewport.js';
 import { loadAndApplyTheme, toggleTheme as toggleSharedTheme, syncThemeToggleButtons } from '../shared/ui/theme.js';
-import { extractNetlist, extractComponents } from '../pcb/modules/netlist.js';
+import { extractNetlist, extractComponents } from '../core/netlist.js';
 import { generateFootprint, renderFootprint, applyRefGeometry, REF_DEFAULT_SIZE, REF_DEFAULT_STROKE } from '../pcb/modules/footprint.js';
 import { updateGridDropdown } from './modules/viewport.js';
 import { setToolCursor } from './modules/cursor.js';
@@ -24,7 +24,7 @@ import { openPanelizeDialog, renderPanelPreview } from '../pcb/modules/panelizat
 import { generateGerberArchive, showGerberProgress } from '../pcb/modules/gerber-export.js';
 import { generateBOM, generatePickAndPlace } from '../pcb/modules/assembly.js';
 import { openBoard3DViewer } from '../pcb/modules/board3d.js';
-import { savePcbPdf, printPcb } from '../pcb/modules/pcb-export.js';import { tracksFromAutorouterResult } from '../pcb/modules/autorouter-adapter.js';
+import { savePcbPdf, printPcb, projectBaseName } from '../pcb/modules/pcb-export.js';import { tracksFromAutorouterResult } from '../pcb/modules/autorouter-adapter.js';
 import { renderTrack, renderVia, removeTrackElements, removeViaElements, viaCopperPathD } from '../pcb/modules/track-render.js';
 import { startTrackDraw, updateTrackDraw, refreshTrackDrawPreview, addTrackWaypoint, finishTrackDraw, cancelTrackDraw, toggleTrackLayer, resolveTrackDrawSnap, resolveTrackSnap, showTrackSnapMarker, clearTrackSnapMarker, reconcileRatsnest } from '../pcb/modules/track-draw.js';
 import { hitTestTrack, hitTestLockedTrack, selectTrackOrVia, clearTrackSelection, deleteSelectedTrack, setHoverHighlight, showTrackContextMenu, refreshTrackSelectionHalo, getSelectedTrack, getSelectedVia, selectTrackSegment, dismissTrackContextMenu, applyNetToCopperSelection } from '../pcb/modules/track-select.js';
@@ -69,7 +69,7 @@ import {
     isPlacementMirrored,
 } from '../pcb/modules/track-commands.js';
 import { createPcbText, renderPcbText, pcbTextEditBox, pcbTextHitTest, serializePcbText, textColorForLayer, TEXT_LAYERS } from '../pcb/modules/pcb-text.js';
-import { ModifyPropertyCommand } from '../schematic/modules/commands.js';
+import { showAlert } from './modules/modal.js';
 import { connectBoxOutlines } from '../core/geometry.js';
 import {
     AddTextCommand,
@@ -5470,8 +5470,7 @@ export default class PCBApp {
         if (this._hitTestText(worldPos)) return false;
         const compId = this._hitTestRefText(worldPos);
         const pl = this.placements.get(compId);
-        const schematic = /** @type {any} */ (window).app;
-        const component = schematic?.components?.find(item => item.id === compId);
+        const component = this.project?.getComponentInfo(compId);
         const layer = pl?.side === 'bottom' ? 'bottom-silk' : 'top-silk';
         if (!pl || pl.locked || !component || component.locked || isLayerLocked(layer) || !isLayerVisible(layer)) return false;
         const original = component.reference;
@@ -5509,14 +5508,9 @@ export default class PCBApp {
             },
             render,
             validate: value => {
-                const reference = value.trim();
-                if (!reference) {
-                    schematic._alert('Reference cannot be blank.', { title: 'Invalid Reference' });
-                    return false;
-                }
-                if (schematic.components.some(item => item.id !== compId
-                    && item.reference.toUpperCase() === reference.toUpperCase())) {
-                    schematic._alert(`Reference "${reference}" is already used by another component.`, { title: 'Duplicate Reference' });
+                const issue = this.project.validateComponentReference(compId, value);
+                if (issue) {
+                    showAlert(issue.message, { title: issue.title });
                     return false;
                 }
                 return true;
@@ -5526,11 +5520,11 @@ export default class PCBApp {
                 render();
                 const reference = value.trim();
                 if (commit && reference !== original) {
-                    const command = new ModifyPropertyCommand(schematic, [component], 'reference', reference);
+                    const command = this.project.createReferenceRenameCommand(compId, reference);
                     const apply = redo => {
                         if (redo) command.execute();
                         else command.undo();
-                        const current = schematic.components.find(item => item.id === compId);
+                        const current = this.project.getComponentInfo(compId);
                         const placement = this.placements.get(compId);
                         if (placement && current) {
                             placement.reference = current.reference;
@@ -5538,7 +5532,7 @@ export default class PCBApp {
                             this._drawRefOverlay(compId, false);
                             this._showRefProperties(compId);
                         }
-                        this.netlist = extractNetlist(schematic);
+                        this.netlist = this.project.getNetlist();
                         this._updateRatsnest();
                         this._board3d?.refresh?.();
                     };
@@ -9327,9 +9321,7 @@ export default class PCBApp {
             return;
         }
         this._exportGerberPending = true;
-        const fname = /** @type {any} */ (window).app?.fileManager?.fileName || 'untitled.cpcb';
-        const base = fname.replace(/\.[^./\\]+$/, '') || 'untitled';
-        const suggestedName = `${base}-gerber.zip`;
+        const suggestedName = `${this._exportBaseName()}-gerber.zip`;
         try {
             let fileCount = 0;
             const saved = await this._saveBlob(async () => {
@@ -9414,9 +9406,7 @@ export default class PCBApp {
      * @returns {string}
      */
     _exportBaseName() {
-        const schematicApp = /** @type {any} */ (window).app;
-        const fname = schematicApp?.fileManager?.fileName || 'untitled.cpcb';
-        return fname.replace(/\.[^./\\]+$/, '') || 'untitled';
+        return projectBaseName(this, 'untitled');
     }
 
     /**
@@ -9634,11 +9624,7 @@ export default class PCBApp {
         }
 
         // Find the definition for this component
-        const schematicApp = /** @type {any} */ (window).app;
-        const comp = schematicApp?.components?.find(c => c.id === closest);
-        if (!comp?.definition) return;
-
-        const shapes = comp.definition.footprintShapes;
+        const shapes = this.project?.getComponentInfo(closest)?.footprintShapes;
         if (!Array.isArray(shapes) || shapes.length === 0) return;
 
         const textEl = /** @type {HTMLTextAreaElement|null} */ (
