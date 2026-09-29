@@ -23,7 +23,7 @@
 /**
  * Extract a netlist from the schematic app's current state.
  *
- * @param {object} schematicApp - The SchematicApp instance (window.app)
+ * @param {object} schematicApp - The project's registered schematic view.
  * @returns {NetlistEntry[]} Array of nets, each with a name and pin list
  */
 export function extractNetlist(schematicApp) {

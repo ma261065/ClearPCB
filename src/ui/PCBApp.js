@@ -4046,7 +4046,7 @@ export default class PCBApp {
      */
     _hookSchematicChanges() {
         if (this._listening) return;
-        const schematicApp = /** @type {any} */ (window).app;
+        const schematicApp = this.project?.schematic;
         if (!schematicApp) return;
 
         // Wrap the history callback to also mark PCB stale
@@ -4093,11 +4093,14 @@ export default class PCBApp {
             clearTimeout(this._syncTimer);
             return;
         }
-        this._stale = false;
         clearTimeout(this._syncTimer);
 
-        const schematicApp = /** @type {any} */ (window).app;
-        if (!schematicApp) return;
+        const schematicApp = this.project?.schematic;
+        if (!schematicApp) {
+            this._stale = true;
+            return;
+        }
+        this._stale = false;
 
         this._ensureViewport();
 

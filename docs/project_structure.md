@@ -89,6 +89,11 @@ advances the revision and calls its UI host's `onProjectChanged()` to refresh
 aggregate title/dirty indicators. PCB edits keep their section dirty flag separate
 from `FileManager.isDirty`, avoiding the schematic-to-PCB stale-sync listener.
 
+PCB synchronization subscribes to and reads the project's registered schematic,
+not the global app. Existing history/dirty listeners are preserved and wrapped
+once; active edits retain the 300 ms debounce, while hidden boards defer rebuilds.
+A missing schematic registration leaves synchronization pending.
+
 Open retains the existing best-effort serialized rollback. It can round or
 normalize geometry and does not preserve Undo or selection. The experimental
 live-session checkpoint system was removed as disproportionate to this failure
