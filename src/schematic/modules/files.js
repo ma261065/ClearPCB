@@ -252,6 +252,7 @@ export function createComponentFromData(app, data) {
         mirror: data.mir ?? false,
         reference: data.ref,
         value: data.val,
+        packageId: data.pkg,
         showReference: data.sr,
         showValue: data.sv,
         properties: data.props,

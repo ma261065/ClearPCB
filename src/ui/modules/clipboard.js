@@ -212,7 +212,8 @@ function _buildGhostFallback(app) {
                 y: data._clipY,
                 rotation: data.rot || 0,
                 mirror: data.mir || false,
-                reference: data.ref || 'U?'
+                reference: data.ref || 'U?',
+                packageId: data.pkg,
             });
             ghost.appendChild(temp.createSymbolElement());
         } else {
@@ -259,6 +260,7 @@ export function confirmPaste(app, worldPos) {
                 mirror: data.mir || false,
                 reference: app._generateReference(def),
                 value: data.val,
+                packageId: data.pkg,
                 showReference: data.sr,
                 showValue: data.sv,
                 properties: data.props

@@ -24,6 +24,7 @@ const SCHEMATIC_SHAPE = {
 const COMPONENT = {
     dn: 'definitionName', rot: 'rotation', mir: 'mirror', ref: 'reference', val: 'value',
     sr: 'showReference', sv: 'showValue', props: 'properties', v: 'visible', lk: 'locked',
+    pkg: 'packageId',
 };
 const PIN_CONNECTION = { cid: 'componentId', pn: 'pinNumber' };
 const DEFINITION = {

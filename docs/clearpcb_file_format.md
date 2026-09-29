@@ -288,6 +288,13 @@ Component instances are stored in `schematic.components`:
 | `props` | Instance property map. | Empty object. |
 | `v` | Visible. | `true`. |
 | `lk` | Locked. | `false`. |
+| `pkg` (`packageId`) | Built-in package ID, selecting both footprint and offline 3D model. | `"default"`; normally omitted. |
+
+Package selection is per instance and only applies to built-in library
+definitions. Built-in geometry is regenerated from the bundled catalogue, not
+embedded in the project. Older projects without `pkg` use the original package
+with its bundled 3D model. An unknown package ID, a package not offered for that
+component type, or `pkg` on an embedded/custom definition is rejected.
 
 Non-built-in component definitions are embedded while serializing, then moved
 to `schematic.defs` and deduplicated by definition name. Each component keeps
@@ -974,7 +981,7 @@ keep the same name in both forms, including `type`, `id`, `x`, and `y`.
 | Schematic wire/net | `pc`, `wl`, `n`, `lo`, `nst`, `no`, `nto`, `pn` | `pinConnections`, `wireLabel`, `net`, `labelOffset`, `style`, `orientation`, `textOffset`, `pinConnection` |
 | Pin/pad connection entry | `cid`, `pn` | `componentId`, `pinNumber` |
 | Schematic arc/text | `sp`, `ep`, `bp`, `t`, `fs`, `ff`, `ta`, `rot`, `cid`, `fk`, `att`, `bd` | `startPoint`, `endPoint`, `bulgePoint`, `text`, `fontSize`, `fontFamily`, `textAnchor`, `rotation`, `componentId`, `fieldKey`, `attachment`, `border` |
-| Component instance | `dn`, `rot`, `mir`, `ref`, `val`, `sr`, `sv`, `props`, `v`, `lk` | `definitionName`, `rotation`, `mirror`, `reference`, `value`, `showReference`, `showValue`, `properties`, `visible`, `locked` |
+| Component instance | `dn`, `rot`, `mir`, `ref`, `val`, `sr`, `sv`, `props`, `v`, `lk`, `pkg` | `definitionName`, `rotation`, `mirror`, `reference`, `value`, `showReference`, `showValue`, `properties`, `visible`, `locked`, `packageId` |
 | Component definition | `n`, `cat`, `desc`, `sym`, `dr`, `dv`, `dp`, `src`, `spn` | `name`, `category`, `description`, `symbol`, `defaultReference`, `defaultValue`, `defaultProperties`, `_source`, `supplier_part_numbers` |
 | Component footprint/3D | `fsh`, `fbb`, `fn`, `m3o`, `m3u`, `m3n`, `h3` | `footprintShapes`, `footprintBBox`, `footprintName`, `model3dObj`, `model3dUrl`, `model3dName`, `has3d` |
 | Symbol | `w`, `h`, `o`, `g`, `p` | `width`, `height`, `origin`, `graphics`, `pins` |

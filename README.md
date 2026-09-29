@@ -6,7 +6,7 @@ A browser-based schematic + PCB editor built with vanilla JavaScript and SVG.  N
 
 - **Drawing tools** — Line, Rectangle, Circle, Arc, Polygon, Text, Net Label, No Connect
 - **Wire tool** — Graph-based wiring with automatic junctions, T-junction splitting, sticky wires that follow moved components, pin-snap lines, and orthogonal alignment
-- **Components** — Built-in library of common symbols (resistors, capacitors, ICs, connectors, etc.) plus live fetching from the KiCad symbol library via GitLab
+- **Components** — Built-in library of common symbols with selectable SMT/through-hole packages and matching offline 3D models, plus live fetching from the KiCad symbol library via GitLab
 - **Selection** — Click, Shift+click cycle, Ctrl+click toggle, box select, selection lock
 - **Undo / redo** — Full command history for all operations
 - **File I/O** — Save/open JSON documents, auto-save to localStorage, PDF and print export
@@ -27,6 +27,29 @@ npx serve .
 ```
 
 Then open `http://localhost:8000` in a browser.
+
+### Built-in packages and 3D models
+
+Choose a built-in component in the **Local** library, then use **Package / model**
+to preview and choose its footprint and matching 3D body before placing it.
+For an existing component, change **Package** in the schematic **Properties**
+panel. Each instance keeps its own package; changing one does not change the
+library or other instances. Package changes support Undo/Redo, copy/paste,
+save/reopen and autorecovery. The PCB uses the selected package when it next
+synchronizes with the schematic, preserving the component's placement.
+
+All built-in types have SMT and through-hole choices. Passive SMT options include
+common imperial sizes such as 0402, 0603, 0805 and 1206 (the selector also shows
+metric body dimensions). Other choices include SOT-23, SOIC-8, TSSOP-8, SMT LEDs,
+diodes, electrolytic capacitors, headers and switches. Through-hole pads include
+plated drills; SMT pads have solder-paste openings and no drills.
+
+The bundled models are lightweight, original generic package approximations,
+available offline in the picker, component 3D preview and board 3D view. They are
+not manufacturer-specific mechanical drawings. Verify the selected footprint,
+pin assignment, polarity and dimensions against the actual part's datasheet
+before manufacturing. After changing a routed component's package, inspect its
+connections and run DRC; existing tracks are not automatically rerouted.
 
 ## Releases
 

@@ -1,4 +1,5 @@
 import { normalizeProjectAliases, normalizePcbSection } from './project-field-aliases.js';
+import { getBuiltInPackageOptions } from '../components/BuiltInPackages.js';
 
 const record = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 const fields = (...names) => new Set(names);
@@ -8,7 +9,7 @@ const SCHEMATIC_FIELDS = fields('settings', 'shapes', 'components', 'defs');
 const GRID_FIELDS = fields('gridSize', 'gridStyle', 'units', 'gridVisible', 'snapToGrid');
 const SCHEMATIC_SETTINGS_FIELDS = new Set([...GRID_FIELDS,
     'paperSize', 'paperOrientation', 'titleBlock', 'titleBlockInfo', 'titleBlockData']);
-const COMPONENT_FIELDS = fields('type', 'id', 'dn', 'x', 'y', 'rot', 'mir', 'ref', 'val', 'sr', 'sv', 'props', 'v', 'lk');
+const COMPONENT_FIELDS = fields('type', 'id', 'dn', 'x', 'y', 'rot', 'mir', 'ref', 'val', 'sr', 'sv', 'props', 'v', 'lk', 'pkg');
 const DEFINITION_FIELDS = fields('name', 'category', 'description', 'symbol', 'defaultReference', 'defaultValue',
     'defaultProperties', '_source', 'supplier_part_numbers', 'footprintShapes', 'footprintBBox', 'footprintName',
     'model3dObj', 'model3dUrl', 'model3dName', 'has3d');
@@ -126,6 +127,10 @@ function validateComponent(item, index) {
     rejectUnknownFields(item, COMPONENT_FIELDS, path);
     requireFields(item, ['type', 'id', 'dn', 'x', 'y', 'ref', 'val'], path);
     if (item.type !== 'component') invalid(`${path}.type`, 'Component type must be "component".', { type: item.type });
+    if (item.pkg !== undefined && !getBuiltInPackageOptions({ name: item.dn, _source: 'Built-in' })
+        .some(option => option.value === item.pkg)) {
+        invalid(`${path}.pkg`, 'Unknown built-in package for this component.', { packageId: item.pkg });
+    }
 }
 
 function validateSchematic(schematic) {
@@ -139,6 +144,11 @@ function validateSchematic(schematic) {
     if (!Array.isArray(schematic.components)) invalid('schematic.components', 'Schematic components must be an array.', schematic.components);
     schematic.shapes.forEach(validateSchematicShape);
     schematic.components.forEach(validateComponent);
+    schematic.components.forEach((component, index) => {
+        if (component.pkg !== undefined && Object.prototype.hasOwnProperty.call(schematic.defs || {}, component.dn)) {
+            invalid(`schematic.components[${index}].pkg`, 'Package selection requires a built-in library definition.', { definition: component.dn });
+        }
+    });
     if (schematic.defs !== undefined) {
         requireRecord(schematic.defs, 'schematic.defs');
         for (const [name, definition] of Object.entries(schematic.defs)) {

@@ -5,6 +5,8 @@
  * All dimensions in mm
  */
 
+import { getBuiltInModel3D } from './BuiltInModels3D.js';
+
 export const BuiltInComponents = [
     // ============ PASSIVE COMPONENTS ============
     
@@ -812,9 +814,20 @@ export const BuiltInComponents = [
         ],
         footprintBBox: { x: -1.45, y: -1.4, width: 2.9, height: 2.8 }
     }
-];
+].map(definition => {
+    const smd = definition.footprint.startsWith('Package_TO_SOT_SMD:');
+    const drill = smd ? 0 : definition.footprint.startsWith('Connector_PinHeader_') ? 1 : 0.8;
+    return {
+        ...definition,
+        _source: 'Built-in',
+        footprintShapes: definition.footprintShapes.map(shape =>
+            `${shape}~${smd ? 'top' : 'both'}~1~${smd ? 1 : 0}~${drill}`),
+        has3d: true,
+        model3dName: `${definition.footprintName} (generic)`,
+        model3dObj: getBuiltInModel3D(definition.footprint),
+    };
+});
 
 export default BuiltInComponents;
-
 
 

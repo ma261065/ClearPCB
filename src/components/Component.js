@@ -1,6 +1,7 @@
 import { createLockIcon, lockIconMetrics, LOCK_GAP } from '../core/ui-helpers.js';
 import { Text } from '../shapes/text.js';
 import { compactObjText } from './LCSCFetcher.js';
+import { getBuiltInPackageOptions, withBuiltInPackage } from './BuiltInPackages.js';
 
 /**
  * Shrink a `~`-delimited footprint shape string for storage by rounding every
@@ -105,10 +106,12 @@ export class Component {
      * @param {boolean} [options.visible=true] - Component visibility
      * @param {boolean} [options.locked=false] - Lock against edits
      * @param {Object} [options.properties] - Additional user properties
+     * @param {string} [options.packageId] - Built-in footprint/model selection
      */
     constructor(definition, options = {}) {
         this.id = options.id || `comp_${++compIdCounter}`;
         this.definition = definition;
+        if (options.packageId !== undefined) this.packageId = options.packageId;
         this.x = options.x || 0;
         this.y = options.y || 0;
         this.rotation = options.rotation || 0;
@@ -145,6 +148,14 @@ export class Component {
     get symbol() { return this.definition.symbol; }
     /** @returns {string} The component definition name. */
     get name() { return this.definition.name; }
+
+    get packageId() {
+        return this.definition._source === 'Built-in' ? this.definition.packageId || 'default' : 'default';
+    }
+    set packageId(value) {
+        if (value === this.packageId) return;
+        this.definition = withBuiltInPackage(this.definition, value);
+    }
 
     // ── Coordinate transforms ─────────────────────────────────────
 
@@ -318,7 +329,8 @@ export class Component {
     captureState() {
         return { x: this.x, y: this.y, rotation: this.rotation, mirror: this.mirror,
                  reference: this.reference, value: this.value,
-                 showReference: this.showReference, showValue: this.showValue };
+                 showReference: this.showReference, showValue: this.showValue,
+                 packageId: this.packageId };
     }
 
     /**
@@ -345,9 +357,10 @@ export class Component {
     resetDragState() {}
     /**
      * Return property descriptors for the properties panel.
-     * @returns {Array<{key: string, label: string, type: string}>}
+     * @returns {Array<{key: string, label: string, type: string, readonly?: boolean, options?: Array<{value: string, label: string}>}>}
      */
     getPropertyDescriptors() {
+        /** @type {ReturnType<Component['getPropertyDescriptors']>} */
         const descriptors = [
             { key: 'locked',        label: 'Locked',          type: 'checkbox' },
             { key: 'reference',     label: 'Reference',       type: 'text' },
@@ -358,6 +371,10 @@ export class Component {
         ];
         if (this.supplierPartNumber) {
             descriptors.push(/** @type {{key:string,label:string,type:string}} */ ({ key: 'supplierPartNumber', label: 'LCSC Part #', type: 'text', readonly: true }));
+        }
+        const packages = getBuiltInPackageOptions(this.definition);
+        if (packages.length) {
+            descriptors.push({ key: 'packageId', label: 'Package', type: 'select', options: packages });
         }
         return descriptors;
     }
@@ -1524,6 +1541,7 @@ export class Component {
         if (this.mirror) json.mir = true;
         json.ref = this.reference;
         json.val = this.value;
+        if (this.packageId !== 'default') json.pkg = this.packageId;
         if (!this.showReference) json.sr = false;
         if (!this.showValue) json.sv = false;
         if (Object.keys(this.properties).length) json.props = this.properties;

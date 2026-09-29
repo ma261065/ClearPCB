@@ -58,6 +58,7 @@ defines its source and destination. Merging alone does not deploy the site.
 1. Open [Releases](https://github.com/ma261065/ClearPCB/releases) and click
    **Draft a new release**.
 2. In **Choose a tag**, enter `v1.0.1` and select **Create new tag on publish**.
+   The leading **`v` is required**: `1.0.1` is not a valid stable-release tag.
    Use a new tag; never reuse or move `v1.0.0` or another published tag.
 3. Set **Target** to **`release_1.0`**, not `dev`. The new tag will identify
    the release branch's current commit, including the merged fix.
@@ -83,6 +84,28 @@ the project file format remains `1.0`.
    branches and tags**: the allowed tag rule is `v*`, not a `main`-only rule.
    After fixing the cause, use **Re-run jobs > Re-run failed jobs**. Do not
    recreate the release or move its tag merely to retry deployment.
+
+### If validation says "Stable releases must use tags such as v1.0.0."
+
+Check the failed step's `RELEASE_TAG` value. The tag must be exactly
+`vMAJOR.MINOR.PATCH`, for example `v1.0.4`, not `1.0.4`. Changing the release
+title does not change its tag, and rerunning the same job will fail again.
+
+For a mistakenly published `1.0.4` tag:
+
+1. Check that `release_1.0` contains the tested commit intended for release.
+2. Create a new release with the unused tag **`v1.0.4`**, targeting
+   **`release_1.0`**. If that tag already exists, verify its commit before using
+   it; do not overwrite it.
+3. Mark the corrected release **Latest**, leave prerelease unchecked, and
+   publish it.
+4. Check the new **Publish Stable Release** run, not a rerun of the failed
+   `1.0.4` run. Both **package** and **deploy** must succeed.
+
+Leave the original tag unchanged. Add a note to the mistaken release pointing
+to the corrected release so users know which one to use. A failure at this
+validation step occurs before packaging or deployment and leaves the stable
+site unchanged.
 
 ### Branch and Version Reference
 

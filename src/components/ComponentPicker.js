@@ -10,6 +10,7 @@ import { LazyLoader } from '../core/LazyLoader.js';
 import { escapeHtml, sanitizeImageUrl } from '../core/ui-helpers.js';
 import { createDebouncedRunner, createGenerationGate } from './async-control.js';
 import { resolveObjFromModelUrl } from './model3d-source.js';
+import { getBuiltInPackageOptions, withBuiltInPackage } from './BuiltInPackages.js';
 
 export class ComponentPicker {
     /**
@@ -95,6 +96,10 @@ export class ComponentPicker {
                         <span class="cp-preview-loading-text">Loading...</span>
                     </div>
                     <div class="cp-preview-info"></div>
+                    <label class="cp-package-row" style="display:none">
+                        <span class="cp-preview-title">Package / model</span>
+                        <select class="cp-package-select"></select>
+                    </label>
                     <div class="cp-preview-title">Footprint</div>
                     <div class="cp-preview-footprint"></div>
                     <div class="cp-preview-footprint-info"></div>
@@ -121,6 +126,8 @@ export class ComponentPicker {
         this.previewLoadingOverlay = /** @type {HTMLElement} */ (this.element.querySelector('.cp-preview-loading-overlay'));
         this.previewLoadingText = /** @type {HTMLElement} */ (this.element.querySelector('.cp-preview-loading-text'));
         this.previewInfo = /** @type {HTMLElement} */ (this.element.querySelector('.cp-preview-info'));
+        this.packageRow = /** @type {HTMLElement} */ (this.element.querySelector('.cp-package-row'));
+        this.packageSelect = /** @type {HTMLSelectElement} */ (this.element.querySelector('.cp-package-select'));
         this.previewImage = /** @type {HTMLElement} */ (this.element.querySelector('.cp-preview-image'));
         this.previewFootprint = /** @type {HTMLElement} */ (this.element.querySelector('.cp-preview-footprint'));
         this.previewFootprintInfo = /** @type {HTMLElement} */ (this.element.querySelector('.cp-preview-footprint-info'));
@@ -136,6 +143,9 @@ export class ComponentPicker {
         }
         
         // Bind events
+        this.packageSelect.addEventListener('change', () => {
+            this._selectBuiltInPackage(this.packageSelect.value);
+        });
         this.searchInput.addEventListener('input', () => {
             this.searchQuery = this.searchInput.value;
             // Show/hide clear button
@@ -210,6 +220,7 @@ export class ComponentPicker {
         // Clear selection and refresh list
         this.selectedComponent = null;
         this.placeBtn.disabled = true;
+        this._updatePackageSelector(null);
         this.previewSvg.innerHTML = '';
         this.previewInfo.innerHTML = '';
         
@@ -545,6 +556,7 @@ export class ComponentPicker {
      * @param {HTMLElement} itemEl - The clicked DOM element.
      */
     _selectKiCadResult(result, itemEl) {
+        this._updatePackageSelector(null);
         this.listEl.querySelectorAll('.cp-item').forEach(el => el.classList.remove('selected'));
         itemEl.classList.add('selected');
         
@@ -1076,6 +1088,7 @@ export class ComponentPicker {
      * @returns {Promise<void>}
      */
     async _selectLCSCResult(result, itemEl) {
+        this._updatePackageSelector(null);
         this.listEl.querySelectorAll('.cp-item').forEach(el => el.classList.remove('selected'));
         itemEl.classList.add('selected');
         
@@ -1712,6 +1725,26 @@ export class ComponentPicker {
         }
     }
     
+    _updatePackageSelector(definition) {
+        if (!definition) this._previewVersion = (this._previewVersion || 0) + 1;
+        if (!this.packageSelect) return;
+        const packages = getBuiltInPackageOptions(definition);
+        this.packageSelect.replaceChildren();
+        this.packageRow.style.display = packages.length ? 'block' : 'none';
+        for (const item of packages) {
+            const option = document.createElement('option');
+            option.value = item.value;
+            option.textContent = item.label;
+            this.packageSelect.appendChild(option);
+        }
+        this.packageSelect.value = definition?.packageId || 'default';
+    }
+
+    _selectBuiltInPackage(packageId) {
+        this.selectedComponent = withBuiltInPackage(this.selectedComponent, packageId);
+        this._updatePreview(this.selectedComponent);
+    }
+
     /**
      * Updates the full symbol preview SVG and info panel for a component.
      * @param {Object} comp - The component definition to preview.
@@ -1720,6 +1753,8 @@ export class ComponentPicker {
      * @returns {Promise<void>}
      */
     async _updatePreview(comp, options = {}) {
+        this._updatePackageSelector(comp);
+        const version = this._previewVersion = (this._previewVersion || 0) + 1;
         try {
             if (!comp || !comp.symbol) {
                 this.previewSvg.innerHTML = '<div style="color:var(--text-muted);text-align:center;padding:20px">No symbol</div>';
@@ -1733,6 +1768,7 @@ export class ComponentPicker {
             
             // Use the Component class to render the preview for consistency
             const { Component } = await import('./Component.js');
+            if (version !== this._previewVersion) return;
             const tempComponent = new Component(comp, { x: 0, y: 0 });
             
             const symbol = comp.symbol;
@@ -2387,6 +2423,7 @@ export class ComponentPicker {
      */
     async _update3dPreview(metadata) {
         this._disposeModel3dViewer();
+        const version = this._model3dPreviewVersion;
         if (!metadata || !metadata.has3d) {
             this._set3dPreviewStatus('No 3D model', false);
             return;
@@ -2403,6 +2440,7 @@ export class ComponentPicker {
             }
             try {
                 const { Model3DViewer } = await import('./Model3DViewer.js');
+                if (version !== this._model3dPreviewVersion) return;
                 this.preview3d.innerHTML = '';
                 this.preview3d.classList.add('cp-preview-3d-interactive');
                 const viewer = new Model3DViewer(this.preview3d);
@@ -2418,6 +2456,7 @@ export class ComponentPicker {
                         ' <span style="color:var(--text-muted)">· drag to rotate</span>';
                 }
             } catch (error) {
+                if (version !== this._model3dPreviewVersion) return;
                 console.error('Error rendering 3D preview:', error);
                 this._disposeModel3dViewer();
                 this.preview3d.innerHTML = `<div class="cp-preview-placeholder">🧊 ${escapeHtml(modelName)}</div>`;
@@ -2433,6 +2472,7 @@ export class ComponentPicker {
             }
             try {
                 const { VRMLPreview } = await import('./VRMLPreview.js');
+                if (version !== this._model3dPreviewVersion) return;
                 const svgPreview = await VRMLPreview.fetchAndRender(metadata.model3dUrl, {
                     lineColor: '#444444',
                     fillColor: '#666666',
@@ -2441,6 +2481,7 @@ export class ComponentPicker {
                     fillOpacity: 0.7,
                     proxyUrl: this.library?.kicadFetcher?.corsProxy
                 });
+                if (version !== this._model3dPreviewVersion) return;
                 this.preview3d.innerHTML = '';
                 const parser = new DOMParser();
                 const svgDoc = parser.parseFromString(svgPreview, 'image/svg+xml');
@@ -2449,6 +2490,7 @@ export class ComponentPicker {
                     this.preview3dInfo.innerHTML = `<span class="cp-preview-ok">${escapeHtml(modelName)}</span>`;
                 }
             } catch (error) {
+                if (version !== this._model3dPreviewVersion) return;
                 console.error('Error rendering 3D preview:', error);
                 this.preview3d.innerHTML = `<div class="cp-preview-placeholder">🧊 ${escapeHtml(modelName)}</div>`;
                 if (this.preview3dInfo) {
@@ -2466,6 +2508,7 @@ export class ComponentPicker {
 
     /** Tear down the interactive 3D viewer (frees its WebGL context). */
     _disposeModel3dViewer() {
+        this._model3dPreviewVersion = (this._model3dPreviewVersion || 0) + 1;
         if (this._model3dViewer) {
             try { this._model3dViewer.dispose(); } catch { /* already gone */ }
             this._model3dViewer = null;

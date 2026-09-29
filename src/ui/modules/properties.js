@@ -36,8 +36,18 @@ function mergeDescriptors(selection) {
     if (selection.length === 1) return first;
 
     // Keep only keys that every item declares
-    const keySets = selection.map(s => new Set(s.getPropertyDescriptors().map(d => d.key)));
-    return first.filter(d => keySets.every(ks => ks.has(d.key)));
+    const descriptors = selection.map(s => s.getPropertyDescriptors());
+    return first.flatMap(desc => {
+        const matches = descriptors.map(list => list.find(item => item.key === desc.key));
+        if (matches.some(item => !item)) return [];
+        if (desc.type !== 'select' || !Array.isArray(desc.options)) return [desc];
+        const options = desc.options.filter(option =>
+            matches.every(item => item.options?.some(other => other.value === option.value)));
+        if (!options.length) return [];
+        return [{ ...desc, options: options.map(option =>
+            desc.key === 'packageId' && option.value === 'default'
+                ? { ...option, label: 'Default package' } : option) }];
+    });
 }
 
 function headerLabel(selection) {
@@ -812,6 +822,13 @@ export function applyCommonProperty(app, prop, value) {
     // Check if any value actually changes
     const changing = affected.filter(item => item[prop] !== value);
     if (changing.length === 0) return;
+
+    if (prop === 'packageId' && changing.some(item => !item.getPropertyDescriptors()
+        .find(desc => desc.key === prop)?.options?.some(option => option.value === value))) {
+        app._alert('Choose a package supported by every selected component.', { title: 'Incompatible Package' });
+        app._updatePropertiesPanel(selection);
+        return;
+    }
 
     // Enforce unique component references (direct on component OR via field text)
     if (prop === 'reference' && value) {
