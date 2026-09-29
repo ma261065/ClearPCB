@@ -1,29 +1,7 @@
 import { placementPose, padFlashOutline } from './board-geometry.js';
 
 export function padCopperOutline(pad) {
-    const halfWidth = pad.width / 2, halfHeight = pad.height / 2;
-    if (!['round', 'circle', 'ellipse', 'oval'].includes(pad.shape)) {
-        return [
-            { x: pad.x - halfWidth, y: pad.y - halfHeight },
-            { x: pad.x + halfWidth, y: pad.y - halfHeight },
-            { x: pad.x + halfWidth, y: pad.y + halfHeight },
-            { x: pad.x - halfWidth, y: pad.y + halfHeight },
-        ];
-    }
-    const segments = 48;
-    const enclosure = 1 / Math.cos(Math.PI / segments);
-    const radius = Math.min(halfWidth, halfHeight);
-    return Array.from({ length: segments }, (_, index) => {
-        const angle = index * 2 * Math.PI / segments;
-        const cosine = Math.cos(angle), sine = Math.sin(angle);
-        return pad.shape === 'oval' ? {
-            x: pad.x + Math.sign(cosine) * (halfWidth - radius) + radius * enclosure * cosine,
-            y: pad.y + Math.sign(sine) * (halfHeight - radius) + radius * enclosure * sine,
-        } : {
-            x: pad.x + halfWidth * enclosure * cosine,
-            y: pad.y + halfHeight * enclosure * sine,
-        };
-    });
+    return padFlashOutline({ x: pad.x, y: pad.y, w: pad.width, h: pad.height, shape: pad.shape }, 0.001, true);
 }
 
 export function resolveCopperPads(app, { physical = false } = {}) {
@@ -70,6 +48,24 @@ export function resolveCopperPads(app, { physical = false } = {}) {
                     shape: point.shape || 'rect', reference: placement.reference || componentId });
             }
         }
+    }
+    for (const pad of app.pads || []) {
+        const width = Number.isFinite(pad.width) ? pad.width
+            : pad.size * (['stadium', 'rectangle', 'oval'].includes(pad.shape) ? pad.ratio || 2 : 1);
+        const height = Number.isFinite(pad.height) ? pad.height : pad.size;
+        const shape = pad.shape === 'round' ? 'circle'
+            : pad.shape === 'oval' ? 'ellipse'
+                : pad.shape === 'stadium' ? 'oval' : 'rect';
+        const angle = -(pad.rotation || 0) * Math.PI / 180;
+        const contour = padFlashOutline({
+            x: pad.x, y: pad.y, w: width, h: height, shape, rad: angle,
+        }, physical ? 1e-4 : undefined);
+        pads.push({
+            x: pad.x, y: pad.y, componentId: null, padId: pad.id, number: pad.id,
+            drill: pad.drill, net: pad.net || '', layer: pad.layers,
+            width, height, hw: width / 2, hh: height / 2,
+            shape, rotation: pad.rotation || 0, reference: pad.id, outline: contour,
+        });
     }
     for (const pad of pads) pad.outline ||= outline(pad);
     return pads;

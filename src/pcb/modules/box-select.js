@@ -19,7 +19,13 @@ import {
     removeBoxSelectElement,
     getBoxSelectBounds,
 } from '../../ui/modules/box-selection.js';
-import { drawTrackHalo, drawViaHalo, refreshTrackSelectionHalo, removeHalosByClass } from './track-select.js';
+import {
+    drawStandalonePadHalo,
+    drawTrackHalo,
+    drawViaHalo,
+    refreshTrackSelectionHalo,
+    removeHalosByClass,
+} from './track-select.js';
 import { renderTrack, renderVia } from './track-render.js';
 import { isLayerLocked, isViaLocked, isCopperFillLocked, isCopperFillVisible } from './layers.js';
 import {
@@ -41,6 +47,8 @@ import {
 import { MoveBoardShapeCommand, RemoveBoardShapeCommand } from './shape-commands.js';
 import { MoveTextCommand, RemoveTextCommand } from './text-commands.js';
 import { ModifyFillCommand, RemoveFillCommand } from './copper-fill-commands.js';
+import { ModifyPadCommand, RemovePadCommand } from './pad-commands.js';
+import { padBounds, padHitTest, renderPad } from './pad.js';
 import { pcbTextBounds, pcbTextHitTest } from './pcb-text.js';
 import { clearPcbSelectionAnchors, renderPcbSelectionAnchors } from './selection-anchors.js';
 import {
@@ -57,6 +65,7 @@ const START_THRESHOLD_PX = 3;
 /** CSS classes for the multi-selection halos (distinct from single-select). */
 const TRACK_HALO_CLASS = 'pcb-box-track-sel';
 const VIA_HALO_CLASS = 'pcb-box-via-sel';
+const PAD_HALO_CLASS = 'pcb-box-pad-sel';
 const COMP_HALO_CLASS = 'pcb-box-comp-sel';
 
 /* ───────────────────────────── state ───────────────────────────── */
@@ -233,6 +242,14 @@ function _computeEnclosed(app, bounds) {
             }
         }
     }
+    for (const pad of app.pads || []) {
+        if (pad.locked || pad.visible === false) continue;
+        const padBox = padBounds(pad);
+        if (padBox.minX >= minX && padBox.maxX <= maxX
+            && padBox.minY >= minY && padBox.maxY <= maxY) {
+            selected.push({ kind: 'pad', object: pad });
+        }
+    }
 
     // Board shapes: every outline point must lie inside the marquee.
     for (const shape of (app.boardShapes || [])) {
@@ -273,6 +290,7 @@ function _applyHighlights(app) {
         if (track !== selectedTrack) drawTrackHalo(app, track, TRACK_HALO_CLASS);
     }
     for (const via of getPcbSelection(app, 'via')) drawViaHalo(app, via, VIA_HALO_CLASS);
+    for (const pad of getPcbSelection(app, 'pad')) drawStandalonePadHalo(app, pad, PAD_HALO_CLASS);
     for (const text of getPcbSelection(app, 'text')) app._refreshText?.(text.id);
     // Selection highlight only — re-render pours from cached geometry rather
     // than triggering a full Clipper recompute.
@@ -285,6 +303,7 @@ function _applyHighlights(app) {
 function _clearHighlights(app) {
     removeHalosByClass(app, TRACK_HALO_CLASS);
     removeHalosByClass(app, VIA_HALO_CLASS);
+    removeHalosByClass(app, PAD_HALO_CLASS);
     app._getLayerGroup?.('selection-overlay')?.querySelectorAll('.pcb-board-shape-handles')?.forEach((el) => el.remove());
     clearPcbSelectionAnchors(app);
     for (const [, pl] of app.placements || []) {
@@ -316,9 +335,11 @@ function _drawCompHighlight(app, compId) {
 /** Clear the multi-selection and remove its halos. */
 export function clearBoxSelection(app) {
     const selectedTextIds = getPcbSelection(app, 'text').map((text) => text.id);
+    const selectedPads = getPcbSelection(app, 'pad');
     _clearHighlights(app);
     clearPcbSelection(app);
     for (const textId of selectedTextIds) app._refreshText?.(textId);
+    for (const pad of selectedPads) renderPad(pad, id => app._getLayerGroup(id));
     app._syncClipboardButtons?.();
 }
 
@@ -344,6 +365,9 @@ export function pointInBoxSelection(app, worldPos) {
     for (const v of getPcbSelection(app, 'via')) {
         const r = (v.diameter || 0.6) / 2 + worldTol;
         if (Math.hypot(v.x - worldPos.x, v.y - worldPos.y) <= r) return true;
+    }
+    for (const pad of getPcbSelection(app, 'pad')) {
+        if (padHitTest(pad, worldPos)) return true;
     }
     // A selected track segment.
     for (const t of getPcbSelection(app, 'track')) {
@@ -386,6 +410,8 @@ export function beginGroupDrag(app, worldPos) {
     }
     const vias = [];
     for (const v of getPcbSelection(app, 'via')) vias.push({ via: v, x: v.x, y: v.y });
+    const pads = [];
+    for (const pad of getPcbSelection(app, 'pad')) pads.push({ pad, before: pad.captureState() });
     const tracks = [];
     for (const t of getPcbSelection(app, 'track')) {
         const nodes = new Map();
@@ -407,6 +433,7 @@ export function beginGroupDrag(app, worldPos) {
         for (const net of app._netsForComponent?.(component.id) || []) ratsnestNets.add(net);
     }
     for (const entry of vias) if (entry.via.net) ratsnestNets.add(entry.via.net);
+    for (const entry of pads) if (entry.pad.net) ratsnestNets.add(entry.pad.net);
     for (const entry of tracks) if (entry.track.net) ratsnestNets.add(entry.track.net);
     for (const entry of shapes) {
         const shape = entry.shape;
@@ -415,11 +442,15 @@ export function beginGroupDrag(app, worldPos) {
     app._groupDrag = {
         startWorld: { x: worldPos.x, y: worldPos.y },
         lastDx: 0, lastDy: 0,
-        comps, vias, tracks, shapes, texts, fills,
+        comps, vias, pads, tracks, shapes, texts, fills,
         ratsnestNets,
+        padCrosshairStart: pads.length ? { x: pads[0].before.x, y: pads[0].before.y } : null,
         previousDeferDragOverlays: !!app._deferDragOverlays,
     };
     app._deferDragOverlays = true;
+    if (app._groupDrag.padCrosshairStart) {
+        app.viewport?.setCrosshair(app._groupDrag.padCrosshairStart);
+    }
 }
 
 /** Live-update positions of every selected object during a group drag. */
@@ -442,8 +473,13 @@ export function updateGroupDrag(app, worldPos, { snap = true } = {}) {
     if (!g) return;
     let dx = worldPos.x - g.startWorld.x;
     let dy = worldPos.y - g.startWorld.y;
-    // Snap the shared delta (not each object) so relative layout is kept.
-    if (snap && app.viewport?.snapToGrid) {
+    // Magnetically snap the shared delta (not each object) so relative layout
+    // is kept while movement remains free between nearby grid lines.
+    if (snap && app.viewport?.getSnappedPosition) {
+        const position = app.viewport.getSnappedPosition({ x: dx, y: dy });
+        dx = position.x;
+        dy = position.y;
+    } else if (snap && app.viewport?.snapToGrid) {
         const gs = app.viewport.gridSize;
         dx = Math.round(dx / gs) * gs;
         dy = Math.round(dy / gs) * gs;
@@ -451,6 +487,12 @@ export function updateGroupDrag(app, worldPos, { snap = true } = {}) {
     if (dx === g.lastDx && dy === g.lastDy) return;
     g.lastDx = dx;
     g.lastDy = dy;
+    if (g.padCrosshairStart) {
+        app.viewport?.setCrosshair({
+            x: g.padCrosshairStart.x + dx,
+            y: g.padCrosshairStart.y + dy,
+        });
+    }
 
     for (const c of g.comps) {
         const pl = app.placements.get(c.id);
@@ -462,6 +504,11 @@ export function updateGroupDrag(app, worldPos, { snap = true } = {}) {
         vEntry.via.x = vEntry.x + dx;
         vEntry.via.y = vEntry.y + dy;
         renderVia(vEntry.via, (id) => app._getLayerGroup(id));
+    }
+    for (const entry of g.pads || []) {
+        entry.pad.x = entry.before.x + dx;
+        entry.pad.y = entry.before.y + dy;
+        renderPad(entry.pad, id => app._getLayerGroup(id));
     }
     for (const tEntry of g.tracks) {
         for (const [nid, start] of tEntry.nodes) {
@@ -498,6 +545,7 @@ export function endGroupDrag(app) {
     g.pendingWorld = null;
     app._groupDrag = null;
     app._deferDragOverlays = g.previousDeferDragOverlays;
+    if (g.padCrosshairStart) app.viewport?.hideCrosshair();
     const cmds = [];
     for (const c of g.comps) {
         const pl = app.placements.get(c.id);
@@ -508,6 +556,12 @@ export function endGroupDrag(app) {
     for (const v of g.vias) {
         if (v.via.x !== v.x || v.via.y !== v.y) {
             cmds.push(new MoveViaCommand(app, v.via, v.x, v.y, v.via.x, v.via.y));
+        }
+    }
+    for (const entry of g.pads || []) {
+        const after = entry.pad.captureState();
+        if (after.x !== entry.before.x || after.y !== entry.before.y) {
+            cmds.push(new ModifyPadCommand(app, entry.pad, entry.before, after));
         }
     }
     for (const t of g.tracks) {
@@ -556,6 +610,7 @@ export function cancelGroupDrag(app) {
     g.frame = 0;
     g.pendingWorld = null;
     app._deferDragOverlays = g.previousDeferDragOverlays;
+    if (g.padCrosshairStart) app.viewport?.hideCrosshair();
     for (const entry of g.comps || []) {
         const placement = app.placements.get(entry.id);
         if (!placement) continue;
@@ -567,6 +622,10 @@ export function cancelGroupDrag(app) {
         entry.via.x = entry.x;
         entry.via.y = entry.y;
         renderVia(entry.via, (id) => app._getLayerGroup(id));
+    }
+    for (const entry of g.pads || []) {
+        entry.pad.applyState(entry.before);
+        renderPad(entry.pad, id => app._getLayerGroup(id));
     }
     for (const entry of g.tracks || []) {
         entry.track.applyState(entry.before);
@@ -586,7 +645,7 @@ export function cancelGroupDrag(app) {
         || entry.shape?.layer === 'top-copper' || entry.shape?.layer === 'bottom-copper');
     const movedTextAffectsFill = g.texts?.some((entry) => entry.text?.layer === 'top-copper'
         || entry.text?.layer === 'bottom-copper');
-    if (g.comps?.length || g.vias?.length || g.tracks?.length || g.fills?.length
+    if (g.comps?.length || g.vias?.length || g.pads?.length || g.tracks?.length || g.fills?.length
         || movedShapeAffectsFill || movedTextAffectsFill) app._refreshFills?.();
     if (!app._deferDragOverlays && (g.comps?.length || g.vias?.length || g.tracks?.length)) {
         app._refreshClearanceHalos?.();
@@ -613,6 +672,7 @@ export function deleteBoxSelection(app) {
     const cmds = [];
     for (const t of getPcbSelection(app, 'track')) cmds.push(new RemoveTrackCommand(app, t));
     for (const v of getPcbSelection(app, 'via')) cmds.push(new RemoveViaCommand(app, v));
+    for (const pad of getPcbSelection(app, 'pad')) cmds.push(new RemovePadCommand(app, pad));
     for (const shape of getPcbSelection(app, 'shape')) {
         if (shape.layer !== 'board-outline') cmds.push(new RemoveBoardShapeCommand(app, shape));
     }

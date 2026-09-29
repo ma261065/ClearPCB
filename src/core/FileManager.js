@@ -5,6 +5,7 @@
  */
 
 import { zip, unzip, strToU8, strFromU8 } from '../../assets/vendor/fflate.module.js';
+import { compactProjectAliases } from './project-field-aliases.js';
 
 // ==================== Project (de)serialisation ====================
 // .cpcb documents are ZIP containers (DEFLATE per entry) holding the project
@@ -22,6 +23,165 @@ import { zip, unzip, strToU8, strFromU8 } from '../../assets/vendor/fflate.modul
 
 /** Container manifest filename. */
 const _MANIFEST_NAME = 'manifest.json';
+const JSON_CONTEXT_WIDTH = 180;
+
+function locateJsonSyntaxError(text) {
+    let index = 0;
+    const whitespace = () => {
+        while (index < text.length && /[\t\n\r ]/.test(text[index])) index++;
+    };
+    const fail = () => { throw new Error(String(index)); };
+    const string = () => {
+        if (text[index++] !== '"') fail();
+        while (index < text.length) {
+            const char = text[index++];
+            if (char === '"') return;
+            if (char === '\\') {
+                const escape = text[index++];
+                if ('"\\/bfnrt'.includes(escape)) continue;
+                if (escape === 'u' && /^[0-9a-fA-F]{4}$/.test(text.slice(index, index + 4))) {
+                    index += 4;
+                    continue;
+                }
+                fail();
+            }
+            if (char.charCodeAt(0) < 0x20) fail();
+        }
+        fail();
+    };
+    const value = (depth = 0) => {
+        if (depth > 2048) fail();
+        whitespace();
+        const char = text[index];
+        if (char === '"') return string();
+        if (char === '{') {
+            index++;
+            whitespace();
+            if (text[index] === '}') { index++; return; }
+            while (index < text.length) {
+                whitespace();
+                if (text[index] !== '"') fail();
+                string();
+                whitespace();
+                if (text[index++] !== ':') fail();
+                value(depth + 1);
+                whitespace();
+                if (text[index] === '}') { index++; return; }
+                if (text[index++] !== ',') fail();
+            }
+            fail();
+        }
+        if (char === '[') {
+            index++;
+            whitespace();
+            if (text[index] === ']') { index++; return; }
+            while (index < text.length) {
+                value(depth + 1);
+                whitespace();
+                if (text[index] === ']') { index++; return; }
+                if (text[index++] !== ',') fail();
+            }
+            fail();
+        }
+        for (const literal of ['true', 'false', 'null']) {
+            if (text.startsWith(literal, index)) {
+                index += literal.length;
+                return;
+            }
+        }
+        const number = text.slice(index).match(/^-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?/);
+        if (number) {
+            index += number[0].length;
+            return;
+        }
+        fail();
+    };
+    try {
+        whitespace();
+        value();
+        whitespace();
+        if (index !== text.length) fail();
+    } catch (error) {
+        const position = Number(error.message);
+        return Number.isInteger(position) ? Math.min(text.length, position) : null;
+    }
+    return null;
+}
+
+function jsonErrorPosition(error, text) {
+    const positionMatch = String(error?.message || '').match(/\bposition\s+(\d+)/i);
+    if (positionMatch) {
+        const position = Math.min(text.length, Number(positionMatch[1]));
+        const before = text.slice(0, position);
+        const lines = before.split('\n');
+        return { position, line: lines.length, column: lines.at(-1).length + 1 };
+    }
+    const locationMatch = String(error?.message || '').match(/\bline\s+(\d+)\s+column\s+(\d+)/i);
+    if (!locationMatch) {
+        const position = locateJsonSyntaxError(text);
+        if (position == null) return null;
+        const lines = text.slice(0, position).split('\n');
+        return { position, line: lines.length, column: lines.at(-1).length + 1 };
+    }
+    const line = Number(locationMatch[1]);
+    const column = Number(locationMatch[2]);
+    const lines = text.split('\n');
+    const position = lines.slice(0, Math.max(0, line - 1))
+        .reduce((total, value) => total + value.length + 1, 0) + Math.max(0, column - 1);
+    return { position: Math.min(text.length, position), line, column };
+}
+
+function jsonSourceContext(text, location) {
+    const lines = text.split('\n');
+    const targetIndex = Math.max(0, Math.min(lines.length - 1, location.line - 1));
+    const first = Math.max(0, targetIndex - 2);
+    const last = Math.min(lines.length - 1, targetIndex + 2);
+    const lineNumberWidth = String(last + 1).length;
+    const output = [];
+    for (let index = first; index <= last; index++) {
+        const raw = lines[index].replace(/\t/g, '    ');
+        if (index !== targetIndex) {
+            const shortened = raw.length > JSON_CONTEXT_WIDTH ? `${raw.slice(0, JSON_CONTEXT_WIDTH)}…` : raw;
+            output.push(`${String(index + 1).padStart(lineNumberWidth)} | ${shortened}`);
+            continue;
+        }
+        const rawColumn = Math.max(0, location.column - 1);
+        const beforeColumn = lines[index].slice(0, rawColumn).replace(/\t/g, '    ').length;
+        const start = Math.max(0, beforeColumn - Math.floor(JSON_CONTEXT_WIDTH / 2));
+        const end = Math.min(raw.length, start + JSON_CONTEXT_WIDTH);
+        const prefix = start > 0 ? '…' : '';
+        const suffix = end < raw.length ? '…' : '';
+        const excerpt = `${prefix}${raw.slice(start, end)}${suffix}`;
+        const caret = prefix.length + Math.max(0, beforeColumn - start);
+        output.push(`${String(index + 1).padStart(lineNumberWidth)} | ${excerpt}`);
+        output.push(`${' '.repeat(lineNumberWidth)} | ${' '.repeat(caret)}^`);
+    }
+    return output.join('\n');
+}
+
+/**
+ * Parse one project JSON source and preserve actionable source context.
+ * @param {string} text
+ * @param {string} sourceName
+ */
+export function parseProjectJSON(text, sourceName) {
+    try {
+        return JSON.parse(text);
+    } catch (error) {
+        const location = jsonErrorPosition(error, text);
+        const reason = String(error?.message || error)
+            .replace(/\s+at position\s+\d+(?:\s+\(line\s+\d+\s+column\s+\d+\))?$/i, '')
+            .replace(/\s+at line\s+\d+\s+column\s+\d+.*$/i, '');
+        if (!location) throw new Error(`Invalid JSON in ${sourceName}.\nReason: ${reason}`);
+        throw new Error([
+            `Invalid JSON in ${sourceName}.`,
+            `Reason: ${reason}`,
+            `Location: line ${location.line}, column ${location.column} (character ${location.position})`,
+            'Faulty source:',
+            jsonSourceContext(text, location),
+        ].join('\n'));
+    }
+}
 
 /**
  * Promise wrapper around fflate's async `zip`.
@@ -53,6 +213,7 @@ function _unzip(bytes) {
  * @returns {Promise<Blob>}
  */
 async function _serializeProject(data) {
+    data = compactProjectAliases(data);
     /** @type {Record<string, Uint8Array>} */
     const files = {};
 
@@ -71,11 +232,14 @@ async function _serializeProject(data) {
             const defs = {};
             let i = 0;
             for (const [key, def] of Object.entries(sch.defs)) {
-                if (def && /** @type {any} */ (def).model3dObj) {
+                const model3dObj = def && (/** @type {any} */ (def).m3o ?? /** @type {any} */ (def).model3dObj);
+                if (model3dObj) {
                     const entry = `models/m${i++}.obj`;
-                    files[entry] = strToU8(/** @type {any} */ (def).model3dObj);
+                    files[entry] = strToU8(model3dObj);
                     models[key] = entry;
-                    const { model3dObj, ...rest } = /** @type {any} */ (def);
+                    const rest = { .../** @type {any} */ (def) };
+                    delete rest.model3dObj;
+                    delete rest.m3o;
                     defs[key] = rest;
                 } else {
                     defs[key] = def;
@@ -115,7 +279,9 @@ async function _deserializeProject(file) {
     const entries = await _unzip(new Uint8Array(buf));
 
     /** @param {string} name */
-    const readJSON = (name) => (entries[name] ? JSON.parse(strFromU8(entries[name])) : null);
+    const readJSON = (name) => (entries[name]
+        ? parseProjectJSON(strFromU8(entries[name]), name)
+        : null);
 
     const manifest = readJSON(_MANIFEST_NAME);
     if (manifest?.format !== 'clearpcb-zip' || manifest.version !== 1) {
@@ -130,7 +296,8 @@ async function _deserializeProject(file) {
         for (const [key, entry] of Object.entries(manifest.models)) {
             const bytes = entries[/** @type {string} */ (entry)];
             if (bytes && schematic.defs[key]) {
-                schematic.defs[key].model3dObj = strFromU8(bytes);
+                const modelKey = Object.prototype.hasOwnProperty.call(schematic.defs[key], 'n') ? 'm3o' : 'model3dObj';
+                schematic.defs[key][modelKey] = strFromU8(bytes);
             }
         }
     }
@@ -358,6 +525,7 @@ export class FileManager {
         this.autoSavePrefix = 'clearpcb_autosave_';
         this.autoSaveInterval = 10000; // 10 seconds
         this.autoSaveTimer = null;
+        this.autoSaveIdleHandle = null;
         this.autoSaveSize = null;
         /** @type {{revision:number,fileName:string}|null} */
         this._lastAutoSave = null;
@@ -745,7 +913,7 @@ export class FileManager {
      */
     startAutoSave(getDataFn, isDirtyFn) {
         this.stopAutoSave();
-        this.autoSaveTimer = setInterval(() => {
+        const saveIfNeeded = () => {
             if (this.loading) return;
             try {
                 const dirty = this.isDirty || (typeof isDirtyFn === 'function' && isDirtyFn());
@@ -757,6 +925,19 @@ export class FileManager {
             } catch (err) {
                 console.error('Auto-save snapshot failed:', err);
             }
+        };
+        this.autoSaveTimer = setInterval(() => {
+            if (this.loading || this.autoSaveIdleHandle !== null) return;
+            const dirty = this.isDirty || (typeof isDirtyFn === 'function' && isDirtyFn());
+            if (!dirty) return;
+            if (typeof requestIdleCallback === 'function') {
+                this.autoSaveIdleHandle = requestIdleCallback(() => {
+                    this.autoSaveIdleHandle = null;
+                    saveIfNeeded();
+                }, { timeout: 2000 });
+                return;
+            }
+            saveIfNeeded();
         }, this.autoSaveInterval);
     }
     
@@ -768,6 +949,10 @@ export class FileManager {
             clearInterval(this.autoSaveTimer);
             this.autoSaveTimer = null;
         }
+        if (this.autoSaveIdleHandle !== null) {
+            if (typeof cancelIdleCallback === 'function') cancelIdleCallback(this.autoSaveIdleHandle);
+            this.autoSaveIdleHandle = null;
+        }
     }
     
     /**
@@ -775,6 +960,7 @@ export class FileManager {
      */
     autoSaveToStorage(data, snapshot = { revision: this.revision, fileName: this.fileName }) {
         try {
+            data = compactProjectAliases(data);
             const key = this.autoSavePrefix + encodeURIComponent(snapshot.fileName || 'untitled');
             const json = JSON.stringify({
                 timestamp: Date.now(),

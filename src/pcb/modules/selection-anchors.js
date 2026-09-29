@@ -2,7 +2,7 @@
 
 import { getPcbSelectionEntries } from './selection-registry.js';
 import { ROTATION_CURSOR } from './rotation-handle.js';
-import { createLockIcon, LOCK_SIZE } from '../../core/ui-helpers.js';
+import { createLockIcon, lockIconMetrics, LOCK_GAP, LOCK_SCREEN_GAP_PX } from '../../core/ui-helpers.js';
 import { closestPointOnSegment, pointInPolygon } from '../../core/geometry.js';
 
 const HANDLE_CLASS = 'pcb-selection-anchors';
@@ -17,43 +17,112 @@ function anchorSize(app) {
     return 8 / Math.max(0.01, app.viewport?.scale || 1);
 }
 
-/** Position a lock beside the nearest clicked outline edge, on its exterior side. */
-export function lockPositionOutsideOutline(points, pointer, scale) {
-    if (!pointer || !Array.isArray(points) || points.length < 2) return null;
+function boundsOutline(bounds) {
+    return [
+        { x: bounds.minX, y: bounds.minY },
+        { x: bounds.maxX, y: bounds.minY },
+        { x: bounds.maxX, y: bounds.maxY },
+        { x: bounds.minX, y: bounds.maxY },
+    ];
+}
+
+/** Position a lock beside the visible geometry nearest the pointer. */
+export function lockPositionOutsideOutline(points, pointer, scale, closed = true, objectMargin = 0) {
+    if (!pointer || !Array.isArray(points) || !points.length) return null;
+    const paths = Array.isArray(points[0]) ? points : [points];
     let nearest = null;
-    for (let index = 0; index < points.length; index++) {
-        const start = points[index];
-        const end = points[(index + 1) % points.length];
-        const point = closestPointOnSegment(pointer, start, end);
-        const distance = Math.hypot(pointer.x - point.x, pointer.y - point.y);
-        if (!nearest || distance < nearest.distance) nearest = { point, start, end, distance };
+    for (let pathIndex = 0; pathIndex < paths.length; pathIndex++) {
+        const path = paths[pathIndex];
+        const margin = Array.isArray(objectMargin)
+            ? Math.max(0, Number(objectMargin[pathIndex]) || 0)
+            : Math.max(0, Number(objectMargin) || 0);
+        const finite = path.filter(point => Number.isFinite(point?.x) && Number.isFinite(point?.y));
+        if (!finite.length) continue;
+        if (finite.length === 1) {
+            const distance = Math.hypot(pointer.x - finite[0].x, pointer.y - finite[0].y);
+            const visualDistance = Math.max(0, distance - margin);
+            if (!nearest || visualDistance < nearest.visualDistance
+                || (visualDistance === nearest.visualDistance && distance < nearest.distance)) {
+                nearest = {
+                    point: finite[0], start: finite[0], end: finite[0],
+                    distance, visualDistance, path: finite, margin,
+                };
+            }
+            continue;
+        }
+        const count = closed ? finite.length : finite.length - 1;
+        for (let index = 0; index < count; index++) {
+            const start = finite[index];
+            const end = finite[(index + 1) % finite.length];
+            const point = closestPointOnSegment(pointer, start, end);
+            const distance = Math.hypot(pointer.x - point.x, pointer.y - point.y);
+            const visualDistance = Math.max(0, distance - margin);
+            if (!nearest || visualDistance < nearest.visualDistance
+                || (visualDistance === nearest.visualDistance && distance < nearest.distance)) {
+                nearest = { point, start, end, distance, visualDistance, path: finite, margin };
+            }
+        }
     }
-    const dx = nearest.end.x - nearest.start.x;
-    const dy = nearest.end.y - nearest.start.y;
-    const length = Math.hypot(dx, dy);
-    if (!length) return null;
-    const normals = [{ x: -dy / length, y: dx / length }, { x: dy / length, y: -dx / length }];
-    const probe = Math.max(0.1, 2 / Math.max(0.01, scale));
-    const normal = normals.find(candidate => !pointInPolygon({
-        x: nearest.point.x + candidate.x * probe,
-        y: nearest.point.y + candidate.y * probe,
-    }, points)) || normals[0];
-    const gap = Math.max(0.3, 8 / Math.max(0.01, scale)) + LOCK_SIZE * 0.6;
-    const center = {
-        x: nearest.point.x + normal.x * gap,
-        y: nearest.point.y + normal.y * gap,
+    if (!nearest) return null;
+
+    const pointerToBoundary = {
+        x: nearest.point.x - pointer.x,
+        y: nearest.point.y - pointer.y,
     };
-    return { x: center.x - LOCK_SIZE / 2, y: center.y - LOCK_SIZE * 0.55 };
+    const pointerDistance = Math.hypot(pointerToBoundary.x, pointerToBoundary.y);
+    let outward;
+    if (pointerDistance > 1e-6) {
+        const pointerIsInside = closed && nearest.path.length >= 3
+            && pointInPolygon(pointer, nearest.path);
+        const direction = pointerIsInside ? 1 : -1;
+        outward = {
+            x: pointerToBoundary.x / pointerDistance * direction,
+            y: pointerToBoundary.y / pointerDistance * direction,
+        };
+    } else {
+        const dx = nearest.end.x - nearest.start.x;
+        const dy = nearest.end.y - nearest.start.y;
+        const length = Math.hypot(dx, dy);
+        const normals = length
+            ? [{ x: -dy / length, y: dx / length }, { x: dy / length, y: -dx / length }]
+            : [{ x: 0, y: -1 }];
+        if (closed && nearest.path.length >= 3) {
+            const probe = Math.max(0.1, 2 / Math.max(0.01, scale));
+            outward = normals.find(candidate => !pointInPolygon({
+                x: nearest.point.x + candidate.x * probe,
+                y: nearest.point.y + candidate.y * probe,
+            }, nearest.path)) || normals[0];
+        } else {
+            outward = normals.find(candidate => candidate.y < 0) || normals[0];
+        }
+    }
+
+    const gap = LOCK_SCREEN_GAP_PX / Math.max(0.01, scale);
+    const { bounds: lockBounds } = lockIconMetrics(scale);
+    const boundary = {
+        x: nearest.point.x + outward.x * nearest.margin,
+        y: nearest.point.y + outward.y * nearest.margin,
+    };
+    const nearestLockX = outward.x >= 0 ? lockBounds.minX : lockBounds.maxX;
+    const nearestLockY = outward.y >= 0 ? lockBounds.minY : lockBounds.maxY;
+    const nearestProjection = outward.x * nearestLockX + outward.y * nearestLockY;
+    const distance = gap - nearestProjection;
+    return {
+        x: boundary.x + outward.x * distance,
+        y: boundary.y + outward.y * distance,
+    };
 }
 
 /** Return the selected adapter anchor under point, or null. */
 export function hitTestPcbSelectionAnchor(app, point, kinds = null) {
     const allowed = kinds ? new Set(kinds) : null;
     const tolerance = anchorSize(app);
-    for (const adapter of getPcbSelectionEntries(app)) {
+    const selected = getPcbSelectionEntries(app);
+    const hideRotation = selected.length > 1 || app._rotationHandleDrag;
+    for (const adapter of selected) {
         if (!adapter.visible || (allowed && !allowed.has(adapter.kind))) continue;
         for (const anchor of adapter.getAnchors?.() || []) {
-            if (anchor.symbol === 'rotate' && app._rotationHandleDrag) continue;
+            if (anchor.symbol === 'rotate' && hideRotation) continue;
             const hitRadius = Math.max(tolerance, (anchor.sizePx || 8) / (2 * Math.max(0.01, app.viewport?.scale || 1)));
             if (Math.hypot(anchor.x - point.x, anchor.y - point.y) <= hitRadius) {
                 return { adapter, anchor, anchorId: anchorId(anchor) };
@@ -70,16 +139,20 @@ export function renderPcbSelectionAnchors(app) {
     if (!overlay) return;
     const size = anchorSize(app);
     const scale = Math.max(0.01, app.viewport?.scale || 1);
-    for (const adapter of getPcbSelectionEntries(app)) {
+    const { size: lockSize } = lockIconMetrics(scale);
+    const selected = getPcbSelectionEntries(app);
+    const hideRotation = selected.length > 1 || app._rotationHandleDrag;
+    for (const adapter of selected) {
         if (!adapter.visible) continue;
         if (adapter.locked) {
             const bounds = adapter.getBounds?.();
             if (!bounds) continue;
-            const offset = 0.6;
-            const position = adapter.getLockPosition?.(app._lastPointerWorld, scale) || {
-                x: bounds.minX - offset - LOCK_SIZE,
-                y: bounds.minY - offset - LOCK_SIZE * 0.6,
-            };
+            const position = adapter.getLockPosition?.(app._lastPointerWorld, scale)
+                || lockPositionOutsideOutline(boundsOutline(bounds), app._lastPointerWorld, scale)
+                || {
+                    x: bounds.minX - LOCK_GAP - lockSize,
+                    y: bounds.minY - LOCK_GAP - lockSize * 0.6,
+                };
             const owner = {
                 element: overlay,
                 unlock: adapter.unlock,
@@ -90,6 +163,7 @@ export function renderPcbSelectionAnchors(app) {
                 position.y,
                 owner,
                 'pcb-selection-lock-icon',
+                scale,
             ));
             continue;
         }
@@ -109,7 +183,7 @@ export function renderPcbSelectionAnchors(app) {
             group.appendChild(path);
         }
         for (const anchor of adapter.getAnchors()) {
-            if (anchor.hidden || (anchor.symbol === 'rotate' && app._rotationHandleDrag)) continue;
+            if (anchor.hidden || (anchor.symbol === 'rotate' && hideRotation)) continue;
             const isMidpoint = anchor.symbol === 'plus';
             const isRotation = anchor.symbol === 'rotate';
             const handleSize = isMidpoint ? 11 / scale : (anchor.sizePx || 8) / scale;

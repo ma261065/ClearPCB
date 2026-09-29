@@ -3,7 +3,13 @@ import { pointInPolygon } from '../src/core/geometry.js';
 import { resolvePadMaskOpenings } from '../src/pcb/modules/board-geometry.js';
 globalThis.window = { addEventListener() {} };
 const { buildCopperObstacles } = await import('../src/pcb/modules/copper-obstacles.js');
-const { collectCopperSubtractHoles, collectMaskOpeningHoles, buildSilkMesh } = await import('../src/pcb/modules/board3d.js');
+const {
+    board2DDataFromApp,
+    collectCopperSubtractHoles,
+    collectMaskOpeningHoles,
+    buildSilkMesh,
+    platedSurfaceRemovalHoles,
+} = await import('../src/pcb/modules/board3d.js');
 const { Board2D } = await import('../src/pcb/modules/board2d.js');
 const { exportGerbers } = await import('../src/pcb/modules/gerber.js');
 const line = { id: 'line', kind: 'line', layer: 'top-copper', filled: false, lineWidth: 0.2,
@@ -22,10 +28,44 @@ assert.equal(resolvePadMaskOpenings(placements, 'top')[0].w, 2.1);
 assert.equal(collectMaskOpeningHoles([], 'top', placements).length, 1);
 assert.equal(collectMaskOpeningHoles([], 'bottom', placements).length, 0);
 const draws = [];
-Board2D.prototype._drawMaskOpenings.call({ data: { placements }, side: 'top',
+Board2D.prototype._drawMaskOpenings.call({ data: { placements, pads: [{
+    x: 30, y: -20, shape: 'round', size: 2, drill: 1, layers: 'top-copper',
+}] }, side: 'top',
     _fillPad(...args) { draws.push(args.slice(1)); } }, {});
-assert.equal(draws.length, 1);
+assert.equal(draws.length, 2);
 assert.equal(draws[0][2], 2.1);
+assert.equal(draws[1][2], 2.1);
+let roundPath = null;
+Board2D.prototype._padPath.call({}, {
+    beginPath() {},
+    arc(x, y, radius) { roundPath = { x, y, radius }; },
+}, 30, -20, 2, 2, 'circle');
+assert.deepEqual(roundPath, { x: 30, y: -20, radius: 1 });
+let standaloneDrill = null;
+const holeContext = {
+    save() {}, restore() {}, beginPath() {}, fill() {},
+    arc(x, y, radius) { standaloneDrill = { x, y, radius }; },
+};
+Board2D.prototype._drawHoles.call({
+    data: {
+        placements: new Map(), vias: [], boardShapes: [],
+        pads: [{ x: 30, y: -20, drill: 1 }],
+    },
+}, holeContext);
+assert.deepEqual(standaloneDrill, { x: 30, y: -20, radius: 0.5 });
+const viewerPads = [{ id: 'pad_1' }];
+assert.equal(board2DDataFromApp({
+    placements: new Map(), tracks: [], vias: [], pads: viewerPads,
+    boardShapes: [], copperFills: [], texts: new Map(),
+}).pads, viewerPads, '2D viewer data includes standalone pads');
+const ordinaryDrill = { x: 1, z: 2, r: 0.5 };
+const boardShapeDrill = { x: 3, z: 4, r: 0.5, boardShape: {} };
+const copperRemoval = { x: 5, z: 6, r: 0.5 };
+assert.deepEqual(
+    platedSurfaceRemovalHoles([ordinaryDrill, boardShapeDrill], [copperRemoval]),
+    [boardShapeDrill, copperRemoval],
+    'ordinary drills do not punch away plated Pad and Via barrels',
+);
 const silkPlacement = { x: 0, y: 0, silks: [{ type: 'path', layer: 'top-silk', filled: true,
     strokeWidth: 0.1, d: 'M10 -10 L30 -10 L30 -30 L10 -30 Z M15 -15 L25 -15 L25 -25 L15 -25 Z' }] };
 const silkApp = { placements: new Map([['silk', silkPlacement]]), boardShapes: [] };

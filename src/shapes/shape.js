@@ -6,7 +6,7 @@
  */
 
 import { ShapeValidator } from '../core/ShapeValidator.js';
-import { createLockIcon, LOCK_SIZE } from '../core/ui-helpers.js';
+import { createLockIcon, lockIconMetrics, LOCK_GAP } from '../core/ui-helpers.js';
 
 let shapeIdCounter = 0;
 
@@ -371,17 +371,17 @@ export class Shape {
         // Draw lock icon near primary anchor when locked
         if (this.locked && anchors.length > 0) {
             const primary = anchors[0];
-            const offset = 0.6;
-            let lockX = primary.x + offset;
-            let lockY = primary.y - offset - LOCK_SIZE * 0.6;
+            const { size: lockSize } = lockIconMetrics(scale);
+            let lockX = primary.x + LOCK_GAP;
+            let lockY = primary.y - LOCK_GAP - lockSize * 0.6;
 
             if (this.type === 'text') {
                 const bounds = this.getBounds();
-                lockX = bounds.maxX + offset;
-                lockY = bounds.minY - offset - LOCK_SIZE * 0.6;
+                lockX = bounds.maxX + LOCK_GAP;
+                lockY = bounds.minY - LOCK_GAP - lockSize * 0.6;
             }
 
-            this.anchorsGroup.appendChild(createLockIcon(lockX, lockY, this, 'lock-icon'));
+            this.anchorsGroup.appendChild(createLockIcon(lockX, lockY, this, 'lock-icon', scale));
             this._anchorsHaveLock = true;
         }
         

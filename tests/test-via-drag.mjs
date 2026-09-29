@@ -15,7 +15,7 @@ globalThis.document = {
 
 const { Via } = await import('../src/shapes/via.js');
 const { Track } = await import('../src/shapes/track.js');
-const { reconcileRatsnest } = await import('../src/pcb/modules/track-draw.js');
+const { collectBondedCopper, reconcileRatsnest } = await import('../src/pcb/modules/track-draw.js');
 const { AddTrackCommand, RemoveTrackCommand, AddViaCommand, RemoveViaCommand, MoveViaCommand, CompoundCommand } = await import('../src/pcb/modules/track-commands.js');
 const {
     FlipPlacementCommand,
@@ -64,12 +64,13 @@ function appFor(via) {
         clearanceRefreshes() { return clearanceRefreshes; },
         crosshairs,
         viewport: {
-            scale: 1,
+            scale: 100,
             gridVisible: false,
             setCrosshair(point) { crosshairs.push(point); },
             hideCrosshair() {},
         },
         history: { execute(command) { command.execute(); } },
+        _alert(message, options) { this.lastAlert = { message, options }; },
     };
 }
 
@@ -98,6 +99,7 @@ function trackAppFor(track, previousDeferral = false) {
             hideCrosshair() {},
         },
         history: { execute(command) { command.execute(); } },
+        _alert(message, options) { this.lastAlert = { message, options }; },
     };
 }
 
@@ -140,6 +142,43 @@ function trackAppFor(track, previousDeferral = false) {
 }
 
 {
+    const via = new Via({ x: 1, y: 2, diameter: 0.6, drill: 0.3, net: 'GND' });
+    const track = new Track({ points: [{ x: 0, y: 5 }, { x: 10, y: 5 }], net: 'GND' });
+    const app = appFor(via);
+    app.tracks.push(track);
+    startViaDrag(app, via, { x: 1, y: 2 });
+    updateViaDrag(app, { x: 5, y: 5.1 });
+    finishViaDrag(app);
+    const bonded = collectBondedCopper(app, { via });
+    expect('via snaps onto and bonds with a same-net track segment',
+        via.x === 5 && via.y === 5 && bonded.tracks.has(track));
+}
+
+{
+    const via = new Via({ x: 1, y: 2, diameter: 0.6, drill: 0.3, net: 'GND' });
+    const track = new Track({ points: [{ x: 0, y: 5 }, { x: 10, y: 5 }], net: 'VCC' });
+    const app = appFor(via);
+    app.tracks.push(track);
+    startViaDrag(app, via, { x: 1, y: 2 });
+    updateViaDrag(app, { x: 5, y: 5.1 });
+    finishViaDrag(app);
+    expect('via drop onto a different-net track is rejected',
+        via.x === 1 && via.y === 2 && app.lastAlert?.options?.title === 'Net Conflict');
+}
+
+{
+    const via = new Via({ x: 1, y: 2, diameter: 0.6, drill: 0.3, net: 'GND' });
+    const track = new Track({ points: [{ x: 5, y: 5 }, { x: 10, y: 5 }], net: 'VCC' });
+    const app = appFor(via);
+    app.tracks.push(track);
+    startViaDrag(app, via, { x: 1, y: 2 });
+    updateViaDrag(app, { x: 5.02, y: 5.02 });
+    finishViaDrag(app);
+    expect('via drop onto a different-net track endpoint is rejected',
+        via.x === 1 && via.y === 2 && app.lastAlert?.options?.title === 'Net Conflict');
+}
+
+{
     const track = new Track({ points: [{ x: 0, y: 0 }, { x: 10, y: 0 }], net: 'GND' });
     const app = trackAppFor(track);
     expect('track pickup begins derived-overlay deferral', startVertexDrag(app, track, { x: 0, y: 0 })
@@ -163,6 +202,32 @@ function trackAppFor(track, previousDeferral = false) {
     expect('track cancel does not refresh unchanged copper pours', app.fillRefreshes() === 0);
     expect('track cancel restores its original position', track.nodes.get('n0')?.x === 0 && track.nodes.get('n0')?.y === 0);
     expect('track cancel restores clearance', app.clearanceRefreshes() === 1);
+}
+
+{
+    const track = new Track({ points: [{ x: 0, y: 0 }, { x: 0, y: 4 }], net: 'GND' });
+    const via = new Via({ x: 5, y: 5, diameter: 0.6, drill: 0.3, net: 'GND' });
+    const app = trackAppFor(track);
+    app.vias.push(via);
+    startVertexDrag(app, track, { x: 0, y: 0 });
+    updateVertexDrag(app, { x: 5.05, y: 5.05 });
+    finishVertexDrag(app);
+    const bonded = collectBondedCopper(app, { track });
+    expect('track node snaps onto and bonds with a same-net via',
+        track.nodes.get('n0')?.x === 5 && track.nodes.get('n0')?.y === 5 && bonded.vias.has(via));
+}
+
+{
+    const track = new Track({ points: [{ x: 0, y: 0 }, { x: 0, y: 4 }], net: 'GND' });
+    const via = new Via({ x: 5, y: 5, diameter: 0.6, drill: 0.3, net: 'VCC' });
+    const app = trackAppFor(track);
+    app.vias.push(via);
+    startVertexDrag(app, track, { x: 0, y: 0 });
+    updateVertexDrag(app, { x: 5.05, y: 5.05 });
+    finishVertexDrag(app);
+    expect('track node drop onto a different-net via is rejected',
+        track.nodes.get('n0')?.x === 0 && track.nodes.get('n0')?.y === 0
+        && app.lastAlert?.options?.title === 'Net Conflict');
 }
 
 {

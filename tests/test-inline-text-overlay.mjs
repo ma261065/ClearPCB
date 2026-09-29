@@ -4,6 +4,7 @@ import {
     createInlineTextOverlay,
     setInlineTextInputActive,
 } from '../src/ui/modules/inline-text-overlay.js';
+import { setTextCaretFromScreen } from '../src/ui/modules/text-edit.js';
 
 function element(tagName) {
     return {
@@ -45,6 +46,18 @@ assert.equal(overlay.box.attributes['stroke-opacity'], '0.5');
 assert.equal(overlay.box.attributes['vector-effect'], 'non-scaling-stroke');
 assert.equal(overlay.caret.attributes.stroke, 'var(--accent-color, #00ccff)');
 assert.equal(overlay.caret.attributes['stroke-width'], '2');
+
+const emphasizedContainer = element('g');
+const emphasized = createInlineTextOverlay(
+    group => emphasizedContainer.appendChild(group),
+    { emphasized: true },
+);
+assert.equal(emphasized.box.attributes.fill, 'var(--accent-color, #00ccff)');
+assert.equal(emphasized.box.attributes['fill-opacity'], '0.12');
+assert.equal(emphasized.box.attributes['stroke-width'], '3');
+assert.equal(emphasized.box.attributes['stroke-opacity'], '1');
+assert.equal(emphasized.box.attributes['stroke-dasharray'], '7 4');
+emphasized.destroy();
 assert.equal(overlay.caret.attributes['stroke-linecap'], 'butt');
 
 assert.equal(overlay.updateGeometry({
@@ -108,5 +121,38 @@ setInlineTextInputActive(input, true);
 await new Promise(resolve => setTimeout(resolve, 0));
 assert.equal(input.readOnly, false);
 assert.equal(focused, true);
+
+const textElement = {
+    tagName: 'text',
+    getScreenCTM() { return { inverse() { return {}; } }; },
+    getCharNumAtPosition() { return 1; },
+    getStartPositionOfChar() { return { x: 10 }; },
+    getEndPositionOfChar() { return { x: 20 }; },
+};
+const caretApp = {
+    textEdit: {
+        shape: {
+            type: 'text',
+            text: 'ABC',
+            element: { children: [element('rect'), textElement] },
+        },
+        caretIndex: 3,
+        overlayGroup: null,
+    },
+    viewport: {
+        svg: {
+            getBoundingClientRect() { return { left: 0, top: 0 }; },
+            createSVGPoint() {
+                return {
+                    x: 0,
+                    y: 0,
+                    matrixTransform() { return this; },
+                };
+            },
+        },
+    },
+};
+setTextCaretFromScreen(caretApp, { x: 16, y: 0 });
+assert.equal(caretApp.textEdit.caretIndex, 2);
 
 console.log('PASS: editors share text visuals and suspend inactive hidden input independently');

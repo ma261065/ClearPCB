@@ -114,6 +114,35 @@ export function validatePicturePoints(points, { coordinateTolerance = 0 } = {}) 
     }
 }
 
+export function normalizePicturePoints(points, { coordinateTolerance = 0 } = {}) {
+    validatePicturePoints(points, { coordinateTolerance });
+    const horizontal = {
+        x: ((points[1].x - points[0].x) + (points[2].x - points[3].x)) / 2,
+        y: ((points[1].y - points[0].y) + (points[2].y - points[3].y)) / 2,
+    };
+    const vertical = {
+        x: ((points[3].x - points[0].x) + (points[2].x - points[1].x)) / 2,
+        y: ((points[3].y - points[0].y) + (points[2].y - points[1].y)) / 2,
+    };
+    const width = Math.hypot(horizontal.x, horizontal.y);
+    const height = Math.hypot(vertical.x, vertical.y);
+    const unitX = { x: horizontal.x / width, y: horizontal.y / width };
+    const direction = horizontal.x * vertical.y - horizontal.y * vertical.x < 0 ? -1 : 1;
+    const unitY = { x: -unitX.y * direction, y: unitX.x * direction };
+    const center = points.reduce((result, point) => ({
+        x: result.x + point.x / 4,
+        y: result.y + point.y / 4,
+    }), { x: 0, y: 0 });
+    const halfX = { x: unitX.x * width / 2, y: unitX.y * width / 2 };
+    const halfY = { x: unitY.x * height / 2, y: unitY.y * height / 2 };
+    return [
+        { x: center.x - halfX.x - halfY.x, y: center.y - halfX.y - halfY.y },
+        { x: center.x + halfX.x - halfY.x, y: center.y + halfX.y - halfY.y },
+        { x: center.x + halfX.x + halfY.x, y: center.y + halfX.y + halfY.y },
+        { x: center.x - halfX.x + halfY.x, y: center.y - halfX.y + halfY.y },
+    ];
+}
+
 function mergedArtwork(artwork) {
     const cached = artworkCache.get(artwork);
     if (cached) return cached;
@@ -414,4 +443,3 @@ export function rasterizePicture({ data, width, height }, { threshold = 128, inv
     }
     return { width, height, mask, rectangles };
 }
-

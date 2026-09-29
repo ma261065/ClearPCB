@@ -6,6 +6,7 @@ import { importEasyEDASchematic } from '../../easyeda/schematic-importer.js';
 import { createShape, bumpWireLabelCounter } from '../../shapes/index.js';
 import { bumpNetNameCounter } from '../../shapes/wire.js';
 import { validateEditableProject } from '../../core/project-format.js';
+import { compactProjectAliases } from '../../core/project-field-aliases.js';
 import { serializeGridSettings, restoreGridSettings } from '../../ui/modules/viewport.js';
 
 function canReplaceDocument(app) {
@@ -68,7 +69,7 @@ export function serializeDocument(app) {
     // NB: the PCB section (`doc.pcb`) is added by ProjectDocument, which
     // coordinates both editor views. This function only produces the
     // schematic envelope so the schematic view never reaches into the PCB.
-    return doc;
+    return compactProjectAliases(doc);
 }
 
 /**
@@ -78,7 +79,7 @@ export function serializeDocument(app) {
  * @param {object} data - Previously serialized document.
  */
 export function prepareDocument(app, data) {
-    validateEditableProject(data);
+    data = validateEditableProject(data);
     const schematic = data.schematic;
     const shapes = schematic.shapes.filter((item) => item.fk !== 'net')
         .map((item) => ({ data: item, shape: createShape(item) }));
@@ -90,10 +91,11 @@ export function prepareDocument(app, data) {
     });
     for (const { shape } of shapes) shape.render(app.viewport.scale);
     for (const component of components) component.createSymbolElement();
-    return { shapes, components };
+    return { data, shapes, components };
 }
 
 export async function loadDocument(app, data, prepared = prepareDocument(app, data)) {
+    data = prepared.data || data;
     app.selection.clearSelection();
     if (app.textEdit?.shape) app._endTextEdit(false);
     app._clearAllShapes();

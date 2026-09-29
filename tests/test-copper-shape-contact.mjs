@@ -25,6 +25,7 @@ const cases = [
     [circle(), polygon(2.15, -0.1, 3, 0.1), false],
     [circle(), polygon(2.25, -0.1, 3, 0.1), false],
     [circle(), polygon(-0.5, -0.5, 0.5, 0.5), false],
+    [circle(), polygon(-0.5, -0.5, 0.5, 0.5, { filled: true }), false],
     [circle({ filled: true }), polygon(-0.5, -0.5, 0.5, 0.5), true],
     [circle(), polygon(-3, -3, 3, 3), false],
     [circle(), polygon(-3, -3, 3, 3, { filled: true }), true],

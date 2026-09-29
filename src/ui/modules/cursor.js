@@ -23,6 +23,8 @@ export function getToolIconPath(tool) {
             return 'M 0 7 H 3 V 3 H 8';
         case 'via':
             return 'M 4 0 A 4 4 0 1 1 3.999 0 M 4 2 A 2 2 0 1 1 3.999 2';
+        case 'pad':
+            return 'M 0 1 H 8 V 7 H 0 Z M 4 2 A 2 2 0 1 1 3.999 2';
         case 'net':
             return 'M 0 4 L 2 1 H 8 V 7 H 2 Z';
         case 'noconnect':

@@ -4,7 +4,27 @@
 
 const NS = 'http://www.w3.org/2000/svg';
 export const LOCK_SIZE = 1.2;   // world units
-const LOCK_STROKE = 0.2;
+export const LOCK_GAP = 0.2;    // world units
+export const LOCK_STROKE = 0.2;
+export const LOCK_MIN_SCREEN_PX = 10;
+export const LOCK_SCREEN_GAP_PX = 5;
+
+export function lockIconMetrics(scale = Infinity) {
+    const size = Math.max(LOCK_SIZE, LOCK_MIN_SCREEN_PX / Math.max(0.01, scale));
+    const stroke = size * LOCK_STROKE / LOCK_SIZE;
+    return {
+        size,
+        stroke,
+        bounds: {
+            minX: -stroke / 2,
+            maxX: size + stroke / 2,
+            minY: size * 0.7 * 0.25 - size * 0.35 - stroke / 2,
+            maxY: size * 0.7 * 1.25 + stroke / 2,
+        },
+    };
+}
+
+export const LOCK_BOUNDS = Object.freeze(lockIconMetrics().bounds);
 
 export function appendSegmentSelection(overlay, element, color, width, handles = null) {
     element.setAttribute('fill', 'none');
@@ -24,22 +44,23 @@ export function appendSegmentSelection(overlay, element, color, width, handles =
  * @param {string} cls     CSS class name for the group
  * @returns {SVGGElement}
  */
-export function createLockIcon(x, y, item, cls) {
+export function createLockIcon(x, y, item, cls, scale = Infinity) {
     const g = document.createElementNS(NS, 'g');
     g.setAttribute('class', cls);
     g.style.cursor = 'pointer';
 
-    const bodyW = LOCK_SIZE;
-    const bodyH = LOCK_SIZE * 0.7;
+    const { size, stroke } = lockIconMetrics(scale);
+    const bodyW = size;
+    const bodyH = size * 0.7;
     const bodyY = y + bodyH * 0.25;
 
     // Invisible hit area (slightly larger for easier clicking)
-    const pad = LOCK_SIZE * 0.15;
+    const pad = size * 0.15;
     const hit = document.createElementNS(NS, 'rect');
     hit.setAttribute('x', String(x - pad));
     hit.setAttribute('y', String(y - pad));
     hit.setAttribute('width', String(bodyW + pad * 2));
-    hit.setAttribute('height', String(bodyH + LOCK_SIZE * 0.5 + pad));
+    hit.setAttribute('height', String(bodyH + size * 0.5 + pad));
     hit.setAttribute('fill', 'transparent');
     hit.setAttribute('stroke', 'none');
     g.appendChild(hit);
@@ -50,10 +71,10 @@ export function createLockIcon(x, y, item, cls) {
     body.setAttribute('y', String(bodyY));
     body.setAttribute('width', String(bodyW));
     body.setAttribute('height', String(bodyH));
-    body.setAttribute('rx', String(LOCK_SIZE * 0.12));
+    body.setAttribute('rx', String(size * 0.12));
     body.setAttribute('fill', 'var(--lock-icon, #666666)');
     body.setAttribute('stroke', 'var(--lock-icon, #666666)');
-    body.setAttribute('stroke-width', String(LOCK_STROKE));
+    body.setAttribute('stroke-width', String(stroke));
     g.appendChild(body);
 
     // Shackle
@@ -64,7 +85,7 @@ export function createLockIcon(x, y, item, cls) {
     path.setAttribute('d', `M ${cx - r} ${shackleY} A ${r} ${r} 0 0 1 ${cx + r} ${shackleY}`);
     path.setAttribute('fill', 'none');
     path.setAttribute('stroke', 'var(--lock-icon, #666666)');
-    path.setAttribute('stroke-width', String(LOCK_STROKE));
+    path.setAttribute('stroke-width', String(stroke));
     g.appendChild(path);
 
     // Click-to-unlock
@@ -169,10 +190,10 @@ export function buildPointAnchorsGroup(shape, scale) {
     // Lock icon when locked
     if (shape.locked && pointAnchors.length > 0) {
         const primary = pointAnchors[0];
-        const offset = 0.6;
-        const lockX = primary.x + offset;
-        const lockY = primary.y - offset - LOCK_SIZE * 0.6;
-        g.appendChild(createLockIcon(lockX, lockY, shape, 'lock-icon'));
+        const { size } = lockIconMetrics(scale);
+        const lockX = primary.x + LOCK_GAP;
+        const lockY = primary.y - LOCK_GAP - size * 0.6;
+        g.appendChild(createLockIcon(lockX, lockY, shape, 'lock-icon', scale));
     }
 
     return { group: g, rects };

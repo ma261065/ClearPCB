@@ -21,18 +21,33 @@ export const PCB_LAYERS = /** @type {LayerDef[]} */ ([
     { id: 'board-outline',    name: 'Board Outline',       color: '#f1c40f', visible: true, locked: false },
     { id: 'top-document',     name: 'Top Document',        color: '#b0b7b8', visible: true, locked: false },
     { id: 'bottom-document',  name: 'Bottom Document',     color: '#7f8c8d', visible: true, locked: false },
+    { id: 'vias',             name: 'Via',                  color: '#b8860b', visible: true, locked: false },
     { id: 'hole',             name: 'Hole',                color: '#1abc9c', visible: true, locked: false },
 ]);
 
-/** Return a lighter selection color derived from a PCB layer's display color. */
-export function pcbLayerSelectionColor(layerId) {
-    const color = PCB_LAYERS.find((layer) => layer.id === layerId)?.color || '#ffffff';
+export const PCB_SELECTION_HIGHLIGHT_OPACITY = 0.5;
+export const PCB_HOVER_HIGHLIGHT_OPACITY = 0.25;
+
+/** Blend a PCB display color toward white by the requested highlight opacity. */
+export function pcbHighlightColor(color, opacity) {
     const channels = color.match(/[\da-f]{2}/gi);
     if (!channels || channels.length !== 3) return color;
     return `#${channels.map((channel) => {
         const value = parseInt(channel, 16);
-        return Math.round(value + (255 - value) * 0.35).toString(16).padStart(2, '0');
+        return Math.round(value + (255 - value) * opacity).toString(16).padStart(2, '0');
     }).join('')}`;
+}
+
+/** Return a selected color equivalent to the shared white halo. */
+export function pcbLayerSelectionColor(layerId) {
+    const color = PCB_LAYERS.find((layer) => layer.id === layerId)?.color || '#ffffff';
+    return pcbHighlightColor(color, PCB_SELECTION_HIGHLIGHT_OPACITY);
+}
+
+/** Return a hover color equivalent to the shared white halo. */
+export function pcbLayerHoverColor(layerId) {
+    const color = PCB_LAYERS.find((layer) => layer.id === layerId)?.color || '#ffffff';
+    return pcbHighlightColor(color, PCB_HOVER_HIGHLIGHT_OPACITY);
 }
 
 /**
@@ -155,22 +170,19 @@ export function isOverlayVisible(overlayId) {
 }
 
 /**
- * True when a through-hole via is locked. A via spans both copper layers,
- * so it is protected whenever either copper layer is locked.
+ * True when the dedicated Via layer is locked.
  * @returns {boolean}
  */
 export function isViaLocked() {
-    return isLayerLocked('top-copper') || isLayerLocked('bottom-copper');
+    return isLayerLocked('vias');
 }
 
 /**
- * True when a through-hole via is visible. A via spans both copper layers,
- * so it is still shown (and hit-testable) while either copper layer is
- * visible; it disappears only when both are hidden.
+ * True when the dedicated Via layer is visible.
  * @returns {boolean}
  */
 export function isViaVisible() {
-    return isLayerVisible('top-copper') || isLayerVisible('bottom-copper');
+    return isLayerVisible('vias');
 }
 
 /**

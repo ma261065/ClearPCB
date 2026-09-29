@@ -1,5 +1,6 @@
 import { FileManager } from './FileManager.js';
 import { validateEditableProject } from './project-format.js';
+import { compactProjectAliases } from './project-field-aliases.js';
 
 /**
  * Neutral owner of the single ClearPCB project document.
@@ -103,7 +104,7 @@ export class ProjectDocument {
         const pcbSection = this.pcb?.serializeSection?.();
         if (pcbSection) doc.pcb = pcbSection;
         else delete doc.pcb;
-        return doc;
+        return compactProjectAliases(doc);
     }
 
     /**
@@ -114,7 +115,7 @@ export class ProjectDocument {
     async load(data) {
         if (this.fileManager.saving) throw new Error('Wait for the current save to finish.');
         if (this.fileManager.loading) throw new Error('A project is already being loaded.');
-        validateEditableProject(data);
+        data = validateEditableProject(data);
         this.fileManager.loading = true;
         try {
             await this.onLoadingChange?.(true);

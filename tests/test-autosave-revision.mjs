@@ -5,6 +5,8 @@ import { ProjectDocument } from '../src/core/ProjectDocument.js';
 const originalSetInterval = globalThis.setInterval;
 const originalClearInterval = globalThis.clearInterval;
 const originalStorage = globalThis.localStorage;
+const originalRequestIdleCallback = globalThis.requestIdleCallback;
+const originalCancelIdleCallback = globalThis.cancelIdleCallback;
 const timers = new Map();
 const stored = new Map();
 let nextTimer = 0;
@@ -86,6 +88,29 @@ try {
     assert.equal(serializations, 6);
     manager.stopAutoSave();
 
+    let idleCallback = null;
+    let cancelledIdle = null;
+    globalThis.requestIdleCallback = (callback, options) => {
+        assert.deepEqual(options, { timeout: 2000 });
+        idleCallback = callback;
+        return 77;
+    };
+    globalThis.cancelIdleCallback = id => { cancelledIdle = id; };
+    const idleManager = new FileManager();
+    idleManager.setDirty(true);
+    let idleSerializations = 0;
+    idleManager.startAutoSave(() => { idleSerializations++; return data(); });
+    tick(idleManager);
+    assert.equal(idleSerializations, 0, 'browser autosave waits for idle time');
+    idleCallback();
+    assert.equal(idleSerializations, 1);
+    idleManager.touch();
+    tick(idleManager);
+    idleManager.stopAutoSave();
+    assert.equal(cancelledIdle, 77, 'stopping autosave cancels pending idle work');
+    delete globalThis.requestIdleCallback;
+    delete globalThis.cancelIdleCallback;
+
     const owner = new ProjectDocument();
     let pcbSerializations = 0;
     const pcb = { isSectionDirty: () => true, onDocumentChanged: () => {} };
@@ -142,6 +167,10 @@ try {
 } finally {
     globalThis.setInterval = originalSetInterval;
     globalThis.clearInterval = originalClearInterval;
+    if (originalRequestIdleCallback === undefined) delete globalThis.requestIdleCallback;
+    else globalThis.requestIdleCallback = originalRequestIdleCallback;
+    if (originalCancelIdleCallback === undefined) delete globalThis.cancelIdleCallback;
+    else globalThis.cancelIdleCallback = originalCancelIdleCallback;
     if (originalStorage === undefined) delete globalThis.localStorage;
     else globalThis.localStorage = originalStorage;
 }

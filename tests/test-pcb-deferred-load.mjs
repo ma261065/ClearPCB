@@ -8,12 +8,13 @@ assert.ok(start >= 0 && end > start);
 const calls = [];
 const record = name => () => calls.push(name);
 const dependencies = {
-    removeTrackElements() {}, removeViaElements() {}, resetViaIdCounter() {}, removeBoardShapeElement() {},
+    removeTrackElements() {}, removeViaElements() {}, removePadElements() {},
+    resetViaIdCounter() {}, resetPadIdCounter() {}, updatePadIdCounter() {}, removeBoardShapeElement() {},
     clearTrackSelection() {}, updateViaIdCounter() {}, updateFillIdCounter() {},
     resetPanelPreview() {}, renderPanelPreview() {},
     getBoardOutline: app => app.boardShapes.find(shape => shape.layer === 'board-outline'),
     syncBoardOutlineDimensions() {},
-    renderTrack: record('track'), renderVia: record('via'),
+    renderTrack: record('track'), renderVia: record('via'), renderPad: record('pad'),
     renderBoardShape(app, shape, options) {
         assert.equal(options?.skipCopperUpdate, true, 'Batch rendering must defer copper clipping');
         calls.push('shape');
@@ -29,11 +30,12 @@ const data = {
     board: { width: 43, height: 27, radius: 2 }, settings: { gridSize: 0.5 },
     placements: { U1: { x: 3, y: -5, rotation: 90, locked: true } } };
 const prepared = {
-    tracks: [{ id: 'track' }], vias: [{ id: 'via' }], texts: [{ id: 'text' }], shapeIdCounter: 3,
+    tracks: [{ id: 'track' }], vias: [{ id: 'via' }], pads: [{ id: 'pad' }],
+    texts: [{ id: 'text' }], shapeIdCounter: 3,
     boardShapes: [{ id: 'image', kind: 'image' }, { id: 'fill', type: 'fill' }],
 };
 const makeApp = active => ({
-    _active: active, _stale: false, tracks: [], vias: [], boardShapes: [], texts: new Map(),
+    _active: active, _stale: false, tracks: [], vias: [], pads: [], boardShapes: [], texts: new Map(),
     placements: new Map([['U1', {}]]), _shapeElements: new Map(), _textElements: new Map(),
     _placementOverrides: new Map(), history: { clear() {} },
     _ensureViewport: record('viewport'), _getLayerGroup: () => null,
@@ -53,6 +55,7 @@ assert.deepEqual([hidden._boardWidth, hidden._boardHeight, hidden._boardRadius],
 assert.deepEqual(hidden.boardShapes, prepared.boardShapes);
 assert.deepEqual(hidden.tracks, prepared.tracks);
 assert.deepEqual(hidden.vias, prepared.vias);
+assert.deepEqual(hidden.pads, prepared.pads);
 assert.equal(hidden.texts.get('text'), prepared.texts[0]);
 assert.equal(hidden._placementOverrides.get('U1').rotation, 90);
 assert.equal(hidden._placementOverrides.get('U1').locked, true);
@@ -62,7 +65,7 @@ assert.equal(hidden.cutRefreshes, 1, 'Hidden loading only clears the previous do
 calls.length = 0;
 const active = makeApp(true);
 loadPcb(active, data, prepared);
-assert.deepEqual(calls, ['viewport', 'grid', 'outline', 'placements', 'track', 'via', 'shape', 'text', 'clearance', 'ratsnest', 'fills'],
+assert.deepEqual(calls, ['viewport', 'grid', 'outline', 'placements', 'track', 'via', 'pad', 'shape', 'text', 'clearance', 'ratsnest', 'fills'],
     'active loads still render immediately');
 assert.equal(active.cutRefreshes, 2, 'Active loading clears old cuts and refreshes once after all shapes');
 
@@ -142,6 +145,7 @@ console.log('PASS: first activation renders each restored image once, with or wi
 globalThis.window = { addEventListener() {} };
 globalThis.document = { getElementById: () => null };
 const { preparePcb, serializePcb } = await import('../src/pcb/modules/project-state.js');
+const { compactProjectAliases } = await import('../src/core/project-field-aliases.js');
 const { pictureShape } = await import('../src/pcb/modules/picture-raster.js');
 const { serializeBoardShapes } = await import('../src/pcb/modules/board-shapes.js');
 const artwork = { width: 20, height: 20, circles: [{ x: Math.PI, y: 5, radius: 1 / 3 }] };
@@ -152,9 +156,10 @@ restored._getRoutingParams = () => ({ trackWidth: 0.25, clearance: 0.2, viaDiame
 restored._getRouterMode = () => 'pathfinder';
 loadPcb(restored, saved, preparePcb(saved));
 const snapshot = serializePcb(restored);
-assert.deepEqual(snapshot.board, data.board);
-assert.deepEqual(snapshot.boardShapes, saved.boardShapes, 'saving before activation preserves encoded geometry and pose');
-assert.deepEqual(snapshot.placements, data.placements);
+const expectedSaved = compactProjectAliases({ pcb: saved }).pcb;
+assert.deepEqual(snapshot.board, expectedSaved.board);
+assert.deepEqual(snapshot.boardShapes, expectedSaved.boardShapes, 'saving before activation preserves encoded geometry and pose');
+assert.deepEqual(snapshot.placements, expectedSaved.placements);
 assert.deepEqual(restored.boardShapes[0].artwork, artwork);
 console.log('PASS: image geometry, board dimensions, and placements survive save before first activation');
 

@@ -985,9 +985,9 @@ check('hole-layer line emits a non-plated routed slot',
 check('selected PCB objects share their layer-derived color',
     shapeSelectionColor({ layer: 'top-copper' }) === pcbLayerSelectionColor('top-copper')
     && shapeSelectionColor(copperText) === pcbLayerSelectionColor('top-copper'));
-check('hole hover and selection use distinct muted colors',
-    shapeHoverColor({ layer: 'hole' }) === '#54948b'
-    && shapeSelectionColor({ layer: 'hole' }) === '#78aba3');
+check('hole hover and selection match track highlight strengths',
+    shapeHoverColor({ layer: 'hole' }) === '#639e95'
+    && shapeSelectionColor({ layer: 'hole' }) === '#97beb9');
 
 const clipper = await loadClipper();
 const testFill = {

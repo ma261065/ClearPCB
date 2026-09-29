@@ -53,7 +53,7 @@ const SHORT_KEYS = {
     sp: 'startPoint', ep: 'endPoint', bp: 'bulgePoint',
     t: 'text', fs: 'fontSize', ff: 'fontFamily', ta: 'textAnchor',
     cid: 'componentId', fk: 'fieldKey', rot: 'rotation',
-    att: 'attachment',
+    att: 'attachment', bd: 'border',
     pn: 'pinConnection', lo: 'labelOffset',
     nst: 'style', no: 'orientation', nto: 'textOffset',
 };

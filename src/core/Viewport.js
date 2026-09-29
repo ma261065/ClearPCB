@@ -41,6 +41,7 @@ export class Viewport {
         this.componentLayer.setAttribute('id', 'componentLayer');
         this.contentLayer.appendChild(this.componentLayer);
         this.axesLayer = this._createGroup('axesLayer');
+        this.interactionLayer = this._createGroup('interactionLayer');
         this.rulerLayer = null; // Rulers are in screen space, handled separately
         
         // Create ruler container (HTML overlay)
@@ -134,7 +135,6 @@ export class Viewport {
         
         // Cache for getBoundingClientRect (expensive operation)
         this.cachedRect = null;
-        this.cachedRectTime = 0;
         // Cache for viewport change optimization
         this.cachedVisibleBounds = null;
         this.viewChangeTimer = null;
@@ -148,6 +148,7 @@ export class Viewport {
         this.onViewportCull = null;
         this.onPanStart = null;
         this.onPanEnd = null;
+        this.onInteractionStart = null;
         
         // Event handlers (stored for cleanup)
         this.boundHandlers = {
@@ -182,12 +183,12 @@ export class Viewport {
     
     /** Viewport width in CSS pixels. */
     get width() {
-        return this.svg.clientWidth || this.container.clientWidth;
+        return this.cachedRect?.width || this.svg.clientWidth || this.container.clientWidth;
     }
     
     /** Viewport height in CSS pixels. */
     get height() {
-        return this.svg.clientHeight || this.container.clientHeight;
+        return this.cachedRect?.height || this.svg.clientHeight || this.container.clientHeight;
     }
 
     /**
@@ -203,13 +204,17 @@ export class Viewport {
     
     /** Pixels per world unit (mm). */
     get scale() {
-        return this.width / this.viewBox.width;
+        // The SVG's CSS size does not change during pan/zoom. Prefer the
+        // cached layout width so reading scale after a viewBox mutation does
+        // not synchronously lay out every SVG descendant.
+        const pixelWidth = this.cachedRect?.width || this._lastResizeW || this.width;
+        return pixelWidth / this.viewBox.width;
     }
     
     /** Zoom multiplier (1.0 = 100%). Defined as on-screen scale / reference
      * scale, so it is independent of the pane/window size. */
     get zoom() {
-        return (this.width / this.viewBox.width) / this.refScale100;
+        return this.scale / this.refScale100;
     }
     
     /** Current visible width in mm. */
@@ -271,7 +276,7 @@ export class Viewport {
     /** Handle container resize: keep on-screen scale (px/mm) constant. */
     _onResize() {
         // Invalidate rect cache since viewport dimensions changed
-        this.cachedRect = null;
+        this.invalidateLayoutCache();
 
         // Ignore resize events fired while the viewport has no size (e.g. the
         // schematic slide is hidden behind the PCB slide). Doing the aspect
@@ -306,12 +311,17 @@ export class Viewport {
      * Get cached SVG bounding rect (avoids expensive repeated calls)
      */
     _getCachedRect() {
-        const now = performance.now();
-        if (!this.cachedRect || (now - this.cachedRectTime) > 50) {
+        if (!this.cachedRect) {
             this.cachedRect = this.svg.getBoundingClientRect();
-            this.cachedRectTime = now;
         }
         return this.cachedRect;
+    }
+
+    /**
+     * Invalidate cached viewport layout after an actual size or screen-position change.
+     */
+    invalidateLayoutCache() {
+        this.cachedRect = null;
     }
     
     /**
@@ -586,6 +596,7 @@ export class Viewport {
      * @param {number} clientY
      */
     startPan(clientX, clientY) {
+        if (this.onInteractionStart) this.onInteractionStart('pan');
         this.isPanning = true;
         this.panStart = { x: clientX, y: clientY };
         this.panStartViewBox = { ...this.viewBox };
@@ -1639,6 +1650,7 @@ export class Viewport {
         // Store handlers for cleanup
         this.boundHandlers.wheel = (e) => {
             e.preventDefault(); // Always prevent default to block browser zoom
+            if (this.onInteractionStart) this.onInteractionStart('wheel');
             
             const rect = this._getCachedRect();
             const mouseScreen = {
@@ -1748,6 +1760,14 @@ export class Viewport {
      */
     addContent(svgElement) {
         this.contentLayer.appendChild(svgElement);
+    }
+
+    /**
+     * Append a transient interaction element above drawing and axis layers.
+     * @param {SVGElement} svgElement - Overlay element to add.
+     */
+    addInteractionOverlay(svgElement) {
+        this.interactionLayer.appendChild(svgElement);
     }
     
     /**

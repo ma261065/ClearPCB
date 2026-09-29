@@ -26,7 +26,7 @@ globalThis.window = { addEventListener() {} };
 globalThis.document = { createElementNS(namespace, tag) { allocations++; return element(tag); } };
 const { refreshTrackDrawPreview, toggleTrackLayer, popTrackWaypoint, cancelTrackDraw, finishTrackDraw }
     = await import('../src/pcb/modules/track-draw.js');
-const layers = new Map(['top-copper', 'bottom-copper', 'hole'].map((name) => [name, element('g')]));
+const layers = new Map(['top-copper', 'bottom-copper', 'vias', 'hole'].map((name) => [name, element('g')]));
 const context = () => ({ points: [{ x: 0, y: 0 }], edgeLayers: [], currentLayer: 'top-copper',
     width: 0.2, net: '', previewElements: [], snap: { x: 3, y: 1 } });
 const app = { _trackDraw: context(), _getLayerGroup: (name) => layers.get(name),
@@ -56,19 +56,20 @@ ctx.snap = { x: 6, y: 2 };
 toggleTrackLayer(app);
 const second = ctx.previewCache.get('run:1');
 const ring = ctx.previewCache.get('via:1:ring');
-const drill = ctx.previewCache.get('via:1:drill');
-assert.equal(ring.getAttribute('r'), '0.4');
-assert.equal(drill.getAttribute('r'), '0.2');
+assert.match(ring.getAttribute('d'), /A0\.4,0\.4 0 1 0/);
+assert.match(ring.getAttribute('d'), /A0\.2,0\.2 0 1 0/);
+assert.equal(ring.getAttribute('fill-rule'), 'evenodd');
+assert.equal(ring.getAttribute('fill-opacity'), '1');
 const viaAllocations = allocations;
 refreshTrackDrawPreview(app);
 assert.equal(allocations, viaAllocations);
 assert.equal(ctx.previewCache.get('run:1'), second);
-assert.deepEqual(layers.get('hole').children, [ring, drill]);
+assert.deepEqual(layers.get('vias').children, [ring]);
+assert.deepEqual(layers.get('hole').children, []);
 popTrackWaypoint(app);
 assert.equal(ctx.previewCache.size, 1);
 assert.equal(second.parentNode, null);
 assert.equal(ring.parentNode, null);
-assert.equal(drill.parentNode, null);
 assert.equal(first.parentNode, layers.get('bottom-copper'));
 
 ctx.snap = { x: 6, y: 0 };

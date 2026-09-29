@@ -1,0 +1,27 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "clearpcb-mcp",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-27",
+  "compatibility_flags": ["nodejs_compat"],
+  "routes": [
+    {
+      "pattern": "clearpcb.org/mcp*",
+      "zone_name": "clearpcb.org"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "TAB_RELAY",
+        "class_name": "TabRelay"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["TabRelay"]
+    }
+  ]
+}

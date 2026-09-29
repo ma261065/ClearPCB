@@ -8,7 +8,7 @@ import {
     connectPointToBoxOutline,
     distance,
 } from '../../core/geometry.js';
-import { getTextEditBoxWorldCorners } from './text-edit-geometry.js';
+import { getTextEditBoxWorldCorners } from '../../core/text-edit-geometry.js';
 import { applyTextConnectionGuide } from './inline-text-overlay.js';
 
 const WIRE_ATTACHED_LABEL_FONT_SIZE = 1.4;

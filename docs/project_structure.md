@@ -9,6 +9,7 @@ boundaries between schematic, PCB, and shared code.
 clearpcb/
 ├── index.html
 ├── sw.js                       # Service worker (PWA)
+├── mcp-worker/                 # Cloudflare Worker + Durable Object MCP relay
 ├── manifest.json
 ├── jsconfig.json               # checkJs: true, noImplicitAny: false
 ├── assets/
@@ -233,6 +234,10 @@ command layer used to apply a design to the editor.
   each layer-change node on finish), autorouter
   (`autorouter-adapter.js` emits standalone Vias deduped by position),
   and explicit user placement.
+- In the PCB editor, Vias use a dedicated **Via** display layer. Its
+  visibility and lock state are session preferences and are not serialized
+  into `.cpcb` files; the Hole layer applies only to routed board holes and
+  cutouts.
 - Render (`track-render.js`) and Gerber/Excellon output (`gerber.js`)
   read vias exclusively from `PCBApp.vias`.
 
@@ -382,4 +387,3 @@ sites (rarely-visited HTTPS origins). `localhost` is exempt. Symptom:
 the autorouter worker can run **~8–10× slower** on the deployed site
 than on localhost despite identical bytes. Add the origin to the
 setting's exception list before suspecting code/network issues.
-

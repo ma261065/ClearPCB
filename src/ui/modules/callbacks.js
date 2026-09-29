@@ -21,6 +21,15 @@ export function setupCallbacks(app) {
     // (matches the PCB editor's _scheduleHoverUpdate pattern).
     let pendingMove = null;
     let moveRaf = 0;
+    let pendingView = null;
+    let viewRaf = 0;
+
+    const cancelPendingMove = () => {
+        pendingMove = null;
+        if (!moveRaf) return;
+        cancelAnimationFrame(moveRaf);
+        moveRaf = 0;
+    };
 
     const flushMouseMove = () => {
         moveRaf = 0;
@@ -91,6 +100,28 @@ export function setupCallbacks(app) {
         if (!moveRaf) moveRaf = requestAnimationFrame(flushMouseMove);
     };
 
+    const flushViewUpdate = () => {
+        viewRaf = 0;
+        const view = pendingView;
+        pendingView = null;
+        if (!view) return;
+
+        // Let the inexpensive SVG viewBox change paint before culling and
+        // scale-dependent shape updates consume the following frame.
+        updateViewportCulling(app);
+        if (view.scaleChanged) {
+            app.renderShapes(true);
+        }
+        app._updateTextEditOverlay?.();
+    };
+
+    app.viewport.onInteractionStart = (kind) => {
+        cancelPendingMove();
+        if (kind === 'pointer' || !viewRaf) return;
+        cancelAnimationFrame(viewRaf);
+        viewRaf = 0;
+    };
+
     app.viewport.onViewChanged = (view) => {
         // A context menu is anchored to a screen position but refers to a board
         // location; any zoom or pan (wheel, +/- keys, arrow-key pan, buttons,
@@ -114,15 +145,14 @@ export function setupCallbacks(app) {
             app.ui.viewportInfo.textContent = `${widthDisplay} × ${heightDisplay}${unitLabel}`;
         }
 
-        // Cull off-screen elements before rendering (so renderShapes can skip them)
-        updateViewportCulling(app);
-
-        // Only force full re-render when zoom/scale changed (stroke widths, anchors depend on scale).
-        // On pan-only, shapes don't need any update since SVG viewBox handles translation.
-        if (view.scaleChanged) {
-            app.renderShapes(true);
-        }
-        app._updateTextEditOverlay?.();
+        pendingView = pendingView
+            ? {
+                ...view,
+                scaleChanged: pendingView.scaleChanged || view.scaleChanged,
+                boundsChanged: pendingView.boundsChanged || view.boundsChanged,
+            }
+            : view;
+        if (!viewRaf) viewRaf = requestAnimationFrame(flushViewUpdate);
     };
 
     // Throttled culling during pan (fired by Viewport rAF)

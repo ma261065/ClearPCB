@@ -14,16 +14,18 @@ export function setInlineTextInputActive(input, active) {
     }, 0);
 }
 
-export function createInlineTextOverlay(append) {
+export function createInlineTextOverlay(append, { emphasized = false } = {}) {
     const group = document.createElementNS(SVG_NS, 'g');
     group.setAttribute('class', 'text-edit-overlay');
     group.setAttribute('pointer-events', 'none');
 
     const box = document.createElementNS(SVG_NS, 'rect');
-    box.setAttribute('fill', 'none');
+    box.setAttribute('fill', emphasized ? 'var(--accent-color, #00ccff)' : 'none');
+    if (emphasized) box.setAttribute('fill-opacity', '0.12');
     box.setAttribute('stroke', 'var(--accent-color, #00ccff)');
-    box.setAttribute('stroke-width', '2');
-    box.setAttribute('stroke-opacity', '0.5');
+    box.setAttribute('stroke-width', emphasized ? '3' : '2');
+    box.setAttribute('stroke-opacity', emphasized ? '1' : '0.5');
+    if (emphasized) box.setAttribute('stroke-dasharray', '7 4');
     box.setAttribute('vector-effect', 'non-scaling-stroke');
 
     const caret = document.createElementNS(SVG_NS, 'line');

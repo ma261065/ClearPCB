@@ -1,3 +1,5 @@
+import { normalizeProjectAliases, normalizePcbSection } from './project-field-aliases.js';
+
 const record = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 const fields = (...names) => new Set(names);
 
@@ -16,12 +18,12 @@ const SHAPE_FIELDS = {
     wire: fields('nd', 'ed', 'f', 'fa', 'cr', 'ncr', 'bg', 'ew', 'pc', 'wl', 'n', 'lo'),
     circle: fields('x', 'y', 'r', 'f', 'fa'),
     arc: fields('sp', 'ep', 'bp', 'f'),
-    text: fields('x', 'y', 't', 'fs', 'ff', 'ta', 'rot', 'cid', 'fk', 'att'),
-    net: fields('x', 'y', 'n', 'fs', 'nst', 'no', 'nto'),
+    text: fields('x', 'y', 't', 'fs', 'ff', 'ta', 'rot', 'cid', 'fk', 'att', 'bd'),
+    net: fields('x', 'y', 'n', 'fs', 'nst', 'no', 'nto', 'bd'),
     noconnect: fields('x', 'y', 'pn'),
 };
 const PCB_FIELDS = fields('stackup', 'board', 'design', 'panelization', 'settings',
-    'tracks', 'vias', 'boardShapes', 'texts', 'placements');
+    'tracks', 'vias', 'pads', 'boardShapes', 'texts', 'placements');
 const STACKUP_FIELDS = fields('copperLayers');
 const BOARD_FIELDS = fields('width', 'height', 'radius');
 const DESIGN_FIELDS = fields('trackWidth', 'clearance', 'viaDiameter', 'viaDrill', 'units', 'router');
@@ -34,7 +36,9 @@ const BOARD_SHAPE_FIELDS = fields('id', 'kind', 'layer', 'lineWidth', 'filled', 
     'x', 'y', 'radius', 'name', 'artwork', 'points');
 const FILL_FIELDS = fields('type', 'id', 'l', 'pts', 'n', 'lk', 'v', 'kind', 'cornerRadius',
     'nodeCornerRadii', 'segmentBulges', 'x', 'y', 'radius');
-const PCB_TEXT_FIELDS = fields('id', 'content', 'x', 'y', 'size', 'rotation', 'layer', 'strokeWidth');
+const PCB_TEXT_FIELDS = fields('id', 'content', 'x', 'y', 'size', 'rotation', 'layer', 'strokeWidth', 'border');
+const PAD_FIELDS = fields('type', 'id', 'x', 'y', 'shape', 'size', 'drill', 'ratio',
+    'rotation', 'layers', 'net', 'locked', 'visible');
 const PLACEMENT_FIELDS = fields('x', 'y', 'rotation', 'locked', 'mirror', 'side', 'refVisible',
     'refDx', 'refDy', 'refRot', 'refSize', 'refStrokeWidth');
 const PANEL_FIELDS = fields('rows', 'columns', 'rowSpacing', 'columnSpacing', 'separation',
@@ -216,11 +220,30 @@ function validatePcb(pcb) {
                 rejectUnknownFields(item.span, VIA_SPAN_FIELDS, `${path}.span`);
             }
         }],
+        ['pads', (item, index) => {
+            const path = `pcb.pads[${index}]`;
+            rejectUnknownFields(item, PAD_FIELDS, path);
+            requireFields(item, ['type', 'id', 'x', 'y', 'shape', 'size', 'drill', 'layers'], path);
+            if (item.type !== 'pad') invalid(`${path}.type`, 'PCB pad type must be "pad".', { type: item.type });
+            if (!['round', 'stadium', 'square', 'rectangle', 'oval'].includes(item.shape)) {
+                invalid(`${path}.shape`, 'Invalid PCB pad shape.', { shape: item.shape });
+            }
+            if (['stadium', 'rectangle', 'oval'].includes(item.shape)) requireFields(item, ['ratio'], path);
+            if (!['top-copper', 'bottom-copper', 'both'].includes(item.layers)) {
+                invalid(`${path}.layers`, 'Pad layers must be top-copper, bottom-copper, or both.', { layers: item.layers });
+            }
+            if (!(item.size > 0) || !(item.drill > 0) || item.drill > item.size) {
+                invalid(path, 'Pad size and drill must be positive, with drill no larger than size.', item);
+            }
+            if (['stadium', 'rectangle', 'oval'].includes(item.shape) && !(item.ratio >= 1)) {
+                invalid(`${path}.ratio`, 'Elongated pad ratio must be at least 1.', { ratio: item.ratio });
+            }
+        }],
         ['boardShapes', validatePcbShape],
         ['texts', (item, index) => {
             const path = `pcb.texts[${index}]`;
             rejectUnknownFields(item, PCB_TEXT_FIELDS, path);
-            requireFields(item, PCB_TEXT_FIELDS, path);
+            requireFields(item, ['id', 'content', 'x', 'y', 'size', 'rotation', 'layer', 'strokeWidth'], path);
         }],
     ]) {
         if (pcb[field] === undefined) continue;
@@ -267,27 +290,33 @@ export function validatePcbStackup(pcb) {
                 || layers.indexOf(via.span.from) >= layers.indexOf(via.span.to)) {
                 invalid(`pcb.vias[${pcb.vias.indexOf(via)}].span`, 'Invalid via copper-layer span.', via.span);
             }
+            for (const pad of pcb?.pads || []) {
+                for (const layer of pad.layers === 'both' ? ['top-copper', 'bottom-copper'] : [pad.layers]) {
+                    if (!layers.includes(layer)) invalid('pcb.pads', `Undeclared PCB copper layer: ${layer}`, pad);
+                }
+            }
         }
     }
     return layers;
 }
 
 export function assertSupportedPcb(pcb) {
-    const layers = validatePcbStackup(pcb);
+    const layers = validatePcbStackup(normalizePcbSection(pcb));
     if (layers.length !== 2) {
         throw new Error('This project uses multiple copper layers. This editor currently supports only two-layer boards.');
     }
 }
 
 export function validateEditableProject(data) {
-    validateProject(data);
-    assertSupportedPcb(data.pcb);
-    return data;
+    const normalized = validateProject(data);
+    assertSupportedPcb(normalized.pcb);
+    return normalized;
 }
 
 export function repairDuplicateTrackIds(data) {
-    const tracks = data?.pcb?.tracks;
-    if (!Array.isArray(tracks)) return { data, count: 0 };
+    const normalized = normalizeProjectAliases(data);
+    const tracks = normalized?.pcb?.tracks;
+    if (!Array.isArray(tracks)) return { data: normalized, count: 0 };
     const seen = new Set();
     const duplicates = [];
     tracks.forEach((track, index) => {
@@ -295,9 +324,9 @@ export function repairDuplicateTrackIds(data) {
         if (seen.has(track.id)) duplicates.push(index);
         seen.add(track.id);
     });
-    if (!duplicates.length) return { data, count: 0 };
-    for (const shape of data.schematic?.shapes || []) if (shape?.id) seen.add(shape.id);
-    const repaired = structuredClone(data);
+    if (!duplicates.length) return { data: normalized, count: 0 };
+    for (const shape of normalized.schematic?.shapes || []) if (shape?.id) seen.add(shape.id);
+    const repaired = structuredClone(normalized);
     let next = 1;
     for (const index of duplicates) {
         while (seen.has(`shape_${next}`)) next++;
@@ -309,6 +338,7 @@ export function repairDuplicateTrackIds(data) {
 }
 
 export function validateProject(data) {
+    data = normalizeProjectAliases(data);
     if (!record(data) || data.type !== 'clearpcb-project' || data.version !== '1.0') {
         invalid('project', 'Unsupported ClearPCB project format or version.', data);
     }
@@ -321,7 +351,7 @@ export function validateProject(data) {
     }
     validatePcbStackup(data.pcb);
     for (const [section, fields] of [[data.schematic, ['shapes', 'components']],
-        [data.pcb, ['tracks', 'vias', 'boardShapes', 'texts']]]) {
+        [data.pcb, ['tracks', 'vias', 'pads', 'boardShapes', 'texts']]]) {
         if (!section) continue;
         for (const field of fields) {
             const items = section[field];

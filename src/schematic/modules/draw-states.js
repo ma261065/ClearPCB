@@ -1048,7 +1048,7 @@ export const overlapCycleState = {
         if (next) {
             const keep = press.additive ? selected.filter(shape => !hits.includes(shape)) : [];
             app.selection.selectMultiple([...keep, next]);
-            app.renderShapes(true);
+            app.renderShapes();
         }
         app.skipClickSelection = true;
         event.preventDefault();
@@ -1065,7 +1065,7 @@ export const idleState = {
             const textHit = findInlineEditableHit(app.selection, worldPos, event.target);
             if (textHit) {
                 app.selection.select(textHit, false);
-                app.renderShapes(true);
+                app.renderShapes();
                 app.pendingAnchorDrag = null;
                 app._startTextEdit(textHit);
                 app._setTextEditCaretFromScreen(screenPos);
@@ -1099,7 +1099,7 @@ export const idleState = {
             const hit = app.selection.hitTest(worldPos);
             if (hit) {
                 app.selection.toggle(hit);
-                app.renderShapes(true);
+                app.renderShapes();
                 app.skipClickSelection = true;
                 event.preventDefault();
                 return;
@@ -1129,7 +1129,7 @@ export const idleState = {
             if (canQueueMidpointAnchorDrag(shape, anchorId)) {
                 const beforeState = app._captureShapeState(shape);
                 const newAnchorId = shape.moveAnchor(anchorId, snapped.x, snapped.y);
-                app.renderShapes(true);
+                app.renderShapes();
                 app.viewport.svg.style.cursor = 'move';
                 queuePendingAnchorDrag(app, { shape, anchorId: newAnchorId || anchorId, screenPos, snapped, preInsertState: beforeState });
             } else {
@@ -1153,7 +1153,7 @@ export const idleState = {
                 app._shapeSegmentClickCandidate = hitSegmentEdgeId
                     ? { shapeId: hitShape.id, edgeId: hitSegmentEdgeId }
                     : null;
-                app.renderShapes(true);
+                app.renderShapes();
                 // The "+" insertion handles only appear once the shape is
                 // selected. If this selecting click happened to land on one,
                 // don't arm a move/segment drag — just select and show the
@@ -1185,7 +1185,7 @@ export const idleState = {
             if (selectedShapeSegment && tryBeginPolylineSegmentDrag(app, hitShape, worldPos, true,
                 segmentTolerance)) {
                 app.viewport.svg.style.cursor = 'move';
-                app.renderShapes(true);
+                app.renderShapes();
                 event.preventDefault();
                 return;
             }
@@ -1206,7 +1206,7 @@ export const idleState = {
             // Bridge pin-connected wire nodes ONCE so pins can move freely
             bridgeStickyPinNodes(app, collectMovingComponentIds(app.selection.getSelection()));
             app.viewport.svg.style.cursor = 'move';
-            app.renderShapes(true);
+            app.renderShapes();
             event.preventDefault();
             return;
         }
