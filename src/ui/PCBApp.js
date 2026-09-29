@@ -214,6 +214,8 @@ export default class PCBApp {
     set _boardHeight(value) { this.pcbDocument.board.height = value; }
     get _boardRadius() { return this.pcbDocument.board.radius; }
     set _boardRadius(value) { this.pcbDocument.board.radius = value; }
+    get panelization() { return this.pcbDocument.panelization; }
+    set panelization(value) { this.pcbDocument.loadPanelization(value); }
 
     /** CopperFill entries owned by the canonical board-shape collection. */
     get copperFills() {

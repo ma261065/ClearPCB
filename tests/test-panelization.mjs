@@ -5,6 +5,7 @@ import { PcbDocument } from '../src/core/PcbDocument.js';
 
 globalThis.window = { addEventListener() {} };
 globalThis.document = { getElementById: () => null };
+const { default: PCBApp } = await import('../src/ui/PCBApp.js');
 const { PANEL_DEFAULTS, panelSettings, buildPanelLayout } = await import('../src/pcb/modules/panelization.js');
 const { SetPanelizationCommand, renderPanelPreview, resetPanelPreview, panelPreviewOutlinePath, panelPreviewSupportContours, updatePanelRailConstraints } = await import('../src/pcb/modules/panelization-ui.js');
 const { EditTextCommand, RemoveTextCommand } = await import('../src/pcb/modules/text-commands.js');
@@ -92,7 +93,9 @@ const pcbDocument = new PcbDocument();
 Object.assign(pcbDocument.board, { width: 20, height: 10, radius: 0 });
 pcbDocument.boardShapes.push(rectangleBoardOutline(20, 10));
 const placementState = pcbDocument.placementState;
-const app = {
+const app = Object.assign(Object.create(null, {
+    panelization: Object.getOwnPropertyDescriptor(PCBApp.prototype, 'panelization'),
+}), {
     pcbDocument, designSettings: pcbDocument.designSettings,
     placementState, placements: new Map(), _placementOverrides: placementState.overrides,
     tracks: pcbDocument.tracks, vias: pcbDocument.vias, pads: pcbDocument.pads, texts: pcbDocument.texts,
@@ -101,7 +104,7 @@ const app = {
     _getRoutingParams: () => ({ clearance: 0.2, trackWidth: 0.25, viaDiameter: 0.6, viaDrill: 0.3 }),
     _getRouterMode: () => 'pathfinder',
     _renderText() {}, _removeTextElement() {}, _refreshText() {},
-};
+});
 app.designSettings.update({ ...app._getRoutingParams(), router: 'pathfinder' });
 const originalOutline = structuredClone(app.boardShapes);
 const layout = buildPanelLayout(app, PANEL_DEFAULTS);
@@ -214,11 +217,13 @@ const command = new SetPanelizationCommand(app, PANEL_DEFAULTS);
 const appliedSettings = { ...PANEL_DEFAULTS, noteCreated: true };
 command.execute();
 assert.deepEqual(app.panelization, appliedSettings);
+assert.deepEqual(pcbDocument.panelization, appliedSettings, 'Panel commands update project-owned settings');
 assert.equal(app.texts.size, layout.note.length, 'panel note lines are ordinary authored texts');
 assert.ok([...app.texts.values()].every(text => text.layer === 'top-document'));
 const noteIds = [...app.texts.keys()];
 command.undo();
 assert.equal(app.panelization, null);
+assert.equal(pcbDocument.panelization, null);
 assert.equal(app.texts.size, 0, 'undo panel creation removes its texts');
 command.execute();
 assert.deepEqual([...app.texts.keys()], noteIds, 'redo restores the same text objects');
@@ -359,7 +364,9 @@ for (const prefix of ['horizontal', 'vertical']) {
     for (const hole of featureLayout.positioningHoles) {
         assert.ok(featureFiles.get('board-NPTH.drl').includes(`X${hole.x.toFixed(3)}Y${(-hole.y).toFixed(3)}`));
     }
-    const featureApp = { ...app, panelization: featureSettings };
+    const featureModel = Object.assign(new PcbDocument(), pcbDocument);
+    featureModel.loadPanelization(featureSettings);
+    const featureApp = { ...app, pcbDocument: featureModel, panelization: featureModel.panelization };
     assert.deepEqual(preparePcb(JSON.parse(JSON.stringify(serializePcb(featureApp)))).panelization, featureSettings);
     assert.deepEqual((await prepareFabricationSnapshot(featureApp)).panelization, featureSettings);
 }

@@ -10,6 +10,8 @@ import { createPcbText, serializePcbText, TEXT_LAYERS } from '../src/core/pcb-te
 import { loadBoardShapeData, serializeBoardShapes } from '../src/core/pcb-board-shapes.js';
 import { CopperFill } from '../src/shapes/copper-fill.js';
 import { boardBoundary, rectangleBoardOutline } from '../src/pcb/modules/board-outline.js';
+import { PANEL_DEFAULTS, panelSettings } from '../src/core/pcb-panelization.js';
+import { buildPanelLayout } from '../src/pcb/modules/panelization.js';
 
 assert.equal(typeof window, 'undefined');
 assert.equal(typeof document, 'undefined');
@@ -166,6 +168,47 @@ assert.equal(dimensionsModel.board, dimensions);
 assert.deepEqual(dimensions, { width: 100, height: 80, radius: 0 });
 console.log('PASS headless board dimensions, outline precedence, default restoration, geometry queries and save precision');
 
+const panelModel = new PcbDocument();
+assert.equal(panelModel.serializePanelization(), null);
+const panelInput = { rows: 3, rowSpacing: 2.123456, verticalTabOffset: -0.123456,
+    horizontalPositioningHoles: true, noteCreated: true };
+const expectedPanel = { ...PANEL_DEFAULTS, ...panelInput };
+panelModel.loadPanelization(panelInput);
+panelInput.rows = 9;
+assert.deepEqual(panelModel.panelization, expectedPanel, 'Loading normalizes a detached settings object');
+assert.equal(panelModel.texts.size, 0, 'Model loading never generates presentation notes');
+const savedPanel = panelModel.serializePanelization();
+assert.deepEqual(savedPanel, expectedPanel, 'Panel dimensions retain their existing full save precision');
+savedPanel.columns = 10;
+assert.deepEqual(panelModel.panelization, expectedPanel, 'Saved panel snapshots cannot mutate live settings');
+const previousPanel = panelModel.panelization;
+for (const invalid of [{ rows: 0 }, { rows: 20, columns: 20 }, { verticalTabOffset: 101 },
+    { holePitch: 0.5, holeDiameter: 0.5 }, { horizontalFiducials: 'yes' }]) {
+    assert.throws(() => panelModel.loadPanelization(invalid));
+    assert.equal(panelModel.panelization, previousPanel, 'Invalid changes cannot partially replace panel state');
+}
+const panelData = { stackup: defaultPcbStackup(), panelization: expectedPanel };
+const preparedPanel = PcbDocument.prepareEntities(compactProjectAliases({ pcb: panelData }).pcb);
+assert.deepEqual(preparedPanel.panelization, expectedPanel);
+panelModel.loadEntities(panelData, preparedPanel);
+assert.equal(panelModel.panelization, null, 'Entity restoration leaves panel installation to the explicit load phase');
+panelModel.loadPanelization(preparedPanel.panelization);
+preparedPanel.panelization.rows = 8;
+assert.deepEqual(panelModel.serializePanelization(), expectedPanel);
+assert.throws(() => panelModel.loadEntities({ ...panelData, panelization: { rows: 0 } }), /whole numbers/);
+assert.deepEqual(panelModel.panelization, expectedPanel, 'Preflight rejects invalid settings before document replacement');
+panelModel.loadPanelization(null);
+assert.equal(panelModel.serializePanelization(), null);
+panelModel.loadPanelization({});
+assert.deepEqual(panelModel.serializePanelization(), PANEL_DEFAULTS, 'Legacy panels retain defaults without inventing noteCreated');
+panelModel.loadEntities({ stackup: defaultPcbStackup(), boardShapes: [rectangleBoardOutline(20, 10)] });
+panelModel.loadPanelization(PANEL_DEFAULTS);
+assert.equal(buildPanelLayout(panelModel).instances.length, 4, 'Panel layout can be derived directly from the headless model');
+assert.equal(panelModel.texts.size, 0, 'Layout derivation does not create authored note texts');
+panelModel.clearEntities();
+assert.equal(panelModel.panelization, null);
+console.log('PASS headless panel settings, validation, snapshots, precision and explicit installation');
+
 globalThis.window = { addEventListener() {} };
 globalThis.document = {
     getElementById: () => null, documentElement: { getAttribute: () => 'dark' },
@@ -185,6 +228,9 @@ const { AddTextCommand, RemoveTextCommand, MoveTextCommand, EditTextCommand } =
     await import('../src/pcb/modules/text-commands.js');
 const textView = await import('../src/pcb/modules/pcb-text.js');
 const shapeView = await import('../src/pcb/modules/board-shapes.js');
+const panelLayout = await import('../src/pcb/modules/panelization.js');
+assert.equal(panelLayout.panelSettings, panelSettings);
+assert.equal(panelLayout.PANEL_DEFAULTS, PANEL_DEFAULTS, 'Existing panel module imports reuse neutral definitions');
 const { AddBoardShapeCommand, RemoveBoardShapeCommand } = await import('../src/pcb/modules/shape-commands.js');
 const { AddFillCommand, RemoveFillCommand } = await import('../src/pcb/modules/copper-fill-commands.js');
 assert.equal(shapeView.serializeBoardShapes, serializeBoardShapes);
@@ -193,7 +239,12 @@ assert.equal(textView.serializePcbText, serializePcbText);
 assert.equal(textView.TEXT_LAYERS, TEXT_LAYERS);
 track._svgElements = [];
 Object.assign(model.board, preciseDimensions);
+model.loadPanelization(expectedPanel);
 const app = new PCBApp(project);
+assert.deepEqual(app.panelization, expectedPanel, 'Constructing an editor preserves loaded panel settings');
+assert.equal(app.panelization, model.panelization);
+assert.throws(() => { app.panelization = { rows: 0 }; }, /whole numbers/);
+assert.deepEqual(model.panelization, expectedPanel);
 assert.deepEqual(model.board, preciseDimensions, 'Constructing an editor must not reset loaded dimensions');
 assert.deepEqual([app._boardWidth, app._boardHeight, app._boardRadius],
     [preciseDimensions.width, preciseDimensions.height, preciseDimensions.radius]);

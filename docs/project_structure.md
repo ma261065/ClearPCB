@@ -133,7 +133,7 @@ queries remain in `core/netlist.js`.
 
 `ProjectDocument.pcbDocument` (`core/PcbDocument.js`) owns tracks, standalone
 vias and pads, free-standing text and board shapes (including copper-fill regions),
-together with board dimensions, placement and design state.
+together with board dimensions, panelization, placement and design state.
 PCB editor collection accessors alias the model, including array/map replacements
 by commands; constructing an editor does not clear a preloaded model.
 `prepareEntities()` normalizes a PCB section and checks its required stackup,
@@ -154,6 +154,18 @@ the dimension object. `serializeBoardDimensions()` rounds only the saved copy to
 four decimals. `boardBoundary()` also accepts the neutral model directly.
 Outline drawing, viewport fitting and property-panel presentation remain in the
 editor; constructing a view does not reset loaded dimensions.
+
+Panel settings live in `PcbDocument.panelization`. Defaults and validation are
+data-only helpers in `core/pcb-panelization.js`; the existing geometry module
+re-exports them for compatibility. Preparation validates saved settings before
+live content is replaced. `loadPanelization()` and `serializePanelization()`
+produce detached normalized settings without additional rounding, preserving
+`noteCreated`. Entity clearing resets panelization, but entity loading does not
+install prepared panel settings: the adapter installs them after artwork and
+pours are restored, before the final active preview. Hidden loads install the
+settings without rendering. Existing panel commands still create ordinary
+authored note texts and retain their undo/redo behavior; model operations do not
+generate notes. Preview SVG and its lifecycle remain editor-owned.
 
 The editor adapter still removes old SVG and selection before replacing entities,
 renders only when active, and refreshes derived geometry after loading.
@@ -193,9 +205,9 @@ presentation updates, and notify the editor's dirty hook after recording.
 
 The live `placements` map and automatic layout slots remain editor-owned:
 they contain generated footprint geometry, presentation caches and temporary
-gesture state, not a second authoritative saved-placement store. Panelization
-and full PCB load/serialization still depend on
-the PCB adapter.
+gesture state, not a second authoritative saved-placement store. Full PCB
+load/serialization orchestration and viewport settings still depend on the PCB
+adapter.
 
 PCB design settings now live in `ProjectDocument.pcbDocument.designSettings`
 (`core/PcbDesignSettings.js`). Track width, clearance, via diameter and drill

@@ -1,19 +1,22 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { PcbDocument } from '../src/core/PcbDocument.js';
+import { PANEL_DEFAULTS } from '../src/core/pcb-panelization.js';
 
 const source = readFileSync(new URL('../src/pcb/modules/project-state.js', import.meta.url), 'utf8');
 const start = source.indexOf('export function loadPcb(');
 const end = source.indexOf('export function applyProjectDesignParams(', start);
 assert.ok(start >= 0 && end > start);
 const calls = [];
+const previews = [];
 const record = name => () => calls.push(name);
 const dependencies = {
     removeTrackElements() {}, removeViaElements() {}, removePadElements() {},
     removeBoardShapeElement() {},
     clearTrackSelection() {},
     resetPcbSelection() {}, syncPcbSelection() {}, clearPcbSelectionAnchors() {},
-    resetPanelPreview() {}, renderPanelPreview() {},
+    resetPanelPreview() {},
+    renderPanelPreview(app) { previews.push({ app, settings: app.pcbDocument?.serializePanelization() }); },
     getBoardOutline: app => app.boardShapes.find(shape => shape.layer === 'board-outline'),
     renderTrack: record('track'), renderVia: record('via'), renderPad: record('pad'),
     renderBoardShape(app, shape, options) {
@@ -40,6 +43,8 @@ const makeApp = active => {
     const placementState = pcbDocument.placementState;
     return {
     pcbDocument, designSettings: pcbDocument.designSettings,
+    get panelization() { return pcbDocument.panelization; },
+    set panelization(value) { pcbDocument.loadPanelization(value); },
     _active: active, _stale: false, tracks: pcbDocument.tracks, vias: pcbDocument.vias, pads: pcbDocument.pads,
     boardShapes: pcbDocument.boardShapes, texts: pcbDocument.texts,
     get _shapeIdCounter() { return pcbDocument.shapeIdCounter; },
@@ -93,6 +98,30 @@ loadPcb(active, data, prepared);
 assert.deepEqual(calls, ['viewport', 'grid', 'outline', 'placements', 'track', 'via', 'pad', 'shape', 'text', 'clearance', 'ratsnest', 'fills'],
     'active loads still render immediately');
 assert.equal(active.cutRefreshes, 2, 'Active loading clears old cuts and refreshes once after all shapes');
+
+for (const active of [true, false]) {
+    const paneApp = makeApp(active);
+    const panelization = { ...PANEL_DEFAULTS, rows: 3, noteCreated: true };
+    const stages = [];
+    const count = previews.length;
+    for (const name of ['_drawBoardOutline', '_renderText', '_refreshFills']) {
+        const original = paneApp[name];
+        paneApp[name] = function (...args) {
+            assert.equal(this.pcbDocument.panelization, null, 'Panel settings stay absent while artwork/pours are restored');
+            stages.push(name);
+            return original.apply(this, args);
+        };
+    }
+    loadPcb(paneApp, { ...data, panelization }, { ...prepared, panelization });
+    assert.deepEqual(paneApp.pcbDocument.panelization, panelization);
+    assert.notEqual(paneApp.pcbDocument.panelization, panelization, 'Loaded settings do not alias their prepared snapshot');
+    assert.deepEqual(stages, active ? ['_drawBoardOutline', '_renderText', '_refreshFills'] : []);
+    assert.equal(previews.length, count + (active ? 1 : 0));
+    if (active) assert.deepEqual(previews.at(-1), { app: paneApp, settings: panelization },
+        'The final preview sees restored model settings');
+    loadPcb(paneApp, null, { tracks: [], vias: [], pads: [], texts: [], boardShapes: [], shapeIdCounter: 1 });
+    assert.equal(paneApp.pcbDocument.panelization, null, 'New removes saved panelization in active and hidden editors');
+}
 
 calls.length = 0;
 hidden._board3d = { refresh: record('3d') };

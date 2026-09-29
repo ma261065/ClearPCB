@@ -5,7 +5,6 @@ import { removeBoardShapeElement, renderBoardShape } from './board-shapes.js';
 import { getBoardOutline } from './board-outline.js';
 import { renderPad, removePadElements } from './pad.js';
 import { serializeGridSettings, restoreGridSettings } from '../../ui/modules/viewport.js';
-import { panelSettings } from './panelization.js';
 import { renderPanelPreview, resetPanelPreview } from './panelization-ui.js';
 import { defaultPcbStackup } from '../../core/project-format.js';
 import { compactProjectAliases } from '../../core/project-field-aliases.js';
@@ -17,11 +16,12 @@ import { PcbDocument } from '../../core/PcbDocument.js';
 
 /** @param {any} app */
 export function serializePcb(app) {
+    const panelization = app.pcbDocument.serializePanelization();
     const pcb = {
         stackup: defaultPcbStackup(),
         board: app.pcbDocument.serializeBoardDimensions(),
         design: app.designSettings.serialize(),
-        ...(app.panelization ? { panelization: panelSettings(app.panelization) } : {}),
+        ...(panelization ? { panelization } : {}),
         settings: serializeGridSettings(app.viewport),
         ...app.pcbDocument.serializeEntities(),
         placements: app.placementState.serialize(),
@@ -33,8 +33,7 @@ export function preparePcb(data) {
     const entities = PcbDocument.prepareEntities(data);
     data = entities.data;
     if (data?.design) new PcbDesignSettings().update(data.design);
-    const panelization = data?.panelization ? panelSettings(data.panelization) : null;
-    return { ...entities, panelization };
+    return entities;
 }
 
 /** @param {any} app */
@@ -146,7 +145,7 @@ export function loadPcb(app, data, prepared = preparePcb(data)) {
     // Loading a document is not a user edit — start from a clean slate so
     // a freshly opened/recovered board isn't immediately treated as having
     // unsaved PCB changes (which would re-trigger autosave after a save).
-    app.panelization = prepared.panelization ? { ...prepared.panelization } : null;
+    app.panelization = prepared.panelization;
     syncPcbSelection(app);
     if (render) renderPanelPreview(app);
     app._isDirty = false;

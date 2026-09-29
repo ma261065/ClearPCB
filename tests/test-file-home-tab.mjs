@@ -130,6 +130,7 @@ for (const outcome of ['success', 'declined', 'busy', 'reset-error']) {
         _updateTitle: SchematicApp.prototype._updateTitle,
     };
     const pcb = Object.assign(Object.create(PCBApp.prototype), {
+        pcbDocument: project.pcbDocument,
         _refreshClearanceHalos() {}, _scheduleDRC() {},
     });
     project.registerView('schematic', host, { isUiHost: true });

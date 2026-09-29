@@ -11,16 +11,19 @@ import { loadBoardShapeData, serializeBoardShapes } from './pcb-board-shapes.js'
 import { validBoardOutline, getBoardOutline, boardBoundary } from '../pcb/modules/board-outline.js';
 import { hasRectangleFrame, rectangleFramePoints } from '../shapes/rectangle-frame.js';
 import { updateFillIdCounter } from '../shapes/copper-fill.js';
+import { panelSettings } from './pcb-panelization.js';
 
 const round4 = value => Number.isFinite(value) ? Math.round(value * 10000) / 10000 : value;
 const DEFAULT_BOARD_DIMENSIONS = Object.freeze({ width: 100, height: 80, radius: 0 });
 
-/** Authoritative PCB entities and dimensions; panelization still awaits migration from the view. */
+/** Authoritative PCB data; view settings still await migration from the editor. */
 export class PcbDocument {
     constructor() {
         this.placementState = new PcbPlacementState();
         this.designSettings = new PcbDesignSettings();
         this.board = { ...DEFAULT_BOARD_DIMENSIONS };
+        /** @type {ReturnType<typeof panelSettings>|null} */
+        this.panelization = null;
         /** @type {Track[]} */
         this.tracks = [];
         /** @type {Via[]} */
@@ -57,7 +60,8 @@ export class PcbDocument {
         });
         return { ...stage, data, tracks, vias: (data?.vias || []).map(item => Via.fromJSON(item)),
             pads: (data?.pads || []).map(item => new Pad(item)),
-            texts: (data?.texts || []).map(item => createPcbText(item)) };
+            texts: (data?.texts || []).map(item => createPcbText(item)),
+            panelization: data?.panelization ? panelSettings(data.panelization) : null };
     }
 
     clearEntities() {
@@ -70,6 +74,7 @@ export class PcbDocument {
         resetViaIdCounter();
         resetPadIdCounter();
         Object.assign(this.board, DEFAULT_BOARD_DIMENSIONS);
+        this.panelization = null;
     }
 
     loadEntities(data, prepared = PcbDocument.prepareEntities(data)) {
@@ -106,6 +111,14 @@ export class PcbDocument {
 
     serializeBoardDimensions() {
         return { width: round4(this.board.width), height: round4(this.board.height), radius: round4(this.board.radius) };
+    }
+
+    loadPanelization(value) {
+        this.panelization = value ? panelSettings(value) : null;
+    }
+
+    serializePanelization() {
+        return this.panelization ? panelSettings(this.panelization) : null;
     }
 
     serializeEntities() {
