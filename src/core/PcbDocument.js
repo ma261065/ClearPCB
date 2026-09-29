@@ -1,7 +1,7 @@
 import { PcbPlacementState } from './PcbPlacementState.js';
 import { PcbDesignSettings } from './PcbDesignSettings.js';
-import { normalizePcbSection } from './project-field-aliases.js';
-import { assertSupportedPcb } from './project-format.js';
+import { normalizePcbSection, compactProjectAliases } from './project-field-aliases.js';
+import { assertSupportedPcb, defaultPcbStackup } from './project-format.js';
 import { createShape } from '../shapes/index.js';
 import { Track } from '../shapes/track.js';
 import { Via, resetViaIdCounter, updateViaIdCounter } from '../shapes/via.js';
@@ -37,7 +37,7 @@ export class PcbDocument {
         this.shapeIdCounter = 1;
     }
 
-    static prepareEntities(data) {
+    static prepare(data) {
         data = normalizePcbSection(data);
         assertSupportedPcb(data);
         for (const shape of data?.boardShapes || []) {
@@ -58,10 +58,12 @@ export class PcbDocument {
             if (!(track instanceof Track)) throw new Error('Invalid PCB track.');
             return track;
         });
-        return { ...stage, data, tracks, vias: (data?.vias || []).map(item => Via.fromJSON(item)),
+        const prepared = { ...stage, data, tracks, vias: (data?.vias || []).map(item => Via.fromJSON(item)),
             pads: (data?.pads || []).map(item => new Pad(item)),
             texts: (data?.texts || []).map(item => createPcbText(item)),
             panelization: data?.panelization ? panelSettings(data.panelization) : null };
+        if (data?.design) new PcbDesignSettings().update(data.design);
+        return prepared;
     }
 
     clearEntities() {
@@ -77,7 +79,7 @@ export class PcbDocument {
         this.panelization = null;
     }
 
-    loadEntities(data, prepared = PcbDocument.prepareEntities(data)) {
+    loadEntities(data, prepared = PcbDocument.prepare(data)) {
         this.clearEntities();
         for (const track of prepared.tracks) this.tracks.push(track);
         for (const via of prepared.vias) {
@@ -119,6 +121,23 @@ export class PcbDocument {
 
     serializePanelization() {
         return this.panelization ? panelSettings(this.panelization) : null;
+    }
+
+    /**
+     * Assemble authored state using the existing file format and save precision.
+     * @param {object} [settings] Viewport preferences supplied by the view.
+     */
+    serialize(settings) {
+        const panelization = this.serializePanelization();
+        return compactProjectAliases({ pcb: {
+            stackup: defaultPcbStackup(),
+            board: this.serializeBoardDimensions(),
+            design: this.designSettings.serialize(),
+            ...(panelization ? { panelization } : {}),
+            settings,
+            ...this.serializeEntities(),
+            placements: this.placementState.serialize(),
+        } }).pcb;
     }
 
     serializeEntities() {

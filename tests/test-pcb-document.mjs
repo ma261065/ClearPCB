@@ -75,7 +75,7 @@ const arrays = [reloaded.tracks, reloaded.vias, reloaded.pads];
 const textMap = reloaded.texts;
 const shapeArray = reloaded.boardShapes;
 for (const input of [compact, normalizePcbSection(compact)]) {
-    const prepared = PcbDocument.prepareEntities(input);
+    const prepared = PcbDocument.prepare(input);
     reloaded.loadEntities(input, prepared);
     assert.equal(reloaded.tracks[0], prepared.tracks[0], 'Loading adopts prepared entities without cloning');
     assert.equal(reloaded.vias[0], prepared.vias[0]);
@@ -188,7 +188,7 @@ for (const invalid of [{ rows: 0 }, { rows: 20, columns: 20 }, { verticalTabOffs
     assert.equal(panelModel.panelization, previousPanel, 'Invalid changes cannot partially replace panel state');
 }
 const panelData = { stackup: defaultPcbStackup(), panelization: expectedPanel };
-const preparedPanel = PcbDocument.prepareEntities(compactProjectAliases({ pcb: panelData }).pcb);
+const preparedPanel = PcbDocument.prepare(compactProjectAliases({ pcb: panelData }).pcb);
 assert.deepEqual(preparedPanel.panelization, expectedPanel);
 panelModel.loadEntities(panelData, preparedPanel);
 assert.equal(panelModel.panelization, null, 'Entity restoration leaves panel installation to the explicit load phase');
@@ -208,6 +208,59 @@ assert.equal(panelModel.texts.size, 0, 'Layout derivation does not create author
 panelModel.clearEntities();
 assert.equal(panelModel.panelization, null);
 console.log('PASS headless panel settings, validation, snapshots, precision and explicit installation');
+
+const snapshotModel = new PcbDocument();
+snapshotModel.loadEntities({ stackup: defaultPcbStackup(), ...model.serializeEntities() });
+Object.assign(snapshotModel.board, preciseDimensions);
+snapshotModel.designSettings.update({ clearance: 0.123456, units: 'inch', router: 'pathfinder' });
+snapshotModel.placementState.record('U1', { x: 3.123456, y: -4.234567, rotation: 90,
+    side: 'bottom', refVisible: false, refDx: 0.123456 });
+snapshotModel.loadPanelization(expectedPanel);
+const grid = { gridSize: 0.123456, gridStyle: 'dots', units: 'inch', gridVisible: false, snapToGrid: false };
+const expectedSnapshot = compactProjectAliases({ pcb: {
+    stackup: defaultPcbStackup(), board: { width: 37.1235, height: 21.2346, radius: 2.3457 },
+    design: { trackWidth: 0.2, clearance: 0.1235, viaDiameter: 0.3, viaDrill: 0.15, units: 'inch', router: 'pathfinder' },
+    panelization: expectedPanel, settings: grid, ...snapshotModel.serializeEntities(),
+    placements: { U1: { x: 3.1235, y: -4.2346, rotation: 90, side: 'bottom', refVisible: false, refDx: 0.1235 } },
+} }).pcb;
+const snapshot = snapshotModel.serialize(grid);
+assert.equal(typeof document, 'undefined', 'Complete authored serialization needs no editor or DOM');
+assert.deepEqual(snapshot, expectedSnapshot, 'Model saves retain the complete existing compact PCB section');
+assert.deepEqual(Object.keys(snapshot).sort(), ['stackup', 'board', 'design', 'panelization', 'settings',
+    'boardShapes', 'tracks', 'vias', 'pads', 'texts', 'placements'].sort());
+assert.equal(snapshotModel.board.width, preciseDimensions.width);
+assert.equal(snapshotModel.designSettings.values.clearance, 0.123456);
+assert.equal(snapshotModel.placementState.overrides.get('U1').x, 3.123456);
+assert.equal(snapshotModel.serialize().settings, undefined, 'Headless saves do not invent viewport preferences');
+assert.equal('settings' in JSON.parse(JSON.stringify(snapshotModel.serialize())), false);
+assert.deepEqual(grid, { gridSize: 0.123456, gridStyle: 'dots', units: 'inch', gridVisible: false, snapToGrid: false });
+snapshot.settings.gs = 999;
+snapshot.placements.U1.x = 999;
+snapshot.board.w = 999;
+snapshot.design.cl = 999;
+snapshot.tracks.length = 0;
+snapshotModel.serialize().stackup.cl.push('inner-copper-1');
+assert.deepEqual(snapshotModel.serialize(grid), expectedSnapshot, 'Snapshots are detached from model and viewport data');
+assert.equal(grid.gridSize, 0.123456);
+for (const input of [expectedSnapshot, normalizePcbSection(expectedSnapshot)]) {
+    const prepared = PcbDocument.prepare(input);
+    const copy = new PcbDocument();
+    copy.loadEntities(input, prepared);
+    copy.designSettings.update(prepared.data.design);
+    copy.placementState.load(prepared.data.placements);
+    copy.loadPanelization(prepared.panelization);
+    assert.deepEqual(copy.serialize(prepared.data.settings), expectedSnapshot, 'Both field formats round-trip headlessly');
+    for (const design of [{ clearance: 0 }, { viaDiameter: Infinity }, { units: 'unknown' }, { router: 'unknown' }]) {
+        const invalid = { ...input, design };
+        assert.throws(() => PcbDocument.prepare(invalid), /positive finite|units|router/);
+        assert.throws(() => snapshotModel.loadEntities(invalid), /positive finite|units|router/);
+        assert.deepEqual(snapshotModel.serialize(grid), expectedSnapshot, 'Design preflight cannot replace live data');
+    }
+}
+assert.equal(PcbDocument.prepare(null).data, null);
+snapshotModel.loadPanelization(null);
+assert.equal('panelization' in snapshotModel.serialize(), false);
+console.log('PASS headless authored PCB snapshots, compact field shape, detached state, round-trips and design preflight');
 
 globalThis.window = { addEventListener() {} };
 globalThis.document = {
@@ -229,6 +282,13 @@ const { AddTextCommand, RemoveTextCommand, MoveTextCommand, EditTextCommand } =
 const textView = await import('../src/pcb/modules/pcb-text.js');
 const shapeView = await import('../src/pcb/modules/board-shapes.js');
 const panelLayout = await import('../src/pcb/modules/panelization.js');
+const { serializePcb, preparePcb } = await import('../src/pcb/modules/project-state.js');
+const snapshotApp = { pcbDocument: snapshotModel, viewport: grid };
+assert.deepEqual(serializePcb(snapshotApp), snapshotModel.serialize(grid),
+    'Save adapter needs only the canonical model and viewport, not editor-owned authored aliases');
+assert.deepEqual(serializePcb({ pcbDocument: snapshotModel }), snapshotModel.serialize());
+assert.deepEqual(preparePcb(expectedSnapshot).data, PcbDocument.prepare(expectedSnapshot).data);
+assert.throws(() => preparePcb({ ...expectedSnapshot, design: { clearance: 0 } }), /positive finite/);
 assert.equal(panelLayout.panelSettings, panelSettings);
 assert.equal(panelLayout.PANEL_DEFAULTS, PANEL_DEFAULTS, 'Existing panel module imports reuse neutral definitions');
 const { AddBoardShapeCommand, RemoveBoardShapeCommand } = await import('../src/pcb/modules/shape-commands.js');

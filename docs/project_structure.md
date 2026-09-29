@@ -136,14 +136,25 @@ vias and pads, free-standing text and board shapes (including copper-fill region
 together with board dimensions, panelization, placement and design state.
 PCB editor collection accessors alias the model, including array/map replacements
 by commands; constructing an editor does not clear a preloaded model.
-`prepareEntities()` normalizes a PCB section and checks its required stackup,
-then validates board outlines and constructs all entities without a DOM.
+`prepare()` normalizes a PCB section and checks its required stackup, validates
+board outlines, panelization and design settings, and constructs all entities
+without a DOM. The adapter's `preparePcb()` delegates to this model operation.
 `loadEntities()` adopts prepared entities, preserves collection identity and
 restores the board-shape, via/pad and fill ID counters.
 `serializeEntities()` returns the entity collections using the existing
 entity serializers, preserving topology, metadata and save-boundary precision.
 `clearEntities()` empties those collections without replacing them. These are
 entity operations, not yet full headless PCB persistence.
+
+`serialize(settings)` assembles the complete authored PCB section: stackup,
+dimensions, design settings, optional panelization, entities and saved placements.
+It applies the existing compact aliases and save-boundary precision, returning a
+detached snapshot without rounding live data. Viewport preferences are an explicit
+optional argument; the adapter's `serializePcb()` supplies them from the viewport,
+but no editor-owned authored aliases are read. Headless callers can supply saved
+preferences or omit them without inventing defaults. Loading remains phased in
+the adapter; design/placement application and late panel installation are not yet
+a single model load operation.
 
 Saved board dimensions live in `PcbDocument.board`. The editor's `_boardWidth`,
 `_boardHeight` and `_boardRadius` access that object, including during live resize,
@@ -205,9 +216,8 @@ presentation updates, and notify the editor's dirty hook after recording.
 
 The live `placements` map and automatic layout slots remain editor-owned:
 they contain generated footprint geometry, presentation caches and temporary
-gesture state, not a second authoritative saved-placement store. Full PCB
-load/serialization orchestration and viewport settings still depend on the PCB
-adapter.
+gesture state, not a second authoritative saved-placement store. PCB load
+orchestration and viewport settings still depend on the PCB adapter.
 
 PCB design settings now live in `ProjectDocument.pcbDocument.designSettings`
 (`core/PcbDesignSettings.js`). Track width, clearance, via diameter and drill

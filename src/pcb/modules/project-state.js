@@ -6,34 +6,18 @@ import { getBoardOutline } from './board-outline.js';
 import { renderPad, removePadElements } from './pad.js';
 import { serializeGridSettings, restoreGridSettings } from '../../ui/modules/viewport.js';
 import { renderPanelPreview, resetPanelPreview } from './panelization-ui.js';
-import { defaultPcbStackup } from '../../core/project-format.js';
-import { compactProjectAliases } from '../../core/project-field-aliases.js';
 import { resetPcbSelection, syncPcbSelection } from './selection-registry.js';
 import { clearPcbSelectionAnchors } from './selection-anchors.js';
 import { applyDesignSettings } from './design-settings.js';
-import { PcbDesignSettings } from '../../core/PcbDesignSettings.js';
 import { PcbDocument } from '../../core/PcbDocument.js';
 
 /** @param {any} app */
 export function serializePcb(app) {
-    const panelization = app.pcbDocument.serializePanelization();
-    const pcb = {
-        stackup: defaultPcbStackup(),
-        board: app.pcbDocument.serializeBoardDimensions(),
-        design: app.designSettings.serialize(),
-        ...(panelization ? { panelization } : {}),
-        settings: serializeGridSettings(app.viewport),
-        ...app.pcbDocument.serializeEntities(),
-        placements: app.placementState.serialize(),
-    };
-    return compactProjectAliases({ pcb }).pcb;
+    return app.pcbDocument.serialize(serializeGridSettings(app.viewport));
 }
 
 export function preparePcb(data) {
-    const entities = PcbDocument.prepareEntities(data);
-    data = entities.data;
-    if (data?.design) new PcbDesignSettings().update(data.design);
-    return entities;
+    return PcbDocument.prepare(data);
 }
 
 /** @param {any} app */
