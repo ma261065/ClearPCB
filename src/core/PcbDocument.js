@@ -16,12 +16,15 @@ import { panelSettings } from './pcb-panelization.js';
 const round4 = value => Number.isFinite(value) ? Math.round(value * 10000) / 10000 : value;
 const DEFAULT_BOARD_DIMENSIONS = Object.freeze({ width: 100, height: 80, radius: 0 });
 
-/** Authoritative PCB data; view settings still await migration from the editor. */
+/** Authoritative PCB data and loaded preferences; live viewport settings remain view-owned. */
 export class PcbDocument {
     constructor() {
         this.placementState = new PcbPlacementState();
         this.designSettings = new PcbDesignSettings();
         this.board = { ...DEFAULT_BOARD_DIMENSIONS };
+        /** @type {object|undefined} Loaded viewport preferences; a live view supplies current values. */
+        this.settings = undefined;
+        this._loadedSection = false;
         /** @type {ReturnType<typeof panelSettings>|null} */
         this.panelization = null;
         /** @type {Track[]} */
@@ -79,6 +82,8 @@ export class PcbDocument {
         Object.assign(this.board, DEFAULT_BOARD_DIMENSIONS);
         this.panelization = null;
         this.placementState.overrides.clear();
+        this.settings = undefined;
+        this._loadedSection = false;
     }
 
     /** Load authored content, leaving panel installation to the final load phase. */
@@ -100,6 +105,8 @@ export class PcbDocument {
             if (shape.type === 'fill') updateFillIdCounter(shape.id);
         }
         const loaded = prepared.data || data;
+        this._loadedSection = !!loaded;
+        this.settings = structuredClone(loaded?.settings);
         if (loaded?.design) this.designSettings.update(loaded.design);
         this.placementState.load(loaded?.placements);
         const board = loaded?.board;
@@ -139,7 +146,7 @@ export class PcbDocument {
      * Assemble authored state using the existing file format and save precision.
      * @param {object} [settings] Viewport preferences supplied by the view.
      */
-    serialize(settings) {
+    serialize(settings = this.settings) {
         const panelization = this.serializePanelization();
         return compactProjectAliases({ pcb: {
             stackup: defaultPcbStackup(),
@@ -150,6 +157,14 @@ export class PcbDocument {
             ...this.serializeEntities(),
             placements: this.placementState.serialize(),
         } }).pcb;
+    }
+
+    /** Retained design defaults alone do not create an otherwise absent PCB section. */
+    serializeSection() {
+        const hasContent = this._loadedSection || this.tracks.length || this.vias.length || this.pads.length
+            || this.boardShapes.length || this.texts.size || this.placementState.overrides.size || this.panelization
+            || Object.keys(DEFAULT_BOARD_DIMENSIONS).some(key => this.board[key] !== DEFAULT_BOARD_DIMENSIONS[key]);
+        return hasContent ? this.serialize() : null;
     }
 
     serializeEntities() {

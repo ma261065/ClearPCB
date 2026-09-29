@@ -147,7 +147,8 @@ same phases around rendering rather than implementing its own data adoption.
 `serializeEntities()` returns the entity collections using the existing
 entity serializers, preserving topology, metadata and save-boundary precision.
 `clear()` empties entity collections and placement overrides in place, resets
-dimensions and panelization, and retains the last-used design settings, matching
+dimensions and panelization, discards loaded viewport preferences, and retains
+the last-used design settings, matching
 existing New behavior. Missing design sections also retain those settings; partial
 sections merge without rounding. Collection and submodel identities are preserved.
 
@@ -156,10 +157,21 @@ dimensions, design settings, optional panelization, entities and saved placement
 It applies the existing compact aliases and save-boundary precision, returning a
 detached snapshot without rounding live data. Viewport preferences are an explicit
 optional argument; the adapter's `serializePcb()` supplies them from the viewport,
-but no editor-owned authored aliases are read. Headless callers can supply saved
-preferences or omit them without inventing defaults. Full project-level dispatch
-still relies on a registered PCB view; using the PCB model automatically when
-that view is absent remains separate work.
+but no editor-owned authored aliases are read. With no explicit preferences it
+uses a detached snapshot retained during loading, preserving absent settings
+without inventing defaults. Live viewport edits still belong to the view; the
+loaded snapshot is a persistence fallback, not a second live viewport.
+
+`ProjectDocument` uses the PCB model for preparation, load, serialization,
+serialized recovery and reset when no PCB view is registered. This works both
+with neither editor and with only the schematic editor. Registered adapters keep
+their existing dispatch, including an explicit null section result.
+`PcbDocument.serializeSection()` omits a genuinely absent/cleared PCB, but
+preserves an explicitly loaded section even if it only contains metadata.
+Fresh authored entities, placements, panelization or nondefault dimensions also
+make a section persistable; retained design defaults alone do not. The project
+saves current model state rather than caching a serialized PCB. Existing
+best-effort serialized recovery remains unchanged in scope, not exact rollback.
 
 Saved board dimensions live in `PcbDocument.board`. The editor's `_boardWidth`,
 `_boardHeight` and `_boardRadius` access that object, including during live resize,

@@ -157,23 +157,21 @@ export class ProjectDocument {
     }
 
     /**
-     * Assemble the combined on-disk document from every registered view.
-     * The schematic adapter supplies current viewport settings to the model
-     * serializer; without a view, use the model's loaded settings.
-     * The PCB view contributes `doc.pcb`.
+     * Assemble the combined document using views where registered, otherwise models.
+     * Adapters supply current viewport settings; models retain loaded preferences.
      * Neither view reaches into the other — the project coordinates them.
      * @returns {object} The serialized project document.
      */
     serialize() {
         const doc = this.schematic?.serializeSection?.() || this.schematicDocument.serialize();
-        const pcbSection = this.pcb?.serializeSection?.();
+        const pcbSection = this.pcb ? this.pcb.serializeSection?.() : this.pcbDocument.serializeSection();
         if (pcbSection) doc.pcb = pcbSection;
         else delete doc.pcb;
         return compactProjectAliases(doc);
     }
 
     /**
-     * Restore every registered view from a previously serialized document.
+     * Restore models and registered views from a previously serialized document.
      * @param {object} data The serialized project document.
      * @returns {Promise<void>}
      */
@@ -190,16 +188,20 @@ export class ProjectDocument {
             const prepared = this.schematic
                 ? await this.schematic.prepareSection?.(data)
                 : this.schematicDocument.prepare(data);
-            const pcbPrepared = await this.pcb?.prepareSection?.(data.pcb || null);
+            const pcbPrepared = this.pcb
+                ? await this.pcb.prepareSection?.(data.pcb || null)
+                : PcbDocument.prepare(data.pcb || null);
             this.fileManager.touch();
             try {
                 await this.schematic?.loadSection?.(data, prepared);
                 if (!this.schematic) this.schematicDocument.load(data, prepared);
                 await this.pcb?.loadSection?.(data.pcb || null, pcbPrepared);
+                if (!this.pcb) this.pcbDocument.load(data.pcb || null, pcbPrepared);
             } catch (error) {
                 await this.schematic?.loadSection?.(previous);
                 if (!this.schematic) this.schematicDocument.load(previous);
                 await this.pcb?.loadSection?.(previous.pcb || null);
+                if (!this.pcb) this.pcbDocument.load(previous.pcb || null);
                 this.fileManager.setDirty(dirty);
                 if (pcbDirty) this.pcb?.restoreSectionDirty?.(true);
                 throw error;
@@ -210,7 +212,7 @@ export class ProjectDocument {
         }
     }
 
-    /** Clear editor sections before adopting a new file identity. */
+    /** Clear views or their headless models before adopting a new file identity. */
     async reset() {
         if (this.fileManager.saving || this.fileManager.loading) {
             throw new Error('A file operation is already in progress.');
@@ -220,6 +222,7 @@ export class ProjectDocument {
             await this.schematic?.clearSection();
             if (!this.schematic) this.schematicDocument.clear();
             await this.pcb?.clearSection();
+            if (!this.pcb) this.pcbDocument.clear();
             this.fileManager.newDocument(this.serialize());
         } finally {
             this.fileManager.loading = false;
