@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import { bindPictureRefreshHold, cancelPictureCopperRefresh, schedulePictureCopperRefresh } from '../src/pcb/modules/picture-refresh.js';
+import { Pad } from '../src/shapes/pad.js';
+import { AddPadCommand, RemovePadCommand, ModifyPadCommand, MovePadCommand } from '../src/pcb/modules/pad-commands.js';
 
 const originalSetTimeout = globalThis.setTimeout;
 const originalClearTimeout = globalThis.clearTimeout;
@@ -13,6 +15,7 @@ let poursHandleRatsnest = false;
 let observedValue = 0;
 const app = {
     value: 0,
+    _getLayerGroup: () => null,
     _refreshFills() { fills++; observedValue = this.value; return poursHandleRatsnest; },
     _updateRatsnest(options) { assert.equal(options.skipFillRefresh, true); ratsnest++; },
     _scheduleDRC() { drcRequests++; },
@@ -123,6 +126,27 @@ try {
     schedulePictureCopperRefresh(app);
     cancelPictureCopperRefresh(app);
     assert.equal(cutRefreshes, 2, 'An immediate layer change flushes outstanding copper-cut work');
+
+    for (const withPours of [false, true]) {
+        poursHandleRatsnest = withPours;
+        const pad = new Pad({ net: 'GND' }), before = pad.captureState();
+        app.pads = [];
+        for (const command of [
+            new AddPadCommand(app, pad),
+            new ModifyPadCommand(app, pad, before, { ...before, x: 1 }),
+            new MovePadCommand(app, pad, { x: 1, y: 0 }, { x: 2, y: 0 }),
+            new RemovePadCommand(app, pad),
+        ]) {
+            for (const action of ['execute', 'undo', 'execute']) {
+                const previous = fills;
+                command[action]();
+                assert.equal(fills, previous, 'Pad commands leave fill requests to their existing debounce');
+                assert.equal(timers.size, 1);
+                flush();
+                assert.equal(fills, previous + 1, 'Each settled pad edit makes exactly one fill request');
+            }
+        }
+    }
 } finally {
     globalThis.setTimeout = originalSetTimeout;
     globalThis.clearTimeout = originalClearTimeout;

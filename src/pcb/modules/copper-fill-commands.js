@@ -2,12 +2,17 @@
  * Command classes for CopperFill undo/redo.
  *
  * Fills are derived geometry: the model is just the user-authored region
- * (outline + layer + net). After any model change the app recomputes and
- * re-renders all pours via app._refreshFills().
+ * (outline + layer + net). Model changes recompute pours synchronously;
+ * pour completion owns the subsequent connectivity and DRC refresh.
  */
 
 import { isPcbSelected } from './selection-registry.js';
 import { renderPcbSelectionAnchors } from './selection-anchors.js';
+
+function refresh(app) {
+    // Empty or deferred pours still need connectivity, without requesting another pour.
+    if (app._recomputeFillsNow?.() !== true) app._updateRatsnest?.({ skipFillRefresh: true });
+}
 
 /** Add a CopperFill to the canonical app.boardShapes collection. */
 export class AddFillCommand {
@@ -17,15 +22,13 @@ export class AddFillCommand {
     }
     execute() {
         if (!this.app.boardShapes.includes(this.fill)) this.app.boardShapes.push(this.fill);
-        this.app._recomputeFillsNow?.();
-        this.app._updateRatsnest?.();
+        refresh(this.app);
     }
     undo() {
         const i = this.app.boardShapes.indexOf(this.fill);
         if (i >= 0) this.app.boardShapes.splice(i, 1);
         if (isPcbSelected(this.app, 'fill', this.fill)) this.app._selectFill?.(null);
-        this.app._recomputeFillsNow?.();
-        this.app._updateRatsnest?.();
+        refresh(this.app);
     }
 }
 
@@ -39,13 +42,11 @@ export class RemoveFillCommand {
         const i = this.app.boardShapes.indexOf(this.fill);
         if (i >= 0) this.app.boardShapes.splice(i, 1);
         if (isPcbSelected(this.app, 'fill', this.fill)) this.app._selectFill?.(null);
-        this.app._recomputeFillsNow?.();
-        this.app._updateRatsnest?.();
+        refresh(this.app);
     }
     undo() {
         if (!this.app.boardShapes.includes(this.fill)) this.app.boardShapes.push(this.fill);
-        this.app._recomputeFillsNow?.();
-        this.app._updateRatsnest?.();
+        refresh(this.app);
     }
 }
 
@@ -62,12 +63,8 @@ export class ModifyFillCommand {
     }
     execute() {
         this.fill.applyState(this.after);
-        // Recompute pours synchronously so fill._computed is fresh, then
-        // reconcile the ratsnest — a net/layer change alters which copper the
-        // pour bonds, so ratlines must reappear/disappear accordingly.
         if (!this.app._deferDragOverlays) {
-            this.app._recomputeFillsNow?.();
-            this.app._updateRatsnest?.();
+            refresh(this.app);
         }
         this.app._refreshFillProperties?.(this.fill);
         renderPcbSelectionAnchors(this.app);
@@ -75,8 +72,7 @@ export class ModifyFillCommand {
     undo() {
         this.fill.applyState(this.before);
         if (!this.app._deferDragOverlays) {
-            this.app._recomputeFillsNow?.();
-            this.app._updateRatsnest?.();
+            refresh(this.app);
         }
         this.app._refreshFillProperties?.(this.fill);
         renderPcbSelectionAnchors(this.app);

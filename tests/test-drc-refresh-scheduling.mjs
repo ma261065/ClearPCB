@@ -5,7 +5,7 @@ globalThis.document = {
     getElementById: () => null,
     createElementNS() {
         const attributes = new Map();
-        return { style: {}, setAttribute: (key, value) => attributes.set(key, value),
+        return { style: {}, dataset: {}, setAttribute: (key, value) => attributes.set(key, value),
             getAttribute: key => attributes.get(key), appendChild() {}, remove() {} };
     },
 };
@@ -13,6 +13,7 @@ const { default: PCBApp } = await import('../src/ui/PCBApp.js');
 const { CopperFill } = await import('../src/shapes/copper-fill.js');
 const { loadClipper } = await import('../src/pcb/modules/copper-fill-geom.js');
 const { ModifyBoardShapeCommand } = await import('../src/pcb/modules/shape-commands.js');
+const { AddFillCommand, RemoveFillCommand, ModifyFillCommand } = await import('../src/pcb/modules/copper-fill-commands.js');
 const { captureBoardShapeState } = await import('../src/pcb/modules/board-shapes.js');
 const { bindPictureRefreshHold } = await import('../src/pcb/modules/picture-refresh.js');
 const { runDRC } = await import('../src/pcb/modules/drc.js');
@@ -149,6 +150,35 @@ try {
     gated.app._scheduleDRC();
     flushFrames();
     assert.equal(gated.reports.length, 1, 'Reopening allows subsequent refresh requests');
+
+    for (const operation of ['add', 'remove', 'modify']) {
+        const { app: edited } = fixture();
+        edited.vias.push({ id: 'other-ground', x: -8, y: 8, diameter: 1, drill: 0.3, net: 'GND' });
+        const ratlines = { children: [], appendChild(line) {
+            this.children.push(line);
+            line.remove = () => this.children.splice(this.children.indexOf(line), 1);
+        } };
+        edited._getLayerGroup = layer => layer === 'ratlines' ? ratlines : null;
+        const fill = edited.copperFills[0], before = fill.captureState();
+        if (operation === 'add') edited.boardShapes.splice(edited.boardShapes.indexOf(fill), 1);
+        const edit = operation === 'add' ? new AddFillCommand(edited, fill)
+            : operation === 'remove' ? new RemoveFillCommand(edited, fill)
+            : new ModifyFillCommand(edited, fill, before, { ...before, net: 'POWER' });
+        let recomputes = 0;
+        const recompute = edited._recomputeFillsNow.bind(edited);
+        edited._recomputeFillsNow = () => { recomputes++; return recompute(); };
+        for (const action of ['execute', 'undo', 'execute']) {
+            const previous = recomputes;
+            edit[action]();
+            if (edited.copperFills.length) assert.ok(fill._computed.length, 'Fill edits remain synchronous');
+            const expected = edited.copperFills.some(pour => pour.net === 'GND') ? 0 : 1;
+            assert.equal(ratlines.children.length, expected, 'Connectivity immediately follows fill add/remove/net changes');
+            edited._scheduleDRC();
+            flushFrames();
+            assert.equal(recomputes, previous + 1, `${operation}/${action} must not schedule a second pour`);
+            assert.equal(ratlines.children.length, expected, 'Last-fill removal and undo/redo retain correct ratlines');
+        }
+    }
 } finally {
     for (const [name, value] of Object.entries(original)) {
         if (value === undefined) delete globalThis[name];

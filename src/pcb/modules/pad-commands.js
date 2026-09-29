@@ -5,7 +5,6 @@ import { schedulePictureCopperRefresh } from './picture-refresh.js';
 function refresh(app, pad) {
     renderPad(pad, id => app._getLayerGroup(id));
     schedulePictureCopperRefresh(app, pad);
-    app._refreshFills?.();
 }
 
 export class AddPadCommand {
@@ -19,7 +18,6 @@ export class AddPadCommand {
         this.app.pads = this.app.pads.filter(pad => pad !== this.pad);
         if (isPcbSelected(this.app, 'pad', this.pad)) clearPcbSelection(this.app);
         schedulePictureCopperRefresh(this.app, this.pad);
-        this.app._refreshFills?.();
     }
 }
 
@@ -30,7 +28,6 @@ export class RemovePadCommand {
         this.app.pads = this.app.pads.filter(candidate => candidate !== this.pad);
         if (isPcbSelected(this.app, 'pad', this.pad)) clearPcbSelection(this.app);
         schedulePictureCopperRefresh(this.app, this.pad);
-        this.app._refreshFills?.();
     }
     undo() {
         if (!this.app.pads.includes(this.pad)) this.app.pads.push(this.pad);

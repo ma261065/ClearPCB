@@ -8783,6 +8783,7 @@ export default class PCBApp {
      * Recompute the poured geometry for every fill and re-render. Ensures
      * the clipper engine is loaded first (async, once); until it is, the
      * recompute is deferred.
+     * @returns {true|undefined} True when fills were computed and downstream refreshes requested.
      */
     _recomputeFillsNow() {
         if (this._deferDragOverlays || this._suspendFillRefresh) {
@@ -8823,6 +8824,7 @@ export default class PCBApp {
         // Pours just recomputed — let any open 3D/2D view pick up the fresh
         // geometry (its rebuild reads fill._computed).
         this._board3d?.refresh?.();
+        return true;
     }
 
     /** Build the obstacle/parameter context for the fill geometry engine. */

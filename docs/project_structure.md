@@ -94,8 +94,12 @@ mode; it is not a release requirement. Remaining ownership work is tracked in
 
 - `fill-refresh.js` coalesces pour requests; pour completion reconciles the
   ratsnest against the new copper before requesting DRC.
+- Fill commands keep synchronous recomputation. `_recomputeFillsNow()` reports
+  completed work so commands do not request a second pour or connectivity pass.
+  Empty/deferred passes use `skipFillRefresh` for the connectivity fallback.
 - `picture-refresh.js` retains the 100 ms geometry-edit debounce. Without pours,
-  its completion reconciles connectivity and requests DRC itself.
+  its completion reconciles connectivity and requests DRC itself. Pad commands
+  use this same deferred path without a separate immediate fill request.
 - `PCBApp._scheduleDRC()` owns visibility gating and frame coalescing for queued
   checks, including rechecking visibility when the callback runs. Callers only
   request a check; `_runDRCLive()` waits for deferred geometry/pours to settle.
