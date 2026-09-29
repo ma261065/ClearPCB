@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { pointInPolygon } from '../src/core/geometry.js';
 import { Via } from '../src/shapes/via.js';
 import { PcbPlacementState } from '../src/core/PcbPlacementState.js';
+import { PcbDesignSettings } from '../src/core/PcbDesignSettings.js';
 
 globalThis.window = { addEventListener() {} };
 globalThis.document = { getElementById: () => null };
@@ -90,6 +91,7 @@ for (const axis of ['horizontal', 'vertical']) {
 
 const placementState = new PcbPlacementState();
 const app = {
+    designSettings: new PcbDesignSettings(),
     placementState, placements: new Map(), _placementOverrides: placementState.overrides, tracks: [], vias: [], texts: new Map(),
     copperFills: [], boardShapes: [rectangleBoardOutline(20, 10)],
     _boardWidth: 20, _boardHeight: 10, _boardRadius: 0,
@@ -97,6 +99,7 @@ const app = {
     _getRouterMode: () => 'pathfinder',
     _renderText() {}, _removeTextElement() {}, _refreshText() {},
 };
+app.designSettings.update({ ...app._getRoutingParams(), router: 'pathfinder' });
 const originalOutline = structuredClone(app.boardShapes);
 const layout = buildPanelLayout(app, PANEL_DEFAULTS);
 assert.equal(layout.instances.length, 4);

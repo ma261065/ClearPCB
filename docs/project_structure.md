@@ -143,8 +143,25 @@ presentation updates, and notify the editor's dirty hook after recording.
 The live `placements` map and automatic layout slots remain editor-owned:
 they contain generated footprint geometry, presentation caches and temporary
 gesture state, not a second authoritative saved-placement store. This slice
-does not move tracks, vias, board shapes, free-standing text or design settings,
+does not move tracks, vias, board shapes or free-standing text,
 nor make full PCB document load/serialization independent of the PCB adapter.
+
+PCB design settings now live in `ProjectDocument.pcbDesignSettings`
+(`core/PcbDesignSettings.js`). Track width, clearance, via diameter and drill
+are canonical millimetres; routing and serialization never read rounded ribbon
+values. The adapter in `pcb/modules/design-settings.js` handles display units,
+local defaults, validation and refresh/dirty notifications. Unit changes convert
+the display from the model, not from previously rounded controls.
+
+The Design ribbon and New Track/Via property editors share the same commit path.
+Valid edits mark the PCB dirty and retain the existing geometry refresh requests;
+unit/router preferences are also saved project edits. Temporarily blank or invalid
+dimensions retain the last valid model value and show native field validation.
+Project preparation rejects nonpositive/nonfinite dimensions before replacing
+live content. These numeric fields opt out of shared two-decimal formatting.
+Project serialization still rounds dimensions to four decimals at the file
+boundary. Local defaults now store canonical mm values and still read the legacy
+display-unit strings under the existing storage key.
 
 This is an intermediate migration: existing entities still contain rendering
 methods/state, general schematic commands still mix data and presentation, and

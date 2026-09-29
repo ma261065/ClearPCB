@@ -5,6 +5,8 @@ import { serializePcb, preparePcb, loadPcb, applyProjectDesignParams } from '../
 import { bindPcbControls } from '../pcb/modules/controls.js';
 import { Viewport } from '../core/Viewport.js';
 import { PcbPlacementState } from '../core/PcbPlacementState.js';
+import { PcbDesignSettings } from '../core/PcbDesignSettings.js';
+import { commitDesignInput, renderDesignSettings } from '../pcb/modules/design-settings.js';
 import { loadAndApplyTheme, toggleTheme as toggleSharedTheme, syncThemeToggleButtons } from '../shared/ui/theme.js';
 import { extractNetlist, extractComponents } from '../core/netlist.js';
 import { generateFootprint, renderFootprint, applyRefGeometry, REF_DEFAULT_SIZE, REF_DEFAULT_STROKE } from '../pcb/modules/footprint.js';
@@ -203,6 +205,7 @@ export default class PCBApp {
     constructor(project) {
         this.project = project || null;
         this.placementState = project ? project.pcbPlacementState : new PcbPlacementState();
+        this.designSettings = project ? project.pcbDesignSettings : new PcbDesignSettings();
         this.ribbon = document.getElementById('ribbonPCB');
         this.themeToggle = document.getElementById('pcbThemeToggle');
         this.canvasContainer = document.getElementById('pcbCanvasContainer');
@@ -3525,11 +3528,10 @@ export default class PCBApp {
         items.innerHTML = `
             <div class="prop-row"><label>Net</label><span class="prop-net-control"><input type="text" id="pcbPropTrackToolNet" value="${escape(net)}" placeholder="None"><details class="prop-net-menu"><summary aria-label="Select existing net"></summary><div>${options}</div></details></span></div>
             <div class="prop-row"><label>Layer</label><select id="pcbPropTrackToolLayer"><option value="top-copper"${layer === 'top-copper' ? ' selected' : ''}>Top Copper</option><option value="bottom-copper"${layer === 'bottom-copper' ? ' selected' : ''}>Bottom Copper</option></select></div>
-            <div class="prop-row"><label>Width (mm)</label><input type="number" id="pcbPropTrackToolWidth" value="${width}" min="0.05" step="0.05"></div>
+            <div class="prop-row"><label>Width (mm)</label><input type="number" id="pcbPropTrackToolWidth" value="${width}" min="0.05" step="0.05" data-number-format="precise"></div>
         `;
         const layerEl = /** @type {HTMLSelectElement|null} */ (items.querySelector('#pcbPropTrackToolLayer'));
         const widthEl = /** @type {HTMLInputElement|null} */ (items.querySelector('#pcbPropTrackToolWidth'));
-        const routeWidthEl = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbTrackWidth'));
         this._bindToolNetControl(items, 'pcbPropTrackToolNet', (next) => {
             this._trackToolNet = next;
             if (ctx) {
@@ -3549,13 +3551,16 @@ export default class PCBApp {
             this._setPcbStatus();
         });
         widthEl?.addEventListener('input', () => {
-            const next = parseFloat(widthEl.value);
-            if (!Number.isFinite(next) || next <= 0) return;
-            if (routeWidthEl) routeWidthEl.value = String(next);
+            if (!commitDesignInput(this, 'trackWidth', widthEl, 'mm')) return;
+            const next = this.designSettings.values.trackWidth;
+            renderDesignSettings(this);
             if (!ctx) return;
             ctx.width = next;
             const last = ctx.points[ctx.points.length - 1];
             updateTrackDraw(this, ctx.snap ? { x: ctx.snap.x, y: ctx.snap.y } : last);
+        });
+        widthEl?.addEventListener('change', () => {
+            if (widthEl.validity.customError) widthEl.reportValidity();
         });
         this._setActiveRibbonTab?.('pcb-properties');
     }
@@ -3572,21 +3577,20 @@ export default class PCBApp {
         this._setPcbPropsTitle('New Via');
         items.innerHTML = `
             <div class="prop-row"><label>Net</label><span class="prop-net-control"><input type="text" id="pcbPropViaToolNet" value="${escape(net)}" placeholder="None"><details class="prop-net-menu"><summary aria-label="Select existing net"></summary><div>${options}</div></details></span></div>
-            <div class="prop-row"><label>Diameter (mm)</label><input type="number" id="pcbPropViaToolDiameter" value="${diameter}" min="${drill}" step="0.05"></div>
-            <div class="prop-row"><label>Drill (mm)</label><input type="number" id="pcbPropViaToolDrill" value="${drill}" min="0.05" max="${diameter}" step="0.05"></div>
+            <div class="prop-row"><label>Diameter (mm)</label><input type="number" id="pcbPropViaToolDiameter" value="${diameter}" min="${drill}" step="0.05" data-number-format="precise"></div>
+            <div class="prop-row"><label>Drill (mm)</label><input type="number" id="pcbPropViaToolDrill" value="${drill}" min="0.05" max="${diameter}" step="0.05" data-number-format="precise"></div>
         `;
         const diameterEl = /** @type {HTMLInputElement|null} */ (items.querySelector('#pcbPropViaToolDiameter'));
         const drillEl = /** @type {HTMLInputElement|null} */ (items.querySelector('#pcbPropViaToolDrill'));
-        const routeDiameterEl = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbViaDiameter'));
-        const routeDrillEl = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbViaDrill'));
         this._bindToolNetControl(items, 'pcbPropViaToolNet', (next) => { this._viaToolNet = next; });
         diameterEl?.addEventListener('input', () => {
             const next = parseFloat(diameterEl.value);
             if (Number.isFinite(next) && next > 0 && next < parseFloat(drillEl?.value || '0')) {
                 diameterEl.value = drillEl.value;
             }
+            if (!commitDesignInput(this, 'viaDiameter', diameterEl, 'mm')) return;
             if (drillEl) drillEl.max = diameterEl.value;
-            if (routeDiameterEl) routeDiameterEl.value = diameterEl.value;
+            renderDesignSettings(this);
             if (this._lastCrosshairWorld) this._updateViaPreview(this._lastCrosshairWorld);
         });
         drillEl?.addEventListener('input', () => {
@@ -3594,10 +3598,16 @@ export default class PCBApp {
             if (Number.isFinite(next) && next > parseFloat(diameterEl?.value || '0')) {
                 drillEl.value = diameterEl.value;
             }
+            if (!commitDesignInput(this, 'viaDrill', drillEl, 'mm')) return;
             if (diameterEl) diameterEl.min = drillEl.value;
-            if (routeDrillEl) routeDrillEl.value = drillEl.value;
+            renderDesignSettings(this);
             if (this._lastCrosshairWorld) this._updateViaPreview(this._lastCrosshairWorld);
         });
+        for (const element of [diameterEl, drillEl]) {
+            element?.addEventListener('change', () => {
+                if (element.validity.customError) element.reportValidity();
+            });
+        }
         this._setActiveRibbonTab?.('pcb-properties');
     }
 
@@ -8520,30 +8530,14 @@ export default class PCBApp {
     }
 
     /**
-     * Read routing parameters from the ribbon inputs, converting to mm.
+     * Read canonical millimetre values, independent of ribbon display rounding.
      */
     _getRoutingParams() {
-        const unitsEl = /** @type {HTMLSelectElement|null} */ (document.getElementById('pcbRouteUnits'));
-        const units = unitsEl?.value || 'mm';
-        const toMM = units === 'inch' ? 25.4 : 1;
-
-        const readVal = (id, fallback) => {
-            const el = /** @type {HTMLInputElement|null} */ (document.getElementById(id));
-            const v = parseFloat(el?.value);
-            return (isNaN(v) || v <= 0) ? fallback : v * toMM;
-        };
-
-        return {
-            trackWidth: readVal('pcbTrackWidth', 0.2),
-            clearance: readVal('pcbClearance', 0.1),
-            viaDiameter: readVal('pcbViaDiameter', 0.3),
-            viaDrill: readVal('pcbViaDrill', 0.15),
-        };
+        return this.designSettings.getRoutingParams();
     }
 
     _getRouterMode() {
-        const routerEl = /** @type {HTMLSelectElement|null} */ (document.getElementById('pcbRouterMode'));
-        return routerEl?.value === 'pathfinder' ? 'pathfinder' : 'maze';
+        return this.designSettings.values.router;
     }
 
     /**

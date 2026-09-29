@@ -18,22 +18,13 @@ import { compactProjectAliases, normalizePcbSection } from '../../core/project-f
 import { hasRectangleFrame, rectangleFramePoints } from '../../shapes/rectangle-frame.js';
 import { resetPcbSelection, syncPcbSelection } from './selection-registry.js';
 import { clearPcbSelectionAnchors } from './selection-anchors.js';
+import { applyDesignSettings } from './design-settings.js';
+import { PcbDesignSettings } from '../../core/PcbDesignSettings.js';
 
 const round4 = value => Number.isFinite(value) ? Math.round(value * 10000) / 10000 : value;
 
 /** @param {any} app */
 export function serializePcb(app) {
-    // Per-project design rules (track/clearance/via sizes are canonical mm;
-    // units/router record the user's display + routing preferences).
-    const routing = app._getRoutingParams();
-    const design = {
-        trackWidth: round4(routing.trackWidth),
-        clearance: round4(routing.clearance),
-        viaDiameter: round4(routing.viaDiameter),
-        viaDrill: round4(routing.viaDrill),
-        units: /** @type {HTMLSelectElement|null} */ (document.getElementById('pcbRouteUnits'))?.value || 'mm',
-        router: app._getRouterMode(),
-    };
     const pcb = {
         stackup: defaultPcbStackup(),
         board: {
@@ -41,7 +32,7 @@ export function serializePcb(app) {
             height: round4(app._boardHeight),
             radius: round4(app._boardRadius),
         },
-        design,
+        design: app.designSettings.serialize(),
         ...(app.panelization ? { panelization: panelSettings(app.panelization) } : {}),
         settings: serializeGridSettings(app.viewport),
         tracks: app.tracks.map(t => t.toJSON()),
@@ -61,6 +52,7 @@ export function serializePcb(app) {
 export function preparePcb(data) {
     data = normalizePcbSection(data);
     assertSupportedPcb(data);
+    if (data?.design) new PcbDesignSettings().update(data.design);
     const panelization = data?.panelization ? panelSettings(data.panelization) : null;
     for (const shape of data?.boardShapes || []) {
         const outline = shape.kind === 'rect' && hasRectangleFrame(shape)
@@ -229,36 +221,5 @@ export function loadPcb(app, data, prepared = preparePcb(data)) {
 
 /** @param {any} app */
 export function applyProjectDesignParams(app, design) {
-    if (!design || typeof design !== 'object') return;
-    const inputEl = (id) => /** @type {HTMLInputElement|null} */ (document.getElementById(id));
-    const units = design.units === 'inch' ? 'inch' : 'mm';
-    const unitsEl = /** @type {HTMLSelectElement|null} */ (document.getElementById('pcbRouteUnits'));
-    const routerEl = /** @type {HTMLSelectElement|null} */ (document.getElementById('pcbRouterMode'));
-    if (unitsEl) unitsEl.value = units;
-    if (routerEl && (design.router === 'pathfinder' || design.router === 'maze')) routerEl.value = design.router;
-    const fromMM = units === 'inch' ? 1 / 25.4 : 1;
-    const digits = units === 'inch' ? 4 : 3;
-    const map = { trackWidth: 'pcbTrackWidth', clearance: 'pcbClearance', viaDiameter: 'pcbViaDiameter', viaDrill: 'pcbViaDrill' };
-    for (const [key, id] of Object.entries(map)) {
-        const mmVal = Number(design[key]);
-        const el = inputEl(id);
-        if (el && Number.isFinite(mmVal) && mmVal > 0) {
-            el.value = String(Number((mmVal * fromMM).toFixed(digits)));
-            el.step = units === 'inch' ? '0.001' : '0.01';
-        }
-    }
-    // Keep the unit-toggle baseline (owned by controls.js) in sync, else a
-    // later unit switch early-returns and leaves mismatched values.
-    app._routeParamUnit = units;
-    // Mirror controls.js saveDesignParams so these also become the working
-    // defaults (key must match DESIGN_PARAMS_KEY in controls.js).
-    try {
-        /** @type {Record<string, string>} */
-        const stored = { units, router: routerEl?.value || 'maze' };
-        for (const id of ['pcbTrackWidth', 'pcbClearance', 'pcbViaDiameter', 'pcbViaDrill']) {
-            const el = inputEl(id);
-            if (el) stored[id] = el.value;
-        }
-        localStorage.setItem('clearpcb_pcb_design_params', JSON.stringify(stored));
-    } catch { /* storage unavailable — ignore */ }
+    applyDesignSettings(app, design);
 }

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { PcbPlacementState } from '../src/core/PcbPlacementState.js';
+import { PcbDesignSettings } from '../src/core/PcbDesignSettings.js';
 
 const source = readFileSync(new URL('../src/pcb/modules/project-state.js', import.meta.url), 'utf8');
 const start = source.indexOf('export function loadPcb(');
@@ -39,12 +40,13 @@ const prepared = {
 const makeApp = active => {
     const placementState = new PcbPlacementState();
     return {
+    designSettings: new PcbDesignSettings(),
     _active: active, _stale: false, tracks: [], vias: [], pads: [], boardShapes: [], texts: new Map(),
     placements: new Map([['U1', {}]]), _shapeElements: new Map(), _textElements: new Map(),
     placementState, _placementOverrides: placementState.overrides, history: { clear() {} },
     _ensureViewport: record('viewport'), _getLayerGroup: () => null,
     _drawBoardOutline: record('outline'), _applyPlacementOverrides: record('placements'),
-    _applyProjectDesignParams() {},
+    _applyProjectDesignParams(design) { this.designSettings.update(design); },
     _renderText: record('text'), _refreshClearanceHalos: record('clearance'), _refreshFills: record('fills'),
     _updateCopperCuts() { this.cutRefreshes = (this.cutRefreshes || 0) + 1; },
     markSectionClean() { this._isDirty = false; },

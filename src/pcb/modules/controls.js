@@ -2,6 +2,7 @@ import { updateGridDropdown } from '../../ui/modules/viewport.js';
 import { PCB_LAYERS, buildLayerPanel } from './layers.js';
 import { bindRecentsDropdown } from '../../ui/modules/recents.js';
 import { showPictureImport } from './picture-import.js';
+import { bindDesignSettings } from './design-settings.js';
 
 /**
  * Binds PCB-specific UI controls for tools and layers.
@@ -236,86 +237,7 @@ export function bindPcbControls(app) {
     const importSesBtn = document.getElementById('pcbImportSES');
     importSesBtn?.addEventListener('click', () => app.importSES?.());
 
-    // Routing parameter units conversion
-    const routeUnitsSelect = document.getElementById('pcbRouteUnits');
-    const routerModeSelect = document.getElementById('pcbRouterMode');
-    const routeParamIds = ['pcbTrackWidth', 'pcbClearance', 'pcbViaDiameter', 'pcbViaDrill'];
-
-    // Design parameters (track width, clearance, via sizes, units, router) are
-    // UI preferences kept out of the saved document but persisted across
-    // reloads in localStorage.
-    const DESIGN_PARAMS_KEY = 'clearpcb_pcb_design_params';
-    const saveDesignParams = () => {
-        try {
-            const data = {
-                units: routeUnitsSelect?.value || 'mm',
-                router: routerModeSelect?.value || 'maze',
-            };
-            for (const id of routeParamIds) {
-                const el = document.getElementById(id);
-                if (el) data[id] = el.value;
-            }
-            localStorage.setItem(DESIGN_PARAMS_KEY, JSON.stringify(data));
-        } catch { /* storage unavailable — ignore */ }
-    };
-
-    // Restore previously-saved design parameters onto the ribbon inputs.
-    let storedDesign = null;
-    try { storedDesign = JSON.parse(localStorage.getItem(DESIGN_PARAMS_KEY) || 'null'); }
-    catch { storedDesign = null; }
-    if (storedDesign) {
-        if (routeUnitsSelect && storedDesign.units) routeUnitsSelect.value = storedDesign.units;
-        if (routerModeSelect && storedDesign.router) routerModeSelect.value = storedDesign.router;
-        const inch = storedDesign.units === 'inch';
-        for (const id of routeParamIds) {
-            const el = document.getElementById(id);
-            if (el && storedDesign[id] != null && storedDesign[id] !== '') {
-                el.value = storedDesign[id];
-                el.step = inch ? '0.001' : '0.01';
-            }
-        }
-    }
-
-    let routeParamUnit = storedDesign?.units || 'mm';
-    // Share the unit-toggle baseline with PCBApp so loading a project's design
-    // params can keep it in sync (a stale baseline makes the unit switch
-    // early-return and leave mismatched values).
-    app._routeParamUnit = routeParamUnit;
-    routerModeSelect?.addEventListener('change', saveDesignParams);
-    routeUnitsSelect?.addEventListener('change', () => {
-        const newUnit = routeUnitsSelect.value;
-        routeParamUnit = app._routeParamUnit || routeParamUnit;
-        if (newUnit === routeParamUnit) return;
-        const factor = (routeParamUnit === 'mm' && newUnit === 'inch') ? 1 / 25.4
-                     : (routeParamUnit === 'inch' && newUnit === 'mm') ? 25.4 : 1;
-        for (const id of routeParamIds) {
-            const el = document.getElementById(id);
-            if (el) {
-                const v = parseFloat(el.value);
-                if (!isNaN(v)) el.value = (v * factor).toFixed(newUnit === 'inch' ? 4 : 3);
-                el.step = newUnit === 'inch' ? '0.001' : '0.01';
-            }
-        }
-        routeParamUnit = newUnit;
-        app._routeParamUnit = newUnit;
-        saveDesignParams();
-    });
-
-    // Live-redraw clearance halos when any routing parameter changes (only
-    // if the overlay is currently visible). Trace width and clearance both
-    // affect halo radii; via diameter affects via halos.
-    for (const id of routeParamIds) {
-        const el = document.getElementById(id);
-        el?.addEventListener('input', () => {
-            if (app._clearancesVisible) app.showClearances?.(true);
-            // Pour clearances follow the routing parameters, so reflow. The
-            // reflow is rAF-deferred; the 2D/3D panel rebuild is debounced, so
-            // by the time it runs the pour geometry (_computed) is up to date.
-            app._refreshFills?.();
-            app._board3d?.refresh?.();
-            saveDesignParams();
-        });
-    }
+    bindDesignSettings(app);
 
     // Specctra help flyout
     const specctraHelpBtn = document.getElementById('pcbSpecctraHelp');

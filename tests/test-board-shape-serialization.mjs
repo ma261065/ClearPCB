@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { CopperFill } from '../src/shapes/copper-fill.js';
 import { PcbPlacementState } from '../src/core/PcbPlacementState.js';
+import { PcbDesignSettings } from '../src/core/PcbDesignSettings.js';
 
 globalThis.window = { addEventListener() {} };
 const { serializeBoardShapes, loadBoardShapes } = await import('../src/pcb/modules/board-shapes.js');
@@ -216,11 +217,12 @@ const beforePlacement = structuredClone(placement);
 const placementState = new PcbPlacementState();
 placementState.overrides.set('comp_4', placement);
 const app = { tracks: [], vias: [], boardShapes: [], texts: new Map([[text.id, text]]),
-    placementState, _placementOverrides: placementState.overrides,
+    placementState, _placementOverrides: placementState.overrides, designSettings: new PcbDesignSettings(),
     _boardWidth: 100.123456, _boardHeight: 80.00000000000001, _boardRadius: 1.234567,
     _getRoutingParams: () => ({ trackWidth: 0.20000000000000004, clearance: 0.123456,
         viaDiameter: 0.6000000000000001, viaDrill: 0.30000000000000004 }),
     _getRouterMode: () => 'pathfinder' };
+app.designSettings.update({ ...app._getRoutingParams(), router: 'pathfinder' });
 const savedPcb = serializePcb(app);
 assert.deepEqual(savedPcb.stackup, { cl: ['top-copper', 'bottom-copper'] });
 assert.doesNotThrow(() => preparePcb(savedPcb), 'A saved two-layer board can be prepared again');

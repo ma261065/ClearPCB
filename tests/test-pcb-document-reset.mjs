@@ -64,6 +64,7 @@ function fixture(active) {
         tracks: [], vias: [], pads: [], boardShapes: [], texts: new Map(), placements: new Map(),
         _shapeElements: new Map(), _textElements: new Map(),
         placementState: project.pcbPlacementState, _placementOverrides: project.pcbPlacementState.overrides,
+        designSettings: project.pcbDesignSettings,
         history: new CommandHistory(), netlist: [],
         viewport: { scale: 10, shiftHeld: true, hideCrosshair() {},
             gridSize: 1, getGridOptions: () => [{ value: 1, label: '1 mm' }], fitToBounds() {} },

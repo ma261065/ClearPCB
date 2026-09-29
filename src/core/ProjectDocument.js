@@ -3,6 +3,7 @@ import { validateEditableProject } from './project-format.js';
 import { compactProjectAliases } from './project-field-aliases.js';
 import { SchematicDocument } from './SchematicDocument.js';
 import { PcbPlacementState } from './PcbPlacementState.js';
+import { PcbDesignSettings } from './PcbDesignSettings.js';
 
 /** @typedef {{id: string, reference: string, locked: boolean, footprintShapes: string[]}} ComponentInfo */
 
@@ -39,6 +40,7 @@ export class ProjectDocument {
         this.fileManager = new FileManager();
         this.schematicDocument = new SchematicDocument();
         this.pcbPlacementState = new PcbPlacementState();
+        this.pcbDesignSettings = new PcbDesignSettings();
         /** @type {Map<string, any>} Registered editor views by name. */
         this.views = new Map();
         /** View that owns canvas-level UI (prompts, toasts, title). */
