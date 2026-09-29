@@ -78,7 +78,7 @@ export function schedulePictureCopperRefresh(app, shape = null) {
         refreshEditedClearances(app);
         if (app._refreshFills?.() !== true) {
             app._updateRatsnest?.({ skipFillRefresh: true });
-            if (app._drcShouldRun?.()) app._scheduleDRC?.();
+            app._scheduleDRC?.();
         }
         app._board3d?.refresh?.();
     }, 100));

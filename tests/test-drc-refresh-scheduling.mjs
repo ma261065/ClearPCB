@@ -131,6 +131,24 @@ try {
     flushFrames();
     assert.equal(reports.length, count + 1);
     assert.equal(reports.at(-1).ok, true);
+
+    const gated = fixture(false);
+    let visible = false;
+    gated.app._drcShouldRun = () => visible;
+    gated.app._scheduleDRC();
+    assert.equal(frames.length, 0, 'The scheduler owns visibility gating, not its callers');
+    visible = true;
+    gated.app._scheduleDRC();
+    gated.app._scheduleDRC();
+    assert.equal(frames.length, 1, 'Multiple requests still coalesce into one frame');
+    visible = false;
+    flushFrames();
+    assert.equal(gated.reports.length, 0, 'Closing the DRC UI suppresses an already queued check');
+    assert.equal(gated.app._drcRaf, 0, 'A skipped check releases the scheduling slot');
+    visible = true;
+    gated.app._scheduleDRC();
+    flushFrames();
+    assert.equal(gated.reports.length, 1, 'Reopening allows subsequent refresh requests');
 } finally {
     for (const [name, value] of Object.entries(original)) {
         if (value === undefined) delete globalThis[name];

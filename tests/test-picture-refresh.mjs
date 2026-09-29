@@ -8,12 +8,14 @@ let timerId = 0;
 let now = 0;
 let fills = 0;
 let ratsnest = 0;
+let drcRequests = 0;
 let poursHandleRatsnest = false;
 let observedValue = 0;
 const app = {
     value: 0,
     _refreshFills() { fills++; observedValue = this.value; return poursHandleRatsnest; },
     _updateRatsnest(options) { assert.equal(options.skipFillRefresh, true); ratsnest++; },
+    _scheduleDRC() { drcRequests++; },
 };
 const shape = { id: 'image' };
 const halo = { parentNode: { removeChild(element) { element.parentNode = null; } } };
@@ -41,12 +43,14 @@ try {
     flush();
     assert.equal(fills, 1);
     assert.equal(ratsnest, 1);
+    assert.equal(drcRequests, 1, 'Geometry refresh requests DRC without knowing its UI visibility');
     assert.equal(observedValue, 30, 'Refresh uses the final geometry, not an earlier snapshot');
     poursHandleRatsnest = true;
     schedulePictureCopperRefresh(app);
     flush();
     assert.equal(fills, 2);
     assert.equal(ratsnest, 1, 'Pours already reconcile connectivity');
+    assert.equal(drcRequests, 1, 'Pour completion owns its subsequent DRC request');
     schedulePictureCopperRefresh(app);
     cancelPictureCopperRefresh(app);
     assert.equal(timers.size, 0, 'Immediate layer/net refresh cancels deferred work');

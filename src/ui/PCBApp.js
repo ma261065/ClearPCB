@@ -2852,9 +2852,7 @@ export default class PCBApp {
         // Keep the clearance overlay in sync after any committed edit (e.g. an
         // undo/redo that relocates a via leaves orphaned halos otherwise).
         this._refreshClearanceHalos?.();
-        // Re-run the design-rule check (debounced) while the Design tab is
-        // active or the problem panel is open.
-        if (this._drcShouldRun()) this._scheduleDRC();
+        this._scheduleDRC();
     }
 
     /**
@@ -8030,12 +8028,12 @@ export default class PCBApp {
         return !!panel && panel.classList.contains('open');
     }
 
-    /** Debounced live re-run, coalesced to one per animation frame. */
+    /** Request a visible live check, coalesced to one per animation frame. */
     _scheduleDRC() {
-        if (this._drcRaf) return;
+        if (this._drcRaf || !this._drcShouldRun()) return;
         this._drcRaf = requestAnimationFrame(() => {
             this._drcRaf = 0;
-            this._runDRCLive();
+            if (this._drcShouldRun()) this._runDRCLive();
         });
     }
 
@@ -8821,7 +8819,7 @@ export default class PCBApp {
         // after committing them so same-net copper shapes joined by a pour do
         // not retain a stale air wire.
         reconcileRatsnest(this, { skipFillRefresh: true });
-        if (this._drcShouldRun()) this._scheduleDRC();
+        this._scheduleDRC();
         // Pours just recomputed — let any open 3D/2D view pick up the fresh
         // geometry (its rebuild reads fill._computed).
         this._board3d?.refresh?.();

@@ -90,6 +90,16 @@ live-session checkpoint system was removed as disproportionate to this failure
 mode; it is not a release requirement. Remaining ownership work is tracked in
 [review-fixes.md](review-fixes.md#release-readiness-tracker).
 
+## PCB derived refreshes
+
+- `fill-refresh.js` coalesces pour requests; pour completion reconciles the
+  ratsnest against the new copper before requesting DRC.
+- `picture-refresh.js` retains the 100 ms geometry-edit debounce. Without pours,
+  its completion reconciles connectivity and requests DRC itself.
+- `PCBApp._scheduleDRC()` owns visibility gating and frame coalescing for queued
+  checks, including rechecking visibility when the callback runs. Callers only
+  request a check; `_runDRCLive()` waits for deferred geometry/pours to settle.
+
 ## Extracted Services
 
 - `shapes/arc-edit.js` owns control-arc geometry, sampling, midpoint projection,
