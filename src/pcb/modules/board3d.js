@@ -2545,7 +2545,7 @@ function build3DHost(doc) {
 
 /* ───────────────────────────── scene helper ─────────────────────────────── */
 
-export function updateBoardCameraClipping(camera, bounds) {
+export function updateBoardCameraClipping(camera, bounds, depthBits = 24) {
     if (!bounds || bounds.isEmpty()) return;
     camera.updateMatrixWorld();
     const point = new THREE.Vector3();
@@ -2561,8 +2561,17 @@ export function updateBoardCameraClipping(camera, bounds) {
         }
     }
     if (!Number.isFinite(nearest) || !Number.isFinite(farthest) || farthest <= 0) return;
+    // A corner behind the eye may be entirely off-screen. The distance to the
+    // box gives a second, conservative lower bound for visible depth: every
+    // visible ray is within the diagonal half-FOV of the camera's forward axis.
+    // This preserves nearby visible geometry without throwing away precision
+    // whenever the view grazes the scene's bounding box.
+    const tanHalfFov = Math.tan(camera.getEffectiveFOV() * Math.PI / 360);
+    const cosHalfDiagonal = 1 / Math.sqrt(1 + tanHalfFov ** 2 * (1 + camera.aspect ** 2));
+    const visibleNear = bounds.distanceToPoint(camera.getWorldPosition(point)) * cosHalfDiagonal;
+    nearest = Math.max(nearest, visibleNear);
     const far = Math.max(1.01, farthest * 1.5);
-    const depthSteps = 2 ** 24 - 1;
+    const depthSteps = 2 ** depthBits - 1;
     const depthResolutionMm = 0.001;
     const precisionNear = 1 / (depthResolutionMm * depthSteps / (farthest * farthest) + 1 / far);
     const near = Math.max(0.01, Math.min(nearest / 2, precisionNear));
@@ -2610,6 +2619,8 @@ class ThreeScene {
         this.textMaterial = makeDecalMaterial(-80);
 
         this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+        const gl = this.renderer.getContext();
+        this._depthBits = gl.getParameter(gl.DEPTH_BITS);
         // Two pixel-ratio tiers. Orbiting renders at the capped ratio (hi-DPI
         // displays otherwise draw 4× the pixels for no visible gain — the main
         // cause of sluggish dragging); the settled frame after interaction ends
@@ -2861,7 +2872,7 @@ class ThreeScene {
 
     _updateCameraClipping() {
         if (!this._clippingBounds) this._clippingBounds = new THREE.Box3().setFromObject(this.root);
-        updateBoardCameraClipping(this.camera, this._clippingBounds);
+        updateBoardCameraClipping(this.camera, this._clippingBounds, this._depthBits);
     }
 
     /**

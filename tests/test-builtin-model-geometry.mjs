@@ -38,6 +38,36 @@ const containsXY = (triangle, x, y) => {
 };
 const signatures = new Set();
 const meshes = new Map();
+const overlappingMaterials = new Set();
+
+function coplanarOverlap(first, second) {
+    const normal = cross(subtract(first[1], first[0]), subtract(first[2], first[0]));
+    const length = Math.hypot(...normal);
+    const unit = normal.map(value => value / length);
+    const otherNormal = cross(subtract(second[1], second[0]), subtract(second[2], second[0]));
+    if (dot(unit, otherNormal) / Math.hypot(...otherNormal) < 1 - 1e-8) return false;
+    if (second.some(point => Math.abs(dot(unit, subtract(point, first[0]))) > 1e-6)) return false;
+    // In-plane separating axes distinguish shared edges from overlapping surface area.
+    for (const triangle of [first, second]) {
+        for (let i = 0; i < 3; i++) {
+            const axis = cross(unit, subtract(triangle[(i + 1) % 3], triangle[i]));
+            const a = first.map(point => dot(axis, [point.x, point.y, point.z]));
+            const b = second.map(point => dot(axis, [point.x, point.y, point.z]));
+            if (Math.min(Math.max(...a), Math.max(...b)) - Math.max(Math.min(...a), Math.min(...b))
+                <= 1e-8 * Math.hypot(...axis)) return false;
+        }
+    }
+    return true;
+}
+
+assert.equal(coplanarOverlap(
+    [{ x: 0, y: 0, z: 1 }, { x: 2, y: 0, z: 1 }, { x: 0, y: 2, z: 1 }],
+    [{ x: 0.1, y: 0.1, z: 1 }, { x: 1, y: 0.1, z: 1 }, { x: 0.1, y: 1, z: 1 }],
+), true, 'Regression detector finds overlapping coplanar triangles');
+assert.equal(coplanarOverlap(
+    [{ x: 0, y: 0, z: 1 }, { x: 2, y: 0, z: 1 }, { x: 0, y: 2, z: 1 }],
+    [{ x: 2, y: 0, z: 1 }, { x: 2, y: 2, z: 1 }, { x: 0, y: 2, z: 1 }],
+), false, 'Shared edges are not overlapping faces');
 
 for (const [footprint, pads, maxSize] of cases) {
     const obj = getBuiltInModel3D(footprint);
@@ -101,6 +131,16 @@ for (const [footprint, pads, maxSize] of cases) {
     }
     assert.ok([...edges.values()].every(edge => edge.count === 2 && edge.direction === 0),
         `${footprint}: closed consistently wound solids`);
+    for (let i = 0; i < mesh.faces.length; i++) {
+        const first = mesh.faces[i];
+        for (const second of mesh.faces.slice(i + 1)) {
+            if (first.color.join(',') === second.color.join(',')) continue;
+            if (coplanarOverlap(first.idx.map(index => mesh.vertices[index]),
+                second.idx.map(index => mesh.vertices[index]))) {
+                overlappingMaterials.add(`${footprint}: ${first.color} / ${second.color}`);
+            }
+        }
+    }
     const contacts = mesh.faces.filter(face => face.idx.every(i => mesh.vertices[i].z === 0));
     for (const [x, boardY] of pads) {
         assert.ok(contacts.some(face =>
@@ -118,6 +158,7 @@ for (const [footprint, pads, maxSize] of cases) {
     signatures.add(JSON.stringify([bounds, mesh.vertices.length, mesh.faces.length, [...colors(mesh)].sort()]));
     console.log(`PASS ${footprint}: ${mesh.vertices.length} vertices, ${mesh.faces.length} triangles`);
 }
+assert.deepEqual([...overlappingMaterials], [], 'Different materials must not overlap on the same surface plane');
 assert.equal(signatures.size, cases.length, 'Every package has distinguishable geometry');
 for (const entry of Object.values(builtInPackageLayouts)) {
     const mesh = meshes.get(entry.footprint);

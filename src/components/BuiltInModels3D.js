@@ -162,7 +162,7 @@ const builders = new Map([
         // A negative-side stripe stays inside the can's XY bounds.
         model.box(1.8, 0, 6.7, 0.5, 2, 6.72, 'stripe');
         model.box(0, 0, 6.7, 0.09, 3.2, 6.72, 'plastic');
-        model.box(0, 0, 6.7, 3.2, 0.09, 6.72, 'plastic');
+        model.box(0, 0, 6.7, 3, 0.09, 6.72, 'plastic');
     }],
     ['Inductor_THT:L_Axial_L6.8mm_D2.4mm_P7.62mm_Horizontal_Vertical', model => {
         model.axial(6.8, 1.2, 1.6, 'green', [
@@ -280,11 +280,12 @@ export const builtInPackageLayouts = Object.freeze(layouts);
 
 function buildVariant(model, { kind, body: [width, depth, height], pads }) {
     if (['r', 'c', 'l', 'led'].includes(kind)) {
-        model.box(0, 0, 0.04, width * 0.8, depth, height,
+        // The centre and two 20% end caps meet without coplanar surface overlap.
+        model.box(0, 0, 0.04, width * 0.6, depth, height,
             { r: 'plastic', c: 'ceramic', l: 'green', led: 'stripe' }[kind]);
         for (const [x, y] of pads) model.box(x, y, 0, width * 0.2, depth, height, 'metal');
         if (kind === 'led') {
-            model.box(0, 0, height, width * 0.5, depth * 0.7, height + 0.12, 'red');
+            model.box(0, 0, height, width * 0.4, depth * 0.7, height + 0.12, 'red');
             model.box(width * 0.25, 0, height, width * 0.08, depth * 0.7, height + 0.13, 'plastic');
         }
     } else if (kind === 'axial') {
