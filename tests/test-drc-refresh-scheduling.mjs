@@ -183,6 +183,24 @@ try {
             assert.equal(ratlines.children.length, expected, 'Last-fill removal and undo/redo retain correct ratlines');
         }
     }
+    const { app: deferredFillApp } = fixture();
+    const deferredFill = deferredFillApp.copperFills[0];
+    const beforeFill = deferredFill.captureState();
+    const fillProperties = [];
+    let deferredRecomputes = 0;
+    deferredFillApp._recomputeFillsNow = () => { deferredRecomputes++; return true; };
+    deferredFillApp._refreshFillProperties = fill => fillProperties.push(fill.net);
+    deferredFillApp._deferDragOverlays = true;
+    const fillEdit = new ModifyFillCommand(deferredFillApp, deferredFill, beforeFill, { ...beforeFill, net: 'POWER' });
+    fillEdit.execute();
+    fillEdit.undo();
+    fillEdit.execute();
+    assert.equal(deferredRecomputes, 0, 'Authored fill history preserves drag-time pour deferral');
+    assert.deepEqual(fillProperties, ['POWER', 'GND', 'POWER'], 'Properties observe each applied model state');
+    deferredFillApp._deferDragOverlays = false;
+    fillEdit.undo();
+    assert.equal(deferredRecomputes, 1, 'Settled history still recomputes pours synchronously once');
+    assert.deepEqual(fillProperties, ['POWER', 'GND', 'POWER', 'GND']);
 } finally {
     for (const [name, value] of Object.entries(original)) {
         if (value === undefined) delete globalThis[name];

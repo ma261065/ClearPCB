@@ -161,6 +161,15 @@ creation, preserving full precision and insulating history from caller edits.
 The existing `pcb/modules/pad-commands.js` classes are presentation adapters that
 retain SVG updates, selection cleanup and the existing deferred refresh cadence.
 
+Copper-fill add/remove/modify operations live in `core/pcb-fill-commands.js`.
+Collection commands use the model's existing `boardShapes` array; modification
+applies authored state to a `CopperFill`. Undo snapshots deeply copy outline
+points, per-node radii and per-segment curvature. These commands do not calculate
+pours or update connectivity. The `pcb/modules/copper-fill-commands.js` adapters
+retain synchronous pour refresh, drag deferral, property controls and selection
+anchors. The existing entity-level derived caches remain a separate model/view
+boundary to resolve.
+
 `serialize(settings)` assembles the complete authored PCB section: stackup,
 dimensions, design settings, optional panelization, entities and saved placements.
 It applies the existing compact aliases and save-boundary precision, returning a

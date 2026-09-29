@@ -1,11 +1,15 @@
 /**
  * Command classes for CopperFill undo/redo.
  *
- * Fills are derived geometry: the model is just the user-authored region
- * (outline + layer + net). Model changes recompute pours synchronously;
- * pour completion owns the subsequent connectivity and DRC refresh.
+ * Core commands own the authored region and undo state. These adapters
+ * recompute derived pours synchronously unless a drag defers refresh;
+ * pour completion owns subsequent connectivity and DRC updates.
  */
 
+import {
+    AddFillCommand as ModelAddFillCommand, RemoveFillCommand as ModelRemoveFillCommand,
+    ModifyFillCommand as ModelModifyFillCommand,
+} from '../../core/pcb-fill-commands.js';
 import { isPcbSelected } from './selection-registry.js';
 import { renderPcbSelectionAnchors } from './selection-anchors.js';
 
@@ -15,37 +19,35 @@ function refresh(app) {
 }
 
 /** Add a CopperFill to the canonical app.boardShapes collection. */
-export class AddFillCommand {
+export class AddFillCommand extends ModelAddFillCommand {
     constructor(app, fill) {
+        super(app.pcbDocument, fill);
         this.app = app;
-        this.fill = fill;
     }
     execute() {
-        if (!this.app.boardShapes.includes(this.fill)) this.app.boardShapes.push(this.fill);
+        super.execute();
         refresh(this.app);
     }
     undo() {
-        const i = this.app.boardShapes.indexOf(this.fill);
-        if (i >= 0) this.app.boardShapes.splice(i, 1);
+        super.undo();
         if (isPcbSelected(this.app, 'fill', this.fill)) this.app._selectFill?.(null);
         refresh(this.app);
     }
 }
 
 /** Remove an existing CopperFill. */
-export class RemoveFillCommand {
+export class RemoveFillCommand extends ModelRemoveFillCommand {
     constructor(app, fill) {
+        super(app.pcbDocument, fill);
         this.app = app;
-        this.fill = fill;
     }
     execute() {
-        const i = this.app.boardShapes.indexOf(this.fill);
-        if (i >= 0) this.app.boardShapes.splice(i, 1);
+        super.execute();
         if (isPcbSelected(this.app, 'fill', this.fill)) this.app._selectFill?.(null);
         refresh(this.app);
     }
     undo() {
-        if (!this.app.boardShapes.includes(this.fill)) this.app.boardShapes.push(this.fill);
+        super.undo();
         refresh(this.app);
     }
 }
@@ -54,23 +56,13 @@ export class RemoveFillCommand {
  * Change a CopperFill's state (net / layer / outline). `before` and
  * `after` are captureState() snapshots.
  */
-export class ModifyFillCommand {
+export class ModifyFillCommand extends ModelModifyFillCommand {
     constructor(app, fill, before, after) {
+        super(fill, before, after);
         this.app = app;
-        this.fill = fill;
-        this.before = before;
-        this.after = after;
     }
-    execute() {
-        this.fill.applyState(this.after);
-        if (!this.app._deferDragOverlays) {
-            refresh(this.app);
-        }
-        this.app._refreshFillProperties?.(this.fill);
-        renderPcbSelectionAnchors(this.app);
-    }
-    undo() {
-        this.fill.applyState(this.before);
+    _apply(state) {
+        super._apply(state);
         if (!this.app._deferDragOverlays) {
             refresh(this.app);
         }
