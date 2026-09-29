@@ -208,6 +208,12 @@ export default class PCBApp {
     set boardShapes(value) { this.pcbDocument.boardShapes = value; }
     get _shapeIdCounter() { return this.pcbDocument.shapeIdCounter; }
     set _shapeIdCounter(value) { this.pcbDocument.shapeIdCounter = value; }
+    get _boardWidth() { return this.pcbDocument.board.width; }
+    set _boardWidth(value) { this.pcbDocument.board.width = value; }
+    get _boardHeight() { return this.pcbDocument.board.height; }
+    set _boardHeight(value) { this.pcbDocument.board.height = value; }
+    get _boardRadius() { return this.pcbDocument.board.radius; }
+    set _boardRadius(value) { this.pcbDocument.board.radius = value; }
 
     /** CopperFill entries owned by the canonical board-shape collection. */
     get copperFills() {
@@ -298,10 +304,6 @@ export default class PCBApp {
         /** Whether the board outline is currently selected */
         this._boardOutlineSelected = false;
         this._boardOutlineResize = null;
-        /** Board dimensions in mm */
-        this._boardWidth = 100;
-        this._boardHeight = 80;
-        this._boardRadius = 0;
         /** UI element refs (set by controls.js) */
         this.ui = null;
 

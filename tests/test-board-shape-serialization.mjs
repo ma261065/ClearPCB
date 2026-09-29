@@ -214,6 +214,7 @@ const placement = { x: 27.939999999999998, y: -38.10000000000001, rotation: 45.1
 const beforeText = structuredClone(text);
 const beforePlacement = structuredClone(placement);
 const pcbDocument = new PcbDocument();
+Object.assign(pcbDocument.board, { width: 100.123456, height: 80.00000000000001, radius: 1.234567 });
 pcbDocument.texts.set(text.id, text);
 const placementState = pcbDocument.placementState;
 placementState.overrides.set('comp_4', placement);

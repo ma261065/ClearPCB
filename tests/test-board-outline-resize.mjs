@@ -1,10 +1,14 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { PcbDocument } from '../src/core/PcbDocument.js';
 globalThis.window = { addEventListener() {} };
 const inputs = new Map([
     ['pcbPropBoardW', { value: '100' }], ['pcbPropBoardH', { value: '80' }],
 ]);
 globalThis.document = { getElementById: id => inputs.get(id) || null };
+const { default: PCBApp } = await import('../src/ui/PCBApp.js');
+const dimensionPrototype = Object.create(null, Object.fromEntries(['_boardWidth', '_boardHeight', '_boardRadius']
+    .map(key => [key, Object.getOwnPropertyDescriptor(PCBApp.prototype, key)])));
 const { boardOutlineHandles, renderBoardOutlineHandles, beginBoardOutlineResize, updateBoardOutlineResize, endBoardOutlineResize } =
     await import('../src/pcb/modules/board-outline-resize.js');
 const { PCB_LAYERS } = await import('../src/pcb/modules/layers.js');
@@ -68,7 +72,8 @@ const syncInputs = new Function(`return ({ ${source.slice(syncStart, syncEnd)} }
 let redraws = 0;
 let fills = 0;
 const fillDimensions = [];
-const app = {
+const app = Object.assign(Object.create(dimensionPrototype), {
+    pcbDocument: new PcbDocument(),
     _boardOutlineSelected: true, _boardOutlineDrawn: true,
     _boardWidth: 100, _boardHeight: 80, _boardRadius: 3,
     viewport: { scale: 10, snapToGrid: true, gridSize: 1 },
@@ -79,11 +84,13 @@ const app = {
     },
     _syncBoardOutlineInputs: syncInputs,
     history: { execute(command) { commands.push(command); command.execute(); } },
-};
+});
 assert.equal(boardOutlineHandles(app).length, 3);
 assert.ok(beginBoardOutlineResize(app, { x: 100, y: -80 }));
 updateBoardOutlineResize(app, { x: 110.2, y: -85.2 });
 assert.deepEqual([app._boardWidth, app._boardHeight, app._boardRadius], [110, 85, 3]);
+assert.deepEqual(app.pcbDocument.board, { width: 110, height: 85, radius: 3 },
+    'Live resize writes into the project model before committing');
 assert.deepEqual([...inputs.values()].map(input => input.value), ['110.00', '85.00'], 'Spinners update before mouse-up');
 assert.equal(commands.length, 0, 'Updating spinners must not commit the active drag');
 assert.equal(app._suspendBoardViewRefresh, true);
@@ -99,6 +106,7 @@ commands[0].undo();
 assert.equal(fills, 2, 'Undo refreshes pours once');
 assert.deepEqual(fillDimensions.at(-1), [100, 80, 3], 'Undo refresh uses the restored dimensions');
 assert.deepEqual([app._boardWidth, app._boardHeight], [100, 80]);
+assert.deepEqual(app.pcbDocument.serializeBoardDimensions(), { width: 100, height: 80, radius: 3 });
 assert.deepEqual([...inputs.values()].map(input => input.value), ['100.00', '80.00'], 'Undo updates the dimension spinners');
 commands[0].execute();
 assert.equal(fills, 3, 'Redo refreshes pours once');
@@ -122,7 +130,11 @@ assert.ok(beginBoardOutlineResize(app, { x: 110, y: -95 }));
 updateBoardOutlineResize(app, { x: 110.12345, y: -95.98765 });
 assert.deepEqual([...inputs.values()].map(input => input.value), ['110.12', '95.99'], 'Unsnapped dimensions display two decimal places');
 assert.deepEqual([app._boardWidth, app._boardHeight], [110.12345, 95.98765], 'Display formatting preserves geometry precision');
+assert.deepEqual(app.pcbDocument.serializeBoardDimensions(), { width: 110.1235, height: 95.9877, radius: 3 },
+    'Saving rounds dimensions without changing the live resize');
 endBoardOutlineResize(app, false);
+assert.deepEqual(app.pcbDocument.board, { width: 110, height: 95, radius: 3 },
+    'Cancelling the preview restores the authoritative dimensions');
 app.viewport.snapToGrid = true;
 const layer = PCB_LAYERS.find(layer => layer.id === 'board-outline');
 layer.locked = true;

@@ -8,17 +8,19 @@ import { Via, resetViaIdCounter, updateViaIdCounter } from '../shapes/via.js';
 import { Pad, resetPadIdCounter, updatePadIdCounter } from '../shapes/pad.js';
 import { createPcbText, serializePcbText } from './pcb-text.js';
 import { loadBoardShapeData, serializeBoardShapes } from './pcb-board-shapes.js';
-import { validBoardOutline } from '../pcb/modules/board-outline.js';
+import { validBoardOutline, getBoardOutline, boardBoundary } from '../pcb/modules/board-outline.js';
 import { hasRectangleFrame, rectangleFramePoints } from '../shapes/rectangle-frame.js';
 import { updateFillIdCounter } from '../shapes/copper-fill.js';
 
 const round4 = value => Number.isFinite(value) ? Math.round(value * 10000) / 10000 : value;
+const DEFAULT_BOARD_DIMENSIONS = Object.freeze({ width: 100, height: 80, radius: 0 });
 
-/** Authoritative PCB entities; board settings still await migration from the view. */
+/** Authoritative PCB entities and dimensions; panelization still awaits migration from the view. */
 export class PcbDocument {
     constructor() {
         this.placementState = new PcbPlacementState();
         this.designSettings = new PcbDesignSettings();
+        this.board = { ...DEFAULT_BOARD_DIMENSIONS };
         /** @type {Track[]} */
         this.tracks = [];
         /** @type {Via[]} */
@@ -67,6 +69,7 @@ export class PcbDocument {
         this.shapeIdCounter = 1;
         resetViaIdCounter();
         resetPadIdCounter();
+        Object.assign(this.board, DEFAULT_BOARD_DIMENSIONS);
     }
 
     loadEntities(data, prepared = PcbDocument.prepareEntities(data)) {
@@ -86,6 +89,23 @@ export class PcbDocument {
             this.boardShapes.push(shape);
             if (shape.type === 'fill') updateFillIdCounter(shape.id);
         }
+        const board = (prepared.data || data)?.board;
+        const outline = getBoardOutline(this);
+        if (outline || (board && board.width > 0 && board.height > 0)) {
+            this.board.width = board?.width || DEFAULT_BOARD_DIMENSIONS.width;
+            this.board.height = board?.height || DEFAULT_BOARD_DIMENSIONS.height;
+            this.board.radius = board?.radius || 0;
+            if (outline) {
+                const bounds = boardBoundary(this);
+                this.board.width = bounds.w;
+                this.board.height = bounds.h;
+                this.board.radius = outline.cornerRadius || 0;
+            }
+        }
+    }
+
+    serializeBoardDimensions() {
+        return { width: round4(this.board.width), height: round4(this.board.height), radius: round4(this.board.radius) };
     }
 
     serializeEntities() {

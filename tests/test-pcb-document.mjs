@@ -9,6 +9,7 @@ import { Pad } from '../src/shapes/pad.js';
 import { createPcbText, serializePcbText, TEXT_LAYERS } from '../src/core/pcb-text.js';
 import { loadBoardShapeData, serializeBoardShapes } from '../src/core/pcb-board-shapes.js';
 import { CopperFill } from '../src/shapes/copper-fill.js';
+import { boardBoundary, rectangleBoardOutline } from '../src/pcb/modules/board-outline.js';
 
 assert.equal(typeof window, 'undefined');
 assert.equal(typeof document, 'undefined');
@@ -126,6 +127,45 @@ assert.equal(reloaded.shapeIdCounter, 1);
 assert.equal(model.tracks[0], track, 'Separate project models are independent');
 console.log('PASS headless PCB copper/text ownership, alias compatibility, precision, defaults, topology and ID restoration');
 
+const dimensionsModel = new PcbDocument();
+const dimensions = dimensionsModel.board;
+const preciseDimensions = { width: 37.123456, height: 21.234567, radius: 2.345678 };
+const legacyBoard = { stackup: defaultPcbStackup(), board: preciseDimensions };
+for (const data of [legacyBoard, compactProjectAliases({ pcb: legacyBoard }).pcb]) {
+    dimensionsModel.loadEntities(data);
+    assert.equal(dimensionsModel.board, dimensions, 'Loading retains dimension-object identity');
+    assert.deepEqual(dimensions, preciseDimensions, 'Legacy dimensions load without an editor or outline');
+    const savedDimensions = dimensionsModel.serializeBoardDimensions();
+    assert.deepEqual(savedDimensions, { width: 37.1235, height: 21.2346, radius: 2.3457 });
+    savedDimensions.width = 999;
+    assert.deepEqual(dimensions, preciseDimensions, 'Save snapshots neither alias nor round live dimensions');
+    assert.deepEqual(boardBoundary(dimensionsModel), { x: 0, y: -preciseDimensions.height,
+        w: preciseDimensions.width, h: preciseDimensions.height, r: preciseDimensions.radius, points: null },
+        'Geometry queries recognize neutral model dimensions without legacy editor fields');
+}
+for (const [outline, expected] of [
+    [rectangleBoardOutline(12, 7, 1), { width: 12, height: 7, radius: 1 }],
+    [{ id: 'board-outline', kind: 'polygon', layer: 'board-outline',
+        points: [{ x: 0, y: 0 }, { x: 19, y: 0 }, { x: 0, y: -9 }] }, { width: 19, height: 9, radius: 0 }],
+    [{ id: 'board-outline', kind: 'circle', layer: 'board-outline', x: 3, y: 7, radius: 4 },
+        { width: 8, height: 8, radius: 0 }],
+]) {
+    dimensionsModel.loadEntities({ ...legacyBoard, boardShapes: [outline] });
+    assert.deepEqual(dimensions, expected, 'Actual outline bounds override saved dimension metadata');
+    assert.deepEqual(dimensionsModel.serializeBoardDimensions(), expected);
+}
+for (const data of [null, { stackup: defaultPcbStackup() },
+    { stackup: defaultPcbStackup(), board: { width: 0, height: 25, radius: 2 } }]) {
+    dimensionsModel.loadEntities(data);
+    assert.deepEqual(dimensions, { width: 100, height: 80, radius: 0 },
+        'Missing or incomplete legacy dimensions keep the existing New-board defaults');
+}
+Object.assign(dimensions, preciseDimensions);
+dimensionsModel.clearEntities();
+assert.equal(dimensionsModel.board, dimensions);
+assert.deepEqual(dimensions, { width: 100, height: 80, radius: 0 });
+console.log('PASS headless board dimensions, outline precedence, default restoration, geometry queries and save precision');
+
 globalThis.window = { addEventListener() {} };
 globalThis.document = {
     getElementById: () => null, documentElement: { getAttribute: () => 'dark' },
@@ -152,7 +192,11 @@ assert.equal(textView.createPcbText, createPcbText, 'Existing renderer-module im
 assert.equal(textView.serializePcbText, serializePcbText);
 assert.equal(textView.TEXT_LAYERS, TEXT_LAYERS);
 track._svgElements = [];
+Object.assign(model.board, preciseDimensions);
 const app = new PCBApp(project);
+assert.deepEqual(model.board, preciseDimensions, 'Constructing an editor must not reset loaded dimensions');
+assert.deepEqual([app._boardWidth, app._boardHeight, app._boardRadius],
+    [preciseDimensions.width, preciseDimensions.height, preciseDimensions.radius]);
 assert.equal(app.pcbDocument, model);
 assert.equal(app.tracks[0], track, 'Constructing a view must not clear an already-loaded model');
 assert.equal(app.vias[0], via);

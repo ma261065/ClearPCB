@@ -2,7 +2,7 @@ import { renderTrack, renderVia, removeTrackElements, removeViaElements } from '
 import { reconcileRatsnest } from './track-draw.js';
 import { clearTrackSelection, getSelectedTrack } from './track-select.js';
 import { removeBoardShapeElement, renderBoardShape } from './board-shapes.js';
-import { getBoardOutline, syncBoardOutlineDimensions } from './board-outline.js';
+import { getBoardOutline } from './board-outline.js';
 import { renderPad, removePadElements } from './pad.js';
 import { serializeGridSettings, restoreGridSettings } from '../../ui/modules/viewport.js';
 import { panelSettings } from './panelization.js';
@@ -15,17 +15,11 @@ import { applyDesignSettings } from './design-settings.js';
 import { PcbDesignSettings } from '../../core/PcbDesignSettings.js';
 import { PcbDocument } from '../../core/PcbDocument.js';
 
-const round4 = value => Number.isFinite(value) ? Math.round(value * 10000) / 10000 : value;
-
 /** @param {any} app */
 export function serializePcb(app) {
     const pcb = {
         stackup: defaultPcbStackup(),
-        board: {
-            width: round4(app._boardWidth),
-            height: round4(app._boardHeight),
-            radius: round4(app._boardRadius),
-        },
+        board: app.pcbDocument.serializeBoardDimensions(),
         design: app.designSettings.serialize(),
         ...(app.panelization ? { panelization: panelSettings(app.panelization) } : {}),
         settings: serializeGridSettings(app.viewport),
@@ -89,9 +83,6 @@ export function loadPcb(app, data, prepared = preparePcb(data)) {
     app._getLayerGroup('board-outline')
         ?.querySelector('.pcb-board-outline')?.remove();
     app._boardOutlineDrawn = false;
-    app._boardWidth = 100;
-    app._boardHeight = 80;
-    app._boardRadius = 0;
 
     // Restore manual footprint position overrides. These are applied when
     // _placeFootprints rebuilds the placements from the schematic; if
@@ -116,11 +107,6 @@ export function loadPcb(app, data, prepared = preparePcb(data)) {
     // Restore the saved board outline so it survives save/reopen and
     // autosave-recovery (the dimensions are part of the document).
     if (getBoardOutline(prepared) || (data.board && data.board.width > 0 && data.board.height > 0)) {
-        app._boardWidth = data.board?.width || 100;
-        app._boardHeight = data.board?.height || 80;
-        app._boardRadius = data.board?.radius || 0;
-        const outline = prepared.boardShapes.find(shape => shape.layer === 'board-outline');
-        if (outline) syncBoardOutlineDimensions(app);
         if (render) app._drawBoardOutline();
         else app._boardOutlineDrawn = true;
     }

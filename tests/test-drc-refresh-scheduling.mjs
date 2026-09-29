@@ -47,9 +47,11 @@ function fixture(withFill = true) {
     const reports = [];
     const app = Object.assign(Object.create(PCBApp.prototype), {
         pcbDocument: new PcbDocument(),
+        _boardWidth: 40, _boardHeight: 40, _boardRadius: 0,
         placements: new Map(), texts: new Map(), tracks: [], pads: [], netlist: [],
         vias: [{ id: 'ground', x: 8, y: 8, diameter: 1, drill: 0.3, net: 'GND' }],
-        boardShapes: [shape, ...(withFill ? [new CopperFill({ net: 'GND', layer: 'top-copper',
+        boardShapes: [{ id: 'board-outline', kind: 'rect', layer: 'board-outline',
+            points: rectangle(-20, -20, 20, 20) }, shape, ...(withFill ? [new CopperFill({ net: 'GND', layer: 'top-copper',
             outline: rectangle(-10, -10, 10, 10) })] : [])], _shapeElements: new Map(),
         _drcViolations: [], _drcSelectedId: null,
         _getRoutingParams: () => ({ clearance: 0.2 }),

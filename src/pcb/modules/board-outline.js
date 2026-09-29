@@ -17,9 +17,10 @@ export function validBoardOutline(shape) {
 
 export function boardBoundary(app) {
     const shape = getBoardOutline(app);
-    if (!shape) return { x: 0, y: -(app._boardHeight || app.boardHeight || 80),
-        w: app._boardWidth || app.boardWidth || 100, h: app._boardHeight || app.boardHeight || 80,
-        r: app._boardRadius || app.boardRadius || 0, points: null };
+    if (!shape) return { x: 0, y: -(app._boardHeight || app.boardHeight || app.board?.height || 80),
+        w: app._boardWidth || app.boardWidth || app.board?.width || 100,
+        h: app._boardHeight || app.boardHeight || app.board?.height || 80,
+        r: app._boardRadius || app.boardRadius || app.board?.radius || 0, points: null };
     const points = shapeOutline(shape);
     const minX = Math.min(...points.map(point => point.x)), maxX = Math.max(...points.map(point => point.x));
     const minY = Math.min(...points.map(point => point.y)), maxY = Math.max(...points.map(point => point.y));

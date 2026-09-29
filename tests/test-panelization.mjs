@@ -89,6 +89,7 @@ for (const axis of ['horizontal', 'vertical']) {
 }
 
 const pcbDocument = new PcbDocument();
+Object.assign(pcbDocument.board, { width: 20, height: 10, radius: 0 });
 pcbDocument.boardShapes.push(rectangleBoardOutline(20, 10));
 const placementState = pcbDocument.placementState;
 const app = {

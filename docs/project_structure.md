@@ -133,7 +133,7 @@ queries remain in `core/netlist.js`.
 
 `ProjectDocument.pcbDocument` (`core/PcbDocument.js`) owns tracks, standalone
 vias and pads, free-standing text and board shapes (including copper-fill regions),
-together with placement and design state.
+together with board dimensions, placement and design state.
 PCB editor collection accessors alias the model, including array/map replacements
 by commands; constructing an editor does not clear a preloaded model.
 `prepareEntities()` normalizes a PCB section and checks its required stackup,
@@ -144,6 +144,16 @@ restores the board-shape, via/pad and fill ID counters.
 entity serializers, preserving topology, metadata and save-boundary precision.
 `clearEntities()` empties those collections without replacing them. These are
 entity operations, not yet full headless PCB persistence.
+
+Saved board dimensions live in `PcbDocument.board`. The editor's `_boardWidth`,
+`_boardHeight` and `_boardRadius` access that object, including during live resize,
+cancel and undo/redo. Loading restores legacy dimension-only boards, while an
+existing outline's bounds and corner radius override saved dimension metadata.
+Clearing restores the existing 100 x 80 mm, zero-radius defaults without replacing
+the dimension object. `serializeBoardDimensions()` rounds only the saved copy to
+four decimals. `boardBoundary()` also accepts the neutral model directly.
+Outline drawing, viewport fitting and property-panel presentation remain in the
+editor; constructing a view does not reset loaded dimensions.
 
 The editor adapter still removes old SVG and selection before replacing entities,
 renders only when active, and refreshes derived geometry after loading.
@@ -183,8 +193,8 @@ presentation updates, and notify the editor's dirty hook after recording.
 
 The live `placements` map and automatic layout slots remain editor-owned:
 they contain generated footprint geometry, presentation caches and temporary
-gesture state, not a second authoritative saved-placement store. Board dimensions,
-panelization and full PCB load/serialization still depend on
+gesture state, not a second authoritative saved-placement store. Panelization
+and full PCB load/serialization still depend on
 the PCB adapter.
 
 PCB design settings now live in `ProjectDocument.pcbDocument.designSettings`

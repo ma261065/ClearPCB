@@ -15,7 +15,6 @@ const dependencies = {
     resetPcbSelection() {}, syncPcbSelection() {}, clearPcbSelectionAnchors() {},
     resetPanelPreview() {}, renderPanelPreview() {},
     getBoardOutline: app => app.boardShapes.find(shape => shape.layer === 'board-outline'),
-    syncBoardOutlineDimensions() {},
     renderTrack: record('track'), renderVia: record('via'), renderPad: record('pad'),
     renderBoardShape(app, shape, options) {
         assert.equal(options?.skipCopperUpdate, true, 'Batch rendering must defer copper clipping');
@@ -45,6 +44,12 @@ const makeApp = active => {
     boardShapes: pcbDocument.boardShapes, texts: pcbDocument.texts,
     get _shapeIdCounter() { return pcbDocument.shapeIdCounter; },
     set _shapeIdCounter(value) { pcbDocument.shapeIdCounter = value; },
+    get _boardWidth() { return pcbDocument.board.width; },
+    set _boardWidth(value) { pcbDocument.board.width = value; },
+    get _boardHeight() { return pcbDocument.board.height; },
+    set _boardHeight(value) { pcbDocument.board.height = value; },
+    get _boardRadius() { return pcbDocument.board.radius; },
+    set _boardRadius(value) { pcbDocument.board.radius = value; },
     placements: new Map([['U1', {}]]), _shapeElements: new Map(), _textElements: new Map(),
     placementState, _placementOverrides: placementState.overrides, history: { clear() {} },
     _ensureViewport: record('viewport'), _getLayerGroup: () => null,
