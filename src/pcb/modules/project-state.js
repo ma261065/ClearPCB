@@ -1,7 +1,6 @@
 import { renderTrack, renderVia, removeTrackElements, removeViaElements } from './track-render.js';
 import { reconcileRatsnest } from './track-draw.js';
 import { clearTrackSelection, getSelectedTrack } from './track-select.js';
-import { createPcbText, serializePcbText } from './pcb-text.js';
 import { serializeBoardShapes, loadBoardShapes, removeBoardShapeElement, renderBoardShape } from './board-shapes.js';
 import { validBoardOutline, getBoardOutline, syncBoardOutlineDimensions } from './board-outline.js';
 import { renderPad, removePadElements } from './pad.js';
@@ -32,21 +31,16 @@ export function serializePcb(app) {
         design: app.designSettings.serialize(),
         ...(app.panelization ? { panelization: panelSettings(app.panelization) } : {}),
         settings: serializeGridSettings(app.viewport),
-        ...app.pcbDocument.serializeCopper(),
+        ...app.pcbDocument.serializeEntities(),
         boardShapes: serializeBoardShapes(app),
-        texts: [...app.texts.values()].map(text => {
-            const saved = serializePcbText(text);
-            return { ...saved, x: round4(saved.x), y: round4(saved.y), size: round4(saved.size),
-                rotation: round4(saved.rotation), strokeWidth: round4(saved.strokeWidth) };
-        }),
         placements: app.placementState.serialize(),
     };
     return compactProjectAliases({ pcb }).pcb;
 }
 
 export function preparePcb(data) {
-    const copper = PcbDocument.prepareCopper(data);
-    data = copper.data;
+    const entities = PcbDocument.prepareEntities(data);
+    data = entities.data;
     if (data?.design) new PcbDesignSettings().update(data.design);
     const panelization = data?.panelization ? panelSettings(data.panelization) : null;
     for (const shape of data?.boardShapes || []) {
@@ -62,8 +56,7 @@ export function preparePcb(data) {
     if (outlines.length > 1 || outlines.some(shape => !validBoardOutline(shape))) {
         throw new Error('The board outline must be one closed rectangle, polygon, or circle.');
     }
-    return { ...copper,
-        texts: (data?.texts || []).map((item) => createPcbText(item)),
+    return { ...entities,
         boardShapes: stage.boardShapes, shapeIdCounter: stage._shapeIdCounter, panelization };
 }
 
@@ -84,11 +77,12 @@ export function loadPcb(app, data, prepared = preparePcb(data)) {
     resetPcbSelection(app);
     clearPcbSelectionAnchors(app);
     clearTrackSelection(app);
-    // Drop any existing tracks/vias and their SVG.
+    // Remove entity SVG before clearing the model.
     for (const t of app.tracks) removeTrackElements(t);
     for (const v of app.vias) removeViaElements(v);
     for (const pad of app.pads) removePadElements(pad);
-    app.pcbDocument.clearCopper();
+    for (const id of app._textElements.keys()) app._removeTextElement(id);
+    app.pcbDocument.clearEntities();
     for (const id of app._shapeElements.keys()) removeBoardShapeElement(app, id);
     app.boardShapes.length = 0;
     app._shapeIdCounter = 1;
@@ -98,9 +92,6 @@ export function loadPcb(app, data, prepared = preparePcb(data)) {
     app._updateCopperCuts?.();
     // Copper pours live in boardShapes; clear their SVG state.
     app._clearFillGroups?.();
-    // Drop any existing free-standing texts.
-    for (const id of app._textElements.keys()) app._removeTextElement(id);
-    app.texts.clear();
     app.history.clear?.();
 
     // A new/opened document invalidates any current DRC results, so close
@@ -158,7 +149,7 @@ export function loadPcb(app, data, prepared = preparePcb(data)) {
         if (render && app.placements.size) app._applyPlacementOverrides();
     }
 
-    app.pcbDocument.loadCopper(data, prepared);
+    app.pcbDocument.loadEntities(data, prepared);
     for (const track of app.tracks) {
         if (render) renderTrack(track, (id) => app._getLayerGroup(id), {
             viaDiameter: app._getRoutingParams?.()?.viaDiameter,
@@ -179,8 +170,7 @@ export function loadPcb(app, data, prepared = preparePcb(data)) {
         else if (render) renderBoardShape(app, shape, { skipCopperUpdate: true });
     }
     if (render) app._updateCopperCuts?.();
-    for (const text of prepared.texts) {
-        app.texts.set(text.id, text);
+    for (const text of app.texts.values()) {
         if (render) app._renderText(text);
     }
     // Re-evaluate ratlines once the model is in place.

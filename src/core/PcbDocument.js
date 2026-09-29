@@ -6,8 +6,11 @@ import { createShape } from '../shapes/index.js';
 import { Track } from '../shapes/track.js';
 import { Via, resetViaIdCounter, updateViaIdCounter } from '../shapes/via.js';
 import { Pad, resetPadIdCounter, updatePadIdCounter } from '../shapes/pad.js';
+import { createPcbText, serializePcbText } from './pcb-text.js';
 
-/** Authoritative PCB data; board shapes and text still await migration from the view. */
+const round4 = value => Number.isFinite(value) ? Math.round(value * 10000) / 10000 : value;
+
+/** Authoritative PCB data; board shapes still await migration from the view. */
 export class PcbDocument {
     constructor() {
         this.placementState = new PcbPlacementState();
@@ -18,9 +21,11 @@ export class PcbDocument {
         this.vias = [];
         /** @type {Pad[]} */
         this.pads = [];
+        /** @type {Map<string, ReturnType<typeof createPcbText>>} */
+        this.texts = new Map();
     }
 
-    static prepareCopper(data) {
+    static prepareEntities(data) {
         data = normalizePcbSection(data);
         assertSupportedPcb(data);
         const tracks = (data?.tracks || []).map(item => {
@@ -29,19 +34,21 @@ export class PcbDocument {
             return track;
         });
         return { data, tracks, vias: (data?.vias || []).map(item => Via.fromJSON(item)),
-            pads: (data?.pads || []).map(item => new Pad(item)) };
+            pads: (data?.pads || []).map(item => new Pad(item)),
+            texts: (data?.texts || []).map(item => createPcbText(item)) };
     }
 
-    clearCopper() {
+    clearEntities() {
         this.tracks.length = 0;
         this.vias.length = 0;
         this.pads.length = 0;
+        this.texts.clear();
         resetViaIdCounter();
         resetPadIdCounter();
     }
 
-    loadCopper(data, prepared = PcbDocument.prepareCopper(data)) {
-        this.clearCopper();
+    loadEntities(data, prepared = PcbDocument.prepareEntities(data)) {
+        this.clearEntities();
         for (const track of prepared.tracks) this.tracks.push(track);
         for (const via of prepared.vias) {
             updateViaIdCounter(via.id);
@@ -51,10 +58,16 @@ export class PcbDocument {
             updatePadIdCounter(pad.id);
             this.pads.push(pad);
         }
+        for (const text of prepared.texts) this.texts.set(text.id, text);
     }
 
-    serializeCopper() {
+    serializeEntities() {
         return { tracks: this.tracks.map(track => track.toJSON()),
-            vias: this.vias.map(via => via.toJSON()), pads: this.pads.map(pad => pad.toJSON()) };
+            vias: this.vias.map(via => via.toJSON()), pads: this.pads.map(pad => pad.toJSON()),
+            texts: [...this.texts.values()].map(text => {
+                const saved = serializePcbText(text);
+                return { ...saved, x: round4(saved.x), y: round4(saved.y), size: round4(saved.size),
+                    rotation: round4(saved.rotation), strokeWidth: round4(saved.strokeWidth) };
+            }) };
     }
 }

@@ -15,16 +15,14 @@
  *   - strokeWidth  number  line width in mm
  *   - border       boolean draw a padded rectangular outline
  *
- * `id` is optional; PCBApp assigns one on add if missing.
+ * Creation assigns an ID if missing; PcbDocument owns the text collection.
  */
 
 import { stringToPolylines, measureText } from './stroke-font.js';
 import { PCB_LAYERS } from './layers.js';
+export { TEXT_LAYERS, createPcbText, serializePcbText } from '../../core/pcb-text.js';
 
 const NS = 'http://www.w3.org/2000/svg';
-
-/** Layers on which text may be placed. */
-export const TEXT_LAYERS = ['top-silk', 'bottom-silk', 'top-copper', 'bottom-copper', 'top-document', 'bottom-document'];
 
 /** True if the given text layer id is a bottom-side layer. */
 export function isBottomLayer(layer) {
@@ -35,27 +33,6 @@ export function isBottomLayer(layer) {
 export function textColorForLayer(layer) {
     const def = PCB_LAYERS.find(l => l.id === layer);
     return def?.color || '#cccccc';
-}
-
-/**
- * Create a PCB text object. Missing fields are filled with sensible
- * defaults. Returns a plain object — PCBApp owns the storage.
- *
- * @param {Partial<{id:string, content:string, x:number, y:number,
- *   size:number, rotation:number, layer:string, strokeWidth:number, border:boolean}>} opts
- */
-export function createPcbText(opts = {}) {
-    return {
-        id: opts.id || `text-${Math.random().toString(36).slice(2, 10)}`,
-        content: opts.content ?? 'Text',
-        x: opts.x ?? 0,
-        y: opts.y ?? 0,
-        size: opts.size ?? 1.0,
-        rotation: opts.rotation ?? 0,
-        layer: TEXT_LAYERS.includes(opts.layer) ? opts.layer : 'top-silk',
-        strokeWidth: opts.strokeWidth ?? 0.15,
-        border: !!opts.border,
-    };
 }
 
 export function pcbTextEditBox(text, content = text.content) {
@@ -221,24 +198,6 @@ export function pcbTextHitTest(text, x, y) {
     const tolerance = Math.max(text.strokeWidth / 2, text.size * 0.12);
     return lx >= bounds.minX - tolerance && lx <= bounds.maxX + tolerance
         && ly >= bounds.minY - tolerance && ly <= bounds.maxY + tolerance;
-}
-
-/**
- * Serialise to a JSON-safe plain object. Mirrors the constructor shape.
- */
-export function serializePcbText(text) {
-    const saved = {
-        id: text.id,
-        content: text.content,
-        x: text.x,
-        y: text.y,
-        size: text.size,
-        rotation: text.rotation,
-        layer: text.layer,
-        strokeWidth: text.strokeWidth,
-    };
-    if (text.border) saved.border = true;
-    return saved;
 }
 
 /** World-space stroke polylines shared by 2D, 3D, Gerber, and hit consumers. */

@@ -14,7 +14,7 @@ import { PcbDocument } from './PcbDocument.js';
  * which forced the PCB editor to reach sideways into the schematic for
  * every File operation. `ProjectDocument` makes ownership explicit and
  * symmetric: it holds the single {@link FileManager}, document models, and
- * registered *views*. PCB board shapes, text and view settings remain
+ * registered *views*. PCB board shapes and view settings remain
  * editor-owned during the incremental model migration.
  *
  * Views implement a small duck-typed interface:

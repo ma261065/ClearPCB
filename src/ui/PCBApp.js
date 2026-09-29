@@ -70,7 +70,8 @@ import {
     placementTransform,
     isPlacementMirrored,
 } from '../pcb/modules/track-commands.js';
-import { createPcbText, renderPcbText, pcbTextEditBox, pcbTextHitTest, serializePcbText, textColorForLayer, TEXT_LAYERS } from '../pcb/modules/pcb-text.js';
+import { renderPcbText, pcbTextEditBox, pcbTextHitTest, textColorForLayer } from '../pcb/modules/pcb-text.js';
+import { createPcbText, serializePcbText, TEXT_LAYERS } from '../core/pcb-text.js';
 import { showAlert } from './modules/modal.js';
 import { connectBoxOutlines } from '../core/geometry.js';
 import {
@@ -201,6 +202,8 @@ export default class PCBApp {
     set vias(value) { this.pcbDocument.vias = value; }
     get pads() { return this.pcbDocument.pads; }
     set pads(value) { this.pcbDocument.pads = value; }
+    get texts() { return this.pcbDocument.texts; }
+    set texts(value) { this.pcbDocument.texts = value; }
 
     /** CopperFill entries owned by the canonical board-shape collection. */
     get copperFills() {
@@ -315,12 +318,6 @@ export default class PCBApp {
         /** Group-drag state for a box selection, or null */
         this._groupDrag = null;
 
-        /**
-         * Free-standing text annotations placed by the user.
-         * Map<id, text> where text matches createPcbText() shape.
-         * @type {Map<string, object>}
-         */
-        this.texts = new Map();
         /** SVG <g> elements keyed by text id for quick remove/replace. */
         this._textElements = new Map();
         /** Currently selected text object, or null. */

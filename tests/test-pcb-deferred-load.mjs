@@ -42,7 +42,7 @@ const makeApp = active => {
     return {
     pcbDocument, designSettings: pcbDocument.designSettings,
     _active: active, _stale: false, tracks: pcbDocument.tracks, vias: pcbDocument.vias, pads: pcbDocument.pads,
-    boardShapes: [], texts: new Map(),
+    boardShapes: [], texts: pcbDocument.texts,
     placements: new Map([['U1', {}]]), _shapeElements: new Map(), _textElements: new Map(),
     placementState, _placementOverrides: placementState.overrides, history: { clear() {} },
     _ensureViewport: record('viewport'), _getLayerGroup: () => null,
@@ -55,7 +55,17 @@ const makeApp = active => {
 };
 
 const hidden = makeApp(false);
+const textMap = hidden.pcbDocument.texts;
+const oldText = { id: 'old-text' };
+hidden.texts.set(oldText.id, oldText);
+hidden._textElements.set(oldText.id, {});
+hidden._removeTextElement = id => {
+    assert.equal(hidden.pcbDocument.texts.get(id), oldText, 'Old text SVG is removed before the model is cleared');
+    hidden._textElements.delete(id);
+};
 loadPcb(hidden, data, prepared);
+assert.equal(hidden.texts, textMap, 'Loading preserves the project-owned text map');
+assert.equal(textMap.has(oldText.id), false);
 assert.deepEqual(calls, ['viewport', 'grid'], 'hidden load does not render objects or compute derived copper');
 assert.equal(hidden._stale, true);
 assert.equal(hidden._boardOutlineDrawn, true, 'saved dimensions remain available before rendering');
@@ -81,6 +91,8 @@ calls.length = 0;
 hidden._board3d = { refresh: record('3d') };
 hidden.netlist = [{ net: 'GND' }];
 loadPcb(hidden, null, { tracks: [], vias: [], texts: [], boardShapes: [], shapeIdCounter: 1 });
+assert.equal(textMap.size, 0, 'New clears authoritative text even in the hidden editor');
+assert.equal(hidden.texts, textMap);
 assert.deepEqual(calls, ['viewport', '3d']);
 assert.equal(hidden._boardOutlineDrawn, false);
 assert.deepEqual(hidden.boardShapes, []);

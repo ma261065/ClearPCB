@@ -1,6 +1,7 @@
 import { PANEL_DEFAULTS, panelSettings, buildPanelLayout } from './panelization.js';
 import { PCB_LAYERS } from './layers.js';
-import { createPcbText, renderPcbText } from './pcb-text.js';
+import { createPcbText } from '../../core/pcb-text.js';
+import { renderPcbText } from './pcb-text.js';
 import { AddTextCommand } from './text-commands.js';
 import { getBoardOutline } from './board-outline.js';
 import { createPanelArtworkRaster } from './panelization-raster.js';

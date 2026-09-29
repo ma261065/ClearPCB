@@ -6,7 +6,7 @@
  * matches the model.
  */
 
-import { serializePcbText } from './pcb-text.js';
+import { serializePcbText } from '../../core/pcb-text.js';
 import { isPcbSelected } from './selection-registry.js';
 import { schedulePictureCopperRefresh } from './picture-refresh.js';
 

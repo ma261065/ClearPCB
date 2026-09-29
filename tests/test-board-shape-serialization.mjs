@@ -214,9 +214,10 @@ const placement = { x: 27.939999999999998, y: -38.10000000000001, rotation: 45.1
 const beforeText = structuredClone(text);
 const beforePlacement = structuredClone(placement);
 const pcbDocument = new PcbDocument();
+pcbDocument.texts.set(text.id, text);
 const placementState = pcbDocument.placementState;
 placementState.overrides.set('comp_4', placement);
-const app = { pcbDocument, tracks: pcbDocument.tracks, vias: pcbDocument.vias, boardShapes: [], texts: new Map([[text.id, text]]),
+const app = { pcbDocument, tracks: pcbDocument.tracks, vias: pcbDocument.vias, boardShapes: [], texts: pcbDocument.texts,
     placementState, _placementOverrides: placementState.overrides, designSettings: pcbDocument.designSettings,
     _boardWidth: 100.123456, _boardHeight: 80.00000000000001, _boardRadius: 1.234567,
     _getRoutingParams: () => ({ trackWidth: 0.20000000000000004, clearance: 0.123456,

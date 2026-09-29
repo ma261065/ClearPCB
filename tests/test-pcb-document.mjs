@@ -6,6 +6,7 @@ import { defaultPcbStackup } from '../src/core/project-format.js';
 import { Track } from '../src/shapes/track.js';
 import { Via } from '../src/shapes/via.js';
 import { Pad } from '../src/shapes/pad.js';
+import { createPcbText, serializePcbText, TEXT_LAYERS } from '../src/core/pcb-text.js';
 
 assert.equal(typeof window, 'undefined');
 assert.equal(typeof document, 'undefined');
@@ -24,44 +25,69 @@ const pad = new Pad({ id: 'pad_90', x: 5, y: 6, size: 2, drill: 0.8,
 model.tracks.push(track);
 model.vias.push(via);
 model.pads.push(pad);
+const text = createPcbText({ id: 'annotation', content: 'Data', x: 1.234567, y: -2.345678,
+    size: 3.456789, rotation: 23.456789, layer: 'bottom-copper', strokeWidth: 0.234567, border: true });
+model.texts.set(text.id, text);
+const textSnapshot = serializePcbText(text);
+assert.deepEqual(textSnapshot, text, 'Undo/clipboard snapshots retain full text precision');
+textSnapshot.x = 999;
+assert.equal(text.x, 1.234567, 'Snapshots are independent of the model');
+const defaults = createPcbText({ layer: 'unknown', content: '' });
+assert.match(defaults.id, /^text-[a-z0-9]+$/);
+assert.deepEqual({ ...defaults, id: 'default' }, { id: 'default', content: '', x: 0, y: 0,
+    size: 1, rotation: 0, layer: 'top-silk', strokeWidth: 0.15, border: false });
+assert.equal('border' in serializePcbText(defaults), false, 'Default border remains omitted');
+for (const layer of TEXT_LAYERS) assert.equal(createPcbText({ layer }).layer, layer);
 const artwork = {};
 artwork.self = artwork;
 track._svgElements = [artwork];
-const saved = model.serializeCopper();
+const saved = model.serializeEntities();
+assert.deepEqual(saved.texts, [{ id: 'annotation', content: 'Data', x: 1.2346, y: -2.3457,
+    size: 3.4568, rotation: 23.4568, layer: 'bottom-copper', strokeWidth: 0.2346, border: true }]);
+assert.equal(text.x, 1.234567, 'File rounding does not mutate live text');
 assert.doesNotThrow(() => JSON.stringify(saved), 'Rendering state is never serialized');
 assert.equal(track.width, 0.234567, 'Saving leaves live precision untouched');
 assert.equal(track.nodes.get('n0').x, 1.234567);
 const compact = compactProjectAliases({ pcb: { stackup: defaultPcbStackup(), ...saved } }).pcb;
 const reloaded = new PcbDocument();
 const arrays = [reloaded.tracks, reloaded.vias, reloaded.pads];
+const textMap = reloaded.texts;
 for (const input of [compact, normalizePcbSection(compact)]) {
-    const prepared = PcbDocument.prepareCopper(input);
-    reloaded.loadCopper(input, prepared);
+    const prepared = PcbDocument.prepareEntities(input);
+    reloaded.loadEntities(input, prepared);
     assert.equal(reloaded.tracks[0], prepared.tracks[0], 'Loading adopts prepared entities without cloning');
     assert.equal(reloaded.vias[0], prepared.vias[0]);
     assert.equal(reloaded.pads[0], prepared.pads[0]);
-    assert.deepEqual(reloaded.serializeCopper(), saved, 'Both field formats preserve geometry and metadata');
+    assert.equal(reloaded.texts.get(text.id), prepared.texts[0]);
+    assert.equal(reloaded.texts, textMap);
+    assert.deepEqual(reloaded.serializeEntities(), saved, 'Both field formats preserve geometry and metadata');
     assert.equal(reloaded.tracks, arrays[0]);
     assert.equal(reloaded.vias, arrays[1]);
     assert.equal(reloaded.pads, arrays[2]);
 }
 assert.equal(new Via({ x: 0, y: 0, diameter: 0.6, drill: 0.3 }).id, 'via_81');
 assert.equal(new Pad().id, 'pad_91', 'Loading restores ID reservations after clearing');
-const before = reloaded.serializeCopper();
-assert.throws(() => reloaded.loadCopper({ stackup: defaultPcbStackup(), tracks: [{ type: 'circle' }] }), /Invalid PCB track/);
-assert.deepEqual(reloaded.serializeCopper(), before, 'Invalid input is rejected before replacing live copper');
-assert.throws(() => reloaded.loadCopper({ stackup: {
+const before = reloaded.serializeEntities();
+assert.throws(() => reloaded.loadEntities({ stackup: defaultPcbStackup(), tracks: [{ type: 'circle' }] }), /Invalid PCB track/);
+assert.deepEqual(reloaded.serializeEntities(), before, 'Invalid input is rejected before replacing live entities');
+assert.throws(() => reloaded.loadEntities({ stackup: defaultPcbStackup(), texts: [null] }), TypeError);
+assert.deepEqual(reloaded.serializeEntities(), before, 'Invalid text preparation cannot clear live entities');
+assert.throws(() => reloaded.loadEntities({ stackup: {
     copperLayers: ['top-copper', 'inner-copper-1', 'inner-copper-2', 'bottom-copper'],
 } }), /two-layer/);
-assert.deepEqual(reloaded.serializeCopper(), before);
+assert.deepEqual(reloaded.serializeEntities(), before);
 saved.vias[0].x = 999;
 assert.equal(via.x, 5, 'Serialized snapshots do not alias live objects');
 assert.equal(reloaded.vias[0].x, 5, 'Loaded data does not alias its input');
-reloaded.clearCopper();
-assert.deepEqual(reloaded.serializeCopper(), { tracks: [], vias: [], pads: [] });
+saved.texts[0].x = 999;
+assert.equal(text.x, 1.234567);
+assert.equal(reloaded.texts.get(text.id).x, 1.2346, 'Loaded text does not alias its input');
+reloaded.clearEntities();
+assert.deepEqual(reloaded.serializeEntities(), { tracks: [], vias: [], pads: [], texts: [] });
 assert.equal(reloaded.tracks, arrays[0], 'Clearing retains collection identity');
+assert.equal(reloaded.texts, textMap);
 assert.equal(model.tracks[0], track, 'Separate project models are independent');
-console.log('PASS headless PCB copper ownership, alias compatibility, precision, topology and ID restoration');
+console.log('PASS headless PCB copper/text ownership, alias compatibility, precision, defaults, topology and ID restoration');
 
 globalThis.window = { addEventListener() {} };
 globalThis.document = { getElementById: () => null };
@@ -71,12 +97,20 @@ const { AddTrackCommand, AddViaCommand, RemoveTrackCommand, RemoveViaCommand } =
     await import('../src/pcb/modules/track-commands.js');
 const { AddPadCommand, RemovePadCommand, MovePadCommand } = await import('../src/pcb/modules/pad-commands.js');
 const { cancelPictureCopperRefresh } = await import('../src/pcb/modules/picture-refresh.js');
+const { AddTextCommand, RemoveTextCommand, MoveTextCommand, EditTextCommand } =
+    await import('../src/pcb/modules/text-commands.js');
+const textView = await import('../src/pcb/modules/pcb-text.js');
+assert.equal(textView.createPcbText, createPcbText, 'Existing renderer-module imports reuse the neutral data helper');
+assert.equal(textView.serializePcbText, serializePcbText);
+assert.equal(textView.TEXT_LAYERS, TEXT_LAYERS);
 track._svgElements = [];
 const app = new PCBApp(project);
 assert.equal(app.pcbDocument, model);
 assert.equal(app.tracks[0], track, 'Constructing a view must not clear an already-loaded model');
 assert.equal(app.vias[0], via);
 assert.equal(app.pads[0], pad);
+assert.equal(app.texts.get(text.id), text, 'Constructing the editor preserves preloaded text');
+assert.equal(app.texts, model.texts);
 assert.equal(app.placementState, model.placementState);
 assert.equal(app.designSettings, model.designSettings);
 assert.notEqual(new PCBApp().pcbDocument, model, 'Standalone views retain independent models');
@@ -105,11 +139,11 @@ try {
         assert.equal(app[key], model[key], 'Array replacement must not detach the view from the model');
     }
     history.execute(new MovePadCommand(app, pad, { x: 5, y: 6 }, { x: 12, y: 18 }));
-    assert.equal(model.serializeCopper().pads[0].x, 12);
+    assert.equal(model.serializeEntities().pads[0].x, 12);
     history.undo();
-    assert.equal(model.serializeCopper().pads[0].x, 5);
+    assert.equal(model.serializeEntities().pads[0].x, 5);
     history.redo();
-    assert.equal(model.serializeCopper().pads[0].x, 12);
+    assert.equal(model.serializeEntities().pads[0].x, 12);
     model.tracks = [];
     assert.equal(app.tracks.length, 0, 'Model-side array replacement is visible to the editor');
     history.execute(new AddTrackCommand(app, track, [via]));
@@ -121,7 +155,47 @@ try {
     history.redo();
     assert.equal(model.tracks[0], track);
     assert.equal(model.vias[0], via);
+    const added = createPcbText({ ...text, id: 'edited-text' });
+    history.execute(new AddTextCommand(app, added));
+    assert.equal(model.texts.get(added.id), added);
+    history.undo();
+    assert.equal(model.texts.has(added.id), false);
+    history.redo();
+    assert.equal(model.texts.get(added.id), added, 'Adding text keeps entity identity through undo/redo');
+    history.execute(new MoveTextCommand(app, added.id, added.x, added.y, Math.PI, -Math.PI));
+    assert.equal(model.texts.get(added.id).x, Math.PI);
+    history.undo();
+    assert.equal(added.x, text.x);
+    history.redo();
+    assert.equal(added.x, Math.PI, 'Move undo/redo does not round coordinates');
+    const beforeEdit = serializePcbText(added);
+    history.execute(new EditTextCommand(app, added.id, {
+        content: '', size: Math.PI, strokeWidth: 0.123456, rotation: 90.123456, layer: 'top-silk', border: false,
+    }));
+    const afterEdit = serializePcbText(added);
+    assert.equal(afterEdit.rotation, 90.123456);
+    assert.equal(afterEdit.size, Math.PI);
+    assert.equal(afterEdit.border, undefined);
+    history.undo();
+    assert.deepEqual(serializePcbText(added), beforeEdit);
+    history.redo();
+    assert.deepEqual(serializePcbText(added), afterEdit);
+    history.execute(new RemoveTextCommand(app, added.id));
+    assert.equal(model.texts.has(added.id), false);
+    history.undo();
+    assert.deepEqual(serializePcbText(model.texts.get(added.id)), afterEdit,
+        'Delete undo restores the full-precision snapshot with its original ID');
+    history.redo();
+    assert.equal(model.texts.has(added.id), false);
+    history.undo();
+    history.undo();
+    assert.deepEqual(serializePcbText(model.texts.get(added.id)), beforeEdit,
+        'Earlier edits still undo correctly after delete/restore replaces the text object');
+    app.texts = new Map([[text.id, text]]);
+    assert.equal(model.texts, app.texts, 'Editor-side map replacement updates the model');
+    model.texts = new Map();
+    assert.equal(app.texts.size, 0, 'Model-side map replacement is visible to the editor');
 } finally {
     cancelPictureCopperRefresh(app);
 }
-console.log('PASS real PCB construction and copper command execute/undo/redo update the project model');
+console.log('PASS real PCB construction and copper/text command execute/undo/redo update the project model');

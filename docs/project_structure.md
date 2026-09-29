@@ -132,21 +132,31 @@ connectivity and serialize without either editor or a DOM. Pure connectivity
 queries remain in `core/netlist.js`.
 
 `ProjectDocument.pcbDocument` (`core/PcbDocument.js`) owns tracks, standalone
-vias and pads, together with the previously migrated placement and design state.
-PCB editor collection accessors alias the model, including array replacements
+vias and pads, and free-standing text, together with placement and design state.
+PCB editor collection accessors alias the model, including array/map replacements
 by commands; constructing an editor does not clear a preloaded model.
-`prepareCopper()` normalizes a PCB section and checks its required stackup,
-then constructs copper entities without a DOM. `loadCopper()` adopts prepared
+`prepareEntities()` normalizes a PCB section and checks its required stackup,
+then constructs copper and text entities without a DOM. `loadEntities()` adopts prepared
 entities, preserves collection identity and restores via/pad ID counters.
-`serializeCopper()` returns the three copper collections using the existing
+`serializeEntities()` returns the copper collections and text using the existing
 entity serializers, preserving topology, metadata and save-boundary precision.
-These are copper-section operations, not yet full headless PCB persistence.
+`clearEntities()` empties those collections without replacing them. These are
+entity operations, not yet full headless PCB persistence.
 
-The editor adapter still removes old SVG and selection before replacing copper,
+The editor adapter still removes old SVG and selection before replacing entities,
 renders only when active, and refreshes derived geometry after loading.
 Drawing and Net-edit contexts explicitly retain the inherited collections when
 spreading the editor into a temporary object; otherwise copper could silently
 disappear from connectivity checks.
+
+Free-standing text creation, defaults/layer rules and full-precision snapshots
+live in `core/pcb-text.js`. Undo and clipboard use these snapshots without file
+rounding; `PcbDocument.serializeEntities()` rounds text position, size, rotation
+and stroke width to four decimals only at the save boundary. The rendering
+module re-exports the data helpers for existing imports but retains only glyph
+geometry, hit-testing, SVG and layer-color responsibilities. Add/move/edit/delete
+commands retain their existing history and presentation behavior, including
+restoring deleted text from an unrounded snapshot with its original ID.
 
 Saved PCB placement/reference settings live in
 `ProjectDocument.pcbDocument.placementState` (`core/PcbPlacementState.js`). The PCB editor's
@@ -160,7 +170,8 @@ presentation updates, and notify the editor's dirty hook after recording.
 The live `placements` map and automatic layout slots remain editor-owned:
 they contain generated footprint geometry, presentation caches and temporary
 gesture state, not a second authoritative saved-placement store. Board shapes,
-free-standing text and full PCB load/serialization still depend on the PCB adapter.
+board dimensions, panelization and full PCB load/serialization still depend on
+the PCB adapter.
 
 PCB design settings now live in `ProjectDocument.pcbDocument.designSettings`
 (`core/PcbDesignSettings.js`). Track width, clearance, via diameter and drill
@@ -181,8 +192,8 @@ display-unit strings under the existing storage key.
 
 This is an intermediate migration: existing entities still contain rendering
 methods/state, general schematic commands still mix data and presentation, and
-PCB board shapes and free-standing text are still editor-owned. SVG preparation/attachment, derived Net text,
-label layout and current viewport settings remain editor responsibilities.
+PCB board shapes are still editor-owned. SVG preparation/attachment, derived Net
+text, label layout and current viewport settings remain editor responsibilities.
 Headless serialization preserves loaded settings; editor serialization supplies
 current viewport settings. Schematic editing callbacks explicitly notify the
 project; the model itself does not introduce an automatic change-observer system.
